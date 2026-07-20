@@ -204,7 +204,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.4.12"
+  version: "0.4.22"
   visibility: listed
   card:
     title: "WordPress"
@@ -870,7 +870,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.0"
+  version: "1.0.3"
   visibility: listed
   card:
     title: "Loki"
@@ -1724,7 +1724,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.3"
+  version: "0.2.29"
   visibility: listed
   card:
     title: "Apache Guacamole"
@@ -2320,7 +2320,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.4.137"
+  version: "1.4.140"
   visibility: listed
   card:
     title: "NewAPI"
@@ -2645,7 +2645,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.4"
+  version: "1.2.5"
   visibility: unlisted
   card:
     title: "SeaweedFS"
@@ -3559,7 +3559,13 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.4.539"
+  # #4432: this catalog-seed template renders INSIDE the bp-catalyst-platform
+  # umbrella chart, whose version auto-increments on EVERY deploy commit
+  # (products/catalyst/chart/Chart.yaml). A hard-pinned display version can
+  # therefore never stay in lockstep — it re-drifts the moment the next deploy
+  # bumps the umbrella. Rendering .Chart.Version makes the card ALWAYS report
+  # the exact shipping umbrella version, self-maintaining by construction.
+  version: {{ .Chart.Version | quote }}
   visibility: unlisted
   card:
     title: "Catalyst Platform"
@@ -3577,7 +3583,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-catalyst-platform
-    version: "1.4.539"
+    version: {{ .Chart.Version | quote }}
   topology:
     supported:
       - active-hot-standby
@@ -3793,7 +3799,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.4.13"
+  version: "1.4.16"
   visibility: unlisted
   card:
     title: "Cilium"
@@ -4480,7 +4486,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.14"
+  version: "0.1.16"
   visibility: unlisted
   card:
     title: "k8s-ws-proxy"
@@ -4594,7 +4600,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.46"
+  version: "1.0.48"
   visibility: unlisted
   card:
     title: "Kyverno Policy Library"
@@ -4757,7 +4763,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.20"
+  version: "1.2.21"
   visibility: unlisted
   card:
     title: "PowerDNS"
@@ -5350,7 +5356,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.4"
+  version: "0.1.12"
   visibility: unlisted
   card:
     title: "Continuum"
@@ -5522,7 +5528,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.6"
+  version: "0.2.29"
   visibility: unlisted
   card:
     title: "Management vCluster"
@@ -5568,7 +5574,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.5"
+  version: "0.2.9"
   visibility: unlisted
   card:
     title: "DMZ vCluster"
@@ -5614,7 +5620,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.6"
+  version: "0.2.14"
   visibility: unlisted
   card:
     title: "RTZ vCluster"
