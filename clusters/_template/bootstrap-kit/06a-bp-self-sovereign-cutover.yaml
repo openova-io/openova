@@ -964,7 +964,7 @@ spec:
       # missing one and FATALing with the full missing list otherwise (knob
       # helmReadinessProbe.pinPresenceGate). Contract Case 68 runs the
       # extractor against this very slot corpus at PR time.
-      version: 0.1.148
+      version: 0.1.149
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

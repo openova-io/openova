@@ -117,9 +117,8 @@ data:
           # ERROR, never on a stuck-but-alive connection. With no command
           # timeout the copy never returns, the worker never drains, the parent
           # `wait` blocks forever, and the whole Job sits "active" until the
-          # step's activeDeadlineSeconds (9600s post-#5298) kills it — then
-          # catalyst-api auto-re-runs the DeadlineExceeded step (cutover.go) and
-          # the next full-deadline hang
+          # 5400s activeDeadlineSeconds kills it — then catalyst-api auto-re-runs
+          # the DeadlineExceeded step (cutover.go) and the next 90-min hang
           # begins. Back-to-back deadline cycles = the "step-03 active for hours,
           # never completing" symptom seen live on hw171 (dep 3963e9267c10a90d)
           # right after #3927 unstuck step-02. `--command-timeout` bounds each
@@ -244,6 +243,34 @@ data:
             value: {{ .Values.prewarm.proxyCopyAttempts | default 6 | quote }}
           - name: PREWARM_PROXY_BACKOFF_BASE_SECONDS
             value: {{ .Values.prewarm.proxyBackoffBaseSeconds | default 30 | quote }}
+          # #5095 round 2 (Refs #5093 #5298) — proxy-DOWN direct-first routing.
+          # The 0.1.136 direct-source fallback fires only AFTER the proxy-source
+          # `skopeo copy` returns non-zero, and that proxy copy is bounded ONLY by
+          # the #3944 --command-timeout (PREWARM_SKOPEO_TIMEOUT, 1200s). When the
+          # mothership Harbor proxy is unreachable for the WHOLE step (a sustained
+          # transit hole toward the mothership /24, not a brief flap — hw281 dep
+          # observed the proxy dead for the full prewarm), EVERY proxy-sourced
+          # image independently burns that timeout on the dead proxy BEFORE the
+          # fast direct upstream is even tried — the per-image "proxy timeout tax"
+          # that dragged the direct-fallback wave to ~100 min for 140 images and
+          # tripped the step deadline (raised separately in #5298/#5299). This
+          # env drives a ONE-TIME cheap HTTP reachability probe of the mothership
+          # proxy at the top of the copy wave; on an unreachable proxy the step
+          # latches proxy-DOWN and copy_one tries the DIRECT upstream FIRST for
+          # proxy-sourced refs (proxy kept as the secondary), so the wave runs at
+          # full parallel speed with no per-image timeout tax. The latch also
+          # trips adaptively the moment any in-flight proxy leg fails, catching a
+          # proxy that dies mid-wave (after the probe passed). Source selection
+          # only — the DEST path (host-swap, path preserved) is untouched, so
+          # step-04/07/08 resolve the identical LOCAL artifact and the
+          # sovereignty guarantee (every image in local Harbor before deny-egress)
+          # is intact. Default true; set false to keep strict proxy-first.
+          - name: PROXY_DIRECT_FIRST_ENABLED
+            value: {{ .Values.prewarm.proxyDownDirectFirst.enabled | quote }}
+          - name: PROXY_PROBE_TIMEOUT_SECONDS
+            value: {{ .Values.prewarm.proxyDownDirectFirst.probeTimeoutSeconds | default 8 | quote }}
+          - name: PROXY_PROBE_ATTEMPTS
+            value: {{ .Values.prewarm.proxyDownDirectFirst.probeAttempts | default 3 | quote }}
           # #5204 (Refs #5209 #3379) — Phase A4 Crossplane xpkg package warm.
           # The upstream/mothership/registry-path literals come from the SAME
           # .Values.crossplaneProviderPivot block step-11 reads, so the warm
@@ -777,6 +804,10 @@ data:
             # short transit flap toward the mothership can't exhaust it).
             : "${PREWARM_PROXY_COPY_ATTEMPTS:=6}"
             : "${PREWARM_PROXY_BACKOFF_BASE_SECONDS:=30}"
+            # #5095 round 2 — proxy-DOWN direct-first routing defaults.
+            : "${PROXY_DIRECT_FIRST_ENABLED:=true}"
+            : "${PROXY_PROBE_TIMEOUT_SECONDS:=8}"
+            : "${PROXY_PROBE_ATTEMPTS:=3}"
             cpdir="/tmp/prewarm-copies"
             rm -rf "${cpdir}"; mkdir -p "${cpdir}"
             echo "[harbor-prewarm] pushing ${count} image(s) with parallelism=${PREWARM_PARALLELISM}"
@@ -1040,6 +1071,32 @@ data:
                   max_attempts="${PREWARM_COPY_ATTEMPTS}"
                 fi
                 while [ "${attempt}" -le "${max_attempts}" ]; do
+                  # #5095 round 2 — proxy-DOWN DIRECT-FIRST short-circuit. When the
+                  # ref is mothership-proxy-sourced, HAS a mechanically-derived
+                  # direct upstream, AND the proxy is latched DOWN for this step
+                  # (the upfront probe found it unreachable, or a proxy leg earlier
+                  # this wave failed while its direct sibling succeeded), try the
+                  # DIRECT upstream FIRST and skip the dead proxy entirely on
+                  # success — so no image burns the 1200s --command-timeout probing
+                  # the dead proxy before the fast direct path is even tried (round
+                  # 1 shipped the fallback but always AFTER the timed-out proxy
+                  # leg — the per-image "proxy timeout tax" that dragged the wave to
+                  # ~100 min for 140 images). Re-checked every attempt so a latch
+                  # flipped by another worker reorders THIS image's remaining
+                  # attempts too. The DEST ref is identical (host-swap, path
+                  # preserved), so step-04/07/08 resolve the same LOCAL artifact.
+                  # On a direct-first MISS we fall straight through to the round-1
+                  # proxy-first path below (the proxy might have just recovered).
+                  if [ -n "${fb_up}" ] && [ "${PROXY_DIRECT_FIRST_ENABLED:-true}" = "true" ] && [ -f "${cpdir}/.proxy_down" ]; then
+                    echo "[harbor-prewarm] proxy latched DOWN; direct-first ${fb_up} -> ${lref} attempt ${attempt}/${max_attempts} (#5095 round 2)" >>"${cpdir}/${slug}.log"
+                    if prewarm_skopeo_copy "${fb_up}" "${fb_creds}" "${lref}" "${cpdir}/${slug}.log"; then
+                      rc=0
+                      src_used="${fb_up}"
+                      break
+                    else
+                      rc=$?
+                    fi
+                  fi
                   echo "[harbor-prewarm] copy ${up} -> ${lref} attempt ${attempt}/${max_attempts}" >>"${cpdir}/${slug}.log"
                   if prewarm_skopeo_copy "${up}" "${sc}" "${lref}" "${cpdir}/${slug}.log"; then
                     rc=0
@@ -1062,6 +1119,16 @@ data:
                     if prewarm_skopeo_copy "${fb_up}" "${fb_creds}" "${lref}" "${cpdir}/${slug}.log"; then
                       rc=0
                       src_used="${fb_up}"
+                      # #5095 round 2 — the proxy leg failed but its direct sibling
+                      # SUCCEEDED: a precise "proxy bad, direct good" signal (the
+                      # hw255 signature). Latch the proxy DOWN so the rest of the
+                      # wave skips proxy-first via the short-circuit above and pays
+                      # no further timeout tax. Fires ONLY when the proxy was tried
+                      # (proxy_src=1), never on a broad outage where direct also
+                      # fails. Idempotent touch, safe under the parallel fan-out.
+                      if [ "${proxy_src}" -eq 1 ] && [ "${PROXY_DIRECT_FIRST_ENABLED:-true}" = "true" ]; then
+                        touch "${cpdir}/.proxy_down" 2>/dev/null || true
+                      fi
                       break
                     else
                       rc=$?
@@ -1075,8 +1142,8 @@ data:
                       # base*2^(n-2) before attempt n → 30,60,120,240,480s =
                       # 930s (≥15 min) of spacing across the default 6-attempt
                       # budget, so a short transit flap toward the mothership
-                      # cannot exhaust it. Comfortably inside the 9600s step
-                      # deadline (#5298); a flap-failure is fast (reset/refused), not a
+                      # cannot exhaust it. Comfortably inside the 5400s step
+                      # deadline; a flap-failure is fast (reset/refused), not a
                       # stall, so the #3944 --command-timeout stays the stall
                       # bound.
                       _bo="${PREWARM_PROXY_BACKOFF_BASE_SECONDS}"
@@ -1107,6 +1174,39 @@ data:
                 printf '%s exit=%s' "${up}" "${last_rc}" >"${cpdir}/${slug}.fail"
                 echo "[harbor-prewarm] done ${up} (FAIL exit=${last_rc})"
               fi
+            }
+
+            # #5095 round 2 — ONE-TIME mothership-proxy reachability probe.
+            # A cheap anonymous `GET https://${MOTHERSHIP_HOST}/v2/` (Harbor's
+            # registry API returns 401 for anonymous, 200/403 for public proxy
+            # projects — ANY of those proves the path is alive). A transit hole
+            # toward the mothership /24 yields curl exit!=0 / HTTP 000. On an
+            # unreachable proxy the step latches `${cpdir}/.proxy_down`, which
+            # flips copy_one to DIRECT-FIRST for proxy-sourced refs so no image
+            # burns the 1200s --command-timeout on the dead proxy before the
+            # fast direct upstream is tried (#5095 round 1 shipped that fallback
+            # but always AFTER the timed-out proxy leg). The probe is bounded
+            # (PROXY_PROBE_ATTEMPTS × PROXY_PROBE_TIMEOUT_SECONDS, default
+            # 3 × 8s = 24s worst case — negligible against a multi-image wave)
+            # and NEVER fatal: a down proxy must not fail the step, the direct
+            # path covers it. Re-probes each Job run (cpdir is wiped above).
+            probe_mothership_proxy() {
+              [ "${PROXY_DIRECT_FIRST_ENABLED:-true}" = "true" ] || { echo "[harbor-prewarm] proxy-DOWN direct-first routing DISABLED (PROXY_DIRECT_FIRST_ENABLED=${PROXY_DIRECT_FIRST_ENABLED:-}); strict proxy-first ordering (#5095)"; return 0; }
+              [ -n "${MOTHERSHIP_HOST:-}" ] || return 0
+              _mp_code=""
+              _mp_i=1
+              while [ "${_mp_i}" -le "${PROXY_PROBE_ATTEMPTS}" ]; do
+                _mp_code=$(curl -sk -o /dev/null -w '%{http_code}' -m "${PROXY_PROBE_TIMEOUT_SECONDS}" "https://${MOTHERSHIP_HOST}/v2/" 2>/dev/null || true)
+                case "${_mp_code}" in
+                  200|401|403)
+                    rm -f "${cpdir}/.proxy_down" 2>/dev/null || true
+                    echo "[harbor-prewarm] mothership proxy ${MOTHERSHIP_HOST} reachable (HTTP ${_mp_code}, probe ${_mp_i}/${PROXY_PROBE_ATTEMPTS}) — proxy-first ordering (#5095)"
+                    return 0 ;;
+                esac
+                _mp_i=$((_mp_i+1))
+              done
+              touch "${cpdir}/.proxy_down"
+              echo "[harbor-prewarm] mothership proxy ${MOTHERSHIP_HOST} UNREACHABLE after ${PROXY_PROBE_ATTEMPTS} probes (last HTTP ${_mp_code:-none}) — DIRECT-FIRST for proxy-sourced images this step; no per-image proxy timeout tax (#5095). Images still land in LOCAL Harbor via the direct upstream; sovereignty guarantee intact."
             }
 
             # #4975 PRE-PASS — resolve every enumerated image through the shared
@@ -1141,6 +1241,13 @@ data:
             fi
             count=$(printf '%s\n' ${mirror_work} | grep -c . || true)
             echo "[harbor-prewarm] ${count} mapped image(s) to mirror after resolver filter (parallelism=${PREWARM_PARALLELISM})"
+
+            # #5095 round 2 — probe the mothership proxy ONCE before the fan-out,
+            # but only when this wave actually has mothership-proxy-sourced refs
+            # (all-ghcr provs never dial the proxy, so skip the probe entirely).
+            if [ -n "${MOTHERSHIP_HOST:-}" ] && printf '%s\n' ${mirror_work} | grep -q "^${MOTHERSHIP_HOST}/"; then
+              probe_mothership_proxy
+            fi
 
             # #4994 — real-time progress heartbeat. A bounded, self-stopping
             # background loop prints "N/M settled" every 30s while the fan-out
