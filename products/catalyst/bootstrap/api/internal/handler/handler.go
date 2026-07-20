@@ -863,6 +863,33 @@ func (h *Handler) SetK8sCache(f *k8scache.Factory, sar *k8scache.SARCache, userH
 	h.k8sCache = f
 	h.sarCache = sar
 	h.k8sUserHeader = userHeader
+
+	// #5285 — make the terminal-failed quarantine DURABLE across a
+	// catalyst-api restart. The QuarantineDeployment call on terminal
+	// conclusion is in-memory only; a Pod restart re-scans every lingering
+	// kubeconfig on the PVC (a failed env's kubeconfig is kept for the
+	// eventual wipe) and would re-establish the 404-flood the running Pod
+	// had stopped. Re-derive the quarantine from the persisted
+	// Status=="failed" records that restoreFromStore() loaded in New()
+	// (which runs before main.go calls SetK8sCache), so a restarted Pod
+	// does not resurrect the reflector flood. Only fully-"failed" records
+	// quarantine — a "partial-failure" primary's CRDs exist (no flood) and
+	// its reflectors power the console view.
+	if f != nil {
+		h.deployments.Range(func(_, val any) bool {
+			dep, ok := val.(*Deployment)
+			if !ok || dep == nil {
+				return true
+			}
+			dep.mu.Lock()
+			id, failed := dep.ID, dep.Status == "failed"
+			dep.mu.Unlock()
+			if failed {
+				f.QuarantineDeployment(id)
+			}
+			return true
+		})
+	}
 }
 
 // K8sCache exposes the wired Factory so /healthz can read its synced

@@ -621,8 +621,17 @@ func (h *Handler) runWipePurge(dep *Deployment, id string, body wipeRequest, pre
 	// stop the goroutines BEFORE Hetzner cleanup makes the IP a
 	// sinkhole. Idempotent + nil-tolerant — production wires k8sCache
 	// via main.go; tests building Handler{} directly leave it nil.
+	//
+	// #5285 — use RemoveDeployment (not RemoveCluster) so BOTH the bare
+	// `<id>` primary AND every `<id>-<region>` secondary reflector set is
+	// torn down. The bare-id RemoveCluster missed the secondary-region
+	// clusters, which then kept 404/x509-flooding against their destroyed
+	// apiservers. Then clear any terminal-failed quarantine for this id
+	// (the kubeconfig files are removed later in this wipe, so nothing will
+	// resurrect it) to keep the quarantine set bounded.
 	if h.k8sCache != nil {
-		h.k8sCache.RemoveCluster(id)
+		h.k8sCache.RemoveDeployment(id)
+		h.k8sCache.UnquarantineDeployment(id)
 		emit("wipe", "info", "k8scache informer set removed for "+id)
 	}
 
