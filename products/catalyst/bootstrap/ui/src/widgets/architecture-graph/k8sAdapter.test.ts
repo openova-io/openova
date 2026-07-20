@@ -338,6 +338,81 @@ describe('k8sToGraph', () => {
     )
   })
 
+  it('renders Volume nodes from live volume.hcloud managed resources (#3987)', () => {
+    const s = snap([
+      'volume.hcloud:9001',
+      {
+        apiVersion: 'hcloud.crossplane.io/v1alpha1',
+        kind: 'Volume',
+        metadata: {
+          name: 'pvc-data-0',
+          annotations: { 'crossplane.io/external-name': '9001' },
+        },
+        spec: { forProvider: { name: 'data-vol', size: 10, location: 'fsn1' } },
+        status: { conditions: [{ type: 'Ready', status: 'True' }] },
+      },
+    ])
+    const { nodes } = k8sToGraph(s)
+    expect(nodes).toContainEqual(
+      expect.objectContaining({
+        id: 'Volume:9001',
+        type: 'Volume',
+        label: 'data-vol',
+        status: 'healthy',
+        metadata: expect.objectContaining({ capacity: '10 GB', region: 'fsn1', hcloudID: '9001' }),
+      }),
+    )
+  })
+
+  it('resolves the PVC→Volume `realizes` edge once the volume.hcloud node exists (#3987)', () => {
+    const s = snap(
+      ['namespace:foo', { metadata: { name: 'foo' } }],
+      [
+        'persistentvolumeclaim:foo/data-0',
+        {
+          apiVersion: 'v1',
+          kind: 'PersistentVolumeClaim',
+          metadata: { namespace: 'foo', name: 'data-0' },
+          spec: { volumeName: 'pv-1', resources: { requests: { storage: '10Gi' } } },
+          status: { phase: 'Bound' },
+        },
+      ],
+      [
+        'persistentvolume:pv-1',
+        {
+          apiVersion: 'v1',
+          kind: 'PersistentVolume',
+          metadata: { name: 'pv-1' },
+          spec: { csi: { volumeHandle: '9001' } },
+        },
+      ],
+      [
+        'volume.hcloud:9001',
+        {
+          apiVersion: 'hcloud.crossplane.io/v1alpha1',
+          kind: 'Volume',
+          metadata: { name: 'pvc-data-0', annotations: { 'crossplane.io/external-name': '9001' } },
+          spec: { forProvider: { size: 10, location: 'fsn1' } },
+          status: { conditions: [{ type: 'Ready', status: 'True' }] },
+        },
+      ],
+    )
+    // mergeGraphs's final endpoint filter DROPS any edge whose target node
+    // is absent. Before the Volume node existed the `realizes` edge always
+    // dangled; asserting it survives the merge proves the bridge is whole.
+    const merged = mergeGraphs({ nodes: [], edges: [] }, k8sToGraph(s))
+    expect(merged.nodes).toContainEqual(
+      expect.objectContaining({ id: 'Volume:9001', type: 'Volume' }),
+    )
+    expect(merged.edges).toContainEqual(
+      expect.objectContaining({
+        source: 'PVC:foo/data-0',
+        target: 'Volume:9001',
+        type: 'realizes',
+      }),
+    )
+  })
+
   /* ── #3987 (UAT row 200) — Gateway-API + NetworkPolicy projection.
    * The snapshot carried gateway:/httproute:/networkpolicy: keys but
    * the adapter had no section for them, so the Networking lens chips

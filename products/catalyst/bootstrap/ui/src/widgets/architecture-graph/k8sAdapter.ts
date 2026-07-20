@@ -610,6 +610,40 @@ export function k8sToGraph(snapshot: K8sSnapshot): AdaptResult {
     }
   }
 
+  // 7b. Volume — Crossplane `volume.hcloud` managed resource (#3987).
+  //     The SSE snapshot carries `volume.hcloud:` keys (they are in both
+  //     GRAPH_K8S_KINDS and the CloudPage CLOUD_PAGE_K8S_KINDS union; the
+  //     kind is registered in api/internal/k8scache/kinds.go), and
+  //     section 7 already emits a PVC → `Volume:${hcloudID}` `realizes`
+  //     edge — but NO adapter ever created the Volume node. So the whole
+  //     PVC→Volume.hcloud bridge that kinds.go / GRAPH_K8S_KINDS / the
+  //     cloud-side adapter all scaffold rendered nothing: the Volume chip
+  //     read empty on an hcloud Sovereign even with live volumes, and
+  //     every `realizes` edge dangled (its target node absent → dropped
+  //     by mergeGraphs's endpoint filter). Adapt the managed resource
+  //     into a Volume node keyed by its hcloud id (the Crossplane
+  //     external-name, which equals the CSI volumeHandle the edge keys
+  //     on) so the chip populates from the live source AND the existing
+  //     PVC→Volume edges resolve. A cluster with no volume.hcloud objects
+  //     (e.g. a non-hcloud provider) still renders empty — no fabrication.
+  for (const [, vol] of iterByKind(snapshot, 'volume.hcloud')) {
+    const hcloudID = crossplaneExternalID(vol)
+    if (!hcloudID) continue
+    const forProvider = (vol.spec?.['forProvider'] as Record<string, unknown> | undefined) ?? {}
+    const size = forProvider['size']
+    const capacity = size != null && `${size}` !== '' ? `${size} GB` : ''
+    const region = (forProvider['location'] as string | undefined) ?? ''
+    const label = (forProvider['name'] as string | undefined) || vol.metadata?.name || hcloudID
+    addNode({
+      id: compositeId('Volume', '', hcloudID),
+      type: 'Volume',
+      label,
+      sublabel: capacity || region,
+      status: nodeStatus(vol),
+      metadata: { capacity, region, hcloudID },
+    })
+  }
+
   // 8. ConfigMaps — opt-in chip; rendered only when the operator
   //    enables the type. Edge: ConfigMap → Namespace.
   for (const [, cm] of iterByKind(snapshot, 'configmap')) {
@@ -644,6 +678,23 @@ function nodeStatus(o: K8sObject): ArchStatus {
     }
   }
   return 'unknown'
+}
+
+/**
+ * crossplaneExternalID resolves a Crossplane managed resource's stable
+ * cloud-side id — the `crossplane.io/external-name` annotation, which
+ * provider-hcloud sets to the numeric hcloud id (the SAME value the
+ * hcloud-csi PV carries as its volumeHandle, so a Volume node keyed on
+ * it matches the PVC→Volume `realizes` edge target). Falls back to
+ * status.atProvider.id, then metadata.name. Empty string when none
+ * resolve (the node is skipped rather than keyed on a blank id).
+ */
+function crossplaneExternalID(o: K8sObject): string {
+  const ext = o.metadata?.annotations?.['crossplane.io/external-name']
+  if (ext) return ext
+  const atProvider = o.status?.['atProvider'] as { id?: unknown } | undefined
+  if (atProvider?.id != null && `${atProvider.id}` !== '') return `${atProvider.id}`
+  return o.metadata?.name ?? ''
 }
 
 /**
