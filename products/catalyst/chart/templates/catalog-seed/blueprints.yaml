@@ -5044,7 +5044,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.147"
+  version: "0.1.148"
   visibility: unlisted
   card:
     title: "Self-Sovereignty Cutover"
@@ -5061,7 +5061,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-self-sovereign-cutover
-    version: "0.1.147"
+    version: "0.1.148"
   topology:
     supported:
       - singleton

@@ -1,5 +1,26 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.148 (#5298, Refs #5095 #3379 — step-03 harbor-prewarm DIRECT-fallback
+# deadline. hw281 (2026-07-20) stamped step-03 failed while it was STILL
+# settling (log "Phase A progress: 100/140 settled (still copying)"): the
+# 90m (5400s) stepTimeouts.harborPrewarmSeconds ceiling was sized (#3379) for
+# the FAST bastion-proxy fan-out path and predates the #5095 DIRECT-source
+# fallback. When the mothership proxy path is unreachable each image is pushed
+# straight from its canonical upstream (~0.75 min/image DIRECT); a full
+# 140-image census ≈ 105 min + the #5095 exponential-backoff spacing (~15 min
+# inside a transit flap) + one catalyst-api re-poll blows past 90m. Because the
+# SAME per-step value stamps BOTH the K8s Job activeDeadlineSeconds (03-harbor-
+# prewarm-job.yaml embedded PodSpec) AND catalyst-api's watch-context deadline
+# (cutover.go cutoverStepDeadline → createCutoverJob / watchJobToCompletion),
+# both expired at 90m: failedStep=harbor-prewarm, lastError="watch Job … context
+# deadline exceeded". Raised stepTimeouts.harborPrewarmSeconds 5400 → 9600 (160m)
+# so the worst-case DIRECT-fallback push finishes inside budget. No step count /
+# RBAC / other-step deadline change. The step stays event-driven (a fast proxy-
+# path run returns in minutes, never waiting out the larger ceiling) and
+# resumable (prewarm.skipIfAlreadyPresent #4994 skips already-mirrored tags on a
+# re-fire via a manifest-digest HEAD, so a re-run resumes rather than restarting
+# from 0). Same remediation shape as egressBlockTestSeconds (900→1200→3600→7200,
+# #4723/#5065) and the earlier harborPrewarmSeconds 1800→5400 (#3379).
 # 0.1.147 (#5237 round 2, Refs #5007 #5265 — PIN-AWARE PREWARM + step-06 FULL
 # pin-presence gate: the durable close of the catalog-latest-vs-flux-pinned
 # drift class (hw274, dep d51a69f885872a81). The 0.1.145 union-warm (below) is
@@ -2533,7 +2554,7 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.147
+version: 0.1.148
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
