@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-20T22:45:05Z` |
+| Last refreshed | `2026-07-20T23:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 20 |
+| Open issues | 19 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 20 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 19 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 20 open items (clickable table)
+### All 19 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -218,7 +218,6 @@ flowchart LR
 | [#5274](https://github.com/openova-io/openova/issues/5274) | Cloud graph under-enumerates region-b: renders Cluster 1/1 though 2 live cluster | Other |
 | [#5285](https://github.com/openova-io/openova/issues/5285) | Failed deployment's watch-informers flood catalyst-api → starve /wipe + /deplo | Other |
 | [#5298](https://github.com/openova-io/openova/issues/5298) | cutover step-03 harbor-prewarm: #5095 DIRECT-fallback push exceeds the 90-min st | Other |
-| [#5302](https://github.com/openova-io/openova/issues/5302) | Harbor S3 blob-redirect never disabled — camelCase 'disableRedirect' silently  | Other |
 | [#5305](https://github.com/openova-io/openova/issues/5305) | funnel purchased-app deploy: CAS retry-widening (#5235) still loses to the org-c | Other |
 
 ---
@@ -227,6 +226,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-20T22:56 | [#5309](https://github.com/openova-io/openova/pull/5309) | #5205 | fix(marketplace): render live provisioning-stage timeline in |
+| 2026-07-20T22:56 | [#5308](https://github.com/openova-io/openova/pull/5308) | #5305 | fix(organization-controller): stop the reconcile hot-loop th |
 | 2026-07-20T22:39 | [#5307](https://github.com/openova-io/openova/pull/5307) | #4432 | fix(catalog-seed): sync 14 stale catalog card versions + gua |
 | 2026-07-20T16:43 | [#5303](https://github.com/openova-io/openova/pull/5303) | #4573 | fix(bp-harbor): disable S3 blob-redirect via the correct low |
 | 2026-07-20T15:24 | [#5299](https://github.com/openova-io/openova/pull/5299) | #3379 | fix(cutover): raise step-03 harbor-prewarm deadline for the  |
@@ -255,8 +256,6 @@ flowchart LR
 | 2026-07-19T16:37 | [#5258](https://github.com/openova-io/openova/pull/5258) | #3971 | fix(#3971): forbid local-path StorageClass at land — CI gate |
 | 2026-07-19T16:37 | [#5257](https://github.com/openova-io/openova/pull/5257) | #5254 | test(catalyst-api): raise wipe_async_creds_rewipe waitForWip |
 | 2026-07-19T12:51 | [#5254](https://github.com/openova-io/openova/pull/5254) | #5253 | fix(catalyst-api): decouple the Phase-1 producer chain from  |
-| 2026-07-19T11:52 | [#5252](https://github.com/openova-io/openova/pull/5252) | #5140 | fix(catalyst-api): sandbox client re-resolves the backend af |
-| 2026-07-19T11:52 | [#5251](https://github.com/openova-io/openova/pull/5251) | #5140 | fix(catalyst-api): stamp Retry-After on sandbox 503 degrades |
 
 ---
 
