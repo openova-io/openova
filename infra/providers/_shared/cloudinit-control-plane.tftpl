@@ -855,6 +855,21 @@ write_files:
             # can never render an empty or ephemeral class.
             SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
             SECONDARY_HR_SUSPEND: "${sovereign_region_role == "primary" ? "false" : "true"}"
+            # #5289 — the symmetric INVERSE of SECONDARY_HR_SUSPEND for the
+            # region-b control-plane edge (bootstrap-kit slot 13b,
+            # bp-catalyst-secondary-edge). The umbrella bp-catalyst-platform
+            # is suspended on secondary CPs (G2 #2574), so those CPs serve NO
+            # api./console./marketplace. HTTPRoute and 404 ~half the requests
+            # that the #5246 both-region console ELB steers at their envoy.
+            # Slot 13b un-suspends there (suspend=false) to render the
+            # ClusterMesh global-Service stubs + HTTPRoutes that proxy those
+            # hosts back to region-a's singletons; on the PRIMARY CP the edge
+            # HR stays suspended (the umbrella already serves the routes
+            # locally). Renders "true" on the primary CP, "false" on every
+            # secondary CP — exactly opposite SECONDARY_HR_SUSPEND. On a
+            # single-region prov the only CP is "primary" → suspended → the
+            # slot-13b HR is inert and the render is unchanged from today.
+            SECONDARY_EDGE_SUSPEND: "${sovereign_region_role == "primary" ? "true" : "false"}"
             # #4765 — the ONE shared LB-IPAM CIDR for the sovereign-vip pool.
             # bp-cilium 1.4.9 renders a SINGLE CiliumLoadBalancerIPPool
             # `sovereign-vip` from cilium.lbIpam; the clustermesh-apiserver

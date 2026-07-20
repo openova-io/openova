@@ -1,0 +1,107 @@
+# bp-catalyst-secondary-edge — Catalyst Blueprint slot 13e (#5289).
+#
+# The region-b (secondary-CP) control-plane EDGE for a 2-region Sovereign.
+#
+# On a 2-region Sovereign the umbrella bp-catalyst-platform (slot 13) is
+# suspended on every secondary CP (G2 #2574 — catalyst-api is a single-writer
+# singleton on a zone-scoped RWO EVS PVC; a second writer would multi-attach +
+# split-brain, #5267). So the secondary CP serves NO api./console./
+# marketplace. HTTPRoute. But the #5246 both-region console ELB deliberately
+# targets BOTH regions' cilium-envoy pods, so ~half of those requests land on
+# region-b's envoy → TLS terminates → no route → 404 (the steady-state
+# 200↔404 flap #5289 root-caused).
+#
+# This slot un-suspends ONLY on the secondary CP (SECONDARY_EDGE_SUSPEND — the
+# symmetric inverse of SECONDARY_HR_SUSPEND) and installs bp-catalyst-edge-
+# routes, which renders — into catalyst-system + org-services — ONLY Cilium
+# ClusterMesh global-Service stubs + the api/console/marketplace HTTPRoutes
+# that proxy to region-a's singleton pods over the mesh. NO Deployment, NO
+# PVC. On the primary CP + on single-region provs the HR stays suspended
+# (inert), so those render paths are unchanged.
+#
+# Wrapper chart: platform/catalyst-edge-routes/chart/
+# Same both-regions-need-it rationale as slot 12a-bp-sovereign-tls-vars.
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-catalyst-edge-routes
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-catalyst-secondary-edge
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+  labels:
+    catalyst.openova.io/slot: "13e"
+    catalyst.openova.io/component: catalyst-secondary-edge
+    # region-role=secondary: this HR is the INVERSE of the slot-13 umbrella —
+    # active on secondary CPs, suspended on the primary (the umbrella serves
+    # the routes there locally).
+    catalyst.openova.io/region-role: secondary
+spec:
+  # #5289 — un-suspend ONLY on the secondary CP. SECONDARY_EDGE_SUSPEND renders
+  # "false" on secondary CPs (sovereign_region_role != "primary") and "true" on
+  # the primary CP + on any single-region prov (the only CP is "primary"),
+  # keeping this HR inert everywhere except region-b of a 2-region Sovereign.
+  suspend: ${SECONDARY_EDGE_SUSPEND:=true}
+  interval: 15m
+  releaseName: catalyst-secondary-edge
+  targetNamespace: catalyst-system
+  install:
+    # catalyst-system pre-exists (slot 13 raw Namespace, applied on all CPs);
+    # createNamespace is a harmless idempotent safety net.
+    createNamespace: true
+  dependsOn:
+    # gateway.networking.k8s.io CRDs (HTTPRoute + ReferenceGrant) must be
+    # registered before this chart's routes admit. Do NOT depend on
+    # bp-catalyst-platform — it is SUSPENDED on the secondary CP (never Ready),
+    # so a dep on it would deadlock this HR forever.
+    - name: bp-gateway-api
+      namespace: flux-system
+  chart:
+    spec:
+      chart: bp-catalyst-edge-routes
+      # 0.1.0 (#5289): initial region-b edge. Lockstep with
+      # platform/catalyst-edge-routes/chart/Chart.yaml.
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-catalyst-edge-routes
+        namespace: flux-system
+  values:
+    ingress:
+      gateway:
+        enabled: true
+        parentRef:
+          # The dedicated console Gateway (#4053) that fronts api./console./
+          # marketplace. — the SAME parentRef slot 13 hands the umbrella. On a
+          # single-EIP validation prov it resolves to the shared cilium-gateway.
+          name: ${SOVEREIGN_CONSOLE_GATEWAY:-cilium-gateway-console}
+          namespace: kube-system
+      hosts:
+        console:
+          host: console.${SOVEREIGN_FQDN}
+        api:
+          host: api.${SOVEREIGN_FQDN}
+        marketplace:
+          host: marketplace.${SOVEREIGN_FQDN}
+      # Mirror slot 13's marketplace gate so region-b proxies marketplace.<fqdn>
+      # (→ org-services gateway/admin/marketplace over the mesh) exactly when
+      # region-a serves it.
+      marketplace:
+        enabled: ${MARKETPLACE_ENABLED:-true}
+    services:
+      catalog:
+        # Mirrors bp-catalyst-platform's services.catalog.enabled (chart
+        # default true) so the catalyst-catalog stub + api.<fqdn>/api/v1/catalog
+        # route render on region-b whenever region-a serves the catalog.
+        enabled: true

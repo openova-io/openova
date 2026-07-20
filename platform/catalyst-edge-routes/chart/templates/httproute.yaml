@@ -1,0 +1,141 @@
+{{- /*
+Region-b control-plane HTTPRoutes (#5289).
+
+Byte-for-byte mirrors of the region-a routes in
+products/catalyst/chart/templates/httproute.yaml (catalyst-ui console-host +
+catalyst-api api-host) and templates/services/catalog/httproute.yaml
+(catalyst-catalog api-host /api/v1/catalog) — SAME hostnames, SAME path
+rules, SAME parentRef (the cilium-gateway-console listener region-b already
+advertises). The only difference is that backendRefs resolve to the local
+ClusterMesh global-Service stubs (services.yaml), which carry zero local
+backends on region-b and therefore proxy to region-a's singleton pods.
+
+Without these routes, region-b's cilium-gateway-console envoy — which the
+#5246 both-region console ELB targets — terminates the api./console. TLS and
+then has no matching route → 404 (~half of all requests, the #5289 flap).
+
+Gating identical to services.yaml: console Gateway enabled + both hostnames
+present. Default render is empty (smoke-render-mode:default-off).
+*/ -}}
+{{- if and .Values.ingress .Values.ingress.gateway .Values.ingress.gateway.enabled -}}
+{{- $consoleHost := (((.Values.ingress.hosts).console).host) }}
+{{- $apiHost := (((.Values.ingress.hosts).api).host) }}
+{{- if and $consoleHost $apiHost }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: catalyst-ui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+    catalyst.openova.io/component: catalyst-ui
+spec:
+  parentRefs:
+    - name: {{ .Values.ingress.gateway.parentRef.name | default "cilium-gateway" | quote }}
+      namespace: {{ .Values.ingress.gateway.parentRef.namespace | default "kube-system" | quote }}
+      {{- with .Values.ingress.gateway.parentRef.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ $consoleHost | quote }}
+  rules:
+    # /readyz + /healthz on the console hostname → catalyst-api (mirror of the
+    # region-a rule; without it the SPA catch-all shadows the probes).
+    - matches:
+        - path:
+            type: Exact
+            value: "/readyz"
+        - path:
+            type: Exact
+            value: "/healthz"
+      backendRefs:
+        - name: catalyst-api
+          port: 8080
+    # /auth/handover Exact → catalyst-api (Issue #879 Bug 5: MUST be Exact so
+    # /auth/callback and other client-side OIDC routes fall through to the SPA).
+    - matches:
+        - path:
+            type: Exact
+            value: "/auth/handover"
+      backendRefs:
+        - name: catalyst-api
+          port: 8080
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/api/"
+      backendRefs:
+        - name: catalyst-api
+          port: 8080
+    # G117.2 #2741 — /catalyst/v1/* on the console hostname → catalyst-api.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/catalyst/"
+      backendRefs:
+        - name: catalyst-api
+          port: 8080
+    # Default — catalyst-ui (the React shell).
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/"
+      backendRefs:
+        - name: catalyst-ui
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: catalyst-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+    catalyst.openova.io/component: catalyst-api
+spec:
+  parentRefs:
+    - name: {{ .Values.ingress.gateway.parentRef.name | default "cilium-gateway" | quote }}
+      namespace: {{ .Values.ingress.gateway.parentRef.namespace | default "kube-system" | quote }}
+      {{- with .Values.ingress.gateway.parentRef.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ $apiHost | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/"
+      backendRefs:
+        - name: catalyst-api
+          port: 8080
+{{- if .Values.services.catalog.enabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: catalyst-catalog
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+    catalyst.openova.io/component: catalyst-catalog
+spec:
+  parentRefs:
+    - name: {{ .Values.ingress.gateway.parentRef.name | default "cilium-gateway" | quote }}
+      namespace: {{ .Values.ingress.gateway.parentRef.namespace | default "kube-system" | quote }}
+      {{- with .Values.ingress.gateway.parentRef.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ $apiHost | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/api/v1/catalog"
+      backendRefs:
+        - name: catalyst-catalog
+          port: 8080
+{{- end }}
+{{- end }}
+{{- end }}

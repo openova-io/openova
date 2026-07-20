@@ -1,0 +1,63 @@
+apiVersion: v2
+name: bp-catalyst-edge-routes
+# 0.1.0 (#5289, 2026-07-20): region-b (secondary-CP) control-plane EDGE.
+#   On a 2-region Sovereign the Catalyst control plane is a single-writer
+#   singleton pinned to region-a (G2 #2574 suspends bp-catalyst-platform on
+#   every secondary CP; the api PVC is a zone-scoped RWO EVS volume — a
+#   second catalyst-api would multi-attach + split-brain, #5267). But the
+#   #5246 both-region console ELB targets BOTH regions' cilium-envoy pods,
+#   so ~half of api./console./marketplace. requests land on region-b's
+#   envoy, which — with the umbrella HR suspended — serves NO control-plane
+#   HTTPRoute and returns 404 (the steady-state 200↔404 flap, #5289).
+#
+#   This chart is the SECONDARY (region-b) half of the fix. Installed ONLY
+#   on secondary CPs (bootstrap-kit slot 13b, un-suspended via the
+#   SECONDARY_EDGE_SUSPEND cloud-init var), it renders — into catalyst-system
+#   and org-services — ONLY Services + HTTPRoutes (NO Deployments, NO
+#   StatefulSets, NO PVCs, NO Jobs):
+#     - global-Service stubs (service.cilium.io/global + /shared) named
+#       identically to region-a's control-plane Services (catalyst-api,
+#       catalyst-ui, catalyst-catalog, org-services/{gateway,admin,
+#       marketplace}). They carry ZERO local backends on region-b, so Cilium
+#       ClusterMesh merges them with region-a's same-named global Services and
+#       every dial crosses the mesh to region-a's singleton pods. This is the
+#       exact idiom bp-cnpg-pair / bp-openbao use for cross-region delivery.
+#     - the api./console./marketplace. HTTPRoutes, byte-for-byte mirrors of
+#       products/catalyst/chart/templates/{httproute,services/catalog/
+#       httproute,org-services/marketplace-routes}.yaml, parented onto the
+#       same cilium-gateway-console listener, backendRef'd at the stubs above.
+#
+#   Result: region-b's envoy now SERVES those hosts (proxying to region-a)
+#   instead of 404-ing → the flap ends, both regions up. The region-a
+#   half (the global annotations on the real Services) ships in
+#   bp-catalyst-platform 1.4.1190 gated on multiRegion.enabled. VALIDATES on
+#   the next fresh 2-region prov (hw281). Refs #5289.
+version: 0.1.0
+description: |
+  Region-b (secondary control-plane) edge for a 2-region Catalyst Sovereign.
+  Renders ClusterMesh global-Service stubs + api/console/marketplace
+  HTTPRoutes that proxy to region-a's single control-plane pods, so the
+  #5246 both-region console ELB stops 404-ing on region-b's envoy (#5289).
+  Services + HTTPRoutes only — never a Deployment, StatefulSet, PVC, or Job.
+type: application
+keywords: [catalyst, blueprint, multi-region, clustermesh, gateway-api, edge]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Annotations:
+#
+# - catalyst.openova.io/no-upstream: "true"
+#   Hollow-chart guard opt-out (Blueprint-Release workflow / issue #181):
+#   this chart legitimately ships only Catalyst-authored Services +
+#   gateway.networking.k8s.io HTTPRoutes/ReferenceGrant. It bundles NO
+#   upstream Helm subchart. Same shape as bp-network-policies / bp-continuum.
+#
+# - catalyst.openova.io/smoke-render-mode: default-off
+#   A default `helm template` (no hostnames, gateway/marketplace disabled)
+#   renders nothing — every resource is gated on the per-Sovereign hostnames
+#   + gateway parentRef supplied by bootstrap-kit slot 13b. The chart is a
+#   pure edge overlay; an empty default render is by design (GUARD 2).
+annotations:
+  catalyst.openova.io/no-upstream: "true"
+  catalyst.openova.io/smoke-render-mode: default-off

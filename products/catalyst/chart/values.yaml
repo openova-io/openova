@@ -64,6 +64,36 @@ global:
   # unchanged (NO-REGRESS).
   cloudProvider: ""
 
+# ─── Multi-region control-plane edge (issue #5289) ─────────────────────
+# On a 2-region Sovereign the control plane (catalyst-api / catalyst-ui /
+# catalyst-catalog + the Organization marketplace stack) is a single-writer
+# singleton pinned to region-a: G2 (#2574) suspends bp-catalyst-platform on
+# every secondary CP, and the api PVC is a zone-scoped RWO EVS volume (#5267)
+# — a second catalyst-api would multi-attach and split-brain. But the #5246
+# both-region console ELB deliberately targets BOTH regions' cilium-envoy
+# pods for region-kill failover, so ~half of api./console./marketplace.
+# requests land on region-b's envoy — which, with the umbrella HR suspended,
+# serves NO control-plane HTTPRoute and returns 404. That is the steady-state
+# 200↔404 flap #5289 root-caused.
+#
+# The fix makes region-b SERVE those hosts by proxying to region-a's single
+# pods over Cilium ClusterMesh global Services (the exact idiom bp-cnpg-pair /
+# bp-openbao use for cross-region delivery — a same name+namespace Service
+# carrying the two annotations below on BOTH sides makes the mesh merge them;
+# region-b has zero local backends so every dial crosses to region-a). No
+# second catalyst-api Deployment, no PVC — region-b renders only Services +
+# routes via the dedicated bp-catalyst-edge-routes chart (bootstrap-kit slot
+# 13b).
+#
+# This block is the PRIMARY (region-a) half: when `multiRegion.enabled=true`
+# the control-plane backend Services in this umbrella chart carry the global
+# ClusterMesh annotations so region-b's stubs can consume them. Default OFF —
+# single-region and pre-#5289 provs render byte-identically to today. The
+# bootstrap-kit slot 13 sets this from ${SOVEREIGN_ENABLE_HOT_STANDBY} (true
+# only on a 2-region / active-hot-standby Sovereign).
+multiRegion:
+  enabled: false
+
 # ─── Sovereign-side defaults (issue #901) ──────────────────────────────
 # Knobs that exclusively affect the franchised-Sovereign install path
 # and have no equivalent on Catalyst-Zero (contabo-mkt). Per-Sovereign

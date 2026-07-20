@@ -1,5 +1,26 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.1190 — #5289 (2-region api./console./marketplace. steady-state 200↔404
+#   flap): the PRIMARY (region-a) half of the ClusterMesh global-Service
+#   proxy fix. When the new `multiRegion.enabled` value is true, the
+#   control-plane backend Services — catalyst-api (api-service.yaml),
+#   catalyst-ui (ui-service.yaml), catalyst-catalog (services/catalog/
+#   service.yaml), and the Organization marketplace-host backends
+#   org-services/{gateway,admin,marketplace} — carry the Cilium ClusterMesh
+#   annotations `service.cilium.io/global: "true"` + `.../shared: "true"`, so
+#   region-b's new bp-catalyst-edge-routes stub Services (same name+namespace,
+#   zero local backends) resolve to THESE single region-a pods over the mesh.
+#   This lets region-b SERVE the api/console/catalog/marketplace HTTPRoutes
+#   (whose envoy is in the #5246 both-region console-ELB pool) instead of
+#   404-ing, WITHOUT running a second catalyst-api/console Deployment or
+#   binding the RWO-EVS api PVC (that would multi-attach + split-brain, #5267).
+#   `multiRegion.enabled` defaults false → single-region + primary-region
+#   render byte-identical to 1.4.1189 (proven via `helm template` diff). The
+#   region-b edge layer ships as the standalone bp-catalyst-edge-routes chart
+#   at bootstrap-kit slot 13b; slot 13 sets multiRegion.enabled from
+#   ${SOVEREIGN_ENABLE_HOT_STANDBY}. VALIDATES on the next fresh 2-region
+#   prov (hw281), not on live hw280 (region-b HR cannot be un-suspended live
+#   safely). Refs #5289.
 # 1.4.1180 — #5267 (Refs #5267 #5246 #4275, hw277 G12 region-kill: console
 #   404 during region-a outage): NO template change — adds the
 #   tests/api-single-writer-dr-contract.sh CI gate that makes the
@@ -3529,7 +3550,7 @@ name: bp-catalyst-platform
 #   while warm SSO works (hw278: harbor/openbao/guacamole/pdns-admin/hubble). Same
 #   self-heal idiom already used for handover-jwt-public + provisioning-github-token.
 #   Bootstrap-kit slot-13 pin bumped in lockstep (pin-sync gate).
-version: 1.4.1189
+version: 1.4.1190
 # 1.4.1092 — #4988: bump catalog-seed bp-postgres spec.version display-label 0.2.10→0.2.12
 #   to lockstep with delivery source.version + platform/postgres/blueprint.yaml (#4987 DR).
 # 1.4.1063 — #4841: grant the useraccess-controller ClusterRole `bind` on the 8

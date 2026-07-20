@@ -1264,7 +1264,12 @@ spec:
       #   cutover-rolled) before that Secret was reflected rolls when it
       #   lands and wires the /oidc/* provider routes — killing the cold
       #   catalyst-pin broker 404 (hw278 SSO). Lockstep w/ Chart.yaml.
-      version: 1.4.1189
+      # 1.4.1190 — #5289: multiRegion.enabled gates the ClusterMesh global
+      #   annotations on the control-plane backend Services so region-b's
+      #   bp-catalyst-edge-routes (slot 13b) can proxy api./console./
+      #   marketplace. to region-a's singletons. Set below from
+      #   ${SOVEREIGN_ENABLE_HOT_STANDBY}. Lockstep w/ Chart.yaml.
+      version: 1.4.1190
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
@@ -1440,6 +1445,19 @@ spec:
       cluster:
         enabled: ${SOVEREIGN_ORG_PG_OWN_CLUSTER:=true}
         instances: ${SOVEREIGN_CNPG_INSTANCES:=1}
+    # ─── Multi-region control-plane edge (#5289) ─────────────────────────
+    # On a 2-region Sovereign, publish the control-plane backend Services
+    # (catalyst-api / catalyst-ui / catalyst-catalog + org-services gateway/
+    # admin/marketplace) as Cilium ClusterMesh global Services so region-b's
+    # bp-catalyst-secondary-edge (slot 13b) proxies api./console./marketplace.
+    # to these region-a singletons — killing the steady-state 200↔404 flap
+    # where region-b's #5246-console-ELB envoy had no control-plane HTTPRoute.
+    # Sourced from ${SOVEREIGN_ENABLE_HOT_STANDBY} (the same cloud-init var
+    # that flips the active-hot-standby CNPG pair): "true" on a 2-region
+    # Sovereign, "false" on single-region → the chart's Service annotations
+    # render byte-identically to today on every single-region prov.
+    multiRegion:
+      enabled: ${SOVEREIGN_ENABLE_HOT_STANDBY:-false}
     global:
       sovereignFQDN: ${SOVEREIGN_FQDN}
       # sovereignLBIP — Sovereign's load-balancer public IPv4. Issue #900:

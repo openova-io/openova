@@ -86,6 +86,18 @@ resources:
   # (tombstone below). MUST be registered here or Flux never creates the
   # HR (the #3191 forgotten-slot wedge class).
   - 13d-bp-openova-mcp.yaml
+  # bp-catalyst-secondary-edge (slot 13e, #5289) — the region-b control-plane
+  # EDGE. On a 2-region Sovereign the umbrella bp-catalyst-platform (slot 13)
+  # is suspended on the secondary CP (G2 #2574), so region-b serves NO
+  # api./console./marketplace. HTTPRoute and 404s ~half the requests the
+  # #5246 both-region console ELB steers at its envoy (the #5289 flap). This
+  # slot's HR is un-suspended ONLY on the secondary CP (SECONDARY_EDGE_SUSPEND,
+  # the inverse of SECONDARY_HR_SUSPEND) and renders ClusterMesh global-Service
+  # stubs + those HTTPRoutes, proxying to region-a's singletons. Same
+  # both-regions-need-it rationale as 12a-bp-sovereign-tls-vars. MUST be
+  # registered here or Flux never creates the HR (the #3191 forgotten-slot
+  # wedge class); on single-region / primary CPs the HR is suspended (inert).
+  - 13e-bp-catalyst-secondary-edge-routes.yaml
   - 14-crossplane-claims.yaml
   - 15-external-secrets.yaml
   - 15a-external-secrets-stores.yaml
