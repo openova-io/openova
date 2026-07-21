@@ -282,6 +282,26 @@ type Handler struct {
 	// production leaves it at zero.
 	clusterMeshSteadyStateInterval time.Duration
 
+	// consumerHubSyncVerify* (#5317) — bounded inner verify-and-re-write
+	// budget for syncSharedPGConsumerHubSecrets. After each write of a
+	// consumer-hub Secret onto a replica region the sync READS THE SECRET
+	// BACK to confirm the bytes actually landed. copySecretAcrossClusters
+	// returns success the instant the replica apiserver ACCEPTS the write,
+	// but on a fresh 2-region prov the replica's bp-postgres flux
+	// Kustomization (owns shared-data with prune=true) can garbage-collect
+	// the not-yet-flux-owned Secret straight back out of the namespace during
+	// its early reconcile window — the hw283 no-op where 'synced 13' was
+	// logged while region-b's shared-data held ZERO consumer secrets and
+	// keycloak-0 sat Init:0/1 for 78min on `secret
+	// "keycloak-database-secret" not found`. When the read-back shows the
+	// Secret absent/divergent the sync re-asserts it up to Attempts times,
+	// pacing by Backoff, before deferring the rest to the next
+	// level-triggered pass. Zero falls back to the consumerHubSyncVerify*Default
+	// constants in clustermesh.go. Tests inject tiny values so the
+	// verify-retry runs in microseconds; production leaves both at zero.
+	consumerHubSyncVerifyAttempts int
+	consumerHubSyncVerifyBackoff  time.Duration
+
 	// clusterMeshStartupRetry* (#4811) — bounded retry for the STARTUP
 	// ClusterMesh reconcile when restoreFromStore finds a ready multi-region
 	// deployment whose primary kubeconfig was merely UNRESOLVED at restore.

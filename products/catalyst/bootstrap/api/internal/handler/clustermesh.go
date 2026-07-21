@@ -249,6 +249,22 @@ const (
 	// zero falls back to the defaults below.
 	clusterMeshStartupRetryIntervalDefault = 5 * time.Second
 	clusterMeshStartupRetryBudgetDefault   = 3 * time.Minute
+
+	// #5317 — bounded inner verify-and-re-write budget for
+	// syncSharedPGConsumerHubSecrets. Each write of a consumer-hub Secret
+	// onto a replica region is READ BACK to confirm it actually landed;
+	// copySecretAcrossClusters reports success the instant the replica
+	// apiserver accepts the Create/Update, yet region-b's bp-postgres flux
+	// Kustomization can GC the not-yet-flux-owned Secret straight back out of
+	// shared-data during its early reconcile window (hw283: 'synced 13'
+	// logged while region-b held ZERO consumer secrets → keycloak-0 stuck
+	// Init:0/1 for 78min). If the read-back shows the Secret absent/divergent
+	// the sync re-asserts it up to Attempts times, pacing by Backoff, before
+	// deferring the rest to the next level-triggered pass (steady-state heal
+	// / convergence backoff). The Handler fields consumerHubSyncVerify*
+	// override these for tests; zero falls back to the defaults below.
+	consumerHubSyncVerifyAttemptsDefault = 4
+	consumerHubSyncVerifyBackoffDefault  = 3 * time.Second
 )
 
 // ClusterMesh-gated cnpg-pair enable (#3236) — names of the Flux
@@ -1924,12 +1940,29 @@ func (h *Handler) syncSharedPGReplicaAuthSecrets(ctx context.Context, dep *Deplo
 // replica), so pushing it would make things WORSE; skipping waits for the next
 // pass. Single-region (len(slots)<2) is a no-op.
 //
-// #5261 COMPLETION STEP: a replica pass that actually DELIVERED hub bytes
-// (copySecretAcrossClusters changed=true — the moment the missing input
-// arrives) closes its own loop by force-reconciling that replica's
-// flux-system HelmReleases which wedged BEFORE the delivery
-// (forceReconcileStalledReplicaHelmReleases). Steady-state passes (no byte
-// change) never kick, so the #3241/#3583 no-thrash contract holds.
+// #5317 VERIFY-AND-RETRY: copySecretAcrossClusters reports success the
+// instant the replica apiserver ACCEPTS the write, but on a fresh 2-region
+// prov the replica's bp-postgres flux Kustomization (owns shared-data with
+// prune=true) can garbage-collect the not-yet-flux-owned Secret straight back
+// out of the namespace during its early reconcile window. On hw283 that made
+// this sync log `synced 13` off the optimistic accept while region-b's
+// shared-data held ZERO consumer secrets, so keycloak-0 sat Init:0/1 for 78min
+// on `secret "keycloak-database-secret" not found` and the whole replica
+// SSO/app tier wedged (the prov FAILED). Every write is therefore READ BACK
+// (copyAndVerifyConsumerHubSecret) — a Secret is counted in the HONEST `synced`
+// total, and its stalled HRs force-reconciled, ONLY once a fresh Get confirms
+// the bytes present on the replica; an unverified write is logged and left for
+// the next level-triggered pass to re-assert. The count this emits can never
+// overstate delivery.
+//
+// #5261 COMPLETION STEP: a replica pass that actually DELIVERED hub bytes AND
+// verified them present (copyAndVerifyConsumerHubSecret delivered=true — the
+// moment the missing input arrives AND lands) closes its own loop by
+// force-reconciling that replica's flux-system HelmReleases which wedged
+// BEFORE the delivery (forceReconcileStalledReplicaHelmReleases). Steady-state
+// passes (no byte change) and unverified writes never kick, so the #3241/#3583
+// no-thrash contract holds and keycloak is never kicked against a Secret that
+// is not actually there.
 func (h *Handler) syncSharedPGConsumerHubSecrets(ctx context.Context, dep *Deployment, slots []regionSlot) {
 	if len(slots) < 2 {
 		return // single-region — no replica to sync to
@@ -1970,23 +2003,41 @@ func (h *Handler) syncSharedPGConsumerHubSecrets(ctx context.Context, dep *Deplo
 				"id", dep.ID, "secret", name, "host", host)
 			continue
 		}
-		copied := true
+		// #5317 — a Secret name goes into `synced` (the HONEST count) ONLY
+		// when a read-back confirms it present+matching on EVERY replica
+		// region this pass. A write the apiserver accepted but that did not
+		// survive (region-b flux GC'd it) is NOT counted, so the emitted
+		// "synced N" can never overstate delivery.
+		verifiedOnAllReplicas := true
 		for i := 1; i < len(slots); i++ {
 			replica := &slots[i]
 			if replica.clientset == nil {
-				copied = false
+				verifiedOnAllReplicas = false
 				continue
 			}
-			changed, err := h.copySecretAcrossClusters(ctx, src, replica.clientset, sharedPGNamespace)
+			delivered, verified, err := h.copyAndVerifyConsumerHubSecret(ctx, src, replica.clientset, sharedPGNamespace)
 			if err != nil {
 				h.log.Warn("clustermesh: shared-pg consumer-hub sync: copy to replica failed — skipping this Secret/region (best-effort, re-run converges)",
 					"id", dep.ID, "region", replica.key, "namespace", sharedPGNamespace, "secret", name, "err", err)
-				copied = false
+				verifiedOnAllReplicas = false
 				continue
 			}
-			if changed {
+			if !verified {
+				// #5317 — the write did NOT land (or did not survive) on the
+				// replica: the read-back found the Secret absent/divergent after
+				// the write. Do NOT count it as synced and do NOT kick this
+				// replica's stalled HRs against a Secret that is not there (the
+				// exact failure #5263's force-reconcile could not cover); the
+				// next level-triggered pass re-asserts it.
+				h.log.Warn("clustermesh: shared-pg consumer-hub sync: write did NOT land on replica (read-back absent/divergent) — NOT counting as synced, will retry on the next level-triggered pass (#5317, best-effort)",
+					"id", dep.ID, "region", replica.key, "namespace", sharedPGNamespace, "secret", name)
+				verifiedOnAllReplicas = false
+				continue
+			}
+			if delivered {
 				// #5261 — this pass DELIVERED hub bytes to this replica (create
-				// or heal), so its pre-delivery stalled HRs get kicked below.
+				// or heal) AND the read-back verified them present, so its
+				// pre-delivery stalled HRs get kicked below.
 				deliveredToReplica[i] = true
 			}
 			// #4878 (+ residual, live hw232): after we OVERWRITE the replica's
@@ -2011,23 +2062,26 @@ func (h *Handler) syncSharedPGConsumerHubSecrets(ctx context.Context, dep *Deplo
 				h.reconcileSharedPGConsumerRestart(ctx, dep, replica, name, target, src)
 			}
 		}
-		if copied {
+		if verifiedOnAllReplicas {
 			synced = append(synced, name)
 		}
 	}
 
 	if len(synced) > 0 {
-		h.log.Info("clustermesh: shared-pg consumer-hub Secrets synced primary → replica region(s) (#3629 cross-region consumer DB host/password)",
+		// #5317 — `synced` carries ONLY Secrets a read-back confirmed present
+		// on every replica this pass, so this count is honest by construction.
+		h.log.Info("clustermesh: shared-pg consumer-hub Secrets synced + verified primary → replica region(s) (#3629 cross-region consumer DB host/password; #5317 read-back confirmed present)",
 			"id", dep.ID, "namespace", sharedPGNamespace, "secrets", synced, "replicaRegions", len(slots)-1)
 		h.emitClusterMeshProgress(dep, "info",
-			fmt.Sprintf("ClusterMesh: synced %d shared-pg consumer-hub Secret(s) (%s) primary → %d replica region(s) — cross-region consumer DB host/password (#3629)",
+			fmt.Sprintf("ClusterMesh: synced %d shared-pg consumer-hub Secret(s) (%s) primary → %d replica region(s) — read-back verified present on the replica (#3629, #5317)",
 				len(synced), strings.Join(synced, ", "), len(slots)-1))
 	}
 
 	// #5261 — the cascade closes its own loop: every replica that received
-	// changed hub bytes THIS pass gets its pre-delivery stalled flux-system
-	// HelmReleases force-reconciled. Best-effort: a kick failure never fails
-	// the sync (matching the #4878 consumer-restart idiom above).
+	// changed hub bytes THIS pass AND had them read-back-verified present
+	// (#5317) gets its pre-delivery stalled flux-system HelmReleases
+	// force-reconciled. Best-effort: a kick failure never fails the sync
+	// (matching the #4878 consumer-restart idiom above).
 	for i := 1; i < len(slots); i++ {
 		if !deliveredToReplica[i] {
 			continue
@@ -2601,6 +2655,107 @@ func (h *Handler) updateCopiedSecret(ctx context.Context, desired *corev1.Secret
 		return false, fmt.Errorf("Update Secret %s/%s on replica (race fallback): %w", namespace, desired.Name, updErr)
 	}
 	return true, nil
+}
+
+// copyAndVerifyConsumerHubSecret (#5317) writes src onto the replica's
+// shared-data namespace and then READS THE SECRET BACK to confirm the bytes
+// actually landed — the anti-optimism guard that closes the hw283 no-op.
+//
+// copySecretAcrossClusters reports success the instant the replica apiserver
+// ACCEPTS the Create/Update, but on a fresh 2-region prov the replica's
+// bp-postgres flux Kustomization (which owns shared-data with prune=true) can
+// garbage-collect the not-yet-flux-owned consumer-hub Secret straight back out
+// of the namespace during its early reconcile window. The old sync logged
+// `synced 13` off that optimistic accept while region-b's shared-data held
+// ZERO consumer secrets, so keycloak-0 sat Init:0/1 for 78min on
+// `secret "keycloak-database-secret" not found` and the whole replica SSO/app
+// tier wedged. Reading the Secret back — and RE-ASSERTING it up to
+// consumerHubSyncVerifyAttempts times when the read-back shows it absent or
+// divergent — makes the sync self-healing against that GC flap within a single
+// pass; anything still unverified after the bounded budget defers to the next
+// level-triggered pass (steady-state heal / convergence backoff), which keeps
+// re-running until the read-back finally confirms the Secret present.
+//
+// Returns:
+//   - delivered: this call actually WROTE changed bytes AND the read-back
+//     confirms them present (the #5261 force-reconcile "the missing input just
+//     arrived AND landed" signal — a steady-state pass that found the Secret
+//     already present returns delivered=false so it never re-kicks).
+//   - verified: the Secret is confirmed present+matching on the replica right
+//     now (present-from-the-start OR just-delivered). Only a verified Secret is
+//     counted in the honest `synced` total.
+//   - err: a hard client error on the final attempt (best-effort — the caller
+//     logs it and skips the Secret/region; the level-triggered re-run converges
+//     it). A persistently-absent Secret (write accepted, read-back NotFound)
+//     returns (wrote, false, nil): not an error, just unverified — retry later.
+func (h *Handler) copyAndVerifyConsumerHubSecret(ctx context.Context, src *corev1.Secret, dst kubernetes.Interface, namespace string) (delivered bool, verified bool, err error) {
+	attempts := h.consumerHubSyncVerifyAttempts
+	if attempts <= 0 {
+		attempts = consumerHubSyncVerifyAttemptsDefault
+	}
+	backoff := h.consumerHubSyncVerifyBackoff
+	if backoff <= 0 {
+		backoff = consumerHubSyncVerifyBackoffDefault
+	}
+
+	wrote := false
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		changed, copyErr := h.copySecretAcrossClusters(ctx, src, dst, namespace)
+		if copyErr != nil {
+			lastErr = copyErr
+		} else {
+			if changed {
+				wrote = true
+			}
+			// Read the Secret back from the replica to confirm the write
+			// actually landed (or was already present+matching). A copy the
+			// apiserver accepted but GC'd straight back out reads NotFound
+			// here → not verified → re-assert on the next inner attempt.
+			present, verifyErr := h.consumerHubSecretPresentAndMatches(ctx, src, dst, namespace)
+			if verifyErr != nil {
+				lastErr = verifyErr
+			} else if present {
+				return wrote, true, nil
+			} else {
+				// A landed-then-verified-present pass clears lastErr; an
+				// unverified pass is NOT an error, so don't leave a stale one.
+				lastErr = nil
+			}
+		}
+		if attempt < attempts {
+			if sleepErr := sleepCtx(ctx, backoff); sleepErr != nil {
+				return wrote, false, sleepErr
+			}
+		}
+	}
+	return wrote, false, lastErr
+}
+
+// consumerHubSecretPresentAndMatches (#5317) reports whether the replica now
+// holds the consumer-hub Secret with region-A's authoritative bytes. Used by
+// copyAndVerifyConsumerHubSecret as the read-back verify: it Gets the Secret
+// fresh from the replica and compares Type + effective data against the source,
+// reusing the exact secretContentMatches semantics copySecretAcrossClusters
+// writes with (so a divergent leftover the writer would have overwritten does
+// NOT read as present). A NotFound reads as (false, nil) — absent, keep
+// retrying — never an error.
+func (h *Handler) consumerHubSecretPresentAndMatches(ctx context.Context, src *corev1.Secret, dst kubernetes.Interface, namespace string) (bool, error) {
+	desired := &corev1.Secret{
+		Type:       src.Type,
+		Data:       src.Data,
+		StringData: src.StringData,
+	}
+	getCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
+	defer cancel()
+	got, err := dst.CoreV1().Secrets(namespace).Get(getCtx, src.Name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("read-back Secret %s/%s on replica: %w", namespace, src.Name, err)
+	}
+	return secretContentMatches(got, desired), nil
 }
 
 // clusterMeshDynamicClient builds a dynamic.Interface for the cluster
