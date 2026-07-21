@@ -76,4 +76,17 @@ spec:
       ports:
         - port: 4222
           protocol: TCP
+    # #5311 — the acting primary's PostgreSQL, for the pg_stat_replication
+    # standby probe (the observation source that works on a TRUE 2-region
+    # Sovereign, where the region-b replica Cluster CR is not in this
+    # controller's local API). The target is the cnpg-pair primary's `-rw`
+    # Service on 5432 in the Continuum's spec.cnpgPair.namespace — which
+    # varies per Organization/Environment, so this follows the same
+    # label-less `ports`-only shape as the API-server rule above rather
+    # than pinning a namespace. It is an in-cluster DIRECT connection (no
+    # NodePort); the region-b standby's stream reaches the primary over
+    # ClusterMesh on its own.
+    - ports:
+        - port: 5432
+          protocol: TCP
 {{- end }}

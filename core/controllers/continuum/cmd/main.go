@@ -86,6 +86,7 @@ import (
 	"github.com/openova-io/openova/core/controllers/continuum/internal/controller"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/events"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/pdm"
+	"github.com/openova-io/openova/core/controllers/continuum/internal/pgprobe"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/switchover"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/witness"
 	// K-Cont-3 lease-witness implementations — register their
@@ -237,6 +238,22 @@ func main() {
 		Drainer:         switchover.NewDynamicHTTPRouteDrainer(dyn),
 		RaftPromoter:    raftPromoter,
 		HealthDelay:     healthDelay,
+		// #5311 — standby observation source that works on a TRUE
+		// 2-region Sovereign: reads the acting primary's
+		// pg_stat_replication (the region-b replica Cluster CR is not in
+		// this controller's local API). Authenticates with the
+		// CNPG-provisioned streaming_replica client cert
+		// (`<primary>-replication` Secret) — the same credential the
+		// dr-promoter / dr-failback probes use. The controller already
+		// holds `secrets: get` cluster-wide (see the chart RBAC), and
+		// the target is the LOCAL primary `-rw` Service. Reachable from
+		// the single mgr client since ClusterDomain defaults to
+		// cluster.local; CLUSTER_DOMAIN overrides for customized
+		// kubelet cluster domains.
+		StandbyProbe: &pgprobe.PGXProber{
+			Secrets:       &pgSecretReader{Client: mgr.GetClient()},
+			ClusterDomain: env("CLUSTER_DOMAIN", pgprobe.DefaultClusterDomain),
+		},
 		HealthOpts: switchover.HealthOptions{
 			// Production: 8.8.8.8 / 1.1.1.1 / 9.9.9.9 multi-vantage
 			// DNS resolver fanout. Tests that don't want live DNS
@@ -371,6 +388,38 @@ func (r *k8sSecretReader) ReadSecret(ctx context.Context, secretName, key string
 	}
 	if len(val) == 0 {
 		return nil, fmt.Errorf("witness/k8sSecretReader: Secret %s/%s key %q is empty", ns, secretName, key)
+	}
+	return val, nil
+}
+
+// pgSecretReader implements pgprobe.SecretReader (#5311) by GETting the
+// referenced Secret key via the controller-runtime client. Unlike
+// k8sSecretReader (fixed namespace for lease-witness secrets), the
+// cnpg-pair namespace is passed per call — the streaming_replica client
+// cert lives in the Continuum's spec.cnpgPair.namespace. The controller
+// holds cluster-wide `secrets: get`, so any cnpg namespace resolves.
+//
+// Per Inviolable Principle #5 the cert bytes stay in memory only until
+// PGXProber hands them to the TLS dialer. NEVER log; NEVER persist.
+type pgSecretReader struct {
+	Client client.Client
+}
+
+// ReadSecret implements pgprobe.SecretReader.
+func (r *pgSecretReader) ReadSecret(ctx context.Context, namespace, name, key string) ([]byte, error) {
+	if namespace == "" || name == "" || key == "" {
+		return nil, fmt.Errorf("pgSecretReader: namespace/name/key required (ns=%q name=%q key=%q)", namespace, name, key)
+	}
+	var sec corev1.Secret
+	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &sec); err != nil {
+		return nil, fmt.Errorf("pgSecretReader: get Secret %s/%s: %w", namespace, name, err)
+	}
+	val, ok := sec.Data[key]
+	if !ok {
+		return nil, fmt.Errorf("pgSecretReader: Secret %s/%s missing key %q", namespace, name, key)
+	}
+	if len(val) == 0 {
+		return nil, fmt.Errorf("pgSecretReader: Secret %s/%s key %q is empty", namespace, name, key)
 	}
 	return val, nil
 }
