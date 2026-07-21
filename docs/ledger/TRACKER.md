@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-21T03:30:04Z` |
+| Last refreshed | `2026-07-21T03:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 21 |
 | Open DoD gates | 0 / 41 |
@@ -228,6 +228,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-21T03:36 | [#5316](https://github.com/openova-io/openova/pull/5316) | #5311 | fix(continuum): observe 2-region standby via primary pg_stat |
+| 2026-07-21T03:36 | [#5314](https://github.com/openova-io/openova/pull/5314) | #5086 | test(powerdns): §854 Hetzner DNS front-door render-contract  |
+| 2026-07-21T03:36 | [#5313](https://github.com/openova-io/openova/pull/5313) | #5193 | fix(catalyst-api): converge partial wipes — retain tfstate u |
+| 2026-07-21T03:36 | [#5312](https://github.com/openova-io/openova/pull/5312) | #5285 | test(catalyst-api): guard markPhase1Done terminal-failed → Q |
 | 2026-07-20T23:49 | [#5310](https://github.com/openova-io/openova/pull/5310) | #5095 | fix(cutover): step-03 prewarm proxy-DOWN direct-first routin |
 | 2026-07-20T22:56 | [#5309](https://github.com/openova-io/openova/pull/5309) | #5205 | fix(marketplace): render live provisioning-stage timeline in |
 | 2026-07-20T22:56 | [#5308](https://github.com/openova-io/openova/pull/5308) | #5305 | fix(organization-controller): stop the reconcile hot-loop th |
@@ -254,10 +258,6 @@ flowchart LR
 | 2026-07-19T17:16 | [#5266](https://github.com/openova-io/openova/pull/5266) | #5237 | fix(#5237): pin-aware prewarm + step-06 version-presence gat |
 | 2026-07-19T16:59 | [#5264](https://github.com/openova-io/openova/pull/5264) | #5262 | fix(#5262): sticky gitea admin password + cutover git-persis |
 | 2026-07-19T16:55 | [#5263](https://github.com/openova-io/openova/pull/5263) | #5261 | fix(#5261): mesh cascade force-reconciles replica-region HRs |
-| 2026-07-19T16:37 | [#5260](https://github.com/openova-io/openova/pull/5260) | #4901 | fix(#4901): Continuum surfaces standby-absent — health degra |
-| 2026-07-19T16:37 | [#5259](https://github.com/openova-io/openova/pull/5259) | #3985 | refactor(#3985): Organization-term remainder — mechanical re |
-| 2026-07-19T16:37 | [#5258](https://github.com/openova-io/openova/pull/5258) | #3971 | fix(#3971): forbid local-path StorageClass at land — CI gate |
-| 2026-07-19T16:37 | [#5257](https://github.com/openova-io/openova/pull/5257) | #5254 | test(catalyst-api): raise wipe_async_creds_rewipe waitForWip |
 
 ---
 
