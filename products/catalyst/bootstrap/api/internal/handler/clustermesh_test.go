@@ -3064,6 +3064,239 @@ func TestSyncSharedPGConsumerHubSecrets_KicksStalledHRsOnDeliveryPassOnly(t *tes
 	}
 }
 
+// ── #5317 — verify-and-retry: read-back before counting a Secret synced ──
+
+// TestSyncSharedPGConsumerHubSecrets_VerifyAndRetry locks in the #5317 fix for
+// the hw283 wedge (dep 101cd122d394af22): the consumer-hub sync logged
+// `synced 13` off the OPTIMISTIC copySecretAcrossClusters accept while
+// region-b's shared-data held ZERO consumer secrets — the replica's bp-postgres
+// flux Kustomization GC'd the not-yet-flux-owned Secret straight back out of
+// shared-data — so keycloak-0 sat Init:0/1 for 78min on
+// `secret "keycloak-database-secret" not found` and the whole replica SSO/app
+// tier wedged, failing the 2-region prov (#5263's force-reconcile could not
+// cover it because the Secret was NEVER delivered). The sync must now READ THE
+// SECRET BACK after each write and (a) re-assert a write the apiserver accepted
+// but did not persist until it lands, (b) NEVER count / NEVER kick a Secret a
+// read-back cannot confirm present, (c) tally an HONEST count of only the
+// read-back-verified Secrets.
+func TestSyncSharedPGConsumerHubSecrets_VerifyAndRetry(t *testing.T) {
+	const secretName = "keycloak-database-secret"
+	const meshRWHost = "shared-pg-mesh-rw.shared-data.svc.cluster.local"
+
+	// noPersistCreateReactor returns a "create" reactor that ACCEPTS the write
+	// (as the apiserver does) but does NOT store the object when gc() is true —
+	// the region-b flux GC flap. When gc() returns false the reactor falls
+	// through so the fake's tracker persists the Secret normally.
+	noPersistCreateReactor := func(gc func() bool) ktesting.ReactionFunc {
+		return func(action ktesting.Action) (bool, runtime.Object, error) {
+			if action.GetNamespace() != sharedPGNamespace {
+				return false, nil, nil
+			}
+			if gc() {
+				return true, action.(ktesting.CreateAction).GetObject(), nil // accepted, not stored
+			}
+			return false, nil, nil // settle — let the tracker persist it
+		}
+	}
+
+	// (b) write-then-verify catches a silent no-op and RE-ASSERTS within one
+	// pass until the read-back confirms the Secret present.
+	t.Run("silent-no-op-then-lands-is-reasserted-within-one-pass", func(t *testing.T) {
+		var logBuf bytes.Buffer
+		h := &Handler{
+			log:                           slog.New(slog.NewTextHandler(&logBuf, nil)),
+			consumerHubSyncVerifyAttempts: 6,
+			consumerHubSyncVerifyBackoff:  time.Millisecond,
+		}
+		dep := &Deployment{ID: "dep-5317-b"}
+
+		primaryCS := kfake.NewSimpleClientset()
+		seedHubSecret(t, primaryCS, secretName, meshRWHost, "region-A-pw")
+
+		replicaCS := kfake.NewSimpleClientset()
+		var creates int
+		replicaCS.PrependReactor("create", "secrets", noPersistCreateReactor(func() bool {
+			creates++
+			return creates <= 2 // first two writes are GC'd; the third settles
+		}))
+
+		slots := []regionSlot{
+			{key: "", clientset: primaryCS},
+			{key: "secondary", clientset: replicaCS},
+		}
+		h.syncSharedPGConsumerHubSecrets(context.Background(), dep, slots)
+
+		if creates < 3 {
+			t.Fatalf("create called %d times — the sync did not re-assert the Secret past the GC flap (want >=3, #5317)", creates)
+		}
+		got, ok := getSharedDataSecret(t, replicaCS, secretName)
+		if !ok {
+			t.Fatalf("replica Secret still absent after verify-retry — the GC-flap self-heal did not converge (#5317)")
+		}
+		if p := string(got.Data["password"]); p != "region-A-pw" {
+			t.Errorf("replica password = %q, want the authoritative region-A password", p)
+		}
+		if !hasClusterMeshEvent(dep, "info", "synced 1", secretName) {
+			t.Errorf("the landed Secret was not reported synced after read-back verify (honest count missing, #5317); events:\n%s", dumpClusterMeshEvents(dep))
+		}
+	})
+
+	// (b′) ANTI-THEATER: a write the apiserver accepts but that NEVER lands
+	// must NOT be counted synced and must NOT be emitted as delivered.
+	// Reverting to the optimistic count (append on copySecretAcrossClusters
+	// success, no read-back) makes this fail — that is the hw283 lie.
+	t.Run("silent-no-op-forever-is-never-counted", func(t *testing.T) {
+		var logBuf bytes.Buffer
+		h := &Handler{
+			log:                           slog.New(slog.NewTextHandler(&logBuf, nil)),
+			consumerHubSyncVerifyAttempts: 3,
+			consumerHubSyncVerifyBackoff:  time.Millisecond,
+		}
+		dep := &Deployment{ID: "dep-5317-noop"}
+
+		primaryCS := kfake.NewSimpleClientset()
+		seedHubSecret(t, primaryCS, secretName, meshRWHost, "region-A-pw")
+
+		replicaCS := kfake.NewSimpleClientset()
+		replicaCS.PrependReactor("create", "secrets", noPersistCreateReactor(func() bool { return true }))
+
+		slots := []regionSlot{
+			{key: "", clientset: primaryCS},
+			{key: "secondary", clientset: replicaCS},
+		}
+		h.syncSharedPGConsumerHubSecrets(context.Background(), dep, slots)
+
+		if _, ok := getSharedDataSecret(t, replicaCS, secretName); ok {
+			t.Fatalf("replica Secret unexpectedly present — the reactor was supposed to model a permanent GC")
+		}
+		if strings.Contains(logBuf.String(), "consumer-hub Secrets synced") {
+			t.Errorf("sync logged a 'synced' success while the read-back found the Secret ABSENT on the replica — the #5317 verify was bypassed (the hw283 lie):\n%s", logBuf.String())
+		}
+		if hasClusterMeshEvent(dep, "info", "synced 1") {
+			t.Errorf("emitted a 'synced' progress event while region-b held zero consumer secrets — #5317 verify bypassed; events:\n%s", dumpClusterMeshEvents(dep))
+		}
+		if !strings.Contains(logBuf.String(), "write did NOT land") {
+			t.Errorf("expected the #5317 'write did NOT land' warning when the read-back found the Secret absent, got:\n%s", logBuf.String())
+		}
+	})
+
+	// (a) target-namespace-absent-at-first → the write errors and nothing is
+	// counted; once the replica's shared-data namespace materialises a later
+	// level-triggered pass lands + verifies the Secret.
+	t.Run("target-namespace-absent-at-first-then-lands-once-it-appears", func(t *testing.T) {
+		var logBuf bytes.Buffer
+		h := &Handler{
+			log:                           slog.New(slog.NewTextHandler(&logBuf, nil)),
+			consumerHubSyncVerifyAttempts: 3,
+			consumerHubSyncVerifyBackoff:  time.Millisecond,
+		}
+		dep := &Deployment{ID: "dep-5317-a"}
+
+		primaryCS := kfake.NewSimpleClientset()
+		seedHubSecret(t, primaryCS, secretName, meshRWHost, "region-A-pw")
+
+		replicaCS := kfake.NewSimpleClientset()
+		var nsReady bool
+		replicaCS.PrependReactor("create", "secrets", func(action ktesting.Action) (bool, runtime.Object, error) {
+			if action.GetNamespace() != sharedPGNamespace {
+				return false, nil, nil
+			}
+			if !nsReady {
+				// The replica's shared-data namespace does not exist yet — the
+				// apiserver rejects the Secret create with NotFound.
+				return true, nil, apierrors.NewNotFound(corev1.Resource("namespaces"), sharedPGNamespace)
+			}
+			return false, nil, nil
+		})
+
+		slots := []regionSlot{
+			{key: "", clientset: primaryCS},
+			{key: "secondary", clientset: replicaCS},
+		}
+
+		// Pass 1 — namespace absent: every write errors → NOTHING synced, Secret absent.
+		h.syncSharedPGConsumerHubSecrets(context.Background(), dep, slots)
+		if _, ok := getSharedDataSecret(t, replicaCS, secretName); ok {
+			t.Fatalf("replica Secret present despite the target namespace being absent on pass 1")
+		}
+		if strings.Contains(logBuf.String(), "consumer-hub Secrets synced") {
+			t.Errorf("pass 1 claimed a Secret synced while the write errored (namespace absent):\n%s", logBuf.String())
+		}
+		if !strings.Contains(logBuf.String(), "copy to replica failed") {
+			t.Errorf("pass 1 did not surface the namespace-absent write failure:\n%s", logBuf.String())
+		}
+
+		// The replica's shared-data namespace materialises (its bp-postgres
+		// reconciles) → the next level-triggered pass lands + verifies the Secret.
+		nsReady = true
+		logBuf.Reset()
+		h.syncSharedPGConsumerHubSecrets(context.Background(), dep, slots)
+		got, ok := getSharedDataSecret(t, replicaCS, secretName)
+		if !ok {
+			t.Fatalf("replica Secret still absent after the namespace appeared — the level-triggered retry did not converge (#5317)")
+		}
+		if p := string(got.Data["password"]); p != "region-A-pw" {
+			t.Errorf("replica password = %q, want the authoritative region-A password", p)
+		}
+		if !hasClusterMeshEvent(dep, "info", "synced 1", secretName) {
+			t.Errorf("Secret was not reported synced after it landed on pass 2 (#5317); events:\n%s", dumpClusterMeshEvents(dep))
+		}
+	})
+
+	// (c) honest count: with TWO source Secrets where one lands and one is
+	// GC'd forever, the emitted count tallies ONLY the verified-present one.
+	t.Run("honest-count-tallies-only-verified-secrets", func(t *testing.T) {
+		var logBuf bytes.Buffer
+		h := &Handler{
+			log:                           slog.New(slog.NewTextHandler(&logBuf, nil)),
+			consumerHubSyncVerifyAttempts: 3,
+			consumerHubSyncVerifyBackoff:  time.Millisecond,
+		}
+		dep := &Deployment{ID: "dep-5317-c"}
+
+		primaryCS := kfake.NewSimpleClientset()
+		// grafana lands; keycloak is GC'd forever on the replica.
+		seedHubSecret(t, primaryCS, "grafana-database-env", meshRWHost, "grafana-pw")
+		seedHubSecret(t, primaryCS, "keycloak-database-secret", meshRWHost, "keycloak-pw")
+
+		replicaCS := kfake.NewSimpleClientset()
+		replicaCS.PrependReactor("create", "secrets", func(action ktesting.Action) (bool, runtime.Object, error) {
+			if action.GetNamespace() != sharedPGNamespace {
+				return false, nil, nil
+			}
+			if ca, ok := action.(ktesting.CreateAction); ok {
+				if s, ok := ca.GetObject().(*corev1.Secret); ok && s.Name == "keycloak-database-secret" {
+					return true, ca.GetObject(), nil // keycloak: accepted but GC'd
+				}
+			}
+			return false, nil, nil // grafana settles
+		})
+
+		slots := []regionSlot{
+			{key: "", clientset: primaryCS},
+			{key: "secondary", clientset: replicaCS},
+		}
+		h.syncSharedPGConsumerHubSecrets(context.Background(), dep, slots)
+
+		if _, ok := getSharedDataSecret(t, replicaCS, "grafana-database-env"); !ok {
+			t.Fatalf("grafana Secret absent — the verified-present Secret did not land")
+		}
+		if _, ok := getSharedDataSecret(t, replicaCS, "keycloak-database-secret"); ok {
+			t.Fatalf("keycloak Secret present — the reactor was supposed to GC it forever")
+		}
+		// Honest count = 1, naming ONLY the landed Secret.
+		if !hasClusterMeshEvent(dep, "info", "synced 1", "grafana-database-env") {
+			t.Errorf("expected an honest 'synced 1 (grafana-database-env)' event; events:\n%s", dumpClusterMeshEvents(dep))
+		}
+		if hasClusterMeshEvent(dep, "info", "keycloak-database-secret") {
+			t.Errorf("emitted event named the un-landed keycloak Secret as synced — the count is not honest (#5317); events:\n%s", dumpClusterMeshEvents(dep))
+		}
+		if !strings.Contains(logBuf.String(), "write did NOT land") {
+			t.Errorf("expected the #5317 'write did NOT land' warning for the GC'd keycloak Secret, got:\n%s", logBuf.String())
+		}
+	})
+}
+
 // TestAutoEstablishClusterMesh_ConsumerHubSecretsSyncPreMesh locks in #5230:
 // the #3629 consumer-hub Secret sync must fire from the EARLY per-slot phase of
 // autoEstablishClusterMesh — clustermesh NOT required — not from behind the
