@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-21T03:45:04Z` |
+| Last refreshed | `2026-07-21T04:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 21 |
 | Open DoD gates | 0 / 41 |
@@ -228,6 +228,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-21T03:59 | [#5318](https://github.com/openova-io/openova/pull/5318) | #5261 | fix(#5317): read-back-verify replica consumer-hub secret syn |
 | 2026-07-21T03:36 | [#5316](https://github.com/openova-io/openova/pull/5316) | #5311 | fix(continuum): observe 2-region standby via primary pg_stat |
 | 2026-07-21T03:36 | [#5314](https://github.com/openova-io/openova/pull/5314) | #5086 | test(powerdns): §854 Hetzner DNS front-door render-contract  |
 | 2026-07-21T03:36 | [#5313](https://github.com/openova-io/openova/pull/5313) | #5193 | fix(catalyst-api): converge partial wipes — retain tfstate u |
@@ -257,7 +258,6 @@ flowchart LR
 | 2026-07-19T19:24 | [#5268](https://github.com/openova-io/openova/pull/5268) | #5245 | fix(#5245): dr-failback targets a peer host resolvable from  |
 | 2026-07-19T17:16 | [#5266](https://github.com/openova-io/openova/pull/5266) | #5237 | fix(#5237): pin-aware prewarm + step-06 version-presence gat |
 | 2026-07-19T16:59 | [#5264](https://github.com/openova-io/openova/pull/5264) | #5262 | fix(#5262): sticky gitea admin password + cutover git-persis |
-| 2026-07-19T16:55 | [#5263](https://github.com/openova-io/openova/pull/5263) | #5261 | fix(#5261): mesh cascade force-reconciles replica-region HRs |
 
 ---
 
