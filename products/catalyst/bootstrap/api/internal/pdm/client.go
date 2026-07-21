@@ -132,6 +132,21 @@ var ErrExpired = errors.New("pool allocation expired before commit")
 // CommitWithRetry).
 var ErrTokenMismatch = errors.New("pool allocation token mismatch")
 
+// ErrNotManaged — PDM returned 422 Unprocessable Entity on /release,
+// meaning the pool domain the caller asked to release from is NOT one
+// OpenOva's pool-domain-manager manages (e.g. a BYO / customer-owned
+// domain that a record has misclassified as SovereignDomainMode="pool",
+// or a Sovereign FQDN whose parent zone was never enrolled in the pool).
+//
+// Refs #5193 (item 4): there is no allocation row to release for such a
+// domain, so a 422 is the SAME terminal, non-retryable post-condition as
+// a 404 (ErrNotFound) — the slot is free because it was never a pool
+// slot. ReleaseWithRetry treats it as idempotent success (no retry, no
+// wipe-stranding). Distinct sentinel (not folded into ErrNotFound) so a
+// caller can still tell "row already gone" (404) from "domain isn't ours
+// to manage" (422) when it wants to log the difference.
+var ErrNotManaged = errors.New("pool domain is not managed by OpenOva")
+
 // Reserve calls POST /api/v1/pool/{domain}/reserve. Returns ErrConflict on
 // 409 so callers can distinguish "name taken" from "PDM down".
 func (c *Client) Reserve(ctx context.Context, poolDomain, subdomain, createdBy string) (*Reservation, error) {
@@ -405,9 +420,13 @@ func (c *Client) ReleaseWithRetry(ctx context.Context, poolDomain, subdomain str
 	backoff := cfg.InitialBackoff
 	for attempt := 1; attempt <= cfg.MaxAttempts; attempt++ {
 		err := c.Release(ctx, poolDomain, subdomain)
-		if err == nil || errors.Is(err, ErrNotFound) {
-			// 404 means the row is already gone — the slot is free, which
-			// is exactly the post-condition the caller wants. Idempotent.
+		if err == nil || errors.Is(err, ErrNotFound) || errors.Is(err, ErrNotManaged) {
+			// 404 (ErrNotFound) means the row is already gone; 422
+			// (ErrNotManaged, Refs #5193) means the domain was never a
+			// pool slot to begin with. Both are the exact post-condition
+			// the caller wants — the slot is free — so both are idempotent
+			// success. Neither is transient, so return immediately without
+			// burning the remaining retry attempts.
 			return nil
 		}
 		lastErr = err
@@ -451,6 +470,13 @@ func (c *Client) Release(ctx context.Context, poolDomain, subdomain string) erro
 		return nil
 	case http.StatusNotFound:
 		return ErrNotFound
+	case http.StatusUnprocessableEntity:
+		// Refs #5193 (item 4) — 422 "pool domain <x> is not managed by
+		// OpenOva". There is no allocation to release for a non-managed
+		// domain; surface the typed sentinel so ReleaseWithRetry treats it
+		// as idempotent success rather than retrying it 5× and then
+		// stranding the wipe's on-disk record cleanup.
+		return ErrNotManaged
 	default:
 		return fmt.Errorf("pdm release status %d: %s", resp.StatusCode, truncate(string(respBody), 256))
 	}
