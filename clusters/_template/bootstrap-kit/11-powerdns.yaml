@@ -155,7 +155,8 @@ spec:
       # tofu dns LB :53->node:53 forward reaches a real listener (the LB-IPAM
       # anycast VIP path is dead on Hetzner). §854-clean: hostPort, NEVER a
       # NodePort. Driven below by ${POWERDNS_DNSDIST_HOSTPORT} (Hetzner-only).
-      version: 1.2.21
+      # 1.2.22 (#5086): render-contract regression lock (no chart behaviour change).
+      version: 1.2.22
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns

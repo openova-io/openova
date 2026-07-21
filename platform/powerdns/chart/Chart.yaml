@@ -64,7 +64,14 @@ name: bp-powerdns
 #   a NodePort. No hostNetwork (pod-netns :53 bind dodges the Ubuntu-24.04
 #   systemd-resolved 127.0.0.53:53 stub). Live-gated: proven on a real Hetzner
 #   prov (dig @<node> <fqdn>), no Hetzner env currently up.
-version: 1.2.21
+# 1.2.22 (#5086, Refs #4765): regression lock for the 1.2.21 §854 front door.
+#   tests/hetzner-frontdoor-render.sh asserts the render contract both ways —
+#   default => dnsdist Deployment, ClusterIP Service, NO hostPort, NO NodePort;
+#   dnsdist.hostPortMode=true => DaemonSet + hostPort:53 (UDP+TCP), tolerate-all,
+#   NO hostNetwork, NO nodePort/type:NodePort; anycast Service stays
+#   type=LoadBalancer + allocateLoadBalancerNodePorts:false. Guards the Hetzner
+#   DNS front door against a silent §854 regression (no chart behaviour change).
+version: 1.2.22
 description: |
   Catalyst-curated Blueprint wrapper for PowerDNS Authoritative.
   Carries Catalyst-specific values.yaml + templates (CNPG cluster, dnsdist

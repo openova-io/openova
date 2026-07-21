@@ -4763,7 +4763,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.21"
+  version: "1.2.22"
   visibility: unlisted
   card:
     title: "PowerDNS"
@@ -4780,7 +4780,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-powerdns
-    version: "1.2.21"
+    version: "1.2.22"
   topology:
     supported:
       - singleton
