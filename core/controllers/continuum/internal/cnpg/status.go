@@ -204,6 +204,23 @@ func (r *Reader) FindPair(ctx context.Context, namespace, pairName string) (prim
 	return primary, replica, nil
 }
 
+// ReplicaNameForPrimary derives a cnpg-pair's replica Cluster CR name
+// from its primary Cluster CR name. The C-DB-1 chart names the halves
+// `<pair-fullname>-primary` / `<pair-fullname>-replica` (the
+// `cnpg-pair.primaryName` / `cnpg-pair.replicaName` helpers), and CNPG
+// streams the replica with application_name == the replica Cluster
+// name — so on a TRUE 2-region topology, where the replica CR is not in
+// the local API, this reconstructs the application_name the primary's
+// pg_stat_replication reports for the standby (#5311). Returns "" when
+// the name does not carry the canonical `-primary` suffix.
+func ReplicaNameForPrimary(primaryName string) string {
+	const suffix = "-primary"
+	if len(primaryName) > len(suffix) && primaryName[len(primaryName)-len(suffix):] == suffix {
+		return primaryName[:len(primaryName)-len(suffix)] + "-replica"
+	}
+	return ""
+}
+
 // SetPrimaryAnnotation sets `cnpg.io/cluster.primary` on a Cluster CR
 // to `value`. Used in the switchover sequencer's cordon/uncordon
 // steps.

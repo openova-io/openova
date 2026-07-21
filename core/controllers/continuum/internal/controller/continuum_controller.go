@@ -43,6 +43,7 @@ import (
 	"github.com/openova-io/openova/core/controllers/continuum/internal/dns"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/events"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/pdm"
+	"github.com/openova-io/openova/core/controllers/continuum/internal/pgprobe"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/switchover"
 	"github.com/openova-io/openova/core/controllers/continuum/internal/witness"
 )
@@ -156,6 +157,20 @@ type ContinuumReconciler struct {
 	// filled by switchover.RejoinOptions.Defaults() (3 attempts, 3m
 	// cooldown) on every call.
 	RejoinOptions switchover.RejoinOptions
+
+	// StandbyProbe observes the acting primary's connected streaming
+	// standbys via pg_stat_replication (#5311). It is the standby
+	// observation source that works on a TRUE 2-region Sovereign: the
+	// region-a controller cannot list the region-b replica Cluster CR
+	// (separate control plane), so the CR-based FindPair observation is
+	// structurally blind there, but the primary always sees its
+	// standby's stream over ClusterMesh. Nil in single-API topologies
+	// that don't wire it (and in most unit tests); when nil the
+	// controller falls back to the CR-based observation alone, which
+	// keeps the kom4dc 2-VPC single-cluster case (both halves in one
+	// API) unchanged. Wired to *pgprobe.PGXProber in cmd/main.go; tests
+	// inject a fake.
+	StandbyProbe pgprobe.Prober
 
 	// activeContinuums tracks per-CR goroutines keyed by
 	// NamespacedName.String() (e.g. "demo/cr1").
@@ -403,43 +418,7 @@ func (r *ContinuumReconciler) runPerCR(ctx context.Context, nn types.NamespacedN
 		var primaryStatus, replicaStatus cnpg.Status
 		var standby cnpg.StandbyObservation
 		if reader := r.cnpgReader(); reader != nil && spec.CNPGNamespace != "" && spec.CNPGPair != "" {
-			var raw cnpg.StandbyObservation
-			resolveFailed := false
-			primary, replica, fErr := reader.FindPair(ctx, spec.CNPGNamespace, spec.CNPGPair)
-			if fErr == nil {
-				primaryStatus, _, _ = reader.Get(ctx, primary.GetNamespace(), primary.GetName())
-				var gErr error
-				replicaStatus, _, gErr = reader.Get(ctx, replica.GetNamespace(), replica.GetName())
-				if gErr != nil {
-					resolveFailed = true
-				} else {
-					raw = cnpg.StandbyObservation{
-						Known:          true,
-						Available:      cnpg.StandbyAvailable(replicaStatus),
-						ReplicaCluster: replica.GetName(),
-					}
-					// #5125 Defect-2 — step-8 rejoin-repair check. Reuses
-					// the SAME FindPair + Get calls above; no extra CNPG
-					// API traffic. Runs every tick regardless of
-					// switchover-requested/lag-breach below — its own
-					// gate (DetectDivergence) is narrow enough to be a
-					// safe no-op outside the region-a-resume-with-
-					// divergence scenario (rejoin.go).
-					r.checkRejoin(ctx, nn, reader, spec.CNPGNamespace, primary.GetName(), primaryStatus, replica.GetName(), replicaStatus)
-					// #5224 — canonical role-password re-assert on
-					// acting-primary transition (promote / failback /
-					// goroutine restart mid-flap). Touches the acting
-					// primary's managed-role passwordSecrets so CNPG
-					// re-applies the canonical passwords, healing any
-					// out-of-band role clobber (the hw273 harbor 28P01
-					// lockout) CNPG itself cannot detect. Same reused
-					// pair reads; role_reassert.go.
-					r.reassertRolesOnPrimaryTransition(ctx, nn, reader, spec.CNPGNamespace, primary.GetName(), primaryStatus, replica.GetName(), replicaStatus)
-				}
-			} else {
-				resolveFailed = true
-			}
-			standby = r.resolveStandbyPosture(nn, cr, spec, raw, resolveFailed)
+			primaryStatus, replicaStatus, standby = r.observeCNPGStandby(ctx, reader, nn, cr, spec)
 		}
 
 		switchoverRequested := isSwitchoverRequested(cr)
@@ -922,6 +901,112 @@ func (r *ContinuumReconciler) clearSwitchoverRequest(ctx context.Context, cr *un
 		return nil
 	}
 	return err
+}
+
+// observeCNPGStandby resolves one tick's required synchronous
+// hot-standby posture for a cnpg-pair Continuum, returning the primary
+// + replica CNPG statuses (for lag) and the grace-folded standby
+// observation.
+//
+// It picks the observation SOURCE by topology:
+//
+//   - Both pair halves visible in the LOCAL API (single-API server /
+//     kom4dc 2-VPC mimic) → FindPair succeeds → the CR-based
+//     observation is authoritative (preferred): it carries #4901's
+//     Ready/readyInstances semantics and keeps that topology's tests
+//     unchanged. This branch also drives the #5125 rejoin-repair and
+//     #5224 role-reassert checks off the same reads.
+//
+//   - TRUE 2-region topology (#5311) → FindPair returns "pair
+//     incomplete" (the replica Cluster CR lives in region-b's separate
+//     control plane the region-a controller cannot list) but the
+//     PRIMARY half IS visible → observe the standby from the acting
+//     primary's pg_stat_replication via r.StandbyProbe. The primary
+//     lists its connected streaming standby over ClusterMesh regardless
+//     of control-plane boundary, so "standby present + lag" is readable
+//     with no region-b Kubernetes client. A probe ERROR is treated as
+//     no-determination (NOT standby-absent) so a transient DB blip
+//     never false-degrades a healthy pair.
+//
+//   - Neither half resolvable, or the 2-region path with no probe wired
+//     → resolveFailed, folded exactly as before (#4901): a
+//     previously-seen replica that vanished degrades after grace; a
+//     never-seen pair keeps making no determination.
+func (r *ContinuumReconciler) observeCNPGStandby(
+	ctx context.Context,
+	reader *cnpg.Reader,
+	nn types.NamespacedName,
+	cr *unstructured.Unstructured,
+	spec ContinuumSpec,
+) (primaryStatus, replicaStatus cnpg.Status, standby cnpg.StandbyObservation) {
+	log := ctrl.LoggerFrom(ctx)
+	var raw cnpg.StandbyObservation
+	resolveFailed := false
+	primary, replica, fErr := reader.FindPair(ctx, spec.CNPGNamespace, spec.CNPGPair)
+	switch {
+	case fErr == nil:
+		primaryStatus, _, _ = reader.Get(ctx, primary.GetNamespace(), primary.GetName())
+		var gErr error
+		replicaStatus, _, gErr = reader.Get(ctx, replica.GetNamespace(), replica.GetName())
+		if gErr != nil {
+			resolveFailed = true
+		} else {
+			raw = cnpg.StandbyObservation{
+				Known:          true,
+				Available:      cnpg.StandbyAvailable(replicaStatus),
+				ReplicaCluster: replica.GetName(),
+			}
+			// #5125 Defect-2 — step-8 rejoin-repair check. Reuses the
+			// SAME FindPair + Get calls above; no extra CNPG API traffic.
+			// Runs every tick regardless of switchover-requested/lag-
+			// breach — its own gate (DetectDivergence) is narrow enough
+			// to be a safe no-op outside the region-a-resume-with-
+			// divergence scenario (rejoin.go).
+			r.checkRejoin(ctx, nn, reader, spec.CNPGNamespace, primary.GetName(), primaryStatus, replica.GetName(), replicaStatus)
+			// #5224 — canonical role-password re-assert on acting-primary
+			// transition (promote / failback / goroutine restart
+			// mid-flap). Touches the acting primary's managed-role
+			// passwordSecrets so CNPG re-applies the canonical passwords,
+			// healing any out-of-band role clobber (the hw273 harbor
+			// 28P01 lockout) CNPG itself cannot detect. Same reused pair
+			// reads; role_reassert.go.
+			r.reassertRolesOnPrimaryTransition(ctx, nn, reader, spec.CNPGNamespace, primary.GetName(), primaryStatus, replica.GetName(), replicaStatus)
+		}
+	case primary != nil && r.StandbyProbe != nil:
+		// #5311 — true 2-region: observe the standby from the primary's
+		// pg_stat_replication (the region-b replica CR is not in the
+		// local API).
+		primaryStatus, _, _ = reader.Get(ctx, primary.GetNamespace(), primary.GetName())
+		expectedReplica := cnpg.ReplicaNameForPrimary(primary.GetName())
+		posture, pErr := r.StandbyProbe.Observe(ctx, spec.CNPGNamespace, primary.GetName(), expectedReplica)
+		if pErr != nil {
+			// Probe error != standby-absent: leave raw Known=false and
+			// resolveFailed=false so resolveStandbyPosture makes NO
+			// determination (any prior condition is preserved).
+			log.V(1).Info("primary pg_stat_replication probe failed; no standby determination this tick",
+				"primary", primary.GetName(), "namespace", spec.CNPGNamespace, "err", pErr)
+		} else {
+			replicaName := posture.AppName
+			if replicaName == "" {
+				replicaName = expectedReplica
+			}
+			raw = cnpg.StandbyObservation{
+				Known:          true,
+				Available:      posture.StandbyPresent,
+				ReplicaCluster: replicaName,
+			}
+			// Surface the probe's real replay lag through the shared
+			// MaxLagSeconds path (replicaStatus is otherwise empty in the
+			// 2-region case).
+			if posture.StandbyPresent {
+				replicaStatus.LagSeconds = posture.ReplayLagSeconds
+			}
+		}
+	default:
+		resolveFailed = true
+	}
+	standby = r.resolveStandbyPosture(nn, cr, spec, raw, resolveFailed)
+	return primaryStatus, replicaStatus, standby
 }
 
 // resolveStandbyPosture folds one tick's RAW standby observation
