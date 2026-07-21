@@ -961,7 +961,7 @@ controllers:
       # successful push-on-main build per Inviolable Principle #4a.
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "0c717f6"
+      tag: "a8f89f2"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
