@@ -5,22 +5,22 @@
 // banner exposes a "Cancel & Wipe" button that POSTs here. This handler
 // runs the canonical purge sequence:
 //
-//   1. Cancel any in-flight context (helmwatch informer, current Phase-0
-//      runner) for this deployment.
-//   2. Run `tofu destroy -auto-approve` against the per-deployment
-//      workdir. Idempotent — re-runs on partial state are safe.
-//   3. Run a Hetzner force-purge of any resources tagged with
-//      `catalyst.openova.io/sovereign=<fqdn>` so anything tofu missed (or
-//      anything created out-of-band) is removed. Belt + braces; tofu
-//      destroy is the primary path, Hetzner API the safety net.
-//   4. Release the PDM allocation row (pool subdomain only). Best-effort:
-//      a PDM outage doesn't block local cleanup, the pool-domain-manager
-//      operator can force-release later via `pdm-cli` (#319).
-//   5. Delete the on-disk record + kubeconfig + tofu workdir.
-//   6. Mark the in-memory Deployment Status="wiped" so subsequent GETs
-//      return 410 Gone (per the founder's minimum-retention principle —
-//      Catalyst-Zero retains nothing operational about a wiped
-//      deployment).
+//  1. Cancel any in-flight context (helmwatch informer, current Phase-0
+//     runner) for this deployment.
+//  2. Run `tofu destroy -auto-approve` against the per-deployment
+//     workdir. Idempotent — re-runs on partial state are safe.
+//  3. Run a Hetzner force-purge of any resources tagged with
+//     `catalyst.openova.io/sovereign=<fqdn>` so anything tofu missed (or
+//     anything created out-of-band) is removed. Belt + braces; tofu
+//     destroy is the primary path, Hetzner API the safety net.
+//  4. Release the PDM allocation row (pool subdomain only). Best-effort:
+//     a PDM outage doesn't block local cleanup, the pool-domain-manager
+//     operator can force-release later via `pdm-cli` (#319).
+//  5. Delete the on-disk record + kubeconfig + tofu workdir.
+//  6. Mark the in-memory Deployment Status="wiped" so subsequent GETs
+//     return 410 Gone (per the founder's minimum-retention principle —
+//     Catalyst-Zero retains nothing operational about a wiped
+//     deployment).
 //
 // All progress streams as SSE events on the same channel as the original
 // provisioning + Phase-1 watch, so the wizard's banner can render the
@@ -205,7 +205,6 @@ type wipeRequest struct {
 	HuaweiProjectID string `json:"huaweiProjectId,omitempty"`
 	HuaweiRegion    string `json:"huaweiRegion,omitempty"`
 }
-
 
 // wipeResponse summarises what was actually purged. The wizard renders
 // the counts in a "Wipe complete — N servers, M load balancers, …
@@ -906,13 +905,33 @@ func (h *Handler) runWipePurge(dep *Deployment, id string, body wipeRequest, pre
 	}
 
 	// Key the workdir by the deployment ID — the provisioner does the same
-// (provisioner.go:workdirKey()), so this matches what was actually
-// created at provision time. FQDN-keyed lookups would miss when two
-// reprovs of the same FQDN existed in sequence.
-tofuWorkDir := filepath.Join(prov.WorkDir, id)
-_ = deploymentSovereignName // retained for backwards-compat callers; unused on the wipe path now
-	if err := os.RemoveAll(tofuWorkDir); err != nil {
-		report.Errors = append(report.Errors, "remove tofu workdir: "+err.Error())
+	// (provisioner.go:workdirKey()), so this matches what was actually
+	// created at provision time. FQDN-keyed lookups would miss when two
+	// reprovs of the same FQDN existed in sequence.
+	tofuWorkDir := filepath.Join(prov.WorkDir, id)
+	_ = deploymentSovereignName // retained for backwards-compat callers; unused on the wipe path now
+	// Refs #5193 (item 3) — RETAIN the per-deployment tofu workdir (tfvars +
+	// terraform.tfstate) unless the wipe is VERIFIED complete. Removing it
+	// unconditionally here clobbered the exact state a retried wipe
+	// re-destroys against after a PARTIAL destroy (the hw268 shape: region-a
+	// tore down but region-b/EIPs/VPCs/OBS survived), leaving the env
+	// un-wipeable via the clean tofu path — the retry then fell back to the
+	// name-prefix orphan sweep only. provisioner.Destroy already PRESERVES the
+	// workdir when `tofu destroy` errors (provisioner.go:2433 "operator may
+	// want to inspect") and removes it itself on a clean destroy (2438); this
+	// epilogue removal used to negate that preservation. Only reclaim the
+	// workdir once BOTH convergence signals agree the wipe converged: tofu
+	// destroy returned clean (TofuDestroyed) AND the provider's post-wipe
+	// zero-orphan verify passed (VerifiedZeroOrphans). On a partial wipe the
+	// workdir is left in place so the next (idempotent — see the file header +
+	// the wipeInFlight re-wipe guard) wipe re-destroys against the preserved
+	// tfstate and converges; that successful retry's epilogue reclaims it.
+	if report.TofuDestroyed && report.VerifiedZeroOrphans {
+		if err := os.RemoveAll(tofuWorkDir); err != nil {
+			report.Errors = append(report.Errors, "remove tofu workdir: "+err.Error())
+		}
+	} else {
+		emit("wipe", "warn", "tofu workdir RETAINED at "+tofuWorkDir+" — wipe not verified complete (tofuDestroyed="+boolStr(report.TofuDestroyed)+", verifiedZeroOrphans="+boolStr(report.VerifiedZeroOrphans)+"); a retried wipe re-destroys against the preserved tfstate until it converges (Refs #5193)")
 	}
 
 	// Refs #3728 — if the PDM pool release failed after retries, RETAIN the
