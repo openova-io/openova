@@ -987,6 +987,14 @@ func TestRestoreFromStore_StartupKicksClusterMeshReconcile(t *testing.T) {
 	h.clusterMeshRetryMaxBackoff = 60 * time.Millisecond
 	h.clusterMeshRetryBudget = 20 * time.Second
 	h.clusterMeshAttemptTimeout = 5 * time.Second
+	// #5317: shrink the consumer-hub secret verify-retry backoff so the
+	// startup-kicked reconcile goroutine finishes within the test body.
+	// The default 3s×4 would keep the goroutine writing to t.TempDir()
+	// after the test returns, racing t.TempDir()'s RemoveAll cleanup
+	// ("directory not empty"). Same rationale as the clusterMeshRetry*
+	// overrides above.
+	h.consumerHubSyncVerifyBackoff = 20 * time.Millisecond
+	h.consumerHubSyncVerifyAttempts = 3
 
 	h.restoreFromStore()
 
