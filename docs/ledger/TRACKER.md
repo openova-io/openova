@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-22T20:30:07Z` |
+| Last refreshed | `2026-07-22T20:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 21 |
+| Open issues | 22 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 21 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 22 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 21 open items (clickable table)
+### All 22 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -221,6 +221,7 @@ flowchart LR
 | [#5305](https://github.com/openova-io/openova/issues/5305) | funnel purchased-app deploy: CAS retry-widening (#5235) still loses to the org-c | Other |
 | [#5311](https://github.com/openova-io/openova/issues/5311) | cnpg Continuum #4901 fix is INERT on true 2-region topology — controller can't | Other |
 | [#5317](https://github.com/openova-io/openova/issues/5317) | Replica-region consumer-hub secret sync NO-OPs (logs 'synced 13 Secrets' but del | Other |
+| [#5323](https://github.com/openova-io/openova/issues/5323) | cutover-contract Case 34 asserts stale camelCase disableRedirect — blocks bp-s | Other |
 
 ---
 
@@ -228,6 +229,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-22T20:38 | [#5324](https://github.com/openova-io/openova/pull/5324) | #5302 | fix(cutover): Case 34 asserts lowercase disableredirect per  |
 | 2026-07-21T03:59 | [#5318](https://github.com/openova-io/openova/pull/5318) | #5261 | fix(#5317): read-back-verify replica consumer-hub secret syn |
 | 2026-07-21T03:36 | [#5316](https://github.com/openova-io/openova/pull/5316) | #5311 | fix(continuum): observe 2-region standby via primary pg_stat |
 | 2026-07-21T03:36 | [#5314](https://github.com/openova-io/openova/pull/5314) | #5086 | test(powerdns): §854 Hetzner DNS front-door render-contract  |
@@ -257,7 +259,6 @@ flowchart LR
 | 2026-07-19T23:32 | [#5271](https://github.com/openova-io/openova/pull/5271) | #5246 | fix(#5267): document + gate the control-plane DR contract (4 |
 | 2026-07-19T19:24 | [#5268](https://github.com/openova-io/openova/pull/5268) | #5245 | fix(#5245): dr-failback targets a peer host resolvable from  |
 | 2026-07-19T17:16 | [#5266](https://github.com/openova-io/openova/pull/5266) | #5237 | fix(#5237): pin-aware prewarm + step-06 version-presence gat |
-| 2026-07-19T16:59 | [#5264](https://github.com/openova-io/openova/pull/5264) | #5262 | fix(#5262): sticky gitea admin password + cutover git-persis |
 
 ---
 
