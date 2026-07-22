@@ -282,9 +282,37 @@ else
   bad "4b. catalyst-api DEPLOYED=${_deployed_tag} != PINNED=${_pinned_tag} — a deploybot roll is PENDING; it WILL reconcile mid-prov and ABANDON it (hw265). Wait for Flux to roll catalyst-api to the pinned image + settle, THEN fire."
 fi
 
-# 5. NO in-flight Build-&-Deploy / blueprint-release CI (a merge mid-prov rolls catalyst-api -> abandon)
-inflight=$(gh run list --repo openova-io/openova --limit 12 --json name,status -q '[.[]|select(.status!="completed")]|length' 2>/dev/null)
-[ "${inflight:-x}" = "0" ] && pass "5. no in-flight CI (and HOLD all merges until ready)" || bad "5. ${inflight:-unknown} CI run(s) in flight — wait + DO NOT MERGE until prov is ready"
+# 5. NO in-flight Build-&-Deploy / blueprint-release CI (a merge mid-prov rolls catalyst-api -> abandon).
+#    Roll-capable = in_progress / waiting, or queued <15min (a runner may pick it
+#    up any second). A queued run OLDER than 15min is a runner-starved zombie
+#    (#5325, hw285 2026-07-22: a docs-only privacy-redact-guard run sat queued
+#    10+min and failed this gate on 6 consecutive fire attempts; 2026-05-15
+#    zombies queue forever) — it is not progressing and cannot merge/roll
+#    catalyst-api mid-prov, so it must NOT fail the gate; surface it as a
+#    ⚠ info line (id + age) instead. gh/API errors stay fail-closed (unknown -> ❌).
+ci5=$(gh run list --repo openova-io/openova --limit 12 --json databaseId,name,status,createdAt 2>/dev/null | NOW="$(date -u +%s)" python3 -c '
+import sys,json,os,datetime
+now=int(os.environ["NOW"])
+try:
+    runs=json.load(sys.stdin)
+except Exception:
+    sys.exit()  # no output -> read leaves inflight empty -> fail-closed below
+blocking=0; stale=[]
+for r in runs:
+    s=r.get("status")
+    if s in ("completed",None): continue
+    try:
+        age=(now-int(datetime.datetime.strptime(r.get("createdAt",""),"%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc).timestamp()))//60
+    except Exception:
+        age=-1  # unparseable createdAt -> treat as blocking (fail-closed)
+    if s=="queued" and age>=15:
+        stale.append("{} {} queued {}min".format(r.get("name"),r.get("databaseId"),age))
+    else:
+        blocking+=1
+print(blocking, "; ".join(stale))' 2>/dev/null)
+read -r inflight stale_q <<<"${ci5:-}"
+[ -n "${stale_q:-}" ] && echo "  ⚠ 5. runner-starved queued zombie(s) — NOT gate-failing (a queued run cannot roll catalyst-api): ${stale_q}"
+[ "${inflight:-x}" = "0" ] && pass "5. no roll-capable in-flight CI (and HOLD all merges until ready)" || bad "5. ${inflight:-unknown} roll-capable CI run(s) in flight (in_progress/waiting/fresh-queued) — wait + DO NOT MERGE until prov is ready"
 
 # 6. fresh bucket (caller asserts uniqueness)
 pass "6. bucket: ${BUCKET} (caller must confirm it is fresh/unused)"
