@@ -2,7 +2,7 @@
 
 > **What this is:** operator how-tos for OpenOva. Provisioning, chart bumps, Blueprint authoring, failover recovery, troubleshooting.
 > **Authority:** PERMANENT canon. Reviewed PRs only.
-> **Updated:** 2026-07-14 — added §0 (Huawei kom4dc canonical provisioning chapter: protect-list, quota gates, pre-fire sequence, cutover re-fire, debug-before-wipe, fire-cadence cap); Hetzner sections explicitly demoted to the alternate-provider path.
+> **Updated:** 2026-07-23 — added §0.7 (break-glass record-less env wipe, proven hw284 — Refs #5328). Previously 2026-07-14 — added §0 (Huawei kom4dc canonical provisioning chapter: protect-list, quota gates, pre-fire sequence, cutover re-fire, debug-before-wipe, fire-cadence cap); Hetzner sections explicitly demoted to the alternate-provider path.
 > **Pointers:** see [`DOD.md`](DOD.md) for fresh-prov verification, [`ARCHITECTURE.md`](ARCHITECTURE.md) for system shape, [`PRINCIPLES.md`](PRINCIPLES.md) for what NOT to do.
 
 This file consolidates five prior runbook documents (`BLUEPRINT-AUTHORING.md`, `CHART-AUTHORING.md`, `DEMO-RUNBOOK.md`, `RUNBOOK-OPERATIONS.md`, `RUNBOOK-PROVISIONING.md`) per the lean-doc strategy. Section anchors are stable; older docs are deleted by the orchestrator after this lands.
@@ -11,7 +11,7 @@ This file consolidates five prior runbook documents (`BLUEPRINT-AUTHORING.md`, `
 
 ## Table of contents
 
-- [§0 — Provisioning on Huawei kom4dc (CANONICAL substrate)](#0--provisioning-on-huawei-kom4dc-canonical-substrate)
+- [§0 — Provisioning on Huawei kom4dc (CANONICAL substrate)](#0--provisioning-on-huawei-kom4dc-canonical-substrate) — *incl. §0.7 break-glass record-less env wipe*
 - [§1 — Fresh provisioning](#1--fresh-provisioning) — *Hetzner, alternate-provider path*
 - [§2 — Day-2 operations](#2--day-2-operations) — *§2.1–2.3 Hetzner-specific*
 - [§3 — Blueprint authoring](#3--blueprint-authoring)
@@ -103,6 +103,48 @@ curl -s -H "Cookie: catalyst_session=${COOK}" \
 On kom4dc the pushed cloud-init log is the **ONLY** Phase-1 forensic (no sshd, no console-output API). Auto-wiping a failed env before reading the log destroys the fire's entire diagnostic value — the exact mistake the founder called out. A 404 from this endpoint on a failed prov is itself a P0 defect, not a shrug.
 
 Wipe via the canonical endpoint only — `POST https://console.openova.io/sovereign/api/v1/deployments/{id}/wipe` — and **never wipe a converged env while it retains verification value**: walk everything walkable and commit the evidence before any wipe (§0.5 gate (b) applies to wipes too).
+
+### 0.7 Break-glass: record-less env wipe — `scripts/wipe-recordless-env.sh` (Refs #5328)
+
+**When allowed — and ONLY then.** A store defect can lose BOTH a deployment's mothership record AND its tofu state. Then the canonical wipe is structurally impossible:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}' -X POST -H "Cookie: catalyst_session=${COOK}" \
+  "https://console.openova.io/sovereign/api/v1/deployments/${DEP_ID}/wipe"   # → 404 (record lost)
+# AND /var/lib/catalyst/tofu/<dep-id>/ absent on the catalyst-api-deployments PVC (state lost)
+```
+
+Only when **both** hold may this tool run. If either exists, STOP — use the canonical endpoint (§0.6, `docs/PROTOCOL.md` §5). Proven live on hw284 (dep `383db23ccaf13be5`, 2026-07-22 ~20:45–21:03Z): clean direct-HCS-API teardown after exactly this double-loss.
+
+**Scope law (fail-closed):** a resource is touched ONLY if its name contains BOTH the env subdomain token AND the 8-char dep-id prefix (children — ELB listeners/pools/healthmonitors/members, snat/dnat rules, subnets — only via their scope-matched parent). **Hard fence at every delete:** never `bastion-openova` / `bastion-openova-vpc` / EIP `212.72.24.20` (§0.1); a bastion name passing the scope filter aborts the whole run. The only two un-scoped delete classes — `status=DOWN` unbound EIPs and `status=available` `pvc-*` EVS (detached CSI leftovers, whose names never carry env tokens) — require `--reap-orphans` AND a live proof that the mothership deployments list has zero active envs.
+
+```bash
+# From the mothership/bastion vantage (kom4dc APIs are private-HCS-only). Dry-run FIRST:
+HW_TFVARS=/deps/tofu/<any-prior-dep>/tofu.auto.tfvars.json \
+  bash scripts/wipe-recordless-env.sh hw284.omani.works 383db23c            # plan only
+HW_TFVARS=... bash scripts/wipe-recordless-env.sh hw284.omani.works 383db23c --apply
+# Orphan classes too (needs BEARER or COOK; refuses unless 0 active deployments):
+HW_TFVARS=... BEARER=$JWT bash scripts/wipe-recordless-env.sh hw284.omani.works 383db23c --apply --reap-orphans
+bash scripts/wipe-recordless-env.sh --self-test                             # offline fence/scope assertions
+```
+
+**Teardown order + kom4dc quirks the script bakes in** (all hit live on hw284; endpoint paths mirror the canonical purge cascade in `products/catalyst/bootstrap/api/internal/providers/huawei/provider.go`):
+
+| Step | Quirk baked in |
+|---|---|
+| 1. ELB v3: healthmonitor → members → pool → listener → LB | cascade delete unsupported (`ELB.8902`); pool delete 409s until its healthmonitor is gone — healthmonitor FIRST |
+| 2. NAT: snat_rules + dnat_rules → gateways | flat spec delete path is `APIGW.0101` on kom4dc — nested `nat_gateways/{nid}/snat_rules/{rid}` only; NAT delete 400s briefly (`VPC.2016` eventual consistency) — retried |
+| 3. VPC peerings of the scoped VPCs | VPC delete 409s while peered (#3140 class) |
+| 4. ECS batch delete (`delete_publicip=true`, `delete_volume=true`) | also removes the attached CSI EVS volumes (~85 on hw284); apply mode polls until servers are really gone |
+| 5. EVS scoped `status=available` volumes | — |
+| 6. Subnets | 409 while ports release — retried with backoff |
+| 7. Security groups | 409 while ports settle (#4046 class) — retried |
+| 8. VPCs | 409-retried |
+| 9. EIP release (scoped `bandwidth_name`) | kom4dc can 200-and-keep an EIP (hw40 G13) — 3 verify-passes |
+| 10. `--reap-orphans` only | DOWN unbound EIPs + available `pvc-*` EVS, zero-active-envs gate |
+| — pacing | `SYS.0429` "black list" on rapid calls — ~2s pace, 12s back-off on 429, ≤5 attempts |
+
+Ends with a verification sweep over every plane; leftovers ⇒ non-zero exit (re-run — it is idempotent). Keypairs are deliberately NOT swept (their names lack the dep-id token; the dual-token law is absolute — the next canonical wipe's keypair sweep reaps them). After a clean run, observe the ~15-min EIP/quota release lag (§0.2) before any fire, and run `scripts/prov-preflight.sh` as usual — this tool replaces nothing in the pre-fire sequence (§0.3).
 
 ---
 
