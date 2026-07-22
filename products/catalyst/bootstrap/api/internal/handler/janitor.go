@@ -34,21 +34,35 @@
 //
 //   1. List in-memory + on-disk deployments
 //   2. For each with Status=failed AND age > JanitorFailedMaxAge
-//      (default 24h): delete kubeconfig + tofu workdir + record
+//      (default 24h): PROBE the deployment's cloud inventory FIRST
+//      (#5327). Only when the infra is verifiably GONE: delete
+//      kubeconfig + tofu workdir + record. While the infra is ALIVE
+//      the record + tofu state (the only destroy capability) are
+//      preserved — log-only by default; with
+//      CATALYST_JANITOR_DESTRUCTIVE=true the janitor runs the
+//      canonical cloud destroy (the same providers.CloudProvider.Wipe
+//      steps the wipe handler dispatches) and reaps only after a
+//      verified-gone re-probe. See gateFailedReap.
 //   3. For each with Status=wiped AND wipedAt > JanitorWipedMaxAge
 //      (default 1h): cascading delete kubeconfig + tofu workdir +
 //      record (HCS resources already destroyed during the wipe)
 //   4. Walk kubeconfigsDir + tofuDir for orphan files/dirs whose ID
 //      has no matching record in deployments/ — delete the orphan.
 //
-// We DO NOT call cloud-provider destroy here — that path requires the
-// operator's cloud token which we GC from memory after Phase 0. For
-// failed deployments older than 24h we trust that either:
-//   (a) the operator already wiped via the wizard (Cancel & Wipe), in
-//       which case Status=wiped and we just clean orphans, OR
-//   (b) the operator forgot, in which case the cloud-provider resources
-//       are stranded but the per-cloud orphan-sweep CronJob in the
-//       Sovereign chart picks them up.
+// By default we DO NOT call cloud-provider destroy here. The former
+// rationale for reaping failed records anyway — "either (a) the
+// operator already wiped via the wizard (Status=wiped, we just clean
+// orphans), or (b) the operator forgot and the per-cloud orphan-sweep
+// CronJob in the Sovereign chart picks the leftovers up" — was WRONG
+// for phase-1-failed provs (#5327, hw284 dep 383db23ccaf13be5): a prov
+// that failed in phase 1 has no functioning Sovereign to run that
+// CronJob, and the mothership's own cloud sweeps are log-only by
+// default, so reaping the record + tofu state converted a still-alive
+// 2-region env into an unowned orphan — unaddressable by the canonical
+// wipe endpoint (record gone → 404) and undestroyable by tofu (state
+// gone). The Step-2 reap is therefore gated on the infra actually
+// being gone (gateFailedReap), honouring the same DEBUG-BEFORE-WIPE
+// contract buildActivePrefixes already applies to `failed` infra.
 //
 // What this janitor does NOT do
 // ==============================
@@ -85,6 +99,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -235,6 +250,16 @@ func (h *Handler) runJanitorPass(tofuWorkDir string, failedMaxAge, wipedMaxAge t
 	})
 
 	for _, t := range toReap {
+		// #5327 (hw284) — an ungated "failed-too-long" reap deletes the
+		// record, the tofu workdir INCLUDING STATE (the only destroy
+		// capability), and the kubeconfigs WITHOUT any cloud destroy, while
+		// markPhase1Done deliberately leaves a failed prov's infra alive
+		// (DEBUG-BEFORE-WIPE). Gate the reap on the infra actually being
+		// GONE; anything ambiguous preserves (fail-closed).
+		if t.Reason == "failed-too-long" && !h.gateFailedReap(t.ID, tofuWorkDir) {
+			stats.FailedPreserved++
+			continue
+		}
 		if err := h.reapDeployment(t.ID, t.Reason, tofuWorkDir); err != nil {
 			h.log.Warn("[JANITOR] reap failed",
 				"id", t.ID,
@@ -325,6 +350,7 @@ func (h *Handler) runJanitorPass(tofuWorkDir string, failedMaxAge, wipedMaxAge t
 		"destructive", janitorDestructive(),
 		"reaped", stats.Reaped,
 		"reapErrors", stats.ReapErrors,
+		"failedInfraPreserved", stats.FailedPreserved,
 		"orphanKubeconfigsDeleted", stats.OrphanKubeconfigs,
 		"orphanTofuWorkdirsDeleted", stats.OrphanTofuWorkdirs,
 		"orphanEIPsDeleted", stats.OrphanEIPs,
@@ -344,6 +370,7 @@ type reapTarget struct {
 type janitorStats struct {
 	Reaped             int
 	ReapErrors         int
+	FailedPreserved    int
 	OrphanKubeconfigs  int
 	GhostRecords       int
 	OrphanTofuWorkdirs int
@@ -408,6 +435,207 @@ func (h *Handler) reapDeployment(id, reason, tofuWorkDir string) error {
 	}
 
 	return firstErr
+}
+
+// gateFailedReap decides whether a "failed-too-long" reap target may proceed
+// to reapDeployment. #5327 (hw284, dep 383db23ccaf13be5): reapDeployment
+// deletes the record json, the tofu workdir INCLUDING STATE (the only handle
+// that can ever `tofu destroy` the env), and the kubeconfigs — while
+// markPhase1Done deliberately leaves a failed prov's cloud infra ALIVE for
+// forensics/resume (DEBUG-BEFORE-WIPE). Ungated, the 24h reap stranded
+// hw284's live 8-server 2-region env with no owner: the canonical wipe
+// endpoint 404'd (record gone), tofu could no longer destroy (state gone),
+// and teardown needed a raw Huawei-API break-glass (#5328/PR #5329).
+//
+// Contract (every ambiguity PROTECTS, mirroring cleanGhostRecords):
+//   - infra GONE → true: today's reap is correct local cleanup.
+//   - infra ALIVE, log-only (default) → false: ONE loud Warn; the record +
+//     tofu state (the destroy capability) are preserved and the target is
+//     re-evaluated next pass.
+//   - infra ALIVE, CATALYST_JANITOR_DESTRUCTIVE=true → run the canonical
+//     cloud destroy (the same providers.CloudProvider.Wipe steps the wipe
+//     handler dispatches: tofu destroy against the still-present workdir +
+//     provider orphan sweep + object-storage purge), then RE-PROBE; only a
+//     verified-gone footprint reaps. Destroy error / still-alive → false.
+//   - probe error / creds unresolvable / status no longer "failed" / a wipe
+//     already in flight → false (fail-closed).
+func (h *Handler) gateFailedReap(id, tofuWorkDir string) bool {
+	val, ok := h.deployments.Load(id)
+	if !ok {
+		return true // record vanished mid-pass — nothing left to protect
+	}
+	dep, ok := val.(*Deployment)
+	if !ok || dep == nil {
+		return true
+	}
+	dep.mu.Lock()
+	status := dep.Status
+	wipeInFlight := dep.wipeInFlight
+	dep.mu.Unlock()
+	if status != "failed" || wipeInFlight {
+		// Status moved since the Range snapshot (operator retry / wipe took
+		// ownership) — this pass must not touch it; next pass re-evaluates.
+		return false
+	}
+
+	probe := h.janitorFailedInfraProbe
+	if probe == nil {
+		probe = h.failedDeploymentInfraAlive
+	}
+	probeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	alive, perr := probe(probeCtx, dep, tofuWorkDir)
+	cancel()
+	if perr != nil {
+		h.log.Warn("[JANITOR] failed record infra probe errored — preserving record+tofu state (destroy capability); fail-closed, re-evaluating next pass",
+			"id", id,
+			"err", perr.Error(),
+		)
+		return false
+	}
+	if !alive {
+		return true
+	}
+	if !janitorDestructive() {
+		h.log.Warn("[JANITOR] failed record " + id + " has LIVE cloud infra — preserving record+tofu state (destroy capability); set CATALYST_JANITOR_DESTRUCTIVE=true to destroy+reap")
+		return false
+	}
+
+	destroy := h.janitorFailedDestroy
+	if destroy == nil {
+		destroy = h.destroyFailedDeploymentInfra
+	}
+	// Same wall-clock budget the wipe handler grants its async destroy
+	// (#5193) — a 2-region tofu destroy legitimately takes tens of minutes.
+	destroyCtx, dcancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer dcancel()
+	if derr := destroy(destroyCtx, dep, tofuWorkDir); derr != nil {
+		h.log.Warn("[JANITOR] failed record cloud destroy errored — preserving record+tofu state; re-evaluating next pass",
+			"id", id,
+			"err", derr.Error(),
+		)
+		return false
+	}
+	// VERIFIED destroy only: re-probe and reap solely on a confirmed-gone
+	// footprint. A partial destroy keeps the record + state so the next pass
+	// (or an operator wipe) can finish the job.
+	alive, perr = probe(destroyCtx, dep, tofuWorkDir)
+	if perr != nil || alive {
+		detail := "infra still alive after destroy"
+		if perr != nil {
+			detail = "verification probe errored: " + perr.Error()
+		}
+		h.log.Warn("[JANITOR] failed record cloud destroy NOT verified gone — preserving record+tofu state; re-evaluating next pass",
+			"id", id,
+			"detail", detail,
+		)
+		return false
+	}
+	h.log.Info("[JANITOR] failed record cloud destroy verified gone — proceeding to reap", "id", id)
+	return true
+}
+
+// failedDeploymentInfraAlive is the production infra probe behind
+// gateFailedReap (#5327). It asks the deployment's own cloud provider for the
+// server inventory scoped to this deployment — the same ListServers seam the
+// wizard's infrastructure tab and the wipe pre-flight use. Every error path
+// reports alive=true (fail-closed: never authorise a reap on a probe that
+// could not actually see the cloud).
+//
+// Huawei needs a second look: Wave 5.4 disabled tags on HCS, so the
+// tag-filtered ListServers returns ZERO for a live deployment (the exact
+// blindness Wave 5.147 closed for the wipe's purge path with
+// listECSByNamePrefix). A zero tag-scoped inventory therefore only counts as
+// "gone" once the canonical name-prefix listing
+// (catalyst-<fqdn-dashed>-<dep8>-*) ALSO comes back empty.
+func (h *Handler) failedDeploymentInfraAlive(ctx context.Context, dep *Deployment, tofuWorkDir string) (bool, error) {
+	providerName := resolveProviderName(dep)
+	cp, err := providers.Get(providerName)
+	if err != nil {
+		return true, fmt.Errorf("providers.Get(%s): %w", providerName, err)
+	}
+	credsRaw := h.janitorWipeCredsRaw(providerName, dep, tofuWorkDir)
+	servers, err := cp.ListServers(ctx, dep.ID, dep.Request.SovereignFQDN, providers.ProviderCreds{Raw: credsRaw})
+	if err != nil {
+		return true, fmt.Errorf("%s ListServers: %w", providerName, err)
+	}
+	if len(servers) > 0 {
+		return true, nil
+	}
+	if strings.EqualFold(providerName, "huawei") {
+		hp := h.huaweiProvider("failed-reap probe")
+		if hp == nil {
+			return true, errors.New("huawei provider not wired — cannot verify infra is gone")
+		}
+		creds, ok := huaweiSweepCredsFromRaw(credsRaw)
+		if !ok {
+			return true, errors.New("no huawei creds resolvable (request / workdir tfvars / operator env all empty) — cannot verify infra is gone")
+		}
+		alive, aerr := hp.HasServersByNamePrefix(ctx, creds.AK, creds.SK, creds.ProjectID, creds.Region, dep.Request.SovereignFQDN, dep.ID)
+		if aerr != nil {
+			return true, fmt.Errorf("huawei name-prefix probe: %w", aerr)
+		}
+		return alive, nil
+	}
+	return false, nil
+}
+
+// destroyFailedDeploymentInfra is the production destroy behind gateFailedReap
+// when CATALYST_JANITOR_DESTRUCTIVE=true. It dispatches the SAME canonical
+// purge sequence the wipe handler's runWipePurge dispatches — the
+// providers.CloudProvider.Wipe seam (tofu destroy against the still-present
+// workdir + provider orphan sweep + object-storage purge) — with the same
+// body-less credential resolution. Any error, including a Wipe that reports
+// per-resource errors, is surfaced so the caller preserves record + state.
+func (h *Handler) destroyFailedDeploymentInfra(ctx context.Context, dep *Deployment, tofuWorkDir string) error {
+	providerName := resolveProviderName(dep)
+	cp, err := providers.Get(providerName)
+	if err != nil {
+		return fmt.Errorf("providers.Get(%s): %w", providerName, err)
+	}
+	credsRaw := h.janitorWipeCredsRaw(providerName, dep, tofuWorkDir)
+	res, werr := cp.Wipe(ctx, providers.WipeSpec{
+		DeploymentID:  dep.ID,
+		SovereignFQDN: dep.Request.SovereignFQDN,
+		Creds:         providers.ProviderCreds{Raw: credsRaw},
+	}, func(msg string) {
+		h.log.Info("[JANITOR] failed-reap destroy: " + providerName + ": " + msg)
+	})
+	if werr != nil {
+		return werr
+	}
+	if res != nil && len(res.Errors) > 0 {
+		return fmt.Errorf("%s wipe reported %d error(s): %s", providerName, len(res.Errors), strings.Join(res.Errors, "; "))
+	}
+	return nil
+}
+
+// janitorWipeCredsRaw mirrors the wipe handler's body-less credential
+// resolution for the janitor's background (no operator in the loop) probe +
+// destroy: in-memory dep.Request first (buildWipeCredsRaw with an empty
+// body), then the durable per-deployment tofu.auto.tfvars.json on the PVC
+// (#5135 — dep.Request secrets are GC'd post-writeTfvars and do not survive a
+// Pod roll; the failed dep's workdir still exists precisely BECAUSE this gate
+// preserved it), then the huawei-operator-creds Secret env (#5193 last
+// resort).
+func (h *Handler) janitorWipeCredsRaw(providerName string, dep *Deployment, tofuWorkDir string) map[string]string {
+	credsRaw := buildWipeCredsRaw(providerName, wipeRequest{}, dep.Request)
+	applyWorkdirEVSCredsFallback(providerName, credsRaw, filepath.Join(tofuWorkDir, dep.ID))
+	if strings.EqualFold(providerName, "huawei") {
+		if _, ok := huaweiSweepCredsFromRaw(credsRaw); !ok {
+			if env, eok := huaweiOperatorCredsFromEnv(); eok {
+				fill := func(key, val string) {
+					if strings.TrimSpace(credsRaw[key]) == "" {
+						credsRaw[key] = val
+					}
+				}
+				fill("access_key", env.AccessKey)
+				fill("secret_key", env.SecretKey)
+				fill("project_id", env.ProjectID)
+				fill("region", env.Region)
+			}
+		}
+	}
+	return credsRaw
 }
 
 // activeIDSet returns the union of deployment IDs known in-memory or

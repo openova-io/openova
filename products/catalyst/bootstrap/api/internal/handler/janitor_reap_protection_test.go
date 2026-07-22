@@ -1,11 +1,14 @@
 package handler
 
 import (
+	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // TestBuildActivePrefixes_ProtectsEveryNonWipedStatus — #4454 regression.
@@ -198,5 +201,291 @@ func TestDiscoverHuaweiCreds_NoneAvailable(t *testing.T) {
 	t.Setenv("CATALYST_HUAWEI_PROJECT_ID", "")
 	if _, ok := discoverHuaweiCreds(t.TempDir()); ok {
 		t.Fatal("with neither tfvars nor env creds, discovery must report ok=false")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// #5327 — the Step-1 "failed-too-long" reap must preserve the destroy
+// capability (record + tofu state + kubeconfigs) while the deployment's cloud
+// infra is still alive.
+//
+// hw284 (dep 383db23ccaf13be5): phase-1 failure marked the record `failed`
+// and — by design (DEBUG-BEFORE-WIPE) — left the full 2-region Huawei infra
+// alive. 24h later the ungated reap deleted the record json, the tofu workdir
+// INCLUDING STATE, and the kubeconfigs WITHOUT any cloud destroy. The env
+// then ran orphaned-alive for ~40h: the canonical wipe endpoint 404'd (record
+// gone) and tofu could no longer destroy (state gone) — teardown needed a raw
+// Huawei-API break-glass (#5328/PR #5329). These tests pin the gate contract:
+//
+//	failed + infra ALIVE + log-only     → record & workdir & kubeconfigs preserved
+//	failed + infra ALIVE + destructive  → canonical destroy first, reap only
+//	                                      after the verified-gone re-probe
+//	failed + infra GONE                 → reaped exactly as before
+//	probe error                         → preserved (fail-closed)
+// ---------------------------------------------------------------------------
+
+// failedReapFixture seeds one deployment record (default status "failed",
+// FinishedAt 25h ago — past the 24h failedMaxAge) plus the on-disk artifacts
+// reapDeployment would delete: the tofu workdir with a state marker (the
+// destroy capability), the primary kubeconfig, and one secondary-region
+// kubeconfig.
+type failedReapFixture struct {
+	h     *Handler
+	work  string
+	kcDir string
+	id    string
+}
+
+func makeFailedReapFixture(t *testing.T, id, status string) *failedReapFixture {
+	t.Helper()
+	work := t.TempDir()
+	kcDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(work, id), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, id, "terraform.tfstate"), []byte(`{"resources":[{"mode":"managed"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kcDir, id+".yaml"), []byte("kubeconfig"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kcDir, id+"-region-b.yaml"), []byte("kubeconfig-b"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{
+		log:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		kubeconfigsDir: kcDir,
+	}
+	h.deployments.Store(id, &Deployment{
+		ID:         id,
+		Status:     status,
+		StartedAt:  time.Now().Add(-26 * time.Hour),
+		FinishedAt: time.Now().Add(-25 * time.Hour),
+	})
+	// Keep the pass's cloud sweeps + cred discovery inert: no tfvars in the
+	// workdir (only a bare tfstate marker) and no operator-env creds, so
+	// discoverHuaweiCreds reports ok=false and no sweep ever dials out.
+	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "")
+	t.Setenv("CATALYST_HUAWEI_SECRET_KEY", "")
+	t.Setenv("CATALYST_HUAWEI_PROJECT_ID", "")
+	return &failedReapFixture{h: h, work: work, kcDir: kcDir, id: id}
+}
+
+func (f *failedReapFixture) runPass() {
+	f.h.runJanitorPass(f.work, 24*time.Hour, time.Hour)
+}
+
+func (f *failedReapFixture) recordPresent() bool {
+	_, ok := f.h.deployments.Load(f.id)
+	return ok
+}
+
+func (f *failedReapFixture) tofuStatePresent(t *testing.T) bool {
+	t.Helper()
+	_, err := os.Stat(filepath.Join(f.work, f.id, "terraform.tfstate"))
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("stat tofu state: %v", err)
+	}
+	return err == nil
+}
+
+func (f *failedReapFixture) kubeconfigsPresent(t *testing.T) bool {
+	t.Helper()
+	_, perr := os.Stat(filepath.Join(f.kcDir, f.id+".yaml"))
+	_, serr := os.Stat(filepath.Join(f.kcDir, f.id+"-region-b.yaml"))
+	return perr == nil && serr == nil
+}
+
+// TestGateFailedReap_InfraAliveLogOnly_PreservesDestroyCapability — the exact
+// hw284 shape: failed record past failedMaxAge, cloud infra ALIVE, janitor in
+// its mandated log-only default. The pass must preserve record + tofu state +
+// kubeconfigs, never invoke a destroy, and keep re-evaluating on later passes.
+func TestGateFailedReap_InfraAliveLogOnly_PreservesDestroyCapability(t *testing.T) {
+	t.Setenv("CATALYST_JANITOR_DESTRUCTIVE", "")
+	f := makeFailedReapFixture(t, "383db23ccaf13be5", "failed")
+
+	probeCalls, destroyCalls := 0, 0
+	f.h.janitorFailedInfraProbe = func(ctx context.Context, dep *Deployment, tofuWorkDir string) (bool, error) {
+		probeCalls++
+		return true, nil // infra ALIVE
+	}
+	f.h.janitorFailedDestroy = func(ctx context.Context, dep *Deployment, tofuWorkDir string) error {
+		destroyCalls++
+		return nil
+	}
+
+	// Two passes — the skip must be a re-evaluate-next-pass, not a one-off.
+	f.runPass()
+	f.runPass()
+
+	if destroyCalls != 0 {
+		t.Fatalf("log-only janitor must NEVER destroy cloud infra, destroy ran %d time(s)", destroyCalls)
+	}
+	if probeCalls != 2 {
+		t.Fatalf("expected the infra probe once per pass (2), got %d", probeCalls)
+	}
+	if !f.recordPresent() {
+		t.Fatal("REGRESSION #5327: failed record with LIVE infra was reaped — the canonical wipe endpoint would 404 on a still-alive env")
+	}
+	if !f.tofuStatePresent(t) {
+		t.Fatal("REGRESSION #5327: tofu state (the ONLY destroy capability) was deleted while the cloud infra is alive")
+	}
+	if !f.kubeconfigsPresent(t) {
+		t.Fatal("REGRESSION #5327: kubeconfigs deleted while the cloud infra is alive")
+	}
+}
+
+// TestGateFailedReap_InfraAliveDestructive_DestroysThenReaps — with
+// CATALYST_JANITOR_DESTRUCTIVE=true the gate runs the canonical cloud destroy
+// first (the same providers.CloudProvider.Wipe steps the wipe handler
+// dispatches), re-probes, and only reaps a verified-gone footprint.
+func TestGateFailedReap_InfraAliveDestructive_DestroysThenReaps(t *testing.T) {
+	t.Setenv("CATALYST_JANITOR_DESTRUCTIVE", "true")
+	f := makeFailedReapFixture(t, "aa5327dstry00001", "failed")
+
+	destroyCalls := 0
+	infraGone := false
+	f.h.janitorFailedInfraProbe = func(ctx context.Context, dep *Deployment, tofuWorkDir string) (bool, error) {
+		return !infraGone, nil
+	}
+	f.h.janitorFailedDestroy = func(ctx context.Context, dep *Deployment, tofuWorkDir string) error {
+		destroyCalls++
+		// The destroy must run while the destroy capability still exists.
+		if _, err := os.Stat(filepath.Join(tofuWorkDir, dep.ID, "terraform.tfstate")); err != nil {
+			t.Errorf("destroy invoked AFTER the tofu state was deleted: %v", err)
+		}
+		infraGone = true
+		return nil
+	}
+
+	f.runPass()
+
+	if destroyCalls != 1 {
+		t.Fatalf("destructive mode must invoke the canonical destroy exactly once, got %d", destroyCalls)
+	}
+	if f.recordPresent() {
+		t.Fatal("after a VERIFIED destroy the failed record must be reaped")
+	}
+	if f.tofuStatePresent(t) {
+		t.Fatal("after a VERIFIED destroy the tofu workdir must be reaped")
+	}
+	if f.kubeconfigsPresent(t) {
+		t.Fatal("after a VERIFIED destroy the kubeconfigs must be reaped")
+	}
+}
+
+// TestGateFailedReap_InfraGone_ReapsAsToday — when the cloud footprint is
+// verifiably gone the historical reap behaviour is correct local cleanup and
+// must proceed unchanged (no destroy, artifacts removed). A sibling `wiped`
+// record must also keep reaping WITHOUT ever consulting the infra probe.
+func TestGateFailedReap_InfraGone_ReapsAsToday(t *testing.T) {
+	t.Setenv("CATALYST_JANITOR_DESTRUCTIVE", "")
+	f := makeFailedReapFixture(t, "bb5327gone000001", "failed")
+
+	// Sibling wiped record — its bookkeeping reap must not touch the probe.
+	f.h.deployments.Store("cc5327wiped00001", &Deployment{
+		ID:         "cc5327wiped00001",
+		Status:     "wiped",
+		StartedAt:  time.Now().Add(-3 * time.Hour),
+		FinishedAt: time.Now().Add(-2 * time.Hour),
+	})
+
+	destroyCalls := 0
+	f.h.janitorFailedInfraProbe = func(ctx context.Context, dep *Deployment, tofuWorkDir string) (bool, error) {
+		if dep.ID != f.id {
+			t.Errorf("infra probe consulted for a %q record (id %s) — the gate is for failed-too-long targets only", dep.Status, dep.ID)
+		}
+		return false, nil // infra GONE
+	}
+	f.h.janitorFailedDestroy = func(ctx context.Context, dep *Deployment, tofuWorkDir string) error {
+		destroyCalls++
+		return nil
+	}
+
+	f.runPass()
+
+	if destroyCalls != 0 {
+		t.Fatalf("infra-gone reap must not destroy anything, destroy ran %d time(s)", destroyCalls)
+	}
+	if f.recordPresent() {
+		t.Fatal("failed record with GONE infra must still be reaped (today's behaviour)")
+	}
+	if f.tofuStatePresent(t) {
+		t.Fatal("tofu workdir of a gone-infra failed record must still be reaped")
+	}
+	if f.kubeconfigsPresent(t) {
+		t.Fatal("kubeconfigs of a gone-infra failed record must still be reaped")
+	}
+	if _, ok := f.h.deployments.Load("cc5327wiped00001"); ok {
+		t.Fatal("wiped-bookkeeping reap regressed — the #5327 gate must only apply to failed-too-long targets")
+	}
+}
+
+// TestGateFailedReap_ProbeError_FailsClosed — a probe that cannot actually
+// see the cloud (HCS API down, creds unresolvable, provider unwired) must
+// PRESERVE, even with the janitor armed destructive: no destroy on
+// unverifiable state, no reap.
+func TestGateFailedReap_ProbeError_FailsClosed(t *testing.T) {
+	t.Setenv("CATALYST_JANITOR_DESTRUCTIVE", "true")
+	f := makeFailedReapFixture(t, "dd5327proberr001", "failed")
+
+	destroyCalls := 0
+	f.h.janitorFailedInfraProbe = func(ctx context.Context, dep *Deployment, tofuWorkDir string) (bool, error) {
+		return false, errors.New("HCS ECS API: status 503")
+	}
+	f.h.janitorFailedDestroy = func(ctx context.Context, dep *Deployment, tofuWorkDir string) error {
+		destroyCalls++
+		return nil
+	}
+
+	f.runPass()
+
+	if destroyCalls != 0 {
+		t.Fatalf("probe-error must never authorise a destroy, destroy ran %d time(s)", destroyCalls)
+	}
+	if !f.recordPresent() || !f.tofuStatePresent(t) || !f.kubeconfigsPresent(t) {
+		t.Fatal("REGRESSION #5327: probe error must fail CLOSED (record + tofu state + kubeconfigs preserved)")
+	}
+}
+
+// TestGateFailedReap_UnverifiedDestroy_Preserves — destructive mode without a
+// VERIFIED destroy must preserve: (a) the destroy itself errors, (b) the
+// destroy claims success but the re-probe still sees live infra, (c) the
+// re-probe errors. "Only reap after a verified destroy."
+func TestGateFailedReap_UnverifiedDestroy_Preserves(t *testing.T) {
+	cases := []struct {
+		name       string
+		destroyErr error
+		// reProbe is consulted on the post-destroy verification pass.
+		reProbeAlive bool
+		reProbeErr   error
+	}{
+		{name: "destroy_errors", destroyErr: errors.New("tofu destroy: exit 1")},
+		{name: "reprobe_still_alive", reProbeAlive: true},
+		{name: "reprobe_errors", reProbeErr: errors.New("HCS ECS API: timeout")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CATALYST_JANITOR_DESTRUCTIVE", "true")
+			f := makeFailedReapFixture(t, "ee5327unverif001", "failed")
+
+			destroyed := false
+			f.h.janitorFailedInfraProbe = func(ctx context.Context, dep *Deployment, tofuWorkDir string) (bool, error) {
+				if !destroyed {
+					return true, nil // pre-destroy: alive
+				}
+				return tc.reProbeAlive, tc.reProbeErr
+			}
+			f.h.janitorFailedDestroy = func(ctx context.Context, dep *Deployment, tofuWorkDir string) error {
+				destroyed = true
+				return tc.destroyErr
+			}
+
+			f.runPass()
+
+			if !f.recordPresent() || !f.tofuStatePresent(t) || !f.kubeconfigsPresent(t) {
+				t.Fatal("an UNVERIFIED destroy must preserve record + tofu state + kubeconfigs for the next pass / an operator wipe")
+			}
+		})
 	}
 }

@@ -674,6 +674,25 @@ func (p *Provider) ListServers(ctx context.Context, deploymentID, sovereignFQDN 
 	return out, nil
 }
 
+// HasServersByNamePrefix reports whether ANY ECS bearing the deployment's
+// canonical name prefix (`catalyst-<fqdn-dashed>-<dep8>-…`, the
+// local.name_prefix from infra/providers/huawei/main.tf) still exists in the
+// project. #5327 — the janitor's failed-record reap gate needs a
+// tag-independent liveness probe: Wave 5.4 disabled tags on HCS, so the
+// tag-filtered ListServers returns zero even for a LIVE deployment — the
+// exact blindness Wave 5.147 closed for the wipe's purge path with
+// listECSByNamePrefix. This exposes that same fallback read-only, so a zero
+// tag-scoped inventory is never mistaken for "infra gone" on HCS.
+func (p *Provider) HasServersByNamePrefix(ctx context.Context, ak, sk, projectID, region, sovereignFQDN, deploymentID string) (bool, error) {
+	hw := hwCreds{AccessKey: ak, SecretKey: sk, ProjectID: projectID}
+	client := httpClientFor(providers.ProviderCreds{Raw: map[string]string{"region": region}})
+	servers, err := listECSByNamePrefix(ctx, client, hw, region, sovereignFQDN, deploymentID)
+	if err != nil {
+		return false, err
+	}
+	return len(servers) > 0, nil
+}
+
 // BucketNameForDeployment returns the deterministic per-deployment
 // OBS bucket name. Pattern mirrors Hetzner's shape so the wipe
 // handler can reproduce the same name post-restart.
