@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-22T21:45:03Z` |
+| Last refreshed | `2026-07-22T22:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 21 |
+| Open issues | 24 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 21 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 24 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 21 open items (clickable table)
+### All 24 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -221,6 +221,9 @@ flowchart LR
 | [#5305](https://github.com/openova-io/openova/issues/5305) | funnel purchased-app deploy: CAS retry-widening (#5235) still loses to the org-c | Other |
 | [#5311](https://github.com/openova-io/openova/issues/5311) | cnpg Continuum #4901 fix is INERT on true 2-region topology — controller can't | Other |
 | [#5317](https://github.com/openova-io/openova/issues/5317) | Replica-region consumer-hub secret sync NO-OPs (logs 'synced 13 Secrets' but del | Other |
+| [#5325](https://github.com/openova-io/openova/issues/5325) | prov-preflight check-5 false-positive: runner-starved queued docs-guard run coun | Other |
+| [#5327](https://github.com/openova-io/openova/issues/5327) | catalyst-api janitor silently deletes deployment record + tofu state + kubeconfi | Other |
+| [#5328](https://github.com/openova-io/openova/issues/5328) | Permanence: break-glass record-less env wipe — scripts/wipe-recordless-env.sh  | Other |
 
 ---
 
