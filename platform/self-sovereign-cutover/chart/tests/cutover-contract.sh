@@ -1330,7 +1330,10 @@ echo "[cutover-contract] Case 34: bootstrap-kit slot 19-harbor disables the blob
 # (#4557), skopeo's dest/src-tls-verify, and a HelmRepo certSecretRef all trust
 # ONLY the registry host -> x509 wedges the step-08 fresh-pull proof + any
 # in-cluster blob fetch under the deny-egress hold. The Sovereign overlay MUST
-# set harbor.persistence.imageChartStorage.disableRedirect: true.
+# set harbor.persistence.imageChartStorage.disableredirect: true — ALL-LOWERCASE
+# per #5302: upstream Harbor's registry-cm template reads only the lowercase
+# key ({{ $storage.disableredirect }}); the camelCase spelling is silently
+# dropped by Helm and left the guard INERT (#5323).
 # Resolve 19-harbor.yaml robustly: the CI harness invokes this script from the
 # repo ROOT as `bash <script> <chart_dir>` ($1=platform/self-sovereign-cutover/
 # chart), so derive the slot path from $CHART_DIR (4 levels up to repo root)
@@ -1345,11 +1348,11 @@ for cand in \
   [ -n "$cand" ] && [ -f "$cand" ] && { HARBOR_SLOT="$cand"; break; }
 done
 if [ -n "$HARBOR_SLOT" ]; then
-  if ! grep -Eq 'disableRedirect:[[:space:]]*true' "$HARBOR_SLOT"; then
-    echo "FAIL: 19-harbor.yaml does not set imageChartStorage.disableRedirect: true — blob GETs 302 to the OBS host and x509 the in-cluster TLS-pinned cutover clients (#4573 F2)" >&2
+  if ! grep -Eq 'disableredirect:[[:space:]]*true' "$HARBOR_SLOT"; then
+    echo "FAIL: 19-harbor.yaml does not set imageChartStorage.disableredirect: true (ALL-LOWERCASE per #5302 — camelCase is Helm-dropped/inert) — blob GETs 302 to the OBS host and x509 the in-cluster TLS-pinned cutover clients (#4573 F2)" >&2
     exit 1
   fi
-  echo "  PASS (19-harbor.yaml sets imageChartStorage.disableRedirect: true — registry streams blobs directly from registry.<fqdn>, no OBS 302)"
+  echo "  PASS (19-harbor.yaml sets imageChartStorage.disableredirect: true — registry streams blobs directly from registry.<fqdn>, no OBS 302)"
 else
   echo "  SKIP (19-harbor.yaml not reachable from test cwd — chart consumed standalone)"
 fi
