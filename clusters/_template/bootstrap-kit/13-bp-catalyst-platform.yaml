@@ -1274,7 +1274,7 @@ spec:
       #   gate now also requires CNPG ConsistentSystemID=True, so a divergent
       #   equal-LSN standby can no longer be declared re-cloned without a real
       #   pg_basebackup re-clone. Lockstep w/ Chart.yaml + 16b slot 0.2.21.
-      version: 1.4.1202
+      version: 1.4.1203
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
