@@ -72,6 +72,39 @@ time) and uses `disableWait: true` because the chart is dormant (no Pods to
 wait on except the registry-pivot DaemonSet, which is event-driven on
 the status ConfigMap).
 
+## Post-cutover Day-2 Harbor reconciler (`daytwoReconciler`, #5265)
+
+`step-03` (`harbor-prewarm`) pushes every pinned chart into the local Harbor
+**exactly once** at cutover. Post-cutover, the local Gitea mirror re-syncs
+upstream pin bumps on the operator's schedule and Flux moves each HelmRelease to
+the new pin — but the local Harbor still holds only the cutover-time versions,
+so the `HelmChart` cannot reconcile and the upgrade wedges (workloads keep
+running on the installed version; it is a strand, not an outage). The Git leg
+has a companion (`step-01`'s re-runnable mirror); this template
+(`templates/12-daytwo-harbor-pin-reconciler.yaml`) is the **Harbor** companion.
+
+It is a **Deployment**, not a CronJob — a CronJob's scheduler dies with the
+control-plane region, so the loop must be a rescheduled workload to survive a
+region kill. It enumerates the frozen bootstrap-kit chart pins via the **same**
+`03b` `bootstrapkit_pins` extractor `step-03`/`step-06` use, diffs them against
+the local Harbor (the `#5030` durable artifact-API probe), and closes the drift.
+
+**Sovereignty-safe: ships disabled by default** (`daytwoReconciler.enabled:
+false` — the same severance-safe default as `mirrorResync`, so a canonical
+fresh-prov Sovereign renders nothing here and the `step-08` deny-egress proof is
+untouched). When an operator opts into a managed-update posture:
+
+- `mode: detect` (default when enabled) reaches **only** the local Gitea mirror +
+  local Harbor (zero external egress) and writes the exact set of missing pinned
+  chart artifacts to ConfigMap `self-sovereign-cutover-daytwo-missing` + logs —
+  the air-gapped Sovereign's offline-media side-load manifest, and the signal
+  that turns the previously-silent strand visible.
+- `mode: warm` additionally `helm pull`s each missing chart from
+  `daytwoReconciler.warm.upstreamOciPrefix` (with an operator-supplied
+  `warm.credentialSecret` — the cutover strips its own ghcr auth by design) and
+  `helm push`es it into local Harbor, then re-checks. Fail-soft: a warm miss is
+  logged and left in the manifest; the loop never crash-loops.
+
 ## RBAC discipline
 
 The runner ServiceAccount + ClusterRole + ClusterRoleBinding live at
