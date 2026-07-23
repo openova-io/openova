@@ -89,6 +89,33 @@ spec:
           protocol: TCP
         - port: {{ .Values.cnpgPair.networkPolicy.operatorMetricsPort }}
           protocol: TCP
+{{- if .Values.cnpgPair.networkPolicy.continuumControllerNamespace }}
+    # #5311 continuum-controller standby probe — the continuum-controller
+    # reads the ACTING PRIMARY's pg_stat_replication over 5432 to surface
+    # `status.standbyAvailable` on a TRUE 2-region topology (the region-b
+    # replica Cluster CR is not in the primary region's API, so FindPair is
+    # "pair incomplete" and the SQL probe is the only observation source).
+    # The controller runs in a DIFFERENT namespace than the pair
+    # (catalyst-system), so this policy — which default-denies all OTHER
+    # ingress to the primary Pods — drops its connection unless carved out.
+    # WITHOUT this rule the probe's SYN to the primary -rw:5432 is denied →
+    # pgx connect times out → observeCNPGStandby makes "no determination"
+    # every tick → standbyAvailable stays UNSET (the #4901/#5311 false-green
+    # a live streaming standby exists but the DR health surface never shows
+    # it). Live-proven on hw287: #5335 fixed the probe's Secret-GET RBAC but
+    # the connection was STILL dropped here — the residual #5311 gap. The
+    # namespaceSelector + podSelector AND to the controller Pod alone.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.cnpgPair.networkPolicy.continuumControllerNamespace }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.cnpgPair.networkPolicy.continuumControllerPodLabels | nindent 14 }}
+      ports:
+        - port: 5432
+          protocol: TCP
+{{- end }}
 {{- if (include "cnpg-pair.failbackActive" .) }}
     # #5245 dr-failback signals container — polls the primary's -rw for
     # the post-failover geometry (local recovery/timeline state + the

@@ -497,6 +497,24 @@ cnpgPair:
     # cnpg-system (or the operator's own metrics collection) is not
     # default-denied once the gate flips ON.
     operatorMetricsPort: 9187
+    # continuumControllerNamespace + continuumControllerPodLabels (#5311) —
+    # the continuum-controller's standby probe reads the acting primary's
+    # pg_stat_replication over 5432 to surface `status.standbyAvailable` on a
+    # TRUE 2-region topology (the region-b replica CR is not in the primary
+    # region's API, so the CR-based observation is structurally blind and the
+    # SQL probe is the only source). This policy selects the primary Pods and
+    # default-denies all OTHER ingress to them, so the controller — which runs
+    # in a DIFFERENT namespace (catalyst-system) — is denied unless carved out
+    # here. WITHOUT this the probe's connect to primary -rw:5432 times out →
+    # "no standby determination" every tick → standbyAvailable stays UNSET
+    # even with a live streaming standby (the #4901/#5311 false-green; the
+    # residual on hw287 AFTER the #5335 Secret-RBAC fix — the probe could read
+    # the cert but the connection was still NetworkPolicy-dropped). Empty
+    # namespace → the carve-out is omitted (byte-identical to pre-#5311). The
+    # labels AND to the controller Pod alone (namespaceSelector+podSelector).
+    continuumControllerNamespace: catalyst-system
+    continuumControllerPodLabels:
+      app.kubernetes.io/name: continuum-controller
     # crossRegionPeerClusters (#4846) — the Cilium ClusterMesh cluster.name(s)
     # of the PEER region('s) cluster, allowed to reach the pair's 5432 for
     # cross-region replication. REQUIRED: the podSelector `cnpg.io/cluster=

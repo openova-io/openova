@@ -305,7 +305,15 @@ spec:
       # 'streaming') and the signals 'streaming' arm keeps the peer-writable
       # proof fresh so the re-clone escalation no longer starves.
       # Substitutes unchanged.
-      version: 0.2.21
+      # 0.2.22 (#5311): NetworkPolicy carve-out admitting the continuum-controller
+      # (catalyst-system) to the primary -rw:5432 so its standby probe reads
+      # pg_stat_replication and surfaces status.standbyAvailable on a TRUE
+      # 2-region topology. Residual after #5335 (Secret-RBAC): the probe could
+      # read the cert but the connection to the primary was still dropped by the
+      # -allow-replication-to-primary policy (default-denies all other ingress).
+      # hw287: cnpg-pair region-b replica pg_stat_wal_receiver=streaming yet all
+      # 8 Continuum CRs read standbyAvailable=UNSET. Substitutes unchanged.
+      version: 0.2.22
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair

@@ -1,5 +1,22 @@
 apiVersion: v2
 name: bp-cnpg-pair
+# 0.2.22 (#5311): NetworkPolicy carve-out for the continuum-controller standby
+# probe — the residual after the #5335 Secret-RBAC fix. #5311 taught the
+# continuum-controller to read the acting primary's pg_stat_replication over
+# 5432 (the only standby-observation source on a TRUE 2-region topology, where
+# the region-b replica CR is absent from the primary region's API). But the
+# `-allow-replication-to-primary` NetworkPolicy selects the primary Pods and
+# default-denies all OTHER ingress, and the controller runs in a DIFFERENT
+# namespace (catalyst-system) — so its probe connection to primary -rw:5432 was
+# NetworkPolicy-DROPPED, the probe errored every tick (logged at V(1), invisible
+# at info), and `status.standbyAvailable` stayed UNSET even with a live streaming
+# standby (hw287: cnpg-pair region-b replica pg_stat_wal_receiver=streaming, yet
+# all 8 Continuum CRs read standbyAvailable=UNSET — the #4901/#5311 false-green).
+# Fix: a new primary-side ingress rule admits the continuum-controller Pod (new
+# values `networkPolicy.continuumControllerNamespace` = catalyst-system +
+# `continuumControllerPodLabels` = {app.kubernetes.io/name: continuum-controller},
+# ANDed namespaceSelector+podSelector) on 5432. Empty namespace → rule omitted
+# (byte-identical to 0.2.21). Lockstep slot 16b pin → 0.2.22.
 # 0.2.21 (#5331): dr-failback VERIFIED CONVERGENCE — the hw285 residual.
 # hw285 G12 (2026-07-23, dep 27350950bef5c882) had a CLEAN failover (region-B
 # promoted RPO=0) but a FALSE failback: region-A powered back on, self-promoted
@@ -346,7 +363,7 @@ name: bp-cnpg-pair
 # the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
 # empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
 # counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
-version: 0.2.21
+version: 0.2.22
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair

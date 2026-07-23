@@ -411,12 +411,12 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  # 0.2.21 (#5331): dr-failback VERIFIED convergence (hw285 residual) —
-  # the CONVERGED gate now also requires CNPG ConsistentSystemID=True, so a
-  # divergent equal-LSN standby can no longer be declared re-cloned. Keep
-  # this display-version in lockstep with delivery source.version +
+  # 0.2.22 (#5311): NetworkPolicy carve-out admitting the continuum-controller
+  # to the primary -rw:5432 so its standby probe surfaces status.standbyAvailable
+  # on a TRUE 2-region topology (hw287 residual after the #5335 Secret-RBAC fix).
+  # Keep this display-version in lockstep with delivery source.version +
   # blueprint.yaml (the #4988 precedent).
-  version: "0.2.21"
+  version: "0.2.22"
   visibility: listed
   card:
     title: "CNPG Cluster-Pair (Active-Hotstandby DR)"
@@ -446,7 +446,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cnpg-pair
-    version: "0.2.21"
+    version: "0.2.22"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): cluster-pair IS
   # active-hot-standby by construction. Only one topology variant —
   # active-passive — because the chart renders 2 Cluster CRs (primary +
