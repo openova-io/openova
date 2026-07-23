@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-23T00:00:04Z` |
+| Last refreshed | `2026-07-23T00:15:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 24 |
 | Open DoD gates | 0 / 41 |
@@ -231,6 +231,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-23T00:07 | [#5330](https://github.com/openova-io/openova/pull/5330) | #5327 | fix(janitor): failed-record reap preserves destroy capabilit |
+| 2026-07-23T00:07 | [#5326](https://github.com/openova-io/openova/pull/5326) | #5325 | fix(preflight): check-5 counts only roll-capable CI (in_prog |
 | 2026-07-22T20:38 | [#5324](https://github.com/openova-io/openova/pull/5324) | #5302 | fix(cutover): Case 34 asserts lowercase disableredirect per  |
 | 2026-07-21T03:59 | [#5318](https://github.com/openova-io/openova/pull/5318) | #5261 | fix(#5317): read-back-verify replica consumer-hub secret syn |
 | 2026-07-21T03:36 | [#5316](https://github.com/openova-io/openova/pull/5316) | #5311 | fix(continuum): observe 2-region standby via primary pg_stat |
@@ -259,8 +261,6 @@ flowchart LR
 | 2026-07-19T23:33 | [#5273](https://github.com/openova-io/openova/pull/5273) | #5269 | fix(#5269): phase1 watch re-censuses on a ticker + heartbeat |
 | 2026-07-19T23:55 | [#5272](https://github.com/openova-io/openova/pull/5272) | #5270 | fix(#5270): adoption endpoints use the real HCS region, not  |
 | 2026-07-19T23:32 | [#5271](https://github.com/openova-io/openova/pull/5271) | #5246 | fix(#5267): document + gate the control-plane DR contract (4 |
-| 2026-07-19T19:24 | [#5268](https://github.com/openova-io/openova/pull/5268) | #5245 | fix(#5245): dr-failback targets a peer host resolvable from  |
-| 2026-07-19T17:16 | [#5266](https://github.com/openova-io/openova/pull/5266) | #5237 | fix(#5237): pin-aware prewarm + step-06 version-presence gat |
 
 ---
 
