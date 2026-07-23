@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.5.5  # lockstep with chart/Chart.yaml (#4402 spine topology tier:mgmt → '' host-native, #4325 de-vcluster fallout)
+  version: 1.5.6
   card:
     title: keycloak
     summary: Keycloak — user identity. Topology decided by Sovereign CRD spec.keycloakTopology (per-organization for Organizations, shared-sovereign for corporate).
