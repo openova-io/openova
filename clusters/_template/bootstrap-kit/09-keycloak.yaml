@@ -226,7 +226,7 @@ spec:
       #   values.yaml wires keycloak.auth.existingSecret=keycloak-admin so the
       #   password is reused (never regenerated) across reinstall + re-home. Chart
       #   + blueprint bumped in lockstep.
-      version: 1.5.5
+      version: 1.5.6
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
