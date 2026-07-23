@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-23T01:15:02Z` |
+| Last refreshed | `2026-07-23T01:30:12Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 25 |
+| Open issues | 24 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 25 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 24 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 25 open items (clickable table)
+### All 24 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -215,7 +215,6 @@ flowchart LR
 | [#5140](https://github.com/openova-io/openova/issues/5140) | Agenity /api/v1/sandbox/sessions returns 500 (not 503) on transient backend-unav | Other |
 | [#5193](https://github.com/openova-io/openova/issues/5193) | Wipe strands an env un-wipeable after a partial destroy: wipe path lacks the hua | Other |
 | [#5265](https://github.com/openova-io/openova/issues/5265) | Post-cutover Day-2 gap: Gitea mirror re-syncs pin bumps but nothing syncs new ch | Other |
-| [#5274](https://github.com/openova-io/openova/issues/5274) | Cloud graph under-enumerates region-b: renders Cluster 1/1 though 2 live cluster | Other |
 | [#5285](https://github.com/openova-io/openova/issues/5285) | Failed deployment's watch-informers flood catalyst-api → starve /wipe + /deplo | Other |
 | [#5298](https://github.com/openova-io/openova/issues/5298) | cutover step-03 harbor-prewarm: #5095 DIRECT-fallback push exceeds the 90-min st | Other |
 | [#5305](https://github.com/openova-io/openova/issues/5305) | funnel purchased-app deploy: CAS retry-widening (#5235) still loses to the org-c | Other |
@@ -232,6 +231,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-23T01:25 | [#5333](https://github.com/openova-io/openova/pull/5333) | #5274 | docs(uat): stamp hw285 sweep — 64✅/78◑/3❌ (cc=true, G12 RPO= |
+| 2026-07-23T01:26 | [#5332](https://github.com/openova-io/openova/pull/5332) | #5331 | fix(cnpg-pair): dr-failback CONVERGED must verify Consistent |
 | 2026-07-23T00:07 | [#5330](https://github.com/openova-io/openova/pull/5330) | #5327 | fix(janitor): failed-record reap preserves destroy capabilit |
 | 2026-07-23T00:07 | [#5326](https://github.com/openova-io/openova/pull/5326) | #5325 | fix(preflight): check-5 counts only roll-capable CI (in_prog |
 | 2026-07-22T20:38 | [#5324](https://github.com/openova-io/openova/pull/5324) | #5302 | fix(cutover): Case 34 asserts lowercase disableredirect per  |
@@ -245,6 +246,7 @@ flowchart LR
 | 2026-07-20T22:56 | [#5308](https://github.com/openova-io/openova/pull/5308) | #5305 | fix(organization-controller): stop the reconcile hot-loop th |
 | 2026-07-20T22:39 | [#5307](https://github.com/openova-io/openova/pull/5307) | #4432 | fix(catalog-seed): sync 14 stale catalog card versions + gua |
 | 2026-07-20T16:43 | [#5303](https://github.com/openova-io/openova/pull/5303) | #4573 | fix(bp-harbor): disable S3 blob-redirect via the correct low |
+| 2026-07-23T01:26 | [#5301](https://github.com/openova-io/openova/pull/5301) | #5258 | feat(self-sovereign-cutover): post-cutover Day-2 Harbor pin  |
 | 2026-07-20T15:24 | [#5299](https://github.com/openova-io/openova/pull/5299) | #3379 | fix(cutover): raise step-03 harbor-prewarm deadline for the  |
 | 2026-07-20T12:29 | [#5293](https://github.com/openova-io/openova/pull/5293) | #5290 | ci(catalyst): guard mothership raw-kustomize build against b |
 | 2026-07-20T11:24 | [#5292](https://github.com/openova-io/openova/pull/5292) | #5290 | fix(catalyst): unbreak mothership raw-kustomize (#5290 globa |
@@ -259,9 +261,6 @@ flowchart LR
 | 2026-07-20T02:16 | [#5279](https://github.com/openova-io/openova/pull/5279) | #3985 | fix(console): migrate operator console off deprecated /tenan |
 | 2026-07-20T02:15 | [#5278](https://github.com/openova-io/openova/pull/5278) | #3122 | fix(catalyst-api): Reloader-watch catalyst-pin-broker-creden |
 | 2026-07-20T01:42 | [#5275](https://github.com/openova-io/openova/pull/5275) | #5245 | fix(#5245): dr-failback re-clones the diverged demoted regio |
-| 2026-07-19T23:33 | [#5273](https://github.com/openova-io/openova/pull/5273) | #5269 | fix(#5269): phase1 watch re-censuses on a ticker + heartbeat |
-| 2026-07-19T23:55 | [#5272](https://github.com/openova-io/openova/pull/5272) | #5270 | fix(#5270): adoption endpoints use the real HCS region, not  |
-| 2026-07-19T23:32 | [#5271](https://github.com/openova-io/openova/pull/5271) | #5246 | fix(#5267): document + gate the control-plane DR contract (4 |
 
 ---
 
