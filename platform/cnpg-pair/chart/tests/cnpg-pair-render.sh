@@ -1370,8 +1370,8 @@ grep -q 'self-healing the episode marker' "$TMP/fb-actor.sh" || {
 
 # (e) POST-RE-CLONE WATCH: a wedged re-clone must name itself — phase +
 #     ConsistentSystemID logged periodically until streaming converges.
-grep -q 'RE-CLONE NOT YET STREAMING' "$TMP/fb-actor.sh" || {
-  echo "FAIL: #5245 hw278 actor missing the post-re-clone convergence heartbeat (the 5h-silent wedge)." >&2; exit 1; }
+grep -q 'RE-CLONE NOT YET CONVERGED' "$TMP/fb-actor.sh" || {
+  echo "FAIL: #5245 hw278 actor missing the post-re-clone convergence heartbeat (the 5h-silent wedge); #5331 renamed it NOT-YET-CONVERGED (streaming+ConsistentSystemID=True) and keys it off converged-recorded." >&2; exit 1; }
 
 # (f) DARK-WINDOW PEER PROOF: the signals container must keep the
 #     writable-peer proof fresh while the local cluster is psql-dark — the
@@ -1401,5 +1401,85 @@ sh -n "$TMP/fb-signals.sh" || { echo "FAIL: #5245 hw278 signals script is not va
 sh -n "$TMP/fb-actor.sh"   || { echo "FAIL: #5245 hw278 actor script is not valid POSIX shell." >&2; exit 1; }
 
 echo "  PASS (no wrong-CA root pin on the rejoin stream + forward pin kept · preserve_pki before every delete + pinned get/patch RBAC · ConsistentSystemID divergence escalation, graced + pre-episode-bounded + writable-proof-guarded · episode-marker self-heal · post-re-clone watch · dark-window peer probe · healthy-pair no-op)"
+
+# ── Case 21: #5331 hw285 residual — CONVERGED must be VERIFIED, not streaming ─
+# hw285 G12 (2026-07-23, dep 27350950bef5c882): a CLEAN failover (region-B
+# promoted RPO=0) then a FALSE failback. region-A powered back on, self-promoted
+# to its OWN TL2 fork, was demoted IN PLACE (ConsistentSystemID=False), and the
+# actor declared "CONVERGED: region-A re-cloned and streaming" 10s into the 180s
+# divergence grace with NO re-clone — region-A kept a divergent line missing
+# region-B's post-failover write (data-loss trap on switchback). Root cause: the
+# CONVERGED gate keyed off the local 'streaming' signal alone (a walreceiver row
+# + a set receive-LSN that a divergent equal-LSN standby also has), and the D2a
+# divergence escalation was suppressed by that same false 'streaming'.
+echo "[render] Case 21: #5331 hw285 — CONVERGED gated on ConsistentSystemID=True (not bare streaming) + divergence escalation not suppressed by a coincidental streaming"
+
+# (a) THE CONVERGED GATE requires CNPG's ConsistentSystemID=True in addition to
+#     the local streaming signal and the demoted-values proof — a divergent
+#     equal-LSN standby (ConsistentSystemID=False) can never trip it.
+python3 - "$TMP/fb-actor.sh" <<'PYEOF' || { echo "FAIL: #5331 CONVERGED-gate assertions failed." >&2; exit 1; }
+import sys
+s=open(sys.argv[1]).read()
+# Anchor directly on the CONVERGED gate guard (unique: D2a/D3 no longer key
+# off converged-streaming). The guard line runs to its `then`.
+g=s.find('if [ -f /shared/converged-streaming ]')
+assert g!=-1, "CONVERGED record must still require the local streaming data-plane signal"
+guard=s[g:s.find('then', g)]
+assert '/shared/converged-streaming' in guard, "CONVERGED must keep the streaming data-plane signal"
+assert 'VALS_DEMOTED' in guard and '"true"' in guard, "CONVERGED must keep the demoted-values proof"
+assert 'CR_SYSID_OK' in guard and '"True"' in guard, \
+    "#5331: CONVERGED must ALSO require CNPG ConsistentSystemID=True (a divergent equal-LSN standby reads as streaming but is False)"
+PYEOF
+grep -q 'ConsistentSystemID=True' "$TMP/fb-actor.sh" || {
+  echo "FAIL: #5331 the CONVERGED log must cite the verified ConsistentSystemID=True proof (not a bare 're-cloned and streaming' claim)." >&2; exit 1; }
+
+# (b) THE DIVERGENCE ESCALATION must gate on CNPG's verdict ALONE — the old
+#     `! -f /shared/converged-streaming` conjunct let a coincidental streaming
+#     both suppress the re-clone and reset the divergence clock (hw285).
+python3 - "$TMP/fb-actor.sh" <<'PYEOF' || { echo "FAIL: #5331 divergence-escalation gate assertions failed." >&2; exit 1; }
+import sys
+s=open(sys.argv[1]).read()
+d=s.find('DIVERGENCE DETECTED')
+assert d!=-1, "actor lost the divergence detection branch"
+# The `if` that opens the divergence branch (nearest above the detection log).
+g=s.rfind('if [ "${CR_SYSID_OK}" = "False" ]', 0, d)
+assert g!=-1, "divergence branch must gate on ConsistentSystemID=False"
+guard=s[g:s.find('then', g)]
+assert 'converged-streaming' not in guard, \
+    "#5331: the divergence escalation must NOT be ANDed with `! -f /shared/converged-streaming` — a coincidental streaming was suppressing the re-clone and resetting the divergence clock (the hw285 short-circuit)"
+PYEOF
+
+# (c) THE SIGNALS streaming ARM keeps the peer-WRITABLE proof fresh, so the
+#     (now-reachable) divergence escalation has a <60s writable-peer proof to
+#     authorize the re-clone instead of starving.
+python3 - "$TMP/fb-signals.sh" <<'PYEOF' || { echo "FAIL: #5331 signals streaming-arm peer-writable-refresh assertion failed." >&2; exit 1; }
+import sys
+s=open(sys.argv[1]).read()
+i=s.find('streaming)')
+assert i!=-1, "signals ladder lost its streaming arm"
+arm=s[i:s.find(';;', i)]
+assert ': > /shared/converged-streaming' in arm, "streaming arm must still raise the data-plane converged signal"
+assert 'probe_peer_writable' in arm, \
+    "#5331: the streaming arm must keep the peer-writable proof fresh (probe_peer_writable_report) so the divergence escalation does not starve for a fresh writable-peer proof when a divergent standby momentarily reads 'streaming'"
+PYEOF
+
+# (d) THE POST-RE-CLONE WATCH keys off converged-RECORDED (streaming AND
+#     ConsistentSystemID=True), never the bare streaming signal — a fresh clone
+#     that streams but is not yet consistent must keep naming itself.
+python3 - "$TMP/fb-actor.sh" <<'PYEOF' || { echo "FAIL: #5331 post-re-clone watch key assertion failed." >&2; exit 1; }
+import sys
+s=open(sys.argv[1]).read()
+w=s.find('POST-RE-CLONE convergence watch')
+assert w!=-1, "actor missing the post-re-clone convergence watch"
+seg=s[w:w+900]
+assert '! -f /shared/converged-recorded' in seg, \
+    "#5331: the post-re-clone heartbeat must key off converged-recorded (streaming+consistent), not the bare converged-streaming signal"
+PYEOF
+
+# (e) Scripts still valid POSIX shell with the 0.2.21 additions.
+sh -n "$TMP/fb-signals.sh" || { echo "FAIL: #5331 signals script is not valid POSIX shell." >&2; exit 1; }
+sh -n "$TMP/fb-actor.sh"   || { echo "FAIL: #5331 actor script is not valid POSIX shell." >&2; exit 1; }
+
+echo "  PASS (CONVERGED gated on ConsistentSystemID=True + streaming + demoted · divergence escalation on CNPG verdict alone · streaming arm keeps peer-writable proof fresh · post-re-clone watch keys off converged-recorded)"
 
 echo "[render] All bp-cnpg-pair render gates green."

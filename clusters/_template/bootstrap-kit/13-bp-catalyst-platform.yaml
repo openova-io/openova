@@ -1269,7 +1269,12 @@ spec:
       #   bp-catalyst-edge-routes (slot 13b) can proxy api./console./
       #   marketplace. to region-a's singletons. Set below from
       #   ${SOVEREIGN_ENABLE_HOT_STANDBY}. Lockstep w/ Chart.yaml.
-      version: 1.4.1201
+      # 1.4.1202 — #5331: catalog-seed bp-cnpg-pair pin 0.2.20 -> 0.2.21 —
+      #   dr-failback VERIFIED CONVERGENCE (hw285 residual): the CONVERGED
+      #   gate now also requires CNPG ConsistentSystemID=True, so a divergent
+      #   equal-LSN standby can no longer be declared re-cloned without a real
+      #   pg_basebackup re-clone. Lockstep w/ Chart.yaml + 16b slot 0.2.21.
+      version: 1.4.1202
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

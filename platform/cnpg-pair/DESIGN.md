@@ -445,6 +445,33 @@ every escalation), and a **post-re-clone convergence watch** (phase +
 ConsistentSystemID logged every ~30 ticks until streaming) — a wedged
 re-clone names itself.
 
+*Verified convergence (chart 0.2.21, the hw285 residual)*: hw285 G12
+had a clean failover (region-B promoted RPO=0) but a FALSE failback.
+region-A powered back on, self-promoted to its own TL2 fork, was
+demoted **in place** (the webhook admitted the shape change before the
+delete → stale-PGDATA standby, `ConsistentSystemID=False`), and the
+actor declared `CONVERGED: region-A re-cloned and streaming` **10 s
+into the 180 s divergence grace, with no re-clone** — leaving region-A
+on a divergent line missing region-B's post-failover write (a data-loss
+trap on switchback). Root cause: the CONVERGED gate keyed off the local
+`streaming` signal alone (`pg_stat_wal_receiver` row + a set
+receive-LSN), which a divergent in-place-demoted standby ALSO satisfies
+— it momentarily attached to region-B at a **coincidentally-equal LSN**
+while sitting on its own fork. Two coupled fixes: (1) the CONVERGED gate
+now ALSO requires CNPG's **`ConsistentSystemID=True`** — its own
+positive attestation of consistent lineage, which cannot hold on a
+divergent line (LSN-equality is deliberately NOT used — equal LSNs are
+exactly the false signal); (2) the D2a divergence escalation gates on
+that verdict **alone** (dropping the `! -f converged-streaming`
+conjunct that let a false `streaming` both suppress the re-clone and
+reset the divergence clock), and the signals `streaming` arm keeps the
+**peer-writable proof fresh** so the now-reachable escalation has a
+<60 s writable-peer proof to act on instead of starving. The
+clean-in-place-follow path (tail exactly at the fork →
+`ConsistentSystemID=True` without a re-clone) still converges,
+cheapest-path-wins, because the gate keys off CNPG's consistency
+verdict, not on re-clone provenance.
+
 End state after a kill+recover cycle: region-B primary, region-A
 streaming replica, both HRs unsuspended, the failed-over topology
 rendered from source. The controlled switchback to the original roles
