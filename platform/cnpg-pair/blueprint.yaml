@@ -114,7 +114,13 @@ spec:
   # 'streaming' arm keeps the peer-writable proof fresh so the escalation no
   # longer starves; post-re-clone watch keys off converged-recorded.
   # Script-only; no schema/RBAC/resource delta.
-  version: 0.2.21
+  # 0.2.22 (#5311): NetworkPolicy carve-out admitting the continuum-controller
+  # (catalyst-system) to the primary -rw:5432 so its standby probe can read
+  # pg_stat_replication and surface status.standbyAvailable on a TRUE 2-region
+  # topology (the #5335 Secret-RBAC fix was necessary-not-sufficient; the
+  # connection was still NetworkPolicy-dropped — hw287 residual). NetworkPolicy
+  # + values only; no schema/RBAC/resource delta to the Cluster CRs.
+  version: 0.2.22
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |

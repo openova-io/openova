@@ -219,6 +219,19 @@ grep -qE '^\s+- port: 9187' "$TMP/primary.yaml" || {
   echo "FAIL: primary-side NetworkPolicy missing the operator metrics port (9187)." >&2
   exit 1
 }
+# 0.2.22 (#5311): the primary-side NetworkPolicy must ALSO admit the
+# continuum-controller (catalyst-system) to 5432, or its standby probe's
+# connection to the primary -rw is default-denied → the probe errors every
+# tick → status.standbyAvailable stays UNSET on a TRUE 2-region topology (the
+# residual after the #5335 Secret-RBAC fix; hw287 live-proven false-green).
+grep -q 'kubernetes.io/metadata.name: catalyst-system' "$TMP/primary.yaml" || {
+  echo "FAIL: #5311 primary-side NetworkPolicy missing the continuum-controller namespace carve-out (catalyst-system) — the standby probe's connect to primary -rw:5432 will be default-denied and standbyAvailable stays UNSET." >&2
+  exit 1
+}
+grep -q 'app.kubernetes.io/name: continuum-controller' "$TMP/primary.yaml" || {
+  echo "FAIL: #5311 primary-side NetworkPolicy missing the continuum-controller podSelector label — the carve-out must AND namespaceSelector+podSelector to the controller Pod alone." >&2
+  exit 1
+}
 echo "  PASS (4 non-test + 4 test resources)"
 
 # ── Case 3: side=replica enabled render ──────────────────────────
