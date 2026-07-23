@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-23T13:00:04Z` |
+| Last refreshed | `2026-07-23T13:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 20 |
 | Open DoD gates | 0 / 41 |
@@ -227,6 +227,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-23T13:06 | [#5337](https://github.com/openova-io/openova/pull/5337) | #5311 | fix(cnpg-pair): NetworkPolicy carve-out for the continuum-co |
+| 2026-07-23T13:08 | [#5336](https://github.com/openova-io/openova/pull/5336) | #5334 | fix(keycloak,oidc-gate): drop `roles` default scope from pdn |
 | 2026-07-23T08:58 | [#5335](https://github.com/openova-io/openova/pull/5335) | #5311 | fix(continuum): #5311 standby-probe reads Secret via cached  |
 | 2026-07-23T01:25 | [#5333](https://github.com/openova-io/openova/pull/5333) | #5274 | docs(uat): stamp hw285 sweep — 64✅/78◑/3❌ (cc=true, G12 RPO= |
 | 2026-07-23T01:26 | [#5332](https://github.com/openova-io/openova/pull/5332) | #5331 | fix(cnpg-pair): dr-failback CONVERGED must verify Consistent |
@@ -255,8 +257,6 @@ flowchart LR
 | 2026-07-20T09:14 | [#5284](https://github.com/openova-io/openova/pull/5284) | #5269 | fix(catalyst-api): Phase-1 watch progress-guard — never hard |
 | 2026-07-20T04:47 | [#5282](https://github.com/openova-io/openova/pull/5282) | #4349 | fix(crossplane): route core controller image via harbor.open |
 | 2026-07-20T02:20 | [#5280](https://github.com/openova-io/openova/pull/5280) | #4811 | fix(catalyst-api): enumerate region-b cluster when declared  |
-| 2026-07-20T02:16 | [#5279](https://github.com/openova-io/openova/pull/5279) | #3985 | fix(console): migrate operator console off deprecated /tenan |
-| 2026-07-20T02:15 | [#5278](https://github.com/openova-io/openova/pull/5278) | #3122 | fix(catalyst-api): Reloader-watch catalyst-pin-broker-creden |
 
 ---
 
