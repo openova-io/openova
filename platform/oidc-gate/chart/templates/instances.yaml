@@ -112,7 +112,18 @@ data:
       "webOrigins": [
         "https://{{ $hostname }}"
       ],
-      "defaultClientScopes": ["web-origins", "acr", "profile", "roles", "email", "groups"],
+      {{- /*
+        #5334 — `roles` DROPPED from the gate clients' default scopes. With it,
+        oauth2-proxy's keycloak-oidc provider stuffed the full ~44 realm+client
+        role graph into the browser-cookie session → >4 KB → split cookie →
+        intermittent "Secured with OAuth2 Proxy" 500 on the proxied callback
+        (worst on pdns-admin's double-OIDC flow). The gate does NO group/role
+        authorization (no --allowed-groups) and requests no `roles` scope, so
+        dropping it shrinks the session to [sovereign-admins sovereign-viewers]
+        for EVERY instance (openova-flow/agenity too). `groups` retained. Kept in
+        lockstep with the config-cli powerdns-admin client seed.
+      */ -}}
+      "defaultClientScopes": ["web-origins", "acr", "profile", "email", "groups"],
       "protocolMappers": [
         {
           "name": {{ printf "audience-%s" $cid | quote }},

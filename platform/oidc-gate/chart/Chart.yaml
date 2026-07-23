@@ -115,7 +115,17 @@ name: bp-oidc-gate
 # leave the API open yet still demand a localStorage token. Default unset → no
 # rule (byte-identical to a login-less gated app). Slot 13c sets spaTokenSeed
 # on the agenity-agnstar instance.
-version: 0.1.6
+# 0.1.7 (#5334, 2026-07-23): DROP `roles` from the gate clients' defaultClient-
+# Scopes. oauth2-proxy's keycloak-oidc provider extracted every realm+client role
+# (~44) into the browser-cookie session → >4 KB → split cookie → intermittent
+# "Secured with OAuth2 Proxy" 500 on the proxied callback (worst on pdns-admin's
+# double-OIDC rootRedirect+appNativeCallback flow). The gate performs NO group/
+# role authorization (no --allowed-groups) and requests no `roles` scope, so
+# dropping it shrinks the session to [sovereign-admins sovereign-viewers] for
+# every instance (fixes openova-flow/agenity too) and drops the cookie under 4 KB.
+# `groups` retained. Lockstep with the config-cli powerdns-admin seed (bp-keycloak
+# 1.5.6). Template-only change; render tests unaffected.
+version: 0.1.7
 appVersion: "7.6.0"
 description: |
   Catalyst generic OIDC gate — a per-app oauth2-proxy instance set that
