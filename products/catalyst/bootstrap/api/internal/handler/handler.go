@@ -182,6 +182,18 @@ type Handler struct {
 	// want to assert the gate (reachable → ready, down → failed).
 	consoleProbe func(fqdn string) error
 
+	// janitorFailedInfraProbe / janitorFailedDestroy — test-only overrides
+	// for the #5327 failed-record reap gate (janitor.go gateFailedReap).
+	// Production leaves both nil: the gate then uses
+	// failedDeploymentInfraAlive (provider ListServers + the huawei
+	// name-prefix double-check — tags are disabled on HCS) and
+	// destroyFailedDeploymentInfra (the canonical
+	// providers.CloudProvider.Wipe dispatch — the same steps the wipe
+	// handler runs). Tests inject fakes so the preserve / destroy+reap /
+	// fail-closed contract is exercised without a cloud endpoint.
+	janitorFailedInfraProbe func(ctx context.Context, dep *Deployment, tofuWorkDir string) (alive bool, err error)
+	janitorFailedDestroy    func(ctx context.Context, dep *Deployment, tofuWorkDir string) error
+
 	// phase1LatePollTimeout / phase1LatePollInterval — test-only
 	// overrides for the eventual-consistency late-poll window
 	// (issue #910). Zero means "fall back to env var →
