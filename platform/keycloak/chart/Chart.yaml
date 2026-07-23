@@ -425,7 +425,18 @@ name: bp-keycloak
 # images pass admission. No chart-content change beyond the version line + this
 # changelog — the 1.4.38 templates/values are byte-identical and already
 # proxy-compliant. Refs #3785 (sibling proxy-class defect for the WP image).
-version: 1.5.5
+# 1.5.6 (#5334, 2026-07-23): DROP `roles` from the `powerdns-admin` client's
+# defaultClientScopes. The oauth2-proxy/oidc-gate session for pdns-admin stuffed
+# the full ~44 realm+client role graph into the browser cookie → >4 KB → oauth2-
+# proxy split-cookie → intermittent "Secured with OAuth2 Proxy" callback 500 (the
+# ONLY per-service SSO that failed on hw286; native-OIDC grafana/gitea/harbor are
+# immune via server-side sessions). The gate does no role auth and PDA maps only
+# username/email, so dropping `roles` shrinks the session to
+# [sovereign-admins sovereign-viewers] and the cookie falls under 4 KB. `groups`
+# retained (Tier-2 convention, guarded by g117-5-tier2-sso-clients.sh). Kept in
+# lockstep with bp-oidc-gate 0.1.7 instances.yaml. ONLY the powerdns-admin client
+# block changed — no other client's scopes touched.
+version: 1.5.6
 description: |
   1.5.2 (#4246): the per-tenant `openclaw-oidc-client-secret` Secret now
   emits BOTH `client-secret` AND `OIDC_CLIENT_SECRET` keys (it previously

@@ -3564,7 +3564,7 @@ name: bp-catalyst-platform
 #   topology (hw287 residual after the #5335 Secret-RBAC fix — the probe could
 #   read the cert but the connection was still NetworkPolicy-dropped). Bootstrap-
 #   kit slot-13 pin bumped in lockstep (pin-sync gate). Lockstep w/ 16b slot 0.2.22.
-version: 1.4.1204
+version: 1.4.1205
 # 1.4.1092 — #4988: bump catalog-seed bp-postgres spec.version display-label 0.2.10→0.2.12
 #   to lockstep with delivery source.version + platform/postgres/blueprint.yaml (#4987 DR).
 # 1.4.1063 — #4841: grant the useraccess-controller ClusterRole `bind` on the 8

@@ -885,11 +885,17 @@ data:
           "webOrigins": [
             "https://pdns-admin.{{ .Values.sovereignFQDN }}"
           ],
+          {{- /*
+            #5334 — `roles` DROPPED from defaultClientScopes (gate-only): the
+            oauth2-proxy session stuffed the full ~44-role graph into the browser
+            cookie → >4 KB split → intermittent callback 500. Gate does no
+            role auth; PDA maps only username/email. `groups` stays (Tier-2
+            convention). Lockstep with bp-oidc-gate instances.yaml.
+          */ -}}
           "defaultClientScopes": [
             "web-origins",
             "acr",
             "profile",
-            "roles",
             "email",
             "groups"
           ],
