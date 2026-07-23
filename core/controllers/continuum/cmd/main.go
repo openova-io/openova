@@ -162,7 +162,13 @@ func main() {
 	sel := &witness.DefaultSelector{
 		InMemoryAllowed: envBool("WITNESS_IN_MEMORY", false),
 		SecretReader: &k8sSecretReader{
-			Client:    mgr.GetClient(),
+			// Uncached direct API reader (#5311): a Secret Get through the
+			// manager's cached client (mgr.GetClient()) forces a cluster-
+			// wide Secret list+watch informer, which the chart RBAC
+			// deliberately does NOT grant (secrets: get only). Use the
+			// APIReader so this honors get-only RBAC and never caches
+			// every Secret in the cluster in controller memory.
+			Client:    mgr.GetAPIReader(),
 			Namespace: witnessSecretNS,
 		},
 	}
@@ -244,14 +250,20 @@ func main() {
 		// this controller's local API). Authenticates with the
 		// CNPG-provisioned streaming_replica client cert
 		// (`<primary>-replication` Secret) — the same credential the
-		// dr-promoter / dr-failback probes use. The controller already
-		// holds `secrets: get` cluster-wide (see the chart RBAC), and
-		// the target is the LOCAL primary `-rw` Service. Reachable from
-		// the single mgr client since ClusterDomain defaults to
-		// cluster.local; CLUSTER_DOMAIN overrides for customized
+		// dr-promoter / dr-failback probes use. The controller holds
+		// `secrets: get` cluster-wide (see the chart RBAC) and reads the
+		// cert via the UNCACHED mgr.GetAPIReader(): a Secret Get through
+		// the cached mgr.GetClient() would force a cluster-wide Secret
+		// list+watch informer the RBAC does not grant, which silently
+		// wedged this probe (the Secret Get errored → "no standby
+		// determination" every tick → the #5311 pg_stat_replication
+		// observation never fired and standbyAvailable stayed UNSET — the
+		// exact false-green this fix targets). The target is the LOCAL
+		// primary `-rw` Service; reachable since ClusterDomain defaults
+		// to cluster.local; CLUSTER_DOMAIN overrides for customized
 		// kubelet cluster domains.
 		StandbyProbe: &pgprobe.PGXProber{
-			Secrets:       &pgSecretReader{Client: mgr.GetClient()},
+			Secrets:       &pgSecretReader{Client: mgr.GetAPIReader()},
 			ClusterDomain: env("CLUSTER_DOMAIN", pgprobe.DefaultClusterDomain),
 		},
 		HealthOpts: switchover.HealthOptions{
@@ -362,7 +374,10 @@ func podNamespace() string {
 // Mirrors the EPIC-3 F readClientSecret seam — but lifted to an
 // interface so the witness package doesn't import client-go.
 type k8sSecretReader struct {
-	Client    client.Client
+	// client.Reader (uncached APIReader) — NOT client.Client — so a
+	// Secret Get is a direct API read that needs only `secrets: get`
+	// and never starts a cluster-wide Secret list+watch informer.
+	Client    client.Reader
 	Namespace string
 }
 
@@ -402,7 +417,10 @@ func (r *k8sSecretReader) ReadSecret(ctx context.Context, secretName, key string
 // Per Inviolable Principle #5 the cert bytes stay in memory only until
 // PGXProber hands them to the TLS dialer. NEVER log; NEVER persist.
 type pgSecretReader struct {
-	Client client.Client
+	// client.Reader (uncached APIReader) — NOT client.Client — so a
+	// Secret Get is a direct API read that needs only `secrets: get`
+	// and never starts a cluster-wide Secret list+watch informer.
+	Client client.Reader
 }
 
 // ReadSecret implements pgprobe.SecretReader.
