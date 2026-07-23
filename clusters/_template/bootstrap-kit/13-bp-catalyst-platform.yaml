@@ -1280,7 +1280,7 @@ spec:
       #   pg_stat_replication and surfaces status.standbyAvailable on a TRUE
       #   2-region topology (hw287 residual after the #5335 Secret-RBAC fix).
       #   Lockstep w/ Chart.yaml + 16b slot 0.2.22.
-      version: 1.4.1204
+      version: 1.4.1205
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
