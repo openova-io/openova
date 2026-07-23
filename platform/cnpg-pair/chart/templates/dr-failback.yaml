@@ -91,9 +91,12 @@ fence IS the authority proof.
      escalation (below) and ONLY when it predates this failback episode
      — a fresh clone is NEVER deleted, so destruction is bounded to one
      re-clone per episode.
-  5. CONVERGE: the re-cloned cluster streams from region-B
-     (walreceiver row + receive-LSN — the #5239-readable signal); the
-     actor records dr-failback-converged-at on the HR and goes idle.
+  5. CONVERGE: the re-cloned cluster streams from region-B (walreceiver
+     row + receive-LSN — the #5239-readable signal) AND CNPG reports
+     ConsistentSystemID=True (the verified-consistent-lineage proof,
+     #5331 — a divergent equal-LSN standby ALSO streams but reports
+     False); only then does the actor record dr-failback-converged-at on
+     the HR and go idle.
 
 WEDGE ESCALATION (in-place demote left a stale standby)
 -------------------------------------------------------
@@ -209,6 +212,48 @@ delete 23:20:50Z — and then the RE-CLONE ITSELF wedged, silently, for
      while the local cluster is psql-dark (probe_peer_writable in the
      'unknown' branch): the destructive escalations need a live
      writable peer precisely when local observability is gone.
+
+VERIFIED CONVERGENCE (#5331, chart 0.2.21 — the hw285 residual)
+---------------------------------------------------------------
+hw285 G12 (2026-07-23, dep 27350950bef5c882) had a CLEAN failover
+(region-B promoted RPO=0) but a FALSE failback: region-A powered back
+on, self-promoted to its OWN TL2 fork, and was demoted IN PLACE (the
+webhook admitted the shape change before the delete → stale-PGDATA
+standby, ConsistentSystemID=False reason=NotFound). At 00:16:18Z the
+actor logged DIVERGENCE DETECTED and started the 180s grace; at
+00:16:28Z — only 10s later, no re-clone — the actor declared "CONVERGED:
+region-A re-cloned and streaming from region-B". Root cause, TWO coupled
+defects:
+
+  1. THE CONVERGED GATE WAS DATA-BLIND. It keyed off the local
+     'streaming' signal alone (converged-streaming + demoted). That
+     signal is `pg_stat_wal_receiver` row + `pg_last_wal_receive_lsn()
+     IS NOT NULL` — which a DIVERGENT in-place-demoted standby ALSO
+     satisfies: it momentarily attached to region-B at a
+     COINCIDENTALLY-EQUAL LSN (0/D000138 on both) while sitting on its
+     own TL-fork, missing region-B's post-failover write. So it declared
+     converged on an equal-LSN divergent standby. FIX: the CONVERGED gate
+     now ALSO requires CNPG's `ConsistentSystemID=True` — CNPG's own
+     positive attestation of consistent lineage, which CANNOT hold on a
+     divergent line. (LSN-equality is deliberately NOT used: equal LSNs
+     are the false signal.)
+  2. THE DIVERGENCE ESCALATION WAS SUPPRESSED BY THE SAME FALSE SIGNAL.
+     The D2a `ConsistentSystemID=False` escalation was ANDed with
+     `! -f /shared/converged-streaming`, so the same coincidental
+     'streaming' both blocked the re-clone AND reset the divergence
+     clock (the else-branch). FIX: D2a now gates on CNPG's verdict alone
+     — ConsistentSystemID=False overrides a coincidental streaming
+     appearance. And the signals `streaming)` arm now keeps the
+     peer-WRITABLE proof fresh, so the (now-reachable) divergence
+     escalation has a <60s writable-peer proof to authorize the re-clone
+     instead of starving.
+
+Net contract: CONVERGED is declared ONLY after (grace elapsed → real
+pg_basebackup re-clone of region-A from region-B → fresh clone reports
+ConsistentSystemID=True while streaming). The clean-in-place-follow path
+(tail exactly at the fork → ConsistentSystemID=True without a re-clone)
+still converges, cheapest-path-wins, because the gate keys off CNPG's
+consistency verdict, not on re-clone provenance.
 
 WHAT IT NEVER DOES
 ------------------
@@ -621,10 +666,24 @@ spec:
                     fi
                     ;;
                   streaming)
-                    # Demoted + streaming from region-B — converged.
-                    clear_hold "local standby streaming (converged)"
+                    # Demoted + streaming from region-B — the DATA-PLANE
+                    # signal only. A divergent in-place-demoted standby on its
+                    # own TL-fork also reads 'streaming' (walreceiver row + a
+                    # set receive-LSN) at a coincidentally-equal LSN; the ACTOR
+                    # makes the convergence call by ALSO checking CNPG's
+                    # ConsistentSystemID verdict (#5331). Keep the
+                    # peer-WRITABLE proof fresh here so that, if the actor
+                    # finds this 'streaming' is actually the divergent case
+                    # (ConsistentSystemID=False), its re-clone escalation has a
+                    # <60s-fresh writable-peer proof to act on — this arm never
+                    # refreshed it before, so the divergence escalation would
+                    # starve for a fresh proof and wedge. Harmless for a
+                    # genuinely-converged replica: the actor exits at CONVERGED
+                    # and never consumes the proof.
+                    clear_hold "local standby streaming (data-plane signal; actor verifies ConsistentSystemID)"
                     clear_wedge
                     : > /shared/converged-streaming
+                    probe_peer_writable_report
                     ;;
                   receiving|noreceiver)
                     # A local standby that is NOT streaming. If the peer is
@@ -794,12 +853,44 @@ spec:
                   # divergence escalation and the post-re-clone watch.
                   CR_JSON=$(kubectl -n "${NAMESPACE}" get clusters.postgresql.cnpg.io "${PRIMARY_CLUSTER}" -o jsonpath="{.spec.replica.enabled}|{.metadata.creationTimestamp}|{.metadata.deletionTimestamp}|{.status.conditions[?(@.type=='ConsistentSystemID')].status}|{.status.conditions[?(@.type=='ConsistentSystemID')].reason}|{.status.phase}" 2>/dev/null || echo "__absent__")
                   STARTED_AT=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.metadata.annotations.catalyst\.openova\.io/dr-failback-started-at}' 2>/dev/null || echo "")
+                  # 0.2.21 (#5331): parse the CR fields up-front — the
+                  # CONVERGED verification gate below needs CNPG's own
+                  # ConsistentSystemID verdict, not just the psql streaming
+                  # signal. When the CR is absent (mid-re-clone) every field
+                  # is empty and the gate correctly declines to converge.
+                  CR_REPLICA=$(echo "${CR_JSON}" | cut -d'|' -f1)
+                  CR_CREATED=$(echo "${CR_JSON}" | cut -d'|' -f2)
+                  CR_DELETING=$(echo "${CR_JSON}" | cut -d'|' -f3)
+                  CR_SYSID_OK=$(echo "${CR_JSON}" | cut -d'|' -f4)
+                  CR_SYSID_REASON=$(echo "${CR_JSON}" | cut -d'|' -f5)
+                  CR_PHASE=$(echo "${CR_JSON}" | cut -d'|' -f6)
 
                   # ── CONVERGED — record once, then idle ────────────────
-                  if [ -f /shared/converged-streaming ] && [ "${VALS_DEMOTED}" = "true" ] && [ ! -f /shared/converged-recorded ]; then
+                  # #5331 (hw285 P0 data-loss trap): gate on VERIFIED data
+                  # convergence, NEVER on the bare local 'streaming' signal.
+                  # region-A must be BOTH (a) streaming from region-B (the
+                  # data-plane signal /shared/converged-streaming) AND (b)
+                  # reporting CNPG's ConsistentSystemID=True — CNPG's own
+                  # positive attestation that region-A's PGDATA / system
+                  # lineage is CONSISTENT with the source it streams from.
+                  # A divergent in-place-demoted standby on its OWN TL-fork
+                  # also reads 'streaming' (a walreceiver row + a set
+                  # receive-LSN) at a COINCIDENTALLY-EQUAL LSN, yet holds
+                  # ConsistentSystemID=False and is missing region-B's
+                  # post-failover writes. On hw285 the 0.2.20 gate
+                  # (converged-streaming + demoted only) declared such a
+                  # standby CONVERGED 10s into the 180s divergence grace,
+                  # with NO re-clone — a data-loss trap on switchback.
+                  # ConsistentSystemID=True CANNOT hold on a divergent line,
+                  # so it is the load-bearing positive proof; LSN-equality is
+                  # NOT (equal LSNs are exactly the false signal). The
+                  # divergence path below (D2a) re-clones region-A from
+                  # region-B, after which a genuine pg_basebackup replica
+                  # reports ConsistentSystemID=True and converges here.
+                  if [ -f /shared/converged-streaming ] && [ "${VALS_DEMOTED}" = "true" ] && [ "${CR_SYSID_OK}" = "True" ] && [ ! -f /shared/converged-recorded ]; then
                     if kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-failback-converged-at\":\"$(date -u +"%FT%TZ")\"}}}" >/dev/null 2>&1; then
                       : > /shared/converged-recorded
-                      echo "$(date -u +"%FT%TZ") [dr-failback/actor] CONVERGED: region-A re-cloned and streaming from region-B — recorded dr-failback-converged-at on HR ${HR_NAMESPACE}/${HR_NAME}. Cross-region replication restored, roles swapped; the controlled switchback (demote region-B, restore region-A primary) is the sovereign-admin's RUNBOOKS §6.1 action (#5245)"
+                      echo "$(date -u +"%FT%TZ") [dr-failback/actor] CONVERGED: region-A streaming from region-B AND CNPG reports ConsistentSystemID=True (verified consistent lineage — not a divergent equal-LSN standby) — recorded dr-failback-converged-at on HR ${HR_NAMESPACE}/${HR_NAME}. Cross-region replication restored, roles swapped; the controlled switchback (demote region-B, restore region-A primary) is the sovereign-admin's RUNBOOKS §6.1 action (#5245 #5331)"
                     fi
                     exit 0
                   fi
@@ -852,12 +943,7 @@ spec:
                     nudge helmrelease "${HR_NAMESPACE}" "${HR_NAME}" nudged-hr
                     exit 0
                   fi
-                  CR_REPLICA=$(echo "${CR_JSON}" | cut -d'|' -f1)
-                  CR_CREATED=$(echo "${CR_JSON}" | cut -d'|' -f2)
-                  CR_DELETING=$(echo "${CR_JSON}" | cut -d'|' -f3)
-                  CR_SYSID_OK=$(echo "${CR_JSON}" | cut -d'|' -f4)
-                  CR_SYSID_REASON=$(echo "${CR_JSON}" | cut -d'|' -f5)
-                  CR_PHASE=$(echo "${CR_JSON}" | cut -d'|' -f6)
+                  # CR fields parsed up-front (before the CONVERGED gate, #5331).
                   if [ -n "${CR_DELETING}" ]; then
                     exit 0   # teardown in progress — wait
                   fi
@@ -886,7 +972,18 @@ spec:
                     # hw278 crawled to its escalation). One clock, cleared
                     # whenever the condition leaves False; the delete still
                     # requires a fresh writable-peer proof.
-                    if [ "${CR_SYSID_OK}" = "False" ] && [ ! -f /shared/converged-streaming ]; then
+                    # #5331: ConsistentSystemID=False is CNPG's AUTHORITATIVE
+                    # divergence verdict and OVERRIDES a coincidental local
+                    # 'streaming' appearance. A divergent in-place-demoted
+                    # standby momentarily attaches to region-B at an equal LSN
+                    # (walreceiver row + set receive-LSN → local state
+                    # 'streaming' → /shared/converged-streaming) yet can never
+                    # follow region-B's line. The removed
+                    # `! -f /shared/converged-streaming` conjunct let that
+                    # false 'streaming' suppress the escalation AND reset the
+                    # divergence clock via the else-branch below — exactly how
+                    # hw285 skipped the re-clone. Gate on CNPG's verdict alone.
+                    if [ "${CR_SYSID_OK}" = "False" ]; then
                       if [ ! -f /shared/diverged-since ]; then
                         date -u +%s > /shared/diverged-since
                         echo "$(date -u +"%FT%TZ") [dr-failback/actor] DIVERGENCE DETECTED: in-place-demoted Cluster (created ${CR_CREATED} < episode ${STARTED_AT}) reports ConsistentSystemID=False (reason=${CR_SYSID_REASON:-?}, phase='${CR_PHASE:-?}') — the stale-PGDATA line cannot consistently follow region-B; divergence clock started (grace ${DIVERGENCE_GRACE_SECONDS}s) (#5245 hw278)"
@@ -931,12 +1028,17 @@ spec:
                   # pgbasebackup Job FATAL-looped on x509 for 5+ hours with
                   # the actor totally silent — a wedged re-clone must name
                   # itself. Log the live phase + ConsistentSystemID every
-                  # 30 ticks (~5 min) until streaming converges.
-                  if [ ! -f /shared/converged-streaming ]; then
+                  # 30 ticks (~5 min) until CONVERGED records. #5331: key the
+                  # heartbeat on converged-RECORDED, not converged-STREAMING —
+                  # a fresh clone that is streaming but not yet
+                  # ConsistentSystemID=True is NOT converged (the CONVERGED
+                  # gate requires both), and must keep naming itself rather
+                  # than go dark on the bare streaming signal.
+                  if [ ! -f /shared/converged-recorded ]; then
                     _n=$(($(cat /shared/postclone-ticks 2>/dev/null || echo 0) + 1))
                     if [ "${_n}" -ge 30 ]; then
                       _n=0
-                      echo "$(date -u +"%FT%TZ") [dr-failback/actor] RE-CLONE NOT YET STREAMING: Cluster phase='${CR_PHASE:-?}', ConsistentSystemID=${CR_SYSID_OK:-?}(${CR_SYSID_REASON:-?}), local state=$(cat /shared/local-state 2>/dev/null || echo '?') — the pg_basebackup bootstrap has not converged; check the ${PRIMARY_CLUSTER}-1-pgbasebackup Job logs (hw278 wedge shape: x509 unknown-authority = a root cert pinned against the wrong CA) (#5245)"
+                      echo "$(date -u +"%FT%TZ") [dr-failback/actor] RE-CLONE NOT YET CONVERGED: Cluster phase='${CR_PHASE:-?}', ConsistentSystemID=${CR_SYSID_OK:-?}(${CR_SYSID_REASON:-?}), local state=$(cat /shared/local-state 2>/dev/null || echo '?') — streaming AND ConsistentSystemID=True not both observed yet; check the ${PRIMARY_CLUSTER}-1-pgbasebackup Job logs (hw278 wedge shape: x509 unknown-authority = a root cert pinned against the wrong CA; hw285 shape: ConsistentSystemID=False = a divergent line that never re-cloned) (#5245 #5331)"
                     fi
                     echo "${_n}" > /shared/postclone-ticks
                   else

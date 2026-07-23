@@ -1,5 +1,32 @@
 apiVersion: v2
 name: bp-cnpg-pair
+# 0.2.21 (#5331): dr-failback VERIFIED CONVERGENCE — the hw285 residual.
+# hw285 G12 (2026-07-23, dep 27350950bef5c882) had a CLEAN failover (region-B
+# promoted RPO=0) but a FALSE failback: region-A powered back on, self-promoted
+# to its OWN TL2 fork, was demoted IN PLACE (webhook admitted the shape change
+# before the delete → stale-PGDATA standby, ConsistentSystemID=False), and the
+# actor declared "CONVERGED: region-A re-cloned and streaming" 10s into the
+# 180s divergence grace WITH NO RE-CLONE — leaving region-A on a divergent line
+# missing region-B's post-failover write (data-loss trap on switchback). TWO
+# coupled defects, both fixed:
+# (1) DATA-BLIND CONVERGED GATE: it keyed off the local 'streaming' signal
+#     alone (pg_stat_wal_receiver row + set receive-LSN), which a DIVERGENT
+#     in-place-demoted standby ALSO satisfies — it momentarily attached to
+#     region-B at a COINCIDENTALLY-EQUAL LSN (0/D000138 on both) while sitting
+#     on its own fork. The CONVERGED gate now ALSO requires CNPG's
+#     ConsistentSystemID=True (its positive attestation of consistent lineage,
+#     which CANNOT hold on a divergent line). LSN-equality is deliberately NOT
+#     used — equal LSNs are exactly the false signal.
+# (2) DIVERGENCE ESCALATION SUPPRESSED BY THE SAME FALSE SIGNAL: the D2a
+#     ConsistentSystemID=False escalation was ANDed with
+#     `! -f /shared/converged-streaming`, so the coincidental 'streaming' both
+#     blocked the re-clone AND reset the divergence clock. D2a now gates on
+#     CNPG's verdict alone, and the signals `streaming` arm keeps the
+#     peer-writable proof fresh so the (now-reachable) escalation has a
+#     <60s-fresh writable-peer proof instead of starving. The post-re-clone
+#     watch keys off converged-RECORDED (streaming+consistent), never the bare
+#     streaming signal. Render Case 21 pins all of it. Lockstep slot 16b pin
+#     → 0.2.21.
 # 0.2.20 (#5245): dr-failback RE-CLONE CONVERGENCE — the hw278 residual.
 # hw278 G12 (2026-07-19/20) live-proved the 0.2.19 chain fires clean (demote
 # 23:10:36Z on the -ge gate at 122s held; wedge escalation + bounded delete
@@ -319,7 +346,7 @@ name: bp-cnpg-pair
 # the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
 # empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
 # counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
-version: 0.2.20
+version: 0.2.21
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair

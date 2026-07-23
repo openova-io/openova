@@ -99,7 +99,22 @@ spec:
   # default 180, pre-episode-bounded) + episode-marker self-heal +
   # post-re-clone convergence watch + psql-dark writable probe — a wedged
   # re-clone can never be silent again.
-  version: 0.2.20
+  # 0.2.21 (#5331): dr-failback VERIFIED CONVERGENCE — the hw285 residual.
+  # hw285 G12 had a clean failover (region-B RPO=0) but a FALSE failback: a
+  # divergent in-place-demoted region-A (ConsistentSystemID=False) was
+  # declared "CONVERGED: re-cloned and streaming" 10s into the 180s divergence
+  # grace with NO re-clone, because the CONVERGED gate keyed off the local
+  # 'streaming' signal alone (a walreceiver row + a set receive-LSN that a
+  # divergent equal-LSN standby also has). Fixes: (1) the CONVERGED gate now
+  # ALSO requires CNPG's ConsistentSystemID=True (its own consistent-lineage
+  # attestation — cannot hold on a divergent fork; LSN-equality is NOT used);
+  # (2) the D2a divergence escalation gates on that verdict alone (dropping
+  # the `! -f converged-streaming` conjunct that let a false 'streaming'
+  # suppress the re-clone and reset the divergence clock), and the signals
+  # 'streaming' arm keeps the peer-writable proof fresh so the escalation no
+  # longer starves; post-re-clone watch keys off converged-recorded.
+  # Script-only; no schema/RBAC/resource delta.
+  version: 0.2.21
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |

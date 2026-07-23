@@ -293,7 +293,19 @@ spec:
       # (grace 180s, pre-episode-bounded), episode-marker self-heal,
       # post-re-clone convergence watch + psql-dark writable probe.
       # Substitutes unchanged.
-      version: 0.2.20
+      # 0.2.21 (#5331): dr-failback VERIFIED CONVERGENCE (hw285 residual).
+      # hw285 G12 had a clean failover (region-B RPO=0) but a FALSE failback:
+      # a divergent in-place-demoted region-A (ConsistentSystemID=False) was
+      # declared "CONVERGED: re-cloned and streaming" 10s into the 180s
+      # divergence grace with NO re-clone, because the CONVERGED gate keyed
+      # off the local 'streaming' signal alone (which a divergent equal-LSN
+      # standby also satisfies). Fixes: the CONVERGED gate now also requires
+      # CNPG ConsistentSystemID=True; the D2a divergence escalation gates on
+      # that verdict alone (no longer suppressed by a coincidental
+      # 'streaming') and the signals 'streaming' arm keeps the peer-writable
+      # proof fresh so the re-clone escalation no longer starves.
+      # Substitutes unchanged.
+      version: 0.2.21
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair
