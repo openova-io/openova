@@ -119,6 +119,18 @@ service:
   type: ClusterIP
   port: 8080
 
+# ── Multi-region secondary-edge (#5341) ──────────────────────────────────
+# When true, the region-a Service is published to Cilium ClusterMesh
+# (service.cilium.io/global) so the region-b secondary-edge stub
+# (bp-catalyst-edge-routes) proxies mcp.<fqdn> to region-a's Pod over the mesh.
+# openova-mcp runs only on the primary CP (catalyst-system is
+# SECONDARY_HR_SUSPEND on the secondary), so without this the shared
+# cilium-gateway VIP 404s ~half of mcp requests routed to region-b's envoy.
+# The bootstrap-kit slot sets this true on multi-region provs (mirrors how
+# bp-catalyst-platform annotates catalyst-api/catalyst-ui, #5289).
+multiRegion:
+  enabled: false
+
 # Container listen address (OPENOVA_MCP_LISTEN). Must agree with
 # service targetPort (the deployment names the container port `http`).
 listen: ":8080"

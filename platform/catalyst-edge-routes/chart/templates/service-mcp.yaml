@@ -1,0 +1,82 @@
+{{- /*
+Region-b openova-mcp secondary-edge (#5341).
+
+openova-mcp (the Pillar-4 MCP tool server) lives in `catalyst-system` — the
+umbrella namespace that is SECONDARY_HR_SUSPEND on a secondary CP. So region-b
+has NO local openova-mcp Pod/Service/HTTPRoute, yet the SHARED
+kube-system/cilium-gateway VIP still targets region-b's envoy for HA → ~half
+of every POST to mcp.<fqdn> 404s (measured 7/12 on hw288). This is the exact
+#5289 case for one more catalyst-system host that the api./console./marketplace
+mirror never covered.
+
+Unlike harbor/keycloak/gitea (which run in their OWN un-suspended namespaces on
+region-b and therefore serve fine), openova-mcp needs the same ClusterMesh
+global-Service stub + HTTPRoute idiom as catalyst-api/catalyst-ui: the stub —
+named + namespaced IDENTICALLY to region-a's mcp Service (which carries
+service.cilium.io/global when multiRegion is on, products/openova-mcp
+service.yaml) — selects ZERO local Pods on region-b, so every dial falls through
+the mesh to region-a's singleton mcp Pod.
+
+NOTE: mcp rides the SHARED `cilium-gateway` (kube-system), NOT the dedicated
+console gateway the api./console. routes use — matching products/openova-mcp
+httpRoute.parentRef. So this route carries its own parentRef.
+
+Gating: only when the mcp host is supplied by the slot-13b overlay
+(ingress.hosts.mcp.host). Default render is empty (smoke-render-mode:default-off).
+*/ -}}
+{{- $mcpHost := (((.Values.ingress.hosts).mcp).host) }}
+{{- if $mcpHost }}
+apiVersion: v1
+kind: Service
+metadata:
+  # Same name+namespace as region-a's openova-mcp Service so ClusterMesh merges
+  # them (products/openova-mcp fullname = "openova-mcp-bp-openova-mcp").
+  name: openova-mcp-bp-openova-mcp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+    catalyst.openova.io/component: openova-mcp
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+spec:
+  type: ClusterIP
+  selector:
+    # Zero local matches on region-b (no mcp Pod here) → mesh routes to
+    # region-a's endpoints. Mirrors products/openova-mcp selectorLabels.
+    app.kubernetes.io/name: bp-openova-mcp
+    app.kubernetes.io/instance: openova-mcp
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: openova-mcp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+    catalyst.openova.io/component: openova-mcp
+spec:
+  parentRefs:
+    # The SHARED cilium-gateway (NOT the console gateway) — matches
+    # products/openova-mcp httpRoute.parentRef.
+    - name: {{ (((.Values.ingress.mcpGateway).parentRef).name) | default "cilium-gateway" | quote }}
+      namespace: {{ (((.Values.ingress.mcpGateway).parentRef).namespace) | default "kube-system" | quote }}
+      {{- with (((.Values.ingress.mcpGateway).parentRef).sectionName) }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ $mcpHost | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/"
+      backendRefs:
+        - name: openova-mcp-bp-openova-mcp
+          port: 8080
+{{- end }}

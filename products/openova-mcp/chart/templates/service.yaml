@@ -9,6 +9,18 @@ metadata:
   name: {{ include "openova-mcp.fullname" . }}
   labels:
     {{- include "openova-mcp.labels" . | nindent 4 }}
+  {{- if .Values.multiRegion.enabled }}
+  annotations:
+    # #5341 — publish this region-a Service to Cilium ClusterMesh so the
+    # region-b secondary-edge stub (bp-catalyst-edge-routes) can resolve
+    # mcp.<fqdn> to region-a's mcp Pod over the mesh. openova-mcp lives in
+    # catalyst-system (the umbrella ns), which is SECONDARY_HR_SUSPEND on the
+    # secondary CP → region-b has no local mcp Pod/route, so the shared
+    # cilium-gateway VIP 404s ~half of mcp requests routed to region-b's envoy.
+    # Same idiom bp-catalyst-platform uses for catalyst-api/catalyst-ui (#5289).
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+  {{- end }}
 spec:
   type: {{ .Values.service.type }}
   selector:
