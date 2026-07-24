@@ -120,7 +120,7 @@ spec:
       # zero-RBAC ServiceAccount + Cilium ingress/egress CNPs. Lockstep:
       # products/openova-mcp/chart/Chart.yaml + blueprint.yaml +
       # catalog-seed (blueprints.json).
-      version: 0.1.5
+      version: 0.1.6
       sourceRef:
         kind: HelmRepository
         name: bp-openova-mcp

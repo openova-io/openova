@@ -93,7 +93,7 @@ type: application
 # catalog-seed (blueprints.json) 0.1.1. Image = ghcr.io/openova-io/
 # openova-mcp:<appVersion> (build-openova-mcp.yaml; plain image repo per
 # the #4706 chart-repo-collision lesson).
-version: 0.1.5
+version: 0.1.6
 # appVersion is the default image tag (openova-mcp.image in _helpers.tpl).
 # 0.2.5 (#5206): see the version-0.1.5 note above — identity.go/whoami.go
 # reject an Org-scoped caller reaching a Sovereign-pinned instance instead

@@ -32,7 +32,7 @@ name: bp-catalyst-edge-routes
 #   half (the global annotations on the real Services) ships in
 #   bp-catalyst-platform 1.4.1190 gated on multiRegion.enabled. VALIDATES on
 #   the next fresh 2-region prov (hw281). Refs #5289.
-version: 0.1.0
+version: 0.2.0
 description: |
   Region-b (secondary control-plane) edge for a 2-region Catalyst Sovereign.
   Renders ClusterMesh global-Service stubs + api/console/marketplace

@@ -33,6 +33,21 @@ ingress:
       host: ""
     marketplace:
       host: ""
+    # #5341 — mcp.<fqdn> (Pillar-4 openova-mcp). openova-mcp lives in
+    # catalyst-system (SECONDARY_HR_SUSPEND on the secondary), so region-b has
+    # no local mcp route; the slot fills this on multi-region provs and the
+    # service-mcp.yaml stub proxies to region-a over the mesh. Empty → no-op.
+    mcp:
+      host: ""
+  # #5341 — mcp rides the SHARED cilium-gateway (kube-system), NOT the dedicated
+  # console gateway the api./console. routes use — matching products/openova-mcp
+  # httpRoute.parentRef. Overridable per-Sovereign; default is the canonical
+  # Sovereign Gateway.
+  mcpGateway:
+    parentRef:
+      name: cilium-gateway
+      namespace: kube-system
+      sectionName: ""
   # Marketplace-host proxy (marketplace.<fqdn> → org-services gateway/admin/
   # marketplace over the mesh). Default OFF; slot 13b mirrors slot 13's
   # ${MARKETPLACE_ENABLED}. When off, the org-services stubs + marketplace
