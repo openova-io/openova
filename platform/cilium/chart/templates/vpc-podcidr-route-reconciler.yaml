@@ -218,8 +218,22 @@ data:
       "$(jq -cn --argjson p "$patch" '{routetable:{routes:$p}}')" >/dev/null
     echo "route table updated"
 ---
-apiVersion: batch/v1
-kind: CronJob
+# #5339 — CONTINUOUS reconciler (was a `*/5` CronJob). A region reboot (the G12
+# region-kill *recovery* leg) drops the rebooted region's nodes' cross-region
+# pod-CIDR routes; with a `*/5` CronJob the peer region cannot dial the rebooted
+# nodes' pods for up to a full 5-minute tick. Proven live on hw288 (2026-07-24):
+# after region-a's nodes were powered back on, CNPG failback WAL streaming
+# stalled ~13min — region-a's designated primary looped `waiting for WAL to
+# become available`, markers stuck 1/2 — until the next CronJob tick re-synced
+# the routes and streaming resumed (failback then converged 6/6, RPO=0 held).
+# Running the SAME one-shot reconcile.sh in a tight loop inside a Deployment
+# closes that gap to ~one interval (default 30s) after the node is Ready.
+# replicas:1 (NOT a DaemonSet): each cluster reconciles its whole VPC route
+# table from a single instance; N racing writers would fight the same table.
+# Same class as — and mirrors — the #5157 openbao unseal-reconciler
+# CronJob→continuous conversion ("CronJob leaves a gap exactly at region-reboot").
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: vpc-podcidr-route-reconciler
   namespace: kube-system
@@ -229,47 +243,61 @@ metadata:
     catalyst.openova.io/blueprint: bp-cilium
     catalyst.openova.io/blueprint-version: {{ .Chart.Version | quote }}
 spec:
-  schedule: {{ (default "*/5 * * * *" $rr.schedule) | quote }}
-  concurrencyPolicy: Forbid
-  successfulJobsHistoryLimit: 1
-  failedJobsHistoryLimit: 3
-  jobTemplate:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bp-cilium
+      app.kubernetes.io/component: vpc-podcidr-route-reconciler
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-cilium
+        app.kubernetes.io/component: vpc-podcidr-route-reconciler
     spec:
-      backoffLimit: 1
-      activeDeadlineSeconds: 300
-      template:
-        metadata:
-          labels:
-            app.kubernetes.io/name: bp-cilium
-            app.kubernetes.io/component: vpc-podcidr-route-reconciler
-        spec:
-          serviceAccountName: vpc-podcidr-route-reconciler
-          restartPolicy: Never
-          containers:
-            - name: reconcile
-              # alpine/k8s toolbox (bash + kubectl + jq + curl; openssl apk-added at runtime #4875),
-              # dockerhub-proxied per MIRROR-EVERYTHING.
-              image: {{ (default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.30.0" $rr.image) | quote }}
-              command: ["bash", "/opt/reconciler/reconcile.sh"]
-              envFrom:
-                - secretRef:
-                    name: vpc-podcidr-route-reconciler-credentials
-              volumeMounts:
-                - name: script
-                  mountPath: /opt/reconciler
-                  readOnly: true
-              securityContext:
-                allowPrivilegeEscalation: false
-                capabilities:
-                  drop: ["ALL"]
-              resources:
-                requests:
-                  cpu: 10m
-                  memory: 32Mi
-                limits:
-                  memory: 128Mi
-          volumes:
+      serviceAccountName: vpc-podcidr-route-reconciler
+      containers:
+        - name: reconcile
+          # alpine/k8s toolbox (bash + kubectl + jq + curl; openssl apk-added at runtime #4875),
+          # dockerhub-proxied per MIRROR-EVERYTHING.
+          image: {{ (default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.30.0" $rr.image) | quote }}
+          # #5339 — reconcile in a loop instead of one-shot-per-CronJob-tick.
+          # reconcile.sh is `set -e` and exits after one pass; `|| echo` keeps the
+          # loop alive across transient VPC-API/kubectl errors so a single failed
+          # pass never wedges recovery (openssl apk-add #4875 runs once, then the
+          # `command -v` guard short-circuits on every later pass in-container).
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -uo pipefail
+              INTERVAL="${RECONCILE_INTERVAL_SECONDS:-30}"
+              while true; do
+                bash /opt/reconciler/reconcile.sh || echo "reconcile pass failed (rc=$?) — retrying in ${INTERVAL}s"
+                sleep "${INTERVAL}"
+              done
+          env:
+            - name: RECONCILE_INTERVAL_SECONDS
+              value: {{ (default 30 $rr.intervalSeconds) | quote }}
+          envFrom:
+            - secretRef:
+                name: vpc-podcidr-route-reconciler-credentials
+          volumeMounts:
             - name: script
-              configMap:
-                name: vpc-podcidr-route-reconciler-script
+              mountPath: /opt/reconciler
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+      volumes:
+        - name: script
+          configMap:
+            name: vpc-podcidr-route-reconciler-script
 {{- end }}

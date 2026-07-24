@@ -299,7 +299,7 @@ name: bp-cilium
 #   Layers ON TOP of the 1.4.9/1.4.10 zero-nodeport + authMode=legacy work.
 #   Needs a fresh 2-region prov to verify the cross-region ClusterMesh pod
 #   path end-to-end (datapath change, not CI-provable). Refs #4656.
-version: 1.4.16
+version: 1.4.17
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`
