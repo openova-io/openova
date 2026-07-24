@@ -1244,10 +1244,26 @@ func buildWipeCredsRaw(providerName string, body wipeRequest, depReq provisioner
 		// atomic: no need for the operator to re-prompt creds after
 		// a Pod restart, because catalyst-api wrote them to disk
 		// during provision.
-		out["access_key"] = firstNonEmpty(body.HuaweiAccessKey, body.HetznerToken, depReq.HuaweiAccessKey)
-		out["secret_key"] = firstNonEmpty(body.HuaweiSecretKey, body.ObjectStorageSecretKey, depReq.HuaweiSecretKey)
-		out["project_id"] = firstNonEmpty(body.HuaweiProjectID, body.ObjectStorageAccessKey, depReq.HuaweiProjectID)
-		out["region"] = firstNonEmpty(body.HuaweiRegion, body.ObjectStorageRegion, depReq.HuaweiRegion)
+		// #5193 — final fallback to the huawei-operator-creds projected env
+		// (CATALYST_HUAWEI_*, api-deployment.yaml). WORST case a partial destroy
+		// leaves behind: the per-deployment tofu.auto.tfvars.json is gone, the Pod
+		// rolled (no in-memory depReq creds), and the wipe body carries none —
+		// without this the bag is empty → the wipe 400s "huawei credentials are
+		// required" and the record strands at status=wiping, blocking the
+		// one-environment-at-a-time preflight for the next fire. catalyst-api's
+		// OWN env still holds the operator creds, so a re-wipe can authenticate.
+		// Precedence: body > depReq > operator env.
+		out["access_key"] = firstNonEmpty(body.HuaweiAccessKey, body.HetznerToken, depReq.HuaweiAccessKey, os.Getenv("CATALYST_HUAWEI_ACCESS_KEY"))
+		out["secret_key"] = firstNonEmpty(body.HuaweiSecretKey, body.ObjectStorageSecretKey, depReq.HuaweiSecretKey, os.Getenv("CATALYST_HUAWEI_SECRET_KEY"))
+		out["project_id"] = firstNonEmpty(body.HuaweiProjectID, body.ObjectStorageAccessKey, depReq.HuaweiProjectID, os.Getenv("CATALYST_HUAWEI_PROJECT_ID"))
+		out["region"] = firstNonEmpty(body.HuaweiRegion, body.ObjectStorageRegion, depReq.HuaweiRegion, os.Getenv("CATALYST_HUAWEI_REGION"))
+		// Region defaults to me-east-215 ONLY when AK/SK/PID all resolved
+		// (mirrors janitor.go:818). The truly-empty case stays region="" so the
+		// EVS/orphan backstop reads "no creds" instead of scanning me-east-215
+		// with a blank AK/SK.
+		if out["region"] == "" && out["access_key"] != "" && out["secret_key"] != "" && out["project_id"] != "" {
+			out["region"] = "me-east-215"
+		}
 	default:
 		// hetzner (canonical) — same wire shape pre-Wave-3.
 		token := strings.TrimSpace(body.HetznerToken)
