@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-24T01:45:07Z` |
+| Last refreshed | `2026-07-24T02:00:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 20 |
 | Open DoD gates | 0 / 41 |
@@ -228,6 +228,8 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-07-24T01:06 | [#5343](https://github.com/openova-io/openova/pull/5343) | #5336 | fix(catalog-seed): sync bp-keycloak 1.5.5→1.5.6 — unblock ma |
+| 2026-07-24T01:51 | [#5342](https://github.com/openova-io/openova/pull/5342) | #5289 | fix(#5341): region-b openova-mcp secondary-edge route — cut  |
+| 2026-07-24T01:51 | [#5340](https://github.com/openova-io/openova/pull/5340) | #4656 | fix(#5339): vpc-podcidr-route-reconciler CronJob→continuous  |
 | 2026-07-23T13:06 | [#5337](https://github.com/openova-io/openova/pull/5337) | #5311 | fix(cnpg-pair): NetworkPolicy carve-out for the continuum-co |
 | 2026-07-23T13:08 | [#5336](https://github.com/openova-io/openova/pull/5336) | #5334 | fix(keycloak,oidc-gate): drop `roles` default scope from pdn |
 | 2026-07-23T08:58 | [#5335](https://github.com/openova-io/openova/pull/5335) | #5311 | fix(continuum): #5311 standby-probe reads Secret via cached  |
@@ -255,8 +257,6 @@ flowchart LR
 | 2026-07-20T09:14 | [#5288](https://github.com/openova-io/openova/pull/5288) | #897 | fix(cloud): render Volume nodes from live volume.hcloud mana |
 | 2026-07-20T09:14 | [#5287](https://github.com/openova-io/openova/pull/5287) | #5254 | fix(catalyst-api): tear down + quarantine k8scache reflector |
 | 2026-07-20T09:14 | [#5286](https://github.com/openova-io/openova/pull/5286) | #5282 | feat(ci): fresh-prov image-registry gate + route bp-trivy of |
-| 2026-07-20T09:14 | [#5284](https://github.com/openova-io/openova/pull/5284) | #5269 | fix(catalyst-api): Phase-1 watch progress-guard — never hard |
-| 2026-07-20T04:47 | [#5282](https://github.com/openova-io/openova/pull/5282) | #4349 | fix(crossplane): route core controller image via harbor.open |
 
 ---
 
