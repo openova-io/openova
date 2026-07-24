@@ -813,7 +813,7 @@ metadata:
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: "1.0.0"
-  visibility: listed
+  visibility: unlisted
   card:
     title: "Prometheus"
     category: observability
@@ -954,7 +954,7 @@ metadata:
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: "1.0.0"
-  visibility: listed
+  visibility: unlisted
   card:
     title: "Redis"
     category: database
@@ -1016,7 +1016,7 @@ metadata:
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: "1.0.0"
-  visibility: listed
+  visibility: unlisted
   card:
     title: "ClickHouse"
     category: analytics
@@ -1107,7 +1107,7 @@ metadata:
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: "1.0.0"
-  visibility: listed
+  visibility: unlisted
   card:
     title: "OpenSearch"
     category: search
@@ -1303,7 +1303,7 @@ metadata:
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: "1.0.0"
-  visibility: listed
+  visibility: unlisted
   card:
     title: "n8n"
     category: automation
