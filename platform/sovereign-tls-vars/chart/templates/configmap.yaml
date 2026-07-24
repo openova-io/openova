@@ -180,11 +180,15 @@ parses it as the materialised listener list.
        Service, so its distinct listener ports never collide with the shared
        gateway even though both terminate public :443 at their own LB front.
 
-       Why a single `*.<fqdn>` listener pair (not the full per-zone fan-out):
-       the console + api hostnames always live under the Sovereign FQDN apex,
+       Why SPECIFIC per-host listeners (not one `*.<fqdn>` pair): the console +
+       api + marketplace hostnames always live under the Sovereign FQDN apex,
        never under an org-pool zone (those are tenant/app surfaces and stay on
-       the SHARED gateway). One wildcard pair on the primary cert is therefore
-       sufficient and keeps the console CEC minimal.
+       the SHARED gateway). A wildcard `*.<fqdn>` listener here made the console
+       CEC's envoy filter chain claim EVERY `*.<fqdn>` TLS handshake, colliding
+       with the shared gateway's own `*.<fqdn>` chain and 404'ing ~50% of every
+       OTHER subdomain (#5341). Each console endpoint therefore gets its exact
+       2-label hostname (see the $consoleHosts loop below); the primary wildcard
+       cert still covers all of them, so the console CEC stays minimal + cheap.
 
        Consumed by clusters/_template/sovereign-tls/cilium-gateway-console.yaml
        at `listeners: ${CONSOLE_LISTENERS_YAML}` via the same Flux postBuild
@@ -193,25 +197,55 @@ parses it as the materialised listener list.
 {{- $consoleCfg := default dict .Values.consoleGateway }}
 {{- $consoleHttpsPort := default 443 $consoleCfg.httpsPort }}
 {{- $consoleHttpPort := default 80 $consoleCfg.httpPort }}
+{{- /* #5341 — the console gateway MUST hostname its listeners to the SPECIFIC
+       operator endpoints it serves, NOT the apex wildcard `*.<fqdn>`.
+       ─────────────────────────────────────────────────────────────────────
+       ROOT CAUSE the wildcard caused (confirmed live on hw288, dep 027f0755):
+       the shared gateway AND this console gateway each compile a cilium-envoy
+       filter chain whose `filterChainMatch.serverNames` was `*.<fqdn>`. Both
+       chains load onto the SAME shared cilium-envoy DaemonSet, so a TLS
+       handshake for ANY subdomain (e.g. `mcp.<fqdn>`) matched BOTH chains.
+       Envoy resolves the duplicate-wildcard match non-deterministically, so
+       ~50% of `mcp.<fqdn>` requests landed on the CONSOLE chain — whose router
+       only has console/api/marketplace vhosts, no mcp — and returned a bare
+       `404 (server: envoy, connection: close)` that cleared on retry. Every
+       non-console subdomain on the shared gateway was exposed to this flake.
+
+       FIX: give each console listener its EXACT 2-label hostname. Envoy prefers
+       an exact `server_name` over the shared gateway's `*.<fqdn>` wildcard, so
+       console/api/marketplace deterministically bind the console chain, while
+       every OTHER subdomain no longer matches the console chain at all and is
+       served solely by the shared gateway. The per-prov wildcard cert already
+       covers all three 2-label hosts, so no extra Let's-Encrypt issuance.
+
+       `hostPrefixes` is the set of HTTPRoute hostnames re-parented to the
+       console gateway (catalyst-ui=console, catalyst-api/catalyst-catalog=api,
+       marketplace=marketplace). A new console-gateway route needs its prefix
+       added here or its listener won't accept it — the deliberate, testable
+       cost of a specific (non-wildcard) listener. */}}
+{{- $consoleHosts := default (list "console" "api" "marketplace") $consoleCfg.hostPrefixes }}
 {{- $consoleListeners := list }}
-{{- $consoleListeners = append $consoleListeners (dict
-      "name" "console-https"
-      "port" $consoleHttpsPort
-      "protocol" "HTTPS"
-      "hostname" (printf "*.%s" $fqdn)
-      "tls" (dict
-        "mode" "Terminate"
-        "certificateRefs" (list (dict "kind" "Secret" "name" $secretName))
-      )
-      "allowedRoutes" (dict "namespaces" (dict "from" "All"))
-    ) }}
-{{- $consoleListeners = append $consoleListeners (dict
-      "name" "console-http"
-      "port" $consoleHttpPort
-      "protocol" "HTTP"
-      "hostname" (printf "*.%s" $fqdn)
-      "allowedRoutes" (dict "namespaces" (dict "from" "All"))
-    ) }}
+{{- range $hp := $consoleHosts }}
+{{-   $consoleHost := printf "%s.%s" $hp $fqdn }}
+{{-   $consoleListeners = append $consoleListeners (dict
+        "name" (printf "%s-https" $hp)
+        "port" $consoleHttpsPort
+        "protocol" "HTTPS"
+        "hostname" $consoleHost
+        "tls" (dict
+          "mode" "Terminate"
+          "certificateRefs" (list (dict "kind" "Secret" "name" $secretName))
+        )
+        "allowedRoutes" (dict "namespaces" (dict "from" "All"))
+      ) }}
+{{-   $consoleListeners = append $consoleListeners (dict
+        "name" (printf "%s-http" $hp)
+        "port" $consoleHttpPort
+        "protocol" "HTTP"
+        "hostname" $consoleHost
+        "allowedRoutes" (dict "namespaces" (dict "from" "All"))
+      ) }}
+{{- end }}
 ---
 apiVersion: v1
 kind: ConfigMap

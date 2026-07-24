@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-sovereign-tls-vars
-version: 0.1.0
+version: 0.1.1
 appVersion: "n/a"
 description: |
   Catalyst Blueprint that renders the `sovereign-tls-vars` ConfigMap

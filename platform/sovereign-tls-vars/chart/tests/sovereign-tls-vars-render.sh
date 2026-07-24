@@ -10,8 +10,10 @@
 #   2. Single-zone render (parentZones empty, only sovereignFQDN set) →
 #      exactly 1 ConfigMap named sovereign-tls-vars in flux-system,
 #      carrying PARENT_DOMAINS_LISTENERS_YAML with bare "https"/"http"
-#      listener names + CONSOLE_LISTENERS_YAML with "console-https"/
-#      "console-http", both referencing the per-prov wildcard Secret.
+#      listener names + CONSOLE_LISTENERS_YAML with SPECIFIC per-host
+#      listeners (console-/api-/marketplace-https+http hostnamed to the
+#      exact 2-label endpoint, NEVER `*.<fqdn>` — #5341), all referencing
+#      the per-prov wildcard Secret.
 #   3. Multi-zone render (2 parentZones) → per-zone-sanitised listener
 #      names, org-pool zone bound to its OWN per-zone Secret (#3376).
 #   4. consoleGateway port overrides (Huawei hostNetwork 8443/8080) flow
@@ -84,10 +86,32 @@ grep -q '\\"name\\":\\"https\\"' "$TMP/single.yaml" || {
   cat "$TMP/single.yaml" >&2
   exit 1
 }
-grep -q '\\"name\\":\\"console-https\\"' "$TMP/single.yaml" || {
-  echo "FAIL: CONSOLE_LISTENERS_YAML missing 'console-https' listener name." >&2
+# CONSOLE_LISTENERS_YAML (#5341) — the dedicated console gateway MUST hostname
+# each listener to the SPECIFIC operator endpoint it serves (console./api./
+# marketplace.<fqdn>), NEVER the apex wildcard `*.<fqdn>`. A wildcard here made
+# the console CEC's cilium-envoy filter chain claim every `*.<fqdn>` TLS
+# handshake, colliding with the shared gateway's own `*.<fqdn>` chain and
+# 404'ing ~50% of every OTHER subdomain (e.g. mcp.<fqdn>).
+CONSOLE_LINE="$(grep 'CONSOLE_LISTENERS_YAML:' "$TMP/single.yaml")"
+for want in \
+  '\\"name\\":\\"console-https\\"' \
+  '\\"hostname\\":\\"console.t99.omani.works\\"' \
+  '\\"name\\":\\"api-https\\"' \
+  '\\"hostname\\":\\"api.t99.omani.works\\"' \
+  '\\"name\\":\\"marketplace-https\\"' \
+  '\\"hostname\\":\\"marketplace.t99.omani.works\\"'; do
+  echo "$CONSOLE_LINE" | grep -q "$want" || {
+    echo "FAIL: CONSOLE_LISTENERS_YAML missing expected #5341 token: $want" >&2
+    echo "$CONSOLE_LINE" >&2
+    exit 1
+  }
+done
+# Collision guard: the console listener set must carry NO `*.<fqdn>` hostname.
+if echo "$CONSOLE_LINE" | grep -q '\\"hostname\\":\\"\*\.t99\.omani\.works\\"'; then
+  echo "FAIL: CONSOLE_LISTENERS_YAML still carries a wildcard '*.t99.omani.works' hostname — the #5341 gateway collision is back." >&2
+  echo "$CONSOLE_LINE" >&2
   exit 1
-}
+fi
 grep -q '\\"name\\":\\"sovereign-wildcard-tls-t99-omani-works\\"' "$TMP/single.yaml" || {
   echo "FAIL: listener certificateRefs does not target the per-prov wildcard Secret sovereign-wildcard-tls-t99-omani-works." >&2
   exit 1

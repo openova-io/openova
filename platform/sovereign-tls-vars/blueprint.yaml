@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: per-host-cluster-infrastructure
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
-  version: 0.1.0
+  version: 0.1.1
   card:
     title: Sovereign TLS Vars
     summary: |
