@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-24T04:00:06Z` |
+| Last refreshed | `2026-07-24T04:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 21 |
 | Open DoD gates | 0 / 41 |
@@ -228,6 +228,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-24T04:09 | [#5346](https://github.com/openova-io/openova/pull/5346) | #5345 | fix(catalog-seed): unlist 5 chartless blueprints (hollow ins |
 | 2026-07-24T01:06 | [#5343](https://github.com/openova-io/openova/pull/5343) | #5336 | fix(catalog-seed): sync bp-keycloak 1.5.5→1.5.6 — unblock ma |
 | 2026-07-24T01:51 | [#5342](https://github.com/openova-io/openova/pull/5342) | #5289 | fix(#5341): region-b openova-mcp secondary-edge route — cut  |
 | 2026-07-24T01:51 | [#5340](https://github.com/openova-io/openova/pull/5340) | #4656 | fix(#5339): vpc-podcidr-route-reconciler CronJob→continuous  |
@@ -257,7 +258,6 @@ flowchart LR
 | 2026-07-20T10:04 | [#5290](https://github.com/openova-io/openova/pull/5290) | #5289 | fix(catalyst): serve api/console/marketplace on region-b via |
 | 2026-07-20T09:14 | [#5288](https://github.com/openova-io/openova/pull/5288) | #897 | fix(cloud): render Volume nodes from live volume.hcloud mana |
 | 2026-07-20T09:14 | [#5287](https://github.com/openova-io/openova/pull/5287) | #5254 | fix(catalyst-api): tear down + quarantine k8scache reflector |
-| 2026-07-20T09:14 | [#5286](https://github.com/openova-io/openova/pull/5286) | #5282 | feat(ci): fresh-prov image-registry gate + route bp-trivy of |
 
 ---
 
