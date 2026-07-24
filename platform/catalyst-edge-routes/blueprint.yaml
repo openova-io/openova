@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 0.1.0  # lockstep with chart/Chart.yaml (#5289)
+  version: 0.2.0  # lockstep with chart/Chart.yaml (#5289)
   card:
     title: Catalyst control-plane edge (region-b)
     summary: |
