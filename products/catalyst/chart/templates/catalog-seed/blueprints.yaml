@@ -578,7 +578,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.5.5"
+  version: "1.5.6"
   visibility: listed
   card:
     title: "Keycloak"
