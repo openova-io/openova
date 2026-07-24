@@ -684,6 +684,19 @@ func main() {
 	r.Get("/readyz", h.Ready)
 	r.Handle("/metrics", promhttp.Handler())
 
+	// #5352 — pprof diagnostics, gated behind CATALYST_PPROF_ENABLED (default off).
+	// catalyst-api OOMs periodically on some Sovereigns (RSS grows to the 4Gi
+	// limit → OOMKilled, observed 28× on hw288). pprof isn't exposed, so the
+	// unbounded allocation can't be located. Enable this flag TRANSIENTLY
+	// (kubectl set env / values override) to capture `go tool pprof .../debug/pprof/heap`,
+	// find the growth (k8scache Indexer / SSE fanout buffers / deployment cache),
+	// then turn it back off. Do NOT leave enabled in production — it exposes
+	// process internals on /debug/pprof.
+	if env("CATALYST_PPROF_ENABLED", "false") == "true" {
+		r.Mount("/debug", middleware.Profiler())
+		log.Warn("pprof diagnostics ENABLED at /debug/pprof (CATALYST_PPROF_ENABLED=true) — transient OOM diagnosis only; do not leave on in production")
+	}
+
 	// /api/v1/version — build identification (git SHA + chart version).
 	// Always 200, no auth gate (probe-friendly). Operators + the QA
 	// matrix probe this to confirm "what version is live right now"
