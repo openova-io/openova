@@ -606,7 +606,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-keycloak
-    version: "1.5.5"
+    version: "1.5.6"
   # G117.1+G117.4+G117.6 #2744-followup (2026-06-03): bp-keycloak
   # catalog-seed needs topology + endpoints + sso so application-
   # controller can fan out HRs and operator console can mint silent-SSO
