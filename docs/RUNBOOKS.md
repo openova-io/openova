@@ -12,6 +12,7 @@ This file consolidates five prior runbook documents (`BLUEPRINT-AUTHORING.md`, `
 ## Table of contents
 
 - [§0 — Provisioning on Huawei kom4dc (CANONICAL substrate)](#0--provisioning-on-huawei-kom4dc-canonical-substrate)
+  - [§0.7 — Break-glass record-less env teardown (`wipe-recordless-env.sh`)](#07-break-glass--record-less-env-teardown-scriptswipe-recordless-envsh-5328)
 - [§1 — Fresh provisioning](#1--fresh-provisioning) — *Hetzner, alternate-provider path*
 - [§2 — Day-2 operations](#2--day-2-operations) — *§2.1–2.3 Hetzner-specific*
 - [§3 — Blueprint authoring](#3--blueprint-authoring)
@@ -103,6 +104,33 @@ curl -s -H "Cookie: catalyst_session=${COOK}" \
 On kom4dc the pushed cloud-init log is the **ONLY** Phase-1 forensic (no sshd, no console-output API). Auto-wiping a failed env before reading the log destroys the fire's entire diagnostic value — the exact mistake the founder called out. A 404 from this endpoint on a failed prov is itself a P0 defect, not a shrug.
 
 Wipe via the canonical endpoint only — `POST https://console.openova.io/sovereign/api/v1/deployments/{id}/wipe` — and **never wipe a converged env while it retains verification value**: walk everything walkable and commit the evidence before any wipe (§0.5 gate (b) applies to wipes too).
+
+### 0.7 Break-glass — record-less env teardown (`scripts/wipe-recordless-env.sh`, #5328)
+
+**When allowed (this gate comes FIRST):** ONLY when the canonical wipe (§0.6) is *structurally impossible* — the mothership deployment **record 404s AND its tofu state is gone** — so `POST /deployments/{id}/wipe` cannot run and `tofu destroy` has no state, yet the env's live kom4dc resources must still come down before the next fire (one-environment-at-a-time, #5111). In every other case the canonical endpoint is the ONLY wipe path. This tool **only deletes** (creates nothing; no NodePorts) and does not replace the durable server-side lanes #5193 (wipe-path creds fallback) / #5285 (informer-flood).
+
+**Usage** (dry-run by default; live calls need a **mothership/bastion vantage** — kom4dc HCS is private):
+```bash
+HW_TFVARS=/deps/tofu/<dep>/tofu.auto.tfvars.json \
+  bash scripts/wipe-recordless-env.sh <ENV_SUBDOMAIN_TOKEN> <DEPID_PREFIX8> [--apply] [--reap-orphans]
+bash scripts/wipe-recordless-env.sh --self-test   # offline scope/fence/arg-validation gate (no network)
+```
+Creds = any prior prov's `tofu.auto.tfvars.json` (mothership PVC `catalyst-api-deployments`, `/deps/tofu/<dep>/`, debug-Pod mount). No flag ⇒ enumerate + print what WOULD be deleted; `--apply` executes.
+
+**Scope (fail-closed) + fence:** a resource is a candidate ONLY if its name carries BOTH the env subdomain token (`hw284-omani-works`) AND the 8-char dep-id prefix (`383db23c`); empty/malformed args abort before any API call. The **§0.1 bastion fence** is asserted at *every* delete — never `bastion-openova` / `bastion-openova-vpc` / EIP `212.72.24.20`, never a non-scope-matched name. The only non-dual-token deletes are the two `--reap-orphans` classes (`status=DOWN` unbound EIPs, `status=available` `pvc-*` EVS), and only when the mothership deployments list shows **zero active envs** (fail-closed if the list cannot be fetched).
+
+**Teardown order (the proven hw284 order — kom4dc quirks baked in):**
+1. **ELB v3: healthmonitor → members → pool → listener → loadbalancer** — cascade delete is unsupported (`ELB.8902`), and a pool delete **409s while its healthmonitor exists**, so the healthmonitor goes FIRST.
+2. NAT: `snat_rules` (nested path) → `nat_gateways`.
+3. VPC peerings of the scoped VPCs.
+4. ECS batch `POST /v1/{proj}/cloudservers/delete` with `delete_publicip=true` + `delete_volume=true` (also reaps the attached CSI EVS volumes — ~85 on hw284).
+5. EVS remaining scoped `available` volumes.
+6. Subnets — retry on **409** while ports release.
+7. Security groups → 8. VPCs → 9. EIP release.
+
+**Rate-limit discipline:** kom4dc black-lists rapid calls (`SYS.0429`) — the script paces ~2s between deletes, backs off 12s on 429/409, retries 5×. It ends with a **verification sweep** (re-enumerate every plane for scope matches; leftovers ⇒ non-zero exit).
+
+**Canonical path first:** BREAK-GLASS ONLY — the default remains the canonical wipe endpoint (§0.6, [`docs/PROTOCOL.md`](PROTOCOL.md) §5; memory `feedback_canonical_wipe_endpoints`). Keypairs are deliberately not swept here (their names lack the dep-id token; the dual-token law is absolute — the next canonical wipe's `sweepKeypairs` reaps them).
 
 ---
 
