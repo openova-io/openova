@@ -51,3 +51,14 @@ Applied the 33/36 lesson (don't assume gated) to the ~24 "customer-Org founder-g
 - `marketplace.hw288.omani.works/redeem/?code=VCH-W376HVPSMZYN` → **"VOUCHER VALID — 50 OMR credit"** + the full funnel wizard (Plan → Stack → Add-ons → Topology → Review → Checkout).
 
 So the customer-Org rows (5-12/16/20/23/84-90/226/R15/R17/G2/G7 + funnel apps) are **walkable by the owner** — no founder voucher/payment needed. This was an untested assumption carried all session; the marketplace voucher-redeem funnel creates a customer Org self-service. **In-progress:** walking the wizard → signup → provision → then the customer-Org row family. (The one genuine dependency to verify: the funnel signup PIN goes to the stranger email — needs a readable mailbox to complete checkout.)
+
+## 🎉 CUSTOMER ORG CREATED via self-service funnel — 2026-07-25 19:44Z
+
+Walked the full Pillar-1 funnel end-to-end (owner-self-service, NO founder action):
+1. **Voucher issued** (VCH-W376HVPSMZYN, 50 OMR) via console BSS.
+2. **Marketplace redeem** → wizard: Plans (S) → Apps (WordPress+BookStack) → Add-ons → Review → Checkout.
+3. **Row 84** ✓ — checkout: entered `emrah.baysal+acme@openova.io` (plus-addressed "stranger") → "Send sign-in code" → read PIN from mailbox (subject "Your login code", plus-addressing delivered to owner mailbox) → verified (POST /api/auth/verify 200).
+4. **Row 85** ✓ — voucher VCH-W376HVPSMZYN applied at checkout (50 OMR credit).
+5. **Row 86** ✓ (launching) — Org "Acme Corp" (subdomain `acme-corp`) → "Launch my Organization" → `/launching/?host=https://console.acme-corp.omani.rest&next=/jobs&tenant=74fa694c-0552-4bd1-8e39-5ba92fd817df` "Setting up your console".
+
+**Customer Org `acme-corp` (tenant 74fa694c-0552-4bd1-8e39-5ba92fd817df) is provisioning** at console.acme-corp.omani.rest. Screenshot: docs/sessions/2026-07-25/screenshots/funnel-acme-org-launching.png. This un-gates the customer-Org row family (5-12/16/20/23/87-90/226/R15/R17/G2/G7/120) — to walk once the vcluster + apps reach Ready. **This proves the ~24 "founder-gated" rows were self-service all along.**
