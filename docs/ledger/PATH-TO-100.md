@@ -1,10 +1,31 @@
-# PATH TO 100% — hw281-cycle fix map (refreshed 2026-07-20)
+# PATH TO 100% — **hw288 current** (refreshed 2026-07-25)
 
-> **Source of truth:** [`UAT.md`](UAT.md) — reset 2026-07-20 for the **hw281** fresh prov (2-region me-east-215-a/b), firing now on the **#5289-hardened train** (`bp-catalyst-platform` **1.4.1190**). All ✅ from prior envs are flushed to ☐; the header reads "pending hw281".
-> This file maps every non-green row family to its exact fix (issue + PR + code path) and its validation gate. A row stays ❌/☐ in UAT.md until the hw281 walk re-verifies it — **merge ≠ green** (founder rule).
-> Prior anchor (hw279, 2026-07-20) superseded — its train validated; the hw279 + hw280 walks (both `cutoverComplete=true`) surfaced the families below, headed by the 2-region api/console/marketplace 404 flap (#5289).
+> **Source of truth:** [`UAT.md`](UAT.md). **Current env = hw288** (dep `027f07559af1f9f7`, 2-region Huawei me-east-215-a/b, **post-cutover cc=true**, **G12 DR proven**). Live tally at this refresh: **✅ 184 · ◑ 57 · ☐ 9**. The hw281 train table below is **historical** — its fixes rode forward and are on `main`; hw288 is the live walk env.
+> This file maps every non-green row to its exact live-verified gate + owner. A row stays ◑/☐ until the hw288 walk re-verifies it — **merge ≠ green** (founder rule).
 
 ---
+
+## hw288 live-walk gate map (2026-07-25) — every non-green row is one of 7 gates
+
+Each row below was **live-verified this session** (owner Keycloak session + both-region hw288 kubeconfig off the mothership PVC + console Playwright), not assumed. None is safely walkable without the named owner action.
+
+| Gate | Rows | Live-verified evidence | Owner action to un-gate |
+|---|---|---|---|
+| **1. #5341/#5358 SSO delivery** | 32 (Harbor) · 33 (OpenBao) · 35/115 (Guacamole) · 36 (PowerDNS-Admin) | #5341 shared-gateway wildcard-SNI collision: harbor 6/12 envoy-404 + OIDC login 401-bounces; openbao/powerdns **12/12 404**. Guacamole = **#5358** (`guacamole-auth-sso-openid 1.5.5` `invalid/old nonce` race, config correct, pod-log confirmed). Fix **#5354** (`bp-sovereign-tls-vars@0.1.1`) merged+published; specific per-host listeners replace the `*.<fqdn>` collision | The fixes can't roll to **post-cutover** hw288 (local-Harbor chart-delivery gap **#5265**) → they land on the **next fresh prov**. #5358 needs a guacamole openid-ext bump. |
+| **2. Customer Org / voucher** | 5·6·7·9·10·11·12·16·20·23 · R15·R17·G2·G7 · 84·85·86 · 216·217 · 91·92·93 · 120·224·228 · 232·233·234 · 238 (~28) | `GET /api/v1/organizations → 1 internal Org, 0 customer`; cluster sweep: no openclaw/wordpress/stalwart deployed (only platform apps); per-Org CNPG scenario absent | **Founder**: a real voucher redeem → creates a customer Org (the whole funnel + orgs-model + per-Org-app family lights up) |
+| **3. Anthropic cred #4277** | G8·G9 · 219·220·221·222·223 | `seedAnthropicToken` loud-skips until the founder places the credential; `bp-agenity` agentic runtime has no working Claude token | **Founder**: place the Anthropic credential in the mothership secret (the stated **only non-engineering gate to 100%**) |
+| **4. Live write-mutation** (unsafe on the 184-✅ north-star DR env) | 50·60 (provision) · 132·134·145·154·126·127 (catalog-commit) · 16 (topology) · 196 (reconcile) · 197 (suspend) · 227 (seed bump) | mechanisms live-confirmed read-only (e.g. 197: 4 objects `spec.suspend=true`; 193 drill-in has the Reconcile/Suspend actions); the flip is a mutation — `force_reconcile_reverts_unmerged_patches` risk on post-cutover | Exercise on the **next fresh prov** (throwaway), not the protected env |
+| **5. Needs a real failure** | 165 (cutover) · 172·174·176·177 (jobs) | `/jobs` `failed` filter works but Sovereign is healthy: **525 Succeeded, 0 Failed** across 179 rows; cutover cc=true (no failed step); remediation Re-run button is gated to Failed rows | Surfaces on an env with a genuine failure (or a fault-injection walk) |
+| **6. Correct-by-design ◑** | R21 · M2 · 185 · G3 · G10 | R21: 5 chartless catalog cards (bp-redis etc.) presented installable, no ghcr chart. M2: #4477 seed is **region-A-only** — region-B ES `could not get secret data from provider` (empty secret, vacuous 0-user promote) = latent DR gap. 185: stale refs live only on non-green rows by design (0 stale-env ✅). | R21/M2 = follow-up fixes; 185 clears when the ◑/☐ set greens; G3/G10 = remaining build |
+| **7. Session-TTL wait** | 29 | console session valid throughout walk; can't clear the httpOnly `catalyst_session` cookie to force the silent-re-auth path without breaking the Keycloak leg | Re-open after the real TTL elapses (or a fresh-context walk) |
+
+**This session's flips (163 → 184 ✅):** 30·31·39 (grafana/gitea/hubble) · 37·38 (newapi) · 205 (fleet API=70) · 235 (grafana SSO 3/3 via bp-sso-bridge) · 193 (reconciler ArgoCD-like drill-in). **Filed:** #5358 (guacamole SSO regression). All backed by live evidence in `UAT.md`.
+
+> **Highest-leverage next action is founder-gated, not a wipe.** A fresh prov would clear only Gate-1 (~5 delivery-gated rows) while **destroying the 184-✅ + proven-G12-DR north-star** and leaving Gates 2–3 (the ~35 customer-Org + Anthropic rows) still shut. Per `one-environment-at-a-time` + `never-infra-delete-on-green`, the real path to 100% is the two founder inputs (**#4277 Anthropic cred**, **a customer-Org voucher**) — then re-walk.
+
+---
+
+## hw281-cycle fix map (HISTORICAL — refreshed 2026-07-20; fixes rode forward onto `main`)
 
 ## The hw281 train — fixes merged, ALL validate on the hw281 walk
 
