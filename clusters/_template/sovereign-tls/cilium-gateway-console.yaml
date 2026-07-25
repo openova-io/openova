@@ -46,10 +46,15 @@
 # and inlined here by Flux postBuild.substituteFrom — same scalar-placeholder
 # pattern as the shared gateway (see cilium-gateway.yaml header for why a scalar
 # `listeners: ${VAR}` parses cleanly through kustomize-build before envsubst).
-# The console listener pair is hostnamed `*.${SOVEREIGN_FQDN}` and binds the
-# per-prov wildcard Secret `sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}` —
-# the SAME cert the shared gateway uses for the apex wildcard, so no extra
-# Let's-Encrypt issuance and no extra cert resource is required.
+# The console listeners are hostnamed to the SPECIFIC operator endpoints this
+# gateway serves — console./api./marketplace.${SOVEREIGN_FQDN} — NOT the apex
+# wildcard `*.${SOVEREIGN_FQDN}` (#5341: a wildcard here made this gateway's
+# cilium-envoy filter chain claim every `*.<fqdn>` TLS handshake, colliding
+# with the shared gateway's own `*.<fqdn>` chain and 404'ing ~50% of every
+# other subdomain like mcp.<fqdn>). They still bind the per-prov wildcard
+# Secret `sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}` — the SAME cert the
+# shared gateway uses (a `*.<fqdn>` cert covers all three 2-label hosts), so no
+# extra Let's-Encrypt issuance and no extra cert resource is required.
 
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway

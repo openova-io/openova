@@ -22,3 +22,15 @@ parentZones: []
 consoleGateway:
   httpsPort: 443
   httpPort: 80
+  # hostPrefixes (#5341) — the 2-label host set the dedicated console Gateway
+  # serves, one specific listener pair per entry (NOT a `*.<fqdn>` wildcard —
+  # a wildcard here collides with the shared gateway's own `*.<fqdn>` filter
+  # chain on the shared cilium-envoy and 404's ~50% of every other subdomain).
+  # Must match the HTTPRoutes re-parented to cilium-gateway-console:
+  #   console → catalyst-ui · api → catalyst-api + catalyst-catalog ·
+  #   marketplace → marketplace. Add a prefix here when a new route is
+  #   re-parented onto the console gateway, or its listener won't accept it.
+  hostPrefixes:
+    - console
+    - api
+    - marketplace
