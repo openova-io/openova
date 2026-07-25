@@ -23,6 +23,10 @@ Each row below was **live-verified this session** (owner Keycloak session + both
 
 > **Highest-leverage next action is founder-gated, not a wipe.** A fresh prov would clear only Gate-1 (~5 delivery-gated rows) while **destroying the 184-✅ + proven-G12-DR north-star** and leaving Gates 2–3 (the ~35 customer-Org + Anthropic rows) still shut. Per `one-environment-at-a-time` + `never-infra-delete-on-green`, the real path to 100% is the two founder inputs (**#4277 Anthropic cred**, **a customer-Org voucher**) — then re-walk.
 
+### New Pillar-5 finding this session — #5359 (region-B cutover incompleteness)
+
+Live root-causing (both region kubeconfigs) surfaced a **false-positive `cc=true` for 2-region Sovereigns**: only the control-plane region (A) is registry/gitops-pivoted. On hw288, **region-B's Flux still points entirely at public infra** — `GitRepository` → `github.com`, all **64 `HelmRepository`** → `ghcr.io`, images → `quay.io` — so region-B is **not sovereign** despite cutover complete. This also produces per-region **chart drift** (`bp-cilium` 1.4.16 region-A/local-Harbor vs 1.4.17 region-B/ghcr), which is the mechanism behind **#5339** (region-A stuck on the pre-fix CronJob). Filed **#5359**. Fix: cutover steps 04/05/06/08 must target **both** regions + the deny-egress proof must block **both** clusters. This raises the bar on the sovereignty pillar (Pillar 5) for every 2-region prov — the egress-block proof is region-A-only today.
+
 ---
 
 ## hw281-cycle fix map (HISTORICAL — refreshed 2026-07-20; fixes rode forward onto `main`)
