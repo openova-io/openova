@@ -23,7 +23,8 @@ Console-gateway = clean by design; shared-gateway = #5341 wildcard-SNI flake. 8 
 
 | Surface | Gateway | envoy-404 |
 |---|---|---|
-| console/api/marketplace/auth | console | 0/8/0/0 of 8 (clean) |
+| console/marketplace/auth | console | 0/0/0 of 8 (clean) |
+| api (bare `/`) | console | 8/8 — but this is a **normal no-root-route 404** (catalyst-api serves `/api/v1/*`, not `/`); the real path `/api/v1/fleet/applications` returns **401** unauth (→200 in-browser, row 205). api is REACHABLE, NOT flaking. |
 | grafana | shared | 0/8 |
 | gitea | shared | 0/8 |
 | hubble | shared | 0/8 |
