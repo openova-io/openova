@@ -16,3 +16,21 @@ Each open status/uat issue walked live this session (curl / Playwright / kubectl
 **Filed this session:** #5358 (guacamole SSO nonce-race), #5359 (Pillar-5: cutover pivots only region-A; region-B Flux still on github/ghcr).
 
 **Common blocker:** #5265 (frozen post-cutover catalog on hw288) gates #5341/#5358/#5339 delivery. The Day-2 fix is already MERGED (#5301, `12-daytwo-harbor-pin-reconciler`); hw288 predates it. Highest-leverage = a **fresh prov** whose bootstrap-kit pin includes #5301 — it carries the Day-2 reconciler (which then rolls the delivery-gated fixes) + must also cover region-B (#5359, still un-pivoted).
+
+## Live surface reachability snapshot — 2026-07-25 (#5341 blast-radius)
+
+Console-gateway = clean by design; shared-gateway = #5341 wildcard-SNI flake. 8 curls each:
+
+| Surface | Gateway | envoy-404 |
+|---|---|---|
+| console/api/marketplace/auth | console | 0/8/0/0 of 8 (clean) |
+| grafana | shared | 0/8 |
+| gitea | shared | 0/8 |
+| hubble | shared | 0/8 |
+| newapi | shared | 0/8 |
+| harbor | shared | 4/8 |
+| openbao | shared | 8/8 |
+| powerdns-admin | shared | 8/8 |
+| mcp /mcp | shared | 4/8 |
+
+Confirms #5341 is non-deterministic per-subdomain (openbao/powerdns tend 8/8 down, grafana/gitea/hubble/newapi/harbor intermittent). Fix #5354 delivery-gated on #5265 (hw288 pre-fix env).
