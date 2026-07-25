@@ -46,6 +46,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
@@ -500,6 +502,88 @@ func TestCompliance_IngestSyntheticReport(t *testing.T) {
 	_ = json.Unmarshal(body, &s)
 	if s.PolicyResults["flux-managed"] != "fail" {
 		t.Fatalf("synthetic ingest: expected fail, got %v", s.PolicyResults)
+	}
+}
+
+// complianceScoreSeriesExists reports whether metricComplianceScore currently
+// holds a series with the given `id` label — WITHOUT instantiating it (unlike
+// WithLabelValues, which would resurrect a just-deleted series at 0 and make
+// the assertion meaningless). Collects the vec directly and scans labels.
+func complianceScoreSeriesExists(id string) bool {
+	ch := make(chan prometheus.Metric, 4096)
+	metricComplianceScore.Collect(ch)
+	close(ch)
+	for m := range ch {
+		var dm dto.Metric
+		if m.Write(&dm) != nil {
+			continue
+		}
+		for _, lp := range dm.Label {
+			if lp.GetName() == "id" && lp.GetValue() == id {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// TestCompliance_PruneOnPolicyReportDelete_5352 proves that a DELETED
+// per-resource PolicyReport prunes BOTH the in-memory resourceState and the
+// per-resource `catalyst_compliance_score` gauge series. Before #5352 the
+// handler ignored ev.Type, so every churning pod/job left a permanent gauge
+// series → unbounded registry growth → catalyst-api OOM (28× on hw288).
+func TestCompliance_PruneOnPolicyReportDelete_5352(t *testing.T) {
+	_, c, nats, f := newComplianceTestRig(t)
+
+	const key = "pod/ns1/pod-xyz" // resourceKey(Pod, ns1, pod-xyz), kind lower-cased
+
+	report := mkPolicyReport("ns1", "pod-xyz-report", []map[string]any{
+		{
+			"policy":  "probes-present",
+			"rule":    "probes-present",
+			"result":  "pass",
+			"message": "ok",
+			"resources": []any{
+				map[string]any{"kind": "Pod", "namespace": "ns1", "name": "pod-xyz"},
+			},
+		},
+	})
+	publishToFactory(f, "policyreport", report)
+
+	// Scored → resourceState + gauge series both exist.
+	waitFor(t, 1*time.Second, func() bool {
+		_, ok := nats.Get("resource." + key)
+		return ok
+	})
+	if !complianceScoreSeriesExists(key) {
+		t.Fatalf("precondition: gauge series for %q missing after ingest", key)
+	}
+	c.mu.RLock()
+	_, present := c.state["acme"][key]
+	c.mu.RUnlock()
+	if !present {
+		t.Fatalf("precondition: resourceState for %q missing after ingest", key)
+	}
+
+	// Pod torn down → Kyverno deletes its per-resource PolicyReport. The
+	// informer delivers the final object body on the DELETED event.
+	f.Publish(k8scache.Event{
+		Cluster: "acme",
+		Kind:    "policyreport",
+		Type:    k8scache.EventDeleted,
+		Object:  report,
+		At:      time.Now(),
+	})
+
+	// #5352 — the resourceState AND the gauge series must both be pruned.
+	waitFor(t, 1*time.Second, func() bool {
+		c.mu.RLock()
+		_, present := c.state["acme"][key]
+		c.mu.RUnlock()
+		return !present
+	})
+	if complianceScoreSeriesExists(key) {
+		t.Fatalf("#5352 regression: gauge series for %q still present after PolicyReport delete — the leak is back", key)
 	}
 }
 

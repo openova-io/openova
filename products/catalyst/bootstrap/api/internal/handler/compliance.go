@@ -671,6 +671,24 @@ func (c *ComplianceHandler) onEvent(ctx context.Context, ev k8scache.Event) {
 	if ev.Object == nil {
 		return
 	}
+	// #5352 — a DELETED report must PRUNE its compliance state + gauge
+	// series, not be re-ingested as if live. Kyverno emits a per-resource
+	// PolicyReport for every Pod/Workload it audits (k8scache/kinds.go), so
+	// a churning pod/job produces a `policyreport` DELETED event on teardown.
+	// The pre-#5352 onEvent ignored ev.Type and handled DELETED exactly like
+	// ADDED/MODIFIED, so `catalyst_compliance_score{scope="resource",id=…}`
+	// accumulated one gauge series per pod/job ever seen and never dropped
+	// any → the Prometheus registry grew unbounded → catalyst-api RSS climbed
+	// to its limit → OOMKilled (observed 28× on hw288). Prune on delete.
+	if ev.Type == k8scache.EventDeleted {
+		switch ev.Kind {
+		case "policyreport", "clusterpolicyreport":
+			c.pruneKyvernoReport(ctx, ev)
+		case k8scache.KindComplianceEvaluator:
+			c.pruneSyntheticReport(ctx, ev)
+		}
+		return
+	}
 	switch ev.Kind {
 	case "policyreport", "clusterpolicyreport":
 		c.ingestKyvernoReport(ctx, ev)
@@ -844,6 +862,76 @@ func (c *ComplianceHandler) ingestSyntheticReport(ctx context.Context, ev k8scac
 	c.recordVerdict(ctx, ev.Cluster, key, resName, resNS, stateful, policy, rule, result, message, "evaluator", ev.At)
 }
 
+// pruneKyvernoReport removes the compliance state + gauge series for every
+// resource subject of a DELETED PolicyReport, then republishes the rollups
+// so they no longer count the torn-down resource. #5352 — without this the
+// per-resource `catalyst_compliance_score` series leak on every pod/job
+// churn (the OOM root cause).
+func (c *ComplianceHandler) pruneKyvernoReport(ctx context.Context, ev k8scache.Event) {
+	keys := map[string]struct{}{}
+	results, _, _ := unstructured.NestedSlice(ev.Object.Object, "results")
+	for _, ri := range results {
+		r, ok := ri.(map[string]any)
+		if !ok {
+			continue
+		}
+		if k, ns, name := kyvernoResourceFor(ev.Object, r); name != "" {
+			keys[resourceKey(k, ns, name)] = struct{}{}
+		}
+	}
+	// Reports with no per-result subject (e.g. a single-scope report):
+	// resolve the subject once off the report's top-level scope/metadata.
+	if len(keys) == 0 {
+		if k, ns, name := kyvernoResourceFor(ev.Object, nil); name != "" {
+			keys[resourceKey(k, ns, name)] = struct{}{}
+		}
+	}
+	if len(keys) == 0 {
+		return
+	}
+	for key := range keys {
+		c.pruneResource(key, ev.Cluster)
+	}
+	c.publishRollups(ctx, ev.Cluster)
+}
+
+// pruneSyntheticReport is pruneKyvernoReport's counterpart for a DELETED
+// evaluator SyntheticReport (single resource subject). #5352.
+func (c *ComplianceHandler) pruneSyntheticReport(ctx context.Context, ev k8scache.Event) {
+	obj := ev.Object.Object
+	resKind, _, _ := unstructured.NestedString(obj, "resource", "kind")
+	resName, _, _ := unstructured.NestedString(obj, "resource", "name")
+	if resName == "" {
+		return
+	}
+	resNS, _, _ := unstructured.NestedString(obj, "namespace")
+	c.pruneResource(resourceKey(resKind, resNS, resName), ev.Cluster)
+	c.publishRollups(ctx, ev.Cluster)
+}
+
+// pruneResource drops one resource's compliance state and its gauge series.
+// The DeleteLabelValues tuple MUST match the one complianceObserve set:
+// (scope="resource", id=resourceKey, environment=rs.environment,
+// sovereign=clusterID). No-op (and safe) when the resource was never
+// scored. #5352.
+func (c *ComplianceHandler) pruneResource(key, clusterID string) {
+	c.mu.Lock()
+	cs, ok := c.state[clusterID]
+	if !ok {
+		c.mu.Unlock()
+		return
+	}
+	rs, ok := cs[key]
+	if !ok {
+		c.mu.Unlock()
+		return
+	}
+	env := rs.environment
+	delete(cs, key)
+	c.mu.Unlock()
+	metricComplianceScore.DeleteLabelValues("resource", key, env, clusterID)
+}
+
 // recordVerdict stores one (resource, policy) verdict and triggers a
 // score recompute + publish for the affected scopes. Holds c.mu only
 // for the state-update — the recompute + publish run unlocked.
@@ -918,8 +1006,16 @@ func (c *ComplianceHandler) recomputeAndPublish(ctx context.Context, clusterID, 
 	c.publishScore(ctx, clusterID, resourceScore)
 
 	// Roll up: application → environment → organization → sovereign.
-	rolls := c.rollupsFor(clusterID)
-	for _, s := range rolls {
+	c.publishRollups(ctx, clusterID)
+}
+
+// publishRollups recomputes + publishes every rollup scope for the cluster
+// (application → environment → organization → sovereign). Shared by
+// recomputeAndPublish (after a resource score changes) and the #5352 prune
+// path (after a resource is removed) so the rollups never keep counting a
+// torn-down resource.
+func (c *ComplianceHandler) publishRollups(ctx context.Context, clusterID string) {
+	for _, s := range c.rollupsFor(clusterID) {
 		c.publishScore(ctx, clusterID, s)
 	}
 }
