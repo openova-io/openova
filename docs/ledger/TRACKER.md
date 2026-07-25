@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-25T02:15:02Z` |
+| Last refreshed | `2026-07-25T02:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 18 |
 | Open DoD gates | 0 / 41 |
@@ -225,6 +225,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-25T02:21 | [#5355](https://github.com/openova-io/openova/pull/5355) | #5193 | fix(catalyst-api): wipe falls back to CATALYST_HUAWEI_* oper |
+| 2026-07-25T02:22 | [#5354](https://github.com/openova-io/openova/pull/5354) | #5341 | fix(sovereign-tls-vars): console gateway specific-hostname l |
+| 2026-07-25T02:21 | [#5353](https://github.com/openova-io/openova/pull/5353) | #5352 | fix(catalyst-api): prune compliance_score series on resource |
 | 2026-07-24T04:20 | [#5347](https://github.com/openova-io/openova/pull/5347) | #5346 | chore(catalyst): umbrella 1.4.1210 — deliver #5346 catalog-s |
 | 2026-07-24T04:09 | [#5346](https://github.com/openova-io/openova/pull/5346) | #5345 | fix(catalog-seed): unlist 5 chartless blueprints (hollow ins |
 | 2026-07-24T01:06 | [#5343](https://github.com/openova-io/openova/pull/5343) | #5336 | fix(catalog-seed): sync bp-keycloak 1.5.5→1.5.6 — unblock ma |
@@ -252,9 +255,6 @@ flowchart LR
 | 2026-07-20T15:24 | [#5299](https://github.com/openova-io/openova/pull/5299) | #3379 | fix(cutover): raise step-03 harbor-prewarm deadline for the  |
 | 2026-07-20T12:29 | [#5293](https://github.com/openova-io/openova/pull/5293) | #5290 | ci(catalyst): guard mothership raw-kustomize build against b |
 | 2026-07-20T11:24 | [#5292](https://github.com/openova-io/openova/pull/5292) | #5290 | fix(catalyst): unbreak mothership raw-kustomize (#5290 globa |
-| 2026-07-20T10:22 | [#5291](https://github.com/openova-io/openova/pull/5291) | #5289 | docs(ledger): refresh PATH-TO-100 fix-map for the hw281 fres |
-| 2026-07-20T10:04 | [#5290](https://github.com/openova-io/openova/pull/5290) | #5289 | fix(catalyst): serve api/console/marketplace on region-b via |
-| 2026-07-20T09:14 | [#5288](https://github.com/openova-io/openova/pull/5288) | #897 | fix(cloud): render Volume nodes from live volume.hcloud mana |
 
 ---
 
