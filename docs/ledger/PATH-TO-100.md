@@ -63,3 +63,16 @@ The hw279 + hw280 walks (both cutover-complete) proved the cold-broker OIDC rout
 ## §854 disposition (not a code gap)
 
 **#5088** — the live mothership NodePorts are `cinova/catalog-svc` (⛔ founder never-touch), `iogrid/cm-acme-http-solver` (ephemeral cert-manager solver, symptom of a stuck `proxy.iogrid.org` HTTP-01 challenge, no chart) and `iogrid/proxy-gateway-socks5` (founder iogrid repo). **Zero** chart-sourced NodePorts in this monorepo — the §854 CI gate holds. Real fix = **`iogrid#844`** (founder repo). Stays `status/parked`.
+
+## Delivery-gap casualties — merged fixes hw288 predates (a fresh prov clears ALL) — 2026-07-25
+
+hw288 cut over 2026-07-23T14:26Z. Multiple "gaps" walked on it are **already-merged fixes** whose commits landed AFTER that cutover-time bootstrap-kit pin, so hw288 (a pre-fix, frozen-catalog env — #5265, no #5301 day-two reconciler) never received them. A single fresh prov with a current pin carries all of them:
+
+| Gap / row | Fix (merged) | Merged | Un-gates on fresh prov |
+|---|---|---|---|
+| #5265 delivery freeze | `12-daytwo-harbor-pin-reconciler` #5301 / `5daf918a4` | 2026-07-23 01:26Z | the Day-2 refresh itself → rolls the rest |
+| #5341 gateway SNI flake (rows 32/33/36) | `bp-sovereign-tls-vars@0.1.1` #5354 | 2026-07-25 02:22Z | openbao/powerdns/harbor-alias front doors |
+| #5339 region drift (region-A CronJob) | `bp-cilium@1.4.17` #5340 | 2026-07-24 01:51Z | region-A → Deployment (survives region-reboot) |
+| #5345 chartless-but-installable (R21) | catalog-seed unlist #5346 / `45f7f132d` | 2026-07-24 08:09Z | the 5 blueprints render `unlisted` |
+
+**So the single highest-leverage action is a fresh prov** — it validates 4 already-merged fixes at once (rows 32 is already ✅ via harbor SSO; 33/36 + R21 + the #5339 drift clear). The genuinely-unbuilt remainder: **#5358** (guacamole openid-ext, confirmed real defect) and **#5359** (region-B per-region cutover, scoped). Founder inputs (#4277 cred, voucher) remain orthogonal.
