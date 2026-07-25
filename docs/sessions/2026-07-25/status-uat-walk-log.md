@@ -43,3 +43,11 @@ Confirms #5341 is non-deterministic per-subdomain (openbao/powerdns tend 8/8 dow
 - **#5341** `mcp.hw288/mcp` → **4/8 envoy-404** (shared-gateway flap persists; fix #5354 delivery-gated on #5265).
 
 Neither #5339 nor #5285 has a numbered UAT row (infra/prov-lifecycle issues) — this log is their evidence home. #5341's UAT rows are 32 (✅ via harbor SSO) + 33/36 (☐, front doors down).
+
+## MAJOR reclassification — customer-Org funnel is SELF-SERVICE, not founder-gated (2026-07-25)
+
+Applied the 33/36 lesson (don't assume gated) to the ~24 "customer-Org founder-gated" rows and it broke open:
+- Console **Billing → Vouchers → "+ Issue voucher"** is owner-self-service. Minted **VCH-W376HVPSMZYN (50 OMR, Active)** via the BSS UI.
+- `marketplace.hw288.omani.works/redeem/?code=VCH-W376HVPSMZYN` → **"VOUCHER VALID — 50 OMR credit"** + the full funnel wizard (Plan → Stack → Add-ons → Topology → Review → Checkout).
+
+So the customer-Org rows (5-12/16/20/23/84-90/226/R15/R17/G2/G7 + funnel apps) are **walkable by the owner** — no founder voucher/payment needed. This was an untested assumption carried all session; the marketplace voucher-redeem funnel creates a customer Org self-service. **In-progress:** walking the wizard → signup → provision → then the customer-Org row family. (The one genuine dependency to verify: the funnel signup PIN goes to the stranger email — needs a readable mailbox to complete checkout.)
