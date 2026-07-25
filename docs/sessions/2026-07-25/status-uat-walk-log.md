@@ -35,3 +35,11 @@ Console-gateway = clean by design; shared-gateway = #5341 wildcard-SNI flake. 8 
 | mcp /mcp | shared | 4/8 |
 
 Confirms #5341 is non-deterministic per-subdomain (openbao/powerdns tend 8/8 down, grafana/gitea/hubble/newapi/harbor intermittent). Fix #5354 delivery-gated on #5265 (hw288 pre-fix env).
+
+## Live re-hit — 2026-07-25 17:42Z (#5339 / #5285 / #5341)
+
+- **#5339** vpc-podcidr-route-reconciler: present in both regions (region-A CronJob / region-B Deployment split stable — fix #5340 delivery-gated, hw288 predates).
+- **#5285** catalyst-api `/healthz` → **HTTP/1.1 200 OK**, restarts=0 (quarantine fix holding; not starved).
+- **#5341** `mcp.hw288/mcp` → **4/8 envoy-404** (shared-gateway flap persists; fix #5354 delivery-gated on #5265).
+
+Neither #5339 nor #5285 has a numbered UAT row (infra/prov-lifecycle issues) — this log is their evidence home. #5341's UAT rows are 32 (✅ via harbor SSO) + 33/36 (☐, front doors down).
