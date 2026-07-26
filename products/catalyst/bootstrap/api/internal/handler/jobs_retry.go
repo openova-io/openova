@@ -159,6 +159,17 @@ func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	action, rerr := h.dispatchRetry(r.Context(), dyn, job, now)
 	if rerr != nil {
+		// #3379: a cutover-step Re-run that arrives while the engine already
+		// holds its single-run flag is a CONFLICT, not a fault — the same
+		// answer HandleCutoverStart gives a concurrent /start. Spawning a
+		// second engine goroutine would race the first over the step Jobs.
+		if errors.Is(rerr, errCutoverRunInFlight) {
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error":  "cutover-in-progress",
+				"detail": rerr.Error(),
+			})
+			return
+		}
 		// #4845: a leaf with no directly-retryable backing (aggregate
 		// trivy-operator scan, mutation-bridge, unsupported kind) is a
 		// client-side condition, not a server fault — return a graceful 422
@@ -254,6 +265,13 @@ func (h *Handler) dispatchRetry(ctx context.Context, dyn dynamic.Interface, job 
 			return "", err
 		}
 		return "created one-off Job " + runName + " from CronJob " + name, nil
+
+	case jobs.KindStep:
+		// One step of a projected activity ("cutover-step-<slug>"). Re-drives
+		// the cutover engine in operator-retry mode so the failed step's
+		// stale Job is deleted + re-run and the chain resumes — see
+		// jobs_retry_cutover_step.go (issue #3379, UAT row 165).
+		return h.retryActivityStep(ctx, job, now)
 
 	case jobs.KindMutation:
 		// Crossplane XRC re-submit — bump the catalyst reconcile annotation
