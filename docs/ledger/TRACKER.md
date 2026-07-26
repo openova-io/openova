@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-26T09:30:04Z` |
+| Last refreshed | `2026-07-26T09:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 24 |
 | Open DoD gates | 0 / 41 |
@@ -231,6 +231,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-26T09:42 | [#5376](https://github.com/openova-io/openova/pull/5376) | #4282 | fix(bp-newapi): per-Org CNPG Postgres pod Guaranteed QoS — r |
 | 2026-07-26T09:15 | [#5372](https://github.com/openova-io/openova/pull/5372) | #5371 | fix(ci): sandbox-pty-server builders golang:1.23→1.25-alpine |
 | 2026-07-26T09:03 | [#5371](https://github.com/openova-io/openova/pull/5371) | #5370 | fix(ci): sandbox-mcp-server builder golang:1.23→1.25-alpine  |
 | 2026-07-26T08:46 | [#5366](https://github.com/openova-io/openova/pull/5366) | #2 | fix(org-controller): emit tenant.deleted on finalizer so raw |
@@ -260,7 +261,6 @@ flowchart LR
 | 2026-07-20T22:56 | [#5309](https://github.com/openova-io/openova/pull/5309) | #5205 | fix(marketplace): render live provisioning-stage timeline in |
 | 2026-07-20T22:56 | [#5308](https://github.com/openova-io/openova/pull/5308) | #5305 | fix(organization-controller): stop the reconcile hot-loop th |
 | 2026-07-20T22:39 | [#5307](https://github.com/openova-io/openova/pull/5307) | #4432 | fix(catalog-seed): sync 14 stale catalog card versions + gua |
-| 2026-07-20T16:43 | [#5303](https://github.com/openova-io/openova/pull/5303) | #4573 | fix(bp-harbor): disable S3 blob-redirect via the correct low |
 
 ---
 
