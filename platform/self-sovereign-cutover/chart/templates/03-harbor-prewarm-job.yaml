@@ -413,6 +413,15 @@ data:
               # Otherwise flag when the spec out-ran the controller
               # (observedGeneration < generation — the pin-bump case) OR Ready !=
               # True (mid-reconcile / failed upgrade).
+              # #5391: distinguish TERMINAL from mid-roll. Once Flux marks an HR
+              # Stalled=True (reason RetriesExceeded) it has stopped retrying
+              # PERMANENTLY — that release will never reach Ready on its own, so
+              # "wait for the roll to settle and re-trigger" is false advice: the
+              # operator would wait forever. Live hw290 (dep 31106b6aa4a7e8e7):
+              # 7 offenders, ALL per-Org customer apps, ALL Stalled/RetriesExceeded
+              # (delta-corp/bp-keycloak `context deadline exceeded` alone cascaded
+              # DependencyNotReady onto 4 siblings). Tag those rows so the operator
+              # can tell "wait 5 minutes" from "this blocks you until you act".
               hr_pending=$(kubectl get helmreleases -A -o json 2>/dev/null | jq -r '
                 .items[]
                 | select((.spec.suspend // false) | not)
@@ -420,7 +429,11 @@ data:
                     ((.status.observedGeneration // -1) < (.metadata.generation // 0))
                     or (((.status.conditions // []) | map(select(.type=="Ready")) | (.[0].status // "Unknown")) != "True")
                   )
-                | "HelmRelease/\(.metadata.namespace)/\(.metadata.name)"' 2>/dev/null || true)
+                | (((.status.conditions // []) | map(select(.type=="Stalled")) | (.[0].status // "False")) == "True") as $stalled
+                | (((.status.conditions // []) | map(select(.type=="Ready")) | (.[0].message // "")) | split("\n")[0]) as $why
+                | "HelmRelease/\(.metadata.namespace)/\(.metadata.name)"
+                  + (if $stalled then "  [TERMINAL: Flux stalled — it has STOPPED retrying and will never clear itself]" else "" end)
+                  + (if ($why | length) > 0 then "  (\($why))" else "" end)' 2>/dev/null || true)
               # Deployments + StatefulSets: a pending rollout — observedGeneration
               # behind the spec, or updated/ready replicas short of desired. Skip
               # intentionally scaled-to-zero (spec.replicas == 0). DaemonSets are
@@ -437,9 +450,20 @@ data:
                 | "\(.kind // "Workload")/\(.metadata.namespace)/\(.metadata.name)"' 2>/dev/null || true)
               unsettled=$(printf '%s\n%s\n' "${hr_pending}" "${wl_pending}" | grep -c . || true)
               if [ "${unsettled}" -gt 0 ]; then
-                echo "[harbor-prewarm] FATAL: env NOT settled — ${unsettled} release(s)/workload(s) are mid-roll; harbor-prewarm would mirror running tags the cutover then rolls away from (running != desired). Wait for these to settle (HelmRelease Ready=True + observedGeneration==generation; workloads updated==ready==desired replicas), then re-trigger the cutover:"
+                terminal=$(printf '%s\n' "${hr_pending}" | grep -c 'TERMINAL:' || true)
+                echo "[harbor-prewarm] FATAL: env NOT settled — ${unsettled} release(s)/workload(s) are mid-roll; harbor-prewarm would mirror running tags the cutover then rolls away from (running != desired):"
                 printf '%s\n%s\n' "${hr_pending}" "${wl_pending}" | grep . | sed 's/^/  mid-roll: /'
-                echo "[harbor-prewarm] (settled-roll pre-flight #4982; emergency override for a manually confirmed-settled env: prewarm.settledRollPreflight.enabled=false)"
+                if [ "${terminal}" -gt 0 ]; then
+                  # #5391 — do NOT tell the operator to wait when waiting cannot work.
+                  echo "[harbor-prewarm] ${terminal} of these are TERMINAL (Flux Stalled/RetriesExceeded). Waiting will NOT clear them — Flux has already given up retrying. Each one needs an explicit re-drive before the cutover can proceed:"
+                  echo "[harbor-prewarm]   flux reconcile helmrelease <name> -n <namespace> --reset     # clears Stalled and retries"
+                  echo "[harbor-prewarm]   (or remove the Organization if the release belongs to a customer app you no longer need)"
+                  echo "[harbor-prewarm] Fix the underlying failure first — the message in parentheses above is the Helm error that stalled it."
+                fi
+                if [ "${unsettled}" -gt "${terminal}" ]; then
+                  echo "[harbor-prewarm] The remainder are genuinely mid-roll — wait for them to settle (HelmRelease Ready=True + observedGeneration==generation; workloads updated==ready==desired replicas), then re-trigger the cutover."
+                fi
+                echo "[harbor-prewarm] (settled-roll pre-flight #4982/#5391; emergency override for a manually confirmed-settled env: prewarm.settledRollPreflight.enabled=false)"
                 exit 1
               fi
               echo "[harbor-prewarm] Phase A0: env settled — no HelmRelease/Deployment/StatefulSet mid-roll; building the mirror from running == desired tags"

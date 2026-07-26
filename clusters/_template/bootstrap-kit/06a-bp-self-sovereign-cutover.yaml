@@ -988,7 +988,7 @@ spec:
       # is a behavioral no-op (empty optional mount -> glob guards skip every leg;
       # the legs DO render). Step count stays 11.
       # Contract Case 71.
-      version: 0.1.151
+      version: 0.1.152
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
