@@ -120,6 +120,11 @@ type Handler struct {
 	// once the org-controller finishes creating the repo, so a slow per-Org
 	// create never drops the purchased app. Zero value is ready to use.
 	pendingInstalls pendingInstallRegistry
+
+	// perOrgCommits serialises this process's commits to a single per-Org
+	// gitops branch so the funnel's own N concurrent cart-app installs cannot
+	// contend for one branch head (#5387). Zero value is ready to use.
+	perOrgCommits perOrgCommitGate
 }
 
 // VerifyCommitTargetSafe re-runs the issue #944 cross-cluster pollution

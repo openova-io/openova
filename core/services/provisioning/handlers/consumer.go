@@ -687,6 +687,21 @@ func (h *Handler) applyTenantChangePerOrg(ctx context.Context, data appChangeDat
 	// GitRepository actually watches.
 	branch := h.perOrgBranch()
 
+	// #5387 — hold the per-branch gate for the WHOLE read-merge-commit cycle.
+	// A cart with N Applications dispatches N concurrent installs (one per cart
+	// entry, each in its own goroutine), and every one of them re-renders the
+	// full cart and pushes it to this same branch. Un-gated they collide on the
+	// branch head and Gitea rejects the losers with `PushOutOfDate`, which on
+	// hw290 failed the funnel outright. Serialising them makes each commit build
+	// on the head its sibling just wrote, and leaves the whole CAS-retry budget
+	// for the genuinely out-of-process racer (the org-controller). The gate is
+	// released before we return, on every path.
+	release, err := h.perOrgCommits.acquire(ctx, slug+"/"+h.perOrgRepoName()+"@"+branch)
+	if err != nil {
+		return fmt.Errorf("per-Org commit gate for %s/%s@%s: %w", slug, h.perOrgRepoName(), branch, err)
+	}
+	defer release()
+
 	// #4999: render the per-Org app hosts under the Org's CHOSEN (served) pool
 	// zone — the SAME zone resolveOrgParentDomain stamps on the Org CR's
 	// spec.tenantPublic.parentDomain (which drives the per-Org console DNS / TLS /
