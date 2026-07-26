@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-26T16:00:03Z` |
+| Last refreshed | `2026-07-26T16:15:01Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 29 |
+| Open issues | 25 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 29 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 25 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 29 open items (clickable table)
+### All 25 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -217,14 +217,10 @@ flowchart LR
 | [#5345](https://github.com/openova-io/openova/issues/5345) | fix(catalog-seed): 5 visibility:listed blueprints present as installable but hav | Other |
 | [#5348](https://github.com/openova-io/openova/issues/5348) | 🛑 §854: 3 live NodePort services on the mothership (cinova, iogrid, cert-man | Other |
 | [#5349](https://github.com/openova-io/openova/issues/5349) | 🛑 §-compliance + durability: mothership runs entirely on local-path StorageC | Other |
-| [#5352](https://github.com/openova-io/openova/issues/5352) | catalyst-api periodic OOMKill on hw288 (28 restarts, mem→4Gi) + reflector chur | Other |
 | [#5358](https://github.com/openova-io/openova/issues/5358) | SSO: Guacamole intermittently rejects the valid Keycloak id_token (invalid/old n | Other |
 | [#5364](https://github.com/openova-io/openova/issues/5364) | Org-CR deletion orphans the org Namespace + host-deployed bp-keycloak when per-O | Other |
 | [#5370](https://github.com/openova-io/openova/issues/5370) | CI red on main: sandbox-mcp-server Go-toolchain latent break + intermittent char | Other |
 | [#5373](https://github.com/openova-io/openova/issues/5373) | per-Org realm flag (CATALYST_PER_ORG_REALM_ENABLED) is DELIBERATELY dormant —  | Other |
-| [#5374](https://github.com/openova-io/openova/issues/5374) | UAT row 238: per-Org CNPG Postgres pod is Burstable, not Guaranteed — bp-newap | Other |
-| [#5375](https://github.com/openova-io/openova/issues/5375) | UAT M2 region-B DR gap: catalyst-newapi-admin-token has NO region-local producer | Other |
-| [#5381](https://github.com/openova-io/openova/issues/5381) | P0: 2-region Huawei prov false 'partial-failure' — normalisePerRegionKeys stri | Other |
 | [#5384](https://github.com/openova-io/openova/issues/5384) | FUNNEL P0 (hw290): purchased-app deploy dies on the FIRST app — per-Org cataly | Other |
 | [#5385](https://github.com/openova-io/openova/issues/5385) | Deployment health aggregate is stale-degraded + counts suspended HRs inconsisten | Other |
 | [#5387](https://github.com/openova-io/openova/issues/5387) | P0: per-Org GitOps writer races itself (PushOutOfDate) — every multi-app funne | Other |
