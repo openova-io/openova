@@ -1,5 +1,19 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.141 (#5374, UAT row 238): the chart-owned per-Org CNPG Cluster's
+# resources go requests==limits (500m/512Mi) → Guaranteed QoS on the
+# long-running postgres instance pod. Pre-fix the 50m/128Mi requests vs
+# 500m/512Mi limits shape made `bp-newapi-newapi-pg-1` Burstable (live on
+# hw288 Org beta-corp) — evictable under node pressure, and DENIED at
+# admission on host-ns Org tiers whose plan-limits LimitRange pins
+# maxLimitRequestRatio {cpu:1, memory:1} (#4292). CNPG stamps
+# Cluster.spec.resources onto the instance pod (its bootstrap-controller
+# init container inherits the same block), so the values-only pin is
+# sufficient — same fix shape as bp-postgres instance.resources (#4282).
+# Sizing preserved: the prior LIMITS remain the sizing; requests rise to
+# meet them, so plan-quota limits-side accounting is unchanged. Lockstep:
+# 80-newapi.yaml pin + blueprint.yaml + catalog-seed spec.version/
+# source.version → 1.4.141. Refs #5374.
 # 1.4.138 (#4885): honour global.imageRegistry for the openova-io images
 # (newapi-mirror, newapi-sandbox-bridge, services-metering-sidecar) so the
 # self-sovereign-cutover step-07 image pivot reaches those Pods. New
@@ -937,7 +951,7 @@ name: bp-newapi
 #   drift, then hash-gated reload), mounts the OIDC secret, and its Role reads
 #   it. Live-verified on 91dc0591/omantel.biz: DB secret resynced, pod reloaded
 #   "Loaded 1 custom OAuth providers", KC authenticates the corrected secret.
-version: 1.4.140
+version: 1.4.141
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
