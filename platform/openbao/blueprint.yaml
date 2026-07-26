@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.2.63  # lockstep with chart/Chart.yaml (#4879 snapshot-fetch: NoSuchBucket → graceful skip, not hard Job failure)
+  version: 1.2.64  # lockstep with chart/Chart.yaml (#5375: external-secrets-push policy so bp-newapi's region-local admin-token PushSecret can seed every region's vault)
   card:
     title: openbao
     summary: OpenBao secret backend. 3-node Raft per region (independent quorum, async perf-replication across regions). MPL 2.0 — drop-in Vault replacement.

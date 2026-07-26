@@ -951,7 +951,20 @@ name: bp-newapi
 #   drift, then hash-gated reload), mounts the OIDC secret, and its Role reads
 #   it. Live-verified on 91dc0591/omantel.biz: DB secret resynced, pod reloaded
 #   "Loaded 1 custom OAuth providers", KC authenticates the corrected secret.
-version: 1.4.142
+# 1.4.143 — #5375 (UAT row M2): REGION-LOCAL producer for the OpenBao path the
+#   catalyst-newapi-admin-token ExternalSecret reads. New templates/admin-token-
+#   pushsecret.yaml renders an ESO PushSecret that seeds `catalyst/newapi/
+#   admin-token` (property ADMIN_API_TOKEN) from the region-local token-signing-
+#   key Secret's ADMIN_SECRET via the SAME vault-region1 ClusterSecretStore. The
+#   only prior producer — catalyst-api's #4477 seed — runs solely in the primary
+#   region, and each region runs its own OpenBao, so on every 2-region prov
+#   region-B's ExternalSecret was permanently SecretSyncedError ("could not get
+#   secret data from provider", path absent in region-B's vault; live hw285-
+#   hw288) → a post-region-kill promote had NO NewAPI admin bearer (latent DR
+#   gap). Cross-region replication would be WRONG (the bearer must byte-match
+#   the REGION-LOCAL bridge ADMIN_SECRET), so the fix is the region-local
+#   producer. Pairs with bp-openbao 1.2.64 (external-secrets-push policy grant).
+version: 1.4.143
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

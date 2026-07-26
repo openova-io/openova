@@ -228,7 +228,18 @@ name: bp-openbao
 #   entity joined the sovereign-admins external group (direct_group_ids). Only
 #   the sso-configure reconcile.sh ROLE_PAYLOAD changes (+ the chart bump that
 #   rolls the Deployment per the #3374 checksum); no other template moves.
-version: 1.2.63
+# 1.2.64 — #5375 (UAT row M2): auth-bootstrap grants the ESO auth role a NARROW
+#   `external-secrets-push` policy — create/update/read on exactly
+#   `secret/{data,metadata}/catalyst/newapi/admin-token` — so bp-newapi's new
+#   admin-token PushSecret (bp-newapi 1.4.141) can seed that path in EVERY
+#   region's vault. Closes the region-B DR gap: the only prior producer
+#   (catalyst-api's #4477 seed) is primary-region-only and each region runs its
+#   own OpenBao, so region-B's catalyst-newapi-admin-token ExternalSecret was
+#   permanently SecretSyncedError (path never written; live hw285-hw288). The
+#   broad `secret/data/*` ESO grant stays read-only. On already-provisioned
+#   envs the auth-bootstrap hook exits 0 (root token revoked after first run) —
+#   the grant lands on the next fresh prov per the release-train lifecycle.
+version: 1.2.64
 # 1.2.51 (#3888, Refs #3847): prov-time openbao KV-seed mechanism — the
 # auth-bootstrap Job reads a one-shot cloud-init `openbao-bootstrap-seed`
 # Secret + writes its keys into KV at secret/<prefix>/* with the still-valid

@@ -380,7 +380,8 @@ spec:
               # ─── ESO read-policy ────────────────────────────────────────
               # Read access to all keys under $KV_MOUNT_PATH. ESO does NOT
               # write — Catalyst rotation jobs hold the writer policy
-              # separately.
+              # separately. (Sole exception: the single-path push grant in
+              # external-secrets-push below, #5375.)
               cat <<EOF | bao policy write external-secrets-read -
               path "$KV_MOUNT_PATH/data/*" {
                 capabilities = ["read", "list"]
@@ -390,12 +391,36 @@ spec:
               }
               EOF
 
+              # ─── #5375 (UAT M2) ESO push-policy: region-local newapi admin-token ─
+              # bp-newapi renders a PushSecret (platform/newapi/chart/templates/
+              # admin-token-pushsecret.yaml) that seeds `$KV_MOUNT_PATH/catalyst/
+              # newapi/admin-token` (property ADMIN_API_TOKEN) from the REGION-
+              # LOCAL sandbox-bridge ADMIN_SECRET, so the catalyst-newapi-admin-
+              # token ExternalSecret resolves in EVERY region. Root cause it
+              # closes: the only other producer — catalyst-api's #4477 seed —
+              # runs solely in the PRIMARY region, and each region runs its OWN
+              # OpenBao (region-local raft, no stretched cluster), so region-B's
+              # vault never held the path → region-B ES permanently
+              # SecretSyncedError → a post-region-kill promote had NO NewAPI
+              # admin bearer (latent DR gap, live-proven hw285-hw288). NARROW
+              # grant: exactly ONE KV path, create/update only (+ the matching
+              # metadata path for ESO's managed-by custom-metadata stamp). The
+              # broad `secret/data/*` tree stays read-only for ESO.
+              cat <<EOF | bao policy write external-secrets-push -
+              path "$KV_MOUNT_PATH/data/catalyst/newapi/admin-token" {
+                capabilities = ["create", "update", "read"]
+              }
+              path "$KV_MOUNT_PATH/metadata/catalyst/newapi/admin-token" {
+                capabilities = ["create", "update", "read"]
+              }
+              EOF
+
               # ─── Bind role $AUTH_ROLE to the ESO ServiceAccount ─────────
               echo "[openbao-auth-bootstrap] writing auth/$AUTH_MOUNT_PATH/role/$AUTH_ROLE bound to $ESO_SA_NAMESPACE/$ESO_SA_NAME"
               bao write auth/$AUTH_MOUNT_PATH/role/$AUTH_ROLE \
                 bound_service_account_names=$ESO_SA_NAME \
                 bound_service_account_namespaces=$ESO_SA_NAMESPACE \
-                policies=external-secrets-read \
+                policies=external-secrets-read,external-secrets-push \
                 ttl=$TOKEN_TTL \
                 max_ttl=$TOKEN_MAX_TTL
 

@@ -308,7 +308,12 @@ spec:
       # 1.4.141 — #5374 (UAT row 238): chart-owned per-Org CNPG Cluster
       #   resources requests==limits (500m/512Mi) → the postgres instance
       #   pod runs Guaranteed QoS (was Burstable, live on hw288 beta-corp).
-      version: 1.4.142
+      # 1.4.143 — #5375 (UAT M2): region-local admin-token PushSecret seeds
+      #   catalyst/newapi/admin-token from the local bridge ADMIN_SECRET so the
+      #   ExternalSecret above resolves in region-B too (catalyst-api's #4477
+      #   seed is primary-only; each region runs its own OpenBao). Pairs with
+      #   bp-openbao 1.2.64 (external-secrets-push policy).
+      version: 1.4.143
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

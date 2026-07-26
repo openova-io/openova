@@ -824,6 +824,31 @@ catalystIntegration:
       # `property` is the JSON field inside the OpenBao secret holding
       # the bearer token used by the Catalyst signup hook (ADR-0003 §3.2).
       property: "ADMIN_API_TOKEN"
+  # ─── Region-local admin-token producer (#5375, UAT row M2) ──────────────
+  # PushSecret (templates/admin-token-pushsecret.yaml) that seeds the OpenBao
+  # path the ExternalSecret above reads, FROM the region-local token-signing-
+  # key Secret's ADMIN_SECRET. Closes the M2 DR gap: catalyst-api's #4477
+  # seed runs only in the primary region, and each region runs its own
+  # OpenBao, so without this region-B's catalyst-newapi-admin-token
+  # ExternalSecret stays SecretSyncedError forever (path absent in region-B's
+  # vault) and a post-region-kill promote has no NewAPI admin bearer. The
+  # push value is deliberately REGION-LOCAL — it must byte-match the local
+  # sandbox-bridge's ADMIN_SECRET (subtle.ConstantTimeCompare), so
+  # replicating region-A's value cross-region would 401 in region-B.
+  # Store ref + remote path reuse externalSecret.* above (never drift).
+  pushSecret:
+    # Default ON wherever the app renders. The template additionally gates on
+    # the external-secrets.io/v1alpha1 CRD being registered (cold-install
+    # safety, same pattern as the ExternalSecret's v1beta1 gate).
+    enabled: true
+    # Reconcile cadence; also the max lag for a token-signing-key rotation to
+    # reach the vault path. ESO skips the write when the remote value already
+    # matches, so steady state costs one read per interval.
+    refreshInterval: "1h"
+    # Replace keeps the vault path following the live bridge secret.
+    updatePolicy: "Replace"
+    # Key inside the token-signing-key Secret holding the bridge bearer.
+    sourceKey: "ADMIN_SECRET"
 # ─── External-Secrets webhook readiness gate (Fix #138, prov #20) ────────
 # Pre-install/pre-upgrade hook that polls the external-secrets validating-
 # admission webhook until it serves a structured response (HTTP 200/400/

@@ -1280,7 +1280,11 @@ spec:
       #   pg_stat_replication and surfaces status.standbyAvailable on a TRUE
       #   2-region topology (hw287 residual after the #5335 Secret-RBAC fix).
       #   Lockstep w/ Chart.yaml + 16b slot 0.2.22.
-      version: 1.4.1213
+      # 1.4.1214 — #5375 (UAT M2): catalog-seed pins bp-newapi 1.4.143 +
+      #   bp-openbao 1.2.64 (region-local catalyst-newapi-admin-token
+      #   producer pair — closes the region-B SecretSyncedError DR gap).
+      #   Lockstep w/ Chart.yaml (pin-sync gate).
+      version: 1.4.1214
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
