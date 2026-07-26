@@ -635,10 +635,40 @@ func (c *Client) ensureBranchExists(ctx context.Context, branch string) error {
 //   - "sha does not match [given: …, expected: …]" — our `update` op carried
 //     a per-file SHA that went stale because a concurrent writer changed the
 //     file after our tree/contents probe.
+//
 // Both mean a concurrent writer won; a fresh re-probe on the next attempt
 // converts the op (create→update / stale-SHA→current-SHA) and succeeds.
 // Before this they fell through to the fatal `change files` branch and the
 // retry loop never engaged.
+//
+// #5387 (hw290) — THE KEYSTONE SHAPE. Every funnel Org that installed an app
+// failed provisioning on:
+//
+//	POST …/repos/<slug>/catalyst-tenant/contents: 500
+//	{"message":"PushOutOfDate Error … ! [rejected] a480a0e7… -> main (non-fast-forward)"}
+//
+// Gitea's ChangeFiles handler builds the commit in a temp clone of the branch
+// head and then `git push`es it back to the bare repo. When a concurrent writer
+// (the org-controller's PutFile burst, or a sibling cart-app commit) advanced
+// the head between our clone and that push, git rejects the push and Gitea
+// wraps it in `git.ErrPushOutOfDate`, whose Error() renders as
+// `PushOutOfDate Error: <err>: <git stderr>` — the stderr carrying git's own
+// `! [rejected] <sha> -> <branch> (non-fast-forward)`. That error type is NOT
+// in Gitea's handleCreateOrUpdateFileError mapping table, so it falls through
+// to a bare **500**, not a 409/422. None of the shapes above matched it: the
+// status is not 409, and git spells it `non-fast-forward` (hyphenated), not
+// `not a fast forward`. So the error was classified FATAL, the retry loop
+// never ran even once, and the funnel step went straight to red on attempt 1 —
+// with no "ref-race persisted after N attempts" in the message, which is how
+// we know the CAS retry never engaged. This is a pure branch-head CAS loss:
+// re-reading the head and re-pushing (what the outer loop already does) is
+// exactly the right remedy.
+//
+// Deliberately NOT matched: Gitea's sibling `git.ErrPushRejected`
+// ("PushRejected Error", stderr `! [remote rejected] … (pre-receive hook
+// declined)`) — a branch-protection / hook refusal that no amount of retrying
+// can convert into a success. Gitea itself splits the two on exactly the
+// `non-fast-forward` substring, so keying on it keeps us precise.
 func isGiteaRefRaceError(err error) bool {
 	if err == nil {
 		return false
@@ -659,7 +689,11 @@ func isGiteaRefRaceError(err error) bool {
 		// file-level CAS losses from the ChangeFiles per-file SHA
 		// preconditions (#5234) — see doc comment above.
 		strings.Contains(s, "repository file already exists") ||
-		strings.Contains(s, "sha does not match")
+		strings.Contains(s, "sha does not match") ||
+		// branch-head CAS loss inside Gitea's own ChangeFiles push, served
+		// as a bare 500 (#5387) — see doc comment above.
+		strings.Contains(s, "PushOutOfDate") ||
+		strings.Contains(s, "non-fast-forward")
 }
 
 // getContentSHA returns the blob SHA of `path` at `branch`, or "" if the
