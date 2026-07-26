@@ -168,3 +168,13 @@ Pulled the full open status/uat list (10 issues); 2 were un-walked this session 
 - **#5328** (break-glass) — PR #5356 still OPEN (not merged) → the self-test is not on main → still review-gated, unchanged.
 
 All 10 open status/uat issues are now walked/tracked this session (#5352/#5285/#5345/#5341/#5339/#5265/#4901 earlier; #5193/#5086/#5328 here).
+
+## PERMANENT NodePort hardening — verified IN PLACE (committed code), not needing a new commit (2026-07-26 07:30Z)
+
+The "convert NodePorts + permanent chart hardening" directive is already satisfied by committed code, verified this session:
+- **Live:** `kubectl get svc -A -o json` → hw288 **0** NodePorts (both regions); mothership 3, all non-OpenOva (cinova ⛔ / iogrid separate-repo / ephemeral solver, tracked #5348). 0 OpenOva Services to convert.
+- **Source:** whole-repo grep → the only `type: NodePort` is the Kyverno §854 negative-test fixtures (`platform/kyverno-policies/chart/tests/forbid-nodeport-service/resource-services.yaml`), which MUST stay NodePort (converting them voids the enforce-policy's negative test = a §854 violation).
+- **PERMANENT guard (the durable form of the directive) — already committed + enforced:**
+  - `.github/workflows/check-no-nodeports.yaml` — "Permanent guard that NodePorts stay ERADICATED, for EVERY future PR" (#4765). Ran green on PR #5365 ("Reject NodePorts (sources + rendered charts) → SUCCESS").
+  - `platform/kyverno-policies/chart/templates/baseline/24-forbid-nodeport-service.yaml` — Kyverno §854 Enforce policy at admission (#5088).
+There is no chart to edit: the platform does not merely lack NodePorts, it ENFORCES their absence on every PR and at admission. A fresh commit would be redundant, or (on the fixtures) a violation.
