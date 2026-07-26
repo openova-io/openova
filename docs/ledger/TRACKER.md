@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-26T22:45:02Z` |
+| Last refreshed | `2026-07-26T23:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 39 |
 | Open DoD gates | 0 / 41 |
@@ -246,6 +246,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-26T22:57 | [#5411](https://github.com/openova-io/openova/pull/5411) | #5389 | fix(newapi): declare the ui endpoint so the console's per-ap |
 | 2026-07-26T21:23 | [#5407](https://github.com/openova-io/openova/pull/5407) | #2632 | test(console): restore the vitest gate — 68 red → 8, each re |
 | 2026-07-26T21:20 | [#5405](https://github.com/openova-io/openova/pull/5405) | #5393 | fix(org-controller): verify provisioning postconditions befo |
 | 2026-07-26T20:06 | [#5403](https://github.com/openova-io/openova/pull/5403) | #4 | fix(keycloak): SECURITY — pin-broker credential is platform- |
@@ -275,7 +276,6 @@ flowchart LR
 | 2026-07-24T01:51 | [#5340](https://github.com/openova-io/openova/pull/5340) | #4656 | fix(#5339): vpc-podcidr-route-reconciler CronJob→continuous  |
 | 2026-07-23T13:06 | [#5337](https://github.com/openova-io/openova/pull/5337) | #5311 | fix(cnpg-pair): NetworkPolicy carve-out for the continuum-co |
 | 2026-07-23T13:08 | [#5336](https://github.com/openova-io/openova/pull/5336) | #5334 | fix(keycloak,oidc-gate): drop `roles` default scope from pdn |
-| 2026-07-23T08:58 | [#5335](https://github.com/openova-io/openova/pull/5335) | #5311 | fix(continuum): #5311 standby-probe reads Secret via cached  |
 
 ---
 
