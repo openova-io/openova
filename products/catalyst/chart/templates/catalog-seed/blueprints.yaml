@@ -1744,7 +1744,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-guacamole
-    version: "0.2.29"
+    version: "0.2.30"
   topology:
     supported:
     - active-hot-standby

@@ -215,6 +215,33 @@ func TestLookupExternalURL_MatchRules(t *testing.T) {
 			releaseName:     "gitea",
 			want:            "",
 		},
+		{
+			// #5358 — gate-owned front door. bp-guacamole 0.2.30 renders NO
+			// HTTPRoute of its own (sso.mode=header); the slot-13c
+			// bp-oidc-gate route `oidc-gate-guacamole` in the `oidc-gate`
+			// namespace owns guacamole.<fqdn>. The gate-owned rule must
+			// resolve it even though the namespace differs from the app's
+			// targetNamespace.
+			name: "oidc-gate-owned route resolves for gated app",
+			routes: []*unstructured.Unstructured{
+				newHTTPRoute("oidc-gate", "oidc-gate-guacamole", "guacamole.hw290.omani.works", "oidc-gate-guacamole"),
+			},
+			targetNamespace: "guacamole",
+			releaseName:     "guacamole",
+			want:            "https://guacamole.hw290.omani.works",
+		},
+		{
+			// #5358 — the gate-owned rule keys on the oidc-gate-<release>
+			// NAME contract, not on hostname: another instance's gate route
+			// must NOT resolve for this release.
+			name: "other gate instance route stays excluded",
+			routes: []*unstructured.Unstructured{
+				newHTTPRoute("oidc-gate", "oidc-gate-powerdns-admin", "pdns-admin.hw290.omani.works", "oidc-gate-powerdns-admin"),
+			},
+			targetNamespace: "guacamole",
+			releaseName:     "guacamole",
+			want:            "",
+		},
 	}
 
 	for _, tc := range cases {

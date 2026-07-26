@@ -120,6 +120,21 @@ Usage: {{ include "bp-guacamole.registryImage" (dict "repo" <repo> "tag" <tag> "
 {{- end }}
 
 {{/*
+SSO mode (#5358). `header` (default) = bp-oidc-gate authorization-code
+flow in front + guacamole-auth-header behind; `openid` = LEGACY native
+guacamole-auth-sso-openid implicit flow (fragment-replay-broken upstream
+— see values.yaml `guacamole.sso`). Any other value fails the render.
+*/}}
+{{- define "bp-guacamole.ssoMode" -}}
+{{- $sso := .Values.guacamole.sso | default dict -}}
+{{- $mode := $sso.mode | default "header" -}}
+{{- if not (has $mode (list "header" "openid")) -}}
+{{- fail (printf "bp-guacamole: invalid guacamole.sso.mode %q — must be \"header\" (bp-oidc-gate front, default) or \"openid\" (legacy native implicit flow)" $mode) -}}
+{{- end -}}
+{{- $mode -}}
+{{- end }}
+
+{{/*
 OIDC issuer fail-fast — Guacamole won't authenticate without it.
 */}}
 {{- define "bp-guacamole.oidcIssuer" -}}

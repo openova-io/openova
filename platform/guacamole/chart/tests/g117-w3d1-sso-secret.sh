@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # bp-guacamole — G117.5 W3.D1 #2744 SSO Secret gating + kc_idp_hint guards.
 #
+# #5358: the chart's DEFAULT sso mode is now `header` (bp-oidc-gate
+# authorization-code flow in front + guacamole-auth-header behind — the
+# native implicit flow's fragment-replay broke every silent SSO on hw288).
+# Every contract in THIS file belongs to the LEGACY native-openid path, so
+# all cases pin `guacamole.sso.mode=openid` explicitly. The header-mode
+# contracts live in tests/render.sh section 3a.
+#
 # Verifies:
 #   1. `?kc_idp_hint=catalyst-pin` is appended to OPENID_AUTHORIZATION_ENDPOINT.
 #   1b. OPENID_REDIRECT_URI carries the `/guacamole/` context path (#3150) —
@@ -25,6 +32,7 @@ helm="${HELM_BIN:-helm}"
 
 base_args=(
   --set guacamole.enabled=true
+  --set guacamole.sso.mode=openid
   --set guacamole.guacd.image.tag=1.5.5
   --set guacamole.webapp.image.tag=1.5.5
   --set guacamole.oidc.issuer=https://auth.smoke.omani.works/realms/sovereign

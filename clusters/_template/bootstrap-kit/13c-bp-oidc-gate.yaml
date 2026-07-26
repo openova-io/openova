@@ -188,6 +188,50 @@ spec:
         rootRedirectPath: /oidc/login
         appNativeCallbackPath: /oidc/authorized
 
+      # guacamole (#5358). Guacamole's native guacamole-auth-sso-openid
+      # extension is IMPLICIT-flow-only upstream (response_type=id_token
+      # in the URL fragment, through 1.6.0 and git master) and its SPA
+      # re-submits the fragment token on every route change while the
+      # server-side nonce is single-use — the replay poisoned the fresh
+      # session ("Rejected OpenID token with invalid/old nonce" +
+      # error page, live on hw288; UAT rows 35/115, 4/4 deterministic
+      # under Playwright). No upstream version or config knob fixes it,
+      # so the OIDC leg moves OUT of the browser: this gate instance
+      # runs the authorization-code flow server-side and asserts the
+      # principal to the webapp via X-Forwarded-Email (oauth2-proxy
+      # --pass-user-headers default), consumed by the image-bundled
+      # guacamole-auth-header extension (bp-guacamole 0.2.30
+      # sso.mode=header). The JDBC permission store + #3374 admin-enroll
+      # CronJob are auth-source-agnostic; usernames stay byte-identical
+      # (the openid mode's username claim default was `email`).
+      #
+      # hostname defaults to guacamole.<sovereignFQDN> — the canonical
+      # host slot 52 previously served via the chart's own HTTPRoute
+      # (now suppressed: two HTTPRoutes on one hostname is undefined
+      # routing; a direct route would also bypass the gate and expose
+      # the header-trusting webapp). bp-guacamole 0.2.30 additionally
+      # netpol-guards webapp :8080 ingress to these gate pods only.
+      #
+      # clientId is guacamole-gate, NOT the legacy `guacamole` client:
+      # bp-keycloak's sovereign realm-import still owns `guacamole`
+      # (public/implicit shape for the retired native flow) and
+      # keycloak-config-cli re-applies it on every bp-keycloak deploy —
+      # adopting it here would flap the client between the config-cli
+      # shape and the sso-bridge shape. A fresh confidential client is
+      # minted/owned end-to-end by bp-sso-bridge instead (secret →
+      # OpenBao sso/sovereign/guacamole-gate → ExternalSecret).
+      #
+      # rootRedirectPath: the Guacamole WAR serves under Tomcat's
+      # /guacamole/ context; the bare root is Tomcat's 404 ROOT context
+      # (#3150 landmine). Same Exact-`/`-only 302 the chart's own
+      # rootRedirect rule used to provide — loop-safe: the webapp lives
+      # entirely under /guacamole/ and never redirects back to `/`.
+      - name: guacamole
+        enabled: true
+        clientId: guacamole-gate
+        upstream: http://guacamole-server.guacamole.svc.cluster.local:80
+        rootRedirectPath: /guacamole/
+
       # ── GENERALITY PROOF (#3374 DoD box 10a) ──────────────────────────
       # A brand-new throwaway app gated with ONLY a name + hostname +
       # upstream and NOTHING else — no app-specific redirect, no shim, no
