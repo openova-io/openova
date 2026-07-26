@@ -13,10 +13,10 @@
 # mirroring core/controllers/sandbox/Dockerfile (same Slice-CC1 layout).
 #
 # Two stages:
-#   build  — golang:1.23-alpine
+#   build  — golang:1.25-alpine (must satisfy go.mod `go 1.25.0`)
 #   final  — distroless/static-debian12:nonroot (scratch-equivalent)
 
-FROM docker.io/library/golang:1.23-alpine AS build
+FROM docker.io/library/golang:1.25-alpine AS build
 WORKDIR /repo
 RUN apk add --no-cache git
 
