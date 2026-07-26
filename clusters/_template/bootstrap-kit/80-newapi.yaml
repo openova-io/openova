@@ -308,7 +308,7 @@ spec:
       # 1.4.141 — #5374 (UAT row 238): chart-owned per-Org CNPG Cluster
       #   resources requests==limits (500m/512Mi) → the postgres instance
       #   pod runs Guaranteed QoS (was Burstable, live on hw288 beta-corp).
-      version: 1.4.141
+      version: 1.4.142
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
