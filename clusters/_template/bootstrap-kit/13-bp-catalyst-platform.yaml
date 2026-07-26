@@ -1284,7 +1284,7 @@ spec:
       #   bp-openbao 1.2.64 (region-local catalyst-newapi-admin-token
       #   producer pair — closes the region-B SecretSyncedError DR gap).
       #   Lockstep w/ Chart.yaml (pin-sync gate).
-      version: 1.4.1214
+      version: 1.4.1215
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
