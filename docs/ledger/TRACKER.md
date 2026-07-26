@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-26T12:45:02Z` |
+| Last refreshed | `2026-07-26T13:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 25 |
 | Open DoD gates | 0 / 41 |
@@ -232,6 +232,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-26T12:58 | [#5383](https://github.com/openova-io/openova/pull/5383) | #5381 | fix(retry): phase-retry ran no post-apply chain — stamped re |
 | 2026-07-26T11:42 | [#5382](https://github.com/openova-io/openova/pull/5382) | #5381 | fix(provisioner): Huawei digit-tailed region codes truncated |
 | 2026-07-26T10:56 | [#5380](https://github.com/openova-io/openova/pull/5380) | #5377 | fix(test): eso-push-policy-render SIGPIPE false-FAIL — unblo |
 | 2026-07-26T10:48 | [#5379](https://github.com/openova-io/openova/pull/5379) | #5359 | fix(cutover): secondary-region pivot + deny-egress legs — ki |
@@ -261,7 +262,6 @@ flowchart LR
 | 2026-07-21T03:59 | [#5318](https://github.com/openova-io/openova/pull/5318) | #5261 | fix(#5317): read-back-verify replica consumer-hub secret syn |
 | 2026-07-21T03:36 | [#5316](https://github.com/openova-io/openova/pull/5316) | #5311 | fix(continuum): observe 2-region standby via primary pg_stat |
 | 2026-07-21T03:36 | [#5314](https://github.com/openova-io/openova/pull/5314) | #5086 | test(powerdns): §854 Hetzner DNS front-door render-contract  |
-| 2026-07-21T03:36 | [#5313](https://github.com/openova-io/openova/pull/5313) | #5193 | fix(catalyst-api): converge partial wipes — retain tfstate u |
 
 ---
 
