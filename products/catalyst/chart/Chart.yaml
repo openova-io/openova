@@ -3603,7 +3603,7 @@ name: bp-catalyst-platform
 #   (reason=ProvisioningIncomplete) naming the missing artifact, and keeps the 30s
 #   requeue alive so the up-path re-converges. Read-only — Flux still owns the
 #   apply. Refs #5395.
-version: 1.4.1230
+version: 1.4.1231
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
