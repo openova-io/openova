@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-26T10:45:03Z` |
+| Last refreshed | `2026-07-26T11:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 24 |
 | Open DoD gates | 0 / 41 |
@@ -231,6 +231,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-26T10:56 | [#5380](https://github.com/openova-io/openova/pull/5380) | #5377 | fix(test): eso-push-policy-render SIGPIPE false-FAIL — unblo |
+| 2026-07-26T10:48 | [#5379](https://github.com/openova-io/openova/pull/5379) | #5359 | fix(cutover): secondary-region pivot + deny-egress legs — ki |
 | 2026-07-26T10:30 | [#5378](https://github.com/openova-io/openova/pull/5378) | #5358 | fix(#5358): guacamole SSO off the implicit flow — bp-oidc-ga |
 | 2026-07-26T10:03 | [#5377](https://github.com/openova-io/openova/pull/5377) | #4477 | fix(newapi,openbao): region-local producer for catalyst-newa |
 | 2026-07-26T09:42 | [#5376](https://github.com/openova-io/openova/pull/5376) | #4282 | fix(bp-newapi): per-Org CNPG Postgres pod Guaranteed QoS — r |
@@ -259,8 +261,6 @@ flowchart LR
 | 2026-07-21T03:36 | [#5314](https://github.com/openova-io/openova/pull/5314) | #5086 | test(powerdns): §854 Hetzner DNS front-door render-contract  |
 | 2026-07-21T03:36 | [#5313](https://github.com/openova-io/openova/pull/5313) | #5193 | fix(catalyst-api): converge partial wipes — retain tfstate u |
 | 2026-07-21T03:36 | [#5312](https://github.com/openova-io/openova/pull/5312) | #5285 | test(catalyst-api): guard markPhase1Done terminal-failed → Q |
-| 2026-07-20T23:49 | [#5310](https://github.com/openova-io/openova/pull/5310) | #5095 | fix(cutover): step-03 prewarm proxy-DOWN direct-first routin |
-| 2026-07-20T22:56 | [#5309](https://github.com/openova-io/openova/pull/5309) | #5205 | fix(marketplace): render live provisioning-stage timeline in |
 
 ---
 
