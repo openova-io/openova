@@ -106,3 +106,11 @@ CONCLUSION: the Org-delete cascade is structurally sound — the `<slug>` ns is 
 ## 🛑 R17 REVERTED ✅→◑ — real leak confirmed via beta-corp @137m (2026-07-26)
 
 My earlier R17 ✅ (based on repro-r17's clean 20s prune) was WRONG — a false negative. repro-r17 was kubectl-applied, which bypasses catalyst-api's `org-tenants` gitops path. A REAL admin-door Org, **beta-corp**, is confirmed orphaned **137 min** after its Org CR was deleted: ns `Active` (deletionTimestamp EMPTY), `bp-keycloak-0`/`bp-keycloak-postgresql-0`/`bp-newapi`+pg all Running, CronJob still firing. The ns is labeled `kustomize.toolkit.fluxcd.io/name: org-tenants` + `managed-by: catalyst-api` → the live `org-tenants` Kustomization perpetually recreates it (my manual `kubectl delete ns` was reverted instantly). The Org-CR delete tears down per-Org Flux + networking but NEVER removes the catalyst-api `org-tenants` gitops entry → perpetual recreation. #5364 reopened status/in-progress as a confirmed real leak; fix belongs in catalyst-api's Org-delete flow. **Lesson: reproduce on the same provisioning path as the original observation — a kubectl-applied Org is not a funnel/admin-door Org.**
+
+## Rows 232/238 confirmed needs-a-specific-app (acme-corp cart lacks them) + NodePort re-proof (2026-07-26 03:23Z)
+
+- **NodePort** (fresh, exact jq): hw288 region-A = `[]` (0); mothership = the 3 known non-OpenOva (cinova/catalog-svc, iogrid/cm-acme-http-solver, iogrid/proxy-gateway-socks5, tracked #5348). Nothing to convert — re-proven live.
+- **Row 232** (openclaw /readyz on funnel Org): acme-corp has **no bp-openclaw HR** — its cart was WordPress+BookStack. Not walkable here; needs a funnel Org whose cart includes openclaw.
+- **Row 238** (per-Org postgres → host CNPG Ready): acme-corp has **no `clusters.postgresql.cnpg.io` CR** — it uses MySQL for WordPress (`mysql-…-x-acme-corp-x-vcluster`, Guaranteed QoS). Not walkable here; needs a funnel Org that requested a per-Org CNPG Postgres.
+
+Both confirmed "needs-a-specific-app" with live evidence (acme-corp's actual HR/pod set), not assumed. Would require provisioning a differently-carted funnel Org (a write) to walk.
