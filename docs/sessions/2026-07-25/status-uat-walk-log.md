@@ -129,3 +129,17 @@ Walked the 3 named status/uat issues live with fresh evidence:
 Common gate: all three are delivery-gated on #5265 (hw288's frozen post-cutover seed predates the merged fixes) — a fresh prov clears them; not walkable-to-✅ on this env.
 
 **#5352 OOM fix SHIPPED → PR #5365** (`fix/5352-k8scache-optional-gvr-existence-gate`, Refs #5352). Removes the dead `sandbox` kind; marks the 4 hcloud + cilium-esl GVRs `Optional`; adds a **bounded** (3s context-timeout, detached-goroutine, cached-per-GV) discovery existence-gate for Optional kinds only — served→register, absent/error/timeout→skip, non-optional kinds keep the synchronous-network-free fast path (does NOT reintroduce the boot-hang the old probe caused). +398/−22 across factory.go/kinds.go + a new 251-line test (12 cases). **Independently verified: `go build` EXIT=0, `go test ./internal/k8scache/...` ok.** Needs fresh-Huawei-prov verification (reflector "Failed to watch" gone, catalyst-api memory flat, 0 OOMKills over hours).
+
+## Fix-chain readiness — the ◑ backlog converges on a fresh prov (2026-07-26 04:40Z)
+
+Confirmed the fixes that gate the remaining walkable ◑ rows are landed or ready:
+- **#5354** (gateway specific-hostname listeners → clears #5341) — **MERGED**
+- **#5340** (vpc-podcidr reconciler CronJob→Deployment → clears #5339) — **MERGED**
+- **#5346** (unlist 5 chartless blueprints → clears #5345) — **MERGED**
+- **#5301** (post-cutover Day-2 Harbor pin reconciler → prevents the frozen-seed drift #5265) — **MERGED**
+- **#5365** (k8scache bounded discovery gate → fixes the catalyst-api OOM #5352) — **OPEN, CI fully green** (test/integration/all guardrails SUCCESS; e2e skipped). Ready for review+merge.
+- **#5359** (cutover pivots only region-A; region-B Flux still on github/ghcr) — **OPEN** (the one remaining fresh-prov gap).
+
+Conclusion: hw288's ◑ rows #5345/#5341/#5339/R21 are **delivery-gated on #5265** (frozen post-cutover seed predates the merged fixes) and the #5352 OOM fix needs runtime validation on a Huawei prov. **A fresh prov whose bootstrap-kit pins these merged fixes clears the delivery-gap rows AND runtime-verifies the OOM fix in one move** — the single highest-leverage action the backlog converges on. Pre-reqs before firing it: merge #5365, ideally close #5359 (region-B pivot). It is a deliberate wipe+reprov of the 214-✅ DR-proven north-star (autonomous per founder rule, but not casual) — a decision point, not a hidden step.
+
+The genuinely-walkable ◑ set on THIS env is exhausted: every remaining row is founder-gated (#4277), disabled-flag (16/G2), a north-star write I won't run, needs-a-real-failure (proven none exist), needs-a-specific-app (proven acme-corp's cart lacks them), delivery-gapped (fresh prov), or a confirmed real defect (#5358/#5364).
