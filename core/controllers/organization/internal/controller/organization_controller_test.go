@@ -617,6 +617,14 @@ func TestReconcile_HappyPath(t *testing.T) {
 // namespace, then reconciles and asserts status.vcluster.phase=Ready,
 // Ready=True, and no requeue — the converse of the HappyPath test which
 // proves it sits False/Pending while the HR is absent.
+//
+// #5395: the fixture now ALSO seeds the boundary LimitRange + ResourceQuota.
+// Ready is no longer a readback of the vCluster HR alone — the reconciler
+// verifies every artifact it authored (provisioning_postconditions.go), so the
+// "fully provisioned" fixture this test asserts on must actually be fully
+// provisioned. sampleOrg carries no tenantPublic.parentDomain, so the console
+// Gateway listener postcondition does not apply here; it is covered
+// end-to-end in provisioning_postconditions_5395_test.go.
 func TestReconcile_ReadyOnlyWhenVClusterHRReady(t *testing.T) {
 	t.Parallel()
 	org := sampleOrg()
@@ -632,7 +640,8 @@ func TestReconcile_ReadyOnlyWhenVClusterHRReady(t *testing.T) {
 		map[string]any{"type": "Ready", "status": "True"},
 	}, "status", "conditions")
 
-	r, _, _ := makeReconciler(t, org, ns, hr)
+	r, _, _ := makeReconciler(t, org, ns, hr,
+		boundaryLimitRange("acme"), boundaryResourceQuota("acme"))
 
 	res, err := r.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "acme"},
