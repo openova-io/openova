@@ -2268,3 +2268,79 @@ trigger:
   # TTL on the completed Job — kept for audit so operators can read
   # the trigger Pod logs if something looks wrong.
   autoJobTTLSeconds: 86400
+
+# ── #5359 SECONDARY-REGION (region-B) pivot legs ──────────────────────
+#
+# On a 2-region Sovereign the 11-step chain runs in the CONTROL-PLANE
+# (region-A) cluster only, and pre-0.1.151 it pivoted ONLY region-A:
+# live-proven on hw288 (dep 027f07559af1f9f7) region-B's Flux
+# GitRepository still pointed at github.com, all 64 HelmRepositories at
+# ghcr.io — yet cutoverComplete=true (the step-08 deny-egress proof
+# never touched region-B). A FALSE-POSITIVE Pillar-5 claim, and the
+# direct cause of the #5339 per-region chart-version drift (region-A on
+# the frozen local mirror, region-B tracking latest public ghcr).
+#
+# 0.1.151 teaches steps 05/06/08 a per-secondary-region leg driven by
+# `kubectl --kubeconfig /secondary-kubeconfigs/<regionKey>.yaml`:
+#
+#   step 05  patches EVERY region's flux GitRepository -> local Gitea
+#            (region-B reaches it through a Cilium ClusterMesh global
+#            Service alias this leg establishes — the bp-cnpg-pair /
+#            bp-openbao cross-region-mesh-service idiom);
+#   step 06  pivots EVERY region's HelmRepositories -> local Harbor
+#            (+ syncs the ghcr-pull auth + the cutover-harbor-ca trust
+#            Secret into the secondary's flux-system);
+#   step 08  applies the SAME deny-egress hold manifest to EVERY region
+#            (inheriting the ALLOW_CIDRS + #4596/#5020-5025 provider-API
+#            carve-outs) and requires EVERY region's Flux to stay green
+#            through the window — the sovereignty proof now covers the
+#            whole Sovereign, not just its control-plane region.
+#
+# CREDENTIAL SOURCE (no new secret contract): catalyst-api's cutover
+# engine (cutover.go runCutover, #5359) materializes the secondary
+# kubeconfigs it ALREADY holds on its PVC (`<kubeconfigsDir>/<depID>-
+# <regionKey>.yaml`, the same store ClusterMesh establish + the #5244
+# gateway-ELB reconciler read; server host healed to the VPC-routable
+# private IP per #3991/#4000) into the Secret named below, one
+# `<regionKey>.yaml` data key per secondary region. The steps mount it
+# `optional: true`:
+#
+#   SINGLE-REGION Sovereign -> the engine guarantees the Secret is
+#   ABSENT -> the mount is empty -> every leg no-ops -> behavior is
+#   byte-identical to 0.1.150. No overlay change needed.
+#
+# Step 04 (registry-pivot: region-B node containerd certs.d + the
+# per-region Dragonfly/dfdaemon + coredns-custom chain) is the
+# remaining region-B increment, tracked on #5359 — it requires the
+# region-B bootstrap-kit's own bp-dragonfly plumbing and is NOT
+# silently faked here.
+secondaryRegions:
+  # Secret (in this release namespace) carrying one `<regionKey>.yaml`
+  # kubeconfig per secondary region. Written by catalyst-api at every
+  # cutover run start; mounted optional:true so its absence (single-
+  # region) renders the legs inert. Must match catalyst-api's
+  # CATALYST_CUTOVER_SECONDARY_KUBECONFIGS_SECRET (default identical).
+  kubeconfigSecretName: "cutover-secondary-kubeconfigs"
+  # Step 05 region-B leg: bounded wait for the secondary GitRepository
+  # to reach Ready=True on the pivoted local-Gitea URL. FAIL-LOUD: a
+  # secondary that cannot reconcile the local Gitea fails the step —
+  # succeeding anyway would re-mint the #5359 false positive.
+  gitRepositoryReadySeconds: 300
+  # Git URL the SECONDARY regions' GitRepository is pivoted to. Empty
+  # (default) = the same in-cluster URL region-A uses
+  # (sovereign.giteaInternalURL + gitea.org/gitea.repo), reachable from
+  # the secondary via the ClusterMesh global-Service alias the step-05
+  # leg establishes (gitea-http.gitea.svc, the bp-cnpg-pair idiom the
+  # #5359 design note names). Override per-Sovereign if a topology
+  # needs the public https://gitea.<fqdn> door instead (note: LE-staging
+  # certs on fresh provs make the public door x509-hostile; the mesh
+  # alias is the canonical path).
+  giteaURL: ""
+  # Extra CIDRs allowed by the SECONDARY regions' deny-egress hold, ON
+  # TOP of egressTest.allowIntraClusterCIDRs + allowProviderCIDRs (both
+  # inherited verbatim) + the auto-resolved public IPs of the
+  # Sovereign's OWN registry.<fqdn>/gitea.<fqdn> gateway (the
+  # secondary's helm-controller pulls charts through that door — the
+  # Sovereign's own infrastructure, not a mothership tether). Cloud-init
+  # overlays may add e.g. the peer region's node CIDR.
+  extraEgressAllowCIDRs: []

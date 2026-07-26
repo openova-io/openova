@@ -6,6 +6,24 @@ egress to upstream domains for .Values.egressTest.durationSeconds, then
 asserts every HelmRelease + Kustomization stays Ready throughout. The
 policy is removed at end-of-test regardless of pass/fail.
 
+#5359 — SECONDARY-REGION legs. On a 2-region Sovereign the hold is
+ALSO applied to every secondary region's cluster (kubeconfigs from the
+optional /secondary-kubeconfigs mount; empty on single-region = block
+inert), immediately before the survival window, with the SAME manifest
+(ALLOW_CIDRS + the #4596/#5020-5025 provider-API carve-outs inherited)
+plus a mesh-wide toEndpoints allow (cross-cluster pod identities that
+toCIDR never matches) and the Sovereign's OWN registry./gitea. gateway
+IPs. Every region's Flux must stay regression-free through the window
+or the proof FAILS — a region-A-only hold certified hw288 sovereign
+while region-B still pulled github/ghcr/quay (false-positive cc=true).
+Per-region verdicts land as step.egress-block-test.region.<key>.* on
+the status ConfigMap. Teardown covers every region on pass, fail, and
+trap paths; the catalyst-api #5014 backstop reaps the secondary
+policies too (reapSecondaryCutoverEgressPolicies) on SIGKILL/watch-loss.
+The region-A fresh-pull/call-home proofs stay region-A-scoped; the
+region-B node-image pivot (step-04 leg) is the remaining #5359
+increment and is NOT silently faked here.
+
 Image phase: post.
 */ -}}
 apiVersion: v1
@@ -89,6 +107,24 @@ data:
           # /24, which EXCLUDES the bastion .24.x + the GitHub/mothership ranges).
           - name: PROVIDER_API_CIDRS
             value: {{ .Values.egressTest.allowProviderCIDRs | default (list) | join " " | quote }}
+          # #5359 — SECONDARY-REGION deny-egress legs. The sovereignty hold is
+          # applied to EVERY region's cluster (kubeconfigs from the optional
+          # /secondary-kubeconfigs mount) and every region must stay green
+          # through the window — a region-A-only hold proved nothing about
+          # region-B (hw288 false-positive cc=true). The secondary manifest
+          # is the region-A manifest (ALLOW_CIDRS + PROVIDER_API_CIDRS
+          # carve-outs inherited verbatim — the #4596/#5020-5025 CSI-freeze
+          # trap catalog applies per-region) PLUS: a mesh-wide toEndpoints
+          # allow (cross-cluster pod dials carry a ClusterMesh identity that
+          # toCIDR NEVER matches — the ipBlock/remote-identity lesson), the
+          # auto-resolved public IPs of the Sovereign's OWN
+          # registry.<fqdn>/gitea.<fqdn> gateway door, and these extra CIDRs.
+          - name: SECONDARY_EXTRA_ALLOW_CIDRS
+            value: {{ .Values.secondaryRegions.extraEgressAllowCIDRs | default (list) | join " " | quote }}
+          - name: SOVEREIGN_FQDN
+            value: {{ .Values.sovereign.fqdn | quote }}
+          - name: STATUS_CONFIGMAP
+            value: {{ .Values.status.configMapName | quote }}
           # #3678 — active call-home assertion knobs. During the hold, curl
           # each CALL_HOME_HOSTS entry FROM this pod (under the policy); any
           # that connects fails the proof.
@@ -254,6 +290,11 @@ data:
           # image to the local Harbor path step-03 pushed it to.
           - name: offline-mirror-resolver
             mountPath: /resolver
+            readOnly: true
+          # #5359 — optional secondary-region kubeconfigs (empty on a
+          # single-region Sovereign; the secondary hold legs no-op).
+          - name: secondary-kubeconfigs
+            mountPath: /secondary-kubeconfigs
             readOnly: true
         command: ["/bin/sh", "-c"]
         args:
@@ -1489,6 +1530,83 @@ data:
               echo "[egress-block-test] #3695: host GitOps loop healthy — bootstrap-kit reconciles local git"
             fi
 
+            # ── #5359: SECONDARY-REGION deny-egress legs ─────────────────
+            # Applied HERE — after every pre-hold gate cleared on region-A
+            # and immediately before the baseline capture — so the
+            # secondaries are denied for exactly the survival window (the
+            # long region-A pre-hold roll sweep never runs with region-B
+            # blind-folded). Empty /secondary-kubeconfigs (single-region)
+            # renders this whole block inert.
+            secondary_policy_teardown() {
+              for td_kc in /secondary-kubeconfigs/*.yaml; do
+                [ -e "${td_kc}" ] || continue
+                kubectl --kubeconfig "${td_kc}" delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true 2>/dev/null || true
+              done
+            }
+            SECONDARY_POLICY_APPLIED=""
+            secondary_kubeconfig_count=0
+            for sc_kc in /secondary-kubeconfigs/*.yaml; do
+              [ -e "${sc_kc}" ] || continue
+              secondary_kubeconfig_count=$((secondary_kubeconfig_count+1))
+            done
+            if [ "${secondary_kubeconfig_count}" -gt 0 ] && [ "${POLICY_APPLIED}" = "yes" ]; then
+              echo "[egress-block-test] #5359: extending the deny-egress hold to ${secondary_kubeconfig_count} secondary region(s)"
+              cp /work/egress-deny.yaml /work/egress-deny-secondary.yaml
+              if [ "${DEFAULT_DENY_EGRESS}" = "true" ]; then
+                {
+                  # Cross-cluster (intra-Sovereign) pod dials: a ClusterMesh
+                  # remote endpoint carries a mesh identity that toCIDR NEVER
+                  # matches (reference_k8s_netpol_ipblock_never_matches_
+                  # clustermesh_remote_identity) — region-B's flux clones the
+                  # local Gitea over the mesh alias, so allow mesh endpoints
+                  # explicitly. Both clusters belong to THIS Sovereign; no
+                  # public destination is opened.
+                  echo "    - toEndpoints:"
+                  echo "        - {}"
+                  # The Sovereign's OWN gateway door (registry.<fqdn> +
+                  # gitea.<fqdn>): region-B's helm-controller pulls pivoted
+                  # charts through it. Its EIP is the Sovereign's own
+                  # infrastructure — allowing it proves nothing less about
+                  # github/ghcr/mothership independence. Resolved here (same
+                  # getent discipline as the UPSTREAM_HOSTS block-list).
+                  for sov_host in "${LOCAL_REGISTRY_HOST}" "gitea.${SOVEREIGN_FQDN}"; do
+                    for sov_ip in $(getent ahostsv4 "${sov_host}" 2>/dev/null | awk '{print $1}' | sort -u); do
+                      case "${sov_ip}" in
+                        10.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|192.168.*|127.*|"") : ;;
+                        *)
+                          echo "    - toCIDR:"
+                          echo "        - ${sov_ip}/32" ;;
+                      esac
+                    done
+                  done
+                  for sec_cidr in ${SECONDARY_EXTRA_ALLOW_CIDRS}; do
+                    echo "    - toCIDR:"
+                    echo "        - ${sec_cidr}"
+                  done
+                } >>/work/egress-deny-secondary.yaml
+              fi
+              for sc_kc in /secondary-kubeconfigs/*.yaml; do
+                [ -e "${sc_kc}" ] || continue
+                sc_region=$(basename "${sc_kc}" .yaml)
+                # Delete-before-apply: clears a stale hold policy leaked by a
+                # SIGKILLed prior run (idempotent re-run self-heal).
+                kubectl --kubeconfig "${sc_kc}" delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true 2>/dev/null || true
+                if kubectl --kubeconfig "${sc_kc}" apply -f /work/egress-deny-secondary.yaml; then
+                  SECONDARY_POLICY_APPLIED="${SECONDARY_POLICY_APPLIED} ${sc_region}"
+                  echo "[egress-block-test] #5359: deny-egress applied on secondary region ${sc_region}"
+                else
+                  echo "[egress-block-test] FATAL: #5359 could not apply the deny-egress hold on secondary region ${sc_region} — a region-A-only hold is NOT the 2-region sovereignty proof; refusing to continue" >&2
+                  secondary_policy_teardown
+                  exit 1
+                fi
+              done
+              # Re-arm the teardown trap to cover the secondaries too (the
+              # region-A-only trap was set at the region-A apply above).
+              trap 'kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true 2>/dev/null || true; secondary_policy_teardown' TERM EXIT
+            elif [ "${secondary_kubeconfig_count}" -gt 0 ]; then
+              echo "[egress-block-test] #5359: ${secondary_kubeconfig_count} secondary region(s) present but no region-A egressDeny was applied (enforce off / fail-safe fallback) — secondary legs run assertion-only like region-A"
+            fi
+
             echo "[egress-block-test] capturing baseline NotReady set"
             baseline_hr=$(kubectl get helmreleases.helm.toolkit.fluxcd.io -A \
               -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' \
@@ -1517,12 +1635,38 @@ data:
             # busybox ash -n) and needs the baseline as a file.
             printf '%s\n' "${baseline_hr}" > /work/baseline_hr.txt
             printf '%s\n' "${baseline_ks}" > /work/baseline_ks.txt
+
+            # #5359 — per-secondary baselines (same only-NEW-regressions
+            # criterion as region-A; a secondary's pre-existing NotReady set
+            # is excluded, a NEW NotReady during the hold fails the proof).
+            for sb_kc in /secondary-kubeconfigs/*.yaml; do
+              [ -e "${sb_kc}" ] || continue
+              sb_region=$(basename "${sb_kc}" .yaml)
+              kubectl --kubeconfig "${sb_kc}" get helmreleases.helm.toolkit.fluxcd.io -A \
+                -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null \
+                | grep -E '=False$' | sort -u > "/work/baseline_hr_${sb_region}.txt" || true
+              kubectl --kubeconfig "${sb_kc}" get kustomizations.kustomize.toolkit.fluxcd.io -A \
+                -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null \
+                | grep -E '=False$' | sort -u > "/work/baseline_ks_${sb_region}.txt" || true
+              if [ -s "/work/baseline_hr_${sb_region}.txt" ] || [ -s "/work/baseline_ks_${sb_region}.txt" ]; then
+                echo "[egress-block-test] #5359 baseline (secondary ${sb_region}) pre-existing NotReady items (excluded from regression check):"
+                sed "s/^/  baseline[${sb_region}] HR /" "/work/baseline_hr_${sb_region}.txt" || true
+                sed "s/^/  baseline[${sb_region}] KS /" "/work/baseline_ks_${sb_region}.txt" || true
+              fi
+              # Normalize a 0-byte baseline to the single-newline shape the
+              # region-A files carry (printf '%s\n' "") so `grep -vxF -f`
+              # behaves identically across grep flavors.
+              [ -s "/work/baseline_hr_${sb_region}.txt" ] || printf '\n' > "/work/baseline_hr_${sb_region}.txt"
+              [ -s "/work/baseline_ks_${sb_region}.txt" ] || printf '\n' > "/work/baseline_ks_${sb_region}.txt"
+            done
+
             echo "[egress-block-test] entering ${DURATION_SECONDS}s survival window — only NEW NotReady regressions count as failure"
 
             start=$(date +%s)
             deadline=$((start + DURATION_SECONDS))
             poll_interval=30
             new_failures=0
+            : > /work/secondary_failed_regions.txt
 
             while [ "$(date +%s)" -lt "${deadline}" ]; do
               hr_not_ready=$(kubectl get helmreleases.helm.toolkit.fluxcd.io -A \
@@ -1553,6 +1697,30 @@ data:
                 new_failures=$((new_failures+1))
               fi
 
+              # #5359 — the same regression diff against every SECONDARY
+              # region: a NEW NotReady on region-B during the hold means
+              # region-B still NEEDS an external tether — the proof must
+              # fail for the whole Sovereign, not just region-A.
+              for sp_kc in /secondary-kubeconfigs/*.yaml; do
+                [ -e "${sp_kc}" ] || continue
+                sp_region=$(basename "${sp_kc}" .yaml)
+                kubectl --kubeconfig "${sp_kc}" get helmreleases.helm.toolkit.fluxcd.io -A \
+                  -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null \
+                  | grep -E '=False$' | sort -u > "/work/hr_not_ready_${sp_region}.txt" || true
+                kubectl --kubeconfig "${sp_kc}" get kustomizations.kustomize.toolkit.fluxcd.io -A \
+                  -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null \
+                  | grep -E '=False$' | sort -u > "/work/ks_not_ready_${sp_region}.txt" || true
+                sp_new_hr=$(grep -vxF -f "/work/baseline_hr_${sp_region}.txt" "/work/hr_not_ready_${sp_region}.txt" || true)
+                sp_new_ks=$(grep -vxF -f "/work/baseline_ks_${sp_region}.txt" "/work/ks_not_ready_${sp_region}.txt" || true)
+                if [ -n "${sp_new_hr}${sp_new_ks}" ]; then
+                  echo "[egress-block-test] #5359 NEW NotReady on SECONDARY ${sp_region} at $(($(date +%s) - start))s (regression):"
+                  [ -n "${sp_new_hr}" ] && echo "${sp_new_hr}" | sed "s/^/  NEW[${sp_region}] HR /"
+                  [ -n "${sp_new_ks}" ] && echo "${sp_new_ks}" | sed "s/^/  NEW[${sp_region}] KS /"
+                  new_failures=$((new_failures+1))
+                  echo "${sp_region}" >> /work/secondary_failed_regions.txt
+                fi
+              done
+
               sleep "${poll_interval}"
             done
 
@@ -1564,11 +1732,28 @@ data:
               kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true || true
               echo "[egress-block-test] egressDeny removed"
             fi
+            # #5359 — remove the secondary holds on the same pass/fail paths.
+            if [ -n "${SECONDARY_POLICY_APPLIED}" ]; then
+              secondary_policy_teardown
+              echo "[egress-block-test] #5359 secondary egressDeny removed (${SECONDARY_POLICY_APPLIED} )"
+            fi
+            # #5359 — per-region durable verdict on the status ConfigMap.
+            for sv_kc in /secondary-kubeconfigs/*.yaml; do
+              [ -e "${sv_kc}" ] || continue
+              sv_region=$(basename "${sv_kc}" .yaml)
+              if grep -qxF "${sv_region}" /work/secondary_failed_regions.txt 2>/dev/null; then
+                sv_result="failed"
+              else
+                sv_result="success"
+              fi
+              kubectl -n "${NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
+                -p "{\"data\":{\"step.egress-block-test.region.${sv_region}.result\":\"${sv_result}\",\"step.egress-block-test.region.${sv_region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" || true
+            done
             if [ "${new_failures}" -gt 0 ]; then
-              echo "[egress-block-test] cluster developed NEW NotReady items during the window — sovereignty proof FAILED"
+              echo "[egress-block-test] cluster developed NEW NotReady items during the window (any region) — sovereignty proof FAILED"
               exit 1
             fi
-            echo "[egress-block-test] no new regressions during ${DURATION_SECONDS}s window — sovereignty proof PASSED"
+            echo "[egress-block-test] no new regressions during ${DURATION_SECONDS}s window (all $((secondary_kubeconfig_count + 1)) region(s)) — sovereignty proof PASSED"
         resources:
           requests: { cpu: 50m, memory: 64Mi }
           limits:   { memory: 256Mi }
@@ -1594,3 +1779,10 @@ data:
           items:
             - key: resolver.sh
               path: resolver.sh
+      # #5359 — materialised by catalyst-api (cutover.go runCutover) from its
+      # on-PVC secondary kubeconfig store at every run start; optional:true
+      # so a single-region Sovereign (no Secret) schedules unchanged.
+      - name: secondary-kubeconfigs
+        secret:
+          secretName: {{ .Values.secondaryRegions.kubeconfigSecretName }}
+          optional: true

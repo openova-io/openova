@@ -34,11 +34,28 @@ through `harbor.openova.io`) and becomes hard-independent only after the
 | 02 | `cutover-step-02-harbor-projects` ConfigMap | pre-pivot | Create 7 proxy_cache projects in local Harbor |
 | 03 | `cutover-step-03-harbor-prewarm` ConfigMap | pre-pivot | HEAD-pull every image referenced by bootstrap-kit through proxy-cache |
 | 04 | `registry-pivot` DaemonSet | pre-pivot | Always-on per-node reconcile loop (Dragonfly, #4639): on `registriesYamlActive=v2` it writes the containerd `_default/hosts.toml` catch-all → the node-local dfdaemon proxy, flips the `bp-dragonfly` dfdaemon upstream ghcr → local Harbor, and adds a `registry.<fqdn>` → cilium-gateway ClusterIP hostAlias (the #4637 hairpin kill) |
-| 05 | `cutover-step-05-flux-gitrepository-patch` ConfigMap | post-pivot | Patch `flux-system/openova` GitRepository.url → local Gitea |
-| 06 | `cutover-step-06-helmrepository-patches` ConfigMap | post-pivot | Patch every OCI HelmRepository → `oci://harbor.<sov-fqdn>/openova-io` |
+| 05 | `cutover-step-05-flux-gitrepository-patch` ConfigMap | post-pivot | Patch `flux-system/openova` GitRepository.url → local Gitea — in EVERY region (#5359: per-secondary-region leg via `/secondary-kubeconfigs`, fail-loud Ready wait) |
+| 06 | `cutover-step-06-helmrepository-patches` ConfigMap | post-pivot | Patch every OCI HelmRepository → `oci://harbor.<sov-fqdn>/openova-io` — in EVERY region (#5359: per-secondary leg syncs ghcr-pull auth + the harbor-ca trust Secret, pivots + read-back-asserts zero upstream HRs remain) |
 | 07 | `cutover-step-07-catalyst-api-env-patch` ConfigMap | post-pivot | `kubectl set env deploy/catalyst-api CATALYST_GITOPS_REPO_URL=...` |
-| 08 | `cutover-step-08-egress-block-test` ConfigMap | post-pivot | CiliumNetworkPolicy denies egress to upstream for 10 min, asserts cluster stays Ready |
-| 09 | `self-sovereign-cutover-status` ConfigMap | mutable state | Per-step state machine read+written by every step + the UI |
+| 08 | `cutover-step-08-egress-block-test` ConfigMap | post-pivot | CiliumNetworkPolicy denies egress to upstream for 10 min, asserts cluster stays Ready — the hold + green-assertion cover EVERY region (#5359) |
+| 09 | `self-sovereign-cutover-status` ConfigMap | mutable state | Per-step state machine read+written by every step + the UI (#5359 adds `step.<step>.region.<regionKey>.*` per-secondary-region keys) |
+
+### Secondary-region legs (#5359)
+
+On a 2-region Sovereign the pre-0.1.151 chain pivoted ONLY the
+control-plane region — region-B's Flux stayed on github/ghcr while
+`cutoverComplete=true` (hw288 false positive; also the #5339 per-region
+version drift). Steps 05/06/08 now run a leg per secondary region using
+`kubectl --kubeconfig /secondary-kubeconfigs/<regionKey>.yaml`. The
+kubeconfigs come from the `cutover-secondary-kubeconfigs` Secret that
+catalyst-api (cutover.go `runCutover`, bp-catalyst-platform ≥1.4.1213
+RBAC) materialises at every run start from the secondary kubeconfig
+store it already holds on its PVC (the ClusterMesh-establish / #5244
+mechanism). The volume is `optional: true`: on a single-region
+Sovereign the Secret is guaranteed absent and every leg no-ops —
+behavior identical to 0.1.150. See `values.yaml` `secondaryRegions.*`.
+Step-04's region-B leg (secondary node containerd/Dragonfly pivot) is
+the remaining increment, tracked on #5359.
 
 The phase column controls image routing: `pre`-phase steps must use
 upstream-public images because they run BEFORE step-04 pivots the node

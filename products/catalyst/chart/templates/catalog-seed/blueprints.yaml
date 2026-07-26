@@ -1726,7 +1726,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.30"
+  version: "0.2.31"
   visibility: listed
   card:
     title: "Apache Guacamole"
@@ -1744,7 +1744,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-guacamole
-    version: "0.2.30"
+    version: "0.2.31"
   topology:
     supported:
     - active-hot-standby
@@ -5052,7 +5052,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.150"
+  version: "0.1.151"
   visibility: unlisted
   card:
     title: "Self-Sovereignty Cutover"
@@ -5069,7 +5069,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-self-sovereign-cutover
-    version: "0.1.150"
+    version: "0.1.151"
   topology:
     supported:
       - singleton
