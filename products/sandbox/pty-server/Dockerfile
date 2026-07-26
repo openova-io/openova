@@ -44,7 +44,7 @@
 # qwen-code / aider / opencode) can launch it as a subprocess via the
 # canonical mcp.json pattern. The binary MUST NOT run as a Pod — it is
 # a stdio JSON-RPC server, and Pods have no stdin pipe → EOF crash.
-FROM golang:1.23-alpine AS build
+FROM golang:1.25-alpine AS build
 WORKDIR /src
 RUN apk add --no-cache git
 COPY products/sandbox/pty-server/go.mod products/sandbox/pty-server/go.sum* ./
@@ -66,7 +66,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 # and even after deleting that Deployment the agent had no binary to
 # launch.
 # ---------------------------------------------------------------------
-FROM golang:1.23-alpine AS build-mcp
+FROM golang:1.25-alpine AS build-mcp
 WORKDIR /repo
 RUN apk add --no-cache git
 COPY core/controllers/go.mod core/controllers/go.sum /repo/core/controllers/
