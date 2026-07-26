@@ -1290,7 +1290,7 @@ spec:
       #   cutover-secondary-kubeconfigs bridge + catalog-seed
       #   bp-self-sovereign-cutover 0.1.151 (region-B cutover legs) +
       #   bp-guacamole 0.2.31 sync (TBD-A6 bot re-mint).
-      version: 1.4.1221
+      version: 1.4.1222
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
