@@ -1294,7 +1294,7 @@ spec:
       #   limitranges, so its provisioning-postcondition verifier can read back
       #   the boundary objects it authors. An Org missing its console Gateway
       #   listener pair or its plan cap no longer reports Ready/Active.
-      version: 1.4.1227
+      version: 1.4.1228
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
