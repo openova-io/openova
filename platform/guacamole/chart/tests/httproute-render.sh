@@ -18,8 +18,14 @@ chart_dir="$(cd "$(dirname "$0")/.." && pwd)"
 helm="${HELM_BIN:-helm}"
 "$helm" dependency build "$chart_dir" >/dev/null 2>&1 || true
 
+# #5358: the chart's own HTTPRoute belongs to the LEGACY sso.mode=openid
+# path only — in the default header mode the slot-13c bp-oidc-gate instance
+# owns the hostname (a direct route would bypass the gate and expose the
+# header-trusting webapp). Cases 1/2/4 therefore pin sso.mode=openid; a new
+# Case 6 asserts the header-mode suppression.
 overlay=(
   --set guacamole.enabled=true
+  --set guacamole.sso.mode=openid
   --set guacamole.httproute.hostname=guac.smoke.omani.works
   --set guacamole.oidc.issuer=https://keycloak.smoke.omani.works/realms/ops
 )
@@ -59,10 +65,12 @@ if echo "$out_default" | grep -q "^kind: HTTPRoute$"; then
 fi
 echo "[bp-guacamole] Case 3: PASS"
 
-# Case 4 — helper fail-fast
+# Case 4 — helper fail-fast (openid mode — header mode never resolves the
+# hostname because the HTTPRoute template is the only chart-side consumer)
 echo "[bp-guacamole] Case 4: helper bp-guacamole.host fails fast when hostname empty"
 out_empty=$("$helm" template smoke "$chart_dir" \
   --set guacamole.enabled=true \
+  --set guacamole.sso.mode=openid \
   --set guacamole.oidc.issuer=https://keycloak.smoke.omani.works/realms/ops 2>&1 || true)
 if ! echo "$out_empty" | grep -q "hostname is empty"; then
   echo "FAIL: bp-guacamole.host should hard-fail when hostname empty"
@@ -95,5 +103,22 @@ if echo "$appcr" | grep -qE '^  placement: single-region$'; then
   exit 1
 fi
 echo "[bp-guacamole] Case 5: PASS"
+
+# ── Case 6: header mode (DEFAULT) suppresses the direct HTTPRoute ──────
+# #5358 — the slot-13c bp-oidc-gate instance owns guacamole.<fqdn>; the
+# chart must NOT render a second HTTPRoute on the same hostname (undefined
+# routing) nor any direct route that bypasses the gate (the webapp trusts
+# the gate-injected identity header). httproute.enabled=true + a hostname
+# must still render NOTHING under the default header mode.
+echo "[bp-guacamole] Case 6: default header mode renders no HTTPRoute even when httproute.enabled=true"
+out_header=$("$helm" template smoke "$chart_dir" \
+  --set guacamole.enabled=true \
+  --set guacamole.httproute.enabled=true \
+  --set guacamole.httproute.hostname=guac.smoke.omani.works 2>&1)
+if echo "$out_header" | grep -q "^kind: HTTPRoute$"; then
+  echo "FAIL: header mode rendered a direct HTTPRoute (gate owns the hostname)"
+  exit 1
+fi
+echo "[bp-guacamole] Case 6: PASS"
 
 echo "[bp-guacamole] All HTTPRoute render cases PASS"

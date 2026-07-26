@@ -1,4 +1,13 @@
-{{- if and .Values.guacamole.enabled .Values.guacamole.httproute.enabled -}}
+{{- /*
+#5358: this direct HTTPRoute renders ONLY in the LEGACY sso.mode=openid
+path. In the default header mode the bp-oidc-gate instance (bootstrap-kit
+slot 13c) OWNS guacamole.<fqdn> — two HTTPRoutes on one hostname is
+undefined routing, and a direct route would bypass the gate entirely,
+exposing the header-trusting webapp unauthenticated. The gate's
+rootRedirectPath handles the bare-root → /guacamole/ Tomcat-context hop
+that the rootRedirect rule below provided.
+*/ -}}
+{{- if and .Values.guacamole.enabled .Values.guacamole.httproute.enabled (eq (include "bp-guacamole.ssoMode" .) "openid") -}}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:

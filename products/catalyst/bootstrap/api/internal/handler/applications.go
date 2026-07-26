@@ -2045,14 +2045,26 @@ func (h *Handler) lookupExternalURL(ctx context.Context, depID, targetNamespace,
 		return ""
 	}
 	for _, rt := range routes {
-		if !routeNamespaceMatchesApp(rt.GetNamespace(), targetNamespace) {
+		// #5358 — gate-owned front door. Apps served through the generic
+		// bp-oidc-gate (slot 13c) have NO HTTPRoute in their own namespace:
+		// the gate's `oidc-gate-<release>` route in the `oidc-gate`
+		// namespace owns `<release>.<sovereign-fqdn>` instead (guacamole
+		// since bp-guacamole 0.2.30; powerdns-admin since the #3374
+		// Layer-A migration). Without this rule the namespace filter below
+		// skips the gate route → externalURL comes back empty → the
+		// AppDetail/AppsPage "Open" button vanishes even though the front
+		// door is live. The `oidc-gate-<release>` name is the slot-13c
+		// instances.yaml naming contract, so this cannot false-positive
+		// across apps.
+		gateOwned := rt.GetNamespace() == "oidc-gate" && rt.GetName() == "oidc-gate-"+releaseName
+		if !gateOwned && !routeNamespaceMatchesApp(rt.GetNamespace(), targetNamespace) {
 			continue
 		}
 		hosts, _, _ := unstructured.NestedStringSlice(rt.Object, "spec", "hostnames")
 		if len(hosts) == 0 || hosts[0] == "" {
 			continue
 		}
-		if rt.GetName() == releaseName {
+		if gateOwned || rt.GetName() == releaseName {
 			return "https://" + hosts[0]
 		}
 		// (3) hostname leftmost-label match — the route's front-door host

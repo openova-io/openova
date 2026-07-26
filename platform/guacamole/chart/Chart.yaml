@@ -1,5 +1,34 @@
 apiVersion: v2
 name: bp-guacamole
+# 0.2.30 (#5358): SSO moves off the upstream implicit flow — new
+# `guacamole.sso.mode` knob, DEFAULT `header`. Root cause (live on hw288):
+# guacamole-auth-sso-openid is implicit-flow-only (response_type=id_token in
+# the URL fragment) through 1.6.0 AND git master — no released version
+# supports the authorization-code flow (verified against upstream
+# ConfigurationService/AuthenticationProviderService source for 1.5.5, 1.6.0
+# and master) — and the AngularJS SPA re-submits the fragment id_token via
+# updateCurrentToken($location.search()) on EVERY route change while the
+# server-side nonce is strictly single-use (NonceService.isValid removes on
+# first test, 1.6.0 unchanged). The replay poisons the just-created session:
+# "TokenValidationService - Rejected OpenID token with invalid/old nonce" →
+# generic error page + local login form (UAT rows 35/115; 4/4 deterministic
+# under Playwright). No 1.5.x/1.6.x config knob eliminates the replay, so the
+# FIX moves the OIDC leg out of the browser: the Sovereign's bp-oidc-gate
+# (oauth2-proxy, slot 13c) now fronts guacamole.<fqdn> running the
+# authorization-code flow server-side (client secret via bp-sso-bridge →
+# OpenBao → ExternalSecret) and asserts the principal to the webapp via
+# X-Forwarded-Email (oauth2-proxy --pass-user-headers), consumed by the
+# image-bundled guacamole-auth-header extension (HEADER_ENABLED=true) — no
+# id_token ever transits the browser URL. JDBC permission store + the #3374
+# admin-enroll CronJob are auth-source-agnostic and unchanged; usernames stay
+# byte-identical (openid-username-claim-type default was `email`). In header
+# mode the chart renders NO HTTPRoute (the slot-13c gate instance owns the
+# hostname; a direct route would bypass auth) and adds a webapp ingress
+# NetworkPolicy admitting ONLY the oidc-gate pods (header identity is
+# trusted). sso.mode=openid preserves the legacy shape byte-identically for
+# operators fronting guacamole with their own code-flow proxy. Lockstep:
+# 52-bp-guacamole.yaml pin + 13c-bp-oidc-gate.yaml guacamole instance +
+# blueprint.yaml + catalog-seed source.version → 0.2.30. Refs #5358.
 # 0.2.28 (#4885): honour global.imageRegistry for the guacd + webapp openova-io
 # images so the self-sovereign-cutover step-07 image pivot reaches these Pods.
 # _helpers.tpl guacdImage/webappImage now route through a new registryImage
@@ -206,7 +235,7 @@ name: bp-guacamole
 # Instances-table chip, so the legacy spelling leaked the banned word to the
 # operator (hw159 #3375).
 # 0.2.26 (#3971): CNPG storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
-version: 0.2.29
+version: 0.2.30
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless

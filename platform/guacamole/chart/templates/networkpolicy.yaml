@@ -108,4 +108,40 @@ spec:
         - protocol: TCP
           port: 5432
     {{- end }}
+{{- if eq (include "bp-guacamole.ssoMode" .) "header" }}
+---
+# #5358 header-mode ingress guard. In sso.mode=header the webapp TRUSTS
+# the identity header the bp-oidc-gate injects (guacamole-auth-header),
+# so any pod that can dial the webapp :8080 directly could assert an
+# arbitrary principal. This policy closes the direct path: ONLY the
+# oidc-gate pods (which overwrite the inbound header with the
+# session-derived value on every proxied request) may reach the webapp.
+# Kubelet liveness/readiness probes bypass NetworkPolicy by design.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-guacamole.webappName" . }}-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "bp-guacamole.webappSelectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    {{- $sso := .Values.guacamole.sso | default dict }}
+    {{- $gate := $sso.gate | default dict }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $gate.namespace | default "oidc-gate" }}
+          podSelector:
+            matchLabels:
+              {{- $gate.podSelector | default (dict "app.kubernetes.io/name" "bp-oidc-gate") | toYaml | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.guacamole.webapp.port }}
+{{- end }}
 {{- end }}

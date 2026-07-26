@@ -183,7 +183,16 @@ spec:
       # chart renders the canonical apps.openova.io/v1 Application CR for
       # this slot's HelmRelease so the console /apps list, per-app Topology
       # tab + showback resolve guacamole (no more "no Application CR").
-      version: 0.2.29
+      # 0.2.30 (#5358): SSO switched to the DEFAULT sso.mode=header — the
+      # slot-13c bp-oidc-gate `guacamole` instance now owns
+      # guacamole.<fqdn> and runs the Keycloak authorization-code flow
+      # server-side; the webapp consumes the gate's X-Forwarded-Email via
+      # guacamole-auth-header. The chart no longer renders its own
+      # HTTPRoute (gate owns the hostname) and the native openid implicit
+      # flow (fragment-replay "invalid/old nonce" on hw288, UAT rows
+      # 35/115) is retired from the canonical path — values below drop
+      # httproute + oidc.issuer accordingly.
+      version: 0.2.30
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
@@ -242,23 +251,20 @@ spec:
       # opts out per-Sovereign by removing this slot from
       # clusters/<sovereign>/bootstrap-kit/kustomization.yaml.
       enabled: true
+      # #5358 — SSO via the slot-13c bp-oidc-gate `guacamole` instance
+      # (authorization-code flow at the gate + guacamole-auth-header
+      # behind it). The gate's HTTPRoute OWNS guacamole.${SOVEREIGN_FQDN}
+      # (see 13c-bp-oidc-gate.yaml), so this chart renders NO HTTPRoute in
+      # header mode and the former `oidc.issuer` value is retired (the
+      # native guacamole-auth-sso-openid implicit flow replayed its
+      # single-use nonce on every SPA route change — "Rejected OpenID
+      # token with invalid/old nonce" live on hw288, UAT rows 35/115).
+      # `header` is the chart default; pinned here explicitly so the
+      # canonical prov path never drifts on a chart-default change.
+      sso:
+        mode: header
       httproute:
-        enabled: true  # #4291 DE-VCLUSTER — guacamole renders its OWN HTTPRoute natively in host ns `guacamole` (was suppressed by the #3642 host-bridge)
-        # Resolved from the per-Sovereign Kustomize overlay's
-        # SOVEREIGN_FQDN env var, which envsubst materializes when the
-        # bootstrap-kit Kustomization renders.
-        hostname: guacamole.${SOVEREIGN_FQDN}
-      oidc:
-        # Same SOVEREIGN_FQDN substitution. Canonical issuer is the
-        # EXTERNALLY-reachable Keycloak host `auth.<fqdn>` + the `sovereign`
-        # realm (where the catalyst-pin IdP lives). The prior
-        # `keycloak.<fqdn>/realms/catalyst` was stale drift — the `catalyst`
-        # realm was consolidated into `sovereign` (#2744), and `keycloak.`
-        # is the in-cluster host the browser cannot reach (404 at the edge)
-        # → guacamole silent SSO never completed (the OpenID extension built
-        # a redirect to a dead host + dead realm; POST /api/tokens returned
-        # 500). Matches grafana's auth_url. (#3150)
-        issuer: https://auth.${SOVEREIGN_FQDN}/realms/sovereign
+        enabled: false  # #5358 — the slot-13c oidc-gate HTTPRoute owns guacamole.${SOVEREIGN_FQDN}; two HTTPRoutes on one hostname is undefined routing
       recordings:
         # SeaweedFS-CSI is the canonical RWX storageClass for
         # multi-pod session-recording workloads on Sovereigns; see

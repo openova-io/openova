@@ -53,9 +53,35 @@ spec:
             - name: GUACD_PORT
               value: {{ .Values.guacamole.guacd.port | quote }}
 
-            # OIDC — every value below is operator-driven via per-Sovereign
-            # overlay, never hardcoded (INVIOLABLE-PRINCIPLES #4). Empty
-            # values fail the helm template render via _helpers.tpl.
+            {{- $ssoMode := include "bp-guacamole.ssoMode" . }}
+            {{- if eq $ssoMode "header" }}
+            # SSO — header mode (#5358, DEFAULT). The Sovereign's
+            # bp-oidc-gate (oauth2-proxy, slot 13c) fronts the public
+            # hostname, runs the Keycloak AUTHORIZATION-CODE flow
+            # server-side, and asserts the authenticated principal to
+            # this webapp on every proxied request via the header below
+            # (oauth2-proxy --pass-user-headers, default-on). The
+            # image-bundled guacamole-auth-header extension consumes it.
+            # No id_token ever transits the browser URL, so the #5358
+            # implicit-flow fragment-replay ("Rejected OpenID token with
+            # invalid/old nonce" → error page + session poison) is
+            # structurally impossible. The webapp is reachable ONLY from
+            # the gate pods (see networkpolicy.yaml ingress guard) —
+            # header identity is trusted, so the direct path is closed.
+            {{- $ssoHeader := ((.Values.guacamole.sso | default dict).header) | default dict }}
+            - name: HEADER_ENABLED
+              value: "true"
+            - name: HTTP_AUTH_HEADER
+              value: {{ $ssoHeader.name | default "X-Forwarded-Email" | quote }}
+            {{- else }}
+            # OIDC — LEGACY sso.mode=openid path (see values.yaml
+            # guacamole.sso for why this is no longer the default:
+            # upstream guacamole-auth-sso-openid is implicit-flow-only
+            # through 1.6.0 and the SPA's fragment re-submission replays
+            # the single-use nonce, #5358). Every value below is
+            # operator-driven via per-Sovereign overlay, never hardcoded
+            # (INVIOLABLE-PRINCIPLES #4). Empty values fail the helm
+            # template render via _helpers.tpl.
             #
             # G117.5 W3.D1 #2744 — `?kc_idp_hint=catalyst-pin` appended
             # so the Guacamole webapp's auth redirect carries the IdP
@@ -85,17 +111,19 @@ spec:
                   name: {{ .Values.guacamole.oidc.clientSecretRef.name }}
                   key: {{ .Values.guacamole.oidc.clientSecretRef.key }}
                   optional: false
+            {{- end }}
 
             {{- $db := .Values.guacamole.database | default dict }}
             {{- if and (default true $db.enabled) ((default dict $db.cluster).enabled | default true) }}
             # PostgreSQL JDBC permission store (#3374). The guacamole
             # entrypoint installs the bundled guacamole-auth-jdbc-postgresql
             # extension when POSTGRESQL_HOSTNAME is set; combined with the
-            # openid extension (above) it gives SSO users a real permission
-            # store. AUTO_CREATE_ACCOUNTS provisions a JDBC record per SSO
-            # principal on first login; the schema-seed Job's <adminGroup>
-            # USER_GROUP (ADMINISTER) + OPENID_GROUPS_CLAIM_TYPE=groups make
-            # sovereign-admins members land as admin.
+            # SSO extension above (header or openid per sso.mode) it gives
+            # SSO users a real permission store. AUTO_CREATE_ACCOUNTS
+            # provisions a JDBC record per SSO principal on first login; the
+            # schema-seed Job's <adminGroup> USER_GROUP (ADMINISTER) + the
+            # #3374 admin-enroll CronJob membership rows make
+            # sovereign-admins members land as admin (auth-source-agnostic).
             {{- $cl := $db.cluster | default dict }}
             {{- $clName := $cl.name | default "guacamole-pg" }}
             {{- $clNs := $cl.namespace | default .Release.Namespace }}
@@ -126,12 +154,13 @@ spec:
               value: {{ $db.sslMode | default "require" | quote }}
             - name: POSTGRESQL_AUTO_CREATE_ACCOUNTS
               value: {{ $db.autoCreateAccounts | default true | quote }}
-            # When multiple auth extensions are present, openid must run so
-            # the SSO identity is the authenticated principal and JDBC is the
-            # permission store (not a second login). Extension priority puts
-            # openid first; JDBC accounts are auto-created/looked-up for it.
+            # When multiple auth extensions are present, the SSO extension
+            # (header or openid per sso.mode) must run first so the SSO
+            # identity is the authenticated principal and JDBC is the
+            # permission store (not a second login); JDBC accounts are
+            # auto-created/looked-up for it.
             - name: EXTENSION_PRIORITY
-              value: "openid, postgresql"
+              value: {{ printf "%s, postgresql" $ssoMode | quote }}
             {{- end }}
             # Recording path — guacd writes here; the webapp ships
             # captures off to SeaweedFS via the shipper container below.

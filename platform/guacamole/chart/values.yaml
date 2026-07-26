@@ -140,7 +140,53 @@ guacamole:
     # harbor.openova.io/proxy-dockerhub prefix per CLAUDE.md inviolable
     # rule.
     migrationImage: harbor.openova.io/proxy-dockerhub/bitnamilegacy/kubectl:1.30.7
-  # ── Keycloak OIDC ──────────────────────────────────────────────
+  # ── SSO mode (#5358) ───────────────────────────────────────────
+  # How the operator's Keycloak identity reaches Guacamole.
+  #
+  #   header (DEFAULT — the #5358 fix): the Sovereign's bp-oidc-gate
+  #     (oauth2-proxy, bootstrap-kit slot 13c) fronts guacamole.<fqdn>
+  #     and runs the OIDC AUTHORIZATION-CODE flow server-side (client
+  #     secret via bp-sso-bridge → OpenBao → ExternalSecret). The gate
+  #     asserts the authenticated principal to the webapp on every
+  #     proxied request via an HTTP header (oauth2-proxy
+  #     --pass-user-headers, default-on), consumed by the image-bundled
+  #     guacamole-auth-header extension. No id_token ever transits the
+  #     browser URL → the #5358 fragment-replay class is structurally
+  #     impossible. In this mode the chart renders NO HTTPRoute (the
+  #     gate owns the hostname — two HTTPRoutes on one hostname is
+  #     undefined routing) and adds an ingress NetworkPolicy so ONLY
+  #     the gate pods can reach the webapp :8080 (header identity is
+  #     trusted, so the direct path must be closed).
+  #
+  #   openid (LEGACY): the native guacamole-auth-sso-openid extension.
+  #     Upstream implements ONLY the OIDC implicit flow
+  #     (response_type=id_token in the URL fragment) through 1.6.0 AND
+  #     git master — no released version supports the code flow, and
+  #     the SPA re-submits the fragment token on every route change
+  #     while the server-side nonce is strictly single-use
+  #     (NonceService.isValid removes on first test). The re-submission
+  #     poisons the just-created session: "Rejected OpenID token with
+  #     invalid/old nonce" + error page (live on hw288, #5358 — 4/4
+  #     deterministic under Playwright walk). Kept only for operators
+  #     fronting guacamole with their own code-flow proxy.
+  sso:
+    mode: header
+    header:
+      # Header carrying the authenticated principal, as injected by
+      # oauth2-proxy (--pass-user-headers). X-Forwarded-Email matches
+      # the JDBC usernames the openid mode created (its
+      # openid-username-claim-type default is `email`), so existing
+      # permission-store records carry over across the mode switch.
+      name: X-Forwarded-Email
+    gate:
+      # Namespace + pod labels of the bp-oidc-gate deployment allowed
+      # through the webapp ingress NetworkPolicy. Matches the slot-13c
+      # bp-oidc-gate chart (targetNamespace oidc-gate, chart label
+      # app.kubernetes.io/name: bp-oidc-gate).
+      namespace: oidc-gate
+      podSelector:
+        app.kubernetes.io/name: bp-oidc-gate
+  # ── Keycloak OIDC (sso.mode=openid LEGACY path only — see #5358) ──
   oidc:
     # Issuer URL — render in per-Sovereign overlay as
     # `https://auth.<sovereign-fqdn>/realms/sovereign`. Empty value
