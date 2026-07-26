@@ -159,3 +159,12 @@ Live guacamole-server logs: `TokenValidationService - Rejected OpenID token with
 
 ## #5359 fix scoped — cutover has no region-B reach mechanism (architectural) — 2026-07-26 06:05Z
 Cutover registry-pivot steps 04/05/06 operate only on the local region-A cluster; steps 10/11's "region-B refs" are incidental comments; no region-B kubeconfig secret exists in the cutover. The cutover structurally assumes ONE cluster → region-B's Flux/GitRepository/HelmRepositories/containerd never pivot (#5359). Fix is a design decision: (1) give the cutover region-B kubeconfig access + schedule the pivot DaemonSet onto region-B nodes, or (2) region-B-independent pivot via region-B's own gitops. Founder/architect call — NOT blind-dispatched. Surfaces on post-cutover region-kill. Scoped on #5359.
+
+## Remaining status/uat issues walked (#5193, #5086) — all 10 now covered (2026-07-26 06:50Z)
+
+Pulled the full open status/uat list (10 issues); 2 were un-walked this session — walked both at code level (neither is live-walkable on hw288):
+- **#5193** (partial wipe strands an env un-wipeable — 400 'credentials required' + record stuck `wiping`): `products/catalyst/bootstrap/api/internal/handler/wipe.go:285,349` references the `huawei-operator-creds` fallback ("created must always be wipeable — the operator-creds Secret is [the fallback]") → the creds-half fix appears present in code. The nginx-60s sync-destroy half (partial region-a-only destroy) + full verification need a live partial-wipe-strand repro = wiping an env, which is unsafe on the 214-✅ north-star. Live-blocked; code-references-fix. Verify on a throwaway/expendable env, not hw288.
+- **#5086** (Hetzner Sovereign DNS no front door since bp-powerdns 1.2.18 §854 flip): confirmed Hetzner-specific — the powerdns anycast Service uses the Cilium LB-IPAM VIP path (`serviceType: LoadBalancer` + `lbipam.cilium.io/sharing-key`, nodePort-suppressed) that binds `node:53` only when VIP==node-public-IP (Hetzner). hw288 is **Huawei** (NAT'd-EIP / cilium-envoy-hostPort front door) → NOT reproducible on this env (issue is repo-evidence, no live cluster). Not walkable on a Huawei Sovereign.
+- **#5328** (break-glass) — PR #5356 still OPEN (not merged) → the self-test is not on main → still review-gated, unchanged.
+
+All 10 open status/uat issues are now walked/tracked this session (#5352/#5285/#5345/#5341/#5339/#5265/#4901 earlier; #5193/#5086/#5328 here).
