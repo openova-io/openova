@@ -3591,7 +3591,7 @@ name: bp-catalyst-platform
 #   bp-guacamole 0.2.30 -> 0.2.31 (TBD-A6 bot re-mint sync — 2nd occurrence
 #   after bp-newapi 1.4.144; bot lockstep gap tracked on #5370).
 #   (1.4.1217 was consumed by the TBD-A6 auto re-publish.)
-version: 1.4.1225
+version: 1.4.1226
 # 1.4.1092 — #4988: bump catalog-seed bp-postgres spec.version display-label 0.2.10→0.2.12
 #   to lockstep with delivery source.version + platform/postgres/blueprint.yaml (#4987 DR).
 # 1.4.1063 — #4841: grant the useraccess-controller ClusterRole `bind` on the 8
