@@ -74,3 +74,13 @@ Root-caused the row-16 block (correcting the "convergence lag" note above). The 
 - `IacRepoBootstrapped` → `reason=BootstrapDisabled: iacbootstrap dependencies not wired`
 
 So the per-Org Keycloak realm + the per-Org IaC repo bootstrap are **feature-flagged OFF** on this hw288 controller. Consequences: the per-app **detail view** (`/app/<name>`) can't resolve the running app (reads from the IaC deployment source), so **row 16** (Settings/Topology change) is unwalkable here; likewise any **per-Org-realm SSO** rows and **G2** (per-Org newapi ES-sync into a fresh per-Org realm). This is a controller-deployment config state, not a walk I can force — the customer Org's core (vcluster + apps + directory + detail-in-operator-console) is green (rows 5-12/20/87-90/120/226/233 ✅), but per-Org-realm-dependent rows need the flag enabled (or a controller that has it wired). Worth confirming with the founder whether this flag is intended-off on hw288 or a gap.
+
+## R17 delete-cascade RCA → filed #5364 (2026-07-26)
+
+Walked R17 live (deleted throwaway Org `beta-corp` via admin door). 90s post-delete: Org CR + vcluster HR gone, but **ns `beta-corp` still Active (not Terminating) + `bp-keycloak-0`/`bp-keycloak-postgresql-0` Running** — orphaned. Root-caused in the org-controller code:
+
+- `organization_controller.go:386-458` delete branch runs `teardownPerOrgFlux`/`teardownTenantNetworking`/`teardownIacBootstrap`/`teardownPerOrgRealm` — **no explicit `r.Delete(namespace)`**. ns cleanup is indirect: (a) `teardownPerOrgFlux` prune (`:390-391`, "no-op when GiteaInClusterURL is unset"); (b) the ownerRef'd Environment CR (`environment_ensure.go:204`) GC'd on Org tombstone → the *separate* environment-controller tears down the ns.
+- hw288 has per-Org features **Disabled** (`PerOrgRealmProvisioned=Disabled`, `IacRepoBootstrapped=BootstrapDisabled`) → the Flux-prune leg is a no-op and the ns is not explicitly deleted → orphan.
+- **Distinct from #4459** (CLOSED — fixed the networking-boundary leaks listener/cert/route/DNS via `TenantNetworkingFinalizer`); the ns + keycloak orphan is the sibling gap.
+
+Filed **#5364** (area/catalyst, status/in-progress) with the RCA + an honest repro caveat: the evidence is a 90s snapshot (ns then manually cleaned up), so a patient repro on a per-Org-features-unwired env is needed to distinguish a true never-terminates leak from a slow async environment-controller teardown. R17 stays ◑ pending that confirm + the backstop fix.
