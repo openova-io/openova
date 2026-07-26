@@ -2400,7 +2400,23 @@ business model is reselling LLM access to its own customers; use
           - mgmt-A
           roles:
             mgmt-A: singleton
-  endpoints: []
+  # #5389 — lockstep with platform/newapi/blueprint.yaml (see the long note
+  # there). This seed is the in-cluster fallback the bp-catalog-client reads
+  # when the gitea catalog-sovereign repo 404s, so an empty endpoints[] here
+  # reproduces the missing "Open" button + launch-url 404 on exactly the
+  # provs where gitea is unreachable. ssoInitPath is the bare root: the
+  # chart's Exact-`/` HTTPRoute match hands the root to the sandbox-bridge
+  # sidecar, whose zero-click landing page IS NewAPI's OIDC-init route.
+  endpoints:
+  - name: ui
+    hostnameTemplate: "newapi.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+    port: 443
+    protocol: https
+    tls: true
+    visibility: public
+    launchDefault: true
+    ssoEnabled: true
+    ssoInitPath: "/"
   sso:
     realm: sovereign
     protocolMapper: oidc
