@@ -711,3 +711,52 @@ bootstrapOwned:
   helmRelease:
     name: ""
     namespace: flux-system
+
+# ── Cross-region session/queue/cache store (#5406) ───────────────────────
+# Harbor's OIDC session lives in Redis db 0 (`_REDIS_URL_CORE`), its job
+# queue in db 1 and its registry blob-descriptor cache in db 2. On a
+# 2-region Sovereign BOTH regions serve `registry.<fqdn>` (one shared
+# wildcard VIP fans requests at both regions' envoys), while upstream's
+# default `redis.type: internal` gave each region its OWN redis — so a
+# session minted in one region 401s in the other, on a PER-REQUEST basis.
+# Meanwhile Harbor's other two stateful stores (Postgres via
+# `shared-pg-mesh-rw`, blobs via one Object Storage bucket) were ALREADY
+# anchored in the active region. This block makes Redis follow the same
+# rule instead of being the odd one out.
+#
+# `enabled` is wired by bootstrap-kit slot 19 to ${SOVEREIGN_ENABLE_CNPG_PAIR}
+# — stamped true on BOTH regions by catalyst-api only once Cilium ClusterMesh
+# is established. A single-region prov never reaches that flip, so the
+# default render below emits NOTHING (no Service, no CiliumNetworkPolicy)
+# and is byte-identical to the pre-#5406 chart.
+#
+# The SECONDARY region additionally receives `harbor.redis.type: external` +
+# `harbor.redis.external.addr: <meshServiceName>:6379` from the slot (driven
+# by the SOVEREIGN_HARBOR_REDIS_* substitutes catalyst-api stamps at the same
+# post-mesh gate that stamps SOVEREIGN_HARBOR_PG_HOST), so upstream renders no
+# local redis there and every dial crosses the mesh to the active region.
+crossRegion:
+  # Render the ClusterMesh global Service + the cross-region CiliumNetworkPolicies.
+  enabled: false
+  # This region's role in the pair: primary | secondary. Drives
+  # service.cilium.io/shared (the standby must never export a redis of its own).
+  role: primary
+  # Peer ClusterMesh cluster name(s) — stamped by catalyst-api as
+  # SOVEREIGN_PEER_CLUSTERMESH_NAMES. EMPTY → no CiliumNetworkPolicy rendered.
+  peerClusters: []
+  redis:
+    # Name of the merged global Service. MUST be identical on both regions —
+    # Cilium merges ClusterMesh global services by name+namespace.
+    meshServiceName: harbor-redis-mesh
+    # Cilium global-service backend preference. `local` falls through to the
+    # peer when there are no local backends (the standby's case), which is the
+    # same idiom bp-openbao's openbao-active-mesh and bp-cnpg-pair's
+    # *-primary-mesh Services use.
+    affinity: local
+    port: 6379
+    # Selector for the upstream goharbor internal-redis Pod
+    # (charts/harbor/templates/redis/service.yaml → harbor.matchLabels +
+    # component: redis). Defaults track the upstream chart; override only if
+    # `harbor.nameOverride` / the release name is customised.
+    appLabel: harbor
+    releaseLabel: ""
