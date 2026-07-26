@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-26T20:15:02Z` |
+| Last refreshed | `2026-07-26T20:30:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 34 |
 | Open DoD gates | 0 / 41 |
@@ -242,6 +242,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-07-26T20:06 | [#5403](https://github.com/openova-io/openova/pull/5403) | #4 | fix(keycloak): SECURITY — pin-broker credential is platform- |
+| 2026-07-26T20:29 | [#5402](https://github.com/openova-io/openova/pull/5402) | #3379 | fix(console): per-row Re-run on a FAILED cutover-step row (U |
 | 2026-07-26T19:55 | [#5399](https://github.com/openova-io/openova/pull/5399) | #5341 | fix(mcp): arm multiRegion on slot 13d — the #5341 secondary- |
 | 2026-07-26T19:51 | [#5398](https://github.com/openova-io/openova/pull/5398) | #5393 | fix(catalog): pin the 9 :latest catalog images that Kyverno  |
 | 2026-07-26T19:46 | [#5392](https://github.com/openova-io/openova/pull/5392) | #4982 | fix(cutover): settled-roll pre-flight distinguishes TERMINAL |
@@ -270,7 +271,6 @@ flowchart LR
 | 2026-07-23T08:58 | [#5335](https://github.com/openova-io/openova/pull/5335) | #5311 | fix(continuum): #5311 standby-probe reads Secret via cached  |
 | 2026-07-23T01:25 | [#5333](https://github.com/openova-io/openova/pull/5333) | #5274 | docs(uat): stamp hw285 sweep — 64✅/78◑/3❌ (cc=true, G12 RPO= |
 | 2026-07-23T01:26 | [#5332](https://github.com/openova-io/openova/pull/5332) | #5331 | fix(cnpg-pair): dr-failback CONVERGED must verify Consistent |
-| 2026-07-23T00:07 | [#5330](https://github.com/openova-io/openova/pull/5330) | #5327 | fix(janitor): failed-record reap preserves destroy capabilit |
 
 ---
 
