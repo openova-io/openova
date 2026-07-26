@@ -255,27 +255,16 @@ func orgConsoleTLSNamesFor(subdomain, parentDomain string) orgConsoleTLSNames {
 // failing the whole Org reconcile, so the per-Org Flux loop / realm /
 // UserAccess steps still converge while the cert is being issued.
 func (r *Reconciler) reconcileTenantConsoleTLS(ctx context.Context, org *orgapi.Organization) (bool, error) {
-	parentDomain := strings.TrimSpace(org.Spec.TenantPublic.ParentDomain)
-	if parentDomain == "" {
-		// Feature disabled — Org has no pool-parent public hostname.
+	// Feature disabled (no pool-parent public hostname) or no slug to form a
+	// 2-label host from → no-op; the Org's other reconcile outputs still land
+	// and a later pass re-runs this. The derivation lives in
+	// orgConsoleTLSNamesForOrg (provisioning_postconditions.go) so the up-path,
+	// the teardown, and the #5395 postcondition verifier cannot drift onto
+	// different listener names.
+	names, ok := orgConsoleTLSNamesForOrg(org)
+	if !ok {
 		return false, nil
 	}
-
-	// Subdomain defaults to the Org slug — the SAME derivation
-	// tenant_route.go uses for the HTTPRoute hostname, so the per-Org cert
-	// SAN + listener hostname + route host all line up on
-	// `*.<slug>.<parent>` / `console.<slug>.<parent>`.
-	subdomain := strings.TrimSpace(org.Spec.TenantPublic.Subdomain)
-	if subdomain == "" {
-		subdomain = org.Spec.Slug
-	}
-	if strings.TrimSpace(subdomain) == "" {
-		// No slug at all — cannot form a 2-label host. No-op (the Org's
-		// other reconcile outputs still land); a later pass with a slug
-		// set re-runs this.
-		return false, nil
-	}
-	names := orgConsoleTLSNamesFor(subdomain, parentDomain)
 
 	certChanged, err := r.reconcileOrgWildcardCert(ctx, org, names)
 	if err != nil {
@@ -461,18 +450,12 @@ func (r *Reconciler) ensureConsoleOrgListener(ctx context.Context, names orgCons
 // had a pool parentDomain. Best-effort + absent-as-success — a missing
 // artifact is success, not an error, so a repeated reconcile is idempotent.
 func (r *Reconciler) teardownTenantConsoleTLS(ctx context.Context, org *orgapi.Organization) (bool, error) {
-	parentDomain := strings.TrimSpace(org.Spec.TenantPublic.ParentDomain)
-	if parentDomain == "" {
+	// Same derivation the up-path uses (orgConsoleTLSNamesForOrg) so teardown
+	// strips exactly the listener names the up-path appended.
+	names, ok := orgConsoleTLSNamesForOrg(org)
+	if !ok {
 		return false, nil
 	}
-	subdomain := strings.TrimSpace(org.Spec.TenantPublic.Subdomain)
-	if subdomain == "" {
-		subdomain = org.Spec.Slug
-	}
-	if strings.TrimSpace(subdomain) == "" {
-		return false, nil
-	}
-	names := orgConsoleTLSNamesFor(subdomain, parentDomain)
 
 	listenerChanged, err := r.removeConsoleOrgListener(ctx, names)
 	if err != nil {

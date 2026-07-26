@@ -810,11 +810,66 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 	}
 
+	// 6b. POSTCONDITION VERIFICATION (#5395). vclusterReadiness above reads back
+	// exactly ONE of the artifacts this reconciler authors (the vCluster HR, or
+	// for a host-tier Org merely the `<slug>` namespace). Everything else — the
+	// plan ResourceQuota + LimitRange authored into the per-Org repo, and the
+	// per-Org console Gateway listener pair — was fire-and-forget: nothing ever
+	// read it back, and reconcileConsoleServing's only output (`degraded`) fed a
+	// requeue and never reached status. So an Org could be missing its console
+	// listener (every HTTPRoute Accepted=False NoMatchingListenerHostname → the
+	// customer's console, mail, and apps all unreachable) or its purchased plan
+	// cap, and STILL report phase=Ready + Ready=True on every surface. Live on
+	// hw290: gamma-corp, 6/6 routes unrouted, Org green.
+	//
+	// verifyProvisioned re-reads what the controller claims to have provisioned.
+	// A proven-absent artifact holds BOTH the phase and the Ready condition back
+	// — the phase matters because the console derives an Org's "Active" badge
+	// from status.vcluster.phase FIRST and only falls through to the Ready
+	// condition (products/catalyst/bootstrap/api/internal/handler/org_list_from_cr.go
+	// orgStateFromCR), so downgrading the condition alone would have left the
+	// operator-visible state green.
+	//
+	// Deliberately NOT a retry: a retry would keep re-appending the listener
+	// while the Org still read Active, so a permanent failure would stay
+	// invisible. Naming the missing artifact is the fix; the requeue below is
+	// the self-heal that follows from it — and because a non-empty result keeps
+	// the requeue alive, this also closes the drift hole where a Ready Org
+	// (which returns ctrl.Result{} and has no Gateway watch) could lose its
+	// listener to an external rewrite and never re-converge.
+	//
+	// ensureEnvironment above stays gated on vcReady, NOT on this: an Org with a
+	// broken console edge must still get its Environment, or a cosmetic status
+	// fix would become a functional regression for the app-install path.
+	postconditions := provisioningPostconditions{}
+	if vcReady {
+		postconditions = r.verifyProvisioned(ctx, &org)
+		for _, u := range postconditions.Unverifiable {
+			// NOT evidence of absence (RBAC not yet rolled out, apiserver blip,
+			// CRD absent on a Catalyst-Zero install). Log + requeue; never
+			// fabricate a red from a failed probe — one botched RBAC rollout
+			// would otherwise red-flag every Org on the Sovereign at once.
+			log.Info("provisioning postcondition could not be verified (not treated as missing) — requeueing",
+				"organization", org.Spec.Slug, "probe", u)
+		}
+		if !postconditions.complete() {
+			log.Info("Organization is NOT fully provisioned — holding Ready back (#5395)",
+				"organization", org.Spec.Slug, "missing", postconditions.Missing)
+			// The console reads Active off the phase first — hold it too.
+			vcPhase = "Provisioning"
+		}
+	}
+
 	readyCond := orgapi.Condition{
 		Type:               "Ready",
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	}
-	if vcReady {
+	switch {
+	case vcReady && !postconditions.complete():
+		readyCond.Status = "False"
+		readyCond.Reason = "ProvisioningIncomplete"
+		readyCond.Message = postconditions.message()
+	case vcReady:
 		readyCond.Status = "True"
 		readyCond.Reason = "Reconciled"
 		// #4813 (status honesty): word the Ready message off the SAME
@@ -826,7 +881,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		// anti-pattern, cf. #3687 / #856). Only the vcluster tier
 		// (m/l/xl/flexi) authors + waits on the HR, so only it may claim it.
 		readyCond.Message = readyOrgMessage(org.Spec.PlanSlug)
-	} else {
+	default:
 		readyCond.Status = "False"
 		readyCond.Reason = "VClusterProvisioning"
 		readyCond.Message = vcMsg
@@ -879,7 +934,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// retry on the 30s cadence even for an Org that is otherwise Ready (a
 	// host-tier Org goes Ready immediately, so without this a transient console
 	// route write would sit un-retried until the next spec change).
-	if !vcReady || consoleServingDegraded {
+	//
+	// #5395 — ALSO requeue while any provisioning postcondition is missing or
+	// could not be verified. This is what makes the check self-healing rather
+	// than merely diagnostic: each pass re-runs reconcileConsoleServing (which
+	// re-appends a listener that was never written or was rewritten away) and
+	// re-reads the boundary tree, and the Org converges to Ready=True the moment
+	// the artifacts are genuinely there. Without it a Ready Org returns
+	// ctrl.Result{} and — since SetupWithManager registers no Gateway watch —
+	// would never look again.
+	if !vcReady || consoleServingDegraded ||
+		!postconditions.complete() || len(postconditions.Unverifiable) > 0 {
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 	return ctrl.Result{}, nil

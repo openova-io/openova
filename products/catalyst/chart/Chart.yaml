@@ -3591,7 +3591,19 @@ name: bp-catalyst-platform
 #   bp-guacamole 0.2.30 -> 0.2.31 (TBD-A6 bot re-mint sync — 2nd occurrence
 #   after bp-newapi 1.4.144; bot lockstep gap tracked on #5370).
 #   (1.4.1217 was consumed by the TBD-A6 auto re-publish.)
-version: 1.4.1226
+# 1.4.1227 — #5395 (partial Org provisioning read as success, hw290): grant the
+#   organization-controller read-only `resourcequotas` + `limitranges` so its new
+#   provisioning-postcondition verifier can read back the two boundary objects it
+#   authors into the `<slug>` namespace. Before this the reconciler derived Ready
+#   from ONE artifact (the vCluster HR / namespace) and never read back the plan
+#   ResourceQuota + LimitRange or the per-Org console Gateway listener pair — so
+#   gamma-corp reported Ready/Active with all 6 HTTPRoutes
+#   Accepted=False:NoMatchingListenerHostname and no cap on its namespace. The
+#   verifier holds BOTH status.vcluster.phase and the Ready condition back
+#   (reason=ProvisioningIncomplete) naming the missing artifact, and keeps the 30s
+#   requeue alive so the up-path re-converges. Read-only — Flux still owns the
+#   apply. Refs #5395.
+version: 1.4.1227
 # 1.4.1092 — #4988: bump catalog-seed bp-postgres spec.version display-label 0.2.10→0.2.12
 #   to lockstep with delivery source.version + platform/postgres/blueprint.yaml (#4987 DR).
 # 1.4.1063 — #4841: grant the useraccess-controller ClusterRole `bind` on the 8

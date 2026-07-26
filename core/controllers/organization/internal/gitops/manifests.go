@@ -172,6 +172,47 @@ func boundaryIsVcluster(planSlug string) bool {
 // the NetworkPolicy reconciler targets the same boundary the apps land on.
 func BoundaryIsVcluster(planSlug string) bool { return boundaryIsVcluster(planSlug) }
 
+// BoundaryResourceQuotaName / BoundaryLimitRangeName are the object names the
+// boundary templates below render into the `<slug>` host namespace. They are
+// exported AND interpolated into the templates through renderView (never
+// re-typed as a string literal in either place) so the controller's
+// provisioning-postcondition readback (provisioning_postconditions.go, #5395)
+// probes for EXACTLY the objects this renderer authored — one source of truth,
+// so a rename here can never leave the verifier looking for a name nothing
+// writes (a verifier that silently checks the wrong name is worse than none).
+const (
+	BoundaryResourceQuotaName = "plan-quota"
+	BoundaryLimitRangeName    = "plan-limits"
+)
+
+// PlanRendersResourceQuota reports whether Render emits
+// `vcluster/resourcequota.yaml` for a plan — i.e. whether the Org's boundary
+// namespace is EXPECTED to carry a `plan-quota` ResourceQuota once Flux has
+// applied the boundary tree.
+//
+// This is the exported form of the `!quota.Burstable` gate inside Render, and
+// it exists so that "this Org has no ResourceQuota" becomes a DECIDED outcome
+// instead of an ambiguous one (#5395). Fixed tiers (S/M/L/XL — plus the
+// ""/free/unknown slugs planQuota defaults to "s") are hard-capped and MUST
+// carry the quota; Flexi is the on-demand soft-cap plan and deliberately
+// carries none. Without this predicate an operator looking at a quota-less
+// namespace cannot distinguish "Flexi, uncapped by design" from "the boundary
+// tree never landed" — the two are byte-identical on the cluster, which is
+// exactly how a partially-provisioned Org passed for a healthy one.
+//
+// The LimitRange (BoundaryLimitRangeName) has no such gate — Render emits it
+// for EVERY plan including Flexi — so its absence is ALWAYS a delivery gap.
+// That asymmetry is what makes the pair a usable diagnostic; see
+// provisioning_postconditions.go.
+//
+// NOTE (Refs #5393): the SIZE of the cap — in particular whether vCluster
+// control-plane overhead should count against the customer's purchased plan —
+// is a separate, open product question. This predicate answers only "is a quota
+// object expected at all", never "how big should it be".
+func PlanRendersResourceQuota(planSlug string) bool {
+	return !planQuota(planSlug).Burstable
+}
+
 // renderTemplates is the named template set the controller uses.
 // Keep these inline (text/template) — the rendered output is YAML
 // that Flux applies via Kustomization. Per Inviolable Principle #4
@@ -445,7 +486,7 @@ spec:
 const resourceQuotaTemplate = `apiVersion: v1
 kind: ResourceQuota
 metadata:
-  name: plan-quota
+  name: {{ .ResourceQuotaName }}
   namespace: {{ .Slug }}
   labels:
     openova.io/organization: {{ .Slug }}
@@ -470,7 +511,7 @@ spec:
 const limitRangeTemplate = `apiVersion: v1
 kind: LimitRange
 metadata:
-  name: plan-limits
+  name: {{ .LimitRangeName }}
   namespace: {{ .Slug }}
   labels:
     openova.io/organization: {{ .Slug }}
@@ -853,6 +894,12 @@ type renderView struct {
 	// references (#4991) — ciliumnetworkpolicy.yaml + provisioning-rbac.yaml,
 	// both always applied host-side onto `<slug>`.
 	HostAppsResources []string
+	// ResourceQuotaName / LimitRangeName carry BoundaryResourceQuotaName /
+	// BoundaryLimitRangeName into the boundary templates so the rendered object
+	// names and the controller's postcondition readback (#5395) cannot drift
+	// apart — the constants are the single definition of both.
+	ResourceQuotaName string
+	LimitRangeName    string
 }
 
 // limitRangeDefaults derives the per-container default request==limit for a
@@ -910,11 +957,13 @@ func Render(in Inputs) (map[string][]byte, error) {
 	quota := planQuota(in.PlanSlug)
 	defCPU, defMem := limitRangeDefaults(quota)
 	view := renderView{
-		Inputs:       in,
-		Quota:        quota,
-		DefaultCPU:   defCPU,
-		DefaultMem:   defMem,
-		AppNamespace: "apps",
+		Inputs:            in,
+		Quota:             quota,
+		DefaultCPU:        defCPU,
+		DefaultMem:        defMem,
+		AppNamespace:      "apps",
+		ResourceQuotaName: BoundaryResourceQuotaName,
+		LimitRangeName:    BoundaryLimitRangeName,
 	}
 
 	// Assemble the file set as a function of the tier-gate + plan. The
@@ -926,7 +975,11 @@ func Render(in Inputs) (map[string][]byte, error) {
 		"vcluster/limitrange.yaml": limitRangeTemplate,
 	}
 	res := []string{"namespace.yaml", "limitrange.yaml"}
-	if !quota.Burstable {
+	// PlanRendersResourceQuota is the exported form of this same gate — the
+	// controller's postcondition verifier (#5395) calls it to decide whether a
+	// quota-less boundary namespace is Flexi-by-design or a delivery gap, so the
+	// decision MUST be made here through that one predicate.
+	if PlanRendersResourceQuota(in.PlanSlug) {
 		files["vcluster/resourcequota.yaml"] = resourceQuotaTemplate
 		res = append(res, "resourcequota.yaml")
 	}

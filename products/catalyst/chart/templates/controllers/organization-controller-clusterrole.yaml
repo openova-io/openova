@@ -122,6 +122,23 @@ rules:
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["get", "list", "watch"]
+  # #5395: the controller VERIFIES ITS OWN POSTCONDITIONS before reporting an
+  # Organization Ready (provisioning_postconditions.go). Two of the artifacts it
+  # authors into the per-Org repo land as plain core/v1 objects in the `<slug>`
+  # boundary namespace — the plan `plan-quota` ResourceQuota and the
+  # `plan-limits` LimitRange — and until this grant nothing ever read them back,
+  # so an Org whose boundary tree was never applied by Flux still reported
+  # Ready=True with no cap on the namespace the customer paid for.
+  # Read-only: the manifests are authored in Git and applied by Flux; the
+  # controller only reads them back to decide whether its own work landed.
+  #
+  # A missing grant here is NOT interpreted as a missing artifact — the verifier
+  # separates NotFound (evidence of absence) from any other read error
+  # (unverifiable), so a partially-rolled-out RBAC cannot red-flag every
+  # Organization on the Sovereign at once.
+  - apiGroups: [""]
+    resources: ["resourcequotas", "limitranges"]
+    verbs: ["get", "list", "watch"]
   # Issue #4077: the controller find-or-creates the parent Environment CR
   # (`<slug>-<envType>`) once the Org's vCluster is Ready, so Applications
   # installed into the Org resolve their Environment instead of wedging at
