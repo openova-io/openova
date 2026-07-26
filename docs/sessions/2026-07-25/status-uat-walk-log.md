@@ -152,3 +152,7 @@ The org-delete-orphan fix (R17's root cause) is shipped. Root cause: org teardow
 - **#5352** (catalyst-api OOM, hcloud-informer churn) → **PR #5365** — CI green, build+test re-verified by me.
 - **#5364** (Org-CR delete orphans ns + HelmReleases) → **PR #5366** — build+test re-verified by me (3 tests pass).
 Both await live-env runtime validation (a fresh prov carries both), then their issues close.
+
+## #5358 root cause disambiguated — nonce replay (implicit flow), not cookie/session (2026-07-26 05:05Z)
+
+Live guacamole-server logs: `TokenValidationService - Rejected OpenID token with invalid/old nonce` (extension 1.5.5). Intermittency shown directly (same user: reject 06:32:09 → success 06:32:10). Cookie/session hypothesis RULED OUT — it's nonce replay from the OIDC implicit flow (token-in-fragment re-submitted on refresh → stale nonce). Fix = authorization-code flow (no fragment token) or a guacamole version bump that supports it — NOT a chart toggle (no nonce/flow knob in 1.5.5). Posted to #5358.
