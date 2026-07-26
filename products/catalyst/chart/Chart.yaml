@@ -3603,7 +3603,7 @@ name: bp-catalyst-platform
 #   (reason=ProvisioningIncomplete) naming the missing artifact, and keeps the 30s
 #   requeue alive so the up-path re-converges. Read-only — Flux still owns the
 #   apply. Refs #5395.
-version: 1.4.1227
+version: 1.4.1228
 # 1.4.1092 — #4988: bump catalog-seed bp-postgres spec.version display-label 0.2.10→0.2.12
 #   to lockstep with delivery source.version + platform/postgres/blueprint.yaml (#4987 DR).
 # 1.4.1063 — #4841: grant the useraccess-controller ClusterRole `bind` on the 8
