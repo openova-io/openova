@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-26T09:00:03Z` |
+| Last refreshed | `2026-07-26T09:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 21 |
+| Open issues | 24 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 21 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 24 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 21 open items (clickable table)
+### All 24 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -221,6 +221,9 @@ flowchart LR
 | [#5358](https://github.com/openova-io/openova/issues/5358) | SSO: Guacamole intermittently rejects the valid Keycloak id_token (invalid/old n | Other |
 | [#5364](https://github.com/openova-io/openova/issues/5364) | Org-CR deletion orphans the org Namespace + host-deployed bp-keycloak when per-O | Other |
 | [#5370](https://github.com/openova-io/openova/issues/5370) | CI red on main: sandbox-mcp-server Go-toolchain latent break + intermittent char | Other |
+| [#5373](https://github.com/openova-io/openova/issues/5373) | per-Org realm flag (CATALYST_PER_ORG_REALM_ENABLED) is DELIBERATELY dormant —  | Other |
+| [#5374](https://github.com/openova-io/openova/issues/5374) | UAT row 238: per-Org CNPG Postgres pod is Burstable, not Guaranteed — bp-newap | Other |
+| [#5375](https://github.com/openova-io/openova/issues/5375) | UAT M2 region-B DR gap: catalyst-newapi-admin-token has NO region-local producer | Other |
 
 ---
 
@@ -228,6 +231,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-26T09:03 | [#5371](https://github.com/openova-io/openova/pull/5371) | #5370 | fix(ci): sandbox-mcp-server builder golang:1.23→1.25-alpine  |
 | 2026-07-26T08:46 | [#5366](https://github.com/openova-io/openova/pull/5366) | #2 | fix(org-controller): emit tenant.deleted on finalizer so raw |
 | 2026-07-26T08:46 | [#5365](https://github.com/openova-io/openova/pull/5365) | #5352 | fix(k8scache): bounded discovery gate for optional GVRs — st |
 | 2026-07-25T02:21 | [#5355](https://github.com/openova-io/openova/pull/5355) | #5193 | fix(catalyst-api): wipe falls back to CATALYST_HUAWEI_* oper |
@@ -257,7 +261,6 @@ flowchart LR
 | 2026-07-20T22:39 | [#5307](https://github.com/openova-io/openova/pull/5307) | #4432 | fix(catalog-seed): sync 14 stale catalog card versions + gua |
 | 2026-07-20T16:43 | [#5303](https://github.com/openova-io/openova/pull/5303) | #4573 | fix(bp-harbor): disable S3 blob-redirect via the correct low |
 | 2026-07-23T01:26 | [#5301](https://github.com/openova-io/openova/pull/5301) | #5258 | feat(self-sovereign-cutover): post-cutover Day-2 Harbor pin  |
-| 2026-07-20T15:24 | [#5299](https://github.com/openova-io/openova/pull/5299) | #3379 | fix(cutover): raise step-03 harbor-prewarm deadline for the  |
 
 ---
 
