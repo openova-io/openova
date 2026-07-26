@@ -109,7 +109,7 @@ var KnownApps = map[string]AppSpec{
 		EnvVars: map[string]string{},
 	},
 	"cal-com": {
-		Image: "calcom/cal.com:latest", Port: 3000,
+		Image: "calcom/cal.com:v6.2.0", Port: 3000,
 		NeedsDB: "postgres",
 		RAMMI:   "256Mi", CPUMilli: "100m",
 		EnvVars: map[string]string{
@@ -118,7 +118,7 @@ var KnownApps = map[string]AppSpec{
 		},
 	},
 	"chatwoot": {
-		Image: "chatwoot/chatwoot:latest", Port: 3000,
+		Image: "chatwoot/chatwoot:v4.16.1", Port: 3000,
 		NeedsDB: "postgres",
 		RAMMI:   "512Mi", CPUMilli: "200m",
 		EnvVars: map[string]string{
@@ -127,7 +127,7 @@ var KnownApps = map[string]AppSpec{
 		},
 	},
 	"invoiceshelf": {
-		Image: "invoiceshelf/invoiceshelf:latest", Port: 8080,
+		Image: "invoiceshelf/invoiceshelf:2.4.1", Port: 8080,
 		NeedsDB: "mysql",
 		RAMMI:   "256Mi", CPUMilli: "100m",
 		EnvVars: map[string]string{},
@@ -162,13 +162,13 @@ var KnownApps = map[string]AppSpec{
 		EnvVars: map[string]string{},
 	},
 	"vaultwarden": {
-		Image: "vaultwarden/server:latest", Port: 80,
+		Image: "vaultwarden/server:1.37.0", Port: 80,
 		NeedsDB: "",
 		RAMMI:   "128Mi", CPUMilli: "50m",
 		EnvVars: map[string]string{},
 	},
 	"bookstack": {
-		Image: "lscr.io/linuxserver/bookstack:latest", Port: 80,
+		Image: "lscr.io/linuxserver/bookstack:26.05.2", Port: 80,
 		NeedsDB: "mysql",
 		RAMMI:   "256Mi", CPUMilli: "100m",
 		// linuxserver/bookstack reads DB_HOST/DB_USER/DB_PASS/DB_DATABASE
@@ -181,13 +181,13 @@ var KnownApps = map[string]AppSpec{
 		EnvVars:    map[string]string{},
 	},
 	"nocodb": {
-		Image: "nocodb/nocodb:latest", Port: 8080,
+		Image: "nocodb/nocodb:2026.07.0", Port: 8080,
 		NeedsDB: "postgres",
 		RAMMI:   "256Mi", CPUMilli: "100m",
 		EnvVars: map[string]string{},
 	},
 	"listmonk": {
-		Image: "listmonk/listmonk:latest", Port: 9000,
+		Image: "listmonk/listmonk:v6.2.0", Port: 9000,
 		NeedsDB: "postgres",
 		RAMMI:   "128Mi", CPUMilli: "50m",
 		EnvVars: map[string]string{},
@@ -203,13 +203,13 @@ var KnownApps = map[string]AppSpec{
 		InitCommand: "./listmonk --install --yes --idempotent 2>&1 || ./listmonk --upgrade --yes 2>&1 || true",
 	},
 	"rocket-chat": {
-		Image: "rocket.chat:latest", Port: 3000,
+		Image: "rocket.chat:8.5.1", Port: 3000,
 		NeedsDB: "",
 		RAMMI:   "512Mi", CPUMilli: "200m",
 		EnvVars: map[string]string{},
 	},
 	"formbricks": {
-		Image: "formbricks/formbricks:latest", Port: 3000,
+		Image: "formbricks/formbricks:3.6.0", Port: 3000,
 		NeedsDB: "postgres",
 		RAMMI:   "256Mi", CPUMilli: "100m",
 		EnvVars: map[string]string{},
