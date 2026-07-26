@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-26T10:00:03Z` |
+| Last refreshed | `2026-07-26T10:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 24 |
 | Open DoD gates | 0 / 41 |
@@ -231,6 +231,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-26T10:03 | [#5377](https://github.com/openova-io/openova/pull/5377) | #4477 | fix(newapi,openbao): region-local producer for catalyst-newa |
 | 2026-07-26T09:42 | [#5376](https://github.com/openova-io/openova/pull/5376) | #4282 | fix(bp-newapi): per-Org CNPG Postgres pod Guaranteed QoS — r |
 | 2026-07-26T09:15 | [#5372](https://github.com/openova-io/openova/pull/5372) | #5371 | fix(ci): sandbox-pty-server builders golang:1.23→1.25-alpine |
 | 2026-07-26T09:03 | [#5371](https://github.com/openova-io/openova/pull/5371) | #5370 | fix(ci): sandbox-mcp-server builder golang:1.23→1.25-alpine  |
@@ -260,7 +261,6 @@ flowchart LR
 | 2026-07-20T23:49 | [#5310](https://github.com/openova-io/openova/pull/5310) | #5095 | fix(cutover): step-03 prewarm proxy-DOWN direct-first routin |
 | 2026-07-20T22:56 | [#5309](https://github.com/openova-io/openova/pull/5309) | #5205 | fix(marketplace): render live provisioning-stage timeline in |
 | 2026-07-20T22:56 | [#5308](https://github.com/openova-io/openova/pull/5308) | #5305 | fix(organization-controller): stop the reconcile hot-loop th |
-| 2026-07-20T22:39 | [#5307](https://github.com/openova-io/openova/pull/5307) | #4432 | fix(catalog-seed): sync 14 stale catalog card versions + gua |
 
 ---
 
