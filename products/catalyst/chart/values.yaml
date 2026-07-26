@@ -1068,7 +1068,7 @@ controllers:
       # #2851 closed the drift gap (auto-bump + sweep + freshness guard).
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "a8f89f2"
+      tag: "8b7fc3b"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
