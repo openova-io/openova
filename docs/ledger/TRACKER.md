@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-26T21:15:03Z` |
+| Last refreshed | `2026-07-26T21:30:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 35 |
+| Open issues | 38 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 35 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 38 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 35 open items (clickable table)
+### All 38 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -235,6 +235,9 @@ flowchart LR
 | [#5400](https://github.com/openova-io/openova/issues/5400) | SECURITY: per-Org bp-keycloak releases clobber the platform's OIDC pin-broker cr | Other |
 | [#5401](https://github.com/openova-io/openova/issues/5401) | SECURITY: per-Org console /settings renders the Sovereign operator panel to an o | Other |
 | [#5404](https://github.com/openova-io/openova/issues/5404) | Operator-console vitest suite is red on main (68 failed / 1876 passed across 9 f | Other |
+| [#5406](https://github.com/openova-io/openova/issues/5406) | Harbor SSO session never holds: active/active across both regions behind one hos | Other |
+| [#5408](https://github.com/openova-io/openova/issues/5408) | Wizard component model: phantom ids in the deployment payload, cnpg+postgres inv | Other |
+| [#5409](https://github.com/openova-io/openova/issues/5409) | PinInput6 maxLength={6} silently truncates a pasted sign-in code before the past | Other |
 
 ---
 
@@ -242,6 +245,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-26T21:23 | [#5407](https://github.com/openova-io/openova/pull/5407) | #2632 | test(console): restore the vitest gate — 68 red → 8, each re |
+| 2026-07-26T21:20 | [#5405](https://github.com/openova-io/openova/pull/5405) | #5393 | fix(org-controller): verify provisioning postconditions befo |
 | 2026-07-26T20:06 | [#5403](https://github.com/openova-io/openova/pull/5403) | #4 | fix(keycloak): SECURITY — pin-broker credential is platform- |
 | 2026-07-26T20:29 | [#5402](https://github.com/openova-io/openova/pull/5402) | #3379 | fix(console): per-row Re-run on a FAILED cutover-step row (U |
 | 2026-07-26T19:55 | [#5399](https://github.com/openova-io/openova/pull/5399) | #5341 | fix(mcp): arm multiRegion on slot 13d — the #5341 secondary- |
@@ -270,8 +275,6 @@ flowchart LR
 | 2026-07-23T13:06 | [#5337](https://github.com/openova-io/openova/pull/5337) | #5311 | fix(cnpg-pair): NetworkPolicy carve-out for the continuum-co |
 | 2026-07-23T13:08 | [#5336](https://github.com/openova-io/openova/pull/5336) | #5334 | fix(keycloak,oidc-gate): drop `roles` default scope from pdn |
 | 2026-07-23T08:58 | [#5335](https://github.com/openova-io/openova/pull/5335) | #5311 | fix(continuum): #5311 standby-probe reads Secret via cached  |
-| 2026-07-23T01:25 | [#5333](https://github.com/openova-io/openova/pull/5333) | #5274 | docs(uat): stamp hw285 sweep — 64✅/78◑/3❌ (cc=true, G12 RPO= |
-| 2026-07-23T01:26 | [#5332](https://github.com/openova-io/openova/pull/5332) | #5331 | fix(cnpg-pair): dr-failback CONVERGED must verify Consistent |
 
 ---
 
