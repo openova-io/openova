@@ -313,7 +313,7 @@ spec:
       #   ExternalSecret above resolves in region-B too (catalyst-api's #4477
       #   seed is primary-only; each region runs its own OpenBao). Pairs with
       #   bp-openbao 1.2.64 (external-secrets-push policy).
-      version: 1.4.144
+      version: 1.4.145
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
