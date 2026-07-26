@@ -125,6 +125,30 @@ rules:
     verbs: ["update", "patch", "delete", "create"]
 
   # ───────────────────────────────────────────────────────────────
+  # #5359 — secondary-region kubeconfig bridge. On every cutover run
+  # start (cutover.go runCutover) the engine materializes the
+  # secondary regions' kubeconfigs (already on the chroot PVC at
+  # <kubeconfigsDir>/<depID>-<regionKey>.yaml — the SAME store the
+  # ClusterMesh establish + #5244 gateway-ELB reconciler read) into the
+  # `cutover-secondary-kubeconfigs` Secret in the cutover namespace, so
+  # the bp-self-sovereign-cutover step Jobs (05/06/08 region-B legs,
+  # chart 0.1.151) can pivot + deny-egress-prove EVERY region — not
+  # just the control-plane one (the hw288 false-positive cc=true).
+  # `create` MUST be in its own Rule WITHOUT resourceNames per
+  # feedback_rbac_create_no_resourcenames.md; the mutating/removal
+  # verbs are name-scoped to the ONE bridge Secret. `get` on secrets
+  # is already granted by the k8scache read rule above (required
+  # alongside update/patch/delete for the named rule to be usable).
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["cutover-secondary-kubeconfigs"]
+    verbs: ["get", "update", "patch", "delete"]
+
+  # ───────────────────────────────────────────────────────────────
   # TokenReview — required by HandleCutoverInternalTrigger to
   # validate the in-cluster auto-trigger Job's projected SA token
   # against the apiserver's authentication chain (issue #957

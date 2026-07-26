@@ -1286,7 +1286,11 @@ spec:
       #   Lockstep w/ Chart.yaml (pin-sync gate).
       # 1.4.1216 — #5358: catalog-seed bp-guacamole 0.2.30 (server-side SSO via
       #   oidc-gate header mode; kills the implicit-flow nonce replay).
-      version: 1.4.1217
+      # 1.4.1218 — #5359: cutover-driver Secret RBAC for the
+      #   cutover-secondary-kubeconfigs bridge + catalog-seed
+      #   bp-self-sovereign-cutover 0.1.151 (region-B cutover legs) +
+      #   bp-guacamole 0.2.31 sync (TBD-A6 bot re-mint).
+      version: 1.4.1218
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

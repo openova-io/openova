@@ -3579,7 +3579,19 @@ name: bp-catalyst-platform
 #   guacamole-auth-header extension (no id_token in the browser — kills the
 #   1.5.5 implicit-flow nonce-replay #5358). Bootstrap-kit slot-13 pin bumped
 #   in lockstep (pin-sync gate).
-version: 1.4.1217
+# 1.4.1218 — #5359 (2-region cutover FALSE-POSITIVE cc=true, hw288): grant the
+#   catalyst-api cutover-driver SA the Secret verbs to materialize the
+#   `cutover-secondary-kubeconfigs` bridge Secret (cutover.go runCutover) that
+#   feeds the bp-self-sovereign-cutover 0.1.151 region-B legs (steps 05/06/08).
+#   `create` in its own rule (feedback_rbac_create_no_resourcenames.md);
+#   update/patch/delete name-scoped to the one bridge Secret. No template
+#   behavior change on single-region Sovereigns (the engine deletes the Secret
+#   when no secondary regions exist). Refs #5359. Also catalog-seed
+#   bp-self-sovereign-cutover 0.1.150 -> 0.1.151 lockstep AND catalog-seed
+#   bp-guacamole 0.2.30 -> 0.2.31 (TBD-A6 bot re-mint sync — 2nd occurrence
+#   after bp-newapi 1.4.144; bot lockstep gap tracked on #5370).
+#   (1.4.1217 was consumed by the TBD-A6 auto re-publish.)
+version: 1.4.1218
 # 1.4.1092 — #4988: bump catalog-seed bp-postgres spec.version display-label 0.2.10→0.2.12
 #   to lockstep with delivery source.version + platform/postgres/blueprint.yaml (#4987 DR).
 # 1.4.1063 — #4841: grant the useraccess-controller ClusterRole `bind` on the 8

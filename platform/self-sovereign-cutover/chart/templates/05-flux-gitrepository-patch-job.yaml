@@ -26,6 +26,32 @@ GitRepository. Flux secretRef takes only a name (no namespace) and
 resolves it in the GitRepository's own namespace, so the Secret is
 created locally from the cross-namespace PAT here.
 
+#5359 (Refs #5265 #5339) — SECONDARY-REGION leg. On a 2-region Sovereign
+region-B runs its OWN flux whose bootstrap GitRepository still points at
+public github.com after the region-A patch — live-proven on hw288
+(cc=true, region-B GitRepository -> github.com). After the region-A
+patch this Job iterates every kubeconfig in /secondary-kubeconfigs
+(the `cutover-secondary-kubeconfigs` Secret catalyst-api materialises
+at run start from its on-PVC secondary kubeconfig store; mounted
+optional:true so a single-region Sovereign renders the leg inert) and:
+
+  1. establishes the ClusterMesh global-Service path to the local
+     Gitea (the bp-cnpg-pair / bp-openbao cross-region-mesh idiom):
+     annotates region-A's gitea-http Service `service.cilium.io/
+     global=true` + creates the same-named zero-backend alias Service
+     in the secondary's `gitea` namespace, so `gitea-http.gitea.svc`
+     resolves there and the dial crosses the mesh to region-A;
+  2. mirrors the basic-auth Secret into the secondary's flux-system;
+  3. applies the SAME url/branch/secretRef/ignore patch to the
+     secondary's GitRepository (secondaryRegions.giteaURL overrides
+     the URL; empty = the same in-cluster URL region-A uses);
+  4. FAIL-LOUD waits for the secondary GitRepository to reach
+     Ready=True on the pivoted URL (secondaryRegions.
+     gitRepositoryReadySeconds) — succeeding without region-B
+     reconciling local Gitea would re-mint the #5359 false positive;
+  5. records `step.flux-gitrepository-patch.region.<key>.result` on
+     the status ConfigMap (the per-region tracking #5359 asks for).
+
 Image phase: post.
 */ -}}
 apiVersion: v1
@@ -79,6 +105,19 @@ data:
             value: {{ .Values.gitRepositorySecretRef.patSourceKey | quote }}
           - name: GIT_AUTH_USERNAME
             value: {{ .Values.gitRepositorySecretRef.username | quote }}
+          # #5359 — secondary-region leg inputs. SECONDARY_GITEA_URL empty =
+          # reuse LOCAL_GITEA_URL (the in-cluster Service URL, reachable from
+          # the secondary via the ClusterMesh global-Service alias this leg
+          # establishes). STATUS_CONFIGMAP receives the per-region
+          # step.<step>.region.<key>.* tracking keys.
+          - name: SECONDARY_GITEA_URL
+            value: {{ if .Values.secondaryRegions.giteaURL }}{{ printf "%s/%s/%s" (.Values.secondaryRegions.giteaURL | trimSuffix "/") .Values.gitea.org .Values.gitea.repo | quote }}{{ else }}""{{ end }}
+          - name: SECONDARY_GITREPO_READY_SECONDS
+            value: {{ .Values.secondaryRegions.gitRepositoryReadySeconds | quote }}
+          - name: STATUS_CONFIGMAP
+            value: {{ .Values.status.configMapName | quote }}
+          - name: CUTOVER_NAMESPACE
+            value: {{ .Release.Namespace | quote }}
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -173,6 +212,127 @@ data:
             kubectl annotate --overwrite gitrepository "${GITREPO_NAME}" \
               -n "${GITREPO_NAMESPACE}" \
               "reconcile.fluxcd.io/requestedAt=$(date +%s)"
+            echo "[flux-gitrepository-patch] control-plane region done"
+
+            # ── #5359: SECONDARY-REGION legs ─────────────────────────────
+            # /secondary-kubeconfigs is the optional:true mount of the
+            # cutover-secondary-kubeconfigs Secret (one <regionKey>.yaml per
+            # secondary region, materialised by catalyst-api at run start).
+            # Empty/absent = single-region Sovereign = this whole block
+            # no-ops (pre-#5359 behavior byte-identical).
+            sec_url="${SECONDARY_GITEA_URL:-}"
+            [ -n "${sec_url}" ] || sec_url="${LOCAL_GITEA_URL}"
+            for skc in /secondary-kubeconfigs/*.yaml; do
+              [ -e "${skc}" ] || continue
+              region=$(basename "${skc}" .yaml)
+              echo "[flux-gitrepository-patch] #5359 secondary region ${region}: pivoting its GitRepository -> ${sec_url}"
+
+              # 1a. Share region-A's gitea-http endpoints into the mesh (the
+              # bp-cnpg-pair global-Service idiom). Annotating the LIVE
+              # Service is additive + idempotent; the durable bp-gitea-side
+              # annotation is tracked on #5359.
+              kubectl -n gitea annotate --overwrite service gitea-http \
+                "service.cilium.io/global=true" "service.cilium.io/shared=true" \
+                || echo "[flux-gitrepository-patch] WARN: could not annotate gitea/gitea-http global (mesh share) — secondary clone will fail if the alias has no reachable backend"
+
+              # 1b. Same-named zero-backend alias Service in the SECONDARY
+              # cluster so gitea-http.gitea.svc resolves there and the dial
+              # crosses the mesh to region-A (bp-openbao
+              # cross-region-mesh-service.yaml is the reference shape).
+              cat >/tmp/gitea-mesh-alias.yaml <<EOF
+            apiVersion: v1
+            kind: Namespace
+            metadata:
+              name: gitea
+            ---
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: gitea-http
+              namespace: gitea
+              labels:
+                app.kubernetes.io/managed-by: self-sovereign-cutover
+                catalyst.openova.io/component: cutover-secondary-gitea-mesh-alias
+              annotations:
+                service.cilium.io/global: "true"
+                catalyst.openova.io/mirrored-from: region-a/gitea/gitea-http
+            spec:
+              type: ClusterIP
+              selector:
+                app.kubernetes.io/name: gitea
+              ports:
+                - name: http
+                  port: 3000
+                  targetPort: 3000
+                  protocol: TCP
+            EOF
+              kubectl --kubeconfig "${skc}" apply -f /tmp/gitea-mesh-alias.yaml
+
+              # 2. Basic-auth Secret in the secondary's flux-system (same PAT
+              # bytes written to /tmp/git-auth-secret.yaml above).
+              kubectl --kubeconfig "${skc}" apply -f /tmp/git-auth-secret.yaml
+
+              # 3. Same patch shape as region-A (URL may differ via
+              # secondaryRegions.giteaURL).
+              if ! kubectl --kubeconfig "${skc}" get gitrepository "${GITREPO_NAME}" -n "${GITREPO_NAMESPACE}" >/dev/null 2>&1; then
+                echo "[flux-gitrepository-patch] #5359 secondary ${region}: GitRepository ${GITREPO_NAMESPACE}/${GITREPO_NAME} absent — no flux git tether to pivot in this region; recording skipped"
+                kubectl -n "${CUTOVER_NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
+                  -p "{\"data\":{\"step.flux-gitrepository-patch.region.${region}.result\":\"skipped\",\"step.flux-gitrepository-patch.region.${region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" || true
+                continue
+              fi
+              cat >/tmp/patch-secondary.yaml <<EOF
+            spec:
+              url: ${sec_url}
+              ref:
+                branch: ${BRANCH}
+              secretRef:
+                name: ${GIT_AUTH_SECRET_NAME}
+              ignore: |
+                /*
+                !/clusters/_template
+                !/clusters/${SOVEREIGN_FQDN}
+                !/platform
+                !/products
+            EOF
+              kubectl --kubeconfig "${skc}" patch gitrepository "${GITREPO_NAME}" \
+                -n "${GITREPO_NAMESPACE}" \
+                --type=merge --patch-file /tmp/patch-secondary.yaml
+              kubectl --kubeconfig "${skc}" annotate --overwrite gitrepository "${GITREPO_NAME}" \
+                -n "${GITREPO_NAMESPACE}" \
+                "reconcile.fluxcd.io/requestedAt=$(date +%s)"
+
+              # 4. FAIL-LOUD readiness: the secondary MUST reconcile the
+              # local Gitea within the bounded window, or the step fails and
+              # cutoverComplete stays false — a silent skip here IS the
+              # #5359 false positive.
+              sg_deadline=$(( $(date +%s) + ${SECONDARY_GITREPO_READY_SECONDS} ))
+              sg_ready=""
+              while [ "$(date +%s)" -lt "${sg_deadline}" ]; do
+                sg_status=$(kubectl --kubeconfig "${skc}" get gitrepository "${GITREPO_NAME}" -n "${GITREPO_NAMESPACE}" \
+                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+                sg_url=$(kubectl --kubeconfig "${skc}" get gitrepository "${GITREPO_NAME}" -n "${GITREPO_NAMESPACE}" \
+                  -o jsonpath='{.spec.url}' 2>/dev/null || echo "")
+                if [ "${sg_status}" = "True" ] && [ "${sg_url}" = "${sec_url}" ]; then
+                  sg_ready="yes"
+                  break
+                fi
+                echo "[flux-gitrepository-patch] #5359 secondary ${region}: Ready=${sg_status:-<none>} url=${sg_url:-<none>} — re-checking in 10s"
+                sleep 10
+              done
+              if [ -z "${sg_ready}" ]; then
+                sg_msg=$(kubectl --kubeconfig "${skc}" get gitrepository "${GITREPO_NAME}" -n "${GITREPO_NAMESPACE}" \
+                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null || echo "")
+                echo "[flux-gitrepository-patch] FATAL: secondary region ${region} GitRepository did not reach Ready=True on ${sec_url} within ${SECONDARY_GITREPO_READY_SECONDS}s: ${sg_msg} — region-B is still git-tethered; refusing to succeed (#5359)" >&2
+                kubectl -n "${CUTOVER_NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
+                  -p "{\"data\":{\"step.flux-gitrepository-patch.region.${region}.result\":\"failed\",\"step.flux-gitrepository-patch.region.${region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" || true
+                exit 1
+              fi
+
+              # 5. Per-region durable tracking (#5359).
+              kubectl -n "${CUTOVER_NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
+                -p "{\"data\":{\"step.flux-gitrepository-patch.region.${region}.result\":\"success\",\"step.flux-gitrepository-patch.region.${region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" || true
+              echo "[flux-gitrepository-patch] #5359 secondary region ${region}: GitRepository Ready on local Gitea"
+            done
             echo "[flux-gitrepository-patch] done"
         resources:
           requests: { cpu: 50m, memory: 64Mi }
@@ -189,6 +349,18 @@ data:
         volumeMounts:
           - name: tmp
             mountPath: /tmp
+          # #5359 — optional secondary-region kubeconfigs (empty on a
+          # single-region Sovereign; the leg no-ops).
+          - name: secondary-kubeconfigs
+            mountPath: /secondary-kubeconfigs
+            readOnly: true
     volumes:
       - name: tmp
         emptyDir: {}
+      # #5359 — materialised by catalyst-api (cutover.go runCutover) from its
+      # on-PVC secondary kubeconfig store at every run start; optional:true
+      # so a single-region Sovereign (no Secret) schedules unchanged.
+      - name: secondary-kubeconfigs
+        secret:
+          secretName: {{ .Values.secondaryRegions.kubeconfigSecretName }}
+          optional: true

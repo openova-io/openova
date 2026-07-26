@@ -1,5 +1,35 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.151 (#5359 Refs #5265 #5339 — SECONDARY-REGION pivot + proof legs:
+# kill the 2-region FALSE-POSITIVE cc=true. Live-proven on hw288 (dep
+# 027f07559af1f9f7): only region-A was pivoted — region-B's Flux
+# GitRepository still github.com, 64/64 HelmRepositories still ghcr.io,
+# node images quay.io — yet cutoverComplete=true because the step-08
+# deny-egress proof never touched region-B; the drift is also the #5339
+# per-region chart-version split. NOW: steps 05/06/08 each run a
+# per-secondary-region leg via `kubectl --kubeconfig /secondary-
+# kubeconfigs/<regionKey>.yaml` — the optional:true mount of the
+# `cutover-secondary-kubeconfigs` Secret catalyst-api materialises at
+# every run start from the on-PVC secondary kubeconfig store it already
+# holds (the ClusterMesh-establish/#5244 mechanism; NO new credential
+# contract). Step-05: pivots the secondary GitRepository to local Gitea
+# (ClusterMesh global-Service alias, the bp-cnpg-pair/bp-openbao mesh
+# idiom) + FAIL-LOUD Ready wait. Step-06: syncs ghcr-pull auth + the
+# harbor-ca trust Secret, pivots every ghcr-prefixed secondary HR to
+# local Harbor, read-back-asserts ZERO remain upstream, re-syncs the
+# STRIPPED auth bytes after Phase-3b's proven-pullable gate. Step-08:
+# applies the deny-egress hold to EVERY region (ALLOW_CIDRS + provider
+# carve-outs inherited; + mesh toEndpoints + the Sovereign's own
+# registry./gitea. gateway IPs) and requires EVERY region regression-
+# free through the window; per-region verdicts land as
+# step.<step>.region.<key>.* status keys; teardown + the engine #5014
+# backstop cover the secondaries. SINGLE-REGION UNAFFECTED: no Secret →
+# empty mount → every leg no-ops at runtime → single-region BEHAVIOR is
+# unchanged vs 0.1.150 (the legs render unconditionally; the render is not
+# byte-identical — the no-op is behavioral, glob-guard enforced).
+# Step-04's region-B containerd/Dragonfly leg is the remaining #5359
+# increment — tracked, not faked. Engine half: catalyst-api
+# cutover_secondary_kubeconfigs.go + bp-catalyst-platform 1.4.1213 RBAC.)
 # 0.1.150 (#5265 Refs #5237 #5007 #3379 — POST-CUTOVER DAY-2 Harbor pin
 # reconciler: close the Day-2 Harbor leg of the sovereignty design. step-03
 # harbor-prewarm pushes every pinned chart into local Harbor EXACTLY ONCE at
@@ -2619,7 +2649,7 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.150
+version: 0.1.151
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

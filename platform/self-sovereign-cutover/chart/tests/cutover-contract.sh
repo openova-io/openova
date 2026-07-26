@@ -3564,4 +3564,106 @@ fi
 if [ "$c70_fail" -ne 0 ]; then exit 1; fi
 echo "  PASS (#5265: Day-2 Harbor pin reconciler is a Deployment [region-kill canon], absent by default [severance-safe], reuses the 03b bootstrapkit_pins extractor + the durable artifact-API probe, publishes the offline-media missing manifest, defaults to zero-egress detect mode, and gates the upstream helm-pull/push behind opt-in warm mode; step count unchanged at 11)"
 
+echo "[cutover-contract] Case 71: #5359 secondary-region legs — steps 05/06/08 mount the optional cutover-secondary-kubeconfigs Secret and run fail-loud region-B pivot/hold legs; single-region renders inert; step count stays 11"
+# hw288 (dep 027f07559af1f9f7): cc=true with region-B still on github/ghcr/quay
+# — the cutover pivoted + deny-egress-proved ONLY the control-plane region.
+# 0.1.151 adds per-secondary-region legs driven by the kubeconfigs catalyst-api
+# materialises into the cutover-secondary-kubeconfigs Secret at run start.
+# SIGPIPE discipline (Case 16c): every assertion below is a FILE-fed grep.
+c71_fail=0
+S05="$TMP/c71-step05.yaml"
+S06="$TMP/c71-step06.yaml"
+S08="$TMP/c71-step08.yaml"
+awk 'BEGIN{RS="\n---\n"} /name: cutover-step-05-flux-gitrepository-patch/{print; exit}' "$TMP/render.yaml" > "$S05"
+awk 'BEGIN{RS="\n---\n"} /name: cutover-step-06-helmrepository-patches/{print; exit}' "$TMP/render.yaml" > "$S06"
+awk 'BEGIN{RS="\n---\n"} /name: cutover-step-08-egress-block-test/{print; exit}' "$TMP/render.yaml" > "$S08"
+# (a) Every leg-bearing step mounts the Secret OPTIONAL (single-region = no
+# Secret = the Pod still schedules and the leg no-ops — pre-#5359 behavior).
+for s in "$S05" "$S06" "$S08"; do
+  if ! grep -q 'secretName: cutover-secondary-kubeconfigs' "$s"; then
+    echo "FAIL: $(basename "$s"): missing the cutover-secondary-kubeconfigs Secret volume (#5359)" >&2
+    c71_fail=1
+  fi
+  if ! grep -q 'optional: true' "$s"; then
+    echo "FAIL: $(basename "$s"): secondary-kubeconfigs volume is not optional:true — a single-region Sovereign (no Secret) would wedge at Pod scheduling (#5359)" >&2
+    c71_fail=1
+  fi
+  if ! grep -q 'mountPath: /secondary-kubeconfigs' "$s"; then
+    echo "FAIL: $(basename "$s"): /secondary-kubeconfigs mount absent (#5359)" >&2
+    c71_fail=1
+  fi
+done
+# (b) Step-05 leg: mesh global-Service path + FAIL-LOUD Ready wait + per-region
+# status keys. A leg that silently skipped an unready region-B would re-mint
+# the exact hw288 false positive.
+if ! grep -q 'service.cilium.io/global' "$S05"; then
+  echo "FAIL: step-05 leg does not establish the ClusterMesh global-Service path to the local Gitea (#5359)" >&2
+  c71_fail=1
+fi
+if ! grep -q 'SECONDARY_GITREPO_READY_SECONDS' "$S05"; then
+  echo "FAIL: step-05 leg has no bounded secondary GitRepository Ready wait (#5359)" >&2
+  c71_fail=1
+fi
+if ! grep -q 'region-B is still git-tethered' "$S05"; then
+  echo "FAIL: step-05 leg lost its fail-loud secondary-not-Ready FATAL (#5359)" >&2
+  c71_fail=1
+fi
+if ! grep -q 'step.flux-gitrepository-patch.region.' "$S05"; then
+  echo "FAIL: step-05 leg does not record per-region status keys on the status ConfigMap (#5359)" >&2
+  c71_fail=1
+fi
+# (c) Step-06 leg: pivot + ZERO-upstream read-back assert + the post-Phase-3b
+# stripped-auth re-sync (sync_secondary_ghcr_pull must appear at its
+# definition AND at the two post-strip call sites).
+if ! grep -q 'pivot_secondary_regions' "$S06"; then
+  echo "FAIL: step-06 has no secondary-region HelmRepository pivot leg (#5359)" >&2
+  c71_fail=1
+fi
+if ! grep -q 'STILL-UPSTREAM' "$S06"; then
+  echo "FAIL: step-06 leg lost its zero-upstream-prefix read-back assert (#5359)" >&2
+  c71_fail=1
+fi
+c71_sync_calls=$(grep -c 'sync_secondary_ghcr_pull' "$S06")
+if [ "${c71_sync_calls}" -lt 3 ]; then
+  echo "FAIL: step-06 sync_secondary_ghcr_pull appears ${c71_sync_calls}x (< 3) — the post-Phase-3b stripped-auth re-sync call sites are missing (#5359)" >&2
+  c71_fail=1
+fi
+if ! grep -q 'step.helmrepository-patches.region.' "$S06"; then
+  echo "FAIL: step-06 leg does not record per-region status keys (#5359)" >&2
+  c71_fail=1
+fi
+# (d) Step-08 leg: the secondary hold manifest is a COPY of the region-A
+# manifest (so ALLOW_CIDRS + the #4596/#5020-5025 provider-API carve-outs are
+# inherited verbatim), plus the mesh toEndpoints allow (toCIDR never matches a
+# ClusterMesh remote identity), delete-before-apply self-heal, teardown on
+# every path, and per-region verdicts.
+if ! grep -q 'cp /work/egress-deny.yaml /work/egress-deny-secondary.yaml' "$S08"; then
+  echo "FAIL: step-08 secondary manifest is not derived from the region-A manifest — the provider-API carve-outs (#4596/#5020-5025) would not be inherited (#5359)" >&2
+  c71_fail=1
+fi
+if ! grep -q 'toEndpoints:' "$S08"; then
+  echo "FAIL: step-08 secondary manifest lacks the mesh-wide toEndpoints allow — cross-cluster dials carry a ClusterMesh identity toCIDR never matches (#5359)" >&2
+  c71_fail=1
+fi
+if ! grep -q 'secondary_policy_teardown' "$S08"; then
+  echo "FAIL: step-08 has no secondary_policy_teardown — a leaked region-B default-deny would freeze its CSI attaches (#5359)" >&2
+  c71_fail=1
+fi
+if ! grep -q 'SECONDARY_EXTRA_ALLOW_CIDRS' "$S08"; then
+  echo "FAIL: step-08 lost the secondaryRegions.extraEgressAllowCIDRs knob (#5359)" >&2
+  c71_fail=1
+fi
+if ! grep -q 'step.egress-block-test.region.' "$S08"; then
+  echo "FAIL: step-08 leg does not record per-region verdicts on the status ConfigMap (#5359)" >&2
+  c71_fail=1
+fi
+# (e) The step count MUST stay 11 — the legs live INSIDE existing steps.
+c71_steps=$(grep -c 'bp.openova.io/cutover-order:' "$TMP/render.yaml")
+if [ "${c71_steps}" -ne 11 ]; then
+  echo "FAIL: #5359 legs changed the step count to ${c71_steps} (must stay 11)" >&2
+  c71_fail=1
+fi
+if [ "$c71_fail" -ne 0 ]; then exit 1; fi
+echo "  PASS (#5359: steps 05/06/08 mount cutover-secondary-kubeconfigs optional:true [single-region inert]; step-05 pivots + FAIL-LOUD Ready-waits every secondary GitRepository over the mesh global-Service path; step-06 pivots every secondary HR with a zero-upstream read-back assert + re-syncs the STRIPPED auth bytes post-Phase-3b; step-08 extends the deny-egress hold to every region [region-A manifest inherited + mesh toEndpoints + own-gateway IPs] with teardown + per-region verdicts; step count unchanged at 11)"
+
 echo "[cutover-contract] All gates green."

@@ -1463,6 +1463,39 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 		Message: fmt.Sprintf("Self-Sovereignty Cutover started: %d steps", totalSteps),
 	})
 
+	// ── #5359 secondary-region credential bridge ────────────────────────
+	// Materialize every secondary region's kubeconfig into the
+	// cutover-secondary-kubeconfigs Secret BEFORE any step runs, so the
+	// chart's region-B legs (steps 05/06/08, chart 0.1.151) can pivot +
+	// deny-egress-prove the secondary cluster(s) via `kubectl
+	// --kubeconfig`. Runs on every entry (fresh fire, auto-trigger,
+	// resume) — idempotent. FAIL-LOUD: a multi-region deployment whose
+	// secondary kubeconfigs cannot all be materialized aborts here —
+	// running the chain anyway would re-mint the exact #5359 false
+	// positive (cc=true with region-B still tethered to github/ghcr).
+	if nSecondaries, err := h.materializeSecondaryKubeconfigsSecret(ctx, deps); err != nil {
+		finishedAt := time.Now().UTC()
+		_ = patchCutoverStatus(ctx, deps, map[string]string{
+			"currentStep": "",
+			"failedStep":  "secondary-kubeconfigs",
+			"lastError":   err.Error(),
+		})
+		h.publishCutoverEvent(bus, cutoverEvent{
+			Time:    finishedAt.Format(time.RFC3339),
+			Phase:   cutoverPhaseStepFailed,
+			Level:   "error",
+			Message: fmt.Sprintf("secondary-region kubeconfig materialization failed — cutover aborted before step 1 (#5359): %v", err),
+		})
+		return
+	} else if nSecondaries > 0 {
+		h.publishCutoverEvent(bus, cutoverEvent{
+			Time:    time.Now().UTC().Format(time.RFC3339),
+			Phase:   cutoverPhaseStarted,
+			Level:   "info",
+			Message: fmt.Sprintf("multi-region Sovereign: %d secondary region kubeconfig(s) materialized — steps 05/06/08 will pivot + deny-egress-prove every region (#5359)", nSecondaries),
+		})
+	}
+
 	// priorStatus (read above, before the seed) is the durable record used
 	// for resume-after-restart: if a previous run completed step 1 and 2
 	// then crashed before step 3, a fresh /start picks up at step 3. The
@@ -1657,6 +1690,9 @@ func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cu
 		defer func() {
 			rctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
+			// #5359 — reap the region-B hold policies too (best-effort;
+			// same SIGKILL/watch-loss leak class, per-secondary cluster).
+			h.reapSecondaryCutoverEgressPolicies(rctx)
 			if err := reapCutoverEgressPolicy(rctx, deps); err != nil {
 				h.publishCutoverEvent(bus, cutoverEvent{
 					Time:    time.Now().UTC().Format(time.RFC3339),

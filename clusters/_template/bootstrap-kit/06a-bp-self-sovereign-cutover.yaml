@@ -974,7 +974,21 @@ spec:
       # only local Gitea+Harbor (zero egress) + emits the offline-media
       # missing-artifact manifest, warm mode helm-pulls+pushes on the operator's
       # schedule. No step-count/RBAC change (still 11 steps). Contract Case 69.
-      version: 0.1.150
+      # 0.1.151 (#5359 Refs #5265 #5339): SECONDARY-REGION pivot + proof legs.
+      # hw288 proved cc=true was a FALSE POSITIVE on a 2-region Sovereign —
+      # only region-A was pivoted; region-B's GitRepository stayed github.com,
+      # 64/64 HelmRepositories ghcr.io. Steps 05/06/08 now run a leg per
+      # secondary region via the optional cutover-secondary-kubeconfigs Secret
+      # catalyst-api materialises at run start (bp-catalyst-platform 1.4.1213
+      # RBAC): GitRepository -> local Gitea (mesh global-Service path,
+      # fail-loud Ready wait), HelmRepositories -> local Harbor (zero-upstream
+      # read-back assert, stripped-auth re-sync post-Phase-3b), and the step-08
+      # deny-egress hold + green assertion now cover EVERY region with
+      # per-region step.<step>.region.<key>.* status keys. Single-region
+      # is a behavioral no-op (empty optional mount -> glob guards skip every leg;
+      # the legs DO render). Step count stays 11.
+      # Contract Case 71.
+      version: 0.1.151
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
