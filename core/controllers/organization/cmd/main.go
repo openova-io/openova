@@ -329,6 +329,26 @@ func main() {
 	// requeue fallback inside r.Reconcile keeps the controller correct.
 	natsURL := strings.TrimSpace(os.Getenv("NATS_URL"))
 	if natsURL != "" {
+		// #5364 — publish leg: wire a NATS publisher so the reconciler emits the
+		// canonical `tenant.deleted` event on Org-CR finalizer teardown. That
+		// event drives the provisioning service's tenant.deleted consumer to run
+		// the SECOND half of Org teardown (prune the `org-tenants` gitops dir: the
+		// <slug> ns manifest + tenant HelmReleases). Without it a raw
+		// `kubectl delete organization` runs only the org-controller half of
+		// teardown and the org-tenants Kustomization recreates the ns + HRs
+		// forever. Best-effort: a connect failure logs + leaves the publisher nil
+		// (the reconciler's publishTenantDeleted then degrades to a no-op), never
+		// fatal — the informer/finalizer path stays correct either way.
+		if pub, err := natsbus.NewPublisher(natsURL); err != nil {
+			log.Error(err, "natsbus: publisher connect failed — tenant.deleted emit-on-finalizer disabled (#5364); Org deletes still run the org-controller-half teardown",
+				"nats_url", natsURL)
+		} else {
+			r.TenantEventPublisher = pub
+			defer pub.Close()
+			log.Info("natsbus: tenant.deleted publish-leg wired (#5364)",
+				"nats_url", natsURL, "subject", natsbus.SubjectTenantDeleted)
+		}
+
 		if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 			sub, err := natsbus.Connect(natsURL)
 			if err != nil {

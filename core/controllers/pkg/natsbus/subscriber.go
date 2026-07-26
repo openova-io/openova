@@ -86,6 +86,20 @@ const (
 	// PR #1633). sandbox-controller subscribes so the per-Sandbox
 	// reconcile loop runs immediately on cart completion.
 	SubjectTenantSandboxRequested = "catalyst.tenant.sandbox_requested"
+
+	// SubjectTenantDeleted is the canonical NATS subject the
+	// organization-controller PUBLISHES on when an Organization CR is being
+	// finalized (#5364). It mirrors the subject core/services/shared/events
+	// derives for the `tenant.deleted` event type (CanonicalSubject) so the
+	// provisioning service's `tenant.deleted` consumer — subscribed to the same
+	// CATALYST_ORG stream — runs the SECOND half of Org teardown (prune the
+	// `org-tenants` gitops dir: the <slug> Namespace manifest + tenant
+	// HelmReleases). The org-controller's own finalizer runs only the FIRST half
+	// (per-Org vCluster Flux + tenant-networking); before #5364 a raw
+	// `kubectl delete organization` never emitted this event (only the
+	// tenant-service's DELETE /api/organizations/{id} route did), so the
+	// org-tenants Kustomization perpetually recreated the ns + HRs.
+	SubjectTenantDeleted = "catalyst.tenant.deleted"
 )
 
 // Event is the JSON envelope on every catalyst.* subject. The shape

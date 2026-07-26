@@ -49,7 +49,18 @@ import (
 	"github.com/openova-io/openova/core/controllers/organization/internal/iacbootstrap"
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/natsbus"
 )
+
+// TenantEventPublisher is the narrow publish seam the deletion path uses to
+// emit the canonical `tenant.deleted` domain event (#5364). *natsbus.Publisher
+// satisfies it in production; unit tests inject a fake. The interface (rather
+// than a concrete *natsbus.Publisher field) keeps the Reconciler testable and
+// lets main.go leave the field nil on a no-NATS install (Catalyst-Zero), where
+// the emit degrades to a logged no-op.
+type TenantEventPublisher interface {
+	Publish(ctx context.Context, subject string, ev *natsbus.Event) error
+}
 
 // userAccessGVR is the CLUSTER-scoped UserAccess CR group/version/kind
 // the reconciler writes per Org owner. Defined in
@@ -90,6 +101,19 @@ type Reconciler struct {
 
 	// Keycloak is the Keycloak Admin client (interface for testability).
 	Keycloak KeycloakClient
+
+	// TenantEventPublisher publishes the canonical `tenant.deleted` domain
+	// event on Org-CR finalizer teardown so the provisioning service's
+	// tenant.deleted consumer runs the SECOND half of Org teardown — pruning
+	// the `org-tenants` gitops dir (the <slug> Namespace manifest + tenant
+	// HelmReleases from the org-tenants Flux Kustomization inventory). Without
+	// this, a raw `kubectl delete organization` fires ONLY the org-controller
+	// half of teardown (per-Org vCluster Flux + tenant-networking) and never
+	// publishes tenant.deleted, so the org-tenants Kustomization perpetually
+	// recreates the ns + HRs (#5364). Nil on a no-NATS install (Catalyst-Zero /
+	// NATS_URL unset) — the publish then degrades to a logged no-op, matching
+	// pre-#5364 behavior. Interface for testability + nil-safety.
+	TenantEventPublisher TenantEventPublisher
 
 	// PerOrgRealmEnabled gates the per-Org Keycloak realm auto-wiring
 	// (#3084 Part 2). When true, Reconcile find-or-creates a realm named
@@ -384,6 +408,26 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// before the Keycloak/Gitea ensure steps prevents recreating
 	// artifacts we're about to delete.
 	if !org.DeletionTimestamp.IsZero() {
+		// #5364 — emit the canonical `tenant.deleted` event so the provisioning
+		// service's tenant.deleted consumer runs the SECOND half of Org teardown:
+		// pruning the `org-tenants` gitops dir (the <slug> Namespace manifest +
+		// tenant HelmReleases from the org-tenants Flux Kustomization inventory).
+		// The teardowns below are only the FIRST half (per-Org vCluster Flux +
+		// tenant-networking); the org-tenants dir is owned by the provisioning
+		// service and is pruned ONLY on a tenant.deleted event. Before this fix a
+		// raw `kubectl delete organization` never published tenant.deleted (only
+		// tenant-service's DELETE /api/organizations/{id} route did), so the
+		// org-tenants Kustomization perpetually recreated the ns + HRs.
+		//
+		// Published FIRST (before dropping any finalizer) + BEST-EFFORT: a nil
+		// publisher (no NATS) or a publish failure logs + continues — it NEVER
+		// blocks finalizer removal, so a NATS hiccup cannot wedge the CR in
+		// Terminating. We are unambiguously in the delete path (DeletionTimestamp
+		// is set), which is the only guard the consumer's idempotent git prune
+		// needs against a day-2-reinstall race. A duplicate publish across
+		// finalizer-requeue passes is harmless (the consumer prune is idempotent).
+		r.publishTenantDeleted(ctx, &org)
+
 		// Per-Org vCluster Flux teardown (PR #3700 §4.3). The Flux CR pair
 		// carries NO ownerRef (cross-namespace GC trap), so the GC won't
 		// reap it — delete explicitly. Best-effort + absent-as-success +
@@ -839,6 +883,61 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+// publishTenantDeleted best-effort emits the canonical `tenant.deleted` domain
+// event so the provisioning service's tenant.deleted consumer runs the SECOND
+// half of Org teardown — pruning the `org-tenants` gitops dir (the <slug>
+// Namespace manifest + tenant HelmReleases). See the Reconcile deletion-branch
+// comment + the TenantEventPublisher field doc for the split-teardown root
+// cause (#5364).
+//
+// Contract (all enforced here so callers stay a single line):
+//   - Nil publisher (no NATS / Catalyst-Zero) → silent no-op: the Org-delete
+//     path degrades to its pre-#5364 behavior, never a wedge.
+//   - The payload carries {id, slug} both set to the Org slug. The consumer
+//     keys its teardown off `slug` (a tenant UUID is not required); `id` is set
+//     non-empty so the envelope matches what tenant-service emits.
+//   - The publish is BOUNDED (5s ctx) and BEST-EFFORT: a marshal error, a nil
+//     typed publisher, a broker stall, or a Nak all log a warning and RETURN —
+//     the finalizer removal in the caller proceeds regardless, so a NATS hiccup
+//     can never strand the CR in Terminating. The consumer's git prune is
+//     idempotent, so the next tenant.deleted (or a live re-walk) reconverges.
+func (r *Reconciler) publishTenantDeleted(ctx context.Context, org *orgapi.Organization) {
+	if r.TenantEventPublisher == nil {
+		// No NATS wired (NATS_URL unset) — degrade to pre-#5364 behavior. The
+		// org-controller half of teardown still runs; only the org-tenants prune
+		// (which requires the bus) is skipped, exactly as before this fix.
+		return
+	}
+	slug := org.Spec.Slug
+	if slug == "" {
+		slug = org.Name
+	}
+	ev, err := natsbus.NewEvent("tenant.deleted", "organization-controller", slug,
+		map[string]string{
+			// The provisioning consumer unmarshals {id, slug} and keys teardown
+			// off slug (consumer.go handleTenantDeleted). id is set to the slug so
+			// the envelope is non-empty + shape-compatible with tenant-service.
+			"id":   slug,
+			"slug": slug,
+		})
+	if err != nil {
+		r.Log.Error(err, "tenant.deleted: build event failed — skipping publish (finalizer proceeds; #5364)",
+			"slug", slug)
+		return
+	}
+	// Bound the wait so a broker stall cannot hang the delete. On timeout/err we
+	// log + continue — the finalizer must not wedge on a NATS hiccup.
+	pubCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := r.TenantEventPublisher.Publish(pubCtx, natsbus.SubjectTenantDeleted, ev); err != nil {
+		r.Log.Error(err, "tenant.deleted: publish failed — org-tenants gitops prune deferred (finalizer still proceeds; consumer prune is idempotent on the next tenant.deleted / re-walk; #5364)",
+			"slug", slug, "subject", natsbus.SubjectTenantDeleted)
+		return
+	}
+	r.Log.Info("tenant.deleted published — provisioning consumer will prune the org-tenants gitops dir (ns + tenant HelmReleases) (#5364)",
+		"slug", slug, "subject", natsbus.SubjectTenantDeleted)
 }
 
 // reconcileConsoleServing brings up the per-Org customer console EDGE — the
