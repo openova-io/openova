@@ -10,6 +10,7 @@
 
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   RouterProvider,
   createRouter,
@@ -66,7 +67,17 @@ function renderEdit(opts: RenderOpts) {
     routeTree: tree,
     history: createMemoryHistory({ initialEntries: [opts.path] }),
   })
-  return render(<RouterProvider router={router} />)
+  // UserAccessEditPage mounts PortalShell, whose ReadinessChip (#3935)
+  // and useResolvedDeploymentId are TanStack-Query consumers. Mirror the
+  // src/main.tsx QueryClientProvider so the shell can render at all.
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  })
+  return render(
+    <QueryClientProvider client={qc}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
 }
 
 afterEach(() => cleanup())

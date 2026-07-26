@@ -14,6 +14,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { render, cleanup, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   RouterProvider,
   createRouter,
@@ -89,7 +90,18 @@ function renderProvision(deploymentId: string) {
     routeTree: tree,
     history: createMemoryHistory({ initialEntries: [`/provision/${deploymentId}`] }),
   })
-  return render(<RouterProvider router={router} />)
+  // ProvisionPage (== AppsPage) mounts PortalShell, whose ReadinessChip
+  // (#3935) and useResolvedDeploymentId are TanStack-Query consumers.
+  // src/main.tsx wraps the app in a QueryClientProvider; the harness must
+  // do the same or the shell throws before the SSE effect ever fires.
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  })
+  return render(
+    <QueryClientProvider client={qc}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
 }
 
 beforeEach(() => {

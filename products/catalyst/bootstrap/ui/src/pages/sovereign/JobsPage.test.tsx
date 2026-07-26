@@ -50,11 +50,6 @@ function renderJobs(deploymentId: string) {
     path: '/provision/$deploymentId/jobs/$jobId',
     component: () => <div data-testid="job-detail-target" />,
   })
-  const flowRoute = createRoute({
-    getParentRoute: () => rootRoute,
-    path: '/provision/$deploymentId/flow',
-    component: () => <div data-testid="flow-target" />,
-  })
   const wizardRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/wizard',
@@ -65,7 +60,6 @@ function renderJobs(deploymentId: string) {
     homeRoute,
     detailRoute,
     jobDetailRoute,
-    flowRoute,
     wizardRoute,
   ])
   const router = createRouter({
@@ -199,7 +193,20 @@ describe('JobsPage — batches concept removed (issue #351)', () => {
   })
 })
 
-describe('JobsPage — v3 routing (no Tab strip, has Show-as-Flow button)', () => {
+// #3701 ("one honest /jobs canvas", Refs #3646) retired the Flow view of
+// /jobs: it dropped `flowJobs` / `synthesizeJobFromFlowNode` as a list
+// source (JobsPage.tsx:32-33), deleted JobsPage.flow-merge.test.tsx, and
+// removed the "Show as Flow" line from the JobsPage docblock. The tab
+// strip went with it. What survives is the single table canvas.
+//
+// The former 'exposes a "Show as Flow" button that navigates to /flow'
+// case is deleted rather than repaired: `sov-jobs-show-as-flow` was only
+// ever added to THIS test file (git log -S over src/ matches the test and
+// nothing else), and `/provision/$deploymentId/flow` is not a route in
+// src/app/router.tsx — the test stood up a private flowRoute in its own
+// harness to make the target exist. Adding the button to satisfy it would
+// ship a link to a 404.
+describe('JobsPage — v3 routing (single table canvas, no Tab strip)', () => {
   it('does NOT render a jobs-view-tabs strip', async () => {
     renderJobs('d-1')
     await screen.findByTestId('jobs-table')
@@ -208,11 +215,9 @@ describe('JobsPage — v3 routing (no Tab strip, has Show-as-Flow button)', () =
     expect(screen.queryByTestId('jobs-view-tab-flow')).toBeNull()
   })
 
-  it('exposes a "Show as Flow" button that navigates to /flow', async () => {
+  it('does NOT offer a Flow affordance (retired by #3701)', async () => {
     renderJobs('d-1')
-    const btn = await screen.findByTestId('sov-jobs-show-as-flow') as HTMLAnchorElement
-    expect(btn.tagName.toLowerCase()).toBe('a')
-    const href = btn.getAttribute('href') ?? ''
-    expect(href).toMatch(/^\/provision\/d-1\/flow/)
+    await screen.findByTestId('jobs-table')
+    expect(screen.queryByTestId('sov-jobs-show-as-flow')).toBeNull()
   })
 })

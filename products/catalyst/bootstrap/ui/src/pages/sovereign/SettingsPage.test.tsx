@@ -21,6 +21,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, within } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   RouterProvider,
   createRouter,
@@ -94,11 +95,47 @@ function renderSettings(deploymentId: string, initialPath?: string) {
       initialEntries: [initialPath ?? `/provision/${deploymentId}/settings`],
     }),
   })
-  return render(<RouterProvider router={router} />)
+  // SettingsPage mounts PortalShell (→ ReadinessChip, #3935) and calls
+  // useResolvedDeploymentId — both are TanStack-Query consumers, so the
+  // harness must supply a QueryClient exactly as src/main.tsx does.
+  // Retries off + gcTime 0 so a failing stub fetch never stalls the test.
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  })
+  return render(
+    <QueryClientProvider client={qc}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
 }
 
 beforeEach(() => {
   useWizardStore.setState({ ...INITIAL_WIZARD_STATE })
+  // jsdom doesn't ship EventSource. The page's own SSE attach is off via
+  // `disableStream`, but the #settings-sovereign section renders
+  // <SovereigntyCard /> (SettingsPage.tsx:451), whose useCutoverEvents
+  // opens its own stream (SovereigntyCard.tsx:77 → useCutoverEvents.ts:278)
+  // — that seam is `override`, not `disableStream`, so the shell needs a
+  // shim. Same stub the hook's own suite installs
+  // (useCutoverEvents.test.tsx:31-52).
+  if (typeof (globalThis as unknown as { EventSource?: unknown }).EventSource === 'undefined') {
+    class StubEventSource {
+      url: string
+      readyState = 0
+      onopen: ((this: EventSource, ev: Event) => unknown) | null = null
+      onmessage: ((this: EventSource, ev: MessageEvent) => unknown) | null = null
+      onerror: ((this: EventSource, ev: Event) => unknown) | null = null
+      static readonly CLOSED = 2
+      constructor(url: string) {
+        this.url = url
+      }
+      addEventListener(): void {}
+      removeEventListener(): void {}
+      close(): void {}
+    }
+    ;(globalThis as unknown as { EventSource: typeof EventSource }).EventSource =
+      StubEventSource as unknown as typeof EventSource
+  }
   // Prevent the snapshot fetch from polluting the test by serving an
   // empty events response with no terminal state. This isolates the
   // test from the network and lets us assert "no FQDN yet" rendering.
@@ -111,6 +148,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  delete (globalThis as unknown as { EventSource?: unknown }).EventSource
 })
 
 const ALL_SECTIONS = [
@@ -208,6 +246,39 @@ describe('SettingsPage — API tokens', () => {
 })
 
 describe('SettingsPage — Members links to User Access', () => {
+  /**
+   * 🛑 KNOWN-FAILING — this is a REAL defect, not a stale expectation.
+   * Do NOT "fix" it by relaxing the regex to `/users`.
+   *
+   * SettingsPage renders on BOTH the mothership route
+   * (/provision/$deploymentId/settings) and the chroot Sovereign route
+   * (/settings) — see the SettingsPage.tsx docstring at the useParams
+   * call. But the Members link hardcodes the chroot form:
+   *
+   *     SettingsPage.tsx:399   to={`/users` as never}
+   *
+   * The `as never` cast defeats TanStack Router's typed-route checking,
+   * which is what would otherwise reject a target that can't resolve
+   * under the current route. Twenty lines later the SAME file uses the
+   * correct mode-safe pattern for its sibling CTA:
+   *
+   *     SettingsPage.tsx:420-422
+   *       to="/decommission/$deploymentId" params={{ deploymentId }}
+   *
+   * Both routes are registered in the one tree — `/provision/$deploymentId/users`
+   * (router.tsx:1112) and the chroot `/users` under consoleLayoutRoute
+   * (router.tsx:1463-1466, mounted at router.tsx:2411). So on the
+   * mothership this link navigates into SovereignConsoleLayout, where
+   * useResolvedDeploymentId has no :deploymentId param and falls back to
+   * /sovereign/self — which that hook's own doc comment states 404s on a
+   * mothership host. Result: Members is a dead link on the mothership.
+   *
+   * This assertion has never run green: the file threw on a missing
+   * QueryClient before reaching it, so the contradiction (present since
+   * the earliest commit that has both files, a7fb48245) stayed masked.
+   * Fixing the link is a navigation behaviour change and overlaps the
+   * open route-gating decision in #5401, so it is left to that issue.
+   */
   it('Members link points at /provision/$id/users', async () => {
     renderSettings('d-test-1234')
     const link = (await screen.findByTestId('settings-members-link')) as HTMLAnchorElement
