@@ -114,3 +114,7 @@ My earlier R17 ✅ (based on repro-r17's clean 20s prune) was WRONG — a false 
 - **Row 238** (per-Org postgres → host CNPG Ready): acme-corp has **no `clusters.postgresql.cnpg.io` CR** — it uses MySQL for WordPress (`mysql-…-x-acme-corp-x-vcluster`, Guaranteed QoS). Not walkable here; needs a funnel Org that requested a per-Org CNPG Postgres.
 
 Both confirmed "needs-a-specific-app" with live evidence (acme-corp's actual HR/pod set), not assumed. Would require provisioning a differently-carted funnel Org (a write) to walk.
+
+## 🛑 catalyst-api OOM RECURRED — #5352 reopened (2026-07-26 03:38Z)
+
+Live re-verify of the status/uat OOM issues found catalyst-api **still OOM-cycling** on hw288: pod `catalyst-api-5cd89b89f5-tn9qf` (2.5d old) at **restartCount=62**, `lastState.terminated.reason=OOMKilled` (exit 137, ~56-min growth cycle to the 4Gi limit), `request=96Mi` vs steady 855Mi→4Gi, readiness probe connection-refused during restarts. `/healthz=ok` only because probed early in the cycle. #5352 (closed at 28 restarts as fixed) **reopened** → status/uat with the evidence; #5285 (watch-informer flood, open) updated with the live OOM. Two faults: (1) the memory leak/growth to 4Gi (primary — likely the watch-informer flood, needs live profiling); (2) request=96Mi ~40× under actual (misconfig). Read-only; did NOT restart the north-star catalyst-api.
