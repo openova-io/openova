@@ -91,3 +91,29 @@ The only other grep hit is the §854 prohibition **comment** at
 - cert-manager solvers → `serviceType: ClusterIP` on the iogrid / ping-marketing Issuers.
 
 Refs #5348 #5088 #4765 #5386
+
+---
+
+## Re-confirmation — 2026-07-26T21:04:15Z
+
+Re-ran the literal audit command against all three clusters. Result unchanged from the original enumeration above.
+
+```
+kubectl get svc -A -o json | jq '.items[] | select(.spec.type=="NodePort")'
+```
+
+| cluster | Services scanned | NodePort Services |
+|---|---|---|
+| Sovereign hw290 region-a (`me-east-215`) | 234 | **0** — no output |
+| Sovereign hw290 region-b (`me-east-215-b-1`) | 159 | **0** — no output |
+| mothership (ops cluster) | — | 5, all other products |
+
+```json
+{"ns":"cinova","name":"catalog-svc","ports":[30341]}
+{"ns":"iogrid","name":"cm-acme-http-solver-sh4np","ports":[31866]}
+{"ns":"iogrid","name":"proxy-gateway-socks5","ports":[31080]}
+{"ns":"ping-marketing","name":"cm-acme-http-solver-85625","ports":[30753]}
+{"ns":"ping-marketing","name":"cm-acme-http-solver-slc4n","ports":[32043]}
+```
+
+**393 Services across a live, converged, 2-region Sovereign — zero NodePorts.** The mothership's five belong to `cinova`, `iogrid` and `ping-marketing`, three of them cert-manager HTTP-01 solver Services that cert-manager generates as NodePort by default and that no chart declares. Disposition for each is unchanged and recorded above.
