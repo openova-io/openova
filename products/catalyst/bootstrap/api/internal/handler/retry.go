@@ -249,17 +249,52 @@ func (h *Handler) runProvisioningRetry(dep *Deployment, retriedPhase string) {
 	close(producer)
 	<-teeDone
 
-	dep.mu.Lock()
-	dep.FinishedAt = time.Now()
 	if err != nil {
+		dep.mu.Lock()
+		dep.FinishedAt = time.Now()
 		dep.Status = "failed"
 		dep.Error = err.Error()
+		dep.mu.Unlock()
 		h.log.Error("retry provision failed", "id", dep.ID, "phase", retriedPhase, "err", err)
-	} else {
-		dep.Status = "ready"
-		dep.Result = result
-		h.log.Info("retry provision complete", "id", dep.ID, "phase", retriedPhase)
+		close(dep.done)
+		h.persistDeployment(dep)
+		return
 	}
+
+	// #5381 — a retry MUST run the SAME post-apply chain as
+	// runProvisioning. Before this, retryPhase0 set Status="ready"
+	// straight off a successful Provision() and never called
+	// commitPDMWithRetry / upsertSovereignParentZoneRecordsFromResult /
+	// runPhase1Watch. Those live only in runProvisioning, so the
+	// operator's "Retry phase" button could stamp a deployment READY
+	// with **no DNS records committed and no Phase-1 watch** — a green
+	// wizard pill over a Sovereign whose console FQDN does not resolve
+	// (observed on hw289: console./api./hw289.omani.works all NXDOMAIN
+	// while the record claimed a terminal status). Marking ready without
+	// the DNS commit is the same fabricated-verdict class as the #5381
+	// region-truncation bug this ticket fixed; both make the control
+	// plane lie about a Sovereign's real state.
+	//
+	// Order mirrors runProvisioning exactly: PDM commit (pool-allocated
+	// FQDNs) → parent-zone A records (BYO parent shapes, best-effort) →
+	// Phase-1 HelmRelease watch, which is what actually flips Status to
+	// ready once components converge. We deliberately do NOT set
+	// Status="ready" here: runPhase1Watch owns that transition, so a
+	// retry can no longer out-run its own convergence proof.
+	dep.mu.Lock()
+	dep.Result = result
+	dep.mu.Unlock()
+
+	h.commitPDMWithRetry(dep, result)
+	h.upsertSovereignParentZoneRecordsFromResult(context.Background(), dep, result)
+
+	h.log.Info("retry provision complete — running post-apply chain (PDM commit + phase-1 watch)",
+		"id", dep.ID, "phase", retriedPhase)
+
+	h.runPhase1Watch(dep)
+
+	dep.mu.Lock()
+	dep.FinishedAt = time.Now()
 	dep.mu.Unlock()
 	close(dep.done)
 	// Terminal persist for the retry — same reason as runProvisioning.
