@@ -143,3 +143,12 @@ Confirmed the fixes that gate the remaining walkable ◑ rows are landed or read
 Conclusion: hw288's ◑ rows #5345/#5341/#5339/R21 are **delivery-gated on #5265** (frozen post-cutover seed predates the merged fixes) and the #5352 OOM fix needs runtime validation on a Huawei prov. **A fresh prov whose bootstrap-kit pins these merged fixes clears the delivery-gap rows AND runtime-verifies the OOM fix in one move** — the single highest-leverage action the backlog converges on. Pre-reqs before firing it: merge #5365, ideally close #5359 (region-B pivot). It is a deliberate wipe+reprov of the 214-✅ DR-proven north-star (autonomous per founder rule, but not casual) — a decision point, not a hidden step.
 
 The genuinely-walkable ◑ set on THIS env is exhausted: every remaining row is founder-gated (#4277), disabled-flag (16/G2), a north-star write I won't run, needs-a-real-failure (proven none exist), needs-a-specific-app (proven acme-corp's cart lacks them), delivery-gapped (fresh prov), or a confirmed real defect (#5358/#5364).
+
+## #5364 fix SHIPPED → PR #5366 (2026-07-26 05:00Z)
+
+The org-delete-orphan fix (R17's root cause) is shipped. Root cause: org teardown is split — the org-controller prunes per-Org vCluster Flux, while the provisioning consumer (on `tenant.deleted`) prunes the `org-tenants` gitops dir (the `<slug>` ns manifest + tenant HelmReleases). A raw `kubectl delete organization` fired only the org-controller half → the org-tenants dir survived → perpetual recreation (beta-corp @137m). Fix (PR #5366, `fix/5364-orgcontroller-emit-tenant-deleted`, Refs #5364): the org-controller finalizer now publishes `tenant.deleted{slug}` (new `natsbus.Publisher` + `SubjectTenantDeleted`; NATS-guarded, best-effort/bounded 5s, never blocks finalizer removal; nil-publisher degrades to pre-fix behavior). **Independently verified: `go build` EXIT=0; org-controller + natsbus tests ok; the 3 new unit tests PASS.** Needs a live walk (`kubectl delete organization <slug>` → ns + tenant HelmReleases pruned within a reconcile, no orphan) before #5364 closes — that walk lands naturally on the next fresh prov (which carries this fix).
+
+## Session fix scoreboard (control-plane defects → shipped, independently verified)
+- **#5352** (catalyst-api OOM, hcloud-informer churn) → **PR #5365** — CI green, build+test re-verified by me.
+- **#5364** (Org-CR delete orphans ns + HelmReleases) → **PR #5366** — build+test re-verified by me (3 tests pass).
+Both await live-env runtime validation (a fresh prov carries both), then their issues close.
