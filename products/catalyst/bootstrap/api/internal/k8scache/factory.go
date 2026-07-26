@@ -542,6 +542,78 @@ func NewFactory(cfg Config) (*Factory, error) {
 	return f, nil
 }
 
+// optionalGVProbeTimeout bounds each distinct Optional-kind GroupVersion
+// discovery probe in AddCluster (#5352). Chosen at 3s: long enough for a
+// healthy apiserver to answer a single discovery GET, short enough that a
+// dead / unreachable Sovereign kubeconfig adds only a few seconds total to
+// startup (one timeout per distinct Optional GroupVersion — two today:
+// hcloud.crossplane.io/v1alpha1 and cilium.io/v2alpha1) instead of the
+// unbounded multi-minute hang the pre-#5352 synchronous probe caused. Only
+// Optional kinds are probed; universally-present kinds never touch the
+// network on the startup path. See kinds.go Kind.Optional.
+const optionalGVProbeTimeout = 3 * time.Second
+
+// gvProbe caches the outcome of one ServerResourcesForGroupVersion call so
+// Optional kinds that share a GroupVersion (the four
+// hcloud.crossplane.io/v1alpha1 resources) probe the apiserver at most once.
+type gvProbe struct {
+	ok        bool            // probe completed without error/timeout
+	resources map[string]bool // plural resource name → served (valid iff ok)
+}
+
+// served reports whether the given plural resource is served under this
+// GroupVersion. A probe that errored or timed out (ok=false) always reports
+// not-served, so the caller skips the informer rather than let its reflector
+// hot-loop against an absent GVR (#5352 churn → OOM).
+func (p *gvProbe) served(resource string) bool {
+	return p != nil && p.ok && p.resources[resource]
+}
+
+// probeGroupVersion asks the cluster's discovery client whether groupVersion
+// is served, bounded by timeout. The discovery method
+// (ServerResourcesForGroupVersion) has NO context parameter, so the call runs
+// in a detached goroutine and its result is selected against a
+// context.WithTimeout — a dead apiserver therefore costs at most `timeout`,
+// never the underlying TCP-connect timeout (minutes). This is the bounded
+// re-introduction of the gate removed in the comment above the AddCluster
+// informer loop: it closes the original startup-hang (the old probe had no
+// timeout) while stopping the reflector churn that leaked memory on hw288.
+//
+// The result channel is buffered (size 1) so the detached goroutine never
+// leaks even when we return on timeout — its eventual send simply lands in
+// the buffer and is GC'd with the channel.
+func probeGroupVersion(core kubernetes.Interface, groupVersion string, timeout time.Duration) *gvProbe {
+	if core == nil {
+		return &gvProbe{ok: false}
+	}
+	type result struct {
+		list *metav1.APIResourceList
+		err  error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		list, err := core.Discovery().ServerResourcesForGroupVersion(groupVersion)
+		ch <- result{list: list, err: err}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	select {
+	case r := <-ch:
+		if r.err != nil || r.list == nil {
+			// IsNotFound, transport error, or a nil list all mean "treat as
+			// not served" — the informer would only churn.
+			return &gvProbe{ok: false}
+		}
+		served := make(map[string]bool, len(r.list.APIResources))
+		for _, ar := range r.list.APIResources {
+			served[ar.Name] = true
+		}
+		return &gvProbe{ok: true, resources: served}
+	case <-ctx.Done():
+		return &gvProbe{ok: false}
+	}
+}
+
 // AddCluster registers a Sovereign + spawns its informer set. Safe to
 // call before or after Start. Idempotent — re-adding a cluster id
 // shadows the previous entry.
@@ -663,6 +735,18 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 	// out (often minutes), and AddCluster is on the main startup
 	// path — so the contabo mothership boot blocked while iterating
 	// dead clusters. Removed.
+	//
+	// #5352 re-introduces that gate for Optional kinds ONLY, now
+	// BOUNDED by optionalGVProbeTimeout (see probeGroupVersion). The
+	// original hang is closed by the per-GroupVersion context timeout;
+	// the reflector churn (an informer for a GVR the apiserver 404s
+	// hot-loops "Failed to watch → retry" forever, leaking memory
+	// until OOMKill — 62 restarts / 2.5d on hw288) is closed by
+	// skipping the informer when discovery reports the GVR absent.
+	// Non-optional kinds (namespace/pod/deployment/…) are universally
+	// present and register unconditionally with NO probe, preserving
+	// the synchronous-network-free startup fast path.
+	gvServedCache := map[string]*gvProbe{}
 	for _, k := range f.registry.All() {
 		// TBD-V50 (#2125): no more per-Kind routing — every Kind uses the
 		// single unbounded factory because every Kind in DefaultKinds has
@@ -670,6 +754,22 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 		// grew unbounded) are no longer registered at all; consumers
 		// query the apiserver directly. See kinds.go for the architectural
 		// rationale.
+		//
+		// #5352 Optional gate — probe discovery (bounded) once per distinct
+		// GroupVersion; skip the informer where the GVR is not served.
+		if k.Optional {
+			gv := k.GVR.GroupVersion().String()
+			p, cached := gvServedCache[gv]
+			if !cached {
+				p = probeGroupVersion(cs.core, gv, optionalGVProbeTimeout)
+				gvServedCache[gv] = p
+			}
+			if !p.served(k.GVR.Resource) {
+				f.log.Info("k8scache: skipping optional kind — GVR not served",
+					"cluster", c.ID, "kind", k.Name, "gvr", k.GVR.String())
+				continue
+			}
+		}
 		inf := cs.factory.ForResource(k.GVR).Informer()
 		k := k // capture per-iteration
 		_, err := inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
