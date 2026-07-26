@@ -118,3 +118,14 @@ Both confirmed "needs-a-specific-app" with live evidence (acme-corp's actual HR/
 ## 🛑 catalyst-api OOM RECURRED — #5352 reopened (2026-07-26 03:38Z)
 
 Live re-verify of the status/uat OOM issues found catalyst-api **still OOM-cycling** on hw288: pod `catalyst-api-5cd89b89f5-tn9qf` (2.5d old) at **restartCount=62**, `lastState.terminated.reason=OOMKilled` (exit 137, ~56-min growth cycle to the 4Gi limit), `request=96Mi` vs steady 855Mi→4Gi, readiness probe connection-refused during restarts. `/healthz=ok` only because probed early in the cycle. #5352 (closed at 28 restarts as fixed) **reopened** → status/uat with the evidence; #5285 (watch-informer flood, open) updated with the live OOM. Two faults: (1) the memory leak/growth to 4Gi (primary — likely the watch-informer flood, needs live profiling); (2) request=96Mi ~40× under actual (misconfig). Read-only; did NOT restart the north-star catalyst-api.
+
+## status/uat re-walk + #5352 fix SHIPPED — 2026-07-26 04:26Z
+
+Walked the 3 named status/uat issues live with fresh evidence:
+- **#5345** (catalog chartless): `/catalog/bp-redis` renders **installable** on hw288 (v1.0.0, "Edit IaC", "In-memory key-value cache", singleton-per-Org) despite bp-redis being chartless in ghcr → the delivery-gap persists (fix #5346 unlisted the 5 in-repo, but hw288's frozen post-cutover seed still lists them). ◑ delivery-gated.
+- **#5341** (gateway wildcard-SNI collision): BOTH `cilium-gateway` and `cilium-gateway-console` still carry `*.hw288.omani.works` listeners (6 wildcard listeners total) → collision persists; #5354 narrowed-listener fix not rolled (delivery-gated #5265). Live gateway config, stronger than a curl sample. ◑.
+- **#5339** (region drift): region-A still runs the CronJob form (`*/5`, lastSchedule 04:25Z), no Deployment; #5340 not rolled (delivery-gated #5265). ◑.
+
+Common gate: all three are delivery-gated on #5265 (hw288's frozen post-cutover seed predates the merged fixes) — a fresh prov clears them; not walkable-to-✅ on this env.
+
+**#5352 OOM fix SHIPPED → PR #5365** (`fix/5352-k8scache-optional-gvr-existence-gate`, Refs #5352). Removes the dead `sandbox` kind; marks the 4 hcloud + cilium-esl GVRs `Optional`; adds a **bounded** (3s context-timeout, detached-goroutine, cached-per-GV) discovery existence-gate for Optional kinds only — served→register, absent/error/timeout→skip, non-optional kinds keep the synchronous-network-free fast path (does NOT reintroduce the boot-hang the old probe caused). +398/−22 across factory.go/kinds.go + a new 251-line test (12 cases). **Independently verified: `go build` EXIT=0, `go test ./internal/k8scache/...` ok.** Needs fresh-Huawei-prov verification (reflector "Failed to watch" gone, catalyst-api memory flat, 0 OOMKills over hours).
