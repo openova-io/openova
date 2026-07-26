@@ -290,3 +290,63 @@ func TestNormalisePerRegionKeys_HuaweiPassThrough(t *testing.T) {
 		}
 	}
 }
+
+// Test 11 (#5381) — Huawei DIGIT-TAILED codes must pass through.
+//
+// The pre-#5381 normaliser stripped any trailing "-<digits>" segment for
+// every provider (a Hetzner "<cloudRegion>-<index>" rule). Huawei region
+// codes end in digits themselves, so "me-east-215" became "me-east" and
+// "me-east-215-b-1" became "me-east-215-b" → detectPartialRegionMaterialisation
+// found NEITHER declared code → a fully-materialised 2-region Sovereign was
+// stamped partial-failure and never reached commitPDM/phase-1 (hw289 live,
+// dep 44ac86240f0afab7). Test 10 missed it because its codes end in letters.
+func TestNormalisePerRegionKeys_HuaweiDigitTailedCodes_5381(t *testing.T) {
+	declared := []RegionSpec{
+		{Provider: "huawei", CloudRegion: "me-east-215"},
+		{Provider: "huawei", CloudRegion: "me-east-215-b-1"},
+	}
+	huaweiShape := map[string]string{
+		"me-east-215":     "100.100.100.10",
+		"me-east-215-b-1": "100.100.100.20",
+	}
+	normalised := normalisePerRegionKeys(declared, huaweiShape)
+	for code, ip := range huaweiShape {
+		if got := normalised[code]; got != ip {
+			t.Errorf("normalised[%q] = %q, want %q (digit-tailed Huawei codes must NOT be truncated)", code, got, ip)
+		}
+	}
+	if _, truncated := normalised["me-east"]; truncated {
+		t.Errorf("normalised contains truncated key %q — the digit-suffix strip fired on a declared code", "me-east")
+	}
+	materialised, missing := detectPartialRegionMaterialisation(declared, normalised)
+	if len(missing) != 0 {
+		t.Errorf("missing = %v, want empty (both regions materialised)", missing)
+	}
+	if len(materialised) != 2 {
+		t.Errorf("materialised = %v, want both declared codes", materialised)
+	}
+}
+
+// Test 12 (#5381) — the Hetzner "<cloudRegion>-<index>" strip still fires
+// when the raw key is NOT itself a declared region (the behaviour Test 8/9
+// rely on), proving the declared-set-aware guard is a strict superset.
+func TestNormalisePerRegionKeys_HetznerIndexStripStillFires_5381(t *testing.T) {
+	declared := []RegionSpec{
+		{Provider: "hetzner", CloudRegion: "fsn1"},
+		{Provider: "hetzner", CloudRegion: "hel1"},
+	}
+	hetznerShape := map[string]string{
+		"primary": "10.0.0.1",
+		"hel1-1":  "10.0.0.2",
+	}
+	normalised := normalisePerRegionKeys(declared, hetznerShape)
+	if got := normalised["fsn1"]; got != "10.0.0.1" {
+		t.Errorf("normalised[fsn1] = %q, want 10.0.0.1 (literal 'primary' remap)", got)
+	}
+	if got := normalised["hel1"]; got != "10.0.0.2" {
+		t.Errorf("normalised[hel1] = %q, want 10.0.0.2 (index strip must still fire for undeclared raw keys)", got)
+	}
+	if _, missing := detectPartialRegionMaterialisation(declared, normalised); len(missing) != 0 {
+		t.Errorf("missing = %v, want empty", missing)
+	}
+}
