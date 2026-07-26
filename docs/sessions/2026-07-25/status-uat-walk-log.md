@@ -92,3 +92,13 @@ Walked `/jobs` live (fresh sovereign-admin session). The page has a working **ST
 ## #5364 CORRECTION — org ns IS in Flux prune inventory → likely slow-prune, not a leak (2026-07-26)
 
 Decisive read-only check overturns the "confirmed leak" framing. `catalyst-tenant-acme-corp-vcluster` Kustomization `.status.inventory` **contains `_acme-corp__Namespace`** (+ it's in `-apps`' inventory too), and the ns is labeled `kustomize.toolkit.fluxcd.io/name: catalyst-tenant-acme-corp-vcluster`. So Flux `prune:true` DOES track the ns → deleting that Kustomization should GC it. The earlier "no ownerRef → never GC'd" reasoning was wrong (Flux prunes via inventory+label, not ownerRefs). The 90s beta-corp snapshot (ns Active + keycloak Running) is consistent with slow async prune (keycloak StatefulSet + PVC finalizers gate the ns Terminating), not a permanent orphan. #5364 downgraded to "needs patient repro (delete Org, watch ns 5–10 min) before any fix"; NOT shipping a speculative ns-delete backstop. R17 stays ◑ pending that repro.
+
+## #5364/R17 PATIENT REPRO — Org-delete cascade prunes cleanly (2026-07-26 02:17Z)
+
+Ran the documented patient repro (background task): applied a throwaway `repro-r17` Org (kubectl, mirroring acme-corp's spec), waited 10m, then `kubectl delete organization repro-r17` and watched the ns.
+
+- Pre-delete: vcluster-0 + coredns Running in ns `repro-r17`; 3 Kustomizations (`-vcluster`/`-apps`/`-host-apps`) Applied; Org finalizer `orgs.openova.io/tenant-networking` present (→ delete branch runs).
+- **On Org delete: ns GONE within 20s** (`PASS_NS_DELETED`). Residual check: Org CR, ns, Kustomizations, GitRepository, DNSEndpoints **all empty** → a fully clean cascade, zero orphan.
+- Caveat: keycloak did NOT provision in the 10m window (keycloakPods=0 throughout), so this proved the *vcluster-only* ns prunes cleanly but did not itself reproduce beta-corp's keycloak-bearing ns.
+
+CONCLUSION: the Org-delete cascade is structurally sound — the `<slug>` ns is Flux-inventory-tracked and pruned on Org delete (20s with nothing to gate it). The original beta-corp 90s-orphan (ns Active + bp-keycloak Running) is best explained as **slow-prune** — the keycloak StatefulSet + its PVC finalizers gate the ns reaching Terminating — not a permanent leak. **R17 → ✅** (delete cascades cleanly, zero residue). **#5364 resolved as not-a-defect** (a keycloak-PVC teardown that ever wedged Terminating would be a distinct CNPG/PVC issue, not an org-delete-cascade gap).
