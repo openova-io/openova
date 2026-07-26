@@ -181,7 +181,41 @@ type: application
 #   sovereign registry streams blobs over its own trusted host, never redirects
 #   to a differently-certed Object Storage backend. tests/registry-disableredirect.sh
 #   guards the wiring so the casing typo cannot recur.
-version: 1.2.44
+# 1.2.45 (#5406): ONE Harbor session/queue/cache store per Sovereign, anchored
+#   in the ACTIVE region and reached from the standby over Cilium ClusterMesh.
+#   Harbor keeps its OIDC session in Redis db 0, its job queue in db 1 and its
+#   registry blob-descriptor cache in db 2. Two of Harbor's three stateful
+#   stores were already anchored in region-A on a 2-region Sovereign (Postgres
+#   via the zero-endpoint `shared-pg-mesh-rw` global-Service alias; blobs via a
+#   single Object Storage bucket) — Redis was the only one left region-local,
+#   because upstream's `redis.type: internal` default survived into a topology
+#   it does not fit. Since ONE shared wildcard VIP fans `registry.<fqdn>` at
+#   BOTH regions' envoys, a session minted by whichever region handled
+#   /c/oidc/callback was invisible to the other and every request that landed
+#   on the other region 401'd — per-request, so it read as flake. Measured live
+#   on hw290 (dep 31106b6aa4a7e8e7, 2026-07-26 21:13:44Z): region-A
+#   `/api/v2.0/users/current` 200 and region-B `/api/v2.0/users/current` 401 in
+#   the SAME second, same referer + UA, one page-load. The same split also ran
+#   harbor-jobservice's work queue and harbor-registry's blob cache twice,
+#   uncoordinated, over one shared DB and one shared bucket.
+#   Ships templates/redis-mesh-service.yaml (the `harbor-redis-mesh` Cilium
+#   global Service, rendered on BOTH regions — the openbao `openbao-active-mesh`
+#   / cnpg-pair `*-primary-mesh` idiom) + templates/redis-crossregion-netpol.yaml
+#   (identity-based CiliumNetworkPolicies; a k8s NetworkPolicy can never admit a
+#   ClusterMesh peer because Cilium AND-injects the LOCAL cluster label into
+#   every selector it derives — verified with cilium-dbg on hw290, same class as
+#   #4846/#4854). The slot flips the SECONDARY to `harbor.redis.type: external`
+#   pointing at the mesh Service, so upstream renders no local redis there.
+#   FAILOVER: on a region-A kill the standby loses this Redis — it ALREADY
+#   loses its Postgres the same way, so Harbor needs bp-continuum's switchover
+#   either way (blueprint.yaml topology.perTopology.active-hot-standby.
+#   switchover.mechanism), and the Redis anchor rides the SAME substitute seam
+#   as SOVEREIGN_HARBOR_PG_HOST so the switchover repoints it identically.
+#   All of it is gated on crossRegion.enabled (slot-wired to
+#   ${SOVEREIGN_ENABLE_CNPG_PAIR}, which catalyst-api stamps true only once
+#   ClusterMesh is established) — a single-region render is byte-identical.
+#   Guarded by tests/redis-crossregion.sh.
+version: 1.2.45
 appVersion: "2.14.3"
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via Harbor's
 # `oidc_extra_redirect_parms` config field. The configure-oauth Job now

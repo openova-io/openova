@@ -1,0 +1,121 @@
+{{- /*
+Cross-region Harbor session/queue/cache store — ClusterMesh global Service (#5406).
+
+── WHY ────────────────────────────────────────────────────────────────────
+Harbor keeps THREE stateful stores. On a 2-region Sovereign two of them are
+already anchored in the ACTIVE region and reached from the standby region:
+
+  1. Postgres  — the secondary's harbor-core dials `shared-pg-mesh-rw.
+     shared-data` (a ZERO-endpoint ClusterMesh global-Service alias) and
+     resolves to region-A's `shared-pg` primary. Stamped by cloud-init /
+     re-stamped by catalyst-api's post-mesh gate (#4436).
+  2. Blob store — ONE Object Storage bucket, written by both regions
+     (persistence.imageChartStorage.s3, ADR-0001 §13).
+  3. Redis      — upstream default `redis.type: internal`, so EACH region
+     ran its OWN `harbor-redis` StatefulSet on its OWN PVC.
+
+(3) was never a decision; it is the upstream default surviving into a
+topology it does not fit. Harbor's Blueprint declares `active-hot-standby`
+(mgmt-A active, mgmt-B passive, switchover via bp-continuum) — not
+active/active — yet the shared wildcard VIP fans requests for
+`registry.<fqdn>` at BOTH regions' envoys, so BOTH region's harbor-core
+serve. Harbor's OIDC session lives in Redis db 0 (`_REDIS_URL_CORE`), so a
+session minted by whichever region handled `/c/oidc/callback` is invisible
+to the other, and every later request that lands on the other region 401s.
+
+Measured live on hw290 (dep 31106b6aa4a7e8e7, 2026-07-26 21:13:43-44Z), one
+browser page-load split across both regions in the SAME second:
+    region-A nginx  GET /c/oidc/callback…            302   (session minted here)
+    region-A nginx  GET /api/v2.0/users/current       200
+    region-B nginx  GET /api/v2.0/users/current       401
+    region-B nginx  GET /api/v2.0/projects…           200   (shared DB — fine)
+…then the SPA bounces to /account/sign-in and every subsequent
+`users/current` that lands on region-B 401s forever.
+
+The same split silently duplicated TWO more things over one shared DB and
+one shared bucket: harbor-jobservice's work queue (Redis db 1) and
+harbor-registry's blob-descriptor cache (Redis db 2) each ran twice,
+uncoordinated.
+
+── WHAT THIS DOES ─────────────────────────────────────────────────────────
+Anchors Redis in the ACTIVE region and lets the standby region reach it over
+Cilium ClusterMesh — the SAME idiom already load-bearing in this repo for
+bp-openbao (`openbao-active-mesh`), bp-cnpg-pair / bp-postgres
+(`*-mesh-rw`), and the region-b catalyst edge stubs
+(bp-catalyst-edge-routes `catalyst-api`):
+
+  - BOTH regions render this Service under the SAME name+namespace — Cilium
+    merges ClusterMesh global services by name+namespace, so the name must
+    exist on every participating cluster.
+  - PRIMARY: the selector matches the local `harbor-redis` Pod (upstream
+    `redis.type: internal` still renders its StatefulSet + Service there), and
+    `service.cilium.io/shared: "true"` exports those backends to the peer.
+  - SECONDARY: the slot flips `harbor.redis.type: external` +
+    `external.addr` at this Service, so upstream renders NO local redis. The
+    selector therefore matches ZERO local Pods and `affinity: local` falls
+    through the mesh to the primary's redis. `shared: "false"` keeps the
+    standby from ever exporting a redis of its own, so the primary can never
+    land a session in the standby region.
+
+── FAILOVER ───────────────────────────────────────────────────────────────
+On a region-A kill the secondary's harbor-core loses this Redis. It ALREADY
+loses its Postgres in exactly the same way (`shared-pg-mesh-rw` has no local
+backends in region-B), so the failure envelope is unchanged in kind: Harbor's
+control plane needs bp-continuum's switchover either way — which is precisely
+what platform/harbor/blueprint.yaml `topology.perTopology.active-hot-standby.
+switchover.mechanism: bp-continuum` already declares. The anchor is exposed as
+`crossRegion.redis.meshServiceName` + driven by the SAME substitute seam as
+`SOVEREIGN_HARBOR_PG_HOST`, so a switchover repoints Redis exactly the way it
+repoints the DB.
+
+── GATING ─────────────────────────────────────────────────────────────────
+`crossRegion.enabled` is wired by the slot to `${SOVEREIGN_ENABLE_CNPG_PAIR}`
+— stamped `true` on BOTH regions by catalyst-api only once Cilium ClusterMesh
+is actually established. A single-region prov never reaches that flip, so a
+default `helm template` renders NOTHING here and the single-region output is
+byte-identical to origin/main.
+*/ -}}
+{{- $cr := .Values.crossRegion | default dict -}}
+{{- if $cr.enabled -}}
+{{- $redis := $cr.redis | default dict -}}
+{{- $svcName := $redis.meshServiceName | default "harbor-redis-mesh" -}}
+{{- $affinity := $redis.affinity | default "local" -}}
+{{- $port := $redis.port | default 6379 -}}
+{{- $role := $cr.role | default "primary" -}}
+{{- $isPrimary := not (eq $role "secondary") -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svcName | quote }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "bp-harbor.labels" . | nindent 4 }}
+    catalyst.openova.io/component: harbor-redis-cross-region-mesh
+    catalyst.openova.io/cross-region-role: {{ $role | quote }}
+  annotations:
+    # Cilium ClusterMesh — the SAME name+namespace on both sides so the mesh
+    # merges the two Services into one global service.
+    service.cilium.io/global: "true"
+    # Export backends from the ACTIVE region only. The standby has no redis
+    # Pod to export (redis.type=external there), and pinning shared=false
+    # makes that explicit: the primary must never land a session in the
+    # standby region.
+    service.cilium.io/shared: {{ $isPrimary | ternary "true" "false" | quote }}
+    service.cilium.io/affinity: {{ $affinity | quote }}
+    catalyst.openova.io/blueprint: bp-harbor
+spec:
+  type: ClusterIP
+  selector:
+    # Upstream goharbor selector for the internal redis Pod
+    # (charts/harbor/templates/redis/service.yaml = harbor.matchLabels +
+    # component: redis). Matches the local redis on the PRIMARY; matches
+    # ZERO Pods on the SECONDARY (no local redis) → the dial crosses the mesh.
+    app: {{ $redis.appLabel | default "harbor" | quote }}
+    release: {{ $redis.releaseLabel | default .Release.Name | quote }}
+    component: redis
+  ports:
+    - name: redis
+      port: {{ $port }}
+      targetPort: 6379
+      protocol: TCP
+{{- end }}

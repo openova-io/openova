@@ -336,6 +336,40 @@ const (
 	clusterMeshKeycloakPGHostSubstituteKey = "SOVEREIGN_KEYCLOAK_PG_HOST"
 	clusterMeshGiteaPGHostSubstituteKey    = "SOVEREIGN_GITEA_PG_HOST"
 	clusterMeshHarborPGHostSubstituteKey   = "SOVEREIGN_HARBOR_PG_HOST"
+
+	// Cross-region Harbor session/queue/cache store substitute keys (#5406).
+	//
+	// Harbor keeps its OIDC session in Redis db 0, its jobservice work queue in
+	// db 1 and its registry blob-descriptor cache in db 2. On a 2-region
+	// Sovereign ONE shared wildcard VIP fans registry.<fqdn> at BOTH regions'
+	// envoys, so both regions' harbor-core serve — but upstream's default
+	// `redis.type: internal` gave each region its OWN redis StatefulSet. A
+	// session minted by whichever region handled /c/oidc/callback was invisible
+	// to the other, so `/api/v2.0/users/current` 401'd on every request that
+	// landed on the other region (measured live on hw290 dep 31106b6aa4a7e8e7:
+	// region-A 200 + region-B 401 in the SAME second of one page-load).
+	//
+	// Harbor's OTHER two stateful stores are ALREADY anchored in the active
+	// region — Postgres via clusterMeshHarborPGHostSubstituteKey above, blobs via
+	// a single Object Storage bucket — so this brings Redis in line rather than
+	// adding a new cross-region dependency. bp-harbor ≥1.2.45 publishes
+	// `harbor-redis-mesh` as a Cilium ClusterMesh global Service on BOTH regions
+	// (gated on SOVEREIGN_ENABLE_CNPG_PAIR, flipped by patchOne above); flipping
+	// the SECONDARY's upstream `redis.type` to `external` is what removes its
+	// duplicate redis AND repoints it at that merged Service — upstream ties both
+	// behaviours to the one key.
+	//
+	// Stamped HERE rather than in cloud-init deliberately: the standby then boots
+	// with its own local redis and flips to the shared one only once ClusterMesh
+	// is proven established, so there is no bootstrap window where harbor-core
+	// crashloops against an unresolvable mesh alias. Absent keys fall back to the
+	// slot-19 defaults (`internal` / empty addr), so a single-region prov — which
+	// never reaches this gate — renders byte-identically.
+	clusterMeshHarborRedisTypeSubstituteKey = "SOVEREIGN_HARBOR_REDIS_TYPE"
+	clusterMeshHarborRedisAddrSubstituteKey = "SOVEREIGN_HARBOR_REDIS_ADDR"
+	// Upstream harbor.redis.external.addr wants host:port with no scheme.
+	clusterMeshHarborRedisExternalType = "external"
+	clusterMeshHarborRedisMeshAddr     = "harbor-redis-mesh.harbor.svc.cluster.local:6379"
 )
 
 // Cross-cluster CNPG replica-auth Secret sync (#3254, the prerequisite
@@ -1699,7 +1733,7 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 			// substitute maps to the ClusterMesh-global `shared-pg-mesh-rw` WRITE
 			// alias so stale envs self-heal AND fresh provs stay idempotent. NEVER
 			// gates the flip.
-			h.patchSecondaryCrossRegionPGHosts(ctx, dep, slots)
+			h.patchSecondaryCrossRegionHosts(ctx, dep, slots)
 		}
 	}
 	if patched == 0 {
@@ -2218,7 +2252,7 @@ func helmReleaseWedgedSince(hr *unstructured.Unstructured) (bool, time.Time) {
 	return wedged, latest
 }
 
-// patchSecondaryCrossRegionPGHosts re-stamps the cross-region shared-pg WRITE
+// patchSecondaryCrossRegionHosts re-stamps the cross-region shared-pg WRITE
 // host onto every SECONDARY region's bootstrap-kit Kustomization substitute map
 // (#4436, Refs #4159). keycloak/gitea/harbor run on every region's control
 // plane and dial the write host as a SCALAR (bitnami externalDatabase.host / a
@@ -2247,14 +2281,34 @@ func helmReleaseWedgedSince(hr *unstructured.Unstructured) (bool, time.Time) {
 // #3241/#3583 level-trigger re-run converges it on a later pass. It returns
 // nothing precisely so it can never wedge convergence.
 //
-// Scope guard: ONLY secondary regions whose substitute map carries
-// SOVEREIGN_ENABLE_SHARED_PG=true are patched. The PRIMARY region keeps its
+// Scope guard for the PG-host keys: ONLY secondary regions whose substitute map
+// carries SOVEREIGN_ENABLE_SHARED_PG=true. The PRIMARY region keeps its
 // region-local `shared-pg-rw` (its `-rw` Service is local and resolves — flipping
 // it to `-mesh-rw` would be a needless indirection), and an own-cluster
-// (non-shared) Sovereign is left entirely untouched (its keycloak/gitea/harbor
-// dial their OWN per-app `<app>-pg-rw` host, never shared-pg). Single-region
+// (non-shared) Sovereign keeps its per-app `<app>-pg-rw` hosts. Single-region
 // (len(slots)<2) is a no-op.
-func (h *Handler) patchSecondaryCrossRegionPGHosts(ctx context.Context, dep *Deployment, slots []regionSlot) {
+//
+// ── #5406: also the cross-region Harbor session/queue/cache store ──────────
+// The same "the standby's stateful backing lives in the active region" problem
+// applies to Harbor's Redis, which holds the OIDC session (db 0), the
+// jobservice work queue (db 1) and the registry blob-descriptor cache (db 2).
+// Upstream's `redis.type: internal` default gave EACH region its own redis
+// while ONE shared wildcard VIP fans registry.<fqdn> at both regions' envoys,
+// so a session minted in one region 401'd in the other on a per-request basis
+// (hw290, dep 31106b6aa4a7e8e7: region-A users/current 200 + region-B 401 in
+// the same second of one page-load). bp-harbor ≥1.2.45 publishes
+// `harbor-redis-mesh` as a Cilium ClusterMesh global Service on BOTH regions;
+// this gate flips the SECONDARY's upstream redis to `external` pointing at it,
+// which both removes the standby's duplicate redis and repoints it (upstream
+// ties both behaviours to the one `redis.type` key).
+//
+// Those two keys are stamped OUTSIDE the shared-pg guard — harbor owns its
+// redis in the own-cluster topology too, and the split-session defect is
+// identical either way. They are stamped HERE rather than in cloud-init so the
+// standby boots with its own local redis and flips to the shared one only once
+// ClusterMesh is proven established — no crashloop window against an
+// unresolvable mesh alias.
+func (h *Handler) patchSecondaryCrossRegionHosts(ctx context.Context, dep *Deployment, slots []regionSlot) {
 	if len(slots) < 2 {
 		return // single-region — no secondary control plane to patch
 	}
@@ -2293,29 +2347,45 @@ func (h *Handler) patchSecondaryCrossRegionPGHosts(ctx context.Context, dep *Dep
 				"id", dep.ID, "region", regionLabel, "found", found, "err", err)
 			continue
 		}
-		// Scope guard: only shared-pg Sovereigns. An own-cluster install dials
-		// per-app hosts (gitea-pg-rw.gitea, …) that resolve locally — never touch.
-		if !strings.EqualFold(strings.TrimSpace(substitute[clusterMeshSharedPGSubstituteKey]), "true") {
-			h.log.Info("clustermesh: secondary PG-host patch: shared-pg not enabled on this region — skipping (own-cluster hosts resolve locally)",
-				"id", dep.ID, "region", regionLabel)
-			continue
-		}
-		// Build the merge patch ONLY for keys that are missing or still carry a
-		// region-local (non-`-mesh-rw`) host — so the patch is a true no-op once
-		// the map already carries the mesh host (fresh prov / already-healed).
-		hostKeys := []string{
-			clusterMeshKeycloakPGHostSubstituteKey,
-			clusterMeshGiteaPGHostSubstituteKey,
-			clusterMeshHarborPGHostSubstituteKey,
-		}
 		sub := map[string]any{}
-		for _, k := range hostKeys {
-			if strings.TrimSpace(substitute[k]) != clusterMeshSharedPGMeshRWHost {
-				sub[k] = clusterMeshSharedPGMeshRWHost
-			}
+
+		// ── Harbor cross-region session/queue/cache store (#5406) ──────────
+		// UNGATED by shared-pg: harbor owns its redis in BOTH the own-cluster
+		// and the shared-pg topology, and the split-session defect is the same
+		// either way. Only keys that are missing or still carry the region-local
+		// value are patched, so this is a true no-op once healed.
+		if strings.TrimSpace(substitute[clusterMeshHarborRedisTypeSubstituteKey]) != clusterMeshHarborRedisExternalType {
+			sub[clusterMeshHarborRedisTypeSubstituteKey] = clusterMeshHarborRedisExternalType
 		}
+		if strings.TrimSpace(substitute[clusterMeshHarborRedisAddrSubstituteKey]) != clusterMeshHarborRedisMeshAddr {
+			sub[clusterMeshHarborRedisAddrSubstituteKey] = clusterMeshHarborRedisMeshAddr
+		}
+
+		// Scope guard: the PG-host keys apply to shared-pg Sovereigns ONLY. An
+		// own-cluster install dials per-app hosts (gitea-pg-rw.gitea, …) that
+		// resolve locally — never touch those. The harbor-redis keys above are
+		// deliberately outside this guard.
+		if strings.EqualFold(strings.TrimSpace(substitute[clusterMeshSharedPGSubstituteKey]), "true") {
+			// Build the merge patch ONLY for keys that are missing or still carry a
+			// region-local (non-`-mesh-rw`) host — so the patch is a true no-op once
+			// the map already carries the mesh host (fresh prov / already-healed).
+			hostKeys := []string{
+				clusterMeshKeycloakPGHostSubstituteKey,
+				clusterMeshGiteaPGHostSubstituteKey,
+				clusterMeshHarborPGHostSubstituteKey,
+			}
+			for _, k := range hostKeys {
+				if strings.TrimSpace(substitute[k]) != clusterMeshSharedPGMeshRWHost {
+					sub[k] = clusterMeshSharedPGMeshRWHost
+				}
+			}
+		} else {
+			h.log.Info("clustermesh: secondary cross-region patch: shared-pg not enabled on this region — PG hosts left alone (own-cluster hosts resolve locally); harbor-redis keys still evaluated",
+				"id", dep.ID, "region", regionLabel)
+		}
+
 		if len(sub) == 0 {
-			h.log.Info("clustermesh: secondary PG-host patch: substitute map already carries the -mesh-rw write host on every key — no-op",
+			h.log.Info("clustermesh: secondary cross-region patch: substitute map already carries every cross-region value — no-op",
 				"id", dep.ID, "region", regionLabel)
 			continue
 		}
@@ -2351,14 +2421,14 @@ func (h *Handler) patchSecondaryCrossRegionPGHosts(ctx context.Context, dep *Dep
 		for k := range sub {
 			keys = append(keys, k)
 		}
-		h.log.Info("clustermesh: secondary PG-host patch: stamped shared-pg-mesh-rw WRITE host onto secondary region's bootstrap-kit Kustomization (keycloak/gitea/harbor cross-region DB host, #4436)",
-			"id", dep.ID, "region", regionLabel, "keys", keys, "host", clusterMeshSharedPGMeshRWHost, "requestedAt", stamp)
+		h.log.Info("clustermesh: secondary cross-region patch: stamped shared-pg-mesh-rw WRITE host (keycloak/gitea/harbor DB, #4436) and/or the harbor-redis-mesh session store (#5406) onto the secondary region's bootstrap-kit Kustomization",
+			"id", dep.ID, "region", regionLabel, "keys", keys, "pgHost", clusterMeshSharedPGMeshRWHost, "harborRedisAddr", clusterMeshHarborRedisMeshAddr, "requestedAt", stamp)
 		patchedRegions = append(patchedRegions, regionLabel)
 	}
 	if len(patchedRegions) > 0 {
 		h.emitClusterMeshProgress(dep, "info",
-			fmt.Sprintf("ClusterMesh: flipped keycloak/gitea/harbor cross-region DB write host to %s on %d secondary region(s) (%s) — region-local shared-pg-rw NXDOMAINs the replica region (#4436)",
-				clusterMeshSharedPGMeshRWHost, len(patchedRegions), strings.Join(patchedRegions, ", ")))
+			fmt.Sprintf("ClusterMesh: flipped keycloak/gitea/harbor cross-region DB write host to %s and harbor's session/queue/cache store to %s on %d secondary region(s) (%s) — region-local shared-pg-rw NXDOMAINs the replica region (#4436) and a region-local harbor redis splits every Harbor login (#5406)",
+				clusterMeshSharedPGMeshRWHost, clusterMeshHarborRedisMeshAddr, len(patchedRegions), strings.Join(patchedRegions, ", ")))
 	}
 }
 
