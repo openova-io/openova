@@ -60,6 +60,25 @@ type Kind struct {
 	// Secret. ConfigMap data is treated as PII-adjacent and also
 	// stripped (see redactObject).
 	Sensitive bool
+
+	// Optional — true for kinds whose GVR is NOT served on every
+	// managed cluster (provider-hcloud Crossplane managed resources
+	// only exist where the Hetzner provider is installed;
+	// cilium.io/v2alpha1 CiliumEndpointSlice is not served on every
+	// Cilium build). Universally-present kinds (namespace, pod,
+	// deployment, …) leave this false.
+	//
+	// #5352 — registering an informer for a GVR the apiserver does
+	// NOT serve makes the client-go reflector hot-loop
+	// "Failed to watch … → retry" forever, leaking memory until
+	// catalyst-api OOMKills (62 restarts / 2.5d on hw288). The
+	// factory therefore gates Optional kinds behind a BOUNDED
+	// discovery probe in AddCluster: it registers the informer only
+	// when the apiserver actually serves the GVR, and skips it
+	// otherwise. Non-optional kinds skip the probe entirely so the
+	// synchronous-network-free startup fast path is preserved (a dead
+	// kubeconfig can never block boot). See factory.go AddCluster.
+	Optional bool
 }
 
 // DefaultKinds is the built-in registry — every Sovereign starts with
@@ -107,10 +126,18 @@ var DefaultKinds = []Kind{
 	// Crossplane managed resources — provider-hcloud's K8s projection
 	// of cloud-side objects (ADR-0001 §5: cloud + K8s data are
 	// pre-married before reaching Catalyst).
-	{Name: "server.hcloud", GVR: schema.GroupVersionResource{Group: "hcloud.crossplane.io", Version: "v1alpha1", Resource: "servers"}, Namespaced: false},
-	{Name: "loadbalancer.hcloud", GVR: schema.GroupVersionResource{Group: "hcloud.crossplane.io", Version: "v1alpha1", Resource: "loadbalancers"}, Namespaced: false},
-	{Name: "network.hcloud", GVR: schema.GroupVersionResource{Group: "hcloud.crossplane.io", Version: "v1alpha1", Resource: "networks"}, Namespaced: false},
-	{Name: "volume.hcloud", GVR: schema.GroupVersionResource{Group: "hcloud.crossplane.io", Version: "v1alpha1", Resource: "volumes"}, Namespaced: false},
+	//
+	// Optional: true (#5352) — the hcloud.crossplane.io provider is
+	// installed ONLY on the Hetzner mothership. On a Huawei-hosted
+	// Sovereign (hw288) these GVRs are not served, and an
+	// unconditionally-registered informer's reflector hot-loops
+	// "Failed to watch → retry" forever, leaking memory until
+	// catalyst-api OOMKills. The AddCluster discovery gate skips them
+	// where the provider is absent (see factory.go).
+	{Name: "server.hcloud", GVR: schema.GroupVersionResource{Group: "hcloud.crossplane.io", Version: "v1alpha1", Resource: "servers"}, Namespaced: false, Optional: true},
+	{Name: "loadbalancer.hcloud", GVR: schema.GroupVersionResource{Group: "hcloud.crossplane.io", Version: "v1alpha1", Resource: "loadbalancers"}, Namespaced: false, Optional: true},
+	{Name: "network.hcloud", GVR: schema.GroupVersionResource{Group: "hcloud.crossplane.io", Version: "v1alpha1", Resource: "networks"}, Namespaced: false, Optional: true},
+	{Name: "volume.hcloud", GVR: schema.GroupVersionResource{Group: "hcloud.crossplane.io", Version: "v1alpha1", Resource: "volumes"}, Namespaced: false, Optional: true},
 
 	// vCluster.io tenants.
 	{Name: "vcluster", GVR: schema.GroupVersionResource{Group: "vcluster.com", Version: "v1alpha1", Resource: "vclusters"}, Namespaced: true},
@@ -304,30 +331,28 @@ var DefaultKinds = []Kind{
 	// Cilium ClusterMesh (cilium.io/v2alpha1) — multi-region peering
 	// records. Matrix asserts on TC-273/297 (omantel-fsn ↔ omantel-hel
 	// peer status).
-	{Name: "ciliumendpointslice", GVR: schema.GroupVersionResource{Group: "cilium.io", Version: "v2alpha1", Resource: "ciliumendpointslices"}, Namespaced: false},
+	//
+	// Optional: true (#5352) — cilium.io/v2alpha1 CiliumEndpointSlice
+	// is not served on every Cilium build (it depends on the
+	// endpointslice-based ClusterMesh mode being enabled). Where the
+	// version is absent an unconditionally-registered informer's
+	// reflector hot-loops "Failed to watch → retry", leaking memory
+	// (a #5352 contributor on hw288). The AddCluster discovery gate
+	// registers it only where the GVR is actually served.
+	{Name: "ciliumendpointslice", GVR: schema.GroupVersionResource{Group: "cilium.io", Version: "v2alpha1", Resource: "ciliumendpointslices"}, Namespaced: false, Optional: true},
 	// k8s.io NetworkPolicy (networking.k8s.io/v1) — vanilla NPs
 	// surfaced alongside CNPs on the Policies tab. Already covered by
 	// the cutover-driver ClusterRole (`networking.k8s.io/networkpolicies`)
 	// but the kind was never registered for the generic /k8s/ surface.
 	{Name: "networkpolicy", GVR: schema.GroupVersionResource{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"}, Namespaced: true},
 
-	// Sandbox Wave 7 (PR sandbox-wave7-sessions-api) — sandbox.openova.io/v1
-	// Sandbox CRD backing the Sovereign Console's per-Org coding-agent
-	// surface (products/sandbox/docs/architecture.md §7). The
-	// /api/v1/sandbox/sessions CRUD handlers in
-	// products/catalyst/bootstrap/api/internal/handler/sandbox_sessions.go
-	// also read+write the kind directly via DynamicClientFor; registering
-	// it here lets the generic /k8s/{kind} surface enumerate Sandboxes
-	// the same way it does Applications + UserAccess.
-	//
-	// Per feedback_chroot_in_cluster_fallback.md: every new GVR added
-	// here MUST get a matching rule on catalyst-api-cutover-driver
-	// ClusterRole (clusterrole-cutover-driver.yaml). The Sandbox CR
-	// carries no secret material (the controller writes
-	// placeholder Secrets in the Sandbox namespace for newapi tokens —
-	// those are gated by the existing `secret` Sensitive=true entry),
-	// so Sensitive=false is correct.
-	{Name: "sandbox", GVR: schema.GroupVersionResource{Group: "sandbox.openova.io", Version: "v1", Resource: "sandboxes"}, Namespaced: true},
+	// The Sandbox CRD (sandbox.openova.io/v1) was REMOVED platform-wide
+	// by founder direction 2026-06-30 — the Sandbox concept + menu are
+	// gone, superseded by the per-Org Agenity workspace + bp-openova-mcp.
+	// Its former kinds.go registry entry is deliberately NOT re-added:
+	// no cluster serves the GVR anymore, so an informer would only
+	// hot-loop "Failed to watch → retry" and leak memory (the #5352
+	// churn class). See TestDefaultKinds_NoSandboxKind.
 
 	// Issue #3978 (Refs #3970) — restore the rich per-kind cloud-list
 	// (`/cloud?view=list`) page. Each reconciler resource kind must render
