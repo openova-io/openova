@@ -152,6 +152,33 @@ spec:
     global:
       imageRegistry: ''
     sovereignFqdn: ${SOVEREIGN_FQDN}
+    # #5394 — ARM the #5341 secondary-edge path. The chart has shipped
+    # `multiRegion.enabled` since #5341/PR#5342, and its own values.yaml
+    # comment says "The bootstrap-kit slot sets this true on multi-region
+    # provs (mirrors how bp-catalyst-platform annotates catalyst-api/
+    # catalyst-ui, #5289)" — but this slot never set it, so the fix has
+    # been INERT on every 2-region prov since it landed.
+    #
+    # Live hw290 (dep 31106b6aa4a7e8e7): region-b's bp-catalyst-secondary-edge
+    # is installed and Ready, waiting to proxy mcp.<fqdn> to region-a — but
+    # the region-a Service carries an EMPTY service.cilium.io/global
+    # annotation, so there is nothing for it to reach. Result: `mcp` is the
+    # ONLY *.<fqdn> hostname asymmetric across regions (4 CEC vhosts in
+    # region-a, 0 in region-b, against 4-7/4-7 for every symmetric
+    # hostname), and ~50% of requests hit region-b's envoy and get a bare
+    # 404 with no x-envoy-upstream-service-time — envoy never forwarded
+    # them. On a region-A kill the MCP would be 100% dead, not degraded.
+    #
+    # openova-mcp is primary-only BY DESIGN (#5114 defect 2 — it dependsOn
+    # bp-catalyst-platform, which is SECONDARY_HR_SUSPEND on every
+    # secondary CP), so installing it in region-b is NOT the fix and would
+    # recreate the hw256 permanently-False HR fan-out. Publishing the
+    # region-a Service to ClusterMesh is.
+    #
+    # Same source var as slot 13 uses for the identical #5289 problem, so
+    # single-region provs render byte-identically to today.
+    multiRegion:
+      enabled: ${SOVEREIGN_ENABLE_HOT_STANDBY:-false}
     # The sovereign-mode topology pin (#3988 §4.3): full surface for
     # sovereign-admin bearers, in-cluster catalyst-api upstream (derived
     # by the chart), HTTPRoute mcp.${SOVEREIGN_FQDN} on the canonical
