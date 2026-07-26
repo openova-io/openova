@@ -1586,18 +1586,35 @@ func normalisePerRegionKeys(declaredRegions []RegionSpec, perRegion map[string]s
 	if len(declaredRegions) > 0 {
 		primaryCode = strings.TrimSpace(declaredRegions[0].CloudRegion)
 	}
+	// #5381: the suffix-strip below MUST be declared-set-aware. Huawei
+	// cloud-region codes END IN DIGITS ("me-east-215",
+	// "me-east-215-b-1"), so an unconditional "<region>-<index>" strip
+	// corrupted them into "me-east" / "me-east-215-b", detection found
+	// neither declared code, and a fully-materialised 2-region Sovereign
+	// was stamped partial-failure (hw289 live). A key that already IS a
+	// declared cloudRegion is final — only a key that is NOT declared may
+	// be a Hetzner "<cloudRegion>-<index>" form.
+	declaredSet := make(map[string]struct{}, len(declaredRegions))
+	for _, r := range declaredRegions {
+		if code := strings.TrimSpace(r.CloudRegion); code != "" {
+			declaredSet[code] = struct{}{}
+		}
+	}
 	for k, v := range perRegion {
 		if strings.TrimSpace(v) == "" {
 			continue
 		}
 		code := k
+		_, keyIsDeclared := declaredSet[k]
 		if k == "primary" && primaryCode != "" {
 			code = primaryCode
-		} else if idx := strings.LastIndexByte(k, '-'); idx > 0 {
+		} else if idx := strings.LastIndexByte(k, '-'); idx > 0 && !keyIsDeclared {
 			// Hetzner secondaries: "<cloudRegion>-<index>" — strip the
 			// numeric trailing segment if it parses as an int. Keep the
 			// raw key when the suffix isn't numeric (defensive against
-			// future key formats).
+			// future key formats) OR when stripping would not yield a
+			// declared region (so a digit-tailed provider code is never
+			// truncated into a code nobody declared).
 			suffix := k[idx+1:]
 			allDigit := suffix != ""
 			for _, r := range suffix {
@@ -1607,7 +1624,9 @@ func normalisePerRegionKeys(declaredRegions []RegionSpec, perRegion map[string]s
 				}
 			}
 			if allDigit {
-				code = k[:idx]
+				if _, strippedIsDeclared := declaredSet[k[:idx]]; strippedIsDeclared || len(declaredSet) == 0 {
+					code = k[:idx]
+				}
 			}
 		}
 		if existing, ok := out[code]; !ok || existing == "" {
