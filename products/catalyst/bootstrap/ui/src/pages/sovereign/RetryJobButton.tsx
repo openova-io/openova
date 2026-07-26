@@ -127,6 +127,10 @@ export function RetryJobButton({ deploymentId, jobId, kind }: RetryJobButtonProp
         <span
           className="jobs-retry-result jobs-retry-error"
           data-testid={`jobs-retry-error-${jobId}`}
+          role="alert"
+          // The cell clamps a long server detail to one line; the full,
+          // untruncated reason stays available on hover.
+          title={message}
         >
           {message}
         </span>
