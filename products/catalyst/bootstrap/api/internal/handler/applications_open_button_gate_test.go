@@ -5,9 +5,19 @@
 // HTTPRoute that matches an installed Application by name / backendRef /
 // hostname-leftmost-label. The SPA renders the "Open" button whenever
 // resp.ExternalURL is non-empty — so apps whose only endpoint is an
-// API/protocol surface (bp-newapi backend, bp-openova-flow-server,
-// keycloak's admin-only realm, an OCI registry endpoint, …) got a DEAD
-// "Open" button that lands the operator on a bare login form or a 404.
+// API/protocol surface (bp-openova-flow-server, keycloak's admin-only realm,
+// an OCI registry endpoint, …) got a DEAD "Open" button that lands the
+// operator on a bare login form or a 404.
+//
+// NOTE (#5389, 2026-07-27): the `newapi` names below are SYNTHETIC fixture
+// shapes kept for historical continuity — they are NOT bp-newapi's shipped
+// declaration. bp-newapi was the original #3224 exemplar, but its chart
+// publishes a standalone SSO-gated admin console on newapi.<fqdn>, and
+// carrying `endpoints: []` in platform/newapi/blueprint.yaml is what removed
+// its Open button entirely (UAT row 114). The real declaration is asserted
+// from disk in applications_newapi_open_launch_5389_test.go. What these cases
+// still prove is the predicate: an api/protocol-ONLY endpoint list must not
+// mint a launch affordance, whichever Blueprint happens to carry one.
 //
 // The fix: gate ExternalURL on the SAME blueprint-endpoint signal the
 // silent-SSO launch-url endpoint uses (endpoint_handler.go) — an app only
@@ -34,8 +44,9 @@ func TestBlueprintHasUserUIEndpoint(t *testing.T) {
 		want bool
 	}{
 		{
-			// bp-newapi: a single backend/protocol endpoint, no SSO UI.
-			// This is the regression case — must NOT show an Open button.
+			// A single backend/protocol endpoint, no SSO UI. This is the
+			// regression case — must NOT show an Open button. (Synthetic
+			// shape; see the #5389 note in the file header.)
 			name: "api-only endpoint does not qualify",
 			bp: &blueprintMeta{Endpoints: []endpointDecl{
 				{Name: "api", Protocol: "https", SSOEnabled: false, LaunchDefault: false},
