@@ -273,10 +273,21 @@ cnpg:
     # CREATE EXTENSION / additional databases here without forking
     # the chart.
     postInitApplicationSQL: []
+    # #5374 (UAT row 238, live on hw288/beta-corp) — requests == limits
+    # (Guaranteed QoS). CNPG stamps Cluster.spec.resources onto the
+    # long-running instance pod (and its operator-injected
+    # bootstrap-controller init container inherits the same block), so a
+    # requests<limits shape here (the old 50m/128Mi vs 500m/512Mi) made
+    # the per-Org DB pod Burstable — evictable under node pressure, and
+    # DENIED outright on host-ns Org tiers whose plan-limits LimitRange
+    # pins maxLimitRequestRatio {cpu:1, memory:1}. Same fix shape as
+    # bp-postgres instance.resources (#4282). Sizing preserved: the
+    # prior LIMITS stay the sizing; requests rise to meet them, so the
+    # plan-quota limits-side accounting is byte-identical.
     resources:
       requests:
-        cpu: 50m
-        memory: 128Mi
+        cpu: 500m
+        memory: 512Mi
       limits:
         cpu: 500m
         memory: 512Mi
