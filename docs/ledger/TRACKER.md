@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-26T19:45:02Z` |
+| Last refreshed | `2026-07-26T20:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 32 |
+| Open issues | 34 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 32 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 34 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 32 open items (clickable table)
+### All 34 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -232,6 +232,8 @@ flowchart LR
 | [#5395](https://github.com/openova-io/openova/issues/5395) | gamma-corp is entirely unrouted: all 6 per-Org HTTPRoutes NoMatchingListenerHost | Other |
 | [#5396](https://github.com/openova-io/openova/issues/5396) | bp-velero upgrade-crds pre-upgrade hook is Kyverno-rejected (no harbor-proxy ima | Other |
 | [#5397](https://github.com/openova-io/openova/issues/5397) | 9 catalog apps pinned to :latest are denied by the Sovereign's own Kyverno image | Other |
+| [#5400](https://github.com/openova-io/openova/issues/5400) | SECURITY: per-Org bp-keycloak releases clobber the platform's OIDC pin-broker cr | Other |
+| [#5401](https://github.com/openova-io/openova/issues/5401) | SECURITY: per-Org console /settings renders the Sovereign operator panel to an o | Other |
 
 ---
 
@@ -239,6 +241,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-26T19:55 | [#5399](https://github.com/openova-io/openova/pull/5399) | #5341 | fix(mcp): arm multiRegion on slot 13d — the #5341 secondary- |
+| 2026-07-26T19:51 | [#5398](https://github.com/openova-io/openova/pull/5398) | #5393 | fix(catalog): pin the 9 :latest catalog images that Kyverno  |
+| 2026-07-26T19:46 | [#5392](https://github.com/openova-io/openova/pull/5392) | #4982 | fix(cutover): settled-roll pre-flight distinguishes TERMINAL |
 | 2026-07-26T19:17 | [#5390](https://github.com/openova-io/openova/pull/5390) | #3376 | fix(provisioning): per-Org gitops commit survives Gitea Push |
 | 2026-07-26T12:58 | [#5383](https://github.com/openova-io/openova/pull/5383) | #5381 | fix(retry): phase-retry ran no post-apply chain — stamped re |
 | 2026-07-26T11:42 | [#5382](https://github.com/openova-io/openova/pull/5382) | #5381 | fix(provisioner): Huawei digit-tailed region codes truncated |
@@ -266,9 +271,6 @@ flowchart LR
 | 2026-07-23T01:26 | [#5332](https://github.com/openova-io/openova/pull/5332) | #5331 | fix(cnpg-pair): dr-failback CONVERGED must verify Consistent |
 | 2026-07-23T00:07 | [#5330](https://github.com/openova-io/openova/pull/5330) | #5327 | fix(janitor): failed-record reap preserves destroy capabilit |
 | 2026-07-23T00:07 | [#5326](https://github.com/openova-io/openova/pull/5326) | #5325 | fix(preflight): check-5 counts only roll-capable CI (in_prog |
-| 2026-07-22T20:38 | [#5324](https://github.com/openova-io/openova/pull/5324) | #5302 | fix(cutover): Case 34 asserts lowercase disableredirect per  |
-| 2026-07-21T03:59 | [#5318](https://github.com/openova-io/openova/pull/5318) | #5261 | fix(#5317): read-back-verify replica consumer-hub secret syn |
-| 2026-07-21T03:36 | [#5316](https://github.com/openova-io/openova/pull/5316) | #5311 | fix(continuum): observe 2-region standby via primary pg_stat |
 
 ---
 
