@@ -951,7 +951,7 @@ name: bp-newapi
 #   drift, then hash-gated reload), mounts the OIDC secret, and its Role reads
 #   it. Live-verified on 91dc0591/omantel.biz: DB secret resynced, pod reloaded
 #   "Loaded 1 custom OAuth providers", KC authenticates the corrected secret.
-version: 1.4.141
+version: 1.4.142
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
