@@ -28,21 +28,30 @@ helm="${HELM_BIN:-helm}"
 out=$("$helm" template openbao "$chart_dir" \
   --set autoUnseal.enabled=true 2>&1)
 
+# Write the render to a file and grep THAT — `echo "$out" | grep -q` under
+# `set -o pipefail` fails on a SUCCESSFUL match when the render exceeds the
+# pipe buffer: grep -q exits at first hit, echo takes SIGPIPE, pipefail
+# surfaces echo's 141 → the || branch fires with a misleading FAIL. Broke
+# the Blueprint Release publish of 1.2.64 (size-dependent, green on PR CI).
+render_file=$(mktemp)
+trap 'rm -f "$render_file"' EXIT
+printf '%s\n' "$out" > "$render_file"
+
 echo "[bp-openbao] Case 1: external-secrets-push policy present with both path grants"
-echo "$out" | grep -q "bao policy write external-secrets-push" || {
+grep -q -- "bao policy write external-secrets-push" "$render_file" || {
   echo "FAIL: auth-bootstrap does not write the external-secrets-push policy"; exit 1; }
 # -F: the rendered script text contains the LITERAL string $KV_MOUNT_PATH
 # (shell expansion happens at Job runtime, not render time).
 # shellcheck disable=SC2016
-echo "$out" | grep -qF '"$KV_MOUNT_PATH/data/catalyst/newapi/admin-token"' || {
+grep -qF -- '"$KV_MOUNT_PATH/data/catalyst/newapi/admin-token"' "$render_file" || {
   echo "FAIL: push policy lacks the data-path grant for catalyst/newapi/admin-token"; exit 1; }
 # shellcheck disable=SC2016
-echo "$out" | grep -qF '"$KV_MOUNT_PATH/metadata/catalyst/newapi/admin-token"' || {
+grep -qF -- '"$KV_MOUNT_PATH/metadata/catalyst/newapi/admin-token"' "$render_file" || {
   echo "FAIL: push policy lacks the metadata-path grant for catalyst/newapi/admin-token"; exit 1; }
 echo "  ok"
 
 echo "[bp-openbao] Case 2: ESO role attaches read + push policies"
-echo "$out" | grep -q "policies=external-secrets-read,external-secrets-push" || {
+grep -q -- "policies=external-secrets-read,external-secrets-push" "$render_file" || {
   echo "FAIL: ESO role does not attach external-secrets-read,external-secrets-push"; exit 1; }
 echo "  ok"
 
