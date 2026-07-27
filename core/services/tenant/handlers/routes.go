@@ -65,6 +65,11 @@ func (h *Handler) Routes() http.Handler {
 	// provisioning.
 	mux.HandleFunc("GET /organizations/{id}/backing-services", h.ListBackingServices)
 
+	// Authenticated — live runtime state per installed application (#5451).
+	// The Apps list records what was purchased; this reports whether it
+	// actually serves, so the console can stop badging dead apps INSTALLED.
+	mux.HandleFunc("GET /organizations/{id}/app-statuses", h.ListAppStatuses)
+
 	// naming-guard: alias — legacy `/tenant/orgs/{id}/...` sub-resource paths,
 	// one-release deprecation. #3383 renamed the member / app / backing-service
 	// sub-resources to the canonical `/organizations/{id}/...` block above; the
