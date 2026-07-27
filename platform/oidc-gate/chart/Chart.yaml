@@ -125,7 +125,29 @@ name: bp-oidc-gate
 # every instance (fixes openova-flow/agenity too) and drops the cookie under 4 KB.
 # `groups` retained. Lockstep with the config-cli powerdns-admin seed (bp-keycloak
 # 1.5.6). Template-only change; render tests unaffected.
-version: 0.1.7
+#
+# 0.1.8 (#5416, 2026-07-27): the cookie secret STOPS being minted per region.
+# It was a `lookup`-or-`randAlphaNum 32` Secret rendered by this chart; on a
+# 2-region Sovereign each region's own Flux/Helm hits its own apiserver, so
+# the lookup misses in the second region and a DIFFERENT 32-char value is
+# generated there. One shared wildcard VIP fans each gated hostname at BOTH
+# regions' envoys, so requests round-robin and each gate rejects the peer
+# region's AES-encrypted session cookie — measured live on hw290 for all
+# three instances, region-a and region-b logging `cookie signature not
+# valid, removing session` + `CSRF token mismatch, potential attack` in the
+# same window. Static assets split ~50/50 between 200 and 302 (0 of 14
+# probes served on one established session), concurrent re-auth flows
+# collided on the single `_oidc_gate_<app>_csrf` cookie so callbacks 403'd,
+# and XHR got 401 rather than following the redirect — which is why
+# guacamole's SPA never rendered (UAT rows 35/115) while server-rendered
+# powerdns-admin merely looked unstyled and still PASSED its row.
+# FIX: carry it on the SAME seam the sibling client secret already used —
+# bp-sso-bridge 0.2.26 derives `cookie_secret` once per KC client into the
+# OpenBao `sso/<realm>/<clientId>` bundle (the idiom its `session_secret`
+# has used since #2807) and the per-instance ExternalSecret now pulls BOTH
+# properties into the one `oidc-gate-<name>-oidc` Secret. Requires
+# bp-sso-bridge >= 0.2.26.
+version: 0.1.8
 appVersion: "7.6.0"
 description: |
   Catalyst generic OIDC gate — a per-app oauth2-proxy instance set that

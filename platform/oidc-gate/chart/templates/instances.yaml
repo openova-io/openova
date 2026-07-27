@@ -7,8 +7,10 @@ skip-provider-button, kc_idp_hint=catalyst-pin login-url for the silent
 zero-click chain. Credential topology mirrors the #3374 hubble-ui fix:
 the client secret is the LIVE Keycloak value published by bp-sso-bridge
 (AppRegistration ConfigMap -> OpenBao sso/<realm>/<clientId> ->
-ExternalSecret); the cookie secret is gate-local (lookup-or-generate +
-keep — no KC counterpart).
+ExternalSecret). Since #5416 the cookie secret rides that SAME carrier —
+bp-sso-bridge derives it once per KC client into the same OpenBao bundle,
+so both regions of a 2-region Sovereign resolve one value and a session
+minted behind either region is accepted by both.
 
 Loop-safety per the pdns-admin 0.1.11 lesson: the gate's own callback
 (/oauth2/callback) is SERVED by oauth2-proxy itself, never redirected;
@@ -49,27 +51,6 @@ internally. Empty → restore pre-#3844 public-discovery behavior.
 {{- $kcInternal := trimSuffix "/" ($root.Values.keycloakInternalURL | default "") }}
 {{- $internalRealm := "" }}
 {{- if $kcInternal }}{{- $internalRealm = printf "%s/realms/%s" $kcInternal $root.Values.realm }}{{- end }}
----
-# ── cookie secret (gate-local; lookup-or-generate, survives uninstall) ──
-{{- $existing := lookup "v1" "Secret" $root.Release.Namespace (printf "%s-cookie" $gateName) }}
-{{- $cookieSecret := "" }}
-{{- if $existing }}
-{{- $cookieSecret = index $existing.data "cookie-secret" | default "" | b64dec }}
-{{- end }}
-{{- if not $cookieSecret }}{{- $cookieSecret = randAlphaNum 32 }}{{- end }}
-apiVersion: v1
-kind: Secret
-metadata:
-  name: {{ printf "%s-cookie" $gateName | quote }}
-  namespace: {{ $root.Release.Namespace }}
-  annotations:
-    helm.sh/resource-policy: keep
-  labels:
-    {{- include "bp-oidc-gate.labels" $root | nindent 4 }}
-    catalyst.openova.io/component: {{ $gateName | quote }}
-type: Opaque
-stringData:
-  cookie-secret: {{ $cookieSecret | quote }}
 ---
 # ── AppRegistration — bp-sso-bridge mints/adopts the KC client ─────────
 apiVersion: v1
@@ -142,7 +123,47 @@ data:
     }
 {{- if $root.Capabilities.APIVersions.Has "external-secrets.io/v1beta1" }}
 ---
-# ── client secret — the LIVE KC value via bp-sso-bridge + OpenBao ──────
+{{- /*
+#5416 — client secret AND cookie secret, both from the SAME OpenBao bundle.
+
+THE DEFECT THIS CLOSES (measured live on hw290, all three gates): the cookie
+secret used to be minted by a `lookup`-or-`randAlphaNum 32` Secret template
+right here in the chart. On a 2-region Sovereign each region runs its own
+Flux/Helm against its own apiserver, so the lookup misses in the second region
+and a DIFFERENT 32-char value is generated there. One shared wildcard VIP fans
+the single gated hostname at BOTH regions' envoys, so requests round-robin and
+each gate rejects the peer region's AES-encrypted session cookie:
+
+  [stored_session.go:94] Error loading cookied session: cookie signature not
+                         valid, removing session
+  [AuthFailure] Invalid authentication via OAuth2: CSRF token mismatch
+
+…logged on region-a AND region-b in the same window. Static assets split
+~50/50 between 200 and 302; concurrent re-auth flows collide on the single
+`_oidc_gate_<app>_csrf` cookie so callbacks 403; XHR gets 401 instead of
+following the redirect, so guacamole's SPA (~10 parallel requests, none able to
+survive a redirect) never mints its `POST /api/tokens` session and stays blank
+(UAT rows 35/115, 0/6 render attempts). powerdns-admin is server-rendered so
+each navigation silently re-runs the dance and eventually succeeds — it PASSES
+its row while carrying the identical defect, visible only as unstyled pages.
+
+WHY THIS CARRIER: the sibling `client-secret` was ALREADY identical in both
+regions, and not by luck — it is never generated per region at all. Keycloak
+(one DB shared by both regions, #4915) owns it; bp-sso-bridge reads the live
+value and publishes it to OpenBao `sso/<realm>/<clientId>`; this ExternalSecret
+delivers it into each region through the ClusterSecretStore. bp-sso-bridge
+0.2.26 adds `cookie_secret` to that same bundle — derived deterministically
+from the KC client secret, exactly the way the bundle's pre-existing
+`session_secret` (#2807, librechat's OPENID_SESSION_SECRET) already is — so the
+cookie secret now rides the proven carrier instead of being minted twice. No
+second synchronisation path is introduced.
+
+Both keys land in ONE Secret because ESO already owns this target; adding a key
+to it needs no ownership migration, whereas pointing an ExternalSecret at the
+old `-cookie` Secret could not take it over (it carries
+`helm.sh/resource-policy: keep`, so Helm leaves it behind un-owned).
+*/ -}}
+# ── client + cookie secret — LIVE KC values via bp-sso-bridge + OpenBao ─
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
 metadata:
@@ -163,11 +184,16 @@ spec:
       type: Opaque
       data:
         client-secret: "{{ "{{ .client_secret }}" }}"
+        cookie-secret: "{{ "{{ .cookie_secret }}" }}"
   data:
     - secretKey: client_secret
       remoteRef:
         key: {{ printf "sso/%s/%s" $root.Values.realm $cid | quote }}
         property: client_secret
+    - secretKey: cookie_secret
+      remoteRef:
+        key: {{ printf "sso/%s/%s" $root.Values.realm $cid | quote }}
+        property: cookie_secret
 {{- end }}
 ---
 # ── oauth2-proxy Deployment ────────────────────────────────────────────
@@ -247,10 +273,13 @@ spec:
                 secretKeyRef:
                   name: {{ printf "%s-oidc" $gateName | quote }}
                   key: client-secret
+            # #5416 — same Secret as the client secret. Region-consistent
+            # because bp-sso-bridge derives it once per KC client and both
+            # regions resolve it from the shared OpenBao bundle.
             - name: OAUTH2_PROXY_COOKIE_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ printf "%s-cookie" $gateName | quote }}
+                  name: {{ printf "%s-oidc" $gateName | quote }}
                   key: cookie-secret
           ports:
             - name: http

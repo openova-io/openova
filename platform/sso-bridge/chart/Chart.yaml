@@ -1,6 +1,29 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.25
+version: 0.2.26
+# 0.2.26 (#5416, 2026-07-27): PUBLISH `cookie_secret` in the sso/<realm>/<cid>
+# bundle + accept a MULTI-key `externalSecret.json` declaration.
+# WHY: every oauth2-proxy gate chart (bp-oidc-gate's three instances,
+# bp-agenity's per-Org gate, bp-cilium's hubble-ui) minted its own cookie
+# secret with a `lookup`-or-`randAlphaNum 32` Helm template. On a 2-region
+# Sovereign each region runs its OWN Flux/Helm against its OWN apiserver, so
+# the lookup misses in the second region and a DIFFERENT value is generated
+# there — and because one shared wildcard VIP fans each gated hostname at BOTH
+# regions' envoys, requests round-robin and each gate rejects the peer region's
+# AES-encrypted session cookie ("cookie signature not valid, removing session"
+# + "CSRF token mismatch, potential attack", logged on region-a AND region-b in
+# the same window on hw290). The sibling client_secret never diverged because
+# it is not generated per region at all: Keycloak owns it (one DB shared by
+# both regions, #4915), this reconciler publishes it here, and each region's
+# ExternalSecret resolves the one bundle. So the cookie secret joins it —
+# derived deterministically from cid+realm+client_secret, the SAME idiom the
+# bundle's `session_secret` has used since #2807, truncated to 32 hex chars
+# because oauth2-proxy base64url-decodes the value and demands 16/24/32 bytes
+# (the full 64-char digest decodes to 48 and is rejected at startup).
+# The declaration gains an optional `data: [{secretKey, property}, ...]` array
+# so ONE declared ExternalSecret can carry both client-secret and cookie-secret
+# (bp-cilium's hubble-ui needs exactly that). Declarations using the original
+# single secretKey/property fields render byte-identically.
 # 0.2.24 (#4458, 2026-06-26): EGRESS half of the #4448/#4449 sso-bridge↔openbao
 # netpol gap. THE CILIUM TRAP: the `sso-bridge-reconciler-apiserver`
 # CiliumNetworkPolicy attaches an egress rule to the reconciler endpoint, which

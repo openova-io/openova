@@ -12,8 +12,9 @@ so a fresh agenity Org / a re-prov got NO gate (the host served the dashboard
 UN-gated). Templating the gate AS PART OF the bp-agenity chart makes the gate
 arrive WITH the agenity install — chart-managed, drift-detected, zero hand-
 creation. The resource set is byte-equivalent to a bp-oidc-gate instances[]
-entry (#3374): cookie Secret + AppRegistration ConfigMap (bp-sso-bridge mints
-the KC client) + ExternalSecret (client secret from OpenBao) + oauth2-proxy
+entry (#3374): AppRegistration ConfigMap (bp-sso-bridge mints the KC client) +
+ExternalSecret (client secret AND cookie secret from OpenBao — #5416) +
+oauth2-proxy
 Deployment (the WALKED hubble-ui arg set, #2744) + Service + HTTPRoute that
 OWNS the agenity hostname with the spaTokenSeed redirect + a CNP admitting the
 gateway entity to the gate pod.
@@ -43,27 +44,6 @@ for redeem/jwks/userinfo, keeping the browser legs public.
 {{- $kcInternal := trimSuffix "/" ($g.keycloakInternalURL | default "") }}
 {{- $internalRealm := "" }}
 {{- if $kcInternal }}{{- $internalRealm = printf "%s/realms/%s" $kcInternal $g.realm }}{{- end }}
----
-# ── cookie secret (gate-local; lookup-or-generate, survives uninstall) ──
-{{- $existing := lookup "v1" "Secret" .Release.Namespace (printf "%s-cookie" $gateName) }}
-{{- $cookieSecret := "" }}
-{{- if $existing }}
-{{- $cookieSecret = index $existing.data "cookie-secret" | default "" | b64dec }}
-{{- end }}
-{{- if not $cookieSecret }}{{- $cookieSecret = randAlphaNum 32 }}{{- end }}
-apiVersion: v1
-kind: Secret
-metadata:
-  name: {{ printf "%s-cookie" $gateName | quote }}
-  namespace: {{ .Release.Namespace }}
-  annotations:
-    helm.sh/resource-policy: keep
-  labels:
-    {{- include "agenity.labels" . | nindent 4 }}
-    catalyst.openova.io/component: {{ $gateName | quote }}
-type: Opaque
-stringData:
-  cookie-secret: {{ $cookieSecret | quote }}
 ---
 # ── AppRegistration — bp-sso-bridge mints/adopts the KC client ─────────
 apiVersion: v1
@@ -109,7 +89,20 @@ data:
     }
 {{- if .Capabilities.APIVersions.Has "external-secrets.io/v1beta1" }}
 ---
-# ── client secret — the LIVE KC value via bp-sso-bridge + OpenBao ──────
+{{- /*
+#5416 — client secret AND cookie secret from the SAME OpenBao bundle. The
+cookie secret used to be a chart-minted `lookup`-or-`randAlphaNum 32` Secret
+right here; on a 2-region Sovereign each region's own Flux/Helm missed the
+lookup and generated its OWN value, so the two gates behind the one shared
+wildcard VIP rejected each other's AES-encrypted session cookie ("cookie
+signature not valid" / "CSRF token mismatch"). The sibling client secret never
+had that problem because it is not generated per region at all — Keycloak owns
+it and bp-sso-bridge publishes it to `sso/<realm>/<clientId>`. bp-sso-bridge
+0.2.26 puts a deterministically-derived `cookie_secret` in that same bundle
+(the idiom its `session_secret` already used, #2807), so the cookie secret now
+rides the proven carrier. Kept byte-aligned with platform/oidc-gate.
+*/ -}}
+# ── client + cookie secret — LIVE KC values via bp-sso-bridge + OpenBao ─
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
 metadata:
@@ -130,11 +123,16 @@ spec:
       type: Opaque
       data:
         client-secret: "{{ "{{ .client_secret }}" }}"
+        cookie-secret: "{{ "{{ .cookie_secret }}" }}"
   data:
     - secretKey: client_secret
       remoteRef:
         key: {{ printf "sso/%s/%s" $g.realm $cid | quote }}
         property: client_secret
+    - secretKey: cookie_secret
+      remoteRef:
+        key: {{ printf "sso/%s/%s" $g.realm $cid | quote }}
+        property: cookie_secret
 {{- end }}
 ---
 # ── oauth2-proxy Deployment ────────────────────────────────────────────
@@ -208,10 +206,11 @@ spec:
                 secretKeyRef:
                   name: {{ printf "%s-oidc" $gateName | quote }}
                   key: client-secret
+            # #5416 — same Secret as the client secret; region-consistent.
             - name: OAUTH2_PROXY_COOKIE_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ printf "%s-cookie" $gateName | quote }}
+                  name: {{ printf "%s-oidc" $gateName | quote }}
                   key: cookie-secret
           ports:
             - name: http

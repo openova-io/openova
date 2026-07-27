@@ -299,7 +299,23 @@ name: bp-cilium
 #   Layers ON TOP of the 1.4.9/1.4.10 zero-nodeport + authMode=legacy work.
 #   Needs a fresh 2-region prov to verify the cross-region ClusterMesh pod
 #   path end-to-end (datapath change, not CI-provable). Refs #4656.
-version: 1.4.17
+# 1.4.18 (#5416, 2026-07-27): hubble-ui oauth2-proxy COOKIE secret stops being
+#   minted per region. hubble-ui-oauth2-proxy-secret.yaml generates it with
+#   `lookup`-or-`randAlphaNum 32`; on a 2-region Sovereign each region's own
+#   Flux/Helm misses the lookup and mints a DIFFERENT value, and hubble.<fqdn>
+#   is fanned at BOTH regions' envoys by one shared wildcard VIP — so the two
+#   proxies reject each other's AES-encrypted session cookie ("cookie signature
+#   not valid" / "CSRF token mismatch"). Same class + same chart idiom as the
+#   bp-oidc-gate defect measured live on hw290. The client secret never had the
+#   problem because 1.4.2 moved it off the generator onto the bp-sso-bridge
+#   AppRegistration → OpenBao → ExternalSecret carrier; the cookie secret now
+#   follows it: the declaration uses bp-sso-bridge 0.2.26's multi-key `data`
+#   form so ONE ExternalSecret delivers client-secret AND cookie-secret, and
+#   the Deployment reads both from it when ssoBridgeSync is on (default). With
+#   ssoBridgeSync off both stay chart-managed — single-region shape unchanged.
+#   Needs bp-sso-bridge >= 0.2.26 (both pins bump in the same commit; an older
+#   bridge still applies the 1-key form, so no other key regresses).
+version: 1.4.18
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`

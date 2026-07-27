@@ -141,7 +141,7 @@ spec:
       # 1370 → 1420 (WG-only). Layers on the 1.4.9/1.4.10 zero-nodeport +
       # authMode=legacy work. Cross-region ClusterMesh pod path needs a fresh
       # 2-region prov to verify (datapath change). Refs #4656.
-      version: 1.4.17
+      version: 1.4.18
       sourceRef:
         kind: HelmRepository
         name: bp-cilium

@@ -462,7 +462,13 @@ catalystOverlay:
       # client and publishes the LIVE KC secret to OpenBao
       # `sso/sovereign/hubble-ui`, and (b) consumes it via ExternalSecret
       # `hubble-ui-oauth2-proxy-oidc` for OAUTH2_PROXY_CLIENT_SECRET.
-      # cookie-secret remains chart-managed (no KC counterpart).
+      # #5416: OAUTH2_PROXY_COOKIE_SECRET now comes down the same
+      # ExternalSecret (key `cookie-secret` <- bundle property
+      # `cookie_secret`, published by bp-sso-bridge 0.2.26+). Chart-managed
+      # meant lookup-or-generate, which mints a DIFFERENT value per region on
+      # a 2-region Sovereign, so the two proxies behind the one shared
+      # wildcard VIP rejected each other's session cookie. With
+      # ssoBridgeSync off both keys stay chart-managed.
       ssoBridgeSync:
         enabled: true
         externalSecretStoreName: vault-region1

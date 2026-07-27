@@ -126,8 +126,26 @@ spec:
             # #3374: with ssoBridgeSync the client-secret comes from the
             # bp-sso-bridge-published ExternalSecret (the LIVE Keycloak
             # value) instead of the chart-generated one that Keycloak
-            # never learned (the hw130 unauthorized_client 500). The
-            # cookie-secret stays chart-managed either way.
+            # never learned (the hw130 unauthorized_client 500).
+            #
+            # #5416: the cookie-secret now follows it. Chart-managed meant
+            # `lookup`-or-generate, which mints a DIFFERENT value in each
+            # region of a 2-region Sovereign (separate apiservers, separate
+            # Flux/Helm) — and hubble.<fqdn> is fanned at both regions' envoys
+            # by one shared wildcard VIP, so each proxy rejected the peer
+            # region's session cookie. bp-sso-bridge 0.2.26 derives one value
+            # per KC client into the OpenBao bundle and its multi-key
+            # declaration delivers it alongside client-secret. With
+            # ssoBridgeSync off, both keys stay on the chart-managed Secret
+            # (single-region behaviour, unchanged).
+            #
+            # UPGRADE WINDOW: bp-sso-bridge must reach 0.2.26 for the
+            # `cookie-secret` key to appear on hubble-ui-oauth2-proxy-oidc.
+            # Both pins bump in the same commit; until the bridge's next tick
+            # applies the 2-key ExternalSecret this Pod waits in
+            # CreateContainerConfigError, then starts on its own. An older
+            # bridge still applies the 1-key form (the declaration keeps the
+            # legacy secretKey/property fields), so nothing else regresses.
             - name: OAUTH2_PROXY_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -140,7 +158,11 @@ spec:
             - name: OAUTH2_PROXY_COOKIE_SECRET
               valueFrom:
                 secretKeyRef:
+                  {{- if $proxy.ssoBridgeSync.enabled }}
+                  name: hubble-ui-oauth2-proxy-oidc
+                  {{- else }}
                   name: {{ $proxy.existingSecret | quote }}
+                  {{- end }}
                   key: cookie-secret
           ports:
             - name: http
