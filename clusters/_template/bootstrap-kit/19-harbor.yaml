@@ -230,7 +230,7 @@ spec:
       # camelCase; the s3 overlay above now sets the correct lowercase key).
       # 1.2.45: #5406 — ONE session/queue/cache store per Sovereign. See the
       # crossRegion block in `values:` below for the full wiring + rationale.
-      version: 1.2.45
+      version: 1.2.46
       sourceRef:
         kind: HelmRepository
         name: bp-harbor
