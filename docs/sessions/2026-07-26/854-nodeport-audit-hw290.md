@@ -117,3 +117,27 @@ kubectl get svc -A -o json | jq '.items[] | select(.spec.type=="NodePort")'
 ```
 
 **393 Services across a live, converged, 2-region Sovereign — zero NodePorts.** The mothership's five belong to `cinova`, `iogrid` and `ping-marketing`, three of them cert-manager HTTP-01 solver Services that cert-manager generates as NodePort by default and that no chart declares. Disposition for each is unchanged and recorded above.
+
+---
+
+## Re-confirmation 2026-07-27T05:22:04Z — POST registry-pivot
+
+Re-run after the sovereignty cutover completed `registry-pivot` (step 04) and
+`helmrepository-patches` (step 06), which rewrote registry routing and Helm
+sources. This is the first audit against the pivoted state, not a repeat of the
+pre-pivot one — region-A's service count moved 235 -> 200 across the pivot.
+
+```
+region-a: services=200  type=NodePort=0  LB-with-allocated-nodePort=0
+region-b: services=159  type=NodePort=0  LB-with-allocated-nodePort=0
+```
+
+Zero `Service type=NodePort` on either region. Also zero `type=LoadBalancer`
+services carrying an auto-allocated `nodePort`, which is the subtler §854
+violation — a LB Service silently allocates nodePorts unless the platform
+prevents it, and targeting those is explicitly forbidden.
+
+The repo-side half remains untestable-by-construction: no chart under
+`platform/`, `products/` or `core/` declares `type: NodePort`. The only match is
+a comment in `platform/powerdns/chart/Chart.yaml:71` forbidding them. There is
+nothing to convert.
