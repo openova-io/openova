@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-27T07:15:02Z` |
+| Last refreshed | `2026-07-27T07:30:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 56 |
 | Open DoD gates | 0 / 41 |
@@ -212,8 +212,6 @@ flowchart LR
 | [#5265](https://github.com/openova-io/openova/issues/5265) | Post-cutover Day-2 gap: Gitea mirror re-syncs pin bumps but nothing syncs new ch | Other |
 | [#5285](https://github.com/openova-io/openova/issues/5285) | Failed deployment's watch-informers flood catalyst-api → starve /wipe + /deplo | Other |
 | [#5328](https://github.com/openova-io/openova/issues/5328) | Permanence: break-glass record-less env wipe — scripts/wipe-recordless-env.sh  | Other |
-| [#5339](https://github.com/openova-io/openova/issues/5339) | vpc-podcidr-route-reconciler CronJob(*/5) delays cross-region datapath recovery  | Other |
-| [#5345](https://github.com/openova-io/openova/issues/5345) | fix(catalog-seed): 5 visibility:listed blueprints present as installable but hav | Other |
 | [#5348](https://github.com/openova-io/openova/issues/5348) | 🛑 §854: 3 live NodePort services on the mothership (cinova, iogrid, cert-man | Other |
 | [#5349](https://github.com/openova-io/openova/issues/5349) | 🛑 §-compliance + durability: mothership runs entirely on local-path StorageC | Other |
 | [#5358](https://github.com/openova-io/openova/issues/5358) | SSO: Guacamole intermittently rejects the valid Keycloak id_token (invalid/old n | Other |
@@ -256,6 +254,8 @@ flowchart LR
 | [#5439](https://github.com/openova-io/openova/issues/5439) | catalyst-api re-tethers a cut-over Sovereign: orgTenantSharedHelmRepositories ha | Other |
 | [#5440](https://github.com/openova-io/openova/issues/5440) | ClusterMesh cross-region service import died during cutover — Harbor/Gitea/new | Other |
 | [#5442](https://github.com/openova-io/openova/issues/5442) | harbor-prewarm warms images from the LIVE CLUSTER but charts from the MIRROR's p | Other |
+| [#5443](https://github.com/openova-io/openova/issues/5443) | Cutover pivots the marketplace resolver to local Harbor but never mirrors the ca | Other |
+| [#5444](https://github.com/openova-io/openova/issues/5444) | Console Blueprint version editor accepts a version that exists in no registry an | Other |
 
 ---
 
