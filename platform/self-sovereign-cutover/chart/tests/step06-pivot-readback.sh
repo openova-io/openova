@@ -238,8 +238,13 @@ run_case() {
   : > "${TMP}/listcount"
   local rc=0
   set +e
+  # env -i so the step script sees ONLY the rendered env + the harness fakes —
+  # a stray inherited HELMREPO_* would make the assertions meaningless. The
+  # ambient PATH is carried through (behind ${TMP}/bin, so the fake kubectl
+  # still wins) because jq/base64/coreutils live in different prefixes on
+  # different runners.
   env -i \
-    PATH="${TMP}/bin:/usr/bin:/bin" \
+    PATH="${TMP}/bin:${PATH}" \
     HOME="${TMP}" \
     FAKE_STATE="${TMP}/state.txt" \
     FAKE_LIST_COUNT="${TMP}/listcount" \
