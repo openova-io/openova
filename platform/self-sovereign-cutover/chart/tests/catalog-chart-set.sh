@@ -10,7 +10,7 @@
 #      — and the right HARD/SOFT split — from a live-shaped Blueprint CR list.
 #   B. `catalog_guard_missing` reports exactly the contractual entries absent
 #      from the local registry (the probe that found #5443 on hw290).
-#   C. `catalog_chart_images` enumerates a chart's images by RENDERING it, which
+#   C. `chart_declared_images` enumerates a chart's images by RENDERING it, which
 #      is the only enumeration available for a chart nobody installed (#5442).
 #   D. Step-03 actually WIRES all of it: mount, source, mirror-set union, guard,
 #      image pass — plus the RBAC that lets the Job read Blueprint CRs at all.
@@ -66,7 +66,7 @@ fi
 # shellcheck source=/dev/null
 . "$TMP/catalog-set.sh"
 
-for fn in catalog_chart_set catalog_guard_missing catalog_chart_images; do
+for fn in catalog_chart_set catalog_guard_missing chart_declared_images; do
   if ! command -v "$fn" >/dev/null 2>&1; then
     echo "FAIL: ${fn} not defined by the rendered library (#5443)" >&2
     exit 1
@@ -164,7 +164,7 @@ n_none=$(catalog_guard_missing "$TMP/hard.tsv" "$TMP/present.all" | wc -l)
 [ "$n_none" -eq 0 ] || bad "a fully-stocked registry must yield zero missing entries, got ${n_none}"
 [ "$fail" -eq 0 ] && note "PASS (partial => the exact 2 missing; empty => all ${n_hard}; complete => none)"
 
-# ── Case C: catalog_chart_images renders a chart to enumerate its images ─────
+# ── Case C: chart_declared_images renders a chart to enumerate its images ────
 echo "[catalog-chart-set] Case C: images come from the CHART (the live-cluster walk cannot see an uninstalled chart, #5442)"
 FIX="$TMP/fixture"
 mkdir -p "$FIX/templates"
@@ -177,6 +177,8 @@ cat > "$FIX/values.yaml" <<'YAML'
 image:
   repository: ghcr.io/openova-io/openova/fixture-app
   tag: "1.2.3"
+missing:
+  tag: ""
 YAML
 cat > "$FIX/templates/deploy.yaml" <<'YAML'
 apiVersion: apps/v1
@@ -196,6 +198,11 @@ spec:
           image: quay.io/cilium/cilium:v1.17.1
         - name: floating
           image: ghcr.io/openova-io/openova/no-tag-here
+        # An overlay-supplied tag renders EMPTY; mirroring it would fail the
+        # copy and, under chartImages.fatal, fail the cutover on a ref nothing
+        # will ever pull.
+        - name: emptytag
+          image: "ghcr.io/openova-io/openova/overlay-supplied:{{ .Values.missing.tag }}"
         # FLOW style: `helm template` emits template text verbatim, so a chart
         # authored this way never puts `image:` at the start of a line.
         - {name: flow, image: registry.k8s.io/pause:3.10}
@@ -210,7 +217,7 @@ spec:
 YAML
 helm package "$FIX" -d "$TMP" >/dev/null
 TGZ="$TMP/bp-fixture-0.1.0.tgz"
-CATALOG_SET_TMPDIR="$TMP" catalog_chart_images "$TGZ" > "$TMP/imgs.txt" 2> "$TMP/imgs.err" || true
+CATALOG_SET_TMPDIR="$TMP" chart_declared_images "$TGZ" > "$TMP/imgs.txt" 2> "$TMP/imgs.err" || true
 for want in \
   "ghcr.io/openova-io/openova/fixture-app:1.2.3" \
   "docker.io/library/busybox:1.36" \
@@ -223,29 +230,43 @@ if grep -q 'no-tag-here' "$TMP/imgs.txt"; then
   bad "an untagged ref must not be mirrored (an implicit :latest is not a deterministic target)"
 fi
 grep -q 'no-tag-here' "$TMP/imgs.err" || bad "the untagged ref was dropped SILENTLY — it must be named on stderr"
+if grep -q 'overlay-supplied' "$TMP/imgs.txt"; then
+  bad "an EMPTY-tag ref must not be mirrored — under chartImages.fatal it would fail the cutover on a ref nothing pulls (#5442)"
+fi
+grep -q 'overlay-supplied' "$TMP/imgs.err" || bad "the empty-tag ref was dropped SILENTLY — it must be named on stderr"
 # A chart that cannot render must say so, not pretend it has no images.
 printf 'not a chart' > "$TMP/broken.tgz"
-CATALOG_SET_TMPDIR="$TMP" catalog_chart_images "$TMP/broken.tgz" > "$TMP/broken.out" 2> "$TMP/broken.err" || true
+CATALOG_SET_TMPDIR="$TMP" chart_declared_images "$TMP/broken.tgz" > "$TMP/broken.out" 2> "$TMP/broken.err" || true
 [ ! -s "$TMP/broken.out" ] || bad "a broken chart must yield no images"
 grep -qi 'WARN' "$TMP/broken.err" || bad "a chart that cannot be rendered must WARN, not fail silently"
 [ "$fail" -eq 0 ] && note "PASS ($(wc -l < "$TMP/imgs.txt") images incl. initContainer + CR field; untagged skipped + named; unrenderable chart WARNs)"
 
 # ── Case D: step-03 + RBAC actually wire the library ─────────────────────────
-echo "[catalog-chart-set] Case D: step-03 mounts, unions, guards, and mirrors catalog-chart images"
+echo "[catalog-chart-set] Case D: step-03 mounts, unions, guards, and warms images from the PINNED CHARTS"
 grep -q '/catalog-set/catalog-set.sh' "$TMP/prewarm.sh" \
   || bad "step-03 never sources the catalog chart-set library"
 grep -q 'catalog_chart_set ' "$TMP/prewarm.sh" \
   || bad "step-03 never calls catalog_chart_set — the mirror set is still derived only from what is INSTALLED (#5443)"
 grep -q 'catalog_guard_missing ' "$TMP/prewarm.sh" \
   || bad "step-03 never calls catalog_guard_missing — nothing asserts the marketplace's advertised set against the pivoted registry (#5443)"
-grep -q 'catalog_chart_images ' "$TMP/prewarm.sh" \
-  || bad "step-03 never calls catalog_chart_images — a mirrored chart whose images are absent fails at pod-pull instead of chart-pull (#5442)"
+grep -q 'chart_declared_images ' "$TMP/prewarm.sh" \
+  || bad "step-03 never calls chart_declared_images — image tags would still come from the LIVE CLUSTER while chart versions come from the mirror pins (#5442)"
 grep -q 'harbor_durable_digest' "$TMP/prewarm.sh" \
   || bad "the guard must probe Harbor's DURABLE artifact API (#5030), not a pull-through-able registry read"
 grep -q 'chart_hard' "$TMP/prewarm.sh" \
   || bad "step-03 has no HARD/SOFT split — either the widened mirror set makes every unlisted stale pin fatal, or the contractual set lost its teeth (#5443)"
 grep -q 'name: catalog-chart-set' "$TMP/podspec.yaml" \
   || bad "the step-03 podSpec does not mount the cutover-catalog-chart-set ConfigMap"
+# #5442: the image enumeration must iterate the WHOLE contractual chart set
+# (bootstrap-kit pins + live-HR union + contractual catalog), not the catalog
+# slice alone — the hw290 control-plane outage was on bootstrap-kit charts.
+grep -q 'done < "${chart_hard}"' "$TMP/prewarm.sh" \
+  || bad "the chart-derived image pass does not iterate the full pinned chart set — the bootstrap-kit leg of #5442 (catalyst-api/ui/organization-controller) stays uncovered"
+grep -q 'PREWARM_CHART_IMAGES' "$TMP/prewarm.sh" \
+  || bad "step-03 has no chart-derived image phase (#5442)"
+# The union property: the live-cluster walk must NOT have been replaced.
+grep -q 'openova_images=' "$TMP/prewarm.sh" \
+  || bad "the live-cluster image walk was removed — the chart-derived set must UNION with it, never replace it (a default-values render cannot see a conditional image the runtime walk does)"
 # NB: two greps in a pipeline would SIGPIPE the writer under `set -o pipefail`
 # the moment the reader exits early (#5370, #5406) — stage through a file.
 grep -A3 'apiGroups: \["catalyst.openova.io"\]' "$TMP/render.yaml" > "$TMP/rbac.txt" || true

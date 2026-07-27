@@ -47,7 +47,7 @@ WHY A SHARED LIBRARY. Same single-source discipline as the #4975 offline-mirror
 resolver (03a) and the #5237 bootstrap-kit pin extractor (03b): step-03 uses
 `catalog_chart_set` to build the mirror set AND `catalog_guard_missing` to
 assert the result, so the set that is mirrored and the set that is judged can
-never fork. `catalog_chart_images` closes the #5442 layer-down leg: prewarm's
+never fork. `chart_declared_images` closes #5442 and #5443's layer-down leg: prewarm's
 image enumeration walks the LIVE cluster's Pods, which by construction cannot
 know the images of a chart nobody has installed — so the images for a catalog
 chart must come from the CHART. `helm template` is a faithful (not heuristic)
@@ -73,7 +73,7 @@ metadata:
 data:
   catalog-set.sh: |
     # POSIX sh. `catalog_chart_set` needs jq (step-03 installs/verifies it);
-    # `catalog_chart_images` needs helm (present in alpine/k8s, the canonical
+    # `chart_declared_images` needs helm (present in alpine/k8s, the canonical
     # cutover-step image — step-06 already relies on it). Pure functions: no
     # side effects beyond a scratch render file under ${CATALOG_SET_TMPDIR}.
 
@@ -177,7 +177,7 @@ data:
       return 0
     }
 
-    # catalog_chart_images CHART_TGZ
+    # chart_declared_images CHART_TGZ
     #
     #   Renders the packaged chart at DEFAULT values and emits every image
     #   reference the render pins, one per line, sorted + deduped. This is the
@@ -195,7 +195,7 @@ data:
     #   stderr: render failures + per-ref skips.
     #   exit  : always 0 — a chart that cannot be rendered yields no images and
     #           says so loudly; the caller owns the policy.
-    catalog_chart_images() {
+    chart_declared_images() {
       _ci_tgz="$1"
       [ -f "${_ci_tgz}" ] || { echo "[catalog-set] WARN: chart archive ${_ci_tgz} not found — no images enumerated" >&2; return 0; }
       command -v helm >/dev/null 2>&1 || { echo "[catalog-set] WARN: helm missing from PATH — cannot render ${_ci_tgz} for image enumeration" >&2; return 0; }
@@ -230,9 +230,24 @@ data:
               '|'|'>'|'|-'|'>-'|'|+'|'>+') continue ;;
               *' '*|*'	'*|*'$'*|*'{'*) continue ;;
             esac
+            # Tag/digest sanity. An untagged ref means an implicit `:latest`,
+            # which is not a deterministic mirror target. An EMPTY tag
+            # (`repo:`) and a placeholder tag are what a chart renders for a
+            # component whose image is supplied by an overlay — mirroring
+            # either would fail the copy and, under chartImages.fatal, fail the
+            # cutover on a ref nothing will ever pull.
             _ci_last="${_ci_ref##*/}"
             case "${_ci_last}" in
-              *@*|*:*) : ;;
+              *@*) : ;;
+              *:)
+                echo "[catalog-set] WARN: ${_ci_tgz##*/} renders '${_ci_ref}' with an EMPTY tag — skipping (an overlay supplies this tag; there is nothing deterministic to mirror)" >&2
+                continue ;;
+              *:*)
+                case "${_ci_last##*:}" in
+                  *laceholder*|*LACEHOLDER*|*hangeme*|*HANGEME*|'<'*|*'>')
+                    echo "[catalog-set] WARN: ${_ci_tgz##*/} renders '${_ci_ref}' with a placeholder tag — skipping (not a real upstream artifact)" >&2
+                    continue ;;
+                esac ;;
               *)
                 echo "[catalog-set] WARN: ${_ci_tgz##*/} pins untagged image '${_ci_ref}' — skipping (implicit :latest is not a deterministic mirror target)" >&2
                 continue ;;

@@ -344,10 +344,12 @@ data:
             value: {{ .Values.prewarm.catalogCharts.guard.enabled | quote }}
           - name: PREWARM_CATALOG_HARD_VISIBILITY
             value: {{ .Values.prewarm.catalogCharts.hardVisibility | quote }}
-          - name: PREWARM_CATALOG_IMAGES
-            value: {{ .Values.prewarm.catalogCharts.images.enabled | quote }}
-          - name: PREWARM_CATALOG_IMAGES_FATAL
-            value: {{ .Values.prewarm.catalogCharts.images.fatal | quote }}
+          # #5442 — warm images from the PINNED CHART VERSIONS, unioned with
+          # (never replacing) the live-cluster walk.
+          - name: PREWARM_CHART_IMAGES
+            value: {{ .Values.prewarm.chartImages.enabled | quote }}
+          - name: PREWARM_CHART_IMAGES_FATAL
+            value: {{ .Values.prewarm.chartImages.fatal | quote }}
           - name: CATALOG_BLUEPRINT_RESOURCE
             value: {{ .Values.prewarm.catalogCharts.blueprintResource | quote }}
           - name: CATALOG_BLUEPRINT_RESOURCE_FALLBACK
@@ -381,7 +383,7 @@ data:
             # over the HOST_PROJECT_MAP / EXCLUDED_* / LOCAL_REGISTRY_HOST env.
             . /resolver/resolver.sh
             # #5443 — the catalog chart-set extractor (03c). Defines
-            # catalog_chart_set + catalog_guard_missing + catalog_chart_images.
+            # catalog_chart_set + catalog_guard_missing + chart_declared_images.
             # Pure functions; sourced here so Phase A2-catalog, the Phase
             # A2-guard and Phase A3-catalog-images all read ONE definition of
             # "what the marketplace offers".
@@ -1978,35 +1980,58 @@ data:
               echo "[harbor-prewarm] Phase A2-guard DISABLED — the marketplace's advertised set is NOT asserted against the pivoted registry (#5443)"
             fi
 
-            # ── Phase A3-catalog-images (#5443, Refs #5442): mirror the IMAGES
-            # of the catalog charts.
+            # ── Phase A3-chart-images (#5442, Refs #5443 #5237 #5437): warm the
+            # images the PINNED CHART VERSIONS reference — not only the images
+            # the cluster happens to be running.
             #
-            # A mirrored chart whose images are absent fails at pod-pull instead
-            # of chart-pull — the same outage one layer down. Phase A's image
-            # enumeration walks the LIVE cluster's Pods, which by construction
-            # cannot know the images of a chart nobody has installed (#5442), so
-            # for the catalog set the images must come from the CHART. We pull
-            # each contractual chart back OUT of the local Harbor we just stocked
-            # (proving the mirror in passing, and costing no extra upstream
-            # egress), render it at default values, and mirror every image the
-            # render pins through the SAME resolver + copy_one the image wave
-            # used. blueprint-release.yaml gates every published bp-* chart on a
-            # default-values `helm template` of the packaged tgz, so this render
-            # is faithful, not heuristic.
+            # #5442: harbor-prewarm sources its two inputs from two places that
+            # agree ONLY while the cluster has already converged to what the
+            # mirror declares — chart versions from the mirror's pins (Phase A2
+            # / A2-pins), image tags from the LIVE CLUSTER (running Pods ∪
+            # declared templates). A completely FRESH mirror pinning a chart
+            # whose images the cluster has not yet rolled to reproduces the
+            # outage with NO staleness involved, so it survives the #5441
+            # stale-snapshot fix: step-05 pivots Flux onto charts pinning images
+            # the prewarm never warmed, and the local registry correctly answers
+            # NotFound. Live hw290 2026-07-27 — catalyst-api, catalyst-ui and
+            # catalyst-organization-controller all ImagePullBackOff on local
+            # tags that did not exist, and the Sovereign could not self-heal
+            # because catalyst-api is what DRIVES the cutover; recovery meant
+            # hand-pinning all three back to ghcr, i.e. re-tethering.
             #
-            # Best-effort by default: the render is a superset-free view (a
-            # conditional path a per-Org install enables can pin an image the
-            # default render omits), so a hard failure here could fail cutovers
-            # for a gap the enumeration cannot see either way. Every miss is
-            # named, and prewarm.catalogCharts.images.fatal=true escalates for
-            # operators who want the stricter posture.
-            : "${PREWARM_CATALOG_IMAGES:=true}"
-            : "${PREWARM_CATALOG_IMAGES_FATAL:=false}"
-            if [ "${PREWARM_CATALOG_IMAGES}" = "true" ] && [ "${PREWARM_CATALOG_CHARTS}" = "true" ] && [ -s "${catalog_hard}" ]; then
-              echo "[harbor-prewarm] Phase A3-catalog-images (#5443 Refs #5442): enumerating images FROM the catalog charts (the live-cluster walk cannot see an uninstalled chart)"
-              cat_img_set=/tmp/.catalog-images.txt
+            # #5443's layer-down leg is the same defect seen from the other end:
+            # a mirrored catalog chart whose images are absent fails at pod-pull
+            # instead of chart-pull. Phase A's live-cluster walk by construction
+            # cannot know the images of a chart NOBODY HAS INSTALLED, which is
+            # every catalog entry the marketplace offers but no Org has bought.
+            #
+            # ONE mechanism closes both: the input for the contractual set
+            # becomes the CHART. Every chart in `chart_hard` — the live-HR
+            # deployed∪desired union, the frozen bootstrap-kit pins, and the
+            # contractual catalog entries — is pulled back OUT of the local
+            # Harbor it was just mirrored into (skopeo `dir:` transport: no
+            # `helm registry login` dance, no extra upstream egress, and it
+            # proves the chart mirror in passing), rendered at DEFAULT values,
+            # and every image the render pins is mirrored through the SAME
+            # offline-mirror resolver + copy_one the live wave used, so step-08's
+            # completeness HEAD looks at identical local paths.
+            # blueprint-release.yaml gates every published bp-* chart on a
+            # default-values `helm template` of the packaged tgz (plus a <5-line
+            # empty-render block), so the render is faithful, not heuristic.
+            #
+            # UNION, NOT REPLACEMENT. The live-cluster walk stays exactly as it
+            # was and this set is added to it. Replacing it would be strictly
+            # WORSE: a default-values render cannot see an image behind a
+            # conditional a per-Sovereign overlay turns on, which the runtime
+            # walk does see. A union can only widen coverage, never narrow it —
+            # so this cannot regress any cutover that works today.
+            : "${PREWARM_CHART_IMAGES:=true}"
+            : "${PREWARM_CHART_IMAGES_FATAL:=true}"
+            if [ "${PREWARM_CHART_IMAGES}" = "true" ] && [ -s "${chart_hard}" ]; then
+              echo "[harbor-prewarm] Phase A3-chart-images (#5442 Refs #5443): enumerating images FROM the $(grep -c . "${chart_hard}" || true) pinned chart version(s) — the post-pivot DECLARATION, not the pre-pivot runtime"
+              cat_img_set=/tmp/.chart-images.txt
               : > "${cat_img_set}"
-              cat_pull_dir=/tmp/catalog-charts
+              cat_pull_dir=/tmp/chart-image-renders
               rm -rf "${cat_pull_dir}"; mkdir -p "${cat_pull_dir}"
               CATALOG_SET_TMPDIR=/tmp
               export CATALOG_SET_TMPDIR
@@ -2042,7 +2067,7 @@ data:
                     --src-tls-verify="${PREWARM_DEST_TLS_VERIFY}" \
                     "docker://${HARBOR_HOST}/openova-io/${ci_c}:${ci_v}" \
                     "dir:${ci_dir}" >"${cat_pull_dir}/${ci_slug}.log" 2>&1; then
-                  echo "[harbor-prewarm] Phase A3-catalog-images WARN: could not pull chart ${ci_c}:${ci_v} back from local Harbor for image enumeration"
+                  echo "[harbor-prewarm] Phase A3-chart-images WARN: could not pull chart ${ci_c}:${ci_v} back from local Harbor for image enumeration"
                   sed 's/^/    /' "${cat_pull_dir}/${ci_slug}.log" 2>/dev/null || true
                   cat_render_fail=$((cat_render_fail+1))
                   continue
@@ -2057,17 +2082,17 @@ data:
                   if tar -tzf "${b}" >/dev/null 2>&1; then ci_tgz="${b}"; break; fi
                 done
                 if [ -z "${ci_tgz}" ]; then
-                  echo "[harbor-prewarm] Phase A3-catalog-images WARN: no chart tarball layer found in the ${ci_c}:${ci_v} OCI artifact — image enumeration skipped"
+                  echo "[harbor-prewarm] Phase A3-chart-images WARN: no chart tarball layer found in the ${ci_c}:${ci_v} OCI artifact — image enumeration skipped"
                   cat_render_fail=$((cat_render_fail+1))
                   continue
                 fi
-                ci_imgs=$(catalog_chart_images "${ci_tgz}" 2>/tmp/.catalog-images.err || true)
-                sed 's/^/    /' /tmp/.catalog-images.err 2>/dev/null || true
+                ci_imgs=$(chart_declared_images "${ci_tgz}" 2>/tmp/.chart-images.err || true)
+                sed 's/^/    /' /tmp/.chart-images.err 2>/dev/null || true
                 ci_n=$(printf '%s\n' "${ci_imgs}" | grep -c . || true)
-                echo "[harbor-prewarm] Phase A3-catalog-images: ${ci_c}:${ci_v} renders ${ci_n} image ref(s)"
+                echo "[harbor-prewarm] Phase A3-chart-images: ${ci_c}:${ci_v} renders ${ci_n} image ref(s)"
                 [ -n "${ci_imgs}" ] && printf '%s\n' "${ci_imgs}" >> "${cat_img_set}"
                 rm -rf "${ci_dir}"
-              done < "${catalog_hard}"
+              done < "${chart_hard}"
               sort -u "${cat_img_set}" -o "${cat_img_set}"
               # Drop everything the image wave already mirrored, and resolve the
               # remainder through the SHARED coverage map so step-08's
@@ -2087,9 +2112,9 @@ data:
                 esac
               done < "${cat_img_set}"
               cat_img_n=$(printf '%s\n' ${cat_img_work} | grep -c . || true)
-              echo "[harbor-prewarm] Phase A3-catalog-images: ${cat_img_n} catalog-chart image(s) not already covered by the live-cluster wave"
+              echo "[harbor-prewarm] Phase A3-chart-images: ${cat_img_n} chart-declared image(s) not already covered by the live-cluster wave — exactly the #5442 gap"
               if [ -n "${cat_img_unmapped}" ]; then
-                echo "[harbor-prewarm] Phase A3-catalog-images UNMAPPED — catalog charts pin image(s) from registry host(s) absent from offlineMirror.hostProjects; they cannot be mirrored and will ImagePullBackOff post-severance:"
+                echo "[harbor-prewarm] Phase A3-chart-images UNMAPPED — pinned chart(s) reference image(s) from registry host(s) absent from offlineMirror.hostProjects; they CANNOT be mirrored and will ImagePullBackOff post-severance:"
                 for u in ${cat_img_unmapped}; do echo "  UNMAPPED ${u}"; done
               fi
               # Second image wave — copy_one verbatim, over its own sentinel dir
@@ -2098,7 +2123,7 @@ data:
               # routing instead of re-paying the timeout tax.
               cat_img_fail=0
               if [ "${cat_img_n}" -gt 0 ]; then
-                cat_cpdir=/tmp/prewarm-catalog-copies
+                cat_cpdir=/tmp/prewarm-chart-image-copies
                 rm -rf "${cat_cpdir}"; mkdir -p "${cat_cpdir}"
                 [ -f "${cpdir}/.proxy_down" ] && touch "${cat_cpdir}/.proxy_down"
                 # copy_one writes its sentinels into the GLOBAL cpdir; point it
@@ -2107,12 +2132,12 @@ data:
                 cat_cpdir_saved="${cpdir}"
                 cpdir="${cat_cpdir}"
                 rm -f "${cat_cpdir}/.hb_stop"
-                progress_heartbeat "${cat_img_n}" "${cat_cpdir}" "Phase A3-catalog-images" &
+                progress_heartbeat "${cat_img_n}" "${cat_cpdir}" "Phase A3-chart-images" &
                 cat_hb_pid=$!
                 cat_pids=""
                 cat_allpids=""
                 for ci_up in ${cat_img_work}; do
-                  echo "[harbor-prewarm] queue catalog-image ${ci_up}"
+                  echo "[harbor-prewarm] queue chart-image ${ci_up}"
                   copy_one "${ci_up}" &
                   _cip=$!
                   cat_pids="${cat_pids} ${_cip}"
@@ -2146,19 +2171,69 @@ data:
                   ci_slug=$(basename "${f}" .fail)
                   sed 's/^/  /' "${cat_cpdir}/${ci_slug}.log" 2>/dev/null || true
                   cat_img_fail=$((cat_img_fail+1))
-                  echo "[harbor-prewarm] Phase A3-catalog-images FAIL ${ci_detail}"
+                  echo "[harbor-prewarm] Phase A3-chart-images FAIL ${ci_detail}"
                 done
-                echo "[harbor-prewarm] Phase A3-catalog-images complete: ok=${cat_img_ok} fail=${cat_img_fail} render_fail=${cat_render_fail}"
+                echo "[harbor-prewarm] Phase A3-chart-images copy wave complete: ok=${cat_img_ok} fail=${cat_img_fail} render_fail=${cat_render_fail}"
               else
-                echo "[harbor-prewarm] Phase A3-catalog-images complete: every catalog-chart image was already covered by the live-cluster wave (render_fail=${cat_render_fail})"
+                echo "[harbor-prewarm] Phase A3-chart-images copy wave complete: every chart-declared image was already covered by the live-cluster wave (render_fail=${cat_render_fail})"
               fi
-              if [ "${PREWARM_CATALOG_IMAGES_FATAL}" = "true" ] \
-                 && { [ "${cat_img_fail}" -gt 0 ] || [ "${cat_render_fail}" -gt 0 ] || [ -n "${cat_img_unmapped}" ]; }; then
-                echo "[harbor-prewarm] FATAL (#5443): catalog-chart image coverage incomplete (copy_fail=${cat_img_fail} render_fail=${cat_render_fail} unmapped=$(printf '%s\n' ${cat_img_unmapped} | grep -c . || true)) and prewarm.catalogCharts.images.fatal=true — a Blueprint whose chart is pullable but whose images are not fails at pod-pull under the deny-egress hold instead of chart-pull here."
+              # ── Phase A3-guard (#5442): every image the pinned charts declare
+              # must resolve DURABLY in local Harbor.
+              #
+              # "skopeo returned 0" and "the pivoted registry serves it" are not
+              # the same claim — #5030 is the whole class where a dest read is
+              # satisfied by a pull-through that persists a manifest and no
+              # blobs, and #4994's skip-if-present can elide a copy on exactly
+              # that basis. So the guard re-asserts through the SAME
+              # harbor_durable_digest (Harbor CORE's artifact API — its
+              # database, never a pull-through) that the skip trusts and that
+              # step-08's completeness gate makes. It covers the WHOLE
+              # chart-declared set, including refs the live wave was credited
+              # with, because a false-present there is precisely how the hw290
+              # control plane ended up unpullable.
+              img_guard_missing=/tmp/.chart-image-missing.txt
+              : > "${img_guard_missing}"
+              img_guard_n=0
+              while IFS= read -r ci_ref; do
+                [ -z "${ci_ref}" ] && continue
+                ci_paths=$(offlinemirror_local_paths "${ci_ref}")
+                case "${ci_paths}" in
+                  __UNMAPPED__*|"") continue ;;
+                esac
+                for ci_dpath in ${ci_paths}; do
+                  img_guard_n=$((img_guard_n+1))
+                  if [ -z "$(harbor_durable_digest "${ci_dpath}")" ]; then
+                    printf '%s -> %s\n' "${ci_ref}" "${ci_dpath}" >> "${img_guard_missing}"
+                  fi
+                done
+              done < "${cat_img_set}"
+              img_missing_n=$(grep -c . "${img_guard_missing}" || true)
+              if [ "${img_missing_n}" -eq 0 ]; then
+                echo "[harbor-prewarm] Phase A3-guard (#5442): PASS — all ${img_guard_n} local path(s) for the chart-declared image set are durably present in local Harbor"
+              else
+                echo "[harbor-prewarm] Phase A3-guard (#5442): ${img_missing_n}/${img_guard_n} chart-declared image path(s) NOT durably present in local Harbor:"
+                sed 's/^/  MISSING /' "${img_guard_missing}"
+              fi
+              # FATAL policy. copy failures, un-mappable registry hosts and
+              # durable-presence misses are all PROVEN post-severance
+              # ImagePullBackOffs — the same two conditions Phase A already
+              # FATALs on for the runtime-derived set, applied to the second
+              # input. Failing HERE, with egress still open and the offender
+              # named, is recoverable; discovering it after the pivot can strand
+              # the control plane that drives the cutover (hw290). A chart that
+              # failed to RENDER is deliberately NOT fatal: it makes no claim
+              # about images either way, so failing on it would fail a cutover
+              # on an enumeration hiccup rather than a missing artifact.
+              if [ "${cat_render_fail}" -gt 0 ]; then
+                echo "[harbor-prewarm] Phase A3-chart-images WARN: ${cat_render_fail} chart(s) could not be pulled back or rendered (named above) — their images were NOT enumerated from the chart; those charts rely on the live-cluster wave alone (#5442)"
+              fi
+              if [ "${PREWARM_CHART_IMAGES_FATAL}" = "true" ] \
+                 && { [ "${cat_img_fail}" -gt 0 ] || [ "${img_missing_n}" -gt 0 ] || [ -n "${cat_img_unmapped}" ]; }; then
+                echo "[harbor-prewarm] FATAL (#5442): the pinned charts declare image(s) the local registry cannot serve (copy_fail=${cat_img_fail} durable_miss=${img_missing_n} unmapped=$(printf '%s\n' ${cat_img_unmapped} | grep -c . || true)). Step-05 pivots flux onto these exact chart versions, so every workload whose image is missing goes ImagePullBackOff against a registry that correctly answers NotFound — and if catalyst-api is among them the Sovereign cannot self-heal, because catalyst-api is what drives the cutover (live hw290 2026-07-27). Fix the named refs (extend offlineMirror.hostProjects for an UNMAPPED host; re-trigger step-03 with egress open for a copy failure) or set prewarm.chartImages.fatal=false to proceed knowing the post-pivot world is not fully pullable."
                 exit 1
               fi
             else
-              echo "[harbor-prewarm] Phase A3-catalog-images SKIP — disabled or no contractual catalog charts (#5443)"
+              echo "[harbor-prewarm] Phase A3-chart-images SKIP — prewarm.chartImages.enabled=false or an empty contractual chart set; image warming falls back to the LIVE-CLUSTER walk alone, which cannot see the images of a chart the cluster has not rolled to (#5442)"
             fi
 
             # ─── Phase A4 (#5204): warm Crossplane xpkg provider packages ──────
