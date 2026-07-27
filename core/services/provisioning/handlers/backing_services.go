@@ -105,15 +105,21 @@ func (h *Handler) GetTenantBackingServices(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Aggregate pods per service slug. The vCluster pod-sync pattern is
-	// `<service>-<hash>-x-apps-x-vcluster` for services running in the inner
-	// "apps" namespace of the vcluster.
-	const vclusterSuffix = "-x-apps-x-vcluster"
+	// Aggregate pods per service slug. vCluster syncs inner pods up to the host
+	// namespace as `<pod>-x-<inner-namespace>-x-vcluster`.
+	//
+	// The inner namespace is NOT a constant. This used to hardcode
+	// `-x-apps-x-vcluster`, but since #4290 the inner namespace is the Org slug,
+	// so real pods look like `umami-7c4df67dc6-vdwb7-x-theta-corp-x-vcluster`.
+	// Verified live on hw290: ZERO pods across the whole cluster carried the
+	// hardcoded `-x-apps-x-vcluster` form, so this matched nothing and every
+	// service reported "not_found" — a silent, total miss that looked like an
+	// answer.
 	type agg struct {
-		phase  string
-		ready  int
-		total  int
-		image  string
+		phase string
+		ready int
+		total int
+		image string
 	}
 	out := map[string]*agg{}
 	for name := range wanted {
@@ -121,16 +127,16 @@ func (h *Handler) GetTenantBackingServices(w http.ResponseWriter, r *http.Reques
 	}
 
 	for _, pod := range podList.Items {
-		name := pod.Metadata.Name
-		if !strings.HasSuffix(name, vclusterSuffix) {
+		podName, ok := vclusterInnerPodName(pod.Metadata.Name)
+		if !ok {
 			continue
 		}
-		// Strip suffix, then anything after the first `-` is the replica hash.
-		core := strings.TrimSuffix(name, vclusterSuffix)
-		// e.g. "postgres-79dc6fc6d-4n9r5" → prefix "postgres"
-		prefix := core
-		if i := strings.Index(core, "-"); i > 0 {
-			prefix = core[:i]
+		// Match against the requested slugs directly rather than splitting on
+		// the first `-`. Slugs contain dashes: splitting "uptime-kuma-8c8...-x-"
+		// on the first dash yields "uptime", which matches no requested slug.
+		prefix := matchWantedSlug(podName, wanted)
+		if prefix == "" {
+			continue
 		}
 		a, ok := out[prefix]
 		if !ok {
@@ -183,6 +189,44 @@ func (h *Handler) GetTenantBackingServices(w http.ResponseWriter, r *http.Reques
 		})
 	}
 	respond.OK(w, map[string]any{"services": services})
+}
+
+// vclusterInnerPodName recovers the inner pod name from a vCluster-synced host
+// pod name of the form `<pod>-x-<inner-namespace>-x-vcluster`, for ANY inner
+// namespace. Returns false for pods that are not vCluster-synced.
+func vclusterInnerPodName(hostName string) (string, bool) {
+	const tail = "-x-vcluster"
+	if !strings.HasSuffix(hostName, tail) {
+		return "", false
+	}
+	core := strings.TrimSuffix(hostName, tail)
+	// What remains is `<pod>-x-<inner-namespace>`. The inner namespace cannot
+	// itself contain `-x-`, so the LAST occurrence is the true separator even
+	// when the pod name contains one.
+	i := strings.LastIndex(core, "-x-")
+	if i <= 0 {
+		return "", false
+	}
+	return core[:i], true
+}
+
+// matchWantedSlug returns the requested slug that owns this pod, or "" if none
+// does. A pod belongs to a slug when its name is that slug or begins with
+// `<slug>-` (the replica-set/hash tail that Deployments append).
+//
+// The LONGEST match wins, so a slug like "uptime" can never shadow
+// "uptime-kuma" when both are requested.
+func matchWantedSlug(podName string, wanted map[string]bool) string {
+	best := ""
+	for slug := range wanted {
+		if podName != slug && !strings.HasPrefix(podName, slug+"-") {
+			continue
+		}
+		if len(slug) > len(best) {
+			best = slug
+		}
+	}
+	return best
 }
 
 func buildUnknownStatuses(wanted map[string]bool) []BackingServiceStatus {
