@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
-# 0.1.153 (#5443 #5442 Refs #3627 #5237 #5437 — MIRROR WHAT THE MARKETPLACE
+# 0.1.154 (#5443 #5442 Refs #3627 #5237 #5437 — MIRROR WHAT THE MARKETPLACE
 # OFFERS, and WARM WHAT THE PINNED CHARTS DECLARE —
 # not only what is installed. Step-06 pivots `openova-catalog` — the one
 # HelmRepository every per-Org Application HelmRelease resolves through — onto
@@ -2761,7 +2761,7 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.153
+version: 0.1.154
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
