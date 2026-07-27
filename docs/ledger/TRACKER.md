@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-27T02:00:02Z` |
+| Last refreshed | `2026-07-27T02:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 41 |
 | Open DoD gates | 0 / 41 |
@@ -248,6 +248,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-27T02:00 | [#5418](https://github.com/openova-io/openova/pull/5418) | #5406 | fix(harbor): sweep the duplicate-label class — the netpol te |
 | 2026-07-27T01:29 | [#5417](https://github.com/openova-io/openova/pull/5417) | #5406 | fix(harbor): duplicate catalyst.openova.io/component key fai |
 | 2026-07-27T00:57 | [#5415](https://github.com/openova-io/openova/pull/5415) | #5406 | fix(harbor): SIGPIPE-proof the cross-region redis test — a f |
 | 2026-07-27T00:57 | [#5413](https://github.com/openova-io/openova/pull/5413) | #5393 | fix(catalog): uptime-kuma OOMKills forever at its hard-coded |
@@ -277,7 +278,6 @@ flowchart LR
 | 2026-07-25T02:21 | [#5353](https://github.com/openova-io/openova/pull/5353) | #5352 | fix(catalyst-api): prune compliance_score series on resource |
 | 2026-07-24T04:20 | [#5347](https://github.com/openova-io/openova/pull/5347) | #5346 | chore(catalyst): umbrella 1.4.1210 — deliver #5346 catalog-s |
 | 2026-07-24T04:09 | [#5346](https://github.com/openova-io/openova/pull/5346) | #5345 | fix(catalog-seed): unlist 5 chartless blueprints (hollow ins |
-| 2026-07-24T01:06 | [#5343](https://github.com/openova-io/openova/pull/5343) | #5336 | fix(catalog-seed): sync bp-keycloak 1.5.5→1.5.6 — unblock ma |
 
 ---
 
