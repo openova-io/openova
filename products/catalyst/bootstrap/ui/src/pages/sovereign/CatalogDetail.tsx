@@ -127,7 +127,17 @@ export function CatalogDetail() {
     blueprintName?: string
     deploymentId?: string
   }
+  // `name` is the BARE blueprint name (no `bp-` prefix) and exists for DISPLAY
+  // only — headings, logo lookup, empty/error copy.
   const name = (params.blueprintName ?? '').replace(/^bp-/, '')
+  // #5449 — every API call on this page must use the `bp-`-qualified key.
+  // `/api/v1/catalog/alloy` and `/api/v1/catalog/bp-alloy` are DIFFERENT
+  // objects: the bare form resolves the stale Gitea catalog seed, the qualified
+  // form resolves the live Blueprint CR. The hero version chip was the only
+  // caller passing the bare name, so it rendered v1.0.2 from the seed beside a
+  // title and summary that had been edited to v1.0.3 — an edit the page itself
+  // had just persisted. Derive the key once so no caller can drift again.
+  const qualifiedName = name ? `bp-${name}` : ''
   const { deploymentId } = useResolvedDeploymentId()
   const isAdmin = useCatalogAdmin()
   const { theme } = useTheme()
@@ -159,9 +169,9 @@ export function CatalogDetail() {
       : `/provision/${depParam}`
 
   const catalogQuery = useQuery<CatalogItem>({
-    queryKey: ['catalog-item', name],
-    queryFn: () => getCatalogItem(name),
-    enabled: !!name,
+    queryKey: ['catalog-item', qualifiedName],
+    queryFn: () => getCatalogItem(qualifiedName),
+    enabled: !!qualifiedName,
     staleTime: 30_000,
     retry: 1,
   })
@@ -175,7 +185,7 @@ export function CatalogDetail() {
   // Returns null on 404 (no install / not a bootstrap app) — harmless.
   const bootstrapQuery = useQuery({
     queryKey: ['catalog-bootstrap', deploymentId, name],
-    queryFn: () => getApplication(deploymentId ?? '', `bp-${name}`),
+    queryFn: () => getApplication(deploymentId ?? '', qualifiedName),
     enabled: !!name && !!deploymentId,
     staleTime: 30_000,
     retry: 1,
@@ -237,7 +247,7 @@ export function CatalogDetail() {
   // #3370 — shareability declaration from the build-time catalog (the
   // same blueprint.yaml truth the catalog-seed locks against). Drives
   // the `shareable` badge; one generic mechanism for every blueprint.
-  const generated = BLUEPRINT_BY_ID[`bp-${name}`]
+  const generated = BLUEPRINT_BY_ID[qualifiedName]
   const shareable =
     generated?.shareable === true ||
     (cat.raw as { spec?: { shareable?: boolean } } | undefined)?.spec?.shareable === true
@@ -313,7 +323,7 @@ export function CatalogDetail() {
             logo. The picker writes the icon via the same saveCatalogEdit seam. */}
         {isAdmin ? (
           <CatalogInlineField<{ light: string; dark: string }>
-            blueprintId={`bp-${name}`}
+            blueprintId={qualifiedName}
             fieldKey="icon"
             label="Icon (light + dark)"
             current={currentEdit}
@@ -371,7 +381,7 @@ export function CatalogDetail() {
           {/* #3668 §5A — the display name is a per-field inline editor. */}
           <h1>
             <CatalogInlineField<string>
-              blueprintId={`bp-${name}`}
+              blueprintId={qualifiedName}
               fieldKey="name"
               label="Display name"
               current={currentEdit}
@@ -407,7 +417,7 @@ export function CatalogDetail() {
                   // YamlEditor falls back to cat.raw (unchanged behavior).
                   setCommittedIac(null)
                   setEditingIaC(true)
-                  void getCatalogBlueprintIaC(`bp-${name}`).then(setCommittedIac)
+                  void getCatalogBlueprintIaC(qualifiedName).then(setCommittedIac)
                 }}
                 title="Edit the full blueprint IaC (advanced)"
                 style={CATALOG_EDIT_BTN_STYLE}
@@ -422,7 +432,7 @@ export function CatalogDetail() {
           {isAdmin ? (
             <div className="hero-tagline">
               <CatalogInlineField<string>
-                blueprintId={`bp-${name}`}
+                blueprintId={qualifiedName}
                 fieldKey="summary"
                 label="Summary"
                 current={currentEdit}
@@ -589,12 +599,12 @@ export function CatalogDetail() {
             deploymentId={deploymentId ?? ''}
             kind="Blueprint"
             ns={undefined}
-            name={`bp-${name}`}
+            name={qualifiedName}
             obj={(cat.raw as K8sObject | undefined) ?? null}
             seedYaml={committedIac ?? undefined}
             commitLabel="Commit IaC"
             onCommit={async (yaml) => {
-              const resp = await saveCatalogBlueprintIaC(`bp-${name}`, yaml)
+              const resp = await saveCatalogBlueprintIaC(qualifiedName, yaml)
               if (!resp.committed) {
                 throw new Error(resp.reason || 'IaC commit did not land')
               }
@@ -652,7 +662,7 @@ export function CatalogDetail() {
             <div className="singleton-meta">
               <Link
                 to={'/app/$componentId' as never}
-                params={{ componentId: `bp-${name}` } as never}
+                params={{ componentId: qualifiedName } as never}
                 className="external-url-link"
                 data-testid="catalog-singleton-link"
               >
@@ -678,7 +688,7 @@ export function CatalogDetail() {
             </div>
             <Link
               to={'/app/$componentId' as never}
-              params={{ componentId: `bp-${name}` } as never}
+              params={{ componentId: qualifiedName } as never}
               className="btn btn-primary singleton-open"
               data-testid="catalog-singleton-open"
             >
@@ -690,7 +700,7 @@ export function CatalogDetail() {
         // #3090 / #3165 — shared CLASS-page instances list + "+ New
         // instance" (inline topology-picker dialog). Instance rows link
         // to the INSTANCE page `/app/$componentId`.
-        <InstancesSection blueprint={`bp-${name}`} multiInstance={multiInstance} />
+        <InstancesSection blueprint={qualifiedName} multiInstance={multiInstance} />
       )}
 
       {/* Supported topologies. The read-only grid (with per-topology placement)
@@ -740,7 +750,7 @@ export function CatalogDetail() {
           {isAdmin ? (
             <div style={{ marginTop: '0.7rem' }}>
               <CatalogInlineField<string[]>
-                blueprintId={`bp-${name}`}
+                blueprintId={qualifiedName}
                 fieldKey="topologies"
                 label="Supported topologies"
                 current={currentEdit}
