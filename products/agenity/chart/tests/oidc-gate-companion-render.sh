@@ -8,7 +8,10 @@
 #
 #   1. GATED install (hostname set, oidcGate.enabled default true):
 #      - the gate's resource set renders (oauth2-proxy Deployment, Service,
-#        cookie Secret, AppRegistration ConfigMap, ExternalSecret, HTTPRoute);
+#        AppRegistration ConfigMap, ExternalSecret, HTTPRoute);
+#      - the cookie secret arrives via that SAME ExternalSecret bundle and is
+#        consumed by the Deployment — never chart-minted, which would generate
+#        it independently per region (#5416 / PRINCIPLES.md A16);
 #      - the gate's HTTPRoute carries the #4556 spaTokenSeed Exact `/` ->
 #        /app/?token=sso 302 redirect;
 #      - the oauth2-proxy --upstream points at the agenity Service;
@@ -49,7 +52,27 @@ echo "$g" | grep -qE 'name: "oidc-gate-agenity-agnstar-sso-registration"' || { e
 echo "$g" | grep -qE 'sso.openova.io/app-registration: "agenity-agnstar"' || { echo "FAIL: AppRegistration not labelled for bp-sso-bridge" >&2; exit 1; }
 echo "$g" | grep -qE 'kind: ExternalSecret'                               || { echo "FAIL: no client-secret ExternalSecret (with external-secrets API)" >&2; exit 1; }
 echo "$g" | grep -qE 'key: "sso/sovereign/agenity-agnstar"'               || { echo "FAIL: ExternalSecret remoteRef not sso/sovereign/agenity-agnstar" >&2; exit 1; }
-echo "$g" | grep -qE 'name: "oidc-gate-agenity-agnstar-cookie"'           || { echo "FAIL: no gate cookie Secret" >&2; exit 1; }
+# #5416 — the cookie secret is NO LONGER a chart-minted Secret. It is carried in
+# the SAME bp-sso-bridge/OpenBao bundle as the client secret and delivered by the
+# `-oidc` ExternalSecret, because a chart-minted value is generated INDEPENDENTLY
+# PER REGION: both regions serve one hostname behind one VIP, so a cookie sealed
+# in region A cannot be opened by region B and roughly half of all requests fail.
+# That read as "flakiness" for a long time (see PRINCIPLES.md A16).
+#
+# So assert the WIRING, not a Secret name — it is a strictly stronger check:
+#   (a) the `-oidc` ExternalSecret publishes a cookie-secret key,
+#   (b) it resolves the shared bundle's cookie_secret property,
+#   (c) the oauth2-proxy Deployment actually CONSUMES it from that Secret.
+# (c) matters most: an unconsumed key would satisfy (a)+(b) while the Pod still
+# read a per-region value — exactly the inert-copy trap hubble was carrying.
+echo "$g" | grep -qE 'cookie-secret: "\{\{ \.cookie_secret \}\}"'         || { echo "FAIL: -oidc ExternalSecret template does not publish a cookie-secret key (#5416)" >&2; echo "$g" >&2; exit 1; }
+echo "$g" | grep -qE 'property: cookie_secret'                            || { echo "FAIL: -oidc ExternalSecret does not resolve the shared bundle's cookie_secret (#5416)" >&2; exit 1; }
+echo "$g" | grep -qzE 'name: OAUTH2_PROXY_COOKIE_SECRET[[:space:]]+valueFrom:[[:space:]]+secretKeyRef:[[:space:]]+name: "oidc-gate-agenity-agnstar-oidc"[[:space:]]+key: cookie-secret' \
+  || { echo "FAIL: OAUTH2_PROXY_COOKIE_SECRET is not consumed from oidc-gate-agenity-agnstar-oidc#cookie-secret (#5416)" >&2; echo "$g" >&2; exit 1; }
+# Regression guard: no chart-minted per-region cookie value may come back.
+if echo "$g" | grep -qE 'name: "oidc-gate-agenity-agnstar-cookie"'; then
+  echo "FAIL: a chart-minted cookie Secret rendered — that value is generated per region and breaks ~50% of requests behind the shared VIP (#5416)" >&2; exit 1
+fi
 echo "$g" | grep -qE -- '--client-id=agenity-agnstar'                     || { echo "FAIL: oauth2-proxy --client-id not agenity-agnstar" >&2; exit 1; }
 echo "$g" | grep -qE -- '--upstream=http://agenity-bp-agenity\..*\.svc\.cluster\.local:8080' || { echo "FAIL: gate --upstream not the agenity Service" >&2; echo "$g" >&2; exit 1; }
 echo "$g" | grep -qE -- '--login-url=https://auth\.agnstar\.omani\.homes/realms/sovereign.*kc_idp_hint=catalyst-pin' || { echo "FAIL: silent SSO login-url/kc_idp_hint missing" >&2; exit 1; }
