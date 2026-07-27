@@ -451,6 +451,11 @@ catalystOverlay:
       # templates/hubble-ui-oauth2-proxy-secret.yaml). Set false to bring
       # your own Secret named by `existingSecret` (keys: client-secret,
       # cookie-secret) — e.g. an ExternalSecret synced by bp-sso-bridge.
+      # #5416: this only takes effect when ssoBridgeSync is OFF. With
+      # ssoBridgeSync on (the Catalyst default) BOTH keys come from the
+      # bp-sso-bridge-published Secret and the chart-managed one is not
+      # rendered at all — so hubble-ui no longer carries a second,
+      # Keycloak-unknown client secret that diverges per region.
       chartManagedSecret: true
       existingSecret: hubble-ui-oauth2-proxy-sso
       # #3374 — converge the client-secret with Keycloak. The chart-
