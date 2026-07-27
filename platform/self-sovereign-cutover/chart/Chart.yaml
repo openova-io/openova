@@ -17,7 +17,7 @@ name: bp-self-sovereign-cutover
 # (Pillar 1 and Pillar 5 contradicted at once). NOW: new shared library 03c
 # (cutover-catalog-chart-set — the same one-parser-two-consumers discipline as
 # 03a's resolver and 03b's pin extractor) exposes catalog_chart_set /
-# catalog_guard_missing / catalog_chart_images, all pure. Step-03 gains:
+# catalog_guard_missing / chart_declared_images, all pure. Step-03 gains:
 # • Phase A2-catalog — enumerates the LIVE Blueprint CRs (the set
 #   /api/v1/catalog serves; the catalog-seed only SEEDS them, and the console's
 #   catalog IaC editor + operator curation write the CRs) and unions their
