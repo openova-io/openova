@@ -58,7 +58,11 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "bp-harbor.labels" . | nindent 4 }}
-    catalyst.openova.io/component: harbor-crossregion-redis-netpol
+    {{- /* #5406 — see redis-mesh-service.yaml: `bp-harbor.labels` already sets
+         catalyst.openova.io/component, and re-emitting it is inert (Helm keeps
+         the first key) AND fails helm-controller's post-render unmarshal with
+         `mapping key already defined`. Use a distinct key. */}}
+    catalyst.openova.io/subcomponent: harbor-crossregion-redis-netpol
 spec:
   endpointSelector:
     matchLabels:
@@ -88,7 +92,11 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "bp-harbor.labels" . | nindent 4 }}
-    catalyst.openova.io/component: harbor-crossregion-redis-netpol
+    {{- /* #5406 — see redis-mesh-service.yaml: `bp-harbor.labels` already sets
+         catalyst.openova.io/component, and re-emitting it is inert (Helm keeps
+         the first key) AND fails helm-controller's post-render unmarshal with
+         `mapping key already defined`. Use a distinct key. */}}
+    catalyst.openova.io/subcomponent: harbor-crossregion-redis-netpol
 spec:
   # Every endpoint in the harbor namespace — matching the default-deny's own
   # scope. harbor-core / -jobservice / -registry all dial redis.

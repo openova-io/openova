@@ -3327,7 +3327,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.46"
+  version: "1.2.47"
   visibility: unlisted
   card:
     title: "Harbor"
@@ -3351,7 +3351,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-harbor
-    version: "1.2.46"
+    version: "1.2.47"
   topology:
     supported:
     - active-hot-standby

@@ -215,7 +215,7 @@ type: application
 #   ${SOVEREIGN_ENABLE_CNPG_PAIR}, which catalyst-api stamps true only once
 #   ClusterMesh is established) — a single-region render is byte-identical.
 #   Guarded by tests/redis-crossregion.sh.
-version: 1.2.46
+version: 1.2.47
 appVersion: "2.14.3"
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via Harbor's
 # `oidc_extra_redirect_parms` config field. The configure-oauth Job now
