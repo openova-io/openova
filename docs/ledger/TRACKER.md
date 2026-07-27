@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-27T10:30:05Z` |
+| Last refreshed | `2026-07-27T10:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 58 |
 | Open DoD gates | 0 / 41 |
@@ -265,6 +265,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-27T10:31 | [#5448](https://github.com/openova-io/openova/pull/5448) | #5443 | fix(cutover): harbor-prewarm mirrors the marketplace's chart |
 | 2026-07-27T10:15 | [#5447](https://github.com/openova-io/openova/pull/5447) | #5397 | fix(catalog): pin 4 registry-verified floating image tags th |
 | 2026-07-27T10:15 | [#5446](https://github.com/openova-io/openova/pull/5446) | #5445 | fix(provisioning): mount the per-Org postgres PVC at a subPa |
 | 2026-07-27T10:16 | [#5441](https://github.com/openova-io/openova/pull/5441) | #5237 | fix(cutover): re-take the gitea-mirror snapshot on a new att |
@@ -294,7 +295,6 @@ flowchart LR
 | 2026-07-26T10:48 | [#5379](https://github.com/openova-io/openova/pull/5379) | #5359 | fix(cutover): secondary-region pivot + deny-egress legs — ki |
 | 2026-07-26T10:30 | [#5378](https://github.com/openova-io/openova/pull/5378) | #5358 | fix(#5358): guacamole SSO off the implicit flow — bp-oidc-ga |
 | 2026-07-26T10:03 | [#5377](https://github.com/openova-io/openova/pull/5377) | #4477 | fix(newapi,openbao): region-local producer for catalyst-newa |
-| 2026-07-26T09:42 | [#5376](https://github.com/openova-io/openova/pull/5376) | #4282 | fix(bp-newapi): per-Org CNPG Postgres pod Guaranteed QoS — r |
 
 ---
 
