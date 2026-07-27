@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-27T00:45:02Z` |
+| Last refreshed | `2026-07-27T01:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 41 |
 | Open DoD gates | 0 / 41 |
@@ -248,6 +248,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-27T00:57 | [#5415](https://github.com/openova-io/openova/pull/5415) | #5406 | fix(harbor): SIGPIPE-proof the cross-region redis test — a f |
+| 2026-07-27T00:57 | [#5413](https://github.com/openova-io/openova/pull/5413) | #5393 | fix(catalog): uptime-kuma OOMKills forever at its hard-coded |
 | 2026-07-26T23:32 | [#5412](https://github.com/openova-io/openova/pull/5412) | #5406 | fix(harbor): one session/queue/cache store per Sovereign, an |
 | 2026-07-26T22:57 | [#5411](https://github.com/openova-io/openova/pull/5411) | #5389 | fix(newapi): declare the ui endpoint so the console's per-ap |
 | 2026-07-26T21:23 | [#5407](https://github.com/openova-io/openova/pull/5407) | #2632 | test(console): restore the vitest gate — 68 red → 8, each re |
@@ -276,8 +278,6 @@ flowchart LR
 | 2026-07-24T04:09 | [#5346](https://github.com/openova-io/openova/pull/5346) | #5345 | fix(catalog-seed): unlist 5 chartless blueprints (hollow ins |
 | 2026-07-24T01:06 | [#5343](https://github.com/openova-io/openova/pull/5343) | #5336 | fix(catalog-seed): sync bp-keycloak 1.5.5→1.5.6 — unblock ma |
 | 2026-07-24T01:51 | [#5342](https://github.com/openova-io/openova/pull/5342) | #5289 | fix(#5341): region-b openova-mcp secondary-edge route — cut  |
-| 2026-07-24T01:51 | [#5340](https://github.com/openova-io/openova/pull/5340) | #4656 | fix(#5339): vpc-podcidr-route-reconciler CronJob→continuous  |
-| 2026-07-23T13:06 | [#5337](https://github.com/openova-io/openova/pull/5337) | #5311 | fix(cnpg-pair): NetworkPolicy carve-out for the continuum-co |
 
 ---
 
