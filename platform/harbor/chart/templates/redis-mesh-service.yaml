@@ -90,7 +90,16 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "bp-harbor.labels" . | nindent 4 }}
-    catalyst.openova.io/component: harbor-redis-cross-region-mesh
+    {{- /*
+      #5406 follow-up — do NOT re-emit `catalyst.openova.io/component` here.
+      `bp-harbor.labels` (_helpers.tpl:15) already sets it to `harbor`, and a
+      second occurrence is doubly wrong: Helm keeps the FIRST key so the
+      override is INERT, and the kustomize post-renderer rejects the duplicate
+      outright — `mapping key "catalyst.openova.io/component" already defined`
+      — which failed the 1.2.45 upgrade on BOTH regions. Use a distinct key.
+      Nothing selects on this value; it is descriptive only.
+    */}}
+    catalyst.openova.io/subcomponent: harbor-redis-cross-region-mesh
     catalyst.openova.io/cross-region-role: {{ $role | quote }}
   annotations:
     # Cilium ClusterMesh — the SAME name+namespace on both sides so the mesh
