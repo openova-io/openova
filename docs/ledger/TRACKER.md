@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-27T11:15:02Z` |
+| Last refreshed | `2026-07-27T11:30:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 59 |
+| Open issues | 60 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 59 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 60 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 59 open items (clickable table)
+### All 60 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -259,6 +259,7 @@ flowchart LR
 | [#5450](https://github.com/openova-io/openova/issues/5450) | Sovereign's own Kyverno image-tag-pinned policy rejects its own catalog app mani | Other |
 | [#5451](https://github.com/openova-io/openova/issues/5451) | Per-Org console badges dead apps as INSTALLED with live Open buttons — 4/4 ret | Other |
 | [#5453](https://github.com/openova-io/openova/issues/5453) | backing-services pod matcher hardcodes the inner vCluster namespace as 'apps' � | Other |
+| [#5456](https://github.com/openova-io/openova/issues/5456) | UAT drift guard red on main: ledger H1 says 'pending hw289' while the live env i | Other |
 
 ---
 
@@ -266,6 +267,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-27T11:27 | [#5455](https://github.com/openova-io/openova/pull/5455) | #960 | fix(uat): count UAT rows by status column — ad-hoc tally ove |
 | 2026-07-27T10:54 | [#5454](https://github.com/openova-io/openova/pull/5454) | #4290 | fix(provisioning): match vCluster pods for any inner namespa |
 | 2026-07-27T10:45 | [#5452](https://github.com/openova-io/openova/pull/5452) | #5445 | fix(console): badge apps NOT SERVING when the workload is de |
 | 2026-07-27T10:31 | [#5448](https://github.com/openova-io/openova/pull/5448) | #5443 | fix(cutover): harbor-prewarm mirrors the marketplace's chart |
@@ -295,7 +297,6 @@ flowchart LR
 | 2026-07-26T12:58 | [#5383](https://github.com/openova-io/openova/pull/5383) | #5381 | fix(retry): phase-retry ran no post-apply chain — stamped re |
 | 2026-07-26T11:42 | [#5382](https://github.com/openova-io/openova/pull/5382) | #5381 | fix(provisioner): Huawei digit-tailed region codes truncated |
 | 2026-07-26T10:56 | [#5380](https://github.com/openova-io/openova/pull/5380) | #5377 | fix(test): eso-push-policy-render SIGPIPE false-FAIL — unblo |
-| 2026-07-26T10:48 | [#5379](https://github.com/openova-io/openova/pull/5379) | #5359 | fix(cutover): secondary-region pivot + deny-egress legs — ki |
 
 ---
 
