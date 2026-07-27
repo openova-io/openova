@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-27T10:15:02Z` |
+| Last refreshed | `2026-07-27T10:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 58 |
 | Open DoD gates | 0 / 41 |
@@ -265,6 +265,13 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-27T10:15 | [#5447](https://github.com/openova-io/openova/pull/5447) | #5397 | fix(catalog): pin 4 registry-verified floating image tags th |
+| 2026-07-27T10:15 | [#5446](https://github.com/openova-io/openova/pull/5446) | #5445 | fix(provisioning): mount the per-Org postgres PVC at a subPa |
+| 2026-07-27T10:16 | [#5441](https://github.com/openova-io/openova/pull/5441) | #5237 | fix(cutover): re-take the gitea-mirror snapshot on a new att |
+| 2026-07-27T10:16 | [#5438](https://github.com/openova-io/openova/pull/5438) | #5359 | fix(cutover): step-06 reads back what it pivoted instead of  |
+| 2026-07-27T10:16 | [#5432](https://github.com/openova-io/openova/pull/5432) | #3370 | fix(console): one card per Application CR — suppress fanned- |
+| 2026-07-27T10:16 | [#5431](https://github.com/openova-io/openova/pull/5431) | #4384 | fix(catalyst-api): gate the legacy org-tenants overlay write |
+| 2026-07-27T10:15 | [#5430](https://github.com/openova-io/openova/pull/5430) | #5422 | fix(api): app-detail dropped object-form spec.placement, so  |
 | 2026-07-27T03:41 | [#5428](https://github.com/openova-io/openova/pull/5428) | #5416 | fix(sso): one cookie secret per Keycloak client, not one per |
 | 2026-07-27T03:26 | [#5424](https://github.com/openova-io/openova/pull/5424) | #5387 | fix(provisioning): vcluster-tier funnel cart with a HelmRele |
 | 2026-07-27T02:00 | [#5418](https://github.com/openova-io/openova/pull/5418) | #5406 | fix(harbor): sweep the duplicate-label class — the netpol te |
@@ -288,13 +295,6 @@ flowchart LR
 | 2026-07-26T10:30 | [#5378](https://github.com/openova-io/openova/pull/5378) | #5358 | fix(#5358): guacamole SSO off the implicit flow — bp-oidc-ga |
 | 2026-07-26T10:03 | [#5377](https://github.com/openova-io/openova/pull/5377) | #4477 | fix(newapi,openbao): region-local producer for catalyst-newa |
 | 2026-07-26T09:42 | [#5376](https://github.com/openova-io/openova/pull/5376) | #4282 | fix(bp-newapi): per-Org CNPG Postgres pod Guaranteed QoS — r |
-| 2026-07-26T09:15 | [#5372](https://github.com/openova-io/openova/pull/5372) | #5371 | fix(ci): sandbox-pty-server builders golang:1.23→1.25-alpine |
-| 2026-07-26T09:03 | [#5371](https://github.com/openova-io/openova/pull/5371) | #5370 | fix(ci): sandbox-mcp-server builder golang:1.23→1.25-alpine  |
-| 2026-07-26T08:46 | [#5366](https://github.com/openova-io/openova/pull/5366) | #2 | fix(org-controller): emit tenant.deleted on finalizer so raw |
-| 2026-07-26T08:46 | [#5365](https://github.com/openova-io/openova/pull/5365) | #5352 | fix(k8scache): bounded discovery gate for optional GVRs — st |
-| 2026-07-25T02:21 | [#5355](https://github.com/openova-io/openova/pull/5355) | #5193 | fix(catalyst-api): wipe falls back to CATALYST_HUAWEI_* oper |
-| 2026-07-25T02:22 | [#5354](https://github.com/openova-io/openova/pull/5354) | #5341 | fix(sovereign-tls-vars): console gateway specific-hostname l |
-| 2026-07-25T02:21 | [#5353](https://github.com/openova-io/openova/pull/5353) | #5352 | fix(catalyst-api): prune compliance_score series on resource |
 
 ---
 
