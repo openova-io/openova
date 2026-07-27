@@ -329,6 +329,29 @@ data:
             value: {{ .Values.gitRepositorySecretRef.patSourceSecretName | quote }}
           - name: PAT_SOURCE_KEY
             value: {{ .Values.gitRepositorySecretRef.patSourceKey | quote }}
+          # #5443 — Phase A2-catalog: mirror the MARKETPLACE's chart set (the
+          # live Blueprint CRs) on top of the two installed-derived
+          # enumerations, then GUARD that every contractual entry resolves in
+          # the pivoted registry. Without this the cutover repoints the
+          # marketplace resolver at a registry it never stocked.
+          # NB: bare `| quote` (NOT `| default true`) — sprig `default` treats a
+          # literal false as empty and would flip an explicit disable back to
+          # true (sprig_default_bool_unsafe); the script's `: "${VAR:=…}"`
+          # restores the on-state for a nil render.
+          - name: PREWARM_CATALOG_CHARTS
+            value: {{ .Values.prewarm.catalogCharts.enabled | quote }}
+          - name: PREWARM_CATALOG_GUARD
+            value: {{ .Values.prewarm.catalogCharts.guard.enabled | quote }}
+          - name: PREWARM_CATALOG_HARD_VISIBILITY
+            value: {{ .Values.prewarm.catalogCharts.hardVisibility | quote }}
+          - name: PREWARM_CATALOG_IMAGES
+            value: {{ .Values.prewarm.catalogCharts.images.enabled | quote }}
+          - name: PREWARM_CATALOG_IMAGES_FATAL
+            value: {{ .Values.prewarm.catalogCharts.images.fatal | quote }}
+          - name: CATALOG_BLUEPRINT_RESOURCE
+            value: {{ .Values.prewarm.catalogCharts.blueprintResource | quote }}
+          - name: CATALOG_BLUEPRINT_RESOURCE_FALLBACK
+            value: {{ .Values.prewarm.catalogCharts.blueprintResourceFallback | quote }}
         volumeMounts:
           - name: prewarm
             mountPath: /work
@@ -342,6 +365,9 @@ data:
           - name: bootstrap-kit-pins
             mountPath: /pin-extractor
             readOnly: true
+          - name: catalog-chart-set
+            mountPath: /catalog-set
+            readOnly: true
           - name: tmp
             mountPath: /tmp
         command: ["/bin/sh", "-c"]
@@ -354,6 +380,12 @@ data:
             # step-08). Defines offlinemirror_normalize_ref + offlinemirror_local_paths
             # over the HOST_PROJECT_MAP / EXCLUDED_* / LOCAL_REGISTRY_HOST env.
             . /resolver/resolver.sh
+            # #5443 — the catalog chart-set extractor (03c). Defines
+            # catalog_chart_set + catalog_guard_missing + catalog_chart_images.
+            # Pure functions; sourced here so Phase A2-catalog, the Phase
+            # A2-guard and Phase A3-catalog-images all read ONE definition of
+            # "what the marketplace offers".
+            . /catalog-set/catalog-set.sh
             echo "[harbor-prewarm] offline-mirror map: ${HOST_PROJECT_MAP}"
             echo "[harbor-prewarm] local registry host: ${LOCAL_REGISTRY_HOST}; excluded hosts: ${EXCLUDED_HOSTS:-<none>}"
 
@@ -905,6 +937,48 @@ data:
             # or empty/mismatched dest digest all return non-zero → the caller does
             # the real copy. So the fail-closed completeness contract is UNTOUCHED;
             # this only elides a genuinely-redundant re-transfer.
+            # #5443 — the DURABLE-presence half of #5030, extracted so the
+            # Phase A2-guard asserts local-Harbor presence through the EXACT
+            # probe the idempotency skip trusts (and the one step-08's
+            # completeness gate makes). Harbor CORE answers this from its
+            # DATABASE, so it reflects only durably-stored artifacts and can
+            # never pull through — the whole point of #5030. Emits the artifact
+            # digest on stdout (empty when absent); exit status is curl/jq's,
+            # never load-bearing on its own.
+            #   $1 = local dest ref: the resolver PATH project/repo[:tag|@digest]
+            #        or a HARBOR_HOST-prefixed lref.
+            harbor_durable_digest() {
+              _hd_pp="${1#${HARBOR_HOST}/}"
+              _hd_ref="latest"
+              case "${_hd_pp}" in
+                *@*)
+                  _hd_ref="${_hd_pp##*@}"; _hd_pp="${_hd_pp%@*}"
+                  case "${_hd_pp##*/}" in *:*) _hd_pp="${_hd_pp%:*}" ;; esac ;;
+                *)
+                  case "${_hd_pp##*/}" in *:*) _hd_ref="${_hd_pp##*:}"; _hd_pp="${_hd_pp%:*}" ;; esac ;;
+              esac
+              # project = first path segment; repository = the (possibly nested) rest.
+              case "${_hd_pp}" in
+                */*) _hd_proj="${_hd_pp%%/*}"; _hd_repo="${_hd_pp#*/}" ;;
+                *)   _hd_proj="${_hd_pp}";     _hd_repo="" ;;
+              esac
+              # No repository segment → cannot address an artifact.
+              [ -z "${_hd_repo}" ] && return 1
+              # Harbor's artifact API needs the nested repo name's `/` encoded as
+              # %2F. #5036: this check dials the Harbor CORE Service DIRECTLY
+              # (HARBOR_INTERNAL_URL) with NO gateway in the path, so SINGLE-encode
+              # (`/` -> %2F) — harbor-core receives %2F and routes the nested repo.
+              # (Under #4688's gateway path this was DOUBLE-encoded `%252F` to survive
+              # envoy's one-layer decode before Harbor; the direct Service path has no
+              # such decode.) -k is harmless over the plain-HTTP Service; retained so
+              # an https harborInternalURL override still works.
+              _hd_repo_enc=$(printf '%s' "${_hd_repo}" | sed 's#/#%2F#g')
+              curl -sk --max-time 30 \
+                -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                "${HARBOR_INTERNAL_URL}/api/v2.0/projects/${_hd_proj}/repositories/${_hd_repo_enc}/artifacts/${_hd_ref}" 2>/dev/null \
+                | jq -r '.digest // empty' 2>/dev/null
+            }
+
             dest_already_current() {
               # $1 upstream ref  $2 local dest ref (either the resolver PATH
               #    project/repo[:tag|@digest] OR a HARBOR_HOST-prefixed lref)
@@ -922,41 +996,12 @@ data:
               fi
               [ -z "${_dc_s}" ] && return 1
               _dc_s="sha256:${_dc_s}"
-              # Accept either a bare resolver path or a HARBOR_HOST-prefixed lref.
-              _dc_pp="${_dc_dref#${HARBOR_HOST}/}"
-              # Split the local path into project / repository / reference.
-              _dc_ref="latest"
-              case "${_dc_pp}" in
-                *@*)
-                  _dc_ref="${_dc_pp##*@}"; _dc_pp="${_dc_pp%@*}"
-                  case "${_dc_pp##*/}" in *:*) _dc_pp="${_dc_pp%:*}" ;; esac ;;
-                *)
-                  case "${_dc_pp##*/}" in *:*) _dc_ref="${_dc_pp##*:}"; _dc_pp="${_dc_pp%:*}" ;; esac ;;
-              esac
-              # project = first path segment; repository = the (possibly nested) rest.
-              case "${_dc_pp}" in
-                */*) _dc_proj="${_dc_pp%%/*}"; _dc_repo="${_dc_pp#*/}" ;;
-                *)   _dc_proj="${_dc_pp}";     _dc_repo="" ;;
-              esac
-              # No repository segment → cannot address an artifact → fail-closed (copy).
-              [ -z "${_dc_repo}" ] && return 1
-              # Harbor's artifact API needs the nested repo name's `/` encoded as
-              # %2F. #5036: this check now dials the Harbor CORE Service DIRECTLY
-              # (HARBOR_INTERNAL_URL) with NO gateway in the path, so SINGLE-encode
-              # (`/` -> %2F) — harbor-core receives %2F and routes the nested repo.
-              # (Under #4688's gateway path this was DOUBLE-encoded `%252F` to survive
-              # envoy's one-layer decode before Harbor; the direct Service path has no
-              # such decode, so #5030's "Harbor must receive exactly %2F" is met with a
-              # single encode here.) Fail-closed: a wrong-encoding 404 (or any miss)
-              # falls through to a full re-copy — never a false "already current" skip.
-              _dc_repo_enc=$(printf '%s' "${_dc_repo}" | sed 's#/#%2F#g')
               # Durable DEST digest from Harbor CORE (never pull-through) via the
-              # in-cluster Service (#5036). -k is harmless over the plain-HTTP Service;
-              # retained so an https harborInternalURL override still works.
-              _dc_d=$(curl -sk --max-time 30 \
-                -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
-                "${HARBOR_INTERNAL_URL}/api/v2.0/projects/${_dc_proj}/repositories/${_dc_repo_enc}/artifacts/${_dc_ref}" 2>/dev/null \
-                | jq -r '.digest // empty' 2>/dev/null)
+              # in-cluster Service (#5036) — #5443 factored the probe into
+              # harbor_durable_digest above so the Phase A2-guard cannot fork it.
+              # Fail-closed: an absent/404/partial dest yields an empty digest and
+              # falls through to a full re-copy — never a false "already current".
+              _dc_d=$(harbor_durable_digest "${_dc_dref}")
               [ -n "${_dc_d}" ] && [ "${_dc_s}" = "${_dc_d}" ]
             }
 
@@ -1639,6 +1684,116 @@ data:
               echo "[harbor-prewarm] Phase A2-pins DISABLED (prewarm.bootstrapKitPins.enabled=false) — mirroring the live deployed∪desired union only; the frozen flux pin set is NOT guaranteed locally (#5237)"
             fi
 
+            # ── Phase A2-catalog (#5443, Refs #3627 #5237 #5442): union the
+            # MARKETPLACE's chart set into the mirror.
+            #
+            # Both enumerations above derive from what is INSTALLED — live
+            # HelmReleases (Phase A2) and the frozen bootstrap-kit pins (Phase
+            # A2-pins). The marketplace offers what the CATALOG lists, and those
+            # sets differ by definition: the catalog set is strictly larger.
+            # Step-06 nonetheless pivots `openova-catalog` — the HelmRepository
+            # every per-Org Application HelmRelease resolves through — onto local
+            # Harbor, so after cutover a Sovereign advertises Blueprints whose
+            # charts were never mirrored. Measured on hw290 2026-07-27: 14 of 29
+            # `visibility: listed` entries resolved, 15 returned 404, and the
+            # Harbor `openova-io` project is HOSTED (registry_id: None), so there
+            # is no proxy-cache fallback — the 404 is final and a customer buying
+            # any of those 15 gets an unpullable HelmRelease on a Sovereign that
+            # is by then deliberately cut off from the mothership.
+            #
+            # SOURCE OF TRUTH = the LIVE Blueprint CRs, not the chart-shipped
+            # catalog-seed. The seed only SEEDS them; `/api/v1/catalog` serves the
+            # CRs (catalog_client_cluster_fallback.go listFromCluster), the
+            # console's catalog IaC editor mutates the CRs, and an operator can
+            # curate entries the seed never had. Reading the seed would mirror a
+            # set the marketplace does not necessarily offer, in both directions.
+            #
+            # HARD vs SOFT. `spec.manifests.chart` : `spec.version` is the exact
+            # coordinate the install path requests (blueprintChart() ->
+            # Application.spec.blueprintRef.version -> HR chart.spec.version), so
+            # for a `visibility: listed` entry — the customer-visible contract —
+            # it is HARD: a failed copy is FATAL and the Phase A2-guard below
+            # re-asserts it against Harbor's durable artifact API. Every other row
+            # is SOFT (mirrored best-effort, failure WARNs): `spec.source.version`
+            # is read by NO controller and is a known drift surface (the console
+            # editor can bump spec.version without it, or vice versa — #5444), and
+            # unlisted/private entries are not installable from the marketplace
+            # grid, so a stale pin on one must not hold the whole cutover hostage.
+            # Mirroring them anyway is nearly free — a chart OCI artifact is a
+            # manifest plus one small tgz layer, unlike the image wave that
+            # dominates prewarm's runtime — and it covers the depends[]/companion
+            # closure of the listed set without a graph walk.
+            : "${PREWARM_CATALOG_CHARTS:=true}"
+            : "${PREWARM_CATALOG_HARD_VISIBILITY:=listed}"
+            sort -u "${chart_work}" -o "${chart_work}"
+            # Everything enumerated SO FAR keeps the pre-#5443 FATAL semantics.
+            chart_hard=/tmp/.chart-hard.tsv
+            cp "${chart_work}" "${chart_hard}"
+            catalog_set=/tmp/.catalog-set.tsv
+            : > "${catalog_set}"
+            catalog_hard=/tmp/.catalog-hard.tsv
+            : > "${catalog_hard}"
+            if [ "${PREWARM_CATALOG_CHARTS}" = "true" ]; then
+              echo "[harbor-prewarm] Phase A2-catalog (#5443): enumerating the live Blueprint CR set — what the marketplace OFFERS, on top of what is installed"
+              # Blueprint is a CLUSTER-scoped CRD (no -A). The v1 storage
+              # version is read first with the still-served v1alpha1 as the
+              # fallback (products/catalyst/chart/crds/blueprint.yaml serves
+              # both). FAIL-LOUD only when NEITHER read succeeds: an
+              # unreadable API / missing CRD / missing RBAC means the mirror
+              # CANNOT be proven to cover the marketplace, which is precisely
+              # the state #5443 shipped. A read that succeeds and returns zero
+              # items is a different thing — a Sovereign with an empty catalog
+              # advertises nothing, so there is nothing to over-advertise; that
+              # WARNs and continues rather than holding the cutover hostage.
+              catalog_json=/tmp/.blueprints.json
+              : > "${catalog_json}"
+              catalog_read=0
+              if kubectl get "${CATALOG_BLUEPRINT_RESOURCE}" -o json > "${catalog_json}" 2>/dev/null; then
+                catalog_read=1
+              else
+                echo "[harbor-prewarm] Phase A2-catalog: ${CATALOG_BLUEPRINT_RESOURCE} not served — retrying the v1alpha1 fallback ${CATALOG_BLUEPRINT_RESOURCE_FALLBACK}"
+                if kubectl get "${CATALOG_BLUEPRINT_RESOURCE_FALLBACK}" -o json > "${catalog_json}" 2>/dev/null; then
+                  catalog_read=1
+                else
+                  : > "${catalog_json}"
+                fi
+              fi
+              if [ "${catalog_read}" -eq 0 ]; then
+                echo "[harbor-prewarm] FATAL: cannot read the Blueprint CRs (${CATALOG_BLUEPRINT_RESOURCE} nor ${CATALOG_BLUEPRINT_RESOURCE_FALLBACK}) — the CRD is absent, RBAC is missing, or the API is degraded. Step-06 will still pivot the marketplace's openova-catalog resolver onto local Harbor, so refusing to build a mirror that cannot be proven to cover what the marketplace offers (#5443). Emergency override: prewarm.catalogCharts.enabled=false."
+                exit 1
+              fi
+              catalog_items=$(jq -r '(.items // []) | length' "${catalog_json}" 2>/dev/null || echo 0)
+              if [ "${catalog_items:-0}" -eq 0 ]; then
+                echo "[harbor-prewarm] Phase A2-catalog WARN: the Blueprint CR list is EMPTY — this Sovereign's marketplace offers nothing, so there is nothing for the mirror to cover. Expected a catalog-seed baseline set (products/catalyst/chart templates/catalog-seed); an empty catalog on a real Sovereign is itself worth investigating (#5443)."
+              fi
+              # Shared extractor (03c) — the SAME function the guard's hard set
+              # and the image enumeration read, so the mirrored set and the
+              # judged set can never fork.
+              catalog_chart_set "${catalog_json}" "${UPSTREAM_PREFIX}" "${PREWARM_CATALOG_HARD_VISIBILITY}" > "${catalog_set}" 2>/tmp/.catalog-set.err || true
+              sed 's/^/  /' /tmp/.catalog-set.err 2>/dev/null || true
+              cat_rows=$(grep -c . "${catalog_set}" || true)
+              cat_hard_n=0
+              cat_new=0
+              while IFS="$(printf '\t')" read -r cat_c cat_v cat_h cat_n cat_vis; do
+                [ -z "${cat_c}" ] && continue
+                if ! grep -Fxq "$(printf '%s\t%s' "${cat_c}" "${cat_v}")" "${chart_work}"; then
+                  cat_new=$((cat_new+1))
+                  echo "[harbor-prewarm] Phase A2-catalog CATALOG-ONLY (#5443): ${cat_c}:${cat_v} (${cat_n}, visibility=${cat_vis}) is offered by the marketplace but installed nowhere — the exact class step-06 would pivot into a 404"
+                fi
+                printf '%s\t%s\n' "${cat_c}" "${cat_v}" >> "${chart_work}"
+                if [ "${cat_h}" = "1" ]; then
+                  printf '%s\t%s\n' "${cat_c}" "${cat_v}" >> "${chart_hard}"
+                  printf '%s\t%s\n' "${cat_c}" "${cat_v}" >> "${catalog_hard}"
+                  cat_hard_n=$((cat_hard_n+1))
+                fi
+              done < "${catalog_set}"
+              sort -u "${chart_hard}" -o "${chart_hard}"
+              sort -u "${catalog_hard}" -o "${catalog_hard}"
+              echo "[harbor-prewarm] Phase A2-catalog: ${catalog_items} Blueprint CR(s) -> ${cat_rows} chart:version row(s) (${cat_hard_n} contractual, visibility=${PREWARM_CATALOG_HARD_VISIBILITY}); ${cat_new} not covered by the installed union"
+            else
+              echo "[harbor-prewarm] Phase A2-catalog DISABLED (prewarm.catalogCharts.enabled=false) — mirroring the installed union only; the marketplace's offered set is NOT guaranteed locally (#5443)"
+            fi
+
             sort -u "${chart_work}" -o "${chart_work}"
             chart_count=$(grep -c . "${chart_work}" || true)
             echo "[harbor-prewarm] Phase A2: ${chart_count} unique openova-io chart(s) to mirror"
@@ -1751,18 +1906,259 @@ data:
               chart_ok=$((chart_ok+1))
               echo "[harbor-prewarm] OK chart ${cup}"
             done
+            # #5443 — a copy failure is FATAL only for a chart:version in the
+            # HARD set (everything the installed union already required, plus
+            # every contractual `visibility: listed` catalog entry). A row that
+            # exists ONLY because Phase A2-catalog widened the mirror
+            # best-effort — an unlisted/private Blueprint, or a
+            # `spec.source.version` no controller reads — WARNs instead: those
+            # are not installable from the marketplace grid, so a stale pin on
+            # one must not hold the whole cutover hostage. The customer-visible
+            # contract keeps its fail-loud teeth; the widening cannot regress the
+            # cutover's success rate.
+            chart_soft_fail=0
             for f in "${chart_cpdir}"/*.fail; do
               [ -e "${f}" ] || continue
               cdetail=$(cat "${f}")
               cslug=$(basename "${f}" .fail)
               sed 's/^/  /' "${chart_cpdir}/${cslug}.log" 2>/dev/null || true
-              chart_fail=$((chart_fail+1))
-              echo "[harbor-prewarm] FAIL chart ${cdetail}"
+              cpair="${cdetail%% *}"
+              cfc="${cpair%:*}"
+              cfv="${cpair##*:}"
+              if grep -Fxq "$(printf '%s\t%s' "${cfc}" "${cfv}")" "${chart_hard}"; then
+                chart_fail=$((chart_fail+1))
+                echo "[harbor-prewarm] FAIL chart ${cdetail}"
+              else
+                chart_soft_fail=$((chart_soft_fail+1))
+                echo "[harbor-prewarm] WARN chart ${cdetail} — best-effort row (not a contractual visibility=${PREWARM_CATALOG_HARD_VISIBILITY} catalog entry and not required by the installed union); not fatal (#5443)"
+              fi
             done
-            echo "[harbor-prewarm] Phase A2 complete: chart_ok=${chart_ok} chart_fail=${chart_fail}"
+            echo "[harbor-prewarm] Phase A2 complete: chart_ok=${chart_ok} chart_fail=${chart_fail} chart_soft_fail=${chart_soft_fail}"
             if [ "${chart_fail}" -gt 0 ]; then
-              echo "[harbor-prewarm] FATAL: ${chart_fail} openova-io chart(s) failed to mirror (named above) — step-06 cannot strip ghcr.io safely (post-cutover chart (re)pulls would 404). #5007: this INCLUDES any pinned/desired chart version the union added — a pinned tag that cannot be pulled fails LOUD here (egress open, recoverable) instead of silently wedging step-06 under the deny-egress hold."
+              echo "[harbor-prewarm] FATAL: ${chart_fail} openova-io chart(s) failed to mirror (named above) — step-06 cannot strip ghcr.io safely (post-cutover chart (re)pulls would 404). #5007: this INCLUDES any pinned/desired chart version the union added — a pinned tag that cannot be pulled fails LOUD here (egress open, recoverable) instead of silently wedging step-06 under the deny-egress hold. #5443: it ALSO includes every contractual catalog entry, so the marketplace can never advertise a Blueprint the pivoted registry cannot serve."
               exit 1
+            fi
+
+            # ── Phase A2-guard (#5443): re-assert the contract against Harbor.
+            #
+            # The copy tally above says "skopeo returned 0"; the guard says "the
+            # pivoted registry actually serves it, durably". Those are not the
+            # same claim — #5030 documents the whole class where a dest read is
+            # satisfied by a pull-through that persists a manifest and no blobs,
+            # and #4994's skip-if-present can elide a copy on that basis. So the
+            # guard probes Harbor CORE's artifact API (its DATABASE, never a
+            # pull-through) through the SAME harbor_durable_digest the skip
+            # trusts and step-08's completeness gate makes, for exactly the
+            # coordinate the install path will request:
+            # `<spec.manifests.chart>:<spec.version>` of every
+            # `visibility: listed` Blueprint. This IS the probe that found #5443
+            # on hw290, and it would have failed that cutover.
+            : "${PREWARM_CATALOG_GUARD:=true}"
+            if [ "${PREWARM_CATALOG_GUARD}" = "true" ] && [ "${PREWARM_CATALOG_CHARTS}" = "true" ]; then
+              guard_n=$(grep -c . "${catalog_hard}" || true)
+              echo "[harbor-prewarm] Phase A2-guard (#5443): asserting all ${guard_n} contractual catalog chart(s) resolve durably in local Harbor"
+              catalog_present=/tmp/.catalog-present.txt
+              : > "${catalog_present}"
+              while IFS="$(printf '\t')" read -r g_c g_v; do
+                [ -z "${g_c}" ] && continue
+                g_d=$(harbor_durable_digest "openova-io/${g_c}:${g_v}")
+                if [ -n "${g_d}" ]; then
+                  printf '%s:%s\n' "${g_c}" "${g_v}" >> "${catalog_present}"
+                fi
+              done < "${catalog_hard}"
+              guard_missing=$(catalog_guard_missing "${catalog_hard}" "${catalog_present}")
+              if [ -n "${guard_missing}" ]; then
+                echo "[harbor-prewarm] FATAL (#5443): the marketplace advertises chart(s) the pivoted registry cannot serve — step-06 would repoint openova-catalog at a registry that never stocked them, and every post-cutover install of these Blueprints 404s under the deny-egress hold:"
+                printf '%s\n' "${guard_missing}" | sed 's,^,  MISSING openova-io/,'
+                echo "[harbor-prewarm] Each MISSING line is a Blueprint whose spec.manifests.chart:spec.version is absent from local Harbor. Either the upstream artifact does not exist (fix the Blueprint's pin — the #5444 class: a spec.version no registry publishes) or the mirror did not reach it (re-trigger step-03 with egress open). Emergency override: prewarm.catalogCharts.guard.enabled=false — which knowingly ships a Sovereign whose marketplace over-advertises."
+                exit 1
+              fi
+              echo "[harbor-prewarm] Phase A2-guard: PASS — ${guard_n}/${guard_n} contractual catalog chart(s) durably present in local Harbor"
+            else
+              echo "[harbor-prewarm] Phase A2-guard DISABLED — the marketplace's advertised set is NOT asserted against the pivoted registry (#5443)"
+            fi
+
+            # ── Phase A3-catalog-images (#5443, Refs #5442): mirror the IMAGES
+            # of the catalog charts.
+            #
+            # A mirrored chart whose images are absent fails at pod-pull instead
+            # of chart-pull — the same outage one layer down. Phase A's image
+            # enumeration walks the LIVE cluster's Pods, which by construction
+            # cannot know the images of a chart nobody has installed (#5442), so
+            # for the catalog set the images must come from the CHART. We pull
+            # each contractual chart back OUT of the local Harbor we just stocked
+            # (proving the mirror in passing, and costing no extra upstream
+            # egress), render it at default values, and mirror every image the
+            # render pins through the SAME resolver + copy_one the image wave
+            # used. blueprint-release.yaml gates every published bp-* chart on a
+            # default-values `helm template` of the packaged tgz, so this render
+            # is faithful, not heuristic.
+            #
+            # Best-effort by default: the render is a superset-free view (a
+            # conditional path a per-Org install enables can pin an image the
+            # default render omits), so a hard failure here could fail cutovers
+            # for a gap the enumeration cannot see either way. Every miss is
+            # named, and prewarm.catalogCharts.images.fatal=true escalates for
+            # operators who want the stricter posture.
+            : "${PREWARM_CATALOG_IMAGES:=true}"
+            : "${PREWARM_CATALOG_IMAGES_FATAL:=false}"
+            if [ "${PREWARM_CATALOG_IMAGES}" = "true" ] && [ "${PREWARM_CATALOG_CHARTS}" = "true" ] && [ -s "${catalog_hard}" ]; then
+              echo "[harbor-prewarm] Phase A3-catalog-images (#5443 Refs #5442): enumerating images FROM the catalog charts (the live-cluster walk cannot see an uninstalled chart)"
+              cat_img_set=/tmp/.catalog-images.txt
+              : > "${cat_img_set}"
+              cat_pull_dir=/tmp/catalog-charts
+              rm -rf "${cat_pull_dir}"; mkdir -p "${cat_pull_dir}"
+              CATALOG_SET_TMPDIR=/tmp
+              export CATALOG_SET_TMPDIR
+              # helm writes its cache/config/data + $HOME dotfiles on startup;
+              # the container runs readOnlyRootFilesystem:true with only /tmp
+              # writable, so redirect all four the way step-06 Phase-3a and the
+              # #5265 Day-2 reconciler already do — otherwise every render dies
+              # on a read-only HOME and the image enumeration silently degrades
+              # to "this chart has no images".
+              HOME=/tmp/helm-home
+              HELM_CACHE_HOME=/tmp/helm-home/cache
+              HELM_CONFIG_HOME=/tmp/helm-home/config
+              HELM_DATA_HOME=/tmp/helm-home/data
+              export HOME HELM_CACHE_HOME HELM_CONFIG_HOME HELM_DATA_HOME
+              mkdir -p "${HELM_CACHE_HOME}" "${HELM_CONFIG_HOME}" "${HELM_DATA_HOME}"
+              # Materialise the Phase A wave as a FILE so the "already covered"
+              # test is a plain `grep -Fxq <file>` — never `printf … | grep -q`,
+              # whose early grep exit SIGPIPEs the writer the moment anything
+              # upstream enables pipefail (#5370, #5406).
+              cat_wave_file=/tmp/.prewarm-image-wave.txt
+              printf '%s\n' ${mirror_work} > "${cat_wave_file}"
+              cat_render_fail=0
+              while IFS="$(printf '\t')" read -r ci_c ci_v; do
+                [ -z "${ci_c}" ] && continue
+                ci_slug=$(printf '%s_%s' "${ci_c}" "${ci_v}" | tr -c 'A-Za-z0-9._-' '_')
+                ci_dir="${cat_pull_dir}/${ci_slug}"
+                rm -rf "${ci_dir}"
+                # skopeo `dir:` transport — no `helm registry login` dance, and
+                # the same creds/TLS treatment the chart push already used.
+                if ! skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
+                    --insecure-policy \
+                    --src-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                    --src-tls-verify="${PREWARM_DEST_TLS_VERIFY}" \
+                    "docker://${HARBOR_HOST}/openova-io/${ci_c}:${ci_v}" \
+                    "dir:${ci_dir}" >"${cat_pull_dir}/${ci_slug}.log" 2>&1; then
+                  echo "[harbor-prewarm] Phase A3-catalog-images WARN: could not pull chart ${ci_c}:${ci_v} back from local Harbor for image enumeration"
+                  sed 's/^/    /' "${cat_pull_dir}/${ci_slug}.log" 2>/dev/null || true
+                  cat_render_fail=$((cat_render_fail+1))
+                  continue
+                fi
+                # The helm chart content layer is the one blob that is a gzip
+                # tarball — identified by content, not by a skopeo-version-
+                # specific blob filename convention.
+                ci_tgz=""
+                for b in "${ci_dir}"/*; do
+                  [ -f "${b}" ] || continue
+                  case "${b##*/}" in manifest.json|version|*.json) continue ;; esac
+                  if tar -tzf "${b}" >/dev/null 2>&1; then ci_tgz="${b}"; break; fi
+                done
+                if [ -z "${ci_tgz}" ]; then
+                  echo "[harbor-prewarm] Phase A3-catalog-images WARN: no chart tarball layer found in the ${ci_c}:${ci_v} OCI artifact — image enumeration skipped"
+                  cat_render_fail=$((cat_render_fail+1))
+                  continue
+                fi
+                ci_imgs=$(catalog_chart_images "${ci_tgz}" 2>/tmp/.catalog-images.err || true)
+                sed 's/^/    /' /tmp/.catalog-images.err 2>/dev/null || true
+                ci_n=$(printf '%s\n' "${ci_imgs}" | grep -c . || true)
+                echo "[harbor-prewarm] Phase A3-catalog-images: ${ci_c}:${ci_v} renders ${ci_n} image ref(s)"
+                [ -n "${ci_imgs}" ] && printf '%s\n' "${ci_imgs}" >> "${cat_img_set}"
+                rm -rf "${ci_dir}"
+              done < "${catalog_hard}"
+              sort -u "${cat_img_set}" -o "${cat_img_set}"
+              # Drop everything the image wave already mirrored, and resolve the
+              # remainder through the SHARED coverage map so step-08's
+              # completeness HEAD looks at the identical local paths.
+              cat_img_work=""
+              cat_img_unmapped=""
+              while IFS= read -r ci_ref; do
+                [ -z "${ci_ref}" ] && continue
+                if grep -Fxq "${ci_ref}" "${cat_wave_file}"; then continue; fi
+                ci_paths=$(offlinemirror_local_paths "${ci_ref}")
+                case "${ci_paths}" in
+                  __UNMAPPED__*)
+                    ci_uh=$(printf '%s' "${ci_paths}" | awk '{print $2}')
+                    cat_img_unmapped="${cat_img_unmapped} ${ci_uh}(${ci_ref})" ;;
+                  "") : ;;
+                  *) cat_img_work="${cat_img_work} ${ci_ref}" ;;
+                esac
+              done < "${cat_img_set}"
+              cat_img_n=$(printf '%s\n' ${cat_img_work} | grep -c . || true)
+              echo "[harbor-prewarm] Phase A3-catalog-images: ${cat_img_n} catalog-chart image(s) not already covered by the live-cluster wave"
+              if [ -n "${cat_img_unmapped}" ]; then
+                echo "[harbor-prewarm] Phase A3-catalog-images UNMAPPED — catalog charts pin image(s) from registry host(s) absent from offlineMirror.hostProjects; they cannot be mirrored and will ImagePullBackOff post-severance:"
+                for u in ${cat_img_unmapped}; do echo "  UNMAPPED ${u}"; done
+              fi
+              # Second image wave — copy_one verbatim, over its own sentinel dir
+              # so the Phase A tally is untouched. The #5095 proxy-down latch is
+              # carried across so a dead mothership proxy keeps direct-first
+              # routing instead of re-paying the timeout tax.
+              cat_img_fail=0
+              if [ "${cat_img_n}" -gt 0 ]; then
+                cat_cpdir=/tmp/prewarm-catalog-copies
+                rm -rf "${cat_cpdir}"; mkdir -p "${cat_cpdir}"
+                [ -f "${cpdir}/.proxy_down" ] && touch "${cat_cpdir}/.proxy_down"
+                # copy_one writes its sentinels into the GLOBAL cpdir; point it
+                # at this wave's dir and restore afterwards so nothing later in
+                # the step observes a mutated global.
+                cat_cpdir_saved="${cpdir}"
+                cpdir="${cat_cpdir}"
+                rm -f "${cat_cpdir}/.hb_stop"
+                progress_heartbeat "${cat_img_n}" "${cat_cpdir}" "Phase A3-catalog-images" &
+                cat_hb_pid=$!
+                cat_pids=""
+                cat_allpids=""
+                for ci_up in ${cat_img_work}; do
+                  echo "[harbor-prewarm] queue catalog-image ${ci_up}"
+                  copy_one "${ci_up}" &
+                  _cip=$!
+                  cat_pids="${cat_pids} ${_cip}"
+                  cat_allpids="${cat_allpids} ${_cip}"
+                  while : ; do
+                    cilive=0
+                    cinew=""
+                    for cp in ${cat_pids}; do
+                      if kill -0 "${cp}" 2>/dev/null; then
+                        cilive=$((cilive+1))
+                        cinew="${cinew} ${cp}"
+                      fi
+                    done
+                    cat_pids="${cinew}"
+                    [ "${cilive}" -lt "${PREWARM_PARALLELISM}" ] && break
+                    sleep 2
+                  done
+                done
+                for _p in ${cat_allpids}; do wait "${_p}" 2>/dev/null || true; done
+                touch "${cat_cpdir}/.hb_stop"
+                wait "${cat_hb_pid}" 2>/dev/null || true
+                cpdir="${cat_cpdir_saved}"
+                cat_img_ok=0
+                for f in "${cat_cpdir}"/*.ok; do
+                  [ -e "${f}" ] || continue
+                  cat_img_ok=$((cat_img_ok+1))
+                done
+                for f in "${cat_cpdir}"/*.fail; do
+                  [ -e "${f}" ] || continue
+                  ci_detail=$(cat "${f}")
+                  ci_slug=$(basename "${f}" .fail)
+                  sed 's/^/  /' "${cat_cpdir}/${ci_slug}.log" 2>/dev/null || true
+                  cat_img_fail=$((cat_img_fail+1))
+                  echo "[harbor-prewarm] Phase A3-catalog-images FAIL ${ci_detail}"
+                done
+                echo "[harbor-prewarm] Phase A3-catalog-images complete: ok=${cat_img_ok} fail=${cat_img_fail} render_fail=${cat_render_fail}"
+              else
+                echo "[harbor-prewarm] Phase A3-catalog-images complete: every catalog-chart image was already covered by the live-cluster wave (render_fail=${cat_render_fail})"
+              fi
+              if [ "${PREWARM_CATALOG_IMAGES_FATAL}" = "true" ] \
+                 && { [ "${cat_img_fail}" -gt 0 ] || [ "${cat_render_fail}" -gt 0 ] || [ -n "${cat_img_unmapped}" ]; }; then
+                echo "[harbor-prewarm] FATAL (#5443): catalog-chart image coverage incomplete (copy_fail=${cat_img_fail} render_fail=${cat_render_fail} unmapped=$(printf '%s\n' ${cat_img_unmapped} | grep -c . || true)) and prewarm.catalogCharts.images.fatal=true — a Blueprint whose chart is pullable but whose images are not fails at pod-pull under the deny-egress hold instead of chart-pull here."
+                exit 1
+              fi
+            else
+              echo "[harbor-prewarm] Phase A3-catalog-images SKIP — disabled or no contractual catalog charts (#5443)"
             fi
 
             # ─── Phase A4 (#5204): warm Crossplane xpkg provider packages ──────
@@ -2142,5 +2538,11 @@ data:
           items:
             - key: extract-pins.sh
               path: extract-pins.sh
+      - name: catalog-chart-set
+        configMap:
+          name: cutover-catalog-chart-set
+          items:
+            - key: catalog-set.sh
+              path: catalog-set.sh
       - name: tmp
         emptyDir: {}

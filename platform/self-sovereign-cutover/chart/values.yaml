@@ -641,6 +641,65 @@ prewarm:
   # the step-06 union-warm top-up then remain the only nets).
   bootstrapKitPins:
     enabled: true
+  # #5443 (Refs #3627 #5237 #5442) — mirror the MARKETPLACE's chart set, not
+  # only the charts something already installed.
+  #
+  # The two enumerations above (live HelmReleases + frozen bootstrap-kit pins)
+  # both derive from what is INSTALLED. Step-06 nevertheless pivots the
+  # `openova-catalog` HelmRepository — the one every per-Org Application
+  # HelmRelease resolves through — onto the local Harbor, so after cutover the
+  # marketplace resolves against a registry that was stocked from a strictly
+  # smaller set. Measured on hw290 2026-07-27: 14 of 29 `visibility: listed`
+  # catalog entries resolved and 15 returned 404, with no proxy-cache fallback
+  # (the `openova-io` project is HOSTED, registry_id: None).
+  catalogCharts:
+    # Enumerate the LIVE Blueprint CRs (what `/api/v1/catalog` serves — the
+    # catalog-seed only seeds them; the console's catalog editor and operator
+    # curation both write the CRs) and union their chart:version coordinates
+    # into the mirror set. OFF mirrors the installed union only, i.e. keeps the
+    # pre-#5443 coverage gap.
+    enabled: true
+    # The `spec.visibility` whose entries are CONTRACTUAL: their
+    # `spec.manifests.chart`:`spec.version` MUST mirror and MUST be provably
+    # present, or the cutover fails loud with egress still open. `listed` is
+    # the customer-visible marketplace grid — the set a Sovereign advertises as
+    # installable. `unlisted`/`private` entries are still MIRRORED (a chart OCI
+    # artifact is tiny next to the image wave that dominates prewarm's runtime,
+    # and mirroring them covers the listed set's depends[]/companion closure for
+    # free) but best-effort: a stale pin on a Blueprint no customer can install
+    # from the grid must not hold the whole cutover hostage.
+    hardVisibility: listed
+    guard:
+      # After the mirror, assert every contractual entry resolves DURABLY in
+      # local Harbor (Harbor CORE's artifact API — its database, never a
+      # pull-through), for exactly the coordinate the install path requests.
+      # This is the probe that found #5443 and it would have failed that
+      # cutover. Disabling knowingly ships a Sovereign whose marketplace
+      # over-advertises what it can install.
+      enabled: true
+    images:
+      # #5442 interaction: prewarm's image enumeration walks the LIVE cluster's
+      # Pods, which by construction cannot see the images of a chart nobody has
+      # installed. For the catalog set the images must therefore come FROM the
+      # chart: each contractual chart is pulled back out of the local Harbor it
+      # was just mirrored into, rendered at default values, and every image the
+      # render pins is mirrored through the same resolver + copy path the live
+      # wave uses. `helm template` is faithful here rather than heuristic
+      # because .github/workflows/blueprint-release.yaml refuses to publish a
+      # chart that does not render at default values.
+      enabled: true
+      # Escalate an incomplete image render/copy from WARN to FATAL. Default
+      # false: the default-values render cannot see an image behind a
+      # conditional a per-Org install turns on, so a hard failure here would
+      # fail cutovers over a gap the enumeration cannot close either way. Every
+      # miss is named in the step log regardless. The CHART-level contract
+      # (guard.enabled above) is the fail-loud one.
+      fatal: false
+    # The Blueprint CR resource the enumeration reads, with the v1alpha1
+    # fallback the CRD still serves (products/catalyst/chart/crds/blueprint.yaml
+    # serves v1 as storage + v1alpha1 for the existing corpus).
+    blueprintResource: "blueprints.v1.catalyst.openova.io"
+    blueprintResourceFallback: "blueprints.v1alpha1.catalyst.openova.io"
   # #4994 (Refs #3379) — content-digest idempotency for the step-03 skopeo
   # mirror. When true (default) each container-image copy (Phase A) + chart-OCI
   # copy (Phase A2) first compares the SOURCE vs local-Harbor DEST manifest

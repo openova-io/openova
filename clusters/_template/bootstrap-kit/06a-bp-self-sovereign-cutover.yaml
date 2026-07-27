@@ -1005,7 +1005,26 @@ spec:
       # stepTimeouts.pivotReadbackSeconds. Step count stays 11; no RBAC or
       # deadline change. New chart test tests/step06-pivot-readback.sh
       # asserts on the step's EXIT CODE, not its log text.
-      version: 0.1.153
+      # 0.1.154 (#5443 #5442): step-03 harbor-prewarm mirrors what the
+      # MARKETPLACE OFFERS and warms what the PINNED CHARTS DECLARE. Both
+      # prior enumerations derived from what is INSTALLED (live HelmReleases,
+      # frozen bootstrap-kit pins) while step-06 pivots the catalog resolver
+      # onto local Harbor — hw290 2026-07-27: 14 of 29 `visibility: listed`
+      # entries resolved, 15 404'd against a HOSTED (non-proxy) project. And
+      # image tags came from the LIVE CLUSTER while chart versions came from
+      # the pins, so a fresh mirror pinning a chart the cluster had not rolled
+      # to left catalyst-api/ui/organization-controller ImagePullBackOff on
+      # local tags that never existed — unrecoverable, since catalyst-api
+      # drives the cutover. New shared library 03c (catalog_chart_set /
+      # catalog_guard_missing / chart_declared_images), Phase A2-catalog
+      # (live Blueprint CRs unioned into the mirror; `listed` spec.version is
+      # contractual, everything else best-effort), Phase A2-guard (durable
+      # Harbor artifact-API assert), Phase A3-chart-images + A3-guard (images
+      # rendered FROM every contractual chart, UNIONED with — never replacing
+      # — the live-cluster walk). New RBAC: read-only blueprints. New values:
+      # prewarm.catalogCharts.*, prewarm.chartImages.*. Step count stays 11.
+      # New chart test tests/catalog-chart-set.sh + contract Case 72.
+      version: 0.1.154
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

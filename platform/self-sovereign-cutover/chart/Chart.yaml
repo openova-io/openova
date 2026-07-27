@@ -1,5 +1,56 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.153 (#5443 Refs #3627 #5237 #5442 — MIRROR WHAT THE MARKETPLACE OFFERS,
+# not only what is installed. Step-06 pivots `openova-catalog` — the one
+# HelmRepository every per-Org Application HelmRelease resolves through — onto
+# local Harbor, but step-03's two enumerations (Phase A2 live HelmReleases,
+# Phase A2-pins frozen bootstrap-kit pins) BOTH derive from what is INSTALLED.
+# The marketplace offers what the CATALOG lists; those sets differ by
+# definition and the catalog set is strictly larger. Live hw290 2026-07-27: of
+# 29 `visibility: listed` catalog entries, 14 resolved 200 against the pivoted
+# registry and 15 returned 404 — and the Harbor `openova-io` project is HOSTED
+# (registry_id: None), so there is no proxy-cache fallback and the 404 is
+# final. A cut-over Sovereign advertised 29 installable Blueprints and could
+# install 14; a customer buying any of the other 15 got an unpullable
+# HelmRelease on a Sovereign by then deliberately cut off from the mothership
+# (Pillar 1 and Pillar 5 contradicted at once). NOW: new shared library 03c
+# (cutover-catalog-chart-set — the same one-parser-two-consumers discipline as
+# 03a's resolver and 03b's pin extractor) exposes catalog_chart_set /
+# catalog_guard_missing / catalog_chart_images, all pure. Step-03 gains:
+# • Phase A2-catalog — enumerates the LIVE Blueprint CRs (the set
+#   /api/v1/catalog serves; the catalog-seed only SEEDS them, and the console's
+#   catalog IaC editor + operator curation write the CRs) and unions their
+#   chart:version into the mirror. HARD = `spec.manifests.chart`:`spec.version`
+#   of a `visibility: listed` entry — the exact coordinate the install path
+#   requests (blueprintChart() -> blueprintRef.version -> HR chart.spec.version)
+#   and the customer-visible contract. SOFT = everything else: unlisted/private
+#   entries and `spec.source.version`, which NO controller reads and which is a
+#   known drift surface (#5444). Soft rows mirror best-effort and WARN on
+#   failure, so a stale pin on a Blueprint no customer can install from the grid
+#   cannot hold a cutover hostage; hard rows keep the pre-existing FATAL.
+# • Phase A2-guard — after the mirror, asserts every contractual entry resolves
+#   DURABLY in local Harbor via Harbor CORE's artifact API (its database, never
+#   a pull-through — the #5030 lesson), through harbor_durable_digest, now
+#   factored out of dest_already_current so the skip-if-present probe and the
+#   guard cannot fork. This IS the probe that found #5443 and it fails the
+#   cutover with egress still open and the offenders named.
+# • Phase A3-catalog-images (Refs #5442) — prewarm's image enumeration walks the
+#   LIVE cluster's Pods, which by construction cannot see the images of a chart
+#   nobody installed. So each contractual chart is pulled back out of the local
+#   Harbor it was just mirrored into (skopeo dir: transport — no helm-registry
+#   login dance, no extra upstream egress), rendered at DEFAULT values, and
+#   every image the render pins is mirrored through the SAME offline-mirror
+#   resolver + copy_one the live wave uses. `helm template` is faithful rather
+#   than heuristic here because blueprint-release.yaml refuses to publish a
+#   chart that does not render at default values. Best-effort by default
+#   (prewarm.catalogCharts.images.fatal escalates) because a default-values
+#   render cannot see an image behind a per-Org conditional.
+# New RBAC: read-only get/list/watch on catalyst.openova.io/blueprints.
+# New knobs: prewarm.catalogCharts.{enabled,hardVisibility,guard.enabled,
+# images.{enabled,fatal},blueprintResource,blueprintResourceFallback}. Step
+# count unchanged at 11 (03c carries no cutover-order label). New contract Case
+# 72 + tests/catalog-chart-set.sh exercise the library against fixtures and
+# assert step-03 + RBAC wire it.)
 # 0.1.153 (#5436 — step-06 region-A pivot READ-BACK: stop reporting
 # `success` on a half-pivoted Sovereign). Step-06's only region-A failure
 # signal was the Phase-1 `fail` counter, which counts `kubectl patch`

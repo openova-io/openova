@@ -3666,4 +3666,26 @@ fi
 if [ "$c71_fail" -ne 0 ]; then exit 1; fi
 echo "  PASS (#5359: steps 05/06/08 mount cutover-secondary-kubeconfigs optional:true [single-region inert]; step-05 pivots + FAIL-LOUD Ready-waits every secondary GitRepository over the mesh global-Service path; step-06 pivots every secondary HR with a zero-upstream read-back assert + re-syncs the STRIPPED auth bytes post-Phase-3b; step-08 extends the deny-egress hold to every region [region-A manifest inherited + mesh toEndpoints + own-gateway IPs] with teardown + per-region verdicts; step count unchanged at 11)"
 
+# ── Case 72 (#5443): the marketplace's chart set is mirrored + asserted ──────
+# Step-06 pivots `openova-catalog` — the HelmRepository every per-Org
+# Application HelmRelease resolves through — onto local Harbor, but step-03's
+# two enumerations (live HelmReleases, frozen bootstrap-kit pins) both derive
+# from what is INSTALLED. The marketplace offers what the CATALOG lists, a
+# strictly larger set: on hw290 (2026-07-27) 14 of 29 `visibility: listed`
+# entries resolved against the pivoted registry and 15 returned 404, with no
+# proxy-cache fallback. The sibling guardrail exercises the 03c library against
+# fixtures AND asserts step-03 + RBAC actually wire it.
+echo "[cutover-contract] Case 72: catalog chart-set mirror + guard (#5443)"
+CATSET="${SCRIPT_DIR}/catalog-chart-set.sh"
+if [ ! -f "${CATSET}" ]; then
+  echo "FAIL: catalog-chart-set.sh guardrail missing (#5443)" >&2
+  exit 1
+fi
+if ! bash "${CATSET}" "$(pwd)" >/dev/null 2>&1; then
+  echo "FAIL: catalog chart-set guardrail red — run tests/catalog-chart-set.sh for the offender (#5443)" >&2
+  bash "${CATSET}" "$(pwd)" >&2 || true
+  exit 1
+fi
+echo "  PASS (03c library derives the catalog chart set + HARD/SOFT split, the guard names exactly the unservable contractual entries, chart-rendered image enumeration works, and step-03 + RBAC wire all of it)"
+
 echo "[cutover-contract] All gates green."
