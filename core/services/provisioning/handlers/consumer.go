@@ -793,6 +793,17 @@ func (h *Handler) applyTenantChangePerOrg(ctx context.Context, data appChangeDat
 			for p, c := range hostRouteFiles {
 				appFiles[p] = c
 			}
+			// #5423 — on this tier GeneratePerOrgAppsTree has already re-rooted
+			// the HelmRelease-shaped app files (openclaw / stalwart-mail /
+			// newapi) into vcluster/host-apps/, because the apps Kustomization
+			// is kubeConfig-targeted at the Org vcluster, which registers no
+			// Flux CRDs — a HelmRelease doc there fails dry-run and Flux aborts
+			// the ENTIRE Kustomization, so the customer's plain Deployment app
+			// and its DB never applied either (hw290 rows 86/90/233/234).
+			// Index them here so kustomize actually builds them; on uninstall
+			// the rebuilt list carries only the surviving HR apps, which prunes
+			// the removed one exactly like the route docs above.
+			hostAppDocs = append(hostAppDocs, gitops.PerOrgHostHelmReleaseAppDocs(planSlug, appSlugs)...)
 			hostKustPath := gitops.PerOrgHostAppsDir + "/kustomization.yaml"
 			existingHostKust := ""
 			if content, err := repoClient.ReadFile(ctx, branch, hostKustPath); err == nil {

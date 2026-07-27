@@ -89,9 +89,28 @@ var perOrgHostAppsBaselineDocs = []string{
 //     re-creating the `apps` ns here would collide with the targetNamespace
 //     rewrite the org-controller's apps Kustomization applies.
 //   - the host-scoped HelmRelease-shaped apps `<basePath>/<slug>/app-<x>.yaml`
-//     (openclaw / stalwart-mail / any HR app) → `vcluster/apps/app-<x>.yaml`.
-//     On the de-vcluster'd host-native Sovereign these install straight into
-//     the host `<slug>` ns the apps Kustomization targets.
+//     (openclaw / stalwart-mail / newapi) → **tier-dependent**:
+//   - HOST tier (free/S): → `vcluster/apps/app-<x>.yaml`. That Kustomization
+//     carries no `kubeConfig`, so it applies to the HOST `<slug>` ns where the
+//     Flux CRDs live and the HelmRelease reconciles normally.
+//   - VCLUSTER tier (m/l/xl/flexi, #5423): → `vcluster/host-apps/app-<x>.yaml`.
+//     The org-controller gives the apps Kustomization a `kubeConfig.secretRef`
+//     on this tier, so it applies INTO the Org vcluster — which registers no
+//     `helm.toolkit.fluxcd.io` / `source.toolkit.fluxcd.io` CRDs at all. A
+//     HelmRelease/HelmRepository doc there fails server dry-run with
+//     `no matches for kind "HelmRelease" in version "helm.toolkit.fluxcd.io/v2"`,
+//     and because Flux aborts the WHOLE Kustomization on a single dry-run
+//     failure, it took every sibling doc down with it: the customer's plain
+//     Deployment-shaped app (`app-wordpress.yaml`) and its database
+//     (`db-mysql.yaml`) were never applied either. Live on hw290 that read as
+//     `inventory=0` on `catalyst-tenant-<slug>-apps` for 2/2 such Orgs, an
+//     `app-<x>-hostroute` HTTPRoute stuck on
+//     `ResolvedRefs=False / BackendNotFound` (the routes live in host-apps and
+//     applied fine — only the backends were blocked), and HTTP 500 on
+//     `wordpress.<slug>.<parent>` (UAT rows 86/90/233/234).
+//     `vcluster/host-apps/` is the correct home: `kubeConfig: null` +
+//     `targetNamespace: <slug>` is exactly "the host `<slug>` ns" this routing
+//     always intended.
 //
 // The contabo-model host scaffolding (apps-sync.yaml, ingress.yaml,
 // provisioning-rbac.yaml, the host kustomization.yaml) is dropped: the
@@ -125,6 +144,18 @@ func (g *ManifestGenerator) GeneratePerOrgAppsTree(slug, planSlug string, appSlu
 			docSet[name] = struct{}{}
 		case isHostHelmReleaseAppFile(path, hostHRPrefix):
 			name := strings.TrimPrefix(path, hostHRPrefix)
+			// #5423 — on the vcluster tier the apps Kustomization is
+			// kubeConfig-targeted at the CRD-less Org vcluster, so a Flux doc
+			// there poisons the whole tree. Land it in host-apps instead
+			// (kubeConfig: null, targetNamespace: <slug>). appDocs must NOT
+			// list it: it no longer lives under vcluster/apps/, and a
+			// kustomization entry for a missing file breaks the build outright
+			// (the #4567 failure mode). PerOrgHostHelmReleaseAppDocs feeds the
+			// host-apps index instead.
+			if BoundaryIsVcluster(planSlug) {
+				out[PerOrgHostAppsDir+"/"+name] = content
+				continue
+			}
 			out[PerOrgAppsDir+"/"+name] = content
 			docSet[name] = struct{}{}
 		default:
@@ -286,6 +317,46 @@ func MergePerOrgHostAppsKustomization(existing string, treeDocs, hostAppDocs []s
 	return b.String()
 }
 
+// PerOrgHostHelmReleaseAppDocs returns the `app-<x>.yaml` basenames that
+// GeneratePerOrgAppsTree re-roots into `vcluster/host-apps/` for this cart —
+// i.e. the HelmRelease-shaped apps on the VCLUSTER tier (#5423). The caller
+// unions these into the host-apps kustomization index alongside the #4993
+// host-native route docs.
+//
+// Returns nil on the host tier: there the HR files stay in `vcluster/apps/`
+// (that Kustomization already applies to the host) and are indexed by
+// GeneratePerOrgAppsTree's own appDocs, exactly as before.
+//
+// Kept as a standalone pure function rather than a third return value of
+// GeneratePerOrgAppsTree so the render seam's signature — asserted by the
+// #4384/#4758/#3376 render-proof tests — stays stable. It is the deliberate
+// counterpart of the `continue` in GeneratePerOrgAppsTree: both key off
+// BoundaryIsVcluster + isHelmReleaseApp, so the file set and the index set
+// cannot drift.
+func PerOrgHostHelmReleaseAppDocs(planSlug string, appSlugs []string) []string {
+	if !BoundaryIsVcluster(planSlug) {
+		return nil
+	}
+	docs := make([]string, 0, len(appSlugs))
+	seen := map[string]struct{}{}
+	for _, a := range appSlugs {
+		if !isHelmReleaseApp(a) {
+			continue
+		}
+		name := fmt.Sprintf("app-%s.yaml", a)
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		docs = append(docs, name)
+	}
+	if len(docs) == 0 {
+		return nil
+	}
+	sort.Strings(docs)
+	return docs
+}
+
 // isHostHelmReleaseAppFile reports whether `path` is a host-scoped
 // HelmRelease-shaped app file (`<hostPrefix>app-<x>.yaml`) directly under the
 // tenant dir — i.e. NOT nested under `apps/`. These are the bp-* HelmReleases
@@ -336,6 +407,23 @@ func MergePerOrgAppsKustomization(existing, planSlug string, treeDocs, appDocs [
 	// "no such file or directory" and wedges the entire apps Kustomization.
 	excludedFromAppsTree := map[string]struct{}{
 		"ciliumnetworkpolicy.yaml": {},
+	}
+	// #5423 — same self-heal, same reason, one tier: on the VCLUSTER tier the
+	// HelmRelease-shaped app docs now live in `vcluster/host-apps/`, so an
+	// entry for them here points at a file this tree does not contain. A repo
+	// written by a pre-#5423 build still lists them in `existing`; strip them
+	// on every merge so the next cart install / reconcile heals an Org that
+	// would otherwise stay wedged on
+	// `no matches for kind "HelmRelease"` forever. The orphaned blob left at
+	// `vcluster/apps/app-<x>.yaml` is inert once unindexed — kustomize builds
+	// only what `resources:` lists.
+	//
+	// HOST tier is untouched: there the HR docs legitimately live in
+	// `vcluster/apps/` and MUST stay indexed.
+	if BoundaryIsVcluster(planSlug) {
+		for slug := range helmReleaseAppSlugs {
+			excludedFromAppsTree[fmt.Sprintf("app-%s.yaml", slug)] = struct{}{}
+		}
 	}
 
 	resources := map[string]struct{}{}
