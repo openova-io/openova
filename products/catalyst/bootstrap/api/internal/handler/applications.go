@@ -1388,9 +1388,27 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 	if v, ok, _ := unstructured.NestedString(obj.Object, "spec", "environmentRef"); ok {
 		resp.EnvironmentRef = v
 	}
-	if v, ok, _ := unstructured.NestedString(obj.Object, "spec", "placement"); ok {
-		resp.Placement = v
-	}
+	// #5422 — `spec.placement` has TWO shapes and this endpoint only ever read
+	// one. The legacy shape is a bare string; the #3373 shape is an object
+	// `{mode, vcluster, regions, clusters}` where the posture rides in `mode`.
+	// A raw NestedString against the object form returns ok=false, so
+	// `resp.Placement` stayed empty and `omitempty` dropped the field from the
+	// response entirely — and the console then turned that ABSENCE into a
+	// confident wrong answer (`?? 'singleton'` at AppDetail.tsx:255), rendering
+	// `singleton` for a two-region app directly above its own two-region
+	// REGIONS list. Live on hw290, `uat-ahs-hw290` showed Overview `singleton`
+	// while the Topology tab derived `active-hot-standby` from the same CR —
+	// exactly the contradictory second value EPIC #3969 forbids.
+	//
+	// #4897 already fixed this shape at sovereign.go:815 by routing through
+	// readTopology(); this call site was missed.
+	//
+	// Deliberately NOT calling readTopology() here: it defaults to "singleton"
+	// for a genuinely-absent placement, which would re-manufacture the very
+	// value this fixes. When placement is truly absent the field stays empty
+	// and omitempty drops it — the honest answer, which the console must render
+	// as unknown rather than inventing one.
+	resp.Placement = placementFromSpec(obj)
 	if regs, ok, _ := unstructured.NestedStringSlice(obj.Object, "spec", "regions"); ok {
 		resp.Regions = regs
 	}
