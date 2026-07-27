@@ -2572,7 +2572,7 @@ func certOwnerFromObject(c *unstructured.Unstructured) precheck.CertOwner {
 	app := ""
 	if labels != nil {
 		org = strings.TrimSpace(labels["catalyst.openova.io/organization"])
-		app = strings.TrimSpace(labels["catalyst.openova.io/app"])
+		app = strings.TrimSpace(labels[labelCatalystApp])
 	}
 	if org == "" {
 		org = "sovereign"

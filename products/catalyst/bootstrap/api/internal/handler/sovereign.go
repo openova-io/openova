@@ -142,6 +142,15 @@ var applicationGVR = ApplicationGVR()
 // chip MUST always render with a usable environment label.
 const defaultSovereignEnvironment = "dev"
 
+// labelCatalystApp is the HelmRelease label that ties every per-cluster
+// HR the application-controller fanned out back to its parent
+// Application CR. Mirrors render.LabelApp
+// (core/controllers/application/internal/render/topology.go) — a stable
+// G117.6 contract, restated here because that package is `internal/` to
+// a different Go module and cannot be imported. #5429 relies on it to
+// collapse an Application's N per-cluster HRs onto its ONE card.
+const labelCatalystApp = "catalyst.openova.io/app"
+
 // httpRouteGVR — Gateway API HTTPRoute. The canonical Sovereign
 // install uses Cilium Gateway as the only ingress; Console / Organization /
 // per-blueprint front-doors all surface as HTTPRoutes. We list both
@@ -767,6 +776,12 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 		// Contexts count from the instance's declared IaC values via
 		// the Blueprint's contextSchema (generic, declaration-only).
 		ctxSchemaByBP := map[string]*contextSchemaDecl{}
+		// #5429 — the set of Application CR names projected below, used
+		// by the HR fallback pass to suppress the per-cluster HelmReleases
+		// the application-controller fanned out for those CRs. Keyed
+		// lowercase because the HR label value carries the CR name
+		// verbatim while HR object names are DNS-1123 lowercased.
+		projectedAppCRs := map[string]bool{}
 		for i := range appCRs {
 			app := &appCRs[i]
 			bpFull, _, _ := unstructured.NestedString(app.Object, "spec", "blueprintRef", "name")
@@ -813,6 +828,7 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 			// gets its topology badge, same as string-form spine AHS apps. A
 			// raw NestedString read collapsed the object to "" → no badge.
 			topology := readTopology(app)
+			projectedAppCRs[strings.ToLower(app.GetName())] = true
 			instanceRows = append(instanceRows, sovereignAppItem{
 				ID:           app.GetName(),
 				Slug:         slug,
@@ -855,6 +871,30 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 			hr := &hrItems[i]
 			hrName := hr.GetName()
 			if adoptedHRs[hrName] {
+				continue
+			}
+			// #5429 — suppress the per-cluster HelmReleases the
+			// application-controller FANNED OUT for an Application CR that
+			// is already projected above. `adoptedHRs` alone cannot do this:
+			// it is keyed by `spec.helmRelease.name`, which is the
+			// bootstrap-ADOPTION pointer (read only by
+			// reconcileBootstrapOwned, gated on spec.bootstrap=true) and is
+			// a SINGULAR string. A fanned-out Application renders ONE HR PER
+			// CLUSTER — render.HRNameFor(<app>, <cluster>) — so no single
+			// name can ever suppress them all; an active-hot-standby app
+			// emits a phantom card per region. Every fanned-out HR instead
+			// carries render.LabelApp naming its parent CR (stamped
+			// unconditionally in render.renderOneHR, overlaying OwnerLabels
+			// so callers cannot subvert it), which is the identity that
+			// actually matches 1:N.
+			//
+			// Scoped to CRs we actually projected: if the parent CR is
+			// absent/unreadable the HR stays the only representation of that
+			// install and must still render, so it is NOT suppressed.
+			if owner := strings.TrimSpace(hr.GetLabels()[labelCatalystApp]); owner != "" && projectedAppCRs[strings.ToLower(owner)] {
+				// Also suppress any bootstrap SLOT row for this HR below —
+				// the Application CR's card is its one card.
+				adoptedHRs[hrName] = true
 				continue
 			}
 			chart, _, _ := unstructured.NestedString(hr.Object, "spec", "chart", "spec", "chart")
