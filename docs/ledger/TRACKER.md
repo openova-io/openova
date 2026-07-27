@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-27T11:30:04Z` |
+| Last refreshed | `2026-07-27T11:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 60 |
 | Open DoD gates | 0 / 41 |
@@ -267,6 +267,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-27T11:41 | [#5457](https://github.com/openova-io/openova/pull/5457) | #5449 | fix(console): catalog detail hero reads the live CR, not the |
 | 2026-07-27T11:27 | [#5455](https://github.com/openova-io/openova/pull/5455) | #960 | fix(uat): count UAT rows by status column — ad-hoc tally ove |
 | 2026-07-27T10:54 | [#5454](https://github.com/openova-io/openova/pull/5454) | #4290 | fix(provisioning): match vCluster pods for any inner namespa |
 | 2026-07-27T10:45 | [#5452](https://github.com/openova-io/openova/pull/5452) | #5445 | fix(console): badge apps NOT SERVING when the workload is de |
@@ -296,7 +297,6 @@ flowchart LR
 | 2026-07-26T19:17 | [#5390](https://github.com/openova-io/openova/pull/5390) | #3376 | fix(provisioning): per-Org gitops commit survives Gitea Push |
 | 2026-07-26T12:58 | [#5383](https://github.com/openova-io/openova/pull/5383) | #5381 | fix(retry): phase-retry ran no post-apply chain — stamped re |
 | 2026-07-26T11:42 | [#5382](https://github.com/openova-io/openova/pull/5382) | #5381 | fix(provisioner): Huawei digit-tailed region codes truncated |
-| 2026-07-26T10:56 | [#5380](https://github.com/openova-io/openova/pull/5380) | #5377 | fix(test): eso-push-policy-render SIGPIPE false-FAIL — unblo |
 
 ---
 
