@@ -24,8 +24,7 @@ Per `instances[]` entry the chart renders:
 | Service `oidc-gate-<name>` | :80 → :4180 |
 | HTTPRoute `oidc-gate-<name>` | OWNS the app's public hostname on the Sovereign gateway. The gated app's own HTTPRoute must be disabled (two HTTPRoutes on one hostname is undefined routing) |
 | ConfigMap `…-sso-registration` | `sso.openova.io/app-registration` label — bp-sso-bridge 0.2.3+ mints/adopts the Keycloak client in the sovereign realm and publishes the LIVE client_secret to OpenBao `sso/sovereign/<clientId>` |
-| ExternalSecret `…-oidc` | materialises that client_secret for the proxy (the credential topology that fixed hubble-ui, #3374) |
-| Secret `…-cookie` | gate-local cookie secret (lookup-or-generate, `helm.sh/resource-policy: keep`) |
+| ExternalSecret `…-oidc` | materialises BOTH the `client-secret` and the `cookie-secret` for the proxy from the one `sso/<realm>/<clientId>` bundle (the credential topology that fixed hubble-ui, #3374, extended to the cookie secret in #5416) |
 
 ## Configuration knobs
 
@@ -47,8 +46,14 @@ non-excluded namespaces.
 
 ## Operational notes
 
-- Stateless; cookie secret survives uninstall (`keep`). Multi-region:
-  per-cluster instances, no cross-region state.
+- Stateless. Multi-region: per-cluster instances, but the session-cookie
+  encryption key is NOT per-cluster state — bp-sso-bridge (≥ 0.2.26) derives
+  one `cookie_secret` per Keycloak client into the OpenBao bundle and both
+  regions resolve it, so a session minted behind either region is accepted by
+  both. Before #5416 each region's Helm minted its own value and, with one
+  shared wildcard VIP fanning the hostname at both regions' envoys, each gate
+  rejected the peer's session cookie ("cookie signature not valid" / "CSRF
+  token mismatch") — guacamole's SPA never rendered as a result.
 - A gate instance serves 302s before bp-sso-bridge publishes the
   client bundle; the ExternalSecret converges eventually (same pattern
   as the Tier-1/2 SSO apps).

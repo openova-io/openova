@@ -949,17 +949,53 @@ data:
       # deterministically from cid+realm+client_secret so it is stable
       # across reconcile ticks AND distinct from client_secret. Other
       # Tier-3 apps that don't reference this key just ignore it.
-      local issuer session_secret
+      #
+      # #5416 (2026-07-27) — `cookie_secret`, the SAME derivation idiom, for
+      # oauth2-proxy's OAUTH2_PROXY_COOKIE_SECRET (bp-oidc-gate's three gates,
+      # bp-agenity's per-Org gate, bp-cilium's hubble-ui gate).
+      #
+      # WHY IT BELONGS IN THIS BUNDLE: every gate chart used to mint its own
+      # cookie secret with a `lookup`-or-`randAlphaNum 32` Helm template. On a
+      # 2-region Sovereign each region runs its OWN Flux/Helm against its OWN
+      # apiserver, so the lookup misses in the second region and a DIFFERENT
+      # 32-char value is generated there. Both regions serve the one hostname
+      # behind one shared wildcard VIP, so requests round-robin and each gate
+      # rejects the peer region's AES-encrypted session cookie — measured live
+      # on hw290 for all three bp-oidc-gate instances (`cookie signature not
+      # valid, removing session` + `CSRF token mismatch, potential attack`, on
+      # BOTH regions in the same window; guacamole's SPA never rendered because
+      # its ~10 parallel XHRs cannot survive the resulting 302/401 storm).
+      #
+      # The sibling `client_secret` was ALREADY region-consistent, and this is
+      # exactly why: it is not generated per region at all — it is read from
+      # Keycloak (whose DB is shared across both regions, #4915) and published
+      # HERE, then delivered to each region by an ExternalSecret resolving the
+      # same `sso/<realm>/<cid>` bundle through the ClusterSecretStore. Riding
+      # the same carrier is what makes the cookie secret consistent; deriving
+      # it from `${secret}` is what keeps it secret-grade rather than guessable
+      # from public inputs (fqdn/realm/clientId are all public).
+      #
+      # LENGTH: oauth2-proxy's secretBytes() base64url-decodes the value first
+      # and requires 16/24/32 bytes. 32 hex chars decode cleanly to 24 bytes
+      # (AES-192) on every tick, in every region — so truncate the digest to 32
+      # rather than passing the full 64-char hex, which decodes to 48 bytes and
+      # is REJECTED at startup ("cookie_secret must be 16, 24, or 32 bytes").
+      # Distinct from session_secret (different domain-separation tag) so a
+      # consumer of one never gains the other.
+      local issuer session_secret cookie_secret
       issuer="https://auth.$(sovereign_fqdn)/realms/${realm}"
       session_secret="$(printf '%s|session|%s|%s' "${cid}" "${realm}" "${secret}" | sha256sum | awk '{print $1}')"
+      cookie_secret="$(printf '%s|cookie|%s|%s' "${cid}" "${realm}" "${secret}" | sha256sum | awk '{print substr($1,1,32)}')"
       local bundle
       bundle="$(jq -nc \
         --arg cid "${cid}" \
         --arg secret "${secret}" \
         --arg session "${session_secret}" \
+        --arg cookie "${cookie_secret}" \
         --arg issuer "${issuer}" \
         --arg realm "${realm}" \
         '{client_id:$cid, client_secret:$secret, session_secret:$session,
+          cookie_secret:$cookie,
           issuer_url:$issuer, realm:$realm,
           authorize_url:($issuer+"/protocol/openid-connect/auth"),
           token_url:($issuer+"/protocol/openid-connect/token"),
@@ -984,27 +1020,46 @@ data:
       # verbatim here, every tick (idempotent). Consumers that omit the
       # field (the 6 Tier-3 apps + per-Org charts) are unaffected.
       #
-      # Declared shape (all fields required when the block is present):
+      # Declared shape — single-key (the original #3374 form):
       #   { "name": "<es+secret name>", "namespace": "<target ns>",
       #     "secretKey": "<key in the produced Secret>",
       #     "property": "<property in the OpenBao bundle, e.g. client_secret>" }
+      #
+      # #5416 (2026-07-27) — MULTI-key form, for a consumer that needs two
+      # bundle properties in ONE Secret (bp-cilium's hubble-ui oauth2-proxy
+      # wants `client-secret` <- client_secret AND `cookie-secret` <-
+      # cookie_secret; the cookie secret must come down the SAME carrier or it
+      # diverges per region, the #5416 defect):
+      #   { "name": ..., "namespace": ...,
+      #     "data": [ {"secretKey": "client-secret", "property": "client_secret"},
+      #               {"secretKey": "cookie-secret", "property": "cookie_secret"} ] }
+      # `data` wins when present; otherwise the single-key fields are used, so
+      # every pre-#5416 declaration renders a byte-identical ExternalSecret.
+      #
       # The remoteRef key is ALWAYS the canonical sso/<realm>/<cid> this
       # function just wrote — callers never override the storage path.
       local es_decl
       es_decl="$(printf '%s' "${cm_json}" | jq -r '.data["externalSecret.json"] // empty')"
       if [ -n "${es_decl}" ]; then
-        local es_name es_ns es_key es_prop
+        local es_name es_ns es_key es_prop es_pairs es_data_yaml es_summary
         es_name="$(printf '%s' "${es_decl}" | jq -r '.name // empty')"
         es_ns="$(printf '%s' "${es_decl}" | jq -r '.namespace // empty')"
-        es_key="$(printf '%s' "${es_decl}" | jq -r '.secretKey // empty')"
-        es_prop="$(printf '%s' "${es_decl}" | jq -r '.property // "client_secret"')"
-        if [ -z "${es_name}" ] || [ -z "${es_ns}" ] || [ -z "${es_key}" ]; then
+        # Normalise both declared shapes to a TSV stream of `<secretKey>\t<property>`.
+        es_pairs="$(printf '%s' "${es_decl}" | jq -r 'def entries: if (.data | type) == "array" then .data else [{secretKey: .secretKey, property: .property}] end; entries[] | select((.secretKey // "") != "") | [.secretKey, (.property // "client_secret")] | @tsv' 2>/dev/null || true)"
+        es_data_yaml=""
+        es_summary=""
+        while IFS=$'\t' read -r es_key es_prop; do
+          [ -z "${es_key}" ] && continue
+          es_data_yaml="${es_data_yaml}$(printf '    - secretKey: %s\n      remoteRef:\n        key: sso/%s/%s\n        property: %s' "${es_key}" "${realm}" "${cid}" "${es_prop}")"$'\n'
+          es_summary="${es_summary}${es_key}<-${es_prop} "
+        done <<< "${es_pairs}"
+        if [ -z "${es_name}" ] || [ -z "${es_ns}" ] || [ -z "${es_data_yaml}" ]; then
           warn "app-registration[${cid}]: externalSecret.json present but missing name/namespace/secretKey; skipping ES apply"
         else
           # Render via printf (consistent leading-space indent — the same
           # convention emit_external_secret uses; column-0 heredoc body
           # lines silently terminate a YAML literal block).
-          if printf '%s\n' \
+          if { printf '%s\n' \
             "apiVersion: external-secrets.io/v1beta1" \
             "kind: ExternalSecret" \
             "metadata:" \
@@ -1022,13 +1077,9 @@ data:
             "  target:" \
             "    name: ${es_name}" \
             "    creationPolicy: Owner" \
-            "  data:" \
-            "    - secretKey: ${es_key}" \
-            "      remoteRef:" \
-            "        key: sso/${realm}/${cid}" \
-            "        property: ${es_prop}" \
+            "  data:"; printf '%s' "${es_data_yaml}"; } \
             | kubectl --request-timeout=15s apply -f - >/dev/null 2>&1; then
-            log "app-registration[${cid}]: applied ExternalSecret ${es_ns}/${es_name} (key=${es_key} <- sso/${realm}/${cid}#${es_prop})"
+            log "app-registration[${cid}]: applied ExternalSecret ${es_ns}/${es_name} (${es_summary}from sso/${realm}/${cid})"
             # #3374-cleanup-race (2026-06-19): record this clientId in the
             # app-registration keep-list so the main loop's cleanup_orphans
             # does NOT treat the ES we just applied (labelled managed=true,

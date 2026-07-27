@@ -14,7 +14,7 @@ spec:
   # 0.5.17 (#4604): chart adds a default-on external-HTTPS egress CNP +
   # seeds the openova MCP into ~/.claude.json for a standalone claude (durable
   # Pillar-4 North-Star wiring). Lockstep with products/agenity/chart.
-  version: 0.5.20
+  version: 0.5.21
   card:
     title: Agenity
     summary: |

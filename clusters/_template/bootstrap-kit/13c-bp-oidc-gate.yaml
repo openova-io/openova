@@ -87,7 +87,7 @@ spec:
       # `/app/?token=<sentinel>` so the SPA seeds the token and lands
       # authenticated with NO paste (the durable path — the daemon's `oidc`
       # authMode is a non-functional upstream scaffold, #128).
-      version: 0.1.7
+      version: 0.1.8
       sourceRef:
         kind: HelmRepository
         name: bp-oidc-gate

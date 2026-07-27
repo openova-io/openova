@@ -7,10 +7,12 @@
 #     arg set from bp-cilium G117.5 #2744)
 #   - Service oidc-gate-<name> (:80 -> :4180)
 #   - HTTPRoute owning the instance hostname on the Sovereign gateway
-#   - cookie Secret oidc-gate-<name>-cookie (lookup-or-generate + keep)
 #   - AppRegistration ConfigMap (bp-sso-bridge mints/adopts the KC
 #     client + publishes the LIVE secret to OpenBao sso/sovereign/<cid>)
-#   - ExternalSecret oidc-gate-<name>-oidc (client-secret from OpenBao)
+#   - ExternalSecret oidc-gate-<name>-oidc (client-secret AND cookie-secret
+#     from the one OpenBao bundle — #5416; the cookie secret used to be a
+#     chart-minted per-region Secret, which diverged between regions and
+#     made each gate reject the peer region's session cookie)
 
 global:
   # Harbor proxy-cache prefix (kyverno harbor-proxy-pull glob `*/proxy-*/*`
