@@ -158,7 +158,27 @@ var KnownApps = map[string]AppSpec{
 	"uptime-kuma": {
 		Image: "louislam/uptime-kuma:1", Port: 3001,
 		NeedsDB: "",
-		RAMMI:   "128Mi", CPUMilli: "50m",
+		// #5410 — was 128Mi/50m, which OOMKilled forever. Live on hw290 Org
+		// theta-corp: 49 restarts, lastState.terminated.reason=OOMKilled, at
+		// exactly the declared 128Mi ceiling. Uptime Kuma is Node.js with an
+		// embedded SQLite store; its baseline working set exceeds 128Mi before
+		// it finishes booting, so it OOMs, restarts, and OOMs again — the app
+		// installs, reports provisioned, and never once serves a request.
+		//
+		// This value is BOTH the request and the hard limit: qosResources()
+		// returns it for both on every paid plan so the pod is Guaranteed QoS
+		// (which the per-Org LimitRange's maxLimitRequestRatio {cpu:1,memory:1}
+		// requires to admit it at all). So there is no burst headroom to absorb
+		// an under-estimate — the declared number is the ceiling, full stop.
+		//
+		// 512Mi matches the tier already used for the other Node-heavy apps in
+		// this map (chatwoot, rocket-chat). CPU 50m→100m because the liveness
+		// probe was also failing during boot; 50m is 5% of a core, and Node
+		// startup is CPU-hungry even when steady-state draw is small. Both are
+		// deliberately modest — region-A already sits at 98-100% CPU *requests*
+		// (#5393), so this is sized to stop a proven hard failure, not to be
+		// generous.
+		RAMMI: "512Mi", CPUMilli: "100m",
 		EnvVars: map[string]string{},
 	},
 	"vaultwarden": {
