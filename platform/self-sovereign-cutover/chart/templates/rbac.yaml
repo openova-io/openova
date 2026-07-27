@@ -126,6 +126,9 @@ rules:
   - apiGroups: ["kustomize.toolkit.fluxcd.io"]
     resources: ["kustomizations"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["blueprints"]   # step 03 (#5443) Phase A2-catalog enumerates the LIVE Blueprint CRs — what the marketplace OFFERS — so harbor-prewarm mirrors the catalog's chart set, not only the charts something already installed. Cluster-scoped CRD; read-only.
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["cilium.io"]
     resources: ["ciliumnetworkpolicies"]
     verbs: ["get", "list", "watch"]

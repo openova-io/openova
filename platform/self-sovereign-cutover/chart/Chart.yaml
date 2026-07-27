@@ -1,5 +1,80 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.154 (#5443 #5442 Refs #3627 #5237 #5437 — MIRROR WHAT THE MARKETPLACE
+# OFFERS, and WARM WHAT THE PINNED CHARTS DECLARE —
+# not only what is installed. Step-06 pivots `openova-catalog` — the one
+# HelmRepository every per-Org Application HelmRelease resolves through — onto
+# local Harbor, but step-03's two enumerations (Phase A2 live HelmReleases,
+# Phase A2-pins frozen bootstrap-kit pins) BOTH derive from what is INSTALLED.
+# The marketplace offers what the CATALOG lists; those sets differ by
+# definition and the catalog set is strictly larger. Live hw290 2026-07-27: of
+# 29 `visibility: listed` catalog entries, 14 resolved 200 against the pivoted
+# registry and 15 returned 404 — and the Harbor `openova-io` project is HOSTED
+# (registry_id: None), so there is no proxy-cache fallback and the 404 is
+# final. A cut-over Sovereign advertised 29 installable Blueprints and could
+# install 14; a customer buying any of the other 15 got an unpullable
+# HelmRelease on a Sovereign by then deliberately cut off from the mothership
+# (Pillar 1 and Pillar 5 contradicted at once). NOW: new shared library 03c
+# (cutover-catalog-chart-set — the same one-parser-two-consumers discipline as
+# 03a's resolver and 03b's pin extractor) exposes catalog_chart_set /
+# catalog_guard_missing / chart_declared_images, all pure. Step-03 gains:
+# • Phase A2-catalog — enumerates the LIVE Blueprint CRs (the set
+#   /api/v1/catalog serves; the catalog-seed only SEEDS them, and the console's
+#   catalog IaC editor + operator curation write the CRs) and unions their
+#   chart:version into the mirror. HARD = `spec.manifests.chart`:`spec.version`
+#   of a `visibility: listed` entry — the exact coordinate the install path
+#   requests (blueprintChart() -> blueprintRef.version -> HR chart.spec.version)
+#   and the customer-visible contract. SOFT = everything else: unlisted/private
+#   entries and `spec.source.version`, which NO controller reads and which is a
+#   known drift surface (#5444). Soft rows mirror best-effort and WARN on
+#   failure, so a stale pin on a Blueprint no customer can install from the grid
+#   cannot hold a cutover hostage; hard rows keep the pre-existing FATAL.
+# • Phase A2-guard — after the mirror, asserts every contractual entry resolves
+#   DURABLY in local Harbor via Harbor CORE's artifact API (its database, never
+#   a pull-through — the #5030 lesson), through harbor_durable_digest, now
+#   factored out of dest_already_current so the skip-if-present probe and the
+#   guard cannot fork. This IS the probe that found #5443 and it fails the
+#   cutover with egress still open and the offenders named.
+# • Phase A3-chart-images + Phase A3-guard (#5442, folded in — same file, same
+#   enumeration decision) — harbor-prewarm sourced its two inputs from two
+#   places that agree ONLY while the cluster has already converged to what the
+#   mirror declares: chart versions from the mirror's pins, image tags from the
+#   LIVE CLUSTER (running Pods ∪ declared templates). A completely FRESH mirror
+#   pinning a chart whose images the cluster has not rolled to reproduces
+#   ImagePullBackOff with no staleness involved, so it survives #5441. Live
+#   hw290 2026-07-27: catalyst-api, catalyst-ui and
+#   catalyst-organization-controller all ImagePullBackOff on local tags that did
+#   not exist, and the Sovereign could not self-heal because catalyst-api is
+#   what DRIVES the cutover — recovery meant hand-pinning all three back to
+#   ghcr, i.e. re-tethering. #5443's layer-down leg is the same defect from the
+#   other end: a mirrored catalog chart whose images are absent fails at
+#   pod-pull instead of chart-pull, and the live walk by construction cannot see
+#   the images of a chart nobody installed. ONE mechanism closes both: every
+#   chart in the CONTRACTUAL set (live-HR deployed∪desired ∪ frozen
+#   bootstrap-kit pins ∪ contractual catalog entries) is pulled back out of the
+#   local Harbor it was just mirrored into (skopeo dir: transport — no
+#   helm-registry login dance, no extra upstream egress, and it proves the chart
+#   mirror in passing), rendered at DEFAULT values, and every image the render
+#   pins is mirrored through the SAME offline-mirror resolver + copy_one the
+#   live wave uses. Phase A3-guard then re-asserts durable presence of the whole
+#   chart-declared image set through harbor_durable_digest. UNION, NOT
+#   REPLACEMENT: the live-cluster walk is untouched and this set is added to it
+#   — replacing would be strictly worse, since a default-values render cannot
+#   see an image behind a conditional a per-Sovereign overlay turns on, which
+#   the runtime walk does see. A union can only widen coverage, so no cutover
+#   that works today can regress. FATAL by default on a copy failure, an
+#   un-mappable registry host, or a durable-presence miss — the same two
+#   conditions Phase A already FATALs on for the runtime set, applied to the
+#   second input; a chart that fails to RENDER is always a WARN because it makes
+#   no claim about images either way. The enumerator drops untagged, empty-tag
+#   and placeholder-tag refs so an overlay-supplied tag cannot fail a cutover on
+#   a ref nothing will ever pull.
+# New RBAC: read-only get/list/watch on catalyst.openova.io/blueprints.
+# New knobs: prewarm.catalogCharts.{enabled,hardVisibility,guard.enabled,
+# blueprintResource,blueprintResourceFallback} + prewarm.chartImages.{enabled,
+# fatal}. Step count unchanged at 11 (03c carries no cutover-order label). New
+# contract Case 72 + tests/catalog-chart-set.sh exercise the library against
+# fixtures and assert step-03 + RBAC wire it.)
 # 0.1.153 (#5436 — step-06 region-A pivot READ-BACK: stop reporting
 # `success` on a half-pivoted Sovereign). Step-06's only region-A failure
 # signal was the Phase-1 `fail` counter, which counts `kubectl patch`
@@ -2686,7 +2761,7 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.153
+version: 0.1.154
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
