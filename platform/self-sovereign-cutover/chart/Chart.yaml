@@ -1,5 +1,42 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.153 (#5436 — step-06 region-A pivot READ-BACK: stop reporting
+# `success` on a half-pivoted Sovereign). Step-06's only region-A failure
+# signal was the Phase-1 `fail` counter, which counts `kubectl patch`
+# CALLS that returned non-zero — never the cluster state afterwards. A
+# HelmRepository the Phase-0.9 enumeration never saw (the catalyst-api
+# org-tenant pipeline seeds bp-agenity / bp-keycloak / bp-newapi /
+# bp-openclaw / bp-stalwart-tenant / bp-wordpress-tenant into
+# clusters/<fqdn>/org-tenants/helmrepositories.yaml hardcoded to
+# oci://ghcr.io/openova-io) or one Flux reverted from a durable source
+# Phase-2/2b did not rewrite was therefore INVISIBLE: zero patch calls
+# failed, the Job exited 0, catalyst-api recorded
+# `step.helmrepository-patches.result=success` — and cutoverComplete=true
+# became reachable on an environment still chart-tethered to the
+# mothership. LIVE hw290 2026-07-27: six flux-system HRs on ghcr.io with
+# step-06 green and the Job succeeded=1. The SECONDARY-region leg has had
+# exactly this read-back since #5359; region-A never did. NOW: a shared
+# `assert_region_a_pivot` asserts ZERO HelmRepositories in
+# helmRepositories.namespace remain on the upstream prefix, called TWICE —
+# single-shot right after Phase-1 (fail-fast on an enumeration miss) and
+# with a bounded convergence budget at the HEAD of Phase 3, before the
+# irreversible mothership-auth strip (so the hw139 half-pivot — ghcr.io
+# creds gone while HRs still point at ghcr.io — is unreachable). The
+# tolerated set mirrors step-08's own count_offenders whitelist so this
+# assert is never STRICTER than the gate that follows it. Same class fixed
+# in step-11: both `kubectl patch provider.pkg.crossplane.io` failure arms
+# printed `FAIL <name>` and recorded nothing (the loop is a `printf |
+# while` SUBSHELL, so only the #5204 marker file can carry a verdict out) —
+# they now touch /tmp/xpkg-verify-failed, which the existing fail-loud
+# check already turns into exit 1 before the durable Gitea rewrite. New
+# values: helmRepositories.readbackExcludeNames /
+# .readbackReconcileKustomizations, stepTimeouts.pivotReadbackSeconds (300).
+# No step-count / RBAC / deadline change (still 11 steps; the read-back's
+# 300s budget sits inside the existing 2400s step-06 deadline). New chart
+# test tests/step06-pivot-readback.sh EXECUTES the rendered step-06 script
+# against a fake kubectl and asserts on the EXIT CODE (the log text was
+# already correct before the fix — that is why this shipped).
+#
 # 0.1.151 (#5359 Refs #5265 #5339 — SECONDARY-REGION pivot + proof legs:
 # kill the 2-region FALSE-POSITIVE cc=true. Live-proven on hw288 (dep
 # 027f07559af1f9f7): only region-A was pivoted — region-B's Flux
@@ -2649,7 +2686,7 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.152
+version: 0.1.153
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

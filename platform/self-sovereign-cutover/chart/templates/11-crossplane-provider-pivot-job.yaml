@@ -493,7 +493,19 @@ data:
                           --type=merge --patch "${patch_json}" >/dev/null 2>&1; then
                         echo "[crossplane-provider-pivot]   OK ${name}"
                       else
-                        echo "[crossplane-provider-pivot]   FAIL ${name}" >&2
+                        # #5436 (same class as step-06): this arm used to
+                        # print FAIL and nothing else — no counter, no
+                        # marker, no exit. The Provider stayed on
+                        # xpkg.upbound.io / the mothership proxy, the loop
+                        # ran in a `printf | while` SUBSHELL so a variable
+                        # could not carry the verdict out anyway, and the
+                        # step exited 0 with the tether intact. Record it on
+                        # the SAME marker file the #5204 verify misses use,
+                        # so the fail-loud check below (which already runs
+                        # BEFORE the durable Gitea rewrite) covers a failed
+                        # patch too.
+                        echo "[crossplane-provider-pivot]   FAIL ${name}: kubectl patch spec.package -> ${new_pkg} returned non-zero — the Provider is STILL on ${pkg} (#5436)" >&2
+                        touch /tmp/xpkg-verify-failed
                       fi
                       ;;
                     "${target_prefix}/"*)
@@ -533,7 +545,11 @@ data:
                             --type=merge --patch "${patch_json}" >/dev/null 2>&1; then
                           echo "[crossplane-provider-pivot]   OK ${name}"
                         else
-                          echo "[crossplane-provider-pivot]   FAIL ${name}" >&2
+                          # #5436 — same un-wired verdict as the arm above;
+                          # a failed tag->digest upgrade leaves a TAG-form
+                          # local ref that 404s post-severance. Record it.
+                          echo "[crossplane-provider-pivot]   FAIL ${name}: kubectl patch spec.package -> ${new_pkg} returned non-zero — the Provider is STILL on the TAG-form ${pkg} and will 404 post-severance (#5436 #5232)" >&2
+                          touch /tmp/xpkg-verify-failed
                         fi
                       fi
                       ;;

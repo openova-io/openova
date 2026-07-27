@@ -988,7 +988,24 @@ spec:
       # is a behavioral no-op (empty optional mount -> glob guards skip every leg;
       # the legs DO render). Step count stays 11.
       # Contract Case 71.
-      version: 0.1.152
+      # 0.1.153 (#5436): step-06 region-A pivot READ-BACK. Step-06's only
+      # region-A failure signal was the Phase-1 `fail` counter — `kubectl
+      # patch` CALLS that returned non-zero, never the cluster state after.
+      # An HR the Phase-0.9 enumeration missed (org-tenant pipeline seeds
+      # bp-agenity/bp-keycloak/bp-newapi/bp-openclaw/bp-stalwart-tenant/
+      # bp-wordpress-tenant hardcoded to ghcr.io) or one Flux reverted was
+      # invisible: Job exited 0, result=success, cutoverComplete reachable
+      # on a still-tethered Sovereign (LIVE hw290 2026-07-27, six flux-system
+      # HRs on ghcr.io with the step green). The #5359 secondary leg already
+      # had this read-back; region-A now does too — single-shot after
+      # Phase-1 and bounded at the head of Phase 3, before the irreversible
+      # mothership-auth strip. Same class wired in step-11 (both Provider
+      # patch-failure arms now record the #5204 marker). New values:
+      # helmRepositories.readbackExcludeNames/.readbackReconcileKustomizations,
+      # stepTimeouts.pivotReadbackSeconds. Step count stays 11; no RBAC or
+      # deadline change. New chart test tests/step06-pivot-readback.sh
+      # asserts on the step's EXIT CODE, not its log text.
+      version: 0.1.153
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
