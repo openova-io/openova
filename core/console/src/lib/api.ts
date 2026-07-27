@@ -354,6 +354,33 @@ export interface BackingService {
   image?: string;
 }
 
+// Live runtime state per installed application (#5451). The Org record's
+// `apps` list says what was purchased — it does NOT say whether the workload
+// serves. Without this, the console badges dead apps INSTALLED and offers an
+// Open button onto a 503.
+export interface AppRuntimeStatus {
+  id: string;
+  slug: string;
+  /** "Running" | "Pending" | "Failed" | "not_found" | "unknown". NOTE: "unknown"
+   *  means the runtime could not be reached — it is NOT a synonym for healthy. */
+  pod_status: string;
+  ready_replicas: number;
+  total_replicas: number;
+}
+
+/** Returns app-id → live runtime status. Never throws; an unreachable backend
+ *  yields {} and callers must degrade to "unconfirmed", never to "healthy". */
+export const getAppStatuses = async (
+  orgId: string,
+): Promise<Record<string, AppRuntimeStatus>> => {
+  const raw = await request<{ apps: AppRuntimeStatus[] }>(
+    `/organizations/${orgId}/app-statuses`,
+  );
+  const out: Record<string, AppRuntimeStatus> = {};
+  for (const a of raw.apps || []) out[a.id] = a;
+  return out;
+};
+
 // Types
 export interface User { id: string; email: string; name: string; }
 export interface Org {

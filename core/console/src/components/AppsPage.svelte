@@ -1,8 +1,9 @@
 <script lang="ts">
   import PortalShell from './PortalShell.svelte';
   import {
-    getApps, getProvisionStatus, getMyOrgs, installApp, uninstallApp,
+    getApps, getProvisionStatus, getMyOrgs, installApp, uninstallApp, getAppStatuses,
     type User, type Org, type CatalogApp, type Provision, type ProvisionStep,
+    type AppRuntimeStatus,
   } from '../lib/api';
   import { path } from '../lib/config';
   import { getAppStateStore } from '../lib/stores/appState.svelte';
@@ -20,6 +21,12 @@
   let tab = $state<'installed' | 'catalog'>('installed');
   // Shared store — source of truth for Org apps + app_states + jobs. #64
   let store = $state<ReturnType<typeof getAppStateStore> | null>(null);
+
+  // Live runtime state per app (#5451). The Org record tells us what was
+  // *purchased*; this tells us whether it actually serves. Without it the card
+  // badges INSTALLED over a 503 and offers an Open button onto a dead endpoint.
+  let appStatuses = $state<Record<string, AppRuntimeStatus>>({});
+  let statusPollTimer: ReturnType<typeof setInterval> | null = null;
 
   // Add/Remove modal state
   let modal = $state<null | {
@@ -75,6 +82,58 @@
     }
   });
 
+  // Poll live runtime state (#5451). Deliberately independent of the provision
+  // poller: an app can stop serving long after provisioning reports completed —
+  // that is exactly the hw290 case, where every deploy step said completed and
+  // all four workloads had zero endpoints.
+  $effect(() => {
+    const orgId = activeOrg?.id;
+    if (!orgId) return;
+    const refresh = () => {
+      // Never surface the failure as "healthy": on error we leave the previous
+      // map in place rather than clearing it to {} (which would silently read
+      // as "no evidence of trouble" for every card).
+      getAppStatuses(orgId).then(m => { appStatuses = m; }).catch(() => {});
+    };
+    refresh();
+    if (statusPollTimer) clearInterval(statusPollTimer);
+    statusPollTimer = setInterval(refresh, 15000);
+    return () => {
+      if (statusPollTimer) { clearInterval(statusPollTimer); statusPollTimer = null; }
+    };
+  });
+
+  // Affirmative evidence that a workload is NOT serving. Returns false when we
+  // have no evidence either way ("unknown", or no row at all) — this downgrades
+  // a card only on positive proof, never on absence of information, so an
+  // unreachable provisioning service cannot paint healthy apps red.
+  function isNotServing(appId: string): boolean {
+    const st = appStatuses[appId];
+    if (!st) return false;
+    switch (st.pod_status) {
+      case 'Failed':
+      case 'not_found':
+      case 'Pending':
+        return true;
+      case 'Running':
+        // Pods exist and are Running but none passed the Ready gate — this is
+        // precisely the shape that yields zero Service endpoints and a 503
+        // "no healthy upstream" behind the Open button.
+        return st.ready_replicas === 0;
+      default:
+        return false; // "unknown" — unreachable runtime, not a verdict.
+    }
+  }
+
+  function notServingDetail(appId: string): string {
+    const st = appStatuses[appId];
+    if (!st) return 'This application is not currently serving traffic.';
+    if (st.pod_status === 'not_found') {
+      return 'No running workload was found for this application. It was added to your organization but never started.';
+    }
+    return `This application is not currently serving traffic (${st.pod_status}, ${st.ready_replicas}/${st.total_replicas} ready).`;
+  }
+
   function loadProvision(orgId: string) {
     getProvisionStatus(orgId)
       .then(p => {
@@ -101,7 +160,7 @@
     }, 3000);
   }
 
-  type AppState = 'installing' | 'uninstalling' | 'pending' | 'installed' | 'failed' | 'not-installed';
+  type AppState = 'installing' | 'uninstalling' | 'pending' | 'installed' | 'unavailable' | 'failed' | 'not-installed';
 
   function stepForApp(appName: string, steps: ProvisionStep[] | undefined): ProvisionStep | null {
     if (!steps) return null;
@@ -109,7 +168,20 @@
     return steps.find(s => s.name === target) || null;
   }
 
+  // #5451 — every branch of provisionStateFor() below reaches "installed" from
+  // an *intent* fact: membership in the Org's Apps list, or a deploy step that
+  // reported completed. Both mean "we dispatched this", never "it serves". This
+  // wrapper is the single place runtime truth is allowed to overrule that, so
+  // no future branch can route around it and paint a dead app green again.
   function appStateFor(app: CatalogApp): { state: AppState; message?: string } {
+    const base = provisionStateFor(app);
+    if (base.state === 'installed' && isNotServing(app.id)) {
+      return { state: 'unavailable', message: notServingDetail(app.id) };
+    }
+    return base;
+  }
+
+  function provisionStateFor(app: CatalogApp): { state: AppState; message?: string } {
     // app_states is the source of truth for day-2 transitions (#64). If the
     // org-service consumer flipped the app to "installing" / "uninstalling" /
     // "failed", render that regardless of whether the initial provisioning
@@ -396,6 +468,12 @@
                 <span class="status-chip s-installed">
                   <span class="dot"></span> INSTALLED
                 </span>
+              {:else if st.state === 'unavailable'}
+                <!-- #5451 — installed, but the workload is affirmatively not
+                     serving. Saying INSTALLED here is what hid four dead apps. -->
+                <span class="status-chip s-unavailable" title={st.message}>
+                  <span class="dot"></span> NOT SERVING
+                </span>
               {:else if st.state === 'installing'}
                 <span class="status-chip s-installing">
                   <span class="dot dot-spin"></span> INSTALLING
@@ -421,6 +499,12 @@
                 <button class="icon-btn open" onclick={(e) => { e.preventDefault(); e.stopPropagation(); openApp(app.slug); }} title="Open">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                 </button>
+                <button class="icon-btn del" onclick={(e) => { e.preventDefault(); e.stopPropagation(); requestRemove(app); }} title="Remove">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
+                </button>
+              {:else if st.state === 'unavailable'}
+                <!-- #5451 — no Open button: the endpoint returns 503. Remove
+                     stays, so the customer keeps a way to act on the card. -->
                 <button class="icon-btn del" onclick={(e) => { e.preventDefault(); e.stopPropagation(); requestRemove(app); }} title="Remove">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
                 </button>
@@ -809,6 +893,10 @@
   .s-installing { background: color-mix(in srgb, var(--color-accent) 16%, transparent); color: var(--color-accent); }
   .s-pending { background: color-mix(in srgb, var(--color-text-dim) 16%, transparent); color: var(--color-text-dim); }
   .s-failed { background: color-mix(in srgb, var(--color-danger) 16%, transparent); color: var(--color-danger); }
+  /* #5451 — installed but not serving. Distinct from FAILED (which means the
+     install itself failed): here the install reported success and the workload
+     is dead, which is the case a green INSTALLED badge used to conceal. */
+  .s-unavailable { background: color-mix(in srgb, var(--color-danger) 16%, transparent); color: var(--color-danger); }
 
   @keyframes pulse {
     0%, 100% { opacity: 1; }
