@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-27T03:15:02Z` |
+| Last refreshed | `2026-07-27T03:30:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 44 |
+| Open issues | 49 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 44 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 49 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 44 open items (clickable table)
+### All 49 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -244,6 +244,11 @@ flowchart LR
 | [#5419](https://github.com/openova-io/openova/issues/5419) | postgres chart: wizard instances collapse onto one Cluster/postgres (_helpers.tp | Other |
 | [#5420](https://github.com/openova-io/openova/issues/5420) | Topology tab renders declared placement, not effective perCluster — shows 2 ca | Other |
 | [#5421](https://github.com/openova-io/openova/issues/5421) | Marketplace redeem page misses cookie-borne owner sessions — localStorage prob | Other |
+| [#5422](https://github.com/openova-io/openova/issues/5422) | Console Overview hardcodes Placement fallback to 'singleton', contradicting the  | Other |
+| [#5423](https://github.com/openova-io/openova/issues/5423) | P0: vcluster-tier funnel cart with a HelmRelease-shaped app poisons the whole pe | Other |
+| [#5425](https://github.com/openova-io/openova/issues/5425) | WriteTenantOverlay writes the legacy org-tenants path on EVERY Org create — un | Other |
+| [#5426](https://github.com/openova-io/openova/issues/5426) | Organization delete never runs the finalizer cascade — the complete teardown h | Other |
+| [#5427](https://github.com/openova-io/openova/issues/5427) | bp-velero stalled MissingRollbackTarget after Kyverno denied its upgrade-crds pr | Other |
 
 ---
 
@@ -251,6 +256,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-27T03:26 | [#5424](https://github.com/openova-io/openova/pull/5424) | #5387 | fix(provisioning): vcluster-tier funnel cart with a HelmRele |
 | 2026-07-27T02:00 | [#5418](https://github.com/openova-io/openova/pull/5418) | #5406 | fix(harbor): sweep the duplicate-label class — the netpol te |
 | 2026-07-27T01:29 | [#5417](https://github.com/openova-io/openova/pull/5417) | #5406 | fix(harbor): duplicate catalyst.openova.io/component key fai |
 | 2026-07-27T00:57 | [#5415](https://github.com/openova-io/openova/pull/5415) | #5406 | fix(harbor): SIGPIPE-proof the cross-region redis test — a f |
@@ -280,7 +286,6 @@ flowchart LR
 | 2026-07-25T02:22 | [#5354](https://github.com/openova-io/openova/pull/5354) | #5341 | fix(sovereign-tls-vars): console gateway specific-hostname l |
 | 2026-07-25T02:21 | [#5353](https://github.com/openova-io/openova/pull/5353) | #5352 | fix(catalyst-api): prune compliance_score series on resource |
 | 2026-07-24T04:20 | [#5347](https://github.com/openova-io/openova/pull/5347) | #5346 | chore(catalyst): umbrella 1.4.1210 — deliver #5346 catalog-s |
-| 2026-07-24T04:09 | [#5346](https://github.com/openova-io/openova/pull/5346) | #5345 | fix(catalog-seed): unlist 5 chartless blueprints (hollow ins |
 
 ---
 
