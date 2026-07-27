@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-27T07:00:03Z` |
+| Last refreshed | `2026-07-27T07:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 58 |
+| Open issues | 56 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 58 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 56 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 58 open items (clickable table)
+### All 56 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -213,7 +213,6 @@ flowchart LR
 | [#5285](https://github.com/openova-io/openova/issues/5285) | Failed deployment's watch-informers flood catalyst-api → starve /wipe + /deplo | Other |
 | [#5328](https://github.com/openova-io/openova/issues/5328) | Permanence: break-glass record-less env wipe — scripts/wipe-recordless-env.sh  | Other |
 | [#5339](https://github.com/openova-io/openova/issues/5339) | vpc-podcidr-route-reconciler CronJob(*/5) delays cross-region datapath recovery  | Other |
-| [#5341](https://github.com/openova-io/openova/issues/5341) | openova-mcp /mcp endpoint: ~40% envoy edge 404 flake despite healthy replica — | Other |
 | [#5345](https://github.com/openova-io/openova/issues/5345) | fix(catalog-seed): 5 visibility:listed blueprints present as installable but hav | Other |
 | [#5348](https://github.com/openova-io/openova/issues/5348) | 🛑 §854: 3 live NodePort services on the mothership (cinova, iogrid, cert-man | Other |
 | [#5349](https://github.com/openova-io/openova/issues/5349) | 🛑 §-compliance + durability: mothership runs entirely on local-path StorageC | Other |
@@ -223,7 +222,6 @@ flowchart LR
 | [#5373](https://github.com/openova-io/openova/issues/5373) | per-Org realm flag (CATALYST_PER_ORG_REALM_ENABLED) is DELIBERATELY dormant —  | Other |
 | [#5384](https://github.com/openova-io/openova/issues/5384) | FUNNEL P0 (hw290): purchased-app deploy dies on the FIRST app — per-Org cataly | Other |
 | [#5385](https://github.com/openova-io/openova/issues/5385) | Deployment health aggregate is stale-degraded + counts suspended HRs inconsisten | Other |
-| [#5387](https://github.com/openova-io/openova/issues/5387) | P0: per-Org GitOps writer races itself (PushOutOfDate) — every multi-app funne | Other |
 | [#5388](https://github.com/openova-io/openova/issues/5388) | P0: region-kill failback leaves a DATA SPLIT-BRAIN — G12 leg 6/6 (legs 1-5 pas | Other |
 | [#5389](https://github.com/openova-io/openova/issues/5389) | P1: per-app Open/launch button does not land the user in the app (rows 110/112/1 | Other |
 | [#5391](https://github.com/openova-io/openova/issues/5391) | Cutover: a Stalled/RetriesExceeded per-Org HelmRelease permanently blocks the So | Other |
