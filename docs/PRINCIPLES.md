@@ -361,6 +361,31 @@ These are OpenOva-platform-specific anti-patterns — concrete PR / issue receip
 | **Why this is wrong** | "Works on a stable prov" ≠ "works zero-touch on a fresh prov." The whole point of fresh-prov DoD is to catch environment-hardcoding and remediation-debt that hide on long-running provs. |
 | **Right fix shape** | Walks for fresh-prov AC items must be conducted on a fresh prov (the prov ID, chart version, and verified-at timestamp must all appear in the closing comment). |
 
+### A16 — Per-region secret on a shared VIP (and the inert-copy trap in diagnosing it)
+
+| | |
+|---|---|
+| **Receipt** | #5394, #5406 (harbor session store), #5414 (newapi signing key), #5416 (oidc-gate cookie secret ×4 gates) — **four instances found on one env in a single day**, 2026-07-26/27 |
+| **Shape** | A secret is generated **per region** (chart `lookup`-or-generate, `randAlphaNum`, per-region ExternalSecret) while both regions serve **one hostname behind one VIP**. Requests round-robin, so whichever region did not mint the value rejects the request. |
+| **Why this is wrong** | It presents as **flakiness**, not as a config defect — ~50% failure per request, worse on multi-hop chains — so triage repeatedly charges it to "the transport flake" and closes. #5406 sat at `users/current` **0/14** before anyone read it as deterministic. Any secret that authenticates a *session* (cookie key, signing key, session store) must be region-invariant by construction. |
+| **Right fix shape** | Fix at the **generation seam**, not per consumer. Per III.4, four instances in one day is the repo-wide-enumeration trigger: sweep every generator, don't chase the next gate. Reuse the existing shared carrier — on this platform Keycloak owns the client secret, `bp-sso-bridge` publishes it to OpenBao, and each region's ExternalSecret resolves that one bundle (the `session_secret` precedent, #2807). |
+
+**Two diagnostic traps that cost real time on #5416:**
+
+1. **"Consistent across regions" does NOT imply a sync mechanism exists.** The OIDC client secret matched because it is *never generated per region at all* — an external shared anchor, not synchronisation. Inferring a copier from matching values sends the fix down the wrong path. Establish *why* a value is consistent before reusing "the mechanism".
+
+2. **Check which copy the workload actually CONSUMES before filing.** An object can hold several secrets of the same name and read only one. Hubble carries two client secrets; the split one (`…-sso#client-secret`) is **never read**, while the consumed one (`…-oidc#client-secret`) matches. Reporting the inert split as a second defect sends people chasing a dead value. Resolve the reference first:
+
+   ```bash
+   kubectl get deploy -n <ns> <name> -o json | jq -r '.spec.template.spec.containers[]
+     |((.env//[])[]|select(.valueFrom.secretKeyRef)
+       |"env \(.name) <- \(.valueFrom.secretKeyRef.name)#\(.valueFrom.secretKeyRef.key)")'
+   ```
+
+   An unconsumed split is still worth closing **at the generator** — it is a latent trap that fires the moment a flag flips — but say plainly that it is latent, not the live fault.
+
+**Proving it:** render the template twice (each render = one region's Helm run) and hash. Pre-fix yields two values; post-fix the chart should render **zero** literals for that key. Verify live by hash only — never print secret values, this repo is public. A digest of `e3b0c442` everywhere means your jsonpath matched nothing (sha256 of empty input), not that the values match.
+
 ---
 
 ## Cross-cutting flags that trigger a "stop and investigate" pass
@@ -514,6 +539,7 @@ Mapping (Anti-pattern → Principle it violates):
 | A13 (Python sim passed off as `tofu validate`) | §15 |
 | A14 (bulk-template closure overrides evidence) | §6, §7 |
 | A15 (stable-state walk passed off as fresh-prov) | §7, Part IV rule 7 + [`DOD.md`](DOD.md) (operator-walked fresh-prov evidence) |
+| A16 (per-region secret on a shared VIP) | §2 (no workarounds), §7, Part III.4 (repo-wide enumeration on class recurrence) |
 
 When you catch a new shape of failure in a PR review, add an A16+ entry here with the PR / issue number, the shape, why it's wrong, and the right fix shape. The catalog grows so the next session catches the same shape sooner.
 
