@@ -865,6 +865,38 @@ helmRepositories:
     # ghcr.io). Caught live on t22.omantel.biz 2026-05-18.
     - "openova-catalog"
 
+  # ── #5436: region-A pivot READ-BACK assert ────────────────────────────
+  #
+  # Step-06 used to report `success` whenever every `kubectl patch` CALL
+  # returned zero — it never read the cluster back. An HelmRepository the
+  # Phase-0.9 enumeration missed (org-tenant pipeline seeds one AFTER the
+  # enumeration ran) or one Flux reverted from a durable source Phase-2/2b
+  # did not rewrite was invisible: the step exited 0 and catalyst-api
+  # recorded `step.helmrepository-patches.result=success` on a Sovereign
+  # whose charts still resolved to the mothership (live hw290 2026-07-27,
+  # six flux-system HRs on oci://ghcr.io/openova-io with the step green).
+  # Step-06 now read-back-asserts region-A the same way the #5359
+  # secondary-region leg already asserted every secondary.
+  #
+  # Names tolerated by the read-back. This MUST mirror the slot-managed
+  # self-reference whitelist step-08's own offender scan applies
+  # (08-egress-block-test-job.yaml, count_offenders' `grep -vE`) — the
+  # step-06 assert must never be STRICTER than the step-08 gate that
+  # follows it, or a cutover step-08 would pass dies at step-06 instead.
+  readbackExcludeNames:
+    - "bp-newapi"
+    - "bp-self-sovereign-cutover"
+  # Kustomizations re-poked (alongside the `openova` GitRepository) inside
+  # the read-back's bounded convergence window, so a durable Phase-2/2b
+  # rewrite is pulled + re-applied rather than waited out at the polling
+  # interval. `bootstrap-kit` carries the slot HelmRepositories;
+  # `org-tenants` carries the per-Org tenant HelmRepositories Phase-2b
+  # rewrites. All are in flux-system; a name that does not exist is a
+  # harmless no-op (the annotate is `|| true`).
+  readbackReconcileKustomizations:
+    - "bootstrap-kit"
+    - "org-tenants"
+
 # ── HelmRepository TLS-trust for the in-cluster Harbor (Refs #3379) ──────
 #
 # THE LAST LEG OF THE CUTOVER CERT-TAIL. Step-06 Phase-1 pivots every
@@ -1971,6 +2003,21 @@ stepTimeouts:
   # seconds. The re-poke-reconcile inside the loop means a fast converge
   # returns well under the ceiling.
   stripReadinessSeconds: 600
+  # Step 06 Phase-3 pre-strip read-back (#5436). Bounded convergence budget
+  # for the region-A "zero HelmRepositories left on the upstream prefix"
+  # assert placed at the head of Phase 3. It exists purely to absorb the
+  # #3526 revert-race: Phase-2/2b pushed the durable rewrite to local Gitea,
+  # but the `openova` GitRepository has to pull it and the bootstrap-kit /
+  # org-tenants Kustomizations have to re-apply it before a Flux-reverted
+  # URL settles back on local Harbor. Same 300s the step-08 pivot-poll uses,
+  # for the same race. Reconciles are re-poked every 15s inside the window,
+  # so a converged cluster returns on the FIRST pass and never waits this
+  # out; the budget only costs wall-clock on a genuinely un-pivoted
+  # Sovereign, where spending 5 minutes before failing loud is exactly the
+  # right trade. Set 0 to make the assert single-shot.
+  # NB: this is inside helmRepositoryPatchesSeconds (2400s) alongside the
+  # gateway-wait + stripReadinessSeconds worst-case sum.
+  pivotReadbackSeconds: 300
   catalystAPIEnvPatchSeconds: 600
   # 600s deny survival window + up to 300s #3526 bounded pivot-poll
   # (force-reconcile GitRepository + bootstrap-kit Kustomization and wait

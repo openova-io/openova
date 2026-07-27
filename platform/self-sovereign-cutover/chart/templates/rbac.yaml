@@ -193,7 +193,7 @@ rules:
     verbs: ["update", "patch"]   # step 06 phase-1.6 (catalog override) + step 10 vcluster-registry-pivot (TBD-V24 MISS-1)
   - apiGroups: ["kustomize.toolkit.fluxcd.io"]
     resources: ["kustomizations"]
-    verbs: ["update", "patch"]   # step 08 (#3526) force-reconciles the bootstrap-kit Kustomization so Step-06's durable git-push lands before the pivot assertion (the annotate reconcile.fluxcd.io/requestedAt patch)
+    verbs: ["update", "patch"]   # step 08 (#3526) force-reconciles the bootstrap-kit Kustomization so Step-06's durable git-push lands before the pivot assertion (the annotate reconcile.fluxcd.io/requestedAt patch); step 06 (#5436) re-pokes the SAME reconciles (bootstrap-kit + org-tenants, helmRepositories.readbackReconcileKustomizations) inside its own pre-strip pivot read-back — do NOT narrow this to step-08, the step-06 annotate is `|| true` and would degrade SILENTLY into a read-back that times out instead of converging
   - apiGroups: ["pkg.crossplane.io"]
     resources: ["providers", "imageconfigs"]
     verbs: ["update", "patch"]   # step 11 crossplane-provider-pivot (TBD-V24 MISS-3); #5204 patches the ImageConfig on re-run (kubectl apply)
