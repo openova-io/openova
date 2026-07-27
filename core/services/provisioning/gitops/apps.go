@@ -103,7 +103,7 @@ var KnownApps = map[string]AppSpec{
 		EnvVars: map[string]string{},
 	},
 	"umami": {
-		Image: "ghcr.io/umami-software/umami:postgresql-latest", Port: 3000,
+		Image: "ghcr.io/umami-software/umami:postgresql-v2.9.0", Port: 3000,
 		NeedsDB: "postgres",
 		RAMMI:   "256Mi", CPUMilli: "100m",
 		EnvVars: map[string]string{},
@@ -150,13 +150,13 @@ var KnownApps = map[string]AppSpec{
 		EnvVars: map[string]string{},
 	},
 	"gitea": {
-		Image: "gitea/gitea:1-rootless", Port: 3000,
+		Image: "gitea/gitea:1.27.0-rootless", Port: 3000,
 		NeedsDB: "postgres",
 		RAMMI:   "256Mi", CPUMilli: "100m",
 		EnvVars: map[string]string{},
 	},
 	"uptime-kuma": {
-		Image: "louislam/uptime-kuma:1", Port: 3001,
+		Image: "louislam/uptime-kuma:1.23.17", Port: 3001,
 		NeedsDB: "",
 		// #5410 — was 128Mi/50m, which OOMKilled forever. Live on hw290 Org
 		// theta-corp: 49 restarts, lastState.terminated.reason=OOMKilled, at
@@ -262,7 +262,7 @@ func GetAppSpec(slug string) AppSpec {
 	}
 	if slug == "placeholder" {
 		return AppSpec{
-			Image:    "nginx:1-alpine",
+			Image:    "nginx:1.31.3-alpine",
 			Port:     80,
 			NeedsDB:  "",
 			RAMMI:    "64Mi",
