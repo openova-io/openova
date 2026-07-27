@@ -254,7 +254,8 @@ openova/
 ├── core/                   # Catalyst control-plane application (Go)
 │   ├── cmd/                # entry points (main.go per binary)
 │   ├── admin/              # admin tooling
-│   ├── console/            # operator console (Astro + Svelte) — UI
+│   ├── console/            # per-Organization TENANT console (`org-console`, Astro + Svelte).
+│   │                       # NOT the sovereign-admin console — see the note below the tree.
 │   ├── controllers/        # CRD reconcilers: application, blueprint, continuum,
 │   │                       # environment, organization, sandbox, useraccess
 │   ├── marketplace/        # marketplace projector
@@ -269,6 +270,7 @@ openova/
 │   ├── agenity/            # bp-agenity — per-Org Agenity workspace (Pillar 4; chart/ + Containerfile)
 │   ├── axon/               # SaaS LLM Gateway                (real code: chart/ src/ scripts/)
 │   ├── catalyst/           # bp-catalyst-platform umbrella + bp-* sub-charts + bootstrap/ + console/
+│   │                       # bootstrap/ui/ = the SOVEREIGN-ADMIN console (see note below)
 │   ├── catalyst-migrator/  # one-shot Catalyst schema-migration Job image
 │   ├── continuum/          # bp-continuum DR/BCP chart + cloudflare-worker
 │   ├── cortex/             # AI Hub                          (scaffold)
@@ -285,6 +287,31 @@ openova/
     ├── sessions/           # date-stamped walk runbooks + session reports
     └── archive/            # historical / superseded (legacy proposals/runbooks/lessons-learned folded into the 7 canonical docs)
 ```
+
+### ⚠️ There are THREE console trees — grep all three before concluding "the UI does not do X"
+
+A single `grep` against `core/console/src` is **not** evidence that a console
+surface is missing. The three trees, by `package.json` name:
+
+| Path | Package | What it is |
+|---|---|---|
+| `core/console/` | `org-console` | per-**Organization** tenant console (the User-facing one) |
+| `products/catalyst/console/` | `catalyst-console` | Catalyst-side console assets |
+| `products/catalyst/bootstrap/ui/` | `ui` | **the sovereign-admin console** — `src/pages/sovereign/…` |
+
+Almost every operator-facing acceptance row (the whole #3375 topology epic, the
+apps grid, app detail, jobs, treemap, cutover controls) lives in the **third**
+tree, `products/catalyst/bootstrap/ui/src/pages/sovereign/`. It is the one most
+easily missed because `core/console` is the intuitive-looking path.
+
+This has produced **wrong conclusions more than once** — a UAT row was recorded
+as "REFUTED, the badges do not exist" after grepping only `core/console/src`,
+when the badges were present in `bootstrap/ui` all along (`⛓` 0/0/4,
+`contexts` 0/0/11, `active-passive` 0/2/15 across the three trees). That
+refutation cost two walkers before it was caught.
+
+**Rule:** before claiming a console surface is absent, grep all three paths above
+and say which ones you checked.
 
 For the up-to-date "what's actually built today" inventory (controllers green/yellow/red, microservices status, CRD set) see [`docs/STATUS.md`](docs/STATUS.md).
 
@@ -383,7 +410,8 @@ component is its own Go module (`core/controllers/`, `core/marketplace-api/`,
 cd core/controllers/     # or any other Go module dir
 go test ./...
 go build ./...
-# Operator-console UI in core/console/ (Astro + Svelte): npm install, npm run dev
+# Tenant (per-Organization) console UI in core/console/ (Astro + Svelte): npm install, npm run dev
+# Sovereign-admin console UI in products/catalyst/bootstrap/ui/ — see the three-console-trees note above
 ```
 
 CRD types live in `core/pkg/apis/<kind>/v1alpha1/` (one Go module per kind, mirrored into `core/controllers/pkg/apis/`). Add new types there, then update the matching reconciler in `core/controllers/<kind>/`.
