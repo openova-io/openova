@@ -3603,7 +3603,7 @@ name: bp-catalyst-platform
 #   (reason=ProvisioningIncomplete) naming the missing artifact, and keeps the 30s
 #   requeue alive so the up-path re-converges. Read-only — Flux still owns the
 #   apply. Refs #5395.
-version: 1.4.1239
+version: 1.4.1240
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
@@ -3753,7 +3753,7 @@ version: 1.4.1239
 #   unsatisfiable on kom4dc (me-east-215-*), which kept the production
 #   Continuum seed unfireable. Backwards-compatible (all-letter labels
 #   still match). Flux CreateReplace flows it to live Sovereigns.
-appVersion: 1.4.1239
+appVersion: 1.4.1240
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
