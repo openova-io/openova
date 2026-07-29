@@ -1556,25 +1556,41 @@ echo "[cutover-contract] Case 39: Step-03 Phase A container-image skopeo copy ca
 # list digest, so the FULL manifest list + ALL arch sub-manifests + blobs MUST land.
 # Phase A (container images) MUST carry --multi-arch all; Phase A2 (helm chart OCI =
 # a SINGLE manifest, never a list) MUST NOT — leave chart-artifact copies alone.
+#
+# #5468 reshaped WHERE Phase A's flag comes from, without changing WHAT it is.
+# The Phase A copy no longer hardcodes the flag on the skopeo line; it asks
+# prewarm_multiarch_flags, whose DEFAULT is `--multi-arch all` and whose only
+# other answer is the narrow per-image single-platform exception (one malformed
+# upstream index — see tests/single-platform-copy.sh, which proves the branch
+# behaviourally in both directions). So this case now asserts three things:
+# the Phase A copy still routes through the multi-arch decision, that
+# decision's DEFAULT is still `--multi-arch all`, and the flag still did not
+# get sprinkled onto the Phase A2 chart-OCI copy.
 awk '/cutover-step-03-harbor-prewarm/{c=1} c{print} c&&/cutover-order: "4"/{exit}' "$TMP/render.yaml" > "$TMP/prewarm_ma_block.txt"
 [ -s "$TMP/prewarm_ma_block.txt" ] || cp "$TMP/render.yaml" "$TMP/prewarm_ma_block.txt"
-# Match the flag LINE (not the explanatory comment that also names the flag).
-if ! grep -Eq '^[[:space:]]*--multi-arch all \\$' "$TMP/prewarm_ma_block.txt"; then
-  echo "FAIL: Step-03 Phase A skopeo copy is missing --multi-arch all — a manifest-list image uploads only a single-arch manifest and Harbor rejects it 'digest invalid', fail-closing step-03 (#4975)" >&2
+# (a) The Phase A container-image copy routes through the multi-arch decision.
+if ! awk '/prewarm_skopeo_copy\(\) \{/,/^[[:space:]]*\}[[:space:]]*$/' "$TMP/prewarm_ma_block.txt" | grep -q 'prewarm_multiarch_flags'; then
+  echo "FAIL: Step-03 prewarm_skopeo_copy() does not consult prewarm_multiarch_flags — the Phase A container-image copy no longer makes a multi-arch decision at all, so a manifest-list image uploads only a single-arch manifest and Harbor rejects it 'digest invalid' (#4975 #5468)" >&2
   exit 1
 fi
-# EXACTLY TWO copies carry it: the Phase A container-image copy AND the Phase A4
-# xpkg package warm (#5204 — upbound provider packages are multi-arch manifest
-# LISTS too; the warm must pull EVERY arch sub-manifest + blobs through so the
-# proxy-cache holds the complete list). The Phase A2 chart-OCI copy (a single
-# manifest, never a list) is left alone, so the flag-line count is exactly 2 —
-# this also proves the flag did not get sprinkled onto the chart copy.
+# (b) That decision's DEFAULT is --multi-arch all. If this fallback is ever
+# narrowed, EVERY list-digest-addressed image regresses to hw239.
+if ! grep -Eq "printf -- '--multi-arch all'" "$TMP/prewarm_ma_block.txt"; then
+  echo "FAIL: prewarm_multiarch_flags no longer defaults to --multi-arch all — narrowing the GLOBAL default is the #4975 hw239 regression (all 8 multi-arch images FAILED 'digest invalid'). Single-platform is only ever a per-image exception (#5468)" >&2
+  exit 1
+fi
+# (c) EXACTLY ONE literal flag line remains: the Phase A4 xpkg package warm
+# (#5204 — upbound provider packages are multi-arch manifest LISTS too; the
+# warm must pull EVERY arch sub-manifest + blobs through so the proxy-cache
+# holds the complete list). The Phase A2 chart-OCI copy (a single manifest,
+# never a list) is left alone, so the literal-flag-line count is exactly 1 —
+# this still proves the flag did not get sprinkled onto the chart copy.
 ma_lines=$(grep -Ec '^[[:space:]]*--multi-arch all \\$' "$TMP/prewarm_ma_block.txt" || true)
-if [ "${ma_lines}" -ne 2 ]; then
-  echo "FAIL: Step-03 has ${ma_lines} --multi-arch all flag line(s), expected exactly 2 (the Phase A container-image copy + the Phase A4 xpkg warm #5204). The Phase A2 helm-chart-OCI copy must NOT carry it — chart artifacts are single manifests, not lists (#4975)" >&2
+if [ "${ma_lines}" -ne 1 ]; then
+  echo "FAIL: Step-03 has ${ma_lines} literal --multi-arch all flag line(s), expected exactly 1 (the Phase A4 xpkg warm #5204). The Phase A container-image copy takes its flags from prewarm_multiarch_flags (#5468) and the Phase A2 helm-chart-OCI copy must NOT carry it — chart artifacts are single manifests, not lists (#4975)" >&2
   exit 1
 fi
-echo "  PASS (Step-03 Phase A container-image copy uses --multi-arch all; Phase A2 chart-OCI copy left single-manifest)"
+echo "  PASS (Phase A copy routes through prewarm_multiarch_flags, whose default is --multi-arch all; Phase A4 xpkg warm keeps its literal flag; Phase A2 chart-OCI copy left single-manifest)"
 
 echo "[cutover-contract] Case 40: cutover step + resolver ConfigMaps re-render on helm upgrade (NO resource-policy: keep); only the status ConfigMap keeps (#4982 Finding A, Refs #3379)"
 # #4982 Finding A: a cutover-step / resolver ConfigMap that carries

@@ -350,6 +350,15 @@ data:
             value: {{ .Values.prewarm.chartImages.enabled | quote }}
           - name: PREWARM_CHART_IMAGES_FATAL
             value: {{ .Values.prewarm.chartImages.fatal | quote }}
+          # #5468 — per-image single-platform copy exception (see
+          # prewarm_multiarch_flags). Space-separated ref substrings; empty
+          # means EVERY copy stays on the #4975 `--multi-arch all` default.
+          - name: PREWARM_SINGLE_PLATFORM_SUBSTRINGS
+            value: {{ include "bp-self-sovereign-cutover.singlePlatformSubstringsInline" . | quote }}
+          - name: PREWARM_SINGLE_PLATFORM_OS
+            value: {{ .Values.prewarm.singlePlatform.os | default "linux" | quote }}
+          - name: PREWARM_SINGLE_PLATFORM_ARCH
+            value: {{ .Values.prewarm.singlePlatform.arch | default "amd64" | quote }}
           - name: CATALOG_BLUEPRINT_RESOURCE
             value: {{ .Values.prewarm.catalogCharts.blueprintResource | quote }}
           - name: CATALOG_BLUEPRINT_RESOURCE_FALLBACK
@@ -1028,14 +1037,93 @@ data:
             #     images FAILED). containerd pulls BY the list digest, so the
             #     FULL list + all arch sub-manifests + blobs must land.
             #     Single-arch refs are unaffected.
+            #   • #5468 the ONE documented exception to `--multi-arch all`, per
+            #     image, via prewarm_multiarch_flags below.
+
+            # #5468 (Refs #5442 #4975) — emit the skopeo multi-arch flag set for
+            # ONE source ref.
+            #
+            # DEFAULT is `--multi-arch all` for every ref — the #4975 contract is
+            # untouched, and narrowing it GLOBALLY is the wrong fix (it
+            # reproduces hw239's `digest invalid` across every multi-arch image,
+            # because those copies are addressed BY the manifest-list digest).
+            #
+            # THE EXCEPTION. A ref matching PREWARM_SINGLE_PLATFORM_SUBSTRINGS is
+            # copied as a SINGLE platform instead. This exists for upstream
+            # manifest lists that are MALFORMED in a way Harbor cannot ingest, so
+            # that no amount of retrying or egress can ever land them whole.
+            #
+            # The proven instance is ghcr.io/berriai/litellm-database (live hw291
+            # 2026-07-28, step-03 A3 `ok=35 fail=1 durable_miss=1`). Its
+            # `main-v1.57.2` OCI index lists EIGHT entries that are only FOUR
+            # distinct children — every child appears TWICE, byte-identical in
+            # mediaType, digest, size, platform and annotations:
+            #
+            #   c94ccc84 linux/amd64      x2
+            #   10c24c81 linux/arm64      x2
+            #   df4ae6f5 unknown/unknown  x2   (attestation for c94ccc84)
+            #   bc165dad unknown/unknown  x2   (attestation for 10c24c81)
+            #
+            # skopeo copies all eight children fine (they are just the same four
+            # blobs pushed twice) and then FATALs on the manifest-LIST upload
+            # alone: Harbor accepts the PUT and its post-push artifact walk then
+            # inserts one artifact_reference row per index entry — the duplicate
+            # (parent,child) pairs violate the table's uniqueness, the enclosing
+            # transaction rolls back, and the immediately-following read of the
+            # index Harbor was just handed answers
+            #   `unknown: artifact …@sha256:a1ed0885… not found`
+            # for a digest Harbor itself computed. Deterministic and permanent.
+            #
+            # IT IS NOT THE ATTESTATIONS. The same repository's `main-latest` tag
+            # carries the SAME two `unknown/unknown` buildx attestation children
+            # and mirrors cleanly in the same wave — its index simply lists each
+            # child ONCE. Duplication is the whole defect; attestations are a
+            # red herring.
+            #
+            # WHY SINGLE-PLATFORM IS SAFE *HERE* and not globally: the #4975
+            # `digest invalid` trap fires only when the copy is addressed by the
+            # list digest. Both refs this repository declares are addressed BY
+            # TAG (`:main-v1.57.2` from the chart's appVersion, `:main-latest`
+            # hardcoded in the upstream migration Job), so the destination tag
+            # resolving to a single amd64 manifest is exactly what containerd
+            # asks for on a linux/amd64 Sovereign node. The Phase A3-guard
+            # asserts durable PRESENCE via harbor_durable_digest, never
+            # source-digest equality, so a single-platform copy satisfies it.
+            # The #4994 dest_already_current skip WILL miss for these refs (index
+            # digest != child digest), so they re-copy on every step-03 re-run —
+            # fail-OPEN, an extra transfer and never a false present.
+            #
+            # Every env read is `:-`-defaulted because this script runs under
+            # `set -eu` (L387): an unset var would abort the WHOLE step rather
+            # than fall back, and the fallback here — no exception, os/arch
+            # linux/amd64 — is exactly the safe direction. An empty
+            # substrings list iterates zero times, i.e. `--multi-arch all` for
+            # everything, which is the pre-#5468 behaviour.
+            prewarm_multiarch_flags() {
+              _ma_ref="$1"
+              for _ma_s in ${PREWARM_SINGLE_PLATFORM_SUBSTRINGS:-}; do
+                case "${_ma_ref}" in
+                  *"${_ma_s}"*)
+                    printf -- '--multi-arch system --override-os %s --override-arch %s' \
+                      "${PREWARM_SINGLE_PLATFORM_OS:-linux}" "${PREWARM_SINGLE_PLATFORM_ARCH:-amd64}"
+                    return 0 ;;
+                esac
+              done
+              printf -- '--multi-arch all'
+            }
+
             prewarm_skopeo_copy() {
               _pc_src="$1"; _pc_creds="$2"; _pc_lref="$3"; _pc_log="$4"
-              # Optional --src-creds via the function's OWN positional params
-              # (empty for anonymous upstreams).
-              if [ -n "${_pc_creds}" ]; then set -- --src-creds="${_pc_creds}"; else set --; fi
+              # #5468 — multi-arch mode FIRST into the function's OWN positional
+              # params (deliberately unquoted: the flag string must word-split).
+              # Matching is on the SOURCE ref, which may be the mothership-proxy
+              # form or the #5095 direct-upstream form — a repository-path
+              # substring matches both, exactly as EXCLUDED_SUBSTRINGS does.
+              set -- $(prewarm_multiarch_flags "${_pc_src}")
+              # Optional --src-creds (empty for anonymous upstreams).
+              if [ -n "${_pc_creds}" ]; then set -- "$@" --src-creds="${_pc_creds}"; fi
               skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
                 --insecure-policy \
-                --multi-arch all \
                 --retry-times 5 \
                 "$@" \
                 --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \

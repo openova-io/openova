@@ -724,6 +724,42 @@ prewarm:
     # to RENDER is always a WARN and never fatal: it makes no claim about
     # images either way.
     fatal: true
+  # #5468 (Refs #5442 #4975) — the per-image SINGLE-PLATFORM copy exception.
+  #
+  # Every step-03 copy uses `--multi-arch all` (#4975) unless the source ref
+  # matches one of `imageSubstrings`, in which case it is copied as ONE
+  # platform (`--multi-arch system` + the os/arch below). Keep this list as
+  # short as the evidence demands — it exists for upstream manifest lists that
+  # are MALFORMED in a way no retry can fix, NOT as a general escape hatch, and
+  # narrowing `--multi-arch all` globally is a known-wrong fix (it reproduces
+  # hw239's `digest invalid` on every list-digest-addressed image).
+  #
+  # A ref belongs here only when ALL THREE hold:
+  #   1. the upstream index cannot be ingested by Harbor at all (not egress, not
+  #      a timeout — a deterministic, permanent rejection);
+  #   2. nothing pulls the ref BY its manifest-list digest (a tag-addressed pin
+  #      resolves to the single-platform manifest correctly, a digest-addressed
+  #      one would not);
+  #   3. the Sovereign's nodes are all `os`/`arch` below.
+  singlePlatform:
+    os: "linux"
+    arch: "amd64"
+    imageSubstrings:
+      # ghcr.io/berriai/litellm-database — the image bp-llm-gateway's upstream
+      # litellm-helm subchart pins for BOTH its proxy Deployment
+      # (`:main-v1.57.2`, from the chart appVersion) and its Prisma migration
+      # Job (`:main-latest`, hardcoded upstream). Its `main-v1.57.2` OCI index
+      # lists each of its four children TWICE, byte-identical; Harbor's
+      # post-push artifact walk inserts duplicate artifact_reference rows,
+      # violates their uniqueness, rolls the transaction back and then answers
+      # `not found` for the index digest it just computed. Live hw291
+      # 2026-07-28 step-03: `Phase A3-chart-images ok=35 fail=1
+      # durable_miss=1`, every child copied 1/8..8/8 and only the manifest-list
+      # upload FATALed. bp-llm-gateway is `visibility: listed`, so the A3 guard
+      # is right to treat it as contractual — the index is the defect, not the
+      # pin. The substring is repository-scoped, not tag-scoped, because
+      # `main-latest` is a floating tag rebuilt by the same buildx pipeline.
+      - "berriai/litellm-database"
   # #4994 (Refs #3379) — content-digest idempotency for the step-03 skopeo
   # mirror. When true (default) each container-image copy (Phase A) + chart-OCI
   # copy (Phase A2) first compares the SOURCE vs local-Harbor DEST manifest
