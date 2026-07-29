@@ -215,11 +215,24 @@ data:
       # Every `image:` scalar in the render — containers, initContainers, and
       # any CR field named `image` (an operator's workload pin counts too).
       # `helm template` emits template text VERBATIM, so a chart authored in
-      # FLOW style (`- {name: c, image: repo:tag}`) never puts `image:` at the
-      # start of a line: the match must admit `{` and `,` as leading context,
-      # not just indentation and `- `. The leading-context class is also what
-      # keeps `someImage:`-style keys from matching.
-      grep -oE '(^|[[:space:],{])image:[[:space:]]*[^[:space:],}]+' "${_ci_out}" \
+      # FLOW style (`- {name: c, image: <repo>:<tag>}`) never puts `image:` at
+      # the start of a line: the match must admit `{` and `,` as leading
+      # context, not just indentation and `- `. The leading-context class is
+      # also what keeps `someImage:`-style keys from matching.
+      #
+      # #5468 — strip COMMENT lines before the grep. `helm template` emits the
+      # shell/awk comments inside these ConfigMaps' block scalars verbatim into
+      # the render, so without this the enumerator greps its OWN documentation:
+      # the prose above used to say `image: repo:tag`, which survived every
+      # downstream filter (real-looking name, non-empty tag, no `<`/placeholder
+      # marker) and reached the A3 guard as a FATAL durable-miss on hw291
+      # (`MISSING repo:tag -> proxy-dockerhub/library/repo:tag`), blocking a
+      # cutover over a sentence. A line whose first non-space character is `#`
+      # is a YAML or in-block-scalar comment and can never declare a workload
+      # image. This also drops the WARN noise from `bare`, `.new`, `blocks`,
+      # and `child` — same class, harmless only because they parse as untagged.
+      grep -v '^[[:space:]]*#' "${_ci_out}" \
+        | grep -oE '(^|[[:space:],{])image:[[:space:]]*[^[:space:],}]+' \
         | sed -e 's/^.*image:[[:space:]]*//' -e 's/[[:space:]]*#.*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//" -e 's/[[:space:]]*$//' \
         | while IFS= read -r _ci_ref; do
             [ -z "${_ci_ref}" ] && continue
