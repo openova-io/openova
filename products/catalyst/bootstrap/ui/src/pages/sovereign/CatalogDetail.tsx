@@ -291,8 +291,22 @@ export function CatalogDetail() {
   }
   // Refetch the catalog item after any per-field save so the new value renders
   // live (and the next field's merge base picks up the saved sibling).
+  //
+  // #5496 — this MUST invalidate `qualifiedName`, the key the query is
+  // registered under at :172. It previously used the bare `name`, so the key
+  // never matched, the invalidation silently no-oped, and `staleTime: 30_000`
+  // held the pre-edit document. Two consequences, one cause:
+  //   (a) the hero kept stale text until a full reload (UAT 127/132/133/142/153);
+  //   (b) SILENT DATA LOSS — the next per-field save computed its merge base
+  //       from the stale cache and reverted the previous save, with no error.
+  //       Reproduced live on hw291: a WordPress summary was wiped by the
+  //       following icon save.
+  // This is the half of #5449 that was missed: that fix introduced
+  // `qualifiedName` for exactly this bare-vs-`bp-` drift and corrected the
+  // registration site, not the invalidation. The comment above states the
+  // merge-base guarantee the bug was defeating.
   const refetchCatalog = () => {
-    void qc.invalidateQueries({ queryKey: ['catalog-item', name] })
+    void qc.invalidateQueries({ queryKey: ['catalog-item', qualifiedName] })
   }
 
   const bootstrapApp = bootstrapQuery.data
@@ -608,7 +622,9 @@ export function CatalogDetail() {
               if (!resp.committed) {
                 throw new Error(resp.reason || 'IaC commit did not land')
               }
-              void qc.invalidateQueries({ queryKey: ['catalog-item', name] })
+              // #5496 — same key mismatch as refetchCatalog: the save above
+              // already uses qualifiedName, so the invalidation must too.
+              void qc.invalidateQueries({ queryKey: ['catalog-item', qualifiedName] })
               return `Committed to IaC ✓ (${resp.path || 'catalog-sovereign'})`
             }}
           />
