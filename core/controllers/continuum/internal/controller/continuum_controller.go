@@ -1142,8 +1142,12 @@ func (r *ContinuumReconciler) patchStatusFromCR(
 		LeaseHolder:           lease.Holder,
 		SelfRegion:            self,
 		ReplicationLagSeconds: maxLag,
-		SwitchoverInProgress:  switchoverInProgress,
-		Step:                  stepLabel,
+		// standby.Known is the existing "we actually resolved the pair and
+		// looked" signal — the same one StandbyAvailable is gated on. When
+		// it is false, maxLag is a zero value, not a reading.
+		LagObserved:          standby.Known,
+		SwitchoverInProgress: switchoverInProgress,
+		Step:                 stepLabel,
 	}
 	if standby.Known {
 		avail := standby.Available
@@ -1167,11 +1171,21 @@ type statusUpdate struct {
 	// effectiveHoldingRegion). The LeaseHeld condition is True iff
 	// LeaseHolder == SelfRegion. Empty falls back to r.HoldingRegion for
 	// back-compat with callers that don't set it (#3829).
-	SelfRegion            string
-	LeaseExpiresAt        string
+	SelfRegion     string
+	LeaseExpiresAt string
+	// ReplicationLagSeconds is only meaningful when LagObserved is true.
+	// A pair that was never probed (no spec.cnpgPair, no reader) leaves
+	// this at the Go zero value, which is indistinguishable from a
+	// genuinely-caught-up standby — see LagObserved.
 	ReplicationLagSeconds int
-	SwitchoverInProgress  bool
-	Step                  string
+	// LagObserved records whether the CNPG standby was actually probed
+	// this tick. #5477: without it, an un-probed zero was published as a
+	// measurement, so dr-shared-pg reported lag 0 while its region-b
+	// replica was 16s behind, and dr-spine-openbao — a raft app with no
+	// PostgreSQL at all — reported a PostgreSQL replication lag.
+	LagObserved          bool
+	SwitchoverInProgress bool
+	Step                 string
 
 	LastSwitchoverResult string
 	LastSwitchoverFrom   string
@@ -1274,7 +1288,16 @@ func (r *ContinuumReconciler) patchStatus(ctx context.Context, cr *unstructured.
 	if su.LeaseExpiresAt != "" {
 		status["leaseExpiresAt"] = su.LeaseExpiresAt
 	}
-	status["replicationLagSeconds"] = int64(su.ReplicationLagSeconds)
+	// #5477 — publish a lag figure ONLY when it was measured. Every
+	// sibling field above is guarded the same way; this one was not, so an
+	// un-probed zero reached Application.status.placement and the console
+	// DR panel as though it were a live measurement. Omitting the key
+	// leaves any previously-observed value intact (merge patch) and leaves
+	// a never-observed pair with no lag field at all, which is the honest
+	// representation of "not measured".
+	if su.LagObserved {
+		status["replicationLagSeconds"] = int64(su.ReplicationLagSeconds)
+	}
 	status["switchoverInProgress"] = su.SwitchoverInProgress
 	if su.Step != "" {
 		status["switchoverStep"] = su.Step
