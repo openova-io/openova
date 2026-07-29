@@ -275,3 +275,13 @@ loft-sh/vcluster = handled by step-10 vcluster-registry-pivot). Space-separated.
 {{- define "bp-self-sovereign-cutover.excludedSubstringsInline" -}}
 {{- .Values.offlineMirror.excludedImageSubstrings | default (list) | join " " -}}
 {{- end -}}
+
+{{/*
+#5468 — image-path substrings copied SINGLE-PLATFORM by step-03's skopeo
+mirror instead of the #4975 `--multi-arch all` default. Space-separated for
+the POSIX-sh `for` loop in prewarm_multiarch_flags. An empty list renders an
+empty string, which that loop iterates zero times — i.e. no exception at all.
+*/}}
+{{- define "bp-self-sovereign-cutover.singlePlatformSubstringsInline" -}}
+{{- .Values.prewarm.singlePlatform.imageSubstrings | default (list) | join " " -}}
+{{- end -}}

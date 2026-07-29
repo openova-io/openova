@@ -1024,7 +1024,7 @@ spec:
       # — the live-cluster walk). New RBAC: read-only blueprints. New values:
       # prewarm.catalogCharts.*, prewarm.chartImages.*. Step count stays 11.
       # New chart test tests/catalog-chart-set.sh + contract Case 72.
-      version: 0.1.155
+      version: 0.1.156
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
