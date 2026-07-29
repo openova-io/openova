@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-29T15:45:04Z` |
+| Last refreshed | `2026-07-29T16:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 72 |
+| Open issues | 73 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 72 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 73 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 72 open items (clickable table)
+### All 73 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -272,6 +272,7 @@ flowchart LR
 | [#5475](https://github.com/openova-io/openova/issues/5475) | Catalog API contract: chartRef double bp- prefix, origin enum collision, hero mi | Other |
 | [#5476](https://github.com/openova-io/openova/issues/5476) | Application -> Environment -> Organization chain does not resolve for half the e | Other |
 | [#5477](https://github.com/openova-io/openova/issues/5477) | Continuum publishes replicationLagSeconds: 0 as a measurement when the standby w | Other |
+| [#5480](https://github.com/openova-io/openova/issues/5480) | A16 sweep: per-region secret generation on a shared VIP — one root cause behin | Other |
 
 ---
 
@@ -279,6 +280,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-29T15:54 | [#5478](https://github.com/openova-io/openova/pull/5478) | #5477 | fix(continuum): never publish replicationLagSeconds that was |
 | 2026-07-29T15:44 | [#5474](https://github.com/openova-io/openova/pull/5474) | #5473 | fix(bp-postgres): replication-source Service must select the |
 | 2026-07-29T14:15 | [#5470](https://github.com/openova-io/openova/pull/5470) | #5442 | fix(catalog): unlist bp-nemo-guardrails — the image it pins  |
 | 2026-07-29T14:01 | [#5469](https://github.com/openova-io/openova/pull/5469) | #5442 | fix(cutover): chart-image enumerator no longer greps its own |
@@ -308,7 +310,6 @@ flowchart LR
 | 2026-07-26T22:57 | [#5411](https://github.com/openova-io/openova/pull/5411) | #5389 | fix(newapi): declare the ui endpoint so the console's per-ap |
 | 2026-07-26T21:23 | [#5407](https://github.com/openova-io/openova/pull/5407) | #2632 | test(console): restore the vitest gate — 68 red → 8, each re |
 | 2026-07-26T21:20 | [#5405](https://github.com/openova-io/openova/pull/5405) | #5393 | fix(org-controller): verify provisioning postconditions befo |
-| 2026-07-26T20:06 | [#5403](https://github.com/openova-io/openova/pull/5403) | #4 | fix(keycloak): SECURITY — pin-broker credential is platform- |
 
 ---
 
