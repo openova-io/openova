@@ -360,7 +360,7 @@ func tailControllerLogsForObject(ctx context.Context, core kubernetes.Interface,
 		// namespace=). The namespaced form is the precise match; the bare
 		// name is a fallback that still scopes to this object on a normal
 		// Sovereign (object names are unique within flux-system).
-		if !strings.Contains(line, nsName) && !logLineMentionsName(line, name) {
+		if !logLineMentionsToken(line, nsName) && !logLineMentionsName(line, name) {
 			continue
 		}
 		n++
@@ -376,18 +376,66 @@ func tailControllerLogsForObject(ctx context.Context, core kubernetes.Interface,
 	return clampLogTail(out, tail), nil
 }
 
+// nameCharByte reports whether b can appear INSIDE a Kubernetes object name
+// (RFC 1123: lowercase alphanumerics, '-', '.'). Used to decide whether a
+// substring match ended at a real boundary or in the middle of a longer name.
+func nameCharByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') ||
+		(b >= '0' && b <= '9') || b == '-' || b == '.' || b == '_'
+}
+
+// logLineMentionsToken reports whether `line` contains `token` as a WHOLE
+// token — i.e. the character immediately after the match is not another
+// name character.
+//
+// #5485: the previous code used a bare strings.Contains for the namespaced
+// form, so `flux-system/bp-velero` matched inside
+// `flux-system/bp-velero-hcs` and the bp-velero drill-in rendered 100%
+// bp-velero-hcs log lines with nothing indicating the substitution. Only the
+// LEADING boundary was guarded; the trailing one was open.
+func logLineMentionsToken(line, token string) bool {
+	if token == "" {
+		return false
+	}
+	for i := 0; ; {
+		j := strings.Index(line[i:], token)
+		if j < 0 {
+			return false
+		}
+		end := i + j + len(token)
+		if end >= len(line) || !nameCharByte(line[end]) {
+			return true
+		}
+		i = i + j + 1
+	}
+}
+
 // logLineMentionsName reports whether a controller log line references the
 // object by bare name in a name= / "name": field (avoids matching a random
-// substring). Conservative: requires a delimiter before the name so
-// "foo" doesn't match "foobar".
+// substring).
+//
+// #5485: the quoted markers are delimited on BOTH sides and are safe as
+// plain substrings. The unquoted ones (`name=<n>` and `/<n>`) are delimited
+// only on the left, so they need an explicit trailing-boundary check —
+// otherwise `bp-cnpg` matches `bp-cnpg-pair` and `bp-velero` matches
+// `bp-velero-hcs`.
 func logLineMentionsName(line, name string) bool {
+	if name == "" {
+		return false
+	}
 	for _, marker := range []string{
 		`name="` + name + `"`,
-		`name=` + name,
 		`"name":"` + name + `"`,
-		`/` + name,
 	} {
 		if strings.Contains(line, marker) {
+			return true
+		}
+	}
+	for _, marker := range []string{
+		`name=` + name,
+		`/` + name,
+	} {
+		if logLineMentionsToken(line, marker) {
 			return true
 		}
 	}
