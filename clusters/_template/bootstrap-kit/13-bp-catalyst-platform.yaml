@@ -1299,7 +1299,7 @@ spec:
       #   `endpoints: []` made userUIGatePasses fail closed, suppressing the
       #   externalURL the hero CTA + grid button render from, and 404'ing
       #   GET /catalyst/v1/apps/bp-newapi/launch-url. UAT row 114.
-      version: 1.4.1241
+      version: 1.4.1242
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
