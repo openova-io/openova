@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-29T09:45:03Z` |
+| Last refreshed | `2026-07-29T10:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 62 |
+| Open issues | 63 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 62 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 63 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 62 open items (clickable table)
+### All 63 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -262,6 +262,7 @@ flowchart LR
 | [#5456](https://github.com/openova-io/openova/issues/5456) | UAT drift guard red on main: ledger H1 says 'pending hw289' while the live env i | Other |
 | [#5459](https://github.com/openova-io/openova/issues/5459) | OpenBao SSO lands an authenticated-but-unauthorized session — /sys/internal/ui | Other |
 | [#5460](https://github.com/openova-io/openova/issues/5460) | Console does not silently re-establish after session TTL — operator is re-prom | Other |
+| [#5461](https://github.com/openova-io/openova/issues/5461) | Sovereign console intermittent 503 (envoy upstream connect timeout, ~17-25% prob | Other |
 
 ---
 
@@ -269,6 +270,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-29T09:52 | [#5458](https://github.com/openova-io/openova/pull/5458) | #5353 | docs(uat): re-walk row 40 live on hw290 after the #5430 flip |
 | 2026-07-27T11:41 | [#5457](https://github.com/openova-io/openova/pull/5457) | #5449 | fix(console): catalog detail hero reads the live CR, not the |
 | 2026-07-27T11:27 | [#5455](https://github.com/openova-io/openova/pull/5455) | #960 | fix(uat): count UAT rows by status column — ad-hoc tally ove |
 | 2026-07-27T10:54 | [#5454](https://github.com/openova-io/openova/pull/5454) | #4290 | fix(provisioning): match vCluster pods for any inner namespa |
@@ -298,7 +300,6 @@ flowchart LR
 | 2026-07-26T19:46 | [#5392](https://github.com/openova-io/openova/pull/5392) | #4982 | fix(cutover): settled-roll pre-flight distinguishes TERMINAL |
 | 2026-07-26T19:17 | [#5390](https://github.com/openova-io/openova/pull/5390) | #3376 | fix(provisioning): per-Org gitops commit survives Gitea Push |
 | 2026-07-26T12:58 | [#5383](https://github.com/openova-io/openova/pull/5383) | #5381 | fix(retry): phase-retry ran no post-apply chain — stamped re |
-| 2026-07-26T11:42 | [#5382](https://github.com/openova-io/openova/pull/5382) | #5381 | fix(provisioner): Huawei digit-tailed region codes truncated |
 
 ---
 
