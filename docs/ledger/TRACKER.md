@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-29T10:45:02Z` |
+| Last refreshed | `2026-07-29T11:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 63 |
 | Open DoD gates | 0 / 41 |
@@ -270,6 +270,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-29T10:49 | [#5463](https://github.com/openova-io/openova/pull/5463) | #5388 | fix(cnpg-pair): dr-failback surfaces peer-probe starvation o |
 | 2026-07-29T10:14 | [#5462](https://github.com/openova-io/openova/pull/5462) | #5450 | test(gitops): render-time image-tag-pinned guard — KnownApps |
 | 2026-07-29T09:52 | [#5458](https://github.com/openova-io/openova/pull/5458) | #5353 | docs(uat): re-walk row 40 live on hw290 after the #5430 flip |
 | 2026-07-27T11:41 | [#5457](https://github.com/openova-io/openova/pull/5457) | #5449 | fix(console): catalog detail hero reads the live CR, not the |
@@ -299,7 +300,6 @@ flowchart LR
 | 2026-07-26T19:55 | [#5399](https://github.com/openova-io/openova/pull/5399) | #5341 | fix(mcp): arm multiRegion on slot 13d — the #5341 secondary- |
 | 2026-07-26T19:51 | [#5398](https://github.com/openova-io/openova/pull/5398) | #5393 | fix(catalog): pin the 9 :latest catalog images that Kyverno  |
 | 2026-07-26T19:46 | [#5392](https://github.com/openova-io/openova/pull/5392) | #4982 | fix(cutover): settled-roll pre-flight distinguishes TERMINAL |
-| 2026-07-26T19:17 | [#5390](https://github.com/openova-io/openova/pull/5390) | #3376 | fix(provisioning): per-Org gitops commit survives Gitea Push |
 
 ---
 
