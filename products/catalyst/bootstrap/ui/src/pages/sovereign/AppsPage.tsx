@@ -279,11 +279,17 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   const externalURLById = liveAppsQuery.data?.externalURLById ?? {}
   const liveInstances = liveAppsQuery.data?.instances ?? []
   const refetchLive = liveAppsQuery.refetch
-  // DEFAULT_APP_ENVIRONMENT mirrors the BE's defaultSovereignEnvironment
+  // UNRESOLVED_APP_ENVIRONMENT is the honest stand-in when no Environment
   // so even when the live API hasn't responded yet (cold load) every
   // card still renders an environment chip — the matrix's TC-090
   // contract is invariant to fetch state. Closes qa-loop iter-7 TC-090.
-  const DEFAULT_APP_ENVIRONMENT = 'dev'
+  // #5489 — this was 'dev', a name no Environment on any Sovereign carries.
+  // On hw291 it painted 42 of 50 cards with a membership that does not exist
+  // (both Environment CRs are envType: prod), so the chip could not
+  // distinguish a resolved binding from an absent one. TC-090's contract is
+  // that a chip RENDERS, not that it names a real Environment when none
+  // resolved — an explicit unresolved marker satisfies that honestly.
+  const UNRESOLVED_APP_ENVIRONMENT = 'unassigned'
 
   const isFailed = streamStatus === 'failed' || streamStatus === 'unreachable'
   const failureMessage = streamError ?? snapshot?.error ?? null
@@ -798,7 +804,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             const published = Object.prototype.hasOwnProperty.call(publishedBySlug, slug)
               ? publishedBySlug[slug]
               : null
-            const environment = environmentById[app.id] ?? DEFAULT_APP_ENVIRONMENT
+            const environment = environmentById[app.id] ?? UNRESOLVED_APP_ENVIRONMENT
             const externalURL = externalURLById[app.id] ?? ''
             return (
               <AppCard
