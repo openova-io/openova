@@ -239,6 +239,26 @@ export function SovereignConsoleLayout() {
       // forbidden for operator-facing flows.
       const existing = loadTokens()
       if (!existing) {
+        // #5460 (hw290 row-29): this is the PIN-cookie EXPIRY path — the
+        // cookie probe 401'd and there are no OIDC tokens. Two duties the
+        // old bail-out skipped:
+        //  1. Revoke the stale `catalyst:authed` marker. It is what let the
+        //     rootBeforeLoad gate short-circuit past its own whoami probe
+        //     and silent-SSO leg, landing here instead — and while it
+        //     survives, every marker-consuming surface renders
+        //     authenticated chrome against a dead session.
+        //  2. Attempt the SAME loop-guarded silent prompt=none round-trip
+        //     the gate would have run: a live Keycloak SSO session re-mints
+        //     the console session with no PIN form (the row-29 contract).
+        //     The one-shot guard in attemptSilentSovereignSSO makes the
+        //     genuinely-logged-out case land on /login exactly once.
+        try { sessionStorage.removeItem('catalyst:authed') } catch { /* private browsing */ }
+        const { attemptSilentSovereignSSO } = await import('../router')
+        if (await attemptSilentSovereignSSO()) {
+          // Navigation handed to Keycloak (window.location.replace inside
+          // initiateLogin) — keep the spinner while the document unloads.
+          return
+        }
         setAuthState({ status: 'unauthenticated' })
         redirectToLogin()
         return
