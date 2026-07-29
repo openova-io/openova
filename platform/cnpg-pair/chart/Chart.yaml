@@ -1,5 +1,18 @@
 apiVersion: v2
 name: bp-cnpg-pair
+# 0.2.23 (#5388): dr-failback STARVATION SURFACING (hw290 G12 leg-6). All four
+# region-A nodes rebooted through the kill, the per-node cross-region routes
+# were gone (#5339 shape), and the failback actor idled at D0 forever while the
+# split-brain persisted — the only evidence in region-A pod logs. The signals
+# container now accrues a starvation clock while the post-failover geometry
+# candidate (local writable primary, sync standby ABSENT) persists with the
+# peer probe failing for an OBSERVABILITY-DEAD reason (nxdomain / unreachable /
+# tl-unreadable; an observable-but-ineligible peer clears), and the actor
+# records `dr-failback-starved-at` + reason on the HR after
+# starvationSurfaceSeconds (default 300). Diagnostic only — a 2-node actor
+# cannot tell region-B-dead from region-B-unreachable, so it never acts on
+# blindness, but it no longer stays silent about it. Script + one env + one
+# value; no schema/RBAC/resource delta.
 # 0.2.22 (#5311): NetworkPolicy carve-out for the continuum-controller standby
 # probe — the residual after the #5335 Secret-RBAC fix. #5311 taught the
 # continuum-controller to read the acting primary's pg_stat_replication over
@@ -363,7 +376,7 @@ name: bp-cnpg-pair
 # the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
 # empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
 # counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
-version: 0.2.22
+version: 0.2.23
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair

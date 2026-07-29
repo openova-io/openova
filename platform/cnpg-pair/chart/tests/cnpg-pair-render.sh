@@ -1493,6 +1493,30 @@ PYEOF
 sh -n "$TMP/fb-signals.sh" || { echo "FAIL: #5331 signals script is not valid POSIX shell." >&2; exit 1; }
 sh -n "$TMP/fb-actor.sh"   || { echo "FAIL: #5331 actor script is not valid POSIX shell." >&2; exit 1; }
 
-echo "  PASS (CONVERGED gated on ConsistentSystemID=True + streaming + demoted · divergence escalation on CNPG verdict alone · streaming arm keeps peer-writable proof fresh · post-re-clone watch keys off converged-recorded)"
+# (f) 0.2.23 #5388 — STARVATION SURFACING. The hw290 G12 leg-6 shape: the
+#     post-failover geometry candidate persists while the peer probe fails
+#     observability-dead, and the actor idled at D0 forever with the split-
+#     brain visible only in pod logs. The signals script must accrue the
+#     starvation clock ONLY on the observability-dead reasons (an
+#     observable-but-ineligible peer — in-recovery/tl-behind — must clear),
+#     and the actor must surface it on the HR before the peer-ahead early-exit.
+python3 - "$TMP/fb-signals.sh" "$TMP/fb-actor.sh" <<'PYEOF' || { echo "FAIL: #5388 starvation-surfacing assertions failed." >&2; exit 1; }
+import sys
+sig=open(sys.argv[1]).read(); act=open(sys.argv[2]).read()
+i=sig.find('nxdomain|unreachable|tl-unreadable)')
+assert i!=-1, "#5388: signals must accrue the starvation clock on exactly the observability-dead probe reasons"
+arm=sig[i:i+220]
+assert 'peer-starved-since' in arm, "#5388: the observability-dead case must write /shared/peer-starved-since"
+assert 'starve_clear' in sig[i:i+400], "#5388: any other probe reason must CLEAR the starvation clock (in-recovery/tl-behind are diagnosed by their own reasons)"
+assert sig.count('starve_clear')>=8, "#5388: every non-accruing path through the signals loop must clear the starvation clock (helper + 7 call sites)"
+j=act.find('dr-failback-starved-at')
+assert j!=-1, "#5388: actor must record dr-failback-starved-at on the HR"
+assert 'STARVATION_SURFACE_SECONDS' in act, "#5388: the surfacing threshold must be env-wired (starvationSurfaceSeconds)"
+k=act.find('peer-ahead-since ] || exit 0')
+assert k!=-1 and j<k, "#5388: the starvation surfacing must run BEFORE the D0 peer-ahead early-exit or it never executes on the starved path"
+assert 'delete' not in act[j:k], "#5388: the starvation path is DIAGNOSTIC-ONLY — it must never touch a destructive verb"
+PYEOF
+
+echo "  PASS (CONVERGED gated on ConsistentSystemID=True + streaming + demoted · divergence escalation on CNPG verdict alone · streaming arm keeps peer-writable proof fresh · post-re-clone watch keys off converged-recorded · starvation surfaced on HR before D0 early-exit, diagnostic-only)"
 
 echo "[render] All bp-cnpg-pair render gates green."
