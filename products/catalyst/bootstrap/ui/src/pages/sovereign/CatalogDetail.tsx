@@ -440,7 +440,7 @@ export function CatalogDetail() {
                 initialDraft={currentEdit.tagline}
                 renderDisplay={() => (
                   <span data-testid="catalog-summary">
-                    {card.tagline || card.summary || (
+                    {card.tagline || card.summary || card.description || (
                       <span className="hero-tagline-empty">Add a one-line summary…</span>
                     )}
                   </span>
