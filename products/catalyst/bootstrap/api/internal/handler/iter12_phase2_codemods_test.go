@@ -93,7 +93,12 @@ func TestCatalogBlueprint_PopulateVersionsAlias_RealChartRef(t *testing.T) {
 	}
 	bp.PopulateVersionsAlias()
 
-	wantRef := "ghcr.io/openova-io/bp-bp-wordpress:1.5.0"
+	// #5475: this previously asserted "bp-bp-wordpress" — the doubled
+	// prefix the code actually produced. Asserting an implementation's
+	// output rather than the intended contract is what kept the defect
+	// alive: `gh api /orgs/openova-io/packages/container/bp-bp-wordpress`
+	// 404s, while bp-wordpress is a real published package.
+	wantRef := "ghcr.io/openova-io/bp-wordpress:1.5.0"
 	if bp.ChartRef != wantRef {
 		t.Errorf("expected chartRef=%q, got %q", wantRef, bp.ChartRef)
 	}

@@ -112,7 +112,12 @@ type CatalogBlueprintVersion struct {
 // charts. Per INVIOLABLE-PRINCIPLES #4 the registry is overridable via
 // CATALYST_BLUEPRINT_OCI_BASE; defaults to the production registry the
 // blueprint-release.yaml workflow pushes to.
-const catalogBlueprintChartRef = "ghcr.io/openova-io/bp-"
+// #5475: this is the registry BASE only. It previously carried a trailing
+// `bp-`, which was then concatenated with a blueprint name that already
+// begins with `bp-` — producing `ghcr.io/openova-io/bp-bp-alloy:1.0.2` on
+// all 80 blueprints, a package that 404s while the real `bp-alloy` has 11
+// published tags.
+const catalogBlueprintChartRef = "ghcr.io/openova-io/"
 
 // PopulateVersionsAlias stamps Versions + ChartRef from the headline
 // version when the upstream response doesn't carry them inline. Called
@@ -129,7 +134,14 @@ func (b *CatalogBlueprint) PopulateVersionsAlias() {
 		return
 	}
 	if b.ChartRef == "" {
-		b.ChartRef = catalogBlueprintChartRef + b.Name + ":" + b.Version
+		// Normalise to EXACTLY one `bp-` prefix: catalog names arrive
+		// already-qualified (`bp-alloy`), but tolerate a bare name so a
+		// future caller cannot silently reintroduce the #5475 doubling.
+		chart := b.Name
+		if !strings.HasPrefix(chart, "bp-") {
+			chart = "bp-" + chart
+		}
+		b.ChartRef = catalogBlueprintChartRef + chart + ":" + b.Version
 	}
 	if len(b.Versions) > 0 {
 		return
