@@ -14,7 +14,9 @@ spec:
   # 0.2.13 (#5224): role-secrets side-gate — a replica-role region never mints
   # role/hub Secrets (incl. the pre-flip window); password set single-sourced
   # from the primary region (#4915 remedy class).
-  version: 0.2.13
+  # 0.2.14 (#5473): replication-source Service selectorType r -> rw; `r`
+  # selected ALL instances, so a standby could serve as the DR source.
+  version: 0.2.14
   card:
     title: PostgreSQL
     summary: |

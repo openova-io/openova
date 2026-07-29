@@ -894,3 +894,34 @@ cont_nocrd=$(helm template shared-pg . \
 if echo "$cont_nocrd" | grep -qE '^kind: Continuum$'; then fail "#4986: Continuum MUST be absent when the dr.openova.io/v1 CRD is not registered"; fi
 
 echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets; master gate OFF → empty; 3-instance shapes locked; #3370 Application-CR self-registration locked; #3375 underscore-owner role-Secret sanitization locked; #3375/#3768 ONE canonical placement vocabulary locked; #3878 reflect.mangledTarget vc-mgmt native DB-secret delivery locked; #4986 per-app Continuum DR contract renders on AHS-primary + absent for singleton/replica/single-region/disabled/CRD-absent)"
+
+# ── #5473 — the replication SOURCE must select the PRIMARY, not all instances ──
+# CNPG expands `selectorType: r` to {cnpg.io/cluster, cnpg.io/podRole: instance}
+# — every instance, standbys included. On hw291 that made all three
+# shared-pg*-mesh Services resolve to 3 endpoints, and 2 of 3 cross-region DR
+# pairs replicated through a STANDBY (non-deterministic per reconnect, RPO not
+# primary-anchored, severable by killing an ordinary standby pod). bp-cnpg-pair
+# has always used `rw` for the same role; this chart drifted. Assert the
+# replication-source Service is declared `rw`, so the two charts cannot part
+# again — and assert the read alias is NOT silently promoted along with it.
+echo "[render] Case #5473: replication-source Service selects the PRIMARY (selectorType: rw)"
+repl_sel=$(helm template shared-pg . \
+  --set enabled=true --set instance.name=shared-pg \
+  --set topology.mode=active-hot-standby --set topology.side=primary \
+  --set topology.primary.region=hw-me-east-215-a-rtz-prod \
+  --set topology.replica.region=hw-me-east-215-b-rtz-prod \
+  --set topology.clusterMesh.enabled=true \
+  --api-versions postgresql.cnpg.io/v1 2>/dev/null)
+# Every `additional` service in the managed block must be selectorType rw:
+# the replication source (this fix) and the write alias (#3629) alike.
+if printf '%s' "${repl_sel}" | grep -qE 'selectorType:[[:space:]]*r[[:space:]]*$'; then
+  echo "FAIL (#5473): a managed additional Service still declares 'selectorType: r'." >&2
+  echo "  The cross-region replication SOURCE must be the primary ('rw'); 'r' selects every" >&2
+  echo "  instance and lets a region-b replica cascade off a standby (live: hw291 2026-07-29)." >&2
+  exit 1
+fi
+if ! printf '%s' "${repl_sel}" | grep -q 'catalyst.openova.io/role: replication-source'; then
+  echo "FAIL (#5473): the replication-source Service did not render — the assertion is vacuous." >&2
+  exit 1
+fi
+echo "  PASS (no 'selectorType: r' in the managed services block; replication-source present)"

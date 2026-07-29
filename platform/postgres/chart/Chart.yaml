@@ -1,5 +1,14 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.14 — #5473 (Refs #4986): the cross-region replication-source Service
+# declared `selectorType: r`, which CNPG expands to a selector matching EVERY
+# instance (`cnpg.io/podRole: instance`), not the primary. The mesh Service
+# therefore load-balanced across all 3 pods, so a standby could answer as the
+# replication source — the DR pair replicated FROM a replica, while status
+# reported Healthy / lag 0 throughout. Corrected to `selectorType: rw`
+# (primary only), matching what bp-cnpg-pair already declares. Guarded by a
+# both-directions render assertion in tests/postgres-render.sh.
+#   → 0.2.14.
 # 0.2.13 — #5224 (Refs #5220 #4915 #4878; the hw273 harbor 28P01 lockout):
 #   role-secrets.yaml gate `not renderReplicaHalf` → `not isReplicaSide`, so a
 #   region stamped side=secondary (SOVEREIGN_REGION_ROLE, present from the
@@ -191,7 +200,7 @@ name: bp-postgres
 #   the singleton render is byte-identical to 0.2.9 (the ipBlock only rendered
 #   under crossRegion, which singletons never set). Lockstep slot pins 16a/16c/
 #   16d → 0.2.10. tests/postgres-render.sh Case 4e/4f added.
-version: 0.2.13
+version: 0.2.14
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
