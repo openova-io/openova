@@ -80,7 +80,15 @@ spec:
       # Harbor proxy-cache (bitnamilegacy, pinned) — bare dockerhub
       # `bitnami/valkey:latest` 404'd the node mirror → ImagePullBackOff →
       # bp-newapi Redis-ping CrashLoop (UAT 37/38/114).
-      version: 1.1.4
+      # 1.1.5 (#5487, hw291 2026-07-29): SECURITY — the rendered
+      # NetworkPolicy carried an ingress rule with NO `from:` (upstream
+      # `networkPolicy.allowExternal` defaults true), which admits every Pod
+      # in the cluster on 6379. With auth off (1.0.2) any container foothold
+      # anywhere could FLUSHALL the gateway's rate-limit counters. Ingress is
+      # now scoped to the declared consumers — ns `org-services` and ns
+      # `newapi`, the same pair bp-plane-isolation (slot 26b) already
+      # declares for this namespace.
+      version: 1.1.5
       sourceRef:
         kind: HelmRepository
         name: bp-valkey

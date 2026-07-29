@@ -2053,8 +2053,8 @@ orgServices:
     host: valkey-primary.valkey.svc.cluster.local
     port: 6379
     namespace: valkey
-    # ─── Cross-ns auth Secret mirror (issue #863) ──────────────────────
-    # bp-valkey 1.0.0 ships auth.enabled=true; bitnami auto-generates a
+    # ─── Cross-ns auth Secret mirror (issue #863, re-gated #5487) ──────
+    # bp-valkey 1.0.0 shipped auth.enabled=true; bitnami auto-generates a
     # random password and exposes it via the `valkey` Secret in the
     # `valkey` namespace. The catalyst chart renders templates/
     # org-services/valkey-cross-ns-secret.yaml which uses Helm `lookup`
@@ -2063,6 +2063,45 @@ orgServices:
     # secretKeyRef. Each knob below is operator-overridable in case a
     # Sovereign uses a forked bp-valkey with a different Secret name
     # or key.
+    #
+    # ── auth.enabled — the single truth for "Valkey needs a password" ──
+    #
+    # WHY THIS FLAG EXISTS (#5487, hw291 2026-07-29):
+    #   bp-valkey flipped to `auth.enabled: false` in 1.0.2 (TBD-V12 #2003),
+    #   so bitnami no longer creates the `valkey` Secret at all → the
+    #   `lookup` in valkey-cross-ns-secret.yaml can NEVER find a password →
+    #   `org-valkey-auth` is never created. Confirmed live on hw291:
+    #   `kubectl get secret -A | grep valkey` returns no such Secret. But
+    #   auth.yaml + gateway.yaml still referenced it with
+    #   `optional: true`, so both Deployments rendered a VALKEY_PASSWORD env
+    #   that silently resolved to NOTHING and connected anonymously — and
+    #   their inline comments still asserted "bp-valkey ships
+    #   auth.enabled=true (bitnami default)", which has been false since
+    #   1.0.2. A config that READS as authenticated but RESOLVES to
+    #   anonymous is worse than one that is plainly anonymous: it hides the
+    #   very premise (network isolation carries the risk) that #2003 relied
+    #   on and #5487 found broken.
+    #
+    # SEMANTICS:
+    #   false (DEFAULT, matches bp-valkey's shipped posture) — no mirror
+    #     Secret, no VALKEY_PASSWORD env anywhere. The rendered Deployment
+    #     says exactly what it does: it connects without credentials. The
+    #     no-auth connect path in core/services/shared/db/valkey.go is the
+    #     one that was already being taken.
+    #   true — the operator has ALSO set `valkey.auth.enabled: true` on
+    #     bp-valkey (per-Sovereign overlay). The mirror renders and the env
+    #     is wired with `optional: false`, so a missing/late mirror holds the
+    #     Pod at CreateContainerConfigError (loud, and kubelet retries until
+    #     the mirror lands) instead of silently degrading to an anonymous
+    #     connect that a `NOAUTH` error would only surface at first command.
+    #
+    # Do NOT flip this alone: without `valkey.auth.enabled: true` on
+    # bp-valkey there is no password to mirror. Re-enabling auth platform-
+    # wide additionally requires bp-newapi to consume the generated
+    # password (its REDIS_CONN_STRING default is passwordless) — that is the
+    # #2003 follow-up, unchanged by #5487.
+    auth:
+      enabled: false
     sourceSecretName: valkey
     sourcePasswordKey: valkey-password
     destNamespace: org-services       # #3383: was `sme`

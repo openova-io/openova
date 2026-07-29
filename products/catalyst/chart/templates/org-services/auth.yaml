@@ -72,20 +72,30 @@ spec:
                 configMapKeyRef:
                   name: org-services-config
                   key: VALKEY_ADDR
-            # bp-valkey ships auth.enabled=true (bitnami default); the
-            # `default` ACL user uses requirepass, so VALKEY_USERNAME stays
-            # empty and VALKEY_PASSWORD reads from the cross-ns mirror
-            # Secret rendered by templates/org-services/valkey-cross-ns-
-            # secret.yaml. Issue #863. optional=true so contabo-mkt's
-            # auth-less in-namespace Valkey (data/valkey.yaml) works
-            # unchanged — empty VALKEY_PASSWORD triggers the no-auth
-            # connect path in core/services/shared/db/valkey.go.
+            {{- /* #5487 — VALKEY_PASSWORD is rendered ONLY when the operator
+                 has declared that Valkey wants a password. bp-valkey ships
+                 `auth.enabled: false` since 1.0.2 (TBD-V12 #2003), so bitnami
+                 creates no `valkey` Secret, the lookup in
+                 valkey-cross-ns-secret.yaml finds nothing, and
+                 `org-valkey-auth` never exists — verified live on hw291. The
+                 previous unconditional `optional: true` ref therefore READ as
+                 authenticated while RESOLVING to anonymous on every Sovereign.
+                 Default (auth off) now emits no env at all: the manifest says
+                 exactly what the connection does, and
+                 core/services/shared/db/valkey.go takes its no-auth path on the
+                 empty value as before. With auth on, `optional: false` makes a
+                 missing mirror a LOUD CreateContainerConfigError (kubelet
+                 retries until the mirror lands) rather than a silent
+                 anonymous connect. The `default` ACL user uses requirepass, so
+                 VALKEY_USERNAME stays empty either way. Issue #863. */}}
+            {{- if .Values.orgServices.valkey.auth.enabled }}
             - name: VALKEY_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: org-valkey-auth
-                  key: valkey-password
-                  optional: true
+                  name: {{ .Values.orgServices.valkey.destSecretName | default "org-valkey-auth" }}
+                  key: {{ .Values.orgServices.valkey.sourcePasswordKey | default "valkey-password" }}
+                  optional: false
+            {{- end }}
             - name: REDPANDA_BROKERS
               valueFrom:
                 configMapKeyRef:
