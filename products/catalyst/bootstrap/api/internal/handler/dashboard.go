@@ -283,7 +283,15 @@ func (h *Handler) GetDashboardTreemap(w http.ResponseWriter, r *http.Request) {
 		// the cloud-list canvas) and the per-pod lookup is a map probe.
 		namespaces, _, _ := h.k8sCache.List(cid, "namespace", labels.Everything())
 		nodes, _, _ := h.k8sCache.List(cid, "node", labels.Everything())
-		rows = append(rows, buildPodRows(pods, pvcs, podMetrics, namespaces, nodes, cid, clusterRegion[cid])...)
+		// #5485 defect B: a Deployment's Pods are owned by an
+		// intermediate ReplicaSet, so the ownerRef fallback in
+		// applicationKey yields the hash-suffixed RS name
+		// (`admin-865b6dd6c7`) as the "application" for every workload
+		// that carries no app.kubernetes.io/{instance,name} label. List
+		// the ReplicaSets so buildPodRows can take the second hop
+		// RS → Deployment and render the durable workload name.
+		replicaSets, _, _ := h.k8sCache.List(cid, "replicaset", labels.Everything())
+		rows = append(rows, buildPodRows(pods, pvcs, podMetrics, namespaces, nodes, replicaSets, cid, clusterRegion[cid])...)
 	}
 	// #3687 (fold #3692): one-shot batch/v1 Job pods (cutover-*,
 	// scan-vulnerabilityreport-*, *-snapshot-save-*) are ephemeral
@@ -295,16 +303,31 @@ func (h *Handler) GetDashboardTreemap(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// isEphemeralRow reports whether a pod row is one-shot batch activity
+// rather than a durable application: the cutover / scan / snapshot Job
+// pods (`cutover-harbor-prewarm-1785340840`, `scan-vulnerabilityreport-…`,
+// `openbao-snapshot-save-29755690`). Keys on the pod's top-level ownerRef
+// Kind (podRow.ownerKind), resolved in buildPodRows — no name-pattern
+// matching (#3687 §7c). CronJob-spawned pods are Job-owned too, so they
+// classify here as well.
+//
+// THE single definition of "ephemeral" for every display layer. The
+// treemap drops these rows outright (dropEphemeralRows); showback keeps
+// their cost but collapses them into one Platform-overhead line
+// (aggregateConsumption). Both call this predicate so the two surfaces
+// can never disagree about what counts as one-shot (#5485).
+func isEphemeralRow(r podRow) bool {
+	return strings.EqualFold(r.ownerKind, "Job")
+}
+
 // dropEphemeralRows filters out pods owned by a batch/v1 Job — the
 // one-shot cutover / scan / snapshot workloads that are activity, not a
 // running application. Pods owned by anything else (Deployment,
-// StatefulSet, DaemonSet, ReplicaSet, CronJob-via-Job is still Job-owned)
-// are retained. Keys on the pod's top-level ownerRef Kind (podRow.ownerKind),
-// resolved in buildPodRows — no name-pattern matching (#3687 §7c).
+// StatefulSet, DaemonSet, ReplicaSet) are retained.
 func dropEphemeralRows(rows []podRow) []podRow {
 	out := rows[:0]
 	for _, r := range rows {
-		if strings.EqualFold(r.ownerKind, "Job") {
+		if isEphemeralRow(r) {
 			continue
 		}
 		out = append(out, r)
@@ -368,7 +391,7 @@ type podRow struct {
 // HandleTreemap. Used as a region fallback when Pods/Nodes lack the
 // `openova.io/region`/`topology.kubernetes.io/region` label — common
 // on HCS where Huawei CCM doesn't stamp the topology label.
-func buildPodRows(pods, pvcs, podMetrics, namespaces, nodes []*unstructured.Unstructured, clusterID string, clusterCloudRegion string) []podRow {
+func buildPodRows(pods, pvcs, podMetrics, namespaces, nodes, replicaSets []*unstructured.Unstructured, clusterID string, clusterCloudRegion string) []podRow {
 	pvcByKey := map[string]*unstructured.Unstructured{}
 	for _, p := range pvcs {
 		key := p.GetNamespace() + "/" + p.GetName()
@@ -393,6 +416,12 @@ func buildPodRows(pods, pvcs, podMetrics, namespaces, nodes []*unstructured.Unst
 	for _, n := range nodes {
 		nodeByName[n.GetName()] = n
 	}
+	// ReplicaSet join key: the intermediate hop on the Deployment→Pod
+	// ownerRef chain. applicationKey uses it to resolve a Pod owned by
+	// `admin-865b6dd6c7` to the Deployment `admin` (#5485). Nil/empty
+	// when the caller has no ReplicaSet list — applicationKey then keeps
+	// the ownerRef name rather than inventing one.
+	rsByKey := indexReplicaSets(replicaSets)
 
 	out := make([]podRow, 0, len(pods))
 	for _, p := range pods {
@@ -468,7 +497,7 @@ func buildPodRows(pods, pvcs, podMetrics, namespaces, nodes []*unstructured.Unst
 		row := podRow{
 			namespace:   p.GetNamespace(),
 			cluster:     clusterID,
-			application: applicationKey(p),
+			application: applicationKey(p, rsByKey),
 			family:      family,
 			region:      region,
 			vcluster:    vcluster,
@@ -528,20 +557,42 @@ func buildPodRows(pods, pvcs, podMetrics, namespaces, nodes []*unstructured.Unst
 	return out
 }
 
+// indexReplicaSets keys ReplicaSets by "<namespace>/<name>" for the
+// Pod → ReplicaSet → Deployment hop in applicationKey. Returns an empty
+// (non-nil) map for an empty list so callers can probe unconditionally.
+func indexReplicaSets(replicaSets []*unstructured.Unstructured) map[string]*unstructured.Unstructured {
+	byKey := make(map[string]*unstructured.Unstructured, len(replicaSets))
+	for _, rs := range replicaSets {
+		if rs == nil {
+			continue
+		}
+		byKey[rs.GetNamespace()+"/"+rs.GetName()] = rs
+	}
+	return byKey
+}
+
 // applicationKey returns the application identifier per the chart-
 // authoring convention. Order of precedence:
 //
 //  1. label app.kubernetes.io/instance (set by Helm and most chart
 //     authors); this is what `group_by=application` should bucket on.
-//  2. top-level ownerRef Kind+Name when no instance label is set.
-//     Daemonset/Statefulset/Deployment/Job all get hit; the
-//     ReplicaSet hop is collapsed by walking the RS ownerRef chain
-//     would require a second cache lookup — we treat the pod's first
-//     ownerRef as the application unit instead, which is correct for
-//     all bp-* charts in the catalyst registry.
-//  3. the pod's own name when unowned (rare — DaemonSet stub pods,
-//     statically-defined pods).
-func applicationKey(p *unstructured.Unstructured) string {
+//  2. label app.kubernetes.io/name.
+//  3. the owning workload's name, resolved from the pod's ownerRefs.
+//     StatefulSet / DaemonSet / Job pods are owned by their workload
+//     directly, so the ownerRef name IS the application. A Deployment's
+//     pods are owned by an intermediate ReplicaSet, so stopping at the
+//     first ownerRef would surface the hash-suffixed RS name
+//     (`admin-865b6dd6c7`, `coredns-57fc96f748`) as an "application" —
+//     #5485 defect B, 24 of 101 live treemap leaves. When `rsByKey`
+//     carries the pod's ReplicaSet we take one more hop to the RS's own
+//     controller (the Deployment) and use THAT name.
+//  4. the pod's own name when unowned (rare — statically-defined pods).
+//
+// No-further-owner cases resolve without inventing a name: a ReplicaSet
+// absent from rsByKey (nil index / cache miss), or a bare ReplicaSet with
+// no controller of its own, both keep the ReplicaSet name — the same
+// value this returned before #5485, never "" and never a guess.
+func applicationKey(p *unstructured.Unstructured, rsByKey map[string]*unstructured.Unstructured) string {
 	if v := p.GetLabels()["app.kubernetes.io/instance"]; v != "" {
 		return v
 	}
@@ -549,11 +600,36 @@ func applicationKey(p *unstructured.Unstructured) string {
 		return v
 	}
 	for _, ref := range p.GetOwnerReferences() {
+		if ref.Name == "" {
+			continue
+		}
+		if ref.Kind != "ReplicaSet" {
+			return ref.Name
+		}
+		if owner := replicaSetOwnerName(rsByKey[p.GetNamespace()+"/"+ref.Name]); owner != "" {
+			return owner
+		}
+		return ref.Name
+	}
+	return p.GetName()
+}
+
+// replicaSetOwnerName returns the name of the workload that controls this
+// ReplicaSet — the Deployment in every Helm/Flux-managed case, an Argo
+// Rollout or another custom controller elsewhere. Returns "" when the RS
+// is nil (not in the index) or genuinely has no owner (a hand-applied,
+// bare ReplicaSet), which keeps applicationKey on the ReplicaSet name
+// instead of fabricating one.
+func replicaSetOwnerName(rs *unstructured.Unstructured) string {
+	if rs == nil {
+		return ""
+	}
+	for _, ref := range rs.GetOwnerReferences() {
 		if ref.Name != "" {
 			return ref.Name
 		}
 	}
-	return p.GetName()
+	return ""
 }
 
 func stringLabel(p *unstructured.Unstructured, key, fallback string) string {
