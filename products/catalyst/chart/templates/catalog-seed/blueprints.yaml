@@ -2258,7 +2258,10 @@ metadata:
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: "1.0.0"
-  visibility: listed
+  # #5468 — UNLISTED until ghcr.io/openova-io/openova/nemo-guardrails:0.21.0
+  # actually exists (never built: package 404, no Containerfile, no workflow).
+  # Keep in lockstep with platform/nemo-guardrails/blueprint.yaml.
+  visibility: unlisted
   card:
     title: "NeMo Guardrails"
     category: "ai-safety"
