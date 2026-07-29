@@ -81,6 +81,35 @@ spec:
       {{- $first := first .Values.databases }}
       database: {{ (default (dict) $first).name | default "app" | quote }}
       owner: {{ (default (dict) $first).owner | default "app" | quote }}
+      {{- if $first }}
+      {{- /*
+      #5504: the initdb OWNER must be born holding the SAME Secret the
+      managed.roles entry below declares for it.
+
+      Without this, the first binding's owner is created TWICE over: initdb
+      mints it with CNPG's auto-generated `<cluster>-app` credential, and
+      managed.roles then declares it with `passwordSecret: <roleSecretName>`.
+      The initdb credential is the one Postgres actually keeps, so every
+      consumer — which is handed the roleSecret — is rejected with
+      SQLSTATE 28P01, while CNPG reports the role as
+      `managedRolesStatus.byStatus.reconciled` over a password that never
+      took effect. The comment below asserts drift is "ALTER USER'd away";
+      proven false on hw291 for the initdb owner specifically.
+
+      Live proof (hw291, shared-pg, owner=harbor): shared-pg-harbor (len 32)
+      was REJECTED as user harbor while shared-pg-app (len 64) AUTHENTICATED.
+      `gitea` and `keycloak` — same chart, same managed.roles shape, but NOT
+      the initdb owner — both authenticated. That control isolates the owner
+      collision as the mechanism. Consequence was a hard Pillar-5 stall:
+      harbor-core/jobservice crashlooping took cutover step-02/03 down with
+      them and parked the chain at 9%.
+
+      Naming the same Secret in both places makes the role have ONE source of
+      truth from creation rather than two that CNPG silently ranks.
+      */}}
+      secret:
+        name: {{ include "bp-postgres.roleSecretName" (dict "ctx" $ "db" $first) | quote }}
+      {{- end }}
 
   {{- /*
   managed.roles — one declarative per-consumer login role per binding.

@@ -1,5 +1,15 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.15 — #5504 (Refs #5499): the FIRST binding's owner was minted TWICE with
+# different credentials — bootstrap.initdb created it with CNPG's generated
+# `<cluster>-app` password, while managed.roles declared it with the
+# roleSecret. initdb's credential is what Postgres keeps, so every consumer
+# (handed the roleSecret) got SQLSTATE 28P01 while CNPG reported the role
+# `reconciled` over a password that never took effect. bootstrap.initdb.secret
+# now names the SAME roleSecret, so the role is born with one source of truth.
+# Proven live on hw291: shared-pg-harbor REJECTED as user harbor while
+# shared-pg-app AUTHENTICATED; gitea + keycloak (not the initdb owner) both
+# authenticated. Harbor down held cutover step-02/03 closed at 9%.
 # 0.2.14 — #5473 (Refs #4986): the cross-region replication-source Service
 # declared `selectorType: r`, which CNPG expands to a selector matching EVERY
 # instance (`cnpg.io/podRole: instance`), not the primary. The mesh Service
@@ -200,7 +210,7 @@ name: bp-postgres
 #   the singleton render is byte-identical to 0.2.9 (the ipBlock only rendered
 #   under crossRegion, which singletons never set). Lockstep slot pins 16a/16c/
 #   16d → 0.2.10. tests/postgres-render.sh Case 4e/4f added.
-version: 0.2.14
+version: 0.2.15
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
