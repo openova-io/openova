@@ -1321,6 +1321,32 @@ type dependsOnDetail struct {
 // Application CR named `name` across every namespace on the Sovereign.
 //
 // qa-loop iter-11 Fix #45 Cluster-C.
+// applicationPrimaryRegion resolves an Application's primary region from its
+// CR status.
+//
+// #5482 — the region lives at status.placement.primaryRegion. There is no
+// top-level status.primaryRegion key: the CR's status keys are conditions,
+// lastReconciledAt, observedGeneration, phase and placement. Reading only the
+// top-level path returned ok=false silently, leaving the response field empty,
+// so AppDetail.tsx fell back to appRegions[0] and rendered the HOST CLUSTER
+// LABEL `platform-bootstrap-owned-host` where a region belongs — the Overview
+// tab contradicting the Topology tab for the same object.
+//
+// The top-level path is retained as a fallback so a CR that does set it is
+// still honoured.
+func applicationPrimaryRegion(obj *unstructured.Unstructured) string {
+	if obj == nil {
+		return ""
+	}
+	if pr, ok, _ := unstructured.NestedString(obj.Object, "status", "placement", "primaryRegion"); ok && pr != "" {
+		return pr
+	}
+	if pr, ok, _ := unstructured.NestedString(obj.Object, "status", "primaryRegion"); ok {
+		return pr
+	}
+	return ""
+}
+
 func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 	depID := chi.URLParam(r, "id")
 	name := chi.URLParam(r, "name")
@@ -1418,7 +1444,7 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 	if phase, ok, _ := unstructured.NestedString(obj.Object, "status", "phase"); ok {
 		resp.Phase = phase
 	}
-	if pr, ok, _ := unstructured.NestedString(obj.Object, "status", "primaryRegion"); ok {
+	if pr := applicationPrimaryRegion(obj); pr != "" {
 		resp.PrimaryRegion = pr
 	}
 	if gr, ok, _ := unstructured.NestedString(obj.Object, "status", "giteaRepo"); ok {
