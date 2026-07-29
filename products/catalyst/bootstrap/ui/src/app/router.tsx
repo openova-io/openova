@@ -381,7 +381,11 @@ export const SILENT_SSO_GUARD_KEY = 'catalyst:silent-sso-attempted'
  */
 export const SILENT_SSO_NAV_GRACE_MS = 8000
 
-async function attemptSilentSovereignSSO(): Promise<boolean> {
+// Exported for SovereignConsoleLayout's cookie-expiry path (#5460): the
+// layout discovers the 401 when the stale-marker fast path has bypassed
+// this gate, and must be able to run the SAME loop-guarded silent leg
+// before falling back to the PIN wall.
+export async function attemptSilentSovereignSSO(): Promise<boolean> {
   if (typeof window === 'undefined') return false
   const fqdn = DETECTED_MODE.sovereignFQDN
   if (!fqdn) return false

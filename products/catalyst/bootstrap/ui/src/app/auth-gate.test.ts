@@ -185,6 +185,32 @@ describe('probeWhoamiAndCacheMarker', () => {
     expect(sessionStorage.getItem('catalyst:authed')).toBeNull()
   })
 
+  it('REVOKES a stale marker on 401 (#5460 — the flag must not outlive the session)', async () => {
+    // hw290 row-29: after TTL expiry the marker survived, hasCatalystSession()
+    // short-circuited the gate past its whoami probe AND the silent-SSO leg,
+    // and every marker-consuming surface rendered authenticated chrome
+    // against a dead session. The authority's 401 must clear the cache.
+    sessionStorage.setItem('catalyst:authed', '1')
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      status: 401,
+    } as Response) as typeof fetch
+    const result = await probeWhoamiAndCacheMarker('/api')
+    expect(result).toBe(false)
+    expect(sessionStorage.getItem('catalyst:authed')).toBeNull()
+  })
+
+  it('does NOT revoke the marker on 5xx or network error (no verdict, no revocation)', async () => {
+    // A 503 or network blip is not an authority verdict — revoking on it
+    // would log operators out on every transient (#5461-class flake).
+    sessionStorage.setItem('catalyst:authed', '1')
+    globalThis.fetch = vi.fn().mockResolvedValue({ status: 503 } as Response) as typeof fetch
+    expect(await probeWhoamiAndCacheMarker('/api')).toBeNull()
+    expect(sessionStorage.getItem('catalyst:authed')).toBe('1')
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('network down')) as typeof fetch
+    expect(await probeWhoamiAndCacheMarker('/api')).toBeNull()
+    expect(sessionStorage.getItem('catalyst:authed')).toBe('1')
+  })
+
   it('returns null on 5xx (fail-open signal to caller)', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       status: 503,
