@@ -152,6 +152,37 @@ spec:
 
 ---
 
+## Network posture (who may reach 6379)
+
+Since chart **1.1.5** (#5487) the rendered NetworkPolicy scopes ingress to the
+declared consumers instead of admitting the whole cluster:
+
+| Source | Admitted on 6379 | Why |
+|--------|------------------|-----|
+| ns `org-services` | yes | the `auth` + `gateway` Deployments read `VALKEY_ADDR` |
+| ns `newapi` | yes | `REDIS_CONN_STRING` + the slot-17 `keyspaces[]` Context |
+| Pods in ns `valkey` labelled `valkey-client: "true"` | yes | upstream client-label seam |
+| valkey's own Pods | yes | primary ↔ replica replication |
+| everything else | no | — |
+
+The lever is `valkey.networkPolicy.allowExternal: false`. Leaving it at the
+upstream default (`true`) renders an ingress rule with **no `from:`**, which in
+Kubernetes admits every Pod in the cluster and — because policies are unioned —
+also cancels bp-plane-isolation's `valkey-default-deny`. `tests/networkpolicy-ingress-scope.sh`
+fails the build if that regresses.
+
+Password auth remains **off** by default (TBD-V12 #2003): bp-newapi's default
+connection string is passwordless, so isolation is carried by the network
+policy above. An operator enabling `valkey.auth.enabled: true` must also set
+`orgServices.valkey.auth.enabled: true` on bp-catalyst-platform so the auth +
+gateway Deployments consume the mirrored password (#5487).
+
+Adding a consumer means editing **both** `valkey.networkPolicy.extraIngress`
+here and the `valkey` component's `allowIngressFrom` list in
+`platform/plane-isolation/chart/values.yaml`.
+
+---
+
 ## Use Cases
 
 | Use Case | TTL | Eviction | DR Needed |
