@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-29T18:15:04Z` |
+| Last refreshed | `2026-07-29T18:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 79 |
 | Open DoD gates | 0 / 41 |
@@ -286,6 +286,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-29T18:27 | [#5492](https://github.com/openova-io/openova/pull/5492) | #2003 | fix(bp-valkey): scope NetworkPolicy ingress to the declared  |
+| 2026-07-29T18:27 | [#5490](https://github.com/openova-io/openova/pull/5490) | #5489 | fix(console): stop asserting a vCluster and an Environment t |
 | 2026-07-29T16:53 | [#5486](https://github.com/openova-io/openova/pull/5486) | #5485 | fix(catalyst-api): reconciler log matcher must respect the t |
 | 2026-07-29T17:05 | [#5483](https://github.com/openova-io/openova/pull/5483) | #5482 | fix(catalyst-api): read primaryRegion from status.placement, |
 | 2026-07-29T16:12 | [#5481](https://github.com/openova-io/openova/pull/5481) | #4975 | fix(cutover): mirror litellm-database single-platform past i |
@@ -314,8 +316,6 @@ flowchart LR
 | 2026-07-27T03:26 | [#5424](https://github.com/openova-io/openova/pull/5424) | #5387 | fix(provisioning): vcluster-tier funnel cart with a HelmRele |
 | 2026-07-27T02:00 | [#5418](https://github.com/openova-io/openova/pull/5418) | #5406 | fix(harbor): sweep the duplicate-label class — the netpol te |
 | 2026-07-27T01:29 | [#5417](https://github.com/openova-io/openova/pull/5417) | #5406 | fix(harbor): duplicate catalyst.openova.io/component key fai |
-| 2026-07-27T00:57 | [#5415](https://github.com/openova-io/openova/pull/5415) | #5406 | fix(harbor): SIGPIPE-proof the cross-region redis test — a f |
-| 2026-07-27T00:57 | [#5413](https://github.com/openova-io/openova/pull/5413) | #5393 | fix(catalog): uptime-kuma OOMKills forever at its hard-coded |
 
 ---
 
