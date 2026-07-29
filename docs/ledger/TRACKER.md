@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-29T14:00:06Z` |
+| Last refreshed | `2026-07-29T14:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 66 |
 | Open DoD gates | 0 / 41 |
@@ -273,6 +273,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-29T14:01 | [#5469](https://github.com/openova-io/openova/pull/5469) | #5442 | fix(cutover): chart-image enumerator no longer greps its own |
 | 2026-07-29T11:38 | [#5464](https://github.com/openova-io/openova/pull/5464) | #5460 | fix(console): revoke stale authed marker on 401 + run the si |
 | 2026-07-29T10:49 | [#5463](https://github.com/openova-io/openova/pull/5463) | #5388 | fix(cnpg-pair): dr-failback surfaces peer-probe starvation o |
 | 2026-07-29T10:14 | [#5462](https://github.com/openova-io/openova/pull/5462) | #5450 | test(gitops): render-time image-tag-pinned guard — KnownApps |
@@ -302,7 +303,6 @@ flowchart LR
 | 2026-07-26T20:06 | [#5403](https://github.com/openova-io/openova/pull/5403) | #4 | fix(keycloak): SECURITY — pin-broker credential is platform- |
 | 2026-07-26T20:29 | [#5402](https://github.com/openova-io/openova/pull/5402) | #3379 | fix(console): per-row Re-run on a FAILED cutover-step row (U |
 | 2026-07-26T19:55 | [#5399](https://github.com/openova-io/openova/pull/5399) | #5341 | fix(mcp): arm multiRegion on slot 13d — the #5341 secondary- |
-| 2026-07-26T19:51 | [#5398](https://github.com/openova-io/openova/pull/5398) | #5393 | fix(catalog): pin the 9 :latest catalog images that Kyverno  |
 
 ---
 
