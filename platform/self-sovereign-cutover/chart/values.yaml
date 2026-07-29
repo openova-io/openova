@@ -449,6 +449,13 @@ harbor:
     - "proxy-k8s"
     - "proxy-gcr"
     - "proxy-ecr"
+    # #5442 — Chainguard (cgr.dev). Kept in LOCKSTEP with the
+    # offlineMirror.hostProjects entry below: any host mapped to a project name
+    # this list does not create makes step-03's skopeo push 404 on a
+    # non-existent project, trading one cutover failure for a later one.
+    # tests/offline-mirror-host-projects.sh asserts the lockstep from the
+    # RENDER, in both directions.
+    - "proxy-chainguard"
   # Proxy-cache project(s) that REMAIN pull-through. Only `proxy-xpkg`:
   # Crossplane's xpkg fetcher (internal/xpkg/fetch.go remote.Image) bypasses
   # the node containerd mirror, so step-11 (crossplaneProviderPivot) — NOT the
@@ -527,6 +534,52 @@ offlineMirror:
     # already creates proxy-gcr (harbor.mirrorProjects), so no new project.
     - host: "mirror.gcr.io"
       project: "proxy-gcr"
+    # #5442 (Refs #4975 #5443) — Scarf DOWNLOAD-GATEWAY in front of Docker Hub.
+    # bp-litmus's upstream subchart (litmuschaos/litmus 3.28.0) defaults its
+    # image registry to `litmuschaos.docker.scarf.sh`, so a default-values
+    # render of the PINNED catalog chart declares 4 refs on that host
+    # (litmusportal-frontend / -server / -auth-server / mongo:6) that no
+    # in-repo values.yaml mentions — which is why the authoring-time scan
+    # (tests/image-registry-coverage.sh, whose surface is this repo's chart
+    # values) could not see it and the step-03 Phase A3 guard surfaced it at
+    # runtime on live hw291 as `unmapped=5`.
+    #
+    # It is NOT a distinct registry: `GET https://litmuschaos.docker.scarf.sh/v2/`
+    # answers 401 with `www-authenticate: Bearer realm="https://auth.docker.io/
+    # token",service="registry.docker.io"` — it delegates auth to Docker Hub's
+    # own token service — and an unauthenticated pull through it returns Docker
+    # Hub's verbatim rate-limit body ("You have reached your unauthenticated
+    # pull rate limit. https://www.docker.com/increase-rate-limit"). So it is a
+    # redirector whose content IS Docker Hub content: reuse proxy-dockerhub,
+    # exactly as #4975 folded mirror.gcr.io into proxy-gcr. Path is preserved,
+    # so `litmuschaos.docker.scarf.sh/litmuschaos/litmusportal-frontend:3.28.0`
+    # resolves to registry.<fqdn>/proxy-dockerhub/litmuschaos/
+    # litmusportal-frontend:3.28.0 — the SAME local path the docker.io form
+    # resolves to, so the two dedupe instead of double-storing.
+    #
+    # ORDER MATTERS: this entry sits AFTER `docker.io:proxy-dockerhub` because
+    # step-03 copy_one + step-08 self-heal derive the mothership-proxy
+    # direct-source fallback (#5095) by an INVERSE map walk that takes the
+    # FIRST host whose project matches — proxy-dockerhub must keep resolving
+    # back to docker.io, not to the gateway. Same reason mirror.gcr.io is
+    # listed after gcr.io.
+    - host: "litmuschaos.docker.scarf.sh"
+      project: "proxy-dockerhub"
+    # #5442 (Refs #4975) — Chainguard's registry. bp-sigstore's upstream
+    # subchart (sigstore/policy-controller) pins its leases-cleanup Job at
+    # `cgr.dev/chainguard/kubectl:latest-dev`; same discovery path as the Scarf
+    # host above (upstream subchart default, invisible to the repo-values scan,
+    # surfaced by the runtime Phase A3 guard on hw291).
+    #
+    # Unlike Scarf this IS a genuinely distinct registry — cgr.dev is served by
+    # Chainguard's own front-end (`GET https://cgr.dev/v2/` answers 405 from
+    # `server: Google Frontend`, no Docker Hub delegation) and its content
+    # exists nowhere in the Docker Hub / GCR / Quay namespaces — so it gets its
+    # OWN project. `proxy-chainguard` is added to harbor.mirrorProjects in
+    # LOCKSTEP (step-02 must create the project or step-03's push 404s and this
+    # failure is merely traded for a later one).
+    - host: "cgr.dev"
+      project: "proxy-chainguard"
     - host: "public.ecr.aws"
       project: "proxy-ecr"
     # MOTHERSHIP — host-swap, path preserved. Must equal the host of

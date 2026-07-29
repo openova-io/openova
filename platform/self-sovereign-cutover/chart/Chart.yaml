@@ -1,5 +1,51 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.157 (#5442 Refs #4975 #5443 #5095 — COVER THE TWO HOSTS THE
+# AUTHORING-TIME SCAN IS STRUCTURALLY BLIND TO. 0.1.154 made step-03 enumerate
+# images from the PINNED CATALOG CHARTS instead of only from what is installed.
+# That enumeration renders each chart at default values, so it sees what the
+# UPSTREAM SUB-CHARTS declare — and two upstream defaults name registry hosts
+# no file in this repo mentions:
+#
+#   • litmuschaos/litmus 3.28.0 (bp-litmus) defaults its image registry to the
+#     Scarf download gateway `litmuschaos.docker.scarf.sh` — 4 refs
+#     (litmusportal-frontend, -server, -auth-server, mongo:6);
+#   • sigstore/policy-controller (bp-sigstore) pins its leases-cleanup Job at
+#     `cgr.dev/chainguard/kubectl:latest-dev` — 1 ref.
+#
+# Live hw291 2026-07-29 therefore stalled step-03 at `copy_fail=0
+# durable_miss=0 unmapped=5` with NOTHING broken: ok=36 fail=0 and all 144
+# local image paths durably present, the coverage map simply had no entry for
+# those two hosts. tests/image-registry-coverage.sh could not have caught it —
+# its scan surface is this repo's chart values, and neither host appears there.
+#
+# FIX (values-only, no template change): offlineMirror.hostProjects gains
+#   litmuschaos.docker.scarf.sh -> proxy-dockerhub   (NOT a new project: the
+#     gateway delegates auth to Docker Hub's own token service —
+#     `GET https://litmuschaos.docker.scarf.sh/v2/` answers 401 with
+#     `realm="https://auth.docker.io/token",service="registry.docker.io"` — and
+#     serves Docker Hub content, so the same folding #4975 applied to
+#     mirror.gcr.io -> proxy-gcr applies here, and the local path is identical
+#     to the docker.io form's so the two dedupe);
+#   cgr.dev -> proxy-chainguard                      (a genuinely distinct
+#     registry: `GET https://cgr.dev/v2/` answers 405 from Chainguard's own
+#     front-end with no Docker Hub delegation, and its content exists in no
+#     other mapped namespace — so a NEW project, added to harbor.mirrorProjects
+#     in LOCKSTEP so step-02 creates it and step-03's push does not 404).
+# The Scarf entry is ordered AFTER docker.io so the #5095 inverse map walk
+# still resolves proxy-dockerhub back to docker.io.
+#
+# NEW GUARD tests/offline-mirror-host-projects.sh asserts the whole contract
+# from the RENDER (not from values.yaml, which proves nothing about the Job
+# that runs): the map must render into >=3 consuming steps, be byte-identical
+# in all of them, be a real non-empty token list, carry every required
+# host:project pair as a WHOLE token, keep the #5095 first-host-per-project
+# ordering, and name only projects step-02 actually creates. It ships 5
+# negative self-tests that run on every CI invocation — drop cgr.dev, drop the
+# Scarf host, drop proxy-chainguard from mirrorProjects, order the gateway
+# ahead of docker.io, and feed it an empty render — because a guard whose
+# failure path has never been observed is a trivially-green grep, not a guard.
+# No step-count / RBAC / deadline change (still 11 steps).
 # 0.1.154 (#5443 #5442 Refs #3627 #5237 #5437 — MIRROR WHAT THE MARKETPLACE
 # OFFERS, and WARM WHAT THE PINNED CHARTS DECLARE —
 # not only what is installed. Step-06 pivots `openova-catalog` — the one
@@ -2761,7 +2807,7 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.156
+version: 0.1.157
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
