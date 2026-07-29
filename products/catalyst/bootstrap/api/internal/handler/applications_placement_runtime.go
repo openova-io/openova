@@ -559,7 +559,11 @@ func podBelongsToComponent(p *unstructured.Unstructured, name, ns string) bool {
 	if ns != "" && !objectInAppNamespace(p, ns) {
 		return false
 	}
-	appKey := applicationKey(p)
+	// nil ReplicaSet index: this join has no cache handle, so a Pod owned
+	// by a ReplicaSet keeps the ReplicaSet name (pre-#5485 behavior). The
+	// instance/name labels below carry the match in the cases this
+	// function is called for.
+	appKey := applicationKey(p, nil)
 	chartName := p.GetLabels()["app.kubernetes.io/name"]
 	// The de-mangled in-vCluster object name (loft annotation), e.g. a host
 	// Pod `grafana-…-x-grafana-x-mgmt-vcluster` carries object-name

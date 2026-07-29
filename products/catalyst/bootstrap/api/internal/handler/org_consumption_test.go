@@ -206,3 +206,167 @@ func TestInfraNamespaceSet_EnvOverrideExtendsFloor(t *testing.T) {
 		t.Errorf("a real tenant namespace must NOT be in the infra set")
 	}
 }
+
+/* ── #5485 defect A — one-shot Jobs collapse to ONE overhead line ────── */
+
+// TestAggregateConsumption_OneShotJobsCollapseToASingleRow — #5485
+// defect A. orgForRow already routed every Job pod to the platform
+// bucket, but nothing collapsed them, so the __platform__ Application
+// table itemized one row per Job pod:
+// `cutover-harbor-prewarm-1785340840`, `cutover-gitea-mirror-…`,
+// `cutover-harbor-projects-…`, `openbao-snapshot-save-29755690`,
+// `legacy-cert-cleanup`, `cert-nextkey-guard` — contradicting this
+// handler's own "single Platform overhead line" contract. They now fold
+// into one row, WITHOUT dropping their cost.
+func TestAggregateConsumption_OneShotJobsCollapseToASingleRow(t *testing.T) {
+	const parent = "hw291.omani.works"
+	rows := []podRow{
+		// Durable platform workloads — must stay individually itemized.
+		{namespace: "catalyst-system", application: "catalyst-api", ownerKind: "ReplicaSet", cpuReq: 500, memReq: 1 << 30},
+		{namespace: "kube-system", application: "cilium", ownerKind: "DaemonSet", cpuReq: 100, memReq: 128 << 20},
+		// The six live one-shot Job pods from the #5485 report.
+		{namespace: "catalyst-system", application: "cutover-harbor-prewarm-1785340840", ownerKind: "Job", cpuReq: 10, memReq: 32 << 20},
+		{namespace: "catalyst-system", application: "cutover-gitea-mirror-1785340111", ownerKind: "Job", cpuReq: 10, memReq: 32 << 20},
+		{namespace: "catalyst-system", application: "cutover-harbor-projects-1785340222", ownerKind: "Job", cpuReq: 10, memReq: 32 << 20},
+		{namespace: "openbao", application: "openbao-snapshot-save-29755690", ownerKind: "Job", cpuReq: 10, memReq: 32 << 20},
+		{namespace: "cert-manager", application: "legacy-cert-cleanup", ownerKind: "Job", cpuReq: 10, memReq: 32 << 20},
+		{namespace: "cert-manager", application: "cert-nextkey-guard", ownerKind: "Job", cpuReq: 10, memReq: 32 << 20},
+	}
+
+	resp := aggregateConsumption(rows, parent, testInfraSet())
+
+	platform := resp.Orgs[len(resp.Orgs)-1]
+	if !platform.IsPlatform {
+		t.Fatalf("last row must be the platform-overhead rollup, got %#v", resp.Orgs)
+	}
+
+	// Not one row per Job pod: exactly ONE collapsed activity line.
+	ephemeralRows := 0
+	for _, a := range platform.Apps {
+		if a.Application == ephemeralApp {
+			ephemeralRows++
+		}
+		for _, jobName := range []string{
+			"cutover-harbor-prewarm-1785340840",
+			"cutover-gitea-mirror-1785340111",
+			"cutover-harbor-projects-1785340222",
+			"openbao-snapshot-save-29755690",
+			"legacy-cert-cleanup",
+			"cert-nextkey-guard",
+		} {
+			if a.Application == jobName {
+				t.Errorf("one-shot Job pod itemized as its own Application row: %q", jobName)
+			}
+		}
+	}
+	if ephemeralRows != 1 {
+		t.Errorf("expected exactly 1 collapsed %q row, got %d (apps=%#v)", ephemeralApp, ephemeralRows, platform.Apps)
+	}
+
+	// The collapse spans namespaces, so the row says so rather than
+	// claiming one namespace owns all six Jobs.
+	var collapsed *appConsumption
+	for i := range platform.Apps {
+		if platform.Apps[i].Application == ephemeralApp {
+			collapsed = &platform.Apps[i]
+		}
+	}
+	// NOTE: no t.Fatalf below this point — a bail here would skip the
+	// vacuity assertions that follow, which is exactly how a
+	// drop-everything "fix" sneaks through a green run.
+	if collapsed == nil {
+		t.Errorf("no collapsed one-shot row at all — apps=%#v", platform.Apps)
+	} else {
+		if collapsed.Namespace != ephemeralMixedNamespace {
+			t.Errorf("collapsed row Namespace = %q, want %q (Jobs span catalyst-system/openbao/cert-manager)",
+				collapsed.Namespace, ephemeralMixedNamespace)
+		}
+		// Cost is COLLAPSED, not discarded: all six Job pods' CPU lands
+		// on the one row.
+		if collapsed.CPUMilli != 60 {
+			t.Errorf("collapsed row CPUMilli = %v, want 60 (six Job pods folded)", collapsed.CPUMilli)
+		}
+	}
+	// The platform total still carries every pod, collapsed or not.
+	if platform.CPUMilli != 660 {
+		t.Errorf("platform CPUMilli = %v, want 660 (durable 600 + one-shot 60) — the fix must collapse, not drop", platform.CPUMilli)
+	}
+
+	/* ── Vacuity control ────────────────────────────────────────────
+	   A "fix" that filtered every row out (or emptied Apps) would also
+	   produce "no Job pod rows" while destroying showback. Assert the
+	   durable platform workloads are STILL itemized, the totals are
+	   non-zero, and per-app percents still sum to ~100 within the org. */
+	byApp := map[string]float64{}
+	for _, a := range platform.Apps {
+		byApp[a.Application] = a.CPUMilli
+	}
+	if byApp["catalyst-api"] != 500 {
+		t.Errorf("durable app catalyst-api lost its row/cost: CPUMilli=%v, want 500", byApp["catalyst-api"])
+	}
+	if byApp["cilium"] != 100 {
+		t.Errorf("durable app cilium lost its row/cost: CPUMilli=%v, want 100", byApp["cilium"])
+	}
+	if len(platform.Apps) != 3 {
+		t.Errorf("expected 3 platform app rows (catalyst-api + cilium + one collapsed activity line), got %d: %#v",
+			len(platform.Apps), platform.Apps)
+	}
+	if resp.TotalCostUnits <= 0 || platform.CostUnits <= 0 {
+		t.Errorf("showback totals collapsed to zero: total=%v platform=%v", resp.TotalCostUnits, platform.CostUnits)
+	}
+	var pct float64
+	for _, a := range platform.Apps {
+		pct += a.Percent
+	}
+	if math.Abs(pct-100) > 0.5 {
+		t.Errorf("per-app percents within the platform org must still sum to ~100, got %v", pct)
+	}
+}
+
+// TestAggregateConsumption_SingleNamespaceCollapseKeepsRealNamespace —
+// when every one-shot Job ran in the SAME namespace the collapsed row
+// keeps that namespace instead of the "(various)" marker, so the
+// operator still sees where the activity happened.
+func TestAggregateConsumption_SingleNamespaceCollapseKeepsRealNamespace(t *testing.T) {
+	resp := aggregateConsumption([]podRow{
+		{namespace: "catalyst-system", application: "cutover-harbor-prewarm-1785340840", ownerKind: "Job", cpuReq: 10},
+		{namespace: "catalyst-system", application: "cutover-gitea-mirror-1785340111", ownerKind: "Job", cpuReq: 20},
+	}, "hw291.omani.works", testInfraSet())
+
+	platform := resp.Orgs[len(resp.Orgs)-1]
+	if !platform.IsPlatform || len(platform.Apps) != 1 {
+		t.Fatalf("expected one collapsed row on the platform org, got %#v", platform)
+	}
+	if got := platform.Apps[0]; got.Application != ephemeralApp || got.Namespace != "catalyst-system" || got.CPUMilli != 30 {
+		t.Errorf("collapsed row = %+v, want {%s catalyst-system 30m}", got, ephemeralApp)
+	}
+}
+
+// TestAggregateConsumption_TenantAppsNeverCollapse — the collapse is
+// scoped to one-shot Job pods. A tenant's durable Applications keep their
+// own per-app rows (the DoD 3 "per-app cost attribution" contract).
+func TestAggregateConsumption_TenantAppsNeverCollapse(t *testing.T) {
+	resp := aggregateConsumption([]podRow{
+		{namespace: "acme", application: "blog", org: "acme", ownerKind: "StatefulSet", cpuReq: 200},
+		{namespace: "acme", application: "api", org: "acme", ownerKind: "Deployment", cpuReq: 300},
+		{namespace: "acme", application: "shop", org: "acme", ownerKind: "Deployment", cpuReq: 100},
+	}, "hw291.omani.works", testInfraSet())
+
+	var acme *orgConsumption
+	for i := range resp.Orgs {
+		if resp.Orgs[i].Org == "acme" {
+			acme = &resp.Orgs[i]
+		}
+	}
+	if acme == nil {
+		t.Fatal("acme org row missing")
+	}
+	if len(acme.Apps) != 3 {
+		t.Errorf("tenant apps must stay itemized: got %d rows, want 3 (%#v)", len(acme.Apps), acme.Apps)
+	}
+	for _, a := range acme.Apps {
+		if a.Application == ephemeralApp {
+			t.Errorf("a tenant's durable app was folded into the one-shot row: %#v", acme.Apps)
+		}
+	}
+}

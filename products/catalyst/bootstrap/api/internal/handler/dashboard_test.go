@@ -185,6 +185,11 @@ func dashFixtureClients(objs ...runtime.Object) (*dynamicfake.FakeDynamicClient,
 		{schema.GroupVersionKind{Version: "v1", Kind: "NamespaceList"}},
 		{schema.GroupVersionKind{Version: "v1", Kind: "Node"}},
 		{schema.GroupVersionKind{Version: "v1", Kind: "NodeList"}},
+		// #5485: ReplicaSets are the Deployment→Pod ownerRef hop the
+		// treemap walks to name an application after its Deployment
+		// rather than the hash-suffixed ReplicaSet.
+		{schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "ReplicaSet"}},
+		{schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "ReplicaSetList"}},
 	}
 	for _, g := range gvks {
 		if strings.HasSuffix(g.gvk.Kind, "List") {
@@ -199,6 +204,7 @@ func dashFixtureClients(objs ...runtime.Object) (*dynamicfake.FakeDynamicClient,
 		{Group: "metrics.k8s.io", Version: "v1beta1", Resource: "pods"}: "PodMetricsList",
 		{Version: "v1", Resource: "namespaces"}:                         "NamespaceList",
 		{Version: "v1", Resource: "nodes"}:                              "NodeList",
+		{Group: "apps", Version: "v1", Resource: "replicasets"}:         "ReplicaSetList",
 	}
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, objs...)
 	core := kfake.NewSimpleClientset()
@@ -253,6 +259,14 @@ func newDashHandlerWithCache(t *testing.T, clusterID string, withMetrics bool, o
 		GVR:        schema.GroupVersionResource{Version: "v1", Resource: "nodes"},
 		Namespaced: false,
 	})
+	// #5485 defect B: the Deployment→Pod ownerRef hop. Registered so the
+	// handler's h.k8sCache.List(cid, "replicaset", …) returns the seeded
+	// fixtures and applicationKey can resolve past the ReplicaSet.
+	_ = r.Add(k8scache.Kind{
+		Name:       "replicaset",
+		GVR:        schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "replicasets"},
+		Namespaced: true,
+	})
 	cfg := k8scache.Config{
 		Logger:   quietHandlerLogger(),
 		Registry: r,
@@ -277,6 +291,7 @@ func newDashHandlerWithCache(t *testing.T, clusterID string, withMetrics bool, o
 	wantPVCs := 0
 	wantNS := 0
 	wantNodes := 0
+	wantRS := 0
 	for _, o := range objs {
 		switch o.GetKind() {
 		case "Pod":
@@ -287,6 +302,8 @@ func newDashHandlerWithCache(t *testing.T, clusterID string, withMetrics bool, o
 			wantNS++
 		case "Node":
 			wantNodes++
+		case "ReplicaSet":
+			wantRS++
 		}
 	}
 	deadline := time.Now().Add(2 * time.Second)
@@ -295,8 +312,10 @@ func newDashHandlerWithCache(t *testing.T, clusterID string, withMetrics bool, o
 		gotPVCs, _, _ := f.List(clusterID, "persistentvolumeclaim", labels.Everything())
 		gotNS, _, _ := f.List(clusterID, "namespace", labels.Everything())
 		gotNodes, _, _ := f.List(clusterID, "node", labels.Everything())
+		gotRS, _, _ := f.List(clusterID, "replicaset", labels.Everything())
 		if len(gotPods) >= wantPods && len(gotPVCs) >= wantPVCs &&
-			len(gotNS) >= wantNS && len(gotNodes) >= wantNodes {
+			len(gotNS) >= wantNS && len(gotNodes) >= wantNodes &&
+			len(gotRS) >= wantRS {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -983,3 +1002,225 @@ func TestDimensionKey_OrganizationFallsBackToPlatformOverhead(t *testing.T) {
 	}
 }
 
+/* ── #5485 defect B — Application names, not ReplicaSet names ────────── */
+
+// mkDashOwnedPod produces an unstructured Pod carrying NO
+// app.kubernetes.io/{instance,name} labels — the shape of the 31 live
+// pods (org-services/, flux-system/, kube-system/coredns, metrics-server,
+// nats-jetstream, openbao-unseal-reconciler, provider-opentofu) that made
+// #5485 defect B operator-visible. Its application identity therefore has
+// to come from the ownerRef chain. `ownerKind`/`ownerName` empty ⇒ a bare
+// unowned pod.
+func mkDashOwnedPod(ns, name, ownerKind, ownerName, cpuRequest string) *unstructured.Unstructured {
+	meta := map[string]any{
+		"namespace":         ns,
+		"name":              name,
+		"creationTimestamp": time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
+		"resourceVersion":   "1",
+	}
+	if ownerKind != "" && ownerName != "" {
+		apiVersion := "apps/v1"
+		if ownerKind == "Job" {
+			apiVersion = "batch/v1"
+		}
+		meta["ownerReferences"] = []any{map[string]any{
+			"apiVersion": apiVersion,
+			"kind":       ownerKind,
+			"name":       ownerName,
+			"uid":        "uid-" + ownerName,
+			"controller": true,
+		}}
+	}
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Pod",
+		"metadata":   meta,
+		"spec": map[string]any{
+			"containers": []any{map[string]any{
+				"name":      "main",
+				"image":     "ghcr.io/openova-io/test:1",
+				"resources": map[string]any{"requests": map[string]any{"cpu": cpuRequest}},
+			}},
+			"volumes": []any{},
+		},
+		"status": map[string]any{
+			"conditions": []any{map[string]any{"type": "Ready", "status": "True"}},
+		},
+	}}
+}
+
+// mkDashReplicaSet produces the intermediate Deployment→Pod hop. Empty
+// `deployment` ⇒ a bare ReplicaSet with no controller of its own (the
+// no-further-owner case).
+func mkDashReplicaSet(ns, name, deployment string) *unstructured.Unstructured {
+	meta := map[string]any{
+		"namespace":       ns,
+		"name":            name,
+		"resourceVersion": "1",
+	}
+	if deployment != "" {
+		meta["ownerReferences"] = []any{map[string]any{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"name":       deployment,
+			"uid":        "uid-" + deployment,
+			"controller": true,
+		}}
+	}
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "apps/v1",
+		"kind":       "ReplicaSet",
+		"metadata":   meta,
+		"spec":       map[string]any{"replicas": int64(1)},
+	}}
+}
+
+// TestApplicationKey_ResolvesDeploymentThroughReplicaSet — #5485 defect B.
+// A Deployment's pods are owned by a hash-suffixed ReplicaSet; stopping at
+// the pod's first ownerRef rendered `admin-865b6dd6c7` /
+// `coredns-57fc96f748` / `source-controller-cc7bd674d` as "applications"
+// (24 of 101 live treemap leaves). The resolver takes the second hop
+// RS → Deployment, and leaves every other owner shape untouched.
+func TestApplicationKey_ResolvesDeploymentThroughReplicaSet(t *testing.T) {
+	rsIndex := indexReplicaSets([]*unstructured.Unstructured{
+		mkDashReplicaSet("org-services", "admin-865b6dd6c7", "admin"),
+		mkDashReplicaSet("kube-system", "coredns-57fc96f748", "coredns"),
+		// A ReplicaSet with no controller of its own — hand-applied,
+		// no Deployment above it.
+		mkDashReplicaSet("edge", "bare-rs-7d9f", ""),
+	})
+
+	cases := []struct {
+		name string
+		pod  *unstructured.Unstructured
+		want string
+	}{
+		{
+			// THE defect: Deployment pod resolves to the Deployment.
+			name: "deployment pod via replicaset hop",
+			pod:  mkDashOwnedPod("org-services", "admin-865b6dd6c7-p4xkv", "ReplicaSet", "admin-865b6dd6c7", "50m"),
+			want: "admin",
+		},
+		{
+			name: "kube-system coredns via replicaset hop",
+			pod:  mkDashOwnedPod("kube-system", "coredns-57fc96f748-abcde", "ReplicaSet", "coredns-57fc96f748", "100m"),
+			want: "coredns",
+		},
+		// ── no-further-owner cases: keep a real name, invent nothing ──
+		{
+			name: "replicaset absent from the index keeps the replicaset name",
+			pod:  mkDashOwnedPod("flux-system", "source-controller-cc7bd674d-zzz", "ReplicaSet", "source-controller-cc7bd674d", "10m"),
+			want: "source-controller-cc7bd674d",
+		},
+		{
+			name: "bare replicaset with no controller keeps the replicaset name",
+			pod:  mkDashOwnedPod("edge", "bare-rs-7d9f-qqq", "ReplicaSet", "bare-rs-7d9f", "10m"),
+			want: "bare-rs-7d9f",
+		},
+		{
+			name: "daemonset pod keeps its workload name (no hop)",
+			pod:  mkDashOwnedPod("kube-system", "cilium-9xk2p", "DaemonSet", "cilium", "100m"),
+			want: "cilium",
+		},
+		{
+			name: "statefulset pod keeps its workload name (no hop)",
+			pod:  mkDashOwnedPod("shared-data", "shared-pg-1", "StatefulSet", "shared-pg", "200m"),
+			want: "shared-pg",
+		},
+		{
+			name: "job pod keeps its job name (no hop)",
+			pod:  mkDashOwnedPod("catalyst-system", "cutover-harbor-prewarm-1785340840-tt7", "Job", "cutover-harbor-prewarm-1785340840", "50m"),
+			want: "cutover-harbor-prewarm-1785340840",
+		},
+		{
+			name: "unowned pod falls back to its own name",
+			pod:  mkDashOwnedPod("edge", "static-probe", "", "", "10m"),
+			want: "static-probe",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := applicationKey(tc.pod, rsIndex); got != tc.want {
+				t.Errorf("applicationKey = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestApplicationKey_LabelsWinAndNeverEmpty — the vacuity control for
+// defect B. A "fix" that returned "" (or dropped the ownerRef fallback)
+// would satisfy "no hash-suffixed names" while destroying the grouping:
+// every pod would collapse into one nameless cell. Locks that the
+// chart-authoring precedence still holds and that NO input yields "".
+func TestApplicationKey_LabelsWinAndNeverEmpty(t *testing.T) {
+	rsIndex := indexReplicaSets([]*unstructured.Unstructured{
+		mkDashReplicaSet("apps", "blog-6c7d", "blog-deploy"),
+	})
+
+	// 1. app.kubernetes.io/instance wins over the whole ownerRef chain.
+	labelled := mkDashOwnedPod("apps", "blog-6c7d-aaa", "ReplicaSet", "blog-6c7d", "50m")
+	labelled.SetLabels(map[string]string{"app.kubernetes.io/instance": "blog"})
+	if got := applicationKey(labelled, rsIndex); got != "blog" {
+		t.Errorf("instance label must win: got %q, want %q", got, "blog")
+	}
+	// 2. app.kubernetes.io/name is the second precedence step.
+	named := mkDashOwnedPod("apps", "blog-6c7d-bbb", "ReplicaSet", "blog-6c7d", "50m")
+	named.SetLabels(map[string]string{"app.kubernetes.io/name": "blog-chart"})
+	if got := applicationKey(named, rsIndex); got != "blog-chart" {
+		t.Errorf("name label must be second: got %q, want %q", got, "blog-chart")
+	}
+	// 3. NOTHING resolves to the empty string — not a nil index, not a
+	//    missing ReplicaSet, not a pod with no owner at all.
+	probes := map[string]*unstructured.Unstructured{
+		"rs-owned, nil index":    mkDashOwnedPod("apps", "blog-6c7d-ccc", "ReplicaSet", "blog-6c7d", "50m"),
+		"rs-owned, missing rs":   mkDashOwnedPod("apps", "ghost-1111-ddd", "ReplicaSet", "ghost-1111", "50m"),
+		"unowned":                mkDashOwnedPod("apps", "loner", "", "", "50m"),
+		"owner ref with no name": mkDashOwnedPod("apps", "nameless-owner", "", "", "50m"),
+		"labelled":               labelled,
+	}
+	for what, p := range probes {
+		if got := applicationKey(p, nil); got == "" {
+			t.Errorf("%s: applicationKey returned the empty string — every pod must land in a named bucket", what)
+		}
+	}
+	// A nil index must NOT change the pre-#5485 answer for an RS-owned
+	// pod: the ReplicaSet name, never "" and never a fabricated one.
+	if got := applicationKey(probes["rs-owned, nil index"], nil); got != "blog-6c7d" {
+		t.Errorf("nil rs index: got %q, want the replicaset name %q", got, "blog-6c7d")
+	}
+}
+
+// TestDashboardTreemap_ApplicationNamedAfterDeploymentNotReplicaSet —
+// the wired proof for defect B: the handler lists ReplicaSets from the
+// same cluster cache and the rendered treemap leaves carry Deployment
+// names. Exercises the full HTTP path, so a fix that resolves correctly
+// in applicationKey but is never threaded through buildPodRows fails here.
+func TestDashboardTreemap_ApplicationNamedAfterDeploymentNotReplicaSet(t *testing.T) {
+	h := newDashHandlerWithCache(t, "alpha", false,
+		mkDashReplicaSet("org-services", "admin-865b6dd6c7", "admin"),
+		mkDashReplicaSet("kube-system", "coredns-57fc96f748", "coredns"),
+		mkDashOwnedPod("org-services", "admin-865b6dd6c7-p4xkv", "ReplicaSet", "admin-865b6dd6c7", "100m"),
+		mkDashOwnedPod("org-services", "admin-865b6dd6c7-w2mnb", "ReplicaSet", "admin-865b6dd6c7", "100m"),
+		mkDashOwnedPod("kube-system", "coredns-57fc96f748-abcde", "ReplicaSet", "coredns-57fc96f748", "50m"),
+	)
+	out := dashGet(t, h, "deployment_id=alpha&group_by=application&color_by=health&size_by=cpu_request")
+
+	bySize := map[string]float64{}
+	for _, it := range out.Items {
+		bySize[it.Name] = it.SizeValue
+		if strings.Contains(it.Name, "865b6dd6c7") || strings.Contains(it.Name, "57fc96f748") {
+			t.Errorf("a raw ReplicaSet name rendered as an Application leaf: %q", it.Name)
+		}
+	}
+	// Vacuity control: the leaves are still THERE, still named, and still
+	// carry the summed request of their pods.
+	if len(out.Items) != 2 {
+		t.Fatalf("expected 2 application leaves (admin + coredns), got %d: %+v", len(out.Items), out.Items)
+	}
+	if bySize["admin"] != 200 {
+		t.Errorf("admin cpu_request: got %v want 200m (two pods folded under the Deployment)", bySize["admin"])
+	}
+	if bySize["coredns"] != 50 {
+		t.Errorf("coredns cpu_request: got %v want 50m", bySize["coredns"])
+	}
+}

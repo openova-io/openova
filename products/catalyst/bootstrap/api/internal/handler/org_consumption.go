@@ -112,6 +112,29 @@ const (
 // [a-z][a-z0-9-]{2,30}).
 const platformOrg = "__platform__"
 
+// ephemeralApp is the single app row every one-shot Job pod folds into
+// inside the platform-overhead org. Before #5485 each Job pod produced
+// its own `appConsumption` row, so the Application table itemized
+// `cutover-harbor-prewarm-1785340840`, `cutover-gitea-mirror-…`,
+// `openbao-snapshot-save-29755690` — the exact "render as a single
+// Platform overhead line" contract this file's header states it honors.
+// Their cost is NOT dropped (it is real consumption of the estate, and
+// the platform row's totals still include it) — only the itemization
+// collapses. Ephemeral classification is isEphemeralRow in dashboard.go,
+// shared with the treemap so the two surfaces cannot drift.
+//
+// The parenthesized form matches the existing "(unlabeled)" convention
+// for synthetic rows and cannot collide with a real workload name
+// (K8s names are DNS labels — no spaces, no parentheses).
+const ephemeralApp = "(one-shot jobs)"
+
+// ephemeralMixedNamespace is the namespace shown for the collapsed
+// one-shot row when its pods span more than one namespace (cutover Jobs
+// in catalyst-system, snapshot Jobs in openbao, scan Jobs in
+// trivy-system). A single-namespace collapse keeps the real namespace so
+// the operator still sees where the activity ran.
+const ephemeralMixedNamespace = "(various)"
+
 // defaultInfraNamespaces is the baked-in default set of host /
 // control-plane namespaces whose pods are NEVER tenant consumption. It is
 // the floor, not the law: SHOWBACK_INFRA_NAMESPACES (comma-separated)
@@ -189,8 +212,12 @@ func (h *Handler) HandleSovereignConsumption(w http.ResponseWriter, r *http.Requ
 	podMetrics, _, _ := h.k8sCache.List(clusterID, "podmetrics", labels.Everything())
 	namespaces, _, _ := h.k8sCache.List(clusterID, "namespace", labels.Everything())
 	nodes, _, _ := h.k8sCache.List(clusterID, "node", labels.Everything())
+	// ReplicaSets: the Deployment→Pod ownerRef hop. Without them the
+	// per-app breakdown lists hash-suffixed ReplicaSet names instead of
+	// the Deployment that owns them (#5485 defect B).
+	replicaSets, _, _ := h.k8sCache.List(clusterID, "replicaset", labels.Everything())
 
-	rows := buildPodRows(pods, pvcs, podMetrics, namespaces, nodes, clusterID, "")
+	rows := buildPodRows(pods, pvcs, podMetrics, namespaces, nodes, replicaSets, clusterID, "")
 
 	resp := aggregateConsumption(rows, parentOrg, infraNamespaceSet(os.Getenv("SHOWBACK_INFRA_NAMESPACES")))
 	writeJSON(w, http.StatusOK, resp)
@@ -207,6 +234,12 @@ func (h *Handler) HandleSovereignConsumption(w http.ResponseWriter, r *http.Requ
 // Real per-Org namespaces (stamped by the organization-controller) yield
 // their own org row immediately, with no per-name special-casing — adding
 // a third org needs zero code change (the generality proof §7c).
+//
+// Inside the platform bucket the one-shot Job pods further collapse into
+// a SINGLE `(one-shot jobs)` app row (#5485 defect A) instead of one row
+// per Job pod. Their cost still counts toward the platform row's totals
+// and the Sovereign-wide total — only the per-app itemization folds, so
+// the table shows durable platform workloads plus one activity line.
 func aggregateConsumption(rows []podRow, parentOrg string, infraNamespaces map[string]struct{}) SovereignConsumptionResponse {
 	// org → namespace+app key → app rollup.
 	type appKey struct{ org, ns, app string }
@@ -249,10 +282,25 @@ func aggregateConsumption(rows []podRow, parentOrg string, infraNamespaces map[s
 			app = "(unlabeled)"
 		}
 		k := appKey{org: org, ns: row.namespace, app: app}
+		// #5485 defect A: one-shot Job pods collapse into ONE row for the
+		// whole platform bucket — same ephemeral predicate the treemap
+		// filters on (isEphemeralRow). Keyed with an empty namespace so
+		// Jobs from different namespaces fold together; the displayed
+		// Namespace is resolved below.
+		if isEphemeralRow(row) {
+			k = appKey{org: org, ns: "", app: ephemeralApp}
+		}
 		ac, ok := appAgg[k]
 		if !ok {
 			ac = &appConsumption{Application: app, Namespace: row.namespace}
+			if isEphemeralRow(row) {
+				ac.Application = ephemeralApp
+			}
 			appAgg[k] = ac
+		} else if ac.Namespace != row.namespace {
+			// Only reachable for the collapsed one-shot row (every other
+			// key pins the namespace): its pods span >1 namespace.
+			ac.Namespace = ephemeralMixedNamespace
 		}
 		ac.CostUnits += cost
 		ac.CPUMilli += cpuMilli
