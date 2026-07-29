@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-29T14:15:04Z` |
+| Last refreshed | `2026-07-29T14:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 66 |
+| Open issues | 68 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 66 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 68 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 66 open items (clickable table)
+### All 68 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -266,6 +266,8 @@ flowchart LR
 | [#5466](https://github.com/openova-io/openova/issues/5466) | newapi SSO dead-ends: /api/oauth/sovereign code exchange returns 403 → no SSO  | Other |
 | [#5467](https://github.com/openova-io/openova/issues/5467) | harbor-prewarm logs the first 8 chars of the GHCR PAT on every cutover — line  | Other |
 | [#5468](https://github.com/openova-io/openova/issues/5468) | Cutover step-03 fails at the #5442 A3-guard on hw291: 4 chart-declared images un | Other |
+| [#5471](https://github.com/openova-io/openova/issues/5471) | Cilium Gateways report Programmed=False / AddressNotAssigned while serving HTTP  | Other |
+| [#5472](https://github.com/openova-io/openova/issues/5472) | Post-cutover sovereignty gap: 16 of 19 deployable marketplace apps resolve chart | Other |
 
 ---
 
@@ -273,6 +275,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-29T14:15 | [#5470](https://github.com/openova-io/openova/pull/5470) | #5442 | fix(catalog): unlist bp-nemo-guardrails — the image it pins  |
 | 2026-07-29T14:01 | [#5469](https://github.com/openova-io/openova/pull/5469) | #5442 | fix(cutover): chart-image enumerator no longer greps its own |
 | 2026-07-29T11:38 | [#5464](https://github.com/openova-io/openova/pull/5464) | #5460 | fix(console): revoke stale authed marker on 401 + run the si |
 | 2026-07-29T10:49 | [#5463](https://github.com/openova-io/openova/pull/5463) | #5388 | fix(cnpg-pair): dr-failback surfaces peer-probe starvation o |
@@ -302,7 +305,6 @@ flowchart LR
 | 2026-07-26T21:20 | [#5405](https://github.com/openova-io/openova/pull/5405) | #5393 | fix(org-controller): verify provisioning postconditions befo |
 | 2026-07-26T20:06 | [#5403](https://github.com/openova-io/openova/pull/5403) | #4 | fix(keycloak): SECURITY — pin-broker credential is platform- |
 | 2026-07-26T20:29 | [#5402](https://github.com/openova-io/openova/pull/5402) | #3379 | fix(console): per-row Re-run on a FAILED cutover-step row (U |
-| 2026-07-26T19:55 | [#5399](https://github.com/openova-io/openova/pull/5399) | #5341 | fix(mcp): arm multiRegion on slot 13d — the #5341 secondary- |
 
 ---
 
