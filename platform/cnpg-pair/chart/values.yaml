@@ -132,6 +132,21 @@ cnpgPair:
       # is never deleted (bounded destruction), and the delete still
       # requires a <60s-fresh writable-peer proof.
       divergenceGraceSeconds: 180
+      # 0.2.23 (#5388 hw290 G12 leg-6): how long the post-failover
+      # geometry candidate (local writable primary + pinned sync
+      # standby ABSENT) may persist with the peer probe failing for an
+      # OBSERVABILITY-DEAD reason (nxdomain / unreachable /
+      # tl-unreadable) before the actor surfaces the starvation on the
+      # HR (`dr-failback-starved-at` + reason). On hw290 all four
+      # region-A nodes rebooted through the kill, the per-node
+      # cross-region routes were gone (#5339 shape), and the failback
+      # actor sat silently at D0 forever — the split-brain persisted
+      # with the only evidence buried in region-A pod logs. This
+      # surfaces the wedge where an operator looks; it changes NO
+      # destructive behaviour (a 2-node actor still cannot tell
+      # region-B-dead from region-B-unreachable, so it must not act —
+      # but it CAN say loudly that it is blind).
+      starvationSurfaceSeconds: 300
       # The flux Kustomization whose postBuild.substitute map carries
       # the durable SOVEREIGN_CNPG_PAIR_DEMOTED flip (the catalyst-api
       # enableCNPGPairAfterFullMesh precedent — a custom field manager

@@ -284,6 +284,7 @@ cluster-B).
 {{- $probeTimeout := $fb.livenessProbeTimeoutSeconds | default 5 }}
 {{- $wedgeHold := $fb.wedgeHoldSeconds | default 600 }}
 {{- $divergenceGrace := $fb.divergenceGraceSeconds | default 180 }}
+{{- $starvationSurface := $fb.starvationSurfaceSeconds | default 300 }}
 {{- $peerClusters := .Values.cnpgPair.networkPolicy.crossRegionPeerClusters | default list }}
 ---
 apiVersion: v1
@@ -533,6 +534,11 @@ spec:
                 rm -f /shared/peer-ahead-since
               }
               clear_wedge() { rm -f /shared/wedge-since; }
+              # #5388 — starvation clock: accrues ONLY while the
+              # post-failover geometry candidate (local primary, sync
+              # standby absent) persists with the peer probe failing for
+              # an observability-dead reason. Every other path clears it.
+              starve_clear() { rm -f /shared/peer-starved-since; }
               # peer_report <key> <message> — #5245 FAIL-LOUD probe
               # diagnostics (chart 0.2.19). hw277: the loop sat 57 min
               # after 'loop started' with ZERO output while the peer
@@ -638,6 +644,7 @@ spec:
                 if [ "$((NOW - STARTED))" -lt "${STARTUP_GRACE_SECONDS}" ]; then
                   clear_hold "startup grace ($((NOW - STARTED))s<${STARTUP_GRACE_SECONDS}s, state=${STATE})"
                   clear_wedge
+                  starve_clear
                   sleep "${INTERVAL_SECONDS}"; continue
                 fi
                 case "${STATE}" in
@@ -648,21 +655,37 @@ spec:
                       # Standby streaming from us (or probe failed) — the pair
                       # is healthy (or unknowable): fail-safe, no failback.
                       clear_hold "local primary with sync standby ${SYNC}"
+                      starve_clear
                       sleep "${INTERVAL_SECONDS}"; continue
                     fi
                     TL_LOCAL=$(tl_of "${LOCAL_REPL}")
                     if ! is_int "${TL_LOCAL}"; then
                       clear_hold "local timeline unreadable — fail-safe"
+                      starve_clear
                       sleep "${INTERVAL_SECONDS}"; continue
                     fi
                     echo "${TL_LOCAL}" > /shared/tl-local
                     if probe_peer_ahead "${TL_LOCAL}"; then
+                      starve_clear
                       if [ ! -f /shared/peer-ahead-since ]; then
                         echo "${NOW}" > /shared/peer-ahead-since
                         echo "$(date -u +"%FT%TZ") [dr-failback/signals] POST-FAILOVER GEOMETRY: local writable TL=${TL_LOCAL}, sync standby ABSENT, peer WRITABLE on TL=$(cat /shared/tl-peer) (>= local) — peer-ahead hold clock started (#5245)"
                       fi
                     else
                       clear_hold "peer not provably writable+equal-or-ahead (reason in the fail-loud peer-probe line above)"
+                      # #5388 — this is the hw290 leg-6 shape: local primary,
+                      # sync standby gone, and the peer UNOBSERVABLE
+                      # (nxdomain / unreachable / tl-unreadable — e.g. the
+                      # rebooted region's cross-region routes not yet healed,
+                      # #5339). Accrue the starvation clock so the actor can
+                      # surface it on the HR; an observable-but-ineligible
+                      # peer (in-recovery / tl-behind) clears instead — those
+                      # geometries are diagnosed by their own reasons.
+                      case "$(cat /shared/peer-probe-reason 2>/dev/null || echo '')" in
+                        nxdomain|unreachable|tl-unreadable)
+                          [ -f /shared/peer-starved-since ] || echo "${NOW}" > /shared/peer-starved-since ;;
+                        *) starve_clear ;;
+                      esac
                     fi
                     ;;
                   streaming)
@@ -682,6 +705,7 @@ spec:
                     # and never consumes the proof.
                     clear_hold "local standby streaming (data-plane signal; actor verifies ConsistentSystemID)"
                     clear_wedge
+                    starve_clear
                     : > /shared/converged-streaming
                     probe_peer_writable_report
                     ;;
@@ -691,6 +715,7 @@ spec:
                     # wedge candidate (stale TL-N PGDATA that cannot follow) —
                     # accrue the wedge clock for the actor's escalation.
                     clear_hold "local standby state=${STATE}"
+                    starve_clear
                     rm -f /shared/converged-streaming
                     TL_LOCAL=$(tl_of "${LOCAL_REPL}")
                     if is_int "${TL_LOCAL}" && probe_peer_ahead "${TL_LOCAL}"; then
@@ -717,6 +742,7 @@ spec:
                     # bootstrap-looping re-clone has no endpoints at all).
                     clear_hold "local state unknown (probe failed — fail-safe)"
                     clear_wedge
+                    starve_clear
                     rm -f /shared/converged-streaming
                     probe_peer_writable_report
                     ;;
@@ -897,6 +923,36 @@ spec:
 
                   # ── D0: DECIDE — flip the durable demotion substitute ─
                   if [ "${SUB}" != "true" ]; then
+                    # ── #5388 STARVATION SURFACING (0.2.23, hw290 G12 leg-6) ──
+                    # The post-failover geometry candidate (local writable
+                    # primary, sync standby ABSENT) has persisted while the
+                    # peer probe fails for an OBSERVABILITY-DEAD reason —
+                    # on hw290 the rebooted region's cross-region routes
+                    # were gone (#5339 shape) and this actor idled at D0
+                    # forever while the split-brain persisted, with the only
+                    # evidence in this pod's logs. Record the starvation on
+                    # the HR where an operator looks. Diagnostic only: a
+                    # 2-node actor cannot distinguish region-B-dead (serving
+                    # here is CORRECT) from region-B-unreachable (split-
+                    # brain), so it must never act on blindness — but it
+                    # must not be silent about it either. Re-records on
+                    # reason change; clears its marker when the probe
+                    # recovers so a later episode records afresh.
+                    if [ -f /shared/peer-starved-since ]; then
+                      _ss=$(cat /shared/peer-starved-since 2>/dev/null || echo "")
+                      _now=$(date -u +%s)
+                      _reason=$(cat /shared/peer-probe-reason 2>/dev/null || echo "unknown")
+                      if [ -n "${_ss}" ] && [ "$((_now - _ss))" -ge "${STARVATION_SURFACE_SECONDS}" ] && [ "$(cat /shared/starved-recorded 2>/dev/null || echo '')" != "${_reason}" ]; then
+                        if kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-failback-starved-at\":\"$(date -u +"%FT%TZ")\",\"catalyst.openova.io/dr-failback-starved-reason\":\"peer probe ${_reason} for >=${STARVATION_SURFACE_SECONDS}s while local is a writable primary with the sync standby absent — failback cannot observe the peer; if region-B was promoted this IS a live split-brain until the mesh/datapath heals (#5388 #5339)\"}}}" >/dev/null 2>&1; then
+                          echo "${_reason}" > /shared/starved-recorded
+                          echo "$(date -u +"%FT%TZ") [dr-failback/actor] STARVED: post-failover geometry candidate held $((_now - _ss))s with peer probe '${_reason}' — recorded dr-failback-starved-at on HR ${HR_NAMESPACE}/${HR_NAME}; failback is BLIND, not idle (#5388)"
+                        else
+                          echo "$(date -u +"%FT%TZ") [dr-failback/actor] WARN: could not record starvation on HR (RBAC/conflict?) — retrying next tick (#5388)"
+                        fi
+                      fi
+                    else
+                      rm -f /shared/starved-recorded
+                    fi
                     [ -f /shared/peer-ahead-since ] || exit 0
                     SINCE=$(cat /shared/peer-ahead-since)
                     NOW=$(date -u +%s)
@@ -1069,6 +1125,8 @@ spec:
               value: {{ $wedgeHold | quote }}
             - name: DIVERGENCE_GRACE_SECONDS
               value: {{ $divergenceGrace | quote }}
+            - name: STARVATION_SURFACE_SECONDS
+              value: {{ $starvationSurface | quote }}
             - name: INTERVAL_SECONDS
               value: {{ $interval | quote }}
             - name: PRIMARY_CLUSTER
