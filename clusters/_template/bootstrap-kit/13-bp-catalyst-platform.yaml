@@ -1302,7 +1302,9 @@ spec:
       # 1.4.1243 (#5388): catalog-seed bp-cnpg-pair 0.2.22 -> 0.2.23 —
       #   dr-failback starvation surfacing (hw290 G12 leg-6); lockstep
       #   w/ 16b slot 0.2.23 (pin-sync gate).
-      version: 1.4.1245
+      # 1.4.1246 (#5468): catalog-seed bp-nemo-guardrails -> unlisted (its image
+      #   was never built); restores the advertise-only-what-installs invariant.
+      version: 1.4.1246
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
