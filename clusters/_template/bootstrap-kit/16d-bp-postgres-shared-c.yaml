@@ -85,7 +85,9 @@ spec:
       # stamped side=secondary NEVER mints role/hub Secrets (incl. the #4460
       # pre-flip window); the pair's password set is single-sourced from
       # region-A. Lockstep with the other 16* bp-postgres slots.
-      version: 0.2.13
+      # 0.2.14 (#5473): replication-source Service selectorType r -> rw —
+      # `r` matched every instance, so a standby could serve as DR source.
+      version: 0.2.14
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

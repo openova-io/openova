@@ -135,7 +135,24 @@ spec:
     {{- if $meshSvc }}
     services:
       additional:
-        - selectorType: r
+        # #5473 — selectorType MUST be `rw` (primary only), not `r`.
+        # CNPG expands `r` to {cnpg.io/cluster, cnpg.io/podRole: instance},
+        # which selects EVERY instance — primary and standbys alike. This
+        # Service is the cross-region REPLICATION SOURCE, so with `r` the
+        # region-b replica's WAL receiver dials the mesh alias and lands on
+        # whichever instance the Service happens to pick. Measured live on
+        # hw291: all three shared-pg*-mesh Services resolved to 3 endpoints,
+        # and 2 of 3 DR pairs were replicating through a STANDBY (shared-pg
+        # via shared-pg-3, shared-pg-c via shared-pg-c-1) — a cascade whose
+        # RPO is not primary-anchored, whose severing point is an ordinary
+        # standby pod no runbook protects, and which lands differently on
+        # every reconnect. shared-pg-b hit the primary by luck, 1-in-3.
+        # `rw` is what bp-cnpg-pair's replication Service already uses
+        # (primary-cluster.yaml), and what the write alias 30 lines below
+        # uses; this was the one place the pattern drifted. Nothing observed
+        # it, because the Continuum CRs for these pairs carry no standby
+        # probe and reported Healthy/lag-0 throughout.
+        - selectorType: rw
           serviceTemplate:
             metadata:
               name: {{ include "bp-postgres.replicationServiceName" . }}
