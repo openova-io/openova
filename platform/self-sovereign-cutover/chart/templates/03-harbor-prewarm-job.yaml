@@ -1092,13 +1092,20 @@ data:
             # The #4994 dest_already_current skip WILL miss for these refs (index
             # digest != child digest), so they re-copy on every step-03 re-run —
             # fail-OPEN, an extra transfer and never a false present.
+            #
+            # Every env read is `:-`-defaulted because this script runs under
+            # `set -eu` (L387): an unset var would abort the WHOLE step rather
+            # than fall back, and the fallback here — no exception, os/arch
+            # linux/amd64 — is exactly the safe direction. An empty
+            # substrings list iterates zero times, i.e. `--multi-arch all` for
+            # everything, which is the pre-#5468 behaviour.
             prewarm_multiarch_flags() {
               _ma_ref="$1"
-              for _ma_s in ${PREWARM_SINGLE_PLATFORM_SUBSTRINGS}; do
+              for _ma_s in ${PREWARM_SINGLE_PLATFORM_SUBSTRINGS:-}; do
                 case "${_ma_ref}" in
                   *"${_ma_s}"*)
                     printf -- '--multi-arch system --override-os %s --override-arch %s' \
-                      "${PREWARM_SINGLE_PLATFORM_OS}" "${PREWARM_SINGLE_PLATFORM_ARCH}"
+                      "${PREWARM_SINGLE_PLATFORM_OS:-linux}" "${PREWARM_SINGLE_PLATFORM_ARCH:-amd64}"
                     return 0 ;;
                 esac
               done
