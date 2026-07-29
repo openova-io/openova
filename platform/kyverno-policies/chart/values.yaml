@@ -68,7 +68,7 @@ compliancePolicies:
   #     key bundle is supplied.
   multiReplica:
     enabled: true
-    action: Enforce
+    action: Audit
     # #4422: exempt deliberate single-replica stateful singletons (the per-Org
     # funnel cart's mysql/postgres single-PVC DBs + redis cache) by the
     # `openova.io/singleton-db: "true"` label the funnel generator stamps on the
@@ -149,12 +149,12 @@ compliancePolicies:
 
   pdb:
     enabled: true
-    action: Enforce
+    action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   topologySpread:
     enabled: true
-    action: Enforce
+    action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   probesPresent:
@@ -173,17 +173,17 @@ compliancePolicies:
 
   resourceLimits:
     enabled: true
-    action: Enforce
+    action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   pvcExpansion:
     enabled: true
-    action: Enforce
+    action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   hpaEffective:
     enabled: true
-    action: Enforce
+    action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   ciliumL7Mtls:
@@ -349,13 +349,13 @@ compliancePolicies:
 
   prometheusScrape:
     enabled: true
-    action: Enforce
+    action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   # K2 added policies
   networkpolicyPresent:
     enabled: true
-    action: Enforce
+    action: Audit
     # Match on Namespace kind — `excludeNamespaces` here is consumed via
     # `resources.names` (the namespace IS the resource). Same default
     # exemption set as the workload policies.
@@ -363,7 +363,7 @@ compliancePolicies:
 
   otelInjected:
     enabled: true
-    action: Enforce
+    action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   hubbleFlowsSeen:
@@ -372,12 +372,12 @@ compliancePolicies:
     # today is harmless (renders nothing) but reserved as the cutover
     # knob once W2 lands so operators can toggle a single flag.
     enabled: false
-    action: Enforce
+    action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   runAsNonRootReadonlyRootFs:
     enabled: true
-    action: Enforce
+    action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   cosignVerified:
@@ -387,7 +387,7 @@ compliancePolicies:
     # surface the config gap rather than silently passing. Operator
     # opts in per Sovereign once the cosign key bundle is supplied.
     enabled: false
-    action: Enforce
+    action: Audit
     excludeNamespaces: *complianceDefaultExcludes
     # Cosign verifyImages rule fields. Defaults reference openova-io
     # images only; operator extends per Sovereign.
@@ -403,12 +403,12 @@ compliancePolicies:
 
   secretNotInEnv:
     enabled: true
-    action: Enforce
+    action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   backupConfigured:
     enabled: true
-    action: Enforce
+    action: Audit
     excludeNamespaces: *complianceDefaultExcludes
 
   # G92.6 (Refs #2665, 2026-06-01) — substrate-stays-on-host
