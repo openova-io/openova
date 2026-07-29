@@ -68,7 +68,7 @@ compliancePolicies:
   #     key bundle is supplied.
   multiReplica:
     enabled: true
-    action: Audit
+    action: Enforce
     # #4422: exempt deliberate single-replica stateful singletons (the per-Org
     # funnel cart's mysql/postgres single-PVC DBs + redis cache) by the
     # `openova.io/singleton-db: "true"` label the funnel generator stamps on the
@@ -149,12 +149,12 @@ compliancePolicies:
 
   pdb:
     enabled: true
-    action: Audit
+    action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
 
   topologySpread:
     enabled: true
-    action: Audit
+    action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
 
   probesPresent:
@@ -173,17 +173,17 @@ compliancePolicies:
 
   resourceLimits:
     enabled: true
-    action: Audit
+    action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
 
   pvcExpansion:
     enabled: true
-    action: Audit
+    action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
 
   hpaEffective:
     enabled: true
-    action: Audit
+    action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
 
   ciliumL7Mtls:
@@ -349,13 +349,13 @@ compliancePolicies:
 
   prometheusScrape:
     enabled: true
-    action: Audit
+    action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
 
   # K2 added policies
   networkpolicyPresent:
     enabled: true
-    action: Audit
+    action: Enforce
     # Match on Namespace kind — `excludeNamespaces` here is consumed via
     # `resources.names` (the namespace IS the resource). Same default
     # exemption set as the workload policies.
@@ -363,7 +363,7 @@ compliancePolicies:
 
   otelInjected:
     enabled: true
-    action: Audit
+    action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
 
   hubbleFlowsSeen:
@@ -372,12 +372,12 @@ compliancePolicies:
     # today is harmless (renders nothing) but reserved as the cutover
     # knob once W2 lands so operators can toggle a single flag.
     enabled: false
-    action: Audit
+    action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
 
   runAsNonRootReadonlyRootFs:
     enabled: true
-    action: Audit
+    action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
 
   cosignVerified:
@@ -387,7 +387,7 @@ compliancePolicies:
     # surface the config gap rather than silently passing. Operator
     # opts in per Sovereign once the cosign key bundle is supplied.
     enabled: false
-    action: Audit
+    action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
     # Cosign verifyImages rule fields. Defaults reference openova-io
     # images only; operator extends per Sovereign.
@@ -403,12 +403,12 @@ compliancePolicies:
 
   secretNotInEnv:
     enabled: true
-    action: Audit
+    action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
 
   backupConfigured:
     enabled: true
-    action: Audit
+    action: Enforce
     excludeNamespaces: *complianceDefaultExcludes
 
   # G92.6 (Refs #2665, 2026-06-01) — substrate-stays-on-host
@@ -508,9 +508,28 @@ compliancePolicies:
   # `acme.cert-manager.io/http01-solver: "true"`) are carved out in the template
   # — they are auto-created type=NodePort by cert-manager's default solver and GC
   # on challenge completion (a known-accepted transient class).
+  # #5491 — FLIPPED TO ENFORCE. All three preconditions this block and the
+  # template both name are now satisfied, verified on live hw291 2026-07-29:
+  #   (a) the 4 live #5088 violations are cleared — nine independent runtime
+  #       enumerations across BOTH regions (176 + 159 Services) return
+  #       type=NodePort=0 AND zero LoadBalancers carrying auto-allocated
+  #       nodePorts, and the repo-wide source scan finds no executable
+  #       `type: NodePort` outside this chart's own negative-test fixtures.
+  #   (b) the Audit PolicyReport shows zero false positives — 670 evaluations,
+  #       352 region-a + 318 region-b, ALL pass, zero fail, zero warn. The
+  #       cert-manager HTTP-01 solver carve-out is doing its job: no solver
+  #       noise appears in the report.
+  #   (c) post-handover with bootstrapMode already false — confirmed on the
+  #       live HR, so the canonical action is what actually takes effect.
+  # Until this flip, §854 — a founder ABSOLUTE ban — was the only prohibition
+  # of its class RECORDING violations rather than BLOCKING them, while six
+  # sibling policies already enforced. Blast radius, stated plainly: a NEW
+  # type=LoadBalancer Service that does not set allocateLoadBalancerNodePorts
+  # false is now REJECTED at admission rather than logged. That is the §854
+  # intent, and every Service live today already satisfies it.
   forbidNodePortService:
     enabled: true
-    action: Audit
+    action: Enforce
     # NodePorts are forbidden EVERYWHERE (including kube-system) per §854 —
     # default empty. Operators add per-namespace escapes here only for a
     # deliberate, documented exception.
