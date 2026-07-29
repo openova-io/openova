@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-29T16:30:07Z` |
+| Last refreshed | `2026-07-29T16:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 76 |
 | Open DoD gates | 0 / 41 |
@@ -271,7 +271,7 @@ flowchart LR
 | [#5475](https://github.com/openova-io/openova/issues/5475) | Catalog API contract: chartRef double bp- prefix, origin enum collision, hero mi | Other |
 | [#5476](https://github.com/openova-io/openova/issues/5476) | Application -> Environment -> Organization chain does not resolve for half the e | Other |
 | [#5477](https://github.com/openova-io/openova/issues/5477) | Continuum publishes replicationLagSeconds: 0 as a measurement when the standby w | Other |
-| [#5480](https://github.com/openova-io/openova/issues/5480) | A16 sweep: per-region secret generation on a shared VIP — one root cause behin | Other |
+| [#5480](https://github.com/openova-io/openova/issues/5480) | A16: per-region secret generation on a shared VIP — newapi SESSION_SECRET conf | Other |
 | [#5482](https://github.com/openova-io/openova/issues/5482) | App detail Overview renders a host-cluster label as PRIMARY REGION — handler r | Other |
 | [#5484](https://github.com/openova-io/openova/issues/5484) | Marketplace: redeem rate limiter fires at ~5x budget and penalises bystanders (t | Other |
 | [#5485](https://github.com/openova-io/openova/issues/5485) | Observability surfaces inherit the wrong object: reconciler logs match by prefix | Other |
