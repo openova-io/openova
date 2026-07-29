@@ -1304,7 +1304,7 @@ spec:
       #   w/ 16b slot 0.2.23 (pin-sync gate).
       # 1.4.1246 (#5468): catalog-seed bp-nemo-guardrails -> unlisted (its image
       #   was never built); restores the advertise-only-what-installs invariant.
-      version: 1.4.1255
+      version: 1.4.1256
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
