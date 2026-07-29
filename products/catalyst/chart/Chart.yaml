@@ -3618,7 +3618,7 @@ name: bp-catalyst-platform
 #   the customer marketplace grid and made it CONTRACTUAL for the cutover's #5442
 #   A3 guard, failing hw291 at step-03. Unlisting restores the #5443 invariant
 #   (advertise only what can install); restore to listed with the build.
-version: 1.4.1251
+version: 1.4.1252
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
@@ -3768,7 +3768,7 @@ version: 1.4.1251
 #   unsatisfiable on kom4dc (me-east-215-*), which kept the production
 #   Continuum seed unfireable. Backwards-compatible (all-letter labels
 #   still match). Flux CreateReplace flows it to live Sovereigns.
-appVersion: 1.4.1242
+appVersion: 1.4.1252
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
