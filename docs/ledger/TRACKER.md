@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-29T17:00:06Z` |
+| Last refreshed | `2026-07-29T17:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 77 |
+| Open issues | 78 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 77 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 78 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 77 open items (clickable table)
+### All 78 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -277,6 +277,7 @@ flowchart LR
 | [#5485](https://github.com/openova-io/openova/issues/5485) | Observability surfaces inherit the wrong object: reconciler logs match by prefix | Other |
 | [#5487](https://github.com/openova-io/openova/issues/5487) | Valkey is reachable and writable from every pod (rate-limit counters included);  | Other |
 | [#5488](https://github.com/openova-io/openova/issues/5488) | Cutover aborts at secondary-kubeconfigs pre-flight after a catalyst-api restart: | Other |
+| [#5489](https://github.com/openova-io/openova/issues/5489) | Four surfaces report a vCluster that does not exist (parent row hardcodes it, ku | Other |
 
 ---
 
@@ -285,6 +286,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-07-29T16:53 | [#5486](https://github.com/openova-io/openova/pull/5486) | #5485 | fix(catalyst-api): reconciler log matcher must respect the t |
+| 2026-07-29T17:05 | [#5483](https://github.com/openova-io/openova/pull/5483) | #5482 | fix(catalyst-api): read primaryRegion from status.placement, |
 | 2026-07-29T16:12 | [#5481](https://github.com/openova-io/openova/pull/5481) | #4975 | fix(cutover): mirror litellm-database single-platform past i |
 | 2026-07-29T16:09 | [#5479](https://github.com/openova-io/openova/pull/5479) | #5449 | fix(catalog): chartRef double prefix, origin enum collision, |
 | 2026-07-29T15:54 | [#5478](https://github.com/openova-io/openova/pull/5478) | #5477 | fix(continuum): never publish replicationLagSeconds that was |
@@ -313,7 +315,6 @@ flowchart LR
 | 2026-07-27T01:29 | [#5417](https://github.com/openova-io/openova/pull/5417) | #5406 | fix(harbor): duplicate catalyst.openova.io/component key fai |
 | 2026-07-27T00:57 | [#5415](https://github.com/openova-io/openova/pull/5415) | #5406 | fix(harbor): SIGPIPE-proof the cross-region redis test — a f |
 | 2026-07-27T00:57 | [#5413](https://github.com/openova-io/openova/pull/5413) | #5393 | fix(catalog): uptime-kuma OOMKills forever at its hard-coded |
-| 2026-07-26T23:32 | [#5412](https://github.com/openova-io/openova/pull/5412) | #5406 | fix(harbor): one session/queue/cache store per Sovereign, an |
 
 ---
 
