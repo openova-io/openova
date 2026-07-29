@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-29T18:45:03Z` |
+| Last refreshed | `2026-07-29T19:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 79 |
 | Open DoD gates | 0 / 41 |
@@ -286,6 +286,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-29T18:56 | [#5494](https://github.com/openova-io/openova/pull/5494) | #5088 | fix(kyverno): enforce the §854 NodePort ban instead of merel |
+| 2026-07-29T18:56 | [#5493](https://github.com/openova-io/openova/pull/5493) | #5485 | fix(showback,treemap): collapse one-shot Job rows, name Appl |
 | 2026-07-29T18:27 | [#5492](https://github.com/openova-io/openova/pull/5492) | #2003 | fix(bp-valkey): scope NetworkPolicy ingress to the declared  |
 | 2026-07-29T18:27 | [#5490](https://github.com/openova-io/openova/pull/5490) | #5489 | fix(console): stop asserting a vCluster and an Environment t |
 | 2026-07-29T16:53 | [#5486](https://github.com/openova-io/openova/pull/5486) | #5485 | fix(catalyst-api): reconciler log matcher must respect the t |
@@ -314,8 +316,6 @@ flowchart LR
 | 2026-07-27T10:15 | [#5430](https://github.com/openova-io/openova/pull/5430) | #5422 | fix(api): app-detail dropped object-form spec.placement, so  |
 | 2026-07-27T03:41 | [#5428](https://github.com/openova-io/openova/pull/5428) | #5416 | fix(sso): one cookie secret per Keycloak client, not one per |
 | 2026-07-27T03:26 | [#5424](https://github.com/openova-io/openova/pull/5424) | #5387 | fix(provisioning): vcluster-tier funnel cart with a HelmRele |
-| 2026-07-27T02:00 | [#5418](https://github.com/openova-io/openova/pull/5418) | #5406 | fix(harbor): sweep the duplicate-label class — the netpol te |
-| 2026-07-27T01:29 | [#5417](https://github.com/openova-io/openova/pull/5417) | #5406 | fix(harbor): duplicate catalyst.openova.io/component key fai |
 
 ---
 
