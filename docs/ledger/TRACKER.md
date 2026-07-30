@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-30T14:00:03Z` |
+| Last refreshed | `2026-07-30T14:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 98 |
 | Open DoD gates | 0 / 41 |
@@ -305,6 +305,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-30T14:09 | [#5529](https://github.com/openova-io/openova/pull/5529) | #893 | fix(catalyst-api): org-tenant HelmRepository emission is cut |
 | 2026-07-30T13:21 | [#5528](https://github.com/openova-io/openova/pull/5528) | #5442 | fix(bp-self-sovereign-cutover): step-03 scarf.sh mothership  |
 | 2026-07-30T11:09 | [#5526](https://github.com/openova-io/openova/pull/5526) | #5489 | fix(org): stop fabricating a vCluster on the three remaining |
 | 2026-07-30T11:07 | [#5524](https://github.com/openova-io/openova/pull/5524) | #5511 | fix(catalyst-api): per-Org console gateway surface to EVERY  |
@@ -334,7 +335,6 @@ flowchart LR
 | 2026-07-29T10:49 | [#5463](https://github.com/openova-io/openova/pull/5463) | #5388 | fix(cnpg-pair): dr-failback surfaces peer-probe starvation o |
 | 2026-07-29T10:14 | [#5462](https://github.com/openova-io/openova/pull/5462) | #5450 | test(gitops): render-time image-tag-pinned guard — KnownApps |
 | 2026-07-29T09:52 | [#5458](https://github.com/openova-io/openova/pull/5458) | #5353 | docs(uat): re-walk row 40 live on hw290 after the #5430 flip |
-| 2026-07-27T11:41 | [#5457](https://github.com/openova-io/openova/pull/5457) | #5449 | fix(console): catalog detail hero reads the live CR, not the |
 
 ---
 
