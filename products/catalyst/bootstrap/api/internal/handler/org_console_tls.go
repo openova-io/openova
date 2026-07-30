@@ -66,20 +66,52 @@
 // HandleReconcileOrganization pass). BYO-domain Orgs are skipped — they carry
 // their own per-host Certificate (orgTenantCertificate IsBYO branch) and a
 // CNAME, not a pool-parent wildcard.
+//
+// #5511 — MULTI-REGION + READ-BACK. Two defects proven live on hw291:
+//
+//	A. The trio above was applied to the HOST region cluster only. On a
+//	   multi-region Sovereign one shared EIP round-robins every region's
+//	   cilium-envoy, so a region that never received the listener pair, the
+//	   cert secret, or the console HTTPRoute TLS-resets ~1/N of all
+//	   connections to EVERY per-Org console — the per-region split-write
+//	   class (#5394/#5406/#5414/#5416), now for the whole per-Org gateway
+//	   surface. Fix: fan the listener pair + the console HTTPRoute out to
+//	   every secondary region cluster registered in h.k8sCache (the same
+//	   per-region client seam the D20 jobs fan-out and the /cloud page use),
+//	   and mirror the ISSUED cert secret from the host region (issuing a
+//	   second identical LE cert per region would burn the duplicate-cert
+//	   rate limit; the mirror follows the proven live heal). The keycloak /
+//	   oidc-gate per-app HTTPRoutes are deliberately NOT fanned out — their
+//	   backends are region-local singletons and mirroring them trades a TLS
+//	   reset for a 503; that routing decision belongs to the placement model.
+//	B. A successful SSA apply was never read back. cilium-operator can miss
+//	   the listener append (observed live: gateway generation=2,
+//	   observedGeneration=1 for 8h after an operator restart) and the apply
+//	   path only logged FAILURES — success-without-admission was invisible.
+//	   Fix: after the applies, poll Gateway.status.listeners (bounded by
+//	   orgConsoleListenerAdmitBudget) until BOTH per-Org listener names are
+//	   PRESENT (vacuity-proof: presence is asserted, never absence of an
+//	   error), and log a loud error naming the gateway, the listener names,
+//	   and generation vs observedGeneration when a region never admits them.
 
 package handler
 
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"sort"
 	"strings"
+	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
@@ -205,14 +237,126 @@ func resolveOrgConsoleTLSNames(rec store.OrganizationProvisionRecord) (orgConsol
 	}, true
 }
 
+// orgConsoleListenerAdmitBudget bounds the #5511 read-back verification: how
+// long provisionOrgConsoleTLS waits, TOTAL across all regions, for every
+// region's cilium-gateway-console to ADMIT the per-Org listener pair into
+// status.listeners after the SSA apply. In the healthy case cilium-operator
+// admits within a second or two, so the poll returns almost immediately; the
+// budget is only consumed when a region's operator has missed the append (the
+// hw291 defect-A shape), which is exactly when the loud error must fire.
+// Package vars (not consts) so tests shrink them.
+var (
+	orgConsoleListenerAdmitBudget       = 60 * time.Second
+	orgConsoleListenerAdmitPollInterval = 3 * time.Second
+)
+
+// orgConsoleTLSHostRegion labels the host-region (in-cluster) target in logs.
+const orgConsoleTLSHostRegion = "host"
+
+// orgConsoleTLSTarget is one region cluster the per-Org console gateway
+// surface must be written to: the host region (via sovereignDepsFor) plus, on
+// a multi-region Sovereign, every secondary region registered in h.k8sCache.
+type orgConsoleTLSTarget struct {
+	region    string // orgConsoleTLSHostRegion, or the secondary's region key
+	clusterID string // k8sCache cluster id ("" for the host target)
+	dyn       dynamic.Interface
+	core      kubernetes.Interface
+}
+
+// orgConsoleTLSSecondaryRegions — pure helper: given the full k8sCache
+// cluster-id set of a CHROOT (one primary + this Sovereign's secondaries, per
+// the deploymentScopedClusterIDs invariant), map each SECONDARY cluster id to
+// its region key.
+//
+// Secondary ids follow `<primaryID>-<regionKey>` (HandleSovereignSecondary-
+// Kubeconfig). The primary id is derived from the set itself rather than a
+// *Deployment record (the Org funnel has none in hand): an id is a candidate
+// primary iff NO other id in the set is a prefix of it; every non-candidate
+// derives its region by stripping its LONGEST candidate-primary prefix
+// (longest so region keys that themselves contain hyphens — "nbg1-1",
+// "ap-southeast-3" — split on the deployment boundary, mirroring
+// regionFromSecondaryClusterID's contract). A set with no prefix relations
+// (e.g. a mothership cache holding sibling deployments, or a chroot whose
+// self-registered alias never matched its secondaries) yields the empty map —
+// the safe no-op that preserves the pre-#5511 host-only behaviour.
+func orgConsoleTLSSecondaryRegions(clusterIDs []string) map[string]string {
+	isSecondary := func(id string) bool {
+		for _, p := range clusterIDs {
+			if p != id && strings.HasPrefix(id, p+"-") {
+				return true
+			}
+		}
+		return false
+	}
+	out := map[string]string{}
+	for _, id := range clusterIDs {
+		best := ""
+		for _, p := range clusterIDs {
+			if p == id || isSecondary(p) {
+				continue // only candidate primaries may donate a prefix
+			}
+			if strings.HasPrefix(id, p+"-") && len(p) > len(best) {
+				best = p
+			}
+		}
+		if best != "" {
+			out[id] = strings.TrimPrefix(id, best+"-")
+		}
+	}
+	return out
+}
+
+// orgConsoleTLSTargets resolves every region cluster the per-Org console
+// gateway surface must be written to. The host region always leads; secondary
+// regions are appended ONLY on a chroot (SOVEREIGN_FQDN set) — on the
+// mothership h.k8sCache holds EVERY managed Sovereign's clusters (#3987) and
+// a blind fan-out would write per-Org listeners onto alien deployments.
+// This is the same per-region client seam the D20 jobs fan-out
+// (chrootSeedSecondaryRegions) and the /cloud page use — no new plumbing.
+func (h *Handler) orgConsoleTLSTargets(deps *sovereignDeps) []orgConsoleTLSTarget {
+	targets := []orgConsoleTLSTarget{{region: orgConsoleTLSHostRegion, dyn: deps.dyn, core: deps.core}}
+	if h.k8sCache == nil || !isChroot() {
+		return targets
+	}
+	secondaries := orgConsoleTLSSecondaryRegions(h.k8sCache.Clusters())
+	cids := make([]string, 0, len(secondaries))
+	for cid := range secondaries {
+		cids = append(cids, cid)
+	}
+	sort.Strings(cids)
+	for _, cid := range cids {
+		region := secondaries[cid]
+		dyn, err := h.k8sCache.DynamicClientFor(cid)
+		if err != nil || dyn == nil {
+			h.log.Warn("org-console-tls: secondary region dynamic client unavailable — its per-Org gateway surface is NOT written this pass; the next reconcile retries (#5511)",
+				"clusterID", cid, "region", region, "err", err)
+			continue
+		}
+		targets = append(targets, orgConsoleTLSTarget{
+			region:    region,
+			clusterID: cid,
+			dyn:       dyn,
+			core:      h.k8sCache.CoreClient(cid),
+		})
+	}
+	return targets
+}
+
 // provisionOrgConsoleTLS is the best-effort, non-gating finalisation step that
 // makes the Org's console host (`console.<slug>.<parent>`) serve TLS. Mirrors
 // createOrgOrganizationCR's idiom: resolve the in-cluster dynamic client via
-// sovereignDepsFor() (nil-tolerant for CI / out-of-cluster), apply the three
+// sovereignDepsFor() (nil-tolerant for CI / out-of-cluster), apply the
 // resources idempotently, and log loud on failure WITHOUT failing the Org
 // pipeline. Each sub-step is independent: a failure on one is logged and the
 // rest still run, and the org-controller / next HandleReconcileOrganization
 // pass retries the whole thing.
+//
+// #5511: the listener pair + console HTTPRoute are applied to EVERY region
+// cluster (host + registered secondaries); the cert-manager Certificate is
+// created on the host region only and its issued secret MIRRORED to the
+// secondaries; after the applies, every region's Gateway status.listeners is
+// read back until both per-Org listener names are admitted — see the file
+// header for the two live defects this closes.
 func (h *Handler) provisionOrgConsoleTLS(ctx context.Context, rec store.OrganizationProvisionRecord) {
 	names, ok := resolveOrgConsoleTLSNames(rec)
 	if !ok {
@@ -235,25 +379,236 @@ func (h *Handler) provisionOrgConsoleTLS(ctx context.Context, rec store.Organiza
 		return
 	}
 
-	if err := ensureOrgConsoleCertificate(ctx, deps.dyn, names, rec); err != nil {
-		h.log.Error("org-console-tls: Certificate apply failed — reconcile will retry",
-			"cert", names.CertName, "host", names.WildcardHost, "err", err)
+	targets := h.orgConsoleTLSTargets(deps)
+	regions := make([]string, 0, len(targets))
+	for _, tgt := range targets {
+		regions = append(regions, tgt.region)
+		if tgt.region == orgConsoleTLSHostRegion {
+			if err := ensureOrgConsoleCertificate(ctx, tgt.dyn, names, rec); err != nil {
+				h.log.Error("org-console-tls: Certificate apply failed — reconcile will retry",
+					"region", tgt.region, "cert", names.CertName, "host", names.WildcardHost, "err", err)
+			}
+		} else if err := mirrorOrgConsoleCertSecret(ctx, deps.core, tgt.core, names, rec); err != nil {
+			// Includes the benign "host cert not issued yet" case right after
+			// Org creation — the next reconcile pass mirrors it. Until then the
+			// secondary's listeners sit ResolvedRefs=False but PRESENT in
+			// status, so the read-back below still verifies admission.
+			h.log.Error("org-console-tls: cert-secret mirror to secondary region failed — reconcile will retry (#5511)",
+				"region", tgt.region, "clusterID", tgt.clusterID, "secret", names.CertName, "err", err)
+		}
+		if err := ensureOrgConsoleListener(ctx, tgt.dyn, names, rec); err != nil {
+			h.log.Error("org-console-tls: Gateway listener apply failed — reconcile will retry",
+				"region", tgt.region, "gateway", consoleGatewayName, "https_listener", names.HTTPSName, "err", err)
+		}
+		if err := ensureOrgConsoleHTTPRoute(ctx, tgt.dyn, names, rec); err != nil {
+			h.log.Error("org-console-tls: HTTPRoute apply failed — reconcile will retry",
+				"region", tgt.region, "route", names.RouteName, "host", names.ConsoleHost, "err", err)
+		}
 	}
-	if err := ensureOrgConsoleListener(ctx, deps.dyn, names, rec); err != nil {
-		h.log.Error("org-console-tls: Gateway listener apply failed — reconcile will retry",
-			"gateway", consoleGatewayName, "https_listener", names.HTTPSName, "err", err)
+
+	// #5511 defect B — read-back verification. An SSA apply that returned nil
+	// is NOT admission: cilium-operator can miss the append (observed live —
+	// generation=2 / observedGeneration=1 for 8h) and nothing above would
+	// notice. Poll each region's Gateway until BOTH per-Org listener names are
+	// PRESENT in status.listeners; one deadline bounds the whole pass.
+	admitDeadline := time.Now().Add(orgConsoleListenerAdmitBudget)
+	admitted := true
+	for _, tgt := range targets {
+		if err := waitOrgConsoleListenersAdmitted(ctx, tgt.dyn, names, admitDeadline); err != nil {
+			admitted = false
+			h.log.Error("org-console-tls: Gateway did NOT admit the per-Org listener pair — the per-Org console door is CLOSED in this region (#5511)",
+				"org_tenant_id", rec.OrganizationID,
+				"region", tgt.region,
+				"clusterID", tgt.clusterID,
+				"gateway", consoleGatewayNamespace+"/"+consoleGatewayName,
+				"https_listener", names.HTTPSName,
+				"http_listener", names.HTTPName,
+				"err", err,
+			)
+		}
 	}
-	if err := ensureOrgConsoleHTTPRoute(ctx, deps.dyn, names, rec); err != nil {
-		h.log.Error("org-console-tls: HTTPRoute apply failed — reconcile will retry",
-			"route", names.RouteName, "host", names.ConsoleHost, "err", err)
+	if !admitted {
+		// NOT ready — the loud per-region errors above are the durable
+		// evidence trail for the next env walk. Never emit the "ensured"
+		// line on an unadmitted surface.
+		h.log.Error("org-console-tls: per-Org console TLS surface applied but NOT admitted in every region — NOT ready (#5511)",
+			"org_tenant_id", rec.OrganizationID,
+			"console_host", names.ConsoleHost,
+			"regions", strings.Join(regions, ","),
+		)
+		return
 	}
-	h.log.Info("org-console-tls: ensured per-Org console TLS trio",
+	h.log.Info("org-console-tls: ensured per-Org console TLS trio — listener pair admitted in every region",
 		"org_tenant_id", rec.OrganizationID,
 		"console_host", names.ConsoleHost,
 		"cert", names.CertName,
 		"https_listener", names.HTTPSName,
 		"route", names.RouteName,
+		"regions", strings.Join(regions, ","),
 	)
+}
+
+// waitOrgConsoleListenersAdmitted polls the console Gateway on ONE region
+// cluster until BOTH per-Org listener names are PRESENT in status.listeners,
+// the shared deadline passes, or ctx is cancelled. The assertion is presence
+// (vacuity-proof — an empty or apex-only status keeps failing), never the
+// absence of an apply error. The timeout error names the gateway, both
+// listener names, the observed status.listeners set, and generation vs
+// observedGeneration so a "cilium-operator missed the append" wedge (#5511
+// defect A: gen=2/obsGen=1) is diagnosable straight from the log line.
+func waitOrgConsoleListenersAdmitted(ctx context.Context, dyn dynamic.Interface, names orgConsoleTLSNames, deadline time.Time) error {
+	var (
+		lastNames []string
+		lastGen   = int64(-1)
+		lastObs   = int64(-1)
+		lastErr   error
+	)
+	for {
+		gw, err := dyn.Resource(consoleGatewayGVR).Namespace(consoleGatewayNamespace).
+			Get(ctx, consoleGatewayName, metav1.GetOptions{})
+		if err != nil {
+			lastErr = err
+		} else {
+			lastErr = nil
+			lastGen = gw.GetGeneration()
+			lastObs = gatewayMaxObservedGeneration(gw)
+			lastNames = gatewayStatusListenerNames(gw)
+			if statusListenersContain(lastNames, names.HTTPSName) &&
+				statusListenersContain(lastNames, names.HTTPName) {
+				return nil
+			}
+		}
+		if !time.Now().Before(deadline) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled while waiting for gateway %s/%s to admit listeners %s + %s: %w",
+				consoleGatewayNamespace, consoleGatewayName, names.HTTPSName, names.HTTPName, ctx.Err())
+		case <-time.After(orgConsoleListenerAdmitPollInterval):
+		}
+	}
+	if lastErr != nil {
+		return fmt.Errorf("gateway %s/%s unreadable while verifying admission of listeners %s + %s: %w",
+			consoleGatewayNamespace, consoleGatewayName, names.HTTPSName, names.HTTPName, lastErr)
+	}
+	return fmt.Errorf("gateway %s/%s did not admit listeners %s + %s within %s: status.listeners=%v generation=%d observedGeneration=%d",
+		consoleGatewayNamespace, consoleGatewayName, names.HTTPSName, names.HTTPName,
+		orgConsoleListenerAdmitBudget, lastNames, lastGen, lastObs)
+}
+
+// gatewayStatusListenerNames extracts the listener NAMES present in the
+// Gateway's status.listeners — the admission ground truth (#5511): a listener
+// accepted into spec but absent here is a closed door with no condition.
+func gatewayStatusListenerNames(gw *unstructured.Unstructured) []string {
+	out := []string{}
+	listeners, found, err := unstructured.NestedSlice(gw.Object, "status", "listeners")
+	if err != nil || !found {
+		return out
+	}
+	for _, l := range listeners {
+		lm, ok := l.(map[string]any)
+		if !ok {
+			continue
+		}
+		if name, _, _ := unstructured.NestedString(lm, "name"); name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// gatewayMaxObservedGeneration returns the highest observedGeneration across
+// the Gateway's top-level status.conditions, or -1 when unreadable. Gateway
+// has no single status.observedGeneration field; the per-condition value is
+// what exposed the hw291 wedge (generation=2, every condition's
+// observedGeneration=1).
+func gatewayMaxObservedGeneration(gw *unstructured.Unstructured) int64 {
+	maxObs := int64(-1)
+	conds, found, err := unstructured.NestedSlice(gw.Object, "status", "conditions")
+	if err != nil || !found {
+		return maxObs
+	}
+	for _, c := range conds {
+		cm, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		if og, okOG, _ := unstructured.NestedInt64(cm, "observedGeneration"); okOG && og > maxObs {
+			maxObs = og
+		}
+	}
+	return maxObs
+}
+
+func statusListenersContain(names []string, want string) bool {
+	for _, n := range names {
+		if n == want {
+			return true
+		}
+	}
+	return false
+}
+
+// mirrorOrgConsoleCertSecret copies the HOST region's issued per-Org wildcard
+// cert secret (kube-system/<CertName>, written by cert-manager for the
+// Certificate ensureOrgConsoleCertificate creates) onto a SECONDARY region's
+// kube-system, where the mirrored listener pair references it by the same
+// name (#5511 defect B live heal, codified). The secret is MIRRORED rather
+// than re-issued: a second Certificate CR per region would double the
+// Let's Encrypt duplicate-certificate burn for identical SANs on every Org.
+// Create-or-update: a later pass (Org reconcile) refreshes a drifted copy, so
+// a host-side renewal propagates on the next reconcile.
+func mirrorOrgConsoleCertSecret(ctx context.Context, hostCore, regionCore kubernetes.Interface, names orgConsoleTLSNames, rec store.OrganizationProvisionRecord) error {
+	if hostCore == nil || regionCore == nil {
+		return fmt.Errorf("core client unavailable (host=%t region=%t)", hostCore != nil, regionCore != nil)
+	}
+	src, err := hostCore.CoreV1().Secrets(consoleCertNamespace).Get(ctx, names.CertName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return fmt.Errorf("host-region cert secret %s/%s not issued yet — the next reconcile pass mirrors it", consoleCertNamespace, names.CertName)
+		}
+		return fmt.Errorf("read host-region cert secret %s/%s: %w", consoleCertNamespace, names.CertName, err)
+	}
+	desired := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      names.CertName,
+			Namespace: consoleCertNamespace,
+			Labels:    orgConsoleTLSStringLabels(names, rec, consoleGatewayName),
+		},
+		Type: src.Type,
+		Data: src.Data,
+	}
+	if _, err := regionCore.CoreV1().Secrets(consoleCertNamespace).Create(ctx, desired, metav1.CreateOptions{}); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("create mirrored cert secret %s/%s: %w", consoleCertNamespace, names.CertName, err)
+		}
+		existing, gerr := regionCore.CoreV1().Secrets(consoleCertNamespace).Get(ctx, names.CertName, metav1.GetOptions{})
+		if gerr != nil {
+			return fmt.Errorf("read existing mirrored cert secret %s/%s: %w", consoleCertNamespace, names.CertName, gerr)
+		}
+		if reflect.DeepEqual(existing.Data, src.Data) {
+			return nil // converged — renewal-drift check is a true no-op
+		}
+		existing.Data = src.Data
+		if _, uerr := regionCore.CoreV1().Secrets(consoleCertNamespace).Update(ctx, existing, metav1.UpdateOptions{}); uerr != nil {
+			return fmt.Errorf("update drifted mirrored cert secret %s/%s: %w", consoleCertNamespace, names.CertName, uerr)
+		}
+	}
+	return nil
+}
+
+// orgConsoleTLSStringLabels — orgConsoleTLSLabels as map[string]string for
+// typed objects (the mirrored Secret).
+func orgConsoleTLSStringLabels(names orgConsoleTLSNames, rec store.OrganizationProvisionRecord, component string) map[string]string {
+	src := orgConsoleTLSLabels(names, rec, component)
+	out := make(map[string]string, len(src))
+	for k, v := range src {
+		if s, ok := v.(string); ok {
+			out[k] = s
+		}
+	}
+	return out
 }
 
 // orgConsoleTLSLabels is the common label set stamped on all three resources
