@@ -1,0 +1,12 @@
+cutoverComplete: true | finishedAt: 2026-07-30T11:03:43Z | pct: 100
+  gitea-mirror: success finished=2026-07-30T08:37:15Z
+  harbor-projects: success finished=2026-07-30T08:37:23Z
+  harbor-prewarm: success finished=2026-07-30T09:00:55Z
+  registry-pivot: success finished=2026-07-30T09:01:05Z
+  flux-gitrepository-patch: success finished=2026-07-30T09:01:10Z
+  helmrepository-patches: success finished=2026-07-30T09:15:41Z
+  catalyst-api-env-patch: success finished=2026-07-30T09:19:26Z
+  egress-block-test: success finished=2026-07-30T11:02:51Z
+  gitea-token-mint: success finished=2026-07-30T11:02:56Z
+  vcluster-registry-pivot: success finished=2026-07-30T11:03:17Z
+  crossplane-provider-pivot: success finished=2026-07-30T11:03:43Z
