@@ -128,6 +128,18 @@ func (p provisioningPostconditions) message() string {
 //     engages the tenant-networking up-path (a pool parentDomain). This is the
 //     artifact whose absence produced NoMatchingListenerHostname on all six of
 //     gamma-corp's routes (#5395 symptom A).
+//  4. That the SAME pair is ADMITTED — present in the Gateway's
+//     `status.listeners`, and bound to the ports the console LoadBalancer
+//     actually forwards to (#5511). Presence in `spec` is not serving. On
+//     hw291 `cilium-gateway-console` accepted 8 listeners into spec and
+//     published only 6 in status; the two it silently declined were exactly
+//     the per-Org pair, with no error, no condition and no event anywhere, so
+//     `agenity.uatcorp.omani.homes` answered 000 on 6 of 6 probes while its
+//     HelmRelease, Pod and HTTPRoute were all healthy and the apex console on
+//     the same VIP served 200. A listener accepted into spec and absent from
+//     status is, from the operator's side, indistinguishable from one that was
+//     never configured — so it must be named in status, loudly, the same way
+//     an absent one is.
 //
 // The namespace itself is NOT re-probed here — vclusterReadiness already gates
 // on it and verifyProvisioned is only consulted once that returned ready, so a
@@ -173,28 +185,87 @@ func (r *Reconciler) verifyProvisioned(ctx context.Context, org *orgapi.Organiza
 	if !ok {
 		return out
 	}
-	present, err := r.consoleOrgListenersPresent(ctx, names)
+	rb, err := r.consoleOrgListenersReadback(ctx, names)
+	gwNS, gwName := r.consoleGatewayNamespace(), r.consoleGatewayName()
 	switch {
 	case err != nil:
 		out.Unverifiable = append(out.Unverifiable, fmt.Sprintf(
 			"console Gateway %s/%s listeners for %q: %s",
-			r.consoleGatewayNamespace(), r.consoleGatewayName(), names.WildcardHost, err))
-	case !present:
+			gwNS, gwName, names.WildcardHost, err))
+	case rb.GatewayAbsent || len(rb.SpecMissing) > 0:
 		out.Missing = append(out.Missing, fmt.Sprintf(
 			"console Gateway listeners %s/%s on %s/%s for hostname %q (without them every HTTPRoute on that host is Accepted=False NoMatchingListenerHostname — the Org is unreachable)",
-			names.HTTPSName, names.HTTPName,
-			r.consoleGatewayNamespace(), r.consoleGatewayName(), names.WildcardHost))
+			names.HTTPSName, names.HTTPName, gwNS, gwName, names.WildcardHost))
+	default:
+		// 4 — the listener is in spec. That is NOT the same as serving. Both
+		// checks below close a way for the door to be dead while every status
+		// surface reads green (#5511).
+		if len(rb.PortDrift) > 0 {
+			out.Missing = append(out.Missing, fmt.Sprintf(
+				"console Gateway listeners on %s/%s bind the wrong port — %s (the console LoadBalancer forwards public 443/80 to the apex console-https/console-http ports and nothing else, so a per-Org listener on any other port receives no traffic and %q answers 000 while the workload behind it is healthy)",
+				gwNS, gwName, strings.Join(rb.PortDrift, ", "), names.WildcardHost))
+		}
+		switch {
+		case !rb.StatusObserved:
+			// The Gateway controller has not published ANY listener status
+			// yet. Absence of evidence, not evidence of absence — requeue.
+			// This is also the vacuity guard on the check below: without it,
+			// "our listener is in status" would pass trivially on an empty
+			// status and assert nothing at all.
+			out.Unverifiable = append(out.Unverifiable, fmt.Sprintf(
+				"console Gateway %s/%s status.listeners is empty — the Gateway controller has not published listener status yet, so acceptance of %s/%s cannot be decided",
+				gwNS, gwName, names.HTTPSName, names.HTTPName))
+		case len(rb.StatusDropped) > 0:
+			out.Missing = append(out.Missing, fmt.Sprintf(
+				"console Gateway %s/%s ACCEPTED %d listeners into spec but published only %d in status — silently dropped: %s (a listener in spec and absent from status carries no condition and no event: from the operator's side it is indistinguishable from one that was never configured, yet every per-Org customer door depends on it)",
+				gwNS, gwName, rb.SpecCount, rb.StatusCount, strings.Join(rb.StatusDropped, ", ")))
+		}
 	}
 	return out
 }
 
-// consoleOrgListenersPresent reports whether BOTH per-Org listeners are live on
-// the shared console Gateway. A missing Gateway is reported as absent listeners
-// (not an error): during the bootstrap window before sovereign-tls has applied
-// the Gateway the Org genuinely has no console edge, and saying so honestly is
-// the entire point — `ensureConsoleOrgListener` returning `(false, nil)` for
-// that same case is what let the gap pass as success in the first place.
-func (r *Reconciler) consoleOrgListenersPresent(ctx context.Context, names orgConsoleTLSNames) (bool, error) {
+// consoleListenerReadback is one probe of the shared console Gateway, across
+// BOTH spec and status (#5511).
+//
+// Reading spec alone is what let the #5511 defect ship: the org-controller
+// appended the per-Org pair, the pair WAS in spec, the postcondition check
+// passed green — and the Gateway controller had silently declined to admit both
+// listeners, so `status.listeners` carried 6 of the 8 in spec, with no error, no
+// condition and no event anywhere. The customer door answered 000 on every
+// probe while the Organization, its HelmRelease and its Pod all read Ready.
+type consoleListenerReadback struct {
+	// GatewayAbsent — the console Gateway itself is NotFound.
+	GatewayAbsent bool
+	// SpecMissing — our listener names absent from spec.listeners.
+	SpecMissing []string
+	// SpecCount / StatusCount — the two listener counts. A gateway that
+	// admits fewer listeners than it accepted is the #5511 signature.
+	SpecCount   int
+	StatusCount int
+	// StatusObserved — the Gateway controller has published a NON-EMPTY
+	// status.listeners. Everything derived from status is meaningless until
+	// this is true, so it gates the StatusDropped verdict.
+	StatusObserved bool
+	// StatusDropped — listener names present in spec.listeners and absent
+	// from a non-empty status.listeners. Not scoped to this Org: a sibling
+	// Org's dropped listener is the same defect and worth surfacing on the
+	// first Org that notices it.
+	StatusDropped []string
+	// PortDrift — our listeners whose port differs from the live apex pair,
+	// described for the operator.
+	PortDrift []string
+}
+
+// consoleOrgListenersReadback probes the shared console Gateway for this Org's
+// listener pair and reports what it found in spec, in status, and on the ports.
+// A missing Gateway is reported as GatewayAbsent (not an error): during the
+// bootstrap window before sovereign-tls has applied the Gateway the Org
+// genuinely has no console edge, and saying so honestly is the entire point —
+// `ensureConsoleOrgListener` returning `(false, nil)` for that same case is
+// what let the gap pass as success in the first place.
+func (r *Reconciler) consoleOrgListenersReadback(ctx context.Context, names orgConsoleTLSNames) (consoleListenerReadback, error) {
+	var out consoleListenerReadback
+
 	gw := unstructured.Unstructured{}
 	gw.SetGroupVersionKind(gatewayGVK)
 	if err := r.Get(ctx, client.ObjectKey{
@@ -202,28 +273,75 @@ func (r *Reconciler) consoleOrgListenersPresent(ctx context.Context, names orgCo
 		Name:      r.consoleGatewayName(),
 	}, &gw); err != nil {
 		if apierrors.IsNotFound(err) {
-			return false, nil
+			out.GatewayAbsent = true
+			return out, nil
 		}
-		return false, err
+		return out, err
 	}
-	listeners, _, err := unstructured.NestedSlice(gw.Object, "spec", "listeners")
+
+	specListeners, _, err := unstructured.NestedSlice(gw.Object, "spec", "listeners")
 	if err != nil {
-		return false, err
+		return out, fmt.Errorf("read spec.listeners: %w", err)
 	}
-	var https, http bool
-	for _, l := range listeners {
+	statusListeners, _, err := unstructured.NestedSlice(gw.Object, "status", "listeners")
+	if err != nil {
+		return out, fmt.Errorf("read status.listeners: %w", err)
+	}
+	out.SpecCount = len(specListeners)
+	out.StatusCount = len(statusListeners)
+	out.StatusObserved = len(statusListeners) > 0
+
+	specByName := map[string]map[string]any{}
+	specOrder := make([]string, 0, len(specListeners))
+	for _, l := range specListeners {
 		m, ok := l.(map[string]any)
 		if !ok {
 			continue
 		}
-		switch n, _ := m["name"].(string); n {
-		case names.HTTPSName:
-			https = true
-		case names.HTTPName:
-			http = true
+		if n, _ := m["name"].(string); n != "" {
+			specByName[n] = m
+			specOrder = append(specOrder, n)
 		}
 	}
-	return https && http, nil
+	inStatus := map[string]bool{}
+	for _, l := range statusListeners {
+		if m, ok := l.(map[string]any); ok {
+			if n, _ := m["name"].(string); n != "" {
+				inStatus[n] = true
+			}
+		}
+	}
+
+	// The per-Org pair MUST ride the live apex ports — same derivation the
+	// up-path uses, so the verifier can never demand a port the writer would
+	// not have written.
+	httpsPort, httpPort := consoleApexListenerPorts(specListeners)
+	wantPort := map[string]int64{names.HTTPSName: httpsPort, names.HTTPName: httpPort}
+
+	for _, n := range []string{names.HTTPSName, names.HTTPName} {
+		m, ok := specByName[n]
+		if !ok {
+			out.SpecMissing = append(out.SpecMissing, n)
+			continue
+		}
+		if got, ok := listenerPort(m); ok && got != wantPort[n] {
+			out.PortDrift = append(out.PortDrift, fmt.Sprintf(
+				"%s binds %d, the apex pair serves %d", n, got, wantPort[n]))
+		}
+	}
+
+	// Count-based: every listener the Gateway accepted into spec but did not
+	// publish in status. Iterated in spec order, so the rendered message is
+	// stable across reconciles (an unstable message defeats the byte-equal
+	// status-skip in patchStatus and hot-loops the controller, #5305).
+	if out.StatusObserved {
+		for _, n := range specOrder {
+			if !inStatus[n] {
+				out.StatusDropped = append(out.StatusDropped, n)
+			}
+		}
+	}
+	return out, nil
 }
 
 // orgConsoleTLSNamesForOrg derives the per-Org console-TLS names from the CR,
