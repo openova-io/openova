@@ -21,7 +21,10 @@ Evidence, every locally-inspectable surface (swept five times across the session
 | `<repo>/.claude/settings*.json` | no `model` key. |
 | Sub-agent wire-level (this session's two worktree agents) | **145/145 and 183/183 requests = `claude-fable-5`**, zero Opus. Sub-agents provably inherit the Fable default at invocation. |
 | `~/.claude.json` | contains `opus` strings ONLY inside **server-delivered feature-flag caches** (`tengu_auto_mode_config` maps fable→opus-4.8[1m] for auto-mode routing; the review-bughunter fleet is server-pinned opus-4.7). The live CLI process **rewrites** this file, so local edits are clobbered — editing it is futile and unnecessary. |
-| `~/.claude/plugins/marketplaces/.../pr-review-toolkit/agents/*.md` | two agents carry `model: opus`, but pr-review-toolkit is **NOT in `enabledPlugins`** (only playwright + rust-analyzer-lsp are). Inert today; the one future local Opus source to know about IF that plugin is ever enabled. |
+| `~/.claude/plugins/marketplaces/.../pr-review-toolkit/agents/*.md` | two agents carry `model: opus`, but pr-review-toolkit is **NOT in `enabledPlugins`**. Inert today. |
+| `~/.claude/plugins/marketplaces/.../security-guidance/hooks/{llm.py,security_reminder_hook.py}` | hardcode `SECURITY_REVIEW_MODEL` / `_DEFAULT_PUBLIC_MODEL = "claude-opus-4-7"`, but security-guidance is **NOT in `enabledPlugins`**. Inert today. |
+
+**COMPLETE local-Opus enumeration (confirmed 2026-07-31):** the ONLY local files that would select Opus are inside TWO disabled marketplace plugins — `pr-review-toolkit` (agent frontmatter `model: opus`) and `security-guidance` (hook default `claude-opus-4-7`). `enabledPlugins` = `[playwright, rust-analyzer-lsp]` only, so NEITHER is active. Skill sub-agent invocation sites (qa-loop `subagent_type: "general-purpose"`) pass no model param and inherit the Fable default. These two disabled plugins are the entire set of future local Opus risks: enabling either would reintroduce Opus for its specific function (PR review / security review), nothing else.
 
 ### Mechanism of the historical "switching"
 
