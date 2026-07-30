@@ -277,20 +277,44 @@ export function CatalogDetail() {
   const logoLightUrl = resolveCatalogIcon(card, 'light', bundledLogo)
   const logoDarkUrl = resolveCatalogIcon(card, 'dark', bundledLogo)
 
-  // #3668 §5A — the FULL current catalog-edit values, the merge base every
-  // per-field inline save round-trips so editing one field never clobbers a
-  // sibling (saveCatalogEdit does a full upsert). Light-icon pre-fills from the
-  // CURRENT IaC icon (`card.iconLight`), falling back to the bundled asset so
-  // the icon picker opens showing the rendered default rather than blank.
-  const currentEdit: CatalogEntryEdit = {
+  // #5510 — the IaC-declared card values, passed to each inline field as its
+  // `createSeed`: the values a brand-new store row is created from when this
+  // Blueprint has none yet. This is NOT a merge base. It used to be one —
+  // every per-field save PUT `{...currentEdit, ...patch}`, i.e. a whole-record
+  // replace built from an INCOMPLETE base (the IaC card only), so any field
+  // the store held but the IaC lacked was overwritten with an IaC-derived
+  // default. Live on hw291: a Summary-only save reverted `name`
+  // ("Alloy-NAMEPROOF-…" → "Alloy") and `icon_light`
+  // (".../cilium.svg" → ".../alloy.svg") — both of them UAT walk evidence —
+  // with a green "Saved to IaC ✓" toast and HTTP 200. The merge base now lives
+  // in saveCatalogEdit and is the STORED row.
+  //
+  // `icon_light` deliberately does NOT fall back to `bundledLogo` here: that
+  // asset is a build-time console bundle path, not an IaC declaration, and
+  // seeding it would materialize a console default as a persisted value. The
+  // bundled fallback belongs to the icon editor's DRAFT (below), so the picker
+  // still opens showing the rendered default rather than blank.
+  const iacSeed: CatalogEntryEdit = {
     name: title,
     tagline: card.tagline || card.summary || '',
     supported_topologies: topologies.map(canonicalizeMode),
-    icon_light: card.iconLight || bundledLogo || '',
+    icon_light: card.iconLight || '',
     icon_dark: card.iconDark || '',
   }
+  // The icon editor's initial DRAFT — the currently RENDERED icons, so the
+  // picker opens on the visible default (#3668 §5B) instead of blank. Only a
+  // Save on the icon field itself persists these.
+  const iconDraft = {
+    light: card.iconLight || bundledLogo || '',
+    dark: card.iconDark || '',
+  }
   // Refetch the catalog item after any per-field save so the new value renders
-  // live (and the next field's merge base picks up the saved sibling).
+  // live (and the next field's create-seed picks up the saved sibling).
+  //
+  // #5510 note: the invalidation below is no longer load-bearing for DATA
+  // SAFETY — the merge base is the stored row, resolved inside saveCatalogEdit,
+  // so a stale cache can no longer revert a sibling. It remains required for
+  // the LIVE RENDER (rows 127/132/133/142/153) and for a fresh create-seed.
   //
   // #5496 — this MUST invalidate `qualifiedName`, the key the query is
   // registered under at :172. It previously used the bare `name`, so the key
@@ -340,10 +364,10 @@ export function CatalogDetail() {
             blueprintId={qualifiedName}
             fieldKey="icon"
             label="Icon (light + dark)"
-            current={currentEdit}
+            createSeed={iacSeed}
             editable={isAdmin && !editingIaC}
             block
-            initialDraft={{ light: currentEdit.icon_light, dark: currentEdit.icon_dark }}
+            initialDraft={iconDraft}
             renderDisplay={() =>
               logoUrl ? (
                 <img src={logoUrl} alt={title} className="hero-logo" loading="lazy" />
@@ -398,9 +422,9 @@ export function CatalogDetail() {
               blueprintId={qualifiedName}
               fieldKey="name"
               label="Display name"
-              current={currentEdit}
+              createSeed={iacSeed}
               editable={isAdmin && !editingIaC}
-              initialDraft={currentEdit.name}
+              initialDraft={iacSeed.name}
               renderDisplay={() => <span data-testid="catalog-title">{title}</span>}
               renderEditor={(draft, setDraft) => (
                 <input
@@ -449,9 +473,9 @@ export function CatalogDetail() {
                 blueprintId={qualifiedName}
                 fieldKey="summary"
                 label="Summary"
-                current={currentEdit}
+                createSeed={iacSeed}
                 editable={isAdmin && !editingIaC}
-                initialDraft={currentEdit.tagline}
+                initialDraft={iacSeed.tagline}
                 renderDisplay={() => (
                   <span data-testid="catalog-summary">
                     {card.tagline || card.summary || card.description || (
@@ -769,14 +793,14 @@ export function CatalogDetail() {
                 blueprintId={qualifiedName}
                 fieldKey="topologies"
                 label="Supported topologies"
-                current={currentEdit}
+                createSeed={iacSeed}
                 editable={isAdmin && !editingIaC}
                 block
-                initialDraft={currentEdit.supported_topologies}
+                initialDraft={iacSeed.supported_topologies}
                 renderDisplay={() => (
                   <span className="cif-topo-summary" data-testid="catalog-topologies-edit-summary">
-                    {currentEdit.supported_topologies.length > 0
-                      ? currentEdit.supported_topologies.join(', ')
+                    {iacSeed.supported_topologies.length > 0
+                      ? iacSeed.supported_topologies.join(', ')
                       : 'set supported topologies…'}
                   </span>
                 )}

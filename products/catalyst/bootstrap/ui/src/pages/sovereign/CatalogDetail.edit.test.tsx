@@ -11,7 +11,8 @@
  *   • NO single global "Edit" button — each card field is independently editable
  *     in place (name / summary / supported-topologies / icon);
  *   • editing one field and saving commits THAT field via saveCatalogEdit,
- *     merging onto the current values so siblings are preserved;
+ *     sending ONLY that field's keys so no sibling is on the wire (#5510 —
+ *     the merge base is the STORED row, resolved inside saveCatalogEdit);
  *   • the icon field opens the VISUAL icon picker (a grid of the vendored
  *     logos), not a bare filename input;
  *   • a non-admin sees none of the edit affordances.
@@ -46,13 +47,26 @@ vi.mock('@/shared/lib/useResolvedDeploymentId', () => ({
   useResolvedDeploymentId: () => ({ deploymentId: undefined, loading: false }),
 }))
 
-// Commerce API — capture per-field saveCatalogEdit calls.
-const saveSpy = vi.fn((slug: string, edit: Record<string, unknown>): Promise<string> => {
-  void edit
-  return Promise.resolve(slug.replace(/^bp-/, ''))
-})
+// Commerce API — capture per-field saveCatalogEdit calls. Three args since
+// #5510: (slug, patch, createSeed). `patch` carries ONLY the edited field;
+// `createSeed` carries the page's IaC values for the no-store-row case.
+const saveSpy = vi.fn(
+  (
+    slug: string,
+    patch: Record<string, unknown>,
+    createSeed: Record<string, unknown> | undefined,
+  ): Promise<string> => {
+    void patch
+    void createSeed
+    return Promise.resolve(slug.replace(/^bp-/, ''))
+  },
+)
 vi.mock('@/lib/commerce.api', () => ({
-  saveCatalogEdit: (slug: string, edit: Record<string, unknown>) => saveSpy(slug, edit),
+  saveCatalogEdit: (
+    slug: string,
+    patch: Record<string, unknown>,
+    createSeed: Record<string, unknown> | undefined,
+  ) => saveSpy(slug, patch, createSeed),
 }))
 
 // Import AFTER mocks.
@@ -160,26 +174,31 @@ describe('CatalogDetail per-field inline editing (#3668 §5A)', () => {
     expect(screen.queryByTestId('catalog-detail-edit-iac')).toBeNull()
   })
 
-  it('editing the NAME field saves only that field, merged onto current values', async () => {
+  it('editing the NAME field sends ONLY name — no sibling keys in the patch (#5510)', async () => {
     renderCatalog()
     fireEvent.click(await screen.findByTestId('cif-name-edit'))
     const input = screen.getByTestId('cif-name-input') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'Grafana (Renamed)' } })
     fireEvent.click(screen.getByTestId('cif-name-save'))
     await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1))
-    const [slug, edit] = saveSpy.mock.calls[0]
+    const [slug, patch, createSeed] = saveSpy.mock.calls[0]
     expect(slug).toBe('bp-grafana')
     // The edited field changed…
-    expect(edit.name).toBe('Grafana (Renamed)')
-    // …and the sibling fields are preserved (merge base), not wiped.
-    expect(edit.tagline).toBe('Visualization and dashboarding')
-    // One vocabulary (#3375 DoD-1): the edit form carries the CANONICAL
-    // topology tokens (the fixture declares them canonical; the form folds
-    // any spelling onto the canonical set).
-    expect(edit.supported_topologies).toEqual(['singleton', 'active-hot-standby'])
+    expect(patch.name).toBe('Grafana (Renamed)')
+    // …and NOTHING else is on the wire. #5510: this used to be the FULL
+    // 5-field record (`{...currentEdit, ...patch}`), which made every save a
+    // whole-record replace and silently reverted store-only siblings.
+    expect(Object.keys(patch)).toEqual(['name'])
+    // The IaC values ride along as the create-only seed, never as a merge base.
+    expect(createSeed?.name).toBe('Grafana')
+    expect(createSeed?.tagline).toBe('Visualization and dashboarding')
+    // One vocabulary (#3375 DoD-1): the seed carries the CANONICAL topology
+    // tokens (the fixture declares them canonical; the page folds any spelling
+    // onto the canonical set).
+    expect(createSeed?.supported_topologies).toEqual(['singleton', 'active-hot-standby'])
   })
 
-  it('editing the SUMMARY field saves tagline only, preserving the name', async () => {
+  it('editing the SUMMARY field sends ONLY tagline — name is not on the wire (#5510)', async () => {
     renderCatalog()
     fireEvent.click(await screen.findByTestId('cif-summary-edit'))
     fireEvent.change(screen.getByTestId('cif-summary-input'), {
@@ -187,12 +206,16 @@ describe('CatalogDetail per-field inline editing (#3668 §5A)', () => {
     })
     fireEvent.click(screen.getByTestId('cif-summary-save'))
     await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1))
-    const edit = saveSpy.mock.calls[0][1]
-    expect(edit.tagline).toBe('New tagline')
-    expect(edit.name).toBe('Grafana')
+    const patch = saveSpy.mock.calls[0][1]
+    expect(patch.tagline).toBe('New tagline')
+    // The live #5510 repro: a Summary-only save carried `name` (IaC-derived)
+    // and overwrote the store's value. `name` must be ABSENT, not merely equal
+    // to the IaC title — absent is what leaves the stored value alone.
+    expect(patch.name).toBeUndefined()
+    expect(Object.keys(patch)).toEqual(['tagline'])
   })
 
-  it('editing SUPPORTED TOPOLOGIES toggles a mode and saves the set', async () => {
+  it('editing SUPPORTED TOPOLOGIES toggles a mode and sends only that set', async () => {
     renderCatalog()
     fireEvent.click(await screen.findByTestId('cif-topologies-edit'))
     // The canonical current set pre-checks singleton + active-hot-standby;
@@ -200,10 +223,14 @@ describe('CatalogDetail per-field inline editing (#3668 §5A)', () => {
     fireEvent.click(screen.getByTestId('catalog-edit-topo-active-active'))
     fireEvent.click(screen.getByTestId('cif-topologies-save'))
     await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1))
-    const edit = saveSpy.mock.calls[0][1] as { supported_topologies: string[] }
+    const patch = saveSpy.mock.calls[0][1] as {
+      supported_topologies: string[]
+      name?: string
+    }
     // One vocabulary (#3375 DoD-1): the saved set is canonical.
-    expect(edit.supported_topologies).toContain('active-active')
-    expect(edit.supported_topologies).toContain('singleton')
+    expect(patch.supported_topologies).toContain('active-active')
+    expect(patch.supported_topologies).toContain('singleton')
+    expect(patch.name).toBeUndefined()
   })
 
   it('Cancel closes a field editor without saving', async () => {
