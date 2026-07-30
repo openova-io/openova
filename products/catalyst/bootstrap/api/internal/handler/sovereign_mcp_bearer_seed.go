@@ -52,6 +52,26 @@
 //	context=sovereign and 403 under the #4110 host-scope guard — the exact
 //	wedge values.yaml warns about.
 //
+// It deliberately carries NO `deployment_id` claim (#5516):
+//
+//	Neither HandlePinVerify nor auth_org_handover stamps `deployment_id` on
+//	an Org-scoped session — only the mothership HANDOVER path (auth_handover.go)
+//	does, for a sovereign-admin. Adding one here would BREAK the byte-for-byte
+//	parity this mint is contracted to hold, and it would fix nothing: the
+//	openova-MCP tools that once demanded the claim used it to address the
+//	Sovereign-wide seam `/api/v1/sovereigns/{id}/applications`, which
+//	OrgScopeGuard 403s for ANY tier=org-admin session regardless of its claims
+//	(the path is not in orgSafePathPrefixes — see
+//	TestOrgScopeGuard_OrgScoped_DeniesDeploymentAddressedApplicationRoutes).
+//	Stamping the claim would only convert the MCP's "no deployment binding"
+//	error into an upstream `org-scoped-forbidden` 403.
+//
+//	The fix therefore lives in the MCP facade: Org context reads the own-org
+//	seam GET /api/v1/org/applications (allowlisted, namespace resolved
+//	server-side from X-Tenant-Host), mirroring what create_application already
+//	does with POST /api/v1/org/applications. Do NOT re-add a deployment_id
+//	claim here to "unblock" an MCP tool — route the tool instead.
+//
 // Why this path (NOT bare secret/agenity/...):
 //
 //	Identical reasoning to the Anthropic seed (sovereign_anthropic_seed.go):
@@ -180,8 +200,28 @@ func mintOrgScopedMCPBearer(signer customClaimsSigner, slug, email string) (stri
 		"typ":    "session",
 		"org":    slug,
 		"org_id": slug,
+		// NO "deployment_id" — see the file doc comment §"It deliberately
+		// carries NO deployment_id claim (#5516)". The key set here is locked to
+		// HandlePinVerify's Org-scoped session by
+		// Test_mintOrgScopedMCPBearer_ClaimKeySetMatchesPinVerifyOrgSession.
 	}
 	return signer.SignCustomClaims(claims)
+}
+
+// orgScopedSessionClaimKeys is the EXACT claim key set an Org-scoped Catalyst
+// session carries, as minted by HandlePinVerify (auth.go, org branch) and
+// auth_org_handover (org_handover.go). mintOrgScopedMCPBearer above MUST
+// produce this same set — the MCP + OrgScopeGuard resolve the seeded service
+// bearer and an interactive Org-console session through identical code, so a
+// divergence means the headless path is being authorized on a shape the
+// interactive path never produces.
+//
+// `deployment_id` is absent by design (#5516): an Org-scoped session is not
+// deployment-bound. Only the mothership handover mints that claim, for a
+// sovereign-admin.
+var orgScopedSessionClaimKeys = []string{
+	"iss", "sub", "email", "email_verified", "role", "tier",
+	"realm_access", "iat", "exp", "jti", "typ", "org", "org_id",
 }
 
 // customClaimsSigner is the narrow surface this producer needs from the

@@ -79,6 +79,14 @@ func TestPathIsOrgSafe(t *testing.T) {
 		"/api/v1/organizations",
 		"/api/v1/parent-domains",
 		"/api/v1/org/commerce/plans",
+		// #5516 — the DEPLOYMENT-ADDRESSED Application seam is Sovereign-wide
+		// (HandleApplicationList/Get resolve across every namespace) and stays
+		// denied for an Org session. This is why an Org-scoped bearer cannot be
+		// made to work on it by stamping a deployment_id claim: the guard never
+		// looks at deployment_id, only at the tier. The own-org seam
+		// /api/v1/org/applications (allowlisted above) is the reachable path.
+		"/api/v1/sovereigns/29b7e14918178f7e/applications",
+		"/api/v1/sovereigns/29b7e14918178f7e/applications/shop",
 		// #4937 stays NARROW: the sibling catalyst/v1 app surfaces (endpoint
 		// mutation, launch-url) are NOT opened to Org sessions by this change.
 		"/catalyst/v1/apps/uid-1/endpoints",
@@ -124,6 +132,62 @@ func TestOrgScopeGuard_OrgScoped_DeniesSovereignEndpoint(t *testing.T) {
 	guard.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("org-scoped session must be 403'd on deployments, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestOrgScopeGuard_OrgScoped_DeniesDeploymentAddressedApplicationRoutes is
+// the #5516 root-cause proof, and the reason the fix lives in the openova-MCP
+// facade rather than in the bearer the Sovereign mints.
+//
+// The per-Org agenity MCP is handed an Org-scoped session bearer
+// (sovereign_mcp_bearer_seed.go: tier=org-admin, org+org_id=<slug>, NO
+// deployment_id). Its read tools used to call the deployment-addressed seam
+// GET /api/v1/sovereigns/{id}/applications, which fails on the MCP side with
+// "no deployment binding on the caller's token".
+//
+// The tempting fix — stamp a deployment_id claim onto the minted bearer — does
+// NOT work, and this test is what proves it: OrgScopeGuard's verdict is a pure
+// function of the TIER (claimsAreOrgScoped) and the PATH, and the
+// deployment-addressed path is not allowlisted. So a deployment_id would only
+// convert the MCP-side error into an upstream 403 `org-scoped-forbidden` — an
+// opaque failure further from its cause. Both legs are asserted below:
+// the deployment-addressed seam 403s, the own-org seam passes.
+func TestOrgScopeGuard_OrgScoped_DeniesDeploymentAddressedApplicationRoutes(t *testing.T) {
+	h := &Handler{log: quietLog()}
+	guard := h.OrgScopeGuard(http.HandlerFunc(orgScopeGuardTestHandler))
+
+	// The exact claim set mintOrgScopedMCPBearer produces, PLUS a
+	// deployment_id — i.e. the hypothetical "fixed" bearer. It still 403s.
+	orgClaimsWithDeployment := &auth.Claims{
+		Email:        "openova-mcp@acme",
+		Tier:         orgScopedTier,
+		Org:          "acme",
+		DeploymentID: "29b7e14918178f7e",
+	}
+
+	for _, path := range []string{
+		"/api/v1/sovereigns/29b7e14918178f7e/applications",
+		"/api/v1/sovereigns/29b7e14918178f7e/applications/shop",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey, orgClaimsWithDeployment))
+		rec := httptest.NewRecorder()
+		guard.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("%s: org-scoped session must be 403'd even WITH a deployment_id claim, got %d body=%s",
+				path, rec.Code, rec.Body.String())
+		}
+	}
+
+	// The seam the MCP must use instead is reachable for the SAME session —
+	// otherwise the assertions above would merely prove "everything 403s".
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/org/applications", nil)
+	req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey, orgClaimsWithDeployment))
+	rec := httptest.NewRecorder()
+	guard.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the own-org Application seam must be reachable for an Org session, got %d body=%s",
+			rec.Code, rec.Body.String())
 	}
 }
 

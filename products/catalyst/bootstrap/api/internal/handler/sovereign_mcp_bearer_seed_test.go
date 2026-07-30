@@ -159,6 +159,72 @@ func Test_mintOrgScopedMCPBearer_ClaimShape(t *testing.T) {
 	}
 }
 
+// Test_mintOrgScopedMCPBearer_ClaimKeySetMatchesPinVerifyOrgSession locks the
+// seeded service bearer's claim key set to orgScopedSessionClaimKeys — the set
+// HandlePinVerify (auth.go, Org branch) and auth_org_handover mint for an
+// interactive Org-console session.
+//
+// The load-bearing assertion is the EXACT-SET match, in both directions: a
+// missing key fails, and so does an EXTRA one. That second direction is the
+// #5516 guard. `deployment_id` is absent from an Org session on every mint
+// path, and the deployment-addressed seam it would address is 403'd for
+// tier=org-admin regardless (see
+// TestOrgScopeGuard_OrgScoped_DeniesDeploymentAddressedApplicationRoutes), so
+// re-adding it here would break parity while fixing nothing. If an MCP tool
+// needs Org data, route it to the own-org seam instead of widening this token.
+func Test_mintOrgScopedMCPBearer_ClaimKeySetMatchesPinVerifyOrgSession(t *testing.T) {
+	signer := newTestSigner(t)
+
+	raw, err := mintOrgScopedMCPBearer(signer, "acme", "owner@acme.omani.homes")
+	if err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+
+	pub, _ := signer.PublicRSAKey()
+	claims := jwt.MapClaims{}
+	if _, perr := jwt.ParseWithClaims(raw, claims, func(*jwt.Token) (any, error) { return pub, nil },
+		jwt.WithValidMethods([]string{"RS256"})); perr != nil {
+		t.Fatalf("parse minted bearer: %v", perr)
+	}
+
+	// Vacuity guard: without a decoded, populated claim map every set
+	// comparison below would pass on nothing. Assert the map is non-empty AND
+	// carries a known-present control claim before comparing sets.
+	if len(claims) == 0 {
+		t.Fatal("minted bearer decoded to an EMPTY claim map — the set assertions would pass vacuously")
+	}
+	if got, _ := claims["org_id"].(string); got != "acme" {
+		t.Fatalf("control claim org_id = %q, want acme (the parse produced an unusable map)", got)
+	}
+
+	want := map[string]bool{}
+	for _, k := range orgScopedSessionClaimKeys {
+		want[k] = true
+	}
+
+	// Direction 1 — every contracted claim is present.
+	for k := range want {
+		if _, ok := claims[k]; !ok {
+			t.Errorf("minted bearer is MISSING contracted claim %q", k)
+		}
+	}
+	// Direction 2 — no claim beyond the contract. This is what fails if
+	// deployment_id (or any other claim an Org console session never carries)
+	// is stamped onto the service bearer.
+	for k := range claims {
+		if !want[k] {
+			t.Errorf("minted bearer carries claim %q, which an Org-scoped session (HandlePinVerify / auth_org_handover) never mints — parity broken", k)
+		}
+	}
+
+	// Spelled out for the reader: the claim the openova-MCP's requireDeployment
+	// used to demand is deliberately absent, and the MCP no longer asks for it
+	// in Org context.
+	if _, present := claims["deployment_id"]; present {
+		t.Error("deployment_id must NOT be stamped on an Org-scoped bearer (#5516) — the deployment-addressed seam is 403'd for tier=org-admin anyway; route the MCP tool to /api/v1/org/applications instead")
+	}
+}
+
 // Test_mintOrgScopedMCPBearer_SyntheticSubjectWhenNoEmail verifies the
 // headless-Org fallback: no owner email ⇒ a stable Org-scoped synthetic
 // subject (never an empty claim).
