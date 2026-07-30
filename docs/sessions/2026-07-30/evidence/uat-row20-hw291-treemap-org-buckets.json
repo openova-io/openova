@@ -1,0 +1,736 @@
+### hw291 row20 — /api/v1/dashboard/treemap?group_by=organization&size_by=cpu_request&color_by=health
+{"items":[{"id":"__platform__","name":"Platform overhead","count":194,"percentage":100,"size_value":20110},{"id":"uatcorp","name":"uatcorp","count":2,"percentage":100,"size_value":1050}],"total_count":2}
+
+### row20 — group_by=organization,application (children)
+{
+    "items": [
+        {
+            "id": "__platform__",
+            "name": "Platform overhead",
+            "count": 194,
+            "percentage": 100,
+            "size_value": 20110,
+            "children": [
+                {
+                    "id": "admin-865b6dd6c7",
+                    "name": "admin-865b6dd6c7",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 10
+                },
+                {
+                    "id": "alloy",
+                    "name": "alloy",
+                    "count": 4,
+                    "percentage": 100,
+                    "size_value": 440
+                },
+                {
+                    "id": "application-controller",
+                    "name": "application-controller",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 25
+                },
+                {
+                    "id": "auth-6fcd64b76b",
+                    "name": "auth-6fcd64b76b",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 25
+                },
+                {
+                    "id": "billing-794b9d8898",
+                    "name": "billing-794b9d8898",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 25
+                },
+                {
+                    "id": "bp-cilium",
+                    "name": "bp-cilium",
+                    "count": 6,
+                    "percentage": 100,
+                    "size_value": 60
+                },
+                {
+                    "id": "bp-huawei-evs-csi",
+                    "name": "bp-huawei-evs-csi",
+                    "count": 6,
+                    "percentage": 100,
+                    "size_value": 600
+                },
+                {
+                    "id": "bp-openbao",
+                    "name": "bp-openbao",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 5
+                },
+                {
+                    "id": "catalog-6f58c49fc5",
+                    "name": "catalog-6f58c49fc5",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 25
+                },
+                {
+                    "id": "catalyst-api",
+                    "name": "catalyst-api",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "catalyst-catalog",
+                    "name": "catalyst-catalog",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 25
+                },
+                {
+                    "id": "catalyst-ui",
+                    "name": "catalyst-ui",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 10
+                },
+                {
+                    "id": "cert-manager",
+                    "name": "cert-manager",
+                    "count": 3,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "cert-manager-powerdns-webhook",
+                    "name": "cert-manager-powerdns-webhook",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 50
+                },
+                {
+                    "id": "cilium-agent",
+                    "name": "cilium-agent",
+                    "count": 4,
+                    "percentage": 100,
+                    "size_value": 400
+                },
+                {
+                    "id": "cilium-envoy",
+                    "name": "cilium-envoy",
+                    "count": 4,
+                    "percentage": 100
+                },
+                {
+                    "id": "cilium-operator",
+                    "name": "cilium-operator",
+                    "count": 1,
+                    "percentage": 100
+                },
+                {
+                    "id": "clustermesh-apiserver",
+                    "name": "clustermesh-apiserver",
+                    "count": 1,
+                    "percentage": 100
+                },
+                {
+                    "id": "cnpg",
+                    "name": "cnpg",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "cnpg-pair",
+                    "name": "cnpg-pair",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 20
+                },
+                {
+                    "id": "cnpg-pair-bp-cnpg-pair-primary",
+                    "name": "cnpg-pair-bp-cnpg-pair-primary",
+                    "count": 3,
+                    "percentage": 100,
+                    "size_value": 1500
+                },
+                {
+                    "id": "console-656585b5f9",
+                    "name": "console-656585b5f9",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 10
+                },
+                {
+                    "id": "continuum-controller",
+                    "name": "continuum-controller",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "coraza",
+                    "name": "coraza",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "coredns-57fc96f748",
+                    "name": "coredns-57fc96f748",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "crossplane",
+                    "name": "crossplane",
+                    "count": 2,
+                    "percentage": 100,
+                    "size_value": 200
+                },
+                {
+                    "id": "domain-55cc5d8f6d",
+                    "name": "domain-55cc5d8f6d",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 25
+                },
+                {
+                    "id": "dragonfly",
+                    "name": "dragonfly",
+                    "count": 5,
+                    "percentage": 100,
+                    "size_value": 900
+                },
+                {
+                    "id": "dragonfly-client",
+                    "name": "dragonfly-client",
+                    "count": 4,
+                    "percentage": 100,
+                    "size_value": 400
+                },
+                {
+                    "id": "dragonfly-manager-7c5dbbfbb8",
+                    "name": "dragonfly-manager-7c5dbbfbb8",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "dragonfly-scheduler",
+                    "name": "dragonfly-scheduler",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "dragonfly-seed-client",
+                    "name": "dragonfly-seed-client",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "environment-controller",
+                    "name": "environment-controller",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 50
+                },
+                {
+                    "id": "external-dns",
+                    "name": "external-dns",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 50
+                },
+                {
+                    "id": "external-secrets",
+                    "name": "external-secrets",
+                    "count": 3,
+                    "percentage": 100,
+                    "size_value": 150
+                },
+                {
+                    "id": "falco",
+                    "name": "falco",
+                    "count": 4,
+                    "percentage": 100,
+                    "size_value": 400
+                },
+                {
+                    "id": "ferretdb-66cf57dd69",
+                    "name": "ferretdb-66cf57dd69",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 25
+                },
+                {
+                    "id": "gateway-75549b45c8",
+                    "name": "gateway-75549b45c8",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 25
+                },
+                {
+                    "id": "gitea",
+                    "name": "gitea",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "gitea-sso-configure",
+                    "name": "gitea-sso-configure",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 10
+                },
+                {
+                    "id": "grafana",
+                    "name": "grafana",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 120
+                },
+                {
+                    "id": "guacamole",
+                    "name": "guacamole",
+                    "count": 2,
+                    "percentage": 100,
+                    "size_value": 200
+                },
+                {
+                    "id": "guacamole-pg",
+                    "name": "guacamole-pg",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 50
+                },
+                {
+                    "id": "harbor",
+                    "name": "harbor",
+                    "count": 6,
+                    "percentage": 100,
+                    "size_value": 500
+                },
+                {
+                    "id": "harbor-sso-configure",
+                    "name": "harbor-sso-configure",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 10
+                },
+                {
+                    "id": "helm-controller-7f76c76d76",
+                    "name": "helm-controller-7f76c76d76",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 50
+                },
+                {
+                    "id": "hubble-relay",
+                    "name": "hubble-relay",
+                    "count": 1,
+                    "percentage": 100
+                },
+                {
+                    "id": "hubble-ui",
+                    "name": "hubble-ui",
+                    "count": 1,
+                    "percentage": 100
+                },
+                {
+                    "id": "image-automation-controller-647bc8d8cd",
+                    "name": "image-automation-controller-647bc8d8cd",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "image-reflector-controller-dd65cc9b5",
+                    "name": "image-reflector-controller-dd65cc9b5",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "k8s-ws-proxy",
+                    "name": "k8s-ws-proxy",
+                    "count": 4,
+                    "percentage": 100,
+                    "size_value": 200
+                },
+                {
+                    "id": "keycloak",
+                    "name": "keycloak",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 250
+                },
+                {
+                    "id": "kustomize-controller-648b5f6dd9",
+                    "name": "kustomize-controller-648b5f6dd9",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 50
+                },
+                {
+                    "id": "kyverno",
+                    "name": "kyverno",
+                    "count": 5,
+                    "percentage": 100,
+                    "size_value": 700
+                },
+                {
+                    "id": "loki",
+                    "name": "loki",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "marketplace-84dd79d85",
+                    "name": "marketplace-84dd79d85",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 10
+                },
+                {
+                    "id": "marketplace-api",
+                    "name": "marketplace-api",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 10
+                },
+                {
+                    "id": "metrics-server-5985cbc9d7",
+                    "name": "metrics-server-5985cbc9d7",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "mimir",
+                    "name": "mimir",
+                    "count": 13,
+                    "percentage": 100,
+                    "size_value": 1070
+                },
+                {
+                    "id": "nats-jetstream",
+                    "name": "nats-jetstream",
+                    "count": 4,
+                    "percentage": 100,
+                    "size_value": 340
+                },
+                {
+                    "id": "nats-jetstream-b64bc9b59",
+                    "name": "nats-jetstream-b64bc9b59",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 50
+                },
+                {
+                    "id": "newapi",
+                    "name": "newapi",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 125
+                },
+                {
+                    "id": "newapi-bp-newapi-newapi-pg",
+                    "name": "newapi-bp-newapi-newapi-pg",
+                    "count": 2,
+                    "percentage": 100,
+                    "size_value": 1000
+                },
+                {
+                    "id": "notification-5b9cc7c4cc",
+                    "name": "notification-5b9cc7c4cc",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 25
+                },
+                {
+                    "id": "notification-controller-6c7d44646c",
+                    "name": "notification-controller-6c7d44646c",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "oidc-gate",
+                    "name": "oidc-gate",
+                    "count": 3,
+                    "percentage": 100,
+                    "size_value": 30
+                },
+                {
+                    "id": "openbao",
+                    "name": "openbao",
+                    "count": 2,
+                    "percentage": 100,
+                    "size_value": 150
+                },
+                {
+                    "id": "openbao-sso-configure",
+                    "name": "openbao-sso-configure",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 10
+                },
+                {
+                    "id": "openbao-unseal-reconciler-76d8cfbbf9",
+                    "name": "openbao-unseal-reconciler-76d8cfbbf9",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 10
+                },
+                {
+                    "id": "openova-flow-emitter",
+                    "name": "openova-flow-emitter",
+                    "count": 4,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "openova-flow-pg",
+                    "name": "openova-flow-pg",
+                    "count": 2,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "openova-flow-server",
+                    "name": "openova-flow-server",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 25
+                },
+                {
+                    "id": "openova-mcp",
+                    "name": "openova-mcp",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "opentelemetry",
+                    "name": "opentelemetry",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 200
+                },
+                {
+                    "id": "opentelemetry-operator",
+                    "name": "opentelemetry-operator",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 55
+                },
+                {
+                    "id": "org-pg",
+                    "name": "org-pg",
+                    "count": 2,
+                    "percentage": 100,
+                    "size_value": 200
+                },
+                {
+                    "id": "organization-controller",
+                    "name": "organization-controller",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 50
+                },
+                {
+                    "id": "pdns-pg",
+                    "name": "pdns-pg",
+                    "count": 2,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "powerdns",
+                    "name": "powerdns",
+                    "count": 4,
+                    "percentage": 100,
+                    "size_value": 350
+                },
+                {
+                    "id": "powerdns-admin",
+                    "name": "powerdns-admin",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 50
+                },
+                {
+                    "id": "provider-opentofu-4aeddb701725-5d9856b",
+                    "name": "provider-opentofu-4aeddb701725-5d9856b",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 50
+                },
+                {
+                    "id": "provisioning-6f646dfccc",
+                    "name": "provisioning-6f646dfccc",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 25
+                },
+                {
+                    "id": "reflector",
+                    "name": "reflector",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 10
+                },
+                {
+                    "id": "reloader",
+                    "name": "reloader",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 50
+                },
+                {
+                    "id": "sealed-secrets",
+                    "name": "sealed-secrets",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 50
+                },
+                {
+                    "id": "seaweedfs",
+                    "name": "seaweedfs",
+                    "count": 7,
+                    "percentage": 100,
+                    "size_value": 1300
+                },
+                {
+                    "id": "self-sovereign-cutover",
+                    "name": "self-sovereign-cutover",
+                    "count": 4,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "shared-pg",
+                    "name": "shared-pg",
+                    "count": 3,
+                    "percentage": 100,
+                    "size_value": 1500
+                },
+                {
+                    "id": "shared-pg-b",
+                    "name": "shared-pg-b",
+                    "count": 3,
+                    "percentage": 100,
+                    "size_value": 1500
+                },
+                {
+                    "id": "shared-pg-c",
+                    "name": "shared-pg-c",
+                    "count": 3,
+                    "percentage": 100,
+                    "size_value": 1500
+                },
+                {
+                    "id": "sigstore",
+                    "name": "sigstore",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "source-controller-d9f4c8566",
+                    "name": "source-controller-d9f4c8566",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 50
+                },
+                {
+                    "id": "sso-bridge",
+                    "name": "sso-bridge",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 20
+                },
+                {
+                    "id": "tempo",
+                    "name": "tempo",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "tenant-64fd89ff4f",
+                    "name": "tenant-64fd89ff4f",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 25
+                },
+                {
+                    "id": "trivy",
+                    "name": "trivy",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "useraccess-controller",
+                    "name": "useraccess-controller",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 25
+                },
+                {
+                    "id": "valkey",
+                    "name": "valkey",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "velero",
+                    "name": "velero",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 100
+                },
+                {
+                    "id": "vpa",
+                    "name": "vpa",
+                    "count": 3,
+                    "percentage": 100,
+                    "size_value": 150
+                }
+            ]
+        },
+        {
+            "id": "uatcorp",
+            "name": "uatcorp",
+            "count": 2,
+            "percentage": 100,
+            "size_value": 1050,
+            "children": [
+                {
+                    "id": "bp-agenity",
+                    "name": "bp-agenity",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 1000
+                },
+                {
+                    "id": "bp-oidc-gate",
+                    "name": "bp-oidc-gate",
+                    "count": 1,
+                    "percentage": 100,
+                    "size_value": 50
+                }
+            ]
+        }
+    ],
+    "total_count": 102
+}
