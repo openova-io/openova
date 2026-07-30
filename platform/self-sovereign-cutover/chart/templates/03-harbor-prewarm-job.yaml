@@ -1112,6 +1112,10 @@ data:
               printf -- '--multi-arch all'
             }
 
+            # #5525 leg 2 — slug a registry host into a latch-file-safe token
+            # (same tr class as the per-image log slug above).
+            rl_slug() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'; }
+
             prewarm_skopeo_copy() {
               _pc_src="$1"; _pc_creds="$2"; _pc_lref="$3"; _pc_log="$4"
               # #5468 — multi-arch mode FIRST into the function's OWN positional
@@ -1122,14 +1126,40 @@ data:
               set -- $(prewarm_multiarch_flags "${_pc_src}")
               # Optional --src-creds (empty for anonymous upstreams).
               if [ -n "${_pc_creds}" ]; then set -- "$@" --src-creds="${_pc_creds}"; fi
-              skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
+              # #5525 leg 2 — byte offset of the log BEFORE this leg runs, so
+              # the rate-limit sniff below reads ONLY this leg's own output —
+              # never a prior attempt's, never another source's.
+              _pc_off=$(wc -c < "${_pc_log}" 2>/dev/null || echo 0)
+              if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
                 --insecure-policy \
                 --retry-times 5 \
                 "$@" \
                 --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
                 --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY}" \
                 --src-tls-verify=true \
-                "docker://${_pc_src}" "docker://${_pc_lref}" >>"${_pc_log}" 2>&1
+                "docker://${_pc_src}" "docker://${_pc_lref}" >>"${_pc_log}" 2>&1; then
+                return 0
+              else
+                # Capture skopeo's REAL exit status INSIDE the else branch
+                # (the #3379 hw138 always-0 trap).
+                _pc_rc=$?
+              fi
+              # #5525 leg 2 — `toomanyrequests` is a PER-IP quota window: every
+              # further pull from this host inside the same window (same cluster
+              # egress IP) is guaranteed waste that itself keeps the window
+              # exhausted (hw291 2026-07-30: 3 outer x 5 inner manifest reads
+              # per image per pod attempt SUSTAINED the exhaustion for ~60 min
+              # across 4 pod attempts). Latch the SOURCE host so copy_one skips
+              # it for the remainder of this job attempt wherever a fallback
+              # source exists.
+              _pc_h="${_pc_src%%/*}"
+              if tail -c +"$((_pc_off+1))" "${_pc_log}" 2>/dev/null | grep -qi 'toomanyrequests'; then
+                if [ ! -f "${cpdir}/.ratelimited.$(rl_slug "${_pc_h}")" ]; then
+                  touch "${cpdir}/.ratelimited.$(rl_slug "${_pc_h}")" 2>/dev/null || true
+                  echo "[harbor-prewarm] ${_pc_h} answered toomanyrequests (per-IP rate limit) — latching this host OFF for the remainder of this job attempt wherever a fallback source exists; retrying inside the same quota window is guaranteed waste (#5525)"
+                fi
+              fi
+              return "${_pc_rc}"
             }
 
             # #4975 — copy ONE upstream image to ALL of its local Harbor
@@ -1194,6 +1224,40 @@ data:
                     fi
                     ;;
                 esac
+              elif [ -n "${MOTHERSHIP_HOST:-}" ]; then
+                # #5525 leg 1 (Refs #5095 #5442) — Scarf download gateways
+                # (*.docker.scarf.sh) are REDIRECTORS in front of Docker Hub,
+                # not registries: they delegate auth to Docker Hub's own token
+                # service and pass through Hub's verbatim rate-limit body, so
+                # Hub's ANONYMOUS per-IP quota applies THROUGH them. Live hw291
+                # 2026-07-30 (dep 2c2d746b578c636b): 4 litmuschaos refs burned
+                # 4 pod attempts over ~60 min on `toomanyrequests` while the
+                # SAME artifacts were anonymously servable from the mothership
+                # proxy the whole time — the #5095 fallback never engaged
+                # because it fires only for mothership-SOURCED refs. Derive the
+                # INVERSE fallback here — mothership proxy as the SECONDARY
+                # source — via the FORWARD coverage-map lookup (this host's own
+                # project, e.g. litmuschaos.docker.scarf.sh -> proxy-dockerhub),
+                # path preserved: ${MOTHERSHIP_HOST}/<project>/<path>. No
+                # second hand-list; a scarf host absent from the map stays
+                # fallback-less (it would be UNMAPPED in the pre-pass anyway).
+                # Source selection ONLY: the DEST path is untouched, so
+                # step-04/07/08 resolve the identical LOCAL artifact.
+                case "${srchost}" in
+                  *.docker.scarf.sh)
+                    _fb_proj=""
+                    for _fb_pair in ${HOST_PROJECT_MAP}; do
+                      _fb_h="${_fb_pair%%:*}"
+                      case "${_fb_pair}" in *:*) _fb_p="${_fb_pair#*:}" ;; *) _fb_p="" ;; esac
+                      if [ "${_fb_h}" = "${srchost}" ] && [ -n "${_fb_p}" ]; then _fb_proj="${_fb_p}"; break; fi
+                    done
+                    if [ -n "${_fb_proj}" ]; then
+                      fb_up="${MOTHERSHIP_HOST}/${_fb_proj}/${up#*/}"
+                      fb_creds=$(src_creds_for "${MOTHERSHIP_HOST}")
+                      echo "[harbor-prewarm] scarf.sh redirector source ${up}: mothership-proxy fallback available (${fb_up}; #5525)" >>"${cpdir}/${slug}.log"
+                    fi
+                    ;;
+                esac
               fi
               all_ok=1
               last_rc=0
@@ -1247,7 +1311,11 @@ data:
                   # preserved), so step-04/07/08 resolve the same LOCAL artifact.
                   # On a direct-first MISS we fall straight through to the round-1
                   # proxy-first path below (the proxy might have just recovered).
-                  if [ -n "${fb_up}" ] && [ "${PROXY_DIRECT_FIRST_ENABLED:-true}" = "true" ] && [ -f "${cpdir}/.proxy_down" ]; then
+                  # #5525 — additionally gated on proxy_src: for a scarf-sourced
+                  # ref (leg 1 above) fb_up IS the mothership proxy, so a
+                  # .proxy_down latch must keep the ordering primary-first, not
+                  # route it to the dead proxy first.
+                  if [ "${proxy_src}" -eq 1 ] && [ -n "${fb_up}" ] && [ "${PROXY_DIRECT_FIRST_ENABLED:-true}" = "true" ] && [ -f "${cpdir}/.proxy_down" ]; then
                     echo "[harbor-prewarm] proxy latched DOWN; direct-first ${fb_up} -> ${lref} attempt ${attempt}/${max_attempts} (#5095 round 2)" >>"${cpdir}/${slug}.log"
                     if prewarm_skopeo_copy "${fb_up}" "${fb_creds}" "${lref}" "${cpdir}/${slug}.log"; then
                       rc=0
@@ -1257,15 +1325,28 @@ data:
                       rc=$?
                     fi
                   fi
-                  echo "[harbor-prewarm] copy ${up} -> ${lref} attempt ${attempt}/${max_attempts}" >>"${cpdir}/${slug}.log"
-                  if prewarm_skopeo_copy "${up}" "${sc}" "${lref}" "${cpdir}/${slug}.log"; then
-                    rc=0
-                    src_used="${up}"
-                    break
+                  # #5525 leg 2 — the primary source host answered
+                  # `toomanyrequests` earlier in this job attempt and a fallback
+                  # source exists: skip the primary leg outright (every pull
+                  # from the same egress IP inside the same quota window is
+                  # guaranteed waste that re-arms the window) and go straight to
+                  # the fallback below. Without a fallback the primary keeps its
+                  # attempts — failing instantly with zero copies tried would
+                  # trade a slow failure for a certain one.
+                  if [ -n "${fb_up}" ] && [ -f "${cpdir}/.ratelimited.$(rl_slug "${srchost}")" ]; then
+                    echo "[harbor-prewarm] skip rate-limited primary ${up} (host latched toomanyrequests); straight to fallback ${fb_up} attempt ${attempt}/${max_attempts} (#5525)" >>"${cpdir}/${slug}.log"
+                    rc=1
                   else
-                    # Capture skopeo's REAL exit status INSIDE the else branch
-                    # (the #3379 hw138 always-0 trap).
-                    rc=$?
+                    echo "[harbor-prewarm] copy ${up} -> ${lref} attempt ${attempt}/${max_attempts}" >>"${cpdir}/${slug}.log"
+                    if prewarm_skopeo_copy "${up}" "${sc}" "${lref}" "${cpdir}/${slug}.log"; then
+                      rc=0
+                      src_used="${up}"
+                      break
+                    else
+                      # Capture skopeo's REAL exit status INSIDE the else branch
+                      # (the #3379 hw138 always-0 trap).
+                      rc=$?
+                    fi
                   fi
                   # #5095 — direct-source fallback: BEFORE counting this
                   # attempt failed, retry the SAME image from its canonical
@@ -1275,7 +1356,11 @@ data:
                   # reachable (proven hw255: ghcr.io copies all ok while every
                   # harbor.openova.io copy FAILed exit=1).
                   if [ -n "${fb_up}" ]; then
-                    echo "[harbor-prewarm] proxy source failed (exit=${rc}); direct-source fallback ${fb_up} -> ${lref} attempt ${attempt}/${max_attempts} (#5095)" >>"${cpdir}/${slug}.log"
+                    if [ "${proxy_src}" -eq 1 ]; then
+                      echo "[harbor-prewarm] proxy source failed (exit=${rc}); direct-source fallback ${fb_up} -> ${lref} attempt ${attempt}/${max_attempts} (#5095)" >>"${cpdir}/${slug}.log"
+                    else
+                      echo "[harbor-prewarm] primary source failed/skipped (exit=${rc}); mothership-proxy fallback ${fb_up} -> ${lref} attempt ${attempt}/${max_attempts} (#5525)" >>"${cpdir}/${slug}.log"
+                    fi
                     if prewarm_skopeo_copy "${fb_up}" "${fb_creds}" "${lref}" "${cpdir}/${slug}.log"; then
                       rc=0
                       src_used="${fb_up}"
@@ -1316,11 +1401,51 @@ data:
                     fi
                   fi
                 done
+                # #5525 leg 3 — a source-side outage must not fail an image the
+                # local registry ALREADY serves. The #4994 skip keys on a SOURCE
+                # manifest read; when that source is rate-limited/unreachable
+                # the skip cannot run, the copy is attempted, fails, and the
+                # image counts failed even though the dest is current (hw291
+                # attempt 1785396281: A3-guard PASS durable_miss=0 alongside
+                # FATAL copy_fail=4 — a self-contradiction). So before counting
+                # the failure: if the SOURCE manifest is unreadable (the host is
+                # rate-limit-latched, or a fresh raw-manifest read yields
+                # nothing — i.e. the skip genuinely could not have run), fall
+                # back to a DEST-presence probe via harbor_durable_digest
+                # (Harbor CORE's DB, never a pull-through). Durably present ⇒
+                # WARN + keep the artifact: freshness against the source is
+                # unverifiable this run, and durable presence is exactly what
+                # the post-pivot pull contract needs. A READABLE source keeps
+                # the strict fail semantics — the failure then is a real
+                # transfer/dest defect, not a source blind spot.
+                if [ "${rc}" -ne 0 ]; then
+                  _rs_raw=""
+                  if [ ! -f "${cpdir}/.ratelimited.$(rl_slug "${srchost}")" ]; then
+                    if [ -n "${sc}" ]; then
+                      _rs_raw=$(skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" inspect --raw \
+                        --creds="${sc}" --tls-verify=true "docker://${up}" 2>/dev/null || true)
+                    else
+                      _rs_raw=$(skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" inspect --raw \
+                        --tls-verify=true "docker://${up}" 2>/dev/null || true)
+                    fi
+                  fi
+                  if [ -z "${_rs_raw}" ] && [ -n "$(harbor_durable_digest "${lref}")" ]; then
+                    echo "[harbor-prewarm] WARN ${up} -> ${lref}: source manifest unreadable (rate limit/outage) and every copy attempt failed, but the dest is durably present in local Harbor — keeping the durable artifact; source freshness UNVERIFIED this run (#5525)"
+                    echo "  WARN source unreadable + dest durably present; counted ok, freshness unverified (#5525)" >>"${cpdir}/${slug}.log"
+                    rc=0
+                    src_used=""
+                  fi
+                fi
                 # #5095 — log which source ultimately succeeded (stdout, real
                 # time, next to the done/skip lines + the per-image log).
                 if [ "${rc}" -eq 0 ] && [ -n "${src_used}" ] && [ "${src_used}" != "${up}" ]; then
-                  echo "[harbor-prewarm] ${up} -> ${lref} succeeded via DIRECT upstream ${src_used} (mothership proxy path failing; #5095)"
-                  echo "  succeeded via direct upstream ${src_used} (mothership proxy path failing)" >>"${cpdir}/${slug}.log"
+                  if [ "${proxy_src}" -eq 1 ]; then
+                    echo "[harbor-prewarm] ${up} -> ${lref} succeeded via DIRECT upstream ${src_used} (mothership proxy path failing; #5095)"
+                    echo "  succeeded via direct upstream ${src_used} (mothership proxy path failing)" >>"${cpdir}/${slug}.log"
+                  else
+                    echo "[harbor-prewarm] ${up} -> ${lref} succeeded via mothership-proxy fallback ${src_used} (primary source failing/rate-limited; #5525)"
+                    echo "  succeeded via mothership-proxy fallback ${src_used} (primary source failing/rate-limited)" >>"${cpdir}/${slug}.log"
+                  fi
                 fi
                 [ "${rc}" -eq 0 ] || { all_ok=0; last_rc="${rc}"; }
               done
@@ -2214,6 +2339,13 @@ data:
                 cat_cpdir=/tmp/prewarm-chart-image-copies
                 rm -rf "${cat_cpdir}"; mkdir -p "${cat_cpdir}"
                 [ -f "${cpdir}/.proxy_down" ] && touch "${cat_cpdir}/.proxy_down"
+                # #5525 leg 2 — carry the per-host toomanyrequests latches into
+                # the chart-image wave too, so a host that exhausted its quota
+                # during Phase A is not re-hammered by Phase A3.
+                for _rl_f in "${cpdir}"/.ratelimited.*; do
+                  [ -e "${_rl_f}" ] || continue
+                  cp "${_rl_f}" "${cat_cpdir}/" 2>/dev/null || true
+                done
                 # copy_one writes its sentinels into the GLOBAL cpdir; point it
                 # at this wave's dir and restore afterwards so nothing later in
                 # the step observes a mutated global.
@@ -2315,9 +2447,26 @@ data:
               if [ "${cat_render_fail}" -gt 0 ]; then
                 echo "[harbor-prewarm] Phase A3-chart-images WARN: ${cat_render_fail} chart(s) could not be pulled back or rendered (named above) — their images were NOT enumerated from the chart; those charts rely on the live-cluster wave alone (#5442)"
               fi
+              # #5525 leg 3 — copy_fail ALONE is not a post-severance
+              # ImagePullBackOff: the A3-guard durability sweep directly above
+              # is the AUTHORITATIVE assertion of what the pivoted registry
+              # serves, and copy_fail>0 with durable_miss=0 means every failed
+              # copy was a freshness re-copy against a source we no longer need
+              # (live hw291 attempt 1785396281: `Phase A3-guard (#5442): PASS`
+              # with durable_miss=0 immediately followed by `FATAL ...
+              # copy_fail=4` — the gate contradicted its own sweep). That shape
+              # degrades to a LOUD WARN naming the refs; FATAL keys on
+              # { durable_miss>0 || unmapped } ONLY.
+              if [ "${cat_img_fail}" -gt 0 ] && [ "${img_missing_n}" -eq 0 ] && [ -z "${cat_img_unmapped}" ]; then
+                echo "[harbor-prewarm] Phase A3-chart-images WARN (#5525): ${cat_img_fail} copy attempt(s) failed but EVERY chart-declared image path is durably present in local Harbor (A3-guard PASS, durable_miss=0) — the failures were freshness re-copies against unreachable/rate-limited sources; the pivoted registry serves the full set. Failed ref(s):"
+                for f in "${cat_cpdir}"/*.fail; do
+                  [ -e "${f}" ] || continue
+                  echo "  WARN-COPY-FAIL $(cat "${f}")"
+                done
+              fi
               if [ "${PREWARM_CHART_IMAGES_FATAL}" = "true" ] \
-                 && { [ "${cat_img_fail}" -gt 0 ] || [ "${img_missing_n}" -gt 0 ] || [ -n "${cat_img_unmapped}" ]; }; then
-                echo "[harbor-prewarm] FATAL (#5442): the pinned charts declare image(s) the local registry cannot serve (copy_fail=${cat_img_fail} durable_miss=${img_missing_n} unmapped=$(printf '%s\n' ${cat_img_unmapped} | grep -c . || true)). Step-05 pivots flux onto these exact chart versions, so every workload whose image is missing goes ImagePullBackOff against a registry that correctly answers NotFound — and if catalyst-api is among them the Sovereign cannot self-heal, because catalyst-api is what drives the cutover (live hw290 2026-07-27). Fix the named refs (extend offlineMirror.hostProjects for an UNMAPPED host; re-trigger step-03 with egress open for a copy failure) or set prewarm.chartImages.fatal=false to proceed knowing the post-pivot world is not fully pullable."
+                 && { [ "${img_missing_n}" -gt 0 ] || [ -n "${cat_img_unmapped}" ]; }; then
+                echo "[harbor-prewarm] FATAL (#5442 #5525): the pinned charts declare image(s) the local registry cannot serve (durable_miss=${img_missing_n} unmapped=$(printf '%s\n' ${cat_img_unmapped} | grep -c . || true) copy_fail=${cat_img_fail}). Step-05 pivots flux onto these exact chart versions, so every workload whose image is missing goes ImagePullBackOff against a registry that correctly answers NotFound — and if catalyst-api is among them the Sovereign cannot self-heal, because catalyst-api is what drives the cutover (live hw290 2026-07-27). Fix the named refs (extend offlineMirror.hostProjects for an UNMAPPED host; re-trigger step-03 with egress open for a durable miss) or set prewarm.chartImages.fatal=false to proceed knowing the post-pivot world is not fully pullable."
                 exit 1
               fi
             else

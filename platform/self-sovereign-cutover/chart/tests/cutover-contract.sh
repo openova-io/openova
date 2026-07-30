@@ -3704,4 +3704,120 @@ if ! bash "${CATSET}" "$(pwd)" >/dev/null 2>&1; then
 fi
 echo "  PASS (03c library derives the catalog chart set + HARD/SOFT split, the guard names exactly the unservable contractual entries, chart-rendered image enumeration works, and step-03 + RBAC wire all of it)"
 
+# ── Case 73 (#5525, Refs #5442 #5095): step-03 rides out a scarf.sh/Docker-Hub
+# anonymous rate limit — mothership fallback for scarf hosts, toomanyrequests
+# host latch, and a FATAL gate that keys on durable_miss/unmapped ONLY ────────
+# hw291 (dep 2c2d746b578c636b, 2026-07-30): 4 litmuschaos.docker.scarf.sh refs
+# cycled 4 pod attempts over ~60 min on `toomanyrequests` — the #5095 fallback
+# never engaged (it fires only for mothership-SOURCED refs) while
+# harbor.openova.io/proxy-dockerhub served the SAME artifacts anonymously the
+# whole time; each retry wave itself kept the per-IP quota window exhausted;
+# and a LATER attempt printed `Phase A3-guard (#5442): PASS ... durable_miss=0`
+# immediately followed by `FATAL ... copy_fail=4` — the gate contradicting its
+# own authoritative durability sweep.
+echo "[cutover-contract] Case 73: step-03 scarf.sh mothership fallback + toomanyrequests host latch + A3 FATAL keys on durable_miss/unmapped only (#5525)"
+[ -s "$TMP/s03pin.yaml" ] || awk '/name: cutover-step-03-harbor-prewarm/{c=1} /name: cutover-step-04-registry-pivot/{c=0} c' "$TMP/render.yaml" > "$TMP/s03pin.yaml"
+# (a) LEG 1 — scarf hosts derive a mothership-proxy fallback via the FORWARD
+#     coverage-map lookup (no second hand-list), and the proxy-DOWN
+#     direct-first short-circuit is gated on proxy_src so a .proxy_down latch
+#     never reorders a scarf ref onto the dead proxy first.
+if ! grep -qF '*.docker.scarf.sh)' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 copy_one has no *.docker.scarf.sh source arm — scarf-sourced refs keep hammering the anonymous Docker Hub path with no mothership fallback (#5525)" >&2
+  exit 1
+fi
+if ! grep -qF 'fb_up="${MOTHERSHIP_HOST}/${_fb_proj}/${up#*/}"' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 scarf fallback is not derived as \${MOTHERSHIP_HOST}/<project>/<path> via the forward coverage-map lookup — either a second hand-list exists or the fallback is absent (#5525)" >&2
+  exit 1
+fi
+if ! grep -qF 'scarf.sh redirector source' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 does not log the scarf mothership-proxy fallback availability — a silent source pivot hides the rate-limit degradation from the operator (#5525)" >&2
+  exit 1
+fi
+if ! grep -qF '[ "${proxy_src}" -eq 1 ] && [ -n "${fb_up}" ] && [ "${PROXY_DIRECT_FIRST_ENABLED:-true}" = "true" ]' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 direct-first short-circuit is not gated on proxy_src — a .proxy_down latch would route a scarf ref to the DEAD mothership proxy FIRST (#5525)" >&2
+  exit 1
+fi
+# (b) LEG 2 — a toomanyrequests reply latches the source host (offset-bounded
+#     sniff of the leg's OWN log region), latched primaries are skipped
+#     straight to the fallback, and the latch carries into the A3 wave.
+if ! grep -qF 'tail -c +"$((_pc_off+1))"' "$TMP/s03pin.yaml" || ! grep -qF "grep -qi 'toomanyrequests'" "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 prewarm_skopeo_copy does not sniff its own log region for toomanyrequests — rate-limited hosts are never latched and every retry re-arms the quota window (#5525)" >&2
+  exit 1
+fi
+if ! grep -qF 'touch "${cpdir}/.ratelimited.$(rl_slug "${_pc_h}")"' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 never latches .ratelimited.<host> — the short-circuit has no signal to key on (#5525)" >&2
+  exit 1
+fi
+if ! grep -qF 'skip rate-limited primary' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 copy_one never skips a rate-limit-latched primary source — remaining attempts keep burning the exhausted window instead of going straight to the fallback (#5525)" >&2
+  exit 1
+fi
+if ! grep -qF 'cp "${_rl_f}" "${cat_cpdir}/"' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 does not carry the .ratelimited.* latches into the Phase A3 chart-image wave — a host exhausted during Phase A gets re-hammered by A3 (#5525)" >&2
+  exit 1
+fi
+# (c) LEG 3 — the dest-presence rescue: a failed copy whose SOURCE manifest is
+#     unreadable consults harbor_durable_digest on the DEST before counting a
+#     failure.
+if ! grep -qF '[ -z "${_rs_raw}" ] && [ -n "$(harbor_durable_digest "${lref}")" ]' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 copy_one has no dest-presence rescue — a rate-limited source still fails an image the local registry already serves (#5525)" >&2
+  exit 1
+fi
+if ! grep -qF 'WARN source unreadable + dest durably present' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 dest-presence rescue is silent — the freshness-unverified degrade must be a LOUD WARN in the per-image log (#5525)" >&2
+  exit 1
+fi
+# (d) LEG 3 — the A3 FATAL condition keys on { durable_miss>0 || unmapped }
+#     ONLY, proven BOTH DIRECTIONS by EXECUTING the exact rendered condition:
+#     the two physical lines of the `if` are extracted from the render,
+#     reassembled, and run under sh with scenario env — so this cannot pass on
+#     a re-worded-but-equivalent-to-the-old gate, and cannot pass vacuously on
+#     an empty extraction.
+grep -A1 -F 'if [ "${PREWARM_CHART_IMAGES_FATAL}" = "true" ]' "$TMP/s03pin.yaml" > "$TMP/a3gate.txt" || true
+if [ ! -s "$TMP/a3gate.txt" ]; then
+  echo "FAIL: cannot extract the A3 FATAL condition from the render — the PREWARM_CHART_IMAGES_FATAL gate is gone entirely (#5525 vacuity check)" >&2
+  exit 1
+fi
+a3cond=$(sed -e 's/^ *//' -e 's/ \\$//' "$TMP/a3gate.txt" | tr '\n' ' ' | sed -e 's/^if //' -e 's/; then *$//')
+# Direction 1 (the hw291 self-contradiction): copy_fail>0 with durable_miss=0
+# and no unmapped host must NOT fatal.
+if ! PREWARM_CHART_IMAGES_FATAL=true cat_img_fail=4 img_missing_n=0 cat_img_unmapped="" \
+     sh -c "if ${a3cond}; then exit 1; else exit 0; fi"; then
+  echo "FAIL: the A3 gate still FATALs on copy_fail=4 durable_miss=0 unmapped=0 — the gate contradicts its own durability sweep exactly as on hw291 attempt 1785396281 (#5525)" >&2
+  exit 1
+fi
+# Direction 2a: a durable miss MUST still fatal.
+if ! PREWARM_CHART_IMAGES_FATAL=true cat_img_fail=0 img_missing_n=1 cat_img_unmapped="" \
+     sh -c "if ${a3cond}; then exit 0; else exit 1; fi"; then
+  echo "FAIL: the A3 gate no longer FATALs on durable_miss=1 — the #5442 sovereignty guarantee was waived, not re-keyed (#5525)" >&2
+  exit 1
+fi
+# Direction 2b: an unmapped host MUST still fatal.
+if ! PREWARM_CHART_IMAGES_FATAL=true cat_img_fail=0 img_missing_n=0 cat_img_unmapped=" host(ref)" \
+     sh -c "if ${a3cond}; then exit 0; else exit 1; fi"; then
+  echo "FAIL: the A3 gate no longer FATALs on an unmapped registry host — an uncoverable image would surface as ImagePullBackOff mid deny-egress hold instead of failing loud here (#5525)" >&2
+  exit 1
+fi
+# Direction 2c: the fatal=false override still disarms the gate.
+if ! PREWARM_CHART_IMAGES_FATAL=false cat_img_fail=0 img_missing_n=1 cat_img_unmapped="" \
+     sh -c "if ${a3cond}; then exit 1; else exit 0; fi"; then
+  echo "FAIL: prewarm.chartImages.fatal=false no longer disarms the A3 gate (#5525)" >&2
+  exit 1
+fi
+# The copy-fail-only shape must degrade to a LOUD WARN naming the refs.
+if ! grep -qF 'WARN-COPY-FAIL' "$TMP/s03pin.yaml"; then
+  echo "FAIL: the copy_fail-with-durable_miss=0 shape has no loud WARN naming the failed refs — degrading the FATAL must not degrade the visibility (#5525)" >&2
+  exit 1
+fi
+# (e) untouched guarantees: Phase A's push_fail FATAL + the A3 durability sweep.
+if ! grep -qF 'failed to push — Sovereign cannot survive ghcr.io deny-egress post-cutover' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A lost the push_fail>0 FATAL — #5525 re-keys the A3 gate only, never the Phase A completeness guarantee (#5525)" >&2
+  exit 1
+fi
+if ! grep -qF 'Phase A3-guard (#5442)' "$TMP/s03pin.yaml"; then
+  echo "FAIL: the A3-guard durability sweep is gone — the re-keyed FATAL has lost its authoritative input (#5525)" >&2
+  exit 1
+fi
+echo "  PASS (#5525: scarf hosts fall back to the mothership proxy via the forward map lookup [direct-first stays proxy_src-gated], toomanyrequests latches the host + skips latched primaries + carries into A3, the dest-presence rescue keeps a durably-present image, and the A3 FATAL — executed both directions from the rendered condition — keys on durable_miss/unmapped only with the copy-fail shape a loud WARN)"
+
 echo "[cutover-contract] All gates green."

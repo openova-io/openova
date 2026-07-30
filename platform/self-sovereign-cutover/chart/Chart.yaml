@@ -1,5 +1,60 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.158 (#5525 Refs #5442 #5095 #3379 — step-03 harbor-prewarm: three legs
+# against the hw291 2026-07-30 scarf.sh/Docker-Hub rate-limit wall (dep
+# 2c2d746b578c636b: 4 litmuschaos.docker.scarf.sh refs cycled 4 pod attempts
+# over ~60 min on `toomanyrequests`, then a LATER attempt printed `Phase
+# A3-guard (#5442): PASS ... durable_miss=0` immediately followed by `FATAL ...
+# copy_fail=4` — the gate contradicted its own sweep):
+#   LEG 1 — scarf.sh engages the #5095 mothership fallback. Scarf download
+#     gateways (*.docker.scarf.sh) are redirectors in front of Docker Hub (they
+#     delegate auth to auth.docker.io and pass through Hub's verbatim
+#     rate-limit body — the 0.1.157 discovery), so Hub's ANONYMOUS per-IP quota
+#     applies THROUGH them; but the #5095 fallback fires only for
+#     mothership-SOURCED refs, so these direct-sourced copies hammered the
+#     exhausted anonymous path while harbor.openova.io/proxy-dockerhub served
+#     the SAME artifacts anonymously the whole time (proven live). copy_one now
+#     derives the INVERSE fallback for scarf hosts — mothership proxy as the
+#     SECONDARY source — via the FORWARD coverage-map lookup (the host's own
+#     project: litmuschaos.docker.scarf.sh -> proxy-dockerhub), path preserved;
+#     no second hand-list; DEST untouched (step-04/07/08 resolve the identical
+#     local artifact). The #5095-round-2 proxy-DOWN direct-first short-circuit
+#     is now ALSO gated on proxy_src so a .proxy_down latch never reorders a
+#     scarf ref onto the dead proxy first.
+#   LEG 2 — `toomanyrequests` short-circuits the host for the job attempt.
+#     Retrying a per-IP quota window from the same egress IP inside the same
+#     window is guaranteed waste that itself RE-ARMS the window (3 outer x 5
+#     inner manifest reads per image per pod attempt sustained the exhaustion
+#     across 4 pod attempts). prewarm_skopeo_copy now sniffs each failed leg's
+#     own log region (byte-offset bounded) for `toomanyrequests` and latches
+#     ${cpdir}/.ratelimited.<host>; copy_one skips a latched PRIMARY source and
+#     goes straight to the fallback wherever one exists (a fallback-less
+#     primary keeps its attempts — failing instantly with zero copies tried
+#     would trade a slow failure for a certain one). Latches carry into the
+#     Phase A3 chart-image wave like the .proxy_down latch does.
+#   LEG 3 — the #5442 A3 FATAL keys on { durable_miss>0 || unmapped } ONLY.
+#     copy_fail>0 with durable_miss=0 and no unmapped host means every failed
+#     copy was a freshness re-copy against a source we no longer need — that
+#     shape degrades to a LOUD WARN naming the refs (the A3-guard durability
+#     sweep via harbor_durable_digest stays the authoritative assertion, and it
+#     runs over the WHOLE chart-declared set including live-wave-credited
+#     refs). AND copy_one gains a dest-presence rescue: when every copy attempt
+#     failed AND the SOURCE manifest is unreadable (rate-limit latch or a fresh
+#     raw-manifest read returning nothing — i.e. the #4994 digest-compare skip
+#     genuinely could not run), a harbor_durable_digest probe of the dest
+#     rescues the image with a WARN (freshness unverified) instead of a .fail —
+#     a rate-limited source can no longer fail an image the local registry
+#     already serves. A READABLE source keeps strict fail semantics, so a real
+#     transfer/dest defect still counts. Phase A's push_fail>0 FATAL and the
+#     A3-guard durable_miss FATAL are untouched — the sovereignty guarantee
+#     (every image durably in local Harbor before the deny-egress hold) is
+#     asserted where it belongs, by presence, not by copy-exit-codes.
+# Template 03 only; no new values knobs; no step-count / RBAC / deadline
+# change (still 11 steps). Contract Case 73 locks all three legs including a
+# both-directions proof of the FATAL-gate key set. Slot-06a pin +
+# blueprint.yaml + catalog-seed source.version + spec.version move to 0.1.158
+# in lockstep (Inviolable Principle #13).
+# ── prior ──
 # 0.1.157 (#5442 Refs #4975 #5443 #5095 — COVER THE TWO HOSTS THE
 # AUTHORING-TIME SCAN IS STRUCTURALLY BLIND TO. 0.1.154 made step-03 enumerate
 # images from the PINNED CATALOG CHARTS instead of only from what is installed.
@@ -2807,7 +2862,7 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.157
+version: 0.1.158
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
