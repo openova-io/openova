@@ -2625,7 +2625,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.49",
+    "version": "1.0.50",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -4218,7 +4218,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.14",
+    "version": "0.2.15",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-cnpg",
@@ -4775,7 +4775,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.157",
+    "version": "0.1.158",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-gitea",
