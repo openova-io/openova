@@ -340,6 +340,52 @@ describe('TopologyTab — #3982 runtime-derived placement', () => {
   })
 })
 
+describe('TopologyTab — #5515 an empty placement is "not reported", never a confident singleton', () => {
+  it('targets: [] renders Pattern "not reported" beside the empty note — NOT singleton', async () => {
+    // The live hw291 `cilium` case: /placement reports targets: [] and the
+    // panel already says "No placement targets reported yet." — yet the Pattern
+    // label read `singleton`, the one pattern that MEANS "no failover, and
+    // that's fine". Two contradictory claims in one panel.
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationStatus.mockResolvedValue({ name: 'cilium', namespace: 'kube-system', spec: {}, status: {} })
+    getApplicationPlacement.mockResolvedValue({ targets: [], derivedFromRuntime: true })
+
+    render(withProviders(<TopologyTab sovereignId="dep-hw291" applicationName="cilium" namespace="kube-system" />))
+
+    // POSITIVE CONTROL — the panel + the pattern cell really rendered, so the
+    // negative assertion below is not passing on an empty render.
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-placement-panel')).toBeTruthy()
+    })
+    const cell = screen.getByTestId('topology-tab-pattern')
+    expect(cell.textContent).toBe('not reported')
+    // THE regression: the confident pattern must not be claimed.
+    expect(cell.textContent).not.toBe('singleton')
+    // And the panel's own empty note is still there — the two now AGREE.
+    expect(screen.getByTestId('topology-tab-placement-empty')).toBeTruthy()
+  })
+
+  it('CONTROL — a real single-Primary app still renders the confident "singleton"', async () => {
+    // The other direction: the guard must not swallow real data. A component
+    // that returns "not reported" unconditionally fails here.
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationStatus.mockResolvedValue({ name: 'harbor', namespace: 'harbor', spec: {}, status: {} })
+    getApplicationPlacement.mockResolvedValue({
+      targets: [{ region: 'me-east-215-a', cluster: 'c', vcluster: 'mgmt', role: 'Primary' }],
+      derivedFromRuntime: true,
+    })
+
+    render(withProviders(<TopologyTab sovereignId="dep-hw291" applicationName="harbor" namespace="harbor" />))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-target-card-0')).toBeTruthy()
+    })
+    expect(screen.getByTestId('topology-tab-pattern').textContent).toBe('singleton')
+    expect(screen.getByTestId('topology-tab-pattern').textContent).not.toBe('not reported')
+    expect(screen.queryByTestId('topology-tab-placement-empty')).toBeNull()
+  })
+})
+
 describe('TopologyTab — DR / replication surface (#3375 rows 51/52/56/57)', () => {
   const standbyPlacement = {
     targets: [
@@ -612,6 +658,155 @@ describe('TopologyTab — #4886 bootstrap-HR DR off the live Continuum CR', () =
     expect(screen.getByTestId('topology-tab-dr-source').textContent).toContain('live')
     // The Status panel's honest "n/a — bootstrap component" note is unaffected.
     expect(screen.getByTestId('topology-tab-status-bootstrap')).toBeTruthy()
+  })
+
+  it('#5514: a DECLARED active-hot-standby with ZERO backing arms NOTHING — no lag, no follower card, switchover DISABLED', async () => {
+    // The live hw291 phantom (uatcorp/uatwalk-ahs-07300830): the Application
+    // DECLARES active-hot-standby, but the standby region has no namespace at
+    // all. Two things conspired:
+    //   • /placement returns targets: [] → the targetsFromLegacy fallback
+    //     projects Primary + Standby·Hot from the DECLARED mode → hasStandby.
+    //   • replication-status returns HTTP 200 (NOT a 404) with the
+    //     `source:"pending"` fallback envelope carrying a fabricated
+    //     replicas[] entry + walLagSeconds 0 + replicaPromotable false.
+    // Pre-fix that rendered "Replication lag 0.0 s", a "hot replica (follows
+    // WAL)" card, and an ARMED "Switch over…" targeting the phantom region.
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationStatus.mockResolvedValue({
+      name: 'uatwalk-ahs-07300830',
+      namespace: 'uatcorp',
+      // The DECLARED legacy posture — no spec.placement.targets[] at all.
+      spec: { placement: 'active-hot-standby', regions: ['me-east-215-a', 'me-east-215-b'] },
+      status: { placementRecon: 'Reconciling' },
+    })
+    getApplicationPlacement.mockResolvedValue({ targets: [], derivedFromRuntime: true })
+    getContinuumReplicationStatus.mockResolvedValue({
+      continuum: 'dr-uatwalk-ahs-07300830',
+      namespace: 'uatcorp',
+      primaryRegion: 'me-east-215-a',
+      currentPrimary: 'me-east-215-a',
+      walLagSeconds: 0,
+      replicaPromotable: false,
+      replicas: [{ region: 'me-east-215-b', role: 'replica' }],
+      source: 'pending',
+    })
+
+    render(
+      withProviders(
+        <TopologyTab
+          sovereignId="dep-hw291"
+          applicationName="uatwalk-ahs-07300830"
+          namespace="uatcorp"
+        />,
+      ),
+    )
+
+    // POSITIVE CONTROL (rule 2) — the surface really did render. Without this
+    // the absence assertions below would pass on an empty render.
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
+    })
+    // The declared standby DID drive the panel open, and the honest
+    // not-live badge is present — so we are on the real code path.
+    expect(screen.getByTestId('topology-tab-dr-source').textContent).toContain('not live')
+    // And the honest unbacked note renders (previously DEAD code, because the
+    // endpoint answers 200 and `drQ.isError` never fired).
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-none')).toBeTruthy()
+    })
+    expect(screen.getByTestId('topology-tab-dr-unbacked').textContent).toContain('DECLARES a standby')
+
+    // ── The three defects, each asserted absent ────────────────────────
+    // 1. NO numeric replication lag anywhere.
+    expect(screen.queryByTestId('topology-tab-dr-lag-value')).toBeNull()
+    expect(screen.queryByTestId('topology-tab-dr-lag')).toBeNull()
+    expect(document.body.textContent).not.toContain('0.0 s')
+    // 2. NO "hot replica (follows WAL)" standby card for the phantom region.
+    expect(screen.queryByTestId('topology-tab-dr-standby')).toBeNull()
+    expect(screen.queryByTestId('topology-tab-dr-standby-me-east-215-b')).toBeNull()
+    expect(document.body.textContent).not.toContain('hot replica (follows WAL)')
+    // 3. NO switchover control armed against a region with no namespace.
+    expect(screen.queryByTestId('topology-tab-dr-switchover-open')).toBeNull()
+    expect(screen.queryByTestId('continuum-switchover-dialog')).toBeNull()
+  })
+
+  it('#5514: an explicit replicaPromotable:false on a LIVE reading DISABLES the switchover (the verdict is consulted)', async () => {
+    // Backing IS live (so the panel + lag render honestly), but the backend
+    // says the replica cannot be promoted. The button must be disabled with a
+    // plain reason — pre-fix `disabled={!switchoverTarget}` ignored the verdict
+    // entirely and armed off a region STRING.
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
+    getApplicationPlacement.mockResolvedValue({
+      targets: [
+        { region: 'me-east-215-a', cluster: 'c', vcluster: 'host', role: 'Primary' },
+        { region: 'me-east-215-b', cluster: 'c-b', vcluster: 'host', role: 'Standby', standbyType: 'Hot' },
+      ],
+      derivedFromRuntime: true,
+    })
+    getContinuumReplicationStatus.mockResolvedValue({
+      continuum: 'dr-shared-pg',
+      namespace: 'shared-data',
+      primaryRegion: 'me-east-215-a',
+      currentPrimary: 'me-east-215-a',
+      walLagSeconds: 3.2,
+      replicaPromotable: false,
+      streamingState: 'catchup',
+      source: 'live',
+    })
+
+    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
+
+    // POSITIVE CONTROL — a live backing renders the full panel + real lag.
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-switchover-open')).toBeTruthy()
+    })
+    expect(screen.getByTestId('topology-tab-dr-lag-value').textContent).toContain('3.2 s')
+    // The button exists but is DISARMED, with the reason stated.
+    const btn = screen.getByTestId('topology-tab-dr-switchover-open') as HTMLButtonElement
+    expect(btn.disabled).toBe(true)
+    expect(screen.getByTestId('topology-tab-dr-switchover').textContent).toContain('not promotable')
+    // Clicking a disabled control opens nothing.
+    fireEvent.click(btn)
+    expect(screen.queryByTestId('continuum-switchover-dialog')).toBeNull()
+  })
+
+  it('#5514: a VERIFIED-absent standby disarms the switchover and shows no false 0.0 s lag', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
+    getApplicationPlacement.mockResolvedValue({
+      targets: [
+        { region: 'me-east-215-a', cluster: 'c', vcluster: 'host', role: 'Primary' },
+        { region: 'me-east-215-b', cluster: 'c-b', vcluster: 'host', role: 'Standby', standbyType: 'Hot' },
+      ],
+      derivedFromRuntime: true,
+    })
+    // #4901 shape — lag stays 0 through the outage, so a rendered "0.0 s"
+    // reads as perfect health exactly when the standby is gone.
+    getContinuumReplicationStatus.mockResolvedValue({
+      continuum: 'dr-shared-pg',
+      namespace: 'shared-data',
+      primaryRegion: 'me-east-215-a',
+      currentPrimary: 'me-east-215-a',
+      walLagSeconds: 0,
+      standbyAvailable: false,
+      streamingState: 'interrupted',
+      source: 'live',
+    })
+
+    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
+
+    // POSITIVE CONTROL — the panel and the absent banner rendered.
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-standby-absent')).toBeTruthy()
+    })
+    // The lag cell renders, but as an honest dash — not a false 0.0 s.
+    expect(screen.getByTestId('topology-tab-dr-lag-value').textContent).toContain('—')
+    expect(screen.getByTestId('topology-tab-dr-lag-value').textContent).not.toContain('0.0 s')
+    // Switchover disarmed: there is no standby leg to promote.
+    const btn = screen.getByTestId('topology-tab-dr-switchover-open') as HTMLButtonElement
+    expect(btn.disabled).toBe(true)
+    expect(screen.getByTestId('topology-tab-dr-switchover').textContent).toContain('nothing to promote')
   })
 
   it('does NOT render DR for a SINGLETON bootstrap app (synthesized fallback is never passed off as live)', async () => {
