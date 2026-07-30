@@ -1,0 +1,20 @@
+--- after /redeem @ https://marketplace.hw291.omantel.biz/redeem/?code=VCH-JA5QP28N8JZK
+  localStorage  = {}
+  sessionStorage= {}
+  cookies       = 
+--- after click -> /plans @ https://marketplace.hw291.omantel.biz/plans/
+  localStorage  = {"org-pending-voucher":"VCH-JA5QP28N8JZK","org-cart":"{\"plan\":\"9ef87527-1a88-4e97-9d57-add39b952231\",\"planName\":\"M\",\"apps\":[],\"addons\":[],\"orgName\":\"\",\"subdomain\":\"\",\"tld\":\"omani.rest\",\"email\":\"\",\"agents\":[],\"appConfigs\":{}}"}
+  sessionStorage= {}
+  cookies       = 
+--- after Select M @ https://marketplace.hw291.omantel.biz/plans/
+  localStorage  = {"org-pending-voucher":"VCH-JA5QP28N8JZK","org-cart":"{\"plan\":\"9ef87527-1a88-4e97-9d57-add39b952231\",\"planName\":\"M\",\"apps\":[],\"addons\":[],\"orgName\":\"\",\"subdomain\":\"\",\"tld\":\"omani.rest\",\"email\":\"\",\"agents\":[],\"appConfigs\":{}}"}
+  sessionStorage= {}
+  cookies       = 
+--- at /review @ https://marketplace.hw291.omantel.biz/review/
+  localStorage  = {"org-pending-voucher":"VCH-JA5QP28N8JZK","org-cart":"{\"plan\":\"9ef87527-1a88-4e97-9d57-add39b952231\",\"planName\":\"M\",\"apps\":[],\"addons\":[],\"orgName\":\"\",\"subdomain\":\"\",\"tld\":\"omani.rest\",\"email\":\"\",\"agents\":[],\"appConfigs\":{}}"}
+  sessionStorage= {}
+  cookies       = 
+--- at /checkout @ https://marketplace.hw291.omantel.biz/checkout/
+  localStorage  = {"org-pending-voucher":"VCH-JA5QP28N8JZK","org-cart":"{\"plan\":\"9ef87527-1a88-4e97-9d57-add39b952231\",\"planName\":\"M\",\"apps\":[],\"addons\":[],\"orgName\":\"\",\"subdomain\":\"\",\"tld\":\"omani.rest\",\"email\":\"\",\"agents\":[],\"appConfigs\":{}}"}
+  sessionStorage= {}
+  cookies       = 

@@ -1,0 +1,36 @@
+### hw291 R11 (2026-07-30) — gitea git-data across the #4325 host-ns re-home
+--- Does a re-home EVENT exist on this env? ---
+cluster nodes created : 2026-07-29T11:08:37Z
+gitea ns              : 2026-07-29T11:13:19Z
+gitea Deployment      : 2026-07-29T11:39:25Z
+gitea PVC             : 2026-07-29T11:39:25Z 20Gi evs-ssd RWO
+vClusters live        : 0   [CONTROL: CRD vclusters.vcluster.com IS installed, so the zero is a real null, not a bad query]
+=> gitea was installed host-side at t=0 and never lived in a vCluster on this env.
+=> There is NO vcluster->host migration for the data to have survived. Row unreachable BY CONSTRUCTION on a fresh prov.
+
+--- Substitute signal: the invariant the row protects (git data live + non-empty) HOLDS ---
+repo root size: 445.5M
+bare repos:
+/data/git/gitea-repositories/catalog-sovereign/bp-alloy.git
+/data/git/gitea-repositories/catalog-sovereign/bp-wordpress.git
+/data/git/gitea-repositories/hw291-omantel-biz/catalyst-tenant.git
+/data/git/gitea-repositories/hw291-omantel-biz/hw291-omantel-biz-environment.git
+/data/git/gitea-repositories/openova/openova.git
+/data/git/gitea-repositories/uatcorp/catalyst-tenant.git
+/data/git/gitea-repositories/uatcorp/iac.git
+/data/git/gitea-repositories/uatcorp/uatcorp-environment.git
+/data/git/gitea-repositories/uatcorp/uatwalk-ahs-07300830.git
+
+HEAD per repo (a real commit object => not an empty-PVC re-init):
+catalog-sovereign/bp-alloy.git                                 0d7f29d1f192ab5ade65444bb828fa064dea9d54
+catalog-sovereign/bp-wordpress.git                             eb5ea1e679c6b51499b4a91a2e0540e70bd58ae7
+hw291-omantel-biz/catalyst-tenant.git                          b12bf99c628f4f7eaae6882047bbd2998245393a
+hw291-omantel-biz/hw291-omantel-biz-environment.git            d5f75e750ae493319675edc61bc6a1cea00931b4
+openova/openova.git                                            c6131cd40003d07b64e60fad94cfda79088119c4
+uatcorp/catalyst-tenant.git                                    6e01e4494898d0ecebae9a87aaa836a198a1b96d
+uatcorp/iac.git                                                2b0b6e20711a5c050f2c37d994f21b31ea8879a2
+uatcorp/uatcorp-environment.git                                7de35316182ae497fe4e1db9bc321a56bf3a70bf
+uatcorp/uatwalk-ahs-07300830.git                               c06312446fbb532a646791b7018cf5dede7542fa
+
+--- gitea is SERVING (Ready != serving), 6 independent invocations ---
+GET https://gitea.hw291.omantel.biz/ : 303 303 000 303 303 303   (303 = SSO redirect to Keycloak, the expected authed-console behaviour)

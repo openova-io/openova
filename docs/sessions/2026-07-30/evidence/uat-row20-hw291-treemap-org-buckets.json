@@ -734,3 +734,24 @@
     ],
     "total_count": 102
 }
+### hw291 row 20 (2026-07-30) — customer estate visually distinct from platform pods on the treemap
+
+UI WALK (owner session, https://console.hw291.omantel.biz/dashboard):
+  default stack is [progress, kind] (job-sourced, #4731). Deliberately changed BOTH selects:
+    treemap-layer-0-select -> organization ; treemap-layer-1-select -> application
+  the stack flip re-derived colour/size to utilisation / cpu_request and fired the resource feed:
+    200 /api/v1/dashboard/treemap?group_by=organization%2Capplication&color_by=utilization&size_by=cpu_request&deployment_id=2c2d746b578c636b
+  rendered [data-testid=dashboard-treemap-surface] innerText contains EXACTLY TWO top-level blocks:
+    'Platform overhead'  -> ~100 platform application children (cnpg-pair, shared-pg{,-b,-c}, seaweedfs, mimir, ...)
+    'uatcorp'            -> exactly two children: bp-age... (bp-agenity) and bp-oid... (bp-oidc-gate)
+  screenshot: uat-row20-hw291-treemap-organization-layer.png  (labelled 'Platform overhead' block left, labelled 'uatcorp' column right)
+  NO platform workload appears inside the uatcorp block and no customer workload inside Platform overhead.
+
+DATA CONTROL — the same dimension over the API, so the two-bucket render is not a UI artifact:
+  group_by=organization                -> total_count=2  { __platform__ 'Platform overhead' count=194 size=20110 ; uatcorp count=2 size=1050 }
+  group_by=organization,application    -> total_count=102, __platform__ children=100, uatcorp children=[bp-agenity 1000, bp-oidc-gate 50]
+  (2026-07-29's single-bucket total_count=1 is stale: uatcorp had no namespace then. It now has one, Ready=True,
+   with bp-agenity-0 1/1 Running + oidc-gate-agenity-uatcorp 1/1 Running.)
+
+join key: dashboard.go:791 'organization' buckets on podRow.org from the ns/pod label openova.io/organization,
+the SAME key the showback attributes by; unlabelled host/control-plane pods roll into the __platform__ sentinel.

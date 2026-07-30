@@ -1,0 +1,42 @@
+### hw291 rows 78 / 85 / 88 / 91 / 93 / 217 (2026-07-30) — funnel + PIN walls, with the exact wall named per row
+
+SHARED PRECONDITION THAT CHANGED SINCE 2026-07-29: a voucher now EXISTS.
+  GET /api/v1/org/billing/vouchers/list?limit=200 (5/5 invocations, HTTP 200, identical body):
+  VCH-JA5QP28N8JZK | credit_omr 50 | plan_tier m | active true | max_redemptions 1 | times_redeemed 0 | created 2026-07-29T19:31:00Z
+  (the 2026-07-29 walk's 'ZERO vouchers exist' is stale — that is why 75 and 78 are now walkable)
+
+ROW 78 = PASS. redeem page -> button 'Sign up to redeem' clicked -> browser at https://marketplace.hw291.omantel.biz/plans/
+  destination content: 'Pick a plan' + the S/M/L/XL/Flexi comparison grid (vCPU/RAM/Disk/Bandwidth/SLA rows).
+  8 independent fresh-TCP invocations of the redeem URL: 200 200 200 200 000 200 200 200 = 7/8 (one shared-VIP drop, not a defect).
+
+ROW 85 = BLOCKED-MUTATION, but the CARRY-THROUGH leg is proven read-only:
+  localStorage after the redeem click, unchanged all the way to /checkout/:
+    org-pending-voucher = VCH-JA5QP28N8JZK
+    org-cart            = {plan:9ef87527-1a88-4e97-9d57-add39b952231, planName:M, tld:omani.rest, ...}
+  /review/ renders 'MONTHLY TOTAL | M plan OMR 9.000 | Total OMR 9.000' with NO credit line — consistent with the
+  redeem page's own copy 'The credit is applied at checkout after you create your Organization', so not a defect at /review.
+  /checkout/ renders 'Sign in to complete your order' + 'Send sign-in code' and NO order summary.
+  => the asserted strings 'Credit covers this order' / '0 OMR due' were NEVER rendered (probe count 0 for each);
+     reaching them needs a sign-up + Org create = mutation. No Stripe iframe/card input anywhere (probe 0) but that
+     clause is VACUOUS pre-signin and is not counted as a pass.
+
+ROWS 88 / 91 = BLOCKED-MUTATION *and* independently walled by #5511:
+  both rows' destination is the per-Org console. For the ALREADY-provisioned funnel Org uatcorp that host is dead:
+    console.uatcorp.omani.homes  -> 000 000 000 000 000 000 000 000   (0/8)
+    agenity.uatcorp.omani.homes  -> 000 000 000 000 000 000 000 000   (0/8)
+    CONTROL, same VIP 212.72.24.1: console.hw291.omantel.biz -> 200 200 200 200 200 000 200 200 (7/8)
+  DNS answers for all three (org-controller writes the A set unconditionally) — resolving is not delivery.
+  => even a completed redemption could not satisfy 88/91 today.
+  Row 91 code note (not a verdict): core/marketplace/src/layouts/Layout.astro:176 gates the mothership /nova base on
+  host === MOTHERSHIP_HOST, so a marketplace.<sovereign> visitor derives a SOVEREIGN console; the mothership base is
+  nonetheless present in the served script as the split literal 'marketplace.' + ['openova','io'].join('.') (config.ts:32).
+
+ROW 93 = BLOCKED-MUTATION. Needs a SECOND voucher minted (POST) + a second Org on a different pool TLD.
+  Only ONE voucher exists and it has max_redemptions=1 / times_redeemed=0 — consuming it would also destroy row 75/78's fixture.
+
+ROW 217 = BLOCKED, two independent reasons:
+  (a) affordance present but the write was not made: https://console.hw291.omantel.biz/login renders
+      [data-testid=login-email], [data-testid=login-submit]='Send code', copy 'Enter your email to receive a 6-digit PIN.',
+      and input[type=password] count = 0 (passwordless confirmed). Issuing the PIN is a POST + an IMAP mailbox read.
+  (b) the row's PASS requires landing signed in AS THE CUSTOMER with THEIR Org in the header. That surface is
+      console.uatcorp.omani.homes -> 000 000 000 000 000 000 (0/6). Even with a PIN in hand the destination is unreachable (#5511).

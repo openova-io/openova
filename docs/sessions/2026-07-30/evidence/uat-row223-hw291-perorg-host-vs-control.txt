@@ -1,0 +1,10 @@
+### hw291 2026-07-30 — per-Org host delivery vs control (#5511)
+--- DNS answers (resolving is NOT delivery) ---
+console.uatcorp.omani.homes -> 212.72.24.1 
+agenity.uatcorp.omani.homes -> 212.72.24.1 
+console.hw291.omantel.biz -> 212.72.24.1 
+mcp.hw291.omantel.biz -> 212.72.24.6 
+--- HTTP, 8 independent invocations each ---
+console.uatcorp.omani.homes          000 000 000 000 000 000 000 000 
+agenity.uatcorp.omani.homes          000 000 000 000 000 000 000 000 
+console.hw291.omantel.biz            200 200 200 200 200 000 200 200 
