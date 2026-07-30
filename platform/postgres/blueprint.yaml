@@ -16,7 +16,10 @@ spec:
   # from the primary region (#4915 remedy class).
   # 0.2.14 (#5473): replication-source Service selectorType r -> rw; `r`
   # selected ALL instances, so a standby could serve as the DR source.
-  version: 0.2.14
+  # 0.2.15 (#5504): bootstrap.initdb.secret now names the owner's roleSecret;
+  # initdb previously minted the owner with the generated <cluster>-app
+  # password, so every consumer got 28P01 while CNPG reported reconciled.
+  version: 0.2.15
   card:
     title: PostgreSQL
     summary: |

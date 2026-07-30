@@ -925,3 +925,67 @@ if ! printf '%s' "${repl_sel}" | grep -q 'catalyst.openova.io/role: replication-
   exit 1
 fi
 echo "  PASS (no 'selectorType: r' in the managed services block; replication-source present)"
+
+# ── #5504 — the initdb OWNER must be born holding the managed-role Secret ──
+# The first binding's owner is declared in TWO places: bootstrap.initdb.owner
+# (CNPG mints it during initdb) and managed.roles[] (passwordSecret). Without
+# bootstrap.initdb.secret, initdb mints the role with CNPG's auto-generated
+# `<cluster>-app` credential and that is the password Postgres KEEPS — so every
+# consumer, which is handed the roleSecret, gets SQLSTATE 28P01 while CNPG
+# reports the role `managedRolesStatus.byStatus.reconciled` over a password that
+# never took effect. Proven live on hw291: shared-pg-harbor (len 32) REJECTED as
+# user harbor, shared-pg-app (len 64) AUTHENTICATED; gitea + keycloak (same
+# chart, same managed.roles shape, NOT the initdb owner) both authenticated.
+# Harbor down took cutover step-02/03 with it and parked the chain at 9%.
+echo "[render] Case #5504: initdb owner Secret == its managed-role passwordSecret"
+seed_out=$(helm template shared-pg . \
+  --set enabled=true --set instance.name=shared-pg \
+  --set 'databases[0].name=registry' --set 'databases[0].owner=harbor' \
+  --set 'databases[1].name=gitea'    --set 'databases[1].owner=gitea' \
+  --api-versions postgresql.cnpg.io/v1 2>/dev/null)
+
+# VACUITY FIRST: a grep for a missing key "passes" trivially on an empty render.
+if ! printf '%s' "${seed_out}" | grep -q '^kind: Cluster'; then
+  echo "FAIL (#5504): no Cluster CR rendered — every assertion below is vacuous." >&2
+  exit 2
+fi
+if ! printf '%s' "${seed_out}" | grep -qE '^      owner: "harbor"'; then
+  echo "FAIL (#5504): initdb owner did not render — assertion vacuous." >&2
+  exit 2
+fi
+
+# The initdb block must carry a `secret:` naming the owner's role Secret.
+initdb_secret=$(printf '%s' "${seed_out}" \
+  | awk '/^  bootstrap:/,/^  managed:/' | awk '/^      secret:/{f=1;next} f&&/name:/{print $2;exit}')
+role_secret=$(printf '%s' "${seed_out}" \
+  | awk '/^    roles:/{f=1} f&&/- name: "harbor"/{g=1} g&&/name:/&&!/- name:/{print $2;exit}')
+
+if [ -z "${initdb_secret}" ]; then
+  echo "FAIL (#5504): bootstrap.initdb has no 'secret:' — the owner will be minted with the" >&2
+  echo "  auto-generated <cluster>-app credential and every consumer will get 28P01." >&2
+  exit 1
+fi
+if [ "${initdb_secret}" != "${role_secret}" ]; then
+  echo "FAIL (#5504): initdb secret ${initdb_secret} != managed-role passwordSecret ${role_secret}." >&2
+  echo "  Two credentials for one role; CNPG ranks initdb and reports the other reconciled." >&2
+  exit 1
+fi
+echo "  PASS (initdb secret == managed-role passwordSecret == ${initdb_secret})"
+
+# Guard the no-bindings fallback: with zero databases there is no owner Secret to
+# name, so initdb must NOT emit a dangling `secret:` (CNPG would fail to find it).
+nobind_vals="$(mktemp)"
+printf 'enabled: true\ninstance:\n  name: shared-pg\ndatabases: []\n' > "${nobind_vals}"
+empty_out=$(helm template shared-pg . -f "${nobind_vals}" \
+  --api-versions postgresql.cnpg.io/v1 2>/dev/null || true)
+rm -f "${nobind_vals}"
+if [ -z "${empty_out}" ]; then
+  echo "FAIL (#5504): the no-bindings render produced nothing — cannot assert the fallback." >&2
+  exit 2
+fi
+if printf '%s' "${empty_out}" | awk '/^  bootstrap:/,/^  managed:/' | grep -qE '^      secret:'; then
+  echo "FAIL (#5504): initdb emitted a 'secret:' with no bindings declared — it would name a" >&2
+  echo "  Secret nothing creates. The block must be guarded on the first binding existing." >&2
+  exit 1
+fi
+echo "  PASS (no-bindings fallback emits no dangling initdb secret)"
