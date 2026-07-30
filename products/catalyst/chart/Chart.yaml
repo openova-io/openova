@@ -3618,7 +3618,7 @@ name: bp-catalyst-platform
 #   the customer marketplace grid and made it CONTRACTUAL for the cutover's #5442
 #   A3 guard, failing hw291 at step-03. Unlisting restores the #5443 invariant
 #   (advertise only what can install); restore to listed with the build.
-version: 1.4.1258
+version: 1.4.1259
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
