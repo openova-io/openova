@@ -16,12 +16,17 @@
 // vouchers.*, cutover.*, placement.*) stay DEFERRED to follow-ups per
 // #3988 §5.
 //
-// Org scoping is enforced at the handler boundary: an Org-context caller
-// only ever sees/touches data for their own OrgID (the catalyst-api
-// endpoint is addressed by the caller's bound deployment; Application items
-// are filtered to the caller's Org namespace on read, and the target
-// organizationRef is gated to the caller's Org on create). A sovereign-
-// admin sees/acts on the full set unfiltered.
+// Org scoping is enforced by SEAM CHOICE, not by client-side filtering
+// (#5516). An Org-context caller is routed to the catalyst-api's own-org
+// endpoints — GET/POST /api/v1/org/applications — which resolve the caller's
+// Org namespace server-side from X-Tenant-Host and are the only application
+// paths the catalyst-api OrgScopeGuard allowlists for tier=org-admin. The
+// deployment-addressed `/api/v1/sovereigns/{id}/…` seam is Sovereign-wide and
+// 403s an Org session, so it is reserved for sovereign-admin context, where
+// the session IS deployment-bound and reads across every Org unfiltered.
+//
+// Consequence: no Org-context tool may call requireDeployment. An Org session
+// carries no deployment_id claim and does not need one.
 package tools
 
 import (
@@ -62,14 +67,14 @@ func catalogue() []Tool {
 		},
 		{
 			Name:        "list_applications",
-			Description: "List the Applications in the caller's Organization, with blueprint, version, namespace, and phase — exactly what the console Applications page shows for that user. Thin facade over GET /api/v1/sovereigns/{id}/applications, Org-scoped.",
+			Description: "List the Applications in the caller's Organization, with blueprint, version, environment, topology and phase — exactly what the console Applications page shows for that user. Thin facade over GET /api/v1/org/applications in Org context (own-org, server-side scoped) and GET /api/v1/sovereigns/{id}/applications for a sovereign-admin.",
 			InputSchema: emptyObj,
 			MinTier:     identity.TierViewer,
 			Handler:     handleListApplications,
 		},
 		{
 			Name:        "get_application",
-			Description: "Get a single Application by name in the caller's Organization (full status + spec the console detail view renders). Org-scoped: a name outside the caller's Org is not returned.",
+			Description: "Get a single Application by name in the caller's Organization. Org-scoped: the name is resolved against the caller's own-org estate only, so a name outside their Organization is reported as not found. A sovereign-admin gets the full Application object from the deployment-addressed endpoint.",
 			InputSchema: map[string]any{
 				"type":                 "object",
 				"additionalProperties": false,
@@ -140,19 +145,38 @@ func handleListApplications(ctx context.Context, id *identity.Identity, api *cat
 	if api == nil {
 		return nil, fmt.Errorf("catalyst-api client not configured")
 	}
+	resp, err := listApplicationsForCaller(ctx, id, api)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"kind": resp.Kind, "items": resp.Items, "total": len(resp.Items)}, nil
+}
+
+// listApplicationsForCaller reads the caller's visible Applications from the
+// seam their session can actually REACH, and returns them already Org-scoped.
+//
+// Org context → GET /api/v1/org/applications (#5516). The
+// deployment-addressed seam is 403'd for an Org session by the catalyst-api
+// OrgScopeGuard (it is not in orgSafePathPrefixes), so an Org bearer must use
+// the own-org route — the read-side mirror of what create_application already
+// does with CreateApplicationOrg. The endpoint confines the rows to the
+// caller's own Org namespace server-side, so no client-side filter is applied
+// (and, critically, NO deployment_id claim is required: an Org session never
+// carries one — HandlePinVerify / auth_org_handover do not stamp it).
+//
+// Sovereign context → the deployment-addressed seam, unchanged. A
+// sovereign-admin session IS bound to a deployment (the mothership handover
+// JWT stamps deployment_id) and legitimately reads across every Org, so the
+// binding stays a hard requirement there.
+func listApplicationsForCaller(ctx context.Context, id *identity.Identity, api *catalystapi.Client) (*catalystapi.ApplicationListResponse, error) {
+	if id.Context == identity.ContextOrganization {
+		return api.ListApplicationsOrg(ctx, bearerOf(id))
+	}
 	depID, err := requireDeployment(id)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := api.ListApplications(ctx, depID, bearerOf(id))
-	if err != nil {
-		return nil, err
-	}
-	items := resp.Items
-	if id.Context == identity.ContextOrganization {
-		items = filterAppsToOrg(items, id.OrgID)
-	}
-	return map[string]any{"kind": resp.Kind, "items": items, "total": len(items)}, nil
+	return api.ListApplications(ctx, depID, bearerOf(id))
 }
 
 func handleGetApplication(ctx context.Context, id *identity.Identity, api *catalystapi.Client, args json.RawMessage) (any, error) {
@@ -170,30 +194,41 @@ func handleGetApplication(ctx context.Context, id *identity.Identity, api *catal
 	if strings.TrimSpace(in.Name) == "" {
 		return nil, fmt.Errorf("missing required argument: name")
 	}
+
+	// Org context (#5516): the deployment-addressed get-by-name seam is 403'd
+	// for an Org session by OrgScopeGuard, so resolve the name against the
+	// caller's OWN-ORG estate instead (GET /api/v1/org/applications, which the
+	// allowlist permits and the catalyst-api confines to the caller's Org
+	// namespace server-side). A name outside the caller's Org is simply ABSENT
+	// from that list — cross-Org leakage is structurally impossible here, a
+	// strictly stronger guarantee than the client-side namespace check the
+	// deployment-addressed path needs.
+	if id.Context == identity.ContextOrganization {
+		resp, err := api.ListApplicationsOrg(ctx, bearerOf(id))
+		if err != nil {
+			return nil, err
+		}
+		want := strings.ToLower(strings.TrimSpace(in.Name))
+		for _, it := range resp.Items {
+			if strings.ToLower(strings.TrimSpace(it.Name)) == want {
+				return it, nil
+			}
+		}
+		// Deliberately NOT ErrForbidden: from inside the Org's own estate we
+		// cannot tell "exists in another Org" from "does not exist at all", and
+		// a not-found answer is the one that leaks neither.
+		return nil, fmt.Errorf("application %q not found in organization %q", in.Name, id.OrgID)
+	}
+
+	// Sovereign context: the deployment-addressed get-by-name seam. A
+	// sovereign-admin is deployment-bound (the mothership handover JWT stamps
+	// deployment_id) and legitimately reads across every Org, so no Org filter
+	// applies here.
 	depID, err := requireDeployment(id)
 	if err != nil {
 		return nil, err
 	}
-	obj, err := api.GetApplication(ctx, depID, in.Name, bearerOf(id))
-	if err != nil {
-		return nil, err
-	}
-	// Org scoping: reject an app whose namespace is not the caller's Org
-	// (defense in depth — the get-by-name endpoint resolves across
-	// namespaces and does NOT scope, so the facade MUST: a cross-Org name
-	// must not leak another Org's data). The catalyst-api get response
-	// carries `namespace` at the top level (HandleApplicationGet wire
-	// shape); fall back to metadata.namespace for the raw-CR shape.
-	if id.Context == identity.ContextOrganization {
-		ns := nestedString(obj, "namespace")
-		if ns == "" {
-			ns = nestedString(obj, "metadata", "namespace")
-		}
-		if ns != "" && !namespaceBelongsToOrg(ns, id.OrgID) {
-			return nil, fmt.Errorf("%w: application %q is not in organization %q", ErrForbidden, in.Name, id.OrgID)
-		}
-	}
-	return obj, nil
+	return api.GetApplication(ctx, depID, in.Name, bearerOf(id))
 }
 
 // handleCreateApplication installs an Application in the caller's Org by
@@ -340,23 +375,21 @@ func handleListEnvironments(ctx context.Context, id *identity.Identity, api *cat
 	if api == nil {
 		return nil, fmt.Errorf("catalyst-api client not configured")
 	}
-	depID, err := requireDeployment(id)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := api.ListApplications(ctx, depID, bearerOf(id))
+	resp, err := listApplicationsForCaller(ctx, id, api)
 	if err != nil {
 		return nil, err
 	}
 	items := resp.Items
-	if id.Context == identity.ContextOrganization {
-		items = filterAppsToOrg(items, id.OrgID)
-	}
-	// Group apps by their Environment (the namespace = `<org>-<env_type>`
-	// per the naming convention in CLAUDE.md §Naming).
+	// Group apps by their Environment. The own-org seam projects
+	// spec.environmentRef verbatim (`<org>-<env_type>`); the
+	// deployment-addressed seam does not, so fall back to the namespace, which
+	// carries the same `<org>-<env_type>` shape per CLAUDE.md §Naming.
 	envs := map[string]int{}
 	for _, it := range items {
-		env := it.Namespace
+		env := it.Environment
+		if env == "" {
+			env = it.Namespace
+		}
 		if env == "" {
 			env = "(unknown)"
 		}
@@ -383,10 +416,16 @@ func bearerOf(id *identity.Identity) string {
 	return id.RawBearer
 }
 
-// requireDeployment returns the deployment ID the caller's session is
-// bound to (handover JWT deployment_id). The catalyst-api route table is
-// addressed by `/api/v1/sovereigns/{id}/…`; without a deployment binding
-// the facade cannot resolve which Sovereign to query.
+// requireDeployment returns the deployment ID the caller's session is bound
+// to (handover JWT deployment_id). It gates ONLY the Sovereign-context,
+// deployment-addressed `/api/v1/sovereigns/{id}/…` seam.
+//
+// #5516 — it must NEVER gate an Org-context call. An Org-scoped session
+// carries no deployment_id (neither HandlePinVerify nor auth_org_handover
+// stamps one) AND could not use the deployment-addressed seam even if it did,
+// because OrgScopeGuard 403s that path for tier=org-admin. Org context routes
+// to the own-org seam instead — see listApplicationsForCaller. Reintroducing
+// this call on an Org path re-breaks every Org-scoped read tool.
 func requireDeployment(id *identity.Identity) (string, error) {
 	if id.DeploymentID == "" {
 		return "", fmt.Errorf("no deployment binding on the caller's token (deployment_id claim required)")
@@ -415,44 +454,10 @@ func orgMatches(rec map[string]any, orgID string) bool {
 	return false
 }
 
-// filterAppsToOrg keeps only Applications whose namespace belongs to the
-// caller's Org. The namespace convention is `<org>-<env_type>` (or the
-// per-Org vcluster namespace `<org>`), so a prefix match on the slug is
-// the scoping rule the console uses.
-func filterAppsToOrg(items []catalystapi.ApplicationItem, orgID string) []catalystapi.ApplicationItem {
-	out := make([]catalystapi.ApplicationItem, 0, len(items))
-	for _, it := range items {
-		if namespaceBelongsToOrg(it.Namespace, orgID) {
-			out = append(out, it)
-		}
-	}
-	return out
-}
-
-// namespaceBelongsToOrg reports whether a namespace belongs to orgID. The
-// Organization owns namespaces named `<org>` and `<org>-<env_type>`
-// (CLAUDE.md §Naming), so an exact match or a `<org>-` prefix qualifies.
-func namespaceBelongsToOrg(ns, orgID string) bool {
-	ns = strings.ToLower(strings.TrimSpace(ns))
-	org := strings.ToLower(strings.TrimSpace(orgID))
-	if org == "" || ns == "" {
-		return false
-	}
-	return ns == org || strings.HasPrefix(ns, org+"-")
-}
-
-// nestedString safely reads a string at a nested path in a generic map.
-func nestedString(obj map[string]any, path ...string) string {
-	cur := any(obj)
-	for _, p := range path {
-		m, ok := cur.(map[string]any)
-		if !ok {
-			return ""
-		}
-		cur = m[p]
-	}
-	if s, ok := cur.(string); ok {
-		return s
-	}
-	return ""
-}
+// NOTE (#5516): the former client-side Org filters (filterAppsToOrg /
+// namespaceBelongsToOrg / nestedString) are gone. Org-context reads now go
+// through GET /api/v1/org/applications, which confines the result to the
+// caller's own Org namespace SERVER-SIDE, so a client-side namespace filter is
+// both redundant and actively harmful — the own-org projection carries no
+// `namespace` field, so a namespace-prefix filter would drop EVERY row and
+// report an empty estate as success. Do not reintroduce one on that path.
