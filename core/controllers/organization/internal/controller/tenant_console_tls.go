@@ -119,16 +119,84 @@ const (
 	consoleUIDefaultService      = "catalyst-ui"
 	consoleUIDefaultPort         = int32(80)
 
-	// Host ports the console Gateway's listeners bind — the dedicated
-	// console Gateway uses 31443/31080 (NOT the shared gateway's
-	// 30443/30080). See cilium-gateway-console.yaml header for the
-	// bind-collision rationale. The per-pool listeners reuse the SAME
-	// host ports as the apex console listeners (a Gateway listener is
-	// selected by hostname+port; multiple HTTPS listeners can share one
-	// port as long as their hostnames differ — SNI routes between them).
-	consoleListenerHTTPSPort = int64(31443)
-	consoleListenerHTTPPort  = int64(31080)
+	// Apex console listener names on the shared console Gateway. The per-Org
+	// listeners derive their PORTS from these at apply time — see
+	// consoleApexListenerPorts (#5511).
+	consoleApexListenerHTTPSName = "console-https"
+	consoleApexListenerHTTPName  = "console-http"
+
+	// Fallback host ports, used ONLY when the apex pair cannot be read off
+	// the live Gateway. These are the #4718 canonical hostNetwork scheme and
+	// match the catalyst-api BSS-door emitter's fallbacks byte-for-byte
+	// (org_console_tls.go consoleListener*PortFallback).
+	//
+	// 🛑 #5511 — these are a FALLBACK, never a hardcode. The per-Org listeners
+	// MUST ride the SAME ports as the live apex `console-https`/`console-http`
+	// pair, because the console ELB forwards public 443/80 to exactly those
+	// ports and NOTHING else. A per-Org listener on any other port receives no
+	// traffic at all: the customer door answers `000` on every probe while the
+	// workload behind it is perfectly healthy. This reconciler previously
+	// hardcoded the pre-#4718 pair 31443/31080, which is dead on every current
+	// Sovereign — the catalyst-api twin was fixed for exactly this in #4732(2)
+	// (commit 8663202bc) and this twin was left behind, so whichever door
+	// provisioned a given Org decided whether its console worked. A Gateway
+	// listener is selected by hostname+port, so multiple HTTPS listeners share
+	// the apex port safely — SNI differentiates the per-Org wildcard hosts
+	// from the apex hosts.
+	consoleListenerHTTPSPortFallback = int64(8443)
+	consoleListenerHTTPPortFallback  = int64(8080)
 )
+
+// listenerPort reads a Gateway listener's `port`, tolerating every numeric
+// shape an unstructured round-trip can produce (int64 from apimachinery's JSON
+// decode, float64 from a raw map, int from a hand-built test fixture).
+func listenerPort(l map[string]any) (int64, bool) {
+	switch v := l["port"].(type) {
+	case int64:
+		return v, true
+	case float64:
+		return int64(v), true
+	case int:
+		return int64(v), true
+	case int32:
+		return int64(v), true
+	}
+	return 0, false
+}
+
+// consoleApexListenerPorts reads the console Gateway's apex
+// `console-https`/`console-http` listener ports out of the listener slice
+// already fetched from the live Gateway — the ONLY ports the console
+// LoadBalancer actually forwards to (#4732 item 2, #5511). Falls back to the
+// #4718 canonical 8443/8080 pair when an apex listener is absent (fresh
+// install race), so the append still lands on the current canonical scheme
+// rather than resurrecting a dead one.
+//
+// Reading from the passed-in slice rather than issuing its own Get is
+// deliberate: the caller has already read the Gateway, and deriving the port
+// from the SAME read that the append is written back onto makes the port and
+// the listener set consistent by construction.
+func consoleApexListenerPorts(listeners []any) (httpsPort, httpPort int64) {
+	httpsPort = consoleListenerHTTPSPortFallback
+	httpPort = consoleListenerHTTPPortFallback
+	for _, l := range listeners {
+		m, ok := l.(map[string]any)
+		if !ok {
+			continue
+		}
+		port, ok := listenerPort(m)
+		if !ok {
+			continue
+		}
+		switch n, _ := m["name"].(string); n {
+		case consoleApexListenerHTTPSName:
+			httpsPort = port
+		case consoleApexListenerHTTPName:
+			httpPort = port
+		}
+	}
+	return httpsPort, httpPort
+}
 
 // dnsDashed converts a DNS name to a Secret/Certificate-safe slug:
 // `omani.homes` → `omani-homes`. Matches the apex wildcard naming
@@ -381,24 +449,15 @@ func (r *Reconciler) ensureConsoleOrgListener(ctx context.Context, names orgCons
 		return false, fmt.Errorf("read Gateway %s/%s listeners: %w", gwNS, gwName, err)
 	}
 
-	have := map[string]bool{}
-	for _, l := range listeners {
-		if m, ok := l.(map[string]any); ok {
-			if n, ok := m["name"].(string); ok {
-				have[n] = true
-			}
-		}
-	}
-	if have[httpsName] && have[httpName] {
-		// Both listeners already present — idempotent no-op.
-		return false, nil
-	}
+	// #5511 — the per-Org ports come from the LIVE apex pair, never from a
+	// constant. See consoleApexListenerPorts.
+	httpsPort, httpPort := consoleApexListenerPorts(listeners)
 
-	if !have[httpsName] {
-		listeners = append(listeners, map[string]any{
+	desired := map[string]map[string]any{
+		httpsName: {
 			"name":     httpsName,
 			"hostname": hostname,
-			"port":     consoleListenerHTTPSPort,
+			"port":     httpsPort,
 			"protocol": "HTTPS",
 			"allowedRoutes": map[string]any{
 				"namespaces": map[string]any{"from": "All"},
@@ -413,18 +472,64 @@ func (r *Reconciler) ensureConsoleOrgListener(ctx context.Context, names orgCons
 					},
 				},
 			},
-		})
-	}
-	if !have[httpName] {
-		listeners = append(listeners, map[string]any{
+		},
+		httpName: {
 			"name":     httpName,
 			"hostname": hostname,
-			"port":     consoleListenerHTTPPort,
+			"port":     httpPort,
 			"protocol": "HTTP",
 			"allowedRoutes": map[string]any{
 				"namespaces": map[string]any{"from": "All"},
 			},
-		})
+		},
+	}
+
+	// Pass 1 — repair drift IN PLACE on a listener we already own.
+	//
+	// 🛑 #5511: this used to short-circuit on `have[httpsName] && have[httpName]`
+	// — name presence alone counted as success. That made every wrong-port
+	// listener PERMANENT: the pre-#4718 31443/31080 pair this reconciler used
+	// to write is already on the live Gateway of every affected Sovereign, and
+	// a presence-only check would never correct it, so fixing the port constant
+	// alone would repair new Orgs and leave every existing customer door at
+	// 000 forever. Drift is compared against the fields we OWN only (a subset
+	// match, listenerSatisfies) so an apiserver-defaulted field never reads as
+	// drift and hot-loops the controller.
+	changed := false
+	seen := map[string]bool{}
+	for i, l := range listeners {
+		m, ok := l.(map[string]any)
+		if !ok {
+			continue
+		}
+		n, _ := m["name"].(string)
+		want, mine := desired[n]
+		if !mine {
+			// Another Org's listener, or an apex listener — never touched.
+			continue
+		}
+		seen[n] = true
+		if listenerSatisfies(m, want) {
+			continue
+		}
+		listeners[i] = want
+		changed = true
+	}
+
+	// Pass 2 — append the ones that are genuinely absent, in a deterministic
+	// order (HTTPS then HTTP) so two reconciles never produce different specs.
+	for _, n := range []string{httpsName, httpName} {
+		if seen[n] {
+			continue
+		}
+		listeners = append(listeners, desired[n])
+		changed = true
+	}
+
+	if !changed {
+		// Both listeners present AND already carrying the desired hostname,
+		// port, protocol and certificateRef — idempotent no-op.
+		return false, nil
 	}
 
 	if err := unstructured.SetNestedSlice(gw.Object, listeners, "spec", "listeners"); err != nil {
@@ -542,6 +647,47 @@ func (r *Reconciler) deleteOrgWildcardCert(ctx context.Context, names orgConsole
 		return false, fmt.Errorf("delete Certificate %s/%s: %w", ns, names.CertName, err)
 	}
 	return true, nil
+}
+
+// listenerSatisfies reports whether a LIVE Gateway listener already carries
+// every field the desired listener specifies — a subset match, not an equality
+// check (#5511).
+//
+// Subset rather than equality is deliberate. The Gateway API CRD and the
+// gateway controller both default fields we do not set (`tls.options`, and an
+// operator may legitimately add `allowedRoutes.kinds`). A full-map compare
+// would read every such defaulted field as drift, rewrite the listener on
+// every single reconcile pass, and hot-loop the controller against the
+// apiserver — the #5305 shape. Comparing only the fields we own means we
+// correct a wrong port, hostname, protocol or certificateRef and stay silent
+// about everything else.
+func listenerSatisfies(live, want any) bool {
+	switch w := want.(type) {
+	case map[string]any:
+		l, ok := live.(map[string]any)
+		if !ok {
+			return false
+		}
+		for k, wv := range w {
+			if !listenerSatisfies(l[k], wv) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		l, ok := live.([]any)
+		if !ok || len(l) != len(w) {
+			return false
+		}
+		for i := range w {
+			if !listenerSatisfies(l[i], w[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return fmt.Sprintf("%v", live) == fmt.Sprintf("%v", want)
+	}
 }
 
 // specEqual is a shallow structural compare of two map[string]any specs.

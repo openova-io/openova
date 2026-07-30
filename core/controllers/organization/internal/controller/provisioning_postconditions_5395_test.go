@@ -243,14 +243,33 @@ func TestReconcile_5395_ListenerAppendedThenVerified(t *testing.T) {
 		consoleGateway(),
 	)
 
-	// Pass 1: reconcileConsoleServing appends the pair; the verifier reads the
-	// Gateway back afterwards, so the Org may already be green here. Pass 2
-	// asserts the steady state regardless of intra-pass ordering.
-	if _, err := r.Reconcile(context.Background(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Name: "acme"},
-	}); err != nil {
-		t.Fatalf("first reconcile: %v", err)
+	// Drive reconcile until reconcileConsoleServing's append has actually landed
+	// in spec (the first pass only adds the finalizer and requeues).
+	const wantSpecListeners = 3 // apex + the per-Org pair
+	appended := false
+	for i := 0; i < 4 && !appended; i++ {
+		if _, err := r.Reconcile(context.Background(), ctrl.Request{
+			NamespacedName: types.NamespacedName{Name: "acme"},
+		}); err != nil {
+			t.Fatalf("reconcile pass %d: %v", i+1, err)
+		}
+		if _, n := gatewayListeners(t, r, "spec"); n == wantSpecListeners {
+			appended = true
+		}
 	}
+	if !appended {
+		t.Fatalf("the up-path never appended the per-Org listener pair to spec")
+	}
+
+	// #5511: a live Gateway publishes `status.listeners`, and being in spec is
+	// not being served. Simulate the Gateway controller admitting every listener
+	// the append just wrote — without this the Org sits (correctly) UNVERIFIABLE
+	// on an unpublished status and never reaches its steady state.
+	specCount, statusCount := admitGatewayListeners(t, r)
+	if specCount != wantSpecListeners || statusCount != specCount {
+		t.Fatalf("admission fixture: spec=%d status=%d, want %d/%d", specCount, statusCount, wantSpecListeners, wantSpecListeners)
+	}
+
 	res, got := reconcileToStatus(t, r, "acme")
 
 	cond := mustReadyCondition(t, got)
