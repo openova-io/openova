@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-30T11:00:04Z` |
+| Last refreshed | `2026-07-30T11:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 99 |
 | Open DoD gates | 0 / 41 |
@@ -306,6 +306,15 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-07-30T11:09 | [#5526](https://github.com/openova-io/openova/pull/5526) | #5489 | fix(org): stop fabricating a vCluster on the three remaining |
+| 2026-07-30T11:07 | [#5524](https://github.com/openova-io/openova/pull/5524) | #5511 | fix(catalyst-api): per-Org console gateway surface to EVERY  |
+| 2026-07-30T11:06 | [#5523](https://github.com/openova-io/openova/pull/5523) | #5511 | fix(org-controller): per-Org console listeners ride the LIVE |
+| 2026-07-30T11:06 | [#5522](https://github.com/openova-io/openova/pull/5522) | #5516 | fix(openova-mcp): route Org-context reads to the own-org sea |
+| 2026-07-30T11:06 | [#5521](https://github.com/openova-io/openova/pull/5521) | #5510 | fix(console): catalog per-field Save is a partial patch, not |
+| 2026-07-30T11:06 | [#5519](https://github.com/openova-io/openova/pull/5519) | #5514 | fix(console): never claim DR health without live backing — p |
+| 2026-07-30T11:06 | [#5507](https://github.com/openova-io/openova/pull/5507) | #5504 | fix(bp-postgres): bear the initdb owner with its managed-rol |
+| 2026-07-30T11:05 | [#5506](https://github.com/openova-io/openova/pull/5506) | #5494 | fix(kyverno): grant cilium read + narrow the Enforce flip to |
+| 2026-07-30T11:05 | [#5503](https://github.com/openova-io/openova/pull/5503) | #4292 | fix(org-controller): name the pending boundary honestly for  |
 | 2026-07-29T20:48 | [#5498](https://github.com/openova-io/openova/pull/5498) | #4845 | fix(jobs): resolve controller-generated Job names so Re-run  |
 | 2026-07-29T20:17 | [#5497](https://github.com/openova-io/openova/pull/5497) | #5449 | fix(catalog): invalidate the cache key the query is actually |
 | 2026-07-29T19:05 | [#5495](https://github.com/openova-io/openova/pull/5495) | #5442 | fix(bp-self-sovereign-cutover): map cgr.dev + the litmuschao |
@@ -327,15 +336,6 @@ flowchart LR
 | 2026-07-29T09:52 | [#5458](https://github.com/openova-io/openova/pull/5458) | #5353 | docs(uat): re-walk row 40 live on hw290 after the #5430 flip |
 | 2026-07-27T11:41 | [#5457](https://github.com/openova-io/openova/pull/5457) | #5449 | fix(console): catalog detail hero reads the live CR, not the |
 | 2026-07-27T11:27 | [#5455](https://github.com/openova-io/openova/pull/5455) | #960 | fix(uat): count UAT rows by status column — ad-hoc tally ove |
-| 2026-07-27T10:54 | [#5454](https://github.com/openova-io/openova/pull/5454) | #4290 | fix(provisioning): match vCluster pods for any inner namespa |
-| 2026-07-27T10:45 | [#5452](https://github.com/openova-io/openova/pull/5452) | #5445 | fix(console): badge apps NOT SERVING when the workload is de |
-| 2026-07-27T10:31 | [#5448](https://github.com/openova-io/openova/pull/5448) | #5443 | fix(cutover): harbor-prewarm mirrors the marketplace's chart |
-| 2026-07-27T10:15 | [#5447](https://github.com/openova-io/openova/pull/5447) | #5397 | fix(catalog): pin 4 registry-verified floating image tags th |
-| 2026-07-27T10:15 | [#5446](https://github.com/openova-io/openova/pull/5446) | #5445 | fix(provisioning): mount the per-Org postgres PVC at a subPa |
-| 2026-07-27T10:16 | [#5441](https://github.com/openova-io/openova/pull/5441) | #5237 | fix(cutover): re-take the gitea-mirror snapshot on a new att |
-| 2026-07-27T10:16 | [#5438](https://github.com/openova-io/openova/pull/5438) | #5359 | fix(cutover): step-06 reads back what it pivoted instead of  |
-| 2026-07-27T10:16 | [#5432](https://github.com/openova-io/openova/pull/5432) | #3370 | fix(console): one card per Application CR — suppress fanned- |
-| 2026-07-27T10:16 | [#5431](https://github.com/openova-io/openova/pull/5431) | #4384 | fix(catalyst-api): gate the legacy org-tenants overlay write |
 
 ---
 
