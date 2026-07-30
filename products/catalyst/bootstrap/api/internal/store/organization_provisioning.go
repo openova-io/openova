@@ -151,9 +151,11 @@ type OrganizationProvisionRecord struct {
 	// Per Inviolable Principle 4 the value is operator-supplied at
 	// create time, never inferred from OTECHFQDN.
 	ParentDomain string `json:"parent_domain,omitempty"`
-	// VClusterName — derived as `vc-<subdomain>`. Captured at create
-	// so the orchestrator can reference it in GitOps manifest paths
-	// without re-deriving on every reconcile.
+	// VClusterName — `vc-<subdomain>` for a vcluster-tier Org, "" for a
+	// namespace-tier one (#5489: only the vcluster tier has a vCluster to
+	// name). Captured at create so the orchestrator can reference it in
+	// GitOps manifest paths without re-deriving on every reconcile —
+	// though since #4188 no overlay template renders it.
 	VClusterName string `json:"vcluster_name"`
 	// TenantNamespace — `org-<org_tenant_id>` per #804 scope §1. The
 	// bp-wordpress-tenant / bp-openclaw / bp-stalwart-tenant charts

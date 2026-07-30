@@ -30,6 +30,7 @@ import {
   isParentDomainReady,
   listSovereignParentDomains,
   type OrgProvisionRecord,
+  type OrgProvisionStepState,
   type OrgDomainMode,
   type SovereignParentDomain,
 } from './org.api'
@@ -555,12 +556,16 @@ export function CreateOrganizationPage({
   )
 }
 
-function ProvisionSteps({
-  steps,
-}: {
-  steps: OrgProvisionRecord['steps']
-}) {
-  const items: { key: keyof OrgProvisionRecord['steps']; label: string }[] = [
+// provisionStepItems — the ordered timeline entries for a provisioning
+// payload. #5489: the API omits `steps.vcluster` for a namespace-isolated
+// Org (no vCluster is ever provisioned for that tier), so only the steps
+// the payload actually carries render — the old fixed list painted a
+// "vCluster: done" dot over an object that does not exist. Exported for
+// the unit test; the render below is a straight map over this.
+export function provisionStepItems(
+  steps: OrgProvisionRecord['steps'],
+): { key: keyof OrgProvisionRecord['steps']; label: string; state: OrgProvisionStepState }[] {
+  const ordered: { key: keyof OrgProvisionRecord['steps']; label: string }[] = [
     { key: 'vcluster', label: 'vCluster' },
     { key: 'bp_charts', label: 'Charts' },
     { key: 'dns', label: 'DNS' },
@@ -568,10 +573,22 @@ function ProvisionSteps({
     { key: 'keycloak_clients', label: 'Keycloak' },
     { key: 'registry', label: 'Registry' },
   ]
+  return ordered.flatMap((s) => {
+    const state = steps[s.key]
+    return state ? [{ ...s, state }] : []
+  })
+}
+
+function ProvisionSteps({
+  steps,
+}: {
+  steps: OrgProvisionRecord['steps']
+}) {
+  const items = provisionStepItems(steps)
   return (
     <div className="flex flex-wrap items-center gap-2">
       {items.map((s, i) => {
-        const state = steps[s.key]
+        const state = s.state
         const cls =
           state === 'done'
             ? 'bg-[var(--color-success,#16a34a)]'

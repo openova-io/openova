@@ -187,8 +187,14 @@ func orgCRToResponse(obj *unstructured.Unstructured, otechFQDN string) orgTenant
 		ParentDomain:    parentDomain,
 		AdminEmail:      adminEmail,
 		CompanyName:     displayName,
-		OTECHFQDN:       strings.TrimSpace(otechFQDN),
-		VClusterName:    "vc-" + slug,
+		OTECHFQDN: strings.TrimSpace(otechFQDN),
+		// #5489 — derived from the same isolation the row carries: only a
+		// vcluster-tier Org has a vCluster to name. The old unconditional
+		// `vc-<slug>` shipped `vcluster_name: "vc-…"` right next to
+		// `isolation: "namespace"` — latent (the UI declares the field at
+		// pages/org/org.api.ts and never consumes it), but it would assert
+		// an object that does not exist the moment anyone bound it.
+		VClusterName:    vclusterNameFor(isolation, slug),
 		TenantNamespace: slug,
 		Kind:            kind,
 		Tier:            tier,
