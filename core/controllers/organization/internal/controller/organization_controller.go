@@ -883,7 +883,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		readyCond.Message = readyOrgMessage(org.Spec.PlanSlug)
 	default:
 		readyCond.Status = "False"
-		readyCond.Reason = "VClusterProvisioning"
+		// #5502 (Refs #4813/#4292/#4339): name the pending reason off the SAME
+		// tier gate vclusterReadiness + readyOrgMessage use. vcMsg was already
+		// tier-aware here; the machine-readable Reason was not, so a host-tier
+		// Org waiting on its host NAMESPACE reported VClusterProvisioning and
+		// sent the diagnosis hunting a vCluster that is correctly never
+		// authored for that tier.
+		readyCond.Reason = pendingBoundaryReason(org.Spec.PlanSlug)
 		readyCond.Message = vcMsg
 	}
 	desired := orgapi.OrganizationStatus{
@@ -1053,6 +1059,34 @@ func readyOrgMessage(planSlug string) string {
 		return "vCluster HelmRelease Ready + Keycloak group + Gitea Org reconciled"
 	}
 	return "host namespace Active + Keycloak group + Gitea Org reconciled (namespace-isolated tier — no vCluster authored)"
+}
+
+// pendingBoundaryReason names the artifact a not-yet-Ready Org is ACTUALLY
+// waiting on, keyed off the same #4292/#4339 tier gate
+// (gitops.BoundaryIsVcluster) that vclusterReadiness and readyOrgMessage use.
+//
+// #4813 made the Ready=True *message* tier-aware for exactly this reason, but
+// the Ready=False *Reason* stayed hardcoded to "VClusterProvisioning". Reason
+// is the machine-readable field — it is what `kubectl get org -o jsonpath`,
+// operators, and tooling filter on — so a host-tier (""/s/free) Org, which
+// authors NO vCluster HelmRelease and whose host `<slug>` namespace IS the
+// boundary, reported that it was waiting on a vCluster.
+//
+// Observed cost (#5502): on hw291 the Org `uatcorp` (plan=s → namespace by
+// design) sat at Ready=False:VClusterProvisioning, and the acceptance walk
+// duly went hunting — `kubectl get vclusters -A` returned "No resources
+// found" in both regions and vcluster StatefulSets were 0, all of which is
+// the CORRECT state for that tier. The real missing artifact was the
+// `uatcorp` namespace. The honest explanation was already sitting in the
+// message; the Reason contradicted it.
+//
+// The vcluster tier keeps the original string, so nothing that legitimately
+// waits on a vCluster changes.
+func pendingBoundaryReason(planSlug string) string {
+	if gitops.BoundaryIsVcluster(planSlug) {
+		return "VClusterProvisioning"
+	}
+	return "NamespaceProvisioning"
 }
 
 // vclusterReadiness reads back the vCluster HelmRelease the controller
