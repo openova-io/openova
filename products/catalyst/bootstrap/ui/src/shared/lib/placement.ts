@@ -24,6 +24,26 @@ export type StandbyType = 'Hot' | 'Cold'
 export type Capability = 'multi-primary' | 'primary+standby'
 export type Pattern = 'singleton' | 'active-passive' | 'active-hot-standby' | 'active-active'
 
+/**
+ * The token for "no pattern could be derived" (#5515). NOT a pattern — the
+ * explicit absence of one.
+ */
+export const PATTERN_NOT_REPORTED = 'not-reported'
+
+/**
+ * DerivedPattern — what `derivePattern` can honestly return: one of the four
+ * real patterns, or `not-reported` when the target list carries no derivable
+ * placement at all (#5515).
+ *
+ * `not-reported` exists because `singleton` is a CONFIDENT CLAIM — "there is
+ * exactly one Primary, in one region, and no cross-region failover is wanted".
+ * Returning it for an EMPTY target list turns "we know nothing" into "we know
+ * this is fine", which is the DR-truthfulness defect #5515 caught live on
+ * hw291 (`cilium` rendered `Pattern: singleton` directly beside its own text
+ * "No placement targets reported yet.").
+ */
+export type DerivedPattern = Pattern | typeof PATTERN_NOT_REPORTED
+
 /** One desired target. A Standby carries a standbyType. */
 export interface PlacementTarget {
   region: string
@@ -53,31 +73,56 @@ export type ReconStatus = 'Reconciled' | 'Reconciling' | 'Degraded'
  * derivePattern — the ONLY place patterns come from (#3969 §7.3). Computed
  * from targets + roles + standby types for DISPLAY ONLY; never stored.
  *
+ *   no Primary target        -> not-reported   (#5515 — nothing to derive)
  *   primaries ≥ 2            -> active-active
  *   standbys  == 0           -> singleton
  *   any standby is Hot       -> active-hot-standby
  *   else                     -> active-passive
+ *
+ * #5515 — the no-Primary guard MUST come first and MUST NOT fall through to
+ * `singleton`. Every one of the four patterns asserts a live Primary; with
+ * zero Primary targets there is no pattern, only missing data. The three
+ * inputs that land here:
+ *
+ *   • `[]` — the /placement endpoint reported `targets: []` (the live hw291
+ *     `cilium` case). Pre-fix this hit `standbys === 0` and returned the
+ *     confident `singleton`.
+ *   • a list whose roles are all unrecognised (neither Primary nor Standby) —
+ *     same counters, same false `singleton`.
+ *   • a Standby-only list — asserting an "active-*" pattern with no active.
+ *     `validatePlacement` already rejects this as `NoPrimary`; the derived
+ *     label must not contradict that verdict.
  */
-export function derivePattern(targets: PlacementTarget[]): Pattern {
+export function derivePattern(targets: PlacementTarget[]): DerivedPattern {
   let primaries = 0
   let standbys = 0
   let anyHot = false
-  for (const t of targets) {
+  for (const t of targets ?? []) {
     if (t.role === 'Primary') primaries++
     else if (t.role === 'Standby') {
       standbys++
       if (t.standbyType === 'Hot') anyHot = true
     }
   }
+  // #5515 — no Primary ⇒ no pattern. Never fail open into `singleton`.
+  if (primaries === 0) return PATTERN_NOT_REPORTED
   if (primaries >= 2) return 'active-active'
   if (standbys === 0) return 'singleton'
   if (anyHot) return 'active-hot-standby'
   return 'active-passive'
 }
 
-/** Human one-liner per derived pattern (display only). */
-export function describePattern(pattern: Pattern): string {
+/**
+ * Human one-liner per derived pattern (display only).
+ *
+ * Exhaustive over DerivedPattern with NO trailing return — so adding a member
+ * to the union without describing it fails `tsc` here (TS2366) instead of
+ * silently returning undefined into the UI.
+ */
+export function describePattern(pattern: DerivedPattern): string {
   switch (pattern) {
+    case PATTERN_NOT_REPORTED:
+      return 'No placement targets reported — the pattern cannot be derived yet.'
     case 'singleton':
       return 'One Primary in one region; no cross-region failover.'
     case 'active-passive':
@@ -87,6 +132,15 @@ export function describePattern(pattern: Pattern): string {
     case 'active-active':
       return 'Two or more Primary targets serve live traffic; data syncs between them.'
   }
+}
+
+/**
+ * patternLabel — the display string for a derived pattern. Renders the
+ * un-derivable case as prose ("not reported") so no surface ever prints a
+ * pattern NAME for data it does not have (#5515).
+ */
+export function patternLabel(pattern: DerivedPattern): string {
+  return pattern === PATTERN_NOT_REPORTED ? 'not reported' : pattern
 }
 
 /** Normalize a Blueprint capability string to the canonical enum (default primary+standby). */
