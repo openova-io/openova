@@ -117,7 +117,11 @@ export type OrgDomainMode = 'free-subdomain' | 'byo'
 export type OrgProvisionStepState = 'pending' | 'done' | 'failed'
 
 export interface OrgProvisionSteps {
-  vcluster: OrgProvisionStepState
+  /** #5489 — absent for a namespace-isolated Org: no vCluster is ever
+   *  provisioned for that tier, so the API omits the step rather than
+   *  reporting "done" over an object that does not exist. Render only
+   *  the steps the payload carries. */
+  vcluster?: OrgProvisionStepState
   bp_charts: OrgProvisionStepState
   dns: OrgProvisionStepState
   certs: OrgProvisionStepState

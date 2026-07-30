@@ -893,11 +893,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		readyCond.Message = vcMsg
 	}
 	desired := orgapi.OrganizationStatus{
-		VCluster: orgapi.VClusterStatus{
-			Name:        org.Spec.Slug,
-			HostCluster: r.HostCluster,
-			Phase:       vcPhase,
-		},
+		VCluster: vclusterStatusFor(org.Spec.Slug, r.HostCluster, org.Spec.PlanSlug, vcPhase),
 		KeycloakGroup: orgapi.KeycloakGroupStatus{
 			ID:    kcID,
 			Path:  kcPath,
@@ -1087,6 +1083,39 @@ func pendingBoundaryReason(planSlug string) string {
 		return "VClusterProvisioning"
 	}
 	return "NamespaceProvisioning"
+}
+
+// vclusterStatusFor returns the status.vcluster block to stamp on the
+// Organization, keyed off the SAME #4292/#4339 tier gate
+// (gitops.BoundaryIsVcluster) that decides whether a vCluster is authored at
+// all (#5489):
+//
+//   - vcluster tier (m/l/xl/flexi): the controller authors a real vCluster
+//     HelmRelease, so the block carries name + hostCluster + the phase
+//     vclusterReadiness derived — exactly the pre-#5489 shape.
+//   - host tier (""/s/free): NO vCluster is ever authored. The old
+//     unconditional stamp wrote status.vcluster{name, hostCluster, phase:
+//     Ready} over that absence, and the CRD printer column
+//     (products/catalyst/chart/crds/organization.yaml, .status.vcluster.phase)
+//     surfaced it as `vCluster: Ready` on `kubectl get organizations -o wide`
+//     — a fabricated object beside an honest Ready message (#4813 fixed the
+//     message; the field kept lying). The zero value serializes as an
+//     empty/absent block, which the printer column renders as blank — the
+//     honest representation of "no vCluster exists for this Org".
+//
+// The console directory is unaffected: orgStateFromCR (bootstrap api,
+// org_list_from_cr.go) reads phase first and falls through to the Ready
+// condition, which this controller still stamps tier-honestly via
+// readyOrgMessage.
+func vclusterStatusFor(slug, hostCluster, planSlug, vcPhase string) orgapi.VClusterStatus {
+	if !gitops.BoundaryIsVcluster(planSlug) {
+		return orgapi.VClusterStatus{}
+	}
+	return orgapi.VClusterStatus{
+		Name:        slug,
+		HostCluster: hostCluster,
+		Phase:       vcPhase,
+	}
 }
 
 // vclusterReadiness reads back the vCluster HelmRelease the controller

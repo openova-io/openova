@@ -413,10 +413,32 @@ type orgTenantResponse struct {
 	UpdatedAt   time.Time      `json:"updated_at"`
 }
 
+// vclusterNameFor returns the synthesized `vc-<slug>` name for a
+// vcluster-tier Org and "" for anything else (#5489): only the vcluster
+// tier has a vCluster to name. The legacy unconditional `vc-<slug>` put a
+// `vcluster_name` in the payload right beside `isolation: "namespace"` —
+// latent (the UI declares the field and never binds it), but it would
+// assert an object that does not exist the moment anyone rendered it.
+// Since #4188 no overlay template consumes the value either, so an empty
+// name is inert on the provisioning pipeline.
+func vclusterNameFor(isolation, slug string) string {
+	if isolation == "vcluster" {
+		return "vc-" + slug
+	}
+	return ""
+}
+
 // orgTenantSteps surfaces the 7-state machine to the SPA so it can
 // render a progress timeline.
+//
+// #5489 — `vcluster` is omitempty: a namespace-isolated Org never
+// provisions a vCluster, so its timeline must not carry a `vcluster:
+// "done"` step over an unauthored object. orgTenantRecordToResponse
+// blanks the step for records that explicitly say isolation=namespace;
+// the SPA (CreateOrganizationPage ProvisionSteps) renders only the steps
+// the payload carries.
 type orgTenantSteps struct {
-	VCluster        string `json:"vcluster"`
+	VCluster        string `json:"vcluster,omitempty"`
 	BPCharts        string `json:"bp_charts"`
 	DNS             string `json:"dns"`
 	Certs           string `json:"certs"`
@@ -502,6 +524,16 @@ func stepsForState(state store.OrganizationProvisionState, lastError string) org
 }
 
 func orgTenantRecordToResponse(rec store.OrganizationProvisionRecord) orgTenantResponse {
+	steps := stepsForState(rec.State, rec.LastError)
+	// #5489 — a namespace-isolated Org has no vCluster step to report.
+	// Blank it (the field is omitempty) only when the record EXPLICITLY
+	// says namespace; legacy rows with an empty isolation keep the full
+	// timeline — there is nothing to derive from, and guessing is the
+	// exact fabrication this fix removes. A failed boundary still
+	// surfaces via state=failed + last_error.
+	if rec.Isolation == "namespace" {
+		steps.VCluster = ""
+	}
 	return orgTenantResponse{
 		OrganizationID:  rec.OrganizationID,
 		State:           rec.State,
@@ -521,7 +553,7 @@ func orgTenantRecordToResponse(rec store.OrganizationProvisionRecord) orgTenantR
 		Isolation:       rec.Isolation,
 		CommitSHA:       rec.CommitSHA,
 		LastError:       rec.LastError,
-		Steps:           stepsForState(rec.State, rec.LastError),
+		Steps:           steps,
 		CreatedAt:       rec.CreatedAt,
 		UpdatedAt:       rec.UpdatedAt,
 	}
@@ -715,7 +747,11 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 		AdminEmail:     email,
 		CompanyName:    strings.TrimSpace(body.CompanyName),
 		OTECHFQDN:      otech,
-		VClusterName:   "vc-" + subdomain,
+		// #5489 — only a vcluster-tier Org gets a vCluster name; a
+		// namespace-tier record stays empty rather than naming an object
+		// the platform never authors. Inert on the pipeline: since #4188
+		// no overlay template renders VClusterName.
+		VClusterName: vclusterNameFor(shape.Isolation, subdomain),
 		// Workstream A (#4290 / EPIC #4293) — the per-Organization host
 		// namespace is the org-controller-owned `<slug>`, NOT a stray
 		// `org-<uuid>`. The org-controller (core/controllers/organization/
