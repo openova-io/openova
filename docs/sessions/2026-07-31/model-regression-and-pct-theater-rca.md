@@ -70,3 +70,29 @@ count, PATH-TO-100 open-blocker count → 0 — not the percentage of a reset-on
 
 Agent memory + session transcript are not founder-auditable. This file is. Both conclusions above are
 falsifiable against the cited surfaces; if either is wrong, the specific line to challenge is named.
+
+---
+
+## Directive addendum — "why aren't the EPICs converging?" (git history vs claimed progress)
+
+### Conclusion: the two open EPICs are NOT stalled. They advance through child-issue fix commits; what remains is deliberately-parked architecture (`status/blocked-ext`), not a pod-convergence failure.
+
+Two independent evidence sources, 2026-07-31:
+
+**1. Git history — the EPICs are child-commit-active.** `git log --since='30 days ago' --grep='#4212|#3969'` = 23 commits; the *fix* commits (not docs) show real forward motion on the placement/DR-backbone EPICs:
+- `e937cda9d` fix(#4836): accept #3969 placement `targets[]` in HandleApplicationUpdate (via #4840)
+- `b72326dfd` fix(#4950): keep `placement.targets[]` through decode so console Edit-Apply derives mode (#4958)
+- `7879bcb23` fix(#4986): bp-postgres emits `dr-<instance>` Continuum CR → shared-pg Topology DR panel renders (#4987)
+- `b41c93b3c` fix(#5482): read primaryRegion from `status.placement` (#5483)
+
+So the claim "EPICs aren't converging" is not borne out by the commit record — the placement model (#3969) and DR backbone (#4212) both received merged fixes within the window. Their *aggregation issues* went quiet while their *child issues* kept merging; that is thread-lag, not code-stagnation. (Correcting for this is why the SHA-grounded RCAs were posted directly on #4212 / #3969 on 2026-07-30.)
+
+**2. Live cluster — zero convergence blockers.** `kubectl get pods -A | grep -v Running/Completed` on hw291 (~24h post-cc), both regions: **395 pods, ZERO non-Running workloads.** The only `Error` entries are 4 uncollected cutover-step Job pods (failed retry attempts of steps that later succeeded — filed as a GC hygiene item #5530), not running workloads. Nothing is wedged.
+
+### What actually remains on #4212 / #3969
+
+Both are `status/blocked-ext` **architecture migrations**, not failures:
+- **#3969** (Application-centric placement `targets[]`): the accept/decode/projection code is built and merged (SHAs above); live Applications still carry the legacy `placement: active-hot-standby` STRING. The remaining work is migrating the stored CRs off the legacy field + deleting it — a data migration, not new machinery.
+- **#4212** (ONE object-model / DR backbone): the DR-backbone half advances continuously via child issues (#5316/#5335/#5478 continuum-controller); the crossplane-adoption half had its bastion-Harbor tether removed (#4602). `status/blocked-ext` covers only the remaining architecture call.
+
+Neither is a convergence blocker. The convergence proof is the cutover itself: cc=true 2026-07-30T11:03:43Z with the 600s deny-egress hold passing on both regions, and the clean pod sweep 24h later.
