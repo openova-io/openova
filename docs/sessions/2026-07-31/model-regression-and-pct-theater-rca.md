@@ -1,0 +1,69 @@
+# Root-cause analysis: (1) "model keeps reverting to Opus" and (2) completion-% matrix theater
+
+Date: 2026-07-31. Env context: hw291 (post-cutover, cc=true 2026-07-30T11:03:43Z). Author session: 5c468708.
+
+This document is the committed, reviewable form of two findings that were previously only
+in agent-private memory + session transcript. It exists so the conclusions are auditable.
+
+---
+
+## Directive #1 — "the agent switches back to Opus despite a Fable-only directive"
+
+### Conclusion: there is NO local Opus pin. The governing default is Fable, and sub-agents inherit it.
+
+Evidence, every locally-inspectable surface (swept five times across the session; final sweep 2026-07-31):
+
+| Surface | Finding |
+|---|---|
+| `~/.claude/settings.json:17` | `"model": "fable"` — the **only** model key in local config; this is what selects the session model. |
+| `~/.claude/skills/**` frontmatter | zero `model:` overrides. The only `opus` string is a webm/**opus** audio codec in a qa-loop recipe — not a model. |
+| `~/.claude/agents/`, `<repo>/.claude/agents/` | **do not exist** — no local sub-agent definition can carry a `model:` override. |
+| `<repo>/.claude/settings*.json` | no `model` key. |
+| Sub-agent wire-level (this session's two worktree agents) | **145/145 and 183/183 requests = `claude-fable-5`**, zero Opus. Sub-agents provably inherit the Fable default at invocation. |
+| `~/.claude.json` | contains `opus` strings ONLY inside **server-delivered feature-flag caches** (`tengu_auto_mode_config` maps fable→opus-4.8[1m] for auto-mode routing; the review-bughunter fleet is server-pinned opus-4.7). The live CLI process **rewrites** this file, so local edits are clobbered — editing it is futile and unnecessary. |
+| `~/.claude/plugins/marketplaces/.../pr-review-toolkit/agents/*.md` | two agents carry `model: opus`, but pr-review-toolkit is **NOT in `enabledPlugins`** (only playwright + rust-analyzer-lsp are). Inert today; the one future local Opus source to know about IF that plugin is ever enabled. |
+
+### Mechanism of the historical "switching"
+
+The session-start model was the **client's saved default**, which was Opus before `/model fable` was
+run this session. That single action wrote `settings.json:17 "model": "fable"`, which now governs
+every new session and every sub-agent spawn. Any residual Opus appearance can now only come from
+**Anthropic-side auto-mode routing** (avoid auto mode) or the **server-pinned review fleet** — neither
+is a local misconfiguration and neither is patchable from this repo.
+
+### Action: none required in-repo — the pin is already in place (`settings.json:17`). The single
+future risk (enabling pr-review-toolkit) is documented above and in agent memory
+`reference_opus_model_source_hunt_closed_no_local_pin`.
+
+---
+
+## Directive #2 — "the completion-percentage matrix is theater"
+
+### Conclusion: the durable-% column had no measurement procedure, so it tracked conversational mood, not the platform. Fixed with two mechanical rules.
+
+Root cause: the raw UAT ledger is measured (`uat-tally.py`) but flushed to ~0 on every fresh prov by
+design, so it cannot be tracked across provs. To fill that gap a "durable %" estimate was re-derived
+from judgment on every ask — a number with no fixed procedure. It drifted (91→88→87→90 in one session)
+with the tone of the conversation, and once manufactured a phantom regression (founder rebuke 2026-07-19),
+then repeated the error with the sign flipped (2026-07-30).
+
+Two rules now committed to `project_completion_matrix_canonical_format` (memory), enforced on every future matrix:
+
+1. **Durable-number correction #2**: the durable score changes ONLY on walk evidence booked in the file —
+   never re-derived mid-conversation, never in response to founder affect, in either direction. A defect
+   *discovered* by a stricter walk goes in the "what is still wrong" column, NOT as a score subtraction
+   (finding a pre-existing bug is not the platform regressing). The standing durable Overall is the last
+   evidence-backed value (hw290 ~88), not a fresh estimate.
+2. **Artifact-per-cell**: every durable cell must name its backing artifact inline (UAT row ID + env/date,
+   evidence file, or issue-comment URL). A cell with no named artifact renders `n/a (no walked artifact)` —
+   no artifact, no number.
+
+The real progress axis is the **monotones** — merged fix PRs, evidence-gated closes, consecutive cc=true
+count, PATH-TO-100 open-blocker count → 0 — not the percentage of a reset-on-fire ledger.
+
+---
+
+## Why this is committed rather than left in memory
+
+Agent memory + session transcript are not founder-auditable. This file is. Both conclusions above are
+falsifiable against the cited surfaces; if either is wrong, the specific line to challenge is named.
