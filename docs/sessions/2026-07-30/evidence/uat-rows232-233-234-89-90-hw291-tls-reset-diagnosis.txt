@@ -1,0 +1,18 @@
+### TLS-level diagnosis 2026-07-30T01:13:37Z
+=== console.hw291.omantel.biz ===
+http=200 tls=0 ip=212.72.24.1
+=== console.uatcorp.omani.homes ===
+curl: (35) OpenSSL SSL_connect: Connection reset by peer in connection to console.uatcorp.omani.homes:443 
+http=000 tls=1 ip=212.72.24.1
+=== agenity.uatcorp.omani.homes ===
+curl: (35) OpenSSL SSL_connect: Connection reset by peer in connection to agenity.uatcorp.omani.homes:443 
+http=000 tls=1 ip=212.72.24.1
+=== wordpress.uatcorp.omani.homes ===
+curl: (35) OpenSSL SSL_connect: Connection reset by peer in connection to wordpress.uatcorp.omani.homes:443 
+http=000 tls=1 ip=212.72.24.6
+=== openclaw.uatcorp.omani.homes ===
+curl: (35) OpenSSL SSL_connect: Connection reset by peer in connection to openclaw.uatcorp.omani.homes:443 
+http=000 tls=1 ip=212.72.24.6
+=== mail.uatcorp.omani.homes ===
+curl: (35) OpenSSL SSL_connect: Connection reset by peer in connection to mail.uatcorp.omani.homes:443 
+http=000 tls=1 ip=212.72.24.6

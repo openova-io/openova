@@ -1,0 +1,51 @@
+### hw291 uatcorp per-Org delivery state @ 2026-07-30T01:03:42Z
+
+## HelmReleases
+NAME                         AGE   READY     STATUS
+bp-agenity                   32m   True      Helm upgrade succeeded for release uatcorp/bp-agenity.v2 with chart bp-agenity@0.5.21
+bp-keycloak                  32m   Unknown   Running 'upgrade' action with timeout of 15m0s
+bp-newapi                    32m   False     dependency 'uatcorp/bp-keycloak' is not ready
+bp-openclaw                  32m   False     dependency 'uatcorp/bp-keycloak' is not ready
+bp-stalwart-tenant           32m   False     dependency 'uatcorp/bp-keycloak' is not ready
+bp-wordpress-tenant          32m   False     dependency 'uatcorp/bp-keycloak' is not ready
+uatwalk-ahs-07300830-rtz-a   32m   True      Helm install succeeded for release uatcorp/uatwalk-ahs-07300830-rtz-a.v1 with chart bp-postgres@0.2.14
+
+## Pods
+NAME                                         READY   STATUS    RESTARTS   AGE   IP            NODE                                                        NOMINATED NODE   READINESS GATES
+bp-agenity-0                                 1/1     Running   0          23m   10.42.1.196   catalyst-hw291-omantel-biz-2c2d746b-me-east-215-a-w71e6bd   <none>           <none>
+bp-keycloak-postgresql-0                     1/1     Running   0          8m    10.42.5.17    catalyst-hw291-omantel-biz-2c2d746b-me-east-215-a-w087590   <none>           <none>
+oidc-gate-agenity-uatcorp-66f65867c5-h7jqd   1/1     Running   0          23m   10.42.1.132   catalyst-hw291-omantel-biz-2c2d746b-me-east-215-a-w71e6bd   <none>           <none>
+
+## ResourceQuota
+Name:            plan-quota
+Namespace:       uatcorp
+Resource         Used    Hard
+--------         ----    ----
+limits.cpu       1550m   2
+limits.memory    2624Mi  4Gi
+requests.cpu     1550m   2
+requests.memory  2624Mi  4Gi
+
+## StatefulSets
+NAME                     READY   AGE
+bp-agenity               1/1     23m
+bp-keycloak              0/1     8m
+bp-keycloak-postgresql   1/1     8m
+
+## Gateway listeners cilium-gateway-console
+declared:
+  console-https host=console.hw291.omantel.biz
+  console-http host=console.hw291.omantel.biz
+  api-https host=api.hw291.omantel.biz
+  api-http host=api.hw291.omantel.biz
+  marketplace-https host=marketplace.hw291.omantel.biz
+  marketplace-http host=marketplace.hw291.omantel.biz
+  console-https-uatcorp host=*.uatcorp.omani.homes
+  console-http-uatcorp host=*.uatcorp.omani.homes
+admitted:
+  console-https
+  console-http
+  api-https
+  api-http
+  marketplace-https
+  marketplace-http
