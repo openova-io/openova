@@ -89,41 +89,41 @@ route_doc() {
 echo "[spa-token-seed] Case 1: agenity-org1 renders Exact / RequestRedirect to /app/?token=sso"
 a1="$(route_doc agenity-org1)"
 if [ -z "$a1" ]; then echo "FAIL: no HTTPRoute oidc-gate-agenity-org1 rendered" >&2; echo "$out" >&2; exit 1; fi
-echo "$a1" | grep -qE 'type:\s*Exact'                                  || { echo "FAIL: missing Exact path match" >&2; echo "$a1" >&2; exit 1; }
-echo "$a1" | grep -qE 'type:\s*RequestRedirect'                        || { echo "FAIL: missing RequestRedirect filter" >&2; echo "$a1" >&2; exit 1; }
-echo "$a1" | grep -qE 'replaceFullPath:\s*"?/app/\?token=sso"?'        || { echo "FAIL: redirect not to /app/?token=sso" >&2; echo "$a1" >&2; exit 1; }
-echo "$a1" | grep -qE 'port:\s*443'                                    || { echo "FAIL: redirect not on port 443" >&2; echo "$a1" >&2; exit 1; }
-echo "$a1" | grep -qE 'statusCode:\s*302'                              || { echo "FAIL: redirect not 302" >&2; echo "$a1" >&2; exit 1; }
+grep -qE 'type:\s*Exact' <<<"$a1"                                  || { echo "FAIL: missing Exact path match" >&2; echo "$a1" >&2; exit 1; }
+grep -qE 'type:\s*RequestRedirect' <<<"$a1"                        || { echo "FAIL: missing RequestRedirect filter" >&2; echo "$a1" >&2; exit 1; }
+grep -qE 'replaceFullPath:\s*"?/app/\?token=sso"?' <<<"$a1"        || { echo "FAIL: redirect not to /app/?token=sso" >&2; echo "$a1" >&2; exit 1; }
+grep -qE 'port:\s*443' <<<"$a1"                                    || { echo "FAIL: redirect not on port 443" >&2; echo "$a1" >&2; exit 1; }
+grep -qE 'statusCode:\s*302' <<<"$a1"                              || { echo "FAIL: redirect not 302" >&2; echo "$a1" >&2; exit 1; }
 echo "  PASS"
 
 # ── Case 2: defaults → /app/?token=sso on port 443 ─────────────────────────
 echo "[spa-token-seed] Case 2: agenity-defaults uses dashboardPath=/app/ value=sso port=443 defaults"
 a2="$(route_doc agenity-defaults)"
-echo "$a2" | grep -qE 'replaceFullPath:\s*"?/app/\?token=sso"?' || { echo "FAIL: defaults not /app/?token=sso" >&2; echo "$a2" >&2; exit 1; }
-echo "$a2" | grep -qE 'port:\s*443'                            || { echo "FAIL: default port not 443" >&2; echo "$a2" >&2; exit 1; }
+grep -qE 'replaceFullPath:\s*"?/app/\?token=sso"?' <<<"$a2" || { echo "FAIL: defaults not /app/?token=sso" >&2; echo "$a2" >&2; exit 1; }
+grep -qE 'port:\s*443' <<<"$a2"                            || { echo "FAIL: default port not 443" >&2; echo "$a2" >&2; exit 1; }
 echo "  PASS"
 
 # ── Case 3: custom path/value/port honoured ────────────────────────────────
 echo "[spa-token-seed] Case 3: agenity-custom honours /dashboard/?token=seed42 on 8443"
 a3="$(route_doc agenity-custom)"
-echo "$a3" | grep -qE 'replaceFullPath:\s*"?/dashboard/\?token=seed42"?' || { echo "FAIL: custom path/value wrong" >&2; echo "$a3" >&2; exit 1; }
-echo "$a3" | grep -qE 'port:\s*8443'                                    || { echo "FAIL: custom port 8443 not honoured" >&2; echo "$a3" >&2; exit 1; }
+grep -qE 'replaceFullPath:\s*"?/dashboard/\?token=seed42"?' <<<"$a3" || { echo "FAIL: custom path/value wrong" >&2; echo "$a3" >&2; exit 1; }
+grep -qE 'port:\s*8443' <<<"$a3"                                    || { echo "FAIL: custom port 8443 not honoured" >&2; echo "$a3" >&2; exit 1; }
 echo "  PASS"
 
 # ── Case 4: control (no spaTokenSeed) renders NO redirect ──────────────────
 echo "[spa-token-seed] Case 4: flowless (no spaTokenSeed) renders NO redirect"
 fl="$(route_doc flowless)"
-if echo "$fl" | grep -qE 'RequestRedirect|type:\s*Exact'; then
+if grep -qE 'RequestRedirect|type:\s*Exact' <<<"$fl"; then
   echo "FAIL: flowless should NOT render a redirect" >&2; echo "$fl" >&2; exit 1
 fi
-echo "$fl" | grep -qE 'type:\s*PathPrefix' || { echo "FAIL: flowless missing PathPrefix backend" >&2; exit 1; }
+grep -qE 'type:\s*PathPrefix' <<<"$fl" || { echo "FAIL: flowless missing PathPrefix backend" >&2; exit 1; }
 echo "  PASS"
 
 # ── Case 5: spaTokenSeed precedence over rootRedirectPath ──────────────────
 echo "[spa-token-seed] Case 5: spaTokenSeed wins over rootRedirectPath (no /oidc/login redirect)"
 ap="$(route_doc agenity-precedence)"
-echo "$ap" | grep -qE 'replaceFullPath:\s*"?/app/\?token=sso"?' || { echo "FAIL: precedence instance did not render the seed redirect" >&2; echo "$ap" >&2; exit 1; }
-if echo "$ap" | grep -qE 'replaceFullPath:\s*"?/oidc/login"?'; then
+grep -qE 'replaceFullPath:\s*"?/app/\?token=sso"?' <<<"$ap" || { echo "FAIL: precedence instance did not render the seed redirect" >&2; echo "$ap" >&2; exit 1; }
+if grep -qE 'replaceFullPath:\s*"?/oidc/login"?' <<<"$ap"; then
   echo "FAIL: rootRedirectPath rule rendered alongside spaTokenSeed (must be mutually exclusive)" >&2; echo "$ap" >&2; exit 1
 fi
 # exactly ONE Exact-/ match in this route (no double redirect rule)

@@ -47,7 +47,7 @@ cm_block=$(echo "$out" | awk -v n="$cm_name" '
 
 # ── Case 1: PUBLIC https KC_HOSTNAME present ──────────────────────────
 echo "[bp-keycloak] Case 1: ConfigMap carries the public https KC_HOSTNAME"
-if ! echo "$cm_block" | grep -q "KC_HOSTNAME: \"https://${host}\""; then
+if ! grep -q "KC_HOSTNAME: \"https://${host}\"" <<<"$cm_block"; then
   echo "FAIL: ${cm_name} did not carry KC_HOSTNAME=https://${host}"
   echo "(without the public frontend pin, gitea 307s the browser to the"
   echo " in-cluster keycloak.keycloak.svc.cluster.local issuer — hw126 FAIL)"
@@ -58,7 +58,7 @@ echo "[bp-keycloak] Case 1: PASS"
 
 # ── Case 2: backchannel stays request-Host dynamic ────────────────────
 echo "[bp-keycloak] Case 2: KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true present"
-if ! echo "$cm_block" | grep -q 'KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"'; then
+if ! grep -q 'KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"' <<<"$cm_block"; then
   echo "FAIL: backchannel-dynamic not set true — token/userinfo would be"
   echo "forced through the public host (no in-cluster hairpin support)"
   echo "$cm_block"
@@ -68,7 +68,7 @@ echo "[bp-keycloak] Case 2: PASS"
 
 # ── Case 3: KC_HOSTNAME is never the in-cluster service DNS ───────────
 echo "[bp-keycloak] Case 3: KC_HOSTNAME never points at the in-cluster service"
-if echo "$cm_block" | grep -q "keycloak.keycloak.svc.cluster.local"; then
+if grep -q "keycloak.keycloak.svc.cluster.local" <<<"$cm_block"; then
   echo "FAIL: frontend KC_HOSTNAME leaked the in-cluster svc DNS — this is"
   echo "the exact hw126 chrome-error symptom the pin exists to prevent"
   echo "$cm_block"
@@ -83,7 +83,7 @@ sts_block=$(echo "$out" | awk '
   /^kind: StatefulSet$/{inblock=1}
   inblock{print}
 ')
-if ! echo "$sts_block" | grep -q "name: ${cm_name}"; then
+if ! grep -q "name: ${cm_name}" <<<"$sts_block"; then
   echo "FAIL: keycloak StatefulSet does not reference ${cm_name} (extraEnvVarsCM"
   echo "not wired) — the frontend pin would never reach the KC container"
   exit 1
@@ -104,7 +104,7 @@ if [ -z "$cm_default" ]; then
   echo "CreateContainerConfigError)"
   exit 1
 fi
-if echo "$cm_default" | grep -q "KC_HOSTNAME"; then
+if grep -q "KC_HOSTNAME" <<<"$cm_default"; then
   echo "FAIL: KC_HOSTNAME set with no gateway.host — must stay hostname-dynamic"
   echo "for non-Catalyst standalone installs"
   echo "$cm_default"

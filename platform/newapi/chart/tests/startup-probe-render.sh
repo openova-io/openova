@@ -63,7 +63,7 @@ if [ -z "$newapi_container" ]; then
   exit 1
 fi
 
-if ! echo "$newapi_container" | grep -q "startupProbe:"; then
+if ! grep -q "startupProbe:" <<<"$newapi_container"; then
   echo "FAIL: newapi container has no startupProbe block"
   echo "--- newapi container ---"
   echo "$newapi_container"
@@ -82,26 +82,26 @@ if [ -z "$startup_block" ]; then
   echo "FAIL: could not extract startupProbe block from newapi container"
   exit 1
 fi
-if ! echo "$startup_block" | grep -q "failureThreshold: 30"; then
+if ! grep -q "failureThreshold: 30" <<<"$startup_block"; then
   echo "FAIL: startupProbe failureThreshold is not 30 (5-minute budget for GORM AutoMigrate)"
   echo "--- startupProbe block ---"
   echo "$startup_block"
   exit 1
 fi
-if ! echo "$startup_block" | grep -q "periodSeconds: 10"; then
+if ! grep -q "periodSeconds: 10" <<<"$startup_block"; then
   echo "FAIL: startupProbe periodSeconds is not 10"
   exit 1
 fi
-if ! echo "$startup_block" | grep -q "path: /api/status"; then
+if ! grep -q "path: /api/status" <<<"$startup_block"; then
   echo "FAIL: startupProbe path is not /api/status"
   exit 1
 fi
 # Liveness must stay present (kubelet semantics: after startup success).
-if ! echo "$newapi_container" | grep -q "livenessProbe:"; then
+if ! grep -q "livenessProbe:" <<<"$newapi_container"; then
   echo "FAIL: livenessProbe removed (must remain for post-startup kubelet supervision)"
   exit 1
 fi
-if ! echo "$newapi_container" | grep -q "readinessProbe:"; then
+if ! grep -q "readinessProbe:" <<<"$newapi_container"; then
   echo "FAIL: readinessProbe removed"
   exit 1
 fi
@@ -135,11 +135,11 @@ newapi_container2=$(echo "$deployment_block2" | awk '
 ')
 # When startup is null the {{- if .Values.newapi.probes.startup }} gate
 # is false and the entire block (key + httpGet + thresholds) is omitted.
-if echo "$newapi_container2" | grep -q "^[[:space:]]*startupProbe:"; then
+if grep -q "^[[:space:]]*startupProbe:" <<<"$newapi_container2"; then
   echo "FAIL: startup=null should suppress the startupProbe block (Inviolable Principle #4)"
   exit 1
 fi
-if ! echo "$newapi_container2" | grep -q "livenessProbe:"; then
+if ! grep -q "livenessProbe:" <<<"$newapi_container2"; then
   echo "FAIL: livenessProbe missing in override path"
   exit 1
 fi

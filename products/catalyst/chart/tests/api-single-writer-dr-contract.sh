@@ -61,7 +61,7 @@ if [ -z "$REPLICAS_LINE" ]; then
   echo "FAIL: catalyst-api Deployment no longer renders an explicit 'replicas:' — the single-writer contract must stay explicit, see ${DOC_REF}" >&2
   exit 1
 fi
-if ! echo "$REPLICAS_LINE" | grep -qE 'replicas:[[:space:]]*1$'; then
+if ! grep -qE 'replicas:[[:space:]]*1$' <<<"$REPLICAS_LINE"; then
   echo "FAIL: catalyst-api Deployment replicas != 1 (got: '${REPLICAS_LINE// /}')." >&2
   echo "      catalyst-api persists the tofu/deployment store on a zone-scoped RWO EVS PVC" >&2
   echo "      with no leader election — a second replica is a split-brain over infrastructure" >&2
