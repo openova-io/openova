@@ -204,13 +204,62 @@ else
   echo "OK — no nodePort-range port literal in infra HCL."
 fi
 
-# ─── Phase 2 — rendered-chart scan (best-effort) ─────────────────────────
+# ─── Phase 2 — rendered-chart scan ───────────────────────────────────────
+#
+# Charts that cannot render offline used to be WARN-skipped silently and the
+# run still printed "zero NodePorts across sources + rendered charts". On
+# 2026-08-01 that was 17 of 89 charts — 19% of the fleet carried NO render
+# coverage while the summary claimed it did (#5512). Phase 1 only matches
+# literal source patterns, so a values-driven NodePort inside a chart that
+# never renders would pass BOTH phases.
+#
+# The skip is now RATCHETED. RENDER_SKIP_ALLOWLIST records the charts known
+# not to render with default values — every one fails a deliberate fail-loud
+# `required` / `fail` guard (e.g. bp-anthropic-adapter's "image.tag MUST be
+# SHA-pinned by the per-cluster overlay"), which is correct chart design, not
+# a defect. A chart OUTSIDE that list failing to render is a NEW blind spot
+# and FAILS the guard. A chart INSIDE it that now renders is reported so the
+# list cannot rot (same anti-rot reasoning as the Phase 0a pattern self-test).
+RENDER_SKIP_ALLOWLIST=(
+  platform/anthropic-adapter/chart
+  platform/bp-dmz-vcluster/chart
+  platform/catalyst-edge-routes/chart
+  platform/cilium-policies/chart
+  platform/cnpg-pair/chart
+  platform/guacamole/chart
+  platform/hcloud-csi/chart
+  platform/huawei-evs-csi/chart
+  platform/k8s-ws-proxy/chart
+  platform/knative/chart
+  platform/librechat/chart
+  platform/netbird/chart
+  platform/oidc-gate/chart
+  platform/plane-isolation/chart
+  platform/postgres/chart
+  platform/sandbox/chart
+  platform/sovereign-tls-vars/chart
+)
+
+is_render_skip_allowed() {
+  local needle="$1" c
+  for c in "${RENDER_SKIP_ALLOWLIST[@]}"; do
+    [ "${c}" = "${needle}" ] && return 0
+  done
+  return 1
+}
+
+RENDERED_COUNT=0
+SKIPPED_COUNT=0
+RENDER_PHASE_RAN=0
+UNEXPECTED_RENDERABLE=""
+
 echo ""
 echo "== Phase 2: rendered-chart NodePort scan =="
 if ! command -v helm >/dev/null 2>&1; then
   echo "WARN: helm not on PATH — skipping the rendered-chart phase (Phase 1"
   echo "      already covers chart template sources). Install helm to enforce."
 else
+  RENDER_PHASE_RAN=1
   shopt -s nullglob
   # Per-chart render timeout so a pathological chart can never hang CI. We
   # NEVER run `helm dependency build` (it reaches out to the network and can
@@ -222,8 +271,18 @@ else
     [ -f "${chart}/Chart.yaml" ] || continue
     rendered="$(timeout "${HELM_TIMEOUT}" helm template "$(basename "${chart}")" "${chart}" 2>/dev/null || true)"
     if [ -z "${rendered}" ]; then
-      echo "WARN: ${chart} did not render offline — skipped (Phase 1 covers its sources)."
+      SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+      if is_render_skip_allowed "${chart}"; then
+        echo "SKIP: ${chart} does not render offline (known fail-loud values guard) — Phase 1 covers its sources."
+      else
+        fail "chart ${chart} did NOT render offline and is not in RENDER_SKIP_ALLOWLIST — a values-driven NodePort here would evade BOTH phases (#5512). Either make it render offline, or add it to the allowlist with a reason:"
+        timeout "${HELM_TIMEOUT}" helm template "$(basename "${chart}")" "${chart}" 2>&1 | head -3 >&2
+      fi
       continue
+    fi
+    RENDERED_COUNT=$((RENDERED_COUNT + 1))
+    if is_render_skip_allowed "${chart}"; then
+      UNEXPECTED_RENDERABLE="${UNEXPECTED_RENDERABLE}  ${chart}"$'\n'
     fi
     # `nodePort: 0` is the k8s "unspecified" sentinel (vcluster/upstream
     # ClusterIP Services render it) — inert; only a NONZERO nodePort or a
@@ -241,6 +300,13 @@ else
 fi
 
 echo ""
+if [ -n "${UNEXPECTED_RENDERABLE}" ]; then
+  echo "NOTE: these charts are in RENDER_SKIP_ALLOWLIST but now render offline."
+  echo "      Remove them from the list so the allowlist cannot rot:"
+  printf '%s' "${UNEXPECTED_RENDERABLE}"
+  echo ""
+fi
+
 if [ "${EXIT}" -ne 0 ]; then
   echo "───────────────────────────────────────────────────────────────" >&2
   echo "NodePorts are ABSOLUTELY FORBIDDEN (founder 2026-07-03, #4765)." >&2
@@ -252,5 +318,12 @@ if [ "${EXIT}" -ne 0 ]; then
   echo "───────────────────────────────────────────────────────────────" >&2
   exit 1
 fi
-echo "OK: zero NodePorts across sources + rendered charts (#4765)."
+# State the ACTUAL coverage. The old summary said "sources + rendered charts"
+# unconditionally, including when the render phase never ran or skipped a
+# fifth of the fleet (#5512).
+if [ "${RENDER_PHASE_RAN}" -eq 1 ]; then
+  echo "OK: zero NodePorts — sources clean; ${RENDERED_COUNT} chart(s) rendered and scanned, ${SKIPPED_COUNT} allowlisted chart(s) covered by the source scan only (#4765)."
+else
+  echo "OK: zero NodePorts in sources (#4765). Rendered-chart phase did NOT run (helm absent) — this run does NOT cover values-driven NodePorts."
+fi
 exit 0
