@@ -38,6 +38,39 @@ declare -a BANNED=(
   '\bblocker[s]?\b'
 )
 
+# ─── Pattern self-test (vacuity guard) ───────────────────────────────────
+#
+# An absence-assertion reports "clean" both when the thing is absent AND
+# when the check stopped working. If an edit breaks one of the BANNED
+# regexes, this guard silently matches nothing and passes every PR forever
+# — green meaning "did not look" rather than "not present" (#5512).
+#
+# scripts/check-no-nodeports.sh has carried this protection since #4765
+# (its Phase 0a); this guard did not. Each pattern must still match a
+# known-banned sample, and a clean sentence must still match nothing (so a
+# pattern widened to `.*` is caught too, rather than failing every PR).
+declare -a BANNED_SELFTEST=(
+  'ship the MVP now'
+  'the second iteration landed'
+  'that is out of scope'
+  'the blocker is upstream'
+)
+CLEAN_SAMPLE='gateway renders direct on the shared VIP and the chart publishes'
+
+for i in "${!BANNED[@]}"; do
+  if ! grep -iqP "${BANNED[$i]}" <<<"${BANNED_SELFTEST[$i]}"; then
+    echo "SELF-TEST FAIL: pattern ${BANNED[$i]} no longer matches its sample" >&2
+    echo "  sample: ${BANNED_SELFTEST[$i]}" >&2
+    echo "  The banned-words guard would pass every PR. Fix the regex." >&2
+    exit 2
+  fi
+  if grep -iqP "${BANNED[$i]}" <<<"${CLEAN_SAMPLE}"; then
+    echo "SELF-TEST FAIL: pattern ${BANNED[$i]} matches a CLEAN sentence" >&2
+    echo "  It is too broad and would fail every PR." >&2
+    exit 2
+  fi
+done
+
 # Allowed-context exemptions — paths where the banned words are
 # documented BY DEFINITION (this script's own help text, the principles
 # section that ENUMERATES the banned words, the ledger rows that
