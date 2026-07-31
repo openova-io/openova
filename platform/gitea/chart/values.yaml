@@ -81,6 +81,18 @@ gitea:
         NAME: gitea
         USER: gitea
         SSL_MODE: disable
+      # Durable session store (#5531). Upstream gitea defaults `[session]
+      # PROVIDER=memory`, which keeps the OAuth2 `state` that gitea mints on
+      # the redirect-to-Keycloak in process memory only. Any gitea pod roll
+      # between BeginAuth and the callback — the cutover registry-pivot
+      # restart, an image bump, a node drain — flushes that in-memory session,
+      # so the callback lands with no stored state and gitea 500s with
+      # "could not find a matching session for this request". `db` persists
+      # sessions in the gitea Postgres (already wired above), so the OAuth
+      # round-trip survives a mid-flow restart. PROVIDER_CONFIG is unused for
+      # the db provider (it reuses the configured database engine).
+      session:
+        PROVIDER: db
       # G91.gitea (#2653) — global OAuth2-client toggles. Per-provider
       # config (clientId/secret/autoDiscoverUrl) lives under `gitea.oauth`
       # below; these are the global app.ini knobs.
