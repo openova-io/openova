@@ -107,8 +107,8 @@ func TestHandleShellsIssue_RBAC_Viewer_403(t *testing.T) {
 	rec := httptest.NewRecorder()
 	shellsIssueRouter(rig).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status: got %d want 403; body=%s", rec.Code, rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), `"403"`) {
 		t.Fatalf("403 envelope must include literal \"403\" token (TC-245 must_contain): got %s", rec.Body.String())
@@ -194,8 +194,8 @@ func TestHandleShellsIssue_MissingQueryParams_400(t *testing.T) {
 
 		rec := httptest.NewRecorder()
 		shellsIssueRouter(rig).ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("query=%q: status got %d want 200; body=%s", qs, rec.Code, rec.Body.String())
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("query=%q: status got %d want 400; body=%s", qs, rec.Code, rec.Body.String())
 		}
 		body := rec.Body.String()
 		if !strings.Contains(body, `"error"`) || !strings.Contains(body, `"400"`) {
@@ -257,8 +257,8 @@ func TestHandleShellsIssue_TC245_Viewer_TokenEnvelope(t *testing.T) {
 	rec := httptest.NewRecorder()
 	shellsIssueRouter(rig).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("TC-245 status: got %d want 200 (matrix-runner-friendly); body=%s",
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("TC-245 status: got %d want 403; body=%s",
 			rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()

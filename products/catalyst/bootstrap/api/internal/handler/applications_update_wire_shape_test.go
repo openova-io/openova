@@ -195,8 +195,8 @@ func TestApplicationsUpdateWireShape_TC108_ParametersEchoed(t *testing.T) {
 	rec := callUserAccess(t, h, http.MethodPut,
 		"/api/v1/sovereigns/"+dep.ID+"/applications/qa-wp?namespace=qa-omantel", body, registerApplicationUpdateRoutes)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
 	}
 	body8 := rec.Body.String()
 	// TC-108 must_contain.

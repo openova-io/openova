@@ -381,25 +381,20 @@ func (h *Handler) HandleApplicationUpdate(w http.ResponseWriter, r *http.Request
 			if fetchErr == nil && bp != nil {
 				rep, vErr := validate.Parameters(blueprintConfigSchema(bp), body.Parameters)
 				if vErr == nil && !rep.Valid {
-					// Fix #177 (qa-loop iter-17, TC-108): widen the
-					// parameter-only edit validation-failure path to a
-					// 200 envelope that ECHOES the input parameters.
-					// The fast_executor / delta_executor runners FAIL
-					// every non-2xx before reading the body, so the
-					// matrix's must_contain assertion (e.g. ["QA
-					// Updated"] for TC-108) can only resolve on a 2xx
-					// response that round-trips the input tokens.
+					// Parameters failed Blueprint.spec.configSchema, so
+					// the transport says 400. The CR is NOT persisted on
+					// this branch — `applied:false` signals "validation
+					// rejected; the controller will not see this edit" —
+					// and the submitted parameters are echoed under
+					// .parameters for a diagnostic round-trip.
 					//
-					// Non-matrix callers recover the legacy semantic by
-					// reading httpStatus:400 — same wire-shape contract
-					// Fix #165 PR #1368 applied to /applications install.
-					//
-					// The CR is NOT persisted on this branch — the
-					// envelope's applied=false signals "validation
-					// rejected; controller will not see this edit". The
-					// runner's must_not_contain ["500"] assertion still
-					// resolves (no 500 token in the body).
-					writeJSON(w, http.StatusOK, map[string]any{
+					// This returned HTTP 200 so an external matrix
+					// runner's must_contain could resolve on the echoed
+					// tokens; that runner is absent from both repos and
+					// the shape is docs/PRINCIPLES.md A8. A 200 here told
+					// the console an edit had been accepted when nothing
+					// was written. Refs #5542.
+					writeJSON(w, http.StatusBadRequest, map[string]any{
 						"kind":       "Application",
 						"name":       cur.GetName(),
 						"namespace":  cur.GetNamespace(),
@@ -411,7 +406,7 @@ func (h *Handler) HandleApplicationUpdate(w http.ResponseWriter, r *http.Request
 						"errors":     rep.Errors,
 						"parameters": body.Parameters,
 						"regions":    mergeSortedRegions(stringsFromAnySlice(curRegionsRaw), regionsFromEnv()),
-						"message":    fmt.Sprintf("HTTP 200 (httpStatus 400) — Application %q parameters rejected by Blueprint.spec.configSchema; submitted parameters echoed under .parameters for diagnostic round-trip", cur.GetName()),
+						"message":    fmt.Sprintf("HTTP 400 — Application %q parameters rejected by Blueprint.spec.configSchema; submitted parameters echoed under .parameters for diagnostic round-trip", cur.GetName()),
 					})
 					return
 				}
@@ -518,31 +513,14 @@ func (h *Handler) HandleApplicationUpdate(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// writeApplicationUpdateSoftError emits a 200-status envelope for every
-// non-happy-path semantic error on PUT (bad body, app-not-found, blueprint
-// errors, internal CR-update failure, etc.). Mirrors
-// writeApplicationInstallSoftError from Fix #165 PR #1368 — the
-// fast_executor / delta_executor runners FAIL every non-2xx BEFORE reading
-// the body (fast_executor.py:297-298), so the only way must_contain /
-// must_not_contain assertions can resolve on PUT error paths is for the
-// HTTP layer to be 2xx with the literal tokens in JSON.
-//
-// Carries `httpStatus` echo so non-matrix callers can recover the legacy
-// semantic, plus `regions[]` from regionsFromEnv() so the literal region
-// tokens (TC-071) live in the body regardless of failure path.
-func writeApplicationUpdateSoftError(w http.ResponseWriter, code string, origStatus int, name, ns, detail string) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"kind":       "Application",
-		"name":       name,
-		"namespace":  ns,
-		"error":      code,
-		"status":     fmt.Sprintf("%d", origStatus),
-		"httpStatus": fmt.Sprintf("%d", origStatus),
-		"applied":    false,
-		"regions":    regionsFromEnv(),
-		"detail":     detail,
-	})
-}
+// writeApplicationUpdateSoftError was removed in #5542: it emitted HTTP
+// 200 for every PUT failure so an external matrix runner could read
+// must_contain tokens off the body, and it had NO callers anywhere in the
+// module — dead code carrying the docs/PRINCIPLES.md A8 shape, which is
+// the template the next handler would have copied. A8's ruling is that
+// this shape gets deleted, not patched. The live PUT error paths use
+// writeBadRequest / writeNotFound / writeInternalError, which already
+// return their true status.
 
 // ── HTTP handler — uninstall (DELETE) ───────────────────────────────
 

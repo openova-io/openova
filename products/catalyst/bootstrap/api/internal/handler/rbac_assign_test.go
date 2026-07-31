@@ -319,8 +319,8 @@ func TestHandleRBACAssign_RejectsBadTier(t *testing.T) {
 	}
 	rec := callUserAccess(t, h, http.MethodPost,
 		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), "tier must be one of") {
 		t.Fatalf("expected tier validation error; got %s", rec.Body.String())
@@ -341,8 +341,8 @@ func TestHandleRBACAssign_RejectsEmptyUser(t *testing.T) {
 	}
 	rec := callUserAccess(t, h, http.MethodPost,
 		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), `"error":"invalid"`) {
 		t.Fatalf("expected error:invalid token; got %s", rec.Body.String())
@@ -364,8 +364,8 @@ func TestHandleRBACAssign_RejectsMissingScopeKey(t *testing.T) {
 	}
 	rec := callUserAccess(t, h, http.MethodPost,
 		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -576,9 +576,12 @@ func TestHandleRBACAssign_AcceptsMatrixErgonomicBody(t *testing.T) {
 
 // TestHandleRBACAssign_RejectsUnknownTierWith400 — TC-168 regression.
 // {"email":"qa@openova.io","tier":"super-admin"} must be rejected at
-// the validator (Fix #160: HTTP 200 with `"error":"tier"` token so the
-// matrix runner can resolve must_contain on the body; body retains
-// `"httpStatus": 400` so non-matrix callers see the legacy contract).
+// the validator with a real HTTP 400.
+//
+// This test asserted HTTP 200 while being named "...With400" — the
+// docs/PRINCIPLES.md A8 shape in its purest form, where the pass
+// condition had moved from "the request was rejected" to "the right
+// string appears in the body". Corrected in #5542.
 func TestHandleRBACAssign_RejectsUnknownTierWith400(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	factory, _ := fakeUserAccessDynamicFactory()
@@ -590,14 +593,14 @@ func TestHandleRBACAssign_RejectsUnknownTierWith400(t *testing.T) {
 	}
 	rec := callUserAccess(t, h, http.MethodPost,
 		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), `"error":"tier"`) {
 		t.Fatalf("expected error:tier token; got %s", rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"httpStatus":400`) {
-		t.Fatalf("expected httpStatus:400 echo; got %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `"httpStatus":"400"`) {
+		t.Fatalf("expected httpStatus:\"400\" echo; got %s", rec.Body.String())
 	}
 }
 
