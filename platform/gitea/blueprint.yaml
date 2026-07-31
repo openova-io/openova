@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.2.48 # lockstep with chart/Chart.yaml (#5262 admin-secret vanish-proof mirror-fallback lookup; #4885 admin-secret reloader annotation; #4402 spine topology tier:mgmt → '' host-native, #4325 de-vcluster fallout)
+  version: 1.2.49 # lockstep with chart/Chart.yaml (#5531 durable db session provider — memory sessions lost OAuth state on pod roll; #5262 admin-secret vanish-proof mirror-fallback lookup; #4885 admin-secret reloader annotation; #4402 spine topology tier:mgmt → '' host-native, #4325 de-vcluster fallout)
   card:
     title: gitea
     summary: Gitea — per-Sovereign Git server. Catalyst control plane. Hosts catalog (public Blueprint mirror), catalog-sovereign (Sovereign-curated private Blueprints), one Gitea Org per Catalyst Organization, and system (sovereign-admin scope).
