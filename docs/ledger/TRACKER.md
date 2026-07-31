@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-31T05:45:02Z` |
+| Last refreshed | `2026-07-31T06:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 100 |
+| Open issues | 97 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 100 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 97 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 100 open items (clickable table)
+### All 97 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -225,7 +225,6 @@ flowchart LR
 | [#5394](https://github.com/openova-io/openova/issues/5394) | MCP endpoint is ~50% dead: bp-openova-mcp is single-region but mcp.<fqdn> fronts | Other |
 | [#5395](https://github.com/openova-io/openova/issues/5395) | gamma-corp is entirely unrouted: all 6 per-Org HTTPRoutes NoMatchingListenerHost | Other |
 | [#5396](https://github.com/openova-io/openova/issues/5396) | bp-velero upgrade-crds pre-upgrade hook is Kyverno-rejected (no harbor-proxy ima | Other |
-| [#5397](https://github.com/openova-io/openova/issues/5397) | 9 catalog apps pinned to :latest are denied by the Sovereign's own Kyverno image | Other |
 | [#5400](https://github.com/openova-io/openova/issues/5400) | SECURITY: per-Org bp-keycloak releases clobber the platform's OIDC pin-broker cr | Other |
 | [#5401](https://github.com/openova-io/openova/issues/5401) | SECURITY: per-Org console /settings renders the Sovereign operator panel to an o | Other |
 | [#5404](https://github.com/openova-io/openova/issues/5404) | Operator-console vitest suite is red on main (68 failed / 1876 passed across 9 f | Other |
@@ -274,10 +273,8 @@ flowchart LR
 | [#5482](https://github.com/openova-io/openova/issues/5482) | App detail Overview renders a host-cluster label as PRIMARY REGION — handler r | Other |
 | [#5484](https://github.com/openova-io/openova/issues/5484) | Marketplace: redeem rate limiter fires at ~5x budget and penalises bystanders (t | Other |
 | [#5485](https://github.com/openova-io/openova/issues/5485) | Observability surfaces inherit the wrong object: reconciler logs match by prefix | Other |
-| [#5487](https://github.com/openova-io/openova/issues/5487) | Valkey is reachable and writable from every pod (rate-limit counters included);  | Other |
 | [#5488](https://github.com/openova-io/openova/issues/5488) | Cutover aborts at secondary-kubeconfigs pre-flight after a catalyst-api restart: | Other |
 | [#5489](https://github.com/openova-io/openova/issues/5489) | Four surfaces report a vCluster that does not exist (parent row hardcodes it, ku | Other |
-| [#5491](https://github.com/openova-io/openova/issues/5491) | §854 NodePort prohibition is enforced in Audit mode — the policy records viol | Other |
 | [#5496](https://github.com/openova-io/openova/issues/5496) | Catalog per-field save silently reverts the previous save — query invalidated  | Other |
 | [#5499](https://github.com/openova-io/openova/issues/5499) | harbor-core crashloops on 28P01 blocking the cutover — region-b consumes a rol | Other |
 | [#5500](https://github.com/openova-io/openova/issues/5500) | Application install returns HTTP 200 for a rejected install (body says 400) —  | Other |
