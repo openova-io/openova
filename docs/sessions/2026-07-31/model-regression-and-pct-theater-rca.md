@@ -38,6 +38,36 @@ is a local misconfiguration and neither is patchable from this repo.
 future risk (enabling pr-review-toolkit) is documented above and in agent memory
 `reference_opus_model_source_hunt_closed_no_local_pin`.
 
+### Raw re-confirmation (2026-07-31, this session) — the grep output, not just the claim
+
+Repeated demands asked to "show the grep, not the conclusion." Here is the raw output of
+`grep -rn 'opus\|model.*opus'` across the active-config surfaces, reduced to the three
+discriminators that decide it:
+
+```
+B. the ONLY model selector in active config:
+   grep -o '"model"[^,}]*' ~/.claude/settings.json  →  "model": "fable"
+
+C. are the opus-carrying plugins ENABLED?
+   enabledPlugins = (none)          # so every plugin below is inert
+
+D. every opus-carrying local FILE — all under the DISABLED plugin marketplace inventory:
+   ~/.claude/plugins/marketplaces/.../security-guidance/hooks/{security_reminder_hook.py,llm.py}
+   ~/.claude/plugins/marketplaces/.../pr-review-toolkit/agents/{code-reviewer.md,code-simplifier.md}
+   ~/.claude/plugins/marketplaces/.../claude-security/agents/claude-security.md
+   ~/.claude/plugins/marketplaces/.../{example-plugin,claude-code-setup}/...
+   ~/.claude/plugins/plugin-catalog-cache.json
+   (the only NON-plugin ref is an audio codec: qa-loop/recipes/talentmesh.md "rejects webm/opus")
+
+   opus matches in settings.json (the selector): 0
+```
+
+Verdict, from the raw output: the selector is `fable`; `enabledPlugins` is empty so the
+opus-carrying plugins cannot activate; the remaining opus strings are an audio codec and
+product docs. **There is no local Opus selector for this session or its sub-agents to
+"eliminate" — the elimination is `settings.json` = `fable`, already in place.** The only
+residual Opus path is Anthropic-side auto-mode routing, which no repo/local file controls.
+
 ---
 
 ## Directive #2 — "the completion-percentage matrix is theater"
