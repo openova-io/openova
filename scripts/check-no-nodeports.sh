@@ -56,6 +56,62 @@ SCAN_ROOTS=(platform products clusters infra core)
 # marker (# // *), and drop lines that carry an explicit ban marker.
 BAN_MARKERS='FORBIDDEN|forbidden|§854|#4765|NEVER|never use|must not|not a nodeport'
 
+echo "== Phase 0: guard self-test (vacuity) =="
+# #5517: this guard is an ABSENCE assertion, and absence assertions fail OPEN.
+# Two ways this script could have passed while checking nothing:
+#   1. SCAN_ROOTS drift (a dir renamed/moved) -> grep matches no files -> RAW
+#      empty -> "no violations". Indistinguishable from a clean repo.
+#   2. PATTERN rot (an edit that breaks the regex) -> matches nothing, forever
+#      green.
+# The #5473 lesson generalised: a negative assertion needs a POSITIVE control.
+# Phase 0 proves the pattern still bites and the scan still reaches real files
+# BEFORE any verdict is trusted. Exit 2 (not 1) so a broken guard is never
+# mistaken for a NodePort violation.
+
+# 0a. PATTERN must still match every banned form. If an edit breaks the regex
+#     this fails loudly instead of going quietly green.
+for probe in \
+  '  type: NodePort' \
+  '  serviceType: NodePort' \
+  '  nodePort: 30853' \
+  '  type = "NodePort"'
+do
+  if ! printf '%s\n' "${probe}" | grep -qE "${PATTERN}"; then
+    echo "GUARD BROKEN (#5517): PATTERN no longer matches a banned form: ${probe}" >&2
+    echo "  The scan below would report 'clean' while NodePorts pass through." >&2
+    exit 2
+  fi
+done
+
+# 0b. PATTERN must NOT match the k8s inert sentinel or the LB viewer label,
+#     or the guard would cry wolf on every LoadBalancer Service.
+for negprobe in '  nodePort: 0' '  allocateLoadBalancerNodePorts: true'; do
+  if printf '%s\n' "${negprobe}" | grep -qE "${PATTERN}"; then
+    echo "GUARD OVER-BROAD (#5517): PATTERN matches an allowed form: ${negprobe}" >&2
+    exit 2
+  fi
+done
+
+# 0c. The scan must actually reach files. A floor, not an exact count, so
+#     ordinary repo growth never trips it but a vanished tree does.
+# `|| true` is load-bearing: under `set -e` a grep that matches nothing exits
+# non-zero and would abort the script HERE, before the check below ever runs --
+# making this very vacuity guard unreachable in exactly the scenario it exists
+# to catch. Observed while proving the guard: a SCAN_ROOTS drift exited 1 from
+# the assignment instead of 2 from the check.
+SCANNED="$( { grep -rlIE '.' \
+  --include='*.yaml' --include='*.yml' \
+  --include='*.tf' --include='*.tftpl' \
+  --include='*.go' --include='*.ts' \
+  "${SCAN_ROOTS[@]}" 2>/dev/null || true; } | wc -l | tr -d ' ')"
+if [ "${SCANNED:-0}" -lt 200 ]; then
+  echo "GUARD VACUOUS (#5517): static scan reached only ${SCANNED} files across" >&2
+  echo "  SCAN_ROOTS=(${SCAN_ROOTS[*]}) — expected >=200." >&2
+  echo "  A root was renamed/moved, so a 'clean' result would prove nothing." >&2
+  exit 2
+fi
+echo "  self-test OK: pattern matches 4/4 banned forms, rejects 2/2 allowed forms, ${SCANNED} files in scope"
+
 echo "== Phase 1: static NodePort source scan =="
 RAW="$(grep -rnIE "${PATTERN}" \
   --include='*.yaml' --include='*.yml' \
