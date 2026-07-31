@@ -56,6 +56,19 @@ func (h *Handler) chrootEnsureDeployment(depID string) *Deployment {
 	if selfFQDN == "" {
 		return nil
 	}
+	// #5488 — NEVER synthesize (or store) a record for a blank id. Doing
+	// so used to mint a permanent map entry keyed "" whose Deployment
+	// carried ID:"" but a matching SovereignFQDN — indistinguishable from
+	// the real imported record to chrootServesDeployment, so the cutover
+	// pre-flight (resolveCutoverDeployment, nondeterministic sync.Map
+	// order) sometimes resolved a record that could not name its own
+	// on-disk kubeconfig paths and aborted a healthy multi-region run
+	// (hw291 dep 2c2d746b578c636b). A caller with no id gets nil — the
+	// honest 404 — instead of a poisoned self-record.
+	depID = strings.TrimSpace(depID)
+	if depID == "" {
+		return nil
+	}
 	if val, ok := h.deployments.Load(depID); ok {
 		return val.(*Deployment)
 	}
