@@ -193,8 +193,25 @@ type OrganizationProvisionRecord struct {
 	// (legacy records) reads as "s" at the renderer.
 	PlanSlug string `json:"plan_slug,omitempty"`
 
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	// BoundaryPhase — the LAST OBSERVED phase of the Org's boundary
+	// (#5501), read back from the canonical Organization CR the pipeline
+	// mints: `status.vcluster.phase` for a vcluster-tier Org, the
+	// top-level Ready condition for a host-namespace one. One of
+	// "Ready" | "Provisioning" | "Pending" | "Failed"; EMPTY means
+	// NEVER OBSERVED (no in-cluster client, or the read failed) — it is
+	// deliberately NOT defaulted to a phase, because "we could not look"
+	// and "we looked and it is up" are different facts.
+	//
+	// This is the only substrate truth the API has: every step of the
+	// provisioning pipeline is a SUBMIT (commit an overlay, write a DNS
+	// rrset, POST a CR), so the state machine alone can never tell a
+	// caller whether the Organization actually exists. The pipeline
+	// stamps this field, gates the terminal STSDone promotion on it, and
+	// the wire response derives its substrate-side steps from it.
+	BoundaryPhase string `json:"boundary_phase,omitempty"`
+
+	CreatedAt time.Time `json:"created_at,omitzero"`
+	UpdatedAt time.Time `json:"updated_at,omitzero"`
 }
 
 // orgTenantDir is the on-disk subdirectory under <store>/org-tenant.
@@ -229,7 +246,27 @@ func NewOrganizationProvisionStore(dir string) (*OrganizationProvisionStore, err
 // Put upserts a record. CreatedAt is preserved across upserts; the
 // caller is responsible for setting State/Subdomain/etc. before
 // calling. UpdatedAt is bumped automatically.
+//
+// #5501 — Put takes the record BY VALUE, so the CreatedAt/UpdatedAt it
+// stamps land on this function's local copy and are invisible to the
+// caller. Callers that serialize the record they just persisted (the
+// Organization create handler) therefore published Go ZERO timestamps
+// (0001-01-01T00:00:00Z) while the on-disk row carried the real ones —
+// which is why a GET showed real timestamps and the POST response did
+// not. Use Save when the caller keeps the record; Put is retained for
+// fire-and-forget writers.
 func (s *OrganizationProvisionStore) Put(rec OrganizationProvisionRecord) error {
+	return s.Save(&rec)
+}
+
+// Save persists rec and writes the stamped CreatedAt/UpdatedAt BACK onto
+// the caller's record (#5501), so an in-memory record that has just been
+// persisted carries the same timestamps the on-disk row does. Same
+// semantics as Put in every other respect.
+func (s *OrganizationProvisionStore) Save(rec *OrganizationProvisionRecord) error {
+	if rec == nil {
+		return errors.New("org-tenant: record is required")
+	}
 	if strings.TrimSpace(rec.OrganizationID) == "" {
 		return errors.New("org-tenant: org_tenant_id is required")
 	}
@@ -244,7 +281,7 @@ func (s *OrganizationProvisionStore) Put(rec OrganizationProvisionRecord) error 
 
 	path := filepath.Join(s.dir, sanitizeID(rec.OrganizationID)+".json")
 	if rec.CreatedAt.IsZero() {
-		if existing, err := readOrganizationRec(path); err == nil {
+		if existing, err := readOrganizationRec(path); err == nil && !existing.CreatedAt.IsZero() {
 			rec.CreatedAt = existing.CreatedAt
 		} else {
 			rec.CreatedAt = now
