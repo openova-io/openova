@@ -96,6 +96,14 @@ def reset_legacy_row(cells):
     return False
 
 
+# Column index of the "Test case" (assertion) cell on the canonical
+# 7-column prose table: | # | Epic | Ticket | Test case | Walk | Result | Evidence |
+# After a bare "|"-split the leading empty field is index 0, so the
+# assertion lands at index 4. It is the ONE cell a reset must never
+# touch — it is the row's identity, not its proof.
+ASSERTION_IDX = 4
+
+
 def reset_prose_row(cells):
     """Current prose tables: reset any positive-evidence cell; blank stale proof.
 
@@ -112,10 +120,26 @@ def reset_prose_row(cells):
             reset_idxs.append(i)
             n += 1
     if reset_idxs:
-        # Blank any OTHER cell in the row that names a stale env / evidence artifact
-        # (the Proof / Evidence column sitting next to the status we just reset).
+        # Blank any OTHER cell in the row that names a stale env / evidence
+        # artifact (the Proof / Evidence column sitting next to the status we
+        # just reset).
+        #
+        # NEVER the assertion. On the canonical 7-column prose table the
+        # columns are: | # | Epic | Ticket | Test case | Walk | Result |
+        # Evidence |, so the ASSERTION is index 4 — and an assertion may
+        # legitimately name an env, e.g. row 200's "the literal `15` is stale;
+        # live total is 17 on hw291". Blanking it DESTROYS the test case: the
+        # row can then never be walked again, and it silently keeps its slot
+        # in the denominator every percentage is computed against.
+        #
+        # That is not hypothetical — this guard exists because the hw292 reset
+        # (429a39f76) erased row 200's assertion exactly this way, discovered
+        # while walking row 185 on 2026-07-31. Evidence cells hold the walk
+        # proof and are safe to blank; the assertion is the row's identity.
         for j in range(1, len(cells) - 1):
             if j in reset_idxs:
+                continue
+            if j == ASSERTION_IDX:
                 continue
             if ENV_REF.search(cells[j]):
                 cells[j] = " — "
