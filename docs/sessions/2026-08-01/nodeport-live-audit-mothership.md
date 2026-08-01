@@ -103,3 +103,64 @@ LoadBalancer type. Removing the type would trade a §854 finding for an outage.
 `nodePort: 0` is the release sentinel: the apiserver treats it as "deallocate", so applying chart
 1.2.23 clears both ports on the live Service. That needs the merge, which is classifier-denied in
 this session, followed by a reconcile. **No live mutation was performed.**
+
+---
+
+## Root cause of the 5 solver NodePorts — traced to two certs stuck for 70 days
+
+The audit listed five `cm-acme-http-solver-*` NodePort Services and called them "ephemeral". They
+are not behaving ephemerally, and the reason is now known.
+
+### The issuer inventory
+
+```
+letsencrypt-prod                 solvers=HTTP01   ready=True
+letsencrypt-prod-http01          solvers=HTTP01   ready=True
+letsencrypt-staging-http01       solvers=HTTP01   ready=True
+letsencrypt-prod-dns01-dynadot   solvers=DNS01    ready=True   <- the one that needs NO solver Service
+```
+
+Three of four ClusterIssuers solve via **HTTP-01**, which requires cert-manager to create a
+Service + Ingress per challenge. A `type: NodePort` solver Service is unavoidable on that path.
+**DNS-01 creates no Service at all** — and `letsencrypt-prod-dns01-dynadot` already exists and is
+`Ready=True`.
+
+### The two orders that never complete
+
+```
+iogrid/iogrid-org         Ready=False  70d   issuer=letsencrypt-prod-http01
+  IncorrectIssuer: Secret was previously issued by "ClusterIssuer/letsencrypt-prod"
+
+iogrid/proxy-iogrid-org   Ready=False  70d   issuer=letsencrypt-prod-http01
+  DoesNotExist: Issuing certificate as Secret does not exist
+```
+
+`iogrid-org` is wedged on an **issuer-identity mismatch**, not a DNS or reachability problem: the
+existing Secret records `letsencrypt-prod` as its issuer while the Certificate now names
+`letsencrypt-prod-http01`. cert-manager refuses to reuse it and re-issues forever.
+
+**That is the whole mechanism.** Each retry creates a solver Service; the order never reaches Ready,
+so the Service is never reaped; 70 days of retries leaves the pile of `cm-acme-http-solver-*`
+NodePorts the audit found. They are not transient — they are the visible residue of a stuck loop.
+
+### Why this matters beyond tidiness
+
+Five of the eight `type: NodePort` violations on this cluster exist **only** because two
+certificates have been failing for ten weeks. Fix the certs and the violations disappear without
+touching cert-manager, without a policy exception, and without deleting anything mid-order.
+
+### Suggested resolution (not applied — iogrid is not this repo's component)
+
+1. Point both Certificates at `letsencrypt-prod-dns01-dynadot`. DNS-01 needs no solver Service, so
+   the NodePorts stop being created at all — this is the §854-durable fix, not a workaround.
+2. For `iogrid-org` specifically, the `IncorrectIssuer` wedge also needs the stale Secret removed so
+   cert-manager stops comparing against `letsencrypt-prod`.
+
+Doing (1) alone eliminates the recurrence; (2) clears the existing wedge.
+
+### Not done
+
+- **No mutation.** `iogrid` is not a component of this repo, the certs belong to another product's
+  namespace, and deleting a TLS Secret is destructive. Reported for the owner to action.
+- The remaining three typed NodePorts are unchanged: `cinova/catalog-svc` (⛔ never-touch),
+  `iogrid/proxy-gateway-socks5` (tracked, #5088 / iogrid#844).
