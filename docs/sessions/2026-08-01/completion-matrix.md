@@ -97,3 +97,48 @@ Issues filed from live evidence: **#5542**, **#5545**.
 
 One thing: the hw292 fire. Then #5515 / #5489 / #5485 / #5482 / #5477 get walked live,
 rows stamp, and the number moves on evidence rather than on assertion.
+
+---
+
+## Surface map — which surfaces are live, and what each can actually walk
+
+Recorded because "the cluster is down" was too coarse and got challenged, correctly.
+Some surfaces ARE up; they just do not host the object model the open rows assert on.
+Measured 2026-08-01.
+
+| Surface | Live? | Evidence | Can it walk a UAT row? |
+|---|---|---|---|
+| Sovereign kube API (`omantel-region-a/b`, `org-7283`) | **no** | `kubectl get nodes` → timed out (8 s) ×3 | no |
+| `demo-vcluster` | **no** | `dial tcp 127.0.0.1:9443: connect: connection refused` | no |
+| `hw291/hw292.omani.works`, `console.hw291…` | **no** | `curl -w '%{http_code}'` → **000** ×3 | no |
+| `marketplace.openova.io` | **no** | HTTP **503** | no |
+| **`console.openova.io/sovereign/`** | **YES** | HTTP **200** | **no — see below** |
+| mothership kube API (`45.151.123.50`) | **YES** | `catalyst-api 1/1`, `catalyst-ui 1/1` | yes, for mothership-scope rows only |
+
+### Why the live console still cannot walk #5482 / #5515 / #5489
+
+`console.openova.io/sovereign/` answers 200, so "no surface exists" was wrong. But it
+serves a **1063-byte SPA shell** titled `OpenOva Corporate`, and a literal scan of that
+response finds **zero** occurrences of `Applications`, `Organizations`, `Environments`,
+`PRIMARY REGION`, or `placement`.
+
+The cluster behind it holds **zero** catalyst/openova CRDs:
+
+    $ kubectl get crd -o name | grep -icE 'catalyst|openova|dr\.'
+    0
+    $ kubectl get applications.catalyst.openova.io -A
+    error: the server doesn't have a resource type "applications"
+
+That is the mothership's actual role: it is the **deployment control plane** that
+provisions Sovereigns. It does not host the Catalyst object model. #5482 asserts what an
+**App detail Overview** renders; with no Application objects and no CRD, there is no such
+page to open — not because the surface is down, but because the model those pages render
+does not exist on this cluster.
+
+The rows walked this cycle (M1, G5, R20) were reachable precisely because their
+assertions are about the **mothership's own** behaviour — the janitor loop and the
+deploy-bot's commits — not about Catalyst objects.
+
+**Rule this settles:** a row is walkable iff its assertion's *subject* exists on a
+reachable surface. Surface reachability alone is not sufficient, and neither is a
+literal "is the cluster up" check.
