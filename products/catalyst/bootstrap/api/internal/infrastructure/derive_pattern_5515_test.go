@@ -6,24 +6,24 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
-// #5515 — derivePattern fails OPEN on a declared-but-dead secondary region.
+// #5515 — derivePattern must not report a topology richer than the live one.
 //
-// derivePattern keys off len(in.Regions), and in.Regions is []provisioner.RegionSpec
-// — the DECLARED region specs from the wizard payload, not the live build-out. The
-// live build-out is the local `regions` slice in buildTopology, which appends
-// buildAbsentRegion(rs) (Clusters: nil, Status: "degraded") for any declared region
-// whose kubeconfig never arrived (#4811 / #4814).
+// THE DEFECT (fixed by this change): derivePattern took only LoaderInput, whose
+// Regions field is []provisioner.RegionSpec — the DECLARED wizard payload. Liveness
+// lives elsewhere: buildTopology appends buildAbsentRegion(rs) (Clusters:nil,
+// Status:"degraded") for any declared region whose kubeconfig never arrived
+// (#4811/#4814). So a 2-region prov whose region-b never converged reported
+// pattern="multi-region", and the console presented a DR topology that did not exist.
 //
-// Consequence: a 2-region prov where region-b NEVER CONVERGED still reports
-// pattern="multi-region". The console then presents a multi-region topology for a
-// deployment that has exactly one live region — the same declared-vs-actual shape as
-// #5542 (HTTP 200 declaring 400), #5545 (61 "Deleted" that never happened) and the
-// live janitor summary observed on the mothership 2026-08-01.
+// The root cause was a MISSING INPUT, not a mis-ordered switch — no argument carried
+// liveness, so no reordering of the existing cases could have fixed it. The fix moves
+// the derivation below the build loop and threads the built regions in.
 //
-// This test PINS THE CURRENT (defective) BEHAVIOUR so the fail-open is executable
-// evidence rather than a reading of the source. When #5515 is fixed, this test SHOULD
-// fail — that is the signal to flip the expectation to "solo" (or whatever degraded
-// value the fix elects) and delete this comment.
+// Same declared-vs-actual family as #5542 (HTTP 200 declaring 400) and #5545 (61
+// "Deleted" that never happened, confirmed live on the mothership 2026-08-01).
+//
+// These tests now assert the FIXED behaviour. If one fails, the fail-open has
+// regressed — do not "repair" it by relaxing the expectation.
 func TestDerivePattern_5515_FailsOpenOnAbsentSecondaryRegion(t *testing.T) {
 	// Two DECLARED regions. region-b carries a full spec — the wizard declared it —
 	// but at runtime it never converged, so buildTopology would emit
@@ -36,16 +36,22 @@ func TestDerivePattern_5515_FailsOpenOnAbsentSecondaryRegion(t *testing.T) {
 		},
 	}
 
-	got := derivePattern(in)
-
-	if got != "multi-region" {
-		t.Fatalf("guard drifted: expected the CURRENT defective behaviour %q, got %q — "+
-			"if #5515 has been fixed, update this expectation deliberately", "multi-region", got)
+	// The BUILT regions: region-a converged (one live Cluster), region-b did not
+	// (buildAbsentRegion shape — Clusters:nil, degraded).
+	built := []Region{
+		{ID: "region-eu-west-101", WorkerCount: 3, Clusters: []Cluster{{ID: "c-a"}}},
+		{ID: "region-eu-west-102", WorkerCount: 3, Status: "degraded", Clusters: nil},
 	}
 
-	t.Logf("#5515 CONFIRMED: derivePattern returned %q for a topology whose secondary "+
-		"region has no live cluster — the pattern is derived from DECLARED specs, never "+
-		"from liveness", got)
+	got := derivePattern(in, built)
+
+	if got != "ha-pair" {
+		t.Fatalf("#5515 regression: one live region (3 workers) + one declared-dead "+
+			"region must NOT report multi-region; want %q, got %q", "ha-pair", got)
+	}
+
+	t.Logf("#5515 FIXED: derivePattern returned %q — the declared-but-dead secondary "+
+		"no longer inflates the pattern to multi-region", got)
 }
 
 // Vacuity control. A guard that only ever asserts one input can pass because the
@@ -53,35 +59,40 @@ func TestDerivePattern_5515_FailsOpenOnAbsentSecondaryRegion(t *testing.T) {
 // be discriminating rather than trivially true.
 func TestDerivePattern_5515_ControlBranchesAreDistinct(t *testing.T) {
 	cases := []struct {
-		name string
-		in   LoaderInput
-		want string
+		name  string
+		in    LoaderInput
+		built []Region
+		want  string
 	}{
 		{
-			name: "single region, 3+ workers -> ha-pair",
-			in:   LoaderInput{Regions: []provisioner.RegionSpec{{CloudRegion: "eu-west-101", WorkerCount: 3}}},
-			want: "ha-pair",
+			name:  "single region, 3+ workers -> ha-pair",
+			in:    LoaderInput{Regions: []provisioner.RegionSpec{{CloudRegion: "eu-west-101", WorkerCount: 3}}},
+			built: []Region{{WorkerCount: 3, Clusters: []Cluster{{ID: "c"}}}},
+			want:  "ha-pair",
 		},
 		{
-			name: "single region, <3 workers -> solo",
-			in:   LoaderInput{Regions: []provisioner.RegionSpec{{CloudRegion: "eu-west-101", WorkerCount: 1}}},
-			want: "solo",
+			name:  "single region, <3 workers -> solo",
+			in:    LoaderInput{Regions: []provisioner.RegionSpec{{CloudRegion: "eu-west-101", WorkerCount: 1}}},
+			built: []Region{{WorkerCount: 1, Clusters: []Cluster{{ID: "c"}}}},
+			want:  "solo",
 		},
 		{
-			name: "legacy singular Region field -> solo",
-			in:   LoaderInput{Region: "eu-west-101"},
-			want: "solo",
+			name:  "legacy singular Region field -> solo",
+			in:    LoaderInput{Region: "eu-west-101"},
+			built: nil, // legacy singular path, nothing built yet -> declared fallback
+			want:  "solo",
 		},
 		{
-			name: "nothing declared -> unknown",
-			in:   LoaderInput{},
-			want: "unknown",
+			name:  "nothing declared -> unknown",
+			in:    LoaderInput{},
+			built: nil,
+			want:  "unknown",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := derivePattern(tc.in); got != tc.want {
+			if got := derivePattern(tc.in, tc.built); got != tc.want {
 				t.Fatalf("derivePattern = %q, want %q", got, tc.want)
 			}
 		})
@@ -108,12 +119,45 @@ func TestDerivePattern_5515_LivenessIsNotAnInput(t *testing.T) {
 		},
 	}
 
-	a, b := derivePattern(bothLive), derivePattern(secondaryDead)
-	if a != b {
-		t.Fatalf("unexpected: derivePattern distinguished the two shapes (%q vs %q)", a, b)
+	bothBuilt := []Region{
+		{WorkerCount: 3, Clusters: []Cluster{{ID: "c-a"}}},
+		{WorkerCount: 3, Clusters: []Cluster{{ID: "c-b"}}},
 	}
-	t.Logf("#5515 root cause: both shapes yield %q — derivePattern cannot express "+
-		"liveness because no live-state argument reaches it. A fix must thread the "+
-		"built regions (or a live-region count) into the derivation, not reorder the "+
-		"existing switch.", a)
+	deadBuilt := []Region{
+		{WorkerCount: 3, Clusters: []Cluster{{ID: "c-a"}}},
+		{WorkerCount: 3, Status: "degraded", Clusters: nil},
+	}
+
+	a, b := derivePattern(bothLive, bothBuilt), derivePattern(secondaryDead, deadBuilt)
+	if a == b {
+		t.Fatalf("#5515 regression: derivePattern still cannot distinguish a live "+
+			"secondary from a dead one — both yielded %q", a)
+	}
+	if a != "multi-region" || b != "ha-pair" {
+		t.Fatalf("want multi-region/ha-pair, got %q/%q", a, b)
+	}
+	t.Logf("#5515 fixed at the root: identical DECLARED shapes now yield %q vs %q "+
+		"because liveness reaches the derivation via the built regions", a, b)
+}
+
+// In-flight guard (#5515 fix, regression-protection). While a fresh prov is still
+// converging, NO region has clusters yet. Deriving purely from live state would
+// report "unknown" for every provision in progress — fixing the degraded path by
+// breaking the normal one. Nothing built => fall back to the DECLARED shape.
+func TestDerivePattern_5515_InFlightFallsBackToDeclared(t *testing.T) {
+	in := LoaderInput{
+		Regions: []provisioner.RegionSpec{
+			{CloudRegion: "eu-west-101", WorkerCount: 3},
+			{CloudRegion: "eu-west-102", WorkerCount: 3},
+		},
+	}
+	// Mid-provision: regions declared, none converged.
+	if got := derivePattern(in, nil); got != "multi-region" {
+		t.Fatalf("in-flight 2-region prov must report declared %q, got %q", "multi-region", got)
+	}
+	// Same, but the built slice exists with no clusters yet.
+	empty := []Region{{Clusters: nil}, {Clusters: nil}}
+	if got := derivePattern(in, empty); got != "multi-region" {
+		t.Fatalf("in-flight (empty clusters) must report declared %q, got %q", "multi-region", got)
+	}
 }

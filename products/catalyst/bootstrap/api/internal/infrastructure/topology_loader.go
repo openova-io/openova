@@ -47,16 +47,16 @@ type K8sCacheReader interface {
 // create a cycle); the handler unwraps Deployment fields onto this
 // struct and calls Load.
 type LoaderInput struct {
-	DeploymentID  string
-	Status        string // canonical UI status
-	SovereignFQDN string
-	Provider      string
-	Region        string
-	Regions       []provisioner.RegionSpec
-	WorkerCount   int
-	WorkerSize    string
-	CPSize        string
-	Result        *provisioner.Result
+	DeploymentID     string
+	Status           string // canonical UI status
+	SovereignFQDN    string
+	Provider         string
+	Region           string
+	Regions          []provisioner.RegionSpec
+	WorkerCount      int
+	WorkerSize       string
+	CPSize           string
+	Result           *provisioner.Result
 	HetznerProjectID string
 
 	// DynamicClient — Sovereign cluster dynamic client, built from
@@ -114,8 +114,10 @@ func buildCloud(in LoaderInput) []CloudTenant {
 // Regions[*] entry; legacy single-region path uses the singular
 // Request fields.
 func buildTopology(ctx context.Context, in LoaderInput) TopologyData {
-	pattern := derivePattern(in)
-
+	// #5515: pattern is derived AFTER the regions are built — it needs their
+	// liveness (Clusters), which does not exist at function entry. The call
+	// previously sat here, above the build loop, which is structurally why it
+	// could only ever see declared specs.
 	regions := []Region{}
 	if len(in.Regions) > 0 {
 		for i, rs := range in.Regions {
@@ -207,9 +209,13 @@ func buildTopology(ctx context.Context, in LoaderInput) TopologyData {
 			regions = append(regions, rs)
 		}
 	}
+	pattern := derivePattern(in, regions)
+	// Pre-existing correction, retained: a build path that produced regions but
+	// declared nothing (chroot / live-nodes paths) must not report "unknown".
 	if len(regions) > 0 && pattern == "unknown" {
 		pattern = "solo"
 	}
+
 	return TopologyData{
 		Pattern: pattern,
 		Regions: regions,
@@ -610,18 +616,61 @@ func nodeReadyStatus(obj map[string]any) string {
 	return ""
 }
 
-func derivePattern(in LoaderInput) string {
+// derivePattern — the topology pattern the console renders.
+//
+// #5515: this MUST be derived from the BUILT regions, which carry liveness via
+// their Clusters slice, and NOT from in.Regions (the DECLARED wizard specs). A
+// declared secondary region that never converged is emitted by buildAbsentRegion
+// with Clusters:nil (#4811/#4814); counting declared specs therefore reported
+// "multi-region" for a deployment with exactly ONE live region — the console
+// presented a DR topology that did not exist.
+//
+// The previous signature took only LoaderInput, so liveness was not merely
+// mis-weighted, it was UNREACHABLE — no argument carried it. Reordering the
+// switch could not have fixed it.
+//
+// In-flight guard: while a fresh prov is still converging, NO region has clusters
+// yet. Counting live regions alone would report "unknown" for every provision in
+// progress — a regression of the normal path in the name of fixing the degraded
+// one. So when nothing has converged, fall back to the DECLARED shape: reporting
+// intent is honest when there is no live state to contradict it. The defect this
+// fixes is specifically the MIXED case — some regions live, others declared-dead —
+// where live state exists and disagrees with the declaration.
+func derivePattern(in LoaderInput, built []Region) string {
+	live := 0
+	liveWorkers := 0
+	for _, r := range built {
+		if len(r.Clusters) == 0 {
+			continue
+		}
+		if live == 0 {
+			liveWorkers = r.WorkerCount
+		}
+		live++
+	}
+
+	// Nothing converged yet (fresh prov in flight, or a legacy path that builds
+	// no clusters) — report the declared shape rather than "unknown".
+	if live == 0 {
+		switch {
+		case len(in.Regions) > 1:
+			return "multi-region"
+		case len(in.Regions) == 1 && in.Regions[0].WorkerCount >= 3:
+			return "ha-pair"
+		case len(in.Regions) == 1, in.Region != "":
+			return "solo"
+		default:
+			return "unknown"
+		}
+	}
+
 	switch {
-	case len(in.Regions) > 1:
+	case live > 1:
 		return "multi-region"
-	case len(in.Regions) == 1 && in.Regions[0].WorkerCount >= 3:
+	case liveWorkers >= 3:
 		return "ha-pair"
-	case len(in.Regions) == 1:
-		return "solo"
-	case in.Region != "":
-		return "solo"
 	default:
-		return "unknown"
+		return "solo"
 	}
 }
 
