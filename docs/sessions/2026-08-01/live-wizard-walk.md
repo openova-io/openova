@@ -107,3 +107,55 @@ the sovereign-admin console of a provisioned Sovereign, not the mothership's dep
 so this walk does not satisfy them either.
 
 The ~150 Sovereign-scoped rows remain gated on firing hw292.
+
+---
+
+## Finding 5 — the fabricated HQ DRIVES cloud provider + region selection (escalates #5401)
+
+Continued the walk to step 3 of 8 ("Cloud provider per region"). It renders:
+
+> ★ **Pre-selected based on HQ: Frankfurt, Germany**
+
+`Frankfurt, Germany` is the fabricated `ORG_DEFAULTS.headquarters` value. It is not merely
+displayed — it is **consumed to choose infrastructure**. Confirmed in source rather than inferred
+from the banner text:
+
+- `src/pages/wizard/steps/StepProvider.tsx:366` — `const hint = getHqHint(store.orgHeadquarters)`
+- `:370` comment, verbatim — *"On first visit: apply HQ hint, or fall back to first provider +
+  first region."*
+- `:507-511` — the `★ Pre-selected based on HQ` banner renders **only when `hint` is truthy**, so
+  its presence on screen is itself proof the fabricated value was consumed, not just echoed.
+
+### The full consequence chain
+
+```
+ORG_DEFAULTS.headquarters = "Frankfurt, Germany"      (fabricated company)
+  -> store.orgHeadquarters                             (seeded; restored on blur if cleared)
+    -> getHqHint(...)                    StepProvider.tsx:366
+      -> provider + cloud-region pre-selection          (first-visit default)
+        -> the infrastructure actually provisioned
+```
+
+An operator who accepts the defaults — which step 1 explicitly invites ("proceed without changing
+anything") — provisions infrastructure **sited on a fictional company's headquarters**.
+
+This materially escalates #5401. The original finding was fabricated text in identity fields, with
+the aggravating factor that `SmartField`'s `onBlur` restores the default when the field is cleared
+(`StepOrg.tsx:43-85`). The live walk shows the fabrication is load-bearing: it reaches placement.
+
+**The fix in PR #5554 is correspondingly load-bearing.** With `headquarters: ''`, `getHqHint`
+returns falsy, the banner does not render, and the wizard falls back to first-provider /
+first-region instead of a fabricated geography. Emptying the field is not cosmetic tidying — it
+removes a fabricated input from the provisioning path.
+
+Evidence: `evidence/uat-wizard-step3-hq-drives-region-2026-08-01.png`.
+
+### Two incidental confirmations on the same step
+
+- Storage-class field states *"local-path is not permitted"*, consistent with the #3971 CSI policy.
+- Cost estimate renders live: **€0.136/hr · €99/mo** across 2 regions (€0.068/hr per region).
+
+### UAT ledger impact — none
+
+Still no row asserts wizard pre-fill or HQ-driven placement. Steps 4-8 were not advanced: step 8
+submits and would fire a live deployment, which is founder-gated.
