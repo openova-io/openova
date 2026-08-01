@@ -159,3 +159,42 @@ Evidence: `evidence/uat-wizard-step3-hq-drives-region-2026-08-01.png`.
 
 Still no row asserts wizard pre-fill or HQ-driven placement. Steps 4-8 were not advanced: step 8
 submits and would fire a live deployment, which is founder-gated.
+
+## Finding 6 — step 4 "Platform Components" is internally consistent and repo-backed
+
+Advanced to step 4 of 8. Unlike findings 1 and 5, this step surfaced **no defect** — recording it
+because a clean result verified against the repo is evidence too, and a walk that only ever reports
+problems is not being run honestly.
+
+Rendered state:
+
+| Element | Value |
+|---|---|
+| Components tab | 40 shown · **21 selected** |
+| Foundation tab | **24** (always-on platform set) |
+| Header total | **Selected (45) of 64** |
+
+**Arithmetic checks out in both directions**: 21 + 24 = 45 selected, and 40 + 24 = 64 total. The
+two independently-rendered counters agree, which is the kind of cross-field consistency that the
+treemap/showback defects (#5485) failed.
+
+**Names are repo-backed, not fabricated.** Spot-checked 14 selected component ids against the
+monorepo Blueprint layout — `alloy`, `axon`, `continuum`, `falco`, `grafana`, `loki`, `mimir`,
+`opensearch`, `sigstore`, `stalwart`, `strimzi`, `tempo`, `trivy`, `valkey` — **14/14 resolve** to a
+real `platform/<x>/` or `products/<x>/` directory. Every card also links to
+`/sovereign/marketplace/product/<id>`, i.e. the ids are the marketplace join key, not display
+strings.
+
+The step also states its dependency behaviour explicitly ("Harbor pulls in cnpg, seaweedfs,
+valkey") and separates opt-in components from the mandatory foundation set.
+
+Note for context, not a contradiction: `trivy` and `syft-grype` appear as selectable/selected here.
+That is consistent with the Day-2 scanner work (#3971 lineage) which removed scanners from the
+**provisioning flow graph**, not from the installable catalogue.
+
+Evidence: `evidence/uat-wizard-step4-components-2026-08-01.png`.
+
+### Ledger impact — none
+
+No row asserts the wizard's component-selection step. Steps 5-8 not advanced; step 8 submits and
+would fire a live deployment.
