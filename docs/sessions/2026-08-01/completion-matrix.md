@@ -142,3 +142,64 @@ deploy-bot's commits — not about Catalyst objects.
 **Rule this settles:** a row is walkable iff its assertion's *subject* exists on a
 reachable surface. Surface reachability alone is not sufficient, and neither is a
 literal "is the cluster up" check.
+
+---
+
+## Live kubectl evidence for the percentages (added 2026-08-01, mothership)
+
+The percentages above were originally justified by document and code analysis. This section
+supplies the live cluster evidence, and it materially bounds what any of them can currently mean.
+
+**Command surface**: `kubectl --kubeconfig ~/.kube/config`, mothership node `vmi3116389`
+(Ready, k3s v1.34.4+k3s1, 152d). Read-only; no mutation.
+
+### The mothership hosts ZERO Catalyst CRDs
+
+```
+$ kubectl get crd -o name | grep -icE 'openova|catalyst'
+0
+$ kubectl get organizations -A
+error: the server doesn't have a resource type "organizations"
+```
+
+Instance counts for every Catalyst kind — `organizations`, `environments`, `applications`,
+`blueprints`, `continuums`, `useraccesses` — are **0**, because none of those CRDs are installed.
+
+**This is not an RBAC artifact.** Three independent controls confirm the absence:
+
+| Control | Result | Rules out |
+|---|---|---|
+| `kubectl get crd -o name \| wc -l` | **78** CRDs visible | "I cannot list CRDs" |
+| `kubectl auth can-i list organizations.orgs.openova.io` | **yes** | "RBAC hides the kind" |
+| `kubectl get organizations -A` | *server doesn't have a resource type* | leaves only: the CRD is absent |
+
+A bare count of `0` would have been ambiguous between "none exist" and "none visible to me". The
+controls collapse that ambiguity — the resource type genuinely does not exist on this cluster.
+
+### What this bounds
+
+The mothership is a **deployment control plane** (it provisions Sovereigns via catalyst-api), not
+a Sovereign. It therefore carries no Organization / Environment / Application / Blueprint /
+Continuum / UserAccess objects at all.
+
+Consequences that must be read alongside every percentage in this document:
+
+1. Any EPIC percentage resting on a CRD-backed console surface (apps grid, app detail, topology
+   tab, Organizations directory, Continuum DR status) **cannot be raised or refuted from this
+   cluster**. There is no object to render, which is exactly why `/sovereign/applications` returns
+   an SPA shell rather than a view — the HTTP 200 is the shell, not the page.
+2. The ~149 `☐` rows in `docs/ledger/UAT.md` are Sovereign-scoped by construction, not by
+   omission. No additional effort against the mothership converts them; they need a fired
+   Sovereign (hw292).
+3. The three rows that DID reach ✅ this cycle (M1, G5, R20) are precisely the ones whose
+   assertions are about the **mothership's own behaviour** (the catalyst-api janitor loop) or
+   about **git history** (deploy-bot commit shape) — neither needs a Catalyst CRD. That is the
+   whole set of rows this environment can prove, and it is now exhausted.
+
+### Bearing on #5489
+
+`#5489` sits at `status/uat` with a board reading of 0/6 while 5 of 6 tasks are code-delivered
+(recorded in `docs/ledger/UAT.md` row 9). Its remaining task 6 asks for an Environments console
+surface. The live evidence above explains why that task cannot be walked here at all: with
+`environments` absent as a resource type, there is no Environment object for any console to list,
+independent of whether the surface was ever built. Task 6 is Sovereign-gated, not merely unbuilt.
