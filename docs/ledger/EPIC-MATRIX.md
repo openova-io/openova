@@ -81,3 +81,62 @@ reachable.
 #3969 is the only EPIC whose percentage can move on code alone — landing PRs #5536 and
 #5538 takes it from 11/16 to 13/16 (**81.3%**). Everything else needs the hw292 fire
 and the walk that follows it.
+
+---
+
+# Session addendum — 2026-08-01 close (SHA-backed)
+
+The matrix above was written mid-session. Ten artifacts landed after it. This addendum ties each to
+its EPIC with the exact commit, so no percentage rests on an unnamed claim.
+
+## What moved, and what it does to the numbers
+
+| EPIC | artifact landed this session | SHA | effect on % |
+|---|---|---|---|
+| **#3969** Placement | `derivePattern` fixed to read LIVE regions, not declared specs | `509222c6e` | #5515 was already counted delivered — this closes the *emit* half that row 60 flagged |
+| **#3969** | #5515 pinned against a REAL mothership record (2 declared / 1 live) | `ebf5b6feb` | evidence upgrade only |
+| **#3969** | #5482 primaryRegion divergence pinned by executable test | `daa1b1ad4` | **no % change** — pins the defect, ships no fix |
+| **#1090** Console/auth | #5401 escalated: fabricated HQ *drives* cloud-region selection | `bf4213cf6` | strengthens the open security caveat; EPIC stays 100%-closed-with-open-finding |
+| **#1096** Compliance | §854 live NodePort audit — 13 findings, 1 ours | `9a0d290f5` | **no % change** — reports; `powerdns-anycast` still carries 2 ports |
+| **#1096** | cluster-side §854 guard + powerdns `nodePort: 0` | `19b3a0933`, `9c4c1d840` | closes the render half of #5348 |
+| **catalog** | R21 full-population audit → **6 inert Blueprints** | `c74396bd9` → **#5559** | new open issue; catalog-seed contract is 73/79 clean |
+| **infra** | mothership `catalyst` at zero pods, root-caused | `075fca9a2`, `da4871c7a` → **#5558** | new open issue; blocks every console-scoped row |
+| **CI** | vitest gate could never fail a build | `8371c9918` | closes a fail-open gate |
+| **wizard** | W1–W5 rows added (2 pass / 3 fail) | `ce1f05efe` | ledger coverage, denominator 281 → 286 |
+
+## Honest effect: the headline numbers did NOT move
+
+- **EPIC closure stays 16/18 = 88.9%.** Nothing here closed an EPIC. #3969 is still 11/16 (68.8%);
+  landing PRs #5536 + #5538 would take it to 13/16 (81.3%), and both need a merge.
+- **Durable pillar completion stays 88.** It moves only on walk evidence against a Sovereign, and
+  no Sovereign exists.
+- **UAT green stays 5/286 (1.7%).** Three rows were walked this cycle (R21, R18, R9) and all three
+  resolved to ⚠️ or ❌, not ✅ — each proves the layer its assertion lives at (registry state,
+  decision logic, wiring contract) but none can prove runtime.
+
+**That is the correct outcome, not an underperformance.** Every artifact above is either a defect
+found, a guard added, or a claim corrected. None of them is a runtime acceptance, because runtime
+acceptance requires an environment that does not currently exist.
+
+## What the session actually changed about the numbers' MEANING
+
+Three corrections to how these percentages should be read:
+
+1. **The tracker under-reports delivery** (`81fdf741f`) — verified on six issues. #5489 reads 0/6
+   with five tasks shipped; #5485 sits at `status/uat` with three defects merged; #5305/#5274 are
+   closed on real fix commits. Read commits, not checkboxes.
+2. **Flux health status is wrong in both directions on the same cluster** (#5558) —
+   `catalyst-platform` reports `Healthy=True` on zero pods and a 503 console, while `apps` reports
+   `HealthCheckFailed` on four objects that are all `Ready=True`, from a status frozen since
+   2026-06-04 by a suspension. Anything gating on Flux status as ground truth is being misled twice.
+3. **A repo-clean guard is not a cluster-clean guard** (`9a0d290f5`) — `powerdns-anycast`'s template
+   is correct and the live Service still carries two nodePorts, because
+   `allocateLoadBalancerNodePorts: false` does not deallocate.
+
+## Unverified — stated rather than hidden
+
+- The 59 remaining EPIC child-issue counts were not re-derived this session; the 16/18 figure is
+  carried forward from `291bb3f69`.
+- #5559's six inert Blueprints are triaged into three groups but none is fixed.
+- #5558's catalyst outage is root-caused but unresolved — the fix belongs in the `openova-private`
+  rendering, which is not reachable from this repo.
