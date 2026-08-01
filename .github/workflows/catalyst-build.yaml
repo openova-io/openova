@@ -76,15 +76,61 @@ jobs:
       - name: G110-followup vitest gate — run UI unit tests
         run: |
           cd openova-src/products/catalyst/bootstrap/ui
-          # G114-followup emergency unblock (2026-06-02): pre-existing
-          # main-branch UI test failures (PinInput6 disabled prop returning
-          # undefined; AppsPage/ProvisionPage missing QueryClientProvider in
-          # test setup) block every UI-touching merge. Tests are broken but
-          # the runtime code is fine — verified at PR time. Continue past
-          # failures with a WARN so the image can publish; a follow-up
-          # ticket tracks the test-suite fix.
-          npm test || echo "WARN: pre-existing UI test failures, continuing build"
-          echo "G110-followup gate: catalyst-ui unit tests done (see WARN above for failures)."
+          # The 2026-06-02 G114-followup emergency unblock ran
+          # `npm test || echo "WARN: ..."`, which ALWAYS exits 0. A step
+          # named "vitest gate" therefore could never fail a build.
+          #
+          # Its three named reasons (PinInput6 disabled prop; AppsPage /
+          # ProvisionPage missing QueryClientProvider) are all fixed — the
+          # suite now runs 730 pass / 1 fail. The unblock outlived its
+          # emergency by two months and kept swallowing everything, which is
+          # why SettingsPage.test.tsx has been red since a7fb48245 with
+          # nobody noticing. Its own comment says the assertion "has never
+          # run green".
+          #
+          # Ratcheted: the gate now FAILS on any failing test file except
+          # the one explicitly allowlisted below. A new red test breaks the
+          # build; the known one stays visible and tracked.
+          #
+          # KNOWN_RED — each entry needs an owning issue and a reason:
+          #   SettingsPage.test.tsx — the Members link renders bare `/users`
+          #     instead of `/provision/$id/users`. The component serves BOTH
+          #     the mothership route and the chroot `/settings` (where
+          #     deploymentId is empty), so hardcoding the scoped path yields
+          #     `/provision//users` on every chroot Sovereign. The correct
+          #     shape is the open route-gating decision in #5401 (SECURITY:
+          #     per-Org /settings exposes the Sovereign operator panel), so
+          #     the fix belongs there, not here.
+          KNOWN_RED='SettingsPage.test.tsx'
+
+          set +e
+          npm test 2>&1 | tee /tmp/vitest-out.txt
+          set -e
+
+          # Vitest prints one ` FAIL  <path> > <test>` line per failure.
+          FAILED_FILES=$(grep -oE '^ *FAIL +[^ ]+\.test\.tsx?' /tmp/vitest-out.txt \
+                          | awk '{print $2}' | sort -u || true)
+
+          UNEXPECTED=""
+          for f in ${FAILED_FILES}; do
+            case "$(basename "$f")" in
+              ${KNOWN_RED}) echo "KNOWN-RED (tracked, #5401): $f" ;;
+              *)            UNEXPECTED="${UNEXPECTED} $f" ;;
+            esac
+          done
+
+          if [ -n "${UNEXPECTED}" ]; then
+            echo "───────────────────────────────────────────────────────────"
+            echo "FAIL: UI unit test failure outside the KNOWN_RED allowlist:"
+            for f in ${UNEXPECTED}; do echo "  $f"; done
+            echo ""
+            echo "This gate used to swallow every failure via '|| echo WARN'."
+            echo "It no longer does. Fix the test, or add it to KNOWN_RED"
+            echo "above WITH an owning issue and a reason — never silently."
+            echo "───────────────────────────────────────────────────────────"
+            exit 1
+          fi
+          echo "G110-followup gate: catalyst-ui unit tests pass (KNOWN_RED entries excepted)."
 
       - name: Build UI image (test)
         uses: docker/build-push-action@v6
