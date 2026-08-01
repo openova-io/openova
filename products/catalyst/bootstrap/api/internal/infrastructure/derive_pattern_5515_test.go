@@ -161,3 +161,48 @@ func TestDerivePattern_5515_InFlightFallsBackToDeclared(t *testing.T) {
 		t.Fatalf("in-flight (empty clusters) must report declared %q, got %q", "multi-region", got)
 	}
 }
+
+// PRODUCTION REPRODUCTION (#5515). The shape below is not invented — it is the
+// region topology of a real deployment record read from the live mothership on
+// 2026-08-01 (catalyst-api PVC, /var/lib/catalyst/deployments/2c2d746b578c636b.json):
+//
+//	request.regions = [ me-east-215-a (huawei, m7n.2xlarge.8, workerCount 3),
+//	                    me-east-215-b (huawei, ...) ]          <- 2 DECLARED
+//	result.regions  = [ { region: me-east-215-a, primary: true,
+//	                      hrReady: 3, hrTotal: 3, degraded: false } ]  <- 1 LIVE
+//
+// Two regions declared, exactly one converged. Under the pre-fix derivePattern
+// (which counted len(in.Regions)) this deployment reported "multi-region" while
+// only me-east-215-a existed — the console would have shown a DR topology with no
+// second region behind it.
+//
+// This test proves the fix against that real input shape rather than a synthetic
+// one. If it ever returns "multi-region" again, the fail-open has regressed on a
+// case that demonstrably occurs in production.
+func TestDerivePattern_5515_RealMothershipRecordShape(t *testing.T) {
+	in := LoaderInput{
+		Status: "wiped",
+		Region: "me-east-215-a",
+		Regions: []provisioner.RegionSpec{
+			{Provider: "huawei", CloudRegion: "me-east-215-a", ControlPlaneSize: "m7n.xlarge.8", WorkerSize: "m7n.2xlarge.8", WorkerCount: 3},
+			{Provider: "huawei", CloudRegion: "me-east-215-b", ControlPlaneSize: "m7n.xlarge.8", WorkerSize: "m7n.2xlarge.8", WorkerCount: 3},
+		},
+	}
+	// result.regions carried ONLY me-east-215-a, so the build loop yields one live
+	// region plus a buildAbsentRegion() for the declared-but-absent -b.
+	built := []Region{
+		{ID: "region-me-east-215-a", Name: "me-east-215-a", WorkerCount: 3, Clusters: []Cluster{{ID: "2c2d746b578c636b"}}},
+		{ID: "region-me-east-215-b", Name: "me-east-215-b", WorkerCount: 3, Status: "degraded", Clusters: nil},
+	}
+
+	got := derivePattern(in, built)
+	if got == "multi-region" {
+		t.Fatalf("#5515 REGRESSION on a real production record: reported %q for a "+
+			"deployment with 2 declared regions but only me-east-215-a live", got)
+	}
+	if got != "ha-pair" {
+		t.Fatalf("want %q for one live 3-worker region, got %q", "ha-pair", got)
+	}
+	t.Logf("#5515 verified against the real mothership record 2c2d746b578c636b: "+
+		"2 declared / 1 live now yields %q, not multi-region", got)
+}
