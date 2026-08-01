@@ -53,6 +53,11 @@ kubectl -n cnpg-system logs deploy/cnpg-controller-manager --tail=50 | grep -i "
 kubectl -n flux-system get gitrepository openova-catalog-sovereign \
   -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.reason}{"\n"}{end}'
 # PASS: Ready=True with an artifact revision. FAIL: 401 / "authentication required".
+# CORRECTED 2026-08-01 after executing this against the mothership: it returns NotFound
+# there, and the two GitRepositories that exist pull from GITHUB (openova-private,
+# openova) not gitea. The mothership is UPSTREAM of the catalog mirror, so it never
+# exercises gitea-flux-auth at all. Run this ONLY on a Sovereign whose catalog has
+# already been mirrored into its local Gitea (CLAUDE.md Customer-Sync).
 
 # R9 — the PDA OIDC round-trip completes
 #   browser: https://powerdns-admin.<sovereign-fqdn>/ -> sign in -> lands authenticated
