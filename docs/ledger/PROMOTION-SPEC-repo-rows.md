@@ -79,11 +79,20 @@ kubectl get organizations -A --no-headers | wc -l
 # comparison — not the API alone — is the assertion.
 
 # R18 — the injected handover key survives a reconcile
-kubectl -n catalyst get secret catalyst-handover-jwt-public -o jsonpath='{.data.public\.jwk}' | sha256sum
+# GUARD FIRST. Executing this on 2026-08-01 exposed a fail-open in the naive form:
+# with the Secret absent, jsonpath emits nothing, sha256sum hashes nothing, and you
+# get e3b0c44298fc1c14... = sha256(""). Two ABSENT reads then "MATCH" and the row
+# looks PASSED. Never hash without asserting existence and non-emptiness first.
+EMPTY_SHA=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+kubectl -n catalyst get secret catalyst-handover-jwt-public >/dev/null || \
+  { echo "R18 BLOCKED: Secret absent — not a pass"; exit 1; }
+H1=$(kubectl -n catalyst get secret catalyst-handover-jwt-public -o jsonpath='{.data.public\.jwk}' | sha256sum | cut -d' ' -f1)
+[ "$H1" = "$EMPTY_SHA" ] && { echo "R18 BLOCKED: public.jwk empty — not a pass"; exit 1; }
 kubectl -n catalyst rollout restart deploy/catalyst-api && kubectl -n catalyst rollout status deploy/catalyst-api
-kubectl -n catalyst get secret catalyst-handover-jwt-public -o jsonpath='{.data.public\.jwk}' | sha256sum
-# PASS: the two hashes MATCH. A changed hash means the local signer clobbered the
-# mothership-injected key and every inbound owner-handover JWT will 401 (#4450).
+H2=$(kubectl -n catalyst get secret catalyst-handover-jwt-public -o jsonpath='{.data.public\.jwk}' | sha256sum | cut -d' ' -f1)
+# PASS: H1 == H2 AND neither equals EMPTY_SHA. A changed hash means the local signer
+# clobbered the mothership-injected key and every inbound owner-handover JWT will
+# 401 (#4450). Two empty hashes are NOT a match — they are an absent Secret.
 ```
 
 ## Ordering
