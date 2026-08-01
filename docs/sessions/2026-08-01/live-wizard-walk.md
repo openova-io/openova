@@ -198,3 +198,54 @@ Evidence: `evidence/uat-wizard-step4-components-2026-08-01.png`.
 
 No row asserts the wizard's component-selection step. Steps 5-8 not advanced; step 8 submits and
 would fire a live deployment.
+
+## Finding 7 — step 5 already uses the CORRECT pattern that step 1 violates (settles #5401)
+
+Advanced to step 5 of 8, "Marketplace mode" — the **Pillar 1** surface. It renders the toggle
+(enabled by default), the `marketplace.<your-sovereign-fqdn>` signup story, per-Organization
+isolated subdomains, and three optional storefront-branding fields.
+
+The branding fields are the finding. They are **blank**, with grey hints:
+
+| Field | Rendered as |
+|---|---|
+| Brand name | `placeholder: e.g. Acme Marketplace` — field empty |
+| Tagline | `placeholder: e.g. Apps for the regulated cloud` — field empty |
+| Primary colour | `placeholder: #38BDF8` — field empty |
+
+and the copy states plainly: *"Optional. All three fields can be left blank — the storefront falls
+back to platform defaults, and you can edit them later from the post-launch Settings page without
+re-running the wizard."*
+
+**This is the correct pattern, in the same wizard, one step after step 1 gets it wrong.** Confirmed
+in source rather than inferred from rendering:
+
+```
+StepMarketplace.tsx:237   placeholder="e.g. Acme Marketplace"        <- HINT, field stays empty
+StepMarketplace.tsx:251   placeholder="e.g. Apps for the regulated cloud"
+StepOrg.tsx:139           <SmartField required label="Organisation name"
+                            defaultValue={ORG_DEFAULTS.name} ...>    <- SEEDED VALUE
+StepOrg.tsx:140           <SmartField label="Headquarters"
+                            defaultValue={ORG_DEFAULTS.headquarters} ...>
+```
+
+`placeholder` is a hint the browser discards on submit. `defaultValue` seeds real state that flows
+into `store.orgName` / `store.orgHeadquarters`, survives `SmartField`'s onBlur restore, and — per
+Finding 5 — reaches `getHqHint()` and selects the cloud region.
+
+### Why this settles the #5401 argument
+
+The objection to PR #5554 would be "the defaults are convenience; removing them hurts UX". Step 5
+refutes that from inside the same codebase: it delivers the identical convenience (an example the
+operator can copy) using `placeholder`, while keeping the submitted value honest and explicitly
+telling the operator blank is fine and editable later.
+
+PR #5554 makes step 1 consistent with step 5. It is not removing a feature — it is aligning one
+step with the pattern the wizard already considers correct.
+
+Evidence: `evidence/uat-wizard-step5-marketplace-2026-08-01.png`.
+
+### Ledger impact — none
+
+No row asserts wizard branding-field behaviour. Steps 6-8 not advanced; step 8 submits and would
+fire a live deployment.
