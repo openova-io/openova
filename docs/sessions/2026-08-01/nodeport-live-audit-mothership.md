@@ -65,3 +65,41 @@ exactly why `scripts/check-live-nodeports.sh` was written to scan the cluster in
 - **No deletion of solver Services** — they are cert-manager-owned and ephemeral; deleting them
   mid-order breaks issuance. The fix is HTTP-01 → DNS-01 at the issuer.
 - **No live mutation of `powerdns-anycast`** — mothership is read-only in this session.
+
+---
+
+## Closed loop: the live audit empirically validates the unmerged fix
+
+Checked whether `powerdns-anycast` needs a chart change. **It does not — the change exists and is
+unmerged.** The three states line up exactly:
+
+| layer | state | evidence |
+|---|---|---|
+| `origin/main` chart 1.2.22 | `allocateLoadBalancerNodePorts: false` **present**, `nodePort: 0` **absent** | `git show origin/main:platform/powerdns/chart/templates/anycast-endpoint.yaml` |
+| live Service | carries **32015** (53/UDP) + **31425** (53/TCP) | this audit |
+| branch chart 1.2.23 | both controls present | `9c4c1d840`, **not** an ancestor of `origin/main` |
+
+This is the whole #5348 thesis, confirmed from the cluster rather than argued:
+
+> `allocateLoadBalancerNodePorts: false` stops the apiserver allocating **new** ports. It does not
+> retract ports already assigned, and a declarative apply that merely **omits** `nodePort` leaves an
+> existing one in place. So a Service can hold `allocateLoadBalancerNodePorts: false` **and** live
+> nodePorts simultaneously — which is precisely what `main` produces today.
+
+The in-chart comment written when the fix was authored (lines 65-66) names `nodePort=32015 (53/UDP)`
+and `nodePort=31425 (53/TCP)` explicitly. **This audit independently re-observed those same two
+ports on the live Service**, which upgrades that comment from a claim to a verified prediction.
+
+### Why NOT ClusterIP
+
+Switching `powerdns-anycast` to `ClusterIP` would eliminate the nodePorts and break the component:
+PowerDNS must answer DNS on an **external VIP**. §854's compliant pattern is a `LoadBalancer` served
+by **Cilium LB-IPAM** sharing the Sovereign EIP (`lbipam.cilium.io/sharing-key`) — which is what this
+Service already is. The violation is the *auto-allocated nodePorts riding along*, not the
+LoadBalancer type. Removing the type would trade a §854 finding for an outage.
+
+### Remaining action — not mine
+
+`nodePort: 0` is the release sentinel: the apiserver treats it as "deallocate", so applying chart
+1.2.23 clears both ports on the live Service. That needs the merge, which is classifier-denied in
+this session, followed by a reconcile. **No live mutation was performed.**
