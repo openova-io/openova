@@ -58,7 +58,47 @@ failure is swallowed silently — the operator sees no indication. Not yet ticke
 Correct behaviour for an unauthenticated visit; the header offers a `Sign in` button. Recorded so
 the 401 in the console log is not later mistaken for a defect.
 
+## Finding 4 — Pillar-2 topology step renders live (step 2 of 8)
+
+Advanced step 1 → step 2 ("Choose your infrastructure topology"). This is the **Pillar 2** surface
+per `docs/DOD.md:110` — "Wizard exposes region / topology choice during signup; customer picks N
+regions". It renders with five topologies plus an optional add-on:
+
+| Option | Label as rendered |
+|---|---|
+| Four-region | dedicated dual-CP (MGMT) + dual data plane |
+| Two-region | DMZ · RTZ · MGMT per region (3 clusters each) |
+| Two-region | DMZ cluster (top) + RTZ·MGMT cluster (bottom, 2 vClusters) — *selected by default, badged `ZONED` / Mid-market* |
+| Two-region | DMZ · RTZ · MGMT as vClusters inside each cluster |
+| Single region | DMZ · RTZ · MGMT as vClusters |
+| Add-on | AIR-GAP (optional, applies to any topology) |
+
+The selected topology renders a live diagram — `Region 1 · Primary` and `Region 2 · DR`, each
+showing DMZ / RTZ / MGMT in network order top→bottom, with outer box = physical cluster and inner
+box = vCluster — plus four rationale bullets including "MGMT present in both regions — eliminates
+single-site management risk".
+
+Evidence: `evidence/uat-wizard-step2-topology-choice-2026-08-01.png`.
+
 ## UAT ledger impact — none
+
+**No row was stamped, including for Finding 4.** The reasoning matters, because the near-miss here
+is real:
+
+Row **82** (`funnel`, #3376) is the Pillar-2 BCP row and asserts the step "shows BOTH Single-region
+and Active-hot-standby radios" — **two** options, on the customer-facing **marketplace funnel**.
+The step walked above is the **sovereign deployment wizard** with **five** topologies and an
+air-gap add-on. Different surface, different option set, different actor (sovereign-admin
+provisioning a Sovereign vs. a customer signing up for an Organization). Stamping row 82 from this
+walk would be env- and surface-mismatched evidence.
+
+So there is **no Pillar-2 coverage gap** in the ledger — row 82 covers it on the funnel side. What
+is genuinely uncovered is the *deployment wizard's* topology step, which has no dedicated row. That
+is a ledger-coverage observation, not a defect, and is deliberately not being filed as a TBD (it
+does not block the next pillar walk — see `docs/PRINCIPLES.md` L8).
+
+The remaining wizard steps (3–8) were not advanced: step 8 submits and would fire a live
+deployment, and firing is founder-gated.
 
 No row was stamped. The ledger carries **no row asserting wizard step-1 pre-fill behaviour**, so
 there is nothing here to mark ✅ or ❌ without inventing an assertion. UAT rows 1/2/5 (`console
