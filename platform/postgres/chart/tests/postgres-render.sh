@@ -859,6 +859,13 @@ grep -qE 'applicationRef: "shared-data/shared-pg"'    "$TMP/cont.yaml" || fail "
 grep -qE 'primaryRegion: "hw-me-east-215-a-rtz-prod"' "$TMP/cont.yaml" || fail "#4986: primaryRegion missing"
 grep -qE '"hw-me-east-215-b-rtz-prod"'                "$TMP/cont.yaml" || fail "#4986: hotStandbyRegions must carry the replica region"
 grep -qE 'mechanism: cnpg-pair'                       "$TMP/cont.yaml" || fail "#4986: switchover.mechanism must be cnpg-pair"
+# #5311: spec.cnpgPair MUST be populated (name=instance, namespace=cluster ns)
+# so the continuum-controller observe gate (continuum_controller.go:420,
+# `spec.CNPGPair != ""`) engages the pg_stat_replication standby probe on the
+# true 2-region topology → standbyAvailable surfaces. Label-only was NOT enough.
+grep -qE '^  cnpgPair:$'                              "$TMP/cont.yaml" || fail "#5311: spec.cnpgPair block missing — standby observe gate stays skipped, standbyAvailable never surfaces"
+grep -qE '^    name: "shared-pg"$'                    "$TMP/cont.yaml" || fail "#5311: spec.cnpgPair.name must equal instanceName (the FindPair label value)"
+grep -qE '^    namespace: "shared-data"$'             "$TMP/cont.yaml" || fail "#5311: spec.cnpgPair.namespace must equal the Cluster namespace"
 grep -qE 'kind: "k8s-lease"'                          "$TMP/cont.yaml" || fail "#4986: leaseClient.kind must default k8s-lease (air-gappable, self-sovereign)"
 grep -qE 'openova.io/scope: application'              "$TMP/cont.yaml" || fail "#4986: scope=application distinguishes the per-app producer from the cnpg-pair chart's platform CR"
 
