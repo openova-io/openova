@@ -254,10 +254,27 @@ is_render_skip_allowed() {
   return 1
 }
 
+# True when <chart>/charts/ holds a dependency tarball that is NOT tracked in
+# git — i.e. leftover from a `helm dependency update` on this machine. A chart
+# can render off that cache while being unbuildable from a clean checkout, so
+# "it rendered" must not be read as "the allowlist entry is stale".
+has_untracked_cached_dep() {
+  local chart="$1" f
+  [ -d "${chart}/charts" ] || return 1
+  for f in "${chart}"/charts/*.tgz; do
+    [ -e "${f}" ] || continue
+    if ! git ls-files --error-unmatch "${f}" >/dev/null 2>&1; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 RENDERED_COUNT=0
 SKIPPED_COUNT=0
 RENDER_PHASE_RAN=0
 UNEXPECTED_RENDERABLE=""
+CACHE_MASKED=""
 
 echo ""
 echo "== Phase 2: rendered-chart NodePort scan =="
@@ -359,7 +376,21 @@ else
     fi
     RENDERED_COUNT=$((RENDERED_COUNT + 1))
     if is_render_skip_allowed "${chart}"; then
-      UNEXPECTED_RENDERABLE="${UNEXPECTED_RENDERABLE}  ${chart}"$'\n'
+      # An allowlisted chart that renders is normally allowlist rot — EXCEPT
+      # when it only rendered because an UNTRACKED dependency tarball is
+      # sitting in <chart>/charts/ from an earlier fetch on this machine. CI
+      # checks out clean, so there the same chart still cannot build, and
+      # "remove it from the allowlist" would break the sweep for everyone.
+      #
+      # This is not hypothetical: platform/sealed-secrets/chart declares
+      # https://bitnami-labs.github.io/sealed-secrets, which answers 404. It
+      # rendered here purely off a months-old untracked sealed-secrets-*.tgz,
+      # and this NOTE advised deleting the entry that documents exactly that.
+      if has_untracked_cached_dep "${chart}"; then
+        CACHE_MASKED="${CACHE_MASKED}  ${chart}"$'\n'
+      else
+        UNEXPECTED_RENDERABLE="${UNEXPECTED_RENDERABLE}  ${chart}"$'\n'
+      fi
     fi
     # `nodePort: 0` is the k8s "unspecified" sentinel (vcluster/upstream
     # ClusterIP Services render it) — inert; only a NONZERO nodePort or a
@@ -378,9 +409,20 @@ fi
 
 echo ""
 if [ -n "${UNEXPECTED_RENDERABLE}" ]; then
-  echo "NOTE: these charts are in RENDER_SKIP_ALLOWLIST but now render offline."
+  echo "NOTE: these charts are in RENDER_SKIP_ALLOWLIST but now render offline"
+  echo "      from a CLEAN tree (no untracked cached dependency)."
   echo "      Remove them from the list so the allowlist cannot rot:"
   printf '%s' "${UNEXPECTED_RENDERABLE}"
+  echo ""
+fi
+
+if [ -n "${CACHE_MASKED}" ]; then
+  echo "NOTE: these allowlisted charts rendered ONLY because an untracked"
+  echo "      dependency tarball is cached in <chart>/charts/ on this machine."
+  echo "      CI checks out clean, so they still cannot build there."
+  echo "      Do NOT remove their allowlist entries on the strength of this run:"
+  printf '%s' "${CACHE_MASKED}"
+  echo "      To test for real: git clean -xdf the chart dir, then re-run."
   echo ""
 fi
 
