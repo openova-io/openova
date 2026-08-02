@@ -302,9 +302,22 @@ else
     if [ -z "${rendered}" ] && [ "${NO_NETWORK:-0}" != "1" ]; then
       why="$(timeout "${HELM_TIMEOUT}" helm template "$(basename "${chart}")" "${chart}" 2>&1 || true)"
       if printf '%s' "${why}" | grep -q 'missing in charts/ directory'; then
-        if timeout "${DEP_TIMEOUT}" helm dependency update "${chart}" >/dev/null 2>&1; then
+        # Capture stderr rather than discarding it. Swallowing it once already
+        # cost a CI round-trip: the runner reported only the downstream "missing
+        # in charts/ directory", which says the fetch did not happen but not
+        # why, and the same fetch succeeded locally in 6s. A fallback that can
+        # fail silently just moves the blind spot one layer down.
+        depout="$(timeout "${DEP_TIMEOUT}" helm dependency update "${chart}" 2>&1)"; deprc=$?
+        if [ "${deprc}" -eq 0 ]; then
           rendered="$(timeout "${HELM_TIMEOUT}" helm template "$(basename "${chart}")" "${chart}" 2>/dev/null || true)"
-          [ -n "${rendered}" ] && VENDORED_ON_DEMAND=$((VENDORED_ON_DEMAND + 1))
+          if [ -n "${rendered}" ]; then
+            VENDORED_ON_DEMAND=$((VENDORED_ON_DEMAND + 1))
+          else
+            echo "NOTE: ${chart} fetched its dependencies but still does not render." >&2
+          fi
+        else
+          echo "NOTE: ${chart} dependency fetch failed (rc=${deprc}, timeout=${DEP_TIMEOUT}):" >&2
+          printf '%s\n' "${depout}" | tail -5 | sed 's/^/      /' >&2
         fi
       fi
     fi
