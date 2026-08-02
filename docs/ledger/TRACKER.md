@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-02T13:30:06Z` |
+| Last refreshed | `2026-08-02T13:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-02T13:32 | [#5579](https://github.com/openova-io/openova/pull/5579) | #5554 | fix(wizard+api): salvage the six genuinely-new changes from  |
 | 2026-08-02T11:31 | [#5578](https://github.com/openova-io/openova/pull/5578) | #5563 | fix(854): NodePort guard advised deleting an allowlist entry |
 | 2026-08-02T11:13 | [#5577](https://github.com/openova-io/openova/pull/5577) | #5559 | docs(uat): R21 independent re-walk reconfirms #5559 — 6 iner |
 | 2026-08-02T11:04 | [#5576](https://github.com/openova-io/openova/pull/5576) | #5572 | docs(uat): walk W4 ✅ + downgrade W5 ✅→⚠️ — wizard offers 6 c |
@@ -324,6 +325,7 @@ flowchart LR
 | 2026-08-02T09:34 | [#5548](https://github.com/openova-io/openova/pull/5548) | #5348 | feat(ci): cluster-side §854 guard — catches a live node port |
 | 2026-08-02T07:28 | [#5547](https://github.com/openova-io/openova/pull/5547) | #5542 | fix(bp-powerdns): state nodePort:0 explicitly — anycast LB k |
 | 2026-08-02T07:28 | [#5544](https://github.com/openova-io/openova/pull/5544) | #4765 | fix(ci): the NodePort guard silently skipped 19% of charts w |
+| 2026-08-02T13:37 | [#5543](https://github.com/openova-io/openova/pull/5543) | #160 | fix(catalyst-api): return the TRUE transport status on RBAC  |
 | 2026-08-02T13:14 | [#5541](https://github.com/openova-io/openova/pull/5541) | #5500 | fix(catalyst-api): Application install returns the TRUE stat |
 | 2026-08-02T13:14 | [#5540](https://github.com/openova-io/openova/pull/5540) | #5489 | fix(catalyst-api): stop POST /organizations reporting termin |
 | 2026-08-02T13:14 | [#5539](https://github.com/openova-io/openova/pull/5539) | #5526 | fix(catalog): make catalog generation deterministic so the c |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-07-30T11:09 | [#5526](https://github.com/openova-io/openova/pull/5526) | #5489 | fix(org): stop fabricating a vCluster on the three remaining |
 | 2026-07-30T11:07 | [#5524](https://github.com/openova-io/openova/pull/5524) | #5511 | fix(catalyst-api): per-Org console gateway surface to EVERY  |
 | 2026-07-30T11:06 | [#5523](https://github.com/openova-io/openova/pull/5523) | #5511 | fix(org-controller): per-Org console listeners ride the LIVE |
-| 2026-07-30T11:06 | [#5522](https://github.com/openova-io/openova/pull/5522) | #5516 | fix(openova-mcp): route Org-context reads to the own-org sea |
-| 2026-07-30T11:06 | [#5521](https://github.com/openova-io/openova/pull/5521) | #5510 | fix(console): catalog per-field Save is a partial patch, not |
 
 ---
 
