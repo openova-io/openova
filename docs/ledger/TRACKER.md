@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-02T04:30:05Z` |
+| Last refreshed | `2026-08-02T04:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-02T04:36 | [#5566](https://github.com/openova-io/openova/pull/5566) | #5515 | docs(ledger): EPIC completion matrix re-derived live + 14 UA |
+| 2026-08-02T04:36 | [#5565](https://github.com/openova-io/openova/pull/5565) | #5505 | fix(kyverno): §854 policy exempted any Service NAMED cm-acme |
 | 2026-07-31T05:20 | [#5533](https://github.com/openova-io/openova/pull/5533) | #5531 | fix(gitea): durable db session provider so OAuth state survi |
 | 2026-07-30T14:09 | [#5529](https://github.com/openova-io/openova/pull/5529) | #893 | fix(catalyst-api): org-tenant HelmRepository emission is cut |
 | 2026-07-30T13:21 | [#5528](https://github.com/openova-io/openova/pull/5528) | #5442 | fix(bp-self-sovereign-cutover): step-03 scarf.sh mothership  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-07-29T15:44 | [#5474](https://github.com/openova-io/openova/pull/5474) | #5473 | fix(bp-postgres): replication-source Service must select the |
 | 2026-07-29T14:15 | [#5470](https://github.com/openova-io/openova/pull/5470) | #5442 | fix(catalog): unlist bp-nemo-guardrails — the image it pins  |
 | 2026-07-29T14:01 | [#5469](https://github.com/openova-io/openova/pull/5469) | #5442 | fix(cutover): chart-image enumerator no longer greps its own |
-| 2026-07-29T11:38 | [#5464](https://github.com/openova-io/openova/pull/5464) | #5460 | fix(console): revoke stale authed marker on 401 + run the si |
-| 2026-07-29T10:49 | [#5463](https://github.com/openova-io/openova/pull/5463) | #5388 | fix(cnpg-pair): dr-failback surfaces peer-probe starvation o |
 
 ---
 
