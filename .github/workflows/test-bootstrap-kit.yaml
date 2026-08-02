@@ -92,7 +92,7 @@ jobs:
         # declared twice) are caught at PR time, not at fresh-prov reconcile.
         # The script warn-skips if kustomize is absent; install it so the
         # check is enforcing in CI.
-        uses: imranismail/setup-kustomize@v2
+        uses: imranismail/setup-kustomize@v3
 
       - name: Run bootstrap-kit dependency audit
         run: bash scripts/check-bootstrap-deps.sh
