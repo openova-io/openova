@@ -7,7 +7,7 @@ metadata:
     catalyst.openova.io/category: platform
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 0.2.31
+  version: 0.2.32
   card:
     title: Apache Guacamole
     summary: Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO and full session recording to SeaweedFS. One Guacamole per Sovereign per ADR-0001 §11.
