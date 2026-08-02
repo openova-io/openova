@@ -345,6 +345,32 @@ func (h *Handler) runJanitorPass(tofuWorkDir string, failedMaxAge, wipedMaxAge t
 	// buckets are hard-protected in isReclaimableOrphanOBSBucket itself.
 	stats.OrphanOBSBuckets = h.cleanOrphanOBSBucketsHuawei(tofuWorkDir, activeIDs)
 
+	// #5545 — the five cloud sweeps (EIP / keypair / VPC / EVS / OBS) count
+	// a candidate INSIDE their `if !destructive` branch — e.g.
+	// SweepOrphanOBSBuckets does `progress("… would-reap (log-only …)")`
+	// then `reaped++` (providers/huawei/provider.go:2837-2840). So when the
+	// destructive gate is CLOSED the returned number is a WOULD-REAP count
+	// and nothing was removed.
+	//
+	// Emitting that under a `…Deleted` key made a dry run report deletions
+	// that never happened: observed live on the mothership 2026-08-01,
+	// `destructive=false` alongside `orphanOBSBucketsDeleted=61` and
+	// `orphanKeypairsDeleted=2`, with zero objects touched. The per-item
+	// lines said "would-reap" while the machine-readable summary said
+	// "Deleted", so a dashboard, an alert, or a walker reading the summary
+	// records 61 reclamations that did not occur — and it already
+	// contaminated two UAT rows (G4/G5) before it was caught.
+	//
+	// The count is honest; the NAME was the lie. Name it for what the
+	// number actually is in this mode. The filesystem sweeps above
+	// (kubeconfigs / tofu workdirs) are not gated this way and keep theirs.
+	cloudKey := func(base string) string {
+		if janitorDestructive() {
+			return "orphan" + base + "Deleted"
+		}
+		return "orphan" + base + "WouldReap"
+	}
+
 	h.log.Info("[JANITOR] pass complete",
 		"durationMs", int(time.Since(startedAt).Milliseconds()),
 		"destructive", janitorDestructive(),
@@ -353,11 +379,11 @@ func (h *Handler) runJanitorPass(tofuWorkDir string, failedMaxAge, wipedMaxAge t
 		"failedInfraPreserved", stats.FailedPreserved,
 		"orphanKubeconfigsDeleted", stats.OrphanKubeconfigs,
 		"orphanTofuWorkdirsDeleted", stats.OrphanTofuWorkdirs,
-		"orphanEIPsDeleted", stats.OrphanEIPs,
-		"orphanKeypairsDeleted", stats.OrphanKeypairs,
-		"orphanVPCsDeleted", stats.OrphanVPCs,
-		"orphanEVSDeleted", stats.OrphanEVS,
-		"orphanOBSBucketsDeleted", stats.OrphanOBSBuckets,
+		cloudKey("EIPs"), stats.OrphanEIPs,
+		cloudKey("Keypairs"), stats.OrphanKeypairs,
+		cloudKey("VPCs"), stats.OrphanVPCs,
+		cloudKey("EVS"), stats.OrphanEVS,
+		cloudKey("OBSBuckets"), stats.OrphanOBSBuckets,
 	)
 }
 

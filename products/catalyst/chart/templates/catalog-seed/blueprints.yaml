@@ -1727,7 +1727,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.31"
+  version: "0.2.33"
   visibility: listed
   card:
     title: "Apache Guacamole"
@@ -1745,7 +1745,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-guacamole
-    version: "0.2.31"
+    version: "0.2.33"
   topology:
     supported:
     - active-hot-standby
@@ -2326,7 +2326,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.4.145"
+  version: "1.4.146"
   visibility: listed
   card:
     title: "NewAPI"
@@ -2371,7 +2371,7 @@ business model is reselling LLM access to its own customers; use
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-newapi
-    version: "1.4.145"
+    version: "1.4.146"
   topology:
     supported:
     - active-passive
@@ -4622,7 +4622,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.50"
+  version: "1.0.51"
   visibility: unlisted
   card:
     title: "Kyverno Policy Library"
@@ -4639,7 +4639,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-kyverno-policies
-    version: "1.0.50"
+    version: "1.0.51"
   topology:
     supported:
       - singleton
@@ -4785,7 +4785,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.22"
+  version: "1.2.23"
   visibility: unlisted
   card:
     title: "PowerDNS"
@@ -4802,7 +4802,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-powerdns
-    version: "1.2.22"
+    version: "1.2.23"
   topology:
     supported:
       - singleton
@@ -5760,7 +5760,7 @@ spec:
   # 0.2.13 (#5224): role-secrets side-gate — replica-role region never mints
   # role/hub Secrets; pair password set single-sourced from the primary region.
   # 0.2.14 (#5473): replication-source Service selectorType r -> rw (primary only).
-  version: "0.2.15"
+  version: "0.2.16"
   visibility: listed
   # Shareability + Contexts (#3370) — seeded verbatim from
   # platform/postgres/blueprint.yaml (lockstep-guarded). One instance
@@ -5859,7 +5859,7 @@ spec:
     # 0.2.12 (#4986): active-hot-standby emits the dr-<instance> Continuum CR so
     # the per-app Topology DR panel renders (shared-pg #3375 rows 51/52/56/57/64).
     # 0.2.13 (#5224): role-secrets side-gate (replica-role region mints nothing).
-    version: "0.2.15"
+    version: "0.2.16"
   # Seeded verbatim from platform/postgres/blueprint.yaml spec.topology.
   # singleton = single-instance Cluster; active-hot-standby = sync
   # replication across regions (ADR-0004 Pillar-3 zero-tx-loss) via the

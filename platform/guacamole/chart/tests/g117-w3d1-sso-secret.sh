@@ -42,7 +42,7 @@ base_args=(
 # ── Case 1: kc_idp_hint appended ──────────────────────────────────────────
 echo "[g117-w3d1-sso-secret] Case 1: OPENID_AUTHORIZATION_ENDPOINT carries kc_idp_hint=catalyst-pin"
 out_default=$("$helm" template smoke "$chart_dir" "${base_args[@]}" 2>/dev/null)
-if ! echo "$out_default" | grep -qE 'value:.*openid-connect/auth\?kc_idp_hint=catalyst-pin'; then
+if ! grep -qE 'value:.*openid-connect/auth\?kc_idp_hint=catalyst-pin' <<<"$out_default"; then
   echo "FAIL: OPENID_AUTHORIZATION_ENDPOINT does NOT contain ?kc_idp_hint=catalyst-pin" >&2
   echo "$out_default" | grep -A1 OPENID_AUTHORIZATION_ENDPOINT | head -5 >&2
   exit 1
@@ -66,7 +66,7 @@ echo "  PASS"
 
 # ── Case 2: divergent realm-patch ConfigMap REMOVED ───────────────────────
 echo "[g117-w3d1-sso-secret] Case 2: bp-guacamole-realm-patch ConfigMap is gone"
-if echo "$out_default" | grep -q "name: bp-guacamole-realm-patch"; then
+if grep -q "name: bp-guacamole-realm-patch" <<<"$out_default"; then
   echo "FAIL: divergent realm-patch ConfigMap still rendering (template not deleted?)" >&2
   exit 1
 fi
@@ -87,7 +87,7 @@ if [ -z "$got_secret" ]; then
   echo "FAIL: Secret guacamole-oidc did not render in default chartManagedSecret=ON mode" >&2
   exit 1
 fi
-if ! echo "$got_secret" | grep -q "resource-policy=keep"; then
+if ! grep -q "resource-policy=keep" <<<"$got_secret"; then
   echo "FAIL: Secret guacamole-oidc missing helm.sh/resource-policy: keep" >&2
   echo "Got: $got_secret" >&2
   exit 1
@@ -96,11 +96,11 @@ echo "  PASS"
 
 # ── Case 3b: chartManagedSecret default ON → SealedSecret + Job NOT rendered
 echo "[g117-w3d1-sso-secret] Case 3b: default ON does not render SealedSecret nor legacy bootstrap Job"
-if echo "$out_default" | grep -q "^kind: SealedSecret"; then
+if grep -q "^kind: SealedSecret" <<<"$out_default"; then
   echo "FAIL: SealedSecret rendered in default chartManagedSecret=ON mode (gating broken)" >&2
   exit 1
 fi
-if echo "$out_default" | grep -q "name: bp-guacamole-oidc-bootstrap"; then
+if grep -q "name: bp-guacamole-oidc-bootstrap" <<<"$out_default"; then
   echo "FAIL: legacy bootstrap Job rendered in default chartManagedSecret=ON mode" >&2
   exit 1
 fi
@@ -109,11 +109,11 @@ echo "  PASS"
 # ── Case 4a: chartManagedSecret=false → SealedSecret renders ──────────────
 echo "[g117-w3d1-sso-secret] Case 4a: chartManagedSecret=false renders the SealedSecret + Job back-compat path"
 out_off=$("$helm" template smoke "$chart_dir" "${base_args[@]}" --set guacamole.oidc.chartManagedSecret=false 2>/dev/null)
-if ! echo "$out_off" | grep -q "^kind: SealedSecret"; then
+if ! grep -q "^kind: SealedSecret" <<<"$out_off"; then
   echo "FAIL: SealedSecret did not render when chartManagedSecret=false" >&2
   exit 1
 fi
-if ! echo "$out_off" | grep -q "name: bp-guacamole-oidc-bootstrap"; then
+if ! grep -q "name: bp-guacamole-oidc-bootstrap" <<<"$out_off"; then
   echo "FAIL: legacy bootstrap Job did not render when chartManagedSecret=false" >&2
   exit 1
 fi

@@ -1,5 +1,21 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.16 — #5311 (Refs #4901 #4986 #4987 #5337): templates/continuum.yaml now
+#   populates `spec.cnpgPair` (name = instanceName, namespace = the Cluster ns)
+#   on the dr-<instance> Continuum CR. dr-shared-pg{,-b,-c} previously carried
+#   only the `catalyst.openova.io/cnpg-pair` LABEL (enough for the console DR
+#   WAL-lag panel via catalyst-api continuum_live.go label discovery) but NOT
+#   this spec field, so the continuum-controller's standby observe gate
+#   (continuum_controller.go:420 — `spec.CNPGPair != ""`) was skipped and the
+#   #5311 pg_stat_replication probe never engaged → `standbyAvailable` stayed
+#   UNSET for the shared-pg pairs even though they render a genuine 2-region
+#   streaming pair. Trivial + self-contained: the value is the SAME instance
+#   name the label + the two Cluster halves already stamp; the CNPG
+#   `<primary>-replication` Secret + the existing all-namespace 5432 ingress on
+#   `-allow-replication-to-primary` already satisfy the probe (no #5337-style
+#   NetworkPolicy carve-out needed — this chart's shared-pg policy already
+#   admits catalyst-system). Mirrors bp-cnpg-pair's continuum.yaml. Lockstep:
+#   16a/16c/16d HR pins + blueprint.yaml + catalog-seed → 0.2.16.
 # 0.2.15 — #5504 (Refs #5499): the FIRST binding's owner was minted TWICE with
 # different credentials — bootstrap.initdb created it with CNPG's generated
 # `<cluster>-app` password, while managed.roles declared it with the
@@ -210,7 +226,7 @@ name: bp-postgres
 #   the singleton render is byte-identical to 0.2.9 (the ipBlock only rendered
 #   under crossRegion, which singletons never set). Lockstep slot pins 16a/16c/
 #   16d → 0.2.10. tests/postgres-render.sh Case 4e/4f added.
-version: 0.2.15
+version: 0.2.16
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable

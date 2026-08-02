@@ -554,9 +554,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "fb41faf"
+    tag: "fad88bd"
   catalystUi:
-    tag: "fb41faf"
+    tag: "fad88bd"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -610,7 +610,7 @@ images:
   # templates/org-services/marketplace.yaml, which now honours global.imageRegistry
   # for the #4885 cutover step-07 pivot (mirrors the 9 templated org-services
   # siblings + ui-deployment.yaml's #4563 split).
-  marketplaceTag: "706b14d"
+  marketplaceTag: "609ba40"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────
@@ -999,7 +999,7 @@ controllers:
       # 6d7aacd (2026-06-24, #4236) — freshness sweep on the funnel pool-DNS PR:
       # 34ff594 had drifted 183 commits behind latest GHCR (no code change here,
       # just clearing the staleness gate so the chart ships the current binary).
-      tag: "8b7fc3b"
+      tag: "4abd412"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:

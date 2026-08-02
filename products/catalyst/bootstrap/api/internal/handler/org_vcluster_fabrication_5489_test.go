@@ -32,8 +32,11 @@ import (
 
 func TestVClusterNameFor(t *testing.T) {
 	t.Parallel()
-	if got := vclusterNameFor("vcluster", "acme"); got != "vc-acme" {
-		t.Errorf("vcluster tier: got %q want vc-acme", got)
+	// #5501 — the reported name is the BARE SLUG, the name the org-controller
+	// (the object's only producer) stamps at status.vcluster.name. The former
+	// `vc-<slug>` synthesis disagreed with the CR on a walked Sovereign.
+	if got := vclusterNameFor("vcluster", "acme"); got != "acme" {
+		t.Errorf("vcluster tier: got %q want acme (the CR-authoritative name)", got)
 	}
 	if got := vclusterNameFor("namespace", "acme"); got != "" {
 		t.Errorf("namespace tier must not synthesize a vCluster name, got %q", got)
@@ -132,8 +135,9 @@ func TestOrgResponseFromCR_VclusterTier_KeepsVClusterFields(t *testing.T) {
 	if row.Isolation != "vcluster" {
 		t.Fatalf("fixture must derive vcluster isolation (customer + plan m), got %q", row.Isolation)
 	}
-	if row.VClusterName != "vc-acme" {
-		t.Errorf("vcluster-tier row keeps its vCluster name, got %q want vc-acme", row.VClusterName)
+	// #5501 — still named, but with the CR-authoritative bare slug.
+	if row.VClusterName != "acme" {
+		t.Errorf("vcluster-tier row keeps its vCluster name, got %q want acme", row.VClusterName)
 	}
 	if row.Steps.VCluster != "done" {
 		t.Errorf("vcluster-tier Ready row keeps steps.vcluster=done, got %q", row.Steps.VCluster)

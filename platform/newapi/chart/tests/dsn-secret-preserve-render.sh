@@ -76,23 +76,23 @@ if [ -z "$secret_block" ]; then
   echo "FAIL: DSN placeholder Secret did not render"
   exit 1
 fi
-if ! echo "$secret_block" | grep -q "name: ${dsn_secret_name}"; then
+if ! grep -q "name: ${dsn_secret_name}" <<<"$secret_block"; then
   echo "FAIL: rendered Secret is not the expected ${dsn_secret_name}"
   echo "$secret_block" | grep "name:" | head -1
   exit 1
 fi
-if ! echo "$secret_block" | grep -q "helm.sh/resource-policy: keep"; then
+if ! grep -q "helm.sh/resource-policy: keep" <<<"$secret_block"; then
   echo "FAIL: DSN Secret missing 'helm.sh/resource-policy: keep' — it will be"
   echo "      clobbered to empty on the next render and CrashLoop the data plane"
   exit 1
 fi
-if ! echo "$secret_block" | grep -qE '^[[:space:]]*SQL_DSN:'; then
+if ! grep -qE '^[[:space:]]*SQL_DSN:' <<<"$secret_block"; then
   echo "FAIL: DSN Secret has no SQL_DSN key"
   exit 1
 fi
 # First-install render (no existing Secret in a dry-run) must be the empty
 # placeholder so kubelet does not trip CreateContainerConfigError.
-if ! echo "$secret_block" | grep -qE '^[[:space:]]*SQL_DSN:[[:space:]]*""[[:space:]]*$'; then
+if ! grep -qE '^[[:space:]]*SQL_DSN:[[:space:]]*""[[:space:]]*$' <<<"$secret_block"; then
   echo "FAIL: first-install/dry-run SQL_DSN should be the empty placeholder"
   exit 1
 fi
@@ -102,12 +102,12 @@ echo "[bp-newapi] Case 1+2: PASS"
 echo "[bp-newapi] Case 3: wait-for-sql-dsn gate + Deployment env target the preserved Secret"
 full=$("$helm" template "$release" "$chart_dir" -f "$common_values" "${api_flag[@]}" 2>&1)
 
-if ! echo "$full" | grep -q "name: wait-for-sql-dsn"; then
+if ! grep -q "name: wait-for-sql-dsn" <<<"$full"; then
   echo "FAIL: wait-for-sql-dsn initContainer did not render"
   exit 1
 fi
 gate_vol=$(echo "$full" | awk '/name: sql-dsn-gate/{f=1} f&&/secretName:/{print; exit}')
-if ! echo "$gate_vol" | grep -q "secretName: ${dsn_secret_name}"; then
+if ! grep -q "secretName: ${dsn_secret_name}" <<<"$gate_vol"; then
   echo "FAIL: sql-dsn-gate volume does not mount ${dsn_secret_name}"
   echo "      (got: ${gate_vol})"
   exit 1
@@ -138,7 +138,7 @@ EOF
 # "could not find template" — that is the PASS signal here.
 if vc_out=$("$helm" template "$release" "$chart_dir" -f "$vc_values" "${api_flag[@]}" \
      --show-only templates/cnpg-cluster.yaml 2>&1); then
-  if echo "$vc_out" | grep -q "${dsn_secret_name}"; then
+  if grep -q "${dsn_secret_name}" <<<"$vc_out"; then
     echo "FAIL: vcluster-app should NOT render the host-side DSN Secret"
     rm -f "$vc_values"
     exit 1

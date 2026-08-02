@@ -489,23 +489,30 @@ func writeRBACAssignForbidden(w http.ResponseWriter, detail string) {
 	})
 }
 
-// writeRBACAssignValidationError emits a 200-status envelope with an
-// `error` token so the matrix runner's must_contain assertion resolves
-// on the body. The runner FAILs every non-2xx response before reading
-// the body (fast_executor.py:297-298) — returning 200 with an explicit
-// `"error":"invalid"` or `"error":"tier"` keeps the wire-shape honest
-// (it really is an invalid request) while letting the assertion pass.
+// writeRBACAssignValidationError emits the canonical 400 envelope for a
+// rejected /rbac/assign body. Mirrors writeRBACAssignForbidden, which has
+// always returned its true 403.
 //
-// The legacy 400 path (writeBadRequest with "invalid-rbac-assign") is
-// retained for non-matrix-runner callers via a fallthrough field
-// `httpStatus` and a `detail` echo of the original message.
+// This used to emit HTTP 200 so a `must_contain` assertion in an external
+// matrix runner (cited as fast_executor.py:297-298, which FAILed every
+// non-2xx before reading the body) could resolve on the body. That runner
+// exists nowhere in either repo or in this repo's history, and the shape it
+// motivated is cataloged as an anti-pattern in docs/PRINCIPLES.md A8 —
+// "the pass condition has been moved from 'the operation succeeded' to
+// 'the right string appears'". A 200 over a rejected write is a lie told to
+// every real client: the console, the MCP server, and any UAT walk read a
+// success. Refs #5542.
+//
+// The body keeps its `error`/`status`/`httpStatus`/`detail` tokens so
+// existing consumers still parse; only the transport code is corrected.
+// `httpStatus` is a string here, matching every other soft-error envelope.
 func writeRBACAssignValidationError(w http.ResponseWriter, code, msg string) {
-	writeJSON(w, http.StatusOK, map[string]any{
+	writeJSON(w, http.StatusBadRequest, map[string]any{
 		"error":      code,
 		"applied":    false,
 		"assigned":   false,
 		"status":     "400",
-		"httpStatus": 400,
+		"httpStatus": "400",
 		"detail":     msg,
 	})
 }

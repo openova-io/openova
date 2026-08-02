@@ -20,7 +20,7 @@
 #     - powerdns-api (type=ClusterIP)                   → admitted
 #     - gateway-lb-leaky / gateway-lb-clean (LB)        → admitted (not NodePort)
 #     - cm-acme-http-solver-by-label (NodePort+label)   → SKIPPED (carve-out)
-#     - cm-acme-http-solver-9xk2p (NodePort, name only) → SKIPPED (carve-out)
+#     - cm-acme-http-solver-9xk2p (NodePort, NAME only, no label) → DENIED (#5564)
 #   Rule 2 (loadbalancer-must-disable-nodeport-allocation):
 #     - gateway-lb-leaky (LB, no allocateLoadBalancerNodePorts) → DENIED (§854 subtlety)
 #     - gateway-lb-clean (LB, allocateLoadBalancerNodePorts:false) → admitted
@@ -56,9 +56,16 @@ results:
     rule: service-type-not-nodeport
     resources:
       - iogrid/cm-acme-http-solver-by-label
-      - iogrid/cm-acme-http-solver-9xk2p
     kind: Service
     result: skip
+  # #5564 NEGATIVE CONTROL: solver-shaped NAME without the solver LABEL is a
+  # plain NodePort and must be DENIED. Was `skip` here, which pinned the bypass.
+  - policy: forbid-nodeport-service
+    rule: service-type-not-nodeport
+    resources:
+      - iogrid/cm-acme-http-solver-9xk2p
+    kind: Service
+    result: fail
   # ── Rule 2: loadbalancer-must-disable-nodeport-allocation ──────────────
   # LoadBalancer WITHOUT allocateLoadBalancerNodePorts:false → DENIED (§854 subtlety).
   - policy: forbid-nodeport-service

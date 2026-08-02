@@ -52,5 +52,26 @@ spec:
       port: {{ .port }}
       targetPort: {{ .targetPort }}
       protocol: {{ .protocol }}
+      {{- if eq $svcType "LoadBalancer" }}
+      # 🛑 #5348: state ZERO explicitly — omitting nodePort is NOT enough.
+      #
+      # allocateLoadBalancerNodePorts:false above only stops the apiserver
+      # allocating NEW node ports; it does NOT deallocate ones already
+      # assigned. And a declarative apply that simply OMITS nodePort leaves
+      # the existing value in place — the field reads as unmanaged, so the
+      # allocation survives every reconcile.
+      #
+      # Live proof on the mothership 2026-08-01: this very Service carried
+      # allocateLoadBalancerNodePorts:false AND nodePort=32015 (53/UDP) +
+      # nodePort=31425 (53/TCP) at the same time. The chart rendered clean,
+      # scripts/check-no-nodeports.sh passed, and node:32015/udp was open —
+      # a §854 violation invisible to every source-side check.
+      #
+      # `nodePort: 0` is the release sentinel: the apiserver treats it as
+      # "no node port" and clears the allocation on apply. It is also the
+      # inert value the repo guard deliberately ignores (it flags only
+      # `nodePort: [1-9][0-9]*`), so this stays guard-clean by construction.
+      nodePort: 0
+      {{- end }}
     {{- end }}
 {{- end }}

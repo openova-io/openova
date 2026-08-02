@@ -63,10 +63,10 @@ deployment_block=$(echo "$out" | awk '/^---$/{f=0} /^kind: Deployment$/{f=1} f')
 if [ -z "$deployment_block" ]; then
   echo "FAIL: Deployment did not render"; exit 1
 fi
-if ! echo "$deployment_block" | grep -q "imagePullSecrets:"; then
+if ! grep -q "imagePullSecrets:" <<<"$deployment_block"; then
   echo "FAIL: Deployment has no imagePullSecrets block"; exit 1
 fi
-if ! echo "$deployment_block" | grep -q "name: ghcr-pull"; then
+if ! grep -q "name: ghcr-pull" <<<"$deployment_block"; then
   echo "FAIL: Deployment imagePullSecrets does not reference ghcr-pull"; exit 1
 fi
 echo "[bp-wordpress-tenant] Case 1: PASS"
@@ -77,10 +77,10 @@ admin_job=$(job_by_name "$out" "-admin-user")
 if [ -z "$admin_job" ]; then
   echo "FAIL: admin-user Job did not render (adminUser.email set?)"; exit 1
 fi
-if ! echo "$admin_job" | grep -q "imagePullSecrets:"; then
+if ! grep -q "imagePullSecrets:" <<<"$admin_job"; then
   echo "FAIL: admin-user Job has no imagePullSecrets block"; exit 1
 fi
-if ! echo "$admin_job" | grep -q "name: ghcr-pull"; then
+if ! grep -q "name: ghcr-pull" <<<"$admin_job"; then
   echo "FAIL: admin-user Job imagePullSecrets does not reference ghcr-pull"; exit 1
 fi
 echo "[bp-wordpress-tenant] Case 2: PASS"
@@ -91,7 +91,7 @@ oidc_job=$(job_by_name "$out" "-oidc-config")
 if [ -z "$oidc_job" ]; then
   echo "FAIL: oidc-config Job did not render"; exit 1
 fi
-if echo "$oidc_job" | grep -q "imagePullSecrets:"; then
+if grep -q "imagePullSecrets:" <<<"$oidc_job"; then
   echo "FAIL: oidc-config Job (public wordpress:cli-* image) must not carry imagePullSecrets"; exit 1
 fi
 echo "[bp-wordpress-tenant] Case 3: PASS"
@@ -112,7 +112,7 @@ deployment_block5=$(echo "$out5" | awk '/^---$/{f=0} /^kind: Deployment$/{f=1} f
 if [ -z "$deployment_block5" ]; then
   echo "FAIL: Deployment did not render with empty pullSecrets"; exit 1
 fi
-if echo "$deployment_block5" | grep -q "imagePullSecrets:"; then
+if grep -q "imagePullSecrets:" <<<"$deployment_block5"; then
   echo "FAIL: empty override should suppress imagePullSecrets block (Inviolable Principle #4)"; exit 1
 fi
 echo "[bp-wordpress-tenant] Case 4: PASS"
@@ -131,10 +131,10 @@ EOF
 out6=$("$helm" template wp "$chart_dir" -f "$custom_values" 2>&1)
 rm -f "$custom_values"
 deployment_block6=$(echo "$out6" | awk '/^---$/{f=0} /^kind: Deployment$/{f=1} f')
-if ! echo "$deployment_block6" | grep -q "name: my-private-registry-creds"; then
+if ! grep -q "name: my-private-registry-creds" <<<"$deployment_block6"; then
   echo "FAIL: custom imagePullSecret name not propagated to Deployment"; exit 1
 fi
-if echo "$deployment_block6" | grep -q "name: ghcr-pull"; then
+if grep -q "name: ghcr-pull" <<<"$deployment_block6"; then
   echo "FAIL: custom override leaked default ghcr-pull reference"; exit 1
 fi
 echo "[bp-wordpress-tenant] Case 5: PASS"

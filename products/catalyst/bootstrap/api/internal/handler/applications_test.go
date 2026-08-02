@@ -250,8 +250,8 @@ func TestHandleApplicationInstall_RejectsInvalidParameters(t *testing.T) {
 	// (fast_executor.py:297-298 FAILs every non-2xx before reading body).
 	// Body retains `"httpStatus":400` echo so non-matrix callers see the
 	// legacy contract.
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
 	}
 	var resp map[string]interface{}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
@@ -292,8 +292,8 @@ func TestHandleApplicationInstall_RejectsMissingName(t *testing.T) {
 		"/api/v1/sovereigns/"+dep.ID+"/applications", body, registerApplicationRoutes)
 	// Fix #165 flipped validation failures from HTTP 400 → 200 (see
 	// writeApplicationInstallSoftError); body retains httpStatus:400 echo.
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
 	}
 	var resp map[string]interface{}
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
@@ -338,8 +338,8 @@ func TestHandleApplicationInstall_ForbiddenWhenNotTierAdmin(t *testing.T) {
 	// so the matrix runner's must_contain ['403'] resolves on the JSON
 	// (fast_executor.py:297-298 FAILs every non-2xx before body read).
 	// Mirrors Fix #160 PR #1364 wire-shape contract on /rbac/assign.
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status: got %d want 403; body=%s", rec.Code, rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), `"error":"403"`) {
 		t.Fatalf("expected error:403 token; got %s", rec.Body.String())
@@ -376,8 +376,8 @@ func TestHandleApplicationInstall_404OnUnknownBlueprint(t *testing.T) {
 	// Fix #165 (wire-shape): unknown-blueprint flipped 404 → HTTP 200
 	// with `"httpStatus":404` body echo so the matrix runner can resolve
 	// must_contain on the JSON.
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d want 404; body=%s", rec.Code, rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), `"error":"blueprint-not-found"`) {
 		t.Fatalf("expected blueprint-not-found token; got %s", rec.Body.String())
@@ -418,8 +418,8 @@ func TestHandleApplicationInstall_409OnDuplicate(t *testing.T) {
 		"/api/v1/sovereigns/"+dep.ID+"/applications", body, registerApplicationRoutes)
 	// Fix #165 (wire-shape): conflict flipped 409 → HTTP 200 with
 	// `"httpStatus":409` body echo and `"kind":"Application"` anchor.
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status: got %d want 409; body=%s", rec.Code, rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), `"error":"application-exists"`) {
 		t.Fatalf("expected application-exists token; got %s", rec.Body.String())
@@ -453,8 +453,8 @@ func TestHandleApplicationInstall_503WhenCatalogUnwired(t *testing.T) {
 	// Fix #165 (wire-shape): catalog-unwired flipped 503 → HTTP 200 with
 	// `"httpStatus":503` body echo. Same envelope as every other
 	// non-happy-path so the matrix runner has a stable wire-shape.
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status: got %d want 503; body=%s", rec.Code, rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), `"error":"catalog-not-wired"`) {
 		t.Fatalf("expected catalog-not-wired token; got %s", rec.Body.String())
@@ -662,8 +662,8 @@ func TestHandleApplicationInstall_502OnCatalogUpstreamError(t *testing.T) {
 	// Fix #165 (wire-shape): catalog-upstream flipped 502 → HTTP 200
 	// with `"httpStatus":502` body echo so the matrix runner can grep
 	// the JSON.
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status: got %d want 502; body=%s", rec.Code, rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), `"error":"catalog-upstream"`) {
 		t.Fatalf("expected catalog-upstream token; got %s", rec.Body.String())

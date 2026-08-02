@@ -1,5 +1,16 @@
 apiVersion: v2
 name: bp-kyverno-policies
+# 1.0.51 (#5564): forbid-nodeport-service — REMOVE the `cm-acme-http-solver-*`
+#   NAME exclusion. `exclude` is an `any:` list, so that clause alone exempted
+#   ANY Service with that name from the §854 ban, with no cert-manager
+#   involvement — a self-service bypass. The solver carve-out is now by the
+#   upstream LABEL acme.cert-manager.io/http01-solver only; a live sweep found
+#   7/7 solvers carrying it, so no real coverage is lost. Policy ACTION is
+#   unchanged (no Audit/Enforce flip, #5505 shape avoided). Test fixture
+#   `cm-acme-http-solver-9xk2p` flipped from admitted to DENIED, and a new
+#   `scripts/check-kyverno-nodeport-exclusions.sh` asserts on policy TEXT
+#   because `kyverno test` cannot catch this: with the bypass restored, an
+#   EXCLUDED resource still satisfies `result: fail`. Refs #5564 #5088 #4765.
 # 1.0.48 (#5088): NEW baseline policy `forbid-nodeport-service` (24) — the
 #   systemic §854 AUDIT guard. §854 was enforced ONLY at chart-render time
 #   (per-chart `fail` guards); nothing caught a runtime / non-chart NodePort
@@ -326,7 +337,7 @@ type: application
 #   (helm.sh/hook annotation) — hooks get no Flux labels + Helm force-stamps
 #   managed-by:Helm, so a legit hook Job (bp-powerdns zone-bootstrap) was
 #   Enforce-denied on live upgrade, stranding the powerdns anycast NodePort.
-version: 1.0.50
+version: 1.0.51
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:
