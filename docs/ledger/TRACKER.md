@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-02T17:30:05Z` |
+| Last refreshed | `2026-08-02T17:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -322,6 +322,7 @@ flowchart LR
 | 2026-08-02T13:14 | [#5556](https://github.com/openova-io/openova/pull/5556) | #5480 | feat(ci): A16 guard for #5480 — flag secrets minted behind a |
 | 2026-08-02T13:16 | [#5553](https://github.com/openova-io/openova/pull/5553) | #5542 | fix(ci): the vitest gate could never fail a build — npm test |
 | 2026-08-02T13:14 | [#5552](https://github.com/openova-io/openova/pull/5552) | #5499 | feat(ci): preflight that catches a region consuming a role c |
+| 2026-08-02T17:35 | [#5551](https://github.com/openova-io/openova/pull/5551) | #5545 | fix(janitor): a log-only pass reported 61 deletions that nev |
 | 2026-08-02T13:15 | [#5550](https://github.com/openova-io/openova/pull/5550) | #5489 | docs(console): parentRowFromSelf doc-comment still asserted  |
 | 2026-08-02T13:15 | [#5549](https://github.com/openova-io/openova/pull/5549) | #4691 | docs(canon): §854 section pointed at a dead issue and omitte |
 | 2026-08-02T09:34 | [#5548](https://github.com/openova-io/openova/pull/5548) | #5348 | feat(ci): cluster-side §854 guard — catches a live node port |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-02T13:16 | [#5536](https://github.com/openova-io/openova/pull/5536) | #3969 | fix(console): Overview must not assert a placement the API n |
 | 2026-07-31T05:20 | [#5533](https://github.com/openova-io/openova/pull/5533) | #5531 | fix(gitea): durable db session provider so OAuth state survi |
 | 2026-07-30T14:09 | [#5529](https://github.com/openova-io/openova/pull/5529) | #893 | fix(catalyst-api): org-tenant HelmRepository emission is cut |
-| 2026-07-30T13:21 | [#5528](https://github.com/openova-io/openova/pull/5528) | #5442 | fix(bp-self-sovereign-cutover): step-03 scarf.sh mothership  |
 
 ---
 
