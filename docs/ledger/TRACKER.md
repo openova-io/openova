@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-02T11:30:05Z` |
+| Last refreshed | `2026-08-02T11:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-02T11:31 | [#5578](https://github.com/openova-io/openova/pull/5578) | #5563 | fix(854): NodePort guard advised deleting an allowlist entry |
 | 2026-08-02T11:13 | [#5577](https://github.com/openova-io/openova/pull/5577) | #5559 | docs(uat): R21 independent re-walk reconfirms #5559 — 6 iner |
 | 2026-08-02T11:04 | [#5576](https://github.com/openova-io/openova/pull/5576) | #5572 | docs(uat): walk W4 ✅ + downgrade W5 ✅→⚠️ — wizard offers 6 c |
 | 2026-08-02T10:41 | [#5574](https://github.com/openova-io/openova/pull/5574) | #5569 | docs(ledger): matrix headline carried the SUPERSEDED #3969 f |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-07-29T19:05 | [#5495](https://github.com/openova-io/openova/pull/5495) | #5442 | fix(bp-self-sovereign-cutover): map cgr.dev + the litmuschao |
 | 2026-07-29T18:56 | [#5494](https://github.com/openova-io/openova/pull/5494) | #5088 | fix(kyverno): enforce the §854 NodePort ban instead of merel |
 | 2026-07-29T18:56 | [#5493](https://github.com/openova-io/openova/pull/5493) | #5485 | fix(showback,treemap): collapse one-shot Job rows, name Appl |
-| 2026-07-29T18:27 | [#5492](https://github.com/openova-io/openova/pull/5492) | #2003 | fix(bp-valkey): scope NetworkPolicy ingress to the declared  |
 
 ---
 
