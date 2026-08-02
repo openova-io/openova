@@ -19,7 +19,7 @@ spec:
   # 0.2.15 (#5504): bootstrap.initdb.secret now names the owner's roleSecret;
   # initdb previously minted the owner with the generated <cluster>-app
   # password, so every consumer got 28P01 while CNPG reported reconciled.
-  version: 0.2.15
+  version: 0.2.16
   card:
     title: PostgreSQL
     summary: |
