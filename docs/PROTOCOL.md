@@ -309,3 +309,20 @@ Ship as `.github/ISSUE_TEMPLATE/dispatch.md` + labeler rule: **`status/in-progre
 ---
 
 *Precision notes carried from adversarial verification, to prevent re-deriving errors: #4788's fix shipped as PR #4789 (07-05) — walk-debt, not code-debt. #4675's second victim was production omantel.biz (dep 2c3f7c34), not hw204. Wipe-side EVS drain/backstop already landed (PRs #4678, #5029) — the missing pieces are fire-side. hw242's step-08 death was a mixed netpol+registry stack. The contract script is 52 cases on main. "One defect per fire" is the median, not a law — which is exactly why the harness (C1) beats another fire. The §1.2 snapshot drifts within days (three checkout moves observed 07-12→07-14) — which is why Step 0 (§1.0) is mandatory, not advisory.*
+
+---
+
+## 10. 🗿 STONE — the completion measurement is FROZEN (founder, 2026-08-02)
+
+Founder verbatim: *"You cannot keep chaning measurement!!!! When ever i ask you must usr the 100 same measurement approch. Carve this on stone."*
+
+Every completion-percentage report to the founder computes EXACTLY this, in this order — never a new formula, denominator, or differently-derived headline:
+
+1. **Source**: `origin/main:docs/ledger/UAT.md`, ALL row-ID formats (numeric/R#/G#), verdict read from the STATUS column only (`scripts/uat-tally.py` semantics).
+2. **Carry-forward is ALWAYS applied**: every ☐ row inherits its most recent non-☐ verdict from the ledger's git history (walking back through resets and mechanical flips until a real verdict is found). A newer stricter verdict is never overridden by an older greener one; the raw flushed number is never the headline.
+3. **THE headline number** = carry-forward ✅ / (total − ⛔ − N/A). One number, one formula.
+4. **Format 1**: the fixed per-EPIC family table (Console/UI/Cloud-view · Multi-region/DR · Sovereignty-Cutover · Marketplace+Funnel · Robustness/Ops · Governance · SSO/Auth · Agentic · Overall) with columns tot/✅/⚠️/◑/☐/❌/⛔/pct/what-is-still-wrong.
+5. **Format 2**: durable Δ vs the stored baseline (memory `project_completion_matrix_canonical_format.md`), artifact-per-cell — the durable score moves ONLY on walk evidence, never mid-conversation, never in response to pressure in either direction.
+6. No other percentage (raw-flushed %, half-credit %, structural %) is ever presented as the completion number.
+
+Why: across July the founder was shown raw-flushed, pct-formula, durable, and carry-forward numbers in different sessions — each defined, but the headline appeared to jump (91→57) without the product changing. One frozen measurement ends that.

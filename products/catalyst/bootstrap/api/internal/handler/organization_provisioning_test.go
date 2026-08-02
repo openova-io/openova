@@ -175,8 +175,17 @@ func TestCreateOrganization_HappyPathFreeSubdomain(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got.State != store.STSDone {
-		t.Fatalf("state: want done got %s (lastError=%s)", got.State, got.LastError)
+	// #5501 — the happy path is that every ORCHESTRATOR-side side effect ran
+	// (asserted below: overlay committed, DNS written, Keycloak clients
+	// created, registry row present). It is NOT that the Organization is
+	// provisioned: the boundary is authored downstream by the org-controller
+	// and this handler has no in-cluster client here, so the substrate was
+	// never observed. Terminal success over an unobserved substrate is the
+	// defect (`state:"done"` in zero seconds over an empty cluster), so the
+	// record holds at the highest non-terminal state.
+	if got.State != store.STSTenantRegistered {
+		t.Fatalf("state: want %s (all side effects committed, boundary unobserved) got %s (lastError=%s)",
+			store.STSTenantRegistered, got.State, got.LastError)
 	}
 	if got.ConsoleHost != "console.acme.otech.example" {
 		t.Errorf("console_host: %s", got.ConsoleHost)
@@ -317,8 +326,19 @@ func TestCreateOrganization_GitOpsTransientFailure_Retryable(t *testing.T) {
 	h.HandleGetOrganization(w2, r2)
 	var second orgTenantResponse
 	_ = json.Unmarshal(w2.Body.Bytes(), &second)
-	if second.State != store.STSDone {
-		t.Fatalf("after reconcile: want done got %s lastError=%s", second.State, second.LastError)
+	// The retry is proven by the record having MOVED PAST the failing gitops
+	// step to the end of the orchestrator's own ladder. It does not reach
+	// STSDone here because no in-cluster client exists to observe the
+	// boundary (#5501) — the terminal promotion is exercised against an
+	// observed-Ready CR in org_create_fake_green_5501_test.go.
+	if second.State != store.STSTenantRegistered {
+		t.Fatalf("after reconcile: want %s got %s lastError=%s", store.STSTenantRegistered, second.State, second.LastError)
+	}
+	if second.LastError != "" {
+		t.Errorf("after a successful retry last_error must be cleared, got %q", second.LastError)
+	}
+	if second.CommitSHA == "" {
+		t.Errorf("after a successful retry the overlay commit SHA must be recorded")
 	}
 }
 

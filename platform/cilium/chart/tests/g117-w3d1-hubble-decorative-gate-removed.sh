@@ -27,7 +27,7 @@ out=$("$helm" template smoke "$chart_dir" "${base_args[@]}" --show-only template
 
 # ── Case 1: decorative annotation is GONE ─────────────────────────────────
 echo "[g117-w3d1-hubble-decorative-gate-removed] Case 1: hubble-ui-auth annotation is gone"
-if echo "$out" | grep -q "catalyst.openova.io/hubble-ui-auth"; then
+if grep -q "catalyst.openova.io/hubble-ui-auth" <<<"$out"; then
   echo "FAIL: misleading hubble-ui-auth annotation still rendered" >&2
   echo "$out" | grep -B1 -A1 "hubble-ui-auth" >&2
   exit 1
@@ -51,7 +51,7 @@ echo "  PASS (auth=$default_auth)"
 
 # ── Case 3: HTTPRoute still renders the canonical hostname ───────────────
 echo "[g117-w3d1-hubble-decorative-gate-removed] Case 3: HTTPRoute still renders hubble.<fqdn> hostname"
-if ! echo "$out" | grep -q '"hubble.smoke.example.com"'; then
+if ! grep -q '"hubble.smoke.example.com"' <<<"$out"; then
   echo "FAIL: HTTPRoute hostname missing or wrong" >&2
   exit 1
 fi

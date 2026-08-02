@@ -61,27 +61,27 @@ api_versions="external-secrets.io/v1alpha1"
 # ── Case 1: capability-enabled render — PushSecret present + correct ─────
 echo "[bp-newapi] Case 1: PushSecret renders with the read-path's remote contract"
 out=$("$helm" template smoke "$chart_dir" -f "$overlay_values" --api-versions "$api_versions" 2>&1)
-echo "$out" | grep -q "kind: PushSecret" || {
+grep -q "kind: PushSecret" <<<"$out" || {
   echo "FAIL: no PushSecret rendered with external-secrets.io/v1alpha1 capability present"; exit 1; }
-echo "$out" | grep -q 'remoteKey: "catalyst/newapi/admin-token"' || {
+grep -q 'remoteKey: "catalyst/newapi/admin-token"' <<<"$out" || {
   echo "FAIL: PushSecret remoteKey does not match the ExternalSecret read path"; exit 1; }
-echo "$out" | grep -q 'property: "ADMIN_API_TOKEN"' || {
+grep -q 'property: "ADMIN_API_TOKEN"' <<<"$out" || {
   echo "FAIL: PushSecret property is not ADMIN_API_TOKEN"; exit 1; }
-echo "$out" | grep -q 'name: "vault-region1"' || {
+grep -q 'name: "vault-region1"' <<<"$out" || {
   echo "FAIL: PushSecret does not target the vault-region1 ClusterSecretStore default"; exit 1; }
-echo "$out" | grep -q 'secretKey: "ADMIN_SECRET"' || {
+grep -q 'secretKey: "ADMIN_SECRET"' <<<"$out" || {
   echo "FAIL: PushSecret does not push the bridge ADMIN_SECRET"; exit 1; }
 # fullname for release `smoke` + chart bp-newapi = smoke-bp-newapi.
-echo "$out" | grep -q 'name: "smoke-bp-newapi-token-signing-key"' || {
+grep -q 'name: "smoke-bp-newapi-token-signing-key"' <<<"$out" || {
   echo "FAIL: PushSecret selector does not name the chart's auto-provisioned token-signing-key Secret"; exit 1; }
-echo "$out" | grep -q 'deletionPolicy: None' || {
+grep -q 'deletionPolicy: None' <<<"$out" || {
   echo "FAIL: PushSecret deletionPolicy must be None (remote path is durable state)"; exit 1; }
 echo "  ok"
 
 # ── Case 2: CRD absent — no PushSecret ───────────────────────────────────
 echo "[bp-newapi] Case 2: no PushSecret without the v1alpha1 capability (cold-install safety)"
 out=$("$helm" template smoke "$chart_dir" -f "$overlay_values" 2>&1)
-if echo "$out" | grep -q "kind: PushSecret"; then
+if grep -q "kind: PushSecret" <<<"$out"; then
   echo "FAIL: PushSecret rendered without the external-secrets.io/v1alpha1 CRD registered"; exit 1
 fi
 echo "  ok"
@@ -91,7 +91,7 @@ echo "[bp-newapi] Case 3: catalystIntegration.pushSecret.enabled=false suppresse
 out=$("$helm" template smoke "$chart_dir" -f "$overlay_values" \
   --set catalystIntegration.pushSecret.enabled=false \
   --api-versions "$api_versions" 2>&1)
-if echo "$out" | grep -q "kind: PushSecret"; then
+if grep -q "kind: PushSecret" <<<"$out"; then
   echo "FAIL: PushSecret rendered despite pushSecret.enabled=false"; exit 1
 fi
 echo "  ok"
@@ -101,7 +101,7 @@ echo "[bp-newapi] Case 4: sandboxTokenSigningKey.existingSecret overrides the se
 out=$("$helm" template smoke "$chart_dir" -f "$overlay_values" \
   --set sandboxTokenSigningKey.existingSecret=operator-signing-key \
   --api-versions "$api_versions" 2>&1)
-echo "$out" | grep -q 'name: "operator-signing-key"' || {
+grep -q 'name: "operator-signing-key"' <<<"$out" || {
   echo "FAIL: PushSecret selector does not follow sandboxTokenSigningKey.existingSecret"; exit 1; }
 echo "  ok"
 
@@ -115,7 +115,7 @@ if out=$("$helm" template smoke "$chart_dir" \
   --api-versions "$api_versions" 2>&1); then
   echo "FAIL: render succeeded with pushSecret enabled but remoteRef.key empty"; exit 1
 fi
-echo "$out" | grep -q "remoteRef.key is empty" || {
+grep -q "remoteRef.key is empty" <<<"$out" || {
   echo "FAIL: render failed but not with the expected remoteRef.key guidance"; exit 1; }
 echo "  ok"
 

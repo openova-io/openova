@@ -50,6 +50,7 @@ import { deriveJobs } from './jobs'
 import { adaptDerivedJobsToFlat } from './jobsAdapter'
 import { findComponent } from '@/pages/wizard/steps/componentGroups'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
+import { PATTERN_NOT_REPORTED } from '@/shared/lib/placement'
 import { useSession } from '@/shared/lib/useSession'
 import { API_BASE } from '@/shared/config/urls'
 import type { ApplicationStatus } from './eventReducer'
@@ -252,7 +253,16 @@ export function AppDetail({ disableStream = false }: AppDetailProps = {}) {
   const appDependsOn = apiApp?.dependsOn ?? []
   const appRegions = apiApp?.regions ?? []
   const appLastReconciled = apiApp?.lastReconciledAt ?? ''
-  const appPlacement = apiApp?.placement ?? 'singleton'
+  // #5422 (#3969) — NEVER assert a placement the API did not report. The
+  // old `?? 'singleton'` fallback stated a specific, load-bearing value for
+  // an app whose placement is simply unknown to this response, and the
+  // Topology tab on the SAME screen derives its own value from live
+  // targets — so a two-region hot-standby app was described as a singleton
+  // in the Overview and correctly in Topology, with no way to tell which
+  // was true. Reuses the sentinel #5515 shipped for the identical
+  // fails-open defect in derivePattern, so both surfaces say "not-reported"
+  // in the same words rather than inventing two dialects for "unknown".
+  const appPlacement = apiApp?.placement ?? PATTERN_NOT_REPORTED
   const appPrimaryRegion = apiApp?.primaryRegion ?? appRegions[0] ?? ''
   // Family B (2026-05-17 t10 C4-005/007): the namespace the workload
   // actually lives in (HR spec.targetNamespace), and the label that
@@ -1304,7 +1314,20 @@ function OverviewPanel({
           ) : null}
           <div className="overview-row">
             <dt>Placement</dt>
-            <dd data-testid="app-detail-overview-placement">{appPlacement}</dd>
+            {/* #5422 — an unreported placement renders as dim italic prose,
+                matching the treatment TopologyTab.tsx already gives the same
+                sentinel (#5515). A real value keeps the normal weight. The two
+                tabs must not describe the same app in two different dialects. */}
+            <dd
+              data-testid="app-detail-overview-placement"
+              className={
+                appPlacement === PATTERN_NOT_REPORTED
+                  ? 'italic text-[var(--color-text-dim)]'
+                  : undefined
+              }
+            >
+              {appPlacement === PATTERN_NOT_REPORTED ? 'not reported' : appPlacement}
+            </dd>
           </div>
           {appRegions.length > 0 ? (
             <div className="overview-row">

@@ -40,9 +40,6 @@ spec:
               selector:
                 matchLabels:
                   acme.cert-manager.io/http01-solver: "true"
-          - resources:
-              names:
-                - "cm-acme-http-solver-*"
       validate:
         message: >-
           Service {{request.object.metadata.namespace}}/{{request.object.metadata.name}}

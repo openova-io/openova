@@ -54,16 +54,16 @@ if [ -z "${role_line}" ]; then
   echo "FAIL: role_attribute_path missing from [auth.generic_oauth]" >&2
   exit 1
 fi
-if ! echo "${role_line}" | grep -q "sovereign-admins"; then
+if ! grep -q "sovereign-admins" <<<"${role_line}"; then
   echo "FAIL: role_attribute_path no longer keys on sovereign-admins: ${role_line}" >&2
   exit 1
 fi
-if ! echo "${role_line}" | grep -q "GrafanaAdmin"; then
+if ! grep -q "GrafanaAdmin" <<<"${role_line}"; then
   echo "FAIL: role_attribute_path must grant 'GrafanaAdmin' (server admin), got: ${role_line}" >&2
   echo "      Org-level 'Admin' leaves the owner without the Administration nav (hw130 founder NS-3 measurement)." >&2
   exit 1
 fi
-if ! echo "${role_line}" | grep -q "Viewer"; then
+if ! grep -q "Viewer" <<<"${role_line}"; then
   echo "FAIL: role_attribute_path lost its non-admin 'Viewer' fallback: ${role_line}" >&2
   exit 1
 fi
@@ -76,7 +76,7 @@ if [ -z "${allow_line}" ]; then
   echo "FAIL: allow_assign_grafana_admin missing — Grafana degrades GrafanaAdmin to org Admin" >&2
   exit 1
 fi
-if ! echo "${allow_line}" | grep -qiE "allow_assign_grafana_admin *= *true"; then
+if ! grep -qiE "allow_assign_grafana_admin *= *true" <<<"${allow_line}"; then
   echo "FAIL: allow_assign_grafana_admin must be true, got: ${allow_line}" >&2
   exit 1
 fi

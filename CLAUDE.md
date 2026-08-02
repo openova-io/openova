@@ -110,8 +110,24 @@ The gateway is served **DIRECT** (§854): cilium LB-IPAM VIP / shared-EIP
 (`lbipam.cilium.io/sharing-key`), OR Local-ETP + **hostPort** on the hostNetwork
 `cilium-envoy` pods (podIP == node IP → envoy listens on `node:443/:80` directly),
 with any Huawei ELB targeting `node-IP:443/:80` — never a nodePort. The #4691
-ELB→nodePort fallback is itself a §854 violation (removal tracked in #4706). See
-memory `feedback_nodeports_absolutely_forbidden.md`.
+ELB→nodePort fallback was itself a §854 violation and is **RETIRED** (the cilium
+1.19.3 bump moved the ELB to TCP passthrough onto the hostNetwork host ports).
+Verified 2026-08-01, not taken from the code comment that asserts it: every
+port literal in `infra/providers/huawei/*.tf` is 80 / 443 / 8080 / 8443 — zero
+in the nodePort range 30000-32767, which `scripts/check-no-nodeports.sh`
+Phase 1b independently enforces. (This line previously read "removal tracked in
+#4706"; that issue is CLOSED and about console-EIP readiness, so it pointed
+every future session at a dead reference.)
+
+**Source-side clean is NOT platform clean.** A chart can render correctly and the
+live Service still carry a node port: `allocateLoadBalancerNodePorts: false`
+only stops NEW allocations, and an apply that OMITS `nodePort` never clears an
+existing one. That is #5348 — `openova-system/powerdns-anycast` held
+`nodePort=32015/31425` behind a clean render. Charts must state `nodePort: 0`
+explicitly, and `scripts/check-live-nodeports.sh` is the cluster-side check that
+sees what the source scan structurally cannot. See memory
+`feedback_nodeports_absolutely_forbidden.md` and
+`reference_mothership_has_live_nodeports_audit_both_contexts.md`.
 
 ### Anti-theater discipline during PR review
 
