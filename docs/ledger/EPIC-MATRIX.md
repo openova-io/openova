@@ -240,3 +240,69 @@ confirmed in-browser today at 02:48Z).
 The number positioned to move first is **#3969**, one merge away from 81.3 % and two from 93.8 %.
 What stands between it and that figure is merge permission, not engineering — with the caveat this
 section establishes: **#5515 must be counted by what is on `main`, not by a merged PR that named it.**
+
+---
+
+# 2026-08-02 (later) — ALL 18 child counts re-derived live; #3969 CORRECTED
+
+The addendum above re-derived the 16/18 headline but left the per-EPIC **child counts** carried
+forward from `291bb3f69`, and said so. That caveat is now discharged: every one of the 18 was
+re-queried.
+
+Command (run per EPIC, `--limit 200` so nothing is silently capped):
+
+```
+gh issue list --search "<n> in:body,title" --state all  -> total
+gh issue list --search "<n> in:body,title" --state open -> open
+closed = total - open
+```
+
+| EPIC | closed/total | % | vs. carried value |
+|---|---|---|---|
+| #795 SME-tenant turnkey | 20/21 | 95.2 | matches |
+| #825 Multi-domain Sovereign | 12/12 | 100.0 | matches |
+| #1082 Org onboarding | 5/5 | 100.0 | matches |
+| #1090 Console routing + auth | 1/1 | 100.0 | matches |
+| #1094 Phase 0/1 roll-out | 25/25 | 100.0 | matches |
+| #1095 EPIC-0 Foundation | 9/9 | 100.0 | matches |
+| #1096 EPIC-1 Compliance | 27/27 | 100.0 | matches |
+| #1097 EPIC-2 Applications | 6/6 | 100.0 | matches |
+| #1098 EPIC-3 RBAC | 5/5 | 100.0 | matches |
+| #1099 EPIC-4 Cloud Resources | 11/11 | 100.0 | matches |
+| #1100 EPIC-5 Networking | 3/3 | 100.0 | matches |
+| #1101 EPIC-6 Multi-cluster + DR | 7/7 | 100.0 | matches |
+| #2737 G117 Lifecycle Phase 2 | 47/47 | 100.0 | matches |
+| #3188 Backing-services model | 8/8 | 100.0 | matches |
+| **#3969 Application-centric Placement** | **11/17** | **64.7** | **WAS 11/16 = 68.8 — CORRECTED** |
+| #3988 OpenOva MCP server | 10/10 | 100.0 | matches |
+| #4010 bp-chepherd | 2/2 | 100.0 | matches |
+| #4212 ONE object-model / DR backbone | 16/16 | 100.0 | matches |
+
+**16 of 18 counts were accurate as carried** — worth stating, because it means the earlier caveat
+was conservative rather than concealing an error.
+
+## The one correction, and why it moved DOWN
+
+**#3969 fell from 68.8% to 64.7%** — not because anything regressed, but because a **17th child
+appeared**: **#5568**, filed today, which references #3969.
+
+#5568 records that `derivedFromRuntime` is a **constant, not a derivation** — hardcoded `true` on
+every return path of `GET /applications/{name}/placement`, including the `k8sCache == nil` branch
+where **no runtime was consulted at all**, which still answers `targets: []` with
+`derivedFromRuntime: true`.
+
+That is the honest direction for this number to move. Finding a defect inside an EPIC's scope
+enlarges its denominator; a matrix that only ever rises is measuring effort, not completion. The
+five open children are now **#5420, #5422, #5482, #5515, #5568** (plus cross-listed #4212).
+
+## Arithmetic restated against the corrected denominator
+
+Landing PRs #5536 and #5538 takes #3969 from **11/17 (64.7%)** to **13/17 (76.5%)** — not the
+81.3% the earlier addendum computed against the stale denominator. Adding #5515's real fix and
+#5482 reaches **15/17 (88.2%)**. #5568 has no fix authored yet.
+
+## Unchanged, and stated so it is not inferred away
+
+- EPIC closure: **16 / 18 = 88.9%** — no EPIC opened or closed today.
+- UAT ledger: **11 / 286 = 3.8% GREEN** (`scripts/uat-tally.py`).
+- Durable pillar completion: **88** — moves only on walk evidence against a Sovereign; none exists.
