@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-02T23:15:03Z` |
+| Last refreshed | `2026-08-02T23:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,7 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#4111](https://github.com/openova-io/openova/issues/4111) | bp-agenity North Star (chat→provision, Pillar 4): mechanism merged+wired — B | Other |
 | [#4212](https://github.com/openova-io/openova/issues/4212) | EPIC: ONE object-model/DR backbone — DR/spine half LIVE-Healthy (spine Applica | Other |
 | [#4277](https://github.com/openova-io/openova/issues/4277) | FUNNEL/agenity: per-Org openbao anthropic/token auto-seed at Org-create (zero-to | Other |
 | [#4639](https://github.com/openova-io/openova/issues/4639) | bp-dragonfly — P2P registry distribution: replace bastion proxy-cache + per-cl | Other |
@@ -290,7 +291,6 @@ flowchart LR
 | [#5531](https://github.com/openova-io/openova/issues/5531) | Gitea SSO callback returns 500 'could not find a matching session' post-cutover  | Other |
 | [#5542](https://github.com/openova-io/openova/issues/5542) | 200-over-error is repo-wide, not just Application install — RBAC assign, shell | Other |
 | [#5545](https://github.com/openova-io/openova/issues/5545) | janitor log-only pass reports orphanOBSBucketsDeleted=61 while deleting nothing  | Other |
-| [#5555](https://github.com/openova-io/openova/issues/5555) | Wizard step 6 (Domain) renders no Back button — StepDomain omits onBack while  | Other |
 | [#5558](https://github.com/openova-io/openova/issues/5558) | Mothership catalyst-api stuck at replicas=0 — Flux does not own spec.replicas, | Other |
 | [#5561](https://github.com/openova-io/openova/issues/5561) | §854 solver carve-out assumes HTTP-01 solvers 'GC automatically' — 5 have per | Other |
 | [#5567](https://github.com/openova-io/openova/issues/5567) | Mothership has NO Kyverno but 7 orphaned webhooks remain — 5 fail-closed, bloc | Other |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-02T23:23 | [#5588](https://github.com/openova-io/openova/pull/5588) | #5579 | fix(wizard): restore the #5572 onBack fix that the #5579 sal |
 | 2026-08-02T20:42 | [#5587](https://github.com/openova-io/openova/pull/5587) | #5561 | fix(kyverno-policies): solver carve-out prose states the tru |
 | 2026-08-02T20:26 | [#5586](https://github.com/openova-io/openova/pull/5586) | #5563 | fix(sealed-secrets): repoint chart dependency to the live bi |
 | 2026-08-02T19:06 | [#5584](https://github.com/openova-io/openova/pull/5584) | #4023 | build(deps): protobuf v1.33.0 PAIRED with golang/protobuf v1 |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-02T13:14 | [#5540](https://github.com/openova-io/openova/pull/5540) | #5489 | fix(catalyst-api): stop POST /organizations reporting termin |
 | 2026-08-02T13:14 | [#5539](https://github.com/openova-io/openova/pull/5539) | #5526 | fix(catalog): make catalog generation deterministic so the c |
 | 2026-08-02T13:16 | [#5538](https://github.com/openova-io/openova/pull/5538) | #5515 | fix(console): Topology renders effective perCluster, not a f |
-| 2026-08-02T16:01 | [#5537](https://github.com/openova-io/openova/pull/5537) | #3375 | fix(chart-tests): eliminate the catalog-wide SIGPIPE false-F |
 
 ---
 
