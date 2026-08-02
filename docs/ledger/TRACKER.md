@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-02T07:15:02Z` |
+| Last refreshed | `2026-08-02T07:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,8 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-02T07:16 | [#5569](https://github.com/openova-io/openova/pull/5569) | #3969 | docs(ledger): re-derive ALL 18 EPIC child counts live — #396 |
 | 2026-08-02T04:36 | [#5566](https://github.com/openova-io/openova/pull/5566) | #5515 | docs(ledger): EPIC completion matrix re-derived live + 14 UA |
 | 2026-08-02T04:36 | [#5565](https://github.com/openova-io/openova/pull/5565) | #5505 | fix(kyverno): §854 policy exempted any Service NAMED cm-acme |
+| 2026-08-02T07:28 | [#5547](https://github.com/openova-io/openova/pull/5547) | #5542 | fix(bp-powerdns): state nodePort:0 explicitly — anycast LB k |
+| 2026-08-02T07:28 | [#5544](https://github.com/openova-io/openova/pull/5544) | #4765 | fix(ci): the NodePort guard silently skipped 19% of charts w |
 | 2026-07-31T05:20 | [#5533](https://github.com/openova-io/openova/pull/5533) | #5531 | fix(gitea): durable db session provider so OAuth state survi |
 | 2026-07-30T14:09 | [#5529](https://github.com/openova-io/openova/pull/5529) | #893 | fix(catalyst-api): org-tenant HelmRepository emission is cut |
 | 2026-07-30T13:21 | [#5528](https://github.com/openova-io/openova/pull/5528) | #5442 | fix(bp-self-sovereign-cutover): step-03 scarf.sh mothership  |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-07-29T16:12 | [#5481](https://github.com/openova-io/openova/pull/5481) | #4975 | fix(cutover): mirror litellm-database single-platform past i |
 | 2026-07-29T16:09 | [#5479](https://github.com/openova-io/openova/pull/5479) | #5449 | fix(catalog): chartRef double prefix, origin enum collision, |
 | 2026-07-29T15:54 | [#5478](https://github.com/openova-io/openova/pull/5478) | #5477 | fix(continuum): never publish replicationLagSeconds that was |
-| 2026-07-29T15:44 | [#5474](https://github.com/openova-io/openova/pull/5474) | #5473 | fix(bp-postgres): replication-source Service must select the |
-| 2026-07-29T14:15 | [#5470](https://github.com/openova-io/openova/pull/5470) | #5442 | fix(catalog): unlist bp-nemo-guardrails — the image it pins  |
-| 2026-07-29T14:01 | [#5469](https://github.com/openova-io/openova/pull/5469) | #5442 | fix(cutover): chart-image enumerator no longer greps its own |
 
 ---
 
