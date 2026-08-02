@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-02T10:15:02Z` |
+| Last refreshed | `2026-08-02T10:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -299,7 +299,7 @@ flowchart LR
 | [#5567](https://github.com/openova-io/openova/issues/5567) | Mothership has NO Kyverno but 7 orphaned webhooks remain — 5 fail-closed, bloc | Other |
 | [#5568](https://github.com/openova-io/openova/issues/5568) | derivedFromRuntime is a constant, not a derivation — hardcoded true even when  | Other |
 | [#5571](https://github.com/openova-io/openova/issues/5571) | /k8s/stream serves ONE region as the whole estate — Cloud NetworkPolicy pages  | Other |
-| [#5573](https://github.com/openova-io/openova/issues/5573) | §854: last live NodePort needs a ONE-LINE pin bump in openova-private — publi | Other |
+| [#5573](https://github.com/openova-io/openova/issues/5573) | Mothership GitOps loop is DEAD — all 4 Flux controllers at replicas=0 + flux-s | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-02T10:28 | [#5572](https://github.com/openova-io/openova/pull/5572) | #5557 | fix(wizard): step 6 renders no Back control — StepDomain omi |
 | 2026-08-02T07:47 | [#5570](https://github.com/openova-io/openova/pull/5570) | #5547 | fix(bp-powerdns): front-door guard rejected the §854 fix it  |
 | 2026-08-02T07:16 | [#5569](https://github.com/openova-io/openova/pull/5569) | #3969 | docs(ledger): re-derive ALL 18 EPIC child counts live — #396 |
 | 2026-08-02T04:36 | [#5566](https://github.com/openova-io/openova/pull/5566) | #5515 | docs(ledger): EPIC completion matrix re-derived live + 14 UA |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-07-29T18:27 | [#5490](https://github.com/openova-io/openova/pull/5490) | #5489 | fix(console): stop asserting a vCluster and an Environment t |
 | 2026-07-29T16:53 | [#5486](https://github.com/openova-io/openova/pull/5486) | #5485 | fix(catalyst-api): reconciler log matcher must respect the t |
 | 2026-07-29T17:05 | [#5483](https://github.com/openova-io/openova/pull/5483) | #5482 | fix(catalyst-api): read primaryRegion from status.placement, |
-| 2026-07-29T16:12 | [#5481](https://github.com/openova-io/openova/pull/5481) | #4975 | fix(cutover): mirror litellm-database single-platform past i |
 
 ---
 
