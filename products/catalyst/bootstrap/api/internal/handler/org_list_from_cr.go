@@ -201,8 +201,12 @@ func orgCRToResponse(obj *unstructured.Unstructured, otechFQDN string) orgTenant
 		BillingMode:     billingMode,
 		Isolation:       isolation,
 		PlanSlug:        planSlug,
-		CreatedAt:       obj.GetCreationTimestamp().Time,
-		UpdatedAt:       obj.GetCreationTimestamp().Time,
+		// #5501 — carry the OBSERVED boundary phase straight off the CR, so a
+		// CR-derived row's substrate-side steps report what the org-controller
+		// reports instead of whatever the state ladder implies.
+		BoundaryPhase: boundaryPhaseFromCR(obj),
+		CreatedAt:     obj.GetCreationTimestamp().Time,
+		UpdatedAt:     obj.GetCreationTimestamp().Time,
 	}
 	return orgTenantRecordToResponse(rec)
 }

@@ -85,8 +85,17 @@ func TestCreateOrgTenant_MintsOrganizationCR(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got.State != store.STSDone {
-		t.Fatalf("state: want done got %s (lastError=%s)", got.State, got.LastError)
+	// #5501 — the CR mint is a SUBMIT, not a completion: the org-controller
+	// authors the boundary from this CR and has not observed it yet (the CR
+	// this request just POSTed carries no status), so the record holds at the
+	// highest non-terminal state. This test's subject is the mint below; the
+	// terminal-state contract is owned by
+	// org_create_fake_green_5501_test.go.
+	if got.State == store.STSDone {
+		t.Fatalf("state: a create whose boundary was never observed must not report done (#5501), lastError=%s", got.LastError)
+	}
+	if got.State != store.STSTenantRegistered {
+		t.Fatalf("state: want %s got %s (lastError=%s)", store.STSTenantRegistered, got.State, got.LastError)
 	}
 
 	// The Organization CR must now exist — the dead-object-model fix.
