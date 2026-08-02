@@ -261,15 +261,48 @@ if ! command -v helm >/dev/null 2>&1; then
 else
   RENDER_PHASE_RAN=1
   shopt -s nullglob
-  # Per-chart render timeout so a pathological chart can never hang CI. We
-  # NEVER run `helm dependency build` (it reaches out to the network and can
-  # hang); charts render OFFLINE from their vendored charts/*.tgz. A chart
-  # with unvendored deps fails template fast and is WARN-skipped.
+  # Per-chart render timeout so a pathological chart can never hang CI.
+  #
+  # Charts render OFFLINE from their vendored charts/*.tgz — that is the fast
+  # path and it is tried first, always. What this used to assume, and what was
+  # false, is that the tarballs are THERE. `.gitignore:6` ignores
+  # `platform/*/chart/charts/`, and no Chart.lock is committed for any of the
+  # 67 dependency-bearing charts, so a clean checkout has neither. The vendored
+  # copies exist only on a machine that has previously run a dependency update.
+  #
+  # That is why this guard passed locally and failed in CI on the SAME commit:
+  # locally alloy rendered from a cached alloy-1.8.0.tgz; on the runner helm
+  # said "found in Chart.yaml, but missing in charts/ directory: alloy", the
+  # render came back empty, and the (correct, #5512) ratchet failed the build.
+  # Every one of the 67 would have done the same.
+  #
+  # So: keep offline-first, and fall back to a bounded `helm dependency update`
+  # ONLY when the failure is specifically a missing vendored dependency. Helm
+  # resolves the repository URL straight from Chart.yaml — verified against a
+  # helm config with zero repos registered, which is what a runner looks like:
+  # "Getting updates for unmanaged Helm repositories...". Set NO_NETWORK=1 to
+  # suppress the fallback (air-gapped); charts then fail as before.
   HELM_TIMEOUT="${HELM_TIMEOUT:-30s}"
+  DEP_TIMEOUT="${DEP_TIMEOUT:-120s}"
+  VENDORED_ON_DEMAND=0
   CHART_DIRS=(platform/*/chart products/*/charts/*)
   for chart in "${CHART_DIRS[@]}"; do
     [ -f "${chart}/Chart.yaml" ] || continue
     rendered="$(timeout "${HELM_TIMEOUT}" helm template "$(basename "${chart}")" "${chart}" 2>/dev/null || true)"
+
+    # Missing-dependency recovery. Narrow on purpose: a chart that fails for
+    # ANY other reason (a fail-loud values guard, a template bug) must still
+    # reach the ratchet below rather than being masked by a network round-trip.
+    if [ -z "${rendered}" ] && [ "${NO_NETWORK:-0}" != "1" ]; then
+      why="$(timeout "${HELM_TIMEOUT}" helm template "$(basename "${chart}")" "${chart}" 2>&1 || true)"
+      if printf '%s' "${why}" | grep -q 'missing in charts/ directory'; then
+        if timeout "${DEP_TIMEOUT}" helm dependency update "${chart}" >/dev/null 2>&1; then
+          rendered="$(timeout "${HELM_TIMEOUT}" helm template "$(basename "${chart}")" "${chart}" 2>/dev/null || true)"
+          [ -n "${rendered}" ] && VENDORED_ON_DEMAND=$((VENDORED_ON_DEMAND + 1))
+        fi
+      fi
+    fi
+
     if [ -z "${rendered}" ]; then
       SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
       if is_render_skip_allowed "${chart}"; then
@@ -323,6 +356,10 @@ fi
 # fifth of the fleet (#5512).
 if [ "${RENDER_PHASE_RAN}" -eq 1 ]; then
   echo "OK: zero NodePorts — sources clean; ${RENDERED_COUNT} chart(s) rendered and scanned, ${SKIPPED_COUNT} allowlisted chart(s) covered by the source scan only (#4765)."
+  # Print it even at 0: the difference between "0 fetched because everything was
+  # vendored" and "0 fetched because the fallback never fired" is the whole
+  # local-vs-CI divergence this line exists to expose.
+  echo "     dependencies fetched on demand this run: ${VENDORED_ON_DEMAND:-0} (NO_NETWORK=1 disables the fetch)"
 else
   echo "OK: zero NodePorts in sources (#4765). Rendered-chart phase did NOT run (helm absent) — this run does NOT cover values-driven NodePorts."
 fi
