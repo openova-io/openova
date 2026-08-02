@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-02T19:00:03Z` |
+| Last refreshed | `2026-08-02T19:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-02T19:06 | [#5584](https://github.com/openova-io/openova/pull/5584) | #4023 | build(deps): protobuf v1.33.0 PAIRED with golang/protobuf v1 |
 | 2026-08-02T16:50 | [#5581](https://github.com/openova-io/openova/pull/5581) | chore(deps): bump fast-uri from 3.1.2 to 3.1.5 in /products/ |  |
 | 2026-08-02T16:50 | [#5580](https://github.com/openova-io/openova/pull/5580) | #17536 | chore(deps): bump astro and @astrojs/svelte in /core/marketp |
 | 2026-08-02T13:32 | [#5579](https://github.com/openova-io/openova/pull/5579) | #5554 | fix(wizard+api): salvage the six genuinely-new changes from  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-02T16:01 | [#5537](https://github.com/openova-io/openova/pull/5537) | #3375 | fix(chart-tests): eliminate the catalog-wide SIGPIPE false-F |
 | 2026-08-02T13:16 | [#5536](https://github.com/openova-io/openova/pull/5536) | #3969 | fix(console): Overview must not assert a placement the API n |
 | 2026-07-31T05:20 | [#5533](https://github.com/openova-io/openova/pull/5533) | #5531 | fix(gitea): durable db session provider so OAuth state survi |
-| 2026-07-30T14:09 | [#5529](https://github.com/openova-io/openova/pull/5529) | #893 | fix(catalyst-api): org-tenant HelmRepository emission is cut |
 
 ---
 
