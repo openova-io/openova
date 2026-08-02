@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-02T20:30:05Z` |
+| Last refreshed | `2026-08-02T20:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-02T20:42 | [#5587](https://github.com/openova-io/openova/pull/5587) | #5561 | fix(kyverno-policies): solver carve-out prose states the tru |
 | 2026-08-02T20:26 | [#5586](https://github.com/openova-io/openova/pull/5586) | #5563 | fix(sealed-secrets): repoint chart dependency to the live bi |
 | 2026-08-02T19:06 | [#5584](https://github.com/openova-io/openova/pull/5584) | #4023 | build(deps): protobuf v1.33.0 PAIRED with golang/protobuf v1 |
 | 2026-08-02T16:50 | [#5581](https://github.com/openova-io/openova/pull/5581) | chore(deps): bump fast-uri from 3.1.2 to 3.1.5 in /products/ |  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-02T13:14 | [#5539](https://github.com/openova-io/openova/pull/5539) | #5526 | fix(catalog): make catalog generation deterministic so the c |
 | 2026-08-02T13:16 | [#5538](https://github.com/openova-io/openova/pull/5538) | #5515 | fix(console): Topology renders effective perCluster, not a f |
 | 2026-08-02T16:01 | [#5537](https://github.com/openova-io/openova/pull/5537) | #3375 | fix(chart-tests): eliminate the catalog-wide SIGPIPE false-F |
-| 2026-08-02T13:16 | [#5536](https://github.com/openova-io/openova/pull/5536) | #3969 | fix(console): Overview must not assert a placement the API n |
 
 ---
 
