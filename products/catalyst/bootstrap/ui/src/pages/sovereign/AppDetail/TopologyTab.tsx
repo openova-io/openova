@@ -197,6 +197,40 @@ export function TopologyTab({
     // Legacy fallback: project from status.targets (recon rollup), else
     // from the legacy mode + regions.
     const status = (app?.status ?? {}) as Record<string, unknown>
+    // 2b. #5420 — EFFECTIVE per-cluster state, ahead of any projection from
+    //     the DECLARED posture. `status.perCluster` says where this app's
+    //     workloads were actually observed; the legacy `mode + regions`
+    //     projection below maps over every DECLARED region and therefore
+    //     fabricates a Standby card for a region that may hold nothing.
+    //     That is how a single-region app rendered 2 cards, a DR panel and
+    //     an ARMED Switchover pointing at a region with no namespace, while
+    //     its own DR chip read "NOT LIVE" on the same screen.
+    //
+    //     Same class as #5515 (empty targets → false `singleton`) and #5422
+    //     (absent placement → asserted `singleton`): never let a declared
+    //     intention masquerade as an observed fact.
+    const perCluster = status.perCluster
+    if (Array.isArray(perCluster) && perCluster.length > 0) {
+      const effective = perCluster
+        .map((entry) => {
+          const e = (entry ?? {}) as Record<string, unknown>
+          const cluster = typeof e.cluster === 'string' ? e.cluster : ''
+          if (!cluster) return null
+          const role = (typeof e.role === 'string' ? e.role : '').toLowerCase()
+          // `singleton` is the controller's own word for "one place, no
+          // standby" — it must NOT become a Standby card.
+          const isPrimary = role === 'primary' || role === 'active' || role === 'singleton'
+          return {
+            region: cluster,
+            cluster,
+            vcluster: 'mgmt',
+            role: isPrimary ? ('Primary' as const) : ('Standby' as const),
+            ...(isPrimary ? {} : { standbyType: 'Hot' as const }),
+          } as PlacementTarget
+        })
+        .filter((t): t is PlacementTarget => t !== null)
+      if (effective.length > 0) return effective
+    }
     const statusTargets = status.targets
     if (Array.isArray(statusTargets) && statusTargets.length > 0) {
       return statusTargets as PlacementTarget[]
