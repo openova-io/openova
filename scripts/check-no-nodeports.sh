@@ -307,7 +307,15 @@ else
         # in charts/ directory", which says the fetch did not happen but not
         # why, and the same fetch succeeded locally in 6s. A fallback that can
         # fail silently just moves the blind spot one layer down.
-        depout="$(timeout "${DEP_TIMEOUT}" helm dependency update "${chart}" 2>&1)"; deprc=$?
+        # `x="$(cmd)"; rc=$?` is WRONG under `set -e`: the assignment carries the
+        # command's exit status, so a failing fetch kills the script before
+        # `rc=$?` ever runs. That is not theoretical — it silently truncated a CI
+        # sweep after the FIRST chart whose fetch failed, printing no verdict for
+        # the remaining ~80 charts while the red check still read like a NodePort
+        # violation. The `&& ... || ...` form keeps the status without tripping
+        # `set -e`. (Same hazard the Phase-0 `|| true` comment describes.)
+        depout=""; deprc=0
+        depout="$(timeout "${DEP_TIMEOUT}" helm dependency update "${chart}" 2>&1)" || deprc=$?
         if [ "${deprc}" -eq 0 ]; then
           rendered="$(timeout "${HELM_TIMEOUT}" helm template "$(basename "${chart}")" "${chart}" 2>/dev/null || true)"
           if [ -n "${rendered}" ]; then
@@ -328,7 +336,14 @@ else
         echo "SKIP: ${chart} does not render offline (known fail-loud values guard) — Phase 1 covers its sources."
       else
         fail "chart ${chart} did NOT render offline and is not in RENDER_SKIP_ALLOWLIST — a values-driven NodePort here would evade BOTH phases (#5512). Either make it render offline, or add it to the allowlist with a reason:"
-        timeout "${HELM_TIMEOUT}" helm template "$(basename "${chart}")" "${chart}" 2>&1 | head -3 >&2
+        # `|| true` is load-bearing. helm exits non-zero here BY CONSTRUCTION —
+        # this line only runs because the chart failed to render — and under
+        # `set -o pipefail` that non-zero propagates through `head` and `set -e`
+        # kills the sweep. The ratchet therefore reported only the FIRST
+        # offending chart and exited, with the same rc=1 a complete run gives,
+        # so the truncation was invisible: every remaining chart went unscanned
+        # while the check looked like an ordinary failure.
+        timeout "${HELM_TIMEOUT}" helm template "$(basename "${chart}")" "${chart}" 2>&1 | head -3 >&2 || true
       fi
       continue
     fi
