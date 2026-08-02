@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-02T18:15:05Z` |
+| Last refreshed | `2026-08-02T20:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,7 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#4901](https://github.com/openova-io/openova/issues/4901) | cnpg-pair Continuum doesn't surface standby-absent condition (health/lag stay gr | Other |
 | [#5086](https://github.com/openova-io/openova/issues/5086) | Hetzner Sovereign DNS has no working front door since bp-powerdns 1.2.18 §854 f | Other |
 | [#5088](https://github.com/openova-io/openova/issues/5088) | §854: 4 live NodePort Services on the mothership cluster (founder #1 ban) — s | Other |
 | [#5265](https://github.com/openova-io/openova/issues/5265) | Post-cutover Day-2 gap: Gitea mirror re-syncs pin bumps but nothing syncs new ch | Other |
@@ -293,7 +294,6 @@ flowchart LR
 | [#5558](https://github.com/openova-io/openova/issues/5558) | Mothership catalyst-api stuck at replicas=0 — Flux does not own spec.replicas, | Other |
 | [#5559](https://github.com/openova-io/openova/issues/5559) | catalog-seed ships 6 INERT Blueprint CRs — seeded against charts that were nev | Other |
 | [#5561](https://github.com/openova-io/openova/issues/5561) | §854 solver carve-out assumes HTTP-01 solvers 'GC automatically' — 5 have per | Other |
-| [#5563](https://github.com/openova-io/openova/issues/5563) | platform/sealed-secrets: chart dependency points at a repository that 404s — u | Other |
 | [#5567](https://github.com/openova-io/openova/issues/5567) | Mothership has NO Kyverno but 7 orphaned webhooks remain — 5 fail-closed, bloc | Other |
 | [#5568](https://github.com/openova-io/openova/issues/5568) | derivedFromRuntime is a constant, not a derivation — hardcoded true even when  | Other |
 | [#5571](https://github.com/openova-io/openova/issues/5571) | /k8s/stream serves ONE region as the whole estate — Cloud NetworkPolicy pages  | Other |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-02T20:26 | [#5586](https://github.com/openova-io/openova/pull/5586) | #5563 | fix(sealed-secrets): repoint chart dependency to the live bi |
+| 2026-08-02T19:06 | [#5584](https://github.com/openova-io/openova/pull/5584) | #4023 | build(deps): protobuf v1.33.0 PAIRED with golang/protobuf v1 |
 | 2026-08-02T16:50 | [#5581](https://github.com/openova-io/openova/pull/5581) | chore(deps): bump fast-uri from 3.1.2 to 3.1.5 in /products/ |  |
 | 2026-08-02T16:50 | [#5580](https://github.com/openova-io/openova/pull/5580) | #17536 | chore(deps): bump astro and @astrojs/svelte in /core/marketp |
 | 2026-08-02T13:32 | [#5579](https://github.com/openova-io/openova/pull/5579) | #5554 | fix(wizard+api): salvage the six genuinely-new changes from  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-02T13:16 | [#5538](https://github.com/openova-io/openova/pull/5538) | #5515 | fix(console): Topology renders effective perCluster, not a f |
 | 2026-08-02T16:01 | [#5537](https://github.com/openova-io/openova/pull/5537) | #3375 | fix(chart-tests): eliminate the catalog-wide SIGPIPE false-F |
 | 2026-08-02T13:16 | [#5536](https://github.com/openova-io/openova/pull/5536) | #3969 | fix(console): Overview must not assert a placement the API n |
-| 2026-07-31T05:20 | [#5533](https://github.com/openova-io/openova/pull/5533) | #5531 | fix(gitea): durable db session provider so OAuth state survi |
-| 2026-07-30T14:09 | [#5529](https://github.com/openova-io/openova/pull/5529) | #893 | fix(catalyst-api): org-tenant HelmRepository emission is cut |
 
 ---
 
