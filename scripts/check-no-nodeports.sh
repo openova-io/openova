@@ -204,26 +204,162 @@ else
   echo "OK — no nodePort-range port literal in infra HCL."
 fi
 
-# ─── Phase 2 — rendered-chart scan (best-effort) ─────────────────────────
+# ─── Phase 2 — rendered-chart scan ───────────────────────────────────────
+#
+# Charts that cannot render offline used to be WARN-skipped silently and the
+# run still printed "zero NodePorts across sources + rendered charts". On
+# 2026-08-01 that was 17 of 89 charts — 19% of the fleet carried NO render
+# coverage while the summary claimed it did (#5512). Phase 1 only matches
+# literal source patterns, so a values-driven NodePort inside a chart that
+# never renders would pass BOTH phases.
+#
+# The skip is now RATCHETED. RENDER_SKIP_ALLOWLIST records the charts known
+# not to render with default values — every one fails a deliberate fail-loud
+# `required` / `fail` guard (e.g. bp-anthropic-adapter's "image.tag MUST be
+# SHA-pinned by the per-cluster overlay"), which is correct chart design, not
+# a defect. A chart OUTSIDE that list failing to render is a NEW blind spot
+# and FAILS the guard. A chart INSIDE it that now renders is reported so the
+# list cannot rot (same anti-rot reasoning as the Phase 0a pattern self-test).
+RENDER_SKIP_ALLOWLIST=(
+  platform/anthropic-adapter/chart
+  platform/bp-dmz-vcluster/chart
+  platform/catalyst-edge-routes/chart
+  platform/cilium-policies/chart
+  platform/cnpg-pair/chart
+  platform/guacamole/chart
+  platform/hcloud-csi/chart
+  platform/huawei-evs-csi/chart
+  platform/k8s-ws-proxy/chart
+  platform/knative/chart
+  platform/librechat/chart
+  platform/netbird/chart
+  platform/oidc-gate/chart
+  platform/plane-isolation/chart
+  platform/postgres/chart
+  platform/sandbox/chart
+  # NOT a fail-loud values guard like the rest of this list. Its declared
+  # dependency repository https://bitnami-labs.github.io/sealed-secrets answers
+  # 404, so the chart cannot be built from a clean checkout at all; it renders
+  # on dev machines only from a stale cached tarball. Remove this entry when
+  # #5563 repoints the dependency. Phase 1 still scans its sources.
+  platform/sealed-secrets/chart
+  platform/sovereign-tls-vars/chart
+)
+
+is_render_skip_allowed() {
+  local needle="$1" c
+  for c in "${RENDER_SKIP_ALLOWLIST[@]}"; do
+    [ "${c}" = "${needle}" ] && return 0
+  done
+  return 1
+}
+
+RENDERED_COUNT=0
+SKIPPED_COUNT=0
+RENDER_PHASE_RAN=0
+UNEXPECTED_RENDERABLE=""
+
 echo ""
 echo "== Phase 2: rendered-chart NodePort scan =="
 if ! command -v helm >/dev/null 2>&1; then
   echo "WARN: helm not on PATH — skipping the rendered-chart phase (Phase 1"
   echo "      already covers chart template sources). Install helm to enforce."
 else
+  RENDER_PHASE_RAN=1
   shopt -s nullglob
-  # Per-chart render timeout so a pathological chart can never hang CI. We
-  # NEVER run `helm dependency build` (it reaches out to the network and can
-  # hang); charts render OFFLINE from their vendored charts/*.tgz. A chart
-  # with unvendored deps fails template fast and is WARN-skipped.
+  # Per-chart render timeout so a pathological chart can never hang CI.
+  #
+  # Charts render OFFLINE from their vendored charts/*.tgz — that is the fast
+  # path and it is tried first, always. What this used to assume, and what was
+  # false, is that the tarballs are THERE. `.gitignore:6` ignores
+  # `platform/*/chart/charts/`, and no Chart.lock is committed for any of the
+  # 67 dependency-bearing charts, so a clean checkout has neither. The vendored
+  # copies exist only on a machine that has previously run a dependency update.
+  #
+  # That is why this guard passed locally and failed in CI on the SAME commit:
+  # locally alloy rendered from a cached alloy-1.8.0.tgz; on the runner helm
+  # said "found in Chart.yaml, but missing in charts/ directory: alloy", the
+  # render came back empty, and the (correct, #5512) ratchet failed the build.
+  # Every one of the 67 would have done the same.
+  #
+  # So: keep offline-first, and fall back to a bounded `helm dependency update`
+  # ONLY when the failure is specifically a missing vendored dependency. Helm
+  # resolves the repository URL straight from Chart.yaml — verified against a
+  # helm config with zero repos registered, which is what a runner looks like:
+  # "Getting updates for unmanaged Helm repositories...". Set NO_NETWORK=1 to
+  # suppress the fallback (air-gapped); charts then fail as before.
   HELM_TIMEOUT="${HELM_TIMEOUT:-30s}"
+  DEP_TIMEOUT="${DEP_TIMEOUT:-120s}"
+  VENDORED_ON_DEMAND=0
   CHART_DIRS=(platform/*/chart products/*/charts/*)
   for chart in "${CHART_DIRS[@]}"; do
     [ -f "${chart}/Chart.yaml" ] || continue
     rendered="$(timeout "${HELM_TIMEOUT}" helm template "$(basename "${chart}")" "${chart}" 2>/dev/null || true)"
+
+    # Missing-dependency recovery. Narrow on purpose: a chart that fails for
+    # ANY other reason (a fail-loud values guard, a template bug) must still
+    # reach the ratchet below rather than being masked by a network round-trip.
+    if [ -z "${rendered}" ] && [ "${NO_NETWORK:-0}" != "1" ]; then
+      why="$(timeout "${HELM_TIMEOUT}" helm template "$(basename "${chart}")" "${chart}" 2>&1 || true)"
+      if printf '%s' "${why}" | grep -q 'missing in charts/ directory'; then
+        # Capture stderr rather than discarding it. Swallowing it once already
+        # cost a CI round-trip: the runner reported only the downstream "missing
+        # in charts/ directory", which says the fetch did not happen but not
+        # why, and the same fetch succeeded locally in 6s. A fallback that can
+        # fail silently just moves the blind spot one layer down.
+        # `x="$(cmd)"; rc=$?` is WRONG under `set -e`: the assignment carries the
+        # command's exit status, so a failing fetch kills the script before
+        # `rc=$?` ever runs. That is not theoretical — it silently truncated a CI
+        # sweep after the FIRST chart whose fetch failed, printing no verdict for
+        # the remaining ~80 charts while the red check still read like a NodePort
+        # violation. The `&& ... || ...` form keeps the status without tripping
+        # `set -e`. (Same hazard the Phase-0 `|| true` comment describes.)
+        # helm 3.16.0 — the version CI pins via azure/setup-helm — fails a
+        # dependency update when the chart has no `charts/` directory yet,
+        # misreading the save destination as a repository name:
+        #   Save error occurred: could not download charts/vcluster-0.23.0.tgz:
+        #   repo charts not found
+        # A clean checkout NEVER has that directory (.gitignore:6), so on the
+        # runner this hit 11 charts at once while every one of them fetched
+        # fine locally on 3.16.3. Creating it first sidesteps the bug on any
+        # helm version, which beats depending on the runner's pin.
+        mkdir -p "${chart}/charts"
+        depout=""; deprc=0
+        depout="$(timeout "${DEP_TIMEOUT}" helm dependency update "${chart}" 2>&1)" || deprc=$?
+        if [ "${deprc}" -eq 0 ]; then
+          rendered="$(timeout "${HELM_TIMEOUT}" helm template "$(basename "${chart}")" "${chart}" 2>/dev/null || true)"
+          if [ -n "${rendered}" ]; then
+            VENDORED_ON_DEMAND=$((VENDORED_ON_DEMAND + 1))
+          else
+            echo "NOTE: ${chart} fetched its dependencies but still does not render." >&2
+          fi
+        else
+          echo "NOTE: ${chart} dependency fetch failed (rc=${deprc}, timeout=${DEP_TIMEOUT}):" >&2
+          printf '%s\n' "${depout}" | tail -5 | sed 's/^/      /' >&2
+        fi
+      fi
+    fi
+
     if [ -z "${rendered}" ]; then
-      echo "WARN: ${chart} did not render offline — skipped (Phase 1 covers its sources)."
+      SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+      if is_render_skip_allowed "${chart}"; then
+        echo "SKIP: ${chart} does not render offline (known fail-loud values guard) — Phase 1 covers its sources."
+      else
+        fail "chart ${chart} did NOT render offline and is not in RENDER_SKIP_ALLOWLIST — a values-driven NodePort here would evade BOTH phases (#5512). Either make it render offline, or add it to the allowlist with a reason:"
+        # `|| true` is load-bearing. helm exits non-zero here BY CONSTRUCTION —
+        # this line only runs because the chart failed to render — and under
+        # `set -o pipefail` that non-zero propagates through `head` and `set -e`
+        # kills the sweep. The ratchet therefore reported only the FIRST
+        # offending chart and exited, with the same rc=1 a complete run gives,
+        # so the truncation was invisible: every remaining chart went unscanned
+        # while the check looked like an ordinary failure.
+        timeout "${HELM_TIMEOUT}" helm template "$(basename "${chart}")" "${chart}" 2>&1 | head -3 >&2 || true
+      fi
       continue
+    fi
+    RENDERED_COUNT=$((RENDERED_COUNT + 1))
+    if is_render_skip_allowed "${chart}"; then
+      UNEXPECTED_RENDERABLE="${UNEXPECTED_RENDERABLE}  ${chart}"$'\n'
     fi
     # `nodePort: 0` is the k8s "unspecified" sentinel (vcluster/upstream
     # ClusterIP Services render it) — inert; only a NONZERO nodePort or a
@@ -241,6 +377,13 @@ else
 fi
 
 echo ""
+if [ -n "${UNEXPECTED_RENDERABLE}" ]; then
+  echo "NOTE: these charts are in RENDER_SKIP_ALLOWLIST but now render offline."
+  echo "      Remove them from the list so the allowlist cannot rot:"
+  printf '%s' "${UNEXPECTED_RENDERABLE}"
+  echo ""
+fi
+
 if [ "${EXIT}" -ne 0 ]; then
   echo "───────────────────────────────────────────────────────────────" >&2
   echo "NodePorts are ABSOLUTELY FORBIDDEN (founder 2026-07-03, #4765)." >&2
@@ -252,5 +395,16 @@ if [ "${EXIT}" -ne 0 ]; then
   echo "───────────────────────────────────────────────────────────────" >&2
   exit 1
 fi
-echo "OK: zero NodePorts across sources + rendered charts (#4765)."
+# State the ACTUAL coverage. The old summary said "sources + rendered charts"
+# unconditionally, including when the render phase never ran or skipped a
+# fifth of the fleet (#5512).
+if [ "${RENDER_PHASE_RAN}" -eq 1 ]; then
+  echo "OK: zero NodePorts — sources clean; ${RENDERED_COUNT} chart(s) rendered and scanned, ${SKIPPED_COUNT} allowlisted chart(s) covered by the source scan only (#4765)."
+  # Print it even at 0: the difference between "0 fetched because everything was
+  # vendored" and "0 fetched because the fallback never fired" is the whole
+  # local-vs-CI divergence this line exists to expose.
+  echo "     dependencies fetched on demand this run: ${VENDORED_ON_DEMAND:-0} (NO_NETWORK=1 disables the fetch)"
+else
+  echo "OK: zero NodePorts in sources (#4765). Rendered-chart phase did NOT run (helm absent) — this run does NOT cover values-driven NodePorts."
+fi
 exit 0
