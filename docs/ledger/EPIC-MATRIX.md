@@ -200,6 +200,14 @@ So **#5515's defect is live on main.** The real fix (`509222c6e`) plus its tests
 `ebf5b6feb`, one built from mothership record `2c2d746b578c636b` with 2 declared / 1 live regions)
 sit on an unmerged branch.
 
+> **RESOLVED 2026-08-02** — the real fix is now ON MAIN via PR **#5579** (squash `4abd41237`, which
+> salvaged the six genuinely-new changes from the superseded 30-commit #5554 branch; the branch SHAs
+> above no longer resolve). Re-verified by this section's own function-level check, not the commit
+> message: `derivePattern(in LoaderInput, built []Region)` now takes the BUILT regions and counts
+> `live` per region (`topology_loader.go:639-645`), and the in-flight-guard grep that returned **0**
+> now returns **2**. Tests re-run uncached green. Still **merged, not delivered** — no environment
+> has booted it; row 60's verdict stays ❌ until the hw292 walk.
+
 **#5482** needs the same correction of framing: PR **#5483 MERGED** 2026-07-29 fixed the *read* side
 (`read primaryRegion from status.placement`), but the flat `status.primaryRegion` still goes stale on
 failover — pinned by executable test `daa1b1ad4`. One leg landed; the divergence did not close.
@@ -324,3 +332,42 @@ Landing PRs #5536 and #5538 takes #3969 from **11/17 (64.7%)** to **13/17 (76.5%
 - EPIC closure: **16 / 18 = 88.9%** — no EPIC opened or closed today.
 - UAT ledger: **11 / 286 = 3.8% GREEN** (`scripts/uat-tally.py`).
 - Durable pillar completion: **88** — moves only on walk evidence against a Sovereign; none exists.
+
+---
+
+# Session addendum — 2026-08-02 (SHA-backed)
+
+## What moved
+
+**Merged (13, each verified `merged=true` via API after the fact):** #5553 `eb20fc0a3` (vitest gate
+fail-closed + crash backstop `08b3822fe`), #5536 `3af4497b6` + #5538 `d2dac4d19` (console placement
+honesty), #5539 `fad88bdb9` (deterministic catalog gen), #5540 `d197d747c` + #5541 `3c391e762`
+(org-create / app-install true status), #5552 `d11685457` + #5556 `dd2a8b931` (A16 CI guards),
+#5549 `32214128c` + #5550 `b187b474b` (docs), #5579 `4abd41237` (salvage: wizard ORG_DEFAULTS #5401,
+#5515 Go-side fix + tests, #5482 divergence-pinning test), #5543 `282253f8f` (true transport status —
+merged only after an independent uncached 240s handler-package run; its PR-cited runner does not
+exist in git history).
+
+**Closed as superseded (12):** #5554 (30-commit train adjudicated file-by-file; 6 changes salvaged
+into #5579, 3 stale hunks that would have regressed main dropped) + the queue set
+#5304/#4135/#4109/#3812/#3787/#3762/#3746/#3732/#3719/#3350 (census-verified verdicts, pointer
+comments on each).
+
+**Issues closed evidence-gated (3):** #5564 (§854 policy-text bypass — three-gate proof),
+#5475 (catalog contract ×3 — `TestPopulateVersionsAlias_ChartRefHasExactlyOneBPPrefix` fails in both
+regression directions; fix #5479 `849da91ba` ⊂ `fb41faf30`), #5453 (backing-services matcher ×2 —
+guards use verbatim hw290 pod names as fixtures; fix #5454 `87bbca849` ⊂ `fb41faf30`).
+
+**Ledger:** rows 9/55/60/124/125 carry dated pre-walk fix-map notes (`0a2f7c814`, `330f83cc1`),
+verdicts deliberately unchanged. STONE §10 measurement frozen (`691a8f61b`). Master plan committed
+(`2f559cffe`, workflow wf_fd06ff0e-603: 211-item census → 3 lenses → adversarial verify → synthesis).
+
+## Honest effect on the numbers: NONE
+
+No environment exists (probed live today: sovereign endpoint 503; mothership catalyst + flux-system
+all 0/0, #5573/#5558), so no walk occurred and no percentage may move — per the counting rule this
+document itself establishes and per PROTOCOL §10. What changed is the **delivery state of children**:
+#5515's real fix moved from unmerged-branch to merged-undelivered; #5482 gained an executable
+contract on main; #5475/#5453 left the status/uat queue with their fixes ancestry-proven aboard
+image pin `fb41faf30` — the image the next fire boots. The distance between merged and delivered is
+now exactly one founder keystroke pair: scale-up (#5558) + fire hw292.
