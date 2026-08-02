@@ -237,6 +237,12 @@ RENDER_SKIP_ALLOWLIST=(
   platform/plane-isolation/chart
   platform/postgres/chart
   platform/sandbox/chart
+  # NOT a fail-loud values guard like the rest of this list. Its declared
+  # dependency repository https://bitnami-labs.github.io/sealed-secrets answers
+  # 404, so the chart cannot be built from a clean checkout at all; it renders
+  # on dev machines only from a stale cached tarball. Remove this entry when
+  # #5563 repoints the dependency. Phase 1 still scans its sources.
+  platform/sealed-secrets/chart
   platform/sovereign-tls-vars/chart
 )
 
