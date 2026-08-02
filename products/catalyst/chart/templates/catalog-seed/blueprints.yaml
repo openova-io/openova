@@ -1727,7 +1727,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.32"
+  version: "0.2.33"
   visibility: listed
   card:
     title: "Apache Guacamole"
@@ -1745,7 +1745,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-guacamole
-    version: "0.2.32"
+    version: "0.2.33"
   topology:
     supported:
     - active-hot-standby
