@@ -51,7 +51,14 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
-          version: v3.16.0
+          # >= 3.16.2. helm 3.16.0 has two dependency-resolution regressions
+          # that make Phase 2 unable to fetch a subchart on a clean checkout —
+          # observed on this runner, both absent on 3.16.3:
+          #   "repo charts not found" (no charts/ directory yet), and
+          #   "non-absolute URLs should be in form of repo_name/path_to_chart"
+          # They hit 11 dependency-bearing charts at once and read as NodePort
+          # guard failures, which they are not.
+          version: v3.16.3
 
       - name: Run zero-NodePort guard
         run: bash scripts/check-no-nodeports.sh

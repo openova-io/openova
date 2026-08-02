@@ -776,18 +776,18 @@ BP_YAML="$CHART_DIR/../blueprint.yaml"
 modes_line=$(grep -E '^[[:space:]]*modes:[[:space:]]*\[' "$BP_YAML" | head -1)
 [ -n "$modes_line" ] || fail "#3375: placementSchema.modes line not found in blueprint.yaml"
 for canon in singleton active-active active-hot-standby active-passive; do
-  echo "$modes_line" | grep -qw "$canon" \
+  grep -qw "$canon" <<<"$modes_line" \
     || fail "#3375: placementSchema.modes missing canonical mode '$canon' (got: $modes_line)"
 done
 # The banned legacy spellings must NOT appear as placementSchema modes.
-if echo "$modes_line" | grep -qE '\bsingle-region\b'; then
+if grep -qE '\bsingle-region\b' <<<"$modes_line"; then
   fail "#3375 REGRESSION: placementSchema.modes lists the banned 'single-region' (use canonical 'singleton')"
 fi
-if echo "$modes_line" | grep -qE '\bactive-hotstandby\b'; then
+if grep -qE '\bactive-hotstandby\b' <<<"$modes_line"; then
   fail "#3375 REGRESSION: placementSchema.modes lists the banned 'active-hotstandby' (use canonical 'active-hot-standby')"
 fi
 default_line=$(grep -E '^[[:space:]]*default:[[:space:]]' "$BP_YAML" | head -1)
-if echo "$default_line" | grep -qE '\bsingle-region\b'; then
+if grep -qE '\bsingle-region\b' <<<"$default_line"; then
   fail "#3375 REGRESSION: placementSchema.default is the banned 'single-region' (use canonical 'singleton')"
 fi
 
@@ -859,6 +859,13 @@ grep -qE 'applicationRef: "shared-data/shared-pg"'    "$TMP/cont.yaml" || fail "
 grep -qE 'primaryRegion: "hw-me-east-215-a-rtz-prod"' "$TMP/cont.yaml" || fail "#4986: primaryRegion missing"
 grep -qE '"hw-me-east-215-b-rtz-prod"'                "$TMP/cont.yaml" || fail "#4986: hotStandbyRegions must carry the replica region"
 grep -qE 'mechanism: cnpg-pair'                       "$TMP/cont.yaml" || fail "#4986: switchover.mechanism must be cnpg-pair"
+# #5311: spec.cnpgPair MUST be populated (name=instance, namespace=cluster ns)
+# so the continuum-controller observe gate (continuum_controller.go:420,
+# `spec.CNPGPair != ""`) engages the pg_stat_replication standby probe on the
+# true 2-region topology → standbyAvailable surfaces. Label-only was NOT enough.
+grep -qE '^  cnpgPair:$'                              "$TMP/cont.yaml" || fail "#5311: spec.cnpgPair block missing — standby observe gate stays skipped, standbyAvailable never surfaces"
+grep -qE '^    name: "shared-pg"$'                    "$TMP/cont.yaml" || fail "#5311: spec.cnpgPair.name must equal instanceName (the FindPair label value)"
+grep -qE '^    namespace: "shared-data"$'             "$TMP/cont.yaml" || fail "#5311: spec.cnpgPair.namespace must equal the Cluster namespace"
 grep -qE 'kind: "k8s-lease"'                          "$TMP/cont.yaml" || fail "#4986: leaseClient.kind must default k8s-lease (air-gappable, self-sovereign)"
 grep -qE 'openova.io/scope: application'              "$TMP/cont.yaml" || fail "#4986: scope=application distinguishes the per-app producer from the cnpg-pair chart's platform CR"
 
@@ -871,7 +878,7 @@ assert_no_continuum() { # $1=label ; rest=helm --set flags (+ implicit --api-ver
   local label="$1"; shift
   local out
   out=$(helm template shared-pg . "$@" --api-versions dr.openova.io/v1 --show-only templates/continuum.yaml 2>&1 || true)
-  if echo "$out" | grep -qE '^kind: Continuum$'; then fail "#4986: Continuum MUST be absent — $label"; fi
+  if grep -qE '^kind: Continuum$' <<<"$out"; then fail "#4986: Continuum MUST be absent — $label"; fi
 }
 assert_no_continuum "singleton" \
   --set enabled=true --set instance.name=shared-pg --set topology.mode=singleton
@@ -891,7 +898,7 @@ cont_nocrd=$(helm template shared-pg . \
   --set enabled=true --set instance.name=shared-pg --set topology.mode=active-hot-standby --set topology.side=primary \
   --set topology.primary.region=hw-me-east-215-a-rtz-prod --set topology.replica.region=hw-me-east-215-b-rtz-prod \
   --show-only templates/continuum.yaml 2>&1 || true)
-if echo "$cont_nocrd" | grep -qE '^kind: Continuum$'; then fail "#4986: Continuum MUST be absent when the dr.openova.io/v1 CRD is not registered"; fi
+if grep -qE '^kind: Continuum$' <<<"$cont_nocrd"; then fail "#4986: Continuum MUST be absent when the dr.openova.io/v1 CRD is not registered"; fi
 
 echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets; master gate OFF → empty; 3-instance shapes locked; #3370 Application-CR self-registration locked; #3375 underscore-owner role-Secret sanitization locked; #3375/#3768 ONE canonical placement vocabulary locked; #3878 reflect.mangledTarget vc-mgmt native DB-secret delivery locked; #4986 per-app Continuum DR contract renders on AHS-primary + absent for singleton/replica/single-region/disabled/CRD-absent)"
 

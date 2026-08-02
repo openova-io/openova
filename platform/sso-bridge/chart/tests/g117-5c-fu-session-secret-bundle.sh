@@ -19,25 +19,25 @@ RENDERED="$(helm template smoke "$CHART_DIR" --show-only templates/configmap-rec
 echo "=== G117.5c-followup session_secret bundle tests ==="
 
 # Test 1: session_secret derivation present
-if ! echo "$RENDERED" | grep -q 'session_secret="\$('; then
+if ! grep -q 'session_secret="\$(' <<<"$RENDERED"; then
   echo "FAIL 1: session_secret derivation not found in rendered reconciler"
   exit 1
 fi
 echo "PASS 1: session_secret derivation present"
 
 # Test 2: jq bundle includes session_secret:$session
-if ! echo "$RENDERED" | grep -q 'session_secret:\$session'; then
+if ! grep -q 'session_secret:\$session' <<<"$RENDERED"; then
   echo "FAIL 2: jq bundle expression missing session_secret:\$session"
   exit 1
 fi
 echo "PASS 2: jq bundle includes session_secret"
 
 # Test 3: derivation uses sha256 + the |session| delimiter
-if ! echo "$RENDERED" | grep -qE 'sha256sum.*\|session\||\\\|session\\\|.*sha256sum'; then
-  if ! echo "$RENDERED" | grep -q 'session|.*sha256sum'; then
+if ! grep -qE 'sha256sum.*\|session\||\\\|session\\\|.*sha256sum' <<<"$RENDERED"; then
+  if ! grep -q 'session|.*sha256sum' <<<"$RENDERED"; then
     # Multi-line — verify presence of both elements
-    echo "$RENDERED" | grep -q 'sha256sum' || { echo "FAIL 3: sha256sum not in derivation"; exit 1; }
-    echo "$RENDERED" | grep -q '|session|' || { echo "FAIL 3: |session| delimiter not in derivation"; exit 1; }
+    grep -q 'sha256sum' <<<"$RENDERED" || { echo "FAIL 3: sha256sum not in derivation"; exit 1; }
+    grep -q '|session|' <<<"$RENDERED" || { echo "FAIL 3: |session| delimiter not in derivation"; exit 1; }
   fi
 fi
 echo "PASS 3: derivation uses sha256 + |session| delimiter"

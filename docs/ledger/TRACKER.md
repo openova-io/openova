@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-07-31T09:30:03Z` |
+| Last refreshed | `2026-08-02T19:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 96 |
+| Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 96 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 100 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,16 +196,10 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 96 open items (clickable table)
+### All 100 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
-| [#3969](https://github.com/openova-io/openova/issues/3969) | EPIC: Application-centric Placement (targets[] · Primary/Standby·Hot/Cold · c | Other |
-| [#4111](https://github.com/openova-io/openova/issues/4111) | bp-agenity North Star (chat→provision, Pillar 4): mechanism merged+wired — B | Other |
-| [#4212](https://github.com/openova-io/openova/issues/4212) | EPIC: ONE object-model/DR backbone — DR/spine half LIVE-Healthy (spine Applica | Other |
-| [#4277](https://github.com/openova-io/openova/issues/4277) | FUNNEL/agenity: per-Org openbao anthropic/token auto-seed at Org-create (zero-to | Other |
-| [#4639](https://github.com/openova-io/openova/issues/4639) | bp-dragonfly — P2P registry distribution: replace bastion proxy-cache + per-cl | Other |
-| [#4901](https://github.com/openova-io/openova/issues/4901) | cnpg-pair Continuum doesn't surface standby-absent condition (health/lag stay gr | Other |
 | [#5086](https://github.com/openova-io/openova/issues/5086) | Hetzner Sovereign DNS has no working front door since bp-powerdns 1.2.18 §854 f | Other |
 | [#5088](https://github.com/openova-io/openova/issues/5088) | §854: 4 live NodePort Services on the mothership cluster (founder #1 ban) — s | Other |
 | [#5265](https://github.com/openova-io/openova/issues/5265) | Post-cutover Day-2 gap: Gitea mirror re-syncs pin bumps but nothing syncs new ch | Other |
@@ -256,7 +250,6 @@ flowchart LR
 | [#5445](https://github.com/openova-io/openova/issues/5445) | Per-Org postgres mounts its PVC directly at PGDATA — lost+found on ext4 EVS ma | Other |
 | [#5450](https://github.com/openova-io/openova/issues/5450) | Sovereign's own Kyverno image-tag-pinned policy rejects its own catalog app mani | Other |
 | [#5451](https://github.com/openova-io/openova/issues/5451) | Per-Org console badges dead apps as INSTALLED with live Open buttons — 4/4 ret | Other |
-| [#5453](https://github.com/openova-io/openova/issues/5453) | backing-services pod matcher hardcodes the inner vCluster namespace as 'apps' � | Other |
 | [#5456](https://github.com/openova-io/openova/issues/5456) | UAT drift guard red on main: ledger H1 says 'pending hw289' while the live env i | Other |
 | [#5459](https://github.com/openova-io/openova/issues/5459) | OpenBao SSO lands an authenticated-but-unauthorized session — /sys/internal/ui | Other |
 | [#5460](https://github.com/openova-io/openova/issues/5460) | Console does not silently re-establish after session TTL — operator is re-prom | Other |
@@ -266,7 +259,6 @@ flowchart LR
 | [#5467](https://github.com/openova-io/openova/issues/5467) | harbor-prewarm logs the first 8 chars of the GHCR PAT on every cutover — line  | Other |
 | [#5471](https://github.com/openova-io/openova/issues/5471) | Cilium Gateways report Programmed=False / AddressNotAssigned while serving HTTP  | Other |
 | [#5472](https://github.com/openova-io/openova/issues/5472) | Post-cutover sovereignty gap: 16 of 19 deployable marketplace apps resolve chart | Other |
-| [#5475](https://github.com/openova-io/openova/issues/5475) | Catalog API contract: chartRef double bp- prefix, origin enum collision, hero mi | Other |
 | [#5476](https://github.com/openova-io/openova/issues/5476) | Application -> Environment -> Organization chain does not resolve for half the e | Other |
 | [#5477](https://github.com/openova-io/openova/issues/5477) | Continuum publishes replicationLagSeconds: 0 as a measurement when the standby w | Other |
 | [#5480](https://github.com/openova-io/openova/issues/5480) | A16: per-region secret generation on a shared VIP — newapi SESSION_SECRET conf | Other |
@@ -294,8 +286,20 @@ flowchart LR
 | [#5520](https://github.com/openova-io/openova/issues/5520) | Committed blueprints.json + catalog.generated.ts are stale vs build-catalog.mjs  | Other |
 | [#5525](https://github.com/openova-io/openova/issues/5525) | harbor-prewarm: scarf.sh images bypass the #5095 mothership fallback — Docker  | Other |
 | [#5527](https://github.com/openova-io/openova/issues/5527) | Cutover: per-Org tenant HelmRepositories outside the pivot's authority — org-t | Other |
-| [#5530](https://github.com/openova-io/openova/issues/5530) | Cutover step Jobs leave Error-state pods uncollected — health sweeps show fals | Other |
 | [#5531](https://github.com/openova-io/openova/issues/5531) | Gitea SSO callback returns 500 'could not find a matching session' post-cutover  | Other |
+| [#5542](https://github.com/openova-io/openova/issues/5542) | 200-over-error is repo-wide, not just Application install — RBAC assign, shell | Other |
+| [#5545](https://github.com/openova-io/openova/issues/5545) | janitor log-only pass reports orphanOBSBucketsDeleted=61 while deleting nothing  | Other |
+| [#5555](https://github.com/openova-io/openova/issues/5555) | Wizard step 6 (Domain) renders no Back button — StepDomain omits onBack while  | Other |
+| [#5558](https://github.com/openova-io/openova/issues/5558) | Mothership catalyst-api stuck at replicas=0 — Flux does not own spec.replicas, | Other |
+| [#5559](https://github.com/openova-io/openova/issues/5559) | catalog-seed ships 6 INERT Blueprint CRs — seeded against charts that were nev | Other |
+| [#5561](https://github.com/openova-io/openova/issues/5561) | §854 solver carve-out assumes HTTP-01 solvers 'GC automatically' — 5 have per | Other |
+| [#5563](https://github.com/openova-io/openova/issues/5563) | platform/sealed-secrets: chart dependency points at a repository that 404s — u | Other |
+| [#5567](https://github.com/openova-io/openova/issues/5567) | Mothership has NO Kyverno but 7 orphaned webhooks remain — 5 fail-closed, bloc | Other |
+| [#5568](https://github.com/openova-io/openova/issues/5568) | derivedFromRuntime is a constant, not a derivation — hardcoded true even when  | Other |
+| [#5571](https://github.com/openova-io/openova/issues/5571) | /k8s/stream serves ONE region as the whole estate — Cloud NetworkPolicy pages  | Other |
+| [#5573](https://github.com/openova-io/openova/issues/5573) | Mothership GitOps loop is DEAD — all 4 Flux controllers at replicas=0 + flux-s | Other |
+| [#5575](https://github.com/openova-io/openova/issues/5575) | Wizard component catalog is unvalidated: 6 components have no Blueprint, 8 carry | Other |
+| [#5583](https://github.com/openova-io/openova/issues/5583) | deploy-bot chart bumps cover 2 of 5 lockstep sites — every bump turns main red | Other |
 
 ---
 
@@ -303,36 +307,36 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-02T19:06 | [#5584](https://github.com/openova-io/openova/pull/5584) | #4023 | build(deps): protobuf v1.33.0 PAIRED with golang/protobuf v1 |
+| 2026-08-02T16:50 | [#5581](https://github.com/openova-io/openova/pull/5581) | chore(deps): bump fast-uri from 3.1.2 to 3.1.5 in /products/ |  |
+| 2026-08-02T16:50 | [#5580](https://github.com/openova-io/openova/pull/5580) | #17536 | chore(deps): bump astro and @astrojs/svelte in /core/marketp |
+| 2026-08-02T13:32 | [#5579](https://github.com/openova-io/openova/pull/5579) | #5554 | fix(wizard+api): salvage the six genuinely-new changes from  |
+| 2026-08-02T11:31 | [#5578](https://github.com/openova-io/openova/pull/5578) | #5563 | fix(854): NodePort guard advised deleting an allowlist entry |
+| 2026-08-02T11:13 | [#5577](https://github.com/openova-io/openova/pull/5577) | #5559 | docs(uat): R21 independent re-walk reconfirms #5559 — 6 iner |
+| 2026-08-02T11:04 | [#5576](https://github.com/openova-io/openova/pull/5576) | #5572 | docs(uat): walk W4 ✅ + downgrade W5 ✅→⚠️ — wizard offers 6 c |
+| 2026-08-02T10:41 | [#5574](https://github.com/openova-io/openova/pull/5574) | #5569 | docs(ledger): matrix headline carried the SUPERSEDED #3969 f |
+| 2026-08-02T10:28 | [#5572](https://github.com/openova-io/openova/pull/5572) | #5557 | fix(wizard): step 6 renders no Back control — StepDomain omi |
+| 2026-08-02T07:47 | [#5570](https://github.com/openova-io/openova/pull/5570) | #5547 | fix(bp-powerdns): front-door guard rejected the §854 fix it  |
+| 2026-08-02T07:16 | [#5569](https://github.com/openova-io/openova/pull/5569) | #3969 | docs(ledger): re-derive ALL 18 EPIC child counts live — #396 |
+| 2026-08-02T04:36 | [#5566](https://github.com/openova-io/openova/pull/5566) | #5515 | docs(ledger): EPIC completion matrix re-derived live + 14 UA |
+| 2026-08-02T04:36 | [#5565](https://github.com/openova-io/openova/pull/5565) | #5505 | fix(kyverno): §854 policy exempted any Service NAMED cm-acme |
+| 2026-08-02T13:14 | [#5556](https://github.com/openova-io/openova/pull/5556) | #5480 | feat(ci): A16 guard for #5480 — flag secrets minted behind a |
+| 2026-08-02T13:16 | [#5553](https://github.com/openova-io/openova/pull/5553) | #5542 | fix(ci): the vitest gate could never fail a build — npm test |
+| 2026-08-02T13:14 | [#5552](https://github.com/openova-io/openova/pull/5552) | #5499 | feat(ci): preflight that catches a region consuming a role c |
+| 2026-08-02T17:35 | [#5551](https://github.com/openova-io/openova/pull/5551) | #5545 | fix(janitor): a log-only pass reported 61 deletions that nev |
+| 2026-08-02T13:15 | [#5550](https://github.com/openova-io/openova/pull/5550) | #5489 | docs(console): parentRowFromSelf doc-comment still asserted  |
+| 2026-08-02T13:15 | [#5549](https://github.com/openova-io/openova/pull/5549) | #4691 | docs(canon): §854 section pointed at a dead issue and omitte |
+| 2026-08-02T09:34 | [#5548](https://github.com/openova-io/openova/pull/5548) | #5348 | feat(ci): cluster-side §854 guard — catches a live node port |
+| 2026-08-02T07:28 | [#5547](https://github.com/openova-io/openova/pull/5547) | #5542 | fix(bp-powerdns): state nodePort:0 explicitly — anycast LB k |
+| 2026-08-02T07:28 | [#5544](https://github.com/openova-io/openova/pull/5544) | #4765 | fix(ci): the NodePort guard silently skipped 19% of charts w |
+| 2026-08-02T13:37 | [#5543](https://github.com/openova-io/openova/pull/5543) | #160 | fix(catalyst-api): return the TRUE transport status on RBAC  |
+| 2026-08-02T13:14 | [#5541](https://github.com/openova-io/openova/pull/5541) | #5500 | fix(catalyst-api): Application install returns the TRUE stat |
+| 2026-08-02T13:14 | [#5540](https://github.com/openova-io/openova/pull/5540) | #5489 | fix(catalyst-api): stop POST /organizations reporting termin |
+| 2026-08-02T13:14 | [#5539](https://github.com/openova-io/openova/pull/5539) | #5526 | fix(catalog): make catalog generation deterministic so the c |
+| 2026-08-02T13:16 | [#5538](https://github.com/openova-io/openova/pull/5538) | #5515 | fix(console): Topology renders effective perCluster, not a f |
+| 2026-08-02T16:01 | [#5537](https://github.com/openova-io/openova/pull/5537) | #3375 | fix(chart-tests): eliminate the catalog-wide SIGPIPE false-F |
+| 2026-08-02T13:16 | [#5536](https://github.com/openova-io/openova/pull/5536) | #3969 | fix(console): Overview must not assert a placement the API n |
 | 2026-07-31T05:20 | [#5533](https://github.com/openova-io/openova/pull/5533) | #5531 | fix(gitea): durable db session provider so OAuth state survi |
-| 2026-07-30T14:09 | [#5529](https://github.com/openova-io/openova/pull/5529) | #893 | fix(catalyst-api): org-tenant HelmRepository emission is cut |
-| 2026-07-30T13:21 | [#5528](https://github.com/openova-io/openova/pull/5528) | #5442 | fix(bp-self-sovereign-cutover): step-03 scarf.sh mothership  |
-| 2026-07-30T11:09 | [#5526](https://github.com/openova-io/openova/pull/5526) | #5489 | fix(org): stop fabricating a vCluster on the three remaining |
-| 2026-07-30T11:07 | [#5524](https://github.com/openova-io/openova/pull/5524) | #5511 | fix(catalyst-api): per-Org console gateway surface to EVERY  |
-| 2026-07-30T11:06 | [#5523](https://github.com/openova-io/openova/pull/5523) | #5511 | fix(org-controller): per-Org console listeners ride the LIVE |
-| 2026-07-30T11:06 | [#5522](https://github.com/openova-io/openova/pull/5522) | #5516 | fix(openova-mcp): route Org-context reads to the own-org sea |
-| 2026-07-30T11:06 | [#5521](https://github.com/openova-io/openova/pull/5521) | #5510 | fix(console): catalog per-field Save is a partial patch, not |
-| 2026-07-30T11:06 | [#5519](https://github.com/openova-io/openova/pull/5519) | #5514 | fix(console): never claim DR health without live backing — p |
-| 2026-07-31T06:23 | [#5518](https://github.com/openova-io/openova/pull/5518) | #4765 | fix(ci): make the §854 NodePort guard unable to pass vacuous |
-| 2026-07-30T11:06 | [#5507](https://github.com/openova-io/openova/pull/5507) | #5504 | fix(bp-postgres): bear the initdb owner with its managed-rol |
-| 2026-07-30T11:05 | [#5506](https://github.com/openova-io/openova/pull/5506) | #5494 | fix(kyverno): grant cilium read + narrow the Enforce flip to |
-| 2026-07-30T11:05 | [#5503](https://github.com/openova-io/openova/pull/5503) | #4292 | fix(org-controller): name the pending boundary honestly for  |
-| 2026-07-29T20:48 | [#5498](https://github.com/openova-io/openova/pull/5498) | #4845 | fix(jobs): resolve controller-generated Job names so Re-run  |
-| 2026-07-29T20:17 | [#5497](https://github.com/openova-io/openova/pull/5497) | #5449 | fix(catalog): invalidate the cache key the query is actually |
-| 2026-07-29T19:05 | [#5495](https://github.com/openova-io/openova/pull/5495) | #5442 | fix(bp-self-sovereign-cutover): map cgr.dev + the litmuschao |
-| 2026-07-29T18:56 | [#5494](https://github.com/openova-io/openova/pull/5494) | #5088 | fix(kyverno): enforce the §854 NodePort ban instead of merel |
-| 2026-07-29T18:56 | [#5493](https://github.com/openova-io/openova/pull/5493) | #5485 | fix(showback,treemap): collapse one-shot Job rows, name Appl |
-| 2026-07-29T18:27 | [#5492](https://github.com/openova-io/openova/pull/5492) | #2003 | fix(bp-valkey): scope NetworkPolicy ingress to the declared  |
-| 2026-07-29T18:27 | [#5490](https://github.com/openova-io/openova/pull/5490) | #5489 | fix(console): stop asserting a vCluster and an Environment t |
-| 2026-07-29T16:53 | [#5486](https://github.com/openova-io/openova/pull/5486) | #5485 | fix(catalyst-api): reconciler log matcher must respect the t |
-| 2026-07-29T17:05 | [#5483](https://github.com/openova-io/openova/pull/5483) | #5482 | fix(catalyst-api): read primaryRegion from status.placement, |
-| 2026-07-29T16:12 | [#5481](https://github.com/openova-io/openova/pull/5481) | #4975 | fix(cutover): mirror litellm-database single-platform past i |
-| 2026-07-29T16:09 | [#5479](https://github.com/openova-io/openova/pull/5479) | #5449 | fix(catalog): chartRef double prefix, origin enum collision, |
-| 2026-07-29T15:54 | [#5478](https://github.com/openova-io/openova/pull/5478) | #5477 | fix(continuum): never publish replicationLagSeconds that was |
-| 2026-07-29T15:44 | [#5474](https://github.com/openova-io/openova/pull/5474) | #5473 | fix(bp-postgres): replication-source Service must select the |
-| 2026-07-29T14:15 | [#5470](https://github.com/openova-io/openova/pull/5470) | #5442 | fix(catalog): unlist bp-nemo-guardrails — the image it pins  |
-| 2026-07-29T14:01 | [#5469](https://github.com/openova-io/openova/pull/5469) | #5442 | fix(cutover): chart-image enumerator no longer greps its own |
-| 2026-07-29T11:38 | [#5464](https://github.com/openova-io/openova/pull/5464) | #5460 | fix(console): revoke stale authed marker on 401 + run the si |
-| 2026-07-29T10:49 | [#5463](https://github.com/openova-io/openova/pull/5463) | #5388 | fix(cnpg-pair): dr-failback surfaces peer-probe starvation o |
 
 ---
 

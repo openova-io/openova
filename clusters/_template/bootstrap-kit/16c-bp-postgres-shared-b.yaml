@@ -99,7 +99,7 @@ spec:
       # region-A. Lockstep with the other 16* bp-postgres slots.
       # 0.2.14 (#5473): replication-source Service selectorType r -> rw —
       # `r` matched every instance, so a standby could serve as DR source.
-      version: 0.2.15
+      version: 0.2.16
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

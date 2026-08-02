@@ -34,7 +34,7 @@ if [ -z "$route_block" ]; then
   echo "FAIL: HTTPRoute did not render"
   exit 1
 fi
-if ! echo "$route_block" | grep -q "flow.smoke.omani.works"; then
+if ! grep -q "flow.smoke.omani.works" <<<"$route_block"; then
   echo "FAIL: hostname not propagated"
   exit 1
 fi
@@ -42,11 +42,11 @@ echo "[bp-openova-flow-server] Case 1: PASS"
 
 # Case 2
 echo "[bp-openova-flow-server] Case 2: parentRefs cite gatewayRef"
-if ! echo "$route_block" | grep -q "name: cilium-gateway"; then
+if ! grep -q "name: cilium-gateway" <<<"$route_block"; then
   echo "FAIL: parentRef name != cilium-gateway"
   exit 1
 fi
-if ! echo "$route_block" | grep -q "namespace: kube-system"; then
+if ! grep -q "namespace: kube-system" <<<"$route_block"; then
   echo "FAIL: parentRef namespace != kube-system"
   exit 1
 fi
@@ -55,7 +55,7 @@ echo "[bp-openova-flow-server] Case 2: PASS"
 # Case 3
 echo "[bp-openova-flow-server] Case 3: default-off — HTTPRoute absent"
 out_default=$("$helm" template smoke "$chart_dir" 2>&1)
-if echo "$out_default" | grep -q "^kind: HTTPRoute$"; then
+if grep -q "^kind: HTTPRoute$" <<<"$out_default"; then
   echo "FAIL: HTTPRoute should NOT render with flowServer.httproute.enabled=false (default)"
   exit 1
 fi
@@ -69,11 +69,11 @@ out_override=$("$helm" template smoke "$chart_dir" \
   --set flowServer.httproute.hostname=custom.smoke.example \
   --set flowServer.httproute.gatewayRef.name=cilium-gateway 2>&1)
 route_block_override=$(echo "$out_override" | awk '/^---$/{f=0} /^kind: HTTPRoute$/{f=1} f')
-if ! echo "$route_block_override" | grep -q "custom.smoke.example"; then
+if ! grep -q "custom.smoke.example" <<<"$route_block_override"; then
   echo "FAIL: override hostname not propagated"
   exit 1
 fi
-if echo "$route_block_override" | grep -q "flow.smoke.omani.works"; then
+if grep -q "flow.smoke.omani.works" <<<"$route_block_override"; then
   echo "FAIL: override leaked case-1 hostname"
   exit 1
 fi

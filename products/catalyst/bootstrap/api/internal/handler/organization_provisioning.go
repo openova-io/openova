@@ -396,10 +396,14 @@ type orgTenantResponse struct {
 	ParentDomain    string                           `json:"parent_domain,omitempty"`
 	AdminEmail      string                           `json:"admin_email"`
 	CompanyName     string                           `json:"company_name,omitempty"`
-	OTECHFQDN       string                           `json:"otech_fqdn"`
-	VClusterName    string                           `json:"vcluster_name"`
-	TenantNamespace string                           `json:"tenant_namespace"`
-	ConsoleHost     string                           `json:"console_host"`
+	OTECHFQDN string `json:"otech_fqdn"`
+	// VClusterName — omitempty (#5501): a host-namespace Org authors no
+	// vCluster, and an empty string in the payload still reads as "there is
+	// a vcluster_name field for this Org" to anything that binds it. An
+	// absent key is the honest shape.
+	VClusterName    string `json:"vcluster_name,omitempty"`
+	TenantNamespace string `json:"tenant_namespace"`
+	ConsoleHost     string `json:"console_host"`
 	// Organizations model (issue #3378 B1) — surfaced so the directory
 	// can badge the org by kind/tier/billingMode/isolation.
 	Kind        string         `json:"kind,omitempty"`
@@ -409,21 +413,41 @@ type orgTenantResponse struct {
 	CommitSHA   string         `json:"commit_sha,omitempty"`
 	LastError   string         `json:"last_error,omitempty"`
 	Steps       orgTenantSteps `json:"steps"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
+	// BoundaryPhase — the observed phase of the Org's boundary (#5501),
+	// read back from the canonical Organization CR. Absent when the
+	// substrate has never been observed; the SPA can distinguish
+	// "unobserved" from "Pending" because one omits the key and the other
+	// names a real controller phase.
+	BoundaryPhase string `json:"boundary_phase,omitempty"`
+	// CreatedAt / UpdatedAt — omitzero (#5501). A Go zero time serialized
+	// as `0001-01-01T00:00:00Z` is a FALSE MEASUREMENT: it reads as a real
+	// RFC-3339 instant to every consumer. When the timestamp is genuinely
+	// unknown the key is omitted instead — an absent field is honest, a
+	// zero timestamp is not. Same class as #5477.
+	CreatedAt time.Time `json:"created_at,omitzero"`
+	UpdatedAt time.Time `json:"updated_at,omitzero"`
 }
 
-// vclusterNameFor returns the synthesized `vc-<slug>` name for a
-// vcluster-tier Org and "" for anything else (#5489): only the vcluster
-// tier has a vCluster to name. The legacy unconditional `vc-<slug>` put a
-// `vcluster_name` in the payload right beside `isolation: "namespace"` —
-// latent (the UI declares the field and never binds it), but it would
-// assert an object that does not exist the moment anyone rendered it.
-// Since #4188 no overlay template consumes the value either, so an empty
-// name is inert on the provisioning pipeline.
+// vclusterNameFor returns the name of a vcluster-tier Org's vCluster and ""
+// for anything else (#5489): only the vcluster tier has a vCluster to name.
+// The legacy unconditional `vc-<slug>` put a `vcluster_name` in the payload
+// right beside `isolation: "namespace"` — latent (the UI declares the field
+// and never binds it), but it would assert an object that does not exist the
+// moment anyone rendered it. Since #4188 no overlay template consumes the
+// value either, so an empty name is inert on the provisioning pipeline.
+//
+// #5501 — the name is the BARE SLUG, not the synthesized `vc-<slug>`. The
+// org-controller is the only producer of the object and it reports
+// `status.vcluster.name = <slug>` (vclusterStatusFor in
+// core/controllers/organization/internal/controller/organization_controller.go),
+// which is what a walked Sovereign returns from `kubectl get organization
+// <slug> -o yaml`. The API used to answer `vc-uatcorp` for a CR that said
+// `uatcorp`: two names for one object, and the one the API published named
+// nothing that exists. Synthesizing a SECOND name for a resource another
+// component owns is the defect — this function now mirrors that owner.
 func vclusterNameFor(isolation, slug string) string {
 	if isolation == "vcluster" {
-		return "vc-" + slug
+		return strings.ToLower(strings.TrimSpace(slug))
 	}
 	return ""
 }
@@ -525,6 +549,40 @@ func stepsForState(state store.OrganizationProvisionState, lastError string) org
 
 func orgTenantRecordToResponse(rec store.OrganizationProvisionRecord) orgTenantResponse {
 	steps := stepsForState(rec.State, rec.LastError)
+
+	// #5501 — the two SUBSTRATE-side steps report the OBSERVED boundary,
+	// not the orchestrator's position on its own ladder.
+	//
+	// stepsForState is right about what it models: the linear state machine
+	// records which SUBMITS the orchestrator has completed. But `vcluster`
+	// and `bp_charts` are claims about things that exist on the cluster —
+	// the Org's boundary, and the bp-* HelmReleases that install INTO it —
+	// and the orchestrator only ever committed manifests for those. So the
+	// ladder alone reported `vcluster:"done"` + `bp_charts:"done"` zero
+	// seconds after create, against a CR that said `phase: Pending` and a
+	// cluster with no namespace at all (hw291, #5501).
+	//
+	// rec.BoundaryPhase is the read-back of that CR (org_boundary_observation.go).
+	// The inference runs in ONE direction only: a boundary that is not up
+	// cannot have charts installed in it, so both steps degrade to the
+	// observed phase. It never promotes a step — an unobserved boundary
+	// reads "pending", never "done" (boundaryStepFor).
+	//
+	// Terminal records are left alone: STSDone is now itself gated on an
+	// observed-Ready boundary (runOrganizationPipeline step 7), and a
+	// STSFailed record's per-step failure detail comes from last_error.
+	if rec.State != store.STSDone && rec.State != store.STSFailed {
+		observed := boundaryStepFor(rec.BoundaryPhase)
+		if observed != "done" {
+			if steps.VCluster == "done" {
+				steps.VCluster = observed
+			}
+			if steps.BPCharts == "done" {
+				steps.BPCharts = observed
+			}
+		}
+	}
+
 	// #5489 — a namespace-isolated Org has no vCluster step to report.
 	// Blank it (the field is omitempty) only when the record EXPLICITLY
 	// says namespace; legacy rows with an empty isolation keep the full
@@ -554,6 +612,7 @@ func orgTenantRecordToResponse(rec store.OrganizationProvisionRecord) orgTenantR
 		CommitSHA:       rec.CommitSHA,
 		LastError:       rec.LastError,
 		Steps:           steps,
+		BoundaryPhase:   rec.BoundaryPhase,
 		CreatedAt:       rec.CreatedAt,
 		UpdatedAt:       rec.UpdatedAt,
 	}
@@ -610,10 +669,17 @@ var validBYODomain = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[
 //
 // The marketplace signup form POSTs here. The orchestrator persists
 // the pending row, fires the pipeline synchronously, and returns the
-// current (likely partial) state immediately — the SPA renders a
+// current (necessarily partial) state immediately — the SPA renders a
 // progress timeline against the steps[] field while the reconciler
 // runs in the background. Returns 202 (not 201) because the resource
 // is "accepted, materialising" rather than "created".
+//
+// #5501 — 202 was always right; the BODY was the lie. A fresh create can
+// NEVER be `state:"done"`: the Org's boundary is authored downstream by the
+// org-controller and takes minutes, so the pipeline holds the record at the
+// highest non-terminal state until it observes that boundary Ready (see the
+// terminal gate in runOrganizationPipeline step 7). The response now reports
+// that honestly instead of claiming six completed steps in zero seconds.
 func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Request) {
 	deps := h.orgTenantDeps
 	if deps.Store == nil {
@@ -778,7 +844,11 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 		// boundary namespace at (ResourceQuota + LimitRange).
 		PlanSlug: shape.PlanSlug,
 	}
-	if err := deps.Store.Put(rec); err != nil {
+	// #5501 — Save (not Put) so the CreatedAt/UpdatedAt the store stamps
+	// land on THIS record. Put persists a by-value copy, so the record the
+	// handler goes on to serialize kept Go zero timestamps and the create
+	// response published `0001-01-01T00:00:00Z` as a measurement.
+	if err := deps.Store.Save(&rec); err != nil {
 		h.log.Error("org-tenant: persist pending failed", "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error":  "persist-failed",
@@ -1014,7 +1084,11 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 	}
 
 	persist := func(updated store.OrganizationProvisionRecord) store.OrganizationProvisionRecord {
-		if err := deps.Store.Put(updated); err != nil {
+		// #5501 — Save writes the stamped CreatedAt/UpdatedAt back onto
+		// `updated`, so every record this pipeline returns (and every
+		// record the response mapper serializes) carries the same
+		// timestamps the persisted row does, instead of Go zero values.
+		if err := deps.Store.Save(&updated); err != nil {
 			h.log.Warn("org-tenant: persist failed during pipeline", "err", err)
 		}
 		if deps.Events != nil {
@@ -1253,6 +1327,36 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 		// valid), and a later reconcile / HandleReconcileOrganization pass
 		// re-applies the trio. BYO Orgs are skipped (own cert + CNAME).
 		h.provisionOrgConsoleTLS(ctx, rec)
+
+		// #5501 — THE TERMINAL GATE. Everything above this line is a
+		// SUBMIT: an overlay committed to Git, DNS rrsets written, Keycloak
+		// clients created, a registry row persisted, the Organization CR
+		// POSTed. None of it observes that the Org's boundary exists — the
+		// boundary is authored downstream by the org-controller reconciling
+		// the CR this step just minted, which takes minutes. Stamping
+		// STSDone here is what made `POST /api/v1/organizations` answer
+		// `state:"done"` with six "done" steps in ZERO seconds over a
+		// Sovereign with no namespace and no vCluster (hw291, 2026-07-29).
+		//
+		// So: read the CR back and promote ONLY on an observed-Ready
+		// boundary. Anything else — Pending, Provisioning, Failed, or
+		// unobservable — holds the record at STSTenantRegistered, the
+		// highest NON-terminal state, meaning exactly "every side effect
+		// the orchestrator owns is committed; the substrate has not been
+		// confirmed". Nothing is stranded: ListPending returns every
+		// non-terminal row, so the NATS-driven reconciler
+		// (ReconcileAllPending) re-runs this step until the boundary comes
+		// up, and both finalisers above are idempotent so they are simply
+		// re-ensured on each pass.
+		phase, ready := h.observeOrgBoundary(ctx, rec)
+		rec.BoundaryPhase = phase
+		if !ready {
+			h.log.Info("org-tenant: holding non-terminal — boundary not observed Ready",
+				"slug", rec.Subdomain, "org_tenant_id", rec.OrganizationID,
+				"boundary_phase", phase, "state", string(rec.State))
+			rec.LastError = ""
+			return persist(rec)
+		}
 
 		rec.State = store.STSDone
 		rec.LastError = ""
