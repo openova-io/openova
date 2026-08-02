@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-02T09:30:04Z` |
+| Last refreshed | `2026-08-02T09:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -311,6 +311,7 @@ flowchart LR
 | 2026-08-02T07:16 | [#5569](https://github.com/openova-io/openova/pull/5569) | #3969 | docs(ledger): re-derive ALL 18 EPIC child counts live — #396 |
 | 2026-08-02T04:36 | [#5566](https://github.com/openova-io/openova/pull/5566) | #5515 | docs(ledger): EPIC completion matrix re-derived live + 14 UA |
 | 2026-08-02T04:36 | [#5565](https://github.com/openova-io/openova/pull/5565) | #5505 | fix(kyverno): §854 policy exempted any Service NAMED cm-acme |
+| 2026-08-02T09:34 | [#5548](https://github.com/openova-io/openova/pull/5548) | #5348 | feat(ci): cluster-side §854 guard — catches a live node port |
 | 2026-08-02T07:28 | [#5547](https://github.com/openova-io/openova/pull/5547) | #5542 | fix(bp-powerdns): state nodePort:0 explicitly — anycast LB k |
 | 2026-08-02T07:28 | [#5544](https://github.com/openova-io/openova/pull/5544) | #4765 | fix(ci): the NodePort guard silently skipped 19% of charts w |
 | 2026-07-31T05:20 | [#5533](https://github.com/openova-io/openova/pull/5533) | #5531 | fix(gitea): durable db session provider so OAuth state survi |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-07-29T16:53 | [#5486](https://github.com/openova-io/openova/pull/5486) | #5485 | fix(catalyst-api): reconciler log matcher must respect the t |
 | 2026-07-29T17:05 | [#5483](https://github.com/openova-io/openova/pull/5483) | #5482 | fix(catalyst-api): read primaryRegion from status.placement, |
 | 2026-07-29T16:12 | [#5481](https://github.com/openova-io/openova/pull/5481) | #4975 | fix(cutover): mirror litellm-database single-platform past i |
-| 2026-07-29T16:09 | [#5479](https://github.com/openova-io/openova/pull/5479) | #5449 | fix(catalog): chartRef double prefix, origin enum collision, |
 
 ---
 
