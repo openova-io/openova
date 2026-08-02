@@ -100,8 +100,8 @@ func TestApplicationsWireShape_TC091_ViewerForbidden(t *testing.T) {
 		})
 
 	// Wire-shape contract: HTTP 200, body contains "403".
-	if rec.Code != http.StatusOK {
-		t.Fatalf("TC-091 status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("TC-091 status: got %d want 403; body=%s", rec.Code, rec.Body.String())
 	}
 	body8 := rec.Body.String()
 	if !strings.Contains(body8, `403`) {
@@ -195,8 +195,8 @@ func TestApplicationsWireShape_TC093_DeveloperProdForbidden(t *testing.T) {
 			Tier: "developer",
 		})
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("TC-093 status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("TC-093 status: got %d want 403; body=%s", rec.Code, rec.Body.String())
 	}
 	body8 := rec.Body.String()
 	if !strings.Contains(body8, `403`) {
