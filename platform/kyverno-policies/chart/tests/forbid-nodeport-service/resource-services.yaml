@@ -65,8 +65,17 @@ spec:
     - port: 8089
       nodePort: 30633
 ---
-# 6. CARVE-OUT (by name): cert-manager HTTP-01 solver Service — type=NodePort,
-#    no solver label but name matches cm-acme-http-solver-* → EXCLUDED from rule 1.
+# 6. NEGATIVE CONTROL (#5564): a Service whose NAME looks like a solver but which
+#    carries NO `acme.cert-manager.io/http01-solver` label must be DENIED.
+#
+#    This fixture previously asserted the opposite — it was admitted purely on
+#    its name, which pinned a self-service §854 bypass as intended behaviour and
+#    is precisely why the hole survived review. Anyone able to create a Service
+#    could name it `cm-acme-http-solver-<anything>` and opt out of the ban.
+#
+#    Keeping it as a DENY case turns the former bypass into a regression test:
+#    if the name-glob exclusion is ever reintroduced, this case flips to
+#    admitted and the suite fails.
 apiVersion: v1
 kind: Service
 metadata:
