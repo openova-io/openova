@@ -314,6 +314,16 @@ else
         # the remaining ~80 charts while the red check still read like a NodePort
         # violation. The `&& ... || ...` form keeps the status without tripping
         # `set -e`. (Same hazard the Phase-0 `|| true` comment describes.)
+        # helm 3.16.0 — the version CI pins via azure/setup-helm — fails a
+        # dependency update when the chart has no `charts/` directory yet,
+        # misreading the save destination as a repository name:
+        #   Save error occurred: could not download charts/vcluster-0.23.0.tgz:
+        #   repo charts not found
+        # A clean checkout NEVER has that directory (.gitignore:6), so on the
+        # runner this hit 11 charts at once while every one of them fetched
+        # fine locally on 3.16.3. Creating it first sidesteps the bug on any
+        # helm version, which beats depending on the runner's pin.
+        mkdir -p "${chart}/charts"
         depout=""; deprc=0
         depout="$(timeout "${DEP_TIMEOUT}" helm dependency update "${chart}" 2>&1)" || deprc=$?
         if [ "${deprc}" -eq 0 ]; then
