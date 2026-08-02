@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/chnsz/golangsdk v0.0.0-20230808032048-e9d83e61c98d
 	github.com/container-storage-interface/spec v1.5.0
-	github.com/golang/glog v1.1.0
+	github.com/golang/glog v1.2.4
 	github.com/kubernetes-csi/csi-lib-utils v0.9.1
 	github.com/spf13/cobra v1.6.1
 	github.com/spf13/pflag v1.0.5

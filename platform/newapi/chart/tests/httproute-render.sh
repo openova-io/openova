@@ -65,7 +65,7 @@ if [ -z "$route_block" ]; then
   echo "(would surface on fresh Sovereign prov as NXDOMAIN for newapi.<fqdn> — exactly the #2421 symptom)"
   exit 1
 fi
-if ! echo "$route_block" | grep -q "newapi.smoke.omani.works"; then
+if ! grep -q "newapi.smoke.omani.works" <<<"$route_block"; then
   echo "FAIL: HTTPRoute hostname is not derived as 'newapi.<sovereignFQDN>'"
   echo "$route_block"
   exit 1
@@ -74,11 +74,11 @@ echo "[bp-newapi] Case 1: PASS"
 
 # ── Case 2: parentRefs cite canonical Cilium Gateway ──────────────────
 echo "[bp-newapi] Case 2: parentRefs cite 'cilium-gateway' in 'kube-system'"
-if ! echo "$route_block" | grep -q "name: \"cilium-gateway\""; then
+if ! grep -q "name: \"cilium-gateway\"" <<<"$route_block"; then
   echo "FAIL: HTTPRoute parentRefs do not cite name=cilium-gateway"
   exit 1
 fi
-if ! echo "$route_block" | grep -q "namespace: \"kube-system\""; then
+if ! grep -q "namespace: \"kube-system\"" <<<"$route_block"; then
   echo "FAIL: HTTPRoute parentRefs do not cite namespace=kube-system"
   exit 1
 fi
@@ -86,7 +86,7 @@ echo "[bp-newapi] Case 2: PASS"
 
 # ── Case 3: backendRefs point at bp-newapi Service ────────────────────
 echo "[bp-newapi] Case 3: backendRefs point at bp-newapi Service"
-if ! echo "$route_block" | grep -q "smoke-bp-newapi"; then
+if ! grep -q "smoke-bp-newapi" <<<"$route_block"; then
   echo "FAIL: HTTPRoute backendRefs name does not match include 'bp-newapi.fullname'"
   exit 1
 fi
@@ -105,7 +105,7 @@ EOF
 out_default=$("$helm" template smoke "$chart_dir" -f "$default_values" 2>&1)
 rm -f "$default_values"
 
-if echo "$out_default" | grep -q "^kind: HTTPRoute$"; then
+if grep -q "^kind: HTTPRoute$" <<<"$out_default"; then
   echo "FAIL: HTTPRoute should NOT render when httpRoute.enabled is unset (default)"
   exit 1
 fi
@@ -131,11 +131,11 @@ out_override=$("$helm" template smoke "$chart_dir" -f "$override_values" 2>&1)
 rm -f "$override_values"
 
 route_block_override=$(echo "$out_override" | awk '/^---$/{f=0} /^kind: HTTPRoute$/{f=1} f')
-if ! echo "$route_block_override" | grep -q "llm.smoke.omani.works"; then
+if ! grep -q "llm.smoke.omani.works" <<<"$route_block_override"; then
   echo "FAIL: explicit httpRoute.host override not propagated to HTTPRoute hostnames"
   exit 1
 fi
-if echo "$route_block_override" | grep -q "newapi.smoke.omani.works"; then
+if grep -q "newapi.smoke.omani.works" <<<"$route_block_override"; then
   echo "FAIL: explicit override leaked the derived 'newapi.<fqdn>' default"
   exit 1
 fi
@@ -166,12 +166,12 @@ EOF
 appcr=$("$helm" template smoke "$chart_dir" -f "$appcr_values" \
         --api-versions apps.openova.io/v1 2>&1)
 rm -f "$appcr_values"
-if ! echo "$appcr" | grep -qE '^  placement: singleton$'; then
+if ! grep -qE '^  placement: singleton$' <<<"$appcr"; then
   echo "FAIL: Application CR placement must be canonical 'singleton' (not banned 'single-region')"
   echo "$appcr" | grep -E '^  placement:' || true
   exit 1
 fi
-if echo "$appcr" | grep -qE '^  placement: single-region$'; then
+if grep -qE '^  placement: single-region$' <<<"$appcr"; then
   echo "FAIL: #3375 REGRESSION — Application CR re-introduced the banned 'single-region' placement"
   exit 1
 fi

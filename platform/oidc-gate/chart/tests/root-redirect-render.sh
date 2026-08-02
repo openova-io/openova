@@ -63,28 +63,28 @@ route_doc() {
 echo "[root-redirect] Case 1: pda renders Exact / RequestRedirect to /oidc/login"
 pda="$(route_doc pda)"
 if [ -z "$pda" ]; then echo "FAIL: no HTTPRoute oidc-gate-pda rendered" >&2; echo "$out" >&2; exit 1; fi
-echo "$pda" | grep -qE 'type:\s*Exact'                       || { echo "FAIL: pda missing Exact path match" >&2; echo "$pda" >&2; exit 1; }
-echo "$pda" | grep -qE 'type:\s*RequestRedirect'             || { echo "FAIL: pda missing RequestRedirect filter" >&2; echo "$pda" >&2; exit 1; }
-echo "$pda" | grep -qE 'replaceFullPath:\s*"?/oidc/login"?'  || { echo "FAIL: pda redirect not to /oidc/login" >&2; echo "$pda" >&2; exit 1; }
-echo "$pda" | grep -qE 'port:\s*443'                         || { echo "FAIL: pda redirect not on default port 443" >&2; echo "$pda" >&2; exit 1; }
-echo "$pda" | grep -qE 'statusCode:\s*302'                   || { echo "FAIL: pda redirect not 302" >&2; echo "$pda" >&2; exit 1; }
+grep -qE 'type:\s*Exact' <<<"$pda"                       || { echo "FAIL: pda missing Exact path match" >&2; echo "$pda" >&2; exit 1; }
+grep -qE 'type:\s*RequestRedirect' <<<"$pda"             || { echo "FAIL: pda missing RequestRedirect filter" >&2; echo "$pda" >&2; exit 1; }
+grep -qE 'replaceFullPath:\s*"?/oidc/login"?' <<<"$pda"  || { echo "FAIL: pda redirect not to /oidc/login" >&2; echo "$pda" >&2; exit 1; }
+grep -qE 'port:\s*443' <<<"$pda"                         || { echo "FAIL: pda redirect not on default port 443" >&2; echo "$pda" >&2; exit 1; }
+grep -qE 'statusCode:\s*302' <<<"$pda"                   || { echo "FAIL: pda redirect not 302" >&2; echo "$pda" >&2; exit 1; }
 echo "  PASS"
 
 # ── Case 2: flowless (no rootRedirectPath) renders NO redirect ──────────────
 echo "[root-redirect] Case 2: flowless renders NO redirect (only PathPrefix backend)"
 flowless="$(route_doc flowless)"
 if [ -z "$flowless" ]; then echo "FAIL: no HTTPRoute oidc-gate-flowless rendered" >&2; exit 1; fi
-if echo "$flowless" | grep -qE 'RequestRedirect|type:\s*Exact'; then
+if grep -qE 'RequestRedirect|type:\s*Exact' <<<"$flowless"; then
   echo "FAIL: flowless (no rootRedirectPath) should NOT render a redirect" >&2; echo "$flowless" >&2; exit 1
 fi
-echo "$flowless" | grep -qE 'type:\s*PathPrefix' || { echo "FAIL: flowless missing PathPrefix backend" >&2; exit 1; }
+grep -qE 'type:\s*PathPrefix' <<<"$flowless" || { echo "FAIL: flowless missing PathPrefix backend" >&2; exit 1; }
 echo "  PASS"
 
 # ── Case 3: rootRedirectPort override ───────────────────────────────────────
 echo "[root-redirect] Case 3: customport honours rootRedirectPort: 8443"
 cp="$(route_doc customport)"
-echo "$cp" | grep -qE 'replaceFullPath:\s*"?/sso/start"?' || { echo "FAIL: customport redirect path wrong" >&2; echo "$cp" >&2; exit 1; }
-echo "$cp" | grep -qE 'port:\s*8443'                      || { echo "FAIL: customport did not honour rootRedirectPort 8443" >&2; echo "$cp" >&2; exit 1; }
+grep -qE 'replaceFullPath:\s*"?/sso/start"?' <<<"$cp" || { echo "FAIL: customport redirect path wrong" >&2; echo "$cp" >&2; exit 1; }
+grep -qE 'port:\s*8443' <<<"$cp"                      || { echo "FAIL: customport did not honour rootRedirectPort 8443" >&2; echo "$cp" >&2; exit 1; }
 echo "  PASS"
 
 echo "[bp-oidc-gate #3374 rootRedirectPath] All cases PASS"

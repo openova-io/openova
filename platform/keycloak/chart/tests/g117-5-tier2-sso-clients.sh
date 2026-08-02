@@ -53,7 +53,7 @@ d = json.load(sys.stdin)
 print(' '.join(c['clientId'] for c in d.get('clients', [])))
 ")
 for cid in "${expected[@]}"; do
-  if ! echo " $actual " | grep -q " $cid "; then
+  if ! grep -q " $cid " <<<" $actual "; then
     echo "FAIL: Tier-2 clientId '$cid' missing from realm import (got: $actual)" >&2
     exit 1
   fi
@@ -73,7 +73,7 @@ for c in d.get('clients', []):
         print(' | '.join(c.get('redirectUris', [])))
         break
 ")
-  if ! echo "$actual_uris" | grep -qF "$want_uri"; then
+  if ! grep -qF "$want_uri" <<<"$actual_uris"; then
     echo "FAIL: client '$cid' redirectUris missing '$want_uri' (got: $actual_uris)" >&2
     exit 1
   fi

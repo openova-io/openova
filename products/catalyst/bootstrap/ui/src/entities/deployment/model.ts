@@ -317,10 +317,29 @@ export interface ProvisionResult {
   gitopsRepoURL: string
 }
 
+/**
+ * ORG_DEFAULTS — the wizard's starting Organization identity.
+ *
+ * #5401: this shipped as `{name:'Acme Financial', domain:'acme.io',
+ * email:'platform@acme.io', industry:'Financial Services', …}` and was seeded
+ * directly into INITIAL_WIZARD_STATE below. An operator who did not overwrite
+ * every field provisioned a real Organization literally named "Acme Financial"
+ * with `platform@acme.io` as its billing contact — a fictitious company's
+ * details entering production as live data.
+ *
+ * Prefilled identity fields are actively harmful here: unlike a placeholder,
+ * a prefilled value survives an inattentive Next. These are now EMPTY so the
+ * required-field validation does its job and the operator must state who the
+ * Organization actually is.
+ *
+ * Empty strings, not `undefined` — WizardState types these as `string`, and
+ * the form binds them as controlled inputs (an undefined value would flip the
+ * field to uncontrolled and warn on first keystroke).
+ */
 export const ORG_DEFAULTS = {
-  name: 'Acme Financial', domain: 'acme.io', email: 'platform@acme.io',
-  industry: 'Financial Services', size: '2,000–10,000', headquarters: 'Frankfurt, Germany',
-  compliance: ['PCI DSS', 'ISO 27001'],
+  name: '', domain: '', email: '',
+  industry: '', size: '', headquarters: '',
+  compliance: [] as string[],
 }
 
 /**

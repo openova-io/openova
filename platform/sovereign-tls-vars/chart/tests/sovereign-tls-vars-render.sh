@@ -100,14 +100,14 @@ for want in \
   '\\"hostname\\":\\"api.t99.omani.works\\"' \
   '\\"name\\":\\"marketplace-https\\"' \
   '\\"hostname\\":\\"marketplace.t99.omani.works\\"'; do
-  echo "$CONSOLE_LINE" | grep -q "$want" || {
+  grep -q "$want" <<<"$CONSOLE_LINE" || {
     echo "FAIL: CONSOLE_LISTENERS_YAML missing expected #5341 token: $want" >&2
     echo "$CONSOLE_LINE" >&2
     exit 1
   }
 done
 # Collision guard: the console listener set must carry NO `*.<fqdn>` hostname.
-if echo "$CONSOLE_LINE" | grep -q '\\"hostname\\":\\"\*\.t99\.omani\.works\\"'; then
+if grep -q '\\"hostname\\":\\"\*\.t99\.omani\.works\\"' <<<"$CONSOLE_LINE"; then
   echo "FAIL: CONSOLE_LISTENERS_YAML still carries a wildcard '*.t99.omani.works' hostname — the #5341 gateway collision is back." >&2
   echo "$CONSOLE_LINE" >&2
   exit 1

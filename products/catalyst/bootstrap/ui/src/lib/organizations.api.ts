@@ -132,8 +132,14 @@ export async function getSovereignSelf(): Promise<SovereignSelf | null> {
  * sovereign self-discovery payload. The parent is kind=internal (it is
  * the sovereign-root department), tier=corporate (the operator's own
  * estate), billingMode=showback (#3378 §5: "showback works day one —
- * 100% of consumption attributes to the parent"), isolation=vcluster
- * (the sovereign cluster itself).
+ * 100% of consumption attributes to the parent"), isolation=cluster
+ * (the sovereign root IS the cluster; it is not isolated inside one).
+ *
+ * This doc-comment said `isolation=vcluster` until #5489 — it kept
+ * asserting the value AFTER the code below was corrected, so a reader
+ * trusting the comment would still believe the directory claims a
+ * vCluster. A comment that contradicts the line it documents is the same
+ * declared-vs-actual defect the fix itself removed.
  */
 export function parentRowFromSelf(self: SovereignSelf | null): OrgRow {
   const fqdn = self?.sovereignFQDN ?? ''
