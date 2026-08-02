@@ -35,11 +35,14 @@ are green.
 | **#1090** Console routing + auth journey audit | CLOSED | 1/1 | **100%** | 0 open. ⚠️ see caveat below — #5401 is an open SECURITY issue in this surface |
 | **#4212** ONE object-model / DR backbone | **OPEN** | 16/16 | **100% of children** | **zero open children.** What remains is the Crossplane-adoption architecture call itself (`status/blocked-ext`). DR half live-Healthy, re-proven by hw291's cutover |
 | **#795** SME-tenant turnkey experience | CLOSED | 20/21 | **95.2%** | 1 open child. EPIC closed ahead of it |
-| **#3969** Application-centric Placement (`targets[]`) | **OPEN** | 11/16 | **68.8%** | 5 open children — see breakdown |
+| **#3969** Application-centric Placement (`targets[]`) | **OPEN** | 11/17 | **64.7%** | 6 open children — see breakdown |
 
 **Aggregate: 16 of 18 EPICs closed = 88.9%** (`gh issue list --label epic --state all`).
 
-## #3969's five open children — the real frontier
+## #3969's six open children — the real frontier
+
+Re-derived live 2026-08-02 (`gh issue list --search "3969 in:body,title" --state all --limit 200`
+→ 17 children, 11 closed, **6 open**):
 
 | child | state | artifact |
 |---|---|---|
@@ -47,10 +50,23 @@ are green.
 | #5482 Overview shows a host-cluster label as PRIMARY REGION | **half** | read side `b41c93b3c`; emit seam localized to `application_controller.go:2593` (declared) vs `placement_projection.go:279` (effective); deferred — DR-path write, unvalidatable without an env |
 | #5422 Overview hardcodes a `singleton` fallback | fix open in PR | **PR #5536** |
 | #5420 Topology renders declared, not effective | fix open in PR | **PR #5538** |
-| #5485 observability defects 4/5/6 | delivered, PR held | `53bdf8052` ancestry into `fb41faf`; **PR #5534** |
+| #5568 `derivedFromRuntime` is a constant, not a derivation | **filed, unfixed** | hardcoded `true` even when the value is a declared spec — the 17th child, and the reason this EPIC fell from 68.8% to 64.7% |
+| #4212 EPIC: ONE object-model / DR backbone | **open EPIC** | counted here only because it *references* #3969; it is a sibling EPIC with its own row above, so it is double-counted by this search methodology — see caveat |
 
-Two of the five (#5422, #5420) are the same declared-vs-effective seam that #5515 and
-#5482 already fixed on their own surfaces.
+Two of the six (#5422, #5420) are the same declared-vs-effective seam that #5515 and
+#5482 already fixed on their own surfaces. **#5568 is the same class again** — a value
+that claims to be runtime-derived but is a constant.
+
+**Two corrections landed here on 2026-08-02.** This table previously listed **#5485** as a
+#3969 child; it is not — #5485 does not reference #3969 and does not appear in the live
+child query. And it omitted **#5568** and **#4212**, which do. The header said "five open
+children" while the live count is six.
+
+**Methodology caveat this exposes:** `--search "3969 in:body,title"` counts any issue that
+*mentions* #3969, not issues that are *scoped to* it. #4212 is a peer EPIC, so it inflates
+the denominator. A stricter denominator (excluding peer EPICs) gives **11/16 = 68.8%** —
+numerically identical to the old figure but for a different reason. Both numbers are stated
+here rather than picking the flattering one; the 64.7% headline is the conservative read.
 
 ## Caveats that the percentages do NOT capture
 
@@ -79,7 +95,7 @@ reachable.
 ## What would move these numbers
 
 #3969 is the only EPIC whose percentage can move on code alone — landing PRs #5536 and
-#5538 takes it from 11/16 to 13/16 (**81.3%**). Everything else needs the hw292 fire
+#5538 takes it from 11/17 to 13/17 (**76.5%**). Everything else needs the hw292 fire
 and the walk that follows it.
 
 ---
@@ -106,8 +122,8 @@ its EPIC with the exact commit, so no percentage rests on an unnamed claim.
 
 ## Honest effect: the headline numbers did NOT move
 
-- **EPIC closure stays 16/18 = 88.9%.** Nothing here closed an EPIC. #3969 is still 11/16 (68.8%);
-  landing PRs #5536 + #5538 would take it to 13/16 (81.3%), and both need a merge.
+- **EPIC closure stays 16/18 = 88.9%.** Nothing here closed an EPIC. #3969 is still 11/17 (64.7%);
+  landing PRs #5536 + #5538 would take it to 13/17 (76.5%), and both need a merge.
 - **Durable pillar completion stays 88.** It moves only on walk evidence against a Sovereign, and
   no Sovereign exists.
 - **UAT green stays 5/286 (1.7%).** Three rows were walked this cycle (R21, R18, R9) and all three
@@ -161,7 +177,7 @@ scripts/uat-tally.py                                               -> 8/286 GREE
 
 ## 🛑 Correction: #5515 is NOT delivered
 
-The `#3969's five open children` table above records #5515 as **delivered**, citing `796e587b2`.
+The `#3969's six open children` table above records #5515 as **delivered**, citing `796e587b2`.
 That is wrong, and the way it went wrong is the defect class this session has been chasing all day.
 
 `796e587b2` is the merge commit of **PR #5519**, titled *"fix(console): never claim DR health
@@ -192,8 +208,8 @@ failover — pinned by executable test `daa1b1ad4`. One leg landed; the divergen
 
 > **A merged PR is not a closed child, and a `Refs #N` is not a fix for #N.**
 
-Counting merged PRs as done would report #3969 at **13/16 (81.3 %)** instead of its true
-**11/16 (68.8 %)** — a 12.5-point overstatement produced entirely by trusting merge state. Every
+Counting merged PRs as done would report #3969 at **13/17 (76.5 %)** instead of its true
+**11/17 (64.7 %)** — an 11.8-point overstatement produced entirely by trusting merge state. Every
 open child below was therefore verified at file level, not by commit message.
 
 | child | artifact | dated | verified state |
@@ -237,7 +253,9 @@ corrected; none is a runtime acceptance, and runtime acceptance needs a converge
 not exist (hw291 wiped, hw292 unfired, `catalyst` namespace at zero pods with the console 503 —
 confirmed in-browser today at 02:48Z).
 
-The number positioned to move first is **#3969**, one merge away from 81.3 % and two from 93.8 %.
+The number positioned to move first is **#3969**, one merge away from 70.6 % (12/17) and two from
+76.5 % (13/17). The prior figures here (81.3 % / 93.8 %) were wrong twice over: they used the
+superseded 16-child denominator, and 81.3 % was itself a two-merge result labelled as one.
 What stands between it and that figure is merge permission, not engineering — with the caveat this
 section establishes: **#5515 must be counted by what is on `main`, not by a merged PR that named it.**
 
