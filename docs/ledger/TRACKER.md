@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-02T13:00:02Z` |
+| Last refreshed | `2026-08-02T13:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -316,9 +316,14 @@ flowchart LR
 | 2026-08-02T07:16 | [#5569](https://github.com/openova-io/openova/pull/5569) | #3969 | docs(ledger): re-derive ALL 18 EPIC child counts live — #396 |
 | 2026-08-02T04:36 | [#5566](https://github.com/openova-io/openova/pull/5566) | #5515 | docs(ledger): EPIC completion matrix re-derived live + 14 UA |
 | 2026-08-02T04:36 | [#5565](https://github.com/openova-io/openova/pull/5565) | #5505 | fix(kyverno): §854 policy exempted any Service NAMED cm-acme |
+| 2026-08-02T13:14 | [#5556](https://github.com/openova-io/openova/pull/5556) | #5480 | feat(ci): A16 guard for #5480 — flag secrets minted behind a |
+| 2026-08-02T13:14 | [#5552](https://github.com/openova-io/openova/pull/5552) | #5499 | feat(ci): preflight that catches a region consuming a role c |
 | 2026-08-02T09:34 | [#5548](https://github.com/openova-io/openova/pull/5548) | #5348 | feat(ci): cluster-side §854 guard — catches a live node port |
 | 2026-08-02T07:28 | [#5547](https://github.com/openova-io/openova/pull/5547) | #5542 | fix(bp-powerdns): state nodePort:0 explicitly — anycast LB k |
 | 2026-08-02T07:28 | [#5544](https://github.com/openova-io/openova/pull/5544) | #4765 | fix(ci): the NodePort guard silently skipped 19% of charts w |
+| 2026-08-02T13:14 | [#5541](https://github.com/openova-io/openova/pull/5541) | #5500 | fix(catalyst-api): Application install returns the TRUE stat |
+| 2026-08-02T13:14 | [#5540](https://github.com/openova-io/openova/pull/5540) | #5489 | fix(catalyst-api): stop POST /organizations reporting termin |
+| 2026-08-02T13:14 | [#5539](https://github.com/openova-io/openova/pull/5539) | #5526 | fix(catalog): make catalog generation deterministic so the c |
 | 2026-07-31T05:20 | [#5533](https://github.com/openova-io/openova/pull/5533) | #5531 | fix(gitea): durable db session provider so OAuth state survi |
 | 2026-07-30T14:09 | [#5529](https://github.com/openova-io/openova/pull/5529) | #893 | fix(catalyst-api): org-tenant HelmRepository emission is cut |
 | 2026-07-30T13:21 | [#5528](https://github.com/openova-io/openova/pull/5528) | #5442 | fix(bp-self-sovereign-cutover): step-03 scarf.sh mothership  |
@@ -332,11 +337,6 @@ flowchart LR
 | 2026-07-30T11:06 | [#5507](https://github.com/openova-io/openova/pull/5507) | #5504 | fix(bp-postgres): bear the initdb owner with its managed-rol |
 | 2026-07-30T11:05 | [#5506](https://github.com/openova-io/openova/pull/5506) | #5494 | fix(kyverno): grant cilium read + narrow the Enforce flip to |
 | 2026-07-30T11:05 | [#5503](https://github.com/openova-io/openova/pull/5503) | #4292 | fix(org-controller): name the pending boundary honestly for  |
-| 2026-07-29T20:48 | [#5498](https://github.com/openova-io/openova/pull/5498) | #4845 | fix(jobs): resolve controller-generated Job names so Re-run  |
-| 2026-07-29T20:17 | [#5497](https://github.com/openova-io/openova/pull/5497) | #5449 | fix(catalog): invalidate the cache key the query is actually |
-| 2026-07-29T19:05 | [#5495](https://github.com/openova-io/openova/pull/5495) | #5442 | fix(bp-self-sovereign-cutover): map cgr.dev + the litmuschao |
-| 2026-07-29T18:56 | [#5494](https://github.com/openova-io/openova/pull/5494) | #5088 | fix(kyverno): enforce the §854 NodePort ban instead of merel |
-| 2026-07-29T18:56 | [#5493](https://github.com/openova-io/openova/pull/5493) | #5485 | fix(showback,treemap): collapse one-shot Job rows, name Appl |
 
 ---
 
