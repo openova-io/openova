@@ -1,0 +1,2 @@
+[    2026ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://console.openova.io/sovereign/api/v1/whoami:0
+[    2027ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://console.openova.io/sovereign/api/v1/tenant/discover?host=console.openova.io:0
