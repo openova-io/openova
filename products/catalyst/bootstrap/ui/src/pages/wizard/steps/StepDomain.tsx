@@ -76,12 +76,7 @@ const MODE_OPTIONS: { id: DomainMode; label: string; sub: string }[] = [
 
 export function StepDomain() {
   const store = useWizardStore()
-  // #5555: `back` was omitted here, so step 6 rendered with no ← Back control
-  // while every sibling step had one. `onBack` is optional on StepShell
-  // (_shared.tsx), so nothing flagged it. It landed on the one step where
-  // Continue is disabled until a domain is chosen — primary action dead,
-  // reverse action absent.
-  const { next, back } = useStepNav()
+  const { next } = useStepNav()
 
   const pool = SOVEREIGN_POOL_DOMAINS.find(p => p.id === store.sovereignPoolDomain) ?? SOVEREIGN_POOL_DOMAINS[0]!
   const availability = useSubdomainAvailability(
@@ -97,7 +92,6 @@ export function StepDomain() {
       title="Where will your Sovereign live in DNS?"
       description="Pool gives you a working URL in seconds. BYO lets you keep the domain you already own — pick the manual flow if your registrar isn't on the API list, or the API flow if you'd rather we flip the NS records for you."
       onNext={next}
-      onBack={back}
       nextDisabled={nextDisabled}
     >
       {resolved && (
