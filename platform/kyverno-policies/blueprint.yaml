@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
-  version: 1.0.50
+  version: 1.0.51
   card:
     title: Kyverno Policy Library
     family: guardian

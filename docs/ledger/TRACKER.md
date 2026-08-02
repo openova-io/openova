@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-01T04:00:02Z` |
+| Last refreshed | `2026-08-02T05:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues | 97 |
+| Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All 97 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 100 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,14 +196,10 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All 97 open items (clickable table)
+### All 100 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
-| [#3969](https://github.com/openova-io/openova/issues/3969) | EPIC: Application-centric Placement (targets[] · Primary/Standby·Hot/Cold · c | Other |
-| [#4111](https://github.com/openova-io/openova/issues/4111) | bp-agenity North Star (chat→provision, Pillar 4): mechanism merged+wired — B | Other |
-| [#4212](https://github.com/openova-io/openova/issues/4212) | EPIC: ONE object-model/DR backbone — DR/spine half LIVE-Healthy (spine Applica | Other |
-| [#4277](https://github.com/openova-io/openova/issues/4277) | FUNNEL/agenity: per-Org openbao anthropic/token auto-seed at Org-create (zero-to | Other |
 | [#4639](https://github.com/openova-io/openova/issues/4639) | bp-dragonfly — P2P registry distribution: replace bastion proxy-cache + per-cl | Other |
 | [#4901](https://github.com/openova-io/openova/issues/4901) | cnpg-pair Continuum doesn't surface standby-absent condition (health/lag stay gr | Other |
 | [#5086](https://github.com/openova-io/openova/issues/5086) | Hetzner Sovereign DNS has no working front door since bp-powerdns 1.2.18 §854 f | Other |
@@ -297,6 +293,13 @@ flowchart LR
 | [#5531](https://github.com/openova-io/openova/issues/5531) | Gitea SSO callback returns 500 'could not find a matching session' post-cutover  | Other |
 | [#5542](https://github.com/openova-io/openova/issues/5542) | 200-over-error is repo-wide, not just Application install — RBAC assign, shell | Other |
 | [#5545](https://github.com/openova-io/openova/issues/5545) | janitor log-only pass reports orphanOBSBucketsDeleted=61 while deleting nothing  | Other |
+| [#5555](https://github.com/openova-io/openova/issues/5555) | Wizard step 6 (Domain) renders no Back button — StepDomain omits onBack while  | Other |
+| [#5558](https://github.com/openova-io/openova/issues/5558) | Mothership catalyst-api stuck at replicas=0 — Flux does not own spec.replicas, | Other |
+| [#5559](https://github.com/openova-io/openova/issues/5559) | catalog-seed ships 6 INERT Blueprint CRs — seeded against charts that were nev | Other |
+| [#5561](https://github.com/openova-io/openova/issues/5561) | §854 solver carve-out assumes HTTP-01 solvers 'GC automatically' — 5 have per | Other |
+| [#5563](https://github.com/openova-io/openova/issues/5563) | platform/sealed-secrets: chart dependency points at a repository that 404s — u | Other |
+| [#5564](https://github.com/openova-io/openova/issues/5564) | §854 forbid-nodeport policy exempts any Service NAMED cm-acme-http-solver-* — | Other |
+| [#5567](https://github.com/openova-io/openova/issues/5567) | Mothership has NO Kyverno but 7 orphaned webhooks remain — 5 fail-closed, bloc | Other |
 
 ---
 
@@ -304,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-02T04:36 | [#5566](https://github.com/openova-io/openova/pull/5566) | #5515 | docs(ledger): EPIC completion matrix re-derived live + 14 UA |
+| 2026-08-02T04:36 | [#5565](https://github.com/openova-io/openova/pull/5565) | #5505 | fix(kyverno): §854 policy exempted any Service NAMED cm-acme |
 | 2026-07-31T05:20 | [#5533](https://github.com/openova-io/openova/pull/5533) | #5531 | fix(gitea): durable db session provider so OAuth state survi |
 | 2026-07-30T14:09 | [#5529](https://github.com/openova-io/openova/pull/5529) | #893 | fix(catalyst-api): org-tenant HelmRepository emission is cut |
 | 2026-07-30T13:21 | [#5528](https://github.com/openova-io/openova/pull/5528) | #5442 | fix(bp-self-sovereign-cutover): step-03 scarf.sh mothership  |
@@ -332,8 +337,6 @@ flowchart LR
 | 2026-07-29T15:44 | [#5474](https://github.com/openova-io/openova/pull/5474) | #5473 | fix(bp-postgres): replication-source Service must select the |
 | 2026-07-29T14:15 | [#5470](https://github.com/openova-io/openova/pull/5470) | #5442 | fix(catalog): unlist bp-nemo-guardrails — the image it pins  |
 | 2026-07-29T14:01 | [#5469](https://github.com/openova-io/openova/pull/5469) | #5442 | fix(cutover): chart-image enumerator no longer greps its own |
-| 2026-07-29T11:38 | [#5464](https://github.com/openova-io/openova/pull/5464) | #5460 | fix(console): revoke stale authed marker on 401 + run the si |
-| 2026-07-29T10:49 | [#5463](https://github.com/openova-io/openova/pull/5463) | #5388 | fix(cnpg-pair): dr-failback surfaces peer-probe starvation o |
 
 ---
 
