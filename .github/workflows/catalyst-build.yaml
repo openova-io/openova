@@ -105,11 +105,24 @@ jobs:
 
           set +e
           npm test 2>&1 | tee /tmp/vitest-out.txt
+          NPM_RC=${PIPESTATUS[0]}
           set -e
 
           # Vitest prints one ` FAIL  <path> > <test>` line per failure.
           FAILED_FILES=$(grep -oE '^ *FAIL +[^ ]+\.test\.tsx?' /tmp/vitest-out.txt \
                           | awk '{print $2}' | sort -u || true)
+
+          # Backstop against the parser itself failing open: if vitest exited
+          # non-zero but the grep above extracted NO failing files (config
+          # crash, changed output format, bad flag — a `--reporter=basic`
+          # crash was observed live 2026-08-02), that is an UNPARSEABLE
+          # failure, not a pass. A gate that greens on a suite crash is the
+          # exact declared-vs-actual defect this change removes.
+          if [ "${NPM_RC}" -ne 0 ] && [ -z "${FAILED_FILES}" ]; then
+            echo "FAIL: npm test exited ${NPM_RC} but no ' FAIL <file>' lines were parsed."
+            echo "The suite crashed or vitest changed its output format — failing closed."
+            exit 1
+          fi
 
           UNEXPECTED=""
           for f in ${FAILED_FILES}; do
