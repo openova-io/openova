@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-31T16:28:03.702Z",
+  "generatedAt": "2026-08-02T17:47:00.973Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -1817,7 +1817,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.2.31",
+      "version": "0.2.32",
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [
         "bp-keycloak",
@@ -2490,7 +2490,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.0.50",
+      "version": "1.0.51",
       "section": "pts-3-3-security-and-policy",
       "depends": [],
       "shareable": false,
@@ -3482,7 +3482,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "1.4.145",
+      "version": "1.4.146",
       "section": "pts-4-6-llm-serving",
       "depends": [
         "bp-cnpg",
@@ -4083,7 +4083,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.2.15",
+      "version": "0.2.16",
       "section": "pts-4-1-data-services",
       "depends": [
         "bp-cnpg",
@@ -4160,7 +4160,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.2.22",
+      "version": "1.2.23",
       "section": "pts-3-2-gitops-and-iac",
       "depends": [
         "bp-cert-manager"
