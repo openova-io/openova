@@ -235,7 +235,7 @@ name: bp-guacamole
 # Instances-table chip, so the legacy spelling leaked the banned word to the
 # operator (hw159 #3375).
 # 0.2.26 (#3971): CNPG storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
-version: 0.2.32
+version: 0.2.33
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
