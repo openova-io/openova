@@ -92,16 +92,26 @@ spec:
       exclude:
         any:
           # cert-manager ACME HTTP-01 solver — auto-created type=NodePort,
-          # GCs on challenge completion. Carved out by BOTH the upstream
-          # solver label and the name pattern (belt-and-braces; the label
-          # is the durable contract, the name pattern a fallback).
+          # GCs on challenge completion. Carved out by the upstream solver
+          # LABEL ONLY.
+          #
+          # #5564: there used to be a second clause here matching the NAME
+          # `cm-acme-http-solver-*` with no label requirement. Because `exclude`
+          # is an `any:` list, either clause sufficed, so ANY Service named
+          # `cm-acme-http-solver-<anything>` was exempt from the §854 ban with
+          # no cert-manager involvement at all — a permanent, self-service
+          # bypass available to anyone who can create a Service. It was
+          # described as "belt-and-braces ... the name pattern a fallback", but
+          # a fallback that admits UNLABELLED Services is not a fallback.
+          #
+          # Removing it costs no real coverage: cert-manager sets
+          # acme.cert-manager.io/http01-solver="true" unconditionally on solver
+          # Services, and a live sweep of the mothership found 7 of 7 solvers
+          # carrying it. The label is the contract; the name is not.
           - resources:
               selector:
                 matchLabels:
                   acme.cert-manager.io/http01-solver: "true"
-          - resources:
-              names:
-                - "cm-acme-http-solver-*"
           {{- with .Values.compliancePolicies.forbidNodePortService.excludeNamespaces }}
           - resources:
               namespaces:
