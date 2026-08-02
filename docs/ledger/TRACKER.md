@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-02T22:45:02Z` |
+| Last refreshed | `2026-08-02T23:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -292,7 +292,6 @@ flowchart LR
 | [#5545](https://github.com/openova-io/openova/issues/5545) | janitor log-only pass reports orphanOBSBucketsDeleted=61 while deleting nothing  | Other |
 | [#5555](https://github.com/openova-io/openova/issues/5555) | Wizard step 6 (Domain) renders no Back button — StepDomain omits onBack while  | Other |
 | [#5558](https://github.com/openova-io/openova/issues/5558) | Mothership catalyst-api stuck at replicas=0 — Flux does not own spec.replicas, | Other |
-| [#5559](https://github.com/openova-io/openova/issues/5559) | catalog-seed ships 6 INERT Blueprint CRs — seeded against charts that were nev | Other |
 | [#5561](https://github.com/openova-io/openova/issues/5561) | §854 solver carve-out assumes HTTP-01 solvers 'GC automatically' — 5 have per | Other |
 | [#5567](https://github.com/openova-io/openova/issues/5567) | Mothership has NO Kyverno but 7 orphaned webhooks remain — 5 fail-closed, bloc | Other |
 | [#5568](https://github.com/openova-io/openova/issues/5568) | derivedFromRuntime is a constant, not a derivation — hardcoded true even when  | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5573](https://github.com/openova-io/openova/issues/5573) | Mothership GitOps loop is DEAD — all 4 Flux controllers at replicas=0 + flux-s | Other |
 | [#5575](https://github.com/openova-io/openova/issues/5575) | Wizard component catalog is unvalidated: 6 components have no Blueprint, 8 carry | Other |
 | [#5583](https://github.com/openova-io/openova/issues/5583) | deploy-bot chart bumps cover 2 of 5 lockstep sites — every bump turns main red | Other |
+| [#5589](https://github.com/openova-io/openova/issues/5589) | vitest gate is fail-open in practice: Jest-format parser matches nothing vitest  | Other |
 
 ---
 
