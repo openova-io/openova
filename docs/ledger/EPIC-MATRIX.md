@@ -140,3 +140,103 @@ Three corrections to how these percentages should be read:
 - #5559's six inert Blueprints are triaged into three groups but none is fixed.
 - #5558's catalyst outage is root-caused but unresolved — the fix belongs in the `openova-private`
   rendering, which is not reachable from this repo.
+
+---
+
+# 2026-08-02 — re-derived live, and one row above is CORRECTED
+
+The 16/18 figure was flagged "carried forward" in the caveat above. It has now been **re-derived
+live** rather than trusted, and the re-derivation exposed an error in this file.
+
+Commands, so every number below is reproducible:
+
+```
+gh issue list --label epic --state all --limit 40                  -> 18 EPICs, 16 CLOSED
+gh issue list --search "3969 in:body,title" --state all --limit 60 -> 16 children, 11 CLOSED
+gh issue list --search "4212 in:body,title" --state all --limit 40 -> 16 children, 16 CLOSED
+scripts/uat-tally.py                                               -> 8/286 GREEN
+```
+
+**Aggregate confirmed: 16 / 18 = 88.9 %.** Not carried forward — queried 2026-08-02.
+
+## 🛑 Correction: #5515 is NOT delivered
+
+The `#3969's five open children` table above records #5515 as **delivered**, citing `796e587b2`.
+That is wrong, and the way it went wrong is the defect class this session has been chasing all day.
+
+`796e587b2` is the merge commit of **PR #5519**, titled *"fix(console): never claim DR health
+without live backing — phantom standby + fail-open pattern"*. It carries `Refs #5514 #5515`. It is a
+**console-side** fix that mentions #5515; it does not touch `derivePattern`. Checked at function
+level on `origin/main` rather than by matching an issue number in a commit message:
+
+```
+git show origin/main:products/catalyst/bootstrap/api/internal/infrastructure/topology_loader.go \
+  | grep -A3 'func derivePattern'
+->  func derivePattern(in LoaderInput) string {
+        switch {
+        case len(in.Regions) > 1:          # the DECLARED spec, not live regions
+```
+
+and the in-flight guard — the non-obvious half of the fix — is absent: `grep -cE 'live == 0|in-flight'`
+returns **0** on main.
+
+So **#5515's defect is live on main.** The real fix (`509222c6e`) plus its tests (`02108f5e6`,
+`ebf5b6feb`, one built from mothership record `2c2d746b578c636b` with 2 declared / 1 live regions)
+sit on an unmerged branch.
+
+**#5482** needs the same correction of framing: PR **#5483 MERGED** 2026-07-29 fixed the *read* side
+(`read primaryRegion from status.placement`), but the flat `status.primaryRegion` still goes stale on
+failover — pinned by executable test `daa1b1ad4`. One leg landed; the divergence did not close.
+
+### The counting rule this establishes
+
+> **A merged PR is not a closed child, and a `Refs #N` is not a fix for #N.**
+
+Counting merged PRs as done would report #3969 at **13/16 (81.3 %)** instead of its true
+**11/16 (68.8 %)** — a 12.5-point overstatement produced entirely by trusting merge state. Every
+open child below was therefore verified at file level, not by commit message.
+
+| child | artifact | dated | verified state |
+|---|---|---|---|
+| **#5420** Topology renders declared, not effective | **PR #5538 OPEN**, `692c131dc` | 2026-07-31 | authored, unmerged |
+| **#5422** Overview hardcodes `singleton` fallback | **PR #5536 OPEN** | 2026-07-31 | authored, unmerged |
+| **#5515** derivePattern fails open | `509222c6e` + `02108f5e6`, `ebf5b6feb` | 2026-08-01 | **unmerged — defect live on main** (proof above) |
+| **#5482** flat `primaryRegion` goes stale | `daa1b1ad4` | 2026-08-01 | divergence pinned; merged #5483 closed only the read leg |
+| **#4212** (cross-listed) | — | — | 16/16 children CLOSED, zero open |
+
+## Artifacts landed 2026-08-02, each tied to its EPIC
+
+| EPIC | artifact | SHA / ref | how it was verified |
+|---|---|---|---|
+| **#1096** Compliance | §854 solver carve-out age-bounded — a weeks-old solver no longer reads as "transient" | `b7c43fab9`, `01422f144` | mutation test: reverting the age check makes the self-test exit 2 |
+| **#1096** | NodePort guard made able to pass CI at all — it assumed vendored chart deps the repo gitignores | `db5dfef3a` | clean detached worktree + empty helm config: 71 rendered, 56 deps fetched |
+| **#1096** | Guard no longer aborts mid-sweep; it reported only its first casualty at the same rc=1 a full run gives | `12c0e0f7c` | probe chart placed FIRST alphabetically so truncation cannot hide behind ordering — 72 charts scanned after it |
+| **#1096** | CI helm 3.16.0 → 3.16.3 (two dependency-resolution regressions) | `9b3c1e260`, `f7c93d438` | **PR #5544 CI GREEN, failing=0** — the one artifact today that CI itself certifies |
+| **#1096** | sealed-secrets dependency repository answers 404 — allowlisted with the reason, not silently repointed | `6e11a8ab9` → **#5563** | `curl https://bitnami-labs.github.io/sealed-secrets/index.yaml -> 404` |
+| **#4706** §854 | **UAT row 240 walked** → ⛔, and its malformed line repaired (10 pipes → 8) | `3ea68a83d` | in-browser HTTP **503** + committed screenshot |
+| **#4411** delivery | **UAT row 231 walked** → ⚠️, render half PROVEN | `0f75d9f18` | `helm template --api-versions postgresql.cnpg.io/v1` renders the probe netpol; the control render without it emits **zero** |
+| **#4706** §854 | **UAT row 242 walked** → ⛔ at the API the row names | `0f75d9f18` | `/sovereign/api/v1/deployments -> 503`; edge UP, backend absent |
+| **#5348** | bp-powerdns catalog-seed pin synced 1.2.22 → 1.2.23 (four-site lockstep) | `671cf3b23` | `tests/e2e/bootstrap-kit` PASS with `-count=1` (cache defeated) |
+
+## The three denominators — today's queried values
+
+| measure | value | source, run 2026-08-02 |
+|---|---|---|
+| EPIC closure | **16 / 18 = 88.9 %** | `gh issue list --label epic --state all` |
+| UAT acceptance ledger | **8 / 286 = 2.8 % GREEN** | `scripts/uat-tally.py` after the row-242 stamp |
+| Durable pillar completion | **88** | moves only on walk evidence against a converged Sovereign |
+
+## What did NOT move, stated plainly
+
+**No headline percentage changed today.** EPIC closure stays 16/18 because no child closed. The
+ledger stays 8/286 GREEN because the three rows walked resolved to one **partial** and two
+**blocked** — not passes.
+
+That is the correct result. Every artifact above is a defect found, a guard repaired, or a claim
+corrected; none is a runtime acceptance, and runtime acceptance needs a converged Sovereign that does
+not exist (hw291 wiped, hw292 unfired, `catalyst` namespace at zero pods with the console 503 —
+confirmed in-browser today at 02:48Z).
+
+The number positioned to move first is **#3969**, one merge away from 81.3 % and two from 93.8 %.
+What stands between it and that figure is merge permission, not engineering — with the caveat this
+section establishes: **#5515 must be counted by what is on `main`, not by a merged PR that named it.**
