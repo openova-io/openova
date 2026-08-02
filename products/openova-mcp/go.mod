@@ -32,7 +32,7 @@ go 1.23.0
 toolchain go1.23.4
 
 require (
-	github.com/golang-jwt/jwt/v5 v5.2.1
+	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/openova-io/openova/core/services/shared v0.0.0
 )
 
