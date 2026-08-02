@@ -38,7 +38,7 @@ if [ -z "$route_block" ]; then
   echo "FAIL: HTTPRoute did not render"
   exit 1
 fi
-if ! echo "$route_block" | grep -q "guac.smoke.omani.works"; then
+if ! grep -q "guac.smoke.omani.works" <<<"$route_block"; then
   echo "FAIL: hostname not propagated"
   exit 1
 fi
@@ -46,11 +46,11 @@ echo "[bp-guacamole] Case 1: PASS"
 
 # Case 2
 echo "[bp-guacamole] Case 2: parentRefs cite cilium-gateway / kube-system"
-if ! echo "$route_block" | grep -q "name: cilium-gateway"; then
+if ! grep -q "name: cilium-gateway" <<<"$route_block"; then
   echo "FAIL: parentRef name != cilium-gateway"
   exit 1
 fi
-if ! echo "$route_block" | grep -q "namespace: kube-system"; then
+if ! grep -q "namespace: kube-system" <<<"$route_block"; then
   echo "FAIL: parentRef namespace != kube-system"
   exit 1
 fi
@@ -59,7 +59,7 @@ echo "[bp-guacamole] Case 2: PASS"
 # Case 3
 echo "[bp-guacamole] Case 3: default-off (guacamole.enabled=false) — HTTPRoute absent"
 out_default=$("$helm" template smoke "$chart_dir" 2>&1)
-if echo "$out_default" | grep -q "^kind: HTTPRoute$"; then
+if grep -q "^kind: HTTPRoute$" <<<"$out_default"; then
   echo "FAIL: HTTPRoute should NOT render with guacamole.enabled=false"
   exit 1
 fi
@@ -72,7 +72,7 @@ out_empty=$("$helm" template smoke "$chart_dir" \
   --set guacamole.enabled=true \
   --set guacamole.sso.mode=openid \
   --set guacamole.oidc.issuer=https://keycloak.smoke.omani.works/realms/ops 2>&1 || true)
-if ! echo "$out_empty" | grep -q "hostname is empty"; then
+if ! grep -q "hostname is empty" <<<"$out_empty"; then
   echo "FAIL: bp-guacamole.host should hard-fail when hostname empty"
   echo "$out_empty" | tail -5
   exit 1
@@ -93,12 +93,12 @@ appcr=$("$helm" template smoke "$chart_dir" \
         --set bootstrapOwned.enabled=true \
         --set bootstrapOwned.helmRelease.name=bp-guacamole \
         --api-versions apps.openova.io/v1 2>&1)
-if ! echo "$appcr" | grep -qE '^  placement: singleton$'; then
+if ! grep -qE '^  placement: singleton$' <<<"$appcr"; then
   echo "FAIL: Application CR placement must be canonical 'singleton' (not banned 'single-region')"
   echo "$appcr" | grep -E '^  placement:' || true
   exit 1
 fi
-if echo "$appcr" | grep -qE '^  placement: single-region$'; then
+if grep -qE '^  placement: single-region$' <<<"$appcr"; then
   echo "FAIL: #3375 REGRESSION — Application CR re-introduced the banned 'single-region' placement"
   exit 1
 fi
@@ -115,7 +115,7 @@ out_header=$("$helm" template smoke "$chart_dir" \
   --set guacamole.enabled=true \
   --set guacamole.httproute.enabled=true \
   --set guacamole.httproute.hostname=guac.smoke.omani.works 2>&1)
-if echo "$out_header" | grep -q "^kind: HTTPRoute$"; then
+if grep -q "^kind: HTTPRoute$" <<<"$out_header"; then
   echo "FAIL: header mode rendered a direct HTTPRoute (gate owns the hostname)"
   exit 1
 fi

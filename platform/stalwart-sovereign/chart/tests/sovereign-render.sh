@@ -29,9 +29,9 @@ helm="${HELM_BIN:-helm}"
 # ── Case 1: smoke render (default values) ─────────────────────────────
 echo "[stalwart-sovereign] Case 1: smoke render (default values)"
 out=$("$helm" template smoke "$chart_dir" 2>&1)
-echo "$out" | grep -q "kind: StatefulSet"   || { echo "FAIL: no StatefulSet"; exit 1; }
-echo "$out" | grep -q "kind: ServiceAccount" || { echo "FAIL: no ServiceAccount"; exit 1; }
-echo "$out" | grep -q "kind: NetworkPolicy"  || { echo "FAIL: no NetworkPolicy"; exit 1; }
+grep -q "kind: StatefulSet" <<<"$out"   || { echo "FAIL: no StatefulSet"; exit 1; }
+grep -q "kind: ServiceAccount" <<<"$out" || { echo "FAIL: no ServiceAccount"; exit 1; }
+grep -q "kind: NetworkPolicy" <<<"$out"  || { echo "FAIL: no NetworkPolicy"; exit 1; }
 # Smoke-render-safe: dns-records ConfigMap MUST NOT render the actual
 # ConfigMap object when sovereignFQDN is empty (skip-on-empty gate). The
 # RBAC + Job env templates may still REFERENCE the name (they always
@@ -56,19 +56,19 @@ EOF
 out=$("$helm" template smoke "$chart_dir" -f "$values" 2>&1)
 
 # Image SHA-pin
-echo "$out" | grep -q "stalwartlabs/stalwart@sha256:" \
+grep -q "stalwartlabs/stalwart@sha256:" <<<"$out" \
   || { echo "FAIL: image not SHA-pinned"; exit 1; }
 
 # LoadBalancer Service with SMTP ports
-echo "$out" | grep -q "type: LoadBalancer" \
+grep -q "type: LoadBalancer" <<<"$out" \
   || { echo "FAIL: no LoadBalancer Service"; exit 1; }
-echo "$out" | grep -q "name: smtp" \
+grep -q "name: smtp" <<<"$out" \
   || { echo "FAIL: no smtp port name"; exit 1; }
-echo "$out" | grep -q "name: submission" \
+grep -q "name: submission" <<<"$out" \
   || { echo "FAIL: no submission port name"; exit 1; }
 
 # ClusterIP for admin API
-echo "$out" | grep -q "stalwart-sovereign-http" \
+grep -q "stalwart-sovereign-http" <<<"$out" \
   || { echo "FAIL: no http ClusterIP Service"; exit 1; }
 
 # config.toml using == not = for equality (stalwart_expression_syntax.md).
@@ -80,15 +80,15 @@ if echo "$toml" | grep -E '^[[:space:]]*if[[:space:]]*=[[:space:]]*"[^=]+",' >/d
 fi
 
 # dns-records ConfigMap with operator content
-echo "$out" | grep -q "stalwart-sovereign-dns-records-required" \
+grep -q "stalwart-sovereign-dns-records-required" <<<"$out" \
   || { echo "FAIL: dns-records ConfigMap missing"; exit 1; }
-echo "$out" | grep -q "mail.omantel.omani.works" \
+grep -q "mail.omantel.omani.works" <<<"$out" \
   || { echo "FAIL: mailHost not composed"; exit 1; }
-echo "$out" | grep -q "v=spf1 a mx" \
+grep -q "v=spf1 a mx" <<<"$out" \
   || { echo "FAIL: SPF record string missing"; exit 1; }
-echo "$out" | grep -q "v=DMARC1" \
+grep -q "v=DMARC1" <<<"$out" \
   || { echo "FAIL: DMARC record string missing"; exit 1; }
-echo "$out" | grep -q "_domainkey.omantel.omani.works" \
+grep -q "_domainkey.omantel.omani.works" <<<"$out" \
   || { echo "FAIL: DKIM record name missing"; exit 1; }
 
 # Submission Secret with canonical 5-key shape (b64-encoded values).
@@ -104,15 +104,15 @@ from_dec=$(echo "$b64from" | base64 -d 2>/dev/null || true)
   || { echo "FAIL: smtp-from decoded to '$from_dec'"; exit 1; }
 
 # Setup Job mounts both Secrets
-echo "$out" | grep -q "name: ADMIN_PASSWORD" \
+grep -q "name: ADMIN_PASSWORD" <<<"$out" \
   || { echo "FAIL: ADMIN_PASSWORD env missing"; exit 1; }
-echo "$out" | grep -q "name: SUBMISSION_PASSWORD" \
+grep -q "name: SUBMISSION_PASSWORD" <<<"$out" \
   || { echo "FAIL: SUBMISSION_PASSWORD env missing"; exit 1; }
 
 # Setup Job creates mirror Secret with both key shapes
-echo "$out" | grep -q '"smtp-user": "${B64_USER}"' \
+grep -q '"smtp-user": "${B64_USER}"' <<<"$out" \
   || { echo "FAIL: mirror Secret missing smtp-user key"; exit 1; }
-echo "$out" | grep -q '"user": "${B64_USER}"' \
+grep -q '"user": "${B64_USER}"' <<<"$out" \
   || { echo "FAIL: mirror Secret missing legacy user key"; exit 1; }
 
 echo "[stalwart-sovereign] Case 2: PASS"
@@ -127,7 +127,7 @@ sovereignSMTPCredentialsMirror:
 EOF
 out=$("$helm" template smoke "$chart_dir" -f "$values" 2>&1)
 # Mirror disabled — cross-namespace Role into catalyst-system MUST NOT render.
-if echo "$out" | grep -q "namespace: catalyst-system"; then
+if grep -q "namespace: catalyst-system" <<<"$out"; then
   echo "FAIL: mirror Role rendered into catalyst-system despite enabled=false"
   exit 1
 fi

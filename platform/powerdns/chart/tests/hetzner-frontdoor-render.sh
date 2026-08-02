@@ -42,20 +42,20 @@ helm="${HELM_BIN:-helm}"
 # ── Case 1: default dnsdist workload is a Deployment with no host binding ──
 echo "[bp-powerdns] Case 1: default dnsdist => Deployment, ClusterIP, no hostPort"
 def_dnsdist=$("$helm" template smoke "$chart_dir" --show-only templates/dnsdist.yaml 2>&1)
-if ! echo "$def_dnsdist" | grep -qE '^kind: Deployment$'; then
+if ! grep -qE '^kind: Deployment$' <<<"$def_dnsdist"; then
   echo "FAIL: default render must produce a dnsdist Deployment (LB-IPAM anycast-VIP path)"
   echo "$def_dnsdist" | grep -E '^kind:' || true
   exit 1
 fi
-if echo "$def_dnsdist" | grep -qE '^kind: DaemonSet$'; then
+if grep -qE '^kind: DaemonSet$' <<<"$def_dnsdist"; then
   echo "FAIL: default render must NOT be a DaemonSet — Huawei/kom4dc path would change"
   exit 1
 fi
-if echo "$def_dnsdist" | grep -qE 'hostPort:'; then
+if grep -qE 'hostPort:' <<<"$def_dnsdist"; then
   echo "FAIL: default render must NOT bind a hostPort (that is the Hetzner-only path)"
   exit 1
 fi
-if ! echo "$def_dnsdist" | grep -qE '^  type: ClusterIP$'; then
+if ! grep -qE '^  type: ClusterIP$' <<<"$def_dnsdist"; then
   echo "FAIL: default dnsdist Service must be ClusterIP"
   exit 1
 fi
@@ -64,12 +64,12 @@ echo "[bp-powerdns] Case 1: PASS"
 # ── Case 2: default anycast Service is the §854 shared-VIP LoadBalancer ──
 echo "[bp-powerdns] Case 2: anycast Service => LoadBalancer, allocateLoadBalancerNodePorts:false"
 anycast=$("$helm" template smoke "$chart_dir" --show-only templates/anycast-endpoint.yaml 2>&1)
-if ! echo "$anycast" | grep -qE '^  type: LoadBalancer$'; then
+if ! grep -qE '^  type: LoadBalancer$' <<<"$anycast"; then
   echo "FAIL: anycast Service must be type=LoadBalancer (Cilium LB-IPAM shared VIP)"
   echo "$anycast" | grep -E '^  type:' || true
   exit 1
 fi
-if ! echo "$anycast" | grep -qE '^  allocateLoadBalancerNodePorts: false$'; then
+if ! grep -qE '^  allocateLoadBalancerNodePorts: false$' <<<"$anycast"; then
   echo "FAIL: anycast Service must set allocateLoadBalancerNodePorts:false (§854 — zero nodePorts)"
   exit 1
 fi
@@ -85,7 +85,7 @@ fi
 # the defect it guards — it blocked the bp-powerdns 1.2.23 publish on main and
 # left the catalog-seed + bootstrap-kit pins hollow. Match a nonzero value, the
 # same way scripts/check-no-nodeports.sh does.
-if echo "$anycast" | grep -qE '^ *nodePort:[[:space:]]*[1-9][0-9]*'; then
+if grep -qE '^ *nodePort:[[:space:]]*[1-9][0-9]*' <<<"$anycast"; then
   echo "FAIL: anycast Service carries a NONZERO nodePort (§854)"
   echo "$anycast" | grep -nE '^ *nodePort:' || true
   exit 1
@@ -93,7 +93,7 @@ fi
 # Vacuity guard: `nodePort: 0` must be PRESENT. Without it the render is
 # "compliant" only by omission, which is precisely the #5348 shape that let a
 # live allocation survive. Absence is not compliance here.
-if ! echo "$anycast" | grep -qE '^ *nodePort:[[:space:]]*0[[:space:]]*$'; then
+if ! grep -qE '^ *nodePort:[[:space:]]*0[[:space:]]*$' <<<"$anycast"; then
   echo "FAIL: anycast Service must state nodePort: 0 EXPLICITLY on each port (§854/#5348)"
   echo "      Omitting the field does not deallocate an existing nodePort."
   exit 1
@@ -104,7 +104,7 @@ echo "[bp-powerdns] Case 2: PASS"
 echo "[bp-powerdns] Case 3: hostPortMode=true => DaemonSet + hostPort:53 (UDP+TCP), tolerate-all, no hostNetwork"
 hz_dnsdist=$("$helm" template smoke "$chart_dir" --set dnsdist.hostPortMode=true \
              --show-only templates/dnsdist.yaml 2>&1)
-if ! echo "$hz_dnsdist" | grep -qE '^kind: DaemonSet$'; then
+if ! grep -qE '^kind: DaemonSet$' <<<"$hz_dnsdist"; then
   echo "FAIL: hostPortMode=true must produce a dnsdist DaemonSet (every-node :53 binder)"
   echo "$hz_dnsdist" | grep -E '^kind:' || true
   exit 1
@@ -114,11 +114,11 @@ if [ "$hostport_count" -ne 2 ]; then
   echo "FAIL: expected hostPort:53 on BOTH the UDP and TCP ports (2), got $hostport_count"
   exit 1
 fi
-if ! echo "$hz_dnsdist" | grep -qE '^ *- operator: Exists$'; then
+if ! grep -qE '^ *- operator: Exists$' <<<"$hz_dnsdist"; then
   echo "FAIL: Hetzner DaemonSet must tolerate all taints (operator: Exists) so the CP node — an LB :53 target — is covered"
   exit 1
 fi
-if echo "$hz_dnsdist" | grep -qE 'hostNetwork:'; then
+if grep -qE 'hostNetwork:' <<<"$hz_dnsdist"; then
   echo "FAIL: dnsdist must NOT use hostNetwork (pod-netns :53 bind dodges the systemd-resolved 127.0.0.53 stub)"
   exit 1
 fi

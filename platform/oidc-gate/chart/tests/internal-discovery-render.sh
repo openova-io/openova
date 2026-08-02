@@ -47,7 +47,7 @@ YAML
 echo "[internal-discovery] Case 1: fix ON renders skip-discovery + internal backchannel"
 on="$("$helm" template oidc-gate "$chart_dir" -f "$vals" 2>/dev/null)"
 
-assert_arg() { echo "$on" | grep -qF -- "$1" || { echo "FAIL: missing arg '$1'" >&2; echo "$on" >&2; exit 1; }; }
+assert_arg() { grep -qF -- "$1" <<<"$on" || { echo "FAIL: missing arg '$1'" >&2; echo "$on" >&2; exit 1; }; }
 
 assert_arg "--skip-oidc-discovery=true"
 assert_arg "--redeem-url=${internal}/realms/sovereign/protocol/openid-connect/token"
@@ -63,7 +63,7 @@ echo "  PASS"
 echo "[internal-discovery] Case 2: no backchannel arg points at the public auth host"
 for bc in redeem-url oidc-jwks-url profile-url; do
   line="$(echo "$on" | grep -E -- "--${bc}=" | head -1)"
-  if echo "$line" | grep -qF "auth.${fqdn}"; then
+  if grep -qF "auth.${fqdn}" <<<"$line"; then
     echo "FAIL: --${bc} dials the public EIP host (auth.${fqdn}) — hairpin bug not fixed" >&2
     echo "$line" >&2; exit 1
   fi
@@ -73,13 +73,13 @@ echo "  PASS"
 # ── Case 3: fix OFF (keycloakInternalURL="") — pre-#3844 shape ──────────────
 echo "[internal-discovery] Case 3: keycloakInternalURL=\"\" renders NO skip-discovery flags"
 off="$("$helm" template oidc-gate "$chart_dir" -f "$vals" --set keycloakInternalURL="" 2>/dev/null)"
-if echo "$off" | grep -qE -- '--skip-oidc-discovery|--redeem-url|--oidc-jwks-url|--profile-url'; then
+if grep -qE -- '--skip-oidc-discovery|--redeem-url|--oidc-jwks-url|--profile-url' <<<"$off"; then
   echo "FAIL: empty keycloakInternalURL must NOT render skip-discovery flags (pre-#3844 shape)" >&2
   echo "$off" | grep -E -- '--skip-oidc-discovery|--redeem-url|--oidc-jwks-url|--profile-url' >&2
   exit 1
 fi
 # the public issuer + login URL still render in the OFF path
-echo "$off" | grep -qF -- "--oidc-issuer-url=https://auth.${fqdn}/realms/sovereign" \
+grep -qF -- "--oidc-issuer-url=https://auth.${fqdn}/realms/sovereign" <<<"$off" \
   || { echo "FAIL: OFF path lost the public --oidc-issuer-url" >&2; exit 1; }
 echo "  PASS"
 
