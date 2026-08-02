@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-02T07:45:05Z` |
+| Last refreshed | `2026-08-02T08:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-02T07:47 | [#5570](https://github.com/openova-io/openova/pull/5570) | #5547 | fix(bp-powerdns): front-door guard rejected the §854 fix it  |
 | 2026-08-02T07:16 | [#5569](https://github.com/openova-io/openova/pull/5569) | #3969 | docs(ledger): re-derive ALL 18 EPIC child counts live — #396 |
 | 2026-08-02T04:36 | [#5566](https://github.com/openova-io/openova/pull/5566) | #5515 | docs(ledger): EPIC completion matrix re-derived live + 14 UA |
 | 2026-08-02T04:36 | [#5565](https://github.com/openova-io/openova/pull/5565) | #5505 | fix(kyverno): §854 policy exempted any Service NAMED cm-acme |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-07-29T17:05 | [#5483](https://github.com/openova-io/openova/pull/5483) | #5482 | fix(catalyst-api): read primaryRegion from status.placement, |
 | 2026-07-29T16:12 | [#5481](https://github.com/openova-io/openova/pull/5481) | #4975 | fix(cutover): mirror litellm-database single-platform past i |
 | 2026-07-29T16:09 | [#5479](https://github.com/openova-io/openova/pull/5479) | #5449 | fix(catalog): chartRef double prefix, origin enum collision, |
-| 2026-07-29T15:54 | [#5478](https://github.com/openova-io/openova/pull/5478) | #5477 | fix(continuum): never publish replicationLagSeconds that was |
 
 ---
 
