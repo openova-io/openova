@@ -154,7 +154,7 @@ spec:
       # mixed-source pods (proxy-cache sidecars + openova-io plugin) —
       # un-wedges huawei-evs-csi + its 24-HR dependency cascade (#5017,
       # #4973 family).
-      version: 1.0.51
+      version: 1.0.52
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno

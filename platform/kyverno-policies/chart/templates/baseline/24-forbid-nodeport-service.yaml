@@ -39,18 +39,24 @@ after bootstrapMode has been flipped to false). See #5088.
 
 CARVE-OUT — cert-manager ACME HTTP-01 solver Services
 =====================================================
-cert-manager's built-in HTTP-01 solver creates a short-lived `type=NodePort`
-Service per in-flight ACME challenge, labelled
-`acme.cert-manager.io/http01-solver: "true"` and named
-`cm-acme-http-solver-<rand>`. They GC automatically when the challenge
-completes. They are a KNOWN-ACCEPTED transient class — excluded here so the
-policy's signal stays actionable, not drowned in solver churn. The §854-clean
-long-term fix is to switch issuers to the DNS-01 / gateway-API HTTP-01 solver so
-NO NodePort solver is ever created; until every issuer is migrated, this
-carve-out keeps the guard's report meaningful. (A leaked/stuck solver — e.g. a
-challenge pending for weeks — is a cert-manager problem to resolve at the root,
-not a signal this policy should raise; #5088 tracks the iogrid stuck challenge
-separately.)
+cert-manager's built-in HTTP-01 solver creates a `type=NodePort` Service per
+in-flight ACME challenge, labelled `acme.cert-manager.io/http01-solver: "true"`
+and named `cm-acme-http-solver-<rand>`. On the HAPPY path they GC when the
+challenge completes — but that is a conditional, not a guarantee: when a
+challenge never completes, the solver Service persists indefinitely (measured
+live 2026-08-01: six solvers standing 70 days on stuck Certificates — #5561).
+TRANSIENCE IS THE ONLY JUSTIFICATION for this carve-out, so a solver that is
+not transient is NOT excused. Kyverno match/exclude cannot express age, which
+is why the exclusion here is label-scoped; the age bound lives in
+`scripts/check-live-nodeports.sh`, whose classifier splits TRANSIENT (younger
+than the threshold) from STUCK (past it, or unknown age — fail-closed), and
+STUCK-in-our-namespaces is FATAL. A clean PolicyReport from this policy is
+therefore NOT evidence the solver class is healthy — only the live guard's
+TRANSIENT/STUCK split is. The §854-clean long-term fix is to switch issuers to
+the DNS-01 / gateway-API HTTP-01 solver so NO NodePort solver is ever created
+(#5561 finding 2 tracks the http01-enabled default); until then this carve-out
+keeps THIS policy's report actionable while the live guard carries the
+stuck-solver signal.
 
 Operator override: `--set compliancePolicies.forbidNodePortService.enabled=false`
 disables it entirely; `.excludeNamespaces` adds per-namespace escapes (default

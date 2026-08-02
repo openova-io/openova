@@ -337,7 +337,7 @@ type: application
 #   (helm.sh/hook annotation) — hooks get no Flux labels + Helm force-stamps
 #   managed-by:Helm, so a legit hook Job (bp-powerdns zone-bootstrap) was
 #   Enforce-denied on live upgrade, stranding the powerdns anycast NodePort.
-version: 1.0.51
+version: 1.0.52
 appVersion: "1.0.2"
 keywords: [catalyst, blueprint, kyverno, policy, compliance, audit]
 maintainers:

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-02T18:01:23.648Z",
+  "generatedAt": "2026-08-02T20:28:56.720Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -2490,7 +2490,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.0.51",
+      "version": "1.0.52",
       "section": "pts-3-3-security-and-policy",
       "depends": [],
       "shareable": false,
