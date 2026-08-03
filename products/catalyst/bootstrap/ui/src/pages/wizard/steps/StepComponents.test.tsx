@@ -981,6 +981,36 @@ describe('product-family model (issue #175 fix B)', () => {
     }
   })
 
+  it('every familyRequires entry names a real product', () => {
+    // `resolveCatalogDependencies()` expands familyRequires by looking the
+    // id up in PRODUCTS and falling back to []. A typo would therefore
+    // expand to nothing and the selection rule would silently disappear —
+    // the exact failure mode that killed the Specter → CORTEX rule when it
+    // was a `dependencies` literal the Flux override discarded. Fail here
+    // instead, where the id is visible.
+    const productIds = new Set(PRODUCTS.map((p) => p.id))
+    for (const c of RAW_COMPONENTS) {
+      for (const familyId of c.familyRequires ?? []) {
+        expect(productIds.has(familyId)).toBe(true)
+      }
+    }
+  })
+
+  it('a familyRequires edge expands to every member of the named product', () => {
+    // Vacuity check on the test above: it only says the ids are valid, and
+    // would pass just as happily if the expansion had been dropped. Assert
+    // the expansion actually happened for each declaring component.
+    const declaring = RAW_COMPONENTS.filter((c) => (c.familyRequires ?? []).length > 0)
+    expect(declaring.length).toBeGreaterThan(0)
+    for (const c of declaring) {
+      for (const familyId of c.familyRequires!) {
+        for (const member of componentsByProduct(familyId)) {
+          expect(c.dependencies).toContain(member.id)
+        }
+      }
+    }
+  })
+
   it('every product.components matches GROUPS members', () => {
     for (const p of PRODUCTS) {
       const group = GROUPS.find((g) => g.id === p.id)!
