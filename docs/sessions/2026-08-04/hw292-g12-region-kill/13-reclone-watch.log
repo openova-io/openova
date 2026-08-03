@@ -1,0 +1,3 @@
+[20:21:08Z] A_pod=cnpg-pair-bp-cnpg-pair-primary-1 phase='Waiting for the instances to become active' A_rows=NA streams_from=NA B_rows=4
+[20:21:49Z] A_pod=cnpg-pair-bp-cnpg-pair-primary-1 phase='Creating a new replica' A_rows=4 streams_from=cnpg-pair-bp-cnpg-pair-replica-mesh B_rows=4
+RECLONE-CONVERGED: region-A streams from region-B and row-sets match (4)

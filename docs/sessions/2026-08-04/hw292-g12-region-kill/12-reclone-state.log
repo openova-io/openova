@@ -1,0 +1,12 @@
+=== §9 RE-CLONE / convergence state — 20:20:41Z ===
+--- region-A designated primary: streaming from whom? ---
+Error from server (NotFound): pods "cnpg-pair-bp-cnpg-pair-primary-2" not found
+--- row convergence A vs B ---
+Error from server (NotFound): pods "cnpg-pair-bp-cnpg-pair-primary-2" not found
+B rows=4
+--- failback actor log (may now show the demote) ---
+2026-08-03T20:17:12Z [dr-failback/actor] DEMOTING region-A: peer writable on TL=2 >= local TL=2 held 130s — patching Kustomization substitute SOVEREIGN_CNPG_PAIR_DEMOTED=true (durable source seam, #5245)
+kustomization.kustomize.toolkit.fluxcd.io/bootstrap-kit patched
+2026-08-03T20:17:23Z [dr-failback/actor] DIVERGENCE DETECTED: in-place-demoted Cluster (created 2026-08-03T04:55:26Z < episode 2026-08-03T20:17:13Z) reports ConsistentSystemID=False (reason=NotFound, phase='Cluster in healthy state') — the stale-PGDATA line cannot consistently follow region-B; divergence clock started (grace 180s) (#5245 hw278)
+2026-08-03T20:20:31Z [dr-failback/actor] DIVERGENCE ESCALATION: ConsistentSystemID=False held 188s >= 180s on the pre-episode demoted Cluster with peer verified writable — deleting for a clean pg_basebackup re-clone (PKI preserved) (#5245 hw278)
+cluster.postgresql.cnpg.io "cnpg-pair-bp-cnpg-pair-primary" deleted

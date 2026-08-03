@@ -1,0 +1,16 @@
+=== §7 DUAL-WRITABLE decisive probe — 20:19:22Z ===
+--- region-A synchronous_standby_names (the fence) ---
+
+--- region-A sync standby actually connected? ---
+--- DOES region-A ACCEPT A WRITE? (10s statement timeout; a fenced primary must hang/fail) ---
+SET
+command terminated with exit code 1
+=== §7b write-fence detail — 20:19:41Z ===
+--- synchronous_standby_names (quoted) ---
+[]
+--- INSERT with full stderr ---
+SET
+ERROR:  cannot execute INSERT in a read-only transaction
+rc=1
+--- can region-A READ (proving the instance is live, a vacuity control) ---
+READ-OK rows=1

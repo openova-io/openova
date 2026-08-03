@@ -32,11 +32,11 @@
 | # | Leg | Verdict | Evidence |
 |---|---|---|---|
 | 1 | RPO=0 — pre-kill row survives the kill | **PASS** | `04-promote-rpo-write.log` — sentinel `19:59:50.340756+00` present on the promoted primary |
-| 2 | region-B becomes writable after a HARD kill of region-A | **PASS — and zero-touch** | promoted at T0+136s with **no operator action**; hw290 needed a manual patch |
+| 2 | region-B becomes writable after a HARD kill of region-A | **PASS — and zero-touch** | promoted at T0+136s with **no operator action**; the prior walk needed a manual patch |
 | 3 | post-promote write accepted on the new primary | **PASS** | `INSERT 0 1`, `id=34` at 20:04:12 |
 | 4 | no split-brain DURING the outage | **PASS** | region-A fully powered off (4/4 ECS stopped, apiserver dead at T0+22s) |
 | 5 | gateway survives at the HTTP layer | **PASS** | 503 (not a black hole) on 4 independent fresh-TCP samples; 200 again by 20:11:06 |
-| 6 | failback on region-A return leaves no split-brain | **see `09-failback-decision-watch.log`** | measured, not asserted — the dual-writable window is timed below |
+| 6 | failback on region-A return leaves no split-brain | **PASS — zero-touch** | demote 20:17:12Z, divergence detected 20:17:23Z, 180s grace, diverged Cluster deleted 20:20:31Z for a clean re-clone, converged 20:21:49Z streaming from region-B with identical row-sets (4=4) |
 
 ## The leg-6 measurement, stated precisely
 
@@ -49,11 +49,27 @@ A first probe of `primary-1` reported `in_recovery=true` streaming from
 is *consistent with* a completed failback and would have produced a false PASS; the pod is
 region-A's local replica. The verdict above is taken from region-A's **role=primary** pod.
 
-`bp-cnpg-pair 0.2.19+` ships `dr-failback` on region-A for exactly this state
-(`startupGrace=300s`, `hold=120s`, `divergenceGrace=180s`, `wedgeHold=600s`), so the honest
-question is not "is there a dual-writable window" — there is one by construction while the actor
-holds — but **whether the actor closes it**. `09-failback-decision-watch.log` records the answer
-and the window's duration.
+Then the second correction, in the opposite direction. That reading looks like a live
+dual-writable split-brain and would have produced a false **FAIL** — until the write probe:
+
+    ERROR:  cannot execute INSERT in a read-only transaction
+
+with `transaction_read_only=on`, reads succeeding on the same instance (vacuity control), and
+region-B accepting the identical write (positive control, `id=36`). Region-A's Cluster CR carries
+`replica.enabled=true`: CNPG had already re-rendered it as a **replica cluster**, whose designated
+primary is not in recovery but *is* write-fenced. Divergence was never possible.
+
+The actor then closed it out with no operator action:
+
+| UTC | `dr-failback` |
+|---|---|
+| 20:17:12 | **DEMOTING** region-A — peer writable on TL=2 ≥ local TL=2 held 130s; `SOVEREIGN_CNPG_PAIR_DEMOTED=true` through the durable source seam |
+| 20:17:23 | **DIVERGENCE DETECTED** — the in-place-demoted Cluster reports `ConsistentSystemID=False`; the stale-PGDATA line cannot follow region-B; 180s clock started |
+| 20:20:31 | **DIVERGENCE ESCALATION** — held 188s ≥ 180s with the peer verified writable; deletes the Cluster for a clean `pg_basebackup` re-clone (PKI preserved) |
+| 20:21:49 | **CONVERGED** — region-A streams from `cnpg-pair-bp-cnpg-pair-replica-mesh`, row-sets identical (4 = 4) |
+
+**Leg 6 PASSES.** No data split-brain, and the whole failover-and-return chain ran without a
+single operator action.
 
 ## Files
 
@@ -68,6 +84,10 @@ and the window's duration.
 | `07-failback-watch.log` | node recovery + first (pod-level) recovery sampling |
 | `08-failback-splitbrain-proof.log` | replication direction, write-fence probe, timeline + row-set comparison |
 | `09-failback-decision-watch.log` | the dr-failback actor's decision window |
+| `10-dual-writable-probe.log` | the write probe that refuted the dual-writable reading |
+| `11-fence-three-way-confirm.log` | GUC + Cluster CR + region-B positive control |
+| `12-reclone-state.log` | the actor's demote / divergence / delete decisions |
+| `13-reclone-watch.log` | re-clone to convergence (row-sets 4 = 4) |
 
 ## Sub-gap found by this walk — filed, not swept
 

@@ -1,0 +1,10 @@
+=== §8 THREE-WAY FENCE CONFIRMATION — 20:20:09Z ===
+--- (1) GUC on region-A ---
+default_transaction_read_only=off transaction_read_only=on
+--- (2) CNPG Cluster CR on region-A: is it rendered as a replica cluster? ---
+replica.enabled=true primaryUpdate=cnpg-pair-bp-cnpg-pair-primary-2 phase=Cluster in healthy state
+--- (3) CONTROL: region-B must ACCEPT the same write (proves the probe can succeed) ---
+B ACCEPTED id=36
+INSERT 0 1
+--- HR desired state on region-A ---
+promoted=false suspend=
