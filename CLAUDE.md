@@ -304,21 +304,26 @@ openova/
     └── archive/            # historical / superseded (legacy proposals/runbooks/lessons-learned folded into the 7 canonical docs)
 ```
 
-### ⚠️ There are THREE console trees — grep all three before concluding "the UI does not do X"
+### ⚠️ There are FOUR front-end trees — grep all four before concluding "the UI does not do X"
 
-A single `grep` against `core/console/src` is **not** evidence that a console
-surface is missing. The three trees, by `package.json` name:
+A single `grep` against `core/console/src` is **not** evidence that a user-facing
+surface is missing. The four trees, by `package.json` name:
 
 | Path | Package | What it is |
 |---|---|---|
-| `core/console/` | `org-console` | per-**Organization** tenant console (the User-facing one) |
+| `core/console/` | `org-console` | per-**Organization** tenant console (the signed-in User's console) |
+| `core/marketplace/` | `org-marketplace` | the **customer storefront + funnel** — signup, catalog, checkout, voucher redeem (`src/pages/redeem.astro`, `checkout.astro`) |
 | `products/catalyst/console/` | `catalyst-console` | Catalyst-side console assets |
 | `products/catalyst/bootstrap/ui/` | `ui` | **the sovereign-admin console** — `src/pages/sovereign/…` |
 
 Almost every operator-facing acceptance row (the whole #3375 topology epic, the
-apps grid, app detail, jobs, treemap, cutover controls) lives in the **third**
-tree, `products/catalyst/bootstrap/ui/src/pages/sovereign/`. It is the one most
-easily missed because `core/console` is the intuitive-looking path.
+apps grid, app detail, jobs, treemap, cutover controls) lives in the
+**sovereign-admin** tree, `products/catalyst/bootstrap/ui/src/pages/sovereign/`.
+It is the one most easily missed because `core/console` is the intuitive-looking
+path. Conversely, every **customer** funnel surface — signup, catalog browse,
+checkout, voucher redeem, and the rate-limit / error copy those flows show —
+lives in `core/marketplace/`, NOT in `core/console/`. A row about what a paying
+customer sees during purchase is almost certainly answered there.
 
 This has produced **wrong conclusions more than once** — a UAT row was recorded
 as "REFUTED, the badges do not exist" after grepping only `core/console/src`,
