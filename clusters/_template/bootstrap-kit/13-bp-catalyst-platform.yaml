@@ -1304,7 +1304,11 @@ spec:
       #   w/ 16b slot 0.2.23 (pin-sync gate).
       # 1.4.1246 (#5468): catalog-seed bp-nemo-guardrails -> unlisted (its image
       #   was never built); restores the advertise-only-what-installs invariant.
-      version: 1.4.1264
+      # 1.4.1265 (#5598): catalog-seed bp-guacamole 0.2.33 -> 0.2.34 —
+      #   API_SESSION_TIMEOUT aligned to the oidc-gate session so >60-min
+      #   revisits stop 403-wedging on a dead cached token; lockstep w/
+      #   slot-52 pin 0.2.34 (pin-sync gate).
+      version: 1.4.1265
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

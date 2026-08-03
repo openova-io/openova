@@ -90,6 +90,31 @@ guacamole:
       limits:
         memory: 768Mi
     port: 8080
+    # ── REST-session lifetime (#5598) ──────────────────────────────
+    # Minutes of inactivity before the webapp's own REST session token
+    # (the browser's localStorage GUAC_AUTH) expires — the upstream
+    # `api-session-timeout` property, which the image entrypoint maps
+    # from the API_SESSION_TIMEOUT env (guacamole-docker start.sh
+    # `set_optional_property "api-session-timeout"`). Upstream default
+    # is 60, and that default is the #5598 ERROR-page wedge on every
+    # Sovereign: behind the slot-13c oidc-gate the GATE session lives
+    # ~168h (oauth2-proxy --cookie-expire default), so the operator's
+    # browser stays "signed in" while Guacamole's own 60-minute token
+    # dies underneath it. On the next visit the SPA reuses the cached
+    # dead token, every session API call returns 403 PERMISSION_DENIED
+    # (the 1.5.5 client re-authenticates only on INVALID/INSUFFICIENT_
+    # CREDENTIALS, never on PERMISSION_DENIED), and the app renders the
+    # bare "An error has occurred" banner — indistinguishable from an
+    # outage. Proven live on hw292 (dep 1c56518035a83e03) from the
+    # webapp access log: fresh logins at 10:26Z/17:27Z → all-200 with
+    # the FULL group-inherited effective permission set; revisits at
+    # 14:35Z/16:55Z (>60 min idle) → 403 on every session call, no
+    # re-auth POST, ERROR page. 10080 = 7 days, matching the gate's
+    # 168h cookie so the inner token never expires before the outer
+    # session. NOT a security relaxation: the webapp is reachable only
+    # through the gate (see networkpolicy.yaml ingress guard), which
+    # re-checks the Keycloak session on every request.
+    apiSessionTimeoutMinutes: 10080
   # ── Recording (SeaweedFS PVC) ──────────────────────────────────
   recordings:
     # #3374: persistence DEFAULT false → the recordings volume is an emptyDir,
