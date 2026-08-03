@@ -114,6 +114,40 @@ else
   say "== single-region prov: skipping region-B / mesh / pair checks =="
 fi
 
+# ── 7. WireGuard node-encryption uniformity (#5637) ──────────────────────
+#
+# Runs for single- AND multi-region provs: the property is per-NODE, so a
+# single-region Sovereign has the same exposure on its one control-plane node.
+# `cilium-config` saying encrypt-node=true is not evidence — the agent applies
+# a per-node opt-out from `--node-encryption-opt-out-labels` (upstream default
+# `node-role.kubernetes.io/control-plane`), so on hw292 both control-plane
+# agents reported NodeEncryption=OptedOut behind a ConfigMap that read clean.
+# The guard asserts every agent's state is the one its node's labels imply and
+# fails closed on anything else. See docs/SECURITY.md §2.1.
+say "== node-encryption uniformity (every cilium agent, every region) =="
+NODE_ENC_GUARD="$(cd "$(dirname "$0")" && pwd)/check-live-node-encryption.sh"
+if [ ! -r "$NODE_ENC_GUARD" ]; then
+  fail "check-live-node-encryption.sh not found next to this script ($NODE_ENC_GUARD)"
+else
+  NE_ARGS=(--kubeconfig "$PRIMARY")
+  if [ -n "$SECONDARY" ] && [ -f "$SECONDARY" ]; then
+    NE_ARGS+=(--kubeconfig "$SECONDARY")
+  fi
+  NE_OUT="$(bash "$NODE_ENC_GUARD" "${NE_ARGS[@]}" 2>&1)"
+  NE_RC=$?
+  NE_TALLY="$(printf '%s\n' "$NE_OUT" | grep -m1 '^agents=' || true)"
+  if [ "$NE_RC" -eq 0 ]; then
+    pass "every cilium agent matches the declared node-encryption posture (${NE_TALLY:-tally unavailable})"
+  else
+    # exit 1 = divergence, 2 = a region/agent could not be read. Both are
+    # failures here: an agent whose encryption state cannot be verified is not
+    # an agent that can be claimed encrypted.
+    fail "node-encryption guard exit $NE_RC (${NE_TALLY:-no tally})"
+    printf '%s\n' "$NE_OUT" | sed -n '/NODE-ENCRYPTION DIVERGENCE/,$p' | sed 's/^/       /'
+    printf '%s\n' "$NE_OUT" | grep -E '^(ERROR|SETUP-ERROR|SNAPSHOT-ERROR)' | sed 's/^/       /'
+  fi
+fi
+
 say ""
 if [ "$FAIL" -eq 0 ]; then say "ALL CHECKS PASSED ✅"; else say "$FAIL CHECK(S) FAILED ❌"; fi
 exit "$FAIL"

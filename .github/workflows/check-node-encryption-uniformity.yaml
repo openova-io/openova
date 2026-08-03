@@ -1,0 +1,87 @@
+name: check — WireGuard node-encryption uniformity (#5637)
+
+# Keeps the detector in scripts/check-live-node-encryption.sh honest.
+#
+# The guard itself needs a live Sovereign, so CI cannot run the sweep. What CI
+# CAN do — and what actually matters — is prove the detector is not vacuous:
+# a fleet-shaped fixture that must come back GREEN, plus nine divergent
+# fixtures that must each come back RED, plus two malformed ones that must come
+# back as setup errors. All eleven run through the SAME evaluator the live
+# sweep uses, so a refactor that quietly turns the guard into `exit 0` fails
+# here instead of on a Sovereign nobody re-walked.
+#
+# Why the fixtures matter more than usual for this one: the property is
+# per-node and exactly one node per region legitimately differs (each region's
+# control-plane node is excluded upstream-by-default — docs/SECURITY.md §2.1).
+# A guard written as "every agent must read Enabled" would be red on every
+# healthy Sovereign and would be deleted within a week; this one pins the
+# label→state mapping instead, and the fixtures prove it still reddens on a
+# worker that opted out, on a control-plane node that did not, on an agent
+# whose node labels no longer imply its state, and on an exclusion set that grew.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/check-live-node-encryption.sh'
+      - 'scripts/verify-sovereign-convergence.sh'
+      - 'platform/cilium/**'
+      - 'docs/SECURITY.md'
+      - '.github/workflows/check-node-encryption-uniformity.yaml'
+  pull_request:
+    paths:
+      - 'scripts/check-live-node-encryption.sh'
+      - 'scripts/verify-sovereign-convergence.sh'
+      - 'platform/cilium/**'
+      - 'docs/SECURITY.md'
+      - '.github/workflows/check-node-encryption-uniformity.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node-encryption-detector:
+    name: Detector self-test (11 cases, both directions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detector self-test
+        run: bash scripts/check-live-node-encryption.sh --self-test
+
+      - name: Refuse a guard that passes on nothing
+        # Belt-and-braces on the vacuity direction: an empty fleet must exit 2,
+        # never 0. If someone "fixes" the empty-snapshot case into a pass, the
+        # self-test above would still be green for the other ten cases.
+        run: |
+          set +e
+          printf '# empty\n' | bash scripts/check-live-node-encryption.sh --fixture - >/dev/null 2>&1
+          rc=$?
+          set -e
+          if [ "$rc" -ne 2 ]; then
+            echo "::error title=Vacuous guard::empty snapshot exited $rc, expected 2"
+            exit 1
+          fi
+          echo "empty snapshot exits 2 — an empty fleet is not a clean fleet"
+
+      - name: Guard is wired into the post-convergence battery
+        # A guard nobody invokes is documentation. This asserts the live wiring
+        # survives refactors of verify-sovereign-convergence.sh.
+        run: |
+          grep -q 'check-live-node-encryption.sh' scripts/verify-sovereign-convergence.sh \
+            || { echo "::error title=Guard unwired::verify-sovereign-convergence.sh no longer calls the node-encryption guard"; exit 1; }
+          echo "verify-sovereign-convergence.sh calls the guard"
+
+      - name: Declared posture matches the documented posture
+        # EXPECTED_OPT_OUT_SELECTOR in the guard and the selector stated in
+        # docs/SECURITY.md §2.1 are one decision recorded twice. Drift between
+        # them is how a security posture quietly becomes two postures.
+        run: |
+          sel=$(grep -m1 '^EXPECTED_OPT_OUT_SELECTOR=' scripts/check-live-node-encryption.sh \
+                | sed 's/.*:-\([^}]*\)}.*/\1/')
+          echo "guard declares: $sel"
+          grep -q "$sel" docs/SECURITY.md \
+            || { echo "::error title=Posture drift::docs/SECURITY.md does not mention the selector '$sel'"; exit 1; }
+          echo "docs/SECURITY.md states the same selector"
