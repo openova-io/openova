@@ -235,3 +235,4 @@ func TestReplicationStatus_5601_LinkedPairExplicitFalseStillWins(t *testing.T) {
 		t.Errorf("replicaPromotable: got true want false — an explicit producer-written false must never be overridden by the derived reading")
 	}
 }
+
