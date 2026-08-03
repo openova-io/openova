@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-03T21:45:04Z` |
+| Last refreshed | `2026-08-03T22:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -309,6 +309,7 @@ flowchart LR
 |---|---|---|---|
 | 2026-08-03T21:40 | [#5638](https://github.com/openova-io/openova/pull/5638) | #4415 | fix(catalog-seed): gate every seed delivery pin on GHCR exis |
 | 2026-08-03T20:59 | [#5636](https://github.com/openova-io/openova/pull/5636) | #4028 | fix(marketplace): surface the 429 rate-limit response in the |
+| 2026-08-03T21:54 | [#5629](https://github.com/openova-io/openova/pull/5629) | #5527 | fix(provisioning): per-Org GitOps tree emitters cutover-awar |
 | 2026-08-03T20:41 | [#5628](https://github.com/openova-io/openova/pull/5628) | #5598 | fix(guacamole): #5598 REST-session lifetime aligned with the |
 | 2026-08-03T20:36 | [#5627](https://github.com/openova-io/openova/pull/5627) | #5626 | fix(console): four source defects behind the fail-open vites |
 | 2026-08-03T20:58 | [#5625](https://github.com/openova-io/openova/pull/5625) | #5348 | fix(stalwart-tenant): §854 — disable nodePort allocation on  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-02T07:47 | [#5570](https://github.com/openova-io/openova/pull/5570) | #5547 | fix(bp-powerdns): front-door guard rejected the §854 fix it  |
 | 2026-08-02T07:16 | [#5569](https://github.com/openova-io/openova/pull/5569) | #3969 | docs(ledger): re-derive ALL 18 EPIC child counts live — #396 |
 | 2026-08-02T04:36 | [#5566](https://github.com/openova-io/openova/pull/5566) | #5515 | docs(ledger): EPIC completion matrix re-derived live + 14 UA |
-| 2026-08-02T04:36 | [#5565](https://github.com/openova-io/openova/pull/5565) | #5505 | fix(kyverno): §854 policy exempted any Service NAMED cm-acme |
 
 ---
 
