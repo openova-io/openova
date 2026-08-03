@@ -19,7 +19,18 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  type: {{ .Values.service.imap.type }}
+  {{- $svcType := .Values.service.imap.type | default "LoadBalancer" }}
+  {{- if eq $svcType "NodePort" }}
+  {{- fail "bp-stalwart-tenant: service.imap.type=NodePort is FORBIDDEN (§854, #4765) — use LoadBalancer (Cilium LB-IPAM shared VIP) or ClusterIP" }}
+  {{- end }}
+  type: {{ $svcType }}
+  {{- if eq $svcType "LoadBalancer" }}
+  # 🛑 zero nodePorts, ever (§854, #5615): the LB VIP is served directly by
+  # the cloud-LB / Cilium LB-IPAM datapath — node:3xxxx must not exist.
+  # Without this field the apiserver silently allocates a nodePort per port
+  # and the Kyverno forbid-nodeport-service guard denies the install.
+  allocateLoadBalancerNodePorts: false
+  {{- end }}
   externalTrafficPolicy: {{ .Values.service.imap.externalTrafficPolicy }}
   selector:
     {{- include "bp-stalwart-tenant.selectorLabels" . | nindent 4 }}
@@ -28,8 +39,19 @@ spec:
       port: {{ .Values.service.imap.ports.imaps }}
       targetPort: imaps
       protocol: TCP
+      {{- if eq $svcType "LoadBalancer" }}
+      # 🛑 #5348: state ZERO explicitly — omitting nodePort is NOT enough.
+      # allocateLoadBalancerNodePorts:false only stops NEW allocations; an
+      # apply that OMITS nodePort leaves an existing allocation in place.
+      # `nodePort: 0` is the release sentinel the apiserver clears on apply,
+      # and the inert value the repo guard deliberately ignores.
+      nodePort: 0
+      {{- end }}
     - name: imap
       port: {{ .Values.service.imap.ports.imap }}
       targetPort: imap
       protocol: TCP
+      {{- if eq $svcType "LoadBalancer" }}
+      nodePort: 0
+      {{- end }}
 {{- end }}

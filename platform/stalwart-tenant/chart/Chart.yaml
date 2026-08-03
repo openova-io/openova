@@ -175,7 +175,20 @@ name: bp-stalwart-tenant
 #   224/232 stayed red. Live-root-caused on hw228 walk-stranger: used 1600m/2000m
 #   with stalwart at 1000m. 500m is ample for an idle demo mailserver and frees
 #   the headroom openclaw needs to schedule. Refs #4272 #4307 #4292.
-version: 0.1.13
+#
+# 0.1.14 (#5615, 2026-08-04): §854 — the SMTP + IMAP LoadBalancer Services
+#   rendered WITHOUT allocateLoadBalancerNodePorts, so the apiserver silently
+#   allocated a nodePort per port and the Kyverno forbid-nodeport-service /
+#   loadbalancer-must-disable-nodeport-allocation guard DENIED the install at
+#   admission — per-Org mail never provisioned on a guard-enforcing Sovereign
+#   (live evidence: hw292 funnel Org uatco, HR InstallFailed/RetriesExceeded).
+#   Fix mirrors the in-tree control platform/powerdns/chart/templates/
+#   anycast-endpoint.yaml: (a) allocateLoadBalancerNodePorts: false on both
+#   Services when type=LoadBalancer; (b) explicit `nodePort: 0` on every port
+#   entry (#5348 — false alone only stops NEW allocations; an apply that OMITS
+#   nodePort never clears an existing one); (c) template `fail` on
+#   type=NodePort so an overlay can never opt back in. Refs #5615 #5348 #5088.
+version: 0.1.14
 appVersion: "0.15.5"
 description: |
   Catalyst Blueprint scratch chart for a per-Org (per-vcluster) dedicated
