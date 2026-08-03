@@ -138,6 +138,17 @@ encryption:
   enabled: true
   type: wireguard
 
+# ⚠️ `encryption.nodeEncryption: true` (set in chart/values.yaml) does NOT mean
+# every node encrypts host-namespace traffic. The agent applies a per-node
+# opt-out from `--node-encryption-opt-out-labels`, default
+# `node-role.kubernetes.io/control-plane`, and on k3s every server node carries
+# that label — so each region's control-plane node reports
+# `NodeEncryption: OptedOut` while cilium-config still reads encrypt-node=true.
+# The exclusion is upstream-deliberate (a rotated WireGuard public key would
+# otherwise be published over a connection encrypted with the key being
+# replaced). Posture + what it costs: docs/SECURITY.md §2.1. Fleet gate:
+# scripts/check-live-node-encryption.sh (#5637).
+
 # L7 proxy
 envoy:
   enabled: true

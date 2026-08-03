@@ -31,7 +31,11 @@ Two systems, never conflated. Workload identity is bound to a Kubernetes Service
 │  - encryption.wireguard.userspaceFallback = false                     │
 │  - every pod-to-pod packet that leaves a node is wrapped in a         │
 │    WireGuard tunnel keyed per node-pair, at the kernel layer          │
-│  - 100% mesh coverage (no exemptions), zero sidecars                  │
+│  - 100% pod-to-pod coverage (no exemptions), zero sidecars            │
+│  - encryption.nodeEncryption = true extends the same tunnel to        │
+│    node↔node / node↔pod (host-namespace) traffic — on every node      │
+│    EXCEPT one that matches the opt-out selector. Read §2.1 before     │
+│    citing this as fleet-wide host-traffic encryption.                 │
 │  - L7 policy + identity-aware enforcement via Cilium NetworkPolicy    │
 │    and CiliumNetworkPolicy CRs                                        │
 └──────────────────────────────────────────────────────────────────────┘
@@ -66,11 +70,80 @@ ns=catalyst-openbao    sa=openbao                  ← OpenBao itself
 
 **Catalyst REST API auth:** workload calls are authenticated by SA bound-token (TokenReview); user calls by Keycloak-issued JWT.
 
+### 2.1 Node-to-node encryption — the control-plane exclusion is declared, not accidental
+
+**The posture, stated once so nobody has to re-derive it from a ConfigMap:**
+
+> WireGuard node-encryption is on for every node in every region **except** a node
+> whose labels match `--node-encryption-opt-out-labels`, whose value is
+> `node-role.kubernetes.io/control-plane`. On k3s every server node carries that
+> label, so **the control-plane node of each region is excluded** — by upstream
+> default, deliberately, for a reason that matters (below). Pod-to-pod encryption
+> is unaffected on those nodes and remains 100%.
+
+**Mechanism** (Cilium 1.19.3, read off the agent rather than off the docs):
+
+```
+$ cilium-agent --help | grep node-encryption-opt-out-labels
+  --node-encryption-opt-out-labels string   Label selector for nodes which will
+       opt-out of node-to-node encryption (default "node-role.kubernetes.io/control-plane")
+```
+
+The agent logs the decision at startup on a matching node:
+
+```
+level=info msg="Opting out from node-to-node encryption on this node as per
+ node-encryption-opt-out-labels label selector"
+ module=agent.datapath.wireguard-agent Selector=node-role.kubernetes.io/control-plane
+```
+
+`platform/cilium/chart/values.yaml` sets `encryption.nodeEncryption: true` and does
+**not** set the selector, so the upstream default is in force. Nothing in the
+rendered chart, in `cilium-config`, or in the headline `Encryption: Wireguard
+[… Peers: N]` status line reveals the exclusion — only the `NodeEncryption:`
+sub-field of `cilium-dbg status` does, on the excluded node alone.
+
+**Why the exclusion is kept rather than overridden.** The connection a node uses to
+publish its rotated WireGuard public key would otherwise be encrypted with the very
+key being replaced. Excluding the node that hosts the API server keeps key rotation
+and node re-provisioning from deadlocking against themselves. Overriding it (an empty
+selector) is a security-posture change that has to be argued here **and** re-proven on
+a fresh prov through a key rotation — never flipped silently in a values file.
+
+**What the exclusion costs, precisely.** On an excluded node, traffic sourced from or
+destined to the **host network namespace** is not WireGuard-wrapped: API server
+(:6443), etcd (:2379/:2380), kubelet (:10250), cilium-health probes, the cilium
+agent's ClusterMesh client connections, and the hostNetwork `cilium-envoy` gateway
+hop to backend pods. Every one of those except the envoy hop carries its own TLS
+(k3s serving certs, etcd peer/client TLS, ClusterMesh mTLS), so the loss is a layer of
+defence in depth rather than credentials in the clear. The envoy hop is the one that
+is post-TLS-termination, and it stays on the per-region private VPC subnet. **Pod-to-pod
+traffic — including every cross-region ClusterMesh pod flow — is unaffected**, because
+that is the base WireGuard feature and not the node-encryption extension.
+
+**The gate.** `scripts/check-live-node-encryption.sh` reads every cilium agent in every
+region given to it and fails closed unless each agent's `NodeEncryption` state is the
+one its node's labels imply under the selector declared above. It catches a worker that
+silently opted out, a control-plane node that silently did not, an agent still carrying
+a state its node's labels no longer imply, an exclusion set that grew, and a state it
+could not read. It is wired into `scripts/verify-sovereign-convergence.sh` (step 7) and
+its detector self-test runs on every PR that touches the guard or the Cilium chart.
+
+```bash
+scripts/check-live-node-encryption.sh --kubeconfig <region-a> --kubeconfig <region-b>
+scripts/check-live-node-encryption.sh --self-test     # detector proof, no cluster
+```
+
+Live on hw292 (dep `1c56518035a83e03`, 2026-08-03): 8 agents, 2 regions —
+`NodeEncryption Enabled=6  OptedOut=2`, the two being `…-a-cp1-54be6d` and
+`…-b-cp1-6a755c`, exactly the label-selector match. Refs #5637.
+
 ### Why this configuration is sufficient today
 
 | Concern | How it's met today |
 |---|---|
-| In-flight encryption | Cilium WireGuard, kernel-level, 100% mesh, no opt-out |
+| In-flight encryption (pod-to-pod) | Cilium WireGuard, kernel-level, 100% mesh, no opt-out |
+| In-flight encryption (host-namespace: node↔node, node↔pod) | Cilium WireGuard node-encryption on every node whose labels do not match the opt-out selector — today that is every worker; the control-plane node of each region is excluded upstream-by-default. Declared and gated in §2.1 |
 | Workload-to-workload authentication | K8s SA tokens validated server-side via TokenReview |
 | Token rotation | Projected SA bound-tokens auto-rotate hourly (kubelet) |
 | Defense against stolen long-lived tokens | Bound tokens are scoped to a single Pod + audience + 1h TTL; the legacy unbound SA secret-tokens are not used |
