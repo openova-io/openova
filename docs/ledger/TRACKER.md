@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-03T20:30:07Z` |
+| Last refreshed | `2026-08-03T20:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5389](https://github.com/openova-io/openova/issues/5389) | P1: per-app Open/launch button does not land the user in the app (rows 110/112/1 | Other |
 | [#5391](https://github.com/openova-io/openova/issues/5391) | Cutover: a Stalled/RetriesExceeded per-Org HelmRelease permanently blocks the So | Other |
 | [#5393](https://github.com/openova-io/openova/issues/5393) | Per-Org plan quota: vcluster control-plane overhead (1500m) is billed to the cus | Other |
 | [#5394](https://github.com/openova-io/openova/issues/5394) | MCP endpoint is ~50% dead: bp-openova-mcp is single-region but mcp.<fqdn> fronts | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5618](https://github.com/openova-io/openova/issues/5618) | P0: main does not compile — post_handover_policy_enforce.go:118 assignment mis | Other |
 | [#5623](https://github.com/openova-io/openova/issues/5623) | Region-kill: the three shared-pg DR pairs never promote — only bp-cnpg-pair sh | Other |
 | [#5626](https://github.com/openova-io/openova/issues/5626) | build-ui red on main: four console defects surfaced when the vitest gate stopped | Other |
+| [#5633](https://github.com/openova-io/openova/issues/5633) | build-ui is now load-bearing for image publication — an intermittent ExecPanel | Other |
 
 ---
 
@@ -307,8 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-03T20:41 | [#5628](https://github.com/openova-io/openova/pull/5628) | #5598 | fix(guacamole): #5598 REST-session lifetime aligned with the |
+| 2026-08-03T20:36 | [#5627](https://github.com/openova-io/openova/pull/5627) | #5626 | fix(console): four source defects behind the fail-open vites |
 | 2026-08-03T20:27 | [#5624](https://github.com/openova-io/openova/pull/5624) | #4437 | fix(agenity): per-Org oidc-gate egress CNP — DNS + Keycloak  |
 | 2026-08-03T20:10 | [#5622](https://github.com/openova-io/openova/pull/5622) | #5616 | fix(ui): #5616 instance-create vCluster selector offers only |
+| 2026-08-03T20:37 | [#5621](https://github.com/openova-io/openova/pull/5621) | #5601 | fix(catalyst-api): DR Switchover gate — derive replicaPromot |
+| 2026-08-03T20:37 | [#5620](https://github.com/openova-io/openova/pull/5620) | #3687 | fix(catalyst-api): Organization DELETE deletes the CR so the |
 | 2026-08-03T19:53 | [#5619](https://github.com/openova-io/openova/pull/5619) | #5535 | fix(catalyst-api): P0 — main compiles again; unstall catalys |
 | 2026-08-03T08:39 | [#5595](https://github.com/openova-io/openova/pull/5595) | #5553 | fix(ci): vitest gate parses ANSI-wrapped FAIL lines + summar |
 | 2026-08-03T06:04 | [#5594](https://github.com/openova-io/openova/pull/5594) | #5525 | fix(cutover): step-03 script exec'd from mounted run.sh — in |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-08-02T13:14 | [#5556](https://github.com/openova-io/openova/pull/5556) | #5480 | feat(ci): A16 guard for #5480 — flag secrets minted behind a |
 | 2026-08-02T13:16 | [#5553](https://github.com/openova-io/openova/pull/5553) | #5542 | fix(ci): the vitest gate could never fail a build — npm test |
 | 2026-08-02T13:14 | [#5552](https://github.com/openova-io/openova/pull/5552) | #5499 | feat(ci): preflight that catches a region consuming a role c |
-| 2026-08-02T17:35 | [#5551](https://github.com/openova-io/openova/pull/5551) | #5545 | fix(janitor): a log-only pass reported 61 deletions that nev |
-| 2026-08-02T13:15 | [#5550](https://github.com/openova-io/openova/pull/5550) | #5489 | docs(console): parentRowFromSelf doc-comment still asserted  |
-| 2026-08-02T13:15 | [#5549](https://github.com/openova-io/openova/pull/5549) | #4691 | docs(canon): §854 section pointed at a dead issue and omitte |
-| 2026-08-02T09:34 | [#5548](https://github.com/openova-io/openova/pull/5548) | #5348 | feat(ci): cluster-side §854 guard — catches a live node port |
 
 ---
 
