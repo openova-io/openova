@@ -1817,7 +1817,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.2.33",
+      "version": "0.2.34",
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [
         "bp-keycloak",

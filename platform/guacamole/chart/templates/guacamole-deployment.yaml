@@ -162,6 +162,19 @@ spec:
             - name: EXTENSION_PRIORITY
               value: {{ printf "%s, postgresql" $ssoMode | quote }}
             {{- end }}
+            # #5598 — REST-session lifetime. The image entrypoint maps this
+            # to the `api-session-timeout` property (upstream default 60
+            # minutes). Behind the oidc-gate the OUTER session lives ~168h,
+            # so the upstream default left the browser's cached GUAC_AUTH
+            # token dead on any >60-min revisit: every session API call
+            # 403'd PERMISSION_DENIED and the SPA rendered the bare
+            # "An error has occurred" banner without re-authenticating
+            # (hw292 access-log proof — see values.yaml
+            # webapp.apiSessionTimeoutMinutes for the full evidence chain).
+            # Aligned to the gate's cookie lifetime so the inner token
+            # never expires before the outer session.
+            - name: API_SESSION_TIMEOUT
+              value: {{ .Values.guacamole.webapp.apiSessionTimeoutMinutes | default 10080 | quote }}
             # Recording path — guacd writes here; the webapp ships
             # captures off to SeaweedFS via the shipper container below.
             - name: RECORDING_PATH
