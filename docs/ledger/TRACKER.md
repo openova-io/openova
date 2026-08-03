@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-03T22:45:05Z` |
+| Last refreshed | `2026-08-03T23:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-03T22:46 | [#5644](https://github.com/openova-io/openova/pull/5644) | #5265 | feat(cutover): post-cutover image delivery — Day-2 reconcile |
 | 2026-08-03T22:33 | [#5643](https://github.com/openova-io/openova/pull/5643) | #5637 | fix(security): declare the Cilium control-plane node-encrypt |
 | 2026-08-03T22:37 | [#5641](https://github.com/openova-io/openova/pull/5641) | #5639 | fix(bp-postgres): fail closed on an unresolvable region + em |
 | 2026-08-03T21:40 | [#5638](https://github.com/openova-io/openova/pull/5638) | #4415 | fix(catalog-seed): gate every seed delivery pin on GHCR exis |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-02T11:04 | [#5576](https://github.com/openova-io/openova/pull/5576) | #5572 | docs(uat): walk W4 ✅ + downgrade W5 ✅→⚠️ — wizard offers 6 c |
 | 2026-08-02T10:41 | [#5574](https://github.com/openova-io/openova/pull/5574) | #5569 | docs(ledger): matrix headline carried the SUPERSEDED #3969 f |
 | 2026-08-02T10:28 | [#5572](https://github.com/openova-io/openova/pull/5572) | #5557 | fix(wizard): step 6 renders no Back control — StepDomain omi |
-| 2026-08-02T07:47 | [#5570](https://github.com/openova-io/openova/pull/5570) | #5547 | fix(bp-powerdns): front-door guard rejected the §854 fix it  |
 
 ---
 
