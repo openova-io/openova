@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-03T21:30:03Z` |
+| Last refreshed | `2026-08-03T21:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5395](https://github.com/openova-io/openova/issues/5395) | gamma-corp is entirely unrouted: all 6 per-Org HTTPRoutes NoMatchingListenerHost | Other |
-| [#5396](https://github.com/openova-io/openova/issues/5396) | bp-velero upgrade-crds pre-upgrade hook is Kyverno-rejected (no harbor-proxy ima | Other |
 | [#5401](https://github.com/openova-io/openova/issues/5401) | SECURITY: per-Org console /settings renders the Sovereign operator panel to an o | Other |
 | [#5404](https://github.com/openova-io/openova/issues/5404) | Operator-console vitest suite is red on main (68 failed / 1876 passed across 9 f | Other |
 | [#5406](https://github.com/openova-io/openova/issues/5406) | Harbor SSO session never holds: active/active across both regions behind one hos | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#5634](https://github.com/openova-io/openova/issues/5634) | UAT row 92: funnel discards the 429 rate-limit response — a throttled customer | Other |
 | [#5635](https://github.com/openova-io/openova/issues/5635) | Per-Org app FQDN fails ~50% of fresh connections — single-region namespace beh | Other |
 | [#5637](https://github.com/openova-io/openova/issues/5637) | Cilium node encryption is not uniform — the region-A control-plane agent repor | Other |
+| [#5639](https://github.com/openova-io/openova/issues/5639) | Per-Org bp-postgres active-hot-standby renders an empty region selector — pod  | Other |
+| [#5640](https://github.com/openova-io/openova/issues/5640) | Post-cutover Sovereigns cannot receive newly published images — local Harbor i | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-03T21:40 | [#5638](https://github.com/openova-io/openova/pull/5638) | #4415 | fix(catalog-seed): gate every seed delivery pin on GHCR exis |
 | 2026-08-03T20:59 | [#5636](https://github.com/openova-io/openova/pull/5636) | #4028 | fix(marketplace): surface the 429 rate-limit response in the |
 | 2026-08-03T20:41 | [#5628](https://github.com/openova-io/openova/pull/5628) | #5598 | fix(guacamole): #5598 REST-session lifetime aligned with the |
 | 2026-08-03T20:36 | [#5627](https://github.com/openova-io/openova/pull/5627) | #5626 | fix(console): four source defects behind the fail-open vites |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-02T07:16 | [#5569](https://github.com/openova-io/openova/pull/5569) | #3969 | docs(ledger): re-derive ALL 18 EPIC child counts live — #396 |
 | 2026-08-02T04:36 | [#5566](https://github.com/openova-io/openova/pull/5566) | #5515 | docs(ledger): EPIC completion matrix re-derived live + 14 UA |
 | 2026-08-02T04:36 | [#5565](https://github.com/openova-io/openova/pull/5565) | #5505 | fix(kyverno): §854 policy exempted any Service NAMED cm-acme |
-| 2026-08-02T13:14 | [#5556](https://github.com/openova-io/openova/pull/5556) | #5480 | feat(ci): A16 guard for #5480 — flag secrets minted behind a |
 
 ---
 
