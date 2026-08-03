@@ -2153,6 +2153,23 @@ func main() {
 	// through the in-process running flag (tryStartRun).
 	h.ResumeInterruptedCutover(ctx)
 
+	// #5642 — always-on, loopback-ONLY pprof. catalyst-api OOMKills on a
+	// ~60-minute metronome on hw292 and the retaining allocation cannot be
+	// named without a heap profile of the LEAKING process. The pre-existing
+	// CATALYST_PPROF_ENABLED flag above cannot supply one: it is read at
+	// process start, so turning it on rolls the Pod and destroys the heap
+	// that was about to be profiled. This listener is up from boot, is a
+	// separate mux on its own listener (unreachable through the public
+	// router on :8080), and binds 127.0.0.1 — no Service port, no ingress,
+	// no NodePort. `kubectl port-forward` into the Pod's netns is the only
+	// way in. See cmd/api/pprof_loopback.go for the full rationale.
+	if ln, pprofErr := startLoopbackPprof(log, env("CATALYST_PPROF_LOOPBACK_ADDR", defaultPprofLoopbackAddr)); pprofErr != nil {
+		log.Warn("pprof loopback listener not started — heap profiles unavailable on this Pod (#5642)", "err", pprofErr)
+	} else if ln != nil {
+		log.Info("pprof loopback listener ready — capture with: kubectl -n catalyst-system port-forward pod/$POD 6060:6060 (#5642)",
+			"addr", ln.Addr().String())
+	}
+
 	log.Info("catalyst api listening", "port", port)
 	if err := http.ListenAndServe(":"+port, r); err != nil {
 		log.Error("server error", "err", err)
