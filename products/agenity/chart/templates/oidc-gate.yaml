@@ -337,4 +337,91 @@ spec:
             - port: "4180"
               protocol: TCP
 {{- end }}
+{{- if and .Values.networkPolicy.enabled (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+{{- $gnp := $g.networkPolicy | default dict }}
+---
+# ── CiliumNetworkPolicy — the gate's EGRESS half (#5617) ──────────────────
+# The per-Org namespace is DEFAULT-DENY and the gateway-ingress CNP above is
+# ingress-only — so before this policy the gate pod could not resolve DNS or
+# dial the Keycloak backchannel, and every OAuth callback 500'd AFTER a
+# successful login (live on hw292 Org uatco, oauthproxy.go:881: `lookup
+# keycloak.keycloak.svc.cluster.local on 10.96.0.10:53: i/o timeout` — the
+# #4437 sso-bridge class: ingress allowed, egress forgotten). The rule set is
+# exactly the gate's dial surface:
+#   1. kube-dns :53 UDP+TCP — name resolution (the templates/
+#      cilium-egress-networkpolicy.yaml idiom: DNS is LOAD-BEARING once any
+#      egress rule attaches, everything else default-denies).
+#   2. the Keycloak backchannel (redeem/jwks/userinfo via keycloakInternalURL)
+#      — Service port AND Pod target port 8080, because under Cilium the
+#      policy verdict runs AFTER the Service DNAT so the Pod port is the
+#      load-bearing one (#4437's port trap: allowing only 80 drops it).
+#   3. the proxied upstream — the agenity workload in this same namespace.
+# ClusterMesh note (#4439/#4656 family): rules are expressed as toEndpoints /
+# toEntities ONLY — an ipBlock/toCIDR NEVER matches a ClusterMesh remote pod
+# identity, so on a 2-region Sovereign a CIDR-shaped allow would silently
+# re-break the region whose Keycloak backend is remote.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ printf "%s-egress" $gateName | quote }}
+  labels:
+    {{- include "agenity.labels" . | nindent 4 }}
+    catalyst.openova.io/component: {{ printf "%s-netpol" $gateName | quote }}
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: bp-oidc-gate
+      catalyst.openova.io/component: {{ $gateName }}
+  egress:
+    # 1. Cluster DNS — kube-dns :53 UDP+TCP. Without this the gate cannot
+    #    resolve the Keycloak or upstream Service names and the callback
+    #    times out into a 500 (the exact hw292 failure).
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    # 2. Keycloak backchannel — token redeem + JWKS + userinfo against
+    #    keycloakInternalURL. Both the Service port and the Pod target port
+    #    8080 are stated (#4437 port trap; Cilium enforces post-DNAT).
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $gnp.keycloakNamespace | default "keycloak" }}
+      toPorts:
+        - ports:
+            - port: {{ $gnp.keycloakPort | default 80 | quote }}
+              protocol: TCP
+            - port: "8080"
+              protocol: TCP
+    # 3. The proxied upstream — the agenity workload in this namespace
+    #    (containerPort == service.port, templates/statefulset.yaml).
+    - toEndpoints:
+        - matchLabels:
+            {{- include "agenity.selectorLabels" . | nindent 12 }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.service.port | quote }}
+              protocol: TCP
+{{- if not $kcInternal }}
+    # 4. Public-issuer discovery fallback — only when keycloakInternalURL is
+    #    UNSET (#3844 restored public-discovery mode): the gate then fetches
+    #    the OIDC discovery document + backchannel legs from the public
+    #    issuer EIP, an off-cluster :443 hop only `toEntities: [world]` can
+    #    name (the cilium-egress-networkpolicy.yaml #4604 idiom).
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+{{- end }}
+{{- end }}
 {{- end }}

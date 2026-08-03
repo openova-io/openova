@@ -98,6 +98,59 @@ grep -qE 'kind: CiliumNetworkPolicy' <<<"$g"                          || { echo 
 grep -qE 'port: "4180"' <<<"$g"                                       || { echo "FAIL: gate CNP not admitting port 4180" >&2; exit 1; }
 echo "  PASS — gateway-entity CNP present"
 
+# ── #5617 — the gate's EGRESS CNP. The per-Org namespace is DEFAULT-DENY and
+# the gateway-ingress CNP above is ingress-only, so without an egress
+# counterpart the gate cannot resolve DNS or dial the Keycloak token endpoint
+# and every OAuth callback 500s AFTER a successful login (live on hw292 Org
+# uatco: `lookup keycloak.keycloak.svc.cluster.local on 10.96.0.10:53: i/o
+# timeout`, oauthproxy.go:881 — the #4437 sso-bridge class). These values
+# mirror the org-gitops emitter's HR values (networkPolicy.enabled=true), so
+# this render IS the generated-Org shape.
+# Scope every egress assertion to the egress CNP document ONLY — a match that
+# leaks in from another doc (e.g. the agenity workload's own egress CNP) would
+# pass vacuously while the gate still had no egress.
+eg="$(echo "$g" | awk 'BEGIN{RS="\n---\n"} /name: "oidc-gate-agenity-agnstar-egress"/')"
+[ -n "$eg" ] || { echo "FAIL: no gate egress CiliumNetworkPolicy oidc-gate-agenity-agnstar-egress (#5617) — under per-Org default-deny the OAuth callback 500s on a DNS timeout" >&2; echo "$g" >&2; exit 1; }
+# (1) kube-dns :53 UDP+TCP — DNS is load-bearing under default-deny.
+grep -qE 'k8s-app: kube-dns' <<<"$eg"                     || { echo "FAIL: egress CNP has no kube-dns rule (#5617)" >&2; echo "$eg" >&2; exit 1; }
+grep -qzE 'port: "53"[[:space:]]+protocol: UDP' <<<"$eg"  || { echo "FAIL: egress CNP does not allow :53 UDP (#5617)" >&2; echo "$eg" >&2; exit 1; }
+grep -qzE 'port: "53"[[:space:]]+protocol: TCP' <<<"$eg"  || { echo "FAIL: egress CNP does not allow :53 TCP (#5617)" >&2; echo "$eg" >&2; exit 1; }
+# (2) the Keycloak backchannel — Service port AND Pod target port 8080 (the
+# #4437 port trap: Cilium enforces post-DNAT, allowing only 80 drops it).
+grep -qE 'k8s:io.kubernetes.pod.namespace: keycloak' <<<"$eg" || { echo "FAIL: egress CNP has no keycloak-namespace rule (#5617)" >&2; echo "$eg" >&2; exit 1; }
+grep -qE 'port: "80"' <<<"$eg"                            || { echo "FAIL: egress CNP does not allow the keycloak Service port 80 (#5617)" >&2; echo "$eg" >&2; exit 1; }
+grep -qE 'port: "8080"' <<<"$eg"                          || { echo "FAIL: egress CNP does not allow the keycloak Pod target port 8080 (#4437 port trap)" >&2; echo "$eg" >&2; exit 1; }
+# (3) the proxied upstream — the agenity workload in the same namespace.
+grep -qzE 'app.kubernetes.io/name: bp-agenity[[:space:]]+app.kubernetes.io/instance: agenity' <<<"$eg" || { echo "FAIL: egress CNP does not allow the proxied agenity upstream (#5617)" >&2; echo "$eg" >&2; exit 1; }
+# ClusterMesh guard: identity-based selectors ONLY — an ipBlock/toCIDR NEVER
+# matches a ClusterMesh remote pod identity, so a CIDR-shaped allow silently
+# re-breaks the region whose Keycloak backend is remote (#4439/#4656 class).
+# (YAML keys only — comment lines stripped so the template's own prose about
+# the trap cannot trip this guard.)
+eg_yaml="$(grep -vE '^[[:space:]]*#' <<<"$eg")"
+if grep -qE 'toCIDR|ipBlock' <<<"$eg_yaml"; then
+  echo "FAIL: egress CNP uses toCIDR/ipBlock — never matches ClusterMesh remote pod identities (#5617)" >&2; echo "$eg" >&2; exit 1
+fi
+# keycloakInternalURL is SET by default (#3844 backchannel mode) → the
+# world:443 public-discovery fallback must NOT render in the default shape.
+if grep -qE 'toEntities' <<<"$eg_yaml"; then
+  echo "FAIL: egress CNP carries a toEntities rule while keycloakInternalURL is set — the world fallback must be conditional (#5617)" >&2; echo "$eg" >&2; exit 1
+fi
+echo "  PASS — #5617 egress CNP present (kube-dns + keycloak 80/8080 + upstream, identity-based only)"
+
+# world:443 discovery fallback renders ONLY when keycloakInternalURL is unset
+wg="$(render_gated --set oidcGate.keycloakInternalURL="" | awk 'BEGIN{RS="\n---\n"} /name: "oidc-gate-agenity-agnstar-egress"/')"
+grep -qE '\- world' <<<"$wg"    || { echo "FAIL: keycloakInternalURL unset but egress CNP has no world:443 discovery fallback (#5617)" >&2; echo "$wg" >&2; exit 1; }
+grep -qE 'port: "443"' <<<"$wg" || { echo "FAIL: world discovery fallback not on :443 (#5617)" >&2; echo "$wg" >&2; exit 1; }
+echo "  PASS — world:443 fallback renders only in public-discovery mode"
+
+# vacuity check (both directions): networkPolicy.enabled=false → NO egress CNP
+npoff="$(render_gated --set networkPolicy.enabled=false)"
+if grep -qE 'name: "oidc-gate-agenity-agnstar-egress"' <<<"$npoff"; then
+  echo "FAIL: egress CNP rendered with networkPolicy.enabled=false" >&2; exit 1
+fi
+echo "  PASS — egress CNP suppressed when networkPolicy.enabled=false"
+
 # ── Case 2: oidcGate.enabled=false → chart's own route, NO gate ──────────────
 echo "[oidc-gate-companion] Case 2: oidcGate.enabled=false renders the chart's own route, NO gate"
 ng="$("$helm" template agenity "$chart_dir" --set "sovereignFqdn=$FQDN" --set "httpRoute.hostnames[0]=$HOST" --set oidcGate.enabled=false 2>/dev/null)"
