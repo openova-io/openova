@@ -115,7 +115,7 @@ func (h *Handler) runPostHandoverPolicyEnforceFlip(dep *Deployment) {
 	targets := map[string]string{
 		policyFlipPrimaryRegionLabel: filepath.Join(h.kubeconfigsDir, dep.ID+".yaml"),
 	}
-	secondaries, _ := secondaryKubeconfigsForCutover(dep)
+	secondaries := secondaryKubeconfigsForCutover(dep).paths
 	for key, path := range secondaries {
 		targets[key] = path
 	}
