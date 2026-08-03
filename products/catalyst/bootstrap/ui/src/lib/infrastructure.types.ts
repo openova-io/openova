@@ -95,6 +95,18 @@ export type IsolationMode = 'dmz' | 'rtz' | 'mgmt'
 export interface VClusterSpec {
   id: string
   name: string
+  /**
+   * Host namespace the vCluster runs in — the REAL placement identity
+   * (#5616). The backend wire (bootstrap/api infrastructure.VCluster)
+   * has always carried this; the FE type dropped it, which pushed the
+   * create-instance dialog onto `name` (a display name — the per-Org
+   * vCluster is NAMED "vcluster" but RUNS in the Org namespace) and
+   * every explicit selection landed downstream as a namespace that
+   * does not exist. Optional: absent on stale API builds / fixtures.
+   */
+  namespace?: string
+  /** dmz | rtz | mgmt | other — the wire's role channel. */
+  role?: string
   isolationMode: IsolationMode
   status: TopologyStatus
 }
