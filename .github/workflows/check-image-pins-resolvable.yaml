@@ -1,0 +1,83 @@
+name: check-image-pins-resolvable
+
+# #5640 — assert that every openova-io container image the Catalyst chart pins
+# is actually resolvable in the registry the target cluster is permitted to use.
+#
+# WHY THIS EXISTS. `catalyst-build` publishes an image, deploy-bot sed-bumps the
+# SHA into products/catalyst/chart/values.yaml, the chart is released and the
+# pin ships. Every one of those steps can be green while the tag is unservable:
+#   • upstream — the publish for that SHA silently did not land;
+#   • post-cutover Sovereign — cutover step-03 mirrored the catalog AS OF
+#     cutover and nothing mirrors what is published afterwards, so the local
+#     Harbor (the only registry that Sovereign may use) 404s the new tag.
+#       Live hw292 2026-08-03: catalyst-ui tags/list -> ["fad88bd"];
+#       d674a94 -> 404 while the Pod pinned to it sat in ImagePullBackOff.
+# Nothing on the repo side revealed either: main green, GHCR tag present, pin
+# committed. This job is what notices.
+#
+# TWO LEGS, deliberately separated:
+#   selftest — drives scripts/check-image-pins-resolvable.sh through all four
+#     exit codes against a stub registry on 127.0.0.1. Hermetic, no credential,
+#     no network. This is what proves the gate is not a `|| echo WARN`.
+#   ghcr — runs the real gate against ghcr.io with the workflow's own
+#     packages:read token. Exit 1 (a genuinely absent tag) fails the build and
+#     names the reference; exit 3 (auth/unreachable) also fails, because a gate
+#     that cannot form an opinion must say so rather than pass.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'products/catalyst/chart/values.yaml'
+      - 'products/catalyst/chart/templates/**'
+      - 'scripts/check-image-pins-resolvable.sh'
+      - 'scripts/tests/test-image-pins-resolvable.sh'
+      - '.github/workflows/check-image-pins-resolvable.yaml'
+  pull_request:
+    paths:
+      - 'products/catalyst/chart/values.yaml'
+      - 'products/catalyst/chart/templates/**'
+      - 'scripts/check-image-pins-resolvable.sh'
+      - 'scripts/tests/test-image-pins-resolvable.sh'
+      - '.github/workflows/check-image-pins-resolvable.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  selftest:
+    name: gate self-test (stub registry, all four exit codes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prove the gate goes RED for each failure class and GREEN when restored
+        run: bash scripts/tests/test-image-pins-resolvable.sh
+
+  ghcr:
+    name: pinned images resolve in GHCR
+    runs-on: ubuntu-latest
+    needs: selftest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+      - name: Resolve every chart-pinned openova-io image in ghcr.io
+        env:
+          # The SAME credential pair docker/login-action uses in catalyst-build.
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          bash scripts/check-image-pins-resolvable.sh --verbose
+          rc=$?
+          set -e
+          case "${rc}" in
+            0) echo "All chart-pinned images resolve upstream." ;;
+            1) echo "::error::A chart-pinned image tag does not exist in GHCR — the pin shipped ahead of its publish. See the MISSING lines above."; exit 1 ;;
+            2) echo "::error::The gate parsed ZERO image references — the chart render or the reference extraction broke. Failing closed rather than passing on nothing."; exit 1 ;;
+            3) echo "::error::The gate could not reach or authenticate to GHCR, so it could not form an opinion. This is NOT a missing-image finding; fix access (packages:read) and re-run."; exit 1 ;;
+            *) echo "::error::Unexpected exit ${rc} from check-image-pins-resolvable.sh"; exit 1 ;;
+          esac

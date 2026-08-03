@@ -2889,7 +2889,73 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.160
+# 0.1.161 (#5640 Refs #5265 #4975 #5095 #5525 #3944) — the Day-2 reconciler
+# gains an IMAGE leg, and ships ON by default in zero-egress detect mode.
+#
+# THE DEFECT (live hw292, dep 1c56518035a83e03, cutoverComplete=true,
+# 2026-08-03). Cutover step-04 pivots node containerd certs.d and step-06
+# repoints every HelmRepository at the local Harbor, so post-cutover the local
+# Harbor is the ONLY registry that matters. step-03 harbor-prewarm mirrors the
+# catalog AS OF cutover; nothing mirrors anything published afterwards. After
+# catalyst-build went green and deploy-bot pinned the catalyst images to
+# d674a94:
+#     curl -sk -u admin:*** https://registry.<fqdn>/v2/openova-io/openova/catalyst-ui/tags/list
+#     -> {"tags":["fad88bd"]}     d674a94 -> 404     fad88bd -> 200 (CONTROL)
+# and the Pod pinned to catalyst-ui:d674a94 sat in ImagePullBackOff. The chain
+# merge -> build -> publish -> deploy-bot pin is complete for a PRE-cutover
+# Sovereign and SILENTLY incomplete for a post-cutover one; nothing on the repo
+# side reveals it (main green, GHCR tag present, pin committed). #5265 had
+# already closed the same structure one layer up, for CHART pins only.
+#
+# THE FIX. 12-daytwo-harbor-pin-reconciler.yaml keeps its single Deployment
+# (region-kill canon #5157 — a CronJob's scheduler dies with the control-plane
+# region) and gains a second leg that guarantees the property "any image or
+# chart version the Sovereign's own GitOps references is resolvable in the
+# registry that Sovereign is permitted to use". Nothing here is a second
+# mechanism:
+#   • enumeration = running Pods UNION declared workload templates
+#     (Deployments/StatefulSets/DaemonSets/CronJobs/Jobs) — the #3944
+#     completeness union step-03 Phase A performs. The declared half is
+#     load-bearing: the hw292 offender was in ImagePullBackOff and had NO
+#     running container to enumerate.
+#   • image -> local Harbor path = the SAME 03a offlinemirror_local_paths
+#     resolver step-03 (push dest) and step-08 (pre-hold completeness HEAD)
+#     source; the reconciler now mounts cutover-offline-mirror-resolver and
+#     projects the identical HOST_PROJECT_MAP / EXCLUDED_HOSTS /
+#     EXCLUDED_SUBSTRINGS / LOCAL_REGISTRY_HOST / MOTHERSHIP_HOST env. Three
+#     consumers, ONE mapping function.
+#   • presence = step-08's local-Harbor /v2/<repo>/manifests/<ref> probe
+#     (3 attempts to absorb a Harbor blip; a genuine 404 is the signal).
+#   • copy = step-03's exact `skopeo copy --insecure-policy --multi-arch all
+#     --retry-times 5` with --src-creds/--dest-creds, plus the #5095
+#     mothership-proxy -> DIRECT inverse-coverage-map fallback AND the #5525
+#     scarf.sh -> mothership-proxy forward-map fallback. skopeo acquisition
+#     reuses step-08's pinned static build verbatim and is LAZY.
+#
+# WHY IT NOW SHIPS ENABLED. daytwoReconciler.enabled flips false -> true. The
+# severance-safe property was never "no Deployment" — it was "no upstream
+# egress by default", and mode=detect (still the default) holds that literally:
+# the loop reaches ONLY the local Gitea mirror and the local Harbor, never
+# downloads skopeo, never dials an upstream registry. What it does do is
+# publish the exact missing set — CHART and IMAGE lines — to the durable
+# self-sovereign-cutover-daytwo-missing ConfigMap plus loud logs, which is
+# precisely the "today nothing notices" half of #5640. Every upstream reach
+# stays behind opt-in mode=warm. enabled=false still renders nothing at all.
+#
+# ANTI-VACUITY. A zero-ref enumeration is treated as a BROKEN READ, never an
+# all-clear: status becomes `enumeration-empty` and ALL_PINS_PRESENT is
+# withheld. New chart test tests/daytwo-image-leg.sh EXECUTES the rendered
+# script against a stub kubectl/curl and asserts the outcome (present control
+# stays resolved while the missing tag is named; miss count tracks the input;
+# an empty enumeration publishes no all-clear; detect mode dials no upstream
+# host and never invokes skopeo). Contract Case 70 is re-keyed to the
+# egress property and Case 75 pins the image leg's contract.
+#
+# New values: daytwoReconciler.charts.enabled, daytwoReconciler.images.{enabled,
+# copyAttempts,skopeoStaticURL,maxRefsPerCycle}. No RBAC change (the runner
+# ClusterRole already grants deployments/statefulsets/daemonsets/jobs/cronjobs
+# get+list+watch). Step count unchanged at 11.
+version: 0.1.161
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

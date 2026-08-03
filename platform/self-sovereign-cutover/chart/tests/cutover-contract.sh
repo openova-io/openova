@@ -3474,15 +3474,17 @@ if ! grep -qF 'failed to push — Sovereign cannot survive ghcr.io deny-egress p
   exit 1
 fi
 echo "  PASS (#5095 round 2: step-03 probes the mothership proxy once [bounded, values-knobbed, never fatal], latches .proxy_down when unreachable, then tries the DIRECT upstream first for proxy-sourced refs — gated on the toggle + latch, probe skipped on an all-ghcr wave, adaptive latch on the proxy-bad/direct-good signal — eliminating the per-image proxy timeout tax while keeping the round-1 after-failure fallback + the Phase A FATAL intact)"
-echo "[cutover-contract] Case 70: #5265 post-cutover Day-2 Harbor pin reconciler — a Deployment (NOT CronJob), ABSENT by default, sharing the 03b extractor; detect-only reaches only local Gitea+Harbor, warm helm-pulls+pushes"
+echo "[cutover-contract] Case 70: #5265/#5640 post-cutover Day-2 local-Harbor reconciler — a Deployment (NOT CronJob), PRESENT by default in zero-egress detect mode, sharing the 03b extractor; warm helm-pulls+pushes"
 # The reconciler closes the Day-2 Harbor leg: after cutover the local Gitea
 # mirror re-syncs upstream pin bumps and Flux moves the HR to the new pin, but
 # local Harbor still holds only the cutover-time versions → the HR upgrade
-# wedges (LIVE hw277 bp-continuum 0.1.12). It ships DISABLED (severance-safe,
-# like mirrorResync) and — when opted in — enumerates the frozen bootstrap-kit
-# pins via the SAME 03b extractor step-03/step-06 use, diffs local Harbor, and
-# reports (detect) or warms (warm) the drift. Region-kill canon mandates a
-# Deployment, not a CronJob.
+# wedges (LIVE hw277 bp-continuum 0.1.12). #5640 flipped it ON by default: the
+# severance-safe property is "no upstream egress by default", which detect mode
+# holds literally, and shipping it OFF left the post-cutover delivery gap as
+# silent as the issue describes. When enabled it enumerates the frozen
+# bootstrap-kit pins via the SAME 03b extractor step-03/step-06 use, diffs local
+# Harbor, and reports (detect) or warms (warm) the drift. Region-kill canon
+# mandates a Deployment, not a CronJob.
 # NOTE (#4969 SIGPIPE trap — see Case 16c): the suite runs under
 # `set -o pipefail`, so NEVER `... | grep -q` here — grep -q closes the pipe on
 # its first match, the upstream awk/grep takes EPIPE and the pipeline exits
@@ -3490,9 +3492,15 @@ echo "[cutover-contract] Case 70: #5265 post-cutover Day-2 Harbor pin reconciler
 # has no upstream writer to SIGPIPE); the doc blocks are captured to files via
 # an RS-split awk FIRST.
 c70_fail=0
-# (a) ABSENT by default (enabled=false) — no automatic tether on a canonical prov.
-if grep -q 'cutover-daytwo-harbor-reconciler' "$TMP/render.yaml"; then
-  echo "FAIL: Day-2 Harbor reconciler rendered by default — it MUST be off unless daytwoReconciler.enabled=true (severance-safe default; #5265)" >&2
+# (a) PRESENT by default (#5640) — the signal must exist on a canonical prov…
+if ! grep -q 'cutover-daytwo-harbor-reconciler' "$TMP/render.yaml"; then
+  echo "FAIL: Day-2 local-Harbor reconciler ABSENT from the default render — #5640 requires it on by default so a post-cutover Sovereign reports its own missing artifacts instead of failing silently" >&2
+  c70_fail=1
+fi
+# …and the operator can still render NOTHING at all.
+helm template smoke-daytwo-off . --set daytwoReconciler.enabled=false > "$TMP/render-daytwo-off.yaml"
+if grep -q 'cutover-daytwo-harbor-reconciler' "$TMP/render-daytwo-off.yaml"; then
+  echo "FAIL: daytwoReconciler.enabled=false still renders the reconciler — the master switch is inert (#5265)" >&2
   c70_fail=1
 fi
 # Render an enabled (detect, default) variant + an enabled warm variant.
@@ -3580,7 +3588,7 @@ if ! grep -q '"${RECONCILE_MODE}" = "warm"' "$DT_W"; then
   c70_fail=1
 fi
 if [ "$c70_fail" -ne 0 ]; then exit 1; fi
-echo "  PASS (#5265: Day-2 Harbor pin reconciler is a Deployment [region-kill canon], absent by default [severance-safe], reuses the 03b bootstrapkit_pins extractor + the durable artifact-API probe, publishes the offline-media missing manifest, defaults to zero-egress detect mode, and gates the upstream helm-pull/push behind opt-in warm mode; step count unchanged at 11)"
+echo "  PASS (#5265/#5640: Day-2 local-Harbor reconciler is a Deployment [region-kill canon], PRESENT by default with enabled=false still rendering nothing, reuses the 03b bootstrapkit_pins extractor + the durable artifact-API probe, publishes the offline-media missing manifest, defaults to zero-egress detect mode, and gates the upstream helm-pull/push behind opt-in warm mode; step count unchanged at 11)"
 
 echo "[cutover-contract] Case 71: #5359 secondary-region legs — steps 05/06/08 mount the optional cutover-secondary-kubeconfigs Secret and run fail-loud region-B pivot/hold legs; single-region renders inert; step count stays 11"
 # hw288 (dep 027f07559af1f9f7): cc=true with region-B still on github/ghcr/quay
@@ -3877,5 +3885,115 @@ if [ "$got74b" != "oci://registry.t91.omantel.biz/openova-io" ]; then
   exit 1
 fi
 echo "  PASS (#5527: Phase 3d present with values-driven target, executed derivation matches the step-06 value shape both input forms, read-back FATAL on an existing Deployment, loud SKIP when the marketplace tier is absent)"
+# ── Case 75 (#5640): the Day-2 reconciler's IMAGE leg — post-cutover delivery of
+# tags published AFTER step-03 ran ───────────────────────────────────────────
+# LIVE hw292 2026-08-03 (dep 1c56518035a83e03, cutoverComplete=true): deploy-bot
+# pinned catalyst images to d674a94, GHCR carried the tag, main was green — and
+#   curl -sk -u admin:*** https://registry.<fqdn>/v2/openova-io/openova/catalyst-ui/tags/list
+#   -> {"tags":["fad88bd"]}      d674a94 -> 404   fad88bd -> 200 (CONTROL)
+# with the Pod on d674a94 in ImagePullBackOff. step-03 mirrors the catalog AS OF
+# cutover; nothing mirrored anything published afterwards. The #5265 Day-2 loop
+# covered CHART pins only. This case pins the IMAGE leg's contract: it must reuse
+# the shared 03a resolver (never fork the host→project map), enumerate the
+# DECLARED workload templates (the hw292 offender had no running container), use
+# the SAME skopeo copy + #5095/#5525 fallbacks step-03/step-08 run, keep every
+# upstream reach behind mode=warm, and never report a broken read as an all-clear.
+echo "[cutover-contract] Case 75: #5640 Day-2 IMAGE leg — shared 03a resolver, declared-template enumeration, step-03 skopeo copy + #5095/#5525 fallbacks, warm-gated egress, vacuity-guarded"
+c75_fail=0
+# (a) The shared 03a resolver is MOUNTED and SOURCED — one mapping function for
+#     step-03 (push dest), step-08 (completeness HEAD) and this loop.
+if ! grep -q 'name: cutover-offline-mirror-resolver' "$DT_F"; then
+  echo "FAIL: Day-2 reconciler does not mount the cutover-offline-mirror-resolver ConfigMap (03a) — it would have to fork the host->project map (#5640 Refs #4975)" >&2
+  c75_fail=1
+fi
+if ! grep -q '/offline-mirror/resolver.sh' "$DT_F"; then
+  echo "FAIL: Day-2 reconciler does not source the shared 03a resolver.sh (#5640 Refs #4975)" >&2
+  c75_fail=1
+fi
+if ! grep -q 'offlinemirror_local_paths ' "$DT_F"; then
+  echo "FAIL: Day-2 reconciler never calls offlinemirror_local_paths — it is not deriving local Harbor paths from the shared coverage map (#5640)" >&2
+  c75_fail=1
+fi
+# (b) The coverage-map env is projected from the SAME helpers step-03/04/08 read.
+for c75_env in HOST_PROJECT_MAP EXCLUDED_HOSTS EXCLUDED_SUBSTRINGS LOCAL_REGISTRY_HOST MOTHERSHIP_HOST; do
+  if ! grep -qF "name: ${c75_env}" "$DT_F"; then
+    echo "FAIL: Day-2 reconciler does not project ${c75_env} — the shared resolver cannot run without the coverage-map env (#5640 Refs #4975)" >&2
+    c75_fail=1
+  fi
+done
+# (c) DECLARED workload templates are enumerated, not just running Pods. This is
+#     load-bearing: the hw292 offender was in ImagePullBackOff, i.e. it had NO
+#     running container to enumerate.
+if ! grep -q 'kubectl get deployments,statefulsets,daemonsets -A' "$DT_F"; then
+  echo "FAIL: Day-2 image leg does not enumerate DECLARED workload templates — an ImagePullBackOff workload (the exact hw292 shape) would be invisible (#5640 Refs #3944)" >&2
+  c75_fail=1
+fi
+# (d) Presence is the local-Harbor /v2 manifest probe step-08's completeness gate uses.
+if ! grep -q '/v2/${_mp_repo}/manifests/${_mp_ref}' "$DT_F"; then
+  echo "FAIL: Day-2 image leg does not HEAD the local Harbor /v2 manifest — it is not proving the image is pullable (#5640 Refs #4975)" >&2
+  c75_fail=1
+fi
+# (e) The copy is step-03's skopeo invocation, with BOTH documented fallbacks.
+if ! grep -q 'skopeo --command-timeout' "$DT_W"; then
+  echo "FAIL: Day-2 image warm does not use the bounded skopeo copy step-03/step-08 use (#5640 Refs #3944)" >&2
+  c75_fail=1
+fi
+if ! grep -qF -- '--insecure-policy --multi-arch all --retry-times 5' "$DT_W"; then
+  echo "FAIL: Day-2 image warm does not carry the step-03 skopeo flag set (--insecure-policy --multi-arch all --retry-times 5) — it forked the copy mechanism (#5640 Refs #4975 #5468)" >&2
+  c75_fail=1
+fi
+if ! grep -qF '#5095/#5525' "$DT_W"; then
+  echo "FAIL: Day-2 image warm has no secondary-source fallback leg — the #5095 mothership-proxy->DIRECT and #5525 scarf->proxy paths are not reused (#5640)" >&2
+  c75_fail=1
+fi
+if ! grep -qF '*.docker.scarf.sh' "$DT_W"; then
+  echo "FAIL: Day-2 image warm does not special-case the scarf.sh redirectors — Docker Hub's anonymous quota applies through them (#5640 Refs #5525)" >&2
+  c75_fail=1
+fi
+# (f) SOVEREIGNTY. detect must never download skopeo nor dial upstream: every
+#     egress-bearing call sits behind a mode=warm runtime branch. Assert the
+#     warm-gate is what guards the image copy, not merely present somewhere.
+if ! grep -qF '[ "${RECONCILE_MODE}" = "warm" ] && daytwo_warm_image' "$DT_F"; then
+  echo "FAIL: the Day-2 image copy is not runtime-gated on mode=warm — detect mode would reach upstream and break the zero-egress contract (#5640 Refs #5265)" >&2
+  c75_fail=1
+fi
+if ! grep -qF 'daytwo_ensure_skopeo || return 1' "$DT_F"; then
+  echo "FAIL: skopeo acquisition is not lazy inside the warm copy — detect mode must never dial github.com for the static binary (#5640)" >&2
+  c75_fail=1
+fi
+# (g) VACUITY GUARD. A zero-ref enumeration is a broken read, never an
+#     all-clear — reporting it green is the failure shape that let #5640 hide.
+if ! grep -qF 'enumeration-empty' "$DT_F"; then
+  echo "FAIL: Day-2 image leg has no zero-ref vacuity guard — an RBAC/jq/apiserver failure would publish ALL_PINS_PRESENT on nothing (#5640)" >&2
+  c75_fail=1
+fi
+if ! grep -qF 'ALL_PINS_PRESENT' "$DT_F"; then
+  echo "FAIL: the manifest lost its explicit all-clear line (#5640 Refs #5265)" >&2
+  c75_fail=1
+fi
+# The all-clear must be conditioned on BOTH legs having actually run.
+if ! grep -qF '[ "${IMAGE_STATUS}" != "enumeration-empty" ]' "$DT_F"; then
+  echo "FAIL: ALL_PINS_PRESENT is not conditioned on the image leg having really enumerated — a broken read would read as clean (#5640)" >&2
+  c75_fail=1
+fi
+# (h) The manifest names the missing IMAGE refs, not only charts.
+if ! grep -qF 'MISSING local Harbor image:' "$DT_F"; then
+  echo "FAIL: Day-2 image leg does not log the missing image by name — the operator gets no actionable reference (#5640)" >&2
+  c75_fail=1
+fi
+if ! grep -qF "printf 'IMAGE" "$DT_F"; then
+  echo "FAIL: the missing-artifact manifest carries no IMAGE lines — the offline-media side-load list is chart-only (#5640)" >&2
+  c75_fail=1
+fi
+# (i) VACUITY CONTROL for this case itself: the captured doc must be the real
+#     reconciler render, not an empty file that makes every negative assertion
+#     above pass trivially.
+c75_lines=$(wc -l < "$DT_F")
+if [ "${c75_lines}" -lt 200 ] || ! grep -qF 'kind: Deployment' "$DT_F"; then
+  echo "FAIL: vacuity control — the captured Day-2 render is ${c75_lines} lines and/or is not a Deployment; the Case 75 assertions were evaluated against nothing (#5640)" >&2
+  c75_fail=1
+fi
+if [ "$c75_fail" -ne 0 ]; then exit 1; fi
+echo "  PASS (#5640: the Day-2 IMAGE leg mounts+sources the shared 03a resolver and its coverage-map env, enumerates declared workload templates as well as running Pods, proves presence with step-08's local-Harbor /v2 manifest probe, copies with step-03's exact skopeo invocation plus the #5095 and #5525 secondary-source fallbacks, keeps every upstream reach behind a mode=warm runtime branch, and refuses to report a zero-ref enumeration as an all-clear; render vacuity control: ${c75_lines}-line Deployment)"
 
 echo "[cutover-contract] All gates green."
