@@ -1,5 +1,32 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.160 (#5527 Refs #3379 #5529 #960 — step-07 Phase 3d: stamp the per-Org
+# GitOps tree generator with the local OCI base. The org-services provisioning
+# Deployment (core/services/provisioning) regenerates the per-Org trees —
+# HelmRepository blocks included — on EVERY org mutation, and its emitters
+# hardcoded oci://ghcr.io/openova-io: the git source Flux asserts from
+# re-tethered every step-06 object pivot (the hw291 step-08 OFFENDER wedge)
+# and any post-cutover org mutation silently reverted the pivot (Pillar 5).
+# PR #5529 fixed the catalyst-api writer by keying on the step-07 issuer
+# stamp that Deployment already receives; the provisioning Deployment gets NO
+# step-07 stamp, so its now-cutover-aware emitters (core/services/
+# provisioning/gitops/cutover_aware_5527.go, this train) key on the explicit
+# CATALYST_LOCAL_REGISTRY_URL override — which Phase 3d stamps via `kubectl
+# set env`, derived from sovereign.harborPublicURL as oci://<harbor-host>/
+# openova-io (the SAME value shape step-06 patches the live objects to). The
+# set-env rolls the Deployment so the regenerating process always carries the
+# fact. Read-back FATAL when the Deployment exists (fail-open here IS the
+# #5527 defect); loud SKIP when the marketplace tier is absent; rollout wait
+# best-effort (the fact lives in the pod template — durable across restarts +
+# helm 3-way merges — and step-08's roll-set re-rolls this workload anyway).
+# New values block orgProvisioning.{deploymentName,namespace} (Principle #4).
+# Template 07 + values only; no step-count / RBAC / deadline change (still 11
+# steps — the runner ClusterRole already grants deployments update/patch
+# cluster-wide). Contract Case 74 locks the stamp, the executed derivation
+# both input forms, the read-back FATAL, and the SKIP. Slot-06a pin +
+# blueprint.yaml + catalog-seed source.version + spec.version move to 0.1.160
+# in lockstep (Inviolable Principle #13).
+# ── prior ──
 # 0.1.158 (#5525 Refs #5442 #5095 #3379 — step-03 harbor-prewarm: three legs
 # against the hw291 2026-07-30 scarf.sh/Docker-Hub rate-limit wall (dep
 # 2c2d746b578c636b: 4 litmuschaos.docker.scarf.sh refs cycled 4 pod attempts
@@ -2862,7 +2889,7 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.159
+version: 0.1.160
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

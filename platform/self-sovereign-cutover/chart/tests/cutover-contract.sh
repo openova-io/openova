@@ -3822,4 +3822,60 @@ if ! grep -qF 'Phase A3-guard (#5442)' "$TMP/s03pin.yaml"; then
 fi
 echo "  PASS (#5525: scarf hosts fall back to the mothership proxy via the forward map lookup [direct-first stays proxy_src-gated], toomanyrequests latches the host + skips latched primaries + carries into A3, the dest-presence rescue keeps a durably-present image, and the A3 FATAL — executed both directions from the rendered condition — keys on durable_miss/unmapped only with the copy-fail shape a loud WARN)"
 
+# ── Case 74 (#5527, Refs #3379 #5529): step-07 Phase 3d stamps the per-Org
+# GitOps tree generator (org-services/provisioning) with the local OCI base ──
+# hw291 (2026-07-30): the org-tenant generators hardcoded oci://ghcr.io/
+# openova-io, so the git source Flux asserts from re-tethered every step-06
+# object pivot (step-08 OFFENDER wedge) and any post-cutover org mutation
+# silently reverted the pivot. PR #5529 fixed the catalyst-api writer via the
+# step-07 issuer stamp it already receives; the provisioning Deployment gets
+# NO such stamp, so its cutover-aware emitters (core/services/provisioning/
+# gitops/cutover_aware_5527.go) key on CATALYST_LOCAL_REGISTRY_URL — which
+# THIS phase must stamp, read-back-assert (FATAL when the Deployment exists),
+# and SKIP loudly when the marketplace tier is absent.
+echo "[cutover-contract] Case 74: step-07 Phase 3d stamps CATALYST_LOCAL_REGISTRY_URL on the per-Org provisioning Deployment (#5527)"
+awk '/name: cutover-step-07-catalyst-api-env-patch/{c=1} /name: cutover-step-08-egress-block-test/{c=0} c' "$TMP/render.yaml" > "$TMP/s07.yaml"
+if [ ! -s "$TMP/s07.yaml" ]; then
+  echo "FAIL: cannot extract the step-07 ConfigMap from the render (#5527 vacuity check)" >&2
+  exit 1
+fi
+# (a) the target inputs are values-driven (Inviolable Principle #4), rendered
+#     with the org-services defaults.
+if ! grep -qF 'ORG_PROVISIONING_DEPLOYMENT' "$TMP/s07.yaml" || ! grep -qF 'value: "provisioning"' "$TMP/s07.yaml" || ! grep -qF 'value: "org-services"' "$TMP/s07.yaml"; then
+  echo "FAIL: step-07 lacks the ORG_PROVISIONING_DEPLOYMENT/NAMESPACE inputs (defaults provisioning/org-services) — Phase 3d has no target (#5527)" >&2
+  exit 1
+fi
+# (b) the stamp itself + the read-back FATAL + the loud SKIP branch.
+if ! grep -qF '"CATALYST_LOCAL_REGISTRY_URL=${LOCAL_OCI_BASE}"' "$TMP/s07.yaml"; then
+  echo "FAIL: step-07 never stamps CATALYST_LOCAL_REGISTRY_URL on the provisioning Deployment — the next org mutation post-cutover re-emits ghcr and re-tethers the Sovereign (#5527)" >&2
+  exit 1
+fi
+if ! grep -qF "the per-Org generator would re-emit ghcr on the next org mutation" "$TMP/s07.yaml"; then
+  echo "FAIL: step-07 Phase 3d has no read-back FATAL — a failed stamp on an existing Deployment would fail open into the exact #5527 defect" >&2
+  exit 1
+fi
+if ! grep -qF 'Phase 3d SKIP' "$TMP/s07.yaml"; then
+  echo "FAIL: step-07 Phase 3d has no explicit Deployment-absent SKIP — a Sovereign without the marketplace tier would FATAL on a workload it does not run (#5527)" >&2
+  exit 1
+fi
+# (c) EXECUTE the rendered derivation line both directions so a re-worded but
+#     broken sed cannot pass: https scheme + trailing slash must normalise to
+#     oci://<host>/openova-io, and a bare host must pass through unchanged.
+d74=$(grep -F 'LOCAL_OCI_BASE="oci://' "$TMP/s07.yaml" | head -1 | sed 's/^ *//')
+if [ -z "$d74" ]; then
+  echo "FAIL: cannot extract the LOCAL_OCI_BASE derivation from the step-07 render (#5527 vacuity check)" >&2
+  exit 1
+fi
+got74=$(HARBOR_PUBLIC_URL="https://registry.t90.omani.works/" sh -c "$d74; printf '%s' \"\$LOCAL_OCI_BASE\"")
+if [ "$got74" != "oci://registry.t90.omani.works/openova-io" ]; then
+  echo "FAIL: rendered derivation maps https://registry.t90.omani.works/ -> '$got74', want oci://registry.t90.omani.works/openova-io — the stamp would diverge from the value shape step-06 patches the live objects to (#5527)" >&2
+  exit 1
+fi
+got74b=$(HARBOR_PUBLIC_URL="registry.t91.omantel.biz" sh -c "$d74; printf '%s' \"\$LOCAL_OCI_BASE\"")
+if [ "$got74b" != "oci://registry.t91.omantel.biz/openova-io" ]; then
+  echo "FAIL: rendered derivation maps a scheme-less host to '$got74b', want oci://registry.t91.omantel.biz/openova-io (#5527)" >&2
+  exit 1
+fi
+echo "  PASS (#5527: Phase 3d present with values-driven target, executed derivation matches the step-06 value shape both input forms, read-back FATAL on an existing Deployment, loud SKIP when the marketplace tier is absent)"
+
 echo "[cutover-contract] All gates green."

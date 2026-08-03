@@ -113,6 +113,12 @@ data:
             value: "flux-system"
           - name: HARBOR_PUBLIC_URL
             value: {{ .Values.sovereign.harborPublicURL | quote }}
+          # #5527 Phase 3d: the org-services provisioning Deployment (per-Org
+          # GitOps tree generator) to stamp with the local OCI base.
+          - name: ORG_PROVISIONING_DEPLOYMENT
+            value: {{ .Values.orgProvisioning.deploymentName | quote }}
+          - name: ORG_PROVISIONING_NAMESPACE
+            value: {{ .Values.orgProvisioning.namespace | quote }}
           # G62 (#2613): Gitea persistence inputs — durable source-of-truth
           # edit so Flux Kustomization doesn't revert the HR patch.
           - name: GITEA_INTERNAL_URL
@@ -918,6 +924,49 @@ data:
               esac
               echo "[catalyst-api-env-patch] Phase 3 OK: ${VAR}=${LIVE}"
             done
+
+            # ---- Phase 3d (#5527): pivot the per-Org GitOps tree generator ----
+            # The org-services provisioning Deployment regenerates the per-Org
+            # trees (HelmRepository blocks included) on EVERY org mutation. Its
+            # emitters are cutover-aware (core/services/provisioning/gitops/
+            # cutover_aware_5527.go) but the fact must be stamped HERE: without
+            # it, the next org mutation after cutover re-emits
+            # oci://ghcr.io/openova-io and Flux drift-corrects the step-06
+            # object pivot straight back (the hw291 step-08 OFFENDER wedge,
+            # recurring silently post-cutover — Pillar 5). The stamped value is
+            # the SAME base step-06 patches the live objects to:
+            # oci://<harbor-host>/openova-io. The set-env rolls the Deployment
+            # (tiny, prewarmed image — step-03 mirrors every workload image),
+            # so the regenerating process always carries the fact.
+            #
+            # Deployment-absent is a SKIP (a Sovereign without the marketplace
+            # tier has no per-Org generator to re-tether); present-but-unstamped
+            # is FATAL (fail-open here IS the #5527 defect). The rollout wait is
+            # best-effort: the fact lives in the pod TEMPLATE (durable across
+            # restarts + helm 3-way merges), and step-08's roll-set re-rolls
+            # this workload under deny-egress anyway — a slow roll here must
+            # not add a new cutover wedge-class.
+            LOCAL_OCI_BASE="oci://$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -e 's,^https\?://,,' -e 's,/*$,,')/openova-io"
+            if kubectl get deploy "${ORG_PROVISIONING_DEPLOYMENT}" -n "${ORG_PROVISIONING_NAMESPACE}" >/dev/null 2>&1; then
+              echo "[catalyst-api-env-patch] #5527 Phase 3d: CATALYST_LOCAL_REGISTRY_URL=${LOCAL_OCI_BASE} -> deploy/${ORG_PROVISIONING_DEPLOYMENT} -n ${ORG_PROVISIONING_NAMESPACE}"
+              kubectl set env "deploy/${ORG_PROVISIONING_DEPLOYMENT}" \
+                -n "${ORG_PROVISIONING_NAMESPACE}" \
+                "CATALYST_LOCAL_REGISTRY_URL=${LOCAL_OCI_BASE}"
+              # Read-back assert — live template value, not intention.
+              LIVE=$(kubectl get deploy "${ORG_PROVISIONING_DEPLOYMENT}" \
+                -n "${ORG_PROVISIONING_NAMESPACE}" \
+                -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name=='CATALYST_LOCAL_REGISTRY_URL')].value}" 2>/dev/null || echo "")
+              if [ "${LIVE}" != "${LOCAL_OCI_BASE}" ]; then
+                echo "[catalyst-api-env-patch] #5527 FATAL Phase 3d: CATALYST_LOCAL_REGISTRY_URL='${LIVE}' (want '${LOCAL_OCI_BASE}') — the per-Org generator would re-emit ghcr on the next org mutation; Pillar 5 independence not met" >&2
+                exit 1
+              fi
+              echo "[catalyst-api-env-patch] #5527 Phase 3d OK: CATALYST_LOCAL_REGISTRY_URL=${LIVE}"
+              kubectl rollout status "deploy/${ORG_PROVISIONING_DEPLOYMENT}" \
+                -n "${ORG_PROVISIONING_NAMESPACE}" --timeout=180s \
+                || echo "[catalyst-api-env-patch] #5527 WARN Phase 3d: provisioning rollout slow (best-effort — the fact is in the pod template; step-08's roll-set covers the live roll)"
+            else
+              echo "[catalyst-api-env-patch] #5527 Phase 3d SKIP: deploy/${ORG_PROVISIONING_DEPLOYMENT} not found in ${ORG_PROVISIONING_NAMESPACE} (no marketplace tier — no per-Org generator to pivot)"
+            fi
 
             # ---- Phase 4 (#4973 #4975 #4961): comprehensive pod-spec image sweep ----
             # The HR global.imageRegistry pivots above (Phases 1-2 + the additionalHRs

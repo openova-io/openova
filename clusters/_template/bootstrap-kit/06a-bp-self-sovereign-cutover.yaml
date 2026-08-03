@@ -1024,7 +1024,13 @@ spec:
       # — the live-cluster walk). New RBAC: read-only blueprints. New values:
       # prewarm.catalogCharts.*, prewarm.chartImages.*. Step count stays 11.
       # New chart test tests/catalog-chart-set.sh + contract Case 72.
-      version: 0.1.159
+      # 0.1.160 (#5527): step-07 Phase 3d stamps CATALYST_LOCAL_REGISTRY_URL
+      # on the org-services provisioning Deployment so the per-Org GitOps
+      # tree generator emits the LOCAL Harbor OCI base post-cutover instead
+      # of re-tethering to ghcr on the next org mutation (Pillar 5; the
+      # hw291 step-08 OFFENDER wedge made durable). New values block
+      # orgProvisioning.*; step count stays 11; contract Case 74.
+      version: 0.1.160
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
