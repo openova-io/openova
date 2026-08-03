@@ -108,9 +108,25 @@ jobs:
           NPM_RC=${PIPESTATUS[0]}
           set -e
 
-          # Vitest prints one ` FAIL  <path> > <test>` line per failure.
-          FAILED_FILES=$(grep -oE '^ *FAIL +[^ ]+\.test\.tsx?' /tmp/vitest-out.txt \
+          # Vitest prints one ` FAIL  <path> > <test>` line per failure — but
+          # wraps FAIL in ANSI color codes (\e[41m\e[1m FAIL \e[22m\e[49m ...),
+          # so a bare `^ *FAIL` grep matches NOTHING vitest emits and the
+          # allowlist logic never engages (#5589 — this fail-open admitted the
+          # #5579 onBack regression). Strip ANSI escapes BEFORE parsing; the
+          # captured live line from run 30788994174 proves old=[] / new=[path].
+          sed -e 's/\x1b\[[0-9;]*m//g' /tmp/vitest-out.txt > /tmp/vitest-plain.txt
+          FAILED_FILES=$(grep -oE '^ *FAIL +[^ ]+\.test\.tsx?' /tmp/vitest-plain.txt \
                           | awk '{print $2}' | sort -u || true)
+
+          # Vacuity guard on the PARSER itself (#5589 lead 2, the backstop
+          # question): if vitest reported a non-zero "Failed Tests N" summary
+          # but the per-file parse extracted nothing, the format drifted again
+          # — fail closed with the evidence instead of green-through.
+          SUMMARY_FAILS=$(grep -oE 'Failed Tests [0-9]+' /tmp/vitest-plain.txt | grep -oE '[0-9]+' | head -1 || true)
+          if [ -n "${SUMMARY_FAILS}" ] && [ "${SUMMARY_FAILS}" -gt 0 ] && [ -z "${FAILED_FILES}" ]; then
+            echo "FAIL: vitest summary says ${SUMMARY_FAILS} failed test(s) but the per-file parser extracted none — output format drifted again (#5589). Failing closed."
+            exit 1
+          fi
 
           # Backstop against the parser itself failing open: if vitest exited
           # non-zero but the grep above extracted NO failing files (config
