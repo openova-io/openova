@@ -247,37 +247,37 @@ describe('SettingsPage — API tokens', () => {
 
 describe('SettingsPage — Members links to User Access', () => {
   /**
-   * 🛑 KNOWN-FAILING — this is a REAL defect, not a stale expectation.
-   * Do NOT "fix" it by relaxing the regex to `/users`.
+   * Regression guard — this WAS red on `main`, and it was a REAL defect,
+   * not a stale expectation. Do NOT "fix" it by relaxing the regex to
+   * `/users`.
    *
    * SettingsPage renders on BOTH the mothership route
    * (/provision/$deploymentId/settings) and the chroot Sovereign route
    * (/settings) — see the SettingsPage.tsx docstring at the useParams
-   * call. But the Members link hardcodes the chroot form:
+   * call. The Members link used to hardcode the chroot form:
    *
-   *     SettingsPage.tsx:399   to={`/users` as never}
+   *     to={`/users` as never}
    *
-   * The `as never` cast defeats TanStack Router's typed-route checking,
+   * The `as never` cast defeated TanStack Router's typed-route checking,
    * which is what would otherwise reject a target that can't resolve
-   * under the current route. Twenty lines later the SAME file uses the
+   * under the current route. Twenty lines later the SAME file used the
    * correct mode-safe pattern for its sibling CTA:
    *
-   *     SettingsPage.tsx:420-422
-   *       to="/decommission/$deploymentId" params={{ deploymentId }}
+   *     to="/decommission/$deploymentId" params={{ deploymentId }}
    *
    * Both routes are registered in the one tree — `/provision/$deploymentId/users`
-   * (router.tsx:1112) and the chroot `/users` under consoleLayoutRoute
-   * (router.tsx:1463-1466, mounted at router.tsx:2411). So on the
-   * mothership this link navigates into SovereignConsoleLayout, where
+   * and the chroot `/users` under consoleLayoutRoute. So on the
+   * mothership that link navigated into SovereignConsoleLayout, where
    * useResolvedDeploymentId has no :deploymentId param and falls back to
    * /sovereign/self — which that hook's own doc comment states 404s on a
-   * mothership host. Result: Members is a dead link on the mothership.
+   * mothership host. Members was a dead link on the mothership.
    *
-   * This assertion has never run green: the file threw on a missing
+   * The assertion had never run green: the file threw on a missing
    * QueryClient before reaching it, so the contradiction (present since
    * the earliest commit that has both files, a7fb48245) stayed masked.
-   * Fixing the link is a navigation behaviour change and overlaps the
-   * open route-gating decision in #5401, so it is left to that issue.
+   * SettingsPage now picks the link form from the presence of the
+   * `:deploymentId` PATH PARAM, so each route gets a target it can
+   * resolve and neither needs a cast.
    */
   it('Members link points at /provision/$id/users', async () => {
     renderSettings('d-test-1234')

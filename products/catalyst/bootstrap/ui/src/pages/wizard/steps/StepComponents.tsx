@@ -55,6 +55,7 @@ import {
   ALL_COMPONENTS,
   GROUPS,
   PRODUCTS,
+  TRANSITIVE_MANDATORY_PROMOTIONS,
   findComponent,
   componentsByProduct,
   resolveTransitiveDependents,
@@ -625,21 +626,42 @@ function AlwaysIncludedTab({ groups: _groups, cols }: { groups: readonly GroupDe
   // owning product section rather than vanishing into Tab 1's pool. Hide
   // any product that has zero mandatories.
   //
-  // Critical filter: only PRODUCT FAMILIES with `tier: 'mandatory'`
-  // (PILOT, SPINE, SURGE, SILO, GUARDIAN) contribute their mandatories
-  // here. Opt-in families (CORTEX/RELAY tier:optional, INSIGHTS/FABRIC
-  // tier:recommended) carry `tier: 'mandatory'` components INTERNAL to
-  // their family — those are mandatory ONLY IF the family is selected.
-  // Without this filter, KServe (CORTEX-internal mandatory) misleadingly
-  // appears in "Always Included" even on Sovereigns that don't pick
-  // CORTEX. Caught on omantel.biz wizard 2026-05-06.
+  // Critical filter: a component belongs here only when it is installed
+  // UNCONDITIONALLY. Two ways to earn that:
+  //
+  //   a) it is `tier: 'mandatory'` inside a PRODUCT FAMILY that is itself
+  //      `tier: 'mandatory'` (PILOT, SPINE, SURGE, SILO, GUARDIAN), or
+  //   b) it was PROMOTED to mandatory by the transitive-closure walk —
+  //      i.e. something unconditional depends on it, so it ships whether
+  //      or not the operator picks its family.
+  //
+  // Opt-in families (CORTEX/RELAY tier:optional, INSIGHTS/FABRIC
+  // tier:recommended) may carry `tier: 'mandatory'` components INTERNAL to
+  // their family — mandatory ONLY IF the family is selected. Clause (b)
+  // does not admit those: KServe (the CORTEX-internal mandatory caught on
+  // the omantel.biz wizard 2026-05-06) is not a promotion, so it still
+  // stays out of "Always Included".
+  //
+  // The previous filter keyed on the PRODUCT tier alone, which is a
+  // different question from the one the Foundation counter below asks
+  // (`ALL_COMPONENTS.filter(c => c.tier === 'mandatory')`, component tier).
+  // The two disagreed on exactly {cnpg, postgres}: promoted to mandatory
+  // because the unconditional gitea / harbor / keycloak dependsOn them,
+  // but living in FABRIC (product tier 'recommended'). Tab 1 already
+  // excludes them for being mandatory, so CloudNative PG and PostgreSQL
+  // were installed on every Sovereign while appearing in NEITHER tab, and
+  // the counter read "Foundation (24)" over 22 rendered cards.
   void _groups // keep prop for callsite back-compat (#175 cleanup deferred)
   const productSections = useMemo(() => {
+    const promoted = new Set(TRANSITIVE_MANDATORY_PROMOTIONS)
     return PRODUCTS
-      .filter((product) => product.tier === 'mandatory')
       .map((product) => ({
         product,
-        mandatories: componentsByProduct(product.id).filter(c => c.tier === 'mandatory'),
+        mandatories: componentsByProduct(product.id).filter(
+          (c) =>
+            c.tier === 'mandatory' &&
+            (product.tier === 'mandatory' || promoted.has(c.id)),
+        ),
       }))
       .filter((s) => s.mandatories.length > 0)
   }, [])

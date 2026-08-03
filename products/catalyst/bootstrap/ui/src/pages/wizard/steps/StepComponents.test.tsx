@@ -163,28 +163,29 @@ describe('component catalog', () => {
   })
 
   /**
-   * 🛑 KNOWN DEFECT — this test is EXPECTED TO FAIL on `main` and is left
-   * red deliberately. Do NOT relax it.
+   * Regression guard — this WAS red on `main`. Do NOT relax it.
    *
-   * `componentGroups.ts:536` overrides every component's `dependencies`
-   * with `depsFor(id)` from `src/data/blueprint-deps.generated.json`,
-   * which is generated from Flux `HelmRelease.dependsOn` names. Three of
-   * those names are bootstrap-kit HelmReleases that have NO ComponentDef
-   * in the wizard catalog, so they leak into the graph as dangling ids:
+   * `componentGroups.ts` overrides every component's `dependencies` with
+   * `depsFor(id)` from `src/data/blueprint-deps.generated.json`, which is
+   * generated from Flux `HelmRelease.dependsOn` names. Three of those
+   * names are bootstrap-kit HelmReleases that have NO ComponentDef in the
+   * wizard catalog, and they used to leak into the graph as dangling ids:
    *
    *   gateway-api  ← gitea, powerdns, harbor, keycloak, openbao, grafana
    *   reflector    ← external-dns, postgres
    *   spire        ← openbao
    *
-   * Operator-visible symptom: `computeDefaultSelection()` returns 48 ids,
-   * three of which (`gateway-api`, `reflector`, `spire`) have no card, no
-   * name and no logo anywhere in the wizard — yet they are written into
-   * `selectedComponents` and travel into the deployment payload, and the
-   * "Selected (N) of M" counter counts them.
+   * Operator-visible symptom was: `computeDefaultSelection()` returned 48
+   * ids, three of which (`gateway-api`, `reflector`, `spire`) had no card,
+   * no name and no logo anywhere in the wizard — yet they were written
+   * into `selectedComponents`, travelled into the deployment payload, and
+   * were counted by the "Selected (N) of M" counter.
    *
-   * Fix belongs in the catalog layer (filter `depsFor()` through the
-   * known-component id set, or give the three HelmReleases ComponentDefs)
-   * — NOT here.
+   * Fixed in the catalog layer: `resolveCatalogDependencies()` filters the
+   * resolved list through `CATALOG_COMPONENT_IDS`. The three HelmReleases
+   * are unconditional platform plumbing the bootstrap kit installs on
+   * every Sovereign whatever the operator picks, so they are deliberately
+   * card-less and dropping them from the wizard graph loses nothing.
    */
   it('every dependency points at a known component id', () => {
     const ids = new Set(ALL_COMPONENTS.map(c => c.id))
@@ -652,37 +653,31 @@ describe('cascading remove', () => {
 /* ── Tab 2: Always Included ───────────────────────────────────────── */
 
 /**
- * 🛑 KNOWN DEFECT pinned by this block (2 tests here + 2 in the
- * transitive-promotion block below are EXPECTED TO FAIL on `main`).
- * Do NOT relax them.
+ * Regression guard — 2 tests here + 2 in the transitive-promotion block
+ * below WERE red on `main`. Do NOT relax them.
  *
- * `StepComponents.tsx:637-644` (AlwaysIncludedTab) builds Tab 2 from
+ * `AlwaysIncludedTab` used to build Tab 2 from
  * `PRODUCTS.filter(product => product.tier === 'mandatory')` — i.e. it
- * keys visibility off the PRODUCT tier, not the COMPONENT tier. The
- * Foundation counter next to it (`StepComponents.tsx:773-775`) keys off
- * the COMPONENT tier (`ALL_COMPONENTS.filter(c => c.tier === 'mandatory')`).
- * The two disagree.
+ * keyed visibility off the PRODUCT tier, not the COMPONENT tier. The
+ * Foundation counter next to it keys off the COMPONENT tier
+ * (`ALL_COMPONENTS.filter(c => c.tier === 'mandatory')`). The two
+ * disagreed.
  *
  * `cnpg` and `postgres` are `tier: 'mandatory'` (promoted — the
  * unconditionally-mandatory gitea / harbor / keycloak depend on them)
- * but live in FABRIC, whose PRODUCT tier is 'recommended'
- * (componentGroups.ts:454). So they are filtered out of Tab 2, and Tab 1
- * already excludes them for being mandatory (StepComponents.tsx:768).
- * Net effect: CloudNative PG and PostgreSQL are installed on every
- * Sovereign but appear in NEITHER tab, and the tab reads
+ * but live in FABRIC, whose PRODUCT tier is 'recommended'. So they were
+ * filtered out of Tab 2, while Tab 1 already excludes them for being
+ * mandatory. Net effect: CloudNative PG and PostgreSQL were installed on
+ * every Sovereign but appeared in NEITHER tab, and the tab read
  * "Foundation (24)" while rendering 22 cards.
  *
- * The filter was added to stop KServe (then CORTEX-internal
+ * The product-tier filter existed to stop KServe (then CORTEX-internal
  * `tier: 'mandatory'`) showing under "Always Included" on Sovereigns that
- * never picked CORTEX — see the comment at StepComponents.tsx:628-635.
- * That root cause was independently fixed by demoting KServe to
- * `tier: 'recommended'` (componentGroups.ts:338), and CORTEX / RELAY /
- * INSIGHTS now carry zero mandatory components. The product-tier filter
- * therefore excludes exactly {cnpg, postgres} and nothing else — it is
- * now pure collateral damage.
- *
- * Fix belongs in AlwaysIncludedTab (filter on component tier, or on
- * "promoted from a raw-mandatory seed") — NOT here.
+ * never picked CORTEX. That guard is preserved: AlwaysIncludedTab now
+ * admits a component when it is mandatory in a mandatory-tier product OR
+ * when it appears in `TRANSITIVE_MANDATORY_PROMOTIONS` — something
+ * unconditional depends on it, so it ships either way. A family-internal
+ * raw-mandatory member is neither, so it still stays out.
  */
 describe('Tab 2 (Always Included) — read-only mandatory grid', () => {
   it('renders a card for every mandatory component', () => {
@@ -945,7 +940,7 @@ describe('transitive-mandatory promotion (issue #175 fix A)', () => {
     expect(screen.queryByTestId('component-card-cnpg')).toBeNull()
   })
 
-  // 🛑 EXPECTED TO FAIL — pins the AlwaysIncludedTab product-tier filter
+  // Regression guard — pins the AlwaysIncludedTab product-tier filter
   // defect documented above the "Tab 2 (Always Included)" describe block.
   it('cnpg DOES appear in Tab 2 ("Always Included")', () => {
     render(<StepComponents />)
@@ -964,10 +959,10 @@ describe('transitive-mandatory promotion (issue #175 fix A)', () => {
     expect(within(tab).queryByTestId('component-card-valkey')).toBeNull()
   })
 
-  // 🛑 EXPECTED TO FAIL — same AlwaysIncludedTab defect. The valkey
+  // Regression guard — same AlwaysIncludedTab defect. The valkey
   // assertion that used to sit here was dropped (valkey is no longer a
-  // promotion), so this now fails ONLY for the real reason: FABRIC has
-  // two promoted mandatory members and renders no section at all.
+  // promotion), so this covers ONLY the real reason it was red: FABRIC
+  // has two promoted mandatory members and used to render no section.
   it('promoted components are grouped under their owning product in Tab 2', () => {
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('tab-always'))
@@ -1014,37 +1009,37 @@ describe('product-family model (issue #175 fix B)', () => {
   })
 
   /**
-   * 🛑 KNOWN DEFECT — EXPECTED TO FAIL on `main`. Do NOT relax it, and do
+   * Regression guard — this WAS red on `main`. Do NOT relax it, and do
    * NOT "fix" it by deleting the expectation.
    *
    * The Specter → CORTEX product rule is operator-requested (issue #175:
    * "when Specter is selected all the Cortex family is required") and is
-   * still actively documented in the catalog in two places:
-   *   componentGroups.ts:261-275 — "Specter requires the entire CORTEX
+   * documented in the catalog in two places:
+   *   the Specter ComponentDef — "Specter requires the entire CORTEX
    *     family at runtime … selecting Specter adds the full CORTEX family
    *     even if the user never opens the CORTEX chip."
-   *   componentGroups.ts:442-446 — "Selecting the INSIGHTS product as a
+   *   the INSIGHTS Product entry — "Selecting the INSIGHTS product as a
    *     whole brings in Specter, which in turn pulls CORTEX through the
    *     component->product cascade chain."
-   * and componentGroups.ts:275 still literally declares
-   *   dependencies: ['bge','milvus','langfuse','vllm','kserve'].
-   *
-   * That literal is DEAD. componentGroups.ts:536 replaces it with
+   * It used to be written as a literal
+   *   dependencies: ['bge','milvus','langfuse','vllm','kserve']
+   * which was DEAD: RAW_COMPONENTS replaces `dependencies` with
    * `depsFor('specter')`, and there is no bp-specter HelmRelease, so
-   * Specter's dependencies are `[]`. Specter belongs to INSIGHTS
-   * (cascadeOnMemberSelection: false), so nothing else fires either.
+   * Specter's dependencies resolved to `[]`. Specter belongs to INSIGHTS
+   * (cascadeOnMemberSelection: false), so nothing else fired either.
    *
-   * Operator-visible symptom: ticking Specter (the AIOps brain) installs
-   * Specter alone — no vLLM, no Milvus, no BGE, no LangFuse, no KServe —
-   * i.e. an AIOps component with no AI runtime under it.
+   * Operator-visible symptom was: ticking Specter (the AIOps brain)
+   * installed Specter alone — no vLLM, no Milvus, no BGE, no LangFuse, no
+   * KServe — i.e. an AIOps component with no AI runtime under it.
    *
    * This is NOT the same class as the other #652 casualties: those were
    * install-ordering edges the founder ruled Flux owns. This is a
-   * product-family SELECTION rule, which the wizard models separately via
-   * `Product.familyDependencies` / `cascadeOnMemberSelection` —
-   * untouched by #652. The rule was simply encoded in the wrong layer and
-   * is now unimplemented. Fix belongs in the PRODUCTS table
-   * (componentGroups.ts:434-448), not here.
+   * product-family SELECTION rule, which Flux has no opinion on. It now
+   * lives in the layer that survives the Flux override: the Specter
+   * ComponentDef declares `familyRequires: ['cortex']`, and
+   * `resolveCatalogDependencies()` expands it from the PRODUCTS table at
+   * module load — so the member list can never drift from the CORTEX
+   * family definition, and no per-component id list is hand-maintained.
    */
   it('Specter component-level deps cover the major CORTEX runtime members', () => {
     const specter = findComponent('specter')!
@@ -1199,10 +1194,10 @@ describe('addComponent → product family cascade (CORTEX)', () => {
     }
   })
 
-  // 🛑 EXPECTED TO FAIL — pins the Specter → CORTEX defect documented in
+  // Regression guard — pins the Specter → CORTEX defect documented in
   // full above the "Specter component-level deps" test. The cascade
-  // MECHANISM is fine (the BGE test directly above proves it fires); the
-  // Specter → CORTEX edge is what went missing.
+  // MECHANISM was always fine (the BGE test directly above proves it
+  // fires); the Specter → CORTEX edge is what had gone missing.
   it('selecting Specter cascades to every CORTEX component', () => {
     useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
     useWizardStore.getState().addComponent('specter')
