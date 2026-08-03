@@ -10,7 +10,11 @@ name: catalog-seed lockstep guard
 # See scripts/check-catalog-seed-lockstep.sh for the check + the 14/14
 # initial lockstep sweep (PRs #2906-#2909 + #2883-#2905).
 #
-# Refs G117 #2744.
+# The second job (`ghcr-pin-existence`, #5559 / UAT row R21) asserts every seed
+# delivery pin resolves to a real published tag on ghcr.io — the one seed
+# property no in-repo guard can see. See the script header for why.
+#
+# Refs G117 #2744, #5559.
 
 on:
   push:
@@ -19,18 +23,33 @@ on:
       - 'products/catalyst/chart/templates/catalog-seed/blueprints.yaml'
       - 'platform/**/blueprint.yaml'
       - 'scripts/check-catalog-seed-lockstep.sh'
+      - 'scripts/expected-unpublished-catalog-seed-pins.yaml'
+      - 'scripts/lib/parse-catalog-seed-pins.awk'
       - '.github/workflows/check-catalog-seed-lockstep.yaml'
   pull_request:
     paths:
       - 'products/catalyst/chart/templates/catalog-seed/blueprints.yaml'
       - 'platform/**/blueprint.yaml'
       - 'scripts/check-catalog-seed-lockstep.sh'
+      - 'scripts/expected-unpublished-catalog-seed-pins.yaml'
+      - 'scripts/lib/parse-catalog-seed-pins.awk'
       - '.github/workflows/check-catalog-seed-lockstep.yaml'
   workflow_dispatch:
+  # #5559 — publish-lag safety net, same cadence rationale as the #4409 cron on
+  # test-bootstrap-kit.yaml. A seed pin can be merged minutes before
+  # blueprint-release.yaml finishes publishing its chart; the PR/push run would
+  # then see a legitimately-in-flight tag as missing. Those events are therefore
+  # observational for the GHCR phase (see continue-on-error below) and this
+  # hourly sweep is the fail-loud one: by the time it fires there is no publish
+  # race left to excuse a missing tag.
+  schedule:
+    - cron: '43 * * * *'
 
 jobs:
   lockstep:
+    # Field-level seed-vs-source drift. Blocking on every event, unchanged.
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
       - name: Install yq + helm
@@ -44,3 +63,36 @@ jobs:
           helm version --short || curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
       - name: Run catalog-seed lockstep check
         run: bash scripts/check-catalog-seed-lockstep.sh
+
+  ghcr-pin-existence:
+    # #5559 (UAT row R21) — every catalog-seed `source.chart`:`source.version`
+    # must exist as a published tag on ghcr.io/openova-io.
+    #
+    # Why this is a separate job from `lockstep` above: the GHCR phase races
+    # blueprint-release.yaml on push/PR (a chart bump merges before its publish
+    # run finishes), so it needs continue-on-error on those events. Putting it
+    # in the same job would extend that tolerance over the field-drift check,
+    # which must stay hard-blocking. The `schedule` event is excluded from the
+    # tolerance and fails loud.
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ github.event_name != 'schedule' }}
+    permissions:
+      # `gh api /orgs/<org>/packages/container/<chart>/versions` needs
+      # read:packages for package metadata.
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yq + helm
+        run: |
+          set -e
+          sudo wget -q https://github.com/mikefarah/yq/releases/download/v4.45.1/yq_linux_amd64 -O /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+          helm version --short || curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      - name: Assert every catalog-seed delivery pin exists on GHCR
+        env:
+          # `gh` defers to GH_TOKEN on a runner; pass the workflow token so the
+          # package-listing call picks up the `packages: read` scope above.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/check-catalog-seed-lockstep.sh --check-ghcr
