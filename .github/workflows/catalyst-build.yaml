@@ -88,20 +88,24 @@ jobs:
           # nobody noticing. Its own comment says the assertion "has never
           # run green".
           #
-          # Ratcheted: the gate now FAILS on any failing test file except
-          # the one explicitly allowlisted below. A new red test breaks the
-          # build; the known one stays visible and tracked.
+          # Ratcheted: the gate FAILS on any failing test file except those
+          # explicitly allowlisted below. A new red test breaks the build.
           #
-          # KNOWN_RED — each entry needs an owning issue and a reason:
-          #   SettingsPage.test.tsx — the Members link renders bare `/users`
-          #     instead of `/provision/$id/users`. The component serves BOTH
-          #     the mothership route and the chroot `/settings` (where
-          #     deploymentId is empty), so hardcoding the scoped path yields
-          #     `/provision//users` on every chroot Sovereign. The correct
-          #     shape is the open route-gating decision in #5401 (SECURITY:
-          #     per-Org /settings exposes the Sovereign operator panel), so
-          #     the fix belongs there, not here.
-          KNOWN_RED='SettingsPage.test.tsx'
+          # KNOWN_RED — each entry needs an owning issue and a reason.
+          # Currently EMPTY: the suite is fully green.
+          #
+          # The last entry was SettingsPage.test.tsx (the Members link
+          # rendered bare `/users` instead of `/provision/$id/users`). It is
+          # fixed — SettingsPage picks the link form from the presence of
+          # the `:deploymentId` path param, so the mothership route gets the
+          # scoped target and the chroot Sovereign keeps the root-relative
+          # one. Do not re-add an entry to make a red file pass; an
+          # allowlisted file is a file nothing is watching.
+          #
+          # The value is used as a `case` glob, and an empty glob is a bash
+          # syntax error — so "allowlist nothing" is spelled as a sentinel
+          # that can never equal a basename, not as an empty string.
+          KNOWN_RED='__no_known_red__'
 
           set +e
           npm test 2>&1 | tee /tmp/vitest-out.txt
@@ -143,7 +147,7 @@ jobs:
           UNEXPECTED=""
           for f in ${FAILED_FILES}; do
             case "$(basename "$f")" in
-              ${KNOWN_RED}) echo "KNOWN-RED (tracked, #5401): $f" ;;
+              ${KNOWN_RED}) echo "KNOWN-RED (tracked): $f" ;;
               *)            UNEXPECTED="${UNEXPECTED} $f" ;;
             esac
           done

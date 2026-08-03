@@ -252,12 +252,38 @@ export function SovereignConsoleLayout() {
         //     the console session with no PIN form (the row-29 contract).
         //     The one-shot guard in attemptSilentSovereignSSO makes the
         //     genuinely-logged-out case land on /login exactly once.
-        try { sessionStorage.removeItem('catalyst:authed') } catch { /* private browsing */ }
-        const { attemptSilentSovereignSSO } = await import('../router')
-        if (await attemptSilentSovereignSSO()) {
-          // Navigation handed to Keycloak (window.location.replace inside
-          // initiateLogin) — keep the spinner while the document unloads.
-          return
+        //
+        // Duty 2 is scoped to the EXPIRY case the commit title names — a
+        // stale `catalyst:authed` marker is the evidence that this tab
+        // HELD a live console session, so re-minting it silently is
+        // meaningful. A visitor with no marker never authenticated here:
+        // rootBeforeLoad's marker fast-path (`if (hasCatalystSession())
+        // return`) did NOT fire for them, so the gate already ran its own
+        // whoami probe and its own silent leg. Repeating it from the
+        // layout is not a second chance, it is a duplicate — and it broke
+        // the #1089 contract, which is that an anonymous chroot visitor
+        // lands on the OpenOva PIN page and the Keycloak surface is never
+        // touched. It also burned the one-shot guard on the way, so the
+        // FIRST anonymous page load left the console on the
+        // "Authenticating…" spinner and only the second reached /login.
+        let hadSessionMarker = false
+        try {
+          hadSessionMarker = sessionStorage.getItem('catalyst:authed') === '1'
+          sessionStorage.removeItem('catalyst:authed')
+        } catch { /* private browsing */ }
+        if (hadSessionMarker) {
+          const { attemptSilentSovereignSSO, SILENT_SSO_NAV_GRACE_MS, SILENT_SSO_GUARD_KEY } =
+            await import('../router')
+          if (await attemptSilentSovereignSSO()) {
+            // Navigation handed to Keycloak (window.location.replace inside
+            // initiateLogin) — keep the spinner while the document unloads.
+            // Safety net, mirroring rootBeforeLoad: if the document
+            // navigation never commits (auth host unreachable), the console
+            // must not hang on the spinner forever. Re-arm the one-shot
+            // guard and fall through to the explicit /login.
+            await new Promise((resolve) => setTimeout(resolve, SILENT_SSO_NAV_GRACE_MS))
+            try { sessionStorage.removeItem(SILENT_SSO_GUARD_KEY) } catch { /* private browsing */ }
+          }
         }
         setAuthState({ status: 'unauthenticated' })
         redirectToLogin()

@@ -85,6 +85,28 @@ export interface ComponentDef {
    */
   dependencies?: string[]
   /**
+   * Product families this component requires at runtime — a product-family
+   * SELECTION rule, expressed as PRODUCTS ids.
+   *
+   * This is a DIFFERENT graph from `dependencies`. `dependencies` is the
+   * Flux install-ordering graph and is overwritten at module load from
+   * `blueprint-deps.generated.json` (the founder directive: "the single
+   * source of truth for the dependencies is flux"). A component that has
+   * no `bp-<id>` HelmRelease therefore has no Flux opinion at all, and a
+   * hand-written `dependencies` literal on it is silently discarded.
+   *
+   * `familyRequires` is the layer that survives, because Flux has nothing
+   * to say about it: it is the wizard's own product model. At module load
+   * each entry expands to the member ids of the named product (read from
+   * PRODUCTS — no second hand-maintained id list) and is merged into the
+   * component's resolved `dependencies`, so the existing cascade / removal
+   * resolvers pick it up unchanged.
+   *
+   * Currently one user: Specter (issue #175 — "when Specter is selected all
+   * the Cortex family is required").
+   */
+  familyRequires?: string[]
+  /**
    * URL to the brand asset vendored under
    * `products/catalyst/bootstrap/ui/public/component-logos/<id>.{svg,png}`.
    * Defaults to `/component-logos/<id>.svg` per id when omitted. Set
@@ -262,17 +284,20 @@ export const GROUPS: GroupDef[] = [
       // dependency-model feedback (issue #175): Specter requires the
       // entire CORTEX family at runtime — vector store (Milvus),
       // embeddings (BGE), LLM observability (LangFuse), serving (KServe),
-      // inference (vLLM). The relationship is encoded BOTH at component
-      // level (specter → bge, milvus, langfuse, vllm, kserve) AND at
-      // product level (CORTEX is auto-selected when any CORTEX member
-      // appears, and Specter's component deps include CORTEX members so
-      // selecting Specter triggers the CORTEX product cascade through
-      // the store's `addComponent` path). Result: selecting Specter adds
-      // the full CORTEX family even if the user never opens the CORTEX
-      // chip.
+      // inference (vLLM). Result: selecting Specter adds the full CORTEX
+      // family even if the user never opens the CORTEX chip.
+      //
+      // Declared as `familyRequires: ['cortex']`, NOT as a `dependencies`
+      // literal. There is no bp-specter HelmRelease, so `depsFor('specter')`
+      // returns [] and any `dependencies` literal here is discarded at
+      // module load — which is exactly how this rule silently stopped
+      // working: the catalog kept documenting it while the wizard
+      // installed Specter alone, an AIOps brain with no AI runtime under
+      // it. `familyRequires` expands from PRODUCTS at load time, so the
+      // member list can never drift from the CORTEX family definition.
       // Specter is an OpenOva-internal component without a finalized
       // upstream brand mark — render the letter-mark fallback (#173).
-      { id: 'specter',       name: 'Specter',       desc: 'Anomaly detection and root-cause correlation over telemetry', tier: 'optional', dependencies: ['bge', 'milvus', 'langfuse', 'vllm', 'kserve'], logoUrl: null },
+      { id: 'specter',       name: 'Specter',       desc: 'Anomaly detection and root-cause correlation over telemetry', tier: 'optional', familyRequires: ['cortex'], logoUrl: null },
     ],
   },
   /* ── À LA CARTE ───────────────────────────────────────────────── */
@@ -523,17 +548,55 @@ export interface ComponentEntry extends ComponentDef {
 // bootstrap-kit/*.yaml HelmRelease.dependsOn, parsed by
 // scripts/generate-blueprint-deps.sh into blueprint-deps.generated.json.
 // Hardcoded `dependencies: [...]` arrays in the GROUPS literal above are
-// IGNORED at module load — see import below.
+// IGNORED at module load — see import below. Product-family selection
+// rules are NOT install ordering and Flux has no opinion on them, so they
+// are declared as `familyRequires: ['<product-id>']` and expanded from
+// PRODUCTS here instead.
 import { depsFor as _bpDepsFor } from '../../../data/blueprintDeps'
+
+/**
+ * Every id that has a card in the wizard catalog. The Flux dependency
+ * graph is drawn from the bootstrap kit, which reconciles HelmReleases the
+ * wizard deliberately does not offer as cards (`bp-gateway-api`,
+ * `bp-reflector`, `bp-spire` — unconditional platform plumbing, installed
+ * on every Sovereign whatever the operator picks). Those names used to
+ * leak into `dependencies` as dangling ids: `computeDefaultSelection()`
+ * emitted `gateway-api` / `reflector` / `spire` into `selectedComponents`
+ * (and from there into the deployment payload) with no card, no name and
+ * no logo to resolve them, and the "Selected (N) of M" counter counted
+ * them. Dropping them loses nothing operationally — the bootstrap kit
+ * installs them regardless of the wizard — and keeps the graph closed
+ * over the catalog so every dep resolves to a real card.
+ */
+const CATALOG_COMPONENT_IDS: ReadonlySet<string> = new Set(
+  GROUPS.flatMap(g => g.components.map(c => c.id)),
+)
+
+/**
+ * Resolved dependency list for one component:
+ *   Flux install-ordering edges (canonical, from HelmRelease.dependsOn)
+ *   ∪ the members of every product named in `familyRequires`
+ *   minus self-references and ids with no card in the catalog.
+ */
+function resolveCatalogDependencies(c: ComponentDef): string[] {
+  const familyMembers = (c.familyRequires ?? []).flatMap(
+    productId => PRODUCTS.find(p => p.id === productId)?.components ?? [],
+  )
+  return [...new Set([..._bpDepsFor(c.id), ...familyMembers])].filter(
+    id => id !== c.id && CATALOG_COMPONENT_IDS.has(id),
+  )
+}
 
 export const RAW_COMPONENTS: ComponentEntry[] = GROUPS.flatMap(g =>
   g.components.map(c => ({
     ...c,
     // Override every component's `dependencies` with the Flux-canonical
-    // list from blueprint-deps.generated.json. Components without a
-    // bp-* HelmRelease (e.g. opentofu, vcluster — Phase-0 fixtures, not
-    // bootstrap-kit reconciled) fall back to an empty list.
-    dependencies: _bpDepsFor(c.id),
+    // list from blueprint-deps.generated.json, merged with the
+    // product-family expansion of `familyRequires` (the graph Flux has no
+    // opinion on). Components without a bp-* HelmRelease (e.g. opentofu,
+    // vcluster — Phase-0 fixtures, not bootstrap-kit reconciled) and
+    // without a `familyRequires` fall back to an empty list.
+    dependencies: resolveCatalogDependencies(c),
     // Default logo path: vendored SVG keyed by component id, prefixed
     // with the Vite `base` so the URL works behind /sovereign/ (prod)
     // or / (dev / test). `null` in the source overrides the default

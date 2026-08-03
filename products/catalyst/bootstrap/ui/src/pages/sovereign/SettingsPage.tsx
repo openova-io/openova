@@ -145,6 +145,13 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
   const params = useParams({ strict: false }) as { deploymentId?: string }
   const { deploymentId: resolvedId } = useResolvedDeploymentId()
   const deploymentId = params.deploymentId ?? resolvedId ?? ''
+  // Which of the two routes are we actually mounted on? The presence of a
+  // `:deploymentId` PATH PARAM is the only honest signal — `deploymentId`
+  // above falls back to the resolver, which answers on both routes. Links
+  // to sibling pages must be built from this, because the mothership
+  // routes are `/provision/$deploymentId/*` while the chroot Sovereign
+  // serves the same pages at the domain root.
+  const scopedToProvisionRoute = Boolean(params.deploymentId)
 
   const store = useWizardStore()
 
@@ -395,13 +402,35 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
                 Operators are managed on the dedicated User Access page so role bindings, app
                 grants, and namespace scopes share one editor.
               </p>
-              <Link
-                to={`/users` as never}
-                className="mt-2 inline-flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] no-underline hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
-                data-testid="settings-members-link"
-              >
-                Open User Access →
-              </Link>
+              {/* Both User Access routes are registered in the one tree:
+                  `/provision/$deploymentId/users` (mothership) and the
+                  chroot `/users` under consoleLayoutRoute. This link used
+                  to hardcode the chroot form for both, so on the
+                  mothership it navigated into SovereignConsoleLayout with
+                  no :deploymentId param, where useResolvedDeploymentId
+                  falls back to /sovereign/self — which 404s on a
+                  mothership host. Members was a dead link there. Pick the
+                  form that matches the route we are mounted on rather
+                  than casting the target past the router's typed-route
+                  check. */}
+              {scopedToProvisionRoute ? (
+                <Link
+                  to="/provision/$deploymentId/users"
+                  params={{ deploymentId }}
+                  className="mt-2 inline-flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] no-underline hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+                  data-testid="settings-members-link"
+                >
+                  Open User Access →
+                </Link>
+              ) : (
+                <Link
+                  to="/users"
+                  className="mt-2 inline-flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] no-underline hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+                  data-testid="settings-members-link"
+                >
+                  Open User Access →
+                </Link>
+              )}
             </SectionCard>
 
             {/* 11. Danger zone */}
