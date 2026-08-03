@@ -371,3 +371,23 @@ document itself establishes and per PROTOCOL §10. What changed is the **deliver
 contract on main; #5475/#5453 left the status/uat queue with their fixes ancestry-proven aboard
 image pin `fb41faf30` — the image the next fire boots. The distance between merged and delivered is
 now exactly one founder keystroke pair: scale-up (#5558) + fire hw292.
+
+---
+
+## Domain-naming adjudication — "registration" (2026-08-03, closes a recurring audit request)
+
+A recurring ask for a "registration EPIC audit" was resolved by three-way archaeology, all
+commands and outputs in the 2026-08-03 session transcript:
+
+| probe | result |
+|---|---|
+| commit messages: `git log --all -i --grep='registration'` | 160 hits, all incidental (cache "registered under", OIDC client wording) vs **664** for `registry` — the confusion source |
+| ledger: grep across EPIC-MATRIX / TRACKER / UAT | **0** matches in all three |
+| file paths: `git log --all -- '*registration*' '*signup*' '*onboard*'` | 38 "registration"-path commits are Keycloak client-registration plumbing; **12 signup-path commits are the real domain**, incl. dated live walks (`docs/sessions/`, #4699) |
+
+**Verdict:** no "registration" EPIC exists or ever existed. The domain the term can charitably
+mean is **signup/onboarding/funnel** — EPIC **#1082 (closed, 5/5)** and the #3376 funnel family —
+among the best-evidenced in this repo (480 funnel / 283 voucher / 155 redeem / 114 signup commits;
+live E2E proofs dated 07-10/07-15/07-18/07-19). Its current percentage lives in the family table
+above with its two named blockers (#5393 founder quota decision; #5511 fix merged, delivery-gated).
+Any future "registration audit" request resolves to THIS row, not to a new derivation.
