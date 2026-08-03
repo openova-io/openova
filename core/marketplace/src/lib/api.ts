@@ -1,3 +1,5 @@
+import { parseRateLimitBody, rateLimitMessage } from './rateLimitNotice';
+
 const API_BASE = '/api';
 
 let refreshing: Promise<void> | null = null;
@@ -80,16 +82,29 @@ async function request<T>(path: string, opts?: RequestInit): Promise<T> {
       const retry = await fetch(`${API_BASE}${path}`, { ...opts, headers: retryHeaders });
       if (!retry.ok) {
         const body = await retry.text();
-        throw new Error(`${retry.status}: ${body}`);
+        throw new Error(requestErrorMessage(retry.status, body));
       }
       return retry.json();
     }
   }
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`${res.status}: ${body}`);
+    throw new Error(requestErrorMessage(res.status, body));
   }
   return res.json();
+}
+
+/**
+ * #5634 (UAT row 92): callers surface `e.message` straight to the customer
+ * (CheckoutStep puts it in `provisionError`), so a throttled checkout used to
+ * read as a raw status code joined to a raw JSON blob. A 429 becomes the plain
+ * wait-and-retry notice instead, carrying the gateway's own `retry_after`.
+ * Every other status keeps the existing `<status>: <body>` shape that other
+ * call sites already match on.
+ */
+function requestErrorMessage(status: number, body: string): string {
+  if (status === 429) return rateLimitMessage(parseRateLimitBody(body), 'checkout');
+  return `${status}: ${body}`;
 }
 
 async function tryRefresh(): Promise<void> {
