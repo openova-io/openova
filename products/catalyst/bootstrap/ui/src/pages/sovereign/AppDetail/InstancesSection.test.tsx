@@ -7,7 +7,9 @@
  *       - Organization → <select> populated from listOrganizations()
  *       - Topology mode → <select> from the editor ALL_MODES set
  *       - Region(s) → checkboxes from the live infrastructure topology
- *       - vCluster → <select>
+ *       - vCluster → <select> of REAL placement targets only (#5616):
+ *         "host" + live vClusters keyed by their real host NAMESPACE
+ *         (never the display name, never fabricated tier options)
  *   • Placement is written onto the create request (#3599): the POST body
  *     carries placement {vcluster, regions} + topology.
  *   • active-active / active-hotstandby require ≥2 regions; Create stays
@@ -56,12 +58,23 @@ const ORG_ROWS = {
   ],
 }
 
+// #5616 — two live vClusters, both with a display NAME that differs from
+// their real host NAMESPACE:
+//   v1 "acme-rtz" runs in ns "rtz"  → tier-resolvable, MUST be offered
+//     with value = "rtz" (the real namespace), never "acme-rtz".
+//   v2 "vcluster" runs in ns "acme" → the per-Org boundary vCluster; no
+//     placement.vcluster spelling resolves it today, so it MUST NOT be
+//     offered (on hw292 its display name became a namespace that does
+//     not exist and the install Degraded).
 const TOPOLOGY = {
   topology: {
     pattern: 'multi-region',
     regions: [
       { id: 'r-a', name: 'rgn-a', provider: 'huawei', providerRegion: 'me-east-215-a', clusters: [
-        { id: 'c-a', name: 'cl-a', vclusters: [{ id: 'v1', name: 'acme-rtz', isolationMode: 'rtz', status: 'healthy' }] },
+        { id: 'c-a', name: 'cl-a', vclusters: [
+          { id: 'v1', name: 'acme-rtz', namespace: 'rtz', isolationMode: 'rtz', status: 'healthy' },
+          { id: 'v2', name: 'vcluster', namespace: 'acme', isolationMode: 'rtz', status: 'healthy' },
+        ] },
       ] },
       { id: 'r-b', name: 'rgn-b', provider: 'huawei', providerRegion: 'me-east-215-b', clusters: [] },
     ],
@@ -187,6 +200,37 @@ describe('NewInstanceDialog — dropdowns (#3600)', () => {
     expect(((await screen.findByTestId('select-instance-vcluster')) as HTMLSelectElement).tagName).toBe('SELECT')
   })
 
+  // #5616 — every offered option must be a REAL placement target. The
+  // hw292 walk proved the old dropdown was 5-for-5 wrong: fixed tier
+  // aliases (mgmt/dmz/rtz) were offered with no live vCluster behind
+  // them, and live vClusters were keyed by display NAME (the per-Org
+  // vCluster is named "vcluster" but runs in the Org namespace), so
+  // every explicit choice was consumed downstream as a namespace that
+  // does not exist and the Application landed Degraded.
+  it('#5616 — the vCluster select offers only real placement targets, keyed by real namespace', async () => {
+    await openDialog()
+    // Wait for the live topology to resolve (regions come from the same query).
+    await screen.findByTestId('region-checkbox-rgn-a')
+    const sel = (await screen.findByTestId('select-instance-vcluster')) as HTMLSelectElement
+    const options = Array.from(sel.querySelectorAll('option'))
+    const values = options.map((o) => o.getAttribute('value'))
+    // Exactly: blank default, host, and the ONE tier-resolvable live
+    // vCluster — by its real namespace.
+    expect(values).toEqual(['', 'host', 'rtz'])
+    // The live vCluster's display name is label-only, never the value.
+    const rtzOption = options.find((o) => o.getAttribute('value') === 'rtz')!
+    expect(rtzOption.textContent).toContain('acme-rtz')
+    expect(values).not.toContain('acme-rtz')
+    // Fabricated tier aliases with no live vCluster behind them are gone.
+    expect(values).not.toContain('mgmt')
+    expect(values).not.toContain('dmz')
+    // The per-Org vCluster resolves through the blank default, not an
+    // explicit option — neither its display name nor its Org namespace
+    // is offered as a value.
+    expect(values).not.toContain('vcluster')
+    expect(values).not.toContain('acme')
+  })
+
   it('Region(s) render as checkboxes from the live topology', async () => {
     await openDialog()
     expect(await screen.findByTestId('region-checkbox-rgn-a')).toBeTruthy()
@@ -243,6 +287,32 @@ describe('NewInstanceDialog — placement (#3599)', () => {
     // One vocabulary (#3375 DoD-1): the canonical topology is POSTed.
     expect(body.topology).toBe('active-hot-standby')
     expect(body.placement).toEqual({ vcluster: 'rtz', regions: ['rgn-a', 'rgn-b'] })
+  })
+
+  // #5616 both directions — selecting the live vCluster submits its REAL
+  // host namespace ("rtz"), and the display name ("acme-rtz") appears
+  // nowhere in the payload.
+  it('#5616 — the submitted payload carries the real namespace of the selected vCluster, never its display name', async () => {
+    await openDialog()
+    fireEvent.change(await screen.findByTestId('input-instance-name'), { target: { value: 'wp-2' } })
+    fireEvent.change(await screen.findByTestId('select-instance-org'), { target: { value: 'acme' } })
+    // Wait for the topology-fed options, then select the live vCluster
+    // (displayed with its name "acme-rtz", valued by its namespace).
+    await screen.findByTestId('region-checkbox-rgn-a')
+    const sel = (await screen.findByTestId('select-instance-vcluster')) as HTMLSelectElement
+    await waitFor(() => expect(sel.querySelector('option[value="rtz"]')).toBeTruthy())
+    fireEvent.change(sel, { target: { value: 'rtz' } })
+
+    fireEvent.click(await screen.findByTestId('btn-submit-instance'))
+
+    await waitFor(() => expect(captured.length).toBe(1))
+    const body = captured[0]
+    const placement = body.placement as { vcluster?: string }
+    // Right value present: the real namespace.
+    expect(placement.vcluster).toBe('rtz')
+    // Wrong value absent: the display name never reaches the wire.
+    expect(placement.vcluster).not.toBe('acme-rtz')
+    expect(JSON.stringify(body)).not.toContain('acme-rtz')
   })
 })
 
