@@ -3625,7 +3625,7 @@ name: bp-catalyst-platform
 #   cause of the "An error has occurred" 403-PERMISSION_DENIED page on every
 #   >60-min revisit (UAT rows 35/115 on hw292). Bootstrap-kit slot-52 pin
 #   bumped in lockstep (pin-sync gate).
-version: 1.4.1266
+version: 1.4.1267
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
@@ -3775,7 +3775,7 @@ version: 1.4.1266
 #   unsatisfiable on kom4dc (me-east-215-*), which kept the production
 #   Continuum seed unfireable. Backwards-compatible (all-letter labels
 #   still match). Flux CreateReplace flows it to live Sovereigns.
-appVersion: 1.4.1252
+appVersion: 1.4.1267
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
