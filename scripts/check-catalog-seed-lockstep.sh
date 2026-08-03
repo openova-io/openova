@@ -269,9 +269,36 @@ if [ -n "${CHECK_GHCR}" ]; then
   # reason TestCatalogSeed_DeliveryPinsNotBehindComponentCharts excludes it.
   SELF_REFERENTIAL="bp-catalyst-platform"
 
-  # Register rows, as `chart<TAB>version` — the two fields the invariants key on.
-  register="$(yq eval '.unpublished[] | .chart + "\t" + .version' "${UNPUBLISHED_REGISTER}" 2>/dev/null || true)"
-  register_charts="$(printf '%s\n' "$register" | cut -f1 | grep -v '^$' || true)"
+  # Register rows, as `chart|version` — the two fields the invariants key on.
+  #
+  # The delimiter is a literal `|`, NOT "\t". yq's handling of the "\t" escape
+  # is build-dependent: v4.53 emits a real tab, v4.45 (what CI installs) emits a
+  # literal backslash-t, which silently turned every chart name into
+  # `bp-redis\t1.0.0` and made every register lookup miss. Caught on the first
+  # CI run of this gate. A delimiter with no escape sequence cannot regress that
+  # way.
+  register="$(yq eval '.unpublished[] | .chart + "|" + .version' "${UNPUBLISHED_REGISTER}" 2>/dev/null || true)"
+  register_charts="$(printf '%s\n' "$register" | cut -d'|' -f1 | grep -v '^$' || true)"
+
+  # Control on the register parser itself. A malformed parse (wrong delimiter,
+  # yq version skew, a hand-edited row) yields chart names carrying whitespace,
+  # a backslash, or a stray `|`. Left undetected, every lookup misses and the
+  # gate reports the declared known-gaps as fresh defects — which is exactly how
+  # the yq "\t" skew above presented. Fail as an input error, not a pin defect.
+  register_rows="$(printf '%s\n' "$register" | grep -c . || true)"
+  if [ "${register_rows}" -eq 0 ]; then
+    echo "ERROR: parsed zero rows from ${UNPUBLISHED_REGISTER#${REPO_ROOT}/} — the register parser is broken." >&2
+    exit 2
+  fi
+  for rc in $register_charts; do
+    case "$rc" in
+      *[!A-Za-z0-9._-]*)
+        echo "ERROR: register parsed a malformed chart name '${rc}'." >&2
+        echo "Expected a bare chart name. Check the yq expression and ${UNPUBLISHED_REGISTER#${REPO_ROOT}/}." >&2
+        exit 2
+        ;;
+    esac
+  done
 
   # Rendered seed rows, as `name|visibility|source.chart|source.version`.
   # Parsed with awk, not yq: `yq eval-all 'select(.kind == "Blueprint")'` over
@@ -313,7 +340,7 @@ if [ -n "${CHECK_GHCR}" ]; then
     fi
 
     # Is this (chart, version) declared in the known-gap register?
-    registered_ver="$(printf '%s\n' "$register" | awk -F'\t' -v c="$src_chart" '$1 == c {print $2; exit}')"
+    registered_ver="$(printf '%s\n' "$register" | awk -F'|' -v c="$src_chart" '$1 == c {print $2; exit}')"
 
     if [ -n "$registered_ver" ]; then
       # ── Invariant 3: the register self-retires the moment the chart ships.
