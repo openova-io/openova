@@ -85,6 +85,23 @@ import Layout from '../layouts/Layout.astro';
       </a>
     </div>
 
+    <!--
+      #5634 (UAT row 92): the gateway burst-limits the redeem path and answers 429
+      with its own retry window. That answer is about how fast the customer is
+      going, NOT about the voucher, so it gets its own panel — routing it to
+      "Voucher not valid" told throttled customers their code was bad.
+    -->
+    <div id="redeem-throttled" class="hidden rounded-2xl border border-[var(--color-warn)]/30 bg-[var(--color-warn)]/10 p-8 text-center">
+      <h1 class="text-2xl font-bold text-[var(--color-text-strong)]">Too many attempts</h1>
+      <p id="redeem-throttled-detail" class="mt-2 text-sm text-[var(--color-text-dim)]"></p>
+      <button
+        id="redeem-throttled-retry"
+        class="mt-6 inline-block rounded-lg bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+      >
+        Try again
+      </button>
+    </div>
+
     <div id="redeem-valid" class="hidden">
       <div class="rounded-2xl border border-[var(--color-success)]/30 bg-[var(--color-success)]/5 p-8 text-center">
         <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-success)]/20">
@@ -128,16 +145,22 @@ import Layout from '../layouts/Layout.astro';
     // imports resolve. No new session mechanism is introduced.
     import { getMyOrgs, setActiveOrgConsoleHost } from '../lib/api';
     import { consoleLaunchHref } from '../lib/config';
+    // #5634 (UAT row 92): the response-to-panel decision lives in a plain module
+    // so it can be unit-tested; this page keeps only the DOM writes that need the
+    // response body.
+    import {
+      applyRedeemOutcome,
+      classifyRedeemPreview,
+      showRedeemPanel,
+      type RedeemPanelId,
+    } from '../lib/redeemPreview';
 
     // Storage key shared with CheckoutStep: when a pending voucher is set,
     // the checkout step will pre-fill the promo_code field.
     const PENDING_VOUCHER_KEY = 'org-pending-voucher';
 
-    function show(id: string) {
-      ['redeem-loading', 'redeem-missing', 'redeem-not-valid', 'redeem-ended', 'redeem-valid'].forEach(x => {
-        const el = document.getElementById(x);
-        if (el) el.classList.toggle('hidden', x !== id);
-      });
+    function show(id: RedeemPanelId) {
+      showRedeemPanel(document, id);
     }
 
     async function validate(code: string) {
@@ -148,25 +171,31 @@ import Layout from '../layouts/Layout.astro';
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code }),
         });
-        if (res.status === 404) {
-          show('redeem-not-valid');
-          return;
-        }
-        if (res.status === 410) {
+        // Read the body once, up front: the 429 notice needs the server's
+        // `retry_after`, and 404 responses may carry no body at all.
+        let body: any = null;
+        try { body = await res.json(); } catch { body = null; }
+
+        const outcome = classifyRedeemPreview(res.status, body);
+
+        if (outcome.panel === 'redeem-ended') {
           // Campaign ended — body still has credit + description.
-          const body = await res.json();
-          (document.getElementById('redeem-ended-code') as HTMLElement).textContent = body.code || code;
-          (document.getElementById('redeem-ended-credit') as HTMLElement).textContent = String(body.credit_omr ?? '');
-          show('redeem-ended');
+          (document.getElementById('redeem-ended-code') as HTMLElement).textContent = body?.code || code;
+          (document.getElementById('redeem-ended-credit') as HTMLElement).textContent = String(body?.credit_omr ?? '');
+        }
+
+        if (outcome.panel === 'redeem-throttled') {
+          // #5634: let the customer retry once the server's window has passed
+          // without re-pasting the code.
+          const retry = document.getElementById('redeem-throttled-retry');
+          if (retry) retry.onclick = () => { validate(code); };
+        }
+
+        if (outcome.panel !== 'redeem-valid') {
+          applyRedeemOutcome(document, outcome);
           return;
         }
-        if (!res.ok) {
-          (document.getElementById('redeem-not-valid-detail') as HTMLElement).textContent =
-            'Could not validate the voucher right now. Please try again in a moment.';
-          show('redeem-not-valid');
-          return;
-        }
-        const body = await res.json();
+
         (document.getElementById('redeem-valid-credit') as HTMLElement).textContent =
           `${body.credit_omr} OMR credit`;
         (document.getElementById('redeem-valid-desc') as HTMLElement).textContent =
