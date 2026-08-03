@@ -46,7 +46,12 @@ for d in yaml.safe_load_all(open(render)):
         lib = d["data"].get("catalog-set.sh")
     if n == "cutover-step-03-harbor-prewarm":
         spec = yaml.safe_load(d["data"]["podSpec"])
-        pod = (d["data"]["podSpec"], spec["containers"][0]["args"][0])
+        # #5593: the script lives in the run.sh CM key (mounted + exec'd from
+        # file — inline args would exceed MAX_ARG_STRLEN). Fall back to args
+        # for pre-0.1.159 renders.
+        c0 = spec["containers"][0]
+        script = d["data"].get("run.sh") or (c0.get("args") or [""])[0]
+        pod = (d["data"]["podSpec"], script)
 if lib:
     open(out + "/catalog-set.sh", "w").write(lib)
 if pod:

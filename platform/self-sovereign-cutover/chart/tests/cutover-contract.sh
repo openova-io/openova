@@ -2666,7 +2666,9 @@ if grep -qF 'cutover-registry-pin.override' "$TMP/s03pin.yaml"; then
 fi
 # (c2) the pin is invoked BEFORE the public-dest readiness probe (the probe is the
 #      CoreDNS-reload sync-confirm; a push must never race an unpinned registry.<fqdn>).
-_pin_ln=$(grep -n '            install_coredns_registry_pin$' "$TMP/s03pin.yaml" | tail -1 | cut -d: -f1)
+# #5593: indent-agnostic — the script moved from inline args (12-space) to the
+# run.sh CM key (4-space); match the bare invocation line at any indentation.
+_pin_ln=$(grep -nE '^[[:space:]]+install_coredns_registry_pin$' "$TMP/s03pin.yaml" | tail -1 | cut -d: -f1)
 _probe_ln=$(grep -n 'public-dest readiness probe' "$TMP/s03pin.yaml" | head -1 | cut -d: -f1)
 if [ -z "$_pin_ln" ] || [ -z "$_probe_ln" ] || [ "$_pin_ln" -ge "$_probe_ln" ]; then
   echo "FAIL: step-03 install_coredns_registry_pin is not invoked BEFORE the public-dest readiness probe (pin@${_pin_ln:-none} probe@${_probe_ln:-none}) — a push could race an unpinned registry.<fqdn> (#5007)" >&2
