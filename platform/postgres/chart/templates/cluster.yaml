@@ -42,7 +42,11 @@ metadata:
     # `-rw` Service of THIS named Cluster is the consumer-facing write
     # endpoint; the cnpg-pair label ties it to the replica half for DR.
     openova.io/cnpg-role: primary
-    openova.io/region: {{ .Values.topology.primary.region | quote }}
+    {{- /* #5639 — FAIL CLOSED. Resolved through bp-postgres.primaryRegion so an
+         unset region is an install ERROR naming the key, never the empty label
+         + empty nodeAffinity selector that made hw292's per-Org primary
+         unschedulable for 7h behind an `install succeeded` HelmRelease. */}}
+    openova.io/region: {{ include "bp-postgres.primaryRegion" . | quote }}
     catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
     {{- end }}
 spec:
@@ -63,7 +67,10 @@ spec:
           - matchExpressions:
               - key: openova.io/region
                 operator: In
-                values: [{{ .Values.topology.primary.region | quote }}]
+                # #5639 — see bp-postgres.primaryRegion. An empty value here is
+                # `In [""]`: no node carries an empty region label, so the Pods
+                # are Pending FOREVER, not merely slow to schedule.
+                values: [{{ include "bp-postgres.primaryRegion" . | quote }}]
     podAntiAffinityType: preferred
   {{- else }}
   instances: {{ .Values.topology.instances | default 1 }}

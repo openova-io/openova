@@ -44,6 +44,15 @@ func bpPostgresConfigSchema() map[string]interface{} {
 					"instances": map[string]interface{}{
 						"type": "integer", "minimum": 1, "maximum": 5, "default": 1,
 					},
+					// #5639 — the region half of the active-hot-standby
+					// contract, declared alongside `mode` in
+					// platform/postgres/blueprint.yaml spec.configSchema.
+					"primary": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"region": map[string]interface{}{"type": "string", "default": ""},
+						},
+					},
 				},
 			},
 			"databases": map[string]interface{}{

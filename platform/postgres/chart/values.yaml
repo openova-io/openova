@@ -141,6 +141,17 @@ topology:
   # ── Region pinning (active-hot-standby only). Canonical openova.io/region
   # node labels the primary / replica Cluster CRs pin on. Stamped from the
   # cloud-init SOVEREIGN_PRIMARY_REGION / SOVEREIGN_REPLICA_REGION substitutes.
+  #
+  # 🛑 REQUIRED in active-hot-standby (#5639, chart 0.2.17). The empty defaults
+  # below are the SINGLETON defaults — singleton renders no nodeAffinity and
+  # consumes no region. The moment `mode: active-hot-standby` or
+  # `crossRegion: true` is set, both halves pin a REQUIRED nodeAffinity on these
+  # values, and the chart now REFUSES to render rather than emitting
+  # `openova.io/region In [""]` (bp-postgres.primaryRegion /
+  # bp-postgres.replicaRegion in _helpers.tpl). Leaving them empty in the HA
+  # shape produced hw292's per-Org primary: Pending for 7+ hours behind a
+  # HelmRelease that reported `install succeeded`. replica.region is consulted
+  # only where the follower half renders (side=replica|secondary).
   primary:
     region: ""
   replica:

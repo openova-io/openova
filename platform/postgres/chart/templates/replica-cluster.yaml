@@ -44,7 +44,11 @@ metadata:
   labels:
     {{- include "bp-postgres.labels" . | nindent 4 }}
     openova.io/cnpg-role: replica
-    openova.io/region: {{ .Values.topology.replica.region | quote }}
+    {{- /* #5639 — FAIL CLOSED, same contract as the primary half. This label is
+         ALSO load-bearing beyond scheduling: catalyst-api's continuum_live.go
+         reads openova.io/region off the Cluster CRs to project the DR panel's
+         regions, so an empty value degrades that surface too. */}}
+    openova.io/region: {{ include "bp-postgres.replicaRegion" . | quote }}
     catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
 spec:
   instances: {{ .Values.topology.haInstances | default 3 }}
@@ -68,7 +72,9 @@ spec:
           - matchExpressions:
               - key: openova.io/region
                 operator: In
-                values: [{{ .Values.topology.replica.region | quote }}]
+                # #5639 — see bp-postgres.replicaRegion. `In [""]` is
+                # unsatisfiable on every node in region-B, forever.
+                values: [{{ include "bp-postgres.replicaRegion" . | quote }}]
     podAntiAffinityType: preferred
 
   # ── Replica-cluster mode ─────────────────────────────────────────
