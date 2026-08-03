@@ -212,10 +212,13 @@ func TestHandleShellsIssue_MissingQueryParams_400(t *testing.T) {
 // Operator cookie + container query param. Source-of-truth: matrix
 // row TC-228 (.claude/qa-loop-state/test-matrix-target-state.json).
 //
-// Cites Fix #160 PR #1364 wire-shape pattern: the happy path is a
-// genuine 200; the negative paths (403/400/502) now also return 200
-// with body envelopes carrying their respective status tokens, so the
-// matrix runner can resolve must_contain on the body alone.
+// History: the Fix #160 PR #1364 wire-shape era deliberately returned
+// HTTP 200 on negative paths with body-token envelopes. #5542/#5543
+// REVERSED that: negative paths now return their TRUE transport status
+// (403/400/...) while KEEPING the informative body tokens, so the
+// matrix runner still resolves must_contain on the body AND the wire
+// status is honest. The assertions below are the contract; do not
+// restore the 200-envelope shape on the strength of an old comment.
 func TestHandleShellsIssue_TC228_HappyPath_Operator_ContainerQuery(t *testing.T) {
 	rig := newShellsIssueRig(t, true)
 	req := httptest.NewRequest(http.MethodPost,
@@ -244,8 +247,9 @@ func TestHandleShellsIssue_TC228_HappyPath_Operator_ContainerQuery(t *testing.T)
 }
 
 // TC-245 pinning — viewer cookie. Matrix expects body anchor "403"
-// AND body must NOT contain "sessionId". Per Fix #160 wire-shape we
-// emit HTTP 200 (so the runner reads the body) with `"status":"403"`.
+// AND body must NOT contain "sessionId". Since #5542/#5543 the wire
+// status is the TRUE 403 (asserted below); the body still carries
+// `"status":"403"` so the matrix runner's body anchors keep working.
 func TestHandleShellsIssue_TC245_Viewer_TokenEnvelope(t *testing.T) {
 	rig := newShellsIssueRig(t, true)
 	req := httptest.NewRequest(http.MethodPost,
