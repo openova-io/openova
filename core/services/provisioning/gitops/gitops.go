@@ -1348,7 +1348,9 @@ metadata:
 spec:
   type: oci
   interval: 15m
-  url: oci://ghcr.io/openova-io
+  # url is cutover-aware (#5527, cutover_aware_5527.go): public catalog
+  # pre-cutover, Sovereign-local Harbor once the step-07 fact is stamped.
+  url: %s
   secretRef:
     name: ghcr-pull
 ---
@@ -1423,6 +1425,7 @@ spec:
 `,
 		side, side, side, opt.replicaRegion, // header comment
 		hrName, hrNamespace, // HelmRepository name/ns
+		catalogOCIBase(), // cutover-aware OCI base (#5527)
 		hrName, hrNamespace, side, releaseName, ns, kubeConfigBlock, // HR metadata + spec head
 		hrName, hrNamespace, // sourceRef name/ns
 		side,                                                              // cnpgPair.side

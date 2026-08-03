@@ -1172,6 +1172,23 @@ catalystAPI:
       # Empty disables the broken-CSI cordon (the detach-gate still runs).
       zoneLabel: "topology.evs.csi.huaweicloud.com/zone"
 
+# #5527 — step-07 Phase 3d: the org-services provisioning Deployment (the
+# per-Org GitOps tree generator, core/services/provisioning) is NOT covered by
+# the catalyst-api env stamps above, yet its emitters declare the bp-* catalog
+# OCI base in every tree they regenerate. Without a pivot fact readable from
+# that process, the NEXT org mutation after cutover regenerates HelmRepository
+# blocks pointing at oci://ghcr.io/openova-io and Flux drift-corrects the
+# step-06 object pivot straight back — the hw291 step-08 OFFENDER wedge,
+# recurring silently post-cutover (Pillar 5). Phase 3d stamps
+# CATALYST_LOCAL_REGISTRY_URL=oci://<registry-host>/openova-io (derived from
+# sovereign.harborPublicURL — the SAME value shape step-06 patches the live
+# objects to) onto this Deployment via `kubectl set env`; the generator's
+# explicit-override seam (cutover_aware_5527.go) flips on it. The set-env
+# rolls the Deployment, so every subsequent regeneration carries the fact.
+orgProvisioning:
+  deploymentName: "provisioning"
+  namespace: "org-services"
+
 # #4885 (Refs #3379 #4563): step-07 image-registry pivot — the CURATED set of
 # ADDITIONAL openova-io HelmReleases whose chart HONOURS global.imageRegistry
 # and must be pivoted to the local Harbor at cutover.
