@@ -1,0 +1,22 @@
+=== G12 hw292 §1 SEED baseline — 2026-08-03T19:59:50.042Z ===
+--- shared-data/shared-pg ---
+ERROR:  cannot execute CREATE TABLE in a read-only transaction
+command terminated with exit code 1
+--- cnpg/cnpg-pair-bp-cnpg-pair-primary ---
+1|g12-sentinel-prekill-2026-08-03 19:59:50.340756+00
+INSERT 0 1
+=== G12 hw292 §1 SEED (true primaries) — 2026-08-03T20:00:13.662Z ===
+--- shared-data/shared-pg (primary pod shared-pg-2) ---
+1|g12-sentinel-prekill-2026-08-03 20:00:13.930731+00
+INSERT 0 1
+--- shared-data/shared-pg-b (primary pod shared-pg-b-1) ---
+1|g12-sentinel-prekill-2026-08-03 20:00:14.252625+00
+INSERT 0 1
+--- shared-data/shared-pg-c (primary pod shared-pg-c-2) ---
+1|g12-sentinel-prekill-2026-08-03 20:00:14.646404+00
+INSERT 0 1
+=== §1b region-B REPLICA read-back (RPO=0 pre-proof) — 20:00:14.751Z ===
+shared-pg-replica/shared-pg-replica-1: 1|g12-sentinel-prekill-2026-08-03 20:00:13.930731+00
+shared-pg-b-replica/shared-pg-b-replica-1: 1|g12-sentinel-prekill-2026-08-03 20:00:14.252625+00
+shared-pg-c-replica/shared-pg-c-replica-1: 1|g12-sentinel-prekill-2026-08-03 20:00:14.646404+00
+cnpg-pair-bp-cnpg-pair-replica/cnpg-pair-bp-cnpg-pair-replica-1: 1|g12-sentinel-prekill-2026-08-03 19:59:50.340756+00

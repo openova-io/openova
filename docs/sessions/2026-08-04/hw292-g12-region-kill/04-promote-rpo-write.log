@@ -1,0 +1,21 @@
+=== §3 AUTO-PROMOTE evidence (cnpg-pair) — T0=20:01:27.733Z ===
+2026-08-03T20:02:52Z [dr-promoter/actor] region-A unreachable 72s < hold 120s — waiting
+2026-08-03T20:03:02Z [dr-promoter/actor] region-A unreachable 82s < hold 120s — waiting
+2026-08-03T20:03:12Z [dr-promoter/actor] region-A unreachable 92s < hold 120s — waiting
+2026-08-03T20:03:22Z [dr-promoter/actor] region-A unreachable 102s < hold 120s — waiting
+2026-08-03T20:03:32Z [dr-promoter/actor] region-A unreachable 112s < hold 120s — waiting
+2026-08-03T20:03:43Z [dr-promoter/actor] PROMOTING: region-A WAL stream absent AND region-A unreachable 123s >= 120s AND failover-readiness Ready — patching HR desired state (#5125-D1 seam)
+2026-08-03T20:03:43Z [dr-promoter/actor] PROMOTED (step 1/2): HR flux-system/bp-cnpg-pair spec.values.cnpgPair.replica.promoted=true — helm-controller renders replica.enabled:false → CNPG promotes
+2026-08-03T20:03:44Z [dr-promoter/actor] PROMOTION RENDERED (step 2/2): replica.enabled=false after 1s — suspending HR now (#5218)
+2026-08-03T20:03:44Z [dr-promoter/actor] LATCHED (post-promote same-tick): HR flux-system/bp-cnpg-pair spec.suspend=true VERIFIED — promotion durable; flux drift-correction can no longer revert spec.values and re-demote the survivor (#5178 Defect-B / #5218)
+2026-08-03T20:03:54Z [dr-promoter/actor] DURABLE HANDOFF (step 1/2): promotion is latched+rendered — patching Kustomization flux-system/bootstrap-kit substitute SOVEREIGN_CNPG_PAIR_PROMOTED=true so the promotion becomes the SOURCE-rendered desired state (#5245)
+--- HR annotations (audit trail) ---
+{"catalyst.openova.io/dr-auto-promote-handoff-at":"2026-08-03T20:04:05Z"
+"catalyst.openova.io/dr-auto-promote-latched-at":"2026-08-03T20:03:44Z"
+"catalyst.openova.io/dr-auto-promote-reason":"region-A WAL stream absent and region-A unreachable 123s; failover-readiness Ready (#5137/#5178)"
+"catalyst.openova.io/dr-auto-promoted-at":"2026-08-03T20:03:43Z"
+=== §3b RPO=0 + post-kill WRITE on the promoted primary ===
+promoted primary pod: cnpg-pair-bp-cnpg-pair-replica-1
+RPO-check count=1 sentinel=g12-sentinel-prekill-2026-08-03 19:59:50.340756+00
+POST-KILL WRITE ACCEPTED: 34|g12-POSTKILL-write-2026-08-03 20:04:12.241613+00
+INSERT 0 1
