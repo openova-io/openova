@@ -28,7 +28,9 @@
 //                 that is NOT Stalled (Flux is still retrying)
 //   Drifted     ← `degraded` that is NOT Stalled    (out of sync, self-healing)
 //   Degraded    ← `failed` AND Stalled              (Flux exhausted retries)
-//   Suspended   ← Flux-suspended reconciler          (reserved; not emitted yet)
+//   Suspended   ← spec.suspend=true (ComponentSnapshot.Suspended) — wins
+//                 over every other state, matching the drill panel's
+//                 manageStateForReady precedence (#5485 defect 4)
 //
 // The STICKY rule (kills the flapping #3916 / ticket symptom 2): only a
 // Flux `Stalled` HelmRelease maps to a terminal `Degraded`; every other
@@ -136,6 +138,15 @@ var notYetTrackedReconcilers = []string{
 // state is in-progress (Reconciling/Drifted), so the view never flaps a
 // transient Ready=False into a red Failed.
 func reconStateForComponent(cs helmwatch.ComponentSnapshot) string {
+	// #5485 defect 4 — suspension wins over every other state, exactly
+	// like manageStateForReady on the drill-panel path. helmwatch keeps
+	// Status=StateInstalled for suspended HRs (Wave 5.103 #2447 —
+	// Phase-1 readiness must not block on them), so without this check
+	// the graph node rendered "healthy" while the drill panel showed
+	// SUSPENDED for the same object.
+	if cs.Suspended {
+		return ReconStateSuspended
+	}
 	switch strings.ToLower(strings.TrimSpace(cs.Status)) {
 	case helmwatch.StateInstalled:
 		return ReconStateReconciled
