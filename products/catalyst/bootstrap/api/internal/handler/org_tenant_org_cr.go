@@ -113,6 +113,64 @@ func (h *Handler) createOrgOrganizationCR(ctx context.Context, rec store.Organiz
 	)
 }
 
+// deleteOrgOrganizationCR deletes the canonical Organization CR for a
+// record being torn down — THE trigger for the org-controller's finalizer
+// cascade (#5426). The complete teardown
+// (core/controllers/organization/internal/controller/organization_controller.go
+// deletion-timestamp branch: publishTenantDeleted → teardownPerOrgFlux →
+// teardownTenantNetworking → iac-bootstrap → per-org-realm finalizers) only
+// runs when the CR is marked for deletion; before this helper existed the
+// REST DELETE reaped the GitOps overlay + registry + DNS but never touched
+// the CR, so the `orgs.openova.io/tenant-networking` finalizer never fired
+// and every console-deleted Organization leaked its namespace, vCluster,
+// Keycloak realm, per-Org Flux sources and gateway listeners (the exact
+// orphan set that holds the sovereignty-cutover pre-flight closed).
+//
+// MUST be called AFTER the GitOps overlay reap — #4459/R17 order: deleting
+// the CR while the org-tenants tree still holds the overlay lets Flux
+// recreate the namespace the cascade just tore down (observed live at
+// T+5m07s on hw290). With the overlay commit already pushed, anything a
+// stale artifact transiently re-applies is pruned on the next source fetch,
+// and the cascade itself removes the per-Org Flux sources.
+//
+// Best-effort like the sibling teardown steps, but a failure is logged at
+// Error level (a silent skip IS the #5426 bug): the CR survives, so
+// re-running the DELETE — every step of which is idempotent — retries the
+// cascade trigger. NotFound is success (kubectl-side delete or a prior
+// DELETE already triggered / completed the cascade). Nil-tolerant on the
+// dynamic client for CI / out-of-cluster, matching createOrgOrganizationCR.
+func (h *Handler) deleteOrgOrganizationCR(ctx context.Context, rec store.OrganizationProvisionRecord) {
+	slug := strings.ToLower(strings.TrimSpace(rec.Subdomain))
+	if !orgSlugRE.MatchString(slug) {
+		// createOrgOrganizationCR never mints a CR for an invalid slug, so
+		// there is nothing to cascade.
+		h.log.Warn("org-tenant: skipping Organization CR delete — subdomain is not a valid Org slug",
+			"subdomain", rec.Subdomain,
+			"org_tenant_id", rec.OrganizationID,
+		)
+		return
+	}
+
+	deps, err := h.sovereignDepsFor()
+	if err != nil || deps == nil || deps.dyn == nil {
+		h.log.Info("org-tenant: Organization CR delete skipped — no in-cluster dynamic client",
+			"org_tenant_id", rec.OrganizationID, "err", err)
+		return
+	}
+
+	if err := deps.dyn.Resource(organizationGVR()).Delete(ctx, slug, metav1.DeleteOptions{}); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Already gone — idempotent success.
+			return
+		}
+		h.log.Error("org-tenant: Organization CR delete FAILED — finalizer cascade NOT triggered; namespace/vCluster/realm/Flux sources leak until this DELETE is retried (#5426)",
+			"slug", slug, "org_tenant_id", rec.OrganizationID, "err", err)
+		return
+	}
+	h.log.Info("org-tenant: Organization CR deleted — org-controller finalizer cascade triggered",
+		"slug", slug, "org_tenant_id", rec.OrganizationID)
+}
+
 // ensureOrganizationCR builds the Organization CR from the Organization record
 // and POSTs it via the dynamic client, treating AlreadyExists as success
 // (idempotent — a pipeline re-run or a redelivered create lands on the same

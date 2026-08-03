@@ -983,10 +983,17 @@ func (h *Handler) HandleReconcileOrganization(w http.ResponseWriter, r *http.Req
 // HandleDeleteOrganization — DELETE /api/v1/org/tenants/{id}.
 //
 // Inverse pipeline: removes the per-tenant overlay from the GitOps
-// repo (Flux reconciles → tenant resources GC), unregisters from the
-// host registry, and emits the deletion event. Each step is idempotent
-// + best-effort; partial failure leaves a STSDeleted audit row so the
-// reconciler can finish on the next pass.
+// repo (Flux reconciles → tenant resources GC), deletes the canonical
+// Organization CR — which fires the org-controller finalizer cascade
+// (publishTenantDeleted → teardownPerOrgFlux → teardownTenantNetworking
+// → iac-bootstrap → per-org-realm), the ONLY complete teardown (#5426)
+// — unregisters from the host registry, and emits the deletion event.
+// Each step is idempotent + best-effort; partial failure leaves a
+// STSDeleted audit row so the reconciler can finish on the next pass.
+//
+// Ordering is load-bearing (#4459/R17): the overlay reap commits FIRST
+// so Flux cannot recreate what the cascade tears down, THEN the CR
+// delete triggers the cascade.
 func (h *Handler) HandleDeleteOrganization(w http.ResponseWriter, r *http.Request) {
 	deps := h.orgTenantDeps
 	if deps.Store == nil {
@@ -1011,6 +1018,15 @@ func (h *Handler) HandleDeleteOrganization(w http.ResponseWriter, r *http.Reques
 			rec.CommitSHA = sha
 		}
 	}
+	// #5426 — the CR delete is what actually tears the Organization down:
+	// marking the CR for deletion fires the `orgs.openova.io/tenant-networking`
+	// finalizer cascade in the org-controller (namespace, vCluster, Keycloak
+	// realm, per-Org Flux sources, gateway listeners, certs). Without this
+	// call the DELETE returned 204 while the CR kept an empty
+	// deletionTimestamp and every one of those surfaces leaked — proven live
+	// on hw292 (r17probe) and hw290 (gamma-corp/delta-corp). Runs strictly
+	// AFTER the overlay reap above per the #4459/R17 recreate-race order.
+	h.deleteOrgOrganizationCR(r.Context(), rec)
 	if deps.TenantRegistry != nil {
 		host := deriveConsoleHost(rec)
 		if host != "" {
