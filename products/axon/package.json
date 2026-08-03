@@ -17,7 +17,7 @@
   },
   "devDependencies": {
     "@types/node": "^26",
-    "@types/uuid": "^10",
+    "@types/uuid": "^11",
     "tsx": "^4",
     "typescript": "^7"
   }
