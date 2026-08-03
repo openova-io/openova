@@ -214,3 +214,4 @@ func TestDeleteOrganization_CRAlreadyGoneIsIdempotent(t *testing.T) {
 		t.Fatalf("delete with CR already gone: want 204 got %d body=%s", delW.Code, delW.Body.String())
 	}
 }
+
