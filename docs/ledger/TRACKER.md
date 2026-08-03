@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-03T20:15:04Z` |
+| Last refreshed | `2026-08-03T20:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5388](https://github.com/openova-io/openova/issues/5388) | P0: region-kill failback leaves a DATA SPLIT-BRAIN — G12 leg 6/6 (legs 1-5 pas | Other |
 | [#5389](https://github.com/openova-io/openova/issues/5389) | P1: per-app Open/launch button does not land the user in the app (rows 110/112/1 | Other |
 | [#5391](https://github.com/openova-io/openova/issues/5391) | Cutover: a Stalled/RetriesExceeded per-Org HelmRelease permanently blocks the So | Other |
 | [#5393](https://github.com/openova-io/openova/issues/5393) | Per-Org plan quota: vcluster control-plane overhead (1500m) is billed to the cus | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5617](https://github.com/openova-io/openova/issues/5617) | Per-Org oidc-gate has a gateway-ingress CNP but no egress policy — under names | Other |
 | [#5618](https://github.com/openova-io/openova/issues/5618) | P0: main does not compile — post_handover_policy_enforce.go:118 assignment mis | Other |
 | [#5623](https://github.com/openova-io/openova/issues/5623) | Region-kill: the three shared-pg DR pairs never promote — only bp-cnpg-pair sh | Other |
+| [#5626](https://github.com/openova-io/openova/issues/5626) | build-ui red on main: four console defects surfaced when the vitest gate stopped | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-03T20:27 | [#5624](https://github.com/openova-io/openova/pull/5624) | #4437 | fix(agenity): per-Org oidc-gate egress CNP — DNS + Keycloak  |
 | 2026-08-03T20:10 | [#5622](https://github.com/openova-io/openova/pull/5622) | #5616 | fix(ui): #5616 instance-create vCluster selector offers only |
 | 2026-08-03T19:53 | [#5619](https://github.com/openova-io/openova/pull/5619) | #5535 | fix(catalyst-api): P0 — main compiles again; unstall catalys |
 | 2026-08-03T08:39 | [#5595](https://github.com/openova-io/openova/pull/5595) | #5553 | fix(ci): vitest gate parses ANSI-wrapped FAIL lines + summar |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-02T13:15 | [#5550](https://github.com/openova-io/openova/pull/5550) | #5489 | docs(console): parentRowFromSelf doc-comment still asserted  |
 | 2026-08-02T13:15 | [#5549](https://github.com/openova-io/openova/pull/5549) | #4691 | docs(canon): §854 section pointed at a dead issue and omitte |
 | 2026-08-02T09:34 | [#5548](https://github.com/openova-io/openova/pull/5548) | #5348 | feat(ci): cluster-side §854 guard — catches a live node port |
-| 2026-08-02T07:28 | [#5547](https://github.com/openova-io/openova/pull/5547) | #5542 | fix(bp-powerdns): state nodePort:0 explicitly — anycast LB k |
 
 ---
 
