@@ -996,3 +996,129 @@ if printf '%s' "${empty_out}" | awk '/^  bootstrap:/,/^  managed:/' | grep -qE '
   exit 1
 fi
 echo "  PASS (no-bindings fallback emits no dangling initdb secret)"
+
+# ── Case #5639: FAIL CLOSED on an unresolvable region — BOTH directions ──
+#
+# The defect (live on hw292, 2026-08-03): cluster.yaml + replica-cluster.yaml
+# read `.Values.topology.{primary,replica}.region` directly, and values.yaml
+# defaults both to the EMPTY STRING. An active-hot-standby install that never
+# set the key rendered `openova.io/region In [""]` — a required nodeAffinity no
+# node can EVER satisfy. The per-Org Cluster hw292-omani-works/postgres sat at
+# phase="Setting up primary" for 7+ hours with
+#   FailedScheduling: 0/4 nodes are available: 4 node(s) didn't match Pod's
+#                     node affinity/selector
+# while all four nodes carried openova.io/region=hw-me-east-215-a-rtz-prod. The
+# HelmRelease reported `install succeeded` the entire time.
+#
+# BOTH DIRECTIONS OR THE GUARD IS VACUOUS. The pre-existing Case-4 assertion
+# `grep -q 'key: openova.io/region'` passed on the BROKEN render too — the KEY is
+# present whether or not the VALUE is. So:
+#   (+) with the region set, assert the real region VALUE in the label AND in the
+#       nodeAffinity values list — the key alone proves nothing;
+#   (-) with the region absent, assert the render FAILS and that the error names
+#       the missing key.
+echo "[render] Case #5639: region fail-closed — value present when set, render FAILS when absent"
+
+pos_vals="$(mktemp)"
+cat > "${pos_vals}" <<'YAML'
+instance: { name: shared-pg }
+topology:
+  mode: active-hot-standby
+  side: primary
+  haInstances: 3
+  primary: { region: hz-fsn-rtz-prod }
+  replica: { region: hz-hel-rtz-prod }
+databases:
+  - { name: registry, owner: harbor }
+YAML
+
+# (+) PRIMARY half carries the REAL region in both sites.
+pos_out=$(helm template shared-pg . -f "${pos_vals}" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 2>&1) \
+  || { echo "FAIL (#5639): the region-BEARING render errored — the guard must not reject a valid install:" >&2
+       printf '%s\n' "${pos_out}" >&2; exit 1; }
+
+printf '%s' "${pos_out}" | grep -qE '^kind: Cluster$' \
+  || { echo "FAIL (#5639): no Cluster rendered — every assertion below is vacuous." >&2; exit 2; }
+printf '%s' "${pos_out}" | grep -qE '^    openova\.io/region: "hz-fsn-rtz-prod"$' \
+  || { echo "FAIL (#5639): primary Cluster LABEL is not the real region (empty label = the defect)." >&2; exit 1; }
+printf '%s' "${pos_out}" | grep -qE '^                values: \["hz-fsn-rtz-prod"\]$' \
+  || { echo "FAIL (#5639): primary nodeAffinity values[] is not [hz-fsn-rtz-prod]." >&2; exit 1; }
+if printf '%s' "${pos_out}" | grep -qE 'values: \[""\]'; then
+  echo "FAIL (#5639): the render still emits an EMPTY nodeAffinity selector." >&2; exit 1
+fi
+echo "  PASS (+ primary: label + nodeAffinity both carry hz-fsn-rtz-prod)"
+
+# (+) REPLICA half likewise, on the side that renders the follower.
+pos_replica=$(helm template shared-pg . -f "${pos_vals}" --namespace shared-data \
+  --set topology.side=secondary --api-versions postgresql.cnpg.io/v1 2>&1) \
+  || { echo "FAIL (#5639): the region-bearing REPLICA render errored:" >&2
+       printf '%s\n' "${pos_replica}" >&2; exit 1; }
+printf '%s' "${pos_replica}" | grep -qE '^    openova\.io/region: "hz-hel-rtz-prod"$' \
+  || { echo "FAIL (#5639): replica Cluster LABEL is not the real replica region." >&2; exit 1; }
+printf '%s' "${pos_replica}" | grep -qE '^                values: \["hz-hel-rtz-prod"\]$' \
+  || { echo "FAIL (#5639): replica nodeAffinity values[] is not [hz-hel-rtz-prod]." >&2; exit 1; }
+echo "  PASS (+ replica: label + nodeAffinity both carry hz-hel-rtz-prod)"
+
+rm -f "${pos_vals}"
+
+# (-) PRIMARY with NO region — the hw292 values shape verbatim. The render MUST
+#     fail, and the message MUST name the key.
+neg_vals="$(mktemp)"
+cat > "${neg_vals}" <<'YAML'
+instance: { name: postgres }
+topology:
+  mode: active-hot-standby
+YAML
+if neg_out=$(helm template postgres . -f "${neg_vals}" --namespace hw292-omani-works \
+      --api-versions postgresql.cnpg.io/v1 2>&1); then
+  echo "FAIL (#5639): active-hot-standby WITHOUT topology.primary.region still rendered." >&2
+  echo "  That is the hw292 defect: an empty selector Helm and the apiserver both accept," >&2
+  echo "  and a HelmRelease that reports install succeeded over a Pod that never schedules." >&2
+  printf '%s\n' "${neg_out}" | grep -E 'openova\.io/region|values: \[' >&2
+  rm -f "${neg_vals}"; exit 1
+fi
+printf '%s' "${neg_out}" | grep -q 'topology.primary.region' \
+  || { echo "FAIL (#5639): the render failed but the error does NOT name topology.primary.region:" >&2
+       printf '%s\n' "${neg_out}" >&2; rm -f "${neg_vals}"; exit 1; }
+echo "  PASS (- primary: render REFUSED, error names topology.primary.region)"
+
+# (-) REPLICA half with a primary region but NO replica region.
+neg_replica_vals="$(mktemp)"
+cat > "${neg_replica_vals}" <<'YAML'
+instance: { name: postgres }
+topology:
+  mode: active-hot-standby
+  side: secondary
+  primary: { region: hz-fsn-rtz-prod }
+YAML
+if neg_replica_out=$(helm template postgres . -f "${neg_replica_vals}" --namespace shared-data \
+      --api-versions postgresql.cnpg.io/v1 2>&1); then
+  echo "FAIL (#5639): the REPLICA half rendered without topology.replica.region." >&2
+  printf '%s\n' "${neg_replica_out}" | grep -E 'openova\.io/region|values: \[' >&2
+  rm -f "${neg_vals}" "${neg_replica_vals}"; exit 1
+fi
+printf '%s' "${neg_replica_out}" | grep -q 'topology.replica.region' \
+  || { echo "FAIL (#5639): the replica render failed but the error does NOT name topology.replica.region:" >&2
+       printf '%s\n' "${neg_replica_out}" >&2; rm -f "${neg_vals}" "${neg_replica_vals}"; exit 1; }
+echo "  PASS (- replica: render REFUSED, error names topology.replica.region)"
+
+# (=) NO REGRESSION: a SINGLETON install consumes no region, so it must still
+#     render cleanly with the key absent — the guard is scoped to the
+#     active-hot-standby shape, not applied to every install.
+singleton_vals="$(mktemp)"
+printf 'instance: { name: postgres }\ntopology:\n  mode: singleton\n' > "${singleton_vals}"
+sing_out=$(helm template postgres . -f "${singleton_vals}" --namespace org-acme \
+  --api-versions postgresql.cnpg.io/v1 2>&1) \
+  || { echo "FAIL (#5639): the SINGLETON render was broken by the region guard:" >&2
+       printf '%s\n' "${sing_out}" >&2; rm -f "${neg_vals}" "${neg_replica_vals}" "${singleton_vals}"; exit 1; }
+printf '%s' "${sing_out}" | grep -qE '^kind: Cluster$' \
+  || { echo "FAIL (#5639): singleton render emitted no Cluster." >&2
+       rm -f "${neg_vals}" "${neg_replica_vals}" "${singleton_vals}"; exit 1; }
+if printf '%s' "${sing_out}" | grep -q 'openova.io/region'; then
+  echo "FAIL (#5639): the singleton render grew a region pin — it must stay byte-identical." >&2
+  rm -f "${neg_vals}" "${neg_replica_vals}" "${singleton_vals}"; exit 1
+fi
+echo "  PASS (= singleton renders with NO region key and NO region pin)"
+
+rm -f "${neg_vals}" "${neg_replica_vals}" "${singleton_vals}"

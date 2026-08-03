@@ -5760,7 +5760,7 @@ spec:
   # 0.2.13 (#5224): role-secrets side-gate — replica-role region never mints
   # role/hub Secrets; pair password set single-sourced from the primary region.
   # 0.2.14 (#5473): replication-source Service selectorType r -> rw (primary only).
-  version: "0.2.16"
+  version: "0.2.17"
   visibility: listed
   # Shareability + Contexts (#3370) — seeded verbatim from
   # platform/postgres/blueprint.yaml (lockstep-guarded). One instance
@@ -5838,6 +5838,27 @@ spec:
             minimum: 1
             maximum: 5
             default: 1
+          primary:
+            type: object
+            description: |
+              #5639 — the OTHER HALF of `mode: active-hot-standby`. Declared
+              here because the per-Org install door now emits it alongside the
+              mode; a mode without a region renders an unsatisfiable
+              nodeAffinity and the primary never schedules.
+            properties:
+              region:
+                type: string
+                default: ""
+                description: |
+                  The canonical `openova.io/region` NODE LABEL the primary
+                  Cluster pins its required nodeAffinity on (e.g.
+                  hz-fsn-rtz-prod). NOT the cloud region and NOT
+                  Application.spec.regions[0], which carry different spellings
+                  (#5482). Stamped from the Sovereign's SOVEREIGN_PRIMARY_REGION
+                  — by the bootstrap-kit slot substitutes for the host shared
+                  instances, and by catalyst-api for a per-Org install. REQUIRED
+                  in active-hot-standby: chart 0.2.17+ refuses to render without
+                  it rather than emitting `openova.io/region In [""]`.
   placementSchema:
     # Canonical placement vocabulary (#3375 / #3768 / #3784). The catalog
     # New-instance picker reads these modes off the wire; the seed
@@ -5859,7 +5880,7 @@ spec:
     # 0.2.12 (#4986): active-hot-standby emits the dr-<instance> Continuum CR so
     # the per-app Topology DR panel renders (shared-pg #3375 rows 51/52/56/57/64).
     # 0.2.13 (#5224): role-secrets side-gate (replica-role region mints nothing).
-    version: "0.2.16"
+    version: "0.2.17"
   # Seeded verbatim from platform/postgres/blueprint.yaml spec.topology.
   # singleton = single-instance Cluster; active-hot-standby = sync
   # replication across regions (ADR-0004 Pillar-3 zero-tx-loss) via the

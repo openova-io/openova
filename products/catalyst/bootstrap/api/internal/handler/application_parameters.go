@@ -145,16 +145,151 @@ func defaultedParameters(blueprint, topology, sovereignFQDN, orgSlug, orgConsole
 		stampOpenovaMCPOrgParameters(out, sovereignFQDN, orgSlug, orgConsoleHost)
 	}
 
-	if len(out) > 0 {
-		return out
-	}
-
-	if isPostgresBlueprint(blueprint) {
+	// bp-postgres: seed `topology.mode` when the caller supplied NOTHING at all.
+	// Preserved verbatim from the #4283 shape — a caller that DID supply values
+	// keeps them, and we do not start declaring a mode where we previously
+	// declared none (that would silently promote the backing-service postgres
+	// from singleton to the cross-region pair shape).
+	if isPostgresBlueprint(blueprint) && len(out) == 0 {
 		out["topology"] = map[string]interface{}{
 			"mode": postgresConfigSchemaMode(topology),
 		}
 	}
+
+	// #5639 — the region is the OTHER HALF of the mode. Whenever the emitted
+	// parameters declare the bp-postgres HA shape, they must also carry the
+	// region that shape pins on; a mode without a region is a half-declared
+	// contract that renders an unsatisfiable nodeAffinity.
+	//
+	// This runs for BOTH doors — the seeded mode above AND a caller-supplied
+	// `topology.mode` / `topology.crossRegion` — because the defect is identical
+	// through either: the chart consumes one key, and neither door filled it.
+	//
+	// It must run AFTER the mode seed and OUTSIDE the len(out)==0 gate, and it
+	// must write into the SAME `topology` object: the application-controller
+	// merges Blueprint `manifests.values` with `spec.parameters` SHALLOWLY
+	// (mergeMaps, application_controller.go), so `spec.parameters.topology`
+	// REPLACES the Blueprint's whole topology object rather than merging into
+	// it. Mode and region therefore have to travel together or one of them is
+	// dropped on the way to HelmRelease.spec.values.
+	if isPostgresBlueprint(blueprint) {
+		stampPostgresPrimaryRegion(out)
+	}
 	return out
+}
+
+// postgresModeActiveHotStandby is the bp-postgres configSchema mode that
+// activates the cross-region pair render (chart values `topology.mode`). The
+// chart ALSO activates it on the boolean `topology.crossRegion`, which the
+// bootstrap-kit slots use because envsubst can substitute true/false but cannot
+// produce the mode STRING (platform/postgres/chart/values.yaml).
+const postgresModeActiveHotStandby = "active-hot-standby"
+
+// stampPostgresPrimaryRegion fills `parameters.topology.primary.region` — the
+// canonical `openova.io/region` NODE LABEL the chart's primary Cluster pins its
+// required nodeAffinity on — whenever the emitted parameters activate the
+// bp-postgres active-hot-standby shape.
+//
+// THE BUG IT FIXES (#5639, proven live on hw292 2026-08-03). The per-Org install
+// door emitted `{"topology":{"mode":"active-hot-standby"}}` and nothing else. The
+// chart read `.Values.topology.primary.region` off a values tree that had no such
+// key, so it rendered
+//
+//	openova.io/region: ""                      (the Cluster label)
+//	values: [""]                               (the required nodeAffinity)
+//
+// while all four nodes carried `openova.io/region=hw-me-east-215-a-rtz-prod`. The
+// Cluster `hw292-omani-works/postgres` sat at phase="Setting up primary" for over
+// seven hours with `FailedScheduling: 0/4 nodes are available: 4 node(s) didn't
+// match Pod's node affinity/selector` — unschedulable forever, not slow. The
+// CONTROL that pins the mechanism: the cnpg/cnpg-pair primary on the same cluster
+// carried `openova.io/region=[hw-me-east-215-a-rtz-prod]` and was healthy.
+//
+// And nothing upstream noticed: Helm rendered valid YAML, the apiserver accepted
+// the Cluster, and the HelmRelease reported `install succeeded`. A customer-visible
+// Organization had a green badge over a database that never had a running primary.
+//
+// THE VALUE. `SOVEREIGN_PRIMARY_REGION` is the canonical node label, mounted on the
+// catalyst-api Deployment from the `sovereign-fqdn` ConfigMap key `primaryRegion`
+// (products/catalyst/chart/templates/api-deployment.yaml) and ultimately from
+// cloud-init's `primary_region_canonical_label`
+// (infra/providers/_shared/cloudinit-control-plane.tftpl). It is the SAME string
+// the bootstrap-kit slots 16a/16c/16d substitute into `topology.primary.region`
+// for the host shared-pg instances, so the per-Org install now pins exactly what
+// the proven host path pins. Same env, same read, same precedent as
+// renderOrganizationOverlay's D31 block (organization_gitops.go).
+//
+// Deliberately NOT used: `Application.spec.regions[0]`. On hw292 that field held
+// `me-east-215-a` — the CLOUD region — while the node label was
+// `hw-me-east-215-a-rtz-prod` (#5482 recorded all three divergent spellings on one
+// Application). The seed door defaults it to the literal string "primary"
+// (endpoint_handler.go), which is not a node label at all. A near-miss region is
+// exactly as unschedulable as an empty one.
+//
+// FAIL-CLOSED ON EMPTY. When the env is unset (the mothership / Catalyst-Zero,
+// where a per-Org postgres is not a production path) we stamp NOTHING rather than
+// guess. The chart then refuses to render and names the missing key
+// (bp-postgres.primaryRegion), which is the outcome #5639 asks for: an install
+// error a human reads, instead of a green badge over a Pending Pod.
+//
+// An explicit non-empty caller value is never clobbered — same deference as every
+// other stamp helper in this file.
+func stampPostgresPrimaryRegion(params map[string]interface{}) {
+	topo, _ := params["topology"].(map[string]interface{})
+	if topo == nil {
+		// No topology declared at all ⇒ the chart's own singleton default
+		// applies, which reads no region. Nothing to complete.
+		return
+	}
+	if !postgresTopologyIsActiveHotStandby(topo) {
+		return
+	}
+
+	primary, _ := topo["primary"].(map[string]interface{})
+	if primary == nil {
+		primary = map[string]interface{}{}
+	}
+	if existing, ok := primary["region"].(string); ok && strings.TrimSpace(existing) != "" {
+		return
+	}
+
+	region := sovereignPrimaryRegionNodeLabel()
+	if region == "" {
+		return
+	}
+
+	primary["region"] = region
+	topo["primary"] = primary
+	params["topology"] = topo
+}
+
+// postgresTopologyIsActiveHotStandby mirrors the chart's own activation gate
+// (platform/postgres/chart/templates/_helpers.tpl, bp-postgres.activeHotStandby):
+// EITHER `topology.mode` folds to active-hot-standby OR the boolean
+// `topology.crossRegion` is on. Both render the region-pinned pair, so both need
+// the region. The mode is folded through postgresConfigSchemaMode so a caller who
+// passed a broad placement token (active-active / active-passive) is treated the
+// same way the seed path treats it.
+func postgresTopologyIsActiveHotStandby(topo map[string]interface{}) bool {
+	if mode, ok := topo["mode"].(string); ok &&
+		postgresConfigSchemaMode(mode) == postgresModeActiveHotStandby {
+		return true
+	}
+	switch cr := topo["crossRegion"].(type) {
+	case bool:
+		return cr
+	case string:
+		return strings.EqualFold(strings.TrimSpace(cr), "true")
+	}
+	return false
+}
+
+// sovereignPrimaryRegionNodeLabel returns this Sovereign's canonical
+// `openova.io/region` PRIMARY node label, or "" when the Sovereign did not
+// declare one. Read through the same osGetenv seam the rest of this package
+// uses (applications_wire_compat.go) so tests can pin it.
+func sovereignPrimaryRegionNodeLabel() string {
+	return strings.TrimSpace(osGetenv("SOVEREIGN_PRIMARY_REGION"))
 }
 
 // stampAgenitySovereignFqdn sets `parameters.sovereignFqdn` to the Sovereign's

@@ -19,7 +19,12 @@ spec:
   # 0.2.15 (#5504): bootstrap.initdb.secret now names the owner's roleSecret;
   # initdb previously minted the owner with the generated <cluster>-app
   # password, so every consumer got 28P01 while CNPG reported reconciled.
-  version: 0.2.16
+  # 0.2.17 (#5639): both active-hot-standby halves FAIL CLOSED on an
+  # unresolvable region instead of rendering `openova.io/region In [""]` — an
+  # unsatisfiable nodeAffinity that left hw292's per-Org primary unschedulable
+  # for 7h behind an `install succeeded` HelmRelease. configSchema gains
+  # topology.primary.region, which the per-Org install door now emits.
+  version: 0.2.17
   card:
     title: PostgreSQL
     summary: |
@@ -110,6 +115,27 @@ spec:
             minimum: 1
             maximum: 5
             default: 1
+          primary:
+            type: object
+            description: |
+              #5639 — the OTHER HALF of `mode: active-hot-standby`. Declared
+              here because the per-Org install door now emits it alongside the
+              mode; a mode without a region renders an unsatisfiable
+              nodeAffinity and the primary never schedules.
+            properties:
+              region:
+                type: string
+                default: ""
+                description: |
+                  The canonical `openova.io/region` NODE LABEL the primary
+                  Cluster pins its required nodeAffinity on (e.g.
+                  hz-fsn-rtz-prod). NOT the cloud region and NOT
+                  Application.spec.regions[0], which carry different spellings
+                  (#5482). Stamped from the Sovereign's SOVEREIGN_PRIMARY_REGION
+                  — by the bootstrap-kit slot substitutes for the host shared
+                  instances, and by catalyst-api for a per-Org install. REQUIRED
+                  in active-hot-standby: chart 0.2.17+ refuses to render without
+                  it rather than emitting `openova.io/region In [""]`.
       databases:
         type: array
         description: |

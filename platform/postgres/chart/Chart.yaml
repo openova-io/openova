@@ -1,5 +1,33 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.17 — #5639 (Refs #960 #3986): FAIL CLOSED on an unresolvable region. Both
+#   active-hot-standby Cluster halves pin a REQUIRED nodeAffinity on the
+#   `openova.io/region` node label, and both read the value straight off
+#   `.Values.topology.{primary,replica}.region` — whose values.yaml default is
+#   the EMPTY STRING. An install that never set the key therefore rendered
+#   `openova.io/region In [""]`, which no node can ever satisfy: not a slow
+#   schedule, unschedulable forever. Proven live on hw292 2026-08-03 — the
+#   per-Org Cluster `hw292-omani-works/postgres` sat at
+#   phase="Setting up primary" for 7+ hours with `FailedScheduling: 0/4 nodes
+#   are available: 4 node(s) didn't match Pod's node affinity/selector` while
+#   all four nodes carried `openova.io/region=hw-me-east-215-a-rtz-prod`; the
+#   CONTROL, a cnpg/cnpg-pair primary on the same cluster, carried
+#   `openova.io/region=[hw-me-east-215-a-rtz-prod]` and was healthy. The
+#   HelmRelease reported `install succeeded` the whole time — Helm rendered
+#   valid YAML and the apiserver accepted the Cluster, so every status surface
+#   showed a green badge over a database with no running primary.
+#   templates/_helpers.tpl gains `bp-postgres.primaryRegion` +
+#   `bp-postgres.replicaRegion`, each a Helm `required` naming the exact missing
+#   key; cluster.yaml (label + nodeAffinity) and replica-cluster.yaml (same two
+#   sites) now resolve through them. This is the guard bp-wordpress-tenant
+#   (validateActiveHotStandbyRegions) and bp-cnpg-pair (validateRegions) have
+#   always had — bp-postgres was the chart that drifted. SINGLETON RENDER IS
+#   BYTE-IDENTICAL to 0.2.16 (no region is consumed there), and the bootstrap-kit
+#   slots are unaffected: cloud-init stamps SOVEREIGN_PRIMARY_REGION /
+#   SOVEREIGN_REPLICA_REGION unconditionally. blueprint.yaml + catalog-seed
+#   configSchema now declare `topology.primary.region`, which the per-Org install
+#   door (catalyst-api defaultedParameters) emits alongside topology.mode.
+#   Lockstep: 16a/16c/16d HR pins + blueprint.yaml + catalog-seed → 0.2.17.
 # 0.2.16 — #5311 (Refs #4901 #4986 #4987 #5337): templates/continuum.yaml now
 #   populates `spec.cnpgPair` (name = instanceName, namespace = the Cluster ns)
 #   on the dr-<instance> Continuum CR. dr-shared-pg{,-b,-c} previously carried
@@ -226,7 +254,7 @@ name: bp-postgres
 #   the singleton render is byte-identical to 0.2.9 (the ipBlock only rendered
 #   under crossRegion, which singletons never set). Lockstep slot pins 16a/16c/
 #   16d → 0.2.10. tests/postgres-render.sh Case 4e/4f added.
-version: 0.2.16
+version: 0.2.17
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
