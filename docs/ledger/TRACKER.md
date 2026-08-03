@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-03T20:45:03Z` |
+| Last refreshed | `2026-08-03T21:00:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5391](https://github.com/openova-io/openova/issues/5391) | Cutover: a Stalled/RetriesExceeded per-Org HelmRelease permanently blocks the So | Other |
-| [#5393](https://github.com/openova-io/openova/issues/5393) | Per-Org plan quota: vcluster control-plane overhead (1500m) is billed to the cus | Other |
 | [#5394](https://github.com/openova-io/openova/issues/5394) | MCP endpoint is ~50% dead: bp-openova-mcp is single-region but mcp.<fqdn> fronts | Other |
 | [#5395](https://github.com/openova-io/openova/issues/5395) | gamma-corp is entirely unrouted: all 6 per-Org HTTPRoutes NoMatchingListenerHost | Other |
 | [#5396](https://github.com/openova-io/openova/issues/5396) | bp-velero upgrade-crds pre-upgrade hook is Kyverno-rejected (no harbor-proxy ima | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#5623](https://github.com/openova-io/openova/issues/5623) | Region-kill: the three shared-pg DR pairs never promote — only bp-cnpg-pair sh | Other |
 | [#5626](https://github.com/openova-io/openova/issues/5626) | build-ui red on main: four console defects surfaced when the vitest gate stopped | Other |
 | [#5633](https://github.com/openova-io/openova/issues/5633) | build-ui is now load-bearing for image publication — an intermittent ExecPanel | Other |
+| [#5634](https://github.com/openova-io/openova/issues/5634) | UAT row 92: funnel discards the 429 rate-limit response — a throttled customer | Other |
+| [#5635](https://github.com/openova-io/openova/issues/5635) | Per-Org app FQDN fails ~50% of fresh connections — single-region namespace beh | Other |
 
 ---
 
@@ -307,8 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-03T20:59 | [#5636](https://github.com/openova-io/openova/pull/5636) | #4028 | fix(marketplace): surface the 429 rate-limit response in the |
 | 2026-08-03T20:41 | [#5628](https://github.com/openova-io/openova/pull/5628) | #5598 | fix(guacamole): #5598 REST-session lifetime aligned with the |
 | 2026-08-03T20:36 | [#5627](https://github.com/openova-io/openova/pull/5627) | #5626 | fix(console): four source defects behind the fail-open vites |
+| 2026-08-03T20:58 | [#5625](https://github.com/openova-io/openova/pull/5625) | #5348 | fix(stalwart-tenant): §854 — disable nodePort allocation on  |
 | 2026-08-03T20:27 | [#5624](https://github.com/openova-io/openova/pull/5624) | #4437 | fix(agenity): per-Org oidc-gate egress CNP — DNS + Keycloak  |
 | 2026-08-03T20:10 | [#5622](https://github.com/openova-io/openova/pull/5622) | #5616 | fix(ui): #5616 instance-create vCluster selector offers only |
 | 2026-08-03T20:37 | [#5621](https://github.com/openova-io/openova/pull/5621) | #5601 | fix(catalyst-api): DR Switchover gate — derive replicaPromot |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-02T04:36 | [#5566](https://github.com/openova-io/openova/pull/5566) | #5515 | docs(ledger): EPIC completion matrix re-derived live + 14 UA |
 | 2026-08-02T04:36 | [#5565](https://github.com/openova-io/openova/pull/5565) | #5505 | fix(kyverno): §854 policy exempted any Service NAMED cm-acme |
 | 2026-08-02T13:14 | [#5556](https://github.com/openova-io/openova/pull/5556) | #5480 | feat(ci): A16 guard for #5480 — flag secrets minted behind a |
-| 2026-08-02T13:16 | [#5553](https://github.com/openova-io/openova/pull/5553) | #5542 | fix(ci): the vitest gate could never fail a build — npm test |
-| 2026-08-02T13:14 | [#5552](https://github.com/openova-io/openova/pull/5552) | #5499 | feat(ci): preflight that catches a region consuming a role c |
 
 ---
 
