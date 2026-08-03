@@ -245,7 +245,7 @@ name: bp-guacamole
 # were proven INTACT on the same env (fresh-login effectivePermissions
 # carried ADMINISTER + 5 CREATE_*), so the session lifetime, not the JDBC
 # permission chain, was the operator-visible failure.
-version: 0.2.34
+version: 0.2.35
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
