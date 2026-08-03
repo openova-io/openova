@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-03T08:00:04Z` |
+| Last refreshed | `2026-08-03T08:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 99 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-08-03T06:04 | [#5594](https://github.com/openova-io/openova/pull/5594) | #5525 | fix(cutover): step-03 script exec'd from mounted run.sh — in |
+| 2026-08-03T08:15 | [#5592](https://github.com/openova-io/openova/pull/5592) | #5505 | fix(phase2b): flip bootstrapMode false in EVERY region, not  |
 | 2026-08-03T02:20 | [#5590](https://github.com/openova-io/openova/pull/5590) | #5542 | fix(tests): shells_issue comments still described the pre-#5 |
 | 2026-08-02T23:23 | [#5588](https://github.com/openova-io/openova/pull/5588) | #5579 | fix(wizard): restore the #5572 onBack fix that the #5579 sal |
 | 2026-08-02T20:42 | [#5587](https://github.com/openova-io/openova/pull/5587) | #5561 | fix(kyverno-policies): solver carve-out prose states the tru |
@@ -335,7 +336,6 @@ flowchart LR
 | 2026-08-02T07:28 | [#5544](https://github.com/openova-io/openova/pull/5544) | #4765 | fix(ci): the NodePort guard silently skipped 19% of charts w |
 | 2026-08-02T13:37 | [#5543](https://github.com/openova-io/openova/pull/5543) | #160 | fix(catalyst-api): return the TRUE transport status on RBAC  |
 | 2026-08-02T13:14 | [#5541](https://github.com/openova-io/openova/pull/5541) | #5500 | fix(catalyst-api): Application install returns the TRUE stat |
-| 2026-08-02T13:14 | [#5540](https://github.com/openova-io/openova/pull/5540) | #5489 | fix(catalyst-api): stop POST /organizations reporting termin |
 
 ---
 
