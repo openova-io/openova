@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-03T16:15:03Z` |
+| Last refreshed | `2026-08-03T16:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5364](https://github.com/openova-io/openova/issues/5364) | Org-CR deletion orphans the org Namespace + host-deployed bp-keycloak when per-O | Other |
 | [#5370](https://github.com/openova-io/openova/issues/5370) | CI red on main: sandbox-mcp-server Go-toolchain latent break + intermittent char | Other |
 | [#5373](https://github.com/openova-io/openova/issues/5373) | per-Org realm flag (CATALYST_PER_ORG_REALM_ENABLED) is DELIBERATELY dormant —  | Other |
 | [#5385](https://github.com/openova-io/openova/issues/5385) | Deployment health aggregate is stale-degraded + counts suspended HRs inconsisten | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5613](https://github.com/openova-io/openova/issues/5613) | Dashboard treemap Organization layer is inert: /api/v1/fleet/treemap returns one | Other |
 | [#5614](https://github.com/openova-io/openova/issues/5614) | Sovereign rejects its OWN handover token: auth_handover.go hardcodes expectedIss | Other |
 | [#5615](https://github.com/openova-io/openova/issues/5615) | §854: bp-stalwart-tenant 0.1.13 SMTP/IMAP Services omit allocateLoadBalancerNod | Other |
+| [#5616](https://github.com/openova-io/openova/issues/5616) | Application-create vCluster selector: all 5 options are consumed as a namespace  | Other |
 
 ---
 
