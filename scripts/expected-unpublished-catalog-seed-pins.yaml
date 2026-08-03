@@ -1,0 +1,76 @@
+# scripts/expected-unpublished-catalog-seed-pins.yaml
+#
+# Declared known-gap register for the catalog-seed GHCR existence gate
+# (`scripts/check-catalog-seed-lockstep.sh --check-ghcr`, UAT row R21, #5559).
+#
+# ── What this file is ────────────────────────────────────────────────────
+# The gate asserts that EVERY `source.chart` + `source.version` pin in
+# products/catalyst/chart/templates/catalog-seed/blueprints.yaml resolves to a
+# real published tag on ghcr.io/openova-io. A seeded Blueprint whose chart was
+# never published renders a Blueprint CR the catalog advertises and the
+# application-controller can never install.
+#
+# The entries below are the Blueprint CRs that are seeded today with NO chart
+# behind them. They are recorded here — not deleted from the seed — because
+# deleting them would make the gate pass while leaving the operator-visible
+# behaviour (a catalog entry that cannot install) exactly as broken. Recording
+# them converts an invisible defect into an enumerated, CI-enforced one.
+#
+# ── Invariants the gate enforces on every entry below ────────────────────
+# 1. `version` MUST equal the seed's current pin for that chart. Re-pin the
+#    seed and the register goes stale → the gate fails until it is updated.
+# 2. The seed entry MUST be `visibility: unlisted`. A registered chart that is
+#    flipped to `listed` fails the gate: an unpublished chart must never be
+#    reachable from the customer-facing storefront.
+# 3. The chart MUST still be absent from GHCR. The moment it is published, the
+#    gate fails with "stale register entry" — so the register self-retires and
+#    cannot rot into a permanent waiver.
+# 4. The chart MUST still appear in the seed. A register row for a chart that
+#    is no longer seeded fails as a dead entry.
+#
+# ── How to retire an entry ───────────────────────────────────────────────
+# Author the chart under platform/<name>/chart/, let blueprint-release.yaml
+# publish it, sync all five lockstep sites, then delete the row here. The gate
+# will tell you if you forget.
+#
+# Refs #5559 #4432 #960
+
+unpublished:
+  # platform/clickhouse/ carries blueprint.yaml + README.md but NO chart/
+  # directory, and its blueprint.yaml declares the repo's explicit "unbuilt"
+  # marker `version: 0.0.0`. The seed nonetheless pins 1.0.0 — a version that
+  # never existed on GHCR or in this repo.
+  - chart: bp-clickhouse
+    version: "1.0.0"
+    issue: 5559
+    reason: "platform/clickhouse has blueprint.yaml (version 0.0.0) but no chart/ — nothing to publish yet"
+
+  # Same shape as bp-clickhouse: blueprint.yaml + README.md, version 0.0.0,
+  # no chart/ directory.
+  - chart: bp-opensearch
+    version: "1.0.0"
+    issue: 5559
+    reason: "platform/opensearch has blueprint.yaml (version 0.0.0) but no chart/ — nothing to publish yet"
+
+  # No platform/prometheus directory at all. The Sovereign's metrics path is
+  # served by bp-mimir + bp-alloy + bp-opentelemetry, all of which are
+  # published and seeded; this CR is a leftover of the original 14-CR baseline
+  # documented in templates/catalog-seed/_README.txt.
+  - chart: bp-prometheus
+    version: "1.0.0"
+    issue: 5559
+    reason: "no platform/prometheus source in the monorepo — leftover of the original 14-CR baseline seed"
+
+  # No platform/redis directory. bp-valkey (published, 1.1.5) is the in-repo
+  # key/value store Blueprint. Re-pointing this CR at bp-valkey would change
+  # what the card delivers, so it stays recorded rather than silently swapped.
+  - chart: bp-redis
+    version: "1.0.0"
+    issue: 5559
+    reason: "no platform/redis source in the monorepo — leftover of the original 14-CR baseline seed"
+
+  # No platform/n8n directory.
+  - chart: bp-n8n
+    version: "1.0.0"
+    issue: 5559
+    reason: "no platform/n8n source in the monorepo — leftover of the original 14-CR baseline seed"
