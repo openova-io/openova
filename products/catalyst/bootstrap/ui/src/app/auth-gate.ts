@@ -286,7 +286,22 @@ export async function probeWhoamiAndCacheMarker(
       }
       return true
     }
-    if (res.status === 401) return false
+    if (res.status === 401) {
+      // #5460 — the authority's NEGATIVE verdict must revoke the cached
+      // marker, symmetrically with the positive one writing it. A stale
+      // `catalyst:authed=1` surviving session expiry short-circuits the
+      // rootBeforeLoad gate (`hasCatalystSession()`), which skips the
+      // whoami probe AND the #3374 row-29 silent-SSO leg — the operator
+      // lands on the PIN wall even with a live Keycloak session, and
+      // every surface consulting the marker renders authenticated chrome
+      // against a dead session (hw290 row-29 walk, 2026-07-29).
+      try {
+        sessionStorage.removeItem('catalyst:authed')
+      } catch {
+        /* private browsing may throw */
+      }
+      return false
+    }
     return null
   } catch {
     return null

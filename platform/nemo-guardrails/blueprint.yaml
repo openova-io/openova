@@ -15,7 +15,15 @@ spec:
     tags: [ai-safety, guardrails, prompt-injection, pii, llm, nvidia]
     documentation: https://docs.nvidia.com/nemo/guardrails/
     license: Apache-2.0
-  visibility: listed
+  # #5468 — UNLISTED until the image exists. This Blueprint pins
+  # ghcr.io/openova-io/openova/nemo-guardrails:0.21.0 and Chart.yaml asserts
+  # "Catalyst's CI builds a reproducible image" there — but no such build
+  # exists: the package 404s, there is no Containerfile, and no workflow
+  # references it. `listed` put an UNINSTALLABLE entry in the customer
+  # marketplace grid (a customer install can only ImagePullBackOff) AND made
+  # it CONTRACTUAL for the cutover's #5442 A3 guard, failing hw291 at step-03.
+  # Restore to `listed` in the same commit that ships the build.
+  visibility: unlisted
   owner:
     team: ai-platform
     contact: ai-platform@openova.io

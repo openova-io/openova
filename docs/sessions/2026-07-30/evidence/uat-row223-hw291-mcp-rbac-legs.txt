@@ -1,0 +1,41 @@
+### hw291 row223 (2026-07-30) — per-Org openova-mcp RBAC legs, FAITHFUL mcp.json env
+--- the shipped per-Org MCP wiring (CHEPHERD_EXTRA_MCP_JSON) ---
+{"mcpServers":{"openova":{
+  "command":"/usr/local/bin/openova-mcp",
+  "env":{
+    "OPENOVA_MCP_CATALYST_API_URL":"https://console.uatcorp.omani.homes",
+    "OPENOVA_MCP_TENANT_HOST":"console.uatcorp.omani.homes",
+    "OPENOVA_MCP_CONTEXT":"organization",
+    "OPENOVA_MCP_VERIFY":"rs256"
+  }
+}}}
+--- calls with EXACTLY that env (bearer inherited from the pod, never printed) ---
+2026/07/30 02:02:26.497984 env: catalyst_api="https://console.uatcorp.omani.homes" context_pin="organization" verify="rs256" bearer_fallback=true tenant_host="console.uatcorp.omani.homes" issuer_pin="" org_scope="" listen=""
+{"jsonrpc":"2.0","id":2,"result":{"content":[{"text":"{\"context\":\"organization\",\"deployment_id\":\"\",\"email\":\"admin@uatcorp.omani.homes\",\"org_id\":\"uatcorp\",\"sovereign_admin\":false,\"sovereign_fqdn\":\"\",\"tier\":\"admin\"}","type":"text"}],"isError":false}}
+{"jsonrpc":"2.0","id":3,"error":{"code":-32000,"message":"tool error","data":"no deployment binding on the caller's token (deployment_id claim required)"}}
+{"jsonrpc":"2.0","id":4,"error":{"code":-32000,"message":"tool error","data":"no deployment binding on the caller's token (deployment_id claim required)"}}
+{"jsonrpc":"2.0","id":5,"error":{"code":-32000,"message":"tool error","data":"no deployment binding on the caller's token (deployment_id claim required)"}}
+{"jsonrpc":"2.0","id":6,"error":{"code":-32000,"message":"tool error","data":"catalyst-api: /api/v1/organizations: Get \"https://console.uatcorp.omani.homes/api/v1/organizations\": read tcp 10.42.1.196:52276-\u003e212.72.24.1:443: read: connection reset by peer"}}
+
+--- CONTROL: whoami (pure token decode, no API hop) SUCCEEDS -> the harness works, the null is real
+--- bearer claim KEYS (values withheld): deployment_id ABSENT ---
+claims: ['email', 'email_verified', 'exp', 'iat', 'iss', 'jti', 'org', 'org_id', 'realm_access', 'role', 'sub', 'tier', 'typ']
+deployment_id present: False
+org_id: uatcorp  tier: org-admin  iss: https://console.openova.io
+
+--- in-pod reachability of the MCP's configured catalyst-api URL ---
+000 000 000 
+
+--- verdict wiring for row 223 ---
+The row's two READ legs (list_applications returns ONLY this Org's apps; cross-Org get_application -> 403) are UNREACHABLE:
+  own-Org  get_application(uatwalk-ahs-07300830) -> -32000 no deployment binding
+  cross-Org get_application(spine-gitea, organizationRef=hw291-omantel-biz) -> -32000 no deployment binding (SAME error, not a 403)
+  list_applications -> -32000 no deployment binding
+So the guard that fires is the DEPLOYMENT-BINDING guard, NOT the Org-scope guard the row asserts.
+CONTROL: whoami on the SAME bearer via the SAME binary returns
+  {context:organization, org_id:uatcorp, email:admin@uatcorp.omani.homes, sovereign_admin:false, tier:admin, deployment_id:""}
+  => transport, RS256 verify and token parse all work; the null is a real missing claim, not a broken harness.
+Cross-Org targets used (all organizationRef=hw291-omantel-biz, a DIFFERENT Org from uatcorp):
+  catalyst/spine-gitea, spine-harbor, spine-keycloak, spine-openbao
+uatcorp's own Application CR: uatcorp/uatwalk-ahs-07300830 (bp-postgres, Ready=True)
+  NOTE 'Ready != serving': its CNPG Cluster uatcorp/postgres reports 'Cluster is unrecoverable and needs manual intervention'.

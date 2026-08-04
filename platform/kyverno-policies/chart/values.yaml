@@ -508,9 +508,28 @@ compliancePolicies:
   # `acme.cert-manager.io/http01-solver: "true"`) are carved out in the template
   # — they are auto-created type=NodePort by cert-manager's default solver and GC
   # on challenge completion (a known-accepted transient class).
+  # #5491 — FLIPPED TO ENFORCE. All three preconditions this block and the
+  # template both name are now satisfied, verified on live hw291 2026-07-29:
+  #   (a) the 4 live #5088 violations are cleared — nine independent runtime
+  #       enumerations across BOTH regions (176 + 159 Services) return
+  #       type=NodePort=0 AND zero LoadBalancers carrying auto-allocated
+  #       nodePorts, and the repo-wide source scan finds no executable
+  #       `type: NodePort` outside this chart's own negative-test fixtures.
+  #   (b) the Audit PolicyReport shows zero false positives — 670 evaluations,
+  #       352 region-a + 318 region-b, ALL pass, zero fail, zero warn. The
+  #       cert-manager HTTP-01 solver carve-out is doing its job: no solver
+  #       noise appears in the report.
+  #   (c) post-handover with bootstrapMode already false — confirmed on the
+  #       live HR, so the canonical action is what actually takes effect.
+  # Until this flip, §854 — a founder ABSOLUTE ban — was the only prohibition
+  # of its class RECORDING violations rather than BLOCKING them, while six
+  # sibling policies already enforced. Blast radius, stated plainly: a NEW
+  # type=LoadBalancer Service that does not set allocateLoadBalancerNodePorts
+  # false is now REJECTED at admission rather than logged. That is the §854
+  # intent, and every Service live today already satisfies it.
   forbidNodePortService:
     enabled: true
-    action: Audit
+    action: Enforce
     # NodePorts are forbidden EVERYWHERE (including kube-system) per §854 —
     # default empty. Operators add per-namespace escapes here only for a
     # deliberate, documented exception.

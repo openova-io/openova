@@ -53,6 +53,7 @@ import {
   componentsByProduct,
   computeDefaultSelection,
   GROUPS,
+  type ComponentEntry,
 } from './componentGroups'
 import { useWizardStore } from '@/entities/deployment/store'
 import { INITIAL_WIZARD_STATE } from '@/entities/deployment/model'
@@ -161,6 +162,31 @@ describe('component catalog', () => {
     }
   })
 
+  /**
+   * Regression guard — this WAS red on `main`. Do NOT relax it.
+   *
+   * `componentGroups.ts` overrides every component's `dependencies` with
+   * `depsFor(id)` from `src/data/blueprint-deps.generated.json`, which is
+   * generated from Flux `HelmRelease.dependsOn` names. Three of those
+   * names are bootstrap-kit HelmReleases that have NO ComponentDef in the
+   * wizard catalog, and they used to leak into the graph as dangling ids:
+   *
+   *   gateway-api  ← gitea, powerdns, harbor, keycloak, openbao, grafana
+   *   reflector    ← external-dns, postgres
+   *   spire        ← openbao
+   *
+   * Operator-visible symptom was: `computeDefaultSelection()` returned 48
+   * ids, three of which (`gateway-api`, `reflector`, `spire`) had no card,
+   * no name and no logo anywhere in the wizard — yet they were written
+   * into `selectedComponents`, travelled into the deployment payload, and
+   * were counted by the "Selected (N) of M" counter.
+   *
+   * Fixed in the catalog layer: `resolveCatalogDependencies()` filters the
+   * resolved list through `CATALOG_COMPONENT_IDS`. The three HelmReleases
+   * are unconditional platform plumbing the bootstrap kit installs on
+   * every Sovereign whatever the operator picks, so they are deliberately
+   * card-less and dropping them from the wizard graph loses nothing.
+   */
   it('every dependency points at a known component id', () => {
     const ids = new Set(ALL_COMPONENTS.map(c => c.id))
     for (const c of ALL_COMPONENTS) {
@@ -170,20 +196,44 @@ describe('component catalog', () => {
     }
   })
 
-  it('Harbor depends on cnpg + seaweedfs + valkey', () => {
+  it('Harbor depends on cnpg + cert-manager, and NOT on seaweedfs', () => {
+    // Dependencies are Flux-canonical since #652 (commit 544dc86b5) —
+    // `componentGroups.ts:536` replaces the inline literals with
+    // `HelmRelease.dependsOn`. Ground truth for Harbor is
+    // `clusters/_template/bootstrap-kit/19-harbor.yaml:114-118`
+    // (bp-cnpg + bp-cert-manager) and `19-harbor.yaml:35-37`:
+    //   "The earlier dependency on bp-seaweedfs is REMOVED in 1.1.0
+    //    (cloud-direct architecture rule; SeaweedFS is no longer a Harbor
+    //    prerequisite on Sovereigns)."
+    // The pre-#652 expectation ['cnpg','seaweedfs','valkey'] is the exact
+    // hand-maintained triple the founder directive called out as baseless.
     const harbor = findComponent('harbor')
     expect(harbor).toBeDefined()
-    expect(harbor!.dependencies).toEqual(expect.arrayContaining(['cnpg', 'seaweedfs', 'valkey']))
+    expect(harbor!.dependencies).toEqual(expect.arrayContaining(['cnpg', 'cert-manager']))
+    expect(harbor!.dependencies).not.toContain('seaweedfs')
+    // The Harbor HelmRelease carries no Redis/Valkey dependency either.
+    expect(harbor!.dependencies).not.toContain('valkey')
   })
 
   it('OpenSearch has no dependencies (it owns its storage)', () => {
     expect(findComponent('opensearch')!.dependencies).toEqual([])
   })
 
-  it('Reloader / KEDA / VPA / Cilium / Crossplane / Flux have no deps', () => {
-    for (const id of ['reloader', 'keda', 'vpa', 'cilium', 'crossplane', 'flux']) {
+  it('Reloader / KEDA / VPA / Cilium have no deps', () => {
+    for (const id of ['reloader', 'keda', 'vpa', 'cilium']) {
       expect(findComponent(id)!.dependencies ?? []).toEqual([])
     }
+  })
+
+  it('Flux and Crossplane carry their Flux-canonical install edges', () => {
+    // Pre-#652 these were asserted as dependency-free. The bootstrap kit
+    // says otherwise and is now canonical:
+    //   clusters/_template/bootstrap-kit/03-flux.yaml:59-60 — bp-flux
+    //     dependsOn bp-cert-manager.
+    //   bp-crossplane dependsOn bp-flux (blueprint-deps.generated.json
+    //     "crossplane": ["flux"], from 04-crossplane.yaml).
+    expect(findComponent('flux')!.dependencies).toContain('cert-manager')
+    expect(findComponent('crossplane')!.dependencies).toContain('flux')
   })
 
   it('every component carries an upstream brand mark or an explicit fallback', () => {
@@ -372,15 +422,26 @@ describe('Tab 1 — category filter', () => {
   it('clicking a category chip narrows the grid to that group', () => {
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('category-chip-fabric'))
-    // Fabric non-mandatories (post-#175 promotion) include strimzi,
-    // debezium, flink, temporal, clickhouse, ferretdb, iceberg, superset.
-    expect(screen.getByTestId('component-card-strimzi')).toBeTruthy()
-    expect(screen.getByTestId('component-card-debezium')).toBeTruthy()
-    expect(screen.queryByTestId('component-card-grafana')).toBeNull()
-    // cnpg / valkey are mandatory after #175 and should not surface
-    // in Tab 1 even when their parent product is filtered to.
+    // Derived rather than hardcoded: exactly the FABRIC non-mandatories
+    // render, and no non-mandatory from any other group does. Deriving
+    // keeps this valid as the transitive-mandatory promotion set moves
+    // with the Flux-canonical dependency map (#652).
+    const fabricNonMandatory = NON_MANDATORY.filter((c) => c.groupId === 'fabric')
+    expect(fabricNonMandatory.length).toBeGreaterThan(0)
+    for (const c of fabricNonMandatory) {
+      expect(screen.getByTestId(`component-card-${c.id}`)).toBeTruthy()
+    }
+    for (const c of NON_MANDATORY.filter((c) => c.groupId !== 'fabric')) {
+      expect(screen.queryByTestId(`component-card-${c.id}`)).toBeNull()
+    }
+    // cnpg is mandatory (promoted — gitea/harbor/keycloak depend on it)
+    // so it must not surface in Tab 1 even with its parent product
+    // filtered to. valkey is NOT promoted any more: Harbor's Flux
+    // HelmRelease carries no valkey dependency
+    // (clusters/_template/bootstrap-kit/19-harbor.yaml:114-118), so
+    // valkey is a user-toggleable FABRIC card and IS in the loop above.
     expect(screen.queryByTestId('component-card-cnpg')).toBeNull()
-    expect(screen.queryByTestId('component-card-valkey')).toBeNull()
+    expect(screen.getByTestId('component-card-valkey')).toBeTruthy()
   })
 
   it('toggling the same chip a second time clears the filter', () => {
@@ -411,22 +472,46 @@ describe('Tab 1 — sort: selected first', () => {
 /* ── Cascading add ────────────────────────────────────────────────── */
 
 describe('cascading add', () => {
-  it('selecting a non-mandatory component adds its deps via the store', () => {
+  it('selecting a non-mandatory component adds its transitive deps via the store', () => {
+    // Derived fixture. The pre-#652 fixture was `milvus → seaweedfs`, a
+    // hand-maintained edge; there is no bp-milvus HelmRelease so
+    // `depsFor('milvus')` is now `[]` (componentGroups.ts:533-535) and
+    // the pair no longer exercises anything. Pick, from the catalog, a
+    // non-mandatory component that actually HAS deps and belongs to an
+    // à-la-carte product, so the assertion isolates the COMPONENT-level
+    // cascade from the product-family cascade.
+    const seed = ALL_COMPONENTS.find(
+      (c) =>
+        c.tier !== 'mandatory' &&
+        resolveTransitiveDependencies(c.id).length > 0 &&
+        findProduct(c.product)?.cascadeOnMemberSelection === false,
+    )
+    expect(seed, 'catalog must contain a non-mandatory component with deps').toBeDefined()
+    const deps = resolveTransitiveDependencies(seed!.id)
+    expect(deps.length).toBeGreaterThan(0)
+
     useWizardStore.setState({ selectedComponents: [] })
-    useWizardStore.getState().addComponent('milvus')
+    useWizardStore.getState().addComponent(seed!.id)
     const sel = useWizardStore.getState().selectedComponents
-    expect(sel).toContain('milvus')
-    expect(sel).toContain('seaweedfs')
+    expect(sel).toContain(seed!.id)
+    for (const d of deps) {
+      expect(sel).toContain(d)
+    }
   })
 
-  it('store cascades Harbor → cnpg + seaweedfs + valkey', () => {
+  it('store cascades Harbor → cnpg + cert-manager + postgres (not seaweedfs)', () => {
+    // Flux-canonical Harbor edges — see the catalog test above and
+    // clusters/_template/bootstrap-kit/19-harbor.yaml:35-37 + :114-118.
     useWizardStore.setState({ selectedComponents: [] })
     useWizardStore.getState().addComponent('harbor')
     const sel = useWizardStore.getState().selectedComponents
     expect(sel).toContain('harbor')
     expect(sel).toContain('cnpg')
-    expect(sel).toContain('seaweedfs')
-    expect(sel).toContain('valkey')
+    expect(sel).toContain('cert-manager')
+    expect(sel).toContain('postgres')
+    // Transitive: cnpg → flux (blueprint-deps.generated.json "cnpg").
+    expect(sel).toContain('flux')
+    expect(sel).not.toContain('seaweedfs')
   })
 
   it('UI emits a single toast announcing the cascade', () => {
@@ -458,58 +543,84 @@ describe('cascading add', () => {
 /* ── Cascading remove ─────────────────────────────────────────────── */
 
 describe('cascading remove', () => {
+  /**
+   * Cascade-remove fixture, DERIVED from the catalog: the first
+   * non-mandatory component that has at least one non-mandatory
+   * dependent — i.e. a chain the wizard can fully unwind.
+   *
+   * The pre-#652 fixture was the hardcoded `strimzi → debezium` pair.
+   * Neither strimzi nor debezium has a bp-* HelmRelease, so since #652
+   * (componentGroups.ts:536) both resolve to `dependencies: []` and the
+   * pair produces no cascade at all. Deriving keeps the test exercising
+   * the real feature as the Flux-canonical map evolves.
+   *
+   * (Today this resolves to `opentelemetry → alloy` —
+   * blueprint-deps.generated.json `"alloy": ["opentelemetry"]`.)
+   */
+  function cascadeRemovePair(): { target: ComponentEntry; dependents: ComponentEntry[] } {
+    for (const c of NON_MANDATORY) {
+      const dependents = resolveTransitiveDependents(c.id)
+        .map((id) => findComponent(id))
+        .filter((d): d is ComponentEntry => !!d && d.tier !== 'mandatory')
+      if (dependents.length > 0) return { target: c, dependents }
+    }
+    throw new Error(
+      'catalog has no non-mandatory component with a non-mandatory dependent — ' +
+        'the cascade-remove flow is untestable and this is itself a defect',
+    )
+  }
+
   it('opens a confirm dialog when removing a component with dependents', () => {
-    // strimzi (recommended, fabric) has Debezium depending on it, so
-    // toggling-off strimzi triggers the cascade-remove confirm. Replaces
-    // the pre-#175 cnpg test (cnpg was promoted to mandatory by the
-    // transitive-mandatory rule and no longer surfaces in Tab 1).
+    const { target, dependents } = cascadeRemovePair()
     useWizardStore.setState({
       selectedComponents: [
         ...new Set([
           ...useWizardStore.getState().selectedComponents,
-          'strimzi',
-          'debezium',
+          target.id,
+          ...dependents.map((d) => d.id),
         ]),
       ].sort(),
     })
     render(<StepComponents />)
-    fireEvent.click(screen.getByTestId('category-chip-fabric'))
-    fireEvent.click(screen.getByTestId('toggle-strimzi'))
+    fireEvent.click(screen.getByTestId(`toggle-${target.id}`))
     expect(screen.getByTestId('cascade-dialog')).toBeTruthy()
     const list = screen.getByTestId('cascade-dependents')
-    expect(list.textContent).toMatch(/Debezium/)
+    for (const d of dependents) {
+      expect(list.textContent).toContain(d.name)
+    }
   })
 
   it('cancel keeps the component selected', () => {
+    const { target, dependents } = cascadeRemovePair()
     useWizardStore.setState({
       selectedComponents: [
         ...new Set([
           ...useWizardStore.getState().selectedComponents,
-          'strimzi',
-          'debezium',
+          target.id,
+          ...dependents.map((d) => d.id),
         ]),
       ].sort(),
     })
     render(<StepComponents />)
-    fireEvent.click(screen.getByTestId('category-chip-fabric'))
-    fireEvent.click(screen.getByTestId('toggle-strimzi'))
+    fireEvent.click(screen.getByTestId(`toggle-${target.id}`))
     fireEvent.click(screen.getByTestId('cascade-cancel'))
-    expect(useWizardStore.getState().selectedComponents).toContain('strimzi')
+    expect(useWizardStore.getState().selectedComponents).toContain(target.id)
     expect(screen.queryByTestId('cascade-dialog')).toBeNull()
   })
 
   it('confirm cascades through the impact set', () => {
-    // strimzi → debezium is a non-mandatory chain we can fully unwind.
+    const { target, dependents } = cascadeRemovePair()
     useWizardStore.setState({
-      selectedComponents: ['strimzi', 'debezium'].sort(),
+      selectedComponents: [target.id, ...dependents.map((d) => d.id)].sort(),
     })
     render(<StepComponents />)
-    fireEvent.click(screen.getByTestId('category-chip-fabric'))
-    fireEvent.click(screen.getByTestId('toggle-strimzi'))
+    fireEvent.click(screen.getByTestId(`toggle-${target.id}`))
     fireEvent.click(screen.getByTestId('cascade-confirm'))
     const sel = useWizardStore.getState().selectedComponents
-    expect(sel).not.toContain('strimzi')
-    expect(sel).not.toContain('debezium')
+    expect(sel).not.toContain(target.id)
+    for (const d of dependents) {
+      expect(sel).not.toContain(d.id)
+    }
   })
 
   it('mandatory components are NEVER removed even via cascade', () => {
@@ -541,6 +652,33 @@ describe('cascading remove', () => {
 
 /* ── Tab 2: Always Included ───────────────────────────────────────── */
 
+/**
+ * Regression guard — 2 tests here + 2 in the transitive-promotion block
+ * below WERE red on `main`. Do NOT relax them.
+ *
+ * `AlwaysIncludedTab` used to build Tab 2 from
+ * `PRODUCTS.filter(product => product.tier === 'mandatory')` — i.e. it
+ * keyed visibility off the PRODUCT tier, not the COMPONENT tier. The
+ * Foundation counter next to it keys off the COMPONENT tier
+ * (`ALL_COMPONENTS.filter(c => c.tier === 'mandatory')`). The two
+ * disagreed.
+ *
+ * `cnpg` and `postgres` are `tier: 'mandatory'` (promoted — the
+ * unconditionally-mandatory gitea / harbor / keycloak depend on them)
+ * but live in FABRIC, whose PRODUCT tier is 'recommended'. So they were
+ * filtered out of Tab 2, while Tab 1 already excludes them for being
+ * mandatory. Net effect: CloudNative PG and PostgreSQL were installed on
+ * every Sovereign but appeared in NEITHER tab, and the tab read
+ * "Foundation (24)" while rendering 22 cards.
+ *
+ * The product-tier filter existed to stop KServe (then CORTEX-internal
+ * `tier: 'mandatory'`) showing under "Always Included" on Sovereigns that
+ * never picked CORTEX. That guard is preserved: AlwaysIncludedTab now
+ * admits a component when it is mandatory in a mandatory-tier product OR
+ * when it appears in `TRANSITIVE_MANDATORY_PROMOTIONS` — something
+ * unconditional depends on it, so it ships either way. A family-internal
+ * raw-mandatory member is neither, so it still stays out.
+ */
 describe('Tab 2 (Always Included) — read-only mandatory grid', () => {
   it('renders a card for every mandatory component', () => {
     render(<StepComponents />)
@@ -706,10 +844,25 @@ describe('reset to defaults', () => {
 
 describe('reverse-graph helpers', () => {
   it('resolveTransitiveDependents includes every component that needs cnpg directly or transitively', () => {
+    // Flux-canonical dependents since #652. The pre-#652 expectation also
+    // listed ferretdb / temporal / librechat / matrix / superset /
+    // openmeter — every one of those was a hand-maintained `→ cnpg` edge
+    // on a component with NO bp-* HelmRelease, so `depsFor()` now returns
+    // `[]` for them (componentGroups.ts:533-535) and they are no longer
+    // cnpg dependents. The ids below each have a real bootstrap-kit HR
+    // whose `dependsOn` reaches cnpg:
+    //   gitea      — 10-gitea.yaml:65-72   (bp-cnpg, bp-postgres-shared)
+    //   keycloak   — 09-keycloak.yaml:68-74 (→ bp-postgres-shared → bp-cnpg)
+    //   harbor     — 19-harbor.yaml:114-118 (bp-cnpg)
+    //   grafana    — 25-grafana.yaml:57-59  (bp-cnpg)
+    //   powerdns   — 11-powerdns.yaml       (bp-cnpg)
+    //   openbao    — 08-openbao.yaml        (bp-cnpg)
+    //   postgres   — the shared data-instance, dependsOn bp-cnpg
+    //   langfuse   — bp-langfuse dependsOn bp-cnpg
     const dependents = resolveTransitiveDependents('cnpg')
     for (const id of [
-      'gitea', 'keycloak', 'harbor', 'ferretdb', 'temporal',
-      'langfuse', 'librechat', 'matrix', 'superset', 'openmeter',
+      'gitea', 'keycloak', 'harbor', 'grafana',
+      'powerdns', 'openbao', 'postgres', 'langfuse',
     ]) {
       expect(dependents).toContain(id)
     }
@@ -738,13 +891,27 @@ describe('transitive-mandatory promotion (issue #175 fix A)', () => {
     expect(findComponent('cnpg')!.tier).toBe('mandatory')
   })
 
-  it('valkey is mandatory in the post-promotion catalog', () => {
-    expect(findComponent('valkey')!.tier).toBe('mandatory')
+  it('postgres is mandatory in the post-promotion catalog', () => {
+    // postgres (the #3370 shareable data-instance) replaced valkey as the
+    // promoted FABRIC member: gitea / harbor / keycloak — all raw
+    // mandatory — dependsOn bp-postgres-shared
+    // (10-gitea.yaml:65-72, 19-harbor.yaml:114-118, 09-keycloak.yaml:68-74),
+    // so the closure walk lifts it.
+    expect(findComponent('postgres')!.tier).toBe('mandatory')
   })
 
-  it('TRANSITIVE_MANDATORY_PROMOTIONS includes cnpg + valkey', () => {
+  it('valkey is NOT promoted — no mandatory component depends on it', () => {
+    // Pre-#652 valkey was promoted solely via Harbor's hand-maintained
+    // `['cnpg','seaweedfs','valkey']` literal. The Harbor HelmRelease
+    // (clusters/_template/bootstrap-kit/19-harbor.yaml:114-118) carries no
+    // valkey/Redis dependency, so valkey stays user-toggleable.
+    expect(findComponent('valkey')!.tier).not.toBe('mandatory')
+    expect(TRANSITIVE_MANDATORY_PROMOTIONS).not.toContain('valkey')
+  })
+
+  it('TRANSITIVE_MANDATORY_PROMOTIONS includes cnpg + postgres', () => {
     expect(TRANSITIVE_MANDATORY_PROMOTIONS).toContain('cnpg')
-    expect(TRANSITIVE_MANDATORY_PROMOTIONS).toContain('valkey')
+    expect(TRANSITIVE_MANDATORY_PROMOTIONS).toContain('postgres')
   })
 
   it('every promoted component is reachable from a raw mandatory seed', () => {
@@ -773,26 +940,35 @@ describe('transitive-mandatory promotion (issue #175 fix A)', () => {
     expect(screen.queryByTestId('component-card-cnpg')).toBeNull()
   })
 
+  // Regression guard — pins the AlwaysIncludedTab product-tier filter
+  // defect documented above the "Tab 2 (Always Included)" describe block.
   it('cnpg DOES appear in Tab 2 ("Always Included")', () => {
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('tab-always'))
     expect(screen.getByTestId('component-card-cnpg')).toBeTruthy()
   })
 
-  it('valkey DOES appear in Tab 2 ("Always Included")', () => {
+  it('valkey does NOT appear in Tab 2 — it is user-selectable in Tab 1', () => {
+    // Inverted from the pre-#652 expectation: valkey is no longer
+    // promoted (see "valkey is NOT promoted" above), so it belongs in the
+    // Components tab, not Foundation.
     render(<StepComponents />)
-    fireEvent.click(screen.getByTestId('tab-always'))
     expect(screen.getByTestId('component-card-valkey')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('tab-always'))
+    const tab = screen.getByTestId('always-included-tab')
+    expect(within(tab).queryByTestId('component-card-valkey')).toBeNull()
   })
 
+  // Regression guard — same AlwaysIncludedTab defect. The valkey
+  // assertion that used to sit here was dropped (valkey is no longer a
+  // promotion), so this covers ONLY the real reason it was red: FABRIC
+  // has two promoted mandatory members and used to render no section.
   it('promoted components are grouped under their owning product in Tab 2', () => {
     render(<StepComponents />)
     fireEvent.click(screen.getByTestId('tab-always'))
-    // cnpg lives in FABRIC; the FABRIC section should now appear in
-    // Tab 2 because of cnpg / valkey's promotion.
     const fabricSection = screen.getByTestId('always-included-section-fabric')
     expect(within(fabricSection).getByTestId('component-card-cnpg')).toBeTruthy()
-    expect(within(fabricSection).getByTestId('component-card-valkey')).toBeTruthy()
+    expect(within(fabricSection).getByTestId('component-card-postgres')).toBeTruthy()
   })
 })
 
@@ -832,6 +1008,39 @@ describe('product-family model (issue #175 fix B)', () => {
     expect(findProduct('cortex')!.familyDependencies).toEqual([])
   })
 
+  /**
+   * Regression guard — this WAS red on `main`. Do NOT relax it, and do
+   * NOT "fix" it by deleting the expectation.
+   *
+   * The Specter → CORTEX product rule is operator-requested (issue #175:
+   * "when Specter is selected all the Cortex family is required") and is
+   * documented in the catalog in two places:
+   *   the Specter ComponentDef — "Specter requires the entire CORTEX
+   *     family at runtime … selecting Specter adds the full CORTEX family
+   *     even if the user never opens the CORTEX chip."
+   *   the INSIGHTS Product entry — "Selecting the INSIGHTS product as a
+   *     whole brings in Specter, which in turn pulls CORTEX through the
+   *     component->product cascade chain."
+   * It used to be written as a literal
+   *   dependencies: ['bge','milvus','langfuse','vllm','kserve']
+   * which was DEAD: RAW_COMPONENTS replaces `dependencies` with
+   * `depsFor('specter')`, and there is no bp-specter HelmRelease, so
+   * Specter's dependencies resolved to `[]`. Specter belongs to INSIGHTS
+   * (cascadeOnMemberSelection: false), so nothing else fired either.
+   *
+   * Operator-visible symptom was: ticking Specter (the AIOps brain)
+   * installed Specter alone — no vLLM, no Milvus, no BGE, no LangFuse, no
+   * KServe — i.e. an AIOps component with no AI runtime under it.
+   *
+   * This is NOT the same class as the other #652 casualties: those were
+   * install-ordering edges the founder ruled Flux owns. This is a
+   * product-family SELECTION rule, which Flux has no opinion on. It now
+   * lives in the layer that survives the Flux override: the Specter
+   * ComponentDef declares `familyRequires: ['cortex']`, and
+   * `resolveCatalogDependencies()` expands it from the PRODUCTS table at
+   * module load — so the member list can never drift from the CORTEX
+   * family definition, and no per-component id list is hand-maintained.
+   */
   it('Specter component-level deps cover the major CORTEX runtime members', () => {
     const specter = findComponent('specter')!
     for (const dep of ['bge', 'milvus', 'langfuse', 'vllm', 'kserve']) {
@@ -839,23 +1048,40 @@ describe('product-family model (issue #175 fix B)', () => {
     }
   })
 
-  it('LibreChat depends on FerretDB (Mongo-compatible) — not cnpg directly', () => {
-    // Audit 2026-04: LibreChat speaks MongoDB, not PostgreSQL. The
-    // OpenOva drop-in is FerretDB, which itself runs on cnpg, so cnpg
-    // arrives transitively. The earlier `['cnpg']` dep would have
-    // attached cnpg without any actual Mongo-compatible backend.
+  it('LibreChat has no Flux-canonical deps (no bp-librechat HelmRelease)', () => {
+    // The 2026-04 audit's `librechat → ferretdb` edge was hand-maintained.
+    // #652 (commit 544dc86b5) made Flux `HelmRelease.dependsOn` the single
+    // source of truth per founder directive — "The single source of truth
+    // for the dependencies is flux!!!" — and there is no bp-librechat
+    // HelmRelease in clusters/_template/bootstrap-kit, so `depsFor()`
+    // returns the documented empty-list fallback
+    // (componentGroups.ts:533-535).
+    //
+    // NOTE for whoever revisits this: LibreChat genuinely speaks MongoDB,
+    // so the Mongo-compat requirement is real — it just has to be
+    // expressed by adding a bp-librechat HelmRelease with the right
+    // `dependsOn`, not by re-introducing a literal that :536 discards.
     const librechat = findComponent('librechat')!
-    expect(librechat.dependencies).toContain('ferretdb')
-    expect(librechat.dependencies).not.toContain('cnpg')
+    expect(librechat.dependencies).toEqual([])
   })
 
-  it('Grafana has no hard dependencies (uses SQLite by default; HA can opt into PG)', () => {
-    // Audit 2026-04: Grafana the dashboard server stores its own state
-    // in SQLite by default and does not require object storage. The
-    // companion stores Loki / Mimir / Tempo need seaweedfs; Grafana
-    // does not. Removing the spurious dep avoids dragging SILO-internal
-    // coupling onto every Grafana selection.
-    expect(findComponent('grafana')!.dependencies).toEqual([])
+  it('Grafana depends on its Flux-canonical datastores and datasources', () => {
+    // Inverted from the 2026-04 "Grafana uses SQLite by default" audit
+    // claim, which the bootstrap kit contradicts.
+    // clusters/_template/bootstrap-kit/25-grafana.yaml:11-17 documents the
+    // intent and :57-70 declares it:
+    //   bp-cnpg    (":12 — Postgres backend for Grafana state")
+    //   bp-loki    (":13 — datasource for logs")
+    //   bp-mimir   (":14 — datasource for metrics")
+    //   bp-tempo   (":15 — datasource for traces")
+    //   bp-keycloak(":16 — OIDC IdP for SSO")
+    const grafana = findComponent('grafana')!
+    for (const dep of ['cnpg', 'loki', 'mimir', 'tempo', 'keycloak']) {
+      expect(grafana.dependencies).toContain(dep)
+    }
+    // seaweedfs is still NOT a direct Grafana dep — it arrives only
+    // transitively through Loki / Mimir / Tempo.
+    expect(grafana.dependencies).not.toContain('seaweedfs')
   })
 })
 
@@ -887,10 +1113,13 @@ describe('store: addProduct cascade', () => {
     ]) {
       expect(sel).not.toContain(id)
     }
-    // cnpg stays present because it's mandatory; ferretdb arrives via
-    // librechat's component dep.
+    // cnpg stays present because it's mandatory. The pre-#652 companion
+    // assertion `toContain('ferretdb')` is gone: it relied on the
+    // hand-maintained `librechat → ferretdb` edge, which #652 replaced
+    // with the empty Flux-canonical list (see the LibreChat test above).
+    // ferretdb is now covered by the FABRIC-exclusion loop instead.
     expect(sel).toContain('cnpg')
-    expect(sel).toContain('ferretdb')
+    expect(sel).not.toContain('ferretdb')
   })
 
   it('addProduct(unknown) is a no-op', () => {
@@ -914,13 +1143,36 @@ describe('store: removeProduct cascade', () => {
     }
   })
 
-  it('removeProduct(cortex) preserves CORTEX mandatory members (kserve)', () => {
-    const fullCortex = resolveProductComponentClosure('cortex')
+  it('removeProduct preserves the product’s mandatory members (FABRIC)', () => {
+    // Retargeted from CORTEX. The old fixture asserted `kserve` survived
+    // removeProduct('cortex') because KServe was `tier: 'mandatory'`.
+    // KServe was deliberately demoted to `tier: 'recommended'` —
+    // componentGroups.ts:338 and the comment at :326-337: "KServe was
+    // tier:'mandatory' — semantically wrong … Demoting to 'recommended'"
+    // (caught on the omantel.biz wizard 2026-05-06). CORTEX now has ZERO
+    // mandatory members, so the old assertion is unsatisfiable and the
+    // guard at store.ts:653 went untested.
+    //
+    // FABRIC does have mandatory members (cnpg + postgres, promoted), so
+    // it exercises the same invariant for real. Derived, not hardcoded.
+    const fabricMandatory = componentsByProduct('fabric').filter((c) => c.tier === 'mandatory')
+    expect(fabricMandatory.length).toBeGreaterThan(0)
+
+    const fullFabric = resolveProductComponentClosure('fabric')
     useWizardStore.setState({
-      selectedComponents: [...new Set([...MANDATORY_COMPONENT_IDS, ...fullCortex])].sort(),
+      selectedComponents: [...new Set([...MANDATORY_COMPONENT_IDS, ...fullFabric])].sort(),
     })
-    useWizardStore.getState().removeProduct('cortex')
-    expect(useWizardStore.getState().selectedComponents).toContain('kserve')
+    useWizardStore.getState().removeProduct('fabric')
+    const sel = useWizardStore.getState().selectedComponents
+    for (const c of fabricMandatory) {
+      expect(sel).toContain(c.id)
+    }
+    // …and the non-mandatory members really did leave, so this cannot
+    // pass by removeProduct being a no-op.
+    for (const c of componentsByProduct('fabric')) {
+      if (c.tier === 'mandatory') continue
+      expect(sel).not.toContain(c.id)
+    }
   })
 
   it('removeProduct(unknown) is a no-op', () => {
@@ -942,6 +1194,10 @@ describe('addComponent → product family cascade (CORTEX)', () => {
     }
   })
 
+  // Regression guard — pins the Specter → CORTEX defect documented in
+  // full above the "Specter component-level deps" test. The cascade
+  // MECHANISM was always fine (the BGE test directly above proves it
+  // fires); the Specter → CORTEX edge is what had gone missing.
   it('selecting Specter cascades to every CORTEX component', () => {
     useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
     useWizardStore.getState().addComponent('specter')
@@ -959,6 +1215,12 @@ describe('addComponent → product family cascade (CORTEX)', () => {
   // ClickHouse, Iceberg, or Superset. The previous CORTEX
   // `familyDependencies: ['fabric']` was over-broad and is removed in
   // this commit.
+  // ⚠️ CURRENTLY VACUOUS, deliberately kept. This guards the 2026-04
+  // over-cascade regression (CORTEX `familyDependencies: ['fabric']`).
+  // While the Specter → CORTEX defect above is open Specter cascades
+  // NOTHING, so this passes trivially; it regains its teeth the moment
+  // that defect is fixed. Left in place rather than deleted so the
+  // regression stays guarded — do not treat its green as coverage today.
   it('selecting Specter does NOT auto-select the FABRIC family (regression)', () => {
     useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
     useWizardStore.getState().addComponent('specter')
@@ -971,25 +1233,14 @@ describe('addComponent → product family cascade (CORTEX)', () => {
     }
   })
 
-  it('selecting Specter does NOT auto-select FerretDB (no Mongo workload in Specter)', () => {
-    // FerretDB is reached only via librechat's dep. Specter doesn't
-    // pull librechat (CORTEX cascade does — but on a clean state it's
-    // a separate addComponent). Verify Specter alone (without
-    // librechat) does not drag FerretDB in.
-    useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
-    // Component-level cascade adds librechat via CORTEX family cascade
-    // (CORTEX has cascadeOnMemberSelection: true). Librechat then
-    // pulls FerretDB. So FerretDB IS expected. Document this clearly:
-    useWizardStore.getState().addComponent('specter')
-    const sel = useWizardStore.getState().selectedComponents
-    // FerretDB ARRIVES because LibreChat (a CORTEX member with
-    // ferretdb as a dep) is pulled in by CORTEX's cascadeOnMemberSelection.
-    // That is the correct behavior — librechat genuinely needs a
-    // Mongo-compatible backend.
-    expect(sel).toContain('librechat')
-    expect(sel).toContain('ferretdb')
-    // But the rest of FABRIC stays out (verified above).
-  })
+  // The former 'selecting Specter does NOT auto-select FerretDB' test was
+  // DELETED here. Its title asserted Specter must not pull FerretDB while
+  // its body asserted the opposite (`toContain('ferretdb')`) — the 2026-04
+  // audit inverted the body and left the title behind. Both of its
+  // assertions were duplicates: the `librechat` half restates
+  // 'selecting Specter cascades to every CORTEX component' above, and the
+  // `ferretdb` half restates the LibreChat dependency test in the
+  // product-family block. Nothing it covered is now uncovered.
 
   it('selecting clickhouse (FABRIC à-la-carte) does NOT cascade FABRIC', () => {
     useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })

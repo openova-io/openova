@@ -235,7 +235,17 @@ name: bp-guacamole
 # Instances-table chip, so the legacy spelling leaked the banned word to the
 # operator (hw159 #3375).
 # 0.2.26 (#3971): CNPG storageClass empty ⇒ cluster-default durable cloud CSI; local-path FORBIDDEN.
-version: 0.2.31
+# 0.2.34 (#5598): API_SESSION_TIMEOUT env (values
+# guacamole.webapp.apiSessionTimeoutMinutes, default 10080) — the webapp's
+# REST-session token previously expired on the upstream 60-minute default
+# while the fronting oidc-gate session lives ~168h, so any >60-min revisit
+# reused a dead localStorage GUAC_AUTH token, 403'd PERMISSION_DENIED on
+# every session API call and rendered the bare "An error has occurred"
+# banner (UAT rows 35/115 ❌ on hw292). Group-inherited admin permissions
+# were proven INTACT on the same env (fresh-login effectivePermissions
+# carried ADMINISTER + 5 CREATE_*), so the session lifetime, not the JDBC
+# permission chain, was the operator-visible failure.
+version: 0.2.35
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless

@@ -41,8 +41,11 @@ import {
   type Capability,
   type PlacementTarget,
   type ReconStatus,
+  PATTERN_NOT_REPORTED,
   derivePattern,
+  describePattern,
   normalizeCapability,
+  patternLabel,
   targetsFromLegacy,
 } from '@/shared/lib/placement'
 
@@ -194,6 +197,40 @@ export function TopologyTab({
     // Legacy fallback: project from status.targets (recon rollup), else
     // from the legacy mode + regions.
     const status = (app?.status ?? {}) as Record<string, unknown>
+    // 2b. #5420 — EFFECTIVE per-cluster state, ahead of any projection from
+    //     the DECLARED posture. `status.perCluster` says where this app's
+    //     workloads were actually observed; the legacy `mode + regions`
+    //     projection below maps over every DECLARED region and therefore
+    //     fabricates a Standby card for a region that may hold nothing.
+    //     That is how a single-region app rendered 2 cards, a DR panel and
+    //     an ARMED Switchover pointing at a region with no namespace, while
+    //     its own DR chip read "NOT LIVE" on the same screen.
+    //
+    //     Same class as #5515 (empty targets → false `singleton`) and #5422
+    //     (absent placement → asserted `singleton`): never let a declared
+    //     intention masquerade as an observed fact.
+    const perCluster = status.perCluster
+    if (Array.isArray(perCluster) && perCluster.length > 0) {
+      const effective = perCluster
+        .map((entry) => {
+          const e = (entry ?? {}) as Record<string, unknown>
+          const cluster = typeof e.cluster === 'string' ? e.cluster : ''
+          if (!cluster) return null
+          const role = (typeof e.role === 'string' ? e.role : '').toLowerCase()
+          // `singleton` is the controller's own word for "one place, no
+          // standby" — it must NOT become a Standby card.
+          const isPrimary = role === 'primary' || role === 'active' || role === 'singleton'
+          return {
+            region: cluster,
+            cluster,
+            vcluster: 'mgmt',
+            role: isPrimary ? ('Primary' as const) : ('Standby' as const),
+            ...(isPrimary ? {} : { standbyType: 'Hot' as const }),
+          } as PlacementTarget
+        })
+        .filter((t): t is PlacementTarget => t !== null)
+      if (effective.length > 0) return effective
+    }
     const statusTargets = status.targets
     if (Array.isArray(statusTargets) && statusTargets.length > 0) {
       return statusTargets as PlacementTarget[]
@@ -244,10 +281,11 @@ export function TopologyTab({
   //     component, yet a live 2-region cnpg-pair genuinely backs it. Polling
   //     unconditionally lets the DR panel render it as a pair with the
   //     switchover control instead of a stale singleton.
-  // Rendering is ALWAYS gated on a live cross-region result (source:"live" + a
-  // distinct standby region), so a genuine singleton — which 404s or returns a
-  // synthesized/pending shape — never fabricates a DR panel. A 404 (no
-  // Continuum CR / no live pair) does NOT retry and leaves drStatus undefined.
+  // #5514 — the endpoint does NOT 404 for an unbacked app: it answers HTTP 200
+  // with the `source:"pending"` fallback envelope. So the panel's CONTENT is
+  // gated on `drBacked` (source === "live") below, never on `drQ.isError`.
+  // A real transport error does not retry and leaves drStatus undefined, which
+  // lands on the same unbacked branch.
   // Bootstrap components query with an EMPTY namespace so the cluster-wide
   // lookup finds the CR in its own namespace (the HR lives in flux-system, the
   // Continuum in the spine's namespace) — mirrors the #4000 placement rule.
@@ -309,6 +347,24 @@ export function TopologyTab({
     [drStatus, drPrimaryRegion],
   )
   const hasLiveDR = drStatus?.source === 'live' && !!liveStandbyRegion
+
+  // #5514 — THE DR-BACKING GATE. The replication-status endpoint does NOT 404
+  // for an app with no Continuum CR: catalyst-api answers HTTP 200 carrying
+  // `pendingReplicationStatus()` (continuum_dr_extras.go) — a fallback envelope
+  // with `source:"pending"`, `replicaPromotable:false`, `walLagSeconds:0`, and
+  // a `replicas[]` entry synthesized from the Sovereign's CONFIGURED region env
+  // (SOVEREIGN_REPLICA_REGION), not from an observed replica. So `drQ.isError`
+  // never fires, and every downstream render read that envelope as real: hw291
+  // showed `Replication lag 0.0 s`, a "hot replica (follows WAL)" card, and an
+  // ARMED "Switch over…" for `uatcorp/uatwalk-ahs-07300830` — an Application
+  // declaring active-hot-standby whose standby region has no namespace at all.
+  //
+  // `source === 'live'` is the backend's own honesty flag and the ONLY value
+  // that means "read off the real Continuum + CNPGPair CR status". Nothing
+  // numeric and no control may render without it. The server is already honest
+  // here; it was the client that ignored the flag.
+  const drBacked = drStatus?.source === 'live'
+
   const showDR = hasStandby || hasLiveDR
 
   // #4923/#4901 — the EXPLICIT standby-absent condition. The backend verifies
@@ -325,6 +381,34 @@ export function TopologyTab({
     () => drStandbyRegions[0] || liveStandbyRegion || '',
     [drStandbyRegions, liveStandbyRegion],
   )
+
+  // #5514 — arming the switchover needs THREE independent facts, not just a
+  // region string. `switchoverTarget` alone is a DECLARED region name, which on
+  // hw291 pointed at a region with no namespace: a string is not a standby.
+  //
+  //   1. drBacked            — the reading is live, not the pending envelope.
+  //   2. replicaPromotable   — the backend's positive verdict. It DOES return
+  //                            this (`false` for the phantom) and it was never
+  //                            consulted. `undefined` = unverified, which stays
+  //                            armed: the SwitchoverDialog then runs its own
+  //                            read-only RPO/health preflight and only arms
+  //                            [ Confirm Switchover ] on `promotable`. Only an
+  //                            EXPLICIT `false` disarms here.
+  //   3. !standbyAbsent      — a VERIFIED-absent standby (#4923/#4901) has no
+  //                            leg to promote.
+  const replicaPromotable = drStatus?.replicaPromotable
+  const switchoverArmed =
+    drBacked && !!switchoverTarget && replicaPromotable !== false && !standbyAbsent
+
+  // The plain reason the control is not armed — the operator must never see a
+  // dead button with no explanation.
+  const switchoverBlockedReason = useMemo(() => {
+    if (switchoverArmed) return ''
+    if (!switchoverTarget) return 'resolving standby region…'
+    if (standbyAbsent) return 'standby unreachable — nothing to promote'
+    if (replicaPromotable === false) return 'the replica is not promotable — no caught-up standby to promote'
+    return 'no live replication reading — cannot promote'
+  }, [switchoverArmed, switchoverTarget, standbyAbsent, replicaPromotable])
 
   // Owned dependencies that cascade — read from spec.placement.ownedDependencies
   // when present (override state); the names also come from the blueprint's
@@ -409,10 +493,22 @@ export function TopologyTab({
       >
         <div className="mb-3 flex items-baseline justify-between">
           <h3 className="text-sm font-semibold text-[var(--color-text-strong)]">Placement</h3>
+          {/* #5515 — an un-derivable pattern renders as prose ("not reported")
+              in the DIM colour, never a pattern NAME in the accent colour. The
+              pre-fix code printed a confident `singleton` next to this panel's
+              own "No placement targets reported yet." note. */}
           <span className="text-xs text-[var(--color-text-dim)]">
             Pattern:{' '}
-            <span className="font-semibold text-[var(--color-accent)]" data-testid="topology-tab-pattern">
-              {pattern}
+            <span
+              className={
+                pattern === PATTERN_NOT_REPORTED
+                  ? 'font-semibold text-[var(--color-text-dim)] italic'
+                  : 'font-semibold text-[var(--color-accent)]'
+              }
+              data-testid="topology-tab-pattern"
+              title={describePattern(pattern)}
+            >
+              {patternLabel(pattern)}
             </span>
           </span>
         </div>
@@ -549,12 +645,32 @@ export function TopologyTab({
             ) : null}
           </div>
 
-          {drQ.isError ? (
-            // The replication-status endpoint 404s when no Continuum CR
-            // backs this app — a calm "no DR pair yet" note, NOT an error.
-            <p className="text-xs text-[var(--color-text-dim)]" data-testid="topology-tab-dr-none">
-              No cross-region replica reporting yet for this component.
-            </p>
+          {!drBacked ? (
+            // #5514 — NO LIVE BACKING. Reached on all three unbacked shapes:
+            // the endpoint erroring, the `source:"pending"` fallback envelope
+            // (the hw291 phantom — HTTP 200, NOT an error, which is why the old
+            // `drQ.isError` condition here was dead code), and the still-loading
+            // first paint. Renders the honest note and NOTHING else: no standby
+            // card, no numeric lag, no switchover control. A DR control must
+            // never arm against a region we have not observed.
+            <div data-testid="topology-tab-dr-none">
+              <p className="text-xs text-[var(--color-text-dim)]">
+                {drQ.isLoading
+                  ? 'Checking for a cross-region replica…'
+                  : 'No cross-region replica reporting yet for this component.'}
+              </p>
+              {hasStandby && drStatus && !drQ.isLoading ? (
+                <p
+                  className="mt-2 text-xs text-yellow-400"
+                  data-testid="topology-tab-dr-unbacked"
+                >
+                  This placement DECLARES a standby, but the replication endpoint
+                  returned a fallback reading (source: {drStatus.source}) — no live
+                  Continuum / cnpg pair backs it. Replication lag and switchover
+                  stay unavailable until a real replica reports.
+                </p>
+              ) : null}
+            </div>
           ) : (
             <>
               <div
@@ -667,8 +783,15 @@ export function TopologyTab({
                   }`}
                   data-testid="topology-tab-dr-lag-value"
                 >
-                  {lagSeconds == null ? '—' : `${lagSeconds.toFixed(1)} s`}
+                  {/* #5514 — a lag NUMBER is a claim that a standby is being
+                      measured. On a VERIFIED-absent standby (#4901) the backend
+                      keeps reporting 0, which reads as perfect health during an
+                      outage; render "—" instead of that false zero. */}
+                  {lagSeconds == null || standbyAbsent ? '—' : `${lagSeconds.toFixed(1)} s`}
                 </span>
+                {standbyAbsent ? (
+                  <span className="text-[10px] text-red-400">no standby leg to measure</span>
+                ) : null}
                 {lagSeconds == null && drQ.isLoading ? (
                   <span className="text-[10px] text-[var(--color-text-dim)]">measuring…</span>
                 ) : null}
@@ -691,19 +814,19 @@ export function TopologyTab({
                   type="button"
                   className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs hover:border-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
                   onClick={() => setShowSwitchover(true)}
-                  disabled={!switchoverTarget}
+                  disabled={!switchoverArmed}
                   data-testid="topology-tab-dr-switchover-open"
                 >
                   Switch over…
                 </button>
                 <span className="text-[10px] text-[var(--color-text-dim)]">
-                  {switchoverTarget
+                  {switchoverArmed
                     ? `promote standby ${switchoverTarget} — runs an RPO/health preflight before you confirm`
-                    : 'resolving standby region…'}
+                    : switchoverBlockedReason}
                 </span>
               </div>
 
-              {showSwitchover && switchoverTarget ? (
+              {showSwitchover && switchoverArmed ? (
                 <SwitchoverDialog
                   sovereignId={sovereignId}
                   continuumName={continuumName}

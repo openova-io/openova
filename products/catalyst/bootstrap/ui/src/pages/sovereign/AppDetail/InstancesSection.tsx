@@ -32,11 +32,19 @@ import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { ALL_MODES, canonicalizeMode, describeModeForComponent } from '@/widgets/topology/TopologyEditor'
 import { BLUEPRINT_BY_ID, TOPOLOGY_BY_ID } from '@/shared/constants/catalog.generated'
 
-// #3599 / #3600 — the vCluster/zone options the catalyst-api backend
-// validates (`placement.vcluster ∈ {host, mgmt, dmz, rtz}`,
-// instances/create.go ValidateShape). Rendered as a dropdown (never
-// free-text) so an install can't be typo'd into an invalid zone.
-const VCLUSTER_OPTIONS = ['host', 'mgmt', 'dmz', 'rtz'] as const
+// #3599 / #3600 / #5616 — the tier namespaces the backend can RESOLVE:
+// catalyst-api validates `placement.vcluster ∈ {host, mgmt, dmz, rtz}`
+// (instances/create.go ValidateShape) and the application-controller
+// maps each tier key to the SAME-NAMED host namespace when addressing
+// the per-cluster HelmRelease (VClusterPlacements defaults). #5616 —
+// these are OFFERED only when the live topology reports a vCluster
+// actually running in that namespace: a fabricated option lands the
+// HelmRelease in a namespace that does not exist and the install
+// Degrades (`namespaces "rtz" not found`, hw292 walk 2026-08-04).
+// "host" is the one namespace-independent target (the controller
+// normalizes it to the host-cluster install in the Org's own
+// namespace), so it is always offered.
+const RESOLVABLE_TIER_NAMESPACES = ['mgmt', 'dmz', 'rtz'] as const
 
 /**
  * Modes that require ≥2 regions (the create-flow validation rule). ONE
@@ -439,9 +447,11 @@ export function PerClusterTable({
  *                  ALL_MODES option set (#3599 — no divergent vocab).
  *  - region(s)   — checkbox multiselect from the Sovereign's live cluster
  *                  regions (getHierarchicalInfrastructure topology tree).
- *  - vCluster    — <select> from {host, mgmt, dmz, rtz} (the backend's
- *                  validated zone set), enriched with the live vcluster
- *                  names when present.
+ *  - vCluster    — <select> of REAL placement targets only (#5616):
+ *                  "host" plus the live vClusters whose actual host
+ *                  namespace the backend tier map resolves (mgmt/dmz/
+ *                  rtz). Option value = the vCluster's real namespace,
+ *                  never its display name.
  *  - backing     — the #3370 Create new / Reuse existing selectors.
  *
  * Placement (#3599) is written onto the Application CR: the submit sends
@@ -506,18 +516,32 @@ export function NewInstanceDialog({
     }
     return Array.from(set).sort()
   }, [infraQuery.data])
-  // Live vcluster names (enrich the fixed zone set so the operator can
-  // pick the actual vcluster when the topology reports them).
-  const liveVclusters = useMemo<string[]>(() => {
-    const set = new Set<string>()
+  // #5616 — REAL placement targets from the live topology. Each option's
+  // VALUE is the vCluster's real host NAMESPACE (`vc.namespace` on the
+  // wire) — the identity the backend consumes when addressing the
+  // per-cluster HelmRelease — never its display name (`vc.name`: the
+  // per-Org vCluster is NAMED "vcluster" but RUNS in the Org namespace,
+  // so emitting the name produced `namespaces "vcluster" not found`).
+  // Only namespaces the backend tier map can resolve (mgmt/dmz/rtz) are
+  // offered; a live vCluster in any other namespace (e.g. the per-Org
+  // boundary) has no valid `placement.vcluster` spelling today — the
+  // blank default already lands those installs in the Org boundary
+  // server-side, which is the working path the hw292 control proved.
+  const liveVclusterTargets = useMemo<Array<{ namespace: string; name: string }>>(() => {
+    const byNs = new Map<string, string>()
     for (const region of infraQuery.data?.topology?.regions ?? []) {
       for (const cluster of region.clusters ?? []) {
         for (const vc of cluster.vclusters ?? []) {
-          if (vc.name) set.add(vc.name)
+          const ns = vc.namespace ?? ''
+          if (!ns) continue
+          if (!(RESOLVABLE_TIER_NAMESPACES as readonly string[]).includes(ns)) continue
+          if (!byNs.has(ns)) byNs.set(ns, vc.name || ns)
         }
       }
     }
-    return Array.from(set).sort()
+    return Array.from(byNs.entries())
+      .map(([namespace, name]) => ({ namespace, name }))
+      .sort((a, b) => a.namespace.localeCompare(b.namespace))
   }, [infraQuery.data])
 
   // Resolve the Blueprint's supported topologies via the catalog
@@ -830,8 +854,11 @@ export function NewInstanceDialog({
           ) : null}
         </fieldset>
 
-        {/* vCluster / zone — dropdown from the backend's validated zone
-            set, enriched with live vcluster names (#3599/#3600). */}
+        {/* vCluster / zone — REAL placement targets only (#5616): the
+            namespace-independent "host" plus the live vClusters whose
+            actual namespace the backend tier map resolves. Option VALUE
+            = the vCluster's real host namespace (what the per-cluster
+            HelmRelease is addressed with), never its display name. */}
         <label style={{ display: 'block', marginBottom: '0.6rem', fontSize: '0.85rem' }}>
           <span style={{ display: 'block', marginBottom: '0.2rem' }}>vCluster / zone</span>
           <select
@@ -841,18 +868,13 @@ export function NewInstanceDialog({
             style={fieldStyle}
           >
             <option value="">Default (server picks)</option>
-            {VCLUSTER_OPTIONS.map((z) => (
-              <option key={z} value={z}>
-                {z}
+            <option value="host">host — host cluster (no vCluster)</option>
+            {liveVclusterTargets.map((t) => (
+              <option key={t.namespace} value={t.namespace}>
+                {t.namespace}
+                {t.name && t.name !== t.namespace ? ` — vCluster ${t.name}` : ''}
               </option>
             ))}
-            {liveVclusters
-              .filter((v) => !VCLUSTER_OPTIONS.includes(v as (typeof VCLUSTER_OPTIONS)[number]))
-              .map((v) => (
-                <option key={v} value={v}>
-                  {v}
-                </option>
-              ))}
           </select>
         </label>
 

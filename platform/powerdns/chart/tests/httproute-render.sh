@@ -32,18 +32,18 @@ if [ -z "$route_block" ]; then
   echo "FAIL: HTTPRoute did not render with api.gateway.enabled=true"
   exit 1
 fi
-if ! echo "$route_block" | grep -q "pdns.smoke.omani.works"; then
+if ! grep -q "pdns.smoke.omani.works" <<<"$route_block"; then
   echo "FAIL: hostname not propagated"
   exit 1
 fi
 echo "[bp-powerdns] Case 1: PASS"
 
 echo "[bp-powerdns] Case 2: parentRefs cite cilium-gateway / kube-system"
-if ! echo "$route_block" | grep -q "cilium-gateway"; then
+if ! grep -q "cilium-gateway" <<<"$route_block"; then
   echo "FAIL: parentRef name != cilium-gateway"
   exit 1
 fi
-if ! echo "$route_block" | grep -q "kube-system"; then
+if ! grep -q "kube-system" <<<"$route_block"; then
   echo "FAIL: parentRef namespace != kube-system"
   exit 1
 fi
@@ -61,7 +61,7 @@ echo "[bp-powerdns] Case 3: PASS"
 
 echo "[bp-powerdns] Case 4: default-off — HTTPRoute absent"
 out_default=$("$helm" template smoke "$chart_dir" 2>&1)
-if echo "$out_default" | grep -q "^kind: HTTPRoute$"; then
+if grep -q "^kind: HTTPRoute$" <<<"$out_default"; then
   echo "FAIL: HTTPRoute should NOT render with api.gateway.enabled=false (default)"
   exit 1
 fi
@@ -80,12 +80,12 @@ appcr=$("$helm" template smoke "$chart_dir" \
         --set bootstrapOwned.enabled=true \
         --set bootstrapOwned.helmRelease.name=bp-powerdns \
         --api-versions apps.openova.io/v1 2>&1)
-if ! echo "$appcr" | grep -qE '^  placement: singleton$'; then
+if ! grep -qE '^  placement: singleton$' <<<"$appcr"; then
   echo "FAIL: Application CR placement must be canonical 'singleton' (not banned 'single-region')"
   echo "$appcr" | grep -E '^  placement:' || true
   exit 1
 fi
-if echo "$appcr" | grep -qE '^  placement: single-region$'; then
+if grep -qE '^  placement: single-region$' <<<"$appcr"; then
   echo "FAIL: #3375 REGRESSION — Application CR re-introduced the banned 'single-region' placement"
   exit 1
 fi

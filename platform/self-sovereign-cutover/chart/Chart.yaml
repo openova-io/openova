@@ -1,5 +1,409 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.165 (#5640 round 2, Refs #5644 #5265 #4975 #960) — the Day-2 delivery path
+# becomes one that can ACTUALLY deliver, and an unpullable pin becomes a FAILING
+# condition instead of a silent freeze.
+#
+# THREE findings, measured against the shipped 0.1.164 template, not inferred.
+#
+# 1. THE DELIVERY PATH COULD NOT DELIVER THE DEFECT IT WAS BUILT FOR. step-07's
+#    pod-spec sweep (sweep_one_workload -> podspec_pivot_ref) rewrites every
+#    workload image to `registry.<fqdn>/<local-path>`. Post-cutover, therefore,
+#    every ref the Day-2 loop reads off the LIVE cluster already carries the
+#    LOCAL host — which is the only shape the hw292 defect takes. 0.1.164 passed
+#    that ref straight to skopeo as the SOURCE, so `mode=warm` asked skopeo to
+#    copy the local registry to ITSELF for an artifact local Harbor had just
+#    404'd. It could never have delivered anything, and it would have failed as
+#    "copy error" rather than "unknown upstream". FIX: `offlinemirror_upstream_ref`
+#    in the SHARED 03a resolver — the exact inverse of `offlinemirror_local_paths`,
+#    one function in one place — plus a same-registry refusal so a self-copy can
+#    never be attempted or mistaken for a transient failure.
+#
+# 2. `warm` IS A STANDING TETHER, so it is the wrong thing to reach for. It runs
+#    every cycle, forever, unbounded in scope, with a standing credential, and
+#    the only record is a rotating Pod log. Turning it on to fix one stale image
+#    re-tethers the Sovereign permanently. NEW `mode: request` (now the DEFAULT):
+#    detect's behaviour exactly — zero external egress, no upstream host dialled,
+#    skopeo never downloaded, the upstream `helm registry login` made LAZY so
+#    even it cannot fire at start-up — until an operator files ONE delivery
+#    request. That request is initiated (a ConfigMap the operator creates),
+#    scope-bounded (only the refs it names, or ALL_MISSING; an over-size scope is
+#    REFUSED, never truncated), credential-scoped (step-06 strips the cutover's
+#    own ghcr auth, so the credential can only be one the operator provisioned
+#    and can revoke), audited (timestamp, requestId, requestedBy, source,
+#    destination, outcome, to a durable ConfigMap) and ONE-SHOT (the consumed
+#    requestId is recorded durably, so re-applying the same request does not
+#    re-open the window; a new window needs a new requestId). Because a
+#    request-less cycle dials nothing, this is safe as a DEFAULT in a way `warm`
+#    is not. `warm` is kept and documented as the always-on posture it is.
+#
+# 3. THE MISSING SET WAS STILL A SILENT FREEZE. 0.1.164 wrote it to a ConfigMap
+#    and to logs; nothing turned it into a failing condition, so the operator
+#    still found out when a UAT row would not go green. The loop now writes a
+#    readiness verdict from the MEASURED cycle outcome and the container carries
+#    a readinessProbe on it: READY requires every enabled leg to have completed
+#    AND zero missing artifacts, and "I could not check" is NOT-READY, never
+#    all-clear. `kubectl get deploy cutover-daytwo-harbor-reconciler` reading 0/1
+#    IS the statement "this Sovereign holds a pin its registry cannot serve".
+#    Deliberately no livenessProbe — the correct response is not-ready, never a
+#    restart loop.
+#
+# Also fixed: the operator-supplied warm credential was hard-wired to ghcr.io
+# (`&& [ "${WARM_REGISTRY_HOST}" = "ghcr.io" ]`), so an operator mirroring the
+# catalog into their OWN registry — the posture values.yaml explicitly documents
+# — had their credential silently ignored and every private ref fell back to
+# anonymous, which reads as "the image is missing". It now binds to
+# warm.registryHost.
+#
+# PROVEN, NOT ASSERTED. tests/daytwo-image-leg.sh grows from 4 scenarios to 12,
+# all EXECUTING the rendered script against stub kubectl/curl/skopeo: the
+# shipped default with no request makes zero egress while still reporting the
+# full missing set; an open request copies the ref it names and NOT the missing
+# ref it omits (the bounded-window control); a step-07-pivoted ref is copied
+# FROM ghcr.io with no self-copy; an un-invertible local ref is refused before
+# any copy; a consumed requestId and an identity-less request both deliver
+# nothing; and the readiness verdict is walked in BOTH directions — NOT-READY on
+# a missing pin, READY on a clean measured cycle, NOT-READY on a broken read.
+#
+# New values: daytwoReconciler.mode=request (default) and
+# daytwoReconciler.request.{configMapName,auditConfigMapName,maxRefsPerRequest,
+# auditMaxLines}. No RBAC change (the runner ClusterRole already grants
+# configmaps create + get/list/watch + update/patch). Step count unchanged at 11.
+#
+# 0.1.164 (#5359 Refs #5650 #5379 #3379 #960) — the sovereignty gate becomes a
+# FLEET assertion, and step-05's secondary readiness starts asserting
+# convergence instead of a stale status field.
+#
+# THE LIVE FAILURE. hw292 (dep 1c56518035a83e03) set cutoverComplete=true,
+# progressPercent=100, failedStep and lastError both empty, at
+# 2026-08-03T08:12:04Z. Measured on it 2026-08-04:
+#
+#   region-a: 69 HelmRepositories -> local Harbor, 0 -> ghcr.io
+#   region-b:  0 HelmRepositories -> local Harbor, 64 -> ghcr.io
+#   control (same object, both regions):
+#     bp-cilium  region-a  oci://registry.hw292.omani.works/openova-io
+#     bp-cilium  region-b  oci://ghcr.io/openova-io
+#
+# #5379's per-secondary-region legs were PRESENT in the deployed chart
+# (0.1.159) and had recorded region.me-east-215-b-1.result=success for steps
+# 05, 06 AND 08. They ran; they did not work; and nothing said so.
+#
+# ROOT CAUSE, in two parts.
+#
+# (1) The URL region-b was pivoted TO is not reachable from region-b. Step-05
+# patched its GitRepository to `http://gitea-http.gitea.svc.cluster.local:3000`
+# and relied on a ClusterMesh global-Service alias to carry the dial to
+# region-a. It cannot. A 2-region Sovereign installs bp-gitea in BOTH regions
+# from the bootstrap-kit, so region-b already had a same-named Service
+# selecting its OWN Gitea — which no step ever mirrors, and whose
+# /data/git/repositories does not exist. And even with no local backend the
+# alias could not work: both Services are HEADLESS (clusterIP: None), and
+# Cilium global-services do not span a headless Service at all — CoreDNS
+# answers straight from the local EndpointSlice, so `service.cilium.io/global`
+# is inert on it. Live: region-b resolved that name to 10.43.3.228, its own
+# gitea pod, whose openova/openova advertises zero refs, giving
+# source-controller "pkt-line 3: EOF" on every fetch from 07:39:48Z onward.
+#
+# (2) The readiness wait could not see that, because it asserted on a STATUS
+# field immediately after mutating the SPEC. The predicate was
+# `Ready == True && spec.url == sec_url`. The url half is a tautology — the leg
+# wrote that value one line earlier. The Ready half still described the
+# PREVIOUS spec: region-b carried Ready=True from its last successful clone of
+# PUBLIC github.com, so the first loop iteration matched and the leg recorded
+# result=success at 07:39:48Z — the same second Ready actually flipped to
+# False. source-controller never advanced observedGeneration past 1 against
+# generation 2, kept serving the github.com artifact (main@sha1:4cc85ad9...,
+# stored 07:31:11Z), and region-b's kustomize-controller re-applied that
+# pre-cutover content every 5m — reverting all 64 HelmRepositories the step-06
+# leg had pivoted and read-back-asserted three minutes later. 22h after
+# cc=true, generation was still 2 and observedGeneration still 1.
+#
+# WHAT CHANGES.
+#
+# * Step-05's secondary leg walks a CANDIDATE URL CHAIN and its success
+#   predicate is CONVERGENCE — observedGeneration == generation on a Ready
+#   source. Nothing else distinguishes "fetched from the new URL" from "still
+#   holding what it fetched from the old one". The candidates are the
+#   in-cluster mesh URL first, then the Sovereign's OWN external Gitea door
+#   (secondaryRegions.giteaFallbackToPublicDoor, default on) — on-Sovereign,
+#   already carved out of the step-08 secondary hold, and live-verified from
+#   hw292 region-b serving HEAD 7bcd1d59..., byte-identical to region-a's
+#   in-cluster Gitea. Exhausting the chain is FATAL. The only honest prober of
+#   a URL is the secondary's own source-controller, so each candidate is
+#   patched in and given a bounded window rather than probed synthetically.
+#   stepTimeouts.fluxGitRepositoryPatchSeconds 600 -> 1800 to fit the chain.
+#
+# * The #5650 fluxSourceHostLint becomes PER-REGION. It shipped measuring one
+#   cluster, which is the same shape as the defect it exists to catch: a fleet
+#   property asserted from a single-region sample. Both lints now take a
+#   region label + kubeconfig, the driver fans out over every
+#   /secondary-kubeconfigs entry, every region is evaluated (no short-circuit,
+#   so one run names every offender), and the verdict is an AND. Enumeration is
+#   FAIL-CLOSED: the old `kubectl ... 2>/dev/null` pipe turned an unreadable
+#   secondary into zero rows, zero offenders and a PASS for a region that was
+#   never measured — against a secondary cluster that is the single most likely
+#   failure mode. A kind that is merely not INSTALLED stays zero rows.
+#
+# * New egressTest.fluxSourceHealthLint. The host lint reads spec.url, and
+#   hw292 proved a URL can be cosmetic. This asserts the controller CONVERGED
+#   on it. Scope was MEASURED, not assumed: `type: oci` HelmRepositories carry
+#   `status: {}` with no observedGeneration (70/70 in region-a, 65/65 in
+#   region-b), so they are exempt — including them would fail every region of
+#   every Sovereign (#5505 blast-radius shape). Scoped to GitRepository +
+#   OCIRepository, the live blast radius on hw292 is exactly ONE object:
+#   region-b's flux-system/openova GitRepository. The defect itself, and
+#   nothing else.
+#
+# Templates 05 + 08 and values only; no step-count / RBAC change (still 11
+# steps). tests/flux-source-host-lint.sh proves both lints in BOTH directions
+# (24 assertions) and contract Case 76 pins the wiring; both suites were
+# mutation-checked — reverting the observedGeneration half, the fail-closed
+# enumeration, the kubeconfig plumbing, the driver fan-out or the health-lint
+# scope each turns exactly one intended assertion red. Slot-06a pin +
+# blueprint.yaml + catalog-seed source.version + spec.version + the API
+# blueprints.json + the generated UI catalog move to 0.1.164 in lockstep
+# (Inviolable Principle #13).
+# ── prior ──
+# 0.1.160 (#5527 Refs #3379 #5529 #960 — step-07 Phase 3d: stamp the per-Org
+# GitOps tree generator with the local OCI base. The org-services provisioning
+# Deployment (core/services/provisioning) regenerates the per-Org trees —
+# HelmRepository blocks included — on EVERY org mutation, and its emitters
+# hardcoded oci://ghcr.io/openova-io: the git source Flux asserts from
+# re-tethered every step-06 object pivot (the hw291 step-08 OFFENDER wedge)
+# and any post-cutover org mutation silently reverted the pivot (Pillar 5).
+# PR #5529 fixed the catalyst-api writer by keying on the step-07 issuer
+# stamp that Deployment already receives; the provisioning Deployment gets NO
+# step-07 stamp, so its now-cutover-aware emitters (core/services/
+# provisioning/gitops/cutover_aware_5527.go, this train) key on the explicit
+# CATALYST_LOCAL_REGISTRY_URL override — which Phase 3d stamps via `kubectl
+# set env`, derived from sovereign.harborPublicURL as oci://<harbor-host>/
+# openova-io (the SAME value shape step-06 patches the live objects to). The
+# set-env rolls the Deployment so the regenerating process always carries the
+# fact. Read-back FATAL when the Deployment exists (fail-open here IS the
+# #5527 defect); loud SKIP when the marketplace tier is absent; rollout wait
+# best-effort (the fact lives in the pod template — durable across restarts +
+# helm 3-way merges — and step-08's roll-set re-rolls this workload anyway).
+# New values block orgProvisioning.{deploymentName,namespace} (Principle #4).
+# Template 07 + values only; no step-count / RBAC / deadline change (still 11
+# steps — the runner ClusterRole already grants deployments update/patch
+# cluster-wide). Contract Case 74 locks the stamp, the executed derivation
+# both input forms, the read-back FATAL, and the SKIP. Slot-06a pin +
+# blueprint.yaml + catalog-seed source.version + spec.version move to 0.1.160
+# in lockstep (Inviolable Principle #13).
+# ── prior ──
+# 0.1.158 (#5525 Refs #5442 #5095 #3379 — step-03 harbor-prewarm: three legs
+# against the hw291 2026-07-30 scarf.sh/Docker-Hub rate-limit wall (dep
+# 2c2d746b578c636b: 4 litmuschaos.docker.scarf.sh refs cycled 4 pod attempts
+# over ~60 min on `toomanyrequests`, then a LATER attempt printed `Phase
+# A3-guard (#5442): PASS ... durable_miss=0` immediately followed by `FATAL ...
+# copy_fail=4` — the gate contradicted its own sweep):
+#   LEG 1 — scarf.sh engages the #5095 mothership fallback. Scarf download
+#     gateways (*.docker.scarf.sh) are redirectors in front of Docker Hub (they
+#     delegate auth to auth.docker.io and pass through Hub's verbatim
+#     rate-limit body — the 0.1.157 discovery), so Hub's ANONYMOUS per-IP quota
+#     applies THROUGH them; but the #5095 fallback fires only for
+#     mothership-SOURCED refs, so these direct-sourced copies hammered the
+#     exhausted anonymous path while harbor.openova.io/proxy-dockerhub served
+#     the SAME artifacts anonymously the whole time (proven live). copy_one now
+#     derives the INVERSE fallback for scarf hosts — mothership proxy as the
+#     SECONDARY source — via the FORWARD coverage-map lookup (the host's own
+#     project: litmuschaos.docker.scarf.sh -> proxy-dockerhub), path preserved;
+#     no second hand-list; DEST untouched (step-04/07/08 resolve the identical
+#     local artifact). The #5095-round-2 proxy-DOWN direct-first short-circuit
+#     is now ALSO gated on proxy_src so a .proxy_down latch never reorders a
+#     scarf ref onto the dead proxy first.
+#   LEG 2 — `toomanyrequests` short-circuits the host for the job attempt.
+#     Retrying a per-IP quota window from the same egress IP inside the same
+#     window is guaranteed waste that itself RE-ARMS the window (3 outer x 5
+#     inner manifest reads per image per pod attempt sustained the exhaustion
+#     across 4 pod attempts). prewarm_skopeo_copy now sniffs each failed leg's
+#     own log region (byte-offset bounded) for `toomanyrequests` and latches
+#     ${cpdir}/.ratelimited.<host>; copy_one skips a latched PRIMARY source and
+#     goes straight to the fallback wherever one exists (a fallback-less
+#     primary keeps its attempts — failing instantly with zero copies tried
+#     would trade a slow failure for a certain one). Latches carry into the
+#     Phase A3 chart-image wave like the .proxy_down latch does.
+#   LEG 3 — the #5442 A3 FATAL keys on { durable_miss>0 || unmapped } ONLY.
+#     copy_fail>0 with durable_miss=0 and no unmapped host means every failed
+#     copy was a freshness re-copy against a source we no longer need — that
+#     shape degrades to a LOUD WARN naming the refs (the A3-guard durability
+#     sweep via harbor_durable_digest stays the authoritative assertion, and it
+#     runs over the WHOLE chart-declared set including live-wave-credited
+#     refs). AND copy_one gains a dest-presence rescue: when every copy attempt
+#     failed AND the SOURCE manifest is unreadable (rate-limit latch or a fresh
+#     raw-manifest read returning nothing — i.e. the #4994 digest-compare skip
+#     genuinely could not run), a harbor_durable_digest probe of the dest
+#     rescues the image with a WARN (freshness unverified) instead of a .fail —
+#     a rate-limited source can no longer fail an image the local registry
+#     already serves. A READABLE source keeps strict fail semantics, so a real
+#     transfer/dest defect still counts. Phase A's push_fail>0 FATAL and the
+#     A3-guard durable_miss FATAL are untouched — the sovereignty guarantee
+#     (every image durably in local Harbor before the deny-egress hold) is
+#     asserted where it belongs, by presence, not by copy-exit-codes.
+# Template 03 only; no new values knobs; no step-count / RBAC / deadline
+# change (still 11 steps). Contract Case 73 locks all three legs including a
+# both-directions proof of the FATAL-gate key set. Slot-06a pin +
+# blueprint.yaml + catalog-seed source.version + spec.version move to 0.1.158
+# in lockstep (Inviolable Principle #13).
+# ── prior ──
+# 0.1.157 (#5442 Refs #4975 #5443 #5095 — COVER THE TWO HOSTS THE
+# AUTHORING-TIME SCAN IS STRUCTURALLY BLIND TO. 0.1.154 made step-03 enumerate
+# images from the PINNED CATALOG CHARTS instead of only from what is installed.
+# That enumeration renders each chart at default values, so it sees what the
+# UPSTREAM SUB-CHARTS declare — and two upstream defaults name registry hosts
+# no file in this repo mentions:
+#
+#   • litmuschaos/litmus 3.28.0 (bp-litmus) defaults its image registry to the
+#     Scarf download gateway `litmuschaos.docker.scarf.sh` — 4 refs
+#     (litmusportal-frontend, -server, -auth-server, mongo:6);
+#   • sigstore/policy-controller (bp-sigstore) pins its leases-cleanup Job at
+#     `cgr.dev/chainguard/kubectl:latest-dev` — 1 ref.
+#
+# Live hw291 2026-07-29 therefore stalled step-03 at `copy_fail=0
+# durable_miss=0 unmapped=5` with NOTHING broken: ok=36 fail=0 and all 144
+# local image paths durably present, the coverage map simply had no entry for
+# those two hosts. tests/image-registry-coverage.sh could not have caught it —
+# its scan surface is this repo's chart values, and neither host appears there.
+#
+# FIX (values-only, no template change): offlineMirror.hostProjects gains
+#   litmuschaos.docker.scarf.sh -> proxy-dockerhub   (NOT a new project: the
+#     gateway delegates auth to Docker Hub's own token service —
+#     `GET https://litmuschaos.docker.scarf.sh/v2/` answers 401 with
+#     `realm="https://auth.docker.io/token",service="registry.docker.io"` — and
+#     serves Docker Hub content, so the same folding #4975 applied to
+#     mirror.gcr.io -> proxy-gcr applies here, and the local path is identical
+#     to the docker.io form's so the two dedupe);
+#   cgr.dev -> proxy-chainguard                      (a genuinely distinct
+#     registry: `GET https://cgr.dev/v2/` answers 405 from Chainguard's own
+#     front-end with no Docker Hub delegation, and its content exists in no
+#     other mapped namespace — so a NEW project, added to harbor.mirrorProjects
+#     in LOCKSTEP so step-02 creates it and step-03's push does not 404).
+# The Scarf entry is ordered AFTER docker.io so the #5095 inverse map walk
+# still resolves proxy-dockerhub back to docker.io.
+#
+# NEW GUARD tests/offline-mirror-host-projects.sh asserts the whole contract
+# from the RENDER (not from values.yaml, which proves nothing about the Job
+# that runs): the map must render into >=3 consuming steps, be byte-identical
+# in all of them, be a real non-empty token list, carry every required
+# host:project pair as a WHOLE token, keep the #5095 first-host-per-project
+# ordering, and name only projects step-02 actually creates. It ships 5
+# negative self-tests that run on every CI invocation — drop cgr.dev, drop the
+# Scarf host, drop proxy-chainguard from mirrorProjects, order the gateway
+# ahead of docker.io, and feed it an empty render — because a guard whose
+# failure path has never been observed is a trivially-green grep, not a guard.
+# No step-count / RBAC / deadline change (still 11 steps).
+# 0.1.154 (#5443 #5442 Refs #3627 #5237 #5437 — MIRROR WHAT THE MARKETPLACE
+# OFFERS, and WARM WHAT THE PINNED CHARTS DECLARE —
+# not only what is installed. Step-06 pivots `openova-catalog` — the one
+# HelmRepository every per-Org Application HelmRelease resolves through — onto
+# local Harbor, but step-03's two enumerations (Phase A2 live HelmReleases,
+# Phase A2-pins frozen bootstrap-kit pins) BOTH derive from what is INSTALLED.
+# The marketplace offers what the CATALOG lists; those sets differ by
+# definition and the catalog set is strictly larger. Live hw290 2026-07-27: of
+# 29 `visibility: listed` catalog entries, 14 resolved 200 against the pivoted
+# registry and 15 returned 404 — and the Harbor `openova-io` project is HOSTED
+# (registry_id: None), so there is no proxy-cache fallback and the 404 is
+# final. A cut-over Sovereign advertised 29 installable Blueprints and could
+# install 14; a customer buying any of the other 15 got an unpullable
+# HelmRelease on a Sovereign by then deliberately cut off from the mothership
+# (Pillar 1 and Pillar 5 contradicted at once). NOW: new shared library 03c
+# (cutover-catalog-chart-set — the same one-parser-two-consumers discipline as
+# 03a's resolver and 03b's pin extractor) exposes catalog_chart_set /
+# catalog_guard_missing / chart_declared_images, all pure. Step-03 gains:
+# • Phase A2-catalog — enumerates the LIVE Blueprint CRs (the set
+#   /api/v1/catalog serves; the catalog-seed only SEEDS them, and the console's
+#   catalog IaC editor + operator curation write the CRs) and unions their
+#   chart:version into the mirror. HARD = `spec.manifests.chart`:`spec.version`
+#   of a `visibility: listed` entry — the exact coordinate the install path
+#   requests (blueprintChart() -> blueprintRef.version -> HR chart.spec.version)
+#   and the customer-visible contract. SOFT = everything else: unlisted/private
+#   entries and `spec.source.version`, which NO controller reads and which is a
+#   known drift surface (#5444). Soft rows mirror best-effort and WARN on
+#   failure, so a stale pin on a Blueprint no customer can install from the grid
+#   cannot hold a cutover hostage; hard rows keep the pre-existing FATAL.
+# • Phase A2-guard — after the mirror, asserts every contractual entry resolves
+#   DURABLY in local Harbor via Harbor CORE's artifact API (its database, never
+#   a pull-through — the #5030 lesson), through harbor_durable_digest, now
+#   factored out of dest_already_current so the skip-if-present probe and the
+#   guard cannot fork. This IS the probe that found #5443 and it fails the
+#   cutover with egress still open and the offenders named.
+# • Phase A3-chart-images + Phase A3-guard (#5442, folded in — same file, same
+#   enumeration decision) — harbor-prewarm sourced its two inputs from two
+#   places that agree ONLY while the cluster has already converged to what the
+#   mirror declares: chart versions from the mirror's pins, image tags from the
+#   LIVE CLUSTER (running Pods ∪ declared templates). A completely FRESH mirror
+#   pinning a chart whose images the cluster has not rolled to reproduces
+#   ImagePullBackOff with no staleness involved, so it survives #5441. Live
+#   hw290 2026-07-27: catalyst-api, catalyst-ui and
+#   catalyst-organization-controller all ImagePullBackOff on local tags that did
+#   not exist, and the Sovereign could not self-heal because catalyst-api is
+#   what DRIVES the cutover — recovery meant hand-pinning all three back to
+#   ghcr, i.e. re-tethering. #5443's layer-down leg is the same defect from the
+#   other end: a mirrored catalog chart whose images are absent fails at
+#   pod-pull instead of chart-pull, and the live walk by construction cannot see
+#   the images of a chart nobody installed. ONE mechanism closes both: every
+#   chart in the CONTRACTUAL set (live-HR deployed∪desired ∪ frozen
+#   bootstrap-kit pins ∪ contractual catalog entries) is pulled back out of the
+#   local Harbor it was just mirrored into (skopeo dir: transport — no
+#   helm-registry login dance, no extra upstream egress, and it proves the chart
+#   mirror in passing), rendered at DEFAULT values, and every image the render
+#   pins is mirrored through the SAME offline-mirror resolver + copy_one the
+#   live wave uses. Phase A3-guard then re-asserts durable presence of the whole
+#   chart-declared image set through harbor_durable_digest. UNION, NOT
+#   REPLACEMENT: the live-cluster walk is untouched and this set is added to it
+#   — replacing would be strictly worse, since a default-values render cannot
+#   see an image behind a conditional a per-Sovereign overlay turns on, which
+#   the runtime walk does see. A union can only widen coverage, so no cutover
+#   that works today can regress. FATAL by default on a copy failure, an
+#   un-mappable registry host, or a durable-presence miss — the same two
+#   conditions Phase A already FATALs on for the runtime set, applied to the
+#   second input; a chart that fails to RENDER is always a WARN because it makes
+#   no claim about images either way. The enumerator drops untagged, empty-tag
+#   and placeholder-tag refs so an overlay-supplied tag cannot fail a cutover on
+#   a ref nothing will ever pull.
+# New RBAC: read-only get/list/watch on catalyst.openova.io/blueprints.
+# New knobs: prewarm.catalogCharts.{enabled,hardVisibility,guard.enabled,
+# blueprintResource,blueprintResourceFallback} + prewarm.chartImages.{enabled,
+# fatal}. Step count unchanged at 11 (03c carries no cutover-order label). New
+# contract Case 72 + tests/catalog-chart-set.sh exercise the library against
+# fixtures and assert step-03 + RBAC wire it.)
+# 0.1.153 (#5436 — step-06 region-A pivot READ-BACK: stop reporting
+# `success` on a half-pivoted Sovereign). Step-06's only region-A failure
+# signal was the Phase-1 `fail` counter, which counts `kubectl patch`
+# CALLS that returned non-zero — never the cluster state afterwards. A
+# HelmRepository the Phase-0.9 enumeration never saw (the catalyst-api
+# org-tenant pipeline seeds bp-agenity / bp-keycloak / bp-newapi /
+# bp-openclaw / bp-stalwart-tenant / bp-wordpress-tenant into
+# clusters/<fqdn>/org-tenants/helmrepositories.yaml hardcoded to
+# oci://ghcr.io/openova-io) or one Flux reverted from a durable source
+# Phase-2/2b did not rewrite was therefore INVISIBLE: zero patch calls
+# failed, the Job exited 0, catalyst-api recorded
+# `step.helmrepository-patches.result=success` — and cutoverComplete=true
+# became reachable on an environment still chart-tethered to the
+# mothership. LIVE hw290 2026-07-27: six flux-system HRs on ghcr.io with
+# step-06 green and the Job succeeded=1. The SECONDARY-region leg has had
+# exactly this read-back since #5359; region-A never did. NOW: a shared
+# `assert_region_a_pivot` asserts ZERO HelmRepositories in
+# helmRepositories.namespace remain on the upstream prefix, called TWICE —
+# single-shot right after Phase-1 (fail-fast on an enumeration miss) and
+# with a bounded convergence budget at the HEAD of Phase 3, before the
+# irreversible mothership-auth strip (so the hw139 half-pivot — ghcr.io
+# creds gone while HRs still point at ghcr.io — is unreachable). The
+# tolerated set mirrors step-08's own count_offenders whitelist so this
+# assert is never STRICTER than the gate that follows it. Same class fixed
+# in step-11: both `kubectl patch provider.pkg.crossplane.io` failure arms
+# printed `FAIL <name>` and recorded nothing (the loop is a `printf |
+# while` SUBSHELL, so only the #5204 marker file can carry a verdict out) —
+# they now touch /tmp/xpkg-verify-failed, which the existing fail-loud
+# check already turns into exit 1 before the durable Gitea rewrite. New
+# values: helmRepositories.readbackExcludeNames /
+# .readbackReconcileKustomizations, stepTimeouts.pivotReadbackSeconds (300).
+# No step-count / RBAC / deadline change (still 11 steps; the read-back's
+# 300s budget sits inside the existing 2400s step-06 deadline). New chart
+# test tests/step06-pivot-readback.sh EXECUTES the rendered step-06 script
+# against a fake kubectl and asserts on the EXIT CODE (the log text was
+# already correct before the fix — that is why this shipped).
+#
 # 0.1.151 (#5359 Refs #5265 #5339 — SECONDARY-REGION pivot + proof legs:
 # kill the 2-region FALSE-POSITIVE cc=true. Live-proven on hw288 (dep
 # 027f07559af1f9f7): only region-A was pivoted — region-B's Flux
@@ -2649,7 +3053,123 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
-version: 0.1.151
+# 0.1.163 (#5650 Refs #5505) — declare the one KNOWN Flux-source tether so the
+# 0.1.162 lint cannot wedge the flow it protects.
+#
+# 0.1.162 shipped fluxSourceHostLint with allowHosts EMPTY. But
+# clusters/_template/bootstrap-kit/60-bp-vcluster-helmrepo.yaml installs
+# HelmRepository vcluster-system/loft at https://charts.loft.sh on EVERY
+# Sovereign — that slot's own comment marks the URL an optional operator
+# overlay for a Harbor proxy cache (Principle #4a), and nothing in the cutover
+# drives it. So an empty allowHosts would have failed step-08 on every fresh
+# prov and held cutoverComplete=false: a guard that wedges the very flow it
+# protects, which is the #5505 shape and worse than the tether it reports.
+#
+# allowHosts now ships ["charts.loft.sh"]. This is not a weakening — it turns
+# an UNKNOWN residual tether into a DECLARED one, in Git, diffable and
+# reviewable, which is what the key exists for. Every undeclared host still
+# fails closed. Deleting this entry is the definition of done for the #5650
+# instance fix (mirror the loft chart locally, repoint slot 60), at which
+# point the lint proves the tether is gone rather than tolerating it.
+# 0.1.162 (#5650 Refs #5527 #3379 #3678) — step-08 gains a Flux SOURCE host
+# lint, the timing-independent half of the Pillar-5 proof.
+#
+# The deny-egress hold applies a cluster-wide default-deny CCNP, holds for
+# durationSeconds, and is then TORN DOWN. It therefore proves that nothing
+# external was REACHABLE during the window. It cannot prove the Sovereign has
+# no external DEPENDENCY, and ADR-0002 asserts the second. Live hw292:
+# HelmRepository vcluster-system/loft -> https://charts.loft.sh, interval 15m,
+# not suspended, referenced by a live HelmRelease. A 15m interval can straddle
+# a 600s hold entirely, so it never dialled while the policy was up; its
+# artifact was re-fetched from the public internet ~10h AFTER
+# cutoverComplete=true was set. The hold passed and was right to pass — nothing
+# asserted over the object graph.
+#
+# The new lint asserts the property directly: every non-suspended
+# HelmRepository / GitRepository / OCIRepository must resolve to a
+# Sovereign-local host, failing closed (allowHosts defaults empty, so an
+# external host is a tether until a human declares an exception in Git under
+# review). Its exemption set is deliberately NARROWER than
+# podspecRefHostLint's: that lint exempts step-04 HOST_PROJECT_MAP hosts
+# because containerd rewrites IMAGE pulls via certs.d, but source-controller
+# fetches these URLs itself and never traverses containerd, so a certs.d
+# redirect cannot cover a source object.
+#
+# New chart/tests/flux-source-host-lint.sh extracts the shell function from
+# the RENDER (not a hand-kept copy, per #5646) and drives it against a stub
+# kubectl in BOTH directions — external source fails, local source passes,
+# same source with an allowHosts entry passes. That last case is the vacuity
+# control proving the failure keyed on the HOST. The suite immediately earned
+# itself by catching a fail-OPEN bug in the first draft: when the scratch file
+# could not be created, every append no-op'd and the lint returned PASS having
+# examined nothing. Now fail-closed, with a regression case pinning it.
+# 0.1.161 (#5640 Refs #5265 #4975 #5095 #5525 #3944) — the Day-2 reconciler
+# gains an IMAGE leg, and ships ON by default in zero-egress detect mode.
+#
+# THE DEFECT (live hw292, dep 1c56518035a83e03, cutoverComplete=true,
+# 2026-08-03). Cutover step-04 pivots node containerd certs.d and step-06
+# repoints every HelmRepository at the local Harbor, so post-cutover the local
+# Harbor is the ONLY registry that matters. step-03 harbor-prewarm mirrors the
+# catalog AS OF cutover; nothing mirrors anything published afterwards. After
+# catalyst-build went green and deploy-bot pinned the catalyst images to
+# d674a94:
+#     curl -sk -u admin:*** https://registry.<fqdn>/v2/openova-io/openova/catalyst-ui/tags/list
+#     -> {"tags":["fad88bd"]}     d674a94 -> 404     fad88bd -> 200 (CONTROL)
+# and the Pod pinned to catalyst-ui:d674a94 sat in ImagePullBackOff. The chain
+# merge -> build -> publish -> deploy-bot pin is complete for a PRE-cutover
+# Sovereign and SILENTLY incomplete for a post-cutover one; nothing on the repo
+# side reveals it (main green, GHCR tag present, pin committed). #5265 had
+# already closed the same structure one layer up, for CHART pins only.
+#
+# THE FIX. 12-daytwo-harbor-pin-reconciler.yaml keeps its single Deployment
+# (region-kill canon #5157 — a CronJob's scheduler dies with the control-plane
+# region) and gains a second leg that guarantees the property "any image or
+# chart version the Sovereign's own GitOps references is resolvable in the
+# registry that Sovereign is permitted to use". Nothing here is a second
+# mechanism:
+#   • enumeration = running Pods UNION declared workload templates
+#     (Deployments/StatefulSets/DaemonSets/CronJobs/Jobs) — the #3944
+#     completeness union step-03 Phase A performs. The declared half is
+#     load-bearing: the hw292 offender was in ImagePullBackOff and had NO
+#     running container to enumerate.
+#   • image -> local Harbor path = the SAME 03a offlinemirror_local_paths
+#     resolver step-03 (push dest) and step-08 (pre-hold completeness HEAD)
+#     source; the reconciler now mounts cutover-offline-mirror-resolver and
+#     projects the identical HOST_PROJECT_MAP / EXCLUDED_HOSTS /
+#     EXCLUDED_SUBSTRINGS / LOCAL_REGISTRY_HOST / MOTHERSHIP_HOST env. Three
+#     consumers, ONE mapping function.
+#   • presence = step-08's local-Harbor /v2/<repo>/manifests/<ref> probe
+#     (3 attempts to absorb a Harbor blip; a genuine 404 is the signal).
+#   • copy = step-03's exact `skopeo copy --insecure-policy --multi-arch all
+#     --retry-times 5` with --src-creds/--dest-creds, plus the #5095
+#     mothership-proxy -> DIRECT inverse-coverage-map fallback AND the #5525
+#     scarf.sh -> mothership-proxy forward-map fallback. skopeo acquisition
+#     reuses step-08's pinned static build verbatim and is LAZY.
+#
+# WHY IT NOW SHIPS ENABLED. daytwoReconciler.enabled flips false -> true. The
+# severance-safe property was never "no Deployment" — it was "no upstream
+# egress by default", and mode=detect (still the default) holds that literally:
+# the loop reaches ONLY the local Gitea mirror and the local Harbor, never
+# downloads skopeo, never dials an upstream registry. What it does do is
+# publish the exact missing set — CHART and IMAGE lines — to the durable
+# self-sovereign-cutover-daytwo-missing ConfigMap plus loud logs, which is
+# precisely the "today nothing notices" half of #5640. Every upstream reach
+# stays behind opt-in mode=warm. enabled=false still renders nothing at all.
+#
+# ANTI-VACUITY. A zero-ref enumeration is treated as a BROKEN READ, never an
+# all-clear: status becomes `enumeration-empty` and ALL_PINS_PRESENT is
+# withheld. New chart test tests/daytwo-image-leg.sh EXECUTES the rendered
+# script against a stub kubectl/curl and asserts the outcome (present control
+# stays resolved while the missing tag is named; miss count tracks the input;
+# an empty enumeration publishes no all-clear; detect mode dials no upstream
+# host and never invokes skopeo). Contract Case 70 is re-keyed to the
+# egress property and Case 75 pins the image leg's contract.
+#
+# New values: daytwoReconciler.charts.enabled, daytwoReconciler.images.{enabled,
+# copyAttempts,skopeoStaticURL,maxRefsPerCycle}. No RBAC change (the runner
+# ClusterRole already grants deployments/statefulsets/daemonsets/jobs/cronjobs
+# get+list+watch). Step count unchanged at 11.
+version: 0.1.165
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

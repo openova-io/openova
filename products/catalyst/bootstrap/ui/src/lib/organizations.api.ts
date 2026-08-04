@@ -60,7 +60,12 @@ export interface OrgRow {
   kind: OrgKind
   tier: OrgTier
   billingMode: OrgBillingMode
-  isolation: OrgIsolation
+  /** A real Organization is namespace- or vcluster-isolated. The
+   *  sovereign-root row is the CLUSTER itself — isolated within nothing —
+   *  so it carries 'cluster'. #5489: it previously claimed 'vcluster', a
+   *  hardcoded literal with no backing object; on hw291 the directory
+   *  advertised a vCluster while `kubectl get vclusters -A` returned none. */
+  isolation: OrgIsolation | 'cluster'
   status: OrgStatus
   /** True for the sovereign-root row (parentOrg empty). The Enter-org
    *  button is hidden on this row (#3378 §5: "you are already inside it"). */
@@ -127,8 +132,14 @@ export async function getSovereignSelf(): Promise<SovereignSelf | null> {
  * sovereign self-discovery payload. The parent is kind=internal (it is
  * the sovereign-root department), tier=corporate (the operator's own
  * estate), billingMode=showback (#3378 §5: "showback works day one —
- * 100% of consumption attributes to the parent"), isolation=vcluster
- * (the sovereign cluster itself).
+ * 100% of consumption attributes to the parent"), isolation=cluster
+ * (the sovereign root IS the cluster; it is not isolated inside one).
+ *
+ * This doc-comment said `isolation=vcluster` until #5489 — it kept
+ * asserting the value AFTER the code below was corrected, so a reader
+ * trusting the comment would still believe the directory claims a
+ * vCluster. A comment that contradicts the line it documents is the same
+ * declared-vs-actual defect the fix itself removed.
  */
 export function parentRowFromSelf(self: SovereignSelf | null): OrgRow {
   const fqdn = self?.sovereignFQDN ?? ''
@@ -139,7 +150,12 @@ export function parentRowFromSelf(self: SovereignSelf | null): OrgRow {
     kind: 'internal',
     tier: 'corporate',
     billingMode: 'showback',
-    isolation: 'vcluster',
+    // #5489 — the sovereign root IS the cluster; it is not isolated inside
+    // one. `GET /api/v1/sovereign/self` returns only {deploymentId,
+    // sovereignFQDN}, so there is no field to derive a namespace/vcluster
+    // answer from, and inventing 'vcluster' made the directory claim an
+    // object that does not exist.
+    isolation: 'cluster',
     status: 'active',
     isParent: true,
     ownerEmail: '',

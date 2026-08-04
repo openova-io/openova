@@ -1,0 +1,9 @@
+### FINAL probe round 2026-07-30T01:13:43Z — 6 independent curl invocations each
+CONTROL console.hw291 (.1)                      000 200 200 200 200 200   (ok=5 fail=1 of 6)
+CONTROL2 marketplace.hw291 (.1)                 200 200 000 200 200 200   (ok=5 fail=1 of 6)
+ROW232 openclaw/readyz (.6)                     000 000 000 000 000 000   (ok=0 fail=6 of 6)
+ROW233+90 wordpress (.6)                        000 000 000 000 000 000   (ok=0 fail=6 of 6)
+ROW234 mail (.6)                                000 000 000 000 000 000   (ok=0 fail=6 of 6)
+ROW89 per-Org console (.1)                      000 000 000 000 000 000   (ok=0 fail=6 of 6)
+XTRA agenity (.1, HR Ready=True)                000 000 000 000 000 000   (ok=0 fail=6 of 6)
+XTRA keycloak (.6)                              000 000 000 000 000 000   (ok=0 fail=6 of 6)

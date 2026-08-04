@@ -1,76 +1,169 @@
 {{- /*
-#5265 — POST-CUTOVER DAY-2 Harbor pin reconciler.
+#5265 + #5640 — POST-CUTOVER DAY-2 local-Harbor reconciler.
 
 The gap
 ───────
 `bp-self-sovereign-cutover` mirrors the public catalog into the local Gitea
 (step-01) and prewarms every pinned chart+image into the local Harbor
-(step-03) EXACTLY ONCE at cutover time. Post-cutover, on the operator's chosen
-schedule, the local Gitea RE-SYNCS upstream pin bumps (CLAUDE.md §Customer-Sync)
-and Flux picks the new pin up — verified live hw277 (dep 1708c340ffc0e3f2,
-2026-07-19): after cc=true, catalog merges #5258/#5260 landed, the mirror
-re-synced, the bootstrap-kit pin moved (region-b bp-continuum HR
-spec.chart.spec.version=0.1.12) — but the local Harbor still held ONLY the
-versions the one-time step-03 prewarm pushed. The HelmChart could not reconcile
-("latest generation not reconciled") → the HR upgrade wedged. Workloads stay
-healthy on the installed version (an upgrade wedge, not an outage), but EVERY
-upstream chart bump SILENTLY strands the Sovereign's HR upgrades.
+(step-03) EXACTLY ONCE at cutover time. Post-cutover the local Harbor is the
+ONLY registry that matters — step-04 pivots node containerd `certs.d` and
+step-06 repoints every HelmRepository at it — so anything published UPSTREAM
+after step-03 ran can never reach the Sovereign.
+
+  • #5265 (the CHART half). On the operator's chosen schedule the local Gitea
+    RE-SYNCS upstream pin bumps (CLAUDE.md §Customer-Sync) and Flux picks the
+    new pin up — verified live hw277 (dep 1708c340ffc0e3f2, 2026-07-19): after
+    cc=true, catalog merges #5258/#5260 landed, the mirror re-synced, the
+    bootstrap-kit pin moved (region-b bp-continuum HR spec.chart.spec.version=
+    0.1.12) — but the local Harbor still held ONLY the versions the one-time
+    step-03 prewarm pushed. The HelmChart could not reconcile → the HR upgrade
+    wedged.
+
+  • #5640 (the IMAGE half). The SAME structure, one layer down and strictly
+    worse: a chart version that DOES reconcile installs workload templates
+    pinned to image tags published after cutover. Verified live hw292 (dep
+    1c56518035a83e03, cutoverComplete=true, 2026-08-03) —
+
+        curl -sk -u admin:*** https://registry.<fqdn>/v2/openova-io/openova/catalyst-ui/tags/list
+        {"name":"openova-io/openova/catalyst-ui","tags":["fad88bd"]}
+        d674a94 -> 404      # the tag deploy-bot pinned today
+        fad88bd -> 200      # CONTROL: same probe, the tag deployed at cutover
+
+    …and the Pod pinned to `catalyst-ui:d674a94` sat in ImagePullBackOff. The
+    delivery chain merge → build → publish → deploy-bot pin is complete for a
+    PRE-cutover Sovereign and SILENTLY incomplete for a post-cutover one:
+    main is green, the GHCR tag exists, the pin is committed, and nothing on
+    the repo side reveals a thing.
 
 The Git leg has a companion (step-01's re-runnable mirror + the operator's
-sync schedule). The Harbor leg had none — this reconciler IS that companion.
+sync schedule). The Harbor leg had none — this reconciler IS that companion,
+for BOTH artifact kinds, in ONE loop.
 
 Why a Deployment, not a CronJob
 ───────────────────────────────
 `reference_region_local_reconciler_must_be_deployment_not_cronjob_survives_
-region_kill.md`: a CronJob's scheduler lives in the control-plane region; when
-that region is killed the CronJob stops firing and the loop dies silently. A
-Deployment (replicas: 1, Recreate) is rescheduled onto a surviving node by the
-kube scheduler, so the Day-2 loop keeps running across a region kill — exactly
-the failure the multi-region Sovereign is built to survive. (The #1899
-gitea-mirror-resync CronJob predates this canon; the issue #5265 fix direction
-mandates a Deployment here.)
+region_kill.md` (#5157): a CronJob's scheduler lives in the control-plane
+region; when that region is killed the CronJob stops firing and the loop dies
+silently. A Deployment (replicas: 1, Recreate) is rescheduled onto a surviving
+node by the kube scheduler, so the Day-2 loop keeps running across a region
+kill — exactly the failure the multi-region Sovereign is built to survive.
+(The #1899 gitea-mirror-resync CronJob predates this canon.)
+
+Why region-local, not a mothership-side push (#5640 shape choice)
+─────────────────────────────────────────────────────────────────
+The alternative shape — the deploy-bot pin commit triggering a push FROM the
+mothership INTO each Sovereign's Harbor — requires OpenOva to hold a standing
+write credential for every customer-run Sovereign and to reach it on demand.
+That is a permanent INBOUND tether from the mothership into the Sovereign: the
+exact inverse of Pillar 5 / ADR-0002, and structurally impossible for an
+air-gapped Sovereign. It also cannot be substituted by Harbor pull-through:
+step-02 creates `openova-io` as a PUSH-mode project (no `registry_id`, see
+02-harbor-projects-job.yaml) and step-06 pivots the workload refs onto exactly
+that project, so no proxy-cache sits behind the path that 404'd on hw292.
+Keeping the loop ON the Sovereign keeps the Sovereign self-sufficient.
+
+Single-source discipline — nothing here is a second mechanism
+─────────────────────────────────────────────────────────────
+  • chart pins  ← the SAME 03b `bootstrapkit_pins` extractor step-03 (Phase
+    A2-pins) and step-06 (Phase 3a-pin) use, mounted from the
+    `cutover-bootstrap-kit-pins` ConfigMap (03b's documented #5265 reuse seam).
+  • image → local path  ← the SAME 03a `offlinemirror_local_paths` resolver
+    step-03 (skopeo push dest) and step-08 (pre-hold completeness HEAD) use,
+    mounted from the `cutover-offline-mirror-resolver` ConfigMap. THREE
+    consumers, ONE mapping function.
+  • image enumeration  ← running Pods ∪ declared workload templates
+    (Deployments/StatefulSets/DaemonSets/CronJobs/Jobs), the #3944 completeness
+    union step-03 Phase A performs, so a scaled-to-zero or ImagePullBackOff
+    workload is still seen (which is the whole point here — the hw292 Pod was
+    NOT Running).
+  • image copy  ← the SAME `skopeo copy --insecure-policy --multi-arch all
+    --retry-times 5` invocation, the SAME #5095 mothership-proxy → DIRECT
+    inverse-coverage-map fallback, and the SAME #5525 scarf.sh → mothership-
+    proxy forward-map fallback that step-03 `copy_one` and step-08's #5194
+    self-heal already run. skopeo acquisition reuses step-08's pinned static
+    build verbatim.
+  • presence probe ← the Harbor artifact API for charts (#5030 durable probe)
+    and the local `/v2/<repo>/manifests/<ref>` HEAD for images (step-08's).
 
 Sovereignty — this NEVER weakens the Pillar-5 guarantee
 ───────────────────────────────────────────────────────
-Ships DISABLED by default (`daytwoReconciler.enabled: false`), the SAME
-severance-safe default as the #2622 gitea-mirror-resync CronJob: a canonical
-fresh-prov Sovereign renders NOTHING here, so the step-08 deny-egress proof and
-the "no automatic upstream tether" contract are untouched. When an operator
-OPTS IN (they have chosen a managed-update posture — the CLAUDE.md
-§Customer-Sync "operator's chosen schedule"):
+  • mode=detect (THE DEFAULT) — the loop reaches ONLY the local Gitea mirror
+    and the local Harbor. ZERO external egress: skopeo is never downloaded, no
+    upstream registry is dialled, no `helm pull` runs. It emits the exact set
+    of pinned charts AND declared images MISSING from local Harbor to a durable
+    ConfigMap + loud logs. That set IS the air-gapped Sovereign's offline-media
+    manifest (side-load exactly these) and it turns the previously-SILENT
+    strand into a visible, actionable signal — the #5640 "today nothing
+    notices" defect, closed.
 
-  • mode=detect (DEFAULT when enabled) — the loop reaches ONLY the local Gitea
-    mirror (frozen pins) + the local Harbor (artifact API). ZERO external
-    egress. It emits the exact set of pinned (chart, version) artifacts MISSING
-    from local Harbor to a durable ConfigMap + loud logs. That set IS the
-    air-gapped Sovereign's offline-media manifest (side-load exactly these) and
-    it turns the previously-silent strand into a visible, actionable signal.
+  • mode=request (THE DEFAULT) — detect's behaviour EXACTLY until an operator
+    files a delivery request, and detect's behaviour again the moment that one
+    request is consumed. This is the shape the sovereignty argument actually
+    wants: an explicitly operator-INITIATED, scope-BOUNDED, credential-SCOPED,
+    AUDITED, ONE-SHOT pull is a different object from a standing mirror.
+      – initiated: nothing happens without a ConfigMap the operator creates.
+      – bounded: only the refs that request names (or ALL_MISSING), capped at
+        request.maxRefsPerRequest; an over-size scope is REFUSED, not truncated.
+      – credential-scoped: step-06 strips the cutover's own ghcr auth, so the
+        credential can only be one the operator provisioned and can revoke.
+      – audited: every attempt appends to the delivery ConfigMap with
+        timestamp, requestId, requestedBy, source, destination and outcome.
+      – one-shot: the consumed requestId is recorded durably, so re-applying
+        the same request does NOT re-open the window. A new window needs a new
+        requestId — the window cannot stay open because someone forgot.
+    Because a request-less cycle dials nothing, this is safe as a DEFAULT in a
+    way `warm` is not, and an operator needing one stale image does not have to
+    edit the chart, roll the reconciler, and remember to turn it off again.
 
-  • mode=warm — additionally `helm pull`s each missing chart from the operator-
-    nominated upstream (authenticating with an operator-SUPPLIED credential
-    Secret; the cutover's own ghcr auth is stripped by step-06, by design) and
-    `helm push`es it into the local Harbor, then re-checks. Only this mode
-    reaches upstream, and only for chart OCI bytes on the operator's schedule —
-    the exact companion of the Git mirror reaching github.com on that schedule.
-    A warm failure is fail-SOFT (logged, left in the missing manifest) so the
-    loop never crash-loops and the workloads keep running on the installed
-    version.
+  • mode=warm — an ALWAYS-ON mirror: every cycle, forever, unbounded in scope,
+    with a standing credential. Legitimate for an operator who has chosen to
+    track upstream continuously, but it IS a standing outbound tether and is
+    NOT the sovereignty-preserving option. Kept, documented as such, not the
+    default.
 
-Single-source discipline
-────────────────────────
-The pin enumeration is the SAME 03b `bootstrapkit_pins` extractor step-03
-(Phase A2-pins) and step-06 (Phase 3a-pin) use — mounted here from the
-`cutover-bootstrap-kit-pins` ConfigMap, sourced at runtime. Two cutover steps
-and this Day-2 watch, ONE parser: the mirror set and the gate can never
-disagree about what "the pins" are (03b's documented #5265 reuse seam).
+Both delivery modes are fail-SOFT (a failed fetch is logged and left in the
+missing manifest) so the loop never crash-loops and workloads keep running on
+the installed version.
+
+#5640 flips `daytwoReconciler.enabled` to TRUE by default. The severance-safe
+property that mattered was never "no Deployment" — it was "no upstream egress
+by default", and detect/request both hold that with zero egress. Shipping the
+loop OFF would have shipped a knob nobody turns on, leaving the failure exactly
+as silent as the issue describes.
+
+Why the enumerated ref must be INVERTED before it is copied (#5640)
+───────────────────────────────────────────────────────────────────
+step-07's pod-spec sweep (sweep_one_workload -> podspec_pivot_ref) rewrites
+every workload image to `registry.<fqdn>/<local-path>`. Post-cutover, therefore,
+the refs this loop reads off the LIVE cluster carry NO upstream host — which is
+the ONLY shape the hw292 defect appears in. Handing such a ref to skopeo as the
+SOURCE copies the local registry to itself, for an artifact the local registry
+just 404'd: it can never deliver, and it fails as "copy error" rather than as
+"I do not know where this came from". The copy therefore inverts the SHARED 03a
+map first (`offlinemirror_upstream_ref`, the exact inverse of
+`offlinemirror_local_paths` — one function, one place) and REFUSES the copy
+outright when the map cannot name an upstream.
+
+The FAIL-CLOSED surface (#5640)
+───────────────────────────────
+A missing pin used to be a log line plus a ConfigMap, i.e. still a silent
+freeze — the operator found out when a UAT row would not go green. The loop now
+writes a readiness verdict from the MEASURED cycle outcome, and the container
+carries a readinessProbe on it. READY requires every enabled leg to have
+completed AND zero missing artifacts; "I could not check" is NOT-READY, never
+all-clear. `kubectl get deploy cutover-daytwo-harbor-reconciler` reading 0/1 is
+then the visible statement "this Sovereign holds a pin its registry cannot
+serve". No livenessProbe: the correct response is to go not-ready, not restart.
 
 NOT a cutover-step ConfigMap: no `bp.openova.io/cutover-order` label, so it does
 NOT count toward the 11-step contract (tests/cutover-contract.sh Case 2/4).
 
 Image phase: pre — like the #1899 mirror-resync CronJob, this workload is
 created at chart-install time and uses the upstream-public image reference;
-post-cutover the node containerd (step-04 registries.yaml v2) resolves that
-reference from the local Harbor, so the ref is self-contained either way.
+because it RENDERS at install time, step-03 Phase A's declared-workload-template
+enumeration mirrors that very image into local Harbor, and post-cutover the node
+containerd (step-04 registries.yaml v2) resolves the reference from there. The
+loop's own image is therefore self-contained either way.
 */ -}}
 {{- if .Values.daytwoReconciler.enabled }}
 apiVersion: apps/v1
@@ -147,13 +240,30 @@ spec:
             # ── loop policy ──
             - name: RECONCILE_INTERVAL_SECONDS
               value: {{ .Values.daytwoReconciler.intervalSeconds | quote }}
-            # detect (default; zero egress) | warm (opt-in upstream chart pulls)
+            # detect (zero egress) | request (default; zero egress until the
+            # operator files ONE scoped, audited, one-shot request) | warm
+            # (always-on upstream mirror)
             - name: RECONCILE_MODE
               value: {{ .Values.daytwoReconciler.mode | quote }}
             - name: MISSING_MANIFEST_CM
               value: {{ .Values.daytwoReconciler.missingManifestConfigMapName | quote }}
+            # ── #5640 operator-gated delivery (mode=request) ──
+            - name: REQUEST_CM
+              value: {{ .Values.daytwoReconciler.request.configMapName | quote }}
+            - name: DELIVERY_AUDIT_CM
+              value: {{ .Values.daytwoReconciler.request.auditConfigMapName | quote }}
+            - name: REQUEST_MAX_REFS
+              value: {{ .Values.daytwoReconciler.request.maxRefsPerRequest | quote }}
+            - name: AUDIT_MAX_LINES
+              value: {{ .Values.daytwoReconciler.request.auditMaxLines | quote }}
             - name: RELEASE_NAMESPACE
               value: {{ .Release.Namespace | quote }}
+            # Per-leg switches. Both default true; an operator debugging one
+            # half can silence the other without losing the loop.
+            - name: CHART_LEG_ENABLED
+              value: {{ eq (toString .Values.daytwoReconciler.charts.enabled) "true" | quote }}
+            - name: IMAGE_LEG_ENABLED
+              value: {{ eq (toString .Values.daytwoReconciler.images.enabled) "true" | quote }}
             # ── warm-mode source (operator-supplied; only read when mode=warm) ──
             - name: WARM_UPSTREAM_OCI_PREFIX
               value: {{ .Values.daytwoReconciler.warm.upstreamOciPrefix | quote }}
@@ -167,9 +277,46 @@ spec:
               value: {{ .Values.daytwoReconciler.warm.credentialSecret.usernameKey | quote }}
             - name: WARM_CRED_PASSWORD_KEY
               value: {{ .Values.daytwoReconciler.warm.credentialSecret.passwordKey | quote }}
+            # ── #5640 image leg: the SAME offline-mirror env step-03/04/08 read.
+            # The coverage map is the single declaration of host→local-project;
+            # forking it here would re-open the very drift #4975 closed.
+            - name: HOST_PROJECT_MAP
+              value: {{ include "bp-self-sovereign-cutover.hostProjectMapInline" . | quote }}
+            - name: EXCLUDED_HOSTS
+              value: {{ include "bp-self-sovereign-cutover.excludedHostsInline" . | quote }}
+            - name: EXCLUDED_SUBSTRINGS
+              value: {{ include "bp-self-sovereign-cutover.excludedSubstringsInline" . | quote }}
+            - name: LOCAL_REGISTRY_HOST
+              value: {{ include "bp-self-sovereign-cutover.localRegistryHost" . | quote }}
+            - name: MOTHERSHIP_HOST
+              value: {{ include "bp-self-sovereign-cutover.mothershipHost" . | quote }}
+            # Optional ghcr/mothership dockerconfigjson — present pre-cutover,
+            # stripped by step-06 post-cutover (by design). Absent => the warm
+            # leg is anonymous-only and private refs stay in the manifest.
+            - name: GHCR_DOCKERCONFIG
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.harbor.ghcrSecretRef.name }}
+                  key: {{ .Values.harbor.ghcrSecretRef.dockerConfigKey }}
+                  optional: true
+            - name: PREWARM_SKOPEO_TIMEOUT
+              value: {{ .Values.prewarm.skopeoCommandTimeout | default "1200s" | quote }}
+            - name: PREWARM_DEST_TLS_VERIFY
+              value: {{ .Values.prewarm.destTLSVerify | default false | quote }}
+            - name: PREWARM_COPY_ATTEMPTS
+              value: {{ .Values.daytwoReconciler.images.copyAttempts | default 3 | quote }}
+            - name: PREWARM_PROXY_COPY_ATTEMPTS
+              value: {{ .Values.prewarm.proxyCopyAttempts | default 6 | quote }}
+            - name: SKOPEO_STATIC_URL
+              value: {{ .Values.daytwoReconciler.images.skopeoStaticURL | quote }}
+            - name: IMAGE_SCAN_MAX
+              value: {{ .Values.daytwoReconciler.images.maxRefsPerCycle | quote }}
           volumeMounts:
             - name: pin-extractor
               mountPath: /pin-extractor
+              readOnly: true
+            - name: offline-mirror
+              mountPath: /offline-mirror
               readOnly: true
             - name: tmp
               mountPath: /tmp
@@ -180,7 +327,26 @@ spec:
               export HOME=/tmp
               : "${HARBOR_USERNAME:=admin}"
               : "${RECONCILE_INTERVAL_SECONDS:=300}"
-              : "${RECONCILE_MODE:=detect}"
+              : "${RECONCILE_MODE:=request}"
+              : "${CHART_LEG_ENABLED:=true}"
+              : "${IMAGE_LEG_ENABLED:=true}"
+              : "${IMAGE_SCAN_MAX:=400}"
+              : "${REQUEST_MAX_REFS:=50}"
+              : "${AUDIT_MAX_LINES:=500}"
+              WORK=/tmp/daytwo-work
+              mkdir -p "${WORK}"
+              # #5640 FAIL-CLOSED readiness surface. The reconciler is READY iff
+              # its last completed cycle proved every pinned artifact is
+              # servable by the registry this Sovereign is allowed to use.
+              # Anything else — a missing pin, a leg that could not run, no
+              # cycle yet — is NOT-READY, which shows up as 0/1 on
+              # `kubectl get deploy` and in every dashboard already watching
+              # workload readiness. Before #5640 the identical condition was a
+              # log line and a ConfigMap nobody was watching: a SILENT freeze.
+              # Seeded NOT-READY so the pre-first-cycle state can never read as
+              # an all-clear.
+              HEALTH_FILE="${WORK}/health"
+              echo "NOTREADY no-cycle-completed-yet" > "${HEALTH_FILE}"
 
               # Bare host of the local Harbor (registry.<fqdn>) — the helm
               # registry login + push target in warm mode. Post-cutover its
@@ -189,12 +355,144 @@ spec:
               HARBOR_HOST=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -e 's,^https\?://,,' -e 's,/$,,')
               gitea_host="$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E 's|^https?://||' | cut -d: -f1 | cut -d/ -f1)"
 
-              echo "[daytwo] post-cutover Harbor pin reconciler starting (mode=${RECONCILE_MODE}, interval=${RECONCILE_INTERVAL_SECONDS}s, #5265)"
-              echo "[daytwo] local Gitea mirror=${GITEA_INTERNAL_URL} (${GITEA_ORG}/${GITEA_REPO}@${UPSTREAM_BRANCH}); local Harbor=${HARBOR_INTERNAL_URL}"
+              # Shared 03a resolver — the SAME image→local-path mapping
+              # function step-03 (push dest) and step-08 (completeness HEAD)
+              # source. Fail-LOUD if absent: silently skipping the image leg is
+              # exactly the invisible-strand shape #5640 is about.
+              RESOLVER_OK=0
+              if [ -f /offline-mirror/resolver.sh ]; then
+                . /offline-mirror/resolver.sh
+                RESOLVER_OK=1
+              else
+                echo "[daytwo] ERROR: /offline-mirror/resolver.sh absent — the cutover-offline-mirror-resolver ConfigMap (03a) is not mounted; the IMAGE leg cannot derive local Harbor paths and is DISABLED this run (#5640)"
+              fi
+
+              echo "[daytwo] post-cutover local-Harbor reconciler starting (mode=${RECONCILE_MODE}, interval=${RECONCILE_INTERVAL_SECONDS}s, charts=${CHART_LEG_ENABLED}, images=${IMAGE_LEG_ENABLED}; #5265 #5640)"
+              echo "[daytwo] local Gitea mirror=${GITEA_INTERNAL_URL} (${GITEA_ORG}/${GITEA_REPO}@${UPSTREAM_BRANCH}); local Harbor=${HARBOR_INTERNAL_URL} (${HARBOR_HOST})"
               case "${RECONCILE_MODE}" in
-                warm) echo "[daytwo] mode=warm — missing chart OCI artifacts are pulled from ${WARM_UPSTREAM_OCI_PREFIX} (operator-scheduled; the Git-mirror companion) and pushed to local Harbor" ;;
-                *)    echo "[daytwo] mode=detect — reaching ONLY the local Gitea mirror + local Harbor (zero external egress); missing artifacts are reported to ConfigMap ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM} as the offline-media manifest" ;;
+                warm)    echo "[daytwo] mode=warm — ALWAYS-ON upstream mirror: every cycle helm-pulls missing charts from ${WARM_UPSTREAM_OCI_PREFIX} and skopeo-copies missing IMAGES from their upstream into local Harbor. This is a STANDING outbound tether; mode=request is the sovereignty-preserving alternative (#5640)" ;;
+                request) echo "[daytwo] mode=request — detect behaviour (zero external egress) UNTIL an operator files a delivery request in ConfigMap ${RELEASE_NAMESPACE}/${REQUEST_CM}; each requestId is consumed ONCE, bounded to its own scope (max ${REQUEST_MAX_REFS} refs), and audited to ${RELEASE_NAMESPACE}/${DELIVERY_AUDIT_CM} (#5640)" ;;
+                *)       echo "[daytwo] mode=detect — reaching ONLY the local Gitea mirror + local Harbor (zero external egress; skopeo is never downloaded); missing artifacts are reported to ConfigMap ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM} as the offline-media manifest" ;;
               esac
+
+              # ── #5640 OPERATOR-GATED DELIVERY ────────────────────────────────
+              # The whole point: an explicitly operator-initiated, scope-bounded,
+              # credential-scoped, audited, ONE-SHOT pull is a different object
+              # from an always-on mirror. `warm` is the latter and re-tethers the
+              # Sovereign for as long as it is set. `request` opens the window
+              # only for the refs one named request lists, then closes it.
+              REQ_ID=""; REQ_BY=""; REQ_SCOPE_FILE="${WORK}/request-scope.txt"
+              REQ_ACTIVE=0; REQ_DELIVERED=0; REQ_FAILED=0
+              AUDIT_FILE="${WORK}/audit.log"
+              : > "${AUDIT_FILE}"
+
+              # daytwo_audit LINE — append to the durable delivery audit trail
+              # AND the Pod log. Read-modify-write so history is preserved
+              # across cycles and Pod restarts; capped so the ConfigMap cannot
+              # grow past the apiserver's 1 MiB object limit.
+              daytwo_audit() {
+                _au_line="$(date -u +%Y-%m-%dT%H:%M:%SZ)\t$*"
+                printf '%b\n' "${_au_line}" >> "${AUDIT_FILE}"
+                echo "[daytwo][audit] $*"
+              }
+
+              daytwo_audit_flush() {
+                [ -s "${AUDIT_FILE}" ] || return 0
+                _af_prev=$(kubectl -n "${RELEASE_NAMESPACE}" get configmap "${DELIVERY_AUDIT_CM}" \
+                  -o "jsonpath={.data['audit\.log']}" 2>/dev/null || true)
+                _af_all="${WORK}/audit-all.log"
+                { [ -n "${_af_prev}" ] && printf '%s\n' "${_af_prev}"; cat "${AUDIT_FILE}"; } \
+                  | grep -v '^$' | tail -n "${AUDIT_MAX_LINES}" > "${_af_all}"
+                kubectl -n "${RELEASE_NAMESPACE}" create configmap "${DELIVERY_AUDIT_CM}" \
+                  --from-file=audit.log="${_af_all}" \
+                  --from-literal=lastConsumedRequestId="${LAST_CONSUMED_ID:-}" \
+                  --dry-run=client -o yaml 2>/dev/null \
+                  | kubectl -n "${RELEASE_NAMESPACE}" apply -f - >/dev/null 2>&1 \
+                  || echo "[daytwo] WARN: could not update the delivery audit ConfigMap ${RELEASE_NAMESPACE}/${DELIVERY_AUDIT_CM} (the Pod log still carries every audit line)"
+                : > "${AUDIT_FILE}"
+              }
+
+              # daytwo_load_request — read the operator's request, if any, and
+              # decide whether THIS cycle may deliver. Sets REQ_ACTIVE=1 only for
+              # a request whose requestId has never been consumed.
+              LAST_CONSUMED_ID=""
+              daytwo_load_request() {
+                REQ_ACTIVE=0; REQ_ID=""; REQ_BY=""; : > "${REQ_SCOPE_FILE}"
+                [ "${RECONCILE_MODE}" = "request" ] || return 0
+                _lr_json=$(kubectl -n "${RELEASE_NAMESPACE}" get configmap "${REQUEST_CM}" -o json 2>/dev/null || true)
+                if [ -z "${_lr_json}" ]; then
+                  echo "[daytwo] mode=request: no delivery request in ${RELEASE_NAMESPACE}/${REQUEST_CM} — this cycle makes ZERO external egress (detect-equivalent)"
+                  return 0
+                fi
+                REQ_ID=$(printf '%s' "${_lr_json}" | jq -r '.data.requestId // ""' 2>/dev/null || true)
+                REQ_BY=$(printf '%s' "${_lr_json}" | jq -r '.data.requestedBy // "unattributed"' 2>/dev/null || true)
+                printf '%s' "${_lr_json}" | jq -r '.data.scope // ""' 2>/dev/null \
+                  | grep -Ev '^[[:space:]]*(#|$)' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+                  | sort -u > "${REQ_SCOPE_FILE}" 2>/dev/null || true
+                if [ -z "${REQ_ID}" ]; then
+                  echo "[daytwo] mode=request: ${REQUEST_CM} carries no requestId — REFUSING to deliver. A request without an identity cannot be consumed once, so it would re-fire every cycle and become the always-on mirror this mode exists to avoid (#5640)"
+                  return 0
+                fi
+                LAST_CONSUMED_ID=$(kubectl -n "${RELEASE_NAMESPACE}" get configmap "${DELIVERY_AUDIT_CM}" \
+                  -o "jsonpath={.data.lastConsumedRequestId}" 2>/dev/null || true)
+                if [ -n "${LAST_CONSUMED_ID}" ] && [ "${LAST_CONSUMED_ID}" = "${REQ_ID}" ]; then
+                  echo "[daytwo] mode=request: requestId '${REQ_ID}' was already consumed — the delivery window is CLOSED and this cycle makes ZERO external egress. File a new requestId to open another."
+                  return 0
+                fi
+                _lr_n=$(grep -c . "${REQ_SCOPE_FILE}" 2>/dev/null || true)
+                if [ "${_lr_n}" -eq 0 ]; then
+                  echo "[daytwo] mode=request: requestId '${REQ_ID}' has an EMPTY scope — refusing. An empty scope is a malformed request, never an implicit ALL_MISSING (#5640)"
+                  return 0
+                fi
+                if ! grep -qx 'ALL_MISSING' "${REQ_SCOPE_FILE}" && [ "${_lr_n}" -gt "${REQUEST_MAX_REFS}" ]; then
+                  echo "[daytwo] mode=request: requestId '${REQ_ID}' lists ${_lr_n} refs, over request.maxRefsPerRequest=${REQUEST_MAX_REFS} — REFUSING rather than truncating (a silently truncated bound is how a bounded window becomes an unbounded one)"
+                  return 0
+                fi
+                REQ_ACTIVE=1
+                daytwo_audit "REQUEST\topen\t${REQ_ID}\t${REQ_BY}\trefs=${_lr_n}"
+                echo "[daytwo] mode=request: delivery window OPEN for requestId '${REQ_ID}' (requestedBy=${REQ_BY}, ${_lr_n} scope line(s)); it will be consumed at the end of this cycle"
+              }
+
+              # daytwo_in_scope REF UPSTREAM_REF LOCAL_PATH -> 0 iff this artifact
+              # is inside the OPEN request's scope. Matches the enumerated ref,
+              # the inverse-mapped upstream, the bare local path AND the fully
+              # qualified local ref, so an operator can paste back whichever form
+              # the missing manifest showed them.
+              daytwo_in_scope() {
+                [ "${REQ_ACTIVE}" = "1" ] || return 1
+                grep -qx 'ALL_MISSING' "${REQ_SCOPE_FILE}" 2>/dev/null && return 0
+                grep -qxF "$1" "${REQ_SCOPE_FILE}" 2>/dev/null && return 0
+                [ -n "$2" ] && grep -qxF "$2" "${REQ_SCOPE_FILE}" 2>/dev/null && return 0
+                grep -qxF "$3" "${REQ_SCOPE_FILE}" 2>/dev/null && return 0
+                grep -qxF "${LOCAL_REGISTRY_HOST}/$3" "${REQ_SCOPE_FILE}" 2>/dev/null && return 0
+                return 1
+              }
+
+              # daytwo_delivery_allowed REF UPSTREAM_REF LOCAL_PATH -> 0 iff this
+              # cycle may reach upstream for THIS artifact. THE single gate every
+              # egress-bearing call sits behind; detect can never pass it, and
+              # request passes it only inside an open, in-scope, unconsumed
+              # window. Every mode other than warm/request falls through to the
+              # closed default, so an unrecognised mode value fails CLOSED.
+              daytwo_delivery_allowed() {
+                case "${RECONCILE_MODE}" in
+                  warm) return 0 ;;
+                  request) daytwo_in_scope "$1" "$2" "$3" && return 0; return 1 ;;
+                  *) return 1 ;;
+                esac
+              }
+
+              # daytwo_consume_request — close the window. Recording consumption
+              # in the AUDIT ConfigMap (not the request ConfigMap) means it
+              # survives a Pod restart and cannot be undone by re-applying the
+              # request unchanged; a new window needs a NEW requestId.
+              daytwo_consume_request() {
+                [ "${REQ_ACTIVE}" = "1" ] || return 0
+                LAST_CONSUMED_ID="${REQ_ID}"
+                daytwo_audit "REQUEST\tconsumed\t${REQ_ID}\t${REQ_BY}\tdelivered=${REQ_DELIVERED}\tfailed=${REQ_FAILED}"
+                echo "[daytwo] mode=request: requestId '${REQ_ID}' CONSUMED (delivered=${REQ_DELIVERED} failed=${REQ_FAILED}); the delivery window is now CLOSED and subsequent cycles make zero external egress until a new requestId is filed"
+                REQ_ACTIVE=0
+              }
 
               # Read the catalyst-gitea-token PAT (never echoed; sent only via
               # the Authorization header). Bounded per-call so a rotation heals.
@@ -222,9 +520,37 @@ spec:
               # warm ONE missing chart: helm pull upstream (operator cred if
               # supplied) -> helm push local. Fail-SOFT (returns non-zero, the
               # caller keeps it in the missing manifest; never crashes the loop).
+              # #5640 — the upstream `helm registry login` is itself an EGRESS
+              # call, so it is LAZY: performed on the first allowed chart
+              # delivery, never at startup. detect (and request with no open
+              # window) therefore dials nothing at all, which is the property the
+              # zero-egress contract actually needs.
               WARM_LOGIN_DONE=0
+              daytwo_helm_login_once() {
+                [ "${WARM_LOGIN_DONE}" = "1" ] && return 0
+                WARM_LOGIN_DONE=1
+                export HELM_CACHE_HOME=/tmp/.helm-cache HELM_CONFIG_HOME=/tmp/.helm-config HELM_DATA_HOME=/tmp/.helm-data
+                if [ -n "${WARM_CRED_SECRET_NAME}" ]; then
+                  _lu=$(kubectl -n "${WARM_CRED_SECRET_NAMESPACE}" get secret "${WARM_CRED_SECRET_NAME}" -o "jsonpath={.data.${WARM_CRED_USERNAME_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
+                  _lp2=$(kubectl -n "${WARM_CRED_SECRET_NAMESPACE}" get secret "${WARM_CRED_SECRET_NAME}" -o "jsonpath={.data.${WARM_CRED_PASSWORD_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
+                  if [ -n "${_lu}" ] && [ -n "${_lp2}" ]; then
+                    helm registry login "${WARM_REGISTRY_HOST}" -u "${_lu}" -p "${_lp2}" >/dev/null 2>&1 \
+                      && echo "[daytwo] delivery: authenticated to upstream ${WARM_REGISTRY_HOST}" \
+                      || echo "[daytwo] delivery: upstream ${WARM_REGISTRY_HOST} login failed (anonymous pulls only; private charts stay in the missing manifest)"
+                  else
+                    echo "[daytwo] delivery: credential Secret ${WARM_CRED_SECRET_NAMESPACE}/${WARM_CRED_SECRET_NAME} has no usable ${WARM_CRED_USERNAME_KEY}/${WARM_CRED_PASSWORD_KEY} — anonymous pulls only"
+                  fi
+                else
+                  echo "[daytwo] delivery: no credentialSecret configured — anonymous pulls only (openova-io charts are PRIVATE; supply daytwoReconciler.warm.credentialSecret to fetch them)"
+                fi
+                helm registry login "${HARBOR_HOST}" -u "${HARBOR_USERNAME}" -p "${HARBOR_PASSWORD}" >/dev/null 2>&1 \
+                  && echo "[daytwo] delivery: authenticated to local Harbor ${HARBOR_HOST}" \
+                  || echo "[daytwo] delivery: local Harbor ${HARBOR_HOST} login failed — pushes will retry per cycle"
+              }
+
               warm_chart() {
                 _wc="$1"; _wv="$2"
+                daytwo_helm_login_once
                 mkdir -p /tmp/daytwo-pull
                 rm -f /tmp/daytwo-pull/*.tgz 2>/dev/null || true
                 if ! helm pull "${WARM_UPSTREAM_OCI_PREFIX}/${_wc}" --version "${_wv}" -d /tmp/daytwo-pull >/tmp/daytwo-pull/pull.log 2>&1; then
@@ -241,22 +567,352 @@ spec:
                 return 0
               }
 
-              reconcile_once() {
+              # ── #5640 IMAGE LEG ─────────────────────────────────────────────
+              # skopeo acquisition — the SAME pinned static build step-03
+              # harbor-prewarm and step-08's #5194 self-heal use. Downloaded
+              # LAZILY and ONLY in warm mode, so detect mode keeps its
+              # zero-external-egress contract literally (no github.com dial).
+              _skopeo_ready=0
+              daytwo_ensure_skopeo() {
+                [ "${_skopeo_ready}" = "1" ] && return 0
+                if command -v skopeo >/dev/null 2>&1; then
+                  _skopeo_ready=1
+                  return 0
+                fi
+                echo "[daytwo] image warm: skopeo not on PATH; downloading the pinned static binary (same build step-03 harbor-prewarm uses)"
+                _sk_try=1
+                while [ "${_sk_try}" -le 3 ]; do
+                  if curl -fsSL --max-time 600 --retry 3 --retry-delay 5 -C - "${SKOPEO_STATIC_URL}" -o "${WORK}/skopeo" 2>&1 \
+                    && chmod +x "${WORK}/skopeo" \
+                    && "${WORK}/skopeo" --version >/dev/null 2>&1; then
+                    export PATH="${WORK}:${PATH}"
+                    _skopeo_ready=1
+                    echo "[daytwo] image warm: skopeo static binary installed: $(skopeo --version)"
+                    return 0
+                  fi
+                  echo "[daytwo] image warm: skopeo download attempt ${_sk_try}/3 failed; retrying in 5s"
+                  _sk_try=$((_sk_try+1))
+                  sleep 5
+                done
+                rm -f "${WORK}/skopeo"
+                echo "[daytwo] image warm: skopeo unavailable after 3 download attempts — the warm path is disabled this cycle; every missing image stays in the manifest (fail-soft)"
+                return 1
+              }
+
+              # Parses the SAME flux-system/ghcr-pull dockerconfigjson step-03
+              # and step-08 read. Absent/empty => anonymous-only warm.
+              _creds_loaded=0
+              _ghcr_user=""; _ghcr_pat=""
+              _moth_user=""; _moth_pat=""
+              _warm_user=""; _warm_pat=""
+              daytwo_load_creds() {
+                [ "${_creds_loaded}" = "1" ] && return 0
+                _creds_loaded=1
+                if [ -z "${GHCR_DOCKERCONFIG:-}" ]; then
+                  echo "[daytwo] image warm: no ghcr dockerconfig mounted (stripped post-cutover by step-06, by design) — anonymous-only warm; supply daytwoReconciler.warm.credentialSecret for private refs"
+                  return 0
+                fi
+                case "${GHCR_DOCKERCONFIG}" in
+                  "{"*) _dc="${GHCR_DOCKERCONFIG}" ;;
+                  *) _dc=$(printf '%s' "${GHCR_DOCKERCONFIG}" | base64 -d 2>/dev/null || printf '%s' "${GHCR_DOCKERCONFIG}") ;;
+                esac
+                _ga=$(printf '%s' "${_dc}" | jq -r '.auths["ghcr.io"].auth // empty' 2>/dev/null || true)
+                if [ -n "${_ga}" ]; then
+                  _ghcr_user=$(printf '%s' "${_ga}" | base64 -d | awk -F: '{print $1}')
+                  _ghcr_pat=$(printf '%s' "${_ga}" | base64 -d | cut -d: -f2-)
+                fi
+                _ma=$(printf '%s' "${_dc}" | jq -r --arg h "${MOTHERSHIP_HOST}" '.auths[$h].auth // empty' 2>/dev/null || true)
+                if [ -n "${_ma}" ]; then
+                  _moth_user=$(printf '%s' "${_ma}" | base64 -d | awk -F: '{print $1}')
+                  _moth_pat=$(printf '%s' "${_ma}" | base64 -d | cut -d: -f2-)
+                fi
+                # An operator-supplied credential OVERRIDES the (possibly
+                # stripped) cutover one for the upstream registry host.
+                # #5640: bound to WARM_REGISTRY_HOST, NOT hard-wired to ghcr.io.
+                # The previous `&& [ "${WARM_REGISTRY_HOST}" = "ghcr.io" ]` meant
+                # an operator who mirrors the catalog into their own registry —
+                # the posture values.yaml explicitly documents — had their
+                # credential silently ignored and every private ref fell back to
+                # anonymous, which reads as "the image is missing".
+                if [ -n "${WARM_CRED_SECRET_NAME}" ]; then
+                  _wu=$(kubectl -n "${WARM_CRED_SECRET_NAMESPACE}" get secret "${WARM_CRED_SECRET_NAME}" -o "jsonpath={.data.${WARM_CRED_USERNAME_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
+                  _wp=$(kubectl -n "${WARM_CRED_SECRET_NAMESPACE}" get secret "${WARM_CRED_SECRET_NAME}" -o "jsonpath={.data.${WARM_CRED_PASSWORD_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
+                  if [ -n "${_wu}" ] && [ -n "${_wp}" ]; then
+                    _warm_user="${_wu}"; _warm_pat="${_wp}"
+                    if [ "${WARM_REGISTRY_HOST}" = "ghcr.io" ]; then
+                      _ghcr_user="${_wu}"; _ghcr_pat="${_wp}"
+                    fi
+                    echo "[daytwo] image delivery: using the operator-supplied credential Secret ${WARM_CRED_SECRET_NAMESPACE}/${WARM_CRED_SECRET_NAME} for ${WARM_REGISTRY_HOST}"
+                  fi
+                fi
+              }
+
+              daytwo_src_creds_for() {
+                case "$1" in
+                  ghcr.io) [ -n "${_ghcr_user}" ] && printf '%s:%s' "${_ghcr_user}" "${_ghcr_pat}" || printf '' ;;
+                  "${MOTHERSHIP_HOST}") [ -n "${_moth_user}" ] && printf '%s:%s' "${_moth_user}" "${_moth_pat}" || printf '' ;;
+                  "${WARM_REGISTRY_HOST}") [ -n "${_warm_user}" ] && printf '%s:%s' "${_warm_user}" "${_warm_pat}" || printf '' ;;
+                  *) printf '' ;;
+                esac
+              }
+
+              # daytwo_manifest_present LOCAL_PATH -> 0 present, 1 absent.
+              # The SAME local-Harbor /v2 manifest HEAD step-08's completeness
+              # gate performs (3 attempts absorb a Harbor blip; a genuine 404
+              # is the signal).
+              daytwo_manifest_present() {
+                _mp_lp="$1"
+                _mp_repo="${_mp_lp}"; _mp_ref="latest"
+                case "${_mp_lp}" in
+                  *@*) _mp_ref="${_mp_lp##*@}"; _mp_repo="${_mp_lp%@*}"; case "${_mp_repo##*/}" in *:*) _mp_repo="${_mp_repo%:*}" ;; esac ;;
+                  *) case "${_mp_lp##*/}" in *:*) _mp_ref="${_mp_lp##*:}"; _mp_repo="${_mp_lp%:*}" ;; esac ;;
+                esac
+                DAYTWO_LAST_REPO="${_mp_repo}"; DAYTWO_LAST_REF="${_mp_ref}"
+                _mp_try=1; _mp_code=000
+                while [ "${_mp_try}" -le 3 ]; do
+                  _mp_code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 30 \
+                    -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                    -H "Accept: application/vnd.oci.image.manifest.v1+json,application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.v2+json,application/vnd.docker.distribution.manifest.list.v2+json" \
+                    -I "${HARBOR_PUBLIC_URL}/v2/${_mp_repo}/manifests/${_mp_ref}" 2>/dev/null || echo 000)
+                  case "${_mp_code}" in 200|301|302) DAYTWO_LAST_CODE="${_mp_code}"; return 0 ;; esac
+                  _mp_try=$((_mp_try+1)); [ "${_mp_try}" -le 3 ] && sleep 3
+                done
+                DAYTWO_LAST_CODE="${_mp_code}"
+                return 1
+              }
+
+              # daytwo_warm_image UPSTREAM_REF LOCAL_PATH -> 0 warmed, 1 not.
+              # Byte-for-byte the step-08 #5194 self-heal copy: the same skopeo
+              # flags, the same #5095 mothership-proxy -> DIRECT inverse-map
+              # fallback, plus the #5525 scarf.sh -> mothership-proxy forward-map
+              # fallback step-03 copy_one carries. Source selection ONLY — the
+              # DEST is the resolver-derived local path, never re-derived here.
+              daytwo_warm_image() {
+                _wi_up=$(offlinemirror_normalize_ref "$1")
+                _wi_lp="$2"
+                _wi_lref="${LOCAL_REGISTRY_HOST}/${_wi_lp}"
+                # ── #5640 SOURCE INVERSION ────────────────────────────────────
+                # Post-cutover, step-07's pod-spec sweep has ALREADY rewritten
+                # this workload's image to registry.<fqdn>/<local-path>, so the
+                # ref enumerated off the live cluster carries NO upstream host.
+                # Copying it as the SOURCE asks skopeo to copy the local registry
+                # to itself, for an artifact the local registry just 404'd — it
+                # can never deliver anything, and it would report "copy failed"
+                # rather than "I do not know where this came from". That is the
+                # hw292 class exactly: catalyst-ui was pinned to a tag published
+                # after cutover, and its live ref was the pivoted one. Invert the
+                # SHARED 03a map (offlinemirror_upstream_ref) to recover the true
+                # upstream before copying.
+                case "${_wi_up}" in
+                  "${LOCAL_REGISTRY_HOST}"/*)
+                    _wi_inv=$(offlinemirror_upstream_ref "${_wi_up}" 2>/dev/null || true)
+                    if [ -z "${_wi_inv}" ]; then
+                      echo "[daytwo] image delivery REFUSED ${_wi_up}: already on the local registry and the shared 03a inverse map cannot name its upstream. Copying it would be a local->local self-copy of an artifact local Harbor does not have. Side-load it from the manifest instead (#5640)"
+                      return 1
+                    fi
+                    echo "[daytwo] image delivery: ${_wi_up} is a step-07 pivoted ref; inverse-mapped upstream = ${_wi_inv} (#5640)"
+                    _wi_up="${_wi_inv}"
+                    ;;
+                esac
+                # FAIL-CLOSED belt-and-braces: whatever the inversion produced,
+                # never let source and destination be the same registry.
+                if [ "${_wi_up%%/*}" = "${LOCAL_REGISTRY_HOST}" ]; then
+                  echo "[daytwo] image delivery REFUSED ${_wi_up} -> ${_wi_lref}: source and destination are the SAME registry — a self-copy can only ever fail, and reporting it as a copy failure would hide the real defect (#5640)"
+                  return 1
+                fi
+                daytwo_ensure_skopeo || return 1
+                daytwo_load_creds
+                _wi_srchost="${_wi_up%%/*}"
+                case "${_wi_srchost}" in *.*|*:*|localhost) : ;; *) _wi_srchost="docker.io" ;; esac
+                _wi_sc=$(daytwo_src_creds_for "${_wi_srchost}")
+                _wi_fb_up=""; _wi_fb_sc=""
+                if [ -n "${MOTHERSHIP_HOST:-}" ] && [ "${_wi_srchost}" = "${MOTHERSHIP_HOST}" ]; then
+                  # #5095 — INVERSE coverage-map walk: harbor.openova.io/proxy-<x>/<path>
+                  # -> the FIRST mapped host whose project is <x>. No second hand-list.
+                  _wi_rest="${_wi_up#*/}"
+                  case "${_wi_rest}" in
+                    */*)
+                      _wi_proj="${_wi_rest%%/*}"; _wi_path="${_wi_rest#*/}"
+                      for _wi_pair in ${HOST_PROJECT_MAP}; do
+                        _wi_h="${_wi_pair%%:*}"
+                        case "${_wi_pair}" in *:*) _wi_p="${_wi_pair#*:}" ;; *) _wi_p="" ;; esac
+                        if [ -n "${_wi_p}" ] && [ "${_wi_p}" = "${_wi_proj}" ]; then
+                          _wi_fb_up="${_wi_h}/${_wi_path}"
+                          _wi_fb_sc=$(daytwo_src_creds_for "${_wi_h}")
+                          break
+                        fi
+                      done
+                      ;;
+                  esac
+                elif [ -n "${MOTHERSHIP_HOST:-}" ]; then
+                  # #5525 — a *.docker.scarf.sh redirector shares Docker Hub's
+                  # ANONYMOUS per-IP quota, so its secondary source is the
+                  # mothership proxy, derived by the FORWARD map lookup.
+                  case "${_wi_srchost}" in
+                    *.docker.scarf.sh)
+                      _wi_sp=""
+                      for _wi_pair in ${HOST_PROJECT_MAP}; do
+                        _wi_h="${_wi_pair%%:*}"
+                        case "${_wi_pair}" in *:*) _wi_p="${_wi_pair#*:}" ;; *) _wi_p="" ;; esac
+                        if [ "${_wi_h}" = "${_wi_srchost}" ] && [ -n "${_wi_p}" ]; then _wi_sp="${_wi_p}"; break; fi
+                      done
+                      if [ -n "${_wi_sp}" ]; then
+                        _wi_fb_up="${MOTHERSHIP_HOST}/${_wi_sp}/${_wi_up#*/}"
+                        _wi_fb_sc=$(daytwo_src_creds_for "${MOTHERSHIP_HOST}")
+                      fi
+                      ;;
+                  esac
+                fi
+                _wi_attempts="${PREWARM_COPY_ATTEMPTS:-3}"
+                [ -n "${MOTHERSHIP_HOST:-}" ] && [ "${_wi_srchost}" = "${MOTHERSHIP_HOST}" ] && _wi_attempts="${PREWARM_PROXY_COPY_ATTEMPTS:-6}"
+                _wi_attempt=1
+                while [ "${_wi_attempt}" -le "${_wi_attempts}" ]; do
+                  echo "[daytwo] image warm: copying ${_wi_up} -> ${_wi_lref} (attempt ${_wi_attempt}/${_wi_attempts})"
+                  if [ -n "${_wi_sc}" ]; then set -- --src-creds="${_wi_sc}"; else set --; fi
+                  if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT:-1200s}" copy \
+                    --insecure-policy --multi-arch all --retry-times 5 "$@" \
+                    --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                    --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY:-false}" \
+                    --src-tls-verify=true \
+                    "docker://${_wi_up}" "docker://${_wi_lref}" >"${WORK}/warm.log" 2>&1; then
+                    echo "[daytwo] image warm OK ${_wi_up} -> ${_wi_lref}"
+                    return 0
+                  fi
+                  sed 's/^/    /' "${WORK}/warm.log"
+                  if [ -n "${_wi_fb_up}" ]; then
+                    echo "[daytwo] image warm: primary source failed; secondary-source fallback ${_wi_fb_up} -> ${_wi_lref} (#5095/#5525)"
+                    if [ -n "${_wi_fb_sc}" ]; then set -- --src-creds="${_wi_fb_sc}"; else set --; fi
+                    if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT:-1200s}" copy \
+                      --insecure-policy --multi-arch all --retry-times 5 "$@" \
+                      --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+                      --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY:-false}" \
+                      --src-tls-verify=true \
+                      "docker://${_wi_fb_up}" "docker://${_wi_lref}" >"${WORK}/warm.log" 2>&1; then
+                      echo "[daytwo] image warm OK ${_wi_fb_up} -> ${_wi_lref} (secondary-source fallback)"
+                      return 0
+                    fi
+                    sed 's/^/    /' "${WORK}/warm.log"
+                  fi
+                  _wi_attempt=$((_wi_attempt+1))
+                  [ "${_wi_attempt}" -le "${_wi_attempts}" ] && sleep 5
+                done
+                echo "[daytwo] image warm FAILED ${_wi_up} -> ${_wi_lref} after ${_wi_attempts} attempt(s) (left in the missing manifest; workloads keep running on the installed version)"
+                return 1
+              }
+
+              # reconcile_images_once — the #5640 leg. Enumerate what the
+              # Sovereign's OWN GitOps declares, map each ref through the shared
+              # resolver, and assert the local Harbor can serve it.
+              CHART_PINS=0; CHART_PRESENT=0; CHART_WARMED=0; CHART_MISS=0; CHART_STATUS="skipped"
+              IMAGE_REFS=0; IMAGE_PRESENT=0; IMAGE_WARMED=0; IMAGE_MISS=0; IMAGE_STATUS="skipped"
+              MISSING_CHARTS_FILE="${WORK}/missing-charts.tsv"
+              MISSING_IMAGES_FILE="${WORK}/missing-images.tsv"
+
+              reconcile_images_once() {
+                : > "${MISSING_IMAGES_FILE}"
+                IMAGE_REFS=0; IMAGE_PRESENT=0; IMAGE_WARMED=0; IMAGE_MISS=0
+                if [ "${RESOLVER_OK}" != "1" ]; then
+                  IMAGE_STATUS="no-resolver"
+                  return 1
+                fi
+                if [ -z "${HOST_PROJECT_MAP:-}" ]; then
+                  echo "[daytwo] image leg: HOST_PROJECT_MAP is empty — the coverage map did not project; skipping this cycle rather than guessing paths"
+                  IMAGE_STATUS="no-coverage-map"
+                  return 1
+                fi
+                # running Pods ∪ declared workload templates — the #3944
+                # completeness union. The declared half is load-bearing HERE:
+                # the hw292 offender was in ImagePullBackOff, i.e. it had NO
+                # running container to enumerate.
+                _running=$(kubectl get pods -A -o json 2>/dev/null | \
+                  jq -r '.items[].spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null || true)
+                _declared=$(kubectl get deployments,statefulsets,daemonsets -A -o json 2>/dev/null | \
+                  jq -r '.items[].spec.template.spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null || true)
+                _cron=$(kubectl get cronjobs -A -o json 2>/dev/null | \
+                  jq -r '.items[].spec.jobTemplate.spec.template.spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null || true)
+                _jobs=$(kubectl get jobs -A -o json 2>/dev/null | \
+                  jq -r '.items[].spec.template.spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null || true)
+                _imgs=$(printf '%s\n%s\n%s\n%s\n' "${_running}" "${_declared}" "${_cron}" "${_jobs}" | \
+                  grep -E '^[^[:space:]]+$' | grep -v '^null$' | sort -u || true)
+                _n=$(printf '%s\n' "${_imgs}" | grep -c . || true)
+                # VACUITY GUARD. A zero-ref parse is NEVER "all clear" — it is a
+                # broken enumeration (RBAC lost, jq missing, API unreachable).
+                # Reporting it as green is precisely the failure mode that let
+                # #5640 stay invisible, so it is a loud, distinct outcome.
+                if [ "${_n}" -eq 0 ]; then
+                  echo "[daytwo] image leg: enumeration returned ZERO image refs — that is a broken read (RBAC/jq/apiserver), NOT an all-clear; skipping this cycle"
+                  IMAGE_STATUS="enumeration-empty"
+                  return 1
+                fi
+                if [ "${_n}" -gt "${IMAGE_SCAN_MAX}" ]; then
+                  echo "[daytwo] image leg: ${_n} refs exceeds IMAGE_SCAN_MAX=${IMAGE_SCAN_MAX}; scanning the first ${IMAGE_SCAN_MAX} this cycle (raise daytwoReconciler.images.maxRefsPerCycle to widen)"
+                  _imgs=$(printf '%s\n' "${_imgs}" | head -n "${IMAGE_SCAN_MAX}")
+                fi
+                for _img in ${_imgs}; do
+                  [ -z "${_img}" ] && continue
+                  _paths=$(offlinemirror_local_paths "${_img}")
+                  case "${_paths}" in
+                    __UNMAPPED__*)
+                      _uh=$(printf '%s' "${_paths}" | awk '{print $2}')
+                      printf 'UNMAPPED\t%s\t%s\n' "${_img}" "${_uh}" >> "${MISSING_IMAGES_FILE}"
+                      IMAGE_MISS=$((IMAGE_MISS+1))
+                      echo "[daytwo] UNMAPPED host ${_uh} for ${_img} — offlineMirror.hostProjects has no project for it, so no local path exists to check (#4975)"
+                      continue ;;
+                    "") continue ;;   # excluded by design — not mirrored
+                  esac
+                  for _lp in ${_paths}; do
+                    IMAGE_REFS=$((IMAGE_REFS+1))
+                    if daytwo_manifest_present "${_lp}"; then
+                      IMAGE_PRESENT=$((IMAGE_PRESENT+1))
+                      continue
+                    fi
+                    _code="${DAYTWO_LAST_CODE:-000}"
+                    # The upstream this local path came from — needed BOTH for
+                    # scope matching (so an operator can name the artifact in
+                    # upstream form) and for the copy itself.
+                    _upref=$(offlinemirror_upstream_ref "${_img}" 2>/dev/null || true)
+                    if daytwo_delivery_allowed "${_img}" "${_upref}" "${_lp}"; then
+                      if daytwo_warm_image "${_img}" "${_lp}" && daytwo_manifest_present "${_lp}"; then
+                        IMAGE_WARMED=$((IMAGE_WARMED+1))
+                        REQ_DELIVERED=$((REQ_DELIVERED+1))
+                        [ "${REQ_ACTIVE}" = "1" ] && daytwo_audit "IMAGE\tdelivered\t${REQ_ID}\t${REQ_BY}\t${_upref:-${_img}}\t${LOCAL_REGISTRY_HOST}/${_lp}"
+                        echo "[daytwo] image delivery restored ${LOCAL_REGISTRY_HOST}/${_lp}"
+                        continue
+                      fi
+                      REQ_FAILED=$((REQ_FAILED+1))
+                      [ "${REQ_ACTIVE}" = "1" ] && daytwo_audit "IMAGE\tfailed\t${REQ_ID}\t${REQ_BY}\t${_upref:-${_img}}\t${LOCAL_REGISTRY_HOST}/${_lp}"
+                    fi
+                    printf 'IMAGE\t%s\t%s\t%s\n' "${_img}" "${_lp}" "${_code}" >> "${MISSING_IMAGES_FILE}"
+                    IMAGE_MISS=$((IMAGE_MISS+1))
+                    echo "[daytwo] MISSING local Harbor image: ${LOCAL_REGISTRY_HOST}/${_lp} (HTTP ${_code}) declared by ${_img} — any Pod rolled onto it will ImagePullBackOff until this artifact is present (#5640)"
+                  done
+                done
+                IMAGE_STATUS="ok"
+                echo "[daytwo] image leg: refs=${IMAGE_REFS} present=${IMAGE_PRESENT} warmed=${IMAGE_WARMED} missing=${IMAGE_MISS}"
+                return 0
+              }
+
+              reconcile_charts_once() {
+                : > "${MISSING_CHARTS_FILE}"
+                CHART_PINS=0; CHART_PRESENT=0; CHART_WARMED=0; CHART_MISS=0
                 # Idempotent pre-flight: pre-cutover (or before step-01 mirrored)
                 # the local Gitea repo isn't present — skip this iteration.
                 if [ -n "${gitea_host}" ] && ! nslookup "${gitea_host}" >/dev/null 2>&1; then
-                  echo "[daytwo] ${gitea_host} not resolvable yet — local Gitea not up (pre-cutover?); skipping this cycle"
+                  echo "[daytwo] ${gitea_host} not resolvable yet — local Gitea not up (pre-cutover?); skipping the chart leg this cycle"
+                  CHART_STATUS="gitea-absent"
                   return 0
                 fi
                 _pat=$(read_pat)
                 if [ -z "${_pat}" ]; then
                   echo "[daytwo] PAT ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}.${PAT_SOURCE_KEY} not readable — cannot read the local Gitea mirror this cycle; retrying next interval"
+                  CHART_STATUS="pat-unreadable"
                   return 1
                 fi
                 _api="${GITEA_INTERNAL_URL%/}/api/v1/repos/${GITEA_ORG}/${GITEA_REPO}"
                 # Repo present? (Not yet mirrored => nothing to reconcile.)
                 if ! curl -fsS --max-time 30 -H "Authorization: token ${_pat}" "${_api}" 2>/dev/null | grep -q '"full_name"'; then
-                  echo "[daytwo] local repo ${GITEA_ORG}/${GITEA_REPO} not present yet — step-01 gitea-mirror has not completed; skipping this cycle"
+                  echo "[daytwo] local repo ${GITEA_ORG}/${GITEA_REPO} not present yet — step-01 gitea-mirror has not completed; skipping the chart leg this cycle"
+                  CHART_STATUS="repo-absent"
                   return 0
                 fi
 
@@ -270,6 +926,7 @@ spec:
                   | jq -r '.[] | select(.type=="file") | .name | select(test("^[0-9].*\\.ya?ml$"))' 2>/dev/null || true)
                 if [ -z "${_list}" ]; then
                   echo "[daytwo] could not list ${_bkpath} in the local Gitea mirror this cycle; retrying next interval"
+                  CHART_STATUS="slot-list-failed"
                   return 1
                 fi
                 _ff=0
@@ -284,45 +941,61 @@ spec:
                 . /pin-extractor/extract-pins.sh
                 _pins=/tmp/daytwo-pins.tsv
                 bootstrapkit_pins "${_dir}" "${UPSTREAM_PREFIX}" "oci://${HARBOR_HOST}/openova-io" > "${_pins}" 2>/dev/null || true
-                _pn=$(grep -c . "${_pins}" 2>/dev/null || true)
-                if [ "${_pn}" -eq 0 ]; then
-                  echo "[daytwo] extractor parsed zero pins this cycle (mirror mid-sync or slot drift) — skipping; retrying next interval"
+                CHART_PINS=$(grep -c . "${_pins}" 2>/dev/null || true)
+                if [ "${CHART_PINS}" -eq 0 ]; then
+                  echo "[daytwo] extractor parsed zero pins this cycle (mirror mid-sync or slot drift) — that is a broken parse, NOT an all-clear; retrying next interval"
+                  CHART_STATUS="pins-empty"
                   return 1
                 fi
 
                 # Diff every frozen chart pin against local Harbor.
-                _missing=/tmp/daytwo-missing.txt; : > "${_missing}"
-                _present=0; _miss=0; _warmed=0
                 while IFS="$(printf '\t')" read -r _c _v; do
                   [ -z "${_c}" ] && continue
                   if harbor_has "${_c}" "${_v}"; then
-                    _present=$((_present+1)); continue
+                    CHART_PRESENT=$((CHART_PRESENT+1)); continue
                   fi
-                  # Missing. In warm mode, try to fetch it; re-check after.
-                  if [ "${RECONCILE_MODE}" = "warm" ] && warm_chart "${_c}" "${_v}" && harbor_has "${_c}" "${_v}"; then
-                    _warmed=$((_warmed+1)); continue
+                  # Missing. Only an ALLOWED delivery may reach upstream — warm
+                  # always, request only for a chart this open window names as
+                  # `<chart>:<version>`. Re-check after.
+                  if daytwo_delivery_allowed "${_c}:${_v}" "" "${_c}:${_v}"; then
+                    if warm_chart "${_c}" "${_v}" && harbor_has "${_c}" "${_v}"; then
+                      CHART_WARMED=$((CHART_WARMED+1))
+                      REQ_DELIVERED=$((REQ_DELIVERED+1))
+                      [ "${REQ_ACTIVE}" = "1" ] && daytwo_audit "CHART\tdelivered\t${REQ_ID}\t${REQ_BY}\t${WARM_UPSTREAM_OCI_PREFIX}/${_c}:${_v}\toci://${HARBOR_HOST}/openova-io/${_c}:${_v}"
+                      continue
+                    fi
+                    REQ_FAILED=$((REQ_FAILED+1))
+                    [ "${REQ_ACTIVE}" = "1" ] && daytwo_audit "CHART\tfailed\t${REQ_ID}\t${REQ_BY}\t${WARM_UPSTREAM_OCI_PREFIX}/${_c}:${_v}\toci://${HARBOR_HOST}/openova-io/${_c}:${_v}"
                   fi
-                  printf '%s\t%s\n' "${_c}" "${_v}" >> "${_missing}"
-                  _miss=$((_miss+1))
-                  echo "[daytwo] MISSING local Harbor: openova-io/${_c}:${_v} (frozen bootstrap-kit pin) — its HR upgrade will wedge until this artifact is present"
+                  printf 'CHART\t%s\t%s\n' "${_c}" "${_v}" >> "${MISSING_CHARTS_FILE}"
+                  CHART_MISS=$((CHART_MISS+1))
+                  echo "[daytwo] MISSING local Harbor chart: openova-io/${_c}:${_v} (frozen bootstrap-kit pin) — its HR upgrade will wedge until this artifact is present"
                 done < "${_pins}"
+                CHART_STATUS="ok"
+                echo "[daytwo] chart leg: pins=${CHART_PINS} present=${CHART_PRESENT} warmed=${CHART_WARMED} missing=${CHART_MISS}"
+                return 0
+              }
 
-                # Publish the missing set to a durable ConfigMap (the offline-
-                # media manifest for air-gapped Sovereigns; the actionable signal
-                # for everyone). Always write it — an EMPTY manifest is the
-                # "all pins present" all-clear.
-                _mf=/tmp/daytwo-manifest.txt
+              # Publish the missing set to a durable ConfigMap (the offline-media
+              # manifest for air-gapped Sovereigns; the actionable signal for
+              # everyone). ALWAYS written — an empty manifest is the all-clear,
+              # and a leg that could not run says so EXPLICITLY rather than
+              # silently contributing zero misses.
+              publish_manifest() {
+                _mf="${WORK}/manifest.txt"
+                _total=$((CHART_MISS + IMAGE_MISS))
                 {
-                  echo "# self-sovereign-cutover Day-2 Harbor pin manifest (#5265)"
+                  echo "# self-sovereign-cutover Day-2 local-Harbor manifest (#5265 charts + #5640 images)"
                   echo "# generated $(date -u +%Y-%m-%dT%H:%M:%SZ) mode=${RECONCILE_MODE}"
-                  echo "# pins=${_pn} present=${_present} warmed=${_warmed} missing=${_miss}"
-                  echo "# each MISSING line is a chart OCI artifact to side-load into local Harbor project openova-io:"
+                  echo "# chartLeg=${CHART_STATUS} pins=${CHART_PINS} present=${CHART_PRESENT} warmed=${CHART_WARMED} missing=${CHART_MISS}"
+                  echo "# imageLeg=${IMAGE_STATUS} refs=${IMAGE_REFS} present=${IMAGE_PRESENT} warmed=${IMAGE_WARMED} missing=${IMAGE_MISS}"
+                  echo "# CHART lines side-load as:"
                   echo "#   helm pull ${WARM_UPSTREAM_OCI_PREFIX}/<chart> --version <version>  &&  helm push <tgz> oci://${HARBOR_HOST}/openova-io"
-                  if [ "${_miss}" -gt 0 ]; then
-                    sort -u "${_missing}" | while IFS="$(printf '\t')" read -r _mc _mv; do
-                      [ -n "${_mc}" ] && printf 'MISSING\t%s\t%s\n' "${_mc}" "${_mv}"
-                    done
-                  else
+                  echo "# IMAGE lines side-load as:"
+                  echo "#   skopeo copy docker://<upstream-ref> docker://${LOCAL_REGISTRY_HOST}/<local-path>"
+                  if [ -s "${MISSING_CHARTS_FILE}" ]; then sort -u "${MISSING_CHARTS_FILE}"; fi
+                  if [ -s "${MISSING_IMAGES_FILE}" ]; then sort -u "${MISSING_IMAGES_FILE}"; fi
+                  if [ "${_total}" -eq 0 ] && [ "${CHART_STATUS}" != "pins-empty" ] && [ "${IMAGE_STATUS}" != "enumeration-empty" ]; then
                     echo "ALL_PINS_PRESENT"
                   fi
                 } > "${_mf}"
@@ -331,41 +1004,79 @@ spec:
                   --dry-run=client -o yaml 2>/dev/null \
                   | kubectl -n "${RELEASE_NAMESPACE}" apply -f - >/dev/null 2>&1 \
                   || echo "[daytwo] WARN: could not update ConfigMap ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM} (logs still carry the manifest)"
-
-                echo "[daytwo] cycle complete: pins=${_pn} present=${_present} warmed=${_warmed} missing=${_miss} (manifest -> ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM})"
-                return 0
               }
 
-              # warm-mode one-time upstream + local registry logins (best-effort;
-              # login failure falls through to per-chart fail-soft handling).
-              if [ "${RECONCILE_MODE}" = "warm" ]; then
-                export HELM_CACHE_HOME=/tmp/.helm-cache HELM_CONFIG_HOME=/tmp/.helm-config HELM_DATA_HOME=/tmp/.helm-data
-                if [ -n "${WARM_CRED_SECRET_NAME}" ]; then
-                  _wu=$(kubectl -n "${WARM_CRED_SECRET_NAMESPACE}" get secret "${WARM_CRED_SECRET_NAME}" -o "jsonpath={.data.${WARM_CRED_USERNAME_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
-                  _wp=$(kubectl -n "${WARM_CRED_SECRET_NAMESPACE}" get secret "${WARM_CRED_SECRET_NAME}" -o "jsonpath={.data.${WARM_CRED_PASSWORD_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
-                  if [ -n "${_wu}" ] && [ -n "${_wp}" ]; then
-                    helm registry login "${WARM_REGISTRY_HOST}" -u "${_wu}" -p "${_wp}" >/dev/null 2>&1 \
-                      && echo "[daytwo] warm: authenticated to upstream ${WARM_REGISTRY_HOST}" \
-                      || echo "[daytwo] warm: upstream ${WARM_REGISTRY_HOST} login failed (anonymous pulls only; private charts stay in the missing manifest)"
-                  else
-                    echo "[daytwo] warm: credential Secret ${WARM_CRED_SECRET_NAMESPACE}/${WARM_CRED_SECRET_NAME} has no usable ${WARM_CRED_USERNAME_KEY}/${WARM_CRED_PASSWORD_KEY} — anonymous pulls only"
-                  fi
-                else
-                  echo "[daytwo] warm: no credentialSecret configured — anonymous pulls only (openova-io charts are PRIVATE; supply daytwoReconciler.warm.credentialSecret to fetch them)"
+              # #5640 FAIL-CLOSED readiness verdict. Written from the MEASURED
+              # cycle outcome, never from a knob: READY requires every enabled
+              # leg to have completed (status=ok) AND zero missing artifacts. A
+              # leg that could not run is NOT-READY — "I could not check" must
+              # never present as "all clear", which is the exact laundering that
+              # kept #5640 invisible.
+              publish_health() {
+                _ph_reason=""
+                if [ "${CHART_LEG_ENABLED}" = "true" ] && [ "${CHART_STATUS}" != "ok" ]; then
+                  _ph_reason="chart-leg-${CHART_STATUS}"
                 fi
-                helm registry login "${HARBOR_HOST}" -u "${HARBOR_USERNAME}" -p "${HARBOR_PASSWORD}" >/dev/null 2>&1 \
-                  && echo "[daytwo] warm: authenticated to local Harbor ${HARBOR_HOST}" \
-                  || echo "[daytwo] warm: local Harbor ${HARBOR_HOST} login failed — pushes will retry per cycle"
-              fi
+                if [ "${IMAGE_LEG_ENABLED}" = "true" ] && [ "${IMAGE_STATUS}" != "ok" ]; then
+                  _ph_reason="${_ph_reason:+${_ph_reason},}image-leg-${IMAGE_STATUS}"
+                fi
+                if [ "$((CHART_MISS + IMAGE_MISS))" -gt 0 ]; then
+                  _ph_reason="${_ph_reason:+${_ph_reason},}unpullable-pins=$((CHART_MISS + IMAGE_MISS))"
+                fi
+                if [ -n "${_ph_reason}" ]; then
+                  echo "NOTREADY ${_ph_reason}" > "${HEALTH_FILE}"
+                  echo "[daytwo] readiness: NOT-READY (${_ph_reason}) — this Deployment now reports 0/1 READY. On a post-cutover Sovereign that is the visible form of 'this cluster holds a pin its registry cannot serve' (#5640)"
+                else
+                  echo "READY" > "${HEALTH_FILE}"
+                fi
+              }
+
+              reconcile_once() {
+                _rc=0
+                CHART_STATUS="disabled"; IMAGE_STATUS="disabled"
+                : > "${MISSING_CHARTS_FILE}"; : > "${MISSING_IMAGES_FILE}"
+                CHART_PINS=0; CHART_PRESENT=0; CHART_WARMED=0; CHART_MISS=0
+                IMAGE_REFS=0; IMAGE_PRESENT=0; IMAGE_WARMED=0; IMAGE_MISS=0
+                REQ_DELIVERED=0; REQ_FAILED=0
+                daytwo_load_request
+                if [ "${CHART_LEG_ENABLED}" = "true" ]; then
+                  reconcile_charts_once || _rc=1
+                fi
+                if [ "${IMAGE_LEG_ENABLED}" = "true" ]; then
+                  reconcile_images_once || _rc=1
+                fi
+                daytwo_consume_request
+                daytwo_audit_flush
+                publish_manifest
+                publish_health
+                echo "[daytwo] cycle complete: charts(${CHART_STATUS}) missing=${CHART_MISS} | images(${IMAGE_STATUS}) missing=${IMAGE_MISS} (manifest -> ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM})"
+                return "${_rc}"
+              }
 
               # The Day-2 loop. Never exit on a transient cycle failure — a wedge
               # in one cycle must not stop the reconciler (region-kill canon: the
               # loop is the durable surface).
               while : ; do
-                reconcile_once || echo "[daytwo] this cycle could not complete (transient); retrying next interval"
+                reconcile_once || echo "[daytwo] this cycle could not complete fully (transient); retrying next interval"
                 echo "[daytwo] sleeping ${RECONCILE_INTERVAL_SECONDS}s"
                 sleep "${RECONCILE_INTERVAL_SECONDS}"
               done
+          # #5640 FAIL-CLOSED SURFACE. The loop writes READY into the health file
+          # only when its last cycle MEASURED every pinned chart + image as
+          # servable by the registry this Sovereign is permitted to use. So
+          # `kubectl get deploy cutover-daytwo-harbor-reconciler` reading 0/1 IS
+          # the statement "this Sovereign holds a pin it cannot pull" — a normal,
+          # alertable, non-silent condition instead of a log line and a ConfigMap
+          # nobody was watching. There is deliberately NO livenessProbe: a
+          # Sovereign that is missing an image must go NOT-READY, not restart.
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "grep -qx READY /tmp/daytwo-work/health"]
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 2
           resources:
             requests: { cpu: 25m, memory: 128Mi }
             limits:   { memory: 512Mi }
@@ -383,6 +1094,12 @@ spec:
             items:
               - key: extract-pins.sh
                 path: extract-pins.sh
+        - name: offline-mirror
+          configMap:
+            name: cutover-offline-mirror-resolver
+            items:
+              - key: resolver.sh
+                path: resolver.sh
         - name: tmp
           emptyDir: {}
 {{- end }}

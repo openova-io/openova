@@ -1,0 +1,17 @@
+### hw291 M4 (2026-07-30) — agenity fresh-install ghcr-pull path (PRs #4494/#4496)
+--- pod spec imagePullSecrets + image ---
+imagePullSecrets=ghcr-pull
+init=seed-claude-creds image=ghcr.io/openova-io/agenity:0.9.7
+ctr=chepherd image=ghcr.io/openova-io/agenity:0.9.7 pullPolicy=IfNotPresent
+--- resolved imageIDs (digest = a real registry pull, not a cached tag) ---
+init seed-claude-creds imageID=ghcr.io/openova-io/agenity@sha256:caeab91f75dc78a946ecd02d27d9d6f4c6b0966bbf885a2a4c3c4399d72ee69a exit=0
+ctr chepherd ready=true restarts=0 imageID=ghcr.io/openova-io/agenity@sha256:caeab91f75dc78a946ecd02d27d9d6f4c6b0966bbf885a2a4c3c4399d72ee69a
+--- HelmRelease ---
+chart=0.5.21 ready=True reason=UpgradeSucceeded
+--- ghcr-pull in uatcorp is REFLECTED from flux-system (not hand-made) ---
+type=kubernetes.io/dockerconfigjson reflects=flux-system/ghcr-pull reflected-at="2026-07-30T00:30:51.5853562+00:00"
+dockerconfigjson sha256 (value NEVER printed):
+db8ef2105e79ffd9b229bfd325aa06bddd613b3a60e5f87d366762e7f6f32921  -
+--- CONTROL: the image is genuinely private, so the pull secret was load-bearing ---
+anonymous  GET ghcr.io/v2/openova-io/agenity/manifests/0.9.7 -> HTTP 401
+anon-scoped-token then manifest -> HTTP 403 (verified separately)

@@ -464,10 +464,10 @@ func (h *Handler) installApplicationCore(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	if !rep.Valid {
-		writeJSON(w, http.StatusOK, map[string]any{
+		writeJSON(w, http.StatusBadRequest, map[string]any{
 			"error":      "invalid-parameters",
 			"status":     "400",
-			"httpStatus": 400,
+			"httpStatus": "400",
 			"applied":    false,
 			"detail":     "parameters do not satisfy Blueprint.spec.configSchema",
 			"errors":     rep.Errors,
@@ -501,13 +501,13 @@ func (h *Handler) installApplicationCore(w http.ResponseWriter, r *http.Request,
 	// orgNamespace() so they resolve to ONE consistent namespace.
 	appNS := orgNamespace(body.OrganizationRef)
 	if nsErr := ensureOrgNamespace(r.Context(), client, body.OrganizationRef); nsErr != nil {
-		writeJSON(w, http.StatusOK, map[string]any{
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"kind":       "Application",
 			"name":       body.Name,
 			"namespace":  appNS,
 			"error":      "namespace-ensure-failed",
 			"status":     "503",
-			"httpStatus": 503,
+			"httpStatus": "503",
 			"applied":    false,
 			"detail":     fmt.Sprintf("could not ensure namespace %q: %v", appNS, nsErr),
 		})
@@ -539,13 +539,13 @@ func (h *Handler) installApplicationCore(w http.ResponseWriter, r *http.Request,
 		r.Context(), obj, metav1.CreateOptions{})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			writeJSON(w, http.StatusOK, map[string]any{
+			writeJSON(w, http.StatusConflict, map[string]any{
 				"kind":       "Application",
 				"name":       body.Name,
 				"namespace":  appNS,
 				"error":      "application-exists",
 				"status":     "409",
-				"httpStatus": 409,
+				"httpStatus": "409",
 				"applied":    false,
 				"detail":     fmt.Sprintf("Application %q already exists in namespace %q", body.Name, appNS),
 			})
@@ -596,11 +596,11 @@ func (h *Handler) installApplicationCore(w http.ResponseWriter, r *http.Request,
 // Mirrors writeRBACAssignForbidden from Fix #160 PR #1364
 // (rbac_assign.go).
 func writeApplicationInstallForbidden(w http.ResponseWriter, detail string) {
-	writeJSON(w, http.StatusOK, map[string]any{
+	writeJSON(w, http.StatusForbidden, map[string]any{
 		"kind":       "Application",
 		"error":      "403",
 		"status":     "403",
-		"httpStatus": 403,
+		"httpStatus": "403",
 		"applied":    false,
 		"detail":     detail,
 	})
@@ -620,17 +620,33 @@ func writeApplicationInstallForbidden(w http.ResponseWriter, detail string) {
 //     ["Application"] resolves regardless of which error path fired
 //   - detail     — the original error message
 //
-// This is the same wire-shape contract Fix #160 PR #1364 applied to
-// /rbac/assign via writeRBACAssignValidationError — the runner FAILs
-// every non-2xx BEFORE reading the body, so returning 200 with
-// explicit error tokens is the only way must_contain / must_not_contain
-// assertions can resolve on the JSON.
+// #5500 — this used to emit HTTP 200 for EVERY one of those failures,
+// with the real code echoed only in the body. The rationale was a test
+// runner that FAILs a non-2xx before reading the body, so a 200 was the
+// only way its must_contain assertions could resolve on the JSON.
+//
+// That inverted the dependency: the production wire contract lied to
+// every real client so a harness could read a body. A caller doing the
+// normal thing — `response.ok`, `status < 300`, a non-2xx branch — read
+// a REJECTED install as a completed one, and had to know to parse the
+// body and trust a nested field over the status line it just received.
+//
+// docs/PRINCIPLES.md A8 ("must_contain token-passing test churn") already
+// names this shape and prescribes the direction: token-passing assertions
+// "must be deleted, not patched" — the pass condition belongs on the
+// behaviour, not on a string appearing. The status line IS the behaviour
+// here, so it now carries the truth and the body keeps every token
+// (kind/error/detail/status/httpStatus) for any consumer that reads it.
+//
+// httpStatus is also a STRING now, matching the success path's
+// `"httpStatus":"201"`. It was an int on this path, so a consumer
+// unmarshalling into a typed field failed on exactly one of the two.
 func writeApplicationInstallSoftError(w http.ResponseWriter, code string, origStatus int, detail string) {
-	writeJSON(w, http.StatusOK, map[string]any{
+	writeJSON(w, origStatus, map[string]any{
 		"kind":       "Application",
 		"error":      code,
 		"status":     fmt.Sprintf("%d", origStatus),
-		"httpStatus": origStatus,
+		"httpStatus": fmt.Sprintf("%d", origStatus),
 		"applied":    false,
 		"detail":     detail,
 	})
@@ -1321,6 +1337,32 @@ type dependsOnDetail struct {
 // Application CR named `name` across every namespace on the Sovereign.
 //
 // qa-loop iter-11 Fix #45 Cluster-C.
+// applicationPrimaryRegion resolves an Application's primary region from its
+// CR status.
+//
+// #5482 — the region lives at status.placement.primaryRegion. There is no
+// top-level status.primaryRegion key: the CR's status keys are conditions,
+// lastReconciledAt, observedGeneration, phase and placement. Reading only the
+// top-level path returned ok=false silently, leaving the response field empty,
+// so AppDetail.tsx fell back to appRegions[0] and rendered the HOST CLUSTER
+// LABEL `platform-bootstrap-owned-host` where a region belongs — the Overview
+// tab contradicting the Topology tab for the same object.
+//
+// The top-level path is retained as a fallback so a CR that does set it is
+// still honoured.
+func applicationPrimaryRegion(obj *unstructured.Unstructured) string {
+	if obj == nil {
+		return ""
+	}
+	if pr, ok, _ := unstructured.NestedString(obj.Object, "status", "placement", "primaryRegion"); ok && pr != "" {
+		return pr
+	}
+	if pr, ok, _ := unstructured.NestedString(obj.Object, "status", "primaryRegion"); ok {
+		return pr
+	}
+	return ""
+}
+
 func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 	depID := chi.URLParam(r, "id")
 	name := chi.URLParam(r, "name")
@@ -1388,9 +1430,27 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 	if v, ok, _ := unstructured.NestedString(obj.Object, "spec", "environmentRef"); ok {
 		resp.EnvironmentRef = v
 	}
-	if v, ok, _ := unstructured.NestedString(obj.Object, "spec", "placement"); ok {
-		resp.Placement = v
-	}
+	// #5422 — `spec.placement` has TWO shapes and this endpoint only ever read
+	// one. The legacy shape is a bare string; the #3373 shape is an object
+	// `{mode, vcluster, regions, clusters}` where the posture rides in `mode`.
+	// A raw NestedString against the object form returns ok=false, so
+	// `resp.Placement` stayed empty and `omitempty` dropped the field from the
+	// response entirely — and the console then turned that ABSENCE into a
+	// confident wrong answer (`?? 'singleton'` at AppDetail.tsx:255), rendering
+	// `singleton` for a two-region app directly above its own two-region
+	// REGIONS list. Live on hw290, `uat-ahs-hw290` showed Overview `singleton`
+	// while the Topology tab derived `active-hot-standby` from the same CR —
+	// exactly the contradictory second value EPIC #3969 forbids.
+	//
+	// #4897 already fixed this shape at sovereign.go:815 by routing through
+	// readTopology(); this call site was missed.
+	//
+	// Deliberately NOT calling readTopology() here: it defaults to "singleton"
+	// for a genuinely-absent placement, which would re-manufacture the very
+	// value this fixes. When placement is truly absent the field stays empty
+	// and omitempty drops it — the honest answer, which the console must render
+	// as unknown rather than inventing one.
+	resp.Placement = placementFromSpec(obj)
 	if regs, ok, _ := unstructured.NestedStringSlice(obj.Object, "spec", "regions"); ok {
 		resp.Regions = regs
 	}
@@ -1400,7 +1460,7 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 	if phase, ok, _ := unstructured.NestedString(obj.Object, "status", "phase"); ok {
 		resp.Phase = phase
 	}
-	if pr, ok, _ := unstructured.NestedString(obj.Object, "status", "primaryRegion"); ok {
+	if pr := applicationPrimaryRegion(obj); pr != "" {
 		resp.PrimaryRegion = pr
 	}
 	if gr, ok, _ := unstructured.NestedString(obj.Object, "status", "giteaRepo"); ok {

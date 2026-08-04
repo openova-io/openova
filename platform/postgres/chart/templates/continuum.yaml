@@ -95,6 +95,29 @@ spec:
   {{- with dig "rpo" "" $continuum }}
   rpo: {{ . | quote }}
   {{- end }}
+  # #5311 follow-up — the cnpg-pair join key the continuum-controller's
+  # standby probe + catalyst-api's #4901 standby-augment BOTH gate on
+  # (observe gate continuum_controller.go:420 `spec.CNPGPair != ""`;
+  # catalyst-api cnpgPairStandbyForContinuum returns untouched when
+  # spec.cnpgPair.name is empty). Before this, dr-shared-pg{,-b,-c} carried
+  # only the `catalyst.openova.io/cnpg-pair` LABEL (enough for the console DR
+  # WAL-lag panel via continuum_live.go's label discovery) but NOT this spec
+  # field — so the observe gate was skipped and `standbyAvailable` never
+  # surfaced for the shared-pg pairs, even though they render a genuine
+  # 2-region streaming pair (cluster.yaml primary + replica-cluster.yaml
+  # follower). The value is the SAME instance name the label + the two
+  # Cluster halves already stamp, so FindPair (labels catalyst.openova.io/
+  # cnpg-pair=<name> + openova.io/cnpg-role) resolves the local primary and
+  # the #5311 pg_stat_replication probe engages on the true 2-region topology
+  # (the region-b replica CR is not in the primary API). No new credential /
+  # NetworkPolicy: the CNPG-provisioned `<primary>-replication` Secret exists
+  # for every Cluster, and this chart's `-allow-replication-to-primary`
+  # NetworkPolicy already admits every namespace (incl. catalyst-system, where
+  # the controller runs) to the primary `-rw:5432` — unlike bp-cnpg-pair,
+  # which needed the #5337 carve-out. mirrors bp-cnpg-pair's continuum.yaml.
+  cnpgPair:
+    name: {{ include "bp-postgres.instanceName" . | quote }}
+    namespace: {{ include "bp-postgres.namespace" . | quote }}
   switchover:
     # cnpg-pair promotion (cordon + replica.enabled flip on the two Cluster
     # halves) — the mechanism bp-postgres's active-hot-standby replication

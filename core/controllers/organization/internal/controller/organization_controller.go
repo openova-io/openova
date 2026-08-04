@@ -810,11 +810,66 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 	}
 
+	// 6b. POSTCONDITION VERIFICATION (#5395). vclusterReadiness above reads back
+	// exactly ONE of the artifacts this reconciler authors (the vCluster HR, or
+	// for a host-tier Org merely the `<slug>` namespace). Everything else — the
+	// plan ResourceQuota + LimitRange authored into the per-Org repo, and the
+	// per-Org console Gateway listener pair — was fire-and-forget: nothing ever
+	// read it back, and reconcileConsoleServing's only output (`degraded`) fed a
+	// requeue and never reached status. So an Org could be missing its console
+	// listener (every HTTPRoute Accepted=False NoMatchingListenerHostname → the
+	// customer's console, mail, and apps all unreachable) or its purchased plan
+	// cap, and STILL report phase=Ready + Ready=True on every surface. Live on
+	// hw290: gamma-corp, 6/6 routes unrouted, Org green.
+	//
+	// verifyProvisioned re-reads what the controller claims to have provisioned.
+	// A proven-absent artifact holds BOTH the phase and the Ready condition back
+	// — the phase matters because the console derives an Org's "Active" badge
+	// from status.vcluster.phase FIRST and only falls through to the Ready
+	// condition (products/catalyst/bootstrap/api/internal/handler/org_list_from_cr.go
+	// orgStateFromCR), so downgrading the condition alone would have left the
+	// operator-visible state green.
+	//
+	// Deliberately NOT a retry: a retry would keep re-appending the listener
+	// while the Org still read Active, so a permanent failure would stay
+	// invisible. Naming the missing artifact is the fix; the requeue below is
+	// the self-heal that follows from it — and because a non-empty result keeps
+	// the requeue alive, this also closes the drift hole where a Ready Org
+	// (which returns ctrl.Result{} and has no Gateway watch) could lose its
+	// listener to an external rewrite and never re-converge.
+	//
+	// ensureEnvironment above stays gated on vcReady, NOT on this: an Org with a
+	// broken console edge must still get its Environment, or a cosmetic status
+	// fix would become a functional regression for the app-install path.
+	postconditions := provisioningPostconditions{}
+	if vcReady {
+		postconditions = r.verifyProvisioned(ctx, &org)
+		for _, u := range postconditions.Unverifiable {
+			// NOT evidence of absence (RBAC not yet rolled out, apiserver blip,
+			// CRD absent on a Catalyst-Zero install). Log + requeue; never
+			// fabricate a red from a failed probe — one botched RBAC rollout
+			// would otherwise red-flag every Org on the Sovereign at once.
+			log.Info("provisioning postcondition could not be verified (not treated as missing) — requeueing",
+				"organization", org.Spec.Slug, "probe", u)
+		}
+		if !postconditions.complete() {
+			log.Info("Organization is NOT fully provisioned — holding Ready back (#5395)",
+				"organization", org.Spec.Slug, "missing", postconditions.Missing)
+			// The console reads Active off the phase first — hold it too.
+			vcPhase = "Provisioning"
+		}
+	}
+
 	readyCond := orgapi.Condition{
 		Type:               "Ready",
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	}
-	if vcReady {
+	switch {
+	case vcReady && !postconditions.complete():
+		readyCond.Status = "False"
+		readyCond.Reason = "ProvisioningIncomplete"
+		readyCond.Message = postconditions.message()
+	case vcReady:
 		readyCond.Status = "True"
 		readyCond.Reason = "Reconciled"
 		// #4813 (status honesty): word the Ready message off the SAME
@@ -826,17 +881,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		// anti-pattern, cf. #3687 / #856). Only the vcluster tier
 		// (m/l/xl/flexi) authors + waits on the HR, so only it may claim it.
 		readyCond.Message = readyOrgMessage(org.Spec.PlanSlug)
-	} else {
+	default:
 		readyCond.Status = "False"
-		readyCond.Reason = "VClusterProvisioning"
+		// #5502 (Refs #4813/#4292/#4339): name the pending reason off the SAME
+		// tier gate vclusterReadiness + readyOrgMessage use. vcMsg was already
+		// tier-aware here; the machine-readable Reason was not, so a host-tier
+		// Org waiting on its host NAMESPACE reported VClusterProvisioning and
+		// sent the diagnosis hunting a vCluster that is correctly never
+		// authored for that tier.
+		readyCond.Reason = pendingBoundaryReason(org.Spec.PlanSlug)
 		readyCond.Message = vcMsg
 	}
 	desired := orgapi.OrganizationStatus{
-		VCluster: orgapi.VClusterStatus{
-			Name:        org.Spec.Slug,
-			HostCluster: r.HostCluster,
-			Phase:       vcPhase,
-		},
+		VCluster: vclusterStatusFor(org.Spec.Slug, r.HostCluster, org.Spec.PlanSlug, vcPhase),
 		KeycloakGroup: orgapi.KeycloakGroupStatus{
 			ID:    kcID,
 			Path:  kcPath,
@@ -879,7 +936,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// retry on the 30s cadence even for an Org that is otherwise Ready (a
 	// host-tier Org goes Ready immediately, so without this a transient console
 	// route write would sit un-retried until the next spec change).
-	if !vcReady || consoleServingDegraded {
+	//
+	// #5395 — ALSO requeue while any provisioning postcondition is missing or
+	// could not be verified. This is what makes the check self-healing rather
+	// than merely diagnostic: each pass re-runs reconcileConsoleServing (which
+	// re-appends a listener that was never written or was rewritten away) and
+	// re-reads the boundary tree, and the Org converges to Ready=True the moment
+	// the artifacts are genuinely there. Without it a Ready Org returns
+	// ctrl.Result{} and — since SetupWithManager registers no Gateway watch —
+	// would never look again.
+	if !vcReady || consoleServingDegraded ||
+		!postconditions.complete() || len(postconditions.Unverifiable) > 0 {
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 	return ctrl.Result{}, nil
@@ -988,6 +1055,67 @@ func readyOrgMessage(planSlug string) string {
 		return "vCluster HelmRelease Ready + Keycloak group + Gitea Org reconciled"
 	}
 	return "host namespace Active + Keycloak group + Gitea Org reconciled (namespace-isolated tier — no vCluster authored)"
+}
+
+// pendingBoundaryReason names the artifact a not-yet-Ready Org is ACTUALLY
+// waiting on, keyed off the same #4292/#4339 tier gate
+// (gitops.BoundaryIsVcluster) that vclusterReadiness and readyOrgMessage use.
+//
+// #4813 made the Ready=True *message* tier-aware for exactly this reason, but
+// the Ready=False *Reason* stayed hardcoded to "VClusterProvisioning". Reason
+// is the machine-readable field — it is what `kubectl get org -o jsonpath`,
+// operators, and tooling filter on — so a host-tier (""/s/free) Org, which
+// authors NO vCluster HelmRelease and whose host `<slug>` namespace IS the
+// boundary, reported that it was waiting on a vCluster.
+//
+// Observed cost (#5502): on hw291 the Org `uatcorp` (plan=s → namespace by
+// design) sat at Ready=False:VClusterProvisioning, and the acceptance walk
+// duly went hunting — `kubectl get vclusters -A` returned "No resources
+// found" in both regions and vcluster StatefulSets were 0, all of which is
+// the CORRECT state for that tier. The real missing artifact was the
+// `uatcorp` namespace. The honest explanation was already sitting in the
+// message; the Reason contradicted it.
+//
+// The vcluster tier keeps the original string, so nothing that legitimately
+// waits on a vCluster changes.
+func pendingBoundaryReason(planSlug string) string {
+	if gitops.BoundaryIsVcluster(planSlug) {
+		return "VClusterProvisioning"
+	}
+	return "NamespaceProvisioning"
+}
+
+// vclusterStatusFor returns the status.vcluster block to stamp on the
+// Organization, keyed off the SAME #4292/#4339 tier gate
+// (gitops.BoundaryIsVcluster) that decides whether a vCluster is authored at
+// all (#5489):
+//
+//   - vcluster tier (m/l/xl/flexi): the controller authors a real vCluster
+//     HelmRelease, so the block carries name + hostCluster + the phase
+//     vclusterReadiness derived — exactly the pre-#5489 shape.
+//   - host tier (""/s/free): NO vCluster is ever authored. The old
+//     unconditional stamp wrote status.vcluster{name, hostCluster, phase:
+//     Ready} over that absence, and the CRD printer column
+//     (products/catalyst/chart/crds/organization.yaml, .status.vcluster.phase)
+//     surfaced it as `vCluster: Ready` on `kubectl get organizations -o wide`
+//     — a fabricated object beside an honest Ready message (#4813 fixed the
+//     message; the field kept lying). The zero value serializes as an
+//     empty/absent block, which the printer column renders as blank — the
+//     honest representation of "no vCluster exists for this Org".
+//
+// The console directory is unaffected: orgStateFromCR (bootstrap api,
+// org_list_from_cr.go) reads phase first and falls through to the Ready
+// condition, which this controller still stamps tier-honestly via
+// readyOrgMessage.
+func vclusterStatusFor(slug, hostCluster, planSlug, vcPhase string) orgapi.VClusterStatus {
+	if !gitops.BoundaryIsVcluster(planSlug) {
+		return orgapi.VClusterStatus{}
+	}
+	return orgapi.VClusterStatus{
+		Name:        slug,
+		HostCluster: hostCluster,
+		Phase:       vcPhase,
+	}
 }
 
 // vclusterReadiness reads back the vCluster HelmRelease the controller

@@ -988,7 +988,68 @@ spec:
       # is a behavioral no-op (empty optional mount -> glob guards skip every leg;
       # the legs DO render). Step count stays 11.
       # Contract Case 71.
-      version: 0.1.151
+      # 0.1.153 (#5436): step-06 region-A pivot READ-BACK. Step-06's only
+      # region-A failure signal was the Phase-1 `fail` counter — `kubectl
+      # patch` CALLS that returned non-zero, never the cluster state after.
+      # An HR the Phase-0.9 enumeration missed (org-tenant pipeline seeds
+      # bp-agenity/bp-keycloak/bp-newapi/bp-openclaw/bp-stalwart-tenant/
+      # bp-wordpress-tenant hardcoded to ghcr.io) or one Flux reverted was
+      # invisible: Job exited 0, result=success, cutoverComplete reachable
+      # on a still-tethered Sovereign (LIVE hw290 2026-07-27, six flux-system
+      # HRs on ghcr.io with the step green). The #5359 secondary leg already
+      # had this read-back; region-A now does too — single-shot after
+      # Phase-1 and bounded at the head of Phase 3, before the irreversible
+      # mothership-auth strip. Same class wired in step-11 (both Provider
+      # patch-failure arms now record the #5204 marker). New values:
+      # helmRepositories.readbackExcludeNames/.readbackReconcileKustomizations,
+      # stepTimeouts.pivotReadbackSeconds. Step count stays 11; no RBAC or
+      # deadline change. New chart test tests/step06-pivot-readback.sh
+      # asserts on the step's EXIT CODE, not its log text.
+      # 0.1.154 (#5443 #5442): step-03 harbor-prewarm mirrors what the
+      # MARKETPLACE OFFERS and warms what the PINNED CHARTS DECLARE. Both
+      # prior enumerations derived from what is INSTALLED (live HelmReleases,
+      # frozen bootstrap-kit pins) while step-06 pivots the catalog resolver
+      # onto local Harbor — hw290 2026-07-27: 14 of 29 `visibility: listed`
+      # entries resolved, 15 404'd against a HOSTED (non-proxy) project. And
+      # image tags came from the LIVE CLUSTER while chart versions came from
+      # the pins, so a fresh mirror pinning a chart the cluster had not rolled
+      # to left catalyst-api/ui/organization-controller ImagePullBackOff on
+      # local tags that never existed — unrecoverable, since catalyst-api
+      # drives the cutover. New shared library 03c (catalog_chart_set /
+      # catalog_guard_missing / chart_declared_images), Phase A2-catalog
+      # (live Blueprint CRs unioned into the mirror; `listed` spec.version is
+      # contractual, everything else best-effort), Phase A2-guard (durable
+      # Harbor artifact-API assert), Phase A3-chart-images + A3-guard (images
+      # rendered FROM every contractual chart, UNIONED with — never replacing
+      # — the live-cluster walk). New RBAC: read-only blueprints. New values:
+      # prewarm.catalogCharts.*, prewarm.chartImages.*. Step count stays 11.
+      # New chart test tests/catalog-chart-set.sh + contract Case 72.
+      # 0.1.160 (#5527): step-07 Phase 3d stamps CATALYST_LOCAL_REGISTRY_URL
+      # on the org-services provisioning Deployment so the per-Org GitOps
+      # tree generator emits the LOCAL Harbor OCI base post-cutover instead
+      # of re-tethering to ghcr on the next org mutation (Pillar 5; the
+      # hw291 step-08 OFFENDER wedge made durable). New values block
+      # orgProvisioning.*; step count stays 11; contract Case 74.
+      # 0.1.161 (#5640 Refs #5265 #4975 #5095 #5525): POST-CUTOVER IMAGE
+      # DELIVERY. hw292 (dep 1c56518035a83e03, cutoverComplete=true,
+      # 2026-08-03) proved the local Harbor is the ONLY registry that matters
+      # after cutover and NOTHING mirrors what is published afterwards:
+      # registry.<fqdn>/v2/openova-io/openova/catalyst-ui/tags/list returned
+      # only ["fad88bd"], the freshly-pinned d674a94 404'd, and its Pod sat in
+      # ImagePullBackOff — with main green, the GHCR tag present and the pin
+      # committed. The #5265 Day-2 Deployment gains an IMAGE leg that
+      # enumerates running Pods UNION declared workload templates (the #3944
+      # union; the declared half is load-bearing because the offender had no
+      # running container), maps each ref through the SAME 03a
+      # offlinemirror_local_paths resolver step-03/step-08 use, HEADs the local
+      # Harbor manifest, and — in warm mode only — copies with step-03's exact
+      # skopeo invocation plus the #5095/#5525 secondary-source fallbacks. It
+      # now ships ENABLED in zero-egress detect mode (see the daytwoReconciler
+      # overlay below): the severance-safe property is "no upstream egress by
+      # default", which detect holds literally, and shipping it off left the
+      # gap as silent as the issue describes. Step count stays 11; no RBAC
+      # change. New chart test tests/daytwo-image-leg.sh + contract Case 75.
+      version: 0.1.165
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
@@ -1157,3 +1218,28 @@ spec:
     # #4669 level-triggered reconciler once the operator flips the flag).
     trigger:
       fireCutoverOnHandover: ${FIRE_CUTOVER_ON_HANDOVER:-false}
+    # #5640 (Refs #5265) — POST-CUTOVER artifact delivery. Made explicit here
+    # rather than left to the chart default so the posture of every fresh prov
+    # is readable in the slot the operator actually reviews.
+    #
+    # `enabled: true` + `mode: detect` is a ZERO-EGRESS posture: the loop
+    # reaches only the local Gitea mirror and the local Harbor, never downloads
+    # skopeo and never dials an upstream registry, so the step-08 deny-egress
+    # proof and the "no automatic upstream tether" contract are untouched. What
+    # it adds is the SIGNAL that hw292 lacked — each cycle publishes the exact
+    # set of chart pins and declared images the local Harbor cannot serve to
+    # the durable `self-sovereign-cutover-daytwo-missing` ConfigMap (and to the
+    # Pod log), which is simultaneously the air-gapped Sovereign's
+    # offline-media side-load list.
+    #
+    # An operator on a managed-update posture flips DAYTWO_RECONCILE_MODE=warm
+    # (cloud-init substitution, same seam as FIRE_CUTOVER_ON_HANDOVER above) to
+    # turn the signal into delivery: missing charts are helm-pulled/pushed and
+    # missing images are skopeo-copied into local Harbor on the operator's own
+    # schedule — the exact companion of the Git mirror reaching github.com on
+    # that schedule. Private openova-io artifacts additionally need
+    # daytwoReconciler.warm.credentialSecret, since step-06 strips the
+    # cutover's own ghcr auth by design.
+    daytwoReconciler:
+      enabled: true
+      mode: ${DAYTWO_RECONCILE_MODE:-detect}

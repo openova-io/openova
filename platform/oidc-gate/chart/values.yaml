@@ -7,10 +7,12 @@
 #     arg set from bp-cilium G117.5 #2744)
 #   - Service oidc-gate-<name> (:80 -> :4180)
 #   - HTTPRoute owning the instance hostname on the Sovereign gateway
-#   - cookie Secret oidc-gate-<name>-cookie (lookup-or-generate + keep)
 #   - AppRegistration ConfigMap (bp-sso-bridge mints/adopts the KC
 #     client + publishes the LIVE secret to OpenBao sso/sovereign/<cid>)
-#   - ExternalSecret oidc-gate-<name>-oidc (client-secret from OpenBao)
+#   - ExternalSecret oidc-gate-<name>-oidc (client-secret AND cookie-secret
+#     from the one OpenBao bundle — #5416; the cookie secret used to be a
+#     chart-minted per-region Secret, which diverged between regions and
+#     made each gate reject the peer region's session cookie)
 
 global:
   # Harbor proxy-cache prefix (kyverno harbor-proxy-pull glob `*/proxy-*/*`
@@ -68,6 +70,34 @@ resources:
   limits:
     cpu: 100m
     memory: 64Mi
+
+# ── Network policy (#5617) ───────────────────────────────────────────
+# The gate renders its OWN two policy halves per instance instead of
+# depending on another chart leaving the namespace open. Until 0.1.9 it
+# shipped none: on a Sovereign the `oidc-gate` namespace happened to be
+# covered by bp-plane-isolation (slot 26b) — gateway-ingress CNP for the
+# ingress half, and a default-deny whose EGRESS half is deliberately
+# unconstrained. The identical resource set rendered by bp-agenity into a
+# per-Organization namespace, where nothing leaves egress open, could not
+# resolve cluster DNS and 500'd every OAuth callback after a successful
+# login (#5617, live hw292 Org uatco).
+#
+# ADDITIVE while bp-plane-isolation's open-egress rule is present (Cilium
+# unions every policy selecting an endpoint), so enabling this cannot sever
+# a gate that works today.
+networkPolicy:
+  # Master gate. Default ON — a workload that constrains its own traffic is
+  # the canonical Sovereign posture. Set false only for a cluster with no
+  # cilium.io/v2 CRD or an operator-authored policy bundle of its own.
+  enabled: true
+  egress:
+    # The namespace the Keycloak backchannel (redeem / jwks / userinfo)
+    # resolves to. MUST stay in lockstep with keycloakInternalURL above.
+    keycloakNamespace: keycloak
+    # The Keycloak SERVICE port. The POD target port 8080 is always allowed
+    # alongside it: Cilium's policy verdict runs AFTER the Service DNAT, so
+    # allowing only the Service port drops the traffic (#4437's port trap).
+    keycloakPort: 80
 
 # ── Gated app instances ──────────────────────────────────────────────
 # instances:

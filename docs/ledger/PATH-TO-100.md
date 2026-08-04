@@ -1,78 +1,116 @@
-# PATH TO 100% — **hw288 current** (refreshed 2026-07-25)
+# PATH TO 100% — **hw292 live, cc=true** (refreshed 2026-08-04)
 
-> **Source of truth:** [`UAT.md`](UAT.md). **Current env = hw288** (dep `027f07559af1f9f7`, 2-region Huawei me-east-215-a/b, **post-cutover cc=true**, **G12 DR proven**). Live tally at this refresh: **✅ 184 · ◑ 57 · ☐ 9**. The hw281 train table below is **historical** — its fixes rode forward and are on `main`; hw288 is the live walk env.
-> This file maps every non-green row to its exact live-verified gate + owner. A row stays ◑/☐ until the hw288 walk re-verifies it — **merge ≠ green** (founder rule).
-
----
-
-## hw288 live-walk gate map (2026-07-25) — every non-green row is one of 7 gates
-
-Each row below was **live-verified this session** (owner Keycloak session + both-region hw288 kubeconfig off the mothership PVC + console Playwright), not assumed. None is safely walkable without the named owner action.
-
-| Gate | Rows | Live-verified evidence | Owner action to un-gate |
-|---|---|---|---|
-| **1. #5341/#5358 SSO delivery** | 32 (Harbor) · 33 (OpenBao) · 35/115 (Guacamole) · 36 (PowerDNS-Admin) | #5341 shared-gateway wildcard-SNI collision: harbor 6/12 envoy-404 + OIDC login 401-bounces; openbao/powerdns **12/12 404**. Guacamole = **#5358** (`guacamole-auth-sso-openid 1.5.5` `invalid/old nonce` race, config correct, pod-log confirmed). Fix **#5354** (`bp-sovereign-tls-vars@0.1.1`) merged+published; specific per-host listeners replace the `*.<fqdn>` collision | The fixes can't roll to **post-cutover** hw288 (local-Harbor chart-delivery gap **#5265**) → they land on the **next fresh prov**. #5358 needs a guacamole openid-ext bump. |
-| **2. Customer Org / voucher** | 5·6·7·9·10·11·12·16·20·23 · R15·R17·G2·G7 · 84·85·86 · 216·217 · 91·92·93 · 120·224·228 · 232·233·234 · 238 (~28) | `GET /api/v1/organizations → 1 internal Org, 0 customer`; cluster sweep: no openclaw/wordpress/stalwart deployed (only platform apps); per-Org CNPG scenario absent | **Founder**: a real voucher redeem → creates a customer Org (the whole funnel + orgs-model + per-Org-app family lights up) |
-| **3. Anthropic cred #4277** | G8·G9 · 219·220·221·222·223 | `seedAnthropicToken` loud-skips until the founder places the credential; `bp-agenity` agentic runtime has no working Claude token | **Founder**: place the Anthropic credential in the mothership secret (the stated **only non-engineering gate to 100%**) |
-| **4. Live write-mutation** (unsafe on the 184-✅ north-star DR env) | 50·60 (provision) · 132·134·145·154·126·127 (catalog-commit) · 16 (topology) · 196 (reconcile) · 197 (suspend) · 227 (seed bump) | mechanisms live-confirmed read-only (e.g. 197: 4 objects `spec.suspend=true`; 193 drill-in has the Reconcile/Suspend actions); the flip is a mutation — `force_reconcile_reverts_unmerged_patches` risk on post-cutover | Exercise on the **next fresh prov** (throwaway), not the protected env |
-| **5. Needs a real failure** | 165 (cutover) · 172·174·176·177 (jobs) | `/jobs` `failed` filter works but Sovereign is healthy: **525 Succeeded, 0 Failed** across 179 rows; cutover cc=true (no failed step); remediation Re-run button is gated to Failed rows | Surfaces on an env with a genuine failure (or a fault-injection walk) |
-| **6. Correct-by-design ◑** | R21 · M2 · 185 · G3 · G10 | R21: 5 chartless catalog cards (bp-redis etc.) presented installable, no ghcr chart. M2: #4477 seed is **region-A-only** — region-B ES `could not get secret data from provider` (empty secret, vacuous 0-user promote) = latent DR gap. 185: stale refs live only on non-green rows by design (0 stale-env ✅). | R21/M2 = follow-up fixes; 185 clears when the ◑/☐ set greens; G3/G10 = remaining build |
-| **7. Session-TTL wait** | 29 | console session valid throughout walk; can't clear the httpOnly `catalyst_session` cookie to force the silent-re-auth path without breaking the Keycloak leg | Re-open after the real TTL elapses (or a fresh-context walk) |
-
-**This session's flips (163 → 184 ✅):** 30·31·39 (grafana/gitea/hubble) · 37·38 (newapi) · 205 (fleet API=70) · 235 (grafana SSO 3/3 via bp-sso-bridge) · 193 (reconciler ArgoCD-like drill-in). **Filed:** #5358 (guacamole SSO regression). All backed by live evidence in `UAT.md`.
-
-> **Highest-leverage next action is founder-gated, not a wipe.** A fresh prov would clear only Gate-1 (~5 delivery-gated rows) while **destroying the 184-✅ + proven-G12-DR north-star** and leaving Gates 2–3 (the ~35 customer-Org + Anthropic rows) still shut. Per `one-environment-at-a-time` + `never-infra-delete-on-green`, the real path to 100% is the two founder inputs (**#4277 Anthropic cred**, **a customer-Org voucher**) — then re-walk.
-
-### New Pillar-5 finding this session — #5359 (region-B cutover incompleteness)
-
-Live root-causing (both region kubeconfigs) surfaced a **false-positive `cc=true` for 2-region Sovereigns**: only the control-plane region (A) is registry/gitops-pivoted. On hw288, **region-B's Flux still points entirely at public infra** — `GitRepository` → `github.com`, all **64 `HelmRepository`** → `ghcr.io`, images → `quay.io` — so region-B is **not sovereign** despite cutover complete. This also produces per-region **chart drift** (`bp-cilium` 1.4.16 region-A/local-Harbor vs 1.4.17 region-B/ghcr), which is the mechanism behind **#5339** (region-A stuck on the pre-fix CronJob). Filed **#5359**. Fix: cutover steps 04/05/06/08 must target **both** regions + the deny-egress proof must block **both** clusters. This raises the bar on the sovereignty pillar (Pillar 5) for every 2-region prov — the egress-block proof is region-A-only today.
+> **Source of truth:** [`UAT.md`](UAT.md). **Current env = hw292** (`hw292.omani.works`, dep `1c56518035a83e03`, 2-region Huawei me-east-215-a/-b-1) — **fired 2026-08-03T04:04Z, converged, `cutoverComplete=true` 08:12:30Z**, and G12 region-kill re-proven **6/6 zero-touch** on 2026-08-04 (promotion T0+136s, failback with a clean re-clone, no split-brain — `docs/sessions/2026-08-04/hw292-g12-region-kill/`). hw291 was wiped 2026-07-31 08:54Z after banking cc=true.
+> This file maps every non-green row to its gate + owner. A row stays non-green until the hw292 walk verifies it — **merge ≠ green** (founder rule). Nothing below is a walk stamp; this is the *fix map*, and it says exactly which fixes are already inside the image hw292 will boot.
 
 ---
 
-## hw281-cycle fix map (HISTORICAL — refreshed 2026-07-20; fixes rode forward onto `main`)
+## Where the ledger actually stands
 
-## The hw281 train — fixes merged, ALL validate on the hw281 walk
+The ledger is in its **reset state** — `scripts/reset-uat.py hw292` flushed 135 hw291 evidence cells to ☐/⏳ on 2026-07-31, per the founder's each-new-env-flushes-all-evidence law. A raw tally right now reads near-zero **by design**; it is not a regression and must never be presented as one.
 
-The hw279 + hw280 walks (both cutover-complete) proved the cold-broker OIDC route-wiring (#5278 — catalyst-api serves `/oidc/*` internally, 200) but exposed a residual **2-region gateway gap**: on a *healthy* 2-region Sovereign, `api.`/`console.`/`marketplace.<fqdn>` flap **200↔404** because region-b's `cilium-envoy` terminates the TLS (fronted by the #5246 both-region console ELB) but carries **no control-plane HTTPRoute**. **#5290** is the headline that closes it; the rest harden prov-conclusion, region-b enumeration, and the region-kill control-plane contract. hw281 provisions from current `main` (1.4.1190), so each fix validates on its own walk.
-
-| # | Defect (issue) | Fix PR / artifact | Code path | Rows it un-gates | Validation gate on hw281 |
-|---|---|---|---|---|---|
-| 1 | **#5289** api/console/marketplace flap **200↔404** on a healthy 2-region Sovereign — region-b `cilium-envoy` has no control-plane HTTPRoute while the #5246 both-region console ELB targets it | **#5290** — region-b **serves** those hosts by proxying to region-a's single pods over Cilium ClusterMesh **global Services** (the `bp-cnpg-pair`/`bp-openbao` idiom; **no** 2nd Deployment/PVC → region-a stays sole writer). New **`bp-catalyst-edge-routes` 0.1.0** at bootstrap-kit **slot 13e** (secondary-CP global-Service stubs + api/console/catalog/marketplace HTTPRoutes on `cilium-gateway-console`) + **`bp-catalyst-platform` 1.4.1189→1.4.1190** (`multiRegion.enabled`, default false, gates `service.cilium.io/global` on the 6 control-plane backend Services) | `platform/catalyst-edge-routes/chart/` (new); `products/catalyst/chart/templates/{api,ui}-service.yaml` + `.../services/catalog/service.yaml` + `.../org-services/{gateway,admin,marketplace}.yaml`; `clusters/_template/bootstrap-kit/13e-*` + slot-13 + `kustomization.yaml`/`placement.yaml`; `infra/providers/_shared/cloudinit-control-plane.tftpl` (`SECONDARY_EDGE_SUSPEND`) | SSO/console-landing family **32, 33, 35, 36, 39, 111, 113, 115, 181, 183** + restores reliable console reachability that the console-bundle row **214** needs to walk | `curl api./console./marketplace.hw281 ×10 → 0 404s`; region-b renders catalyst-api/ui/marketplace HTTPRoutes (`kubectl -n catalyst-system get httproute` on the region-b kubeconfig) with **zero** region-b Deployments/PVCs |
-| 2 | **#5277** cold-broker SSO 404 — catalyst-api omits `/oidc/*` routes when `catalyst-pin-broker-credentials` is reflected after boot (no Reloader watch), evaluated once at process start | **#5278** — add the Secret to the Stakater Reloader annotation so the Deployment rolls when the Secret lands and `/oidc/*` wires on restart (`bp-catalyst-platform` 1.4.1184→1.4.1185). **Validated on hw280** (internal `/oidc` 200); the residual external 200↔404 flap is #5289 → #5290 | `products/catalyst/chart/templates/api-deployment.yaml` (`secret.reloader.stakater.com/reload`); `.../tests/oidc-broker-secret-reloader-contract.sh` | the `/oidc/*` leg of the same SSO family (32/33/35/36/39/111/113/115/181/183) | `api.hw281/oidc/*` returns **200 first-try** from a cold (fresh-context) session |
-| 3 | **#5269** phase-1 watch established informers but never concluded `OutcomeReady` though the `bp-catalyst-platform` sentinel was Ready — handover/mesh/cutover never fire, prov stuck `phase1-watching` (~80 min on hw278; a rollout-restart concluded it in seconds) | **#5273** — periodic **re-census ticker** (default 45s) lists bp-* HelmReleases and drives every result through the same census/decision path an informer delta takes, so a quiesced informer can no longer strand a converged prov; + one structured heartbeat log per cycle | `products/catalyst/bootstrap/api/internal/helmwatch/helmwatch.go` (`recensusTicker` / `runTickerRecensus`); `.../internal/handler/phase1_watch.go` (`phase1HeartbeatLogger`) | prov lifecycle — no numbered acceptance row; **gates the whole walk** | hw281 phase-1 concludes → `status=ready` with **NO** manual `kubectl rollout restart` |
-| 4 | **#5283** phase-1 watch hard-fails a *still-progressing* prov at the `WatchTimeout` wall-clock (`failedHRs==0`, `readyHRs` climbing) → `finalStatus=failed` permanently suppresses the mesh/cutover cascade | **#5284** — **progress-guard**: `WatchTimeout` becomes a SOFT deadline; conclude `OutcomeTimeout` only on a genuine terminal condition (a failed HR, `readyHRs` flat for the stall window, or the hard `ProgressGuardCeiling`); readyHRs high-water-mark tracked in the shared census path | `products/catalyst/bootstrap/api/internal/helmwatch/helmwatch.go` (`<-watchCtx.Done()` + progress-guard); `.../internal/handler/phase1_watch.go` | prov lifecycle — guards the #5273 conclusion against a slow-but-healthy crossplane/xpkg stall | hw281 does **NOT** false-fail while `readyHRs` climbs (heartbeat logs a deferral, not `finalStatus=failed`) |
-| 5 | **#5285** a terminal-`failed` deployment's k8scache watch-informers retry-flood catalyst-api against the failed cluster's missing CRDs → catalyst-api runs hot, `/wipe` + `/deployments` hang ~16 min | **#5287** — per-deployment **quarantine** tears down + refuses re-registration of `<depID>` primary+secondary reflectors on terminal-`failed` conclusion, **durable across a catalyst-api Pod restart**; only `failed` quarantines (a `ready`/handed-off env's reflectors power the live console) | `products/catalyst/bootstrap/api/internal/k8scache/factory.go` (`QuarantineDeployment` / `RemoveDeployment`); `.../internal/handler/{phase1_watch.go,wipe.go,handler.go}` | mothership prov-lifecycle robustness — no numbered row | no `/wipe` or `/deployments` starvation during a failed-dep scenario (control-plane CPU stays cool; a failed env's wipe starts immediately, no manual rollout-restart) |
-| 6 | **#5274** Cloud graph under-enumerates region-b — renders Cluster **1/1** though 2 live clusters exist (the chroot-fallback declares the full 4-segment slug `hw-me-east-215-b-rtz-prod` while region-b's kubeconfig registers under the bare cloud code `me-east-215-b-1`, so `perRegionDynamicClient` returned nil → `buildAbsentRegion`) | **#5280** — `perRegionDynamicClient` also matches the shared cloud-region code as a contiguous hyphen-delimited **token run** (token-boundary safe: `me-east-215-b` never matches `me-east-215-ba`); resolves **only** a genuinely-registered secondary cluster (the #4811 no-fabrication guard holds) | `products/catalyst/bootstrap/api/internal/infrastructure/topology_loader.go` (`perRegionDynamicClient`) | **66** (+ topology **187**, carried #5107) | Cloud→Clusters renders **2/2**, one per region (me-east-215-a + -b), no phantom region |
-| 7 | **#5267** region-kill: gateway/ELB fails over to region-b (envoy answers) but catalyst-api is region-a-pinned (G2 #2574 secondary-suspend + RWO-EVS zone-scoped single-writer) → console/api/marketplace down during a region-a outage | **#5271** — documents + **gates** the single-writer control-plane DR contract; the region-b **serving** path is #5290. `bp-catalyst-platform` 1.4.1179→1.4.1180 + a CI gate asserting `replicas:1` / `strategy:Recreate` / both PVCs RWO / the slot-13 `SECONDARY_HR_SUSPEND` gate | `docs/DOD.md §6`, `docs/ARCHITECTURE.md §10.7`; `products/catalyst/chart/tests/api-single-writer-dr-contract.sh`; region-b routes via **#5290** | region-kill **G12** (+ baseline **71**) | region-b serves control-plane routes. **Ratification point:** during a region-a kill, `404`-with-`server: envoy` (fail-fast) → `200` on failback is the **PASS** signature; a whole-outage timeout/black-hole is **FAIL** (#5244 shape). D31 failover is machine-driven (needs no console); observe via kubectl on the surviving region |
-| 8 | **#5282** crossplane core-controller image direct-pull from `xpkg.upbound.io` hit intermittent 503, stalling the `bp-crossplane → bp-crossplane-claims → bp-catalyst-platform` dependency chain (the hw279 slow-sentinel that #5284 also guards) | **#5282** — route the core-controller image via `harbor.openova.io/proxy-dockerhub` (Phase-1 503 resilience) — **VALIDATED + closed on hw280**, kept here as a reference | crossplane chart image ref (proxy-dockerhub) | prov lifecycle — Phase-1 resilience | **VALIDATED on hw280** — no re-walk required; simply re-confirm the crossplane chain reaches Ready on hw281 |
+The last **walked** tally, on hw291 before the wipe, was **135 ✅ / 281 = 48.0% raw** (`dc18c6d9a`). The last walked north-star remains hw288 at **214 ✅ / 281 = 82.0%** (2026-07-26). Durable structural state — the number that survives a flush — stands at the last evidence-backed value; see the completion matrix, and change it only on walk evidence.
 
 ---
 
-## Remaining non-green map
+## The delivery gate is the whole story this cycle
 
-| Class | Rows / family | Exact gate | Owner action |
+Every fix listed below is **merged and inside the image hw292 provisions with**. That claim is not an assumption — it is checked mechanically. The catalyst-api / catalyst-ui image pin on `main` is commit `fb41faf`, and a fix is delivered iff:
+
+    git merge-base --is-ancestor <fix-sha> fb41faf
+
+| issue | fix | delivered on hw292 | verification done pre-walk |
 |---|---|---|---|
-| **Walk-only** (fix merged, needs the hw281 walk) | the 7 active families above (~13 ❌/☐ rows) + the SSO/render re-stamp family flushed to ☐ by the reset | hw281 cc=true + authed fleet walk | walk-fleet stamps them; **do not pre-stamp — merge ≠ green** |
-| **Not-a-defect — reclassify** | **34** (KC sovereign-realm admin console → login form) | **INTENDED per #3934 (CLOSED)**: `security-admin-console` is bound to the non-delegating `browser-no-idp` flow to avoid the force-bounce `cookie_not_found` lockout — silent-SSO is for app/operator surfaces, NOT the KC-native admin console. The row's assertion is mis-specified. Correct pass = the "Catalyst PIN Sign-In" button completes (broker restored by #5278 + region-b routing #5290) | recommend founder reclassify; verify the PIN button on hw281 |
-| **Founder-gated** (the ONLY non-engineering gap) | **G8** (#4277 Anthropic cred → agentic runtime, chat E2E) + **220** (#3988/#4111/#4556 — the solo agent pre-configured with a working Claude token) | a real Anthropic credential placed in the mothership secret by the founder (`seedAnthropicToken` / `sovereign_anthropic_seed.go:140` loud-skips until then) + `bp-agenity` installed in a live Org | founder action |
-| **Ledger artifact** | **185** (no stale predecessor-env references in the rendered `UAT.md`) | inherent to preserved ❌ rows carrying wiped-predecessor evidence; clears when a clean env has zero ❌ to preserve | resolves as the walk greens the ❌ set |
-| **Carried-forward** (prior-train fixes already on 1.4.1190 `main` — re-confirm on hw281, no new work) | **214** (#3985 / #5279 console banned-term leak) · **207** (#4002 / #5272 CloudAdoption ELB Observe) · **193** (#3996 / #5229 reconciler drill-in) · **187** (#4000/#4001 / #5107 topology active-active record self-heal) · **G12 re-clone leg** (#4275 / #5275 `bp-cnpg-pair` 0.2.20 wrong-CA strip + fail-loud) | each fix merged pre-hw279/hw280 and rides the hw281 train; re-walk to confirm | walk-fleet re-confirms |
+| #5515 derivePattern fails open into `singleton` | PR #5519 → `796e587b2` | ✅ ancestor | `placement.ts:107-108` returns `PATTERN_NOT_REPORTED` when `primaries === 0`, making the `singleton` return unreachable without a Primary; `placement.test.ts` 21/21 incl. a dedicated #5515 block pinning **both** directions |
+| #5489 four surfaces report a vCluster that does not exist | PRs #5526 `8523ecf33`, #5490 `54614d3b3`, #5524 `908f76b0e` | ✅ all three ancestors | root fix at `organization_controller.go:1110` — `vclusterStatusFor` keys off the **same** `gitops.BoundaryIsVcluster` predicate that decides authorship, so status cannot disagree with reality; 10 tests green across handler + UI + controller |
+| #5477 `replicationLagSeconds: 0` published as a measurement that was never taken | PR #5478 → `c9b2f9f4c` | ✅ — pinned as the controller image itself, `products/continuum/chart/values.yaml:41 tag: "c9b2f9f"` | code present; live re-check of the four Continuum CRs rides the walk |
+| #5485 defects 1–3 (reconciler log prefix, showback Job rows, treemap ReplicaSet names) | `a854cb7ae`, `6844b38f6` | ✅ ancestors | defect 1 unit-proven; defects 2+3 **live-verified on hw291 before the wipe** (authed owner API: one platform row, zero itemized Job rows, zero hash names, cost conserves exactly) |
+| #5531 gitea OAuth state lost on pod roll | PR #5533 → `fb41faf30` | ✅ (it *is* the tip) | `[session] PROVIDER = db`; bp-gitea **1.2.49 published + signed** after the publish blocker below was fixed |
 
-> **Row-number correction (2026-07-20):** the hw279 anchor listed the founder-gated Anthropic family as "G8/185" and the stale-ref artifact as "220". The reset UAT.md renumbered these — **row 185** is now the stale-predecessor-ref check (#3581, ledger artifact) and **row 220** is the Anthropic/solo-agent founder-gated row (#3988/#4111/#4556). This file encodes the verified current numbers.
+**Publish blocker found and fixed this cycle:** bp-gitea 1.2.49 silently failed to publish because `httproute-render.sh` piped `echo` into `grep -q` under `pipefail` — `grep -q` closes the pipe on first match, `echo` dies with SIGPIPE 141, and the pipeline reported FAIL **on a passing value**. Herestrings removed the pipe (`bf59fb5f0`); blueprint-release green, 1.2.49 on ghcr. Any chart whose tests use that idiom is exposed to the same false failure.
 
-## §854 disposition (not a code gap)
+**Formerly held pending hw292 readiness** (a deploybot roll mid-prov abandons the provisioning — prov-preflight gate 5). hw292 reported ready and the freeze thawed; **both merged**:
 
-**#5088** — the live mothership NodePorts are `cinova/catalog-svc` (⛔ founder never-touch), `iogrid/cm-acme-http-solver` (ephemeral cert-manager solver, symptom of a stuck `proxy.iogrid.org` HTTP-01 challenge, no chart) and `iogrid/proxy-gateway-socks5` (founder iogrid repo). **Zero** chart-sourced NodePorts in this monorepo — the §854 CI gate holds. Real fix = **`iogrid#844`** (founder repo). Stays `status/parked`.
+| PR | issue | state |
+|---|---|---|
+| #5534 | #5485 defects 4–6 (suspended HR shows healthy, `?status=` ignored, `/fleet/applications` duplicates) | **MERGED** |
+| #5535 | #5488 cutover pre-flight aborts on a recoverable condition | **MERGED** |
 
-## Delivery-gap casualties — merged fixes hw288 predates (a fresh prov clears ALL) — 2026-07-25
+Both are in `main` and inside published images — but read Gate 5 below before treating that as delivered to hw292, which it is not.
 
-hw288 cut over 2026-07-23T14:26Z. Multiple "gaps" walked on it are **already-merged fixes** whose commits landed AFTER that cutover-time bootstrap-kit pin, so hw288 (a pre-fix, frozen-catalog env — #5265, no #5301 day-two reconciler) never received them. A single fresh prov with a current pin carries all of them:
+---
 
-| Gap / row | Fix (merged) | Merged | Un-gates on fresh prov |
+## Gate 1 — Pillar 5 (cutover): mechanism proven, hardening delivered
+
+hw291 reached **`cutoverComplete=true` 2026-07-30T11:03:43Z**, all 11 steps, 600s deny-egress hold green in both regions. G11/166 banked. The gate is no longer "does it work" but "does it survive the awkward cases":
+
+- **#5488** — after a catalyst-api restart (`strategy: Recreate`), the secondary-kubeconfigs pre-flight aborted with `expects 1 secondary region(s) but only 0 kubeconfig(s) are readable (missing/unreadable: )` while the Secret was already correct. Root cause runs deeper than the issue described: `chrootEnsureDeployment` minted a record with an **empty `ID`** under map key `""` with no guard, reachable from ~40 endpoints via unchecked URL params, and `chrootServesDeployment` discriminates on FQDN alone — so `sync.Map.Range` nondeterministically served the poisoned record. Fixed at mint, at resolution, and by accepting an already-materialized Secret. The #5359 fail-loud contract is **unweakened**: genuinely-missing data still aborts before step 1. PR #5535, held.
+- **#5391 / #5393** — a per-Org customer app's HelmRelease can still gate the platform's cutover, and plan-s quota misses `bp-keycloak` by 50m CPU / 64Mi (one oidc-gate sidecar). **Founder decision, not an engineering call.**
+
+## Gate 2 — founder-gated credential (#4277)
+
+Rows 219, 220, 222 and G8/G9 need the Anthropic credential; `seedAnthropicToken` loud-skips without it. **No engineering work clears these.** The one genuinely external dependency in the ledger.
+
+## Gate 3 — filed defects with named owners
+
+| rows | defect | state |
+|---|---|---|
+| 110, 112, 114, 115 | #5389 per-app Open/launch does not land in the app | filed, unfixed |
+| 35, R9 | #5358 guacamole blank page after the SSO round-trip completes | filed, reopened on runtime evidence |
+| G12 | #5388 region-kill failback left a data split-brain | first fix merged (cnpg-pair 0.2.23 surfaces peer-probe starvation); re-proof rides hw292 |
+| R17 | #5364 org-delete leaves a half-teardown | filed, reopened on runtime evidence |
+| 212, 213 | per-Org MCP — #5516 proved Org-scoped reads never worked on any env; fix PR #5522 routes to the own-org seam | merged, delivered on hw292 |
+| — | #5385 deployment health aggregate reads stale-degraded (trust kubectl, not the badge) | filed, affects walk trust |
+
+## Gate 4 — the ⚠️ partials
+
+Still the largest actionable group and still the highest-leverage triage target. Two were resolved by adjudication rather than code this cycle, which is the pattern to repeat where the assertion — not the platform — is what is stale:
+
+- **row 22** (showback platform-overhead roll-up) → ✅. Tenant-ns Job pods routing to `__platform__` is the *deliberate, test-encoded* contract of #5493 (`org_consumption_test.go:186`, `:35`, `:63`) and matches the row's own wording ("holding all control-plane/Job workloads"). The predecessor-env symptom — a *named* tenant app inside the platform app list — is structurally unrenderable after the one-shot fold.
+- **row 55** (topology single value) stays ⚠️ honestly: all three topology clauses pass, and the residual is a **region** field, not a topology value — host-native singletons carry `primaryRegion: platform-bootstrap-owned-host` because the data layer emits the bootstrap host label as a region. The read-side fix (`b41c93b3c`) is delivered; the data-layer emit is the open half.
+
+## Not achievable as written (⛔)
+
+Placement rows 98–109 are superseded by the #4325 devcluster reclassification (founder verdict). Plus R1/M1/G5 (janitor), R19 (sandbox — concept removed 2026-06-30), R20 (delivery), 94/95 (funnel). For the ledger to reach 100% these need either rewriting to match the shipped design or formal exclusion from the denominator. **Founder call.**
+
+## §854 disposition — closed, and re-proven this cycle
+
+`scripts/check-no-nodeports.sh` on `main`, 2026-07-31: **zero NodePorts across sources + rendered charts**, every chart rendered. The guard is itself vacuity-tested (#5518, merged): it self-checks that its pattern matches 4/4 banned forms, rejects 2/2 allowed forms, and scans ≥200 files before trusting a pass — so a green result can no longer mean "the guard matched nothing". A raw `grep NodePort` across the repo returns hundreds of hits; every one inspected is the ban's own prose — comments explaining cilium's internal BPF-masquerade requirement, the documented removal of the #4691 fallback, and the guard workflow itself. **Raw grep is not the audit; the render-and-adjudicate guard is.**
+
+**Correction, 2026-08-04 — the enforcement half of that claim held in only ONE region.** This file previously stated flatly that Kyverno `forbid-nodeport-service` "runs Enforce with a fail-closed webhook, made tamper-evident by #5386". Measured live on hw292:
+
+| region | HR `values.compliancePolicies` | ClusterPolicies at Enforce | `forbid-nodeport-service` |
 |---|---|---|---|
-| #5265 delivery freeze | `12-daytwo-harbor-pin-reconciler` #5301 / `5daf918a4` | 2026-07-23 01:26Z | the Day-2 refresh itself → rolls the rest |
-| #5341 gateway SNI flake (rows 32/33/36) | `bp-sovereign-tls-vars@0.1.1` #5354 | 2026-07-25 02:22Z | openbao/powerdns/harbor-alias front doors |
-| #5339 region drift (region-A CronJob) | `bp-cilium@1.4.17` #5340 | 2026-07-24 01:51Z | region-A → Deployment (survives region-reboot) |
-| #5345 chartless-but-installable (R21) | catalog-seed unlist #5346 / `45f7f132d` | 2026-07-24 08:09Z | the 5 blueprints render `unlisted` |
+| region-a | `{"bootstrapMode": false}` | 9 of 25 | **Enforce** |
+| region-b | `{}` — never patched | 1 of 25 | **Audit only** |
 
-**So the single highest-leverage action is a fresh prov** — it validates 4 already-merged fixes at once (rows 32 is already ✅ via harbor SSO; 33/36 + R21 + the #5339 drift clear). The genuinely-unbuilt remainder: **#5358** (guacamole openid-ext, confirmed real defect) and **#5359** (region-B per-region cutover, scoped). Founder inputs (#4277 cred, voucher) remain orthogonal.
+So on a 2-region Sovereign the NodePort ban was *advisory* in half the fleet: region-b would record a NodePort Service, not block it. The §854 literal scan still passes in both regions (0 NodePorts; 176 svc region-a / 159 region-b), so nothing was violating it — the gap is that region-b would not have *stopped* one. Root cause is **#5591**: the Wave 5.90 phase-2b `bootstrapMode` flip reached only the primary region. The source fix is merged (`bb8ceec71` #5592, compile-repaired `ef2d59767` #5619), unit-tested (`TestPolicyEnforceFlip_FlipsEveryRegion_5591`), and delivered in published images — but hw292's phase-2b ran *before* delivery, so its region-b remains unflipped until remediated.
+
+The lesson generalizes past this instance and matches the [per-region split class](reference): a security posture verified in one region is not a fleet property. Assert it per-region or do not assert it.
+
+---
+
+## Gate 5 — the delivery chain itself (found 2026-08-04, the largest single cause of stalled progress)
+
+Steps 1–3 of this plan were never the constraint. **The chain from `main` to a running binary was broken in two independent places, and both looked like "the fix didn't work".**
+
+**5a. `build-ui` was failing, so nothing published at all.** Across the last ten `catalyst-build` runs on `main`, six had `build-ui=failure` with `deploy=skipped` — meaning six merges published *no image*. The cause was a genuine race in `ExecPanel.test.tsx` (#5633): the component renders byte-identical markup for `fallback-loading` and `fallback-ready` and dials its socket in a passive effect, so under CPU-starved CI the scheduler yields between commit and effect flush and the assertion runs before the socket exists. Reproduced 8/8 under load, 0/12 after the fix. **Fixed and merged (#5651); two consecutive greens since, each with `deploy=success`.** #5626 and #5633 closed on that evidence.
+
+Behind it sat the reason nobody noticed for two months: the vitest step ran `npm test || echo WARN` from `f61a52ab6` until #5553, so the gate **exited 0 unconditionally**. When it finally told the truth, four source defects surfaced at once. A fail-open gate is worse than no gate — it manufactures the appearance of coverage.
+
+**5b. Even a published image cannot reach a cutover Sovereign.** hw292's local Harbor holds exactly `["fad88bd"]` for catalyst-api — the step-03 prewarm tag, digest byte-identical to the running pod. **18 catalyst-api tags have published to ghcr since; zero arrived.** Three independent severances: `proxy-ghcr` has `registry_id = None` (a push-populated project, not a pull-through cache), `mirrorResync.enabled: false` is the deliberate Principle-14 git severance, and #5644's Day-2 IMAGE leg ships in cutover chart `0.1.161`/`0.1.162` while hw292 runs `0.1.159` — *the remedy cannot pass through the gap it remedies*. Note also that the shipped default `mode: detect` writes the missing set to a ConfigMap and copies nothing; only `mode: warm` delivers, and it needs an operator credential. Tracked as **#5640**.
+
+The practical consequence: **#5642**'s catalyst-api leak fix (`Factory.AddCluster` rebuilt all 42 informers on byte-identical kubeconfigs) is correct, merged, published — and has never run. The live pod still leaks **62.1 Mi/min**, monotonic, 21 restarts at a ~59-minute cadence. Raising the memory limit remains the wrong fix: at that rate an 8Gi ceiling buys three hours instead of one and hides the defect.
+
+## Gate 6 — sovereignty proves the wrong property (#5650)
+
+Step-08's deny-egress hold is genuinely deny-*all* (`defaultDenyEgress: true` since #3678) — an earlier claim in this session that it blocked a named list was wrong and was corrected on the issue. But the hold is **time-boxed and then torn down**, so it proves nothing external was *reachable* for 600s. It cannot prove the Sovereign has no external *dependency*. Live: `vcluster-system/loft` → `https://charts.loft.sh`, interval **15m**, referenced by a live HelmRelease, artifact re-fetched from the public internet ~10h *after* `cutoverComplete=true`. A 15-minute interval straddles a 10-minute window entirely.
+
+Fixed in cutover chart **0.1.162** (PR #5652, merged, **published to ghcr and verified**): a pre-hold lint asserting every non-suspended `HelmRepository`/`GitRepository`/`OCIRepository` resolves to a Sovereign-local host, `allowHosts` empty by default so it fails closed. Its test drives the function extracted from the *render* in both directions and caught a fail-open bug in the first draft, where an uncreatable scratch file made the lint return PASS having examined nothing.
+
+## What actually moves the number next
+
+1. **Walk hw292.** It is live, cc=true, and G12-proven; every "delivered" row above becomes a green stamp only by walking it. This is the only thing that legitimately moves the durable number.
+2. **Close the delivery chain (#5640)** — without it, every future fix repeats 5b: correct in source, invisible in production.
+3. **Remediate #5591 on region-b** (one HR patch) so the NodePort ban is enforcing fleet-wide rather than in half of it.
+4. Merge #5534 + #5535, now unblocked — the env is ready and the merge freeze is thawed.

@@ -188,7 +188,32 @@ type: application
 # same gateway bp-wordpress-tenant + the org console route attach to, #4054).
 # The old default rendered Accepted=False/InvalidHTTPRoute and the host 404'd
 # until the parentRef was hand-overridden. appVersion (image) unchanged.
-version: 0.5.20
+version: 0.5.22
+# 0.5.22 (#5617): the per-Org oidc-gate companion gains its EGRESS
+# CiliumNetworkPolicy (templates/oidc-gate.yaml `oidc-gate-<cid>-egress`).
+# The gate shipped an ingress-only gateway CNP into a DEFAULT-DENY per-Org
+# namespace, so its DNS lookups and the Keycloak token-exchange dial were
+# dropped and every OAuth callback 500'd AFTER a successful login (live on
+# hw292 Org uatco: `lookup keycloak.keycloak.svc.cluster.local on
+# 10.96.0.10:53: i/o timeout`, oauthproxy.go:881 — the #4437 sso-bridge
+# class: ingress allowed, egress forgotten). New egress allow-list: kube-dns
+# :53 UDP+TCP, the Keycloak backchannel (Service port + Pod target port 8080,
+# the #4437 post-DNAT port trap), the proxied agenity upstream in-namespace,
+# plus a `toEntities:[world]:443` discovery fallback ONLY when
+# keycloakInternalURL is unset. toEndpoints/toEntities only — ipBlock never
+# matches ClusterMesh remote pod identities. Values knobs
+# oidcGate.networkPolicy.keycloakNamespace/keycloakPort added. Template +
+# values change; appVersion (image) UNCHANGED.
+# 0.5.21 (#5416): the per-Org gate's cookie secret stops being minted per
+# region. templates/oidc-gate.yaml rendered it with `lookup`-or-`randAlphaNum
+# 32`; on a 2-region Sovereign the second region misses the lookup and mints a
+# DIFFERENT value, and the Org hostname is fanned at BOTH regions' envoys by
+# one shared wildcard VIP — so each gate rejects the peer region's
+# AES-encrypted session cookie. It now rides the SAME carrier as the sibling
+# client secret (bp-sso-bridge 0.2.26 derives `cookie_secret` into the OpenBao
+# sso/<realm>/<clientId> bundle; the gate's ExternalSecret pulls both
+# properties into one Secret). Kept byte-aligned with platform/oidc-gate 0.1.8.
+# Template-only; appVersion (image) UNCHANGED. Requires bp-sso-bridge >= 0.2.26.
 # 0.5.19 (#4624): the StatefulSet SELF-WIRES the OPENOVA_MCP_BEARER + RS256
 # verify-pubkey projection from the enabled per-Org mcpBearer ExternalSecret
 # (agenity.mcpBearerSecretName / agenity.mcpPubkeySecretName helpers) — an

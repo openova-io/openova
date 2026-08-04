@@ -108,6 +108,12 @@ type fleetSovereignSummary struct {
 	Health       string `json:"health"`            // green | yellow | red | unknown
 	ProviderType string `json:"providerType,omitempty"`
 	CreatedAt    string `json:"createdAt,omitempty"`
+
+	// adopted — internal ranking signal for canonicalFleetSovereigns
+	// (#5485 defect 6): AdoptedAt != nil marks the deployment record the
+	// handover/import flow blessed as the Sovereign's canonical context.
+	// Unexported on purpose — never serialised.
+	adopted bool
 }
 
 // fleetSovereignsResponse — body of GET /fleet/sovereigns.
@@ -332,11 +338,25 @@ func (h *Handler) HandleFleetApplications(w http.ResponseWriter, r *http.Request
 	}
 
 	sovs := h.collectFleetSovereigns(r.Context())
+	// #5485 defect 6 — collapse duplicate records of the SAME Sovereign
+	// (same FQDN) to one canonical entry BEFORE the per-Sov fan-out.
+	// Live-caught on hw291: the handover-imported record (hex id,
+	// cloudRegion "me-east-215-a") and a chroot-synthesised ghost
+	// (cluster-shaped id + region "hw-me-east-215-a-rtz-prod") both
+	// resolved to the same cluster, so every application was emitted
+	// twice under a dual region key — 140 items / 70 unique names.
+	sovs = canonicalFleetSovereigns(sovs)
 	if len(sovs) > fleetMaxPageSize {
 		sovs = sovs[:fleetMaxPageSize]
 	}
 
 	rows := h.collectApplicationsAcrossSovereigns(r.Context(), sovs)
+	// Row-level dedup net (#5485 defect 6) — one row per (Sovereign,
+	// namespace, application) even if a future collection path emits a
+	// duplicate the record-level collapse above didn't anticipate. Rows
+	// arrive deterministically sorted, so "first occurrence wins" is
+	// stable across requests.
+	rows = dedupFleetApplicationRows(rows)
 
 	// Apply filters AFTER collection so the per-Sov reads happen once
 	// regardless of filter combination. The table is small (cross-Sov
@@ -406,7 +426,7 @@ func (h *Handler) collectFleetSovereigns(_ context.Context) []fleetSovereignSumm
 	out := make([]fleetSovereignSummary, 0)
 	seen := make(map[string]bool)
 
-	h.deployments.Range(func(_, val any) bool {
+	h.deployments.Range(func(key, val any) bool {
 		dep, ok := val.(*Deployment)
 		if !ok || dep == nil {
 			return true
@@ -418,6 +438,17 @@ func (h *Handler) collectFleetSovereigns(_ context.Context) []fleetSovereignSumm
 			Region:       firstRegion(dep.Request),
 			ProviderType: firstProvider(dep.Request),
 			Health:       healthFromDeploymentStatus(dep.Status),
+			adopted:      dep.AdoptedAt != nil,
+		}
+		// #5485 defect 6 — a record whose ID field is empty still lives
+		// under a real deployments-map key (the id every /deployments/{id}
+		// route resolves it by). Fall back to that key so fleet rows never
+		// carry an empty sovereign.id and per-Sov reads (which look the
+		// deployment up BY this id) keep working.
+		if row.ID == "" {
+			if k, ok := key.(string); ok {
+				row.ID = k
+			}
 		}
 		if !dep.StartedAt.IsZero() {
 			row.CreatedAt = dep.StartedAt.UTC().Format(time.RFC3339)
@@ -454,6 +485,122 @@ func (h *Handler) collectFleetSovereigns(_ context.Context) []fleetSovereignSumm
 		}
 		return out[i].ID < out[j].ID
 	})
+	return out
+}
+
+// canonicalFleetSovereigns collapses duplicate deployment records of
+// the SAME Sovereign — identified by a shared (case-insensitive,
+// non-empty) FQDN — into one canonical summary per Sovereign (#5485
+// defect 6). The dup class this kills: on a chroot Sovereign the
+// deployments map holds BOTH the handover-imported canonical record
+// AND chrootEnsureDeployment-synthesised ghosts (one per asserted
+// deployment id); every one of them resolves to the same cluster, so
+// the /fleet/applications fan-out emitted each application once per
+// record, under whichever region key that record carried.
+//
+// Ranking (fleetSovereignRankedHigher): adopted record first (the
+// handover/import flow marks the blessed context), then a record with
+// a real id, then the newest CreatedAt (a re-prov's current record
+// beats the stale one), then lowest id for determinism. The winner's
+// empty identity fields are back-filled from the losers
+// (mergeFleetSovereignSummary) so sovereign.id survives even when the
+// winner's own record carried none. Rows with an empty FQDN cannot be
+// grouped and pass through unchanged. Input order (FQDN-sorted by
+// collectFleetSovereigns) is preserved by first occurrence.
+func canonicalFleetSovereigns(rows []fleetSovereignSummary) []fleetSovereignSummary {
+	if len(rows) < 2 {
+		return rows
+	}
+	out := make([]fleetSovereignSummary, 0, len(rows))
+	index := make(map[string]int, len(rows))
+	for _, row := range rows {
+		key := strings.ToLower(strings.TrimSpace(row.FQDN))
+		if key == "" {
+			out = append(out, row)
+			continue
+		}
+		at, ok := index[key]
+		if !ok {
+			index[key] = len(out)
+			out = append(out, row)
+			continue
+		}
+		if fleetSovereignRankedHigher(row, out[at]) {
+			out[at] = mergeFleetSovereignSummary(row, out[at])
+		} else {
+			out[at] = mergeFleetSovereignSummary(out[at], row)
+		}
+	}
+	return out
+}
+
+// fleetSovereignRankedHigher reports whether a is the more canonical
+// record than b for the same Sovereign. See canonicalFleetSovereigns.
+func fleetSovereignRankedHigher(a, b fleetSovereignSummary) bool {
+	if a.adopted != b.adopted {
+		return a.adopted
+	}
+	if (a.ID != "") != (b.ID != "") {
+		return a.ID != ""
+	}
+	// RFC3339 strings sort lexically == chronologically; newest wins
+	// (a re-prov's current record over the stale predecessor). An empty
+	// CreatedAt sorts oldest, which is the honest rank for it.
+	if a.CreatedAt != b.CreatedAt {
+		return a.CreatedAt > b.CreatedAt
+	}
+	return a.ID < b.ID
+}
+
+// mergeFleetSovereignSummary keeps every winner field and back-fills
+// ONLY empty identity fields from the loser, so collapsing a ghost
+// into the canonical record can never overwrite canonical data.
+func mergeFleetSovereignSummary(winner, loser fleetSovereignSummary) fleetSovereignSummary {
+	if winner.ID == "" {
+		winner.ID = loser.ID
+	}
+	if winner.FQDN == "" {
+		winner.FQDN = loser.FQDN
+	}
+	if winner.Region == "" {
+		winner.Region = loser.Region
+	}
+	if winner.ProviderType == "" {
+		winner.ProviderType = loser.ProviderType
+	}
+	if winner.CreatedAt == "" {
+		winner.CreatedAt = loser.CreatedAt
+	}
+	if (winner.Health == "" || winner.Health == healthUnknown) && loser.Health != "" {
+		winner.Health = loser.Health
+	}
+	winner.adopted = winner.adopted || loser.adopted
+	return winner
+}
+
+// dedupFleetApplicationRows keeps the first row per (Sovereign,
+// namespace, application-name) — the row-level guarantee behind #5485
+// defect 6's "each application appears exactly once". The Sovereign
+// component of the key is the FQDN when present (two records of one
+// Sovereign share it even when their ids diverge), else the id.
+func dedupFleetApplicationRows(rows []fleetApplicationRow) []fleetApplicationRow {
+	if len(rows) < 2 {
+		return rows
+	}
+	seen := make(map[string]struct{}, len(rows))
+	out := make([]fleetApplicationRow, 0, len(rows))
+	for _, row := range rows {
+		sovKey := strings.ToLower(strings.TrimSpace(row.Sovereign.FQDN))
+		if sovKey == "" {
+			sovKey = row.Sovereign.ID
+		}
+		k := sovKey + "\x00" + row.Namespace + "\x00" + row.App.Name
+		if _, dup := seen[k]; dup {
+			continue
+		}
+		seen[k] = struct{}{}
+		out = append(out, row)
+	}
 	return out
 }
 

@@ -12,6 +12,15 @@
 //   - GET  /api/v1/sovereigns/{id}/applications/{name}       (HandleApplicationGet)
 //   - GET  /api/v1/organizations                             (HandleListOrganizations)
 //   - POST /api/v1/sovereigns/{id}/applications              (HandleApplicationInstall)
+//   - GET  /api/v1/org/applications                          (HandleOrgApplications)
+//   - POST /api/v1/org/applications                          (HandleOrgApplicationInstall)
+//
+// The `/api/v1/sovereigns/{id}/…` seam is DEPLOYMENT-ADDRESSED and
+// Sovereign-wide; the catalyst-api OrgScopeGuard 403s an Org-scoped session
+// on it (it is NOT in orgSafePathPrefixes). The `/api/v1/org/…` pair is the
+// own-org seam an Org-scoped session must use — it IS allowlisted, and it
+// resolves the caller's own Org namespace SERVER-SIDE from X-Tenant-Host.
+// See the ListApplicationsOrg doc comment for the full #5516 reasoning.
 //
 // The POST is the FIRST write tool (#3988 — create_application, UAT rows
 // 221-223). It reuses the SAME UI create seam (HandleApplicationInstall)
@@ -90,6 +99,13 @@ func (e *APIError) Error() string {
 // the session cookie, covering both the gateway (Authorization) and the
 // catalyst-api RequireSession (cookie) read paths.
 func (c *Client) get(ctx context.Context, path, bearer string, out any) error {
+	return c.getWithHeaders(ctx, path, bearer, nil, out)
+}
+
+// getWithHeaders is get() with caller-supplied extra request headers (e.g.
+// X-Tenant-Host for the own-org read path, #5516). The bearer + accept
+// headers are set identically to get().
+func (c *Client) getWithHeaders(ctx context.Context, path, bearer string, extra map[string]string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
 		return fmt.Errorf("catalyst-api: build request: %w", err)
@@ -102,6 +118,11 @@ func (c *Client) get(ctx context.Context, path, bearer string, out any) error {
 		req.Header.Set("Cookie", "catalyst_session="+bearer)
 	}
 	req.Header.Set("Accept", "application/json")
+	for k, v := range extra {
+		if k != "" && v != "" {
+			req.Header.Set(k, v)
+		}
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -203,6 +224,70 @@ type ApplicationItem struct {
 	Blueprint string `json:"blueprint,omitempty"`
 	Version   string `json:"version,omitempty"`
 	Phase     string `json:"phase,omitempty"`
+
+	// Environment — the Application's Environment ref (`<org>-<env_type>`,
+	// e.g. acme-prod). The Sovereign-wide list endpoint does not project it
+	// (list_environments derives the partition from Namespace there), but the
+	// own-org endpoint DOES (spec.environmentRef verbatim), and it is a
+	// strictly better grouping key than the namespace. Empty on the
+	// deployment-addressed path.
+	Environment string `json:"environment,omitempty"`
+
+	// Topology — the instance's resolved placement chip (singleton,
+	// active-active, active-hot-standby, …) as the console renders it. Only
+	// projected by the own-org endpoint.
+	Topology string `json:"topology,omitempty"`
+
+	// ExternalURL — the instance's front-door launch URL when an HTTPRoute
+	// fronts it. Only projected by the own-org endpoint; empty for workloads
+	// with no HTTP surface.
+	ExternalURL string `json:"externalURL,omitempty"`
+}
+
+// orgAppsResponse mirrors the `sovereignAppsResponse` envelope
+// HandleOrgApplications returns (products/catalyst/bootstrap/api/internal/
+// handler/sovereign.go). It is the per-Org instance-card projection the
+// customer console's AppsPage consumes — the SAME wire shape as
+// /api/v1/sovereign/apps, restricted server-side to the caller's own Org
+// namespace.
+type orgAppsResponse struct {
+	Apps        []orgAppItem `json:"apps"`
+	GeneratedAt string       `json:"generatedAt,omitempty"`
+}
+
+// orgAppItem is the subset of `sovereignAppItem` the MCP projects. `ID` is
+// the Application CR / HelmRelease name; `Status` is the card status
+// vocabulary (installed | installing | available | bootstrap) rather than the
+// CR `status.phase` the Sovereign-wide list reports.
+type orgAppItem struct {
+	ID          string `json:"id"`
+	Slug        string `json:"slug"`
+	Title       string `json:"title"`
+	Status      string `json:"status"`
+	Environment string `json:"environment,omitempty"`
+	Blueprint   string `json:"blueprint,omitempty"`
+	Version     string `json:"version,omitempty"`
+	Topology    string `json:"topology,omitempty"`
+	ExternalURL string `json:"externalURL,omitempty"`
+	Instance    bool   `json:"instance,omitempty"`
+}
+
+// orgStatusToPhase maps the own-org endpoint's CARD-status vocabulary onto
+// the CR-phase vocabulary the deployment-addressed list reports, so
+// `list_applications` speaks one language regardless of which seam served it.
+// An unrecognised value is passed through verbatim rather than silently
+// coerced — the facade never invents a status it was not told.
+func orgStatusToPhase(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "installed", "bootstrap":
+		return "Ready"
+	case "installing":
+		return "Installing"
+	case "available":
+		return "NotInstalled"
+	default:
+		return strings.TrimSpace(status)
+	}
 }
 
 // OrganizationListResponse mirrors the {items:[…]} envelope from
@@ -229,6 +314,64 @@ func (c *Client) GetApplication(ctx context.Context, depID, name, bearer string)
 	if err := c.get(ctx, fmt.Sprintf("/api/v1/sovereigns/%s/applications/%s", depID, name), bearer, &out); err != nil {
 		return nil, err
 	}
+	return out, nil
+}
+
+// ListApplicationsOrg calls GET /api/v1/org/applications — the own-org read
+// path an Org-scoped session MUST use (#5516).
+//
+// WHY this exists rather than passing a deployment_id to ListApplications:
+// the deployment-addressed seam `/api/v1/sovereigns/{id}/applications` is NOT
+// in the catalyst-api's orgSafePathPrefixes allowlist, so OrgScopeGuard 403s
+// every Org-scoped session (tier=org-admin) on it — deny-by-default, the
+// #4110 privilege-escalation fix. An Org bearer therefore CANNOT read that
+// seam no matter what claims it carries: stamping a deployment_id onto the
+// bearer only converts the MCP-side "no deployment binding" error into an
+// upstream 403 `org-scoped-forbidden`. The own-org route is the seam that is
+// actually reachable, exactly as CreateApplicationOrg already is for writes.
+//
+// The Org namespace is resolved SERVER-SIDE from X-Tenant-Host against the
+// tenant registry, with the #4110 binding ensuring an Org session can only
+// ever resolve its OWN Org — so the rows come back pre-confined and the
+// facade does no client-side namespace filtering on this path.
+//
+// The response is normalised into the SAME ApplicationListResponse the
+// deployment-addressed list returns, so the tool layer is seam-agnostic. Only
+// rows the endpoint marked `instance:true` are surfaced — a catalog/blueprint
+// row is not a running Application.
+func (c *Client) ListApplicationsOrg(ctx context.Context, bearer string) (*ApplicationListResponse, error) {
+	var raw orgAppsResponse
+	headers := map[string]string{}
+	if c.tenantHost != "" {
+		headers["X-Tenant-Host"] = c.tenantHost
+	}
+	if err := c.getWithHeaders(ctx, "/api/v1/org/applications", bearer, headers, &raw); err != nil {
+		return nil, err
+	}
+	out := &ApplicationListResponse{Kind: "ApplicationList", Items: []ApplicationItem{}}
+	for _, a := range raw.Apps {
+		if !a.Instance {
+			continue
+		}
+		name := strings.TrimSpace(a.ID)
+		if name == "" {
+			name = strings.TrimSpace(a.Title)
+		}
+		if name == "" {
+			continue
+		}
+		out.Items = append(out.Items, ApplicationItem{
+			Kind:        "Application",
+			Name:        name,
+			Blueprint:   a.Blueprint,
+			Version:     a.Version,
+			Phase:       orgStatusToPhase(a.Status),
+			Environment: a.Environment,
+			Topology:    a.Topology,
+			ExternalURL: a.ExternalURL,
+		})
+	}
+	out.Total = len(out.Items)
 	return out, nil
 }
 

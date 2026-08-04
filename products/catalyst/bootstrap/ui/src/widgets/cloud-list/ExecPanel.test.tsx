@@ -1,9 +1,34 @@
 /**
- * ExecPanel.test.tsx — EPIC-4 Slice E1+E2 (#1099). Vitest coverage for:
- *   - Open Shell button → POST /session → iframe mounts at embedURL
- *   - Recording-on badge when server reports recording=true
- *   - Iframe load timeout → fallback WebSocket path
- *   - Iframe `onerror` → fallback path
+ * ExecPanel.test.tsx — EPIC-4 Slice E1+E2 (#1099).
+ *
+ * TRANSPORT NOTE (why this file was migrated — #5404)
+ * ---------------------------------------------------
+ * G85 #2632 (2026-06-01) INVERTED the default transport — see the comment
+ * at ExecPanel.tsx:99-107. The Guacamole embed URL pointed at
+ * `guacamole.<dep>.sovereign.local`, a cluster-internal host the operator's
+ * browser cannot resolve, so 100% of "Open Shell" clicks fell through to the
+ * WebSocket fallback after a visible 5s spinner. `openShell()` now sets
+ * `phase` straight to `'fallback-loading'` (ExecPanel.tsx:107) and the
+ * iframe renders only in the `iframe-loading` / `iframe-ready` phases
+ * (ExecPanel.tsx:289). The old iframe-first assertions were therefore
+ * asserting a path the shipped code no longer takes.
+ *
+ * ORDERING NOTE (#5633)
+ * ---------------------
+ * `phase === 'fallback-loading'` and `phase === 'fallback-ready'` render
+ * byte-identical markup, and the WebSocket is dialled in the passive effect
+ * (ExecPanel.tsx:129-148) that React flushes in a scheduler task AFTER the
+ * one that commits that markup. So no `waitFor` on a DOM node alone can
+ * imply that the socket exists — under CPU pressure the scheduler yields
+ * between the two and the DOM-only wait resolves first. Every wait in this
+ * file that precedes a `wsInstance` assertion therefore names `wsInstance`
+ * in the wait condition itself.
+ *
+ * Vitest coverage for the shipped contract:
+ *   - Open Shell button → POST /session → WS+xterm mounts immediately
+ *   - No Guacamole iframe and no "Recording: ON" claim on the WS path
+ *   - No iframe-load timeout to wait out (the #2632 regression guard)
+ *   - WebSocket construction failure → visible error + retry
  *   - Disabled button when canExec=false (per RBAC contract)
  *   - Server error surface
  */
@@ -44,7 +69,11 @@ class FakeWebSocket {
   constructor(url: string) {
     this.url = url
   }
-  send(_: unknown) {}
+  // Stub — the panel only calls send() from the xterm stdin wiring, which
+  // is off in these tests (disableTerminal). Takes no params so the
+  // no-unused-vars rule stays green; the double-cast at the call site keeps
+  // it assignable to WebSocket.
+  send() {}
   close() {
     this.onclose?.({ code: 1000 })
   }
@@ -81,7 +110,8 @@ describe('ExecPanel', () => {
     expect(btn.disabled).toBe(true)
   })
 
-  it('happy path mounts iframe and shows recording badge', async () => {
+  it('happy path opens the WebSocket shell directly — no Guacamole iframe (G85 #2632)', async () => {
+    let wsInstance: FakeWebSocket | null = null
     render(
       <ExecPanel
         deploymentId="dep"
@@ -89,19 +119,51 @@ describe('ExecPanel', () => {
         pod="wp-1"
         container="web"
         createSession={async () => HAPPY_SESSION}
+        websocketFactory={(url) => {
+          wsInstance = new FakeWebSocket(url)
+          return wsInstance as unknown as WebSocket
+        }}
         disableTerminal
       />,
     )
     fireEvent.click(screen.getByTestId('exec-panel-open'))
+    // #5633 — the wait condition has to cover the socket, not just the DOM.
+    // React COMMITS the `fallback-loading` markup (banner + terminal <div>)
+    // in one scheduler task and dials the WebSocket in the passive effect
+    // (ExecPanel.tsx:129-148) that it flushes in a LATER one. Nothing in the
+    // DOM distinguishes `fallback-loading` from `fallback-ready`, so a
+    // DOM-only wait is satisfied strictly BEFORE the socket exists. Whenever
+    // a render overruns React's 5ms frame budget the scheduler yields
+    // between commit and passive-effect flush, the MutationObserver driving
+    // waitFor fires in the intervening microtask checkpoint, and the wait
+    // resolves with `wsInstance` still null. Waiting on both is not a weaker
+    // assertion: a socket that is never dialled still fails the test, on the
+    // waitFor timeout. Do NOT move this back out of the waitFor.
     await waitFor(() => {
-      expect(screen.getByTestId('exec-panel-iframe')).toBeTruthy()
+      expect(screen.getByTestId('exec-panel-fallback-terminal')).toBeTruthy()
+      expect(wsInstance).not.toBeNull()
     })
-    expect(screen.getByTestId('exec-panel-recording-on').textContent).toContain('Recording: ON')
-    const iframe = screen.getByTestId('exec-panel-iframe') as HTMLIFrameElement
-    expect(iframe.src).toContain('guac.local')
+    // The WS is dialled against the server-supplied fallback URL
+    // (ExecPanel.tsx:131-140).
+    expect(wsInstance!.url).toBe(HAPPY_SESSION.fallbackWebSocketUrl)
+    // …and the Guacamole iframe never mounts: ExecPanel.tsx:289 gates it on
+    // the `iframe-*` phases and openShell no longer enters them
+    // (ExecPanel.tsx:107).
+    expect(screen.queryByTestId('exec-panel-iframe')).toBeNull()
+    // The server reported recording:true, but a direct WS exec is NOT
+    // recorded. The badge stays inside the iframe branch
+    // (ExecPanel.tsx:291-295) and the WS banner states the opposite — the
+    // UI must never claim a recording it isn't making.
+    expect(screen.queryByTestId('exec-panel-recording-on')).toBeNull()
+    expect(screen.getByTestId('exec-panel-fallback-banner').textContent).toContain(
+      'recording disabled',
+    )
   })
 
-  it('falls back to WebSocket when iframe load times out', async () => {
+  it('reaches a usable shell without waiting out any iframe-load timeout', async () => {
+    // Regression guard for the exact bug G85 #2632 fixed (ExecPanel.tsx:99-107):
+    // every click used to burn a visible 5s spinner before falling through.
+    // Nothing here advances timers before the assertions.
     let wsInstance: FakeWebSocket | null = null
     render(
       <ExecPanel
@@ -119,27 +181,30 @@ describe('ExecPanel', () => {
       />,
     )
     fireEvent.click(screen.getByTestId('exec-panel-open'))
-    await waitFor(() => {
-      expect(screen.getByTestId('exec-panel-iframe')).toBeTruthy()
-    })
-    // Advance past the 100ms iframe-load timeout — we never fire onLoad.
-    act(() => {
-      vi.advanceTimersByTime(150)
-    })
+    // #5633 — same commit-before-effect ordering as the happy-path test
+    // above: the banner is committed a scheduler task before the socket is
+    // dialled, so the wait has to name the socket too.
     await waitFor(() => {
       expect(screen.getByTestId('exec-panel-fallback-banner')).toBeTruthy()
+      expect(wsInstance).not.toBeNull()
     })
-    expect(wsInstance).not.toBeNull()
     expect(wsInstance!.url).toContain('/k8s/exec/default/wp-1/web')
+    // Draining well past the iframe-load timeout must not disturb the live
+    // shell — that timer is only armed in the `iframe-loading` phase
+    // (ExecPanel.tsx:115-127), which this path never enters.
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(screen.getByTestId('exec-panel-fallback-terminal')).toBeTruthy()
+    expect(screen.queryByTestId('exec-panel-iframe')).toBeNull()
   })
 
-  it('falls back when iframe load timeout elapses (mirrors onerror fallback path)', async () => {
-    // Note: jsdom's iframe doesn't propagate the onError prop reliably,
-    // so this test exercises the same fallback code path via the
-    // 5-second iframe-load-timeout — the practical equivalent that the
-    // 5s timeout brief specifies. The onError branch is wired in
-    // ExecPanel.tsx and statically routes to the same setPhase call.
-    let wsInstance: FakeWebSocket | null = null
+  it('surfaces a WebSocket dial failure instead of hanging on a blank terminal', async () => {
+    // Replaces the old iframe-onerror coverage: the transport that can fail
+    // on the default path is now the WebSocket, and ExecPanel.tsx:139-145
+    // is the branch that has to degrade visibly. The iframe onError handler
+    // (ExecPanel.tsx:236-242) is no longer reachable — see the file
+    // docblock — so its coverage moves here.
     render(
       <ExecPanel
         deploymentId="dep"
@@ -147,25 +212,20 @@ describe('ExecPanel', () => {
         pod="wp-1"
         container="web"
         createSession={async () => HAPPY_SESSION}
-        iframeLoadTimeoutMs={50}
-        websocketFactory={(url) => {
-          wsInstance = new FakeWebSocket(url)
-          return wsInstance as unknown as WebSocket
+        websocketFactory={() => {
+          throw new Error('SecurityError: ws dial blocked')
         }}
         disableTerminal
       />,
     )
     fireEvent.click(screen.getByTestId('exec-panel-open'))
     await waitFor(() => {
-      expect(screen.getByTestId('exec-panel-iframe')).toBeTruthy()
+      expect(screen.getByTestId('exec-panel-error').textContent).toContain(
+        'SecurityError: ws dial blocked',
+      )
     })
-    act(() => {
-      vi.advanceTimersByTime(100)
-    })
-    await waitFor(() => {
-      expect(screen.getByTestId('exec-panel-fallback-banner')).toBeTruthy()
-    })
-    expect(wsInstance).not.toBeNull()
+    expect(screen.queryByTestId('exec-panel-fallback-terminal')).toBeNull()
+    expect(screen.getByTestId('exec-panel-error').textContent).toContain('Retry')
   })
 
   it('surfaces server error and offers retry', async () => {

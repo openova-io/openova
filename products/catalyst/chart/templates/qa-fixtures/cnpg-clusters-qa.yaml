@@ -212,6 +212,45 @@ spec:
   overridable. Per #4a the postgres image carries an explicit version
   tag (16.4-1) — production overlays should pin a digest.
 */ -}}
+{{- /*
+  #5639 CLASS — FAIL CLOSED on a region this fixture cannot resolve.
+
+  Both Cluster CRs below carry a REQUIRED nodeAffinity on the
+  `openova.io/region` NODE LABEL. Until now both the label and the
+  selector read `.Values.qaFixtures.cnpgPrimaryRegion | default
+  "hz-fsn-rtz-prod"` — a HETZNER label baked into the chart — and the
+  bootstrap-kit slot passed `${QA_CNPG_PRIMARY_REGION:-hz-fsn-rtz-prod}`
+  for a substitution variable NOTHING in this repo has ever defined.
+
+  On every Huawei Sovereign that resolves to `hz-fsn-rtz-prod`, which no
+  node carries (`openova.io/region=hw-<region>-rtz-prod`), so both
+  fixture Clusters are unschedulable FOREVER while the HelmRelease still
+  reports install succeeded. That is #5639's outcome exactly — the value
+  is merely wrong instead of empty, and a near-miss region is precisely
+  as unschedulable as an empty one.
+
+  So: `required`, naming the key, instead of a provider-specific literal.
+  The bootstrap-kit now supplies `${SOVEREIGN_REGION_CANONICAL_LABEL}` —
+  the LOCAL cluster's own openova.io/region label, stamped by cloud-init on
+  every node on every provider. Deliberately not SOVEREIGN_PRIMARY_REGION:
+  on a secondary cluster that still names region-a, so the fixture would pin
+  a label the local nodes do not carry.
+
+  The replica fixture falls back to the PRIMARY region rather than to a
+  second literal: this fixture is documented single-region by default
+  (the cross-region drill belongs to bp-cnpg-pair / Continuum), and
+  `SOVEREIGN_REPLICA_REGION` is empty on a single-region Sovereign. The
+  fallback is therefore always a real, resolvable node label — never "",
+  never another provider's.
+
+  Blast radius is bounded by the `qaFixtures.enabled` gate at line 1: a
+  production Sovereign (enabled=false) never renders this file, so the
+  umbrella render cannot fail on it. It fails only on a QA Sovereign that
+  turns the fixtures on without a region — which is exactly the case that
+  today yields two permanently-Pending Pods behind a green HelmRelease.
+*/ -}}
+{{- $qaPrimaryRegion := required "qaFixtures.cnpgPrimaryRegion is REQUIRED when qaFixtures.enabled=true. It is the canonical openova.io/region NODE LABEL both QA CNPG fixture Clusters pin a required nodeAffinity on — set it from this cluster's SOVEREIGN_REGION_CANONICAL_LABEL (e.g. hw-me-east-215-a-rtz-prod). A wrong or empty value emits a selector no node can satisfy, so the fixture primary is unschedulable forever while the HelmRelease still reports install succeeded (#5639)." .Values.qaFixtures.cnpgPrimaryRegion -}}
+{{- $qaReplicaRegion := .Values.qaFixtures.cnpgReplicaRegion | default $qaPrimaryRegion -}}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -221,7 +260,7 @@ metadata:
     openova.io/managed-by: qa-fixtures
     openova.io/application: {{ .Values.qaFixtures.appName | default "qa-wp" }}
     openova.io/cnpg-role: primary
-    openova.io/region: {{ .Values.qaFixtures.cnpgPrimaryRegion | default "hz-fsn-rtz-prod" }}
+    openova.io/region: {{ $qaPrimaryRegion }}
     catalyst.openova.io/cnpg-pair: {{ .Values.qaFixtures.cnpgPairName | default "qa-cnpg" }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
     app.kubernetes.io/instance: {{ .Release.Name }}
@@ -257,7 +296,7 @@ spec:
               - key: openova.io/region
                 operator: In
                 values:
-                  - {{ .Values.qaFixtures.cnpgPrimaryRegion | default "hz-fsn-rtz-prod" }}
+                  - {{ $qaPrimaryRegion }}
     podAntiAffinityType: preferred
   postgresql:
     parameters:
@@ -301,7 +340,7 @@ metadata:
     openova.io/managed-by: qa-fixtures
     openova.io/application: {{ .Values.qaFixtures.appName | default "qa-wp" }}
     openova.io/cnpg-role: replica
-    openova.io/region: {{ .Values.qaFixtures.cnpgReplicaRegion | default "hz-fsn-rtz-prod" }}
+    openova.io/region: {{ $qaReplicaRegion }}
     catalyst.openova.io/cnpg-pair: {{ .Values.qaFixtures.cnpgPairName | default "qa-cnpg" }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
     app.kubernetes.io/instance: {{ .Release.Name }}
@@ -337,7 +376,7 @@ spec:
               - key: openova.io/region
                 operator: In
                 values:
-                  - {{ .Values.qaFixtures.cnpgReplicaRegion | default "hz-fsn-rtz-prod" }}
+                  - {{ $qaReplicaRegion }}
     podAntiAffinityType: preferred
   postgresql:
     parameters:

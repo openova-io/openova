@@ -14,7 +14,11 @@ spec:
   # 0.5.17 (#4604): chart adds a default-on external-HTTPS egress CNP +
   # seeds the openova MCP into ~/.claude.json for a standalone claude (durable
   # Pillar-4 North-Star wiring). Lockstep with products/agenity/chart.
-  version: 0.5.20
+  # 0.5.22 (#5617): the oidc-gate companion gains its egress CNP (kube-dns +
+  # Keycloak backchannel + upstream) — the per-Org namespace is default-deny
+  # and the gate's ingress-only CNP left the OAuth callback 500ing on a DNS
+  # timeout. Lockstep with products/agenity/chart + the catalog-seed pin.
+  version: 0.5.22
   card:
     title: Agenity
     summary: |

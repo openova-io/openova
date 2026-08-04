@@ -159,6 +159,17 @@ func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	action, rerr := h.dispatchRetry(r.Context(), dyn, job, now)
 	if rerr != nil {
+		// #3379: a cutover-step Re-run that arrives while the engine already
+		// holds its single-run flag is a CONFLICT, not a fault — the same
+		// answer HandleCutoverStart gives a concurrent /start. Spawning a
+		// second engine goroutine would race the first over the step Jobs.
+		if errors.Is(rerr, errCutoverRunInFlight) {
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error":  "cutover-in-progress",
+				"detail": rerr.Error(),
+			})
+			return
+		}
 		// #4845: a leaf with no directly-retryable backing (aggregate
 		// trivy-operator scan, mutation-bridge, unsupported kind) is a
 		// client-side condition, not a server fault — return a graceful 422
@@ -222,7 +233,7 @@ func (h *Handler) dispatchRetry(ctx context.Context, dyn dynamic.Interface, job 
 
 	case jobs.KindReconcile:
 		// Flux Kustomization — discover its namespace, then annotate.
-		ns, err := resolveObjectNamespace(ctx, dyn, helmwatch.KustomizationGVR, name)
+		ns, _, err := resolveObjectNamespace(ctx, dyn, helmwatch.KustomizationGVR, name)
 		if err != nil {
 			return "", err
 		}
@@ -234,7 +245,7 @@ func (h *Handler) dispatchRetry(ctx context.Context, dyn dynamic.Interface, job 
 	case jobs.KindReconciler:
 		// Reconciler Deployment — bump the pod-template annotation to roll
 		// it (the Flux-native equivalent for a non-HR reconciler workload).
-		ns, err := resolveObjectNamespace(ctx, dyn, helmwatch.DeploymentGVR, name)
+		ns, _, err := resolveObjectNamespace(ctx, dyn, helmwatch.DeploymentGVR, name)
 		if err != nil {
 			return "", err
 		}
@@ -245,7 +256,7 @@ func (h *Handler) dispatchRetry(ctx context.Context, dyn dynamic.Interface, job 
 
 	case jobs.KindCron:
 		// CronJob — create a one-off Job from its jobTemplate ("Run now").
-		ns, err := resolveObjectNamespace(ctx, dyn, helmwatch.CronJobGVR, name)
+		ns, _, err := resolveObjectNamespace(ctx, dyn, helmwatch.CronJobGVR, name)
 		if err != nil {
 			return "", err
 		}
@@ -254,6 +265,13 @@ func (h *Handler) dispatchRetry(ctx context.Context, dyn dynamic.Interface, job 
 			return "", err
 		}
 		return "created one-off Job " + runName + " from CronJob " + name, nil
+
+	case jobs.KindStep:
+		// One step of a projected activity ("cutover-step-<slug>"). Re-drives
+		// the cutover engine in operator-retry mode so the failed step's
+		// stale Job is deleted + re-run and the chain resumes — see
+		// jobs_retry_cutover_step.go (issue #3379, UAT row 165).
+		return h.retryActivityStep(ctx, job, now)
 
 	case jobs.KindMutation:
 		// Crossplane XRC re-submit — bump the catalyst reconcile annotation
@@ -271,13 +289,15 @@ func (h *Handler) dispatchRetry(ctx context.Context, dyn dynamic.Interface, job 
 		// immutable fields stripped. A Job OWNED by a CronJob is re-driven
 		// through its CronJob ("Run now") instead — recreating a
 		// CronJob-managed Job standalone would orphan it from its owner.
-		ns, err := resolveObjectNamespace(ctx, dyn, helmwatch.JobGVR, name)
+		ns, jobName, err := resolveObjectNamespace(ctx, dyn, helmwatch.JobGVR, name)
 		if err != nil {
 			return "", err
 		}
-		old, err := dyn.Resource(helmwatch.JobGVR).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
+		// #5496 — Get the RESOLVED name: for a controller-generated Job the
+		// row name has no object behind it, only `<name>-<digits>` does.
+		old, err := dyn.Resource(helmwatch.JobGVR).Namespace(ns).Get(ctx, jobName, metav1.GetOptions{})
 		if err != nil {
-			return "", fmt.Errorf("get Job %s/%s: %w", ns, name, err)
+			return "", fmt.Errorf("get Job %s/%s: %w", ns, jobName, err)
 		}
 		if cron := cronJobOwnerName(old); cron != "" {
 			runName, cerr := createJobFromCronJob(ctx, dyn, ns, cron, now)
@@ -533,19 +553,56 @@ func isControllerOwnedLabel(k string) bool {
 // don't persist their namespace on the Job, so we re-discover it at retry
 // time (the list is cheap + the name is unique within the cluster for these
 // reconciler objects). Returns an error when no/many matches.
-func resolveObjectNamespace(ctx context.Context, dyn dynamic.Interface, gvr schema.GroupVersionResource, name string) (string, error) {
+//
+// #5496 (Refs #4845, UAT 176) — it ALSO resolves the object's real name. The
+// Jobs page passes a reconciler-row name (`cutover-harbor-prewarm`) while the
+// controller names the actual Job with a generated numeric suffix
+// (`cutover-harbor-prewarm-1785348872`). Exact-match-only meant no candidate
+// was ever found, so Re-run rendered on a genuinely-failed row and always
+// returned 422. #4845 converted that from a raw 502 into a graceful 422; it
+// never made suffixed Jobs resolvable.
+//
+// The suffix match is deliberately NARROW: `<name>-<digits>` only. A bare
+// prefix match is the #5485 defect in a new place — there, `bp-velero` matched
+// `bp-velero-hcs` and the reconciler drill-in served an operator 100%
+// wrong-object logs. `hcs` is not digits, so it cannot match here.
+//
+// When several digit-suffixed candidates exist, the NEWEST by creation
+// timestamp wins — the most recent attempt, which is what Re-run means.
+func resolveObjectNamespace(ctx context.Context, dyn dynamic.Interface, gvr schema.GroupVersionResource, name string) (string, string, error) {
 	list, err := dyn.Resource(gvr).Namespace("").List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return "", fmt.Errorf("list %s to resolve namespace of %q: %w", gvr.Resource, name, err)
+		return "", "", fmt.Errorf("list %s to resolve namespace of %q: %w", gvr.Resource, name, err)
 	}
 	ns := ""
 	for i := range list.Items {
 		if list.Items[i].GetName() == name {
 			if ns != "" && ns != list.Items[i].GetNamespace() {
-				return "", fmt.Errorf("%s %q exists in multiple namespaces; cannot disambiguate for retry", gvr.Resource, name)
+				return "", "", fmt.Errorf("%s %q exists in multiple namespaces; cannot disambiguate for retry", gvr.Resource, name)
 			}
 			ns = list.Items[i].GetNamespace()
 		}
+	}
+	if ns != "" {
+		return ns, name, nil
+	}
+	genNS, genName := "", ""
+	var genAt metav1.Time
+	for i := range list.Items {
+		cand := list.Items[i].GetName()
+		if !hasGeneratedNumericSuffix(cand, name) {
+			continue
+		}
+		at := list.Items[i].GetCreationTimestamp()
+		if genName != "" && genNS != list.Items[i].GetNamespace() {
+			return "", "", fmt.Errorf("%s %q resolves to generated names in multiple namespaces; cannot disambiguate for retry", gvr.Resource, name)
+		}
+		if genName == "" || at.After(genAt.Time) {
+			genNS, genName, genAt = list.Items[i].GetNamespace(), cand, at
+		}
+	}
+	if genName != "" {
+		return genNS, genName, nil
 	}
 	if ns == "" {
 		// #4845: a synthetic AGGREGATE reconciler (e.g. the "Trivy Security
@@ -554,9 +611,25 @@ func resolveObjectNamespace(ctx context.Context, dyn dynamic.Interface, gvr sche
 		// resolve fails. That is NOT a server fault — the row simply has no
 		// directly-retryable backing. Wrap with errNotDirectlyRetryable so
 		// the HTTP handler returns a graceful 422 instead of a raw 502.
-		return "", fmt.Errorf("%s %q not found in any namespace: %w", gvr.Resource, name, errNotDirectlyRetryable)
+		return "", "", fmt.Errorf("%s %q not found in any namespace: %w", gvr.Resource, name, errNotDirectlyRetryable)
 	}
-	return ns, nil
+	return ns, name, nil
+}
+
+// hasGeneratedNumericSuffix reports whether cand is exactly base + "-" +
+// one-or-more digits. This is the ONLY accepted suffix shape, so a sibling
+// whose name merely starts with base (bp-velero vs bp-velero-hcs, the #5485
+// collision) can never match.
+func hasGeneratedNumericSuffix(cand, base string) bool {
+	if len(cand) <= len(base)+1 || !strings.HasPrefix(cand, base) || cand[len(base)] != '-' {
+		return false
+	}
+	for _, r := range cand[len(base)+1:] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // jobRetryableStatus reports whether a leaf's status warrants a retry

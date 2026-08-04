@@ -1,0 +1,28 @@
+### hw291 G7 (2026-07-30) — vcluster dual-door walk (#4293). READ-ONLY: both doors' AFFORDANCES verified; landing an Org is a MUTATION and was not performed.
+
+--- DOOR A: operator console /organizations/new ---
+collapsed default banner  : 'Defaults: billing: real  isolation: vcluster'
+Advanced override exposes : Billing mode [real|chargeback|showback]   Isolation [namespace|vcluster]   (default vcluster)
+NO plan/tier input on this door at all.
+
+--- DOOR B: marketplace funnel /plans ---
+plan grid served anonymously: S 5.000 (2vCPU/4GB) | M 9.000 (4vCPU/8GB, POPULAR) | L (8vCPU/16GB) | XL (16vCPU/32GB) | Flexi (per-CU)
+=> M/L/XL/Flexi are offered, i.e. the vcluster side of the tier gate is reachable from this door.
+pre-staged voucher VCH-JA5QP28N8JZK carries plan_tier=m (would land an M-tier Org).
+
+--- the authoritative gate (code) ---
+core/services/provisioning/gitops/gitops.go:453 BoundaryIsVcluster(planSlug):  ""|s|free -> host-ns (false);  m|l|xl|flexi -> vCluster (true)
+kept in lockstep with core/controllers/organization/internal/gitops/manifests.go const allTiersVcluster
+
+--- LIVE state ---
+vClusters live       : 0
+  CONTROL: CRD vclusters.vcluster.com installed AND the same 'kubectl get sts -A' shape returns 21 real StatefulSets => the zero is a genuine null.
+Orgs live            : uatcorp (kind=customer, planSlug=s, source=org-tenant-funnel) + hw291-omantel-biz (internal)
+uatcorp Ready msg    : host namespace Active + Keycloak group + Gitea Org reconciled (namespace-isolated tier — no vCluster authored)
+uatcorp status.vcluster (#5501 fabrication): {"hostCluster":"hw291.omantel.biz","name":"uatcorp","phase":"Ready"}
+GET /api/v1/organizations also reports vcluster_name=vc-uatcorp / state=done for an Org with ZERO vClusters (#5501).
+
+--- STRUCTURAL DIVERGENCE worth a ticket (NOT a walked verdict) ---
+Door A displays 'isolation: vcluster' as its default and carries NO plan input, so an Org created there submits planSlug="";
+BoundaryIsVcluster("") == false -> host namespace. The form's declared default and the authoritative gate disagree.
+This is a code+form reading, not a walked result: creating an Org to settle it is a mutation and was deliberately not done.

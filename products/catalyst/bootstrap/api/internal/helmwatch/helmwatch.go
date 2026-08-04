@@ -944,6 +944,14 @@ type ComponentSnapshot struct {
 	// leaf), so a healthy-but-converging HR never flaps Failed↔Succeeded
 	// on the page (issue #3916). Meaningless when Status != StateFailed.
 	Stalled          bool      `json:"stalled,omitempty"`
+	// Suspended — true when spec.suspend is set on the HelmRelease.
+	// Status stays StateInstalled for suspended HRs (Wave 5.103 #2447 —
+	// Phase-1 readiness must never block on an intentionally-suspended
+	// HR), so this flag is the ONLY way a snapshot reader can tell a
+	// suspended HR from a healthy one. The Reconciliation DAG maps it to
+	// ReconStateSuspended so the graph node agrees with the reconciler
+	// drill panel (#5485 defect 4).
+	Suspended        bool      `json:"suspended,omitempty"`
 }
 
 // NewWatcher returns a Watcher with cfg applied. emit must be non-nil
@@ -2623,7 +2631,11 @@ func (w *Watcher) SnapshotComponents() []ComponentSnapshot {
 		state := DeriveState(conds)
 		// Wave 5.103 (#2447): suspended HRs report as StateInstalled to
 		// avoid blocking Phase 1 readiness. See SetEventHandler comment.
-		if suspended, ok, _ := unstructured.NestedBool(u.Object, "spec", "suspend"); ok && suspended {
+		// #5485 defect 4: the suspension is ALSO carried as its own flag
+		// so the Reconciliation DAG can render Suspended distinctly.
+		suspended, okSusp, _ := unstructured.NestedBool(u.Object, "spec", "suspend")
+		suspended = okSusp && suspended
+		if suspended {
 			state = StateInstalled
 		}
 		message := messageFromConditions(conds, state)
@@ -2644,6 +2656,7 @@ func (w *Watcher) SnapshotComponents() []ComponentSnapshot {
 			Message:          message,
 			DependsOn:        extractDependsOn(u),
 			Stalled:          state == StateFailed && IsStalledHelmRelease(u),
+			Suspended:        suspended,
 		})
 	}
 	return out
@@ -2681,7 +2694,11 @@ func ListAndSnapshotHelmReleases(ctx context.Context, dyn dynamic.Interface) ([]
 		state := DeriveState(conds)
 		// Wave 5.103 (#2447): suspended HRs report as StateInstalled to
 		// avoid blocking Phase 1 readiness. See SetEventHandler comment.
-		if suspended, ok, _ := unstructured.NestedBool(u.Object, "spec", "suspend"); ok && suspended {
+		// #5485 defect 4: the suspension is ALSO carried as its own flag
+		// so the Reconciliation DAG can render Suspended distinctly.
+		suspended, okSusp, _ := unstructured.NestedBool(u.Object, "spec", "suspend")
+		suspended = okSusp && suspended
+		if suspended {
 			state = StateInstalled
 		}
 		message := messageFromConditions(conds, state)
@@ -2702,6 +2719,7 @@ func ListAndSnapshotHelmReleases(ctx context.Context, dyn dynamic.Interface) ([]
 			Message:          message,
 			DependsOn:        extractDependsOn(u),
 			Stalled:          state == StateFailed && IsStalledHelmRelease(u),
+			Suspended:        suspended,
 		})
 	}
 	return out, nil

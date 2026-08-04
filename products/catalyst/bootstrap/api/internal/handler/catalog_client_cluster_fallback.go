@@ -49,6 +49,12 @@ import (
 // first and fall back to v1alpha1 on the version-not-served path so the
 // fallback works on any Sovereign regardless of which version the
 // chart's Blueprint CRs were authored under.
+// catalogOriginSovereign mirrors source.OriginSovereign. The canonical
+// enum lives in an `internal/` package of a different module and cannot be
+// imported here, so it is restated rather than duplicated as a literal —
+// a bare 3 is what caused #5475.
+const catalogOriginSovereign = 2
+
 func blueprintCRGVR() schema.GroupVersionResource {
 	return schema.GroupVersionResource{
 		Group:    "catalyst.openova.io",
@@ -268,7 +274,12 @@ func parseBlueprintCRToCatalog(u *unstructured.Unstructured) (*CatalogBlueprint,
 	bp := &CatalogBlueprint{
 		Name:   name,
 		Source: "in-cluster",
-		Origin: 3, // distinct from public(1)/sovereign(2)/org-private(0)
+		// #5475: this was 3 with a comment claiming org-private was 0.
+		// The canonical enum (core/services/catalyst-catalog/internal/
+		// source.Origin) is public=1, sovereign=2, org-private=3, so 3
+		// mislabelled every platform blueprint as org-private. A blueprint
+		// read from the in-cluster CR is sovereign-curated.
+		Origin: catalogOriginSovereign,
 	}
 	spec, ok, _ := unstructured.NestedMap(u.Object, "spec")
 	if !ok {

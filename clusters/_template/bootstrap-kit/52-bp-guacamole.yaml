@@ -192,7 +192,13 @@ spec:
       # flow (fragment-replay "invalid/old nonce" on hw288, UAT rows
       # 35/115) is retired from the canonical path — values below drop
       # httproute + oidc.issuer accordingly.
-      version: 0.2.31
+      # 0.2.34 (#5598): API_SESSION_TIMEOUT=10080 — the webapp REST token
+      # previously died on the upstream 60-minute default while the
+      # oidc-gate session lives ~168h, so any >60-min revisit reused the
+      # dead cached GUAC_AUTH token → 403 PERMISSION_DENIED on every
+      # session API call → bare "An error has occurred" page (UAT rows
+      # 35/115 on hw292). Session lifetime now matches the gate cookie.
+      version: 0.2.35
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole

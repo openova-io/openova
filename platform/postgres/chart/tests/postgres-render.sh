@@ -776,18 +776,18 @@ BP_YAML="$CHART_DIR/../blueprint.yaml"
 modes_line=$(grep -E '^[[:space:]]*modes:[[:space:]]*\[' "$BP_YAML" | head -1)
 [ -n "$modes_line" ] || fail "#3375: placementSchema.modes line not found in blueprint.yaml"
 for canon in singleton active-active active-hot-standby active-passive; do
-  echo "$modes_line" | grep -qw "$canon" \
+  grep -qw "$canon" <<<"$modes_line" \
     || fail "#3375: placementSchema.modes missing canonical mode '$canon' (got: $modes_line)"
 done
 # The banned legacy spellings must NOT appear as placementSchema modes.
-if echo "$modes_line" | grep -qE '\bsingle-region\b'; then
+if grep -qE '\bsingle-region\b' <<<"$modes_line"; then
   fail "#3375 REGRESSION: placementSchema.modes lists the banned 'single-region' (use canonical 'singleton')"
 fi
-if echo "$modes_line" | grep -qE '\bactive-hotstandby\b'; then
+if grep -qE '\bactive-hotstandby\b' <<<"$modes_line"; then
   fail "#3375 REGRESSION: placementSchema.modes lists the banned 'active-hotstandby' (use canonical 'active-hot-standby')"
 fi
 default_line=$(grep -E '^[[:space:]]*default:[[:space:]]' "$BP_YAML" | head -1)
-if echo "$default_line" | grep -qE '\bsingle-region\b'; then
+if grep -qE '\bsingle-region\b' <<<"$default_line"; then
   fail "#3375 REGRESSION: placementSchema.default is the banned 'single-region' (use canonical 'singleton')"
 fi
 
@@ -859,6 +859,13 @@ grep -qE 'applicationRef: "shared-data/shared-pg"'    "$TMP/cont.yaml" || fail "
 grep -qE 'primaryRegion: "hw-me-east-215-a-rtz-prod"' "$TMP/cont.yaml" || fail "#4986: primaryRegion missing"
 grep -qE '"hw-me-east-215-b-rtz-prod"'                "$TMP/cont.yaml" || fail "#4986: hotStandbyRegions must carry the replica region"
 grep -qE 'mechanism: cnpg-pair'                       "$TMP/cont.yaml" || fail "#4986: switchover.mechanism must be cnpg-pair"
+# #5311: spec.cnpgPair MUST be populated (name=instance, namespace=cluster ns)
+# so the continuum-controller observe gate (continuum_controller.go:420,
+# `spec.CNPGPair != ""`) engages the pg_stat_replication standby probe on the
+# true 2-region topology → standbyAvailable surfaces. Label-only was NOT enough.
+grep -qE '^  cnpgPair:$'                              "$TMP/cont.yaml" || fail "#5311: spec.cnpgPair block missing — standby observe gate stays skipped, standbyAvailable never surfaces"
+grep -qE '^    name: "shared-pg"$'                    "$TMP/cont.yaml" || fail "#5311: spec.cnpgPair.name must equal instanceName (the FindPair label value)"
+grep -qE '^    namespace: "shared-data"$'             "$TMP/cont.yaml" || fail "#5311: spec.cnpgPair.namespace must equal the Cluster namespace"
 grep -qE 'kind: "k8s-lease"'                          "$TMP/cont.yaml" || fail "#4986: leaseClient.kind must default k8s-lease (air-gappable, self-sovereign)"
 grep -qE 'openova.io/scope: application'              "$TMP/cont.yaml" || fail "#4986: scope=application distinguishes the per-app producer from the cnpg-pair chart's platform CR"
 
@@ -871,7 +878,7 @@ assert_no_continuum() { # $1=label ; rest=helm --set flags (+ implicit --api-ver
   local label="$1"; shift
   local out
   out=$(helm template shared-pg . "$@" --api-versions dr.openova.io/v1 --show-only templates/continuum.yaml 2>&1 || true)
-  if echo "$out" | grep -qE '^kind: Continuum$'; then fail "#4986: Continuum MUST be absent — $label"; fi
+  if grep -qE '^kind: Continuum$' <<<"$out"; then fail "#4986: Continuum MUST be absent — $label"; fi
 }
 assert_no_continuum "singleton" \
   --set enabled=true --set instance.name=shared-pg --set topology.mode=singleton
@@ -891,6 +898,227 @@ cont_nocrd=$(helm template shared-pg . \
   --set enabled=true --set instance.name=shared-pg --set topology.mode=active-hot-standby --set topology.side=primary \
   --set topology.primary.region=hw-me-east-215-a-rtz-prod --set topology.replica.region=hw-me-east-215-b-rtz-prod \
   --show-only templates/continuum.yaml 2>&1 || true)
-if echo "$cont_nocrd" | grep -qE '^kind: Continuum$'; then fail "#4986: Continuum MUST be absent when the dr.openova.io/v1 CRD is not registered"; fi
+if grep -qE '^kind: Continuum$' <<<"$cont_nocrd"; then fail "#4986: Continuum MUST be absent when the dr.openova.io/v1 CRD is not registered"; fi
 
 echo "[render] PASS — bp-postgres render gate green (reuse proof: 1 Cluster, 2 Databases, 2 roles, 2 Secrets; master gate OFF → empty; 3-instance shapes locked; #3370 Application-CR self-registration locked; #3375 underscore-owner role-Secret sanitization locked; #3375/#3768 ONE canonical placement vocabulary locked; #3878 reflect.mangledTarget vc-mgmt native DB-secret delivery locked; #4986 per-app Continuum DR contract renders on AHS-primary + absent for singleton/replica/single-region/disabled/CRD-absent)"
+
+# ── #5473 — the replication SOURCE must select the PRIMARY, not all instances ──
+# CNPG expands `selectorType: r` to {cnpg.io/cluster, cnpg.io/podRole: instance}
+# — every instance, standbys included. On hw291 that made all three
+# shared-pg*-mesh Services resolve to 3 endpoints, and 2 of 3 cross-region DR
+# pairs replicated through a STANDBY (non-deterministic per reconnect, RPO not
+# primary-anchored, severable by killing an ordinary standby pod). bp-cnpg-pair
+# has always used `rw` for the same role; this chart drifted. Assert the
+# replication-source Service is declared `rw`, so the two charts cannot part
+# again — and assert the read alias is NOT silently promoted along with it.
+echo "[render] Case #5473: replication-source Service selects the PRIMARY (selectorType: rw)"
+repl_sel=$(helm template shared-pg . \
+  --set enabled=true --set instance.name=shared-pg \
+  --set topology.mode=active-hot-standby --set topology.side=primary \
+  --set topology.primary.region=hw-me-east-215-a-rtz-prod \
+  --set topology.replica.region=hw-me-east-215-b-rtz-prod \
+  --set topology.clusterMesh.enabled=true \
+  --api-versions postgresql.cnpg.io/v1 2>/dev/null)
+# Every `additional` service in the managed block must be selectorType rw:
+# the replication source (this fix) and the write alias (#3629) alike.
+if printf '%s' "${repl_sel}" | grep -qE 'selectorType:[[:space:]]*r[[:space:]]*$'; then
+  echo "FAIL (#5473): a managed additional Service still declares 'selectorType: r'." >&2
+  echo "  The cross-region replication SOURCE must be the primary ('rw'); 'r' selects every" >&2
+  echo "  instance and lets a region-b replica cascade off a standby (live: hw291 2026-07-29)." >&2
+  exit 1
+fi
+if ! printf '%s' "${repl_sel}" | grep -q 'catalyst.openova.io/role: replication-source'; then
+  echo "FAIL (#5473): the replication-source Service did not render — the assertion is vacuous." >&2
+  exit 1
+fi
+echo "  PASS (no 'selectorType: r' in the managed services block; replication-source present)"
+
+# ── #5504 — the initdb OWNER must be born holding the managed-role Secret ──
+# The first binding's owner is declared in TWO places: bootstrap.initdb.owner
+# (CNPG mints it during initdb) and managed.roles[] (passwordSecret). Without
+# bootstrap.initdb.secret, initdb mints the role with CNPG's auto-generated
+# `<cluster>-app` credential and that is the password Postgres KEEPS — so every
+# consumer, which is handed the roleSecret, gets SQLSTATE 28P01 while CNPG
+# reports the role `managedRolesStatus.byStatus.reconciled` over a password that
+# never took effect. Proven live on hw291: shared-pg-harbor (len 32) REJECTED as
+# user harbor, shared-pg-app (len 64) AUTHENTICATED; gitea + keycloak (same
+# chart, same managed.roles shape, NOT the initdb owner) both authenticated.
+# Harbor down took cutover step-02/03 with it and parked the chain at 9%.
+echo "[render] Case #5504: initdb owner Secret == its managed-role passwordSecret"
+seed_out=$(helm template shared-pg . \
+  --set enabled=true --set instance.name=shared-pg \
+  --set 'databases[0].name=registry' --set 'databases[0].owner=harbor' \
+  --set 'databases[1].name=gitea'    --set 'databases[1].owner=gitea' \
+  --api-versions postgresql.cnpg.io/v1 2>/dev/null)
+
+# VACUITY FIRST: a grep for a missing key "passes" trivially on an empty render.
+if ! printf '%s' "${seed_out}" | grep -q '^kind: Cluster'; then
+  echo "FAIL (#5504): no Cluster CR rendered — every assertion below is vacuous." >&2
+  exit 2
+fi
+if ! printf '%s' "${seed_out}" | grep -qE '^      owner: "harbor"'; then
+  echo "FAIL (#5504): initdb owner did not render — assertion vacuous." >&2
+  exit 2
+fi
+
+# The initdb block must carry a `secret:` naming the owner's role Secret.
+initdb_secret=$(printf '%s' "${seed_out}" \
+  | awk '/^  bootstrap:/,/^  managed:/' | awk '/^      secret:/{f=1;next} f&&/name:/{print $2;exit}')
+role_secret=$(printf '%s' "${seed_out}" \
+  | awk '/^    roles:/{f=1} f&&/- name: "harbor"/{g=1} g&&/name:/&&!/- name:/{print $2;exit}')
+
+if [ -z "${initdb_secret}" ]; then
+  echo "FAIL (#5504): bootstrap.initdb has no 'secret:' — the owner will be minted with the" >&2
+  echo "  auto-generated <cluster>-app credential and every consumer will get 28P01." >&2
+  exit 1
+fi
+if [ "${initdb_secret}" != "${role_secret}" ]; then
+  echo "FAIL (#5504): initdb secret ${initdb_secret} != managed-role passwordSecret ${role_secret}." >&2
+  echo "  Two credentials for one role; CNPG ranks initdb and reports the other reconciled." >&2
+  exit 1
+fi
+echo "  PASS (initdb secret == managed-role passwordSecret == ${initdb_secret})"
+
+# Guard the no-bindings fallback: with zero databases there is no owner Secret to
+# name, so initdb must NOT emit a dangling `secret:` (CNPG would fail to find it).
+nobind_vals="$(mktemp)"
+printf 'enabled: true\ninstance:\n  name: shared-pg\ndatabases: []\n' > "${nobind_vals}"
+empty_out=$(helm template shared-pg . -f "${nobind_vals}" \
+  --api-versions postgresql.cnpg.io/v1 2>/dev/null || true)
+rm -f "${nobind_vals}"
+if [ -z "${empty_out}" ]; then
+  echo "FAIL (#5504): the no-bindings render produced nothing — cannot assert the fallback." >&2
+  exit 2
+fi
+if printf '%s' "${empty_out}" | awk '/^  bootstrap:/,/^  managed:/' | grep -qE '^      secret:'; then
+  echo "FAIL (#5504): initdb emitted a 'secret:' with no bindings declared — it would name a" >&2
+  echo "  Secret nothing creates. The block must be guarded on the first binding existing." >&2
+  exit 1
+fi
+echo "  PASS (no-bindings fallback emits no dangling initdb secret)"
+
+# ── Case #5639: FAIL CLOSED on an unresolvable region — BOTH directions ──
+#
+# The defect (live on hw292, 2026-08-03): cluster.yaml + replica-cluster.yaml
+# read `.Values.topology.{primary,replica}.region` directly, and values.yaml
+# defaults both to the EMPTY STRING. An active-hot-standby install that never
+# set the key rendered `openova.io/region In [""]` — a required nodeAffinity no
+# node can EVER satisfy. The per-Org Cluster hw292-omani-works/postgres sat at
+# phase="Setting up primary" for 7+ hours with
+#   FailedScheduling: 0/4 nodes are available: 4 node(s) didn't match Pod's
+#                     node affinity/selector
+# while all four nodes carried openova.io/region=hw-me-east-215-a-rtz-prod. The
+# HelmRelease reported `install succeeded` the entire time.
+#
+# BOTH DIRECTIONS OR THE GUARD IS VACUOUS. The pre-existing Case-4 assertion
+# `grep -q 'key: openova.io/region'` passed on the BROKEN render too — the KEY is
+# present whether or not the VALUE is. So:
+#   (+) with the region set, assert the real region VALUE in the label AND in the
+#       nodeAffinity values list — the key alone proves nothing;
+#   (-) with the region absent, assert the render FAILS and that the error names
+#       the missing key.
+echo "[render] Case #5639: region fail-closed — value present when set, render FAILS when absent"
+
+pos_vals="$(mktemp)"
+cat > "${pos_vals}" <<'YAML'
+instance: { name: shared-pg }
+topology:
+  mode: active-hot-standby
+  side: primary
+  haInstances: 3
+  primary: { region: hz-fsn-rtz-prod }
+  replica: { region: hz-hel-rtz-prod }
+databases:
+  - { name: registry, owner: harbor }
+YAML
+
+# (+) PRIMARY half carries the REAL region in both sites.
+pos_out=$(helm template shared-pg . -f "${pos_vals}" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 2>&1) \
+  || { echo "FAIL (#5639): the region-BEARING render errored — the guard must not reject a valid install:" >&2
+       printf '%s\n' "${pos_out}" >&2; exit 1; }
+
+printf '%s' "${pos_out}" | grep -qE '^kind: Cluster$' \
+  || { echo "FAIL (#5639): no Cluster rendered — every assertion below is vacuous." >&2; exit 2; }
+printf '%s' "${pos_out}" | grep -qE '^    openova\.io/region: "hz-fsn-rtz-prod"$' \
+  || { echo "FAIL (#5639): primary Cluster LABEL is not the real region (empty label = the defect)." >&2; exit 1; }
+printf '%s' "${pos_out}" | grep -qE '^                values: \["hz-fsn-rtz-prod"\]$' \
+  || { echo "FAIL (#5639): primary nodeAffinity values[] is not [hz-fsn-rtz-prod]." >&2; exit 1; }
+if printf '%s' "${pos_out}" | grep -qE 'values: \[""\]'; then
+  echo "FAIL (#5639): the render still emits an EMPTY nodeAffinity selector." >&2; exit 1
+fi
+echo "  PASS (+ primary: label + nodeAffinity both carry hz-fsn-rtz-prod)"
+
+# (+) REPLICA half likewise, on the side that renders the follower.
+pos_replica=$(helm template shared-pg . -f "${pos_vals}" --namespace shared-data \
+  --set topology.side=secondary --api-versions postgresql.cnpg.io/v1 2>&1) \
+  || { echo "FAIL (#5639): the region-bearing REPLICA render errored:" >&2
+       printf '%s\n' "${pos_replica}" >&2; exit 1; }
+printf '%s' "${pos_replica}" | grep -qE '^    openova\.io/region: "hz-hel-rtz-prod"$' \
+  || { echo "FAIL (#5639): replica Cluster LABEL is not the real replica region." >&2; exit 1; }
+printf '%s' "${pos_replica}" | grep -qE '^                values: \["hz-hel-rtz-prod"\]$' \
+  || { echo "FAIL (#5639): replica nodeAffinity values[] is not [hz-hel-rtz-prod]." >&2; exit 1; }
+echo "  PASS (+ replica: label + nodeAffinity both carry hz-hel-rtz-prod)"
+
+rm -f "${pos_vals}"
+
+# (-) PRIMARY with NO region — the hw292 values shape verbatim. The render MUST
+#     fail, and the message MUST name the key.
+neg_vals="$(mktemp)"
+cat > "${neg_vals}" <<'YAML'
+instance: { name: postgres }
+topology:
+  mode: active-hot-standby
+YAML
+if neg_out=$(helm template postgres . -f "${neg_vals}" --namespace hw292-omani-works \
+      --api-versions postgresql.cnpg.io/v1 2>&1); then
+  echo "FAIL (#5639): active-hot-standby WITHOUT topology.primary.region still rendered." >&2
+  echo "  That is the hw292 defect: an empty selector Helm and the apiserver both accept," >&2
+  echo "  and a HelmRelease that reports install succeeded over a Pod that never schedules." >&2
+  printf '%s\n' "${neg_out}" | grep -E 'openova\.io/region|values: \[' >&2
+  rm -f "${neg_vals}"; exit 1
+fi
+printf '%s' "${neg_out}" | grep -q 'topology.primary.region' \
+  || { echo "FAIL (#5639): the render failed but the error does NOT name topology.primary.region:" >&2
+       printf '%s\n' "${neg_out}" >&2; rm -f "${neg_vals}"; exit 1; }
+echo "  PASS (- primary: render REFUSED, error names topology.primary.region)"
+
+# (-) REPLICA half with a primary region but NO replica region.
+neg_replica_vals="$(mktemp)"
+cat > "${neg_replica_vals}" <<'YAML'
+instance: { name: postgres }
+topology:
+  mode: active-hot-standby
+  side: secondary
+  primary: { region: hz-fsn-rtz-prod }
+YAML
+if neg_replica_out=$(helm template postgres . -f "${neg_replica_vals}" --namespace shared-data \
+      --api-versions postgresql.cnpg.io/v1 2>&1); then
+  echo "FAIL (#5639): the REPLICA half rendered without topology.replica.region." >&2
+  printf '%s\n' "${neg_replica_out}" | grep -E 'openova\.io/region|values: \[' >&2
+  rm -f "${neg_vals}" "${neg_replica_vals}"; exit 1
+fi
+printf '%s' "${neg_replica_out}" | grep -q 'topology.replica.region' \
+  || { echo "FAIL (#5639): the replica render failed but the error does NOT name topology.replica.region:" >&2
+       printf '%s\n' "${neg_replica_out}" >&2; rm -f "${neg_vals}" "${neg_replica_vals}"; exit 1; }
+echo "  PASS (- replica: render REFUSED, error names topology.replica.region)"
+
+# (=) NO REGRESSION: a SINGLETON install consumes no region, so it must still
+#     render cleanly with the key absent — the guard is scoped to the
+#     active-hot-standby shape, not applied to every install.
+singleton_vals="$(mktemp)"
+printf 'instance: { name: postgres }\ntopology:\n  mode: singleton\n' > "${singleton_vals}"
+sing_out=$(helm template postgres . -f "${singleton_vals}" --namespace org-acme \
+  --api-versions postgresql.cnpg.io/v1 2>&1) \
+  || { echo "FAIL (#5639): the SINGLETON render was broken by the region guard:" >&2
+       printf '%s\n' "${sing_out}" >&2; rm -f "${neg_vals}" "${neg_replica_vals}" "${singleton_vals}"; exit 1; }
+printf '%s' "${sing_out}" | grep -qE '^kind: Cluster$' \
+  || { echo "FAIL (#5639): singleton render emitted no Cluster." >&2
+       rm -f "${neg_vals}" "${neg_replica_vals}" "${singleton_vals}"; exit 1; }
+if printf '%s' "${sing_out}" | grep -q 'openova.io/region'; then
+  echo "FAIL (#5639): the singleton render grew a region pin — it must stay byte-identical." >&2
+  rm -f "${neg_vals}" "${neg_replica_vals}" "${singleton_vals}"; exit 1
+fi
+echo "  PASS (= singleton renders with NO region key and NO region pin)"
+
+rm -f "${neg_vals}" "${neg_replica_vals}" "${singleton_vals}"

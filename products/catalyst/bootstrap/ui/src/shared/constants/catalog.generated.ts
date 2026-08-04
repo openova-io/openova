@@ -146,7 +146,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.5.9",
+    "version": "0.5.22",
     "section": "pts-7-org-tenant",
     "depends": [
       "bp-external-secrets"
@@ -165,7 +165,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -363,6 +363,73 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       }
     },
     "hasUserUIEndpoint": true
+  },
+  {
+    "id": "bp-catalyst-edge-routes",
+    "slug": "catalyst-edge-routes",
+    "title": "Catalyst control-plane edge (region-b)",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.2.0",
+    "section": "pts-3-1-networking-and-service-mesh",
+    "depends": [
+      "bp-cilium",
+      "bp-gateway-api"
+    ],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "active-passive",
+        "singleton"
+      ],
+      "multiRegion": "active-passive",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "active-passive": {
+          "replication": {
+            "backend": "flux-git",
+            "mode": "async",
+            "lagSloSeconds": null
+          },
+          "switchover": {
+            "mechanism": "none",
+            "rtoSeconds": 0,
+            "rpoSeconds": 0
+          },
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "rtz-A": "passive",
+              "rtz-B": "active"
+            }
+          }
+        },
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "rtz",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-catalyst-platform",
@@ -658,7 +725,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.4.3",
+    "version": "1.4.18",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [],
     "shareable": false,
@@ -876,7 +943,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.12",
+    "version": "1.0.14",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-flux"
@@ -931,7 +998,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.7",
+    "version": "0.2.23",
     "section": "pts-9-disaster-recovery",
     "depends": [
       "bp-cnpg",
@@ -985,7 +1052,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -1039,7 +1106,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.5",
+    "version": "1.1.7",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [],
     "shareable": false,
@@ -1093,7 +1160,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.0",
+    "version": "1.3.4",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [
       "bp-crossplane"
@@ -1253,6 +1320,48 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
+    "id": "bp-dragonfly",
+    "slug": "dragonfly",
+    "title": "Dragonfly",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.1.1",
+    "section": "pts-3-5-storage-and-data",
+    "depends": [
+      "bp-cilium"
+    ],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
     "id": "bp-external-dns",
     "slug": "external-dns",
     "title": "ExternalDNS",
@@ -1262,7 +1371,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.8",
+    "version": "1.1.9",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [],
     "shareable": false,
@@ -1373,7 +1482,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.7",
+    "version": "1.0.9",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -1427,7 +1536,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -1659,7 +1768,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.0",
+    "version": "1.3.0",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [],
     "shareable": false,
@@ -1713,7 +1822,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.40",
+    "version": "1.2.49",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-postgres"
@@ -1741,7 +1850,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A",
               "mgmt-B"
@@ -1756,7 +1865,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -1779,7 +1888,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.16",
+    "version": "1.0.18",
     "section": "pts-3-observability",
     "depends": [],
     "shareable": false,
@@ -1843,7 +1952,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.27",
+    "version": "0.2.35",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-keycloak",
@@ -1913,7 +2022,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.36",
+    "version": "1.2.47",
     "section": "pts-3-5-storage-and-data",
     "depends": [
       "bp-cnpg",
@@ -1943,7 +2052,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A",
               "mgmt-B"
@@ -1958,7 +2067,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -2081,7 +2190,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.3",
+    "version": "1.0.9",
     "section": "pts-3-5-storage-and-data",
     "depends": [],
     "shareable": false,
@@ -2195,7 +2304,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.14",
+    "version": "0.1.16",
     "section": "pts-3-3-security-and-policy",
     "depends": [
       "bp-sealed-secrets"
@@ -2261,7 +2370,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.5.2",
+    "version": "1.5.7",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-postgres"
@@ -2289,7 +2398,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A",
               "mgmt-B"
@@ -2304,7 +2413,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -2516,7 +2625,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.40",
+    "version": "1.0.52",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -2881,7 +2990,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.0.3",
     "section": "pts-3-observability",
     "depends": [],
     "shareable": false,
@@ -3126,7 +3235,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.5",
+    "version": "1.0.9",
     "section": "pts-3-observability",
     "depends": [],
     "shareable": false,
@@ -3190,7 +3299,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.3.3",
+    "version": "1.3.5",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [],
     "shareable": false,
@@ -3253,7 +3362,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "category": "ai-safety",
     "tagline": null,
     "tags": [],
-    "visibility": "listed",
+    "visibility": "unlisted",
     "version": "1.0.0",
     "section": "pts-4-7-ai-safety",
     "depends": [
@@ -3508,7 +3617,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.4.129",
+    "version": "1.4.146",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg",
@@ -3566,7 +3675,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
         }
       }
     },
-    "hasUserUIEndpoint": false
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-oidc-gate",
@@ -3578,7 +3687,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.5",
+    "version": "0.1.9",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-cilium",
@@ -3646,7 +3755,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.51",
+    "version": "1.2.64",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [],
     "shareable": false,
@@ -3672,7 +3781,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 30
           },
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A",
               "mgmt-B"
@@ -3687,7 +3796,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -3710,7 +3819,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.6",
+    "version": "0.2.17",
     "section": "pts-4-7-agentic-workspace",
     "depends": [
       "bp-newapi",
@@ -3731,7 +3840,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -3811,6 +3920,46 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       }
     },
     "hasUserUIEndpoint": true
+  },
+  {
+    "id": "bp-openova-mcp",
+    "slug": "openova-mcp",
+    "title": "OpenOva MCP",
+    "summary": "|",
+    "icon": "openova-mcp.svg",
+    "category": "ai-runtime",
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.1.6",
+    "section": "pts-4-7-agentic-workspace",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-opensearch",
@@ -3910,7 +4059,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.1",
+    "version": "1.2.2",
     "section": "pts-3-observability",
     "depends": [],
     "shareable": false,
@@ -3960,7 +4109,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "section": "pts-3-2-observability-and-tracing",
     "depends": [
       "bp-opentelemetry",
@@ -4013,7 +4162,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.0",
+    "version": "0.1.13",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium"
@@ -4069,7 +4218,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.8",
+    "version": "0.2.17",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-cnpg",
@@ -4146,7 +4295,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.17",
+    "version": "1.2.23",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [
       "bp-cert-manager"
@@ -4352,7 +4501,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -4451,7 +4600,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.3.10",
+    "version": "0.3.12",
     "section": "pts-4-sandbox",
     "depends": [
       "bp-rtz-vcluster",
@@ -4482,7 +4631,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -4497,7 +4646,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -4520,7 +4669,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.2",
+    "version": "1.1.3",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -4570,7 +4719,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.3",
+    "version": "1.2.5",
     "section": "pts-3-5-storage-and-data",
     "depends": [
       "bp-cert-manager"
@@ -4626,11 +4775,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.80",
+    "version": "0.1.165",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-gitea",
-      "bp-harbor"
+      "bp-harbor",
+      "bp-dragonfly"
     ],
     "shareable": false,
     "contextSchema": null,
@@ -4673,8 +4823,58 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "section": "pts-3-3-security-and-policy",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
+    "id": "bp-sovereign-tls-vars",
+    "slug": "sovereign-tls-vars",
+    "title": "Sovereign TLS Vars",
+    "summary": "|",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.1.1",
+    "section": "pts-3-1-networking-and-service-mesh",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -4787,7 +4987,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.2.22",
+    "version": "0.2.26",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-keycloak",
@@ -4895,7 +5095,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.8",
+    "version": "0.1.14",
     "section": "pts-4-5-communication",
     "depends": [
       "bp-keycloak",
@@ -4926,7 +5126,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -4941,7 +5141,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -5169,7 +5369,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "section": "pts-3-observability",
     "depends": [],
     "shareable": false,
@@ -5300,7 +5500,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.3",
+    "version": "1.0.5",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -5350,7 +5550,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.4",
+    "version": "1.1.5",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-flux"
@@ -5532,7 +5732,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "section": "pts-3-observability",
     "depends": [],
     "shareable": false,
@@ -5652,7 +5852,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -5702,7 +5902,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.4.17",
+    "version": "0.4.22",
     "section": "pts-7-org-tenant",
     "depends": [
       "bp-postgres",
@@ -5734,7 +5934,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -5749,7 +5949,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A"
             ],
@@ -5796,6 +5996,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/alloy/blueprint.yaml",
   "platform/anthropic-adapter/blueprint.yaml",
   "platform/bge/blueprint.yaml",
+  "platform/catalyst-edge-routes/blueprint.yaml",
   "platform/catalyst-platform/blueprint.yaml",
   "platform/cert-manager-dynadot-webhook/blueprint.yaml",
   "platform/cert-manager-issuers/blueprint.yaml",
@@ -5812,6 +6013,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/crossplane/blueprint.yaml",
   "platform/debezium/blueprint.yaml",
   "platform/dmz-vcluster/blueprint.yaml",
+  "platform/dragonfly/blueprint.yaml",
   "platform/external-dns/blueprint.yaml",
   "platform/external-secrets-stores/blueprint.yaml",
   "platform/external-secrets/blueprint.yaml",
@@ -5854,6 +6056,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/openbao/blueprint.yaml",
   "platform/openclaw/blueprint.yaml",
   "platform/openmeter/blueprint.yaml",
+  "platform/openova-mcp/blueprint.yaml",
   "platform/opensearch/blueprint.yaml",
   "platform/opentelemetry-operator/blueprint.yaml",
   "platform/opentelemetry/blueprint.yaml",
@@ -5870,6 +6073,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/seaweedfs/blueprint.yaml",
   "platform/self-sovereign-cutover/blueprint.yaml",
   "platform/sigstore/blueprint.yaml",
+  "platform/sovereign-tls-vars/blueprint.yaml",
   "platform/spire/blueprint.yaml",
   "platform/sso-bridge/blueprint.yaml",
   "platform/stalwart-sovereign/blueprint.yaml",
@@ -5944,6 +6148,13 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "label": "sealed-secrets",
     "file": "05-sealed-secrets.yaml",
     "order": 5
+  },
+  {
+    "id": "bp-dragonfly",
+    "slug": "dragonfly",
+    "label": "dragonfly",
+    "file": "06-bp-dragonfly.yaml",
+    "order": 6
   },
   {
     "id": "bp-nats-jetstream",

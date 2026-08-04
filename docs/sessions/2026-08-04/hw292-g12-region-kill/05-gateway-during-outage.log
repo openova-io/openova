@@ -1,0 +1,9 @@
+=== §4 GATEWAY / service availability DURING region-A outage — 20:04:37Z ===
+https://console.hw292.omani.works/ -> HTTP 503
+https://api.hw292.omani.works/healthz -> HTTP 503
+https://marketplace.hw292.omani.works/ -> HTTP 503
+--- fresh-TCP sample x4 on console (no HTTP/2 pinning) ---
+  s1=503
+  s2=503
+  s3=503
+  s4=503

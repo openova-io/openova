@@ -127,7 +127,17 @@ export function CatalogDetail() {
     blueprintName?: string
     deploymentId?: string
   }
+  // `name` is the BARE blueprint name (no `bp-` prefix) and exists for DISPLAY
+  // only — headings, logo lookup, empty/error copy.
   const name = (params.blueprintName ?? '').replace(/^bp-/, '')
+  // #5449 — every API call on this page must use the `bp-`-qualified key.
+  // `/api/v1/catalog/alloy` and `/api/v1/catalog/bp-alloy` are DIFFERENT
+  // objects: the bare form resolves the stale Gitea catalog seed, the qualified
+  // form resolves the live Blueprint CR. The hero version chip was the only
+  // caller passing the bare name, so it rendered v1.0.2 from the seed beside a
+  // title and summary that had been edited to v1.0.3 — an edit the page itself
+  // had just persisted. Derive the key once so no caller can drift again.
+  const qualifiedName = name ? `bp-${name}` : ''
   const { deploymentId } = useResolvedDeploymentId()
   const isAdmin = useCatalogAdmin()
   const { theme } = useTheme()
@@ -159,9 +169,9 @@ export function CatalogDetail() {
       : `/provision/${depParam}`
 
   const catalogQuery = useQuery<CatalogItem>({
-    queryKey: ['catalog-item', name],
-    queryFn: () => getCatalogItem(name),
-    enabled: !!name,
+    queryKey: ['catalog-item', qualifiedName],
+    queryFn: () => getCatalogItem(qualifiedName),
+    enabled: !!qualifiedName,
     staleTime: 30_000,
     retry: 1,
   })
@@ -175,7 +185,7 @@ export function CatalogDetail() {
   // Returns null on 404 (no install / not a bootstrap app) — harmless.
   const bootstrapQuery = useQuery({
     queryKey: ['catalog-bootstrap', deploymentId, name],
-    queryFn: () => getApplication(deploymentId ?? '', `bp-${name}`),
+    queryFn: () => getApplication(deploymentId ?? '', qualifiedName),
     enabled: !!name && !!deploymentId,
     staleTime: 30_000,
     retry: 1,
@@ -237,7 +247,7 @@ export function CatalogDetail() {
   // #3370 — shareability declaration from the build-time catalog (the
   // same blueprint.yaml truth the catalog-seed locks against). Drives
   // the `shareable` badge; one generic mechanism for every blueprint.
-  const generated = BLUEPRINT_BY_ID[`bp-${name}`]
+  const generated = BLUEPRINT_BY_ID[qualifiedName]
   const shareable =
     generated?.shareable === true ||
     (cat.raw as { spec?: { shareable?: boolean } } | undefined)?.spec?.shareable === true
@@ -267,22 +277,60 @@ export function CatalogDetail() {
   const logoLightUrl = resolveCatalogIcon(card, 'light', bundledLogo)
   const logoDarkUrl = resolveCatalogIcon(card, 'dark', bundledLogo)
 
-  // #3668 §5A — the FULL current catalog-edit values, the merge base every
-  // per-field inline save round-trips so editing one field never clobbers a
-  // sibling (saveCatalogEdit does a full upsert). Light-icon pre-fills from the
-  // CURRENT IaC icon (`card.iconLight`), falling back to the bundled asset so
-  // the icon picker opens showing the rendered default rather than blank.
-  const currentEdit: CatalogEntryEdit = {
+  // #5510 — the IaC-declared card values, passed to each inline field as its
+  // `createSeed`: the values a brand-new store row is created from when this
+  // Blueprint has none yet. This is NOT a merge base. It used to be one —
+  // every per-field save PUT `{...currentEdit, ...patch}`, i.e. a whole-record
+  // replace built from an INCOMPLETE base (the IaC card only), so any field
+  // the store held but the IaC lacked was overwritten with an IaC-derived
+  // default. Live on hw291: a Summary-only save reverted `name`
+  // ("Alloy-NAMEPROOF-…" → "Alloy") and `icon_light`
+  // (".../cilium.svg" → ".../alloy.svg") — both of them UAT walk evidence —
+  // with a green "Saved to IaC ✓" toast and HTTP 200. The merge base now lives
+  // in saveCatalogEdit and is the STORED row.
+  //
+  // `icon_light` deliberately does NOT fall back to `bundledLogo` here: that
+  // asset is a build-time console bundle path, not an IaC declaration, and
+  // seeding it would materialize a console default as a persisted value. The
+  // bundled fallback belongs to the icon editor's DRAFT (below), so the picker
+  // still opens showing the rendered default rather than blank.
+  const iacSeed: CatalogEntryEdit = {
     name: title,
     tagline: card.tagline || card.summary || '',
     supported_topologies: topologies.map(canonicalizeMode),
-    icon_light: card.iconLight || bundledLogo || '',
+    icon_light: card.iconLight || '',
     icon_dark: card.iconDark || '',
   }
+  // The icon editor's initial DRAFT — the currently RENDERED icons, so the
+  // picker opens on the visible default (#3668 §5B) instead of blank. Only a
+  // Save on the icon field itself persists these.
+  const iconDraft = {
+    light: card.iconLight || bundledLogo || '',
+    dark: card.iconDark || '',
+  }
   // Refetch the catalog item after any per-field save so the new value renders
-  // live (and the next field's merge base picks up the saved sibling).
+  // live (and the next field's create-seed picks up the saved sibling).
+  //
+  // #5510 note: the invalidation below is no longer load-bearing for DATA
+  // SAFETY — the merge base is the stored row, resolved inside saveCatalogEdit,
+  // so a stale cache can no longer revert a sibling. It remains required for
+  // the LIVE RENDER (rows 127/132/133/142/153) and for a fresh create-seed.
+  //
+  // #5496 — this MUST invalidate `qualifiedName`, the key the query is
+  // registered under at :172. It previously used the bare `name`, so the key
+  // never matched, the invalidation silently no-oped, and `staleTime: 30_000`
+  // held the pre-edit document. Two consequences, one cause:
+  //   (a) the hero kept stale text until a full reload (UAT 127/132/133/142/153);
+  //   (b) SILENT DATA LOSS — the next per-field save computed its merge base
+  //       from the stale cache and reverted the previous save, with no error.
+  //       Reproduced live on hw291: a WordPress summary was wiped by the
+  //       following icon save.
+  // This is the half of #5449 that was missed: that fix introduced
+  // `qualifiedName` for exactly this bare-vs-`bp-` drift and corrected the
+  // registration site, not the invalidation. The comment above states the
+  // merge-base guarantee the bug was defeating.
   const refetchCatalog = () => {
-    void qc.invalidateQueries({ queryKey: ['catalog-item', name] })
+    void qc.invalidateQueries({ queryKey: ['catalog-item', qualifiedName] })
   }
 
   const bootstrapApp = bootstrapQuery.data
@@ -313,13 +361,13 @@ export function CatalogDetail() {
             logo. The picker writes the icon via the same saveCatalogEdit seam. */}
         {isAdmin ? (
           <CatalogInlineField<{ light: string; dark: string }>
-            blueprintId={`bp-${name}`}
+            blueprintId={qualifiedName}
             fieldKey="icon"
             label="Icon (light + dark)"
-            current={currentEdit}
+            createSeed={iacSeed}
             editable={isAdmin && !editingIaC}
             block
-            initialDraft={{ light: currentEdit.icon_light, dark: currentEdit.icon_dark }}
+            initialDraft={iconDraft}
             renderDisplay={() =>
               logoUrl ? (
                 <img src={logoUrl} alt={title} className="hero-logo" loading="lazy" />
@@ -371,12 +419,12 @@ export function CatalogDetail() {
           {/* #3668 §5A — the display name is a per-field inline editor. */}
           <h1>
             <CatalogInlineField<string>
-              blueprintId={`bp-${name}`}
+              blueprintId={qualifiedName}
               fieldKey="name"
               label="Display name"
-              current={currentEdit}
+              createSeed={iacSeed}
               editable={isAdmin && !editingIaC}
-              initialDraft={currentEdit.name}
+              initialDraft={iacSeed.name}
               renderDisplay={() => <span data-testid="catalog-title">{title}</span>}
               renderEditor={(draft, setDraft) => (
                 <input
@@ -407,7 +455,7 @@ export function CatalogDetail() {
                   // YamlEditor falls back to cat.raw (unchanged behavior).
                   setCommittedIac(null)
                   setEditingIaC(true)
-                  void getCatalogBlueprintIaC(`bp-${name}`).then(setCommittedIac)
+                  void getCatalogBlueprintIaC(qualifiedName).then(setCommittedIac)
                 }}
                 title="Edit the full blueprint IaC (advanced)"
                 style={CATALOG_EDIT_BTN_STYLE}
@@ -422,15 +470,15 @@ export function CatalogDetail() {
           {isAdmin ? (
             <div className="hero-tagline">
               <CatalogInlineField<string>
-                blueprintId={`bp-${name}`}
+                blueprintId={qualifiedName}
                 fieldKey="summary"
                 label="Summary"
-                current={currentEdit}
+                createSeed={iacSeed}
                 editable={isAdmin && !editingIaC}
-                initialDraft={currentEdit.tagline}
+                initialDraft={iacSeed.tagline}
                 renderDisplay={() => (
                   <span data-testid="catalog-summary">
-                    {card.tagline || card.summary || (
+                    {card.tagline || card.summary || card.description || (
                       <span className="hero-tagline-empty">Add a one-line summary…</span>
                     )}
                   </span>
@@ -589,16 +637,18 @@ export function CatalogDetail() {
             deploymentId={deploymentId ?? ''}
             kind="Blueprint"
             ns={undefined}
-            name={`bp-${name}`}
+            name={qualifiedName}
             obj={(cat.raw as K8sObject | undefined) ?? null}
             seedYaml={committedIac ?? undefined}
             commitLabel="Commit IaC"
             onCommit={async (yaml) => {
-              const resp = await saveCatalogBlueprintIaC(`bp-${name}`, yaml)
+              const resp = await saveCatalogBlueprintIaC(qualifiedName, yaml)
               if (!resp.committed) {
                 throw new Error(resp.reason || 'IaC commit did not land')
               }
-              void qc.invalidateQueries({ queryKey: ['catalog-item', name] })
+              // #5496 — same key mismatch as refetchCatalog: the save above
+              // already uses qualifiedName, so the invalidation must too.
+              void qc.invalidateQueries({ queryKey: ['catalog-item', qualifiedName] })
               return `Committed to IaC ✓ (${resp.path || 'catalog-sovereign'})`
             }}
           />
@@ -652,7 +702,7 @@ export function CatalogDetail() {
             <div className="singleton-meta">
               <Link
                 to={'/app/$componentId' as never}
-                params={{ componentId: `bp-${name}` } as never}
+                params={{ componentId: qualifiedName } as never}
                 className="external-url-link"
                 data-testid="catalog-singleton-link"
               >
@@ -678,7 +728,7 @@ export function CatalogDetail() {
             </div>
             <Link
               to={'/app/$componentId' as never}
-              params={{ componentId: `bp-${name}` } as never}
+              params={{ componentId: qualifiedName } as never}
               className="btn btn-primary singleton-open"
               data-testid="catalog-singleton-open"
             >
@@ -690,7 +740,7 @@ export function CatalogDetail() {
         // #3090 / #3165 — shared CLASS-page instances list + "+ New
         // instance" (inline topology-picker dialog). Instance rows link
         // to the INSTANCE page `/app/$componentId`.
-        <InstancesSection blueprint={`bp-${name}`} multiInstance={multiInstance} />
+        <InstancesSection blueprint={qualifiedName} multiInstance={multiInstance} />
       )}
 
       {/* Supported topologies. The read-only grid (with per-topology placement)
@@ -740,17 +790,17 @@ export function CatalogDetail() {
           {isAdmin ? (
             <div style={{ marginTop: '0.7rem' }}>
               <CatalogInlineField<string[]>
-                blueprintId={`bp-${name}`}
+                blueprintId={qualifiedName}
                 fieldKey="topologies"
                 label="Supported topologies"
-                current={currentEdit}
+                createSeed={iacSeed}
                 editable={isAdmin && !editingIaC}
                 block
-                initialDraft={currentEdit.supported_topologies}
+                initialDraft={iacSeed.supported_topologies}
                 renderDisplay={() => (
                   <span className="cif-topo-summary" data-testid="catalog-topologies-edit-summary">
-                    {currentEdit.supported_topologies.length > 0
-                      ? currentEdit.supported_topologies.join(', ')
+                    {iacSeed.supported_topologies.length > 0
+                      ? iacSeed.supported_topologies.join(', ')
                       : 'set supported topologies…'}
                   </span>
                 )}

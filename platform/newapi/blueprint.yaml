@@ -7,7 +7,7 @@ metadata:
     catalyst.openova.io/section: pts-4-6-llm-serving
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.4.144 # lockstep with chart/Chart.yaml (#5374 Guaranteed QoS; #5375: region-local admin-token PushSecret closes the M2 region-B SecretSyncedError / DR gap)
+  version: 1.4.146 # lockstep with chart/Chart.yaml (#5374 Guaranteed QoS; #5375: region-local admin-token PushSecret closes the M2 region-B SecretSyncedError / DR gap)
   card:
     title: NewAPI
     summary: |
@@ -329,9 +329,53 @@ spec:
           roles:
             mgmt-A: singleton
   # ── G117.3: Endpoints ──────────────────────────────────────────────────
-  # Per audit row: internal — exposed via Catalyst's API ingress (api.<sov>)
-  # not as a standalone external hostname.
-  endpoints: []
+  # #5389 (2026-07-27) — this used to read `endpoints: []` with the note
+  # "internal — exposed via Catalyst's API ingress (api.<sov>) not as a
+  # standalone external hostname". That stopped being true at #3374: the
+  # chart ships `templates/httproute.yaml`, which publishes the standalone
+  # host `newapi.<sovereign-fqdn>` and routes an **Exact `/`** match to the
+  # sandbox-bridge sidecar's zero-click SSO landing page, and
+  # `templates/sso-app-registration.yaml` registers the Keycloak redirect
+  # URI `https://newapi.<sovereign-fqdn>/oauth/<providerSlug>`. NewAPI has
+  # a first-class, SSO-gated admin console on its own hostname.
+  #
+  # The empty list was not merely stale metadata — it was load-bearing, and
+  # it removed the console's launch affordance entirely:
+  #
+  #   * `Handler.userUIGatePasses` (applications.go) FAILS CLOSED on
+  #     `len(bp.Endpoints) == 0`, so `externalURLIfUserUI` suppressed the
+  #     Application's externalURL. AppDetail renders the hero "Open" CTA
+  #     only under `{appExternalURL ? … : null}` and HandleSovereignApps
+  #     projects the AppsPage grid button from the same gate — so BOTH the
+  #     detail-page and the grid Open buttons were absent for bp-newapi.
+  #   * `HandleGetLaunchURL` (endpoint_handler.go) resolves the silent-SSO
+  #     target through `pickEndpoint`, which returns nil against an empty
+  #     endpoints[] → `GET /catalyst/v1/apps/bp-newapi/launch-url` answered
+  #     404 `endpoint-not-found`, so even the fallback launch path had
+  #     nothing to open.
+  #
+  # Measured live on hw290 2026-07-26 (UAT row 114): the bp-newapi app
+  # detail page exposed NO `data-testid=btn-launch-app`, and the launch-url
+  # endpoint returned `{"code":"endpoint-not-found","message":"Blueprint
+  # newapi has no endpoint \"\""}`. Declaring the endpoint restores both.
+  #
+  # ssoInitPath is the BARE ROOT `/` on purpose: unlike Grafana
+  # (`/login/generic_oauth`) or Harbor (`/c/oidc/login`), NewAPI has no
+  # app-local OIDC-init route — the platform supplies one, as the bridge
+  # sidecar's Exact-`/` landing page (internal/handler/sso_init.go 404s
+  # every path except `/`), which runs NewAPI's own onCustomOAuthClicked
+  # sequence (mint /api/oauth/state → /api/status → authorize redirect
+  # carrying kc_idp_hint=catalyst-pin). Root IS the init route here.
+  endpoints:
+    - name: ui
+      hostnameTemplate: "newapi.{{.SovereignFQDN}}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+      ssoInitPath: "/"
   # ── G117.4 + G117.5: SSO ───────────────────────────────────────────────
   # NewAPI admin UI gated by KC OIDC; customer-API uses Catalyst-issued
   # API keys (not OIDC).

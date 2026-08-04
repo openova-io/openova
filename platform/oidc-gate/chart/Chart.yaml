@@ -125,7 +125,52 @@ name: bp-oidc-gate
 # every instance (fixes openova-flow/agenity too) and drops the cookie under 4 KB.
 # `groups` retained. Lockstep with the config-cli powerdns-admin seed (bp-keycloak
 # 1.5.6). Template-only change; render tests unaffected.
-version: 0.1.7
+#
+# 0.1.8 (#5416, 2026-07-27): the cookie secret STOPS being minted per region.
+# It was a `lookup`-or-`randAlphaNum 32` Secret rendered by this chart; on a
+# 2-region Sovereign each region's own Flux/Helm hits its own apiserver, so
+# the lookup misses in the second region and a DIFFERENT 32-char value is
+# generated there. One shared wildcard VIP fans each gated hostname at BOTH
+# regions' envoys, so requests round-robin and each gate rejects the peer
+# region's AES-encrypted session cookie — measured live on hw290 for all
+# three instances, region-a and region-b logging `cookie signature not
+# valid, removing session` + `CSRF token mismatch, potential attack` in the
+# same window. Static assets split ~50/50 between 200 and 302 (0 of 14
+# probes served on one established session), concurrent re-auth flows
+# collided on the single `_oidc_gate_<app>_csrf` cookie so callbacks 403'd,
+# and XHR got 401 rather than following the redirect — which is why
+# guacamole's SPA never rendered (UAT rows 35/115) while server-rendered
+# powerdns-admin merely looked unstyled and still PASSED its row.
+# FIX: carry it on the SAME seam the sibling client secret already used —
+# bp-sso-bridge 0.2.26 derives `cookie_secret` once per KC client into the
+# OpenBao `sso/<realm>/<clientId>` bundle (the idiom its `session_secret`
+# has used since #2807) and the per-instance ExternalSecret now pulls BOTH
+# properties into the one `oidc-gate-<name>-oidc` Secret. Requires
+# bp-sso-bridge >= 0.2.26.
+#
+# 0.1.9 (#5617, 2026-08-04): the gate finally ships its OWN network policy.
+# Until now this chart rendered NONE, and the gate pods were reachable — and
+# able to dial out — only because a DIFFERENT chart left the door open:
+# bp-plane-isolation (slot 26b) covers the `oidc-gate` namespace with a
+# gateway-ingress CNP plus a default-deny whose EGRESS half is deliberately
+# unconstrained (`namespaceSelector: {}` + `ipBlock 0.0.0.0/0`); its values
+# file says so verbatim ("It egresses to keycloak … both covered by the open
+# egress rule"). That cross-chart implicit dependency IS the #5617 class: the
+# byte-equivalent gate resource set rendered by bp-agenity into a per-Org
+# namespace, where nothing leaves egress open, could not resolve cluster DNS
+# and 500'd EVERY OAuth callback after a successful login (live hw292, Org
+# uatco). templates/networkpolicy.yaml now renders both halves per instance —
+# `<gate>-gateway-ingress` (reserved `ingress` entity → :4180) and
+# `<gate>-egress` (kube-dns 53 UDP+TCP · the Keycloak backchannel on the
+# Service port AND pod port 8080 per the #4437 port trap · the instance's own
+# upstream, derived from its `upstream` URL so the policy cannot drift · and
+# world:443 only in #3844 public-discovery mode). Destinations are
+# toEndpoints/toEntities, never toCIDR — a CIDR matches neither an in-cluster
+# pod identity (#4360) nor a ClusterMesh remote identity (#4656). ADDITIVE:
+# Cilium unions every policy selecting an endpoint, so while
+# bp-plane-isolation's open-egress rule is present the effective union is
+# unchanged and no working gate can be severed.
+version: 0.1.9
 appVersion: "7.6.0"
 description: |
   Catalyst generic OIDC gate — a per-app oauth2-proxy instance set that

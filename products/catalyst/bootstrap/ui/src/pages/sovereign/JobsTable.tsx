@@ -1142,7 +1142,14 @@ const JOBS_TABLE_CSS = `
 .jobs-retry-btn:disabled { opacity: 0.6; cursor: default; }
 .jobs-retry-result { font-size: 11px; font-weight: 600; }
 .jobs-retry-done  { color: #4ADE80; }
-.jobs-retry-error { color: #F87171; }
+/* The error text is the SERVER's own detail (#3379), which can be a full
+ * sentence — clamp it to one line so a long 422/409 reason cannot widen the
+ * Actions column and push the table into a horizontal scroll. The element
+ * carries the untruncated message in its title for hover/copy. */
+.jobs-retry-error {
+  color: #F87171; max-width: 28ch; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
 /* #3656 (founder #6) — provisional "Confirming…" badge: a reducer-derived
  * row the live cluster state has not confirmed yet. Amber + DASHED border so
  * it reads as a distinct "settling, not committed" state — unmistakable from

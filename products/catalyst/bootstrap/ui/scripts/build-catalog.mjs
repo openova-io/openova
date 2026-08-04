@@ -723,15 +723,31 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = ${JSON.stringify(boot
 
   // Sister JSON output for the Go catalyst-api side. The Sovereign
   // Console's /api/v1/sovereign/apps endpoint embeds this via go:embed.
-  const jsonBody = JSON.stringify(
-    {
-      generatedAt: new Date().toISOString(),
-      blueprints: entries,
-      bootstrapKit,
-    },
-    null,
-    2,
-  )
+  //
+  // #5520 — `generatedAt` marks when the catalog CONTENT last changed, NOT
+  // when someone last ran a build. A wall-clock stamp made this generated
+  // file non-deterministic: every `npm run build` rewrote it, so every PR
+  // that ran a real build carried a spurious diff. Authors then either
+  // committed unrelated churn or reverted it by hand — and because the
+  // revert path was the common one, the committed file never converged with
+  // the generator (that is how the 508-line drift accumulated).
+  //
+  // Preserving the prior stamp when nothing else changed makes the field
+  // both deterministic AND more truthful: consumers (catalog.GeneratedAt →
+  // /sovereign/apps + /org applications) want to know when the catalog they
+  // are serving last CHANGED, which a rebuild-of-identical-input does not.
+  const payload = { blueprints: entries, bootstrapKit }
+  let generatedAt = new Date().toISOString()
+  try {
+    const prev = JSON.parse(readFileSync(OUT_FILE_JSON, 'utf8'))
+    const { generatedAt: prevStamp, ...prevPayload } = prev
+    if (prevStamp && JSON.stringify(prevPayload) === JSON.stringify(payload)) {
+      generatedAt = prevStamp // content identical — keep the real change time
+    }
+  } catch {
+    // No prior file (or unreadable/corrupt) — this IS a fresh generation.
+  }
+  const jsonBody = JSON.stringify({ generatedAt, ...payload }, null, 2)
   mkdirSync(dirname(OUT_FILE_JSON), { recursive: true })
   writeFileSync(OUT_FILE_JSON, jsonBody + '\n')
 

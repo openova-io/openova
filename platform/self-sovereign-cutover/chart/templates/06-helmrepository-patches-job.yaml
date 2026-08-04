@@ -273,6 +273,23 @@ data:
             value: {{ .Values.status.configMapName | quote }}
           - name: CUTOVER_NAMESPACE
             value: {{ .Release.Namespace | quote }}
+          # #5436 — region-A pivot READ-BACK assert inputs. Until this
+          # landed, region-A's only failure signal was the Phase-1 `fail`
+          # counter, which counts `kubectl patch` invocations that returned
+          # non-zero — NOT the state of the cluster afterwards. See the
+          # assert_region_a_pivot block in args: below.
+          #
+          # readbackExcludeNames MUST stay a superset-tolerant mirror of the
+          # slot-managed self-reference whitelist step-08's own offender scan
+          # applies (08-egress-block-test-job.yaml count_offenders). This
+          # assert must never be STRICTER than the step-08 gate that follows
+          # it, or a cutover step-08 would pass dies here instead.
+          - name: HELMREPO_READBACK_EXCLUDE
+            value: {{ join "," .Values.helmRepositories.readbackExcludeNames | quote }}
+          - name: HELMREPO_READBACK_KUSTOMIZATIONS
+            value: {{ join " " .Values.helmRepositories.readbackReconcileKustomizations | quote }}
+          - name: HELMREPO_READBACK_BUDGET_SECONDS
+            value: {{ .Values.stepTimeouts.pivotReadbackSeconds | quote }}
         volumeMounts:
           - name: helmrepository-list
             mountPath: /work
@@ -667,6 +684,105 @@ data:
             sort -u "${combined_names}" -o "${combined_names}"
             echo "[helmrepository-patches] Phase-1 input: $(grep -c . "${combined_names}") HelmRepository name(s) (curated ∪ live-upstream)"
 
+            # ---- #5436: region-A HelmRepository pivot READ-BACK assert ----
+            #
+            # THE DEFECT THIS CLOSES. Before this block, region-A's ONLY
+            # failure signal was Phase-1's `fail` counter — which counts
+            # `kubectl patch` invocations that returned non-zero, NOT the
+            # state of the cluster afterwards. Every HelmRepository that
+            # Phase-0.9's enumeration never saw (seeded by the catalyst-api
+            # org-tenant pipeline AFTER the enumeration ran) or that Flux
+            # reverted from a durable source Phase-2/2b did not rewrite is
+            # therefore INVISIBLE to this step: zero patch calls fail,
+            # `fail` stays 0, the Job exits 0, and catalyst-api records
+            # `step.helmrepository-patches.result=success` on a Sovereign
+            # whose charts still resolve to the mothership. Live on hw290
+            # 2026-07-27: SIX flux-system HelmRepositories still on
+            # oci://ghcr.io/openova-io (bp-agenity / bp-keycloak /
+            # bp-newapi / bp-openclaw / bp-stalwart-tenant /
+            # bp-wordpress-tenant) with the step green and the Job
+            # succeeded=1. That makes `cutoverComplete=true` reachable on a
+            # still-tethered environment — the sovereignty claim would be
+            # false while the evidence trail said otherwise.
+            #
+            # The SECONDARY-region leg has had exactly this read-back since
+            # #5359 (see pivot_secondary_regions below, "Read-back assert:
+            # ZERO upstream-prefixed HRs may remain"). Region-A never did.
+            # This is that same assertion, for the region that matters most.
+            #
+            # Scope: HELMREPO_NAMESPACE (the namespace Phase-1 patches) —
+            # the same scope the #5359 secondary read-back uses, and where
+            # every hw290 offender lived. Step-08's `-A` scan remains the
+            # wider net; this assert deliberately fails EARLIER and closer
+            # to the code that could have fixed it.
+            #
+            # $1 = phase label for the log.
+            # $2 = bounded convergence budget in seconds (0 = single-shot).
+            #      The budget exists for the post-Phase-2 call: a durable
+            #      rewrite has to be pulled by the `openova` GitRepository
+            #      and re-applied by the bootstrap-kit / org-tenants
+            #      Kustomizations before a Flux-reverted URL settles back on
+            #      local Harbor — the same revert-race #3526 documents for
+            #      step-08. Reconciles are re-poked each cycle so a missed
+            #      request cannot strand the poll. The Phase-1.5 call is
+            #      single-shot: Phase-1's patches are synchronous API
+            #      writes, so there is nothing to converge.
+            #
+            # NB: the offender list is written to a FILE and grepped from
+            # the file — never `printf '%s' "$big" | grep -q`. Under
+            # `set -o pipefail` (which a future edit may add) grep closing
+            # the pipe on its first match SIGPIPEs the upstream writer and
+            # fails the whole script; that shape has bitten this repo twice
+            # (#5370, #5406) and once in this chart's own test harness
+            # (#4969, see tests/cutover-contract.sh Case 16c).
+            assert_region_a_pivot() {
+              ra_label="$1"
+              ra_budget="${2:-0}"
+              ra_deadline=$(( $(date +%s) + ra_budget ))
+              ra_left=0
+              while : ; do
+                kubectl get helmrepositories.source.toolkit.fluxcd.io -n "${HELMREPO_NAMESPACE}" \
+                  -o jsonpath='{range .items[*]}{.metadata.name}={.spec.url}{"\n"}{end}' \
+                  2>/dev/null > /tmp/.ra-hrs.txt || : > /tmp/.ra-hrs.txt
+                : > /tmp/.ra-offenders.txt
+                while IFS= read -r ra_line; do
+                  [ -n "${ra_line}" ] || continue
+                  ra_name="${ra_line%%=*}"
+                  ra_url="${ra_line#*=}"
+                  # Only the upstream prefix counts as an offender — a
+                  # non-default URL (an operator overlay pointing somewhere
+                  # else entirely) is not this step's business.
+                  case "${ra_url}" in
+                    "${UPSTREAM_PREFIX}"*) : ;;
+                    *) continue ;;
+                  esac
+                  case ",${HELMREPO_READBACK_EXCLUDE:-}," in
+                    *",${ra_name},"*) continue ;;
+                  esac
+                  printf '%s=%s\n' "${ra_name}" "${ra_url}" >> /tmp/.ra-offenders.txt
+                done < /tmp/.ra-hrs.txt
+                ra_left=$(grep -c . /tmp/.ra-offenders.txt || true)
+                if [ "${ra_left}" -eq 0 ]; then break; fi
+                if [ "$(date +%s)" -ge "${ra_deadline}" ]; then break; fi
+                echo "[helmrepository-patches] ${ra_label}: ${ra_left} region-A HelmRepository(ies) still on ${UPSTREAM_PREFIX}; re-poking the GitRepository + Kustomization reconciles, re-checking in 15s (#5436)"
+                ra_poke=$(date +%s)
+                kubectl annotate --overwrite gitrepository openova -n flux-system \
+                  "reconcile.fluxcd.io/requestedAt=${ra_poke}" >/dev/null 2>&1 || true
+                for ra_ks in ${HELMREPO_READBACK_KUSTOMIZATIONS:-}; do
+                  kubectl annotate --overwrite kustomization "${ra_ks}" -n flux-system \
+                    "reconcile.fluxcd.io/requestedAt=${ra_poke}" >/dev/null 2>&1 || true
+                done
+                sleep 15
+              done
+              if [ "${ra_left}" -ne 0 ]; then
+                echo "[helmrepository-patches] FATAL: ${ra_label}: ${ra_left} region-A HelmRepository(ies) are STILL on ${UPSTREAM_PREFIX} after the pivot — the Sovereign would record a SUCCESSFUL cutover step while its charts resolve to the mothership; refusing to succeed (#5436)" >&2
+                sed 's/^/  STILL-UPSTREAM /' /tmp/.ra-offenders.txt >&2 || true
+                return 1
+              fi
+              echo "[helmrepository-patches] ${ra_label} OK: zero region-A HelmRepositories on ${UPSTREAM_PREFIX} in ${HELMREPO_NAMESPACE} (tolerated: ${HELMREPO_READBACK_EXCLUDE:-<none>})"
+              return 0
+            }
+
             # ---- Phase 1: live K8s patches (immediate) ----
             ok=0
             skip=0
@@ -749,6 +865,14 @@ data:
 
             echo "[helmrepository-patches] live-K8s ok=${ok} skip=${skip} fail=${fail}"
             [ "${fail}" -eq 0 ] || exit 1
+
+            # ---- Phase 1.5 (#5436): read back what Phase-1 actually did ----
+            # `fail=0` only means every patch CALL returned zero. Assert the
+            # cluster state directly, single-shot (Phase-1's writes are
+            # synchronous) — an HR seeded between the Phase-0.9 enumeration
+            # and now, or one whose patch silently no-op'd, fails HERE
+            # instead of shipping a green step on a half-pivoted Sovereign.
+            assert_region_a_pivot "Phase-1.5 read-back" 0 || exit 1
 
             # ---- Phase 1.6: parent HelmRelease values override for openova-catalog (TBD-C19) ----
             #
@@ -1344,6 +1468,24 @@ data:
             # Idempotency: if every strip target is already absent, the block
             # is a pure no-op (no Secret churn). A re-run after a partial strip
             # (jq del of a missing key is a no-op) re-converges cleanly.
+            #
+            # ── #5436: region-A read-back, second call ──
+            # Placed at the HEAD of Phase 3 so it runs on EVERY path,
+            # including the MOTHERSHIP_AUTHS_TO_STRIP-empty early exit
+            # directly below. Two invariants ride on it:
+            #   (a) the Phase-2/2b durable Gitea rewrite actually held —
+            #       this call runs after the git push AND after the
+            #       secondary-region legs, so a non-durable pivot has had a
+            #       Flux reconcile tick to revert and be caught. Bounded
+            #       convergence budget (HELMREPO_READBACK_BUDGET_SECONDS)
+            #       absorbs the #3526 revert-race rather than fail-fasting
+            #       into it.
+            #   (b) the strip below NEVER removes the ghcr.io fallback while
+            #       a region-A HelmRepository still points at ghcr.io — that
+            #       combination is the hw139 half-pivot that wedged 8 HRs
+            #       for 10h on "no auth config for 'ghcr.io'".
+            assert_region_a_pivot "Phase-3 pre-strip read-back" "${HELMREPO_READBACK_BUDGET_SECONDS:-300}" || exit 1
+
             if [ -z "${MOTHERSHIP_AUTHS_TO_STRIP:-}" ]; then
               echo "[helmrepository-patches] Phase-3 skip: MOTHERSHIP_AUTHS_TO_STRIP empty — nothing to strip"
               echo "[helmrepository-patches] step complete"

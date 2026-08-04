@@ -56,7 +56,9 @@ spec:
   # webadmin stays in-cluster on `-web` with an optional default-off
   # `mailadmin.<slug>` HTTPRoute.
   # Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
-  version: 0.1.13
+  # 0.1.14 (#5615): §854 — allocateLoadBalancerNodePorts:false + nodePort: 0
+  # on the SMTP/IMAP LoadBalancer Services so the Kyverno guard admits them.
+  version: 0.1.14
   card:
     title: Stalwart (per-Organization)
     summary: |

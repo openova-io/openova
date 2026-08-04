@@ -1,0 +1,259 @@
+{
+  "walk": "UAT walker J — Pillar-3 topology/DR band, rows 46-55,57-59,61-63",
+  "env": "hw291.omantel.biz",
+  "deployment": "2c2d746b578c636b",
+  "regions": ["me-east-215-a", "me-east-215-b"],
+  "observedAtUTC": "2026-07-30T01:31Z..01:46Z",
+  "mode": "READ-ONLY (get/describe/curl/GET-only in-page fetch; no apply/patch/delete, no POST, no switchover, no region kill)",
+  "vip_fresh_tcp_split": "7/8 x HTTP 200 on https://console.hw291.omantel.biz/ (1 x 000) — independent curl invocations, matches briefed ~8-15% drop; all 9 browser walks succeeded",
+
+  "create_dialog": {
+    "surface": "https://console.hw291.omantel.biz/catalog/postgres -> [data-testid=btn-new-instance] -> [data-testid=select-instance-topology]",
+    "pre_click": { "btn-new-instance": true, "select-instance-topology": false },
+    "post_click": { "select-instance-topology": true, "tagName": "SELECT", "defaultSelectedValue": "singleton", "instance-regions fieldset": true, "red_error_matches": [] },
+    "options": [
+      { "value": "singleton", "disabled": false },
+      { "value": "active-active", "disabled": true, "suffix": "(not supported by this blueprint)" },
+      { "value": "active-hot-standby", "disabled": false },
+      { "value": "active-passive", "disabled": true, "suffix": "(not supported by this blueprint)" }
+    ],
+    "backing_cr": {
+      "blueprint": "bp-postgres",
+      "spec.placementSchema.modes": ["singleton", "active-active", "active-hot-standby", "active-passive"],
+      "spec.placementSchema.default": "singleton",
+      "spec.topology.supported": ["singleton", "active-hot-standby"]
+    },
+    "runs": 2
+  },
+
+  "row50_durable_create_artifact": {
+    "note": "read-only walker did NOT provision; verified the durable artifact of tonight's dialog-driven create",
+    "application": "uatcorp/uatwalk-ahs-07300830",
+    "metadata.creationTimestamp": "2026-07-30T00:31:08Z",
+    "spec.placement": { "mode": "active-hot-standby", "regions": ["me-east-215-a", "me-east-215-b"] },
+    "spec.parameters.topology.mode": "active-hot-standby",
+    "spec.environmentRef": "uatcorp-prod",
+    "status.phase": "Ready",
+    "rendered_as_card": "/apps grid card + badge sov-app-topology-uatwalk-ahs-07300830 = active-hot-standby; /catalog/postgres Instances row 'uatwalk-ahs-07300830 | uatcorp | active-hot-standby | Ready'",
+    "no_red_topology_error": true
+  },
+
+  "shared_pg_topology_tab": {
+    "url": "https://console.hw291.omantel.biz/app/shared-pg/topology",
+    "runs": 2,
+    "rendered": {
+      "topology-tab-pattern": "active-hot-standby",
+      "topology-tab-target-card-0": "hw-me-east-215-a-rtz-prod · 2c2d746b578c636b · mgmt | ● PRIMARY | serves writes",
+      "topology-tab-target-card-1": "hw-me-east-215-b-rtz-prod · · mgmt | ○ STANDBY · Hot | live replica",
+      "topology-tab-target-card-2": "ABSENT (exactly 2 cards)",
+      "repl_arrow": "──▶ repl between card-0 and card-1",
+      "topology-tab-dr-panel": "Disaster recovery | ● LIVE | PRIMARY REGION | hw-me-east-215-a-rtz-prod | serves writes | STANDBY REGION | hw-me-east-215-b-rtz-prod | hot replica (follows WAL) | Replication lag | 0.0 s | Switch over… | promote standby hw-me-east-215-b-rtz-prod — runs an RPO/health preflight before you confirm",
+      "topology-tab-dr-switchover-open.disabled": false,
+      "topology-tab-dr-standby-absent": "ABSENT",
+      "topology-tab-recon-status": "ABSENT",
+      "topology-tab-status-bootstrap": "n/a — bootstrap component (HelmRelease, no Application CR). Live rollout status is tracked via Flux.",
+      "whole_tab_topology_words": ["active-hot-standby"]
+    },
+    "backing_api_placement": {
+      "GET": "/api/v1/sovereigns/2c2d746b578c636b/applications/shared-pg/placement",
+      "http": 200,
+      "targets": [
+        { "region": "hw-me-east-215-a-rtz-prod", "cluster": "2c2d746b578c636b", "role": "Primary" },
+        { "region": "hw-me-east-215-b-rtz-prod", "cluster": "", "role": "Standby", "standbyType": "Hot" }
+      ],
+      "derivedFromRuntime": true
+    },
+    "backing_api_replication_status": {
+      "GET": "/api/v1/sovereigns/2c2d746b578c636b/continuum/dr-shared-pg/replication-status?namespace=shared-data",
+      "http": 200,
+      "source": "live",
+      "primaryRegion": "hw-me-east-215-a-rtz-prod",
+      "currentPrimary": "hw-me-east-215-a-rtz-prod",
+      "walLagSeconds": 0,
+      "walLagBytes": 0,
+      "replicaPromotable": false,
+      "streamingState": "",
+      "syncState": "",
+      "lastHeartbeat": "",
+      "replicas": [{ "region": "hw-me-east-215-b-rtz-prod", "role": "replica", "lagSeconds": 0 }],
+      "healthGates": [
+        { "name": "streaming-replication", "status": "Warn", "message": "replication health not reported by the Continuum CR; unverified" },
+        { "name": "wal-lag-under-rpo", "status": "Pass" },
+        { "name": "lease-witness-quorum", "status": "Pass" },
+        { "name": "standby-available", "status": "Warn", "message": "standby leg not verifiable from live cluster state (no cnpg pair resolvable); reporting unknown, not healthy" }
+      ],
+      "observedAt": "2026-07-30T01:36:57Z",
+      "NOT_RENDERED_BY_UI": ["healthGates (all 4)", "replicaPromotable", "observedAt"]
+    },
+    "backing_cr_application": {
+      "shared-data/shared-pg": {
+        "spec.placement": "active-hot-standby",
+        "spec.parameters.topology.mode": "active-hot-standby",
+        "spec.regions": ["platform-bootstrap-owned-host"],
+        "spec.helmRelease": "flux-system/bp-postgres-shared",
+        "status.phase": "Ready",
+        "status.placement": { "mode": "active-hot-standby", "primaryRegion": "me-east-215-a", "standbyRegions": ["me-east-215-b"], "leaseHeld": true, "replicationLagSeconds": 0 }
+      }
+    },
+    "backing_cr_continuum": {
+      "shared-data/dr-shared-pg": {
+        "spec.primaryRegion": "hw-me-east-215-a-rtz-prod",
+        "spec.hotStandbyRegions": ["hw-me-east-215-b-rtz-prod"],
+        "spec.switchover.mechanism": "cnpg-pair",
+        "spec.cnpgPair": null,
+        "spec.autoFailover": false,
+        "spec.rto": "30s",
+        "status.phase": "Healthy",
+        "status.conditions": { "Ready": "True", "LeaseHeld": "True" },
+        "status.leaseHolder": "hw-me-east-215-a-rtz-prod",
+        "status.leaseExpiresAt": "2026-07-30T01:32:01Z",
+        "status.primaryRegion": "hw-me-east-215-a-rtz-prod",
+        "status.replicationLagSeconds": 0,
+        "status.switchoverInProgress": false
+      }
+    },
+    "backing_cr_data_plane": {
+      "region-a shared-data/Cluster/shared-pg": "3 instances / 3 ready / Cluster in healthy state / primary shared-pg-2",
+      "region-b shared-data/Cluster/shared-pg-replica": "3 instances / 3 ready / spec.replica {enabled:true, source:shared-pg} / externalClusters [shared-pg] / Cluster in healthy state",
+      "count_parity": "3+3"
+    }
+  },
+
+  "shared_pg_overview_tab": {
+    "url": "https://console.hw291.omantel.biz/app/shared-pg/overview",
+    "PLACEMENT": "active-hot-standby",
+    "REGIONS": "platform-bootstrap-owned-host",
+    "PRIMARY REGION": "me-east-215-a",
+    "header_chips": ["Ready", "platform-bootstrap-owned-host", "me-east-215-a"],
+    "whole_tab_topology_words": ["active-hot-standby"],
+    "verdict_note": "exactly ONE topology value on both tabs; the residual defect is the REGION identifier (#5476), not a second topology value"
+  },
+
+  "cnpg_pair_structural_proof": {
+    "crd_cnpgpairs.dr.openova.io": "INSTALLED (2026-07-29T11:39:56Z)",
+    "cnpgpair_CR_count_cluster_wide": 0,
+    "positive_control": "same query shape returns 9 Continuum CRs and 10 Application CRs — the zero is real, not an RBAC/selector miss",
+    "continuum_cnpgPair_pointers": {
+      "catalyst/dr-spine-gitea": { "spec.cnpgPair": null, "mechanism": "cnpg-pair", "lag": 0 },
+      "catalyst/dr-spine-harbor": { "spec.cnpgPair": null, "mechanism": "cnpg-pair", "lag": 0 },
+      "catalyst/dr-spine-keycloak": { "spec.cnpgPair": null, "mechanism": "cnpg-pair", "lag": 0 },
+      "catalyst/dr-spine-openbao": { "spec.cnpgPair": null, "mechanism": "raft-transition", "lag": 0, "note": "OpenBao raft — no PostgreSQL at all, yet reports a PostgreSQL replication lag of 0" },
+      "cnpg/cnpg-pair-bp-cnpg-pair-continuum": { "spec.cnpgPair": "cnpg/cnpg-pair-bp-cnpg-pair", "note": "DANGLING — that CNPGPair object does not exist", "lag": 0 },
+      "shared-data/dr-shared-pg": { "spec.cnpgPair": null, "mechanism": "cnpg-pair", "lag": 0 },
+      "shared-data/dr-shared-pg-b": { "spec.cnpgPair": null, "mechanism": "cnpg-pair", "lag": 0 },
+      "shared-data/dr-shared-pg-c": { "spec.cnpgPair": null, "mechanism": "cnpg-pair", "lag": 0 },
+      "uatcorp/bp-wordpress-tenant": { "spec.cnpgPair": null, "phase": "Degraded", "lag": 0 }
+    },
+    "real_data_plane_pair_exists_anyway": "region-a cnpg/cnpg-pair-bp-cnpg-pair-primary 3/3 healthy + region-b cnpg/cnpg-pair-bp-cnpg-pair-replica 3/3 healthy — real replication, but no CNPGPair CR to resolve it, which is what the standby-available healthGate reports"
+  },
+
+  "singleton_and_pattern_derivation": {
+    "cilium": {
+      "url": "/app/cilium/topology",
+      "topology-tab-pattern": "singleton",
+      "topology-tab-placement-empty": "No placement targets reported yet.",
+      "target_cards": 0,
+      "dr_panel": "ABSENT",
+      "switchover_button": "ABSENT",
+      "body_regex_standby": false,
+      "body_regex_switchover": "true — but ONLY from the 'OPERATION IN PROGRESS … finite cutover / switchover' banner, not a control",
+      "backing_api": { "GET": "/applications/cilium/placement", "http": 200, "targets": [], "derivedFromRuntime": true },
+      "runtime_reality": "cilium DaemonSet 4/4 in region-a AND its own DaemonSet in region-b — it genuinely runs in both regions",
+      "mechanism": "derivePattern([]) at src/shared/lib/placement.ts:61 returns 'singleton' when primaries==0 && standbys==0 — an empty target list renders as 'singleton' (fail-open default), not a derivation"
+    },
+    "harbor": {
+      "Application CR spec.placement": "singleton",
+      "Application CR spec.regions": ["platform-bootstrap-owned-host"],
+      "Overview tab": { "PLACEMENT": "singleton", "REGIONS": "platform-bootstrap-owned-host", "PRIMARY REGION": "platform-bootstrap-owned-host" },
+      "Topology tab": { "topology-tab-pattern": "active-active", "cards": ["hw-me-east-215-a-rtz-prod ● PRIMARY serves writes", "hw-me-east-215-b-rtz-prod ● PRIMARY serves writes"] },
+      "backing_api": { "GET": "/applications/harbor/placement", "targets": "2 x role=Primary", "derivedFromRuntime": true },
+      "runtime_reality": "7 harbor pods region-a + 6 harbor pods region-b — the active-active derivation is factually right; the CR's 'singleton' is the wrong one",
+      "defect": "TWO CONTRADICTORY TOPOLOGY VALUES for one app, one per tab"
+    },
+    "valkey": {
+      "Application CR spec.placement": "singleton",
+      "Topology tab": { "topology-tab-pattern": "active-active", "cards": ["hw-me-east-215-a-rtz-prod ● PRIMARY", "hw-me-east-215-b-rtz-prod ● PRIMARY"] },
+      "runtime_reality": "valkey-primary-0 Running in BOTH regions",
+      "defect": "same shape as harbor"
+    },
+    "grafana": {
+      "url": "/app/grafana/topology",
+      "topology-tab-pattern": "active-active",
+      "cards": ["hw-me-east-215-a-rtz-prod ● PRIMARY serves writes", "hw-me-east-215-b-rtz-prod ● PRIMARY serves writes"],
+      "dr_panel": "ABSENT",
+      "switchover_button": "ABSENT",
+      "body_regex_switchover": false,
+      "HR": "flux-system/bp-grafana ready=True, spec.values.topology ABSENT (no declared topology at all)",
+      "runtime_reality": "grafana 3/3 Running region-a AND 3/3 Running region-b",
+      "continuum": "no Continuum CR for grafana",
+      "premise_check": "row 63 needs 'declares hot-standby, no live DR backing' — grafana declares NOTHING and derives active-active from 2 live primaries; the premise state does not occur on grafana (same as hw288/hw285)"
+    }
+  },
+
+  "row63_premise_reproduced_elsewhere": {
+    "app": "uatcorp/uatwalk-ahs-07300830",
+    "why_it_matches_the_premise": "spec.placement.mode=active-hot-standby (declares hot-standby) with ZERO live DR backing: no dr-uatwalk-ahs-07300830 Continuum CR anywhere (uatcorp holds only bp-wordpress-tenant), region-b has NO uatcorp namespace at all, only one HelmRelease uatcorp/uatwalk-ahs-07300830-rtz-a (region-a)",
+    "rendered": {
+      "topology-tab-pattern": "active-hot-standby",
+      "cards": ["me-east-215-a · · mgmt | ● PRIMARY | serves writes", "me-east-215-b · · mgmt | ○ STANDBY · Hot | live replica"],
+      "topology-tab-dr-panel": "Disaster recovery | ○ NOT LIVE | PRIMARY REGION | hw-me-east-215-a-rtz-prod | serves writes | STANDBY REGION | me-east-215-b | hot replica (follows WAL) | Replication lag | 0.0 s | Switch over… | promote standby me-east-215-b — runs an RPO/health preflight before you confirm",
+      "topology-tab-dr-switchover-open.disabled": false,
+      "topology-tab-dr-none": "ABSENT (the honest 'No cross-region replica reporting yet' branch never fires)",
+      "per_cluster_fanout_table": "two rows, both all-em-dash: '— primary — —' / '— standby — —', while status.perCluster has exactly ONE entry role=singleton"
+    },
+    "backing_api": {
+      "GET /applications/uatwalk-ahs-07300830/placement": { "http": 200, "targets": [], "derivedFromRuntime": true },
+      "GET /continuum/dr-uatwalk-ahs-07300830/replication-status?namespace=uatcorp": {
+        "http": 200,
+        "source": "pending",
+        "note": "200 for a Continuum CR THAT DOES NOT EXIST — fabricates primaryRegion, currentPrimary, walLagSeconds:0 and a replicas[] entry for hw-me-east-215-b-rtz-prod where nothing runs",
+        "primaryRegion": "hw-me-east-215-a-rtz-prod",
+        "walLagSeconds": 0,
+        "replicaPromotable": false,
+        "replicas": [{ "region": "hw-me-east-215-b-rtz-prod", "role": "replica", "lagSeconds": 0 }],
+        "healthGates": [{ "name": "live-status", "status": "Warn", "message": "live cnpg-pair replication status not yet available; awaiting region-b convergence" }]
+      }
+    },
+    "verdict": "the row's assertion FAILS where the premise is reproducible: no 'no live DR backing / Switchover unavailable' text renders, and Switchover is ARMED against a phantom region"
+  },
+
+  "apps_grid": {
+    "url": "https://console.hw291.omantel.biz/apps",
+    "runs": 2,
+    "application_cr_count": 10,
+    "sov-app-topology-* badge_count": 10,
+    "duplicate_cards": 0,
+    "badge_vs_cr": [
+      { "card": "spine-gitea", "badge": "active-hot-standby", "cr.spec.placement": "active-hot-standby", "match": true },
+      { "card": "spine-harbor", "badge": "active-hot-standby", "cr.spec.placement": "active-hot-standby", "match": true },
+      { "card": "spine-keycloak", "badge": "active-hot-standby", "cr.spec.placement": "active-hot-standby", "match": true },
+      { "card": "spine-openbao", "badge": "active-passive", "cr.spec.placement": "active-passive", "match": true },
+      { "card": "harbor", "badge": "singleton", "cr.spec.placement": "singleton", "match": true },
+      { "card": "shared-pg", "badge": "active-hot-standby", "cr.spec.placement": "active-hot-standby", "match": true },
+      { "card": "shared-pg-b", "badge": "active-hot-standby", "cr.spec.placement": "active-hot-standby", "match": true },
+      { "card": "shared-pg-c", "badge": "active-hot-standby", "cr.spec.placement": "active-hot-standby", "match": true },
+      { "card": "uatwalk-ahs-07300830", "badge": "active-hot-standby", "cr.spec.placement": "{mode:active-hot-standby, regions:[...]} (object dual-form)", "match": true, "note": "#4897 topologyLabel() normalization working on the object form" },
+      { "card": "valkey", "badge": "singleton", "cr.spec.placement": "singleton", "match": true }
+    ],
+    "hw290_duplicate_defect_status_on_hw291": "NOT reproduced on the /apps grid (10 CRs -> 10 cards, 2/2 runs). The HR-derived phantom row uatwalk-ahs-07300830-rtz-a appears ONLY in the /catalog/postgres Instances table (5 rows for 4 postgres Application CRs, the extra one attributed to Org 'platform' instead of 'uatcorp') — a DIFFERENT surface from the row-61 assertion"
+  },
+
+  "ui_code_mechanisms": {
+    "targets_fallback_chain": "products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx:186-212 — runtimeTargets -> spec.placement.targets -> status.targets -> targetsFromLegacy({mode, regions}). When the placement API returns targets:[] the panel silently renders DECLARED spec data with no disclosure; the tell is the region dialect (me-east-215-* = spec, hw-*-rtz-prod = runtime)",
+    "derivePattern_empty_defaults_singleton": "src/shared/lib/placement.ts:61-75 — derivePattern([]) === 'singleton'; primaries>=2 === 'active-active'",
+    "showDR_bypass": "TopologyTab.tsx ~318 `const showDR = hasStandby || hasLiveDR` — the in-code comment claims 'An app with no live pair … never renders DR, so we never arm a phantom region', but that guard is only on hasLiveDR; hasStandby computed from DECLARED targets bypasses it entirely",
+    "switchover_arming": "TopologyTab.tsx ~692 `disabled={!switchoverTarget}` where switchoverTarget = drStandbyRegions[0] || liveStandbyRegion — a standby region STRING, never a verified pair; replicaPromotable is not consulted",
+    "confirm_gate_is_one_layer_deeper": "src/widgets/continuum/SwitchoverDialog.tsx:141-166 — [Confirm Switchover] is armed ONLY when preflight.promotable; preflight is a POST .../switchover/preview, NOT fired by this read-only walk",
+    "healthGates_dead_lettered": "healthGates is typed at src/lib/continuum.api.ts:236 and rendered NOWHERE — grep -rn healthGates src/ returns exactly one hit, the type declaration (#5508)",
+    "streamingState_static_fallback": "TopologyTab.tsx:602-634 `drStatus?.streamingState || 'hot replica (follows WAL)'` — the API returns streamingState:\"\" so the standby card's health line is a HARDCODED string",
+    "standbyAbsent_unreachable": "TopologyTab.tsx:320 `standbyAbsent = drStatus?.standbyAvailable === false` — this backend never emits a standbyAvailable field (it emits a healthGates entry named standby-available instead), so the red #4923/#4901 'Standby absent' banner is unreachable on hw291",
+    "lease_holder_not_in_topology_tab": "leaseHolder/leaseExpiresAt/phase render only in src/widgets/continuum/StatusPanel.tsx, mounted on src/pages/sovereign/stubs/ContinuumPage.tsx — NOT in the AppDetail Topology DR section",
+    "status_panel_misstatement": "shared-pg Topology tab Status panel reads 'n/a — bootstrap component (HelmRelease, no Application CR)' while Application shared-data/shared-pg exists with a fully-populated status.placement"
+  },
+
+  "live_conditions_attributed": {
+    "cutover_banner": "OPERATION IN PROGRESS banner present on most tabs (cutover stalled at step 2) — expected, and it is the sole source of the /switchover/i body-regex hit on cilium",
+    "uatcorp_stack": "bp-keycloak HR False 'context deadline exceeded' -> 4 dependent HRs DependencyNotReady (#5393) — not attributed to any row in this band",
+    "harbor": "healthy region-a; region-b harbor-core/jobservice at 66-67 restarts"
+  }
+}

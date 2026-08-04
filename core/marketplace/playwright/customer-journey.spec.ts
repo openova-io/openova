@@ -901,7 +901,7 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
   // #3860 / UAT row 86 — the interstitial must render a LIVE provisioning
   // timeline that advances through the backend's named stages, not an
   // indefinite generic spinner. The stage names + states come verbatim from
-  // GET /api/provisioning/tenant/<id> (store.Provision.Steps): Creating tenant
+  // GET /api/provisioning/tenant/<id> (store.Provision.Steps): Creating Organization
   // → Committing manifests to Git → Provisioning vCluster → Deploying <app> →
   // Configuring TLS certificates → Running health checks.
   test('21 launching interstitial renders the named provisioning-stage timeline (row 86)', async ({ page }) => {
@@ -922,7 +922,7 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
           status: 'provisioning',
           progress: 33,
           steps: [
-            { name: 'Creating tenant', status: 'completed' },
+            { name: 'Creating Organization', status: 'completed' },
             { name: 'Committing manifests to Git', status: 'completed' },
             { name: 'Provisioning vCluster', status: 'running' },
             { name: 'Deploying WordPress', status: 'pending' },
@@ -945,7 +945,7 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
     const timeline = page.locator('[data-testid="provisioning-timeline"]')
     await expect(timeline).toBeVisible({ timeout: 8_000 })
     for (const name of [
-      'Creating tenant',
+      'Creating Organization',
       'Committing manifests to Git',
       'Provisioning vCluster',
       'Deploying WordPress',
@@ -979,7 +979,7 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
           tenant_id: 'tenant-1',
           status: 'failed',
           steps: [
-            { name: 'Creating tenant', status: 'completed' },
+            { name: 'Creating Organization', status: 'completed' },
             { name: 'Committing manifests to Git', status: 'completed' },
             { name: 'Provisioning vCluster', status: 'completed' },
             { name: 'Deploying WordPress', status: 'failed', message: 'HelmRelease wordpress not ready: install retries exhausted' },

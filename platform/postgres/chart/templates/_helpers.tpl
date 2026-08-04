@@ -134,6 +134,77 @@ opt-out) is honoured.
 {{- end -}}
 
 {{/*
+Region resolution — FAIL CLOSED (#5639).
+
+WHY THIS EXISTS. In active-hot-standby BOTH Cluster halves pin themselves to a
+region with a REQUIRED nodeAffinity on the `openova.io/region` node label
+(cluster.yaml primary, replica-cluster.yaml follower). Until 0.2.17 both sites
+read `.Values.topology.<side>.region` directly, so an install that never set the
+key rendered
+
+    values: [""]                 <- matchExpressions In [empty string]
+    openova.io/region: ""        <- the CR label
+
+which no node can ever satisfy. That is not a slow schedule; it is unschedulable
+FOREVER, and every status surface above it reports success: Helm rendered valid
+YAML, the apiserver accepted the Cluster, the HelmRelease went
+`install succeeded`, and the Application card showed a green badge over a
+database that never had a running primary.
+
+Proven live on hw292 (2026-08-03, #5639): the per-Org Cluster
+`hw292-omani-works/postgres` sat at phase="Setting up primary" for 7+ hours with
+
+    nodeAffinity required: openova.io/region In [""]
+    node label, all 4 nodes:  openova.io/region=hw-me-east-215-a-rtz-prod
+    FailedScheduling: 0/4 nodes are available: 4 node(s) didn't match Pod's
+                      node affinity/selector
+
+against the CONTROL of a healthy cnpg/cnpg-pair primary on the same cluster
+carrying `openova.io/region=[hw-me-east-215-a-rtz-prod]`. The per-Org
+HelmRelease values were `{"topology":{"mode":"active-hot-standby"}}` — mode set,
+region absent.
+
+WHAT THESE HELPERS DO. They make an unresolvable region an INSTALL ERROR naming
+the exact missing key, instead of an empty selector. `required` is Helm's
+fail-closed primitive and it treats the empty string as missing, which is
+precisely the shape values.yaml ships (`topology.primary.region: ""`). This is
+the SAME guard bp-wordpress-tenant has had since its own D31 work
+(`bp-wordpress-tenant.validateActiveHotStandbyRegions`, _helpers.tpl) — the
+sibling chart already refused to render a half-declared pair; bp-postgres was
+the one that drifted.
+
+SCOPE. Only the active-hot-standby render consumes a region, so these helpers
+are included ONLY from inside the `$ahs` branch of cluster.yaml and from
+replica-cluster.yaml (which is itself gated on renderReplicaHalf = ahs AND
+side=replica). A SINGLETON install has no nodeAffinity and needs no region — its
+render is byte-identical to 0.2.16, and the bootstrap-kit slots (16a/16c/16d)
+are unaffected because cloud-init stamps SOVEREIGN_PRIMARY_REGION /
+SOVEREIGN_REPLICA_REGION into every region's substitutes unconditionally
+(cloudinit-control-plane.tftpl; primary_region_canonical_label is non-empty on
+both the Hetzner and Huawei providers).
+
+nil-safe via `dig`, same as meshGlobalServices above: an overlay that nulls the
+`topology` map or its `primary`/`replica` sub-maps reaches `required` with ""
+rather than panicking on a nil dereference.
+*/}}
+{{- define "bp-postgres.primaryRegion" -}}
+{{- $topology := .Values.topology | default dict -}}
+{{- required "bp-postgres: topology.primary.region is REQUIRED in active-hot-standby mode (topology.mode=active-hot-standby or topology.crossRegion=true). It is the canonical openova.io/region NODE LABEL the primary Cluster's required nodeAffinity pins on — set it from this Sovereign's SOVEREIGN_PRIMARY_REGION (e.g. hz-fsn-rtz-prod). Rendering it empty emits 'openova.io/region In [\"\"]', which no node can ever satisfy, so the primary is unschedulable forever while the HelmRelease still reports install succeeded (#5639)." (dig "primary" "region" "" $topology) -}}
+{{- end -}}
+
+{{/*
+Replica half of bp-postgres.primaryRegion — same fail-closed contract for the
+follower Cluster's region pin. replica-cluster.yaml renders ONLY when
+renderReplicaHalf is true (active-hot-standby AND side=replica), so every call
+site here is already inside the cross-region shape; an empty replica.region at
+that point is the identical #5639 defect on cluster-B.
+*/}}
+{{- define "bp-postgres.replicaRegion" -}}
+{{- $topology := .Values.topology | default dict -}}
+{{- required "bp-postgres: topology.replica.region is REQUIRED when rendering the active-hot-standby REPLICA half (topology.side=replica|secondary). It is the canonical openova.io/region NODE LABEL the follower Cluster's required nodeAffinity pins on — set it from this Sovereign's SOVEREIGN_REPLICA_REGION (e.g. hz-hel-rtz-prod). Rendering it empty emits 'openova.io/region In [\"\"]', which no node can ever satisfy, so the follower is unschedulable forever while the HelmRelease still reports install succeeded (#5639)." (dig "replica" "region" "" $topology) -}}
+{{- end -}}
+
+{{/*
 The follower Cluster CR name on the replica side. Distinct from the
 primary instance name (which the consumer host `<instance>-rw` resolves
 to) so the two Cluster CRs never collide and bp-continuum's switchover

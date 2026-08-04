@@ -1,0 +1,329 @@
+ROWS 219/220/224 — per-Org bundle HelmRelease state — 2026-07-30T00:37:32Z
+NAME                         AGE     READY   STATUS
+bp-agenity                   6m41s   False   Helm install failed for release uatcorp/bp-agenity with chart bp-agenity@0.5.21: 2 errors occurred:...
+bp-keycloak                  6m41s   False   Helm install failed for release uatcorp/bp-keycloak with chart bp-keycloak@1.5.7: 2 errors occurred:...
+bp-newapi                    6m41s   False   dependency 'uatcorp/bp-keycloak' is not ready
+bp-openclaw                  6m41s   False   dependency 'uatcorp/bp-keycloak' is not ready
+bp-stalwart-tenant           6m41s   False   dependency 'uatcorp/bp-keycloak' is not ready
+bp-wordpress-tenant          6m41s   False   dependency 'uatcorp/bp-keycloak' is not ready
+uatwalk-ahs-07300830-rtz-a   6m14s   True    Helm install succeeded for release uatcorp/uatwalk-ahs-07300830-rtz-a.v1 with chart bp-postgres@0.2.14
+
+=== decisive: bp-agenity + bp-keycloak InstallFailed reasons (Kyverno) ===
+=== bp-agenity ===
+Stalled=True (RetriesExceeded)
+Failed to install after 1 attempt(s)
+Ready=False (InstallFailed)
+Helm install failed for release uatcorp/bp-agenity with chart bp-agenity@0.5.21: 2 errors occurred:
+	* admission webhook "validate.kyverno.svc-fail" denied the request: 
+
+resource Deployment/uatcorp/oidc-gate-agenity-uatcorp was blocked due to the following policies 
+
+multi-replica-drainability:
+  replicas-at-least-two: 'validation error: Deployment/oidc-gate-agenity-uatcorp declares
+    fewer than 2 replicas. Drainability requires spec.replicas >= 2 so voluntary disruptions
+    can keep at least one replica serving traffic. Bump spec.replicas, exempt this
+    workload by adding its namespace to .Values.compliancePolicies.multiReplica.excludeNamespaces,
+    or — for a deliberate single-replica stateful singleton (database/cache) — label
+    it `openova.io/singleton-db: "true"`. rule replicas-at-least-two failed at path
+    /spec/replicas/'
+otel-injected:
+  workload-must-be-otel-instrumented: 'validation error: Workload Deployment/oidc-gate-agenity-uatcorp
+    is not OTel-instrumented. Add an `otel-collector` sidecar OR annotate the Pod
+    template with one of `instrumentation.opentelemetry.io/inject-{java,python,nodejs,go,dotnet}`
+    set to `"true"` (same-NS default), `"<name>"` (same-NS named CR), or `"<namespace>/<name>"`
+    (cross-NS, e.g. `"opentelemetry/default"` for the bp-opentelemetry-managed CR).
+    rule workload-must-be-otel-instrumented[0] failed at path /spec/template/spec/containers/0/name/
+    rule workload-must-be-otel-instrumented[1] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[2] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[3] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[4] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[5] failed at path /spec/template/metadata/annotations/'
+prometheus-scrape:
+  workload-must-be-scrape-targeted: 'validation error: Workload Deployment/oidc-gate-agenity-uatcorp
+    is not declared a Prometheus scrape target. Either annotate the Pod template with
+    `prometheus.io/scrape: "true"` or label the workload with `monitoring.coreos.com/managed:
+    "true"`. rule workload-must-be-scrape-targeted[0] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-scrape-targeted[1] failed at path /metadata/labels/monitoring.coreos.com/managed/'
+
+	* admission webhook "validate.kyverno.svc-fail" denied the request: 
+
+resource StatefulSet/uatcorp/bp-agenity was blocked due to the following policies 
+
+multi-replica-drainability:
+  replicas-at-least-two: 'validation error: StatefulSet/bp-agenity declares fewer
+    than 2 replicas. Drainability requires spec.replicas >= 2 so voluntary disruptions
+    can keep at least one replica serving traffic. Bump spec.replicas, exempt this
+    workload by adding its namespace to .Values.compliancePolicies.multiReplica.excludeNamespaces,
+    or — for a deliberate single-replica stateful singleton (database/cache) — label
+    it `openova.io/singleton-db: "true"`. rule replicas-at-least-two failed at path
+    /spec/replicas/'
+otel-injected:
+  workload-must-be-otel-instrumented: 'validation error: Workload StatefulSet/bp-agenity
+    is not OTel-instrumented. Add an `otel-collector` sidecar OR annotate the Pod
+    template with one of `instrumentation.opentelemetry.io/inject-{java,python,nodejs,go,dotnet}`
+    set to `"true"` (same-NS default), `"<name>"` (same-NS named CR), or `"<namespace>/<name>"`
+    (cross-NS, e.g. `"opentelemetry/default"` for the bp-opentelemetry-managed CR).
+    rule workload-must-be-otel-instrumented[0] failed at path /spec/template/spec/containers/0/name/
+    rule workload-must-be-otel-instrumented[1] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[2] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[3] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[4] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[5] failed at path /spec/template/metadata/annotations/'
+prometheus-scrape:
+  workload-must-be-scrape-targeted: 'validation error: Workload StatefulSet/bp-agenity
+    is not declared a Prometheus scrape target. Either annotate the Pod template with
+    `prometheus.io/scrape: "true"` or label the workload with `monitoring.coreos.com/managed:
+    "true"`. rule workload-must-be-scrape-targeted[0] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-scrape-targeted[1] failed at path /metadata/labels/monitoring.coreos.com/managed/'
+runasnonroot-readonlyrootfs:
+  container-readonlyrootfilesystem: 'validation error: Every container in StatefulSet/bp-agenity
+    must set securityContext.readOnlyRootFilesystem=true. rule container-readonlyrootfilesystem
+    failed at path /spec/template/spec/containers/0/securityContext/readOnlyRootFilesystem/'
+  pod-level-or-container-level-runasnonroot: 'validation error: StatefulSet/bp-agenity
+    must set spec.template.spec.securityContext.runAsNonRoot=true (Pod-level) OR every
+    container must set securityContext.runAsNonRoot=true. rule pod-level-or-container-level-runasnonroot[0]
+    failed at path /spec/template/spec/securityContext/runAsNonRoot/ rule pod-level-or-container-level-runasnonroot[1]
+    failed at path /spec/template/spec/containers/0/securityContext/runAsNonRoot/'
+Released=False (InstallFailed)
+Helm install failed for release uatcorp/bp-agenity with chart bp-agenity@0.5.21: 2 errors occurred:
+	* admission webhook "validate.kyverno.svc-fail" denied the request: 
+
+resource Deployment/uatcorp/oidc-gate-agenity-uatcorp was blocked due to the following policies 
+
+multi-replica-drainability:
+  replicas-at-least-two: 'validation error: Deployment/oidc-gate-agenity-uatcorp declares
+    fewer than 2 replicas. Drainability requires spec.replicas >= 2 so voluntary disruptions
+    can keep at least one replica serving traffic. Bump spec.replicas, exempt this
+    workload by adding its namespace to .Values.compliancePolicies.multiReplica.excludeNamespaces,
+    or — for a deliberate single-replica stateful singleton (database/cache) — label
+    it `openova.io/singleton-db: "true"`. rule replicas-at-least-two failed at path
+    /spec/replicas/'
+otel-injected:
+  workload-must-be-otel-instrumented: 'validation error: Workload Deployment/oidc-gate-agenity-uatcorp
+    is not OTel-instrumented. Add an `otel-collector` sidecar OR annotate the Pod
+    template with one of `instrumentation.opentelemetry.io/inject-{java,python,nodejs,go,dotnet}`
+    set to `"true"` (same-NS default), `"<name>"` (same-NS named CR), or `"<namespace>/<name>"`
+    (cross-NS, e.g. `"opentelemetry/default"` for the bp-opentelemetry-managed CR).
+    rule workload-must-be-otel-instrumented[0] failed at path /spec/template/spec/containers/0/name/
+    rule workload-must-be-otel-instrumented[1] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[2] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[3] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[4] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[5] failed at path /spec/template/metadata/annotations/'
+prometheus-scrape:
+  workload-must-be-scrape-targeted: 'validation error: Workload Deployment/oidc-gate-agenity-uatcorp
+    is not declared a Prometheus scrape target. Either annotate the Pod template with
+    `prometheus.io/scrape: "true"` or label the workload with `monitoring.coreos.com/managed:
+    "true"`. rule workload-must-be-scrape-targeted[0] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-scrape-targeted[1] failed at path /metadata/labels/monitoring.coreos.com/managed/'
+
+	* admission webhook "validate.kyverno.svc-fail" denied the request: 
+
+resource StatefulSet/uatcorp/bp-agenity was blocked due to the following policies 
+
+multi-replica-drainability:
+  replicas-at-least-two: 'validation error: StatefulSet/bp-agenity declares fewer
+    than 2 replicas. Drainability requires spec.replicas >= 2 so voluntary disruptions
+    can keep at least one replica serving traffic. Bump spec.replicas, exempt this
+    workload by adding its namespace to .Values.compliancePolicies.multiReplica.excludeNamespaces,
+    or — for a deliberate single-replica stateful singleton (database/cache) — label
+    it `openova.io/singleton-db: "true"`. rule replicas-at-least-two failed at path
+    /spec/replicas/'
+otel-injected:
+  workload-must-be-otel-instrumented: 'validation error: Workload StatefulSet/bp-agenity
+    is not OTel-instrumented. Add an `otel-collector` sidecar OR annotate the Pod
+    template with one of `instrumentation.opentelemetry.io/inject-{java,python,nodejs,go,dotnet}`
+    set to `"true"` (same-NS default), `"<name>"` (same-NS named CR), or `"<namespace>/<name>"`
+    (cross-NS, e.g. `"opentelemetry/default"` for the bp-opentelemetry-managed CR).
+    rule workload-must-be-otel-instrumented[0] failed at path /spec/template/spec/containers/0/name/
+    rule workload-must-be-otel-instrumented[1] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[2] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[3] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[4] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[5] failed at path /spec/template/metadata/annotations/'
+prometheus-scrape:
+  workload-must-be-scrape-targeted: 'validation error: Workload StatefulSet/bp-agenity
+    is not declared a Prometheus scrape target. Either annotate the Pod template with
+    `prometheus.io/scrape: "true"` or label the workload with `monitoring.coreos.com/managed:
+    "true"`. rule workload-must-be-scrape-targeted[0] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-scrape-targeted[1] failed at path /metadata/labels/monitoring.coreos.com/managed/'
+runasnonroot-readonlyrootfs:
+  container-readonlyrootfilesystem: 'validation error: Every container in StatefulSet/bp-agenity
+    must set securityContext.readOnlyRootFilesystem=true. rule container-readonlyrootfilesystem
+    failed at path /spec/template/spec/containers/0/securityContext/readOnlyRootFilesystem/'
+  pod-level-or-container-level-runasnonroot: 'validation error: StatefulSet/bp-agenity
+    must set spec.template.spec.securityContext.runAsNonRoot=true (Pod-level) OR every
+    container must set securityContext.runAsNonRoot=true. rule pod-level-or-container-level-runasnonroot[0]
+    failed at path /spec/template/spec/securityContext/runAsNonRoot/ rule pod-level-or-container-level-runasnonroot[1]
+    failed at path /spec/template/spec/containers/0/securityContext/runAsNonRoot/'
+=== bp-keycloak ===
+Stalled=True (RetriesExceeded)
+Failed to install after 1 attempt(s)
+Ready=False (InstallFailed)
+Helm install failed for release uatcorp/bp-keycloak with chart bp-keycloak@1.5.7: 2 errors occurred:
+	* admission webhook "validate.kyverno.svc-fail" denied the request: 
+
+resource StatefulSet/uatcorp/bp-keycloak was blocked due to the following policies 
+
+multi-replica-drainability:
+  replicas-at-least-two: 'validation error: StatefulSet/bp-keycloak declares fewer
+    than 2 replicas. Drainability requires spec.replicas >= 2 so voluntary disruptions
+    can keep at least one replica serving traffic. Bump spec.replicas, exempt this
+    workload by adding its namespace to .Values.compliancePolicies.multiReplica.excludeNamespaces,
+    or — for a deliberate single-replica stateful singleton (database/cache) — label
+    it `openova.io/singleton-db: "true"`. rule replicas-at-least-two failed at path
+    /spec/replicas/'
+otel-injected:
+  workload-must-be-otel-instrumented: 'validation error: Workload StatefulSet/bp-keycloak
+    is not OTel-instrumented. Add an `otel-collector` sidecar OR annotate the Pod
+    template with one of `instrumentation.opentelemetry.io/inject-{java,python,nodejs,go,dotnet}`
+    set to `"true"` (same-NS default), `"<name>"` (same-NS named CR), or `"<namespace>/<name>"`
+    (cross-NS, e.g. `"opentelemetry/default"` for the bp-opentelemetry-managed CR).
+    rule workload-must-be-otel-instrumented[0] failed at path /spec/template/spec/containers/0/name/
+    rule workload-must-be-otel-instrumented[1] failed at path /spec/template/metadata/annotations/instrumentation.opentelemetry.io/inject-java/
+    rule workload-must-be-otel-instrumented[2] failed at path /spec/template/metadata/annotations/instrumentation.opentelemetry.io/inject-python/
+    rule workload-must-be-otel-instrumented[3] failed at path /spec/template/metadata/annotations/instrumentation.opentelemetry.io/inject-nodejs/
+    rule workload-must-be-otel-instrumented[4] failed at path /spec/template/metadata/annotations/instrumentation.opentelemetry.io/inject-go/
+    rule workload-must-be-otel-instrumented[5] failed at path /spec/template/metadata/annotations/instrumentation.opentelemetry.io/inject-dotnet/'
+prometheus-scrape:
+  workload-must-be-scrape-targeted: 'validation error: Workload StatefulSet/bp-keycloak
+    is not declared a Prometheus scrape target. Either annotate the Pod template with
+    `prometheus.io/scrape: "true"` or label the workload with `monitoring.coreos.com/managed:
+    "true"`. rule workload-must-be-scrape-targeted[0] failed at path /spec/template/metadata/annotations/prometheus.io/scrape/
+    rule workload-must-be-scrape-targeted[1] failed at path /metadata/labels/monitoring.coreos.com/managed/'
+
+	* admission webhook "validate.kyverno.svc-fail" denied the request: 
+
+resource StatefulSet/uatcorp/bp-keycloak-postgresql was blocked due to the following policies 
+
+multi-replica-drainability:
+  replicas-at-least-two: 'validation error: StatefulSet/bp-keycloak-postgresql declares
+    fewer than 2 replicas. Drainability requires spec.replicas >= 2 so voluntary disruptions
+    can keep at least one replica serving traffic. Bump spec.replicas, exempt this
+    workload by adding its namespace to .Values.compliancePolicies.multiReplica.excludeNamespaces,
+    or — for a deliberate single-replica stateful singleton (database/cache) — label
+    it `openova.io/singleton-db: "true"`. rule replicas-at-least-two failed at path
+    /spec/replicas/'
+otel-injected:
+  workload-must-be-otel-instrumented: 'validation error: Workload StatefulSet/bp-keycloak-postgresql
+    is not OTel-instrumented. Add an `otel-collector` sidecar OR annotate the Pod
+    template with one of `instrumentation.opentelemetry.io/inject-{java,python,nodejs,go,dotnet}`
+    set to `"true"` (same-NS default), `"<name>"` (same-NS named CR), or `"<namespace>/<name>"`
+    (cross-NS, e.g. `"opentelemetry/default"` for the bp-opentelemetry-managed CR).
+    rule workload-must-be-otel-instrumented[0] failed at path /spec/template/spec/containers/0/name/
+    rule workload-must-be-otel-instrumented[1] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[2] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[3] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[4] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[5] failed at path /spec/template/metadata/annotations/'
+prometheus-scrape:
+  workload-must-be-scrape-targeted: 'validation error: Workload StatefulSet/bp-keycloak-postgresql
+    is not declared a Prometheus scrape target. Either annotate the Pod template with
+    `prometheus.io/scrape: "true"` or label the workload with `monitoring.coreos.com/managed:
+    "true"`. rule workload-must-be-scrape-targeted[0] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-scrape-targeted[1] failed at path /metadata/labels/monitoring.coreos.com/managed/'
+secret-not-in-env:
+  deny-plaintext-secret-env: 'validation failure: validation failure: A container
+    env entry with a secret-shaped name carries a plaintext value. Use valueFrom.secretKeyRef
+    to source it from a Secret instead.'
+Released=False (InstallFailed)
+Helm install failed for release uatcorp/bp-keycloak with chart bp-keycloak@1.5.7: 2 errors occurred:
+	* admission webhook "validate.kyverno.svc-fail" denied the request: 
+
+resource StatefulSet/uatcorp/bp-keycloak was blocked due to the following policies 
+
+multi-replica-drainability:
+  replicas-at-least-two: 'validation error: StatefulSet/bp-keycloak declares fewer
+    than 2 replicas. Drainability requires spec.replicas >= 2 so voluntary disruptions
+    can keep at least one replica serving traffic. Bump spec.replicas, exempt this
+    workload by adding its namespace to .Values.compliancePolicies.multiReplica.excludeNamespaces,
+    or — for a deliberate single-replica stateful singleton (database/cache) — label
+    it `openova.io/singleton-db: "true"`. rule replicas-at-least-two failed at path
+    /spec/replicas/'
+otel-injected:
+  workload-must-be-otel-instrumented: 'validation error: Workload StatefulSet/bp-keycloak
+    is not OTel-instrumented. Add an `otel-collector` sidecar OR annotate the Pod
+    template with one of `instrumentation.opentelemetry.io/inject-{java,python,nodejs,go,dotnet}`
+    set to `"true"` (same-NS default), `"<name>"` (same-NS named CR), or `"<namespace>/<name>"`
+    (cross-NS, e.g. `"opentelemetry/default"` for the bp-opentelemetry-managed CR).
+    rule workload-must-be-otel-instrumented[0] failed at path /spec/template/spec/containers/0/name/
+    rule workload-must-be-otel-instrumented[1] failed at path /spec/template/metadata/annotations/instrumentation.opentelemetry.io/inject-java/
+    rule workload-must-be-otel-instrumented[2] failed at path /spec/template/metadata/annotations/instrumentation.opentelemetry.io/inject-python/
+    rule workload-must-be-otel-instrumented[3] failed at path /spec/template/metadata/annotations/instrumentation.opentelemetry.io/inject-nodejs/
+    rule workload-must-be-otel-instrumented[4] failed at path /spec/template/metadata/annotations/instrumentation.opentelemetry.io/inject-go/
+    rule workload-must-be-otel-instrumented[5] failed at path /spec/template/metadata/annotations/instrumentation.opentelemetry.io/inject-dotnet/'
+prometheus-scrape:
+  workload-must-be-scrape-targeted: 'validation error: Workload StatefulSet/bp-keycloak
+    is not declared a Prometheus scrape target. Either annotate the Pod template with
+    `prometheus.io/scrape: "true"` or label the workload with `monitoring.coreos.com/managed:
+    "true"`. rule workload-must-be-scrape-targeted[0] failed at path /spec/template/metadata/annotations/prometheus.io/scrape/
+    rule workload-must-be-scrape-targeted[1] failed at path /metadata/labels/monitoring.coreos.com/managed/'
+
+	* admission webhook "validate.kyverno.svc-fail" denied the request: 
+
+resource StatefulSet/uatcorp/bp-keycloak-postgresql was blocked due to the following policies 
+
+multi-replica-drainability:
+  replicas-at-least-two: 'validation error: StatefulSet/bp-keycloak-postgresql declares
+    fewer than 2 replicas. Drainability requires spec.replicas >= 2 so voluntary disruptions
+    can keep at least one replica serving traffic. Bump spec.replicas, exempt this
+    workload by adding its namespace to .Values.compliancePolicies.multiReplica.excludeNamespaces,
+    or — for a deliberate single-replica stateful singleton (database/cache) — label
+    it `openova.io/singleton-db: "true"`. rule replicas-at-least-two failed at path
+    /spec/replicas/'
+otel-injected:
+  workload-must-be-otel-instrumented: 'validation error: Workload StatefulSet/bp-keycloak-postgresql
+    is not OTel-instrumented. Add an `otel-collector` sidecar OR annotate the Pod
+    template with one of `instrumentation.opentelemetry.io/inject-{java,python,nodejs,go,dotnet}`
+    set to `"true"` (same-NS default), `"<name>"` (same-NS named CR), or `"<namespace>/<name>"`
+    (cross-NS, e.g. `"opentelemetry/default"` for the bp-opentelemetry-managed CR).
+    rule workload-must-be-otel-instrumented[0] failed at path /spec/template/spec/containers/0/name/
+    rule workload-must-be-otel-instrumented[1] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[2] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[3] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[4] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-otel-instrumented[5] failed at path /spec/template/metadata/annotations/'
+prometheus-scrape:
+  workload-must-be-scrape-targeted: 'validation error: Workload StatefulSet/bp-keycloak-postgresql
+    is not declared a Prometheus scrape target. Either annotate the Pod template with
+    `prometheus.io/scrape: "true"` or label the workload with `monitoring.coreos.com/managed:
+    "true"`. rule workload-must-be-scrape-targeted[0] failed at path /spec/template/metadata/annotations/
+    rule workload-must-be-scrape-targeted[1] failed at path /metadata/labels/monitoring.coreos.com/managed/'
+secret-not-in-env:
+  deny-plaintext-secret-env: 'validation failure: validation failure: A container
+    env entry with a secret-shaped name carries a plaintext value. Use valueFrom.secretKeyRef
+    to source it from a Secret instead.'
+=== bp-openclaw ===
+Reconciling=True (Progressing)
+Fulfilling prerequisites
+Ready=False (DependencyNotReady)
+dependency 'uatcorp/bp-keycloak' is not ready
+
+=== workloads in uatcorp (0 agenity/openclaw pods) ===
+No resources found in uatcorp namespace.
+
+=== row220: anthropic token ExternalSecret (2 sibling ES SecretSynced=True = positive control) ===
+NAME                             STORE           REFRESH INTERVAL   STATUS              READY
+agenity-anthropic-token          vault-region1   1h                 SecretSyncedError   False
+agenity-mcp-bearer               vault-region1   1h                 SecretSynced        True
+oidc-gate-agenity-uatcorp-oidc   vault-region1   1h                 SecretSynced        True
+LAST SEEN   TYPE      REASON         OBJECT                                   MESSAGE
+62s         Warning   UpdateFailed   externalsecret/agenity-anthropic-token   error retrieving secret at .data[0], key: catalyst/anthropic/token, err: Secret does not exist
+
+=== gateway listeners: spec has 8, status reports 6 — *.uatcorp.omani.homes DROPPED ===
+SPEC:
+  console-https host=console.hw291.omantel.biz
+  console-http host=console.hw291.omantel.biz
+  api-https host=api.hw291.omantel.biz
+  api-http host=api.hw291.omantel.biz
+  marketplace-https host=marketplace.hw291.omantel.biz
+  marketplace-http host=marketplace.hw291.omantel.biz
+  console-https-uatcorp host=*.uatcorp.omani.homes
+  console-http-uatcorp host=*.uatcorp.omani.homes
+STATUS:
+  console-https
+  console-http
+  api-https
+  api-http
+  marketplace-https
+  marketplace-http

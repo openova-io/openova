@@ -50,7 +50,7 @@
   // While this interstitial waits for the per-Org console HOST to become
   // reachable (the console-ready probe below), it ALSO polls the provisioning
   // service for the backend workflow's per-stage status and renders it, so the
-  // customer watches named stages advance (Creating tenant → Committing
+  // customer watches named stages advance (Creating Organization → Committing
   // manifests → Provisioning vCluster → Deploying <app> → TLS → Health)
   // instead of a bare, indefinite spinner. Host-readiness stays the forward
   // trigger (the host's async DNS/TLS/HTTPRoute can still be landing after the

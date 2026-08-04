@@ -3591,7 +3591,48 @@ name: bp-catalyst-platform
 #   bp-guacamole 0.2.30 -> 0.2.31 (TBD-A6 bot re-mint sync — 2nd occurrence
 #   after bp-newapi 1.4.144; bot lockstep gap tracked on #5370).
 #   (1.4.1217 was consumed by the TBD-A6 auto re-publish.)
-version: 1.4.1221
+# 1.4.1227 — #5395 (partial Org provisioning read as success, hw290): grant the
+#   organization-controller read-only `resourcequotas` + `limitranges` so its new
+#   provisioning-postcondition verifier can read back the two boundary objects it
+#   authors into the `<slug>` namespace. Before this the reconciler derived Ready
+#   from ONE artifact (the vCluster HR / namespace) and never read back the plan
+#   ResourceQuota + LimitRange or the per-Org console Gateway listener pair — so
+#   gamma-corp reported Ready/Active with all 6 HTTPRoutes
+#   Accepted=False:NoMatchingListenerHostname and no cap on its namespace. The
+#   verifier holds BOTH status.vcluster.phase and the Ready condition back
+#   (reason=ProvisioningIncomplete) naming the missing artifact, and keeps the 30s
+#   requeue alive so the up-path re-converges. Read-only — Flux still owns the
+#   apply. Refs #5395.
+# 1.4.1243 — #5388: catalog-seed bp-cnpg-pair pin 0.2.22 -> 0.2.23 (+ spec.version
+#   display label) — dr-failback STARVATION SURFACING (hw290 G12 leg-6): when the
+#   post-failover geometry candidate persists with the peer probe failing
+#   observability-dead (nxdomain/unreachable/tl-unreadable — the rebooted-region
+#   datapath shape, #5339), the actor records dr-failback-starved-at + reason on
+#   the HR instead of idling silently at D0 while a split-brain persists.
+#   Bootstrap-kit slot-13 pin bumped in lockstep (pin-sync gate). Lockstep w/ 16b
+#   slot 0.2.23.
+# 1.4.1246 — #5468: catalog-seed bp-nemo-guardrails visibility listed -> unlisted.
+#   The Blueprint pins ghcr.io/openova-io/openova/nemo-guardrails:0.21.0 and its
+#   Chart.yaml asserts Catalyst CI builds it — no such build exists (package 404,
+#   no Containerfile, no workflow). `listed` advertised an UNINSTALLABLE entry in
+#   the customer marketplace grid and made it CONTRACTUAL for the cutover's #5442
+#   A3 guard, failing hw291 at step-03. Unlisting restores the #5443 invariant
+#   (advertise only what can install); restore to listed with the build.
+# 1.4.1265 — #5598: catalog-seed bp-guacamole pin 0.2.33 -> 0.2.34 (+
+#   spec.version display label). 0.2.34 adds API_SESSION_TIMEOUT (default
+#   10080 min) so the Guacamole REST-session token no longer expires on the
+#   upstream 60-minute default underneath the ~168h oidc-gate session — the
+#   cause of the "An error has occurred" 403-PERMISSION_DENIED page on every
+#   >60-min revisit (UAT rows 35/115 on hw292). Bootstrap-kit slot-52 pin
+#   bumped in lockstep (pin-sync gate).
+version: 1.4.1279
+# 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
+#   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
+#   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
+#   suppressed the Application's externalURL — so the AppDetail hero "Open"
+#   CTA and the AppsPage grid button were BOTH absent for bp-newapi, and
+#   GET /catalyst/v1/apps/bp-newapi/launch-url answered 404
+#   endpoint-not-found. UAT row 114 (hw290 2026-07-26).
 # 1.4.1092 — #4988: bump catalog-seed bp-postgres spec.version display-label 0.2.10→0.2.12
 #   to lockstep with delivery source.version + platform/postgres/blueprint.yaml (#4987 DR).
 # 1.4.1063 — #4841: grant the useraccess-controller ClusterRole `bind` on the 8
@@ -3734,7 +3775,7 @@ version: 1.4.1221
 #   unsatisfiable on kom4dc (me-east-215-*), which kept the production
 #   Continuum seed unfireable. Backwards-compatible (all-letter labels
 #   still match). Flux CreateReplace flows it to live Sovereigns.
-appVersion: 1.4.1197
+appVersion: 1.4.1276
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +

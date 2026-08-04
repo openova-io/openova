@@ -87,7 +87,17 @@ spec:
       # `/app/?token=<sentinel>` so the SPA seeds the token and lands
       # authenticated with NO paste (the durable path — the daemon's `oidc`
       # authMode is a non-functional upstream scaffold, #128).
-      version: 0.1.7
+      # 0.1.9 (#5617, 2026-08-04): the gate ships its OWN policy halves per
+      # instance — gateway-ingress (reserved `ingress` entity → :4180) and
+      # egress (kube-dns 53 UDP+TCP, the Keycloak backchannel on the Service
+      # port AND pod port 8080, and each instance's upstream derived from its
+      # `upstream` URL). Before this the gate carried no policy at all and
+      # worked only because bp-plane-isolation (slot 26b) leaves this
+      # namespace's egress unconstrained — the same implicit dependency that,
+      # absent in a per-Org namespace, 500'd every OAuth callback on hw292.
+      # Additive: Cilium unions policies, so the effective egress set here is
+      # unchanged while slot 26b is installed.
+      version: 0.1.9
       sourceRef:
         kind: HelmRepository
         name: bp-oidc-gate

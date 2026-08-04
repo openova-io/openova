@@ -12,21 +12,43 @@
  *   install / reconcile / reconciler → "Retry reconcile"
  *   cron                             → "Run now"
  *   task                             → "Re-run"
+ *   step                             → "Re-run"
  *   mutation                         → "Re-submit"
  *
+ * `step` is the self-sovereign-cutover leg (issue #3379, UAT row 165): a
+ * FAILED `cutover-step-*` row re-drives the cutover engine in operator-retry
+ * mode, which deletes the step's stale failed Job, re-runs it, and resumes
+ * the chain. The row is only offered the control when it is Failed
+ * (`isJobRetryable`), and the backend independently rejects a non-failed row
+ * with 409 — so a Succeeded/Running/Pending step can never be re-driven.
+ *
  * The control is OBSERVE-ONLY-NO-MORE: clicking it re-drives the actual
- * reconcile via the backend (annotation bump / one-off Job), never a
- * client-side kubectl. The button optimistically shows "Requesting…",
- * then "Requested" on 200 (the live /jobs backfill reflects the new
- * Execution + real state on its next poll), or the error on failure. A
- * 403 surfaces "Not permitted" (the viewer lacks operator RBAC); a 409
- * surfaces "Not retryable".
+ * reconcile via the backend (annotation bump / one-off Job / cutover
+ * re-run), never a client-side kubectl.
+ *
+ * # Honest feedback, never optimistic green
+ *
+ * The button shows a PENDING "Requesting…" state while the POST is in
+ * flight, and only claims success on a real 2xx — at which point the label
+ * is "Requested", NOT "Succeeded": the request was accepted, the live /jobs
+ * backfill reports the actual outcome on its next poll. Every non-2xx is
+ * surfaced verbatim rather than swallowed:
+ *
+ *   403 → "Not permitted"      (the viewer lacks operator RBAC)
+ *   409 → "Not retryable"      (nothing to re-run) / the server's detail
+ *                               when a cutover run is already in flight
+ *   422 → the server's `detail` (e.g. "cutover step … is not among the …")
+ *   any other status / network error → the status code or "Network error"
+ *
+ * The label + error-message ladders themselves live in `retryJobFeedback.ts`
+ * so they are unit-testable on their own.
  */
 
 import { useState } from 'react'
 import { authedFetch } from '@/shared/lib/authedFetch'
 import { API_BASE } from '@/shared/config/urls'
 import type { JobKind } from '@/lib/jobs.types'
+import { retryLabel, errorMessageFor } from './retryJobFeedback'
 
 interface RetryJobButtonProps {
   deploymentId: string
@@ -35,20 +57,6 @@ interface RetryJobButtonProps {
 }
 
 type RetryPhase = 'idle' | 'requesting' | 'done' | 'error'
-
-/** Kind-specific action label (mirrors the backend dispatch). */
-function retryLabel(kind: JobKind): string {
-  switch (kind) {
-    case 'cron':
-      return 'Run now'
-    case 'task':
-      return 'Re-run'
-    case 'mutation':
-      return 'Re-submit'
-    default:
-      return 'Retry reconcile'
-  }
-}
 
 export function RetryJobButton({ deploymentId, jobId, kind }: RetryJobButtonProps) {
   const [phase, setPhase] = useState<RetryPhase>('idle')
@@ -68,19 +76,11 @@ export function RetryJobButton({ deploymentId, jobId, kind }: RetryJobButtonProp
           body: '{}',
         },
       )
-      if (res.status === 403) {
-        setPhase('error')
-        setMessage('Not permitted')
-        return
-      }
-      if (res.status === 409) {
-        setPhase('error')
-        setMessage('Not retryable')
-        return
-      }
       if (!res.ok) {
+        // Honest failure — surface the server's own reason. Never a
+        // green confirmation for a call that did not succeed.
         setPhase('error')
-        setMessage(`Failed (${res.status})`)
+        setMessage(await errorMessageFor(res))
         return
       }
       setPhase('done')
@@ -92,13 +92,17 @@ export function RetryJobButton({ deploymentId, jobId, kind }: RetryJobButtonProp
   }
 
   const label = retryLabel(kind)
+  const hint =
+    kind === 'step'
+      ? `${label} — re-drives this cutover step via the catalyst-api (the failed step's Job is deleted and run again)`
+      : `${label} — re-drives the reconcile via the catalyst-api (Flux-native, no kubectl)`
 
   if (phase === 'done') {
     return (
       <span
         className="jobs-retry-result jobs-retry-done"
         data-testid={`jobs-retry-done-${jobId}`}
-        title="Reconcile requested — the live state refreshes on the next poll"
+        title="Request accepted — the live state refreshes on the next poll"
       >
         ✓ {message}
       </span>
@@ -114,7 +118,8 @@ export function RetryJobButton({ deploymentId, jobId, kind }: RetryJobButtonProp
         data-kind={kind}
         disabled={phase === 'requesting'}
         onClick={onClick}
-        title={`${label} — re-drives the reconcile via the catalyst-api (Flux-native, no kubectl)`}
+        title={hint}
+        aria-busy={phase === 'requesting'}
       >
         {phase === 'requesting' ? 'Requesting…' : label}
       </button>
@@ -122,6 +127,10 @@ export function RetryJobButton({ deploymentId, jobId, kind }: RetryJobButtonProp
         <span
           className="jobs-retry-result jobs-retry-error"
           data-testid={`jobs-retry-error-${jobId}`}
+          role="alert"
+          // The cell clamps a long server detail to one line; the full,
+          // untruncated reason stays available on hover.
+          title={message}
         >
           {message}
         </span>

@@ -3772,7 +3772,7 @@ func TestSyncSSOOIDCMangledSecrets(t *testing.T) {
 	})
 }
 
-// TestPatchSecondaryCrossRegionPGHosts — #4436. On a 2-region shared-pg
+// TestPatchSecondaryCrossRegionHosts — #4436. On a 2-region shared-pg
 // Sovereign the CNPG primary's region-local `shared-pg-rw` Service exists ONLY
 // in region-A; the SECONDARY region has no such Service, so keycloak/gitea/
 // harbor (which dial the write host as a scalar) NXDOMAIN there. The post-mesh
@@ -3782,7 +3782,7 @@ func TestSyncSSOOIDCMangledSecrets(t *testing.T) {
 // the keycloak key entirely → the slot 09 default `shared-pg-rw` wins). The
 // PRIMARY region's map is left untouched (its `-rw` Service resolves locally),
 // and an own-cluster (non-shared-pg) Sovereign is skipped entirely.
-func TestPatchSecondaryCrossRegionPGHosts(t *testing.T) {
+func TestPatchSecondaryCrossRegionHosts(t *testing.T) {
 	h := &Handler{log: silentLogger()}
 	dep := &Deployment{ID: "dep4436"}
 
@@ -3818,7 +3818,7 @@ func TestPatchSecondaryCrossRegionPGHosts(t *testing.T) {
 		})
 		defer restore()
 
-		h.patchSecondaryCrossRegionPGHosts(context.Background(), dep, slots)
+		h.patchSecondaryCrossRegionHosts(context.Background(), dep, slots)
 
 		// SECONDARY: every write-host key now resolves to the mesh alias.
 		secKS := getBootstrapKitKustomization(t, secondaryDyn)
@@ -3831,6 +3831,15 @@ func TestPatchSecondaryCrossRegionPGHosts(t *testing.T) {
 			if got := gotSub[k]; got != meshHost {
 				t.Errorf("secondary substitute[%s] = %q, want %q (region-local -rw NXDOMAINs the replica region)", k, got, meshHost)
 			}
+		}
+		// #5406 — the SECONDARY's harbor redis flips to the ClusterMesh alias in
+		// the same patch, so its Harbor session store is the ACTIVE region's.
+		if got := gotSub[clusterMeshHarborRedisTypeSubstituteKey]; got != clusterMeshHarborRedisExternalType {
+			t.Errorf("secondary substitute[%s] = %q, want %q (a region-local harbor redis splits every Harbor login, #5406)",
+				clusterMeshHarborRedisTypeSubstituteKey, got, clusterMeshHarborRedisExternalType)
+		}
+		if got := gotSub[clusterMeshHarborRedisAddrSubstituteKey]; got != clusterMeshHarborRedisMeshAddr {
+			t.Errorf("secondary substitute[%s] = %q, want %q", clusterMeshHarborRedisAddrSubstituteKey, got, clusterMeshHarborRedisMeshAddr)
 		}
 		// Sibling keys must survive the MERGE patch (never replaced).
 		if got := gotSub[clusterMeshPrimaryRegionSubstituteKey]; got != testPrimaryRegionLabel {
@@ -3851,6 +3860,12 @@ func TestPatchSecondaryCrossRegionPGHosts(t *testing.T) {
 		if _, present := priSub[clusterMeshKeycloakPGHostSubstituteKey]; present {
 			t.Errorf("primary substitute[%s] should stay ABSENT (slot default resolves locally); patch wrongly touched the primary", clusterMeshKeycloakPGHostSubstituteKey)
 		}
+		// #5406 — the ACTIVE region must KEEP its own redis (`redis.type: internal`
+		// renders the StatefulSet the merged global Service selects). Flipping the
+		// primary to `external` would leave the Sovereign with NO redis at all.
+		if _, present := priSub[clusterMeshHarborRedisTypeSubstituteKey]; present {
+			t.Errorf("primary substitute[%s] should stay ABSENT — the active region OWNS the redis every region shares (#5406)", clusterMeshHarborRedisTypeSubstituteKey)
+		}
 		if stamp := priKS.GetAnnotations()[fluxReconcileRequestedAtAnnotation]; stamp != "" {
 			t.Errorf("primary: %q annotation set — primary must not be patched/reconciled", fluxReconcileRequestedAtAnnotation)
 		}
@@ -3863,6 +3878,8 @@ func TestPatchSecondaryCrossRegionPGHosts(t *testing.T) {
 		secSub[clusterMeshKeycloakPGHostSubstituteKey] = meshHost
 		secSub[clusterMeshGiteaPGHostSubstituteKey] = meshHost
 		secSub[clusterMeshHarborPGHostSubstituteKey] = meshHost
+		secSub[clusterMeshHarborRedisTypeSubstituteKey] = clusterMeshHarborRedisExternalType
+		secSub[clusterMeshHarborRedisAddrSubstituteKey] = clusterMeshHarborRedisMeshAddr
 		secondaryDyn := newFakeKustomizationDynClient(t, buildBootstrapKitKustomization(secSub))
 		primaryDyn := newFakeKustomizationDynClient(t, buildBootstrapKitKustomization(defaultBootstrapKitSubstitute()))
 
@@ -3872,7 +3889,7 @@ func TestPatchSecondaryCrossRegionPGHosts(t *testing.T) {
 		})
 		defer restore()
 
-		h.patchSecondaryCrossRegionPGHosts(context.Background(), dep, slots)
+		h.patchSecondaryCrossRegionHosts(context.Background(), dep, slots)
 
 		// No-op: nothing to change → no reconcile stamp (the merge patch never fired).
 		secKS := getBootstrapKitKustomization(t, secondaryDyn)
@@ -3881,9 +3898,12 @@ func TestPatchSecondaryCrossRegionPGHosts(t *testing.T) {
 		}
 	})
 
-	t.Run("own-cluster-shared-pg-off-is-skipped", func(t *testing.T) {
+	t.Run("own-cluster-shared-pg-off-skips-pg-hosts-but-still-flips-harbor-redis", func(t *testing.T) {
 		// shared-pg DISABLED → keycloak/gitea/harbor dial their OWN <app>-pg-rw
-		// hosts (resolve locally) → must NOT be touched.
+		// hosts (resolve locally) → the PG-host keys must NOT be touched. The
+		// harbor-redis keys ARE still flipped: harbor owns its redis in the
+		// own-cluster topology too, and the split-session defect (#5406) is
+		// identical there.
 		secSub := defaultBootstrapKitSubstitute()
 		secSub[clusterMeshRegionRoleSubstituteKey] = "secondary"
 		// SOVEREIGN_ENABLE_SHARED_PG intentionally absent (own-cluster).
@@ -3896,21 +3916,28 @@ func TestPatchSecondaryCrossRegionPGHosts(t *testing.T) {
 		})
 		defer restore()
 
-		h.patchSecondaryCrossRegionPGHosts(context.Background(), dep, slots)
+		h.patchSecondaryCrossRegionHosts(context.Background(), dep, slots)
 
 		secKS := getBootstrapKitKustomization(t, secondaryDyn)
 		gotSub, _, _ := unstructured.NestedStringMap(secKS.Object, "spec", "postBuild", "substitute")
 		if _, present := gotSub[clusterMeshKeycloakPGHostSubstituteKey]; present {
 			t.Errorf("own-cluster Sovereign: keycloak host key was wrongly stamped (shared-pg is OFF — apps dial their own local host)")
 		}
-		if stamp := secKS.GetAnnotations()[fluxReconcileRequestedAtAnnotation]; stamp != "" {
-			t.Errorf("own-cluster Sovereign: reconcile stamp %q written — must be skipped entirely", stamp)
+		if _, present := gotSub[clusterMeshGiteaPGHostSubstituteKey]; present {
+			t.Errorf("own-cluster Sovereign: gitea host key was wrongly stamped (shared-pg is OFF)")
+		}
+		if got := gotSub[clusterMeshHarborRedisTypeSubstituteKey]; got != clusterMeshHarborRedisExternalType {
+			t.Errorf("own-cluster Sovereign: substitute[%s] = %q, want %q — the harbor-redis flip is NOT gated on shared-pg (#5406)",
+				clusterMeshHarborRedisTypeSubstituteKey, got, clusterMeshHarborRedisExternalType)
+		}
+		if got := gotSub[clusterMeshHarborRedisAddrSubstituteKey]; got != clusterMeshHarborRedisMeshAddr {
+			t.Errorf("own-cluster Sovereign: substitute[%s] = %q, want %q", clusterMeshHarborRedisAddrSubstituteKey, got, clusterMeshHarborRedisMeshAddr)
 		}
 	})
 
 	t.Run("single-region-is-noop", func(t *testing.T) {
 		// len(slots) == 1 → no secondary → return immediately, no panic.
-		h.patchSecondaryCrossRegionPGHosts(context.Background(), dep, []regionSlot{{key: "", kubeconfigPath: primaryPath}})
+		h.patchSecondaryCrossRegionHosts(context.Background(), dep, []regionSlot{{key: "", kubeconfigPath: primaryPath}})
 	})
 }
 

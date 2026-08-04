@@ -29,9 +29,11 @@ import {
   type OwnedDependencyOverride,
   type PlacementTarget,
   type StandbyType,
+  PATTERN_NOT_REPORTED,
   canAddPrimary,
   derivePattern,
   describePattern,
+  patternLabel,
   validatePlacement,
 } from '@/shared/lib/placement'
 
@@ -362,9 +364,19 @@ export function PlacementEditor({
         + add target
       </button>
 
+      {/* #5515 — the un-derivable case (every target removed / no Primary)
+          reads as prose in the dim colour; never a confident pattern name. */}
       <p className="mb-3 text-xs" data-testid="placement-editor-derived-pattern">
         <span className="text-[var(--color-text-dim)]">Derived pattern: </span>
-        <span className="font-medium text-[var(--color-accent)]">{pattern}</span>
+        <span
+          className={
+            pattern === PATTERN_NOT_REPORTED
+              ? 'font-medium italic text-[var(--color-text-dim)]'
+              : 'font-medium text-[var(--color-accent)]'
+          }
+        >
+          {patternLabel(pattern)}
+        </span>
         <span className="ml-2 text-[var(--color-text-dim)]">{describePattern(pattern)}</span>
       </p>
 

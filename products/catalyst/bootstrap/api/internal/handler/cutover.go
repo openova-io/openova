@@ -178,6 +178,12 @@ const (
 	// registry-pivot DaemonSet-wait then asserts per-node v2 acks.
 	cutoverStepHarborPrewarm = "harbor-prewarm"
 	cutoverStepRegistryPivot = "registry-pivot"
+	// #5437: the SNAPSHOT step (its success is a point-in-time capture of a
+	// moving upstream — see cutover_snapshot_steps.go) and the PIVOT BOUNDARY
+	// step (from which the mirrored repo becomes the live GitOps source and
+	// later steps commit sovereign-local changes onto it).
+	cutoverStepGiteaMirror      = "gitea-mirror"
+	cutoverStepFluxGitRepoPatch = "flux-gitrepository-patch"
 	// #5014: the step whose Job applies the 10-min deny-egress hold. The
 	// driver reaps its CiliumClusterwideNetworkPolicy on ANY step exit —
 	// the Job's own TERM/EXIT traps cover clean paths, but a SIGKILLed pod
@@ -1446,6 +1452,42 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 		// existing value is preserved (NOT in the seed map ⇒ untouched).
 		seed["cutoverStartedAt"] = startedAt.Format(time.RFC3339)
 	}
+
+	// ── #5437 stale-snapshot re-run ─────────────────────────────────────
+	//
+	// Skip-on-success is correct idempotency for a step that ENSURES state,
+	// and WRONG for a step whose output is a snapshot of a moving upstream.
+	// gitea-mirror is the latter: its success only means "at time T the local
+	// Gitea matched upstream", and every later step consumes that snapshot.
+	// On hw290 (2026-07-27) a re-attempt 14h later skipped it while
+	// harbor-prewarm re-ran fresh, so the mirror pinned catalyst-api:b1b472d
+	// which the fresh prewarm never pushed → post-pivot ImagePullBackOff →
+	// control plane down. Re-take the snapshot, and cascade-invalidate every
+	// later step so no consumer carries a success computed from the old one.
+	// The judgement lives in cutover_snapshot_steps.go.
+	forceRerun := map[string]bool{}
+	var snapshotNotices []string
+	stepHasJobs := func(stepName string) bool {
+		jobs, err := findExistingJobsForStep(ctx, deps, stepName)
+		return err == nil && len(jobs) > 0
+	}
+	for i, step := range steps {
+		d := decideSnapshotRerun(step, steps, priorStatus, startedAt, stepHasJobs)
+		if d.reason != "" {
+			snapshotNotices = append(snapshotNotices, d.reason)
+		}
+		if !d.rerun {
+			continue
+		}
+		for _, s := range steps[i:] {
+			forceRerun[s.stepName] = true
+		}
+		for k, v := range snapshotRerunCascade(steps, priorStatus, i) {
+			seed[k] = v
+		}
+		break
+	}
+
 	if err := patchCutoverStatus(ctx, deps, seed); err != nil {
 		h.publishCutoverEvent(bus, cutoverEvent{
 			Time:    time.Now().UTC().Format(time.RFC3339),
@@ -1462,6 +1504,19 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 		Level:   "info",
 		Message: fmt.Sprintf("Self-Sovereignty Cutover started: %d steps", totalSteps),
 	})
+
+	// #5437 — surface the snapshot judgement on the wizard's event stream so
+	// an operator sees WHY the mirror re-ran (or why it was kept).
+	for _, notice := range snapshotNotices {
+		h.publishCutoverEvent(bus, cutoverEvent{
+			Time:    startedAt.Format(time.RFC3339),
+			Phase:   cutoverPhaseStarted,
+			Level:   "info",
+			Step:    cutoverStepGiteaMirror,
+			Message: notice,
+		})
+		h.log.Info("cutover: snapshot-step judgement", "detail", notice)
+	}
 
 	// ── #5359 secondary-region credential bridge ────────────────────────
 	// Materialize every secondary region's kubeconfig into the
@@ -1533,7 +1588,27 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 			continue
 		}
 
-		if err := h.runCutoverStep(ctx, deps, step, runEpoch, operatorRetry); err != nil {
+		// #5437 defence in depth — NEVER point Flux at a mirror snapshot older
+		// than the attempt that pushed the artifacts into the local registry.
+		// That pairing is the hw290 outage (stale mirror pins tags the fresh
+		// harbor-prewarm never pushed → post-pivot ImagePullBackOff on the
+		// control plane). Read the LIVE status so a mirror re-run earlier in
+		// THIS attempt counts. Fail loud and early instead of silently
+		// rolling the Sovereign onto unpullable tags.
+		var stepErr error
+		if step.stepName == cutoverStepFluxGitRepoPatch {
+			live, readErr := readCutoverStatus(ctx, deps)
+			if readErr != nil {
+				h.log.Warn("cutover: could not re-read status for the pre-pivot mirror-freshness assert (#5437)",
+					"err", readErr)
+			} else {
+				stepErr = assertMirrorSnapshotFresh(steps, live, startedAt)
+			}
+		}
+		if stepErr == nil {
+			stepErr = h.runCutoverStep(ctx, deps, step, runEpoch, operatorRetry, forceRerun[step.stepName])
+		}
+		if err := stepErr; err != nil {
 			finishedAt := time.Now().UTC()
 			_ = patchCutoverStatus(ctx, deps, map[string]string{
 				"currentStep":                           "",
@@ -1673,7 +1748,13 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 	})
 }
 
-func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cutoverStep, runEpoch int64, operatorRetry bool) error {
+// forceRerun (#5437): the engine has decided this step must produce a FRESH
+// result on this attempt — either it is the snapshot step whose recorded
+// success predates the attempt, or it is a consumer invalidated by that
+// snapshot being re-taken. It suppresses the Complete-Job adoption below,
+// which would otherwise re-adopt yesterday's Job and hand back the very
+// success the engine just decided to discard.
+func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cutoverStep, runEpoch int64, operatorRetry, forceRerun bool) error {
 	bus := h.cutoverBusFor()
 
 	// ── #5014: deny-egress hold backstop ────────────────────────────────
@@ -1731,6 +1812,37 @@ func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cu
 	// For DaemonSet-wait steps this is a no-op (the chart owns the
 	// DaemonSet lifecycle; we only wait for ready).
 	if step.mode == cutoverModeJob {
+		// #5437 — the Complete-Job adoption below is a SECOND skip path, and it
+		// would silently undo the engine's re-run decision: a snapshot step
+		// whose durable row was just invalidated would be handed right back the
+		// stale success by yesterday's leftover Job. When the engine has ruled
+		// the result stale, delete the step's Jobs + blank its rows FIRST, so
+		// the adoption finds nothing and a fresh Job is minted (same shape as
+		// the #3379 transient-retry reset below).
+		if forceRerun {
+			if job, cond, terminal := findExistingTerminalJobForStep(ctx, deps, step.stepName); terminal && cond == batchv1.JobComplete {
+				h.publishCutoverEvent(bus, cutoverEvent{
+					Time:    time.Now().UTC().Format(time.RFC3339),
+					Phase:   cutoverPhaseStepStarted,
+					Level:   "info",
+					Step:    step.stepName,
+					JobName: job.Name,
+					Message: fmt.Sprintf("step %s prior Job %s completed on an earlier attempt but its result is a stale snapshot; deleting + re-running (#5437)", step.stepName, job.Name),
+				})
+				if delErr := deleteCutoverJobsForStep(ctx, deps, step.stepName); delErr != nil {
+					h.log.Warn("cutover: failed to delete prior completed Job before a stale-snapshot re-run (#5437)",
+						"step", step.stepName, "job", job.Name, "err", delErr)
+				}
+				if err := patchCutoverStatus(ctx, deps, map[string]string{
+					"step." + step.stepName + ".result":     "",
+					"step." + step.stepName + ".startedAt":  "",
+					"step." + step.stepName + ".finishedAt": "",
+					"step." + step.stepName + ".jobName":    "",
+				}); err != nil {
+					return fmt.Errorf("status patch (stale-snapshot reset): %w", err)
+				}
+			}
+		}
 		if job, cond, terminal := findExistingTerminalJobForStep(ctx, deps, step.stepName); terminal {
 			finishedAt := jobCompletionTime(job)
 			if cond == batchv1.JobComplete {

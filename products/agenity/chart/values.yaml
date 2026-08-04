@@ -331,6 +331,22 @@ oidcGate:
   # ClusterSecretStore the gate's client-secret ExternalSecret resolves through.
   externalSecretStoreName: vault-region1
   refreshInterval: 1h
+  # ── Egress targets for the gate's CiliumNetworkPolicy (#5617) ────────────
+  # The per-Org namespace is default-deny, and the gate used to ship an
+  # INGRESS-only CNP — so its DNS lookups and the Keycloak token-exchange dial
+  # were dropped and every OAuth callback 500'd after a successful login
+  # (live on hw292 Org uatco: `lookup keycloak.keycloak.svc.cluster.local on
+  # 10.96.0.10:53: i/o timeout`, oauthproxy.go:881). These knobs point the
+  # egress CNP at the Keycloak backchannel; keep them in lockstep with
+  # keycloakInternalURL above (namespace + Service port of that URL).
+  networkPolicy:
+    # Namespace the in-cluster Keycloak Service lives in.
+    keycloakNamespace: keycloak
+    # Keycloak SERVICE port (the port in keycloakInternalURL; no port = 80).
+    # The template additionally always allows the Pod target port 8080 — under
+    # Cilium the policy verdict runs AFTER the Service DNAT, so the Pod port is
+    # the load-bearing one (the #4437 port trap: allowing only 80 drops it).
+    keycloakPort: 80
   # The SPA bootstrap-token seed (#4556): 302 the bare root, AFTER the full KC
   # SSO, to `<dashboardPath>?token=<value>` so the agenity `/app/` SPA seeds
   # localStorage and lands authenticated with NO paste. value is a SENTINEL

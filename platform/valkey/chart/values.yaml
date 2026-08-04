@@ -142,11 +142,98 @@ valkey:
   auth:
     enabled: false
 
-  # NetworkPolicy from upstream chart — already enabled by default;
-  # restate to make the Catalyst posture explicit. (Default-deny is
-  # appropriate for a cache that should only be consumed in-cluster.)
+  # ── NetworkPolicy — ingress scoped to the DECLARED consumers (#5487) ────
+  #
+  # ROOT CAUSE (#5487, caught LIVE on hw291 2026-07-29):
+  #   `networkPolicy.enabled: true` was restated here as "the Catalyst
+  #   posture is default-deny", but the upstream bitnami template keys the
+  #   ingress `from:` off a SECOND value — `networkPolicy.allowExternal`,
+  #   which defaults to TRUE. With allowExternal true the rendered rule is
+  #
+  #       ingress:
+  #         - ports: [{port: 6379}]        ← NO `from:` at all
+  #
+  #   and a Kubernetes ingress rule with no `from:` admits EVERY Pod in the
+  #   cluster. Combined with `auth.enabled: false` below (TBD-V12 #2003 —
+  #   no `requirepass`), any container foothold in any namespace could
+  #   `redis-cli -h valkey-primary.valkey.svc` and run arbitrary commands.
+  #   Verified live: `PING` → `+PONG` from an unrelated `grafana` Pod.
+  #   Blast radius is not theoretical — this Valkey holds the gateway's
+  #   rate-limit counters (a `FLUSHALL` disables the redeem limiter, #5484)
+  #   and the `newapi-keyspace-credential` Context data below.
+  #
+  #   It ALSO silently defeated bp-plane-isolation (slot 26b), which already
+  #   ships a `valkey-default-deny` NetworkPolicy admitting ONLY
+  #   org-services + newapi: Kubernetes (and Cilium) take the UNION of every
+  #   policy selecting a Pod, so one allow-all rule re-opened the whole
+  #   namespace no matter how tight the sibling policy was.
+  #
+  # THE FIX — `allowExternal: false` is the only lever that emits a `from:`.
+  #   It narrows the upstream rule to Pods IN THE RELEASE NAMESPACE carrying
+  #   `valkey-client: "true"` plus valkey's own Pods (primary↔replica
+  #   replication). `extraIngress` then names the real cross-namespace
+  #   consumers. Auth stays OFF (see `auth` above) — this is the network
+  #   half of the isolation that #2003 assumed was already there.
+  #
+  # THE CONSUMER SET (derived from the repo, not from guesswork; two
+  # independent in-repo declarations agree):
+  #   - `org-services` — the BSS control plane. `VALKEY_ADDR` is stamped
+  #     into the org-services ConfigMap (products/catalyst/chart/templates/
+  #     org-services/configmap.yaml) and consumed by the `auth` + `gateway`
+  #     Deployments, both of which live in ns `org-services`.
+  #   - `newapi`       — `valkey.url: redis://valkey-primary.valkey.svc…`
+  #     (platform/newapi/chart/values.yaml); also the declared consumer of
+  #     the `keyspaces[]` Context seeded by slot 17 (reflect.namespaces).
+  #   Corroborated by platform/plane-isolation/chart/values.yaml, whose
+  #   `namespace: valkey` component lists exactly
+  #   `allowIngressFrom: [org-services, newapi]`.
+  #
+  # NOT included, deliberately (parity with bp-plane-isolation's list):
+  #   - `catalyst-system` — the catalyst-projector dials Valkey but ships
+  #     DEFAULT-OFF (`services.projector.enabled: false`). An operator who
+  #     flips it on adds `catalyst-system` to BOTH lists.
+  #   - `matrix` — `externalRedis.enabled: false` by default, same rule.
+  #
+  # MULTI-REGION: bp-valkey is a per-region install (slot 17 renders in
+  # every region's own cluster) and its Services are NOT Cilium global
+  # services (`service.cilium.io/global` is absent), so every consumer
+  # dials its own region's `valkey-primary` ClusterIP and this policy is
+  # correct on BOTH regions unchanged. Cilium AND-injects
+  # `io.cilium.k8s.policy.cluster=<local>` into every selector derived from
+  # a k8s NetworkPolicy, so a genuine cross-region dial (were Valkey ever
+  # promoted to a global Service) would need an identity-based
+  # CiliumNetworkPolicy carve-out — the proven #5406 shape in
+  # platform/harbor/chart/templates/redis-crossregion-netpol.yaml. Adding
+  # peers here would NOT work and must not be attempted with this key.
+  #
+  # Per Inviolable Principle #4 every element stays operator-overridable —
+  # but note `extraIngress` is a LIST: an overlay that sets it REPLACES this
+  # rule wholesale, so an overlay adding a consumer must restate these two
+  # namespaces alongside its own.
   networkPolicy:
     enabled: true
+    # false ⇒ the upstream ingress rule renders a real `from:` selector.
+    # NEVER flip this back to true — that is the #5487 defect verbatim.
+    allowExternal: false
+    extraIngress:
+      # Port MUST track `primary.containerPorts.valkey` (upstream default
+      # 6379, restated in `contextsService.port` below).
+      - ports:
+          - port: 6379
+            protocol: TCP
+        from:
+          - namespaceSelector:
+              matchExpressions:
+                - key: kubernetes.io/metadata.name
+                  operator: In
+                  values:
+                    - org-services
+                    - newapi
+    # Metrics stays at the upstream default (`metrics.allowExternal: true`)
+    # because `metrics.enabled` is false below — no metrics rule renders at
+    # all. An operator enabling the exporter must scope that port to the
+    # scraper's namespace in the same breath; leaving a guessed scraper
+    # namespace here would silently break scraping instead.
 
   # Prometheus exporter sidecar + ServiceMonitor — DEFAULT OFF.
   #

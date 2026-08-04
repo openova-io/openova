@@ -172,6 +172,47 @@ func boundaryIsVcluster(planSlug string) bool {
 // the NetworkPolicy reconciler targets the same boundary the apps land on.
 func BoundaryIsVcluster(planSlug string) bool { return boundaryIsVcluster(planSlug) }
 
+// BoundaryResourceQuotaName / BoundaryLimitRangeName are the object names the
+// boundary templates below render into the `<slug>` host namespace. They are
+// exported AND interpolated into the templates through renderView (never
+// re-typed as a string literal in either place) so the controller's
+// provisioning-postcondition readback (provisioning_postconditions.go, #5395)
+// probes for EXACTLY the objects this renderer authored — one source of truth,
+// so a rename here can never leave the verifier looking for a name nothing
+// writes (a verifier that silently checks the wrong name is worse than none).
+const (
+	BoundaryResourceQuotaName = "plan-quota"
+	BoundaryLimitRangeName    = "plan-limits"
+)
+
+// PlanRendersResourceQuota reports whether Render emits
+// `vcluster/resourcequota.yaml` for a plan — i.e. whether the Org's boundary
+// namespace is EXPECTED to carry a `plan-quota` ResourceQuota once Flux has
+// applied the boundary tree.
+//
+// This is the exported form of the `!quota.Burstable` gate inside Render, and
+// it exists so that "this Org has no ResourceQuota" becomes a DECIDED outcome
+// instead of an ambiguous one (#5395). Fixed tiers (S/M/L/XL — plus the
+// ""/free/unknown slugs planQuota defaults to "s") are hard-capped and MUST
+// carry the quota; Flexi is the on-demand soft-cap plan and deliberately
+// carries none. Without this predicate an operator looking at a quota-less
+// namespace cannot distinguish "Flexi, uncapped by design" from "the boundary
+// tree never landed" — the two are byte-identical on the cluster, which is
+// exactly how a partially-provisioned Org passed for a healthy one.
+//
+// The LimitRange (BoundaryLimitRangeName) has no such gate — Render emits it
+// for EVERY plan including Flexi — so its absence is ALWAYS a delivery gap.
+// That asymmetry is what makes the pair a usable diagnostic; see
+// provisioning_postconditions.go.
+//
+// NOTE (Refs #5393): the SIZE of the cap — in particular whether vCluster
+// control-plane overhead should count against the customer's purchased plan —
+// is a separate, open product question. This predicate answers only "is a quota
+// object expected at all", never "how big should it be".
+func PlanRendersResourceQuota(planSlug string) bool {
+	return !planQuota(planSlug).Burstable
+}
+
 // renderTemplates is the named template set the controller uses.
 // Keep these inline (text/template) — the rendered output is YAML
 // that Flux applies via Kustomization. Per Inviolable Principle #4
@@ -445,7 +486,7 @@ spec:
 const resourceQuotaTemplate = `apiVersion: v1
 kind: ResourceQuota
 metadata:
-  name: plan-quota
+  name: {{ .ResourceQuotaName }}
   namespace: {{ .Slug }}
   labels:
     openova.io/organization: {{ .Slug }}
@@ -470,7 +511,7 @@ spec:
 const limitRangeTemplate = `apiVersion: v1
 kind: LimitRange
 metadata:
-  name: plan-limits
+  name: {{ .LimitRangeName }}
   namespace: {{ .Slug }}
   labels:
     openova.io/organization: {{ .Slug }}
@@ -645,6 +686,48 @@ spec:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: flux-system
   egress:
+    # CLUSTER DNS — 53 UDP + TCP to kube-system CoreDNS.
+    #
+    # #5617 ROOT CAUSE. This policy carries an egress section under
+    # endpointSelector {}, and in Cilium the moment ANY policy selecting an
+    # endpoint declares egress, that endpoint's egress becomes deny-by-default
+    # outside the union of every such policy. So this one rule set decides
+    # egress for EVERY pod in the Org namespace. It used to name kube-apiserver
+    # and same-namespace endpoints and NOTHING else — no DNS — which left every
+    # workload that ships no DNS egress of its own unable to resolve a single
+    # name. Measured live on hw292 Org uatco: the bp-oidc-gate companion
+    # (ingress-only CNP) 500'd every OAuth callback AFTER a successful login —
+    # oauthproxy.go:881, lookup keycloak.keycloak.svc.cluster.local on
+    # 10.96.0.10:53 i/o timeout — while the sibling agenity pod in the SAME
+    # namespace resolved fine because its chart ships an egress CNP with DNS.
+    #
+    # Fixing it per-chart is a per-instance patch that the NEXT per-Org chart
+    # re-breaks (#4437 was the first recurrence, #5617 the second). DNS belongs
+    # in the namespace baseline: it is required by every workload without
+    # exception, and admitting it weakens no isolation boundary — CoreDNS is a
+    # read-only name service, and cross-Org/cross-Environment denial is
+    # unchanged because this grants nothing but :53 to kube-system.
+    #
+    # toEndpoints, NEVER toCIDR/ipBlock: a CIDR rule cannot match an in-cluster
+    # pod identity under Cilium (#4360) and never matches a ClusterMesh remote
+    # identity (#4656), so a CIDR-shaped DNS allow would be inert here and
+    # silently re-break the second region of a 2-region Sovereign.
+    #
+    # L3/L4 ONLY — deliberately no L7 dns rule here. An L7 DNS rule would put
+    # EVERY pod in the Organization namespace behind the cilium-agent DNS proxy,
+    # which is a datapath and latency change this policy has no reason to make:
+    # the goal is to stop denying DNS, not to filter it. A per-workload chart CNP
+    # may still add an L7 DNS rule for its own pods; Cilium unions the two.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
     # Admit egress to the cluster API (the reserved kube-apiserver entity) so an
     # in-vcluster Org app pod / in-cluster client can reach :443/:6443.
     - toEntities:
@@ -853,6 +936,12 @@ type renderView struct {
 	// references (#4991) — ciliumnetworkpolicy.yaml + provisioning-rbac.yaml,
 	// both always applied host-side onto `<slug>`.
 	HostAppsResources []string
+	// ResourceQuotaName / LimitRangeName carry BoundaryResourceQuotaName /
+	// BoundaryLimitRangeName into the boundary templates so the rendered object
+	// names and the controller's postcondition readback (#5395) cannot drift
+	// apart — the constants are the single definition of both.
+	ResourceQuotaName string
+	LimitRangeName    string
 }
 
 // limitRangeDefaults derives the per-container default request==limit for a
@@ -910,11 +999,13 @@ func Render(in Inputs) (map[string][]byte, error) {
 	quota := planQuota(in.PlanSlug)
 	defCPU, defMem := limitRangeDefaults(quota)
 	view := renderView{
-		Inputs:       in,
-		Quota:        quota,
-		DefaultCPU:   defCPU,
-		DefaultMem:   defMem,
-		AppNamespace: "apps",
+		Inputs:            in,
+		Quota:             quota,
+		DefaultCPU:        defCPU,
+		DefaultMem:        defMem,
+		AppNamespace:      "apps",
+		ResourceQuotaName: BoundaryResourceQuotaName,
+		LimitRangeName:    BoundaryLimitRangeName,
 	}
 
 	// Assemble the file set as a function of the tier-gate + plan. The
@@ -926,7 +1017,11 @@ func Render(in Inputs) (map[string][]byte, error) {
 		"vcluster/limitrange.yaml": limitRangeTemplate,
 	}
 	res := []string{"namespace.yaml", "limitrange.yaml"}
-	if !quota.Burstable {
+	// PlanRendersResourceQuota is the exported form of this same gate — the
+	// controller's postcondition verifier (#5395) calls it to decide whether a
+	// quota-less boundary namespace is Flexi-by-design or a delivery gap, so the
+	// decision MUST be made here through that one predicate.
+	if PlanRendersResourceQuota(in.PlanSlug) {
 		files["vcluster/resourcequota.yaml"] = resourceQuotaTemplate
 		res = append(res, "resourcequota.yaml")
 	}

@@ -1,0 +1,36 @@
+### hw291 rows 221/222 (2026-07-30) — agent-driven create_application preconditions
+--- per-Org Anthropic credential (#4277) ---
+NAME                             STORE           REFRESH INTERVAL   STATUS              READY
+agenity-anthropic-token          vault-region1   1h                 SecretSyncedError   False
+agenity-mcp-bearer               vault-region1   1h                 SecretSynced        True
+oidc-gate-agenity-uatcorp-oidc   vault-region1   1h                 SecretSynced        True
+NAME                             READY   REASON              MSG
+agenity-anthropic-token          False   SecretSyncedError   could not get secret data from provider
+agenity-mcp-bearer               True    SecretSynced        Secret was synced
+oidc-gate-agenity-uatcorp-oidc   True    SecretSynced        Secret was synced
+--- the anthropic-creds volume the agent reads ---
+Error from server (NotFound): secrets "agenity-anthropic-token" not found
+secretName=agenity-anthropic-token optional=true
+--- does the agent hold a usable credential? (file presence only, no value) ---
+total 16
+drwxr-sr-x 3 chepherd chepherd 4096 Jul 30 00:48 .
+drwxr-x--- 1 chepherd chepherd 4096 Jul 30 00:48 ..
+drwxr-sr-x 2 chepherd chepherd 4096 Jul 30 00:48 projects
+--- .credentials.json:
+ABSENT-OR-EMPTY
+--- CHEPHERD_AUTH_MODE ---
+none
+
+--- CONTROL that makes the SecretSyncedError meaningful ---
+Two SIBLING ExternalSecrets in the SAME namespace against the SAME store vault-region1 are SecretSynced=True
+(agenity-mcp-bearer, oidc-gate-agenity-uatcorp-oidc). ESO + the store work; only catalyst/anthropic/token is absent (#4277).
+
+--- SECOND, INDEPENDENT WALL on row 221 (survives #4277 being fixed) ---
+products/openova-mcp/internal/tools/catalogue.go:272 — handleCreateApplication (212-286) calls requireDeployment(id)
+  :390 requireDeployment -> error 'no deployment binding on the caller's token (deployment_id claim required)' when id.DeploymentID == ""
+The per-Org bearer minted at products/catalyst/bootstrap/api/internal/handler/sovereign_mcp_bearer_seed.go:167-183 emits
+  {iss,sub,email,email_verified,role,tier,realm_access,iat,exp,jti,typ,org,org_id} — NO deployment_id.
+Verified live on the actual token in the pod: claim keys = ['email','email_verified','exp','iat','iss','jti','org','org_id','realm_access','role','sub','tier','typ'], deployment_id present: False.
+=> list_applications / get_application / create_application ALL return -32000 before any RBAC/Org-scope check runs.
+   requireDeployment is called at catalogue.go:143 (list_applications), :173 (get_application), :272 (create_application), :343 (list_environments).
+   handleListOrganizations (:122) does NOT call it, which is why that one tool reached the HTTP layer and failed on transport instead.

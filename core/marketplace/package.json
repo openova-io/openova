@@ -7,15 +7,19 @@
     "postbuild": "node scripts/check-served-domain-hygiene.mjs",
     "check:domain-hygiene": "node scripts/check-served-domain-hygiene.mjs",
     "preview": "astro preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test:e2e": "playwright test --config=./playwright.config.ts"
   },
   "dependencies": {
-    "astro": "^5.7.0",
-    "@astrojs/svelte": "^7.0.0",
+    "astro": "^7.1.6",
+    "@astrojs/svelte": "^9.0.1",
     "svelte": "^5.0.0"
   },
   "devDependencies": {
     "tailwindcss": "^4.0.0",
-    "@tailwindcss/vite": "^4.0.0"
+    "@tailwindcss/vite": "^4.0.0",
+    "jsdom": "^28.0.0",
+    "vitest": "^4.1.5"
   }
 }

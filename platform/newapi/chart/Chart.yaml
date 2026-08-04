@@ -964,7 +964,7 @@ name: bp-newapi
 #   gap). Cross-region replication would be WRONG (the bearer must byte-match
 #   the REGION-LOCAL bridge ADMIN_SECRET), so the fix is the region-local
 #   producer. Pairs with bp-openbao 1.2.64 (external-secrets-push policy grant).
-version: 1.4.144
+version: 1.4.146
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

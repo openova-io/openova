@@ -73,18 +73,18 @@ if [ -z "$cr_block" ]; then
   exit 1
 fi
 # The mechanism MUST be raft-transition (NOT the cnpg-pair default).
-if ! echo "$cr_block" | grep -q "mechanism: raft-transition"; then
+if ! grep -q "mechanism: raft-transition" <<<"$cr_block"; then
   echo "FAIL: Continuum CR is missing switchover.mechanism=raft-transition." >&2
   echo "$cr_block" >&2
   exit 1
 fi
 # The raftTransition target must carry the standby Pod selector + raft data path.
-if ! echo "$cr_block" | grep -q 'podSelector: "app.kubernetes.io/name=openbao"'; then
+if ! grep -q 'podSelector: "app.kubernetes.io/name=openbao"' <<<"$cr_block"; then
   echo "FAIL: Continuum CR raftTransition.podSelector is wrong/missing." >&2
   exit 1
 fi
 # raftDataPath is where the OSS peers.json recovery file is written.
-if ! echo "$cr_block" | grep -q 'raftDataPath: "/openbao/data"'; then
+if ! grep -q 'raftDataPath: "/openbao/data"' <<<"$cr_block"; then
   echo "FAIL: Continuum CR raftTransition.raftDataPath is wrong/missing (peers.json recovery target)." >&2
   echo "$cr_block" >&2
   exit 1
@@ -92,17 +92,17 @@ fi
 # The DEFAULT CR must NOT carry a snapshotPath — the common stretched-raft case
 # promotes from the survivor's live replicated state (region-B already holds
 # region-A's KV as a retry_join non-voter), so no snapshot restore is needed.
-if echo "$cr_block" | grep -q 'snapshotPath:'; then
+if grep -q 'snapshotPath:' <<<"$cr_block"; then
   echo "FAIL: Continuum CR carries a snapshotPath by default — it must be empty (stretched-raft promotes from live state, not a snapshot restore)." >&2
   echo "$cr_block" >&2
   exit 1
 fi
 # applicationRef must be openbao, and the regions wired through.
-if ! echo "$cr_block" | grep -q "applicationRef: openbao"; then
+if ! grep -q "applicationRef: openbao" <<<"$cr_block"; then
   echo "FAIL: Continuum CR applicationRef is not openbao." >&2
   exit 1
 fi
-if ! echo "$cr_block" | grep -q "hz-fsn-rtz-prod"; then
+if ! grep -q "hz-fsn-rtz-prod" <<<"$cr_block"; then
   echo "FAIL: Continuum CR did not wire the primaryRegion." >&2
   exit 1
 fi

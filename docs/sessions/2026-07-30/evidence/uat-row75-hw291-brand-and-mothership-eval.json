@@ -1,0 +1,33 @@
+{
+ "vacuity": {
+  "htmlLen": 27038,
+  "hasHtmlTag": true,
+  "hasVoucherWord": true,
+  "realHostLiteralCount": 0
+ },
+ "contiguous": {
+  "console.openova.io": 0,
+  "marketplace.openova.io": 0,
+  "openova.io": 0
+ },
+ "evaluated": {
+  "__ORG_TENANT__": "{\"id\":\"openova\",\"brand\":\"OpenOva\"}"
+ },
+ "splitHits": [
+  "['openova', 'io'].join('.')"
+ ],
+ "brand": {
+  "dataTenant": "openova",
+  "openovaBox": {
+   "w": 103,
+   "h": 20,
+   "display": "flex"
+  },
+  "omantelBox": {
+   "w": 0,
+   "h": 0,
+   "display": "none"
+  },
+  "title": "Redeem voucher — OpenOva"
+ }
+}

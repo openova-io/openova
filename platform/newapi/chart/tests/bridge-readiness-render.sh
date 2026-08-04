@@ -83,7 +83,7 @@ if [ -z "$bridge_init" ]; then
   echo "--- initContainers ---"; echo "$init_block"
   exit 1
 fi
-if ! echo "$bridge_init" | grep -q "restartPolicy: Always"; then
+if ! grep -q "restartPolicy: Always" <<<"$bridge_init"; then
   echo "FAIL: native-sidecar bridge missing restartPolicy: Always (KEP-753 native sidecar)"
   exit 1
 fi
@@ -98,11 +98,11 @@ if [ -z "$bridge_ready" ]; then
   echo "FAIL: native-sidecar bridge has no readinessProbe"
   exit 1
 fi
-if ! echo "$bridge_ready" | grep -q "path: /healthz"; then
+if ! grep -q "path: /healthz" <<<"$bridge_ready"; then
   echo "FAIL: bridge readinessProbe path is not /healthz"
   exit 1
 fi
-if ! echo "$bridge_ready" | grep -q "port: 8080"; then
+if ! grep -q "port: 8080" <<<"$bridge_ready"; then
   echo "FAIL: bridge readinessProbe port is not the bridge port 8080"
   exit 1
 fi
@@ -116,7 +116,7 @@ if [ -n "$dsn_line" ] && [ "$bridge_line" -ge "$dsn_line" ]; then
 fi
 # It must NOT also appear as a plain container (no duplication).
 containers_only=$(echo "$dep" | awk '/^      containers:/{f=1} f' | awk '/^      volumes:/{exit} {print}')
-if echo "$containers_only" | grep -q "name: sandbox-bridge"; then
+if grep -q "name: sandbox-bridge" <<<"$containers_only"; then
   echo "FAIL: sandbox-bridge duplicated as a plain container while native sidecar is on"
   exit 1
 fi
@@ -129,12 +129,12 @@ if [ -z "$bridge_svc" ]; then
   echo "FAIL: dedicated bridge-only Service <fullname>-bridge did not render"
   exit 1
 fi
-if ! echo "$bridge_svc" | grep -q "publishNotReadyAddresses: true"; then
+if ! grep -q "publishNotReadyAddresses: true" <<<"$bridge_svc"; then
   echo "FAIL: bridge-only Service missing publishNotReadyAddresses: true"
   echo "--- bridge service ---"; echo "$bridge_svc"
   exit 1
 fi
-if ! echo "$bridge_svc" | grep -q "port: 8080"; then
+if ! grep -q "port: 8080" <<<"$bridge_svc"; then
   echo "FAIL: bridge-only Service does not expose the bridge port 8080"
   exit 1
 fi
@@ -152,7 +152,7 @@ exact_backend=$(echo "$httproute" | awk '
   /type: Exact/{e=1}
   e && /name: /{print; e=0}
 ')
-if ! echo "$exact_backend" | grep -q "smoke-bp-newapi-bridge"; then
+if ! grep -q "smoke-bp-newapi-bridge" <<<"$exact_backend"; then
   echo "FAIL: Exact / rule does not backendRef the bridge-only Service smoke-bp-newapi-bridge"
   echo "--- Exact backendRef ---"; echo "$exact_backend"
   echo "--- httproute rules ---"; echo "$httproute" | awk '/rules:/{f=1} f'
@@ -181,12 +181,12 @@ dep2=$(echo "$out2" | awk '/^kind: Deployment$/{f=1} f&&/^kind: /&&!/^kind: Depl
 
 # In opt-out mode the bridge must be a PLAIN container, never a native sidecar.
 init_block2=$(echo "$dep2" | awk '/initContainers:/{f=1} f&&/^      containers:/{f=0} f')
-if echo "$init_block2" | grep -q "name: sandbox-bridge"; then
+if grep -q "name: sandbox-bridge" <<<"$init_block2"; then
   echo "FAIL: nativeSidecar=false but bridge still rendered as a native sidecar (default-true-bool coercion bug?)"
   exit 1
 fi
 containers2=$(echo "$dep2" | awk '/^      containers:/{f=1} f' | awk '/^      volumes:/{exit} {print}')
-if ! echo "$containers2" | grep -q "name: sandbox-bridge"; then
+if ! grep -q "name: sandbox-bridge" <<<"$containers2"; then
   echo "FAIL: nativeSidecar=false but bridge not present as a plain container"
   exit 1
 fi

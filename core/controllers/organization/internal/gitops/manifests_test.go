@@ -609,3 +609,97 @@ func TestBoundaryIsVcluster_FlippableGate(t *testing.T) {
 		}
 	}
 }
+
+// TestRender_CiliumNetworkPolicyCarriesClusterDNSEgress is the #5617 regression
+// gate, asserted on the VALUE not the key.
+//
+// The per-Org host-side CNP selects every endpoint in the Org namespace
+// (endpointSelector {}) AND declares egress. Under Cilium that makes egress
+// deny-by-default for every pod in the namespace, so whatever this rule set
+// omits is unreachable for the whole Org. It used to omit cluster DNS: the
+// bp-oidc-gate companion (which ships an ingress-only CNP) could not resolve
+// keycloak.keycloak.svc.cluster.local and 500'd every OAuth callback AFTER a
+// successful login (live hw292, Org uatco, oauthproxy.go:881).
+//
+// A `strings.Contains(s, "53")` here would pass on a port number appearing
+// anywhere in the document, so this walks the parsed structure and requires a
+// rule that pairs kube-system/kube-dns with BOTH 53/UDP and 53/TCP.
+func TestRender_CiliumNetworkPolicyCarriesClusterDNSEgress(t *testing.T) {
+	t.Parallel()
+	for _, slug := range []string{"m", "s"} {
+		out, err := Render(Inputs{Slug: "acme", DisplayName: "Acme", Tier: "org",
+			PlanSlug: slug, SovereignFQDN: "x.example", HostCluster: "hz", VClusterChartVersion: "0.33.*"})
+		if err != nil {
+			t.Fatalf("Render(%s): %v", slug, err)
+		}
+		raw, ok := out["vcluster/host-apps/ciliumnetworkpolicy.yaml"]
+		if !ok {
+			t.Fatalf("plan %s: missing host-apps/ciliumnetworkpolicy.yaml", slug)
+		}
+		var doc struct {
+			Spec struct {
+				Egress []struct {
+					ToEndpoints []map[string]map[string]string `json:"toEndpoints"`
+					ToCIDR      []string                       `json:"toCIDR"`
+					ToCIDRSet   []map[string]string            `json:"toCIDRSet"`
+					ToPorts     []struct {
+						Ports []struct {
+							Port     string `json:"port"`
+							Protocol string `json:"protocol"`
+						} `json:"ports"`
+					} `json:"toPorts"`
+				} `json:"egress"`
+			} `json:"spec"`
+		}
+		if err := yaml.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("plan %s: CNP did not parse: %v", slug, err)
+		}
+		if len(doc.Spec.Egress) == 0 {
+			t.Fatalf("plan %s: CNP declares no egress rules at all", slug)
+		}
+		var udp, tcp bool
+		for _, rule := range doc.Spec.Egress {
+			// The destination must be cluster DNS itself. A port-53 allow aimed
+			// at the Org's own namespace is not DNS coverage.
+			toDNS := false
+			for _, ep := range rule.ToEndpoints {
+				ml := ep["matchLabels"]
+				if ml["k8s:io.kubernetes.pod.namespace"] == "kube-system" && ml["k8s-app"] == "kube-dns" {
+					toDNS = true
+				}
+			}
+			if !toDNS {
+				continue
+			}
+			for _, tp := range rule.ToPorts {
+				for _, p := range tp.Ports {
+					if p.Port != "53" {
+						continue
+					}
+					switch p.Protocol {
+					case "UDP":
+						udp = true
+					case "TCP":
+						tcp = true
+					}
+				}
+			}
+		}
+		if !udp || !tcp {
+			t.Errorf("plan %s: #5617 — the per-Org CNP constrains egress for EVERY pod in the "+
+				"Org namespace but does not allow 53/UDP+53/TCP to kube-system/kube-dns "+
+				"(udp=%v tcp=%v). Every workload that ships no DNS egress of its own is mute.\n%s",
+				slug, udp, tcp, string(raw))
+		}
+		// #4360/#4656: a CIDR rule matches neither an in-cluster pod identity nor
+		// a ClusterMesh remote identity, so a CIDR-shaped DNS allow would be inert
+		// and would silently re-break the peer region.
+		for _, rule := range doc.Spec.Egress {
+			if len(rule.ToCIDR) > 0 || len(rule.ToCIDRSet) > 0 {
+				t.Errorf("plan %s: the per-Org CNP must express destinations as toEndpoints/"+
+					"toEntities — a toCIDR/ipBlock never matches a ClusterMesh remote identity "+
+					"(#4360/#4656)\n%s", slug, string(raw))
+			}
+		}
+	}
+}

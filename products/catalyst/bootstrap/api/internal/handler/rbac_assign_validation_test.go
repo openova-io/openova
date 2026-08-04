@@ -97,8 +97,8 @@ func TestHandleRBACAssign_RejectsMalformedBody(t *testing.T) {
 
 	rec := callUserAccess(t, h, http.MethodPost,
 		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
 	}
 	bodyStr := rec.Body.String()
 	for _, want := range []string{"error", "invalid"} {
@@ -123,8 +123,8 @@ func TestHandleRBACAssign_RejectsUnknownTier(t *testing.T) {
 	}
 	rec := callUserAccess(t, h, http.MethodPost,
 		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
 	}
 	bodyStr := rec.Body.String()
 	for _, want := range []string{"error", "tier"} {
@@ -154,8 +154,8 @@ func TestHandleRBACAssign_RejectsSuperAdminLegacyAlias(t *testing.T) {
 	}
 	rec := callUserAccess(t, h, http.MethodPost,
 		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
 	}
 	bodyStr := rec.Body.String()
 	for _, want := range []string{"error", "tier"} {
@@ -260,8 +260,8 @@ func TestHandleRBACAssign_WireShape_BadEmailFormat_TC167(t *testing.T) {
 	}
 	rec := callUserAccess(t, h, http.MethodPost,
 		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
 	}
 	bodyStr := rec.Body.String()
 	for _, want := range []string{"error", "invalid"} {
@@ -290,8 +290,8 @@ func TestHandleRBACAssign_WireShape_BadTier_TC168(t *testing.T) {
 	}
 	rec := callUserAccess(t, h, http.MethodPost,
 		"/api/v1/sovereigns/"+dep.ID+"/rbac/assign", body, registerRBACAssignRoute)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
 	}
 	bodyStr := rec.Body.String()
 	for _, want := range []string{"error", "tier"} {

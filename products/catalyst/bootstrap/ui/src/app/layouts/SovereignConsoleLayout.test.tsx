@@ -44,7 +44,11 @@ vi.mock('@/shared/lib/detectMode', () => ({
 
 // Stub the OIDC module — initiateLogin must NEVER be called from this
 // layout post-#1089. We export it as a spy so we can assert that.
-const initiateLoginSpy = vi.fn<(fqdn: string) => Promise<void>>()
+// The options argument is forwarded, not dropped: `{ prompt: 'none' }` is
+// the difference between an invisible re-auth and Keycloak rendering an
+// interactive login wall, so a spy that only records the FQDN cannot tell
+// the two apart.
+const initiateLoginSpy = vi.fn<(fqdn: string, opts?: { prompt?: string }) => Promise<void>>()
 const initiateLogoutSpy = vi.fn<(fqdn: string) => void>()
 const silentRefreshSpy = vi.fn<(fqdn: string) => Promise<unknown>>()
 const loadTokensSpy = vi.fn<() => unknown>()
@@ -56,7 +60,7 @@ vi.mock('@/shared/lib/oidc', () => ({
   loadTokens: () => loadTokensSpy(),
   isTokenExpired: () => true,
   silentRefresh: (fqdn: string) => silentRefreshSpy(fqdn),
-  initiateLogin: (fqdn: string) => initiateLoginSpy(fqdn),
+  initiateLogin: (fqdn: string, opts?: { prompt?: string }) => initiateLoginSpy(fqdn, opts),
   initiateLogout: (fqdn: string) => initiateLogoutSpy(fqdn),
   parseJWTClaims: () => ({ email: 'kc-user@example.com', name: 'KC User' }),
   getRequiredActions: () => [],
@@ -89,6 +93,11 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 
 // Now safe to import the SUT.
 import { SovereignConsoleLayout } from './SovereignConsoleLayout'
+// The silent-SSO contract constants come from the router module the SUT
+// itself lazy-imports — read them rather than restating the values, so a
+// change to the grace period or the guard key can never silently
+// desynchronise this suite from the code under test.
+import { SILENT_SSO_GUARD_KEY, SILENT_SSO_NAV_GRACE_MS } from '../router'
 
 /**
  * Stub `window.location` so we can observe redirect targets without
@@ -117,6 +126,16 @@ beforeEach(() => {
   silentRefreshSpy.mockClear()
   loadTokensSpy.mockClear()
   loadTokensSpy.mockReturnValue(null)
+  // jsdom hands every test in this file the SAME window, so sessionStorage
+  // is shared state. Two keys the SUT writes are scenario-defining:
+  // `catalyst:authed` (contract A's cookie path sets it) and the silent-SSO
+  // one-shot guard. Leaking either makes a later test model a DIFFERENT
+  // scenario than its title claims — contract B ("no sessionStorage
+  // tokens", i.e. an anonymous visitor) would inherit contract A's marker
+  // and be read as a session EXPIRY instead. Real browsers scope
+  // sessionStorage per tab, so a fresh anonymous visit genuinely has
+  // neither key; clear both between tests.
+  sessionStorage.clear()
 })
 
 afterEach(() => {
@@ -275,4 +294,65 @@ describe('SovereignConsoleLayout — #1089 anon redirect to OpenOva /login', () 
     expect(target).toContain('/login?next=')
     expect(initiateLoginSpy).not.toHaveBeenCalled()
   })
+})
+
+/* ── Contract E: cookie EXPIRY still runs the silent leg (#5460) ───── */
+
+/**
+ * The counterpart to contract B. B asserts the silent Keycloak leg does
+ * NOT fire for an anonymous visitor; on its own that is a negative
+ * assertion, and a negative assertion passes just as happily if the leg
+ * were deleted outright. This block pins the other direction so the
+ * discriminator is verified both ways: a stale `catalyst:authed` marker
+ * means this tab HELD a live console session, so a 401 is a cookie
+ * EXPIRY and the silent prompt=none re-mint is exactly right there.
+ *
+ * It also pins the safety net. `attemptSilentSovereignSSO` returning true
+ * means "the browser is being navigated to Keycloak", which normally ends
+ * this document. When that navigation never commits (auth host
+ * unreachable) the layout must not leave the operator on the
+ * "Authenticating…" spinner forever — after the grace period it re-arms
+ * the one-shot guard and falls back to the PIN page, mirroring
+ * rootBeforeLoad.
+ */
+describe('SovereignConsoleLayout — #5460 cookie-expiry silent SSO', () => {
+  it('with a stale catalyst:authed marker, runs the silent prompt=none leg, then falls back to /login when the KC navigation never commits', async () => {
+    const replaceSpy = stubLocation('/dashboard')
+    sessionStorage.setItem('catalyst:authed', '1')
+    vi.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : (input as URL).toString()
+      if (url.endsWith('/v1/whoami')) {
+        return new Response(JSON.stringify({ error: 'unauthenticated' }), { status: 401 })
+      }
+      return new Response(null, { status: 404 })
+    })
+    loadTokensSpy.mockReturnValue(null)
+
+    render(<SovereignConsoleLayout />)
+
+    // The silent leg fired — and truly silently: `prompt: 'none'` is what
+    // stops Keycloak rendering the interactive PIN wall during what is
+    // supposed to be an invisible re-auth.
+    await waitFor(() => {
+      expect(initiateLoginSpy).toHaveBeenCalled()
+    })
+    expect(initiateLoginSpy.mock.calls[0]![1]).toEqual({ prompt: 'none' })
+
+    // The stale marker is revoked either way — it must never outlive the
+    // session it claims.
+    expect(sessionStorage.getItem('catalyst:authed')).toBeNull()
+
+    // initiateLogin is stubbed here, so the document never actually
+    // unloads — the same shape as an auth host that fails to answer.
+    // The grace-period safety net must still land the operator on /login
+    // and re-arm the one-shot guard for a later genuine expiry.
+    await waitFor(
+      () => {
+        expect(replaceSpy).toHaveBeenCalled()
+      },
+      { timeout: SILENT_SSO_NAV_GRACE_MS + 4000 },
+    )
+    expect(replaceSpy.mock.calls[0]![0]).toContain('/login?next=')
+    expect(sessionStorage.getItem(SILENT_SSO_GUARD_KEY)).toBeNull()
+  }, SILENT_SSO_NAV_GRACE_MS + 12000)
 })

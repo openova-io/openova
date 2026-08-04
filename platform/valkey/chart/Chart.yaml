@@ -53,7 +53,28 @@ name: bp-valkey
 # `harbor.openova.io/proxy-dockerhub/bitnamilegacy/…` + set
 # global.security.allowInsecureImages:true (bitnami/charts#30850 render
 # guard) — the proven bp-keycloak/bp-cnpg pattern. Chart-only.
-version: 1.1.4
+# 1.1.5 (#5487, hw291 2026-07-29): SECURITY — the NetworkPolicy admitted the
+# ENTIRE cluster on 6379. `networkPolicy.enabled: true` was restated in
+# values.yaml as "the Catalyst posture is default-deny", but the upstream
+# bitnami template keys the ingress `from:` off a SECOND value,
+# `networkPolicy.allowExternal`, which defaults TRUE — so the rendered rule
+# was `ingress: [{ports: [6379]}]` with no `from:`, and a k8s ingress rule
+# with no `from:` admits every Pod in the cluster. Combined with
+# `auth.enabled: false` (1.0.2 above — no requirepass) any container
+# foothold in any namespace could run arbitrary commands against the shared
+# cache holding the gateway's rate-limit counters (#5484) and the
+# newapi-keyspace-credential Context data; `PING` → `+PONG` from an
+# unrelated `grafana` Pod was the live proof. It also silently defeated
+# bp-plane-isolation's `valkey-default-deny` (slot 26b), since k8s/Cilium
+# take the UNION of every policy selecting a Pod. Fix: `allowExternal:
+# false` (the only lever that emits a `from:`) + an `extraIngress` rule
+# naming the two declared consumers — ns `org-services` (the auth + gateway
+# Deployments that read VALKEY_ADDR) and ns `newapi` (its
+# REDIS_CONN_STRING + the slot-17 keyspace Context). Auth stays OFF; this is
+# the network half of the isolation #2003 assumed was already in place.
+# Locked by tests/networkpolicy-ingress-scope.sh (vacuity check + two
+# negative controls). Chart-only — no image or subchart change.
+version: 1.1.5
 description: |
   Catalyst-curated Blueprint umbrella chart for Valkey (Redis-compatible
   cache, BSD-3). Depends on the upstream `valkey` chart (Bitnami) as a

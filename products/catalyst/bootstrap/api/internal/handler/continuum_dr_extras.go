@@ -297,7 +297,15 @@ func (h *Handler) HandleContinuumReplicationStatus(w http.ResponseWriter, r *htt
 		}
 		gvr := schema.GroupVersionResource{Group: "dr.openova.io", Version: "v1", Resource: "cnpgpairs"}
 		if pair, perr := client.Resource(gvr).Namespace(cnpgPairNS).Get(r.Context(), cnpgPairName, metav1.GetOptions{}); perr == nil {
+			// #5601 — consume the lag key a producer actually writes.
+			// `walLagSeconds` is the CNPGPair-CRD spelling (stamped by the QA
+			// fixture); the live controllers publish the same axis as
+			// `replicationLagSeconds`. Probing only the first spelling left the
+			// panel's lag reading stuck on the CR-derived value.
 			lag := readNumericNested(pair.Object, "status", "walLagSeconds")
+			if lag == 0 {
+				lag = readNumericNested(pair.Object, "status", "replicationLagSeconds")
+			}
 			if lag > 0 {
 				resp.WALLagSeconds = lag
 			}
@@ -314,9 +322,24 @@ func (h *Handler) HandleContinuumReplicationStatus(w http.ResponseWriter, r *htt
 			if hb, _, _ := unstructured.NestedString(pair.Object, "status", "lastHeartbeat"); hb != "" {
 				resp.LastHeartbeat = hb
 			}
-			promotable, found, _ := unstructured.NestedBool(pair.Object, "status", "replicaPromotable")
-			if found {
+			// #5601 — `status.replicaPromotable` has NO live producer (the QA
+			// fixture is its only writer), so probing for it alone silently
+			// kept the zero-value false and the Switchover control rendered
+			// "no caught-up standby to promote" against a healthy caught-up
+			// pair. Honor an explicit reading when present; otherwise derive
+			// promotability from the keys the CNPGPair CRD contract actually
+			// carries — replica streaming AND lag under the 30s threshold
+			// (the CRD's own stated switchover-safety predicate, same shape
+			// as liveReplicationStatusFromCNPGPair). A pair reporting neither
+			// key leaves the CR-derived verdict untouched.
+			// augmentReplicationStandbyStatus still runs after this and
+			// forces non-promotable when the live standby leg is verified
+			// absent (#4901), so a lag-0-during-outage reading cannot arm
+			// the control.
+			if promotable, found, _ := unstructured.NestedBool(pair.Object, "status", "replicaPromotable"); found {
 				resp.ReplicaPromotable = promotable
+			} else if streaming, sFound, _ := unstructured.NestedBool(pair.Object, "status", "streaming"); sFound {
+				resp.ReplicaPromotable = streaming && lag <= 30
 			}
 		}
 	}
@@ -1028,17 +1051,41 @@ func enrichReplicationStatus(cr *unstructured.Unstructured) continuumReplication
 	out.StreamingState, _, _ = unstructured.NestedString(cr.Object, "status", "streamingState")
 	out.SyncState, _, _ = unstructured.NestedString(cr.Object, "status", "syncState")
 	// #4923 — replicaPromotable needs POSITIVE evidence that a standby exists
-	// and follows (status.replicationHealthy), not just "lag number is small":
-	// an ABSENT standby also reads lag=0 (#4901 — health/lag stayed green for
-	// the whole hot-standby outage), so the old `lag <= 30` marked a lost
-	// standby promotable. The live-pair standby augmentation upgrades this
-	// when it verifies the standby off the cnpg cluster-pair.
+	// and follows, not just "lag number is small": an ABSENT standby also
+	// reads lag=0 (#4901 — health/lag stayed green for the whole hot-standby
+	// outage), so the old `lag <= 30` marked a lost standby promotable. The
+	// live-pair standby augmentation upgrades this when it verifies the
+	// standby off the cnpg cluster-pair.
+	//
+	// #5601 — the Continuum controller NEVER writes status.replicationHealthy.
+	// Its status writer (core/controllers/continuum patchStatus) publishes the
+	// standby posture as status.standbyAvailable (#4901) with replica health
+	// folded into status.phase. Probing only the absent key silently kept the
+	// zero-value false, so a fully healthy caught-up pair on hw292
+	// (standbyAvailable=true, phase=Healthy, replicationLagSeconds=0,
+	// StandbyAvailable condition True/StandbyReachable) rendered the
+	// Switchover control disabled with "no caught-up standby to promote" —
+	// asserting the opposite of the CR it claims to read. Consume the keys
+	// the controller actually writes, deriving promotability identically to
+	// liveReplicationStatusFromCNPGPair: positive standby evidence AND
+	// healthy AND lag under the 30s threshold. Healthy/FailedOver are the two
+	// reconciled-ready phases (phaseToReady in the controller) — FailedOver is
+	// the post-switchover steady state and must keep the failback path armed.
+	// A CR carrying NEITHER key still yields false: never promotable without
+	// positive evidence.
+	phase, _, _ := unstructured.NestedString(cr.Object, "status", "phase")
 	replHealthy, replHealthyFound, _ := unstructured.NestedBool(cr.Object, "status", "replicationHealthy")
-	out.ReplicaPromotable = replHealthyFound && replHealthy && out.WALLagSeconds <= 30
+	standbyAvailable, standbyAvailableFound, _ := unstructured.NestedBool(cr.Object, "status", "standbyAvailable")
+	switch {
+	case replHealthyFound:
+		out.ReplicaPromotable = replHealthy && out.WALLagSeconds <= 30
+	case standbyAvailableFound:
+		phaseReady := phase == "Healthy" || phase == "FailedOver"
+		out.ReplicaPromotable = standbyAvailable && phaseReady && out.WALLagSeconds <= 30
+	}
 	// #4923 — health gates DERIVED from the observed CR status, never a
 	// hardcoded all-Pass wall (the prior shape reported "streaming-replication
 	// Pass" during a proven standby outage).
-	phase, _, _ := unstructured.NestedString(cr.Object, "status", "phase")
 	leaseHolder, _, _ := unstructured.NestedString(cr.Object, "status", "leaseHolder")
 	out.HealthGates = []continuumHealthGate{
 		replicationHealthGate(replHealthy, replHealthyFound, phase),

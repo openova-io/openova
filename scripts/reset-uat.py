@@ -30,7 +30,26 @@ docs/sessions/<date>/evidence/. Only the live UAT tables are cleared.
 """
 import sys, os, re, glob, datetime
 
-ENV = sys.argv[1] if len(sys.argv) > 1 else "pending fresh prov"
+USAGE = "Usage: reset-uat.py [<env-label>]      e.g.  reset-uat.py hwNNN"
+
+# A flag-shaped argv[1] is NEVER an env label. Before this guard, `reset-uat.py
+# --help` took the flag AS the label and destructively reset every positive
+# evidence cell in UAT.md (166 cells, 2026-08-04) while printing a line that
+# read like help output — the operator's "what does this do?" reflex silently
+# erased the ledger. Same class as #5648: a mechanism firing on an input that
+# cannot mean what the mechanism assumes. Fail closed on anything starting
+# with '-', and treat -h/--help as the documented help path.
+_arg = sys.argv[1] if len(sys.argv) > 1 else None
+if _arg is not None and _arg.startswith("-"):
+    if _arg in ("-h", "--help"):
+        print(USAGE)
+        print(__doc__)
+        sys.exit(0)
+    print(f"reset-uat: refusing to treat {_arg!r} as an env label.\n{USAGE}",
+          file=sys.stderr)
+    sys.exit(2)
+
+ENV = _arg if _arg else "pending fresh prov"
 today = datetime.date.today().isoformat()
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -96,6 +115,14 @@ def reset_legacy_row(cells):
     return False
 
 
+# Column index of the "Test case" (assertion) cell on the canonical
+# 7-column prose table: | # | Epic | Ticket | Test case | Walk | Result | Evidence |
+# After a bare "|"-split the leading empty field is index 0, so the
+# assertion lands at index 4. It is the ONE cell a reset must never
+# touch — it is the row's identity, not its proof.
+ASSERTION_IDX = 4
+
+
 def reset_prose_row(cells):
     """Current prose tables: reset any positive-evidence cell; blank stale proof.
 
@@ -112,10 +139,26 @@ def reset_prose_row(cells):
             reset_idxs.append(i)
             n += 1
     if reset_idxs:
-        # Blank any OTHER cell in the row that names a stale env / evidence artifact
-        # (the Proof / Evidence column sitting next to the status we just reset).
+        # Blank any OTHER cell in the row that names a stale env / evidence
+        # artifact (the Proof / Evidence column sitting next to the status we
+        # just reset).
+        #
+        # NEVER the assertion. On the canonical 7-column prose table the
+        # columns are: | # | Epic | Ticket | Test case | Walk | Result |
+        # Evidence |, so the ASSERTION is index 4 — and an assertion may
+        # legitimately name an env, e.g. row 200's "the literal `15` is stale;
+        # live total is 17 on hw291". Blanking it DESTROYS the test case: the
+        # row can then never be walked again, and it silently keeps its slot
+        # in the denominator every percentage is computed against.
+        #
+        # That is not hypothetical — this guard exists because the hw292 reset
+        # (429a39f76) erased row 200's assertion exactly this way, discovered
+        # while walking row 185 on 2026-07-31. Evidence cells hold the walk
+        # proof and are safe to blank; the assertion is the row's identity.
         for j in range(1, len(cells) - 1):
             if j in reset_idxs:
+                continue
+            if j == ASSERTION_IDX:
                 continue
             if ENV_REF.search(cells[j]):
                 cells[j] = " — "

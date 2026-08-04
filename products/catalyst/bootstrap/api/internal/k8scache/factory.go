@@ -38,7 +38,9 @@ package k8scache
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -297,6 +299,19 @@ type clusterState struct {
 	// an empty path are NEVER pruned (the chroot's own in-cluster
 	// cluster has no backing file and must survive every rescan).
 	kubeconfigPath string
+	// kubeconfigSHA — hex SHA-256 of the kubeconfig bytes this cluster
+	// was built from. Empty for pre-built-client (chroot / test)
+	// registrations, which have no backing file.
+	//
+	// #5642 — this is the idempotence key for AddCluster. Every
+	// level-triggered re-delivery of an UNCHANGED secondary kubeconfig
+	// used to rebuild all 42 informers for the same cluster id; the
+	// fingerprint lets AddCluster recognise "same cluster, same
+	// credentials, already running" and return without touching the
+	// informer set. A CHANGED kubeconfig (token rotation #5210, the
+	// #3991/#4000 EIP→private-SAN heal) produces a different SHA and
+	// still rebuilds, which is the behaviour those fixes rely on.
+	kubeconfigSHA string
 	// factory — the dynamicinformer factory for this cluster. Watches
 	// every registered Kind with no per-Kind LIST bound.
 	//
@@ -645,6 +660,7 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 	// against the apiserver's pods/exec subresource. Nil on the
 	// pre-built-DynamicClient test path.
 	var restCfg *rest.Config
+	var kubeconfigSHA string
 	if dyn == nil {
 		if c.KubeconfigPath == "" {
 			return errors.New("k8scache: ClusterRef requires either DynamicClient or KubeconfigPath")
@@ -653,6 +669,44 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 		if err != nil {
 			return fmt.Errorf("read kubeconfig %q: %w", c.KubeconfigPath, err)
 		}
+		kubeconfigSHA = sha256Hex(raw)
+
+		// #5642 — IDEMPOTENCE GATE. Re-registering a cluster that is
+		// already running on byte-identical credentials must be a no-op.
+		//
+		// It was not. POST /api/v1/sovereign/secondary-kubeconfig is
+		// LEVEL-TRIGGERED: runClusterMeshSteadyStateHeal re-forwards every
+		// on-disk secondary kubeconfig on every pass (5 min), and the
+		// mothership + the region-b node + the chroot each re-POST the
+		// same bytes. Each POST reached the rebuild path below, tore down
+		// the previous clusterState and built a fresh set of 42 informers
+		// for the SAME cluster id — measured on hw292 at ~2 rebuilds per
+		// 5-minute cycle, each replaying a full ADD sweep over region-b's
+		// entire object graph (the per-kind ADDED counters in
+		// catalyst_k8scache_informer_events_total doubled inside one
+		// 6.5-minute window). The teardown does not fully reclaim: live
+		// heap grew ~1.2 MB/s and RSS ~1.7 MB/s until the 4Gi limit
+		// OOMKilled the Pod on a ~60-minute metronome.
+		//
+		// phase1_watch.go's re-forward comment already ASSERTS this
+		// property — "The chroot's handler is idempotent (overwrite +
+		// AddCluster no-op)". This gate makes the assertion true.
+		//
+		// Scope is deliberately narrow: same id, same on-disk path, same
+		// bytes, and an existing registration that was itself file-backed.
+		// Anything else — rotated token, healed server host, a pre-built
+		// client, a first registration — falls through and rebuilds.
+		f.mu.RLock()
+		prev, registered := f.clusters[c.ID]
+		f.mu.RUnlock()
+		if registered && prev != nil &&
+			prev.kubeconfigSHA != "" && prev.kubeconfigSHA == kubeconfigSHA &&
+			prev.kubeconfigPath == c.KubeconfigPath {
+			f.log.Debug("k8scache: cluster already registered on identical kubeconfig — skipping informer rebuild (#5642)",
+				"cluster", c.ID, "kubeconfig", c.KubeconfigPath)
+			return nil
+		}
+
 		restCfg, err = clientcmd.RESTConfigFromKubeConfig(raw)
 		if err != nil {
 			return fmt.Errorf("parse kubeconfig %q: %w", c.KubeconfigPath, err)
@@ -708,6 +762,7 @@ func (f *Factory) AddCluster(c ClusterRef) error {
 	cs := &clusterState{
 		id:             c.ID,
 		kubeconfigPath: c.KubeconfigPath, // #3987 — empty for pre-built-client (chroot/test) clusters; rescan-prune only evicts file-backed clusters whose file disappeared.
+		kubeconfigSHA:  kubeconfigSHA,    // #5642 — idempotence key; empty for pre-built-client refs, which always rebuild.
 		dyn:            dyn,
 		core:           core,
 		restCfg:        restCfg, // G95.1 (Refs #2642) — nil on pre-built-client test path; production kubeconfig path populates it for exec-stream SPDY dials.
@@ -1622,6 +1677,14 @@ func mustKind(r *Registry, name string) Kind {
 }
 
 // helpers ---------------------------------------------------------
+
+// sha256Hex fingerprints kubeconfig bytes for AddCluster's #5642
+// idempotence gate. Hex-encoded so it is safe to log; the digest of a
+// credential is not a credential.
+func sha256Hex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
 
 func firstNonEmpty(m map[string]string, keys ...string) string {
 	for _, k := range keys {

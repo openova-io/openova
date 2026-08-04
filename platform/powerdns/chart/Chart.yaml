@@ -71,7 +71,7 @@ name: bp-powerdns
 #   NO hostNetwork, NO nodePort/type:NodePort; anycast Service stays
 #   type=LoadBalancer + allocateLoadBalancerNodePorts:false. Guards the Hetzner
 #   DNS front door against a silent §854 regression (no chart behaviour change).
-version: 1.2.22
+version: 1.2.23
 description: |
   Catalyst-curated Blueprint wrapper for PowerDNS Authoritative.
   Carries Catalyst-specific values.yaml + templates (CNPG cluster, dnsdist

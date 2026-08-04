@@ -1,0 +1,43 @@
+{{- /*
+#5505: Kyverno needs READ on cilium.io/ciliumnetworkpolicies.
+
+`14-networkpolicy-present.yaml` resolves a `cnpCount` context variable via an
+APICall to /apis/cilium.io/v2/namespaces/<ns>/ciliumnetworkpolicies. Kyverno's
+built-in aggregated roles grant networking.k8s.io (so the sibling `npCount`
+call works) but nothing under cilium.io, so `cnpCount` has NEVER resolved.
+
+While the policy sat at `action: Audit` the unresolvable context was merely
+reported and the request proceeded — the policy looked healthy and enforced
+nothing. When #5494 flipped it to Enforce, the same failure began DENYING
+through the fail-closed webhook (validate.kyverno.svc-fail,
+failurePolicy=Fail, whose rules include `namespaces`), so EVERY Namespace
+create on the Sovereign was rejected:
+
+  resource Namespace//uatcorp was blocked ... networkpolicy-present:
+    failed to resolve cnpCount ... ciliumnetworkpolicies: permission denied
+
+That took bootstrap-kit (Namespace/cnpg-system), org-tenants, and every
+per-Org Kustomization down with it.
+
+Granting the read is the durable fix: a policy whose context cannot resolve is
+not a guard, it is a reporter. Aggregated to Kyverno's admission + background
+controllers via the labels Kyverno itself watches, so this survives a Kyverno
+upgrade without patching vendor roles.
+*/ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bp-kyverno-policies-cilium-read
+  labels:
+    app.kubernetes.io/name: bp-kyverno-policies
+    app.kubernetes.io/managed-by: Helm
+    catalyst.openova.io/blueprint: bp-kyverno-policies
+    rbac.kyverno.io/aggregate-to-admission-controller: "true"
+    rbac.kyverno.io/aggregate-to-background-controller: "true"
+    rbac.kyverno.io/aggregate-to-reports-controller: "true"
+rules:
+  - apiGroups: ["cilium.io"]
+    resources:
+      - ciliumnetworkpolicies
+      - ciliumclusterwidenetworkpolicies
+    verbs: ["get", "list", "watch"]

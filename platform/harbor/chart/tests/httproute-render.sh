@@ -40,7 +40,7 @@ if [ -z "$route_block" ]; then
   echo "(would surface on fresh Sovereign prov as NXDOMAIN for harbor.<fqdn>)"
   exit 1
 fi
-if ! echo "$route_block" | grep -q "harbor.smoke.omani.works"; then
+if ! grep -q "harbor.smoke.omani.works" <<<"$route_block"; then
   echo "FAIL: HTTPRoute hostname does not match gateway.host"
   echo "$route_block"
   exit 1
@@ -49,11 +49,11 @@ echo "[bp-harbor] Case 1: PASS"
 
 # ── Case 2: parentRefs cite canonical Cilium Gateway ──────────────────
 echo "[bp-harbor] Case 2: parentRefs cite 'cilium-gateway' in 'kube-system'"
-if ! echo "$route_block" | grep -q "name: \"cilium-gateway\""; then
+if ! grep -q "name: \"cilium-gateway\"" <<<"$route_block"; then
   echo "FAIL: HTTPRoute parentRefs do not cite name=cilium-gateway"
   exit 1
 fi
-if ! echo "$route_block" | grep -q "namespace: \"kube-system\""; then
+if ! grep -q "namespace: \"kube-system\"" <<<"$route_block"; then
   echo "FAIL: HTTPRoute parentRefs do not cite namespace=kube-system"
   exit 1
 fi
@@ -62,7 +62,7 @@ echo "[bp-harbor] Case 2: PASS"
 # ── Case 3: default-off path — HTTPRoute absent ───────────────────────
 echo "[bp-harbor] Case 3: default-off path — HTTPRoute not rendered"
 out_default=$("$helm" template smoke "$chart_dir" 2>&1)
-if echo "$out_default" | grep -q "^kind: HTTPRoute$"; then
+if grep -q "^kind: HTTPRoute$" <<<"$out_default"; then
   echo "FAIL: HTTPRoute should NOT render when gateway.enabled is unset (default)"
   exit 1
 fi
@@ -75,11 +75,11 @@ out_override=$("$helm" template smoke "$chart_dir" \
         --set gateway.host=custom.smoke.example 2>&1)
 
 route_block_override=$(echo "$out_override" | awk '/^---$/{f=0} /^kind: HTTPRoute$/{f=1} f')
-if ! echo "$route_block_override" | grep -q "custom.smoke.example"; then
+if ! grep -q "custom.smoke.example" <<<"$route_block_override"; then
   echo "FAIL: explicit gateway.host override not propagated to HTTPRoute hostnames"
   exit 1
 fi
-if echo "$route_block_override" | grep -q "harbor.smoke.omani.works"; then
+if grep -q "harbor.smoke.omani.works" <<<"$route_block_override"; then
   echo "FAIL: explicit override leaked the case-1 hostname"
   exit 1
 fi
@@ -98,12 +98,12 @@ appcr=$("$helm" template smoke "$chart_dir" \
         --set bootstrapOwned.enabled=true \
         --set bootstrapOwned.helmRelease.name=bp-harbor \
         --api-versions apps.openova.io/v1 2>&1)
-if ! echo "$appcr" | grep -qE '^  placement: singleton$'; then
+if ! grep -qE '^  placement: singleton$' <<<"$appcr"; then
   echo "FAIL: Application CR placement must be canonical 'singleton' (not banned 'single-region')"
   echo "$appcr" | grep -E '^  placement:' || true
   exit 1
 fi
-if echo "$appcr" | grep -qE '^  placement: single-region$'; then
+if grep -qE '^  placement: single-region$' <<<"$appcr"; then
   echo "FAIL: #3375 REGRESSION — Application CR re-introduced the banned 'single-region' placement"
   exit 1
 fi
@@ -122,18 +122,18 @@ out_alias=$("$helm" template smoke "$chart_dir" \
         --set gateway.enabled=true \
         --set gateway.host=registry.smoke.omani.works 2>&1)
 route_block_alias=$(echo "$out_alias" | awk '/^---$/{f=0} /^kind: HTTPRoute$/{f=1} f')
-if ! echo "$route_block_alias" | grep -q "registry.smoke.omani.works"; then
+if ! grep -q "registry.smoke.omani.works" <<<"$route_block_alias"; then
   echo "FAIL: canonical gateway.host missing from HTTPRoute hostnames"
   echo "$route_block_alias"
   exit 1
 fi
-if ! echo "$route_block_alias" | grep -q "harbor.smoke.omani.works"; then
+if ! grep -q "harbor.smoke.omani.works" <<<"$route_block_alias"; then
   echo "FAIL: #4913 REGRESSION — harbor.<fqdn> alias NOT added (bare-envoy 404 returns)"
   echo "$route_block_alias"
   exit 1
 fi
 # The sign-in redirect must stay on the canonical registry host (loop-safety).
-if ! echo "$route_block_alias" | grep -q "hostname: \"registry.smoke.omani.works\""; then
+if ! grep -q "hostname: \"registry.smoke.omani.works\"" <<<"$route_block_alias"; then
   echo "FAIL: sign-in RequestRedirect hostname must stay canonical registry.<fqdn>"
   exit 1
 fi
@@ -143,7 +143,7 @@ out_noalias=$("$helm" template smoke "$chart_dir" \
         --set gateway.host=registry.smoke.omani.works \
         --set gateway.aliasHarborHost=false 2>&1)
 route_block_noalias=$(echo "$out_noalias" | awk '/^---$/{f=0} /^kind: HTTPRoute$/{f=1} f')
-if echo "$route_block_noalias" | grep -q "harbor.smoke.omani.works"; then
+if grep -q "harbor.smoke.omani.works" <<<"$route_block_noalias"; then
   echo "FAIL: gateway.aliasHarborHost=false should NOT emit the harbor.<fqdn> alias"
   exit 1
 fi

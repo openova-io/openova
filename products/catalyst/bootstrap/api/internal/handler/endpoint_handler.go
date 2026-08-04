@@ -2296,6 +2296,32 @@ func readPhase(u *unstructured.Unstructured) string {
 	return "Pending"
 }
 
+// placementFromSpec resolves `spec.placement` across BOTH shapes the CRD
+// accepts, WITHOUT inventing a value when it is genuinely absent (#5422).
+//
+// Shapes: the legacy bare string, and the #3373 object
+// `{mode, vcluster, regions, clusters}` where the posture rides in `mode`.
+// A raw NestedString against the object form returns ok=false, so a caller
+// reading only the string form silently drops the field — and the console
+// then converts that absence into a confident wrong value
+// (`?? 'singleton'`, AppDetail.tsx:255), rendering `singleton` for a
+// two-region app directly above its own two-region REGIONS list.
+//
+// This deliberately does NOT share readTopology's "singleton" default:
+// readTopology serves LISTING endpoints where a display default is
+// reasonable, whereas a detail response must distinguish "unset" from
+// "singleton". Returning "" lets `omitempty` drop the field so the console
+// can render unknown honestly instead of being handed a guess.
+func placementFromSpec(u *unstructured.Unstructured) string {
+	if v, ok, _ := unstructured.NestedString(u.Object, "spec", "placement"); ok && v != "" {
+		return v
+	}
+	if v, ok, _ := unstructured.NestedString(u.Object, "spec", "placement", "mode"); ok && v != "" {
+		return v
+	}
+	return ""
+}
+
 func readTopology(u *unstructured.Unstructured) string {
 	if v, ok, err := unstructured.NestedString(u.Object, "spec", "placement"); err == nil && ok && v != "" {
 		return v
@@ -2546,7 +2572,7 @@ func certOwnerFromObject(c *unstructured.Unstructured) precheck.CertOwner {
 	app := ""
 	if labels != nil {
 		org = strings.TrimSpace(labels["catalyst.openova.io/organization"])
-		app = strings.TrimSpace(labels["catalyst.openova.io/app"])
+		app = strings.TrimSpace(labels[labelCatalystApp])
 	}
 	if org == "" {
 		org = "sovereign"

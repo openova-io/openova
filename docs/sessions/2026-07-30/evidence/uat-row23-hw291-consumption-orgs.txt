@@ -1,0 +1,15 @@
+### hw291 row23 — GET /api/v1/org/consumption (owner session) 2026-07-30
+totalCostUnits 22441.41
+ORG hw291.omantel.biz | isParent True | isPlatform False | costUnits 0 | cpuMilli 0 | memGiB 0 | storGiB 0 | apps 0
+ORG uatcorp | isParent False | isPlatform False | costUnits 1062 | cpuMilli 1050 | memGiB 2.06 | storGiB 15 | apps 2
+     - bp-agenity ns=uatcorp 1011.75 95.27%
+     - bp-oidc-gate ns=uatcorp 50.25 4.73%
+ORG __platform__ | isParent False | isPlatform True | costUnits 21379.41 | cpuMilli 20975 | memGiB 42.73 | storGiB 934 | apps 111
+     - cnpg-pair-bp-cnpg-pair-primary ns=cnpg 1587 7.42%
+     - shared-pg-b ns=shared-data 1513.5 7.08%
+     - shared-pg ns=shared-data 1513.5 7.08%
+     - shared-pg-c ns=shared-data 1513.5 7.08%
+     - seaweedfs ns=seaweedfs 1395.5 6.53%
+     - mimir ns=mimir 1096.640625 5.13%
+     - newapi-bp-newapi-newapi-pg ns=newapi 1006.5 4.71%
+     - dragonfly ns=dragonfly 914 4.28%

@@ -97,12 +97,12 @@ runtime:
   # SHA-pinned pty-server image. Empty default fails-fast via the
   # deployment.yaml `required` guard (Inviolable Principle #4a).
   # Auto-bumped by .github/workflows/build-sandbox-pty-server.yaml.
-  ptyServerImage: "ghcr.io/openova-io/openova/sandbox-pty-server:b980226"
+  ptyServerImage: "ghcr.io/openova-io/openova/sandbox-pty-server:7b31a09"
   # SHA-pinned openova-sandbox-mcp image. Auto-bumped by
   # .github/workflows/build-sandbox-mcp-server.yaml. 1b0e86c is the
   # last pre-#1658 green build; the rebuilt workflow (repo-root context)
   # will land the next real SHA on the next push to main.
-  mcpImage: "ghcr.io/openova-io/openova/sandbox-mcp-server:97ccc0b"
+  mcpImage: "ghcr.io/openova-io/openova/sandbox-mcp-server:7148b21"
   # Sovereign LLM gateway endpoint (newapi-proxy-contract.md §1).
   # Bootstrap-kit overlay sets `https://newapi.${SOVEREIGN_FQDN}/v1`.
   newapiURL: ""

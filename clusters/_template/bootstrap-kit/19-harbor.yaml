@@ -228,7 +228,9 @@ spec:
       # deadlocked cutover step-08's forced roll on Multi-Attach (#5022).
       # 1.2.44: #5302 — fix the disableredirect key casing (was silently-dropped
       # camelCase; the s3 overlay above now sets the correct lowercase key).
-      version: 1.2.44
+      # 1.2.45: #5406 — ONE session/queue/cache store per Sovereign. See the
+      # crossRegion block in `values:` below for the full wiring + rationale.
+      version: 1.2.47
       sourceRef:
         kind: HelmRepository
         name: bp-harbor
@@ -296,6 +298,39 @@ spec:
   # - harbor.persistence.imageChartStorage.s3.existingSecret matches the
   #   credentials Secret name templated by the umbrella chart.
   values:
+    # ── Cross-region session/queue/cache store (#5406) ──────────────────
+    # Harbor's OIDC session lives in Redis db 0 (`_REDIS_URL_CORE`), its job
+    # queue in db 1, its registry blob-descriptor cache in db 2. On a 2-region
+    # Sovereign ONE shared wildcard VIP fans `registry.${SOVEREIGN_FQDN}` at
+    # BOTH regions' envoys, so both regions' harbor-core serve — but upstream's
+    # `redis.type: internal` default gave each region its OWN redis. A session
+    # minted by whichever region handled /c/oidc/callback was invisible to the
+    # other, so the SPA's `/api/v2.0/users/current` 401'd on every request that
+    # landed on the other region and bounced the operator to /account/sign-in.
+    # Measured live on hw290 (dep 31106b6aa4a7e8e7, 2026-07-26 21:13:44Z):
+    # region-A users/current 200 + region-B users/current 401 in the SAME
+    # second, one page-load, same referer + UA.
+    #
+    # Harbor's OTHER two stateful stores were ALREADY anchored in the active
+    # region — Postgres via SOVEREIGN_HARBOR_PG_HOST=shared-pg-mesh-rw (a
+    # zero-endpoint ClusterMesh global-Service alias on the secondary) and blobs
+    # via one Object Storage bucket. Redis is simply brought in line: it is
+    # anchored in the ACTIVE region and the standby reaches it over ClusterMesh.
+    #
+    # SOVEREIGN_ENABLE_CNPG_PAIR is stamped `true` on BOTH regions by
+    # catalyst-api ONLY after Cilium ClusterMesh is established, so:
+    #   - single-region prov  → stays false → chart renders NOTHING here
+    #     (no Service, no CiliumNetworkPolicy) → byte-identical to pre-#5406;
+    #   - 2-region prov       → region-B boots with its OWN local redis and
+    #     flips to the shared one only once the mesh is proven up — no
+    #     bootstrap-ordering crashloop window.
+    crossRegion:
+      enabled: ${SOVEREIGN_ENABLE_CNPG_PAIR:=false}
+      role: ${SOVEREIGN_REGION_ROLE:=primary}
+      # Peer ClusterMesh cluster name(s) — same source var bp-postgres (16a/16c/
+      # 16d) + bp-cnpg-pair (16b) consume for their cross-region DR CNP. EMPTY
+      # (single-region) → no CiliumNetworkPolicy rendered.
+      peerClusters: ${SOVEREIGN_PEER_CLUSTERMESH_NAMES:=[]}
     # ── Bootstrap self-registration (#3687, extends #3370) ──────────────
     # The chart self-registers the Application CR for harbor (the canonical
     # instance representation every console surface reads), marked
@@ -378,6 +413,20 @@ spec:
       # than "registry.<sov-fqdn>" → silent-SSO callback 400s on every
       # operator login. Caught live by H12 Playwright walk on hw86 2026-06-03.
       externalURL: "https://registry.${SOVEREIGN_FQDN}"
+      # #5406 — the SECONDARY half of the cross-region store above. Upstream
+      # ties BOTH "render the redis StatefulSet" AND "which address harbor
+      # dials" to this one `type` key (charts/harbor/templates/redis/*.yaml is
+      # `if eq .Values.redis.type "internal"`, and harbor.redis.addr ternaries
+      # on the same key), so flipping the standby to `external` is what removes
+      # its duplicate redis AND points it at the merged global Service in one
+      # move. Both substitutes are stamped by catalyst-api's post-mesh gate
+      # (the same gate that stamps SOVEREIGN_HARBOR_PG_HOST) on SECONDARY
+      # regions only — so the ACTIVE region and every single-region prov keep
+      # the defaults below and render byte-identically to pre-#5406.
+      redis:
+        type: ${SOVEREIGN_HARBOR_REDIS_TYPE:=internal}
+        external:
+          addr: "${SOVEREIGN_HARBOR_REDIS_ADDR:=}"
       # ADR-0010: when harbor SHARES the bp-postgres `shared-pg` instance,
       # its external DB host points at the shared cluster's -rw Service
       # (in the shared-data namespace). Default points at harbor's OWN

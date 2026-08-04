@@ -89,9 +89,91 @@ type OrganizationChartVersions struct {
 	Agenity string
 }
 
+// perOrgGitopsEnabled reports whether this Sovereign materialises an
+// Organization through the per-Org GitOps tree (the `<slug>/catalyst-tenant`
+// repo the CRD org-controller bootstraps, #4384/#4827) instead of the legacy
+// SHARED `clusters/<fqdn>/org-tenants/<id>/` overlay this file writes.
+//
+// #5425 — the two pipelines coexisted and only ONE of them was gated. Every
+// global-tree write in core/services/provisioning/gitops/ sits behind
+// `!PerOrgGitops`, but this second, older base-create leg never received the
+// switch: WriteTenantOverlay ran unconditionally on every
+// POST /api/v1/organizations. On a per-Org-GitOps Sovereign that leaves a
+// full 9-resource overlay on the shared path that NOTHING owns once the Org
+// is gone — deleting the namespace does not delete the git source, so Flux
+// restores the HelmReleases forever. Measured on hw290: two Organizations'
+// leftovers = 13 not-Ready items (10 HelmReleases + 3 workloads) holding the
+// sovereignty-cutover pre-flight closed, and 6395m of CPU requests on a
+// region already at 99-100% of allocatable.
+//
+// It reads the SAME env key as the provisioning service
+// (core/services/provisioning/main.go, the `perOrgGitops` local) so there is
+// one switch name across both pipelines, and NOT a second parallel knob:
+//
+//	TENANT_GITOPS_PER_ORG=true  → per-Org GitOps owns the Org; this leg is a
+//	                              no-op and the legacy tree stays empty.
+//	TENANT_GITOPS_PER_ORG=false → this leg writes the overlay (legacy mode).
+//	unset (the default)         → this leg writes the overlay.
+//
+// ── Why the DEFAULT deliberately differs from provisioning's ─────────
+//
+// provisioning defaults the switch ON whenever SOVEREIGN_FQDN is set. This
+// leg MUST NOT: per-Org GitOps does not yet emit an equivalent for four of
+// the nine resources this overlay carries, and this overlay is their ONLY
+// producer in the entire repo (`chart: bp-agenity`, `chart: bp-keycloak` and
+// `chart: bp-wordpress-tenant` each resolve to exactly one emitter — the
+// templates in this file):
+//
+//	bp-agenity           — the per-Org Agenity workspace. DoD Pillar 4.
+//	bp-keycloak          — the per-Org Keycloak. The per-Org-realm substitute
+//	                       in core/controllers/organization (per_org_realm.go)
+//	                       is itself default-OFF (CATALYST_PER_ORG_REALM_ENABLED).
+//	bp-wordpress-tenant  — the SSO-pre-wired tenant WordPress. The per-Org
+//	                       tree installs a raw upstream `wordpress:6-apache`
+//	                       Deployment instead (an intentional divergence
+//	                       recorded in gitops/helmrelease_apps.go).
+//	continuum.yaml       — the per-Application Continuum CR (#2066). Nothing
+//	                       in the per-Org tree emits one.
+//
+// The org-controller's per-Org tree emits only the Namespace, vCluster,
+// ResourceQuota, NetworkPolicies, provisioning RBAC and kustomizations
+// (internal/gitops/manifests.go) — no bp-* HelmRelease at all. bp-newapi,
+// bp-openclaw and bp-stalwart-tenant do have per-Org emitters, but only when
+// the Org has purchased them; this overlay emits them for every Org.
+//
+// So defaulting ON here would silently strip the per-Org application stack
+// from every Organization on every Sovereign — the exact "gating alone
+// silently drops resources" failure. The switch is therefore EXPLICIT
+// opt-in: the mechanism is in place and guarded, and flipping it to `true`
+// becomes correct once the four gaps above are closed in the per-Org tree.
+// Deliberately not wired into the catalyst-api Deployment yet for the same
+// reason — the chart's existing `perOrgGitops` value defaults to "true" on a
+// Sovereign, so wiring it today would enable exactly the drop described here.
+//
+// Per Inviolable Principle #4 the key is read from env, never hardcoded.
+func perOrgGitopsEnabled() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("TENANT_GITOPS_PER_ORG")), "true")
+}
+
 // WriteTenantOverlay implements OrganizationGitOpsWriter. Returns the
 // commit SHA on success.
+//
+// #5425 — no-ops (empty SHA, nil error) when per-Org GitOps owns the Org.
+// The gate is the FIRST statement so no clone, no scratch directory and no
+// commit is attempted: the guarantee is zero writes under the legacy overlay
+// root, not "writes that are later cleaned up". The empty SHA is only
+// surfaced cosmetically (store.OrganizationProvisionRecord.CommitSHA is
+// `omitempty` and no step gates on it), and the caller advances the pipeline
+// exactly as it does for a real commit — on a per-Org-GitOps Sovereign the
+// Org's base stack is materialised by the CRD org-controller, not here.
 func (w DefaultOrganizationGitOpsWriter) WriteTenantOverlay(ctx context.Context, rec store.OrganizationProvisionRecord) (string, error) {
+	if perOrgGitopsEnabled() {
+		if w.Log != nil {
+			w.Log.Info("org-tenant: per-Org GitOps owns this Organization — legacy org-tenants overlay write skipped (#5425)",
+				"org", rec.OrganizationID, "subdomain", rec.Subdomain, "sovereign", rec.OTECHFQDN)
+		}
+		return "", nil
+	}
 	cfg := loadGitOpsConfig()
 	if cfg.Token == "" {
 		return "", errors.New("gitops token unconfigured — set CATALYST_GITOPS_TOKEN")
@@ -248,7 +330,7 @@ func writeParentTenantsIndex(parentDir string) error {
 	// reconciles them before any tenant HelmChart is requested.
 	hrFileName := "helmrepositories.yaml"
 	hrFilePath := filepath.Join(parentDir, hrFileName)
-	if err := os.WriteFile(hrFilePath, []byte(orgTenantSharedHelmRepositories), 0o644); err != nil {
+	if err := os.WriteFile(hrFilePath, []byte(orgTenantSharedHelmRepositoriesYAML()), 0o644); err != nil {
 		return fmt.Errorf("write shared helmrepositories: %w", err)
 	}
 
@@ -284,11 +366,20 @@ func writeParentTenantsIndex(parentDir string) error {
 // ship them (they're tenant-mode-only charts). Emitted once at the
 // parent level, shared by every tenant.
 //
-// Per Inviolable Principle #4 (never hardcode), the URL is the same
-// canonical oci://ghcr.io/openova-io that every other bp-* chart pulls
-// from. Sovereigns post-cutover have a registries.yaml that rewrites
-// pulls through their local Harbor proxy-cache, so this works
-// transparently for both pre- and post-cutover phases.
+// The URL is cutover-aware (#5527) — see
+// orgTenantSharedHelmRepositoriesYAML, the emission entry point.
+// Pre-cutover every block declares the canonical public catalog
+// (oci://ghcr.io/openova-io). Post-cutover the emitter swaps in the
+// Sovereign-local registry base. The earlier belief that the ghcr URL
+// "works transparently for both phases via the node registries.yaml
+// rewrite" was wrong: the cutover step-04 rewrite only covers
+// containerd IMAGE pulls — Flux source-controller resolves
+// HelmRepository URLs with its own client, so a ghcr URL here
+// re-tethers the Sovereign the moment this file regenerates (hw291:
+// step-06 pivoted the live objects, Flux drift-corrected them straight
+// back from this git source, and the step-08 deny-egress hold failed
+// on OFFENDER bp-agenity/bp-openclaw/bp-stalwart-tenant/
+// bp-wordpress-tenant=oci://ghcr.io/openova-io).
 //
 // secretRef: ghcr-pull is the canonical name written by cloud-init at
 // /var/lib/catalyst/ghcr-pull-secret.yaml and reflected into every
@@ -304,6 +395,11 @@ func writeParentTenantsIndex(parentDir string) error {
 const orgTenantSharedHelmRepositories = `# Generated by catalyst-api/org-tenant pipeline (#893).
 # Shared HelmRepositories the per-tenant overlays sourceRef into.
 # DO NOT EDIT — re-run the orchestrator to regenerate.
+# url: is cutover-aware (#5527) — once cutover step-07 has stamped this
+# Sovereign, regeneration emits the Sovereign-local registry base
+# (oci://registry.<fqdn>/openova-io) instead of ghcr; secretRef stays
+# ghcr-pull in both phases (the cutover rewrites that Secret's contents,
+# not its name).
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
@@ -385,10 +481,142 @@ spec:
 // pulls any chart from loft, so this entry was dead weight + the only
 // place this path referenced the upstream rancher/k3s distro.
 
+// orgTenantGHCRBase — the pre-cutover (public catalog) OCI base every
+// block in orgTenantSharedHelmRepositories declares.
+const orgTenantGHCRBase = "oci://ghcr.io/openova-io"
+
+// sovereignRegistryPivoted reports whether cutover step-07
+// (catalyst-api-env-patch, platform/self-sovereign-cutover/chart/
+// templates/07-catalyst-api-env-patch-job.yaml) has stamped THIS
+// catalyst-api process — the in-process, readable form of the
+// registry-pivot fact (#5527).
+//
+// The seam is the step-07 Phase-3b issuer env pair (CATALYST_PIN_ISSUER
+// + CATALYST_HANDOVER_JWT_ISSUER, set in a single `kubectl set env`):
+// nothing else in the platform sets either var — the
+// bp-catalyst-platform chart's api-deployment.yaml never templates
+// them (auth.go falls back to the in-code mothership constants when
+// unset), so their presence on the Deployment is uniquely the step-07
+// patch. The patch survives pod restarts and helm upgrades (a 3-way
+// strategic merge preserves env entries absent from both chart
+// manifests — the same durability the post-cutover GitOps loop already
+// stakes on step-07's CATALYST_GITOPS_REPO_URL patch).
+//
+// Why NOT the two neighbouring candidates:
+//
+//   - CATALYST_GITOPS_REPO_URL: on a Sovereign it points at the local
+//     Gitea from BIRTH (products/catalyst/chart/templates/
+//     api-deployment.yaml stamps the in-cluster gitea-http URL whenever
+//     global.sovereignFQDN is set), so it is a Sovereign fact, not a
+//     cutover fact — branching on it would emit local registry URLs on
+//     a pre-cutover Sovereign whose Harbor holds no charts yet.
+//   - The #3667 OpenBao seal (secret/catalyst/cutover-complete): this
+//     writer has no OpenBao client, and — decisive even with one — the
+//     seal flips only AFTER step-08's deny-egress hold passes, while
+//     the org-tenants git source must already be local DURING the hold
+//     (the hw291 wedge: step-06 pivots the objects, Flux
+//     drift-corrects them back from this generator's file). Step-07's
+//     env fact covers exactly that window: it lands after step-03's
+//     harbor-prewarm, so the local Harbor already serves every chart
+//     this file sourceRefs.
+func sovereignRegistryPivoted() bool {
+	return strings.TrimSpace(os.Getenv("CATALYST_PIN_ISSUER")) != "" ||
+		strings.TrimSpace(os.Getenv("CATALYST_HANDOVER_JWT_ISSUER")) != ""
+}
+
+// orgTenantHelmRepositoryURL returns the OCI base URL the shared per-Org
+// HelmRepositories declare (#5527).
+//
+//   - Pre-cutover (and on the mothership / Catalyst-Zero): the canonical
+//     public catalog, oci://ghcr.io/openova-io.
+//   - Post-cutover (step-07 fact present, see sovereignRegistryPivoted):
+//     the Sovereign-local registry, oci://registry.<SOVEREIGN_FQDN>/
+//     openova-io — the SAME value shape cutover step-06
+//     (helmrepository-patches) patches the live objects to, so the git
+//     source and the pivoted objects agree and Flux has nothing to
+//     drift-correct.
+//
+// The local host derivation follows the platform-wide canon
+// `registry.<fqdn>` (bp-harbor's HTTPRoute hostname, see
+// clusters/_template/bootstrap-kit/19-harbor.yaml; the cutover
+// overlay's sovereign.harborPublicURL is
+// https://registry.${SOVEREIGN_FQDN} in 06a-bp-self-sovereign-cutover
+// .yaml). Per Inviolable Principle #4 the full base is overridable via
+// CATALYST_LOCAL_REGISTRY_URL (e.g.
+// oci://registry.hw291.omantel.biz/openova-io); a non-empty override is
+// itself the pivot fact, so a future cutover step-07 that stamps the
+// exact value flips this generator with no code change and no
+// derivation. secretRef stays ghcr-pull in both phases: the cutover
+// rewrites that Secret's CONTENTS to local-registry credentials without
+// renaming it (step-06 parity — the pivoted objects on hw291 keep it).
+func orgTenantHelmRepositoryURL() string {
+	if v := strings.TrimSpace(os.Getenv("CATALYST_LOCAL_REGISTRY_URL")); v != "" {
+		if !strings.HasPrefix(v, "oci://") {
+			v = "oci://" + v
+		}
+		return strings.TrimSuffix(v, "/")
+	}
+	if !sovereignRegistryPivoted() {
+		return orgTenantGHCRBase
+	}
+	fqdn := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN"))
+	if fqdn == "" {
+		// Synonym on chroot pods where only the OTECH form is stamped —
+		// same fallback order as sovereign_self.go.
+		fqdn = strings.TrimSpace(os.Getenv("CATALYST_OTECH_FQDN"))
+	}
+	if fqdn == "" {
+		// Pivot fact without a Sovereign identity is an inconsistent
+		// state this generator cannot mint a registry host from — fail
+		// safe to the public catalog rather than emit a URL that
+		// resolves nowhere.
+		return orgTenantGHCRBase
+	}
+	return "oci://registry." + fqdn + "/openova-io"
+}
+
+// orgTenantSharedHelmRepositoriesYAML renders the shared HelmRepository
+// file with the cutover-aware URL (#5527): the template's ghcr base is
+// swapped for orgTenantHelmRepositoryURL() once the registry-pivot fact
+// is set. Everything else — names, namespace, type, interval, secretRef
+// — stays byte-identical to the template, so pre-cutover output is
+// EXACTLY the historical const and Flux sees zero drift on regeneration.
+func orgTenantSharedHelmRepositoriesYAML() string {
+	base := orgTenantHelmRepositoryURL()
+	if base == orgTenantGHCRBase {
+		return orgTenantSharedHelmRepositories
+	}
+	return strings.ReplaceAll(orgTenantSharedHelmRepositories,
+		"url: "+orgTenantGHCRBase,
+		"url: "+base)
+}
+
 // DeleteTenantOverlay implements OrganizationGitOpsWriter. Removes the
 // per-tenant overlay directory. Idempotent — a missing path commits
 // an empty change with `--allow-empty`.
+//
+// #5425 — gated on the SAME switch as WriteTenantOverlay, for a reason that
+// is easy to miss: this leg is not write-free. Even when the per-tenant
+// directory does not exist, it calls writeParentTenantsIndex, which
+// (re)creates `clusters/<fqdn>/org-tenants/kustomization.yaml` AND
+// `helmrepositories.yaml` — materialising the legacy tree, complete with the
+// six shared bp-* HelmRepositories, on a Sovereign whose whole invariant is
+// that the tree stays empty. Teardown of an Org that this leg never wrote
+// has nothing to remove, so skipping is also the correct semantic: the
+// per-Org tree's own teardown owns it.
+//
+// Consequence to know: flipping a Sovereign from legacy to per-Org GitOps
+// mid-life orphans any overlay written before the flip. Flipping
+// TENANT_GITOPS_PER_ORG back to `false` restores this leg and lets the
+// normal teardown reap them.
 func (w DefaultOrganizationGitOpsWriter) DeleteTenantOverlay(ctx context.Context, rec store.OrganizationProvisionRecord) (string, error) {
+	if perOrgGitopsEnabled() {
+		if w.Log != nil {
+			w.Log.Info("org-tenant: per-Org GitOps owns this Organization — legacy org-tenants overlay teardown skipped (#5425)",
+				"org", rec.OrganizationID, "subdomain", rec.Subdomain, "sovereign", rec.OTECHFQDN)
+		}
+		return "", nil
+	}
 	cfg := loadGitOpsConfig()
 	if cfg.Token == "" {
 		return "", errors.New("gitops token unconfigured — set CATALYST_GITOPS_TOKEN")

@@ -554,9 +554,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "b1b472d"
+    tag: "61b61c5"
   catalystUi:
-    tag: "b1b472d"
+    tag: "61b61c5"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -600,7 +600,7 @@ images:
   # (verified live on g8mail). 903eed4 is the image built from main AFTER
   # #4390 merged — it carries #4387 (per-Org <slug>/catalyst-tenant commit) for
   # the HR-app path too. Pin it so the cart HR apps land in the per-Org repo.
-  orgTag: "4a027b3"
+  orgTag: "c936347"
   # Marketplace storefront image tag (the `marketplace` frontend, distinct from
   # the `marketplaceApi` backend). Bumped by .github/workflows/marketplace-build.yaml
   # on every push to core/marketplace/**. Kept as a flat, uniquely-named field
@@ -610,7 +610,7 @@ images:
   # templates/org-services/marketplace.yaml, which now honours global.imageRegistry
   # for the #4885 cutover step-07 pivot (mirrors the 9 templated org-services
   # siblings + ui-deployment.yaml's #4563 split).
-  marketplaceTag: "706b14d"
+  marketplaceTag: "c936347"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────
@@ -774,7 +774,7 @@ controllers:
       # re-apply, NOT the sweep). 89993b2 is a direct DESCENDANT of b23af68 so it
       # CONTAINS the #4393 Guaranteed-QoS LimitRange fix AS WELL AS #4455 + #4462.
       # Durable fix to the deploy-bump whole-file clobber tracked in #4464.
-      tag: "8b7fc3b"
+      tag: "7148b21"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -999,7 +999,7 @@ controllers:
       # 6d7aacd (2026-06-24, #4236) — freshness sweep on the funnel pool-DNS PR:
       # 34ff594 had drifted 183 commits behind latest GHCR (no code change here,
       # just clearing the staleness gate so the chart ships the current binary).
-      tag: "8b7fc3b"
+      tag: "4abd412"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -2053,8 +2053,8 @@ orgServices:
     host: valkey-primary.valkey.svc.cluster.local
     port: 6379
     namespace: valkey
-    # ─── Cross-ns auth Secret mirror (issue #863) ──────────────────────
-    # bp-valkey 1.0.0 ships auth.enabled=true; bitnami auto-generates a
+    # ─── Cross-ns auth Secret mirror (issue #863, re-gated #5487) ──────
+    # bp-valkey 1.0.0 shipped auth.enabled=true; bitnami auto-generates a
     # random password and exposes it via the `valkey` Secret in the
     # `valkey` namespace. The catalyst chart renders templates/
     # org-services/valkey-cross-ns-secret.yaml which uses Helm `lookup`
@@ -2063,6 +2063,45 @@ orgServices:
     # secretKeyRef. Each knob below is operator-overridable in case a
     # Sovereign uses a forked bp-valkey with a different Secret name
     # or key.
+    #
+    # ── auth.enabled — the single truth for "Valkey needs a password" ──
+    #
+    # WHY THIS FLAG EXISTS (#5487, hw291 2026-07-29):
+    #   bp-valkey flipped to `auth.enabled: false` in 1.0.2 (TBD-V12 #2003),
+    #   so bitnami no longer creates the `valkey` Secret at all → the
+    #   `lookup` in valkey-cross-ns-secret.yaml can NEVER find a password →
+    #   `org-valkey-auth` is never created. Confirmed live on hw291:
+    #   `kubectl get secret -A | grep valkey` returns no such Secret. But
+    #   auth.yaml + gateway.yaml still referenced it with
+    #   `optional: true`, so both Deployments rendered a VALKEY_PASSWORD env
+    #   that silently resolved to NOTHING and connected anonymously — and
+    #   their inline comments still asserted "bp-valkey ships
+    #   auth.enabled=true (bitnami default)", which has been false since
+    #   1.0.2. A config that READS as authenticated but RESOLVES to
+    #   anonymous is worse than one that is plainly anonymous: it hides the
+    #   very premise (network isolation carries the risk) that #2003 relied
+    #   on and #5487 found broken.
+    #
+    # SEMANTICS:
+    #   false (DEFAULT, matches bp-valkey's shipped posture) — no mirror
+    #     Secret, no VALKEY_PASSWORD env anywhere. The rendered Deployment
+    #     says exactly what it does: it connects without credentials. The
+    #     no-auth connect path in core/services/shared/db/valkey.go is the
+    #     one that was already being taken.
+    #   true — the operator has ALSO set `valkey.auth.enabled: true` on
+    #     bp-valkey (per-Sovereign overlay). The mirror renders and the env
+    #     is wired with `optional: false`, so a missing/late mirror holds the
+    #     Pod at CreateContainerConfigError (loud, and kubelet retries until
+    #     the mirror lands) instead of silently degrading to an anonymous
+    #     connect that a `NOAUTH` error would only surface at first command.
+    #
+    # Do NOT flip this alone: without `valkey.auth.enabled: true` on
+    # bp-valkey there is no password to mirror. Re-enabling auth platform-
+    # wide additionally requires bp-newapi to consume the generated
+    # password (its REDIS_CONN_STRING default is passwordless) — that is the
+    # #2003 follow-up, unchanged by #5487.
+    auth:
+      enabled: false
     sourceSecretName: valkey
     sourcePasswordKey: valkey-password
     destNamespace: org-services       # #3383: was `sme`
@@ -2484,8 +2523,17 @@ qaFixtures:
   # replacement + Hetzner cross-region NodePort filtering are resolved.
   cnpgPrimaryClusterName: cluster-primary
   cnpgReplicaClusterName: cluster-replica
-  cnpgPrimaryRegion: hz-fsn-rtz-prod
-  cnpgReplicaRegion: hz-fsn-rtz-prod
+  # #5639 CLASS — NO provider-specific default. Both Cluster CRs pin a
+  # REQUIRED nodeAffinity on this exact `openova.io/region` NODE LABEL, so
+  # the old `hz-fsn-rtz-prod` default made every QA fixture on a Huawei
+  # Sovereign unschedulable forever behind a green HelmRelease. Empty here
+  # ⇒ the chart's `required` fires and names the key; the bootstrap-kit
+  # supplies ${SOVEREIGN_REGION_CANONICAL_LABEL}, the local cluster's own label
+  # cloud-init stamps on every node. cnpgReplicaRegion empty ⇒ falls back
+  # to the primary (this fixture is single-region by design; the cross-
+  # region drill belongs to bp-cnpg-pair + Continuum).
+  cnpgPrimaryRegion: ""
+  cnpgReplicaRegion: ""
   cnpgInstances: 1
   cnpgImage: ghcr.io/cloudnative-pg/postgresql:16.4-1
   cnpgStorageSize: 1Gi

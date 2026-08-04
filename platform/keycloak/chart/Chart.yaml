@@ -436,7 +436,7 @@ name: bp-keycloak
 # retained (Tier-2 convention, guarded by g117-5-tier2-sso-clients.sh). Kept in
 # lockstep with bp-oidc-gate 0.1.7 instances.yaml. ONLY the powerdns-admin client
 # block changed — no other client's scopes touched.
-version: 1.5.6
+version: 1.5.7
 description: |
   1.5.2 (#4246): the per-tenant `openclaw-oidc-client-secret` Secret now
   emits BOTH `client-secret` AND `OIDC_CLIENT_SECRET` keys (it previously

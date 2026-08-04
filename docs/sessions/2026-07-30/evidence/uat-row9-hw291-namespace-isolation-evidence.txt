@@ -1,0 +1,58 @@
+UAT WALK hw291 (2c2d746b578c636b) — rows 9/219/220/224 — 2026-07-30T00:37:31Z
+############ ROW 9 — Org uatcorp isolation/status
+--- Org CR ---
+status:
+  conditions:
+  - lastTransitionTime: "2026-07-30T00:31:13Z"
+    message: host namespace Active + Keycloak group + Gitea Org reconciled (namespace-isolated
+      tier — no vCluster authored)
+    reason: Reconciled
+    status: "True"
+    type: Ready
+  - lastTransitionTime: "2026-07-29T22:55:57Z"
+    message: spec.identity.federationProvider is empty — no IdP configured
+    reason: NoFederation
+    status: "False"
+    type: IdentityProviderConfigured
+  - lastTransitionTime: "2026-07-29T22:55:57Z"
+    message: no IdP → no claim mappers
+    reason: NoFederation
+    status: "False"
+    type: IdentityProviderClaimMappersConfigured
+  - lastTransitionTime: "2026-07-29T22:55:57Z"
+    message: iacbootstrap dependencies not wired
+    reason: BootstrapDisabled
+    status: "False"
+    type: IacRepoBootstrapped
+  - lastTransitionTime: "2026-07-29T22:55:57Z"
+    message: per-Org Keycloak realm auto-wiring disabled
+    reason: RealmDisabled
+    status: "False"
+    type: PerOrgRealmProvisioned
+  giteaOrg:
+    name: uatcorp
+    repos:
+    - catalyst-tenant
+  iacBootstrap:
+    lastError: iacbootstrap dependencies not wired in this controller deployment
+    state: Disabled
+  keycloakGroup:
+    id: acaf35d2-c9ed-4851-aa64-82315454b4ae
+    path: /uatcorp
+    realm: sovereign
+  observedGeneration: 2
+--- ns uatcorp ---
+NAME      STATUS   AGE
+uatcorp   Active   6m41s
+--- vclusters (CRD vclusters.vcluster.com PRESENT = positive control) ---
+No resources found
+--- vcluster StatefulSets (total sts cluster-wide as positive control) ---
+20
+0
+0
+--- Kustomizations uatcorp ---
+NAMESPACE     NAME                                          AGE    READY   STATUS
+flux-system   catalyst-tenant-uatcorp-apps                  149m   True    Applied revision: main@sha1:6e01e4494898d0ecebae9a87aaa836a198a1b96d
+flux-system   catalyst-tenant-uatcorp-host-apps             149m   True    Applied revision: main@sha1:6e01e4494898d0ecebae9a87aaa836a198a1b96d
+flux-system   catalyst-tenant-uatcorp-vcluster              149m   True    Applied revision: main@sha1:6e01e4494898d0ecebae9a87aaa836a198a1b96d
+flux-system   org-tenants                                   12h    True    Applied revision: org-tenants@sha1:4ce5e89621ca6f1a8dd1c1524c64ecff0e53e3a2

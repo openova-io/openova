@@ -219,7 +219,7 @@ name: bp-gitea
 #   The reflector reflection-*-namespaces annotations are templated from the
 #   SAME values knob so annotation list and fallback order can never drift.
 #   Non-cutover render unchanged (annotation values identical at defaults).
-version: 1.2.48
+version: 1.2.49
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so

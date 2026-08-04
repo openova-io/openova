@@ -37,7 +37,7 @@ function renderField() {
       blueprintId="bp-wordpress"
       fieldKey="name"
       label="Display name"
-      current={CURRENT}
+      createSeed={CURRENT}
       editable
       initialDraft={CURRENT.name}
       renderDisplay={() => <span>WordPress</span>}

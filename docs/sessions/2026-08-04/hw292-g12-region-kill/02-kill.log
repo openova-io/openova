@@ -1,0 +1,10 @@
+=== §2 KILL — 2026-08-03T20:01:27.464Z ===
+== KILL region-a (HARD os-stop) ==
+  target: 18b76e1b-e475-43d3-9602-8e81365057d1 catalyst-hw292-omani-works-1c565180-me-east-215-a-w5020a3 ACTIVE
+  target: 46ade909-2b0a-40e3-a160-af10f0fdc9c7 catalyst-hw292-omani-works-1c565180-me-east-215-a-w63852a ACTIVE
+  target: e0b5fdba-ec80-4796-87b1-6e51e3643eee catalyst-hw292-omani-works-1c565180-me-east-215-a-w784020 ACTIVE
+  target: 85c56c93-4ce2-4694-93b1-63a7c30cb377 catalyst-hw292-omani-works-1c565180-me-east-215-a-cp1-54be6d ACTIVE
+T0=2026-08-03T20:01:27.733Z — issuing HARD os-stop
+HTTP 200 {"job_id":"8a868c419f44e007019fc93789037f19"}
+-- polling region-a apiserver death --
+region-a apiserver DEAD at poll 2 (20:01:50.134Z)

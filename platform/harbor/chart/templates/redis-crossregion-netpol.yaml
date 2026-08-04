@@ -1,0 +1,119 @@
+{{- /*
+Cross-region Redis reachability CiliumNetworkPolicies (#5406).
+
+The `harbor` namespace carries bp-plane-isolation's `harbor-default-deny`
+NetworkPolicy. A plain k8s NetworkPolicy can NEVER admit a ClusterMesh peer:
+Cilium AND-injects `io.cilium.k8s.policy.cluster=<local>` into every selector
+it derives from a k8s NetworkPolicy. Verified live on hw290 region-A —
+`cilium-dbg policy selectors` renders the harbor default-deny's ingress rule as
+
+    &LabelSelector{MatchLabels:map[string]string{
+        k8s.io.cilium.k8s.namespace.labels.kubernetes.io/metadata.name: catalyst-system,
+        k8s.io.cilium.k8s.policy.cluster: hw290-mesh,}}   ← LOCAL cluster pinned
+      LABELS: harbor/harbor-default-deny
+
+while the policies that deliberately reach the peer carry
+`MatchExpressions{Key: any.io.cilium.k8s.policy.cluster, Operator: In,
+Values:[hw290-me-east-b]}`. Same finding as #4846/#4854 (an `ipBlock` is
+equally inert — a ClusterMesh remote Pod is a KNOWN endpoint with its own
+identity, never a CIDR identity).
+
+So the cross-region redis dial needs identity-based CiliumNetworkPolicies.
+Cilium unions every policy selecting an endpoint, so these are purely
+ADDITIVE to the default-deny: they grant peer-region reachability on 6379
+only, to/from peer-cluster identities only — no `world`, no extra ports.
+
+Both halves render on BOTH regions so a bp-continuum switchover (which swaps
+which region is active) needs no policy change and has no ordering hazard:
+  - INGRESS: admit peer-region Pods to this region's harbor-redis on 6379.
+    Live on the ACTIVE region; inert on the standby (no local redis Pod).
+  - EGRESS:  admit this region's harbor Pods to a peer-region redis on 6379.
+    Live on the standby; inert on the active region (its redis is local, and
+    a local ClusterIP is already covered by the default-deny's
+    namespaceSelector:{}).
+
+ANY-NAMESPACE note (#4854 row 67 L2): a namespaced CNP's from/toEndpoints is
+implicitly ANDed with BOTH `io.cilium.k8s.policy.cluster=<local>` AND
+`k8s:io.kubernetes.pod.namespace=<this policy's namespace>`. Referencing the
+namespace key with `Exists` suppresses the second AND-injection so the rule
+is not silently narrowed to peer-region Pods that happen to sit in a
+same-named namespace.
+
+Gated on `crossRegion.peerClusters` (the peer ClusterMesh name(s), stamped by
+catalyst-api at the post-mesh cnpg-pair flip as
+SOVEREIGN_PEER_CLUSTERMESH_NAMES) and on the cilium.io/v2 Capabilities check
+(the #2988/#3102 idiom) so the chart still installs on CRD-less clusters
+(kind CI). EMPTY peer list (singleton / single-region) → NO policy → the
+default render is byte-identical to origin/main.
+*/ -}}
+{{- $cr := .Values.crossRegion | default dict -}}
+{{- $peers := $cr.peerClusters | default list -}}
+{{- if and $cr.enabled (gt (len $peers) 0) (.Capabilities.APIVersions.Has "cilium.io/v2") -}}
+{{- $redis := $cr.redis | default dict -}}
+{{- $port := $redis.port | default 6379 | toString -}}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: harbor-crossregion-redis-ingress
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "bp-harbor.labels" . | nindent 4 }}
+    {{- /* #5406 — see redis-mesh-service.yaml: `bp-harbor.labels` already sets
+         catalyst.openova.io/component, and re-emitting it is inert (Helm keeps
+         the first key) AND fails helm-controller's post-render unmarshal with
+         `mapping key already defined`. Use a distinct key. */}}
+    catalyst.openova.io/subcomponent: harbor-crossregion-redis-netpol
+spec:
+  endpointSelector:
+    matchLabels:
+      app: {{ $redis.appLabel | default "harbor" | quote }}
+      release: {{ $redis.releaseLabel | default .Release.Name | quote }}
+      component: redis
+  ingress:
+    - fromEndpoints:
+        - matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: In
+              values:
+                {{- range $peers }}
+                - {{ . | quote }}
+                {{- end }}
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: Exists
+      toPorts:
+        - ports:
+            - port: {{ $port | quote }}
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: harbor-crossregion-redis-egress
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "bp-harbor.labels" . | nindent 4 }}
+    {{- /* #5406 — see redis-mesh-service.yaml: `bp-harbor.labels` already sets
+         catalyst.openova.io/component, and re-emitting it is inert (Helm keeps
+         the first key) AND fails helm-controller's post-render unmarshal with
+         `mapping key already defined`. Use a distinct key. */}}
+    catalyst.openova.io/subcomponent: harbor-crossregion-redis-netpol
+spec:
+  # Every endpoint in the harbor namespace — matching the default-deny's own
+  # scope. harbor-core / -jobservice / -registry all dial redis.
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: In
+              values:
+                {{- range $peers }}
+                - {{ . | quote }}
+                {{- end }}
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: Exists
+      toPorts:
+        - ports:
+            - port: {{ $port | quote }}
+              protocol: TCP
+{{- end }}

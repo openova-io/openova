@@ -62,7 +62,7 @@ echo "[bp-openbao] Case 3: broad ESO read grant stays read-only"
 read_policy_block=$(echo "$out" | sed -n '/bao policy write external-secrets-read -/,/^ *EOF$/p')
 [ -n "$read_policy_block" ] || {
   echo "FAIL: could not locate the external-secrets-read policy block"; exit 1; }
-if echo "$read_policy_block" | grep -qE '"(create|update|delete)"'; then
+if grep -qE '"(create|update|delete)"' <<<"$read_policy_block"; then
   echo "FAIL: external-secrets-read policy gained write capabilities on the broad tree"; exit 1
 fi
 echo "  ok"

@@ -687,6 +687,21 @@ func (h *Handler) applyTenantChangePerOrg(ctx context.Context, data appChangeDat
 	// GitRepository actually watches.
 	branch := h.perOrgBranch()
 
+	// #5387 — hold the per-branch gate for the WHOLE read-merge-commit cycle.
+	// A cart with N Applications dispatches N concurrent installs (one per cart
+	// entry, each in its own goroutine), and every one of them re-renders the
+	// full cart and pushes it to this same branch. Un-gated they collide on the
+	// branch head and Gitea rejects the losers with `PushOutOfDate`, which on
+	// hw290 failed the funnel outright. Serialising them makes each commit build
+	// on the head its sibling just wrote, and leaves the whole CAS-retry budget
+	// for the genuinely out-of-process racer (the org-controller). The gate is
+	// released before we return, on every path.
+	release, err := h.perOrgCommits.acquire(ctx, slug+"/"+h.perOrgRepoName()+"@"+branch)
+	if err != nil {
+		return fmt.Errorf("per-Org commit gate for %s/%s@%s: %w", slug, h.perOrgRepoName(), branch, err)
+	}
+	defer release()
+
 	// #4999: render the per-Org app hosts under the Org's CHOSEN (served) pool
 	// zone — the SAME zone resolveOrgParentDomain stamps on the Org CR's
 	// spec.tenantPublic.parentDomain (which drives the per-Org console DNS / TLS /
@@ -778,6 +793,17 @@ func (h *Handler) applyTenantChangePerOrg(ctx context.Context, data appChangeDat
 			for p, c := range hostRouteFiles {
 				appFiles[p] = c
 			}
+			// #5423 — on this tier GeneratePerOrgAppsTree has already re-rooted
+			// the HelmRelease-shaped app files (openclaw / stalwart-mail /
+			// newapi) into vcluster/host-apps/, because the apps Kustomization
+			// is kubeConfig-targeted at the Org vcluster, which registers no
+			// Flux CRDs — a HelmRelease doc there fails dry-run and Flux aborts
+			// the ENTIRE Kustomization, so the customer's plain Deployment app
+			// and its DB never applied either (hw290 rows 86/90/233/234).
+			// Index them here so kustomize actually builds them; on uninstall
+			// the rebuilt list carries only the surviving HR apps, which prunes
+			// the removed one exactly like the route docs above.
+			hostAppDocs = append(hostAppDocs, gitops.PerOrgHostHelmReleaseAppDocs(planSlug, appSlugs)...)
 			hostKustPath := gitops.PerOrgHostAppsDir + "/kustomization.yaml"
 			existingHostKust := ""
 			if content, err := repoClient.ReadFile(ctx, branch, hostKustPath); err == nil {
@@ -1284,7 +1310,7 @@ func (h *Handler) startProvisioning(ctx context.Context, tenantID, orderID, plan
 	sort.Strings(depSlugs)
 
 	steps := []store.ProvisionStep{
-		{Name: "Creating tenant", Status: "pending"},
+		{Name: "Creating Organization", Status: "pending"},
 		{Name: "Committing manifests to Git", Status: "pending"},
 		{Name: "Provisioning vCluster", Status: "pending"},
 	}

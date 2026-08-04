@@ -1119,8 +1119,28 @@ spec:
               cpu: 250m
               memory: 256Mi
           volumeMounts:
+            # #5445 — mount a SUBDIRECTORY of the PVC, never its root.
+            #
+            # Every Huawei EVS volume is ext4, so the filesystem root always
+            # contains a lost+found directory. Mounting the PVC root directly
+            # at PGDATA therefore hands initdb a non-empty directory and it
+            # refuses to initialise the cluster at all:
+            #
+            #   initdb: error: directory /var/lib/postgresql/data exists but is not empty
+            #   initdb: detail: It contains a lost+found directory, perhaps due
+            #                   to it being a mount point.
+            #
+            # Live on hw290 theta-corp this was postgres CrashLoopBackOff x50,
+            # with umami and uptime-kuma crashlooping downstream of it — on an
+            # Org where the GitOps write, the Flux apply and all 20 inventory
+            # entries were green. It is the gap between provisioned and
+            # working, and it is invisible to any check that stops at Flux.
+            #
+            # subPath is preferred over a PGDATA env override because it does
+            # not depend on the image honouring PGDATA.
             - name: pgdata
               mountPath: /var/lib/postgresql/data
+              subPath: pgdata
             - name: initdb
               mountPath: /docker-entrypoint-initdb.d
       volumes:
@@ -1328,7 +1348,9 @@ metadata:
 spec:
   type: oci
   interval: 15m
-  url: oci://ghcr.io/openova-io
+  # url is cutover-aware (#5527, cutover_aware_5527.go): public catalog
+  # pre-cutover, Sovereign-local Harbor once the step-07 fact is stamped.
+  url: %s
   secretRef:
     name: ghcr-pull
 ---
@@ -1403,6 +1425,7 @@ spec:
 `,
 		side, side, side, opt.replicaRegion, // header comment
 		hrName, hrNamespace, // HelmRepository name/ns
+		catalogOCIBase(), // cutover-aware OCI base (#5527)
 		hrName, hrNamespace, side, releaseName, ns, kubeConfigBlock, // HR metadata + spec head
 		hrName, hrNamespace, // sourceRef name/ns
 		side,                                                              // cnpgPair.side

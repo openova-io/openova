@@ -1556,25 +1556,41 @@ echo "[cutover-contract] Case 39: Step-03 Phase A container-image skopeo copy ca
 # list digest, so the FULL manifest list + ALL arch sub-manifests + blobs MUST land.
 # Phase A (container images) MUST carry --multi-arch all; Phase A2 (helm chart OCI =
 # a SINGLE manifest, never a list) MUST NOT — leave chart-artifact copies alone.
+#
+# #5468 reshaped WHERE Phase A's flag comes from, without changing WHAT it is.
+# The Phase A copy no longer hardcodes the flag on the skopeo line; it asks
+# prewarm_multiarch_flags, whose DEFAULT is `--multi-arch all` and whose only
+# other answer is the narrow per-image single-platform exception (one malformed
+# upstream index — see tests/single-platform-copy.sh, which proves the branch
+# behaviourally in both directions). So this case now asserts three things:
+# the Phase A copy still routes through the multi-arch decision, that
+# decision's DEFAULT is still `--multi-arch all`, and the flag still did not
+# get sprinkled onto the Phase A2 chart-OCI copy.
 awk '/cutover-step-03-harbor-prewarm/{c=1} c{print} c&&/cutover-order: "4"/{exit}' "$TMP/render.yaml" > "$TMP/prewarm_ma_block.txt"
 [ -s "$TMP/prewarm_ma_block.txt" ] || cp "$TMP/render.yaml" "$TMP/prewarm_ma_block.txt"
-# Match the flag LINE (not the explanatory comment that also names the flag).
-if ! grep -Eq '^[[:space:]]*--multi-arch all \\$' "$TMP/prewarm_ma_block.txt"; then
-  echo "FAIL: Step-03 Phase A skopeo copy is missing --multi-arch all — a manifest-list image uploads only a single-arch manifest and Harbor rejects it 'digest invalid', fail-closing step-03 (#4975)" >&2
+# (a) The Phase A container-image copy routes through the multi-arch decision.
+if ! awk '/prewarm_skopeo_copy\(\) \{/,/^[[:space:]]*\}[[:space:]]*$/' "$TMP/prewarm_ma_block.txt" | grep -q 'prewarm_multiarch_flags'; then
+  echo "FAIL: Step-03 prewarm_skopeo_copy() does not consult prewarm_multiarch_flags — the Phase A container-image copy no longer makes a multi-arch decision at all, so a manifest-list image uploads only a single-arch manifest and Harbor rejects it 'digest invalid' (#4975 #5468)" >&2
   exit 1
 fi
-# EXACTLY TWO copies carry it: the Phase A container-image copy AND the Phase A4
-# xpkg package warm (#5204 — upbound provider packages are multi-arch manifest
-# LISTS too; the warm must pull EVERY arch sub-manifest + blobs through so the
-# proxy-cache holds the complete list). The Phase A2 chart-OCI copy (a single
-# manifest, never a list) is left alone, so the flag-line count is exactly 2 —
-# this also proves the flag did not get sprinkled onto the chart copy.
+# (b) That decision's DEFAULT is --multi-arch all. If this fallback is ever
+# narrowed, EVERY list-digest-addressed image regresses to hw239.
+if ! grep -Eq "printf -- '--multi-arch all'" "$TMP/prewarm_ma_block.txt"; then
+  echo "FAIL: prewarm_multiarch_flags no longer defaults to --multi-arch all — narrowing the GLOBAL default is the #4975 hw239 regression (all 8 multi-arch images FAILED 'digest invalid'). Single-platform is only ever a per-image exception (#5468)" >&2
+  exit 1
+fi
+# (c) EXACTLY ONE literal flag line remains: the Phase A4 xpkg package warm
+# (#5204 — upbound provider packages are multi-arch manifest LISTS too; the
+# warm must pull EVERY arch sub-manifest + blobs through so the proxy-cache
+# holds the complete list). The Phase A2 chart-OCI copy (a single manifest,
+# never a list) is left alone, so the literal-flag-line count is exactly 1 —
+# this still proves the flag did not get sprinkled onto the chart copy.
 ma_lines=$(grep -Ec '^[[:space:]]*--multi-arch all \\$' "$TMP/prewarm_ma_block.txt" || true)
-if [ "${ma_lines}" -ne 2 ]; then
-  echo "FAIL: Step-03 has ${ma_lines} --multi-arch all flag line(s), expected exactly 2 (the Phase A container-image copy + the Phase A4 xpkg warm #5204). The Phase A2 helm-chart-OCI copy must NOT carry it — chart artifacts are single manifests, not lists (#4975)" >&2
+if [ "${ma_lines}" -ne 1 ]; then
+  echo "FAIL: Step-03 has ${ma_lines} literal --multi-arch all flag line(s), expected exactly 1 (the Phase A4 xpkg warm #5204). The Phase A container-image copy takes its flags from prewarm_multiarch_flags (#5468) and the Phase A2 helm-chart-OCI copy must NOT carry it — chart artifacts are single manifests, not lists (#4975)" >&2
   exit 1
 fi
-echo "  PASS (Step-03 Phase A container-image copy uses --multi-arch all; Phase A2 chart-OCI copy left single-manifest)"
+echo "  PASS (Phase A copy routes through prewarm_multiarch_flags, whose default is --multi-arch all; Phase A4 xpkg warm keeps its literal flag; Phase A2 chart-OCI copy left single-manifest)"
 
 echo "[cutover-contract] Case 40: cutover step + resolver ConfigMaps re-render on helm upgrade (NO resource-policy: keep); only the status ConfigMap keeps (#4982 Finding A, Refs #3379)"
 # #4982 Finding A: a cutover-step / resolver ConfigMap that carries
@@ -2650,7 +2666,9 @@ if grep -qF 'cutover-registry-pin.override' "$TMP/s03pin.yaml"; then
 fi
 # (c2) the pin is invoked BEFORE the public-dest readiness probe (the probe is the
 #      CoreDNS-reload sync-confirm; a push must never race an unpinned registry.<fqdn>).
-_pin_ln=$(grep -n '            install_coredns_registry_pin$' "$TMP/s03pin.yaml" | tail -1 | cut -d: -f1)
+# #5593: indent-agnostic — the script moved from inline args (12-space) to the
+# run.sh CM key (4-space); match the bare invocation line at any indentation.
+_pin_ln=$(grep -nE '^[[:space:]]+install_coredns_registry_pin$' "$TMP/s03pin.yaml" | tail -1 | cut -d: -f1)
 _probe_ln=$(grep -n 'public-dest readiness probe' "$TMP/s03pin.yaml" | head -1 | cut -d: -f1)
 if [ -z "$_pin_ln" ] || [ -z "$_probe_ln" ] || [ "$_pin_ln" -ge "$_probe_ln" ]; then
   echo "FAIL: step-03 install_coredns_registry_pin is not invoked BEFORE the public-dest readiness probe (pin@${_pin_ln:-none} probe@${_probe_ln:-none}) — a push could race an unpinned registry.<fqdn> (#5007)" >&2
@@ -3456,15 +3474,17 @@ if ! grep -qF 'failed to push — Sovereign cannot survive ghcr.io deny-egress p
   exit 1
 fi
 echo "  PASS (#5095 round 2: step-03 probes the mothership proxy once [bounded, values-knobbed, never fatal], latches .proxy_down when unreachable, then tries the DIRECT upstream first for proxy-sourced refs — gated on the toggle + latch, probe skipped on an all-ghcr wave, adaptive latch on the proxy-bad/direct-good signal — eliminating the per-image proxy timeout tax while keeping the round-1 after-failure fallback + the Phase A FATAL intact)"
-echo "[cutover-contract] Case 70: #5265 post-cutover Day-2 Harbor pin reconciler — a Deployment (NOT CronJob), ABSENT by default, sharing the 03b extractor; detect-only reaches only local Gitea+Harbor, warm helm-pulls+pushes"
+echo "[cutover-contract] Case 70: #5265/#5640 post-cutover Day-2 local-Harbor reconciler — a Deployment (NOT CronJob), PRESENT by default in zero-egress detect mode, sharing the 03b extractor; warm helm-pulls+pushes"
 # The reconciler closes the Day-2 Harbor leg: after cutover the local Gitea
 # mirror re-syncs upstream pin bumps and Flux moves the HR to the new pin, but
 # local Harbor still holds only the cutover-time versions → the HR upgrade
-# wedges (LIVE hw277 bp-continuum 0.1.12). It ships DISABLED (severance-safe,
-# like mirrorResync) and — when opted in — enumerates the frozen bootstrap-kit
-# pins via the SAME 03b extractor step-03/step-06 use, diffs local Harbor, and
-# reports (detect) or warms (warm) the drift. Region-kill canon mandates a
-# Deployment, not a CronJob.
+# wedges (LIVE hw277 bp-continuum 0.1.12). #5640 flipped it ON by default: the
+# severance-safe property is "no upstream egress by default", which detect mode
+# holds literally, and shipping it OFF left the post-cutover delivery gap as
+# silent as the issue describes. When enabled it enumerates the frozen
+# bootstrap-kit pins via the SAME 03b extractor step-03/step-06 use, diffs local
+# Harbor, and reports (detect) or warms (warm) the drift. Region-kill canon
+# mandates a Deployment, not a CronJob.
 # NOTE (#4969 SIGPIPE trap — see Case 16c): the suite runs under
 # `set -o pipefail`, so NEVER `... | grep -q` here — grep -q closes the pipe on
 # its first match, the upstream awk/grep takes EPIPE and the pipeline exits
@@ -3472,9 +3492,15 @@ echo "[cutover-contract] Case 70: #5265 post-cutover Day-2 Harbor pin reconciler
 # has no upstream writer to SIGPIPE); the doc blocks are captured to files via
 # an RS-split awk FIRST.
 c70_fail=0
-# (a) ABSENT by default (enabled=false) — no automatic tether on a canonical prov.
-if grep -q 'cutover-daytwo-harbor-reconciler' "$TMP/render.yaml"; then
-  echo "FAIL: Day-2 Harbor reconciler rendered by default — it MUST be off unless daytwoReconciler.enabled=true (severance-safe default; #5265)" >&2
+# (a) PRESENT by default (#5640) — the signal must exist on a canonical prov…
+if ! grep -q 'cutover-daytwo-harbor-reconciler' "$TMP/render.yaml"; then
+  echo "FAIL: Day-2 local-Harbor reconciler ABSENT from the default render — #5640 requires it on by default so a post-cutover Sovereign reports its own missing artifacts instead of failing silently" >&2
+  c70_fail=1
+fi
+# …and the operator can still render NOTHING at all.
+helm template smoke-daytwo-off . --set daytwoReconciler.enabled=false > "$TMP/render-daytwo-off.yaml"
+if grep -q 'cutover-daytwo-harbor-reconciler' "$TMP/render-daytwo-off.yaml"; then
+  echo "FAIL: daytwoReconciler.enabled=false still renders the reconciler — the master switch is inert (#5265)" >&2
   c70_fail=1
 fi
 # Render an enabled (detect, default) variant + an enabled warm variant.
@@ -3534,11 +3560,18 @@ if ! grep -q 'MISSING_MANIFEST_CM' "$DT_F"; then
   echo "FAIL: Day-2 reconciler does not publish the missing-artifact manifest ConfigMap (the air-gap offline-media list + the actionable signal) (#5265)" >&2
   c70_fail=1
 fi
-# (g) DETECT is the default mode when enabled (the zero-egress posture). Capture
-#     the RECONCILE_MODE env pair to a file (no pipe) then assert its value.
+# (g) The default mode must make ZERO external egress in steady state. #5640
+#     round 2 moved the default from `detect` to `request`, which is detect's
+#     behaviour exactly until an operator files a one-shot delivery request —
+#     so the zero-egress-by-default property is preserved while a delivery path
+#     exists. `warm` (the always-on mirror) must NEVER be the default.
 grep -A1 'name: RECONCILE_MODE' "$DT_F" > "$TMP/dt-mode.txt" || true
-if ! grep -q 'value: "detect"' "$TMP/dt-mode.txt"; then
-  echo "FAIL: Day-2 reconciler default mode is not detect — the zero-egress mode MUST be the default when enabled (#5265)" >&2
+if ! grep -qE 'value: "(detect|request)"' "$TMP/dt-mode.txt"; then
+  echo "FAIL: Day-2 reconciler default mode is neither detect nor request — the default MUST be a mode that makes zero external egress in steady state (#5265 #5640)" >&2
+  c70_fail=1
+fi
+if grep -q 'value: "warm"' "$TMP/dt-mode.txt"; then
+  echo "FAIL: Day-2 reconciler defaults to warm — an ALWAYS-ON upstream mirror is a standing outbound tether and can never be the default posture (#5640 Refs Principle #11)" >&2
   c70_fail=1
 fi
 # (h) WARM mode contains the helm pull upstream + helm push local, gated behind mode=warm.
@@ -3555,14 +3588,97 @@ if ! grep -q 'helm push' "$DT_W"; then
   echo "FAIL: warm mode reconciler does not helm-push local (#5265)" >&2
   c70_fail=1
 fi
-# The warm helm pull/push must be RUNTIME-gated on mode=warm, not always-on
-# (the script branches `if [ "${RECONCILE_MODE}" = "warm" ]`).
-if ! grep -q '"${RECONCILE_MODE}" = "warm"' "$DT_W"; then
-  echo "FAIL: the warm upstream pull is not runtime-gated on mode=warm — detect must never reach upstream (#5265)" >&2
+# Every upstream fetch must be RUNTIME-gated by ONE decision function, so there
+# is a single place where "may this cycle reach upstream" is answered. Before
+# #5640 round 2 each call site carried its own `[ "${RECONCILE_MODE}" = "warm" ]`
+# literal, which is how the operator-gated mode could have been added to one
+# call site and forgotten at another.
+if ! grep -q 'daytwo_delivery_allowed()' "$DT_W"; then
+  echo "FAIL: the Day-2 reconciler has no daytwo_delivery_allowed() gate — every upstream fetch must sit behind ONE decision function, not a per-call-site mode literal (#5640)" >&2
+  c70_fail=1
+fi
+# That function must FAIL CLOSED: only warm and an in-scope request may pass, and
+# any other RECONCILE_MODE value (including a typo) falls through to closed.
+if ! grep -qF 'request) daytwo_in_scope "$1" "$2" "$3" && return 0; return 1 ;;' "$DT_W"; then
+  echo "FAIL: daytwo_delivery_allowed does not require an in-scope request in request mode — the delivery window would not be scope-bounded (#5640)" >&2
+  c70_fail=1
+fi
+if ! grep -qF '*) return 1 ;;' "$DT_W"; then
+  echo "FAIL: daytwo_delivery_allowed has no closed default branch — an unrecognised RECONCILE_MODE would fail OPEN (#5640)" >&2
+  c70_fail=1
+fi
+if ! grep -q 'warm_chart "${_c}" "${_v}"' "$DT_W"; then
+  echo "FAIL: the chart leg no longer routes its upstream pull through warm_chart (#5265)" >&2
+  c70_fail=1
+fi
+# The upstream `helm registry login` is itself egress, so it must be LAZY — never
+# performed at container start, where detect/request would dial upstream before
+# any delivery decision was made.
+if ! grep -q 'daytwo_helm_login_once' "$DT_W"; then
+  echo "FAIL: the upstream helm registry login is not deferred into daytwo_helm_login_once — a start-up login dials upstream before any delivery decision, breaking the zero-egress contract of detect/request (#5640)" >&2
+  c70_fail=1
+fi
+# (i) #5640 round 2 — the operator-gated delivery contract, asserted on the
+#     DEFAULT render (the posture a fresh prov actually gets).
+for c70_env in REQUEST_CM DELIVERY_AUDIT_CM REQUEST_MAX_REFS; do
+  if ! grep -qF "name: ${c70_env}" "$DT_F"; then
+    echo "FAIL: Day-2 reconciler does not project ${c70_env} — the operator-gated delivery path cannot be configured (#5640)" >&2
+    c70_fail=1
+  fi
+done
+# One-shot: consumption is recorded in the AUDIT ConfigMap, so re-applying the
+# same request cannot re-open the window and a Pod restart cannot forget it.
+if ! grep -q 'lastConsumedRequestId' "$DT_F"; then
+  echo "FAIL: the delivery request is not consumed durably (no lastConsumedRequestId) — the same request would re-fire every cycle, which IS the always-on mirror this mode exists to avoid (#5640)" >&2
+  c70_fail=1
+fi
+# Audited: every attempt records who asked, for what, and what happened.
+if ! grep -q 'daytwo_audit ' "$DT_F"; then
+  echo "FAIL: delivery attempts are not written to the durable audit trail (#5640)" >&2
+  c70_fail=1
+fi
+# Bounded: an over-size scope is REFUSED, never truncated.
+if ! grep -qF 'REFUSING rather than truncating' "$DT_F"; then
+  echo "FAIL: an over-size delivery scope is not refused — silent truncation turns a bounded window into an unbounded one nobody notices (#5640)" >&2
+  c70_fail=1
+fi
+# (j) #5640 round 2 — the FAIL-CLOSED readiness surface. A missing pin must be a
+#     visible NOT-READY Deployment, not a log line plus a ConfigMap nobody reads.
+if ! grep -q 'readinessProbe' "$DT_F"; then
+  echo "FAIL: the Day-2 reconciler has no readinessProbe — a Sovereign holding an unpullable pin would stay silently 1/1 READY, which is the #5640 silent freeze restored" >&2
+  c70_fail=1
+fi
+if ! grep -qF 'grep -qx READY /tmp/daytwo-work/health' "$DT_F"; then
+  echo "FAIL: the readinessProbe does not read the health verdict the loop writes — it would report readiness of something other than the measured cycle outcome (#5640)" >&2
+  c70_fail=1
+fi
+if ! grep -qF 'echo "NOTREADY no-cycle-completed-yet" > "${HEALTH_FILE}"' "$DT_F"; then
+  echo "FAIL: the health file is not seeded NOT-READY — before the first cycle the probe would read a missing file rather than an explicit not-ready verdict (#5640)" >&2
+  c70_fail=1
+fi
+if ! grep -qF 'unpullable-pins=$((CHART_MISS + IMAGE_MISS))' "$DT_F"; then
+  echo "FAIL: the readiness verdict is not computed from the MEASURED missing count — a probe that does not read the measurement is a knob, not a gate (#5640)" >&2
+  c70_fail=1
+fi
+# Anchored on the rendered YAML key, not the substring: the template's own
+# comment explains WHY there is no liveness probe and would false-positive here.
+if grep -qE '^[[:space:]]+livenessProbe:' "$DT_F"; then
+  echo "FAIL: the Day-2 reconciler carries a livenessProbe — a Sovereign missing an image must go NOT-READY, never restart-loop (#5640)" >&2
+  c70_fail=1
+fi
+# (k) #5640 round 2 — the copy must INVERT a step-07-pivoted ref before using it
+#     as a source. Without this the delivery path is a local->local self-copy for
+#     the exact hw292 shape and can never deliver anything.
+if ! grep -q 'offlinemirror_upstream_ref' "$DT_W"; then
+  echo "FAIL: the Day-2 image delivery never calls offlinemirror_upstream_ref — post-cutover every enumerated ref is already registry.<fqdn>/... (step-07 podspec sweep), so the copy would ask skopeo to copy the local registry to ITSELF (#5640)" >&2
+  c70_fail=1
+fi
+if ! grep -qF 'source and destination are the SAME registry' "$DT_W"; then
+  echo "FAIL: the Day-2 image delivery has no same-registry refusal — a self-copy would be reported as a copy failure rather than as an unknown upstream (#5640)" >&2
   c70_fail=1
 fi
 if [ "$c70_fail" -ne 0 ]; then exit 1; fi
-echo "  PASS (#5265: Day-2 Harbor pin reconciler is a Deployment [region-kill canon], absent by default [severance-safe], reuses the 03b bootstrapkit_pins extractor + the durable artifact-API probe, publishes the offline-media missing manifest, defaults to zero-egress detect mode, and gates the upstream helm-pull/push behind opt-in warm mode; step count unchanged at 11)"
+echo "  PASS (#5265/#5640: Day-2 local-Harbor reconciler is a Deployment [region-kill canon], PRESENT by default with enabled=false still rendering nothing, reuses the 03b bootstrapkit_pins extractor + the durable artifact-API probe, publishes the offline-media missing manifest, defaults to a zero-egress-in-steady-state mode and never to warm, routes EVERY upstream fetch through one fail-closed daytwo_delivery_allowed gate with a lazy upstream login, carries the one-shot/audited/bounded operator-gated delivery contract, inverts a step-07-pivoted ref before copying and refuses a same-registry self-copy, and exposes the measured missing count as a fail-closed readinessProbe with no livenessProbe; step count unchanged at 11)"
 
 echo "[cutover-contract] Case 71: #5359 secondary-region legs — steps 05/06/08 mount the optional cutover-secondary-kubeconfigs Secret and run fail-loud region-B pivot/hold legs; single-region renders inert; step count stays 11"
 # hw288 (dep 027f07559af1f9f7): cc=true with region-B still on github/ghcr/quay
@@ -3604,8 +3720,16 @@ if ! grep -q 'SECONDARY_GITREPO_READY_SECONDS' "$S05"; then
   echo "FAIL: step-05 leg has no bounded secondary GitRepository Ready wait (#5359)" >&2
   c71_fail=1
 fi
-if ! grep -q 'region-B is still git-tethered' "$S05"; then
-  echo "FAIL: step-05 leg lost its fail-loud secondary-not-Ready FATAL (#5359)" >&2
+# The FATAL's WORDING changed in 0.1.164 (the predicate moved from a stale
+# Ready=True to convergence, and the leg now exhausts a candidate URL chain
+# before giving up), so this asserts the two invariants rather than the old
+# sentence: the branch is reached and it is fatal. Case 76 pins the predicate.
+if ! grep -q 'refusing to succeed (#5359)' "$S05"; then
+  echo "FAIL: step-05 leg lost its fail-loud secondary-not-converged FATAL (#5359)" >&2
+  c71_fail=1
+fi
+if ! grep -q 'region-B is still serving its pre-cutover artifact' "$S05"; then
+  echo "FAIL: step-05's FATAL no longer names the consequence (region-B serving its pre-cutover artifact, reverting every pivoted HelmRepository) — the operator gets a verdict with no diagnosis (#5359)" >&2
   c71_fail=1
 fi
 if ! grep -q 'step.flux-gitrepository-patch.region.' "$S05"; then
@@ -3665,5 +3789,480 @@ if [ "${c71_steps}" -ne 11 ]; then
 fi
 if [ "$c71_fail" -ne 0 ]; then exit 1; fi
 echo "  PASS (#5359: steps 05/06/08 mount cutover-secondary-kubeconfigs optional:true [single-region inert]; step-05 pivots + FAIL-LOUD Ready-waits every secondary GitRepository over the mesh global-Service path; step-06 pivots every secondary HR with a zero-upstream read-back assert + re-syncs the STRIPPED auth bytes post-Phase-3b; step-08 extends the deny-egress hold to every region [region-A manifest inherited + mesh toEndpoints + own-gateway IPs] with teardown + per-region verdicts; step count unchanged at 11)"
+
+# ── Case 72 (#5443): the marketplace's chart set is mirrored + asserted ──────
+# Step-06 pivots `openova-catalog` — the HelmRepository every per-Org
+# Application HelmRelease resolves through — onto local Harbor, but step-03's
+# two enumerations (live HelmReleases, frozen bootstrap-kit pins) both derive
+# from what is INSTALLED. The marketplace offers what the CATALOG lists, a
+# strictly larger set: on hw290 (2026-07-27) 14 of 29 `visibility: listed`
+# entries resolved against the pivoted registry and 15 returned 404, with no
+# proxy-cache fallback. The sibling guardrail exercises the 03c library against
+# fixtures AND asserts step-03 + RBAC actually wire it.
+echo "[cutover-contract] Case 72: catalog chart-set mirror + guard (#5443)"
+CATSET="${SCRIPT_DIR}/catalog-chart-set.sh"
+if [ ! -f "${CATSET}" ]; then
+  echo "FAIL: catalog-chart-set.sh guardrail missing (#5443)" >&2
+  exit 1
+fi
+if ! bash "${CATSET}" "$(pwd)" >/dev/null 2>&1; then
+  echo "FAIL: catalog chart-set guardrail red — run tests/catalog-chart-set.sh for the offender (#5443)" >&2
+  bash "${CATSET}" "$(pwd)" >&2 || true
+  exit 1
+fi
+echo "  PASS (03c library derives the catalog chart set + HARD/SOFT split, the guard names exactly the unservable contractual entries, chart-rendered image enumeration works, and step-03 + RBAC wire all of it)"
+
+# ── Case 73 (#5525, Refs #5442 #5095): step-03 rides out a scarf.sh/Docker-Hub
+# anonymous rate limit — mothership fallback for scarf hosts, toomanyrequests
+# host latch, and a FATAL gate that keys on durable_miss/unmapped ONLY ────────
+# hw291 (dep 2c2d746b578c636b, 2026-07-30): 4 litmuschaos.docker.scarf.sh refs
+# cycled 4 pod attempts over ~60 min on `toomanyrequests` — the #5095 fallback
+# never engaged (it fires only for mothership-SOURCED refs) while
+# harbor.openova.io/proxy-dockerhub served the SAME artifacts anonymously the
+# whole time; each retry wave itself kept the per-IP quota window exhausted;
+# and a LATER attempt printed `Phase A3-guard (#5442): PASS ... durable_miss=0`
+# immediately followed by `FATAL ... copy_fail=4` — the gate contradicting its
+# own authoritative durability sweep.
+echo "[cutover-contract] Case 73: step-03 scarf.sh mothership fallback + toomanyrequests host latch + A3 FATAL keys on durable_miss/unmapped only (#5525)"
+[ -s "$TMP/s03pin.yaml" ] || awk '/name: cutover-step-03-harbor-prewarm/{c=1} /name: cutover-step-04-registry-pivot/{c=0} c' "$TMP/render.yaml" > "$TMP/s03pin.yaml"
+# (a) LEG 1 — scarf hosts derive a mothership-proxy fallback via the FORWARD
+#     coverage-map lookup (no second hand-list), and the proxy-DOWN
+#     direct-first short-circuit is gated on proxy_src so a .proxy_down latch
+#     never reorders a scarf ref onto the dead proxy first.
+if ! grep -qF '*.docker.scarf.sh)' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 copy_one has no *.docker.scarf.sh source arm — scarf-sourced refs keep hammering the anonymous Docker Hub path with no mothership fallback (#5525)" >&2
+  exit 1
+fi
+if ! grep -qF 'fb_up="${MOTHERSHIP_HOST}/${_fb_proj}/${up#*/}"' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 scarf fallback is not derived as \${MOTHERSHIP_HOST}/<project>/<path> via the forward coverage-map lookup — either a second hand-list exists or the fallback is absent (#5525)" >&2
+  exit 1
+fi
+if ! grep -qF 'scarf.sh redirector source' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 does not log the scarf mothership-proxy fallback availability — a silent source pivot hides the rate-limit degradation from the operator (#5525)" >&2
+  exit 1
+fi
+if ! grep -qF '[ "${proxy_src}" -eq 1 ] && [ -n "${fb_up}" ] && [ "${PROXY_DIRECT_FIRST_ENABLED:-true}" = "true" ]' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 direct-first short-circuit is not gated on proxy_src — a .proxy_down latch would route a scarf ref to the DEAD mothership proxy FIRST (#5525)" >&2
+  exit 1
+fi
+# (b) LEG 2 — a toomanyrequests reply latches the source host (offset-bounded
+#     sniff of the leg's OWN log region), latched primaries are skipped
+#     straight to the fallback, and the latch carries into the A3 wave.
+if ! grep -qF 'tail -c +"$((_pc_off+1))"' "$TMP/s03pin.yaml" || ! grep -qF "grep -qi 'toomanyrequests'" "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 prewarm_skopeo_copy does not sniff its own log region for toomanyrequests — rate-limited hosts are never latched and every retry re-arms the quota window (#5525)" >&2
+  exit 1
+fi
+if ! grep -qF 'touch "${cpdir}/.ratelimited.$(rl_slug "${_pc_h}")"' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 never latches .ratelimited.<host> — the short-circuit has no signal to key on (#5525)" >&2
+  exit 1
+fi
+if ! grep -qF 'skip rate-limited primary' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 copy_one never skips a rate-limit-latched primary source — remaining attempts keep burning the exhausted window instead of going straight to the fallback (#5525)" >&2
+  exit 1
+fi
+if ! grep -qF 'cp "${_rl_f}" "${cat_cpdir}/"' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 does not carry the .ratelimited.* latches into the Phase A3 chart-image wave — a host exhausted during Phase A gets re-hammered by A3 (#5525)" >&2
+  exit 1
+fi
+# (c) LEG 3 — the dest-presence rescue: a failed copy whose SOURCE manifest is
+#     unreadable consults harbor_durable_digest on the DEST before counting a
+#     failure.
+if ! grep -qF '[ -z "${_rs_raw}" ] && [ -n "$(harbor_durable_digest "${lref}")" ]' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 copy_one has no dest-presence rescue — a rate-limited source still fails an image the local registry already serves (#5525)" >&2
+  exit 1
+fi
+if ! grep -qF 'WARN source unreadable + dest durably present' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 dest-presence rescue is silent — the freshness-unverified degrade must be a LOUD WARN in the per-image log (#5525)" >&2
+  exit 1
+fi
+# (d) LEG 3 — the A3 FATAL condition keys on { durable_miss>0 || unmapped }
+#     ONLY, proven BOTH DIRECTIONS by EXECUTING the exact rendered condition:
+#     the two physical lines of the `if` are extracted from the render,
+#     reassembled, and run under sh with scenario env — so this cannot pass on
+#     a re-worded-but-equivalent-to-the-old gate, and cannot pass vacuously on
+#     an empty extraction.
+grep -A1 -F 'if [ "${PREWARM_CHART_IMAGES_FATAL}" = "true" ]' "$TMP/s03pin.yaml" > "$TMP/a3gate.txt" || true
+if [ ! -s "$TMP/a3gate.txt" ]; then
+  echo "FAIL: cannot extract the A3 FATAL condition from the render — the PREWARM_CHART_IMAGES_FATAL gate is gone entirely (#5525 vacuity check)" >&2
+  exit 1
+fi
+a3cond=$(sed -e 's/^ *//' -e 's/ \\$//' "$TMP/a3gate.txt" | tr '\n' ' ' | sed -e 's/^if //' -e 's/; then *$//')
+# Direction 1 (the hw291 self-contradiction): copy_fail>0 with durable_miss=0
+# and no unmapped host must NOT fatal.
+if ! PREWARM_CHART_IMAGES_FATAL=true cat_img_fail=4 img_missing_n=0 cat_img_unmapped="" \
+     sh -c "if ${a3cond}; then exit 1; else exit 0; fi"; then
+  echo "FAIL: the A3 gate still FATALs on copy_fail=4 durable_miss=0 unmapped=0 — the gate contradicts its own durability sweep exactly as on hw291 attempt 1785396281 (#5525)" >&2
+  exit 1
+fi
+# Direction 2a: a durable miss MUST still fatal.
+if ! PREWARM_CHART_IMAGES_FATAL=true cat_img_fail=0 img_missing_n=1 cat_img_unmapped="" \
+     sh -c "if ${a3cond}; then exit 0; else exit 1; fi"; then
+  echo "FAIL: the A3 gate no longer FATALs on durable_miss=1 — the #5442 sovereignty guarantee was waived, not re-keyed (#5525)" >&2
+  exit 1
+fi
+# Direction 2b: an unmapped host MUST still fatal.
+if ! PREWARM_CHART_IMAGES_FATAL=true cat_img_fail=0 img_missing_n=0 cat_img_unmapped=" host(ref)" \
+     sh -c "if ${a3cond}; then exit 0; else exit 1; fi"; then
+  echo "FAIL: the A3 gate no longer FATALs on an unmapped registry host — an uncoverable image would surface as ImagePullBackOff mid deny-egress hold instead of failing loud here (#5525)" >&2
+  exit 1
+fi
+# Direction 2c: the fatal=false override still disarms the gate.
+if ! PREWARM_CHART_IMAGES_FATAL=false cat_img_fail=0 img_missing_n=1 cat_img_unmapped="" \
+     sh -c "if ${a3cond}; then exit 1; else exit 0; fi"; then
+  echo "FAIL: prewarm.chartImages.fatal=false no longer disarms the A3 gate (#5525)" >&2
+  exit 1
+fi
+# The copy-fail-only shape must degrade to a LOUD WARN naming the refs.
+if ! grep -qF 'WARN-COPY-FAIL' "$TMP/s03pin.yaml"; then
+  echo "FAIL: the copy_fail-with-durable_miss=0 shape has no loud WARN naming the failed refs — degrading the FATAL must not degrade the visibility (#5525)" >&2
+  exit 1
+fi
+# (e) untouched guarantees: Phase A's push_fail FATAL + the A3 durability sweep.
+if ! grep -qF 'failed to push — Sovereign cannot survive ghcr.io deny-egress post-cutover' "$TMP/s03pin.yaml"; then
+  echo "FAIL: step-03 Phase A lost the push_fail>0 FATAL — #5525 re-keys the A3 gate only, never the Phase A completeness guarantee (#5525)" >&2
+  exit 1
+fi
+if ! grep -qF 'Phase A3-guard (#5442)' "$TMP/s03pin.yaml"; then
+  echo "FAIL: the A3-guard durability sweep is gone — the re-keyed FATAL has lost its authoritative input (#5525)" >&2
+  exit 1
+fi
+echo "  PASS (#5525: scarf hosts fall back to the mothership proxy via the forward map lookup [direct-first stays proxy_src-gated], toomanyrequests latches the host + skips latched primaries + carries into A3, the dest-presence rescue keeps a durably-present image, and the A3 FATAL — executed both directions from the rendered condition — keys on durable_miss/unmapped only with the copy-fail shape a loud WARN)"
+
+# ── Case 74 (#5527, Refs #3379 #5529): step-07 Phase 3d stamps the per-Org
+# GitOps tree generator (org-services/provisioning) with the local OCI base ──
+# hw291 (2026-07-30): the org-tenant generators hardcoded oci://ghcr.io/
+# openova-io, so the git source Flux asserts from re-tethered every step-06
+# object pivot (step-08 OFFENDER wedge) and any post-cutover org mutation
+# silently reverted the pivot. PR #5529 fixed the catalyst-api writer via the
+# step-07 issuer stamp it already receives; the provisioning Deployment gets
+# NO such stamp, so its cutover-aware emitters (core/services/provisioning/
+# gitops/cutover_aware_5527.go) key on CATALYST_LOCAL_REGISTRY_URL — which
+# THIS phase must stamp, read-back-assert (FATAL when the Deployment exists),
+# and SKIP loudly when the marketplace tier is absent.
+echo "[cutover-contract] Case 74: step-07 Phase 3d stamps CATALYST_LOCAL_REGISTRY_URL on the per-Org provisioning Deployment (#5527)"
+awk '/name: cutover-step-07-catalyst-api-env-patch/{c=1} /name: cutover-step-08-egress-block-test/{c=0} c' "$TMP/render.yaml" > "$TMP/s07.yaml"
+if [ ! -s "$TMP/s07.yaml" ]; then
+  echo "FAIL: cannot extract the step-07 ConfigMap from the render (#5527 vacuity check)" >&2
+  exit 1
+fi
+# (a) the target inputs are values-driven (Inviolable Principle #4), rendered
+#     with the org-services defaults.
+if ! grep -qF 'ORG_PROVISIONING_DEPLOYMENT' "$TMP/s07.yaml" || ! grep -qF 'value: "provisioning"' "$TMP/s07.yaml" || ! grep -qF 'value: "org-services"' "$TMP/s07.yaml"; then
+  echo "FAIL: step-07 lacks the ORG_PROVISIONING_DEPLOYMENT/NAMESPACE inputs (defaults provisioning/org-services) — Phase 3d has no target (#5527)" >&2
+  exit 1
+fi
+# (b) the stamp itself + the read-back FATAL + the loud SKIP branch.
+if ! grep -qF '"CATALYST_LOCAL_REGISTRY_URL=${LOCAL_OCI_BASE}"' "$TMP/s07.yaml"; then
+  echo "FAIL: step-07 never stamps CATALYST_LOCAL_REGISTRY_URL on the provisioning Deployment — the next org mutation post-cutover re-emits ghcr and re-tethers the Sovereign (#5527)" >&2
+  exit 1
+fi
+if ! grep -qF "the per-Org generator would re-emit ghcr on the next org mutation" "$TMP/s07.yaml"; then
+  echo "FAIL: step-07 Phase 3d has no read-back FATAL — a failed stamp on an existing Deployment would fail open into the exact #5527 defect" >&2
+  exit 1
+fi
+if ! grep -qF 'Phase 3d SKIP' "$TMP/s07.yaml"; then
+  echo "FAIL: step-07 Phase 3d has no explicit Deployment-absent SKIP — a Sovereign without the marketplace tier would FATAL on a workload it does not run (#5527)" >&2
+  exit 1
+fi
+# (c) EXECUTE the rendered derivation line both directions so a re-worded but
+#     broken sed cannot pass: https scheme + trailing slash must normalise to
+#     oci://<host>/openova-io, and a bare host must pass through unchanged.
+d74=$(grep -F 'LOCAL_OCI_BASE="oci://' "$TMP/s07.yaml" | head -1 | sed 's/^ *//')
+if [ -z "$d74" ]; then
+  echo "FAIL: cannot extract the LOCAL_OCI_BASE derivation from the step-07 render (#5527 vacuity check)" >&2
+  exit 1
+fi
+got74=$(HARBOR_PUBLIC_URL="https://registry.t90.omani.works/" sh -c "$d74; printf '%s' \"\$LOCAL_OCI_BASE\"")
+if [ "$got74" != "oci://registry.t90.omani.works/openova-io" ]; then
+  echo "FAIL: rendered derivation maps https://registry.t90.omani.works/ -> '$got74', want oci://registry.t90.omani.works/openova-io — the stamp would diverge from the value shape step-06 patches the live objects to (#5527)" >&2
+  exit 1
+fi
+got74b=$(HARBOR_PUBLIC_URL="registry.t91.omantel.biz" sh -c "$d74; printf '%s' \"\$LOCAL_OCI_BASE\"")
+if [ "$got74b" != "oci://registry.t91.omantel.biz/openova-io" ]; then
+  echo "FAIL: rendered derivation maps a scheme-less host to '$got74b', want oci://registry.t91.omantel.biz/openova-io (#5527)" >&2
+  exit 1
+fi
+echo "  PASS (#5527: Phase 3d present with values-driven target, executed derivation matches the step-06 value shape both input forms, read-back FATAL on an existing Deployment, loud SKIP when the marketplace tier is absent)"
+# ── Case 75 (#5640): the Day-2 reconciler's IMAGE leg — post-cutover delivery of
+# tags published AFTER step-03 ran ───────────────────────────────────────────
+# LIVE hw292 2026-08-03 (dep 1c56518035a83e03, cutoverComplete=true): deploy-bot
+# pinned catalyst images to d674a94, GHCR carried the tag, main was green — and
+#   curl -sk -u admin:*** https://registry.<fqdn>/v2/openova-io/openova/catalyst-ui/tags/list
+#   -> {"tags":["fad88bd"]}      d674a94 -> 404   fad88bd -> 200 (CONTROL)
+# with the Pod on d674a94 in ImagePullBackOff. step-03 mirrors the catalog AS OF
+# cutover; nothing mirrored anything published afterwards. The #5265 Day-2 loop
+# covered CHART pins only. This case pins the IMAGE leg's contract: it must reuse
+# the shared 03a resolver (never fork the host→project map), enumerate the
+# DECLARED workload templates (the hw292 offender had no running container), use
+# the SAME skopeo copy + #5095/#5525 fallbacks step-03/step-08 run, keep every
+# upstream reach behind mode=warm, and never report a broken read as an all-clear.
+echo "[cutover-contract] Case 75: #5640 Day-2 IMAGE leg — shared 03a resolver, declared-template enumeration, step-03 skopeo copy + #5095/#5525 fallbacks, warm-gated egress, vacuity-guarded"
+c75_fail=0
+# (a) The shared 03a resolver is MOUNTED and SOURCED — one mapping function for
+#     step-03 (push dest), step-08 (completeness HEAD) and this loop.
+if ! grep -q 'name: cutover-offline-mirror-resolver' "$DT_F"; then
+  echo "FAIL: Day-2 reconciler does not mount the cutover-offline-mirror-resolver ConfigMap (03a) — it would have to fork the host->project map (#5640 Refs #4975)" >&2
+  c75_fail=1
+fi
+if ! grep -q '/offline-mirror/resolver.sh' "$DT_F"; then
+  echo "FAIL: Day-2 reconciler does not source the shared 03a resolver.sh (#5640 Refs #4975)" >&2
+  c75_fail=1
+fi
+if ! grep -q 'offlinemirror_local_paths ' "$DT_F"; then
+  echo "FAIL: Day-2 reconciler never calls offlinemirror_local_paths — it is not deriving local Harbor paths from the shared coverage map (#5640)" >&2
+  c75_fail=1
+fi
+# (b) The coverage-map env is projected from the SAME helpers step-03/04/08 read.
+for c75_env in HOST_PROJECT_MAP EXCLUDED_HOSTS EXCLUDED_SUBSTRINGS LOCAL_REGISTRY_HOST MOTHERSHIP_HOST; do
+  if ! grep -qF "name: ${c75_env}" "$DT_F"; then
+    echo "FAIL: Day-2 reconciler does not project ${c75_env} — the shared resolver cannot run without the coverage-map env (#5640 Refs #4975)" >&2
+    c75_fail=1
+  fi
+done
+# (c) DECLARED workload templates are enumerated, not just running Pods. This is
+#     load-bearing: the hw292 offender was in ImagePullBackOff, i.e. it had NO
+#     running container to enumerate.
+if ! grep -q 'kubectl get deployments,statefulsets,daemonsets -A' "$DT_F"; then
+  echo "FAIL: Day-2 image leg does not enumerate DECLARED workload templates — an ImagePullBackOff workload (the exact hw292 shape) would be invisible (#5640 Refs #3944)" >&2
+  c75_fail=1
+fi
+# (d) Presence is the local-Harbor /v2 manifest probe step-08's completeness gate uses.
+if ! grep -q '/v2/${_mp_repo}/manifests/${_mp_ref}' "$DT_F"; then
+  echo "FAIL: Day-2 image leg does not HEAD the local Harbor /v2 manifest — it is not proving the image is pullable (#5640 Refs #4975)" >&2
+  c75_fail=1
+fi
+# (e) The copy is step-03's skopeo invocation, with BOTH documented fallbacks.
+if ! grep -q 'skopeo --command-timeout' "$DT_W"; then
+  echo "FAIL: Day-2 image warm does not use the bounded skopeo copy step-03/step-08 use (#5640 Refs #3944)" >&2
+  c75_fail=1
+fi
+if ! grep -qF -- '--insecure-policy --multi-arch all --retry-times 5' "$DT_W"; then
+  echo "FAIL: Day-2 image warm does not carry the step-03 skopeo flag set (--insecure-policy --multi-arch all --retry-times 5) — it forked the copy mechanism (#5640 Refs #4975 #5468)" >&2
+  c75_fail=1
+fi
+if ! grep -qF '#5095/#5525' "$DT_W"; then
+  echo "FAIL: Day-2 image warm has no secondary-source fallback leg — the #5095 mothership-proxy->DIRECT and #5525 scarf->proxy paths are not reused (#5640)" >&2
+  c75_fail=1
+fi
+if ! grep -qF '*.docker.scarf.sh' "$DT_W"; then
+  echo "FAIL: Day-2 image warm does not special-case the scarf.sh redirectors — Docker Hub's anonymous quota applies through them (#5640 Refs #5525)" >&2
+  c75_fail=1
+fi
+# (f) SOVEREIGNTY. detect must never download skopeo nor dial upstream: every
+#     egress-bearing call sits behind a mode=warm runtime branch. Assert the
+#     warm-gate is what guards the image copy, not merely present somewhere.
+if ! grep -qF 'if daytwo_delivery_allowed "${_img}" "${_upref}" "${_lp}"; then' "$DT_F"; then
+  echo "FAIL: the Day-2 image copy is not runtime-gated by daytwo_delivery_allowed — detect (and request with no open window) would reach upstream and break the zero-egress contract (#5640 Refs #5265)" >&2
+  c75_fail=1
+fi
+# The gate must be REACHED before the copy, i.e. daytwo_warm_image may only ever
+# be called from inside it. A second, ungated call site is how the zero-egress
+# contract would quietly stop holding.
+c75_calls=$(grep -c 'daytwo_warm_image "' "$DT_F" || true)
+if [ "${c75_calls}" -ne 1 ]; then
+  echo "FAIL: daytwo_warm_image is invoked from ${c75_calls} call site(s); exactly ONE is allowed so every copy is behind the single delivery gate (#5640)" >&2
+  c75_fail=1
+fi
+if ! grep -qF 'daytwo_ensure_skopeo || return 1' "$DT_F"; then
+  echo "FAIL: skopeo acquisition is not lazy inside the warm copy — detect mode must never dial github.com for the static binary (#5640)" >&2
+  c75_fail=1
+fi
+# (g) VACUITY GUARD. A zero-ref enumeration is a broken read, never an
+#     all-clear — reporting it green is the failure shape that let #5640 hide.
+if ! grep -qF 'enumeration-empty' "$DT_F"; then
+  echo "FAIL: Day-2 image leg has no zero-ref vacuity guard — an RBAC/jq/apiserver failure would publish ALL_PINS_PRESENT on nothing (#5640)" >&2
+  c75_fail=1
+fi
+if ! grep -qF 'ALL_PINS_PRESENT' "$DT_F"; then
+  echo "FAIL: the manifest lost its explicit all-clear line (#5640 Refs #5265)" >&2
+  c75_fail=1
+fi
+# The all-clear must be conditioned on BOTH legs having actually run.
+if ! grep -qF '[ "${IMAGE_STATUS}" != "enumeration-empty" ]' "$DT_F"; then
+  echo "FAIL: ALL_PINS_PRESENT is not conditioned on the image leg having really enumerated — a broken read would read as clean (#5640)" >&2
+  c75_fail=1
+fi
+# (h) The manifest names the missing IMAGE refs, not only charts.
+if ! grep -qF 'MISSING local Harbor image:' "$DT_F"; then
+  echo "FAIL: Day-2 image leg does not log the missing image by name — the operator gets no actionable reference (#5640)" >&2
+  c75_fail=1
+fi
+if ! grep -qF "printf 'IMAGE" "$DT_F"; then
+  echo "FAIL: the missing-artifact manifest carries no IMAGE lines — the offline-media side-load list is chart-only (#5640)" >&2
+  c75_fail=1
+fi
+# (i) VACUITY CONTROL for this case itself: the captured doc must be the real
+#     reconciler render, not an empty file that makes every negative assertion
+#     above pass trivially.
+c75_lines=$(wc -l < "$DT_F")
+if [ "${c75_lines}" -lt 200 ] || ! grep -qF 'kind: Deployment' "$DT_F"; then
+  echo "FAIL: vacuity control — the captured Day-2 render is ${c75_lines} lines and/or is not a Deployment; the Case 75 assertions were evaluated against nothing (#5640)" >&2
+  c75_fail=1
+fi
+if [ "$c75_fail" -ne 0 ]; then exit 1; fi
+echo "  PASS (#5640: the Day-2 IMAGE leg mounts+sources the shared 03a resolver and its coverage-map env, enumerates declared workload templates as well as running Pods, proves presence with step-08's local-Harbor /v2 manifest probe, copies with step-03's exact skopeo invocation plus the #5095 and #5525 secondary-source fallbacks, keeps every upstream reach behind a mode=warm runtime branch, and refuses to report a zero-ref enumeration as an all-clear; render vacuity control: ${c75_lines}-line Deployment)"
+
+# ── Case 76 (#5359): the Flux source lint is PER-REGION and fail-closed, and
+#    step-05's secondary readiness asserts CONVERGENCE, not a stale Ready ──────
+#
+# hw292 (dep 1c56518035a83e03) set cutoverComplete=true, progressPercent=100,
+# failedStep empty, with region-b holding 64/64 HelmRepositories on ghcr.io and
+# 0 on the local Harbor. The #5379 per-secondary-region legs WERE in the
+# deployed chart (0.1.159) and reported region.me-east-215-b-1.result=success
+# for steps 05, 06 and 08. What actually happened:
+#
+#   step-05 patched region-b's GitRepository url -> the in-cluster Gitea Service
+#   name, which in a secondary region resolves to that region's OWN bp-gitea
+#   (empty, never mirrored) because both Services are headless and Cilium
+#   global-services cannot span a headless Service. Every fetch then failed
+#   ("pkt-line 3: EOF"), observedGeneration froze at 1 against generation 2, and
+#   source-controller kept serving the artifact it had cached from PUBLIC
+#   github.com minutes earlier. The readiness wait had already passed, because
+#   it accepted the Ready=True left over from that github.com fetch. region-b's
+#   kustomize-controller re-applied the pre-cutover content every 5m, reverting
+#   all 64 HelmRepositories step-06 had just pivoted and read-back-asserted.
+#
+# The behavioural proof of the two lints lives in tests/flux-source-host-lint.sh
+# (verdicts in both directions against stubbed inventories, plus mutation
+# coverage). THIS case pins the wiring those functions need in order to be
+# reached at all: the per-region driver, the fail-closed enumeration, and
+# step-05's convergence predicate.
+echo "[cutover-contract] Case 76: #5359 per-region Flux source lint (host + health, fail-closed) and step-05 convergence-based secondary readiness"
+c76_fail=0
+C76_08="$TMP/c76-08.yaml"
+C76_05="$TMP/c76-05.yaml"
+awk '/stepName: egress-block-test/,/^---/' "$TMP/render.yaml" >"$C76_08"
+awk '/stepName: flux-gitrepository-patch/,/^---/' "$TMP/render.yaml" >"$C76_05"
+
+# (a) VACUITY CONTROL FIRST. Every assertion below is a grep for a string; if
+#     either capture is empty the negative ones pass on nothing.
+c76_l08=$(wc -l < "$C76_08"); c76_l05=$(wc -l < "$C76_05")
+if [ "${c76_l08}" -lt 200 ] || [ "${c76_l05}" -lt 100 ]; then
+  echo "FAIL: vacuity control — captured step-08 is ${c76_l08} lines and step-05 is ${c76_l05}; Case 76 would be asserting over nothing (#5359)" >&2
+  c76_fail=1
+fi
+
+# (b) Both lint functions exist and take a region + kubeconfig.
+for c76_fn in 'run_flux_source_host_lint() {' 'run_flux_source_health_lint() {'; do
+  if ! grep -qF "$c76_fn" "$C76_08"; then
+    echo "FAIL: step-08 does not define ${c76_fn%% *} — the #5359 gate is absent" >&2
+    c76_fail=1
+  fi
+done
+if ! grep -qF '_FS_KUBECONFIG="${2:-}"' "$C76_08"; then
+  echo "FAIL: the source lints do not accept a kubeconfig argument, so they can only ever measure the primary region — the exact shape of #5359" >&2
+  c76_fail=1
+fi
+if ! grep -qF 'kubectl --kubeconfig="${_FS_KUBECONFIG}"' "$C76_08"; then
+  echo "FAIL: the lints never pass --kubeconfig to kubectl; a per-region verdict would be a second measurement of the primary (#5359)" >&2
+  c76_fail=1
+fi
+
+# (c) The driver fans out over EVERY region and ANDs the verdict. A short-circuit
+#     would stop at the first offender and hide the rest of the fleet.
+if ! grep -qF 'for _k in /secondary-kubeconfigs/*.yaml' "$C76_08"; then
+  echo "FAIL: the source-lint driver does not iterate the secondary kubeconfigs — the gate stays single-region (#5359)" >&2
+  c76_fail=1
+fi
+if ! grep -qF '_fs_verdict=1' "$C76_08"; then
+  echo "FAIL: the driver has no across-region verdict accumulator; one region's failure would not fail the step (#5359)" >&2
+  c76_fail=1
+fi
+# The exit must be INSIDE the verdict branch: a lint whose failure does not
+# stop the step leaves cutoverComplete free to be set anyway.
+if ! grep -A3 'if \[ "${_fs_verdict}" != "0" \]; then' "$C76_08" | grep -qF 'exit 1'; then
+  echo "FAIL: a failing per-region source lint does not exit non-zero — cutoverComplete could still be set over a tethered region (#5359)" >&2
+  c76_fail=1
+fi
+
+# (d) FAIL-CLOSED enumeration. The pre-#5359 code piped `kubectl … 2>/dev/null`
+#     into the reader, so an unreadable secondary produced zero rows, zero
+#     offenders and a PASS for a region that was never measured.
+# Anchored on a leading space, NOT a bare substring: `_fs_kubectl get …`
+# CONTAINS `kubectl get …`, so a plain -F match here reports the pre-#5359 form
+# for the fixed code and this assertion would fail forever on a correct chart.
+if grep -qE '(^|[[:space:]])kubectl get "\$\{_fk\}" -A' "$C76_08"; then
+  echo "FAIL: step-08 still enumerates sources without a kubeconfig shim (pre-#5359 single-cluster form)" >&2
+  c76_fail=1
+fi
+# ... and the shim must actually be the thing doing the enumerating.
+if ! grep -qF '_fs_kubectl get "${_fk}" -A' "$C76_08"; then
+  echo "FAIL: the host lint does not enumerate through the kubeconfig shim — it cannot reach a secondary region (#5359)" >&2
+  c76_fail=1
+fi
+if ! grep -qF 'Refusing to report PASS for a region that could not be measured' "$C76_08"; then
+  echo "FAIL: enumeration failure is not fail-closed — an unreadable secondary kubeconfig would read as a clean region (#5359)" >&2
+  c76_fail=1
+fi
+# ... but a kind that is merely NOT INSTALLED is zero rows, not a tether.
+if ! grep -qF "server doesn't have a resource type" "$C76_08"; then
+  echo "FAIL: no carve-out for an uninstalled source kind — a Sovereign without the OCIRepository CRD would be wedged (#5359)" >&2
+  c76_fail=1
+fi
+
+# (e) The HEALTH lint's scope was measured, not guessed: `type: oci`
+#     HelmRepositories carry no status at all (70/70 in hw292 region-a), so
+#     including them would fail every region of every Sovereign.
+if grep -qE 'for _hk in [a-z ]*helmrepositories' "$C76_08"; then
+  echo "FAIL: the health lint includes HelmRepositories, which carry no observedGeneration for type:oci — it would fail every region of every Sovereign (#5359, #5505 blast-radius shape)" >&2
+  c76_fail=1
+fi
+if ! grep -qF 'for _hk in gitrepositories ocirepositories; do' "$C76_08"; then
+  echo "FAIL: the health lint does not cover the reconciled source kinds (#5359)" >&2
+  c76_fail=1
+fi
+# The `|` separator is load-bearing: observedGeneration is ABSENT on an
+# unreconciled object and a space separator would collapse the field, shifting
+# every later value left so the reader compares the wrong two and passes.
+if ! grep -qF '{"|"}{.status.observedGeneration}{"|"}' "$C76_08"; then
+  echo "FAIL: the health lint's jsonpath is not pipe-separated — an absent observedGeneration would collapse the row and the comparison would silently read the wrong fields (#5359)" >&2
+  c76_fail=1
+fi
+
+# (f) Step-05's secondary readiness must assert CONVERGENCE. The old predicate
+#     was `Ready == True && spec.url == sec_url`: the url half is a tautology
+#     (the leg wrote that value one line earlier) and the Ready half still
+#     describes the PREVIOUS spec immediately after a patch.
+if ! grep -qF '[ "${sg_obs}" = "${sg_gen}" ]' "$C76_05"; then
+  echo "FAIL: step-05's secondary readiness does not require observedGeneration == generation — it would accept the stale Ready=True left over from the pre-pivot github.com fetch, which is precisely how hw292 recorded success at the same second the fetch started failing (#5359)" >&2
+  c76_fail=1
+fi
+if ! grep -qF 'sec_url_chain' "$C76_05"; then
+  echo "FAIL: step-05 has no secondary candidate-URL chain — a secondary that cannot reach the in-cluster Gitea name has no other path and the pivot is cosmetic (#5359)" >&2
+  c76_fail=1
+fi
+# Exhausting the chain must be FATAL, never a soft skip.
+if ! grep -qF 'did not CONVERGE (observedGeneration==generation with Ready=True) on any candidate URL' "$C76_05"; then
+  echo "FAIL: step-05 does not fail loudly when no candidate URL converges (#5359)" >&2
+  c76_fail=1
+fi
+if ! grep -A8 'if \[ -z "${sg_ready}" \]; then' "$C76_05" | grep -qF 'exit 1'; then
+  echo "FAIL: step-05's no-candidate-converged branch does not exit 1 (#5359)" >&2
+  c76_fail=1
+fi
+# The fallback candidate must be ON-Sovereign, or the "fix" would trade a dead
+# URL for a real tether.
+c76_fb=$(grep -A1 'name: SECONDARY_GITEA_FALLBACK_URL' "$C76_05" | grep 'value:' | head -1)
+case "${c76_fb}" in
+  *'gitea.'*) : ;;
+  *) echo "FAIL: SECONDARY_GITEA_FALLBACK_URL does not render the Sovereign's own gitea door (got: ${c76_fb}) (#5359)" >&2; c76_fail=1 ;;
+esac
+case "${c76_fb}" in
+  *github.com*|*ghcr.io*|*openova.io*)
+    echo "FAIL: SECONDARY_GITEA_FALLBACK_URL renders an OFF-Sovereign host (${c76_fb}) — that is a tether, not a fallback (#5359)" >&2; c76_fail=1 ;;
+esac
+
+# (g) The step-05 ceiling must exceed the worst-case candidate chain, or the Job
+#     is killed mid-chain and the failure reads as a deadline instead of as the
+#     unreachable-Gitea diagnosis.
+c76_dl=$(grep -m1 'activeDeadlineSeconds' "$C76_05" | tr -dc '0-9')
+c76_rdy=$(grep -A1 'name: SECONDARY_GITREPO_READY_SECONDS' "$C76_05" | grep 'value:' | tr -dc '0-9')
+if [ -n "${c76_dl}" ] && [ -n "${c76_rdy}" ] && [ "${c76_dl}" -le $((c76_rdy * 2)) ]; then
+  echo "FAIL: step-05 activeDeadlineSeconds (${c76_dl}) does not exceed two candidate windows (2 x ${c76_rdy}); the chain would be truncated by the deadline (#5359)" >&2
+  c76_fail=1
+fi
+
+if [ "$c76_fail" -ne 0 ]; then exit 1; fi
+echo "  PASS (#5359: both source lints take a region+kubeconfig and dial it, the driver fans out across every secondary and ANDs the verdict with an unreadable region counted as FAIL, the health lint is scoped to reconciled kinds only and reads pipe-separated fields, and step-05's secondary leg walks a candidate URL chain whose success predicate is observedGeneration==generation on a Ready source, fatal when exhausted; vacuity control: step-08 ${c76_l08} lines / step-05 ${c76_l05} lines)"
 
 echo "[cutover-contract] All gates green."

@@ -311,7 +311,7 @@ spec:
             # field so dashboards can correlate api-version <-> chart-
             # version on a single probe.
             - name: CATALYST_BUILD_SHA
-              value: "b1b472d"
+              value: "61b61c5"
             - name: CATALYST_CHART_VERSION
               value: "1.4.95"
             # #2940 (2026-06-03): was hardcoded "https://console.openova.io".
@@ -1810,6 +1810,40 @@ spec:
               # kubectl top; the 96Mi request fits comfortably with
               # ~16Mi headroom. limit stays at 4Gi (multi-region
               # helmwatch + tofu plan still need burst budget).
+              #
+              # 🛑 THE ~80-120Mi BASIS ABOVE NO LONGER DESCRIBES THIS BINARY
+              # (measured hw292 2026-08-04, #5642). Do not re-cite it to
+              # justify 96Mi, and do not "fix" this by raising the LIMIT.
+              #
+              # Live readings, catalyst-system/catalyst-api on hw292:
+              #   requests 96Mi / limits 4Gi, qosClass Burstable
+              #   restartCount 22, lastState OOMKilled exit 137
+              #   kubectl top: 2678Mi   (27.9x the request)
+              #   floor ~1min after a FRESH process start: 559Mi
+              #
+              # Two separate defects live here and they need separate fixes:
+              #
+              #   1. A leak — Factory.AddCluster rebuilt all 42 informers on
+              #      byte-identical kubeconfigs under a level-triggered 5-min
+              #      heal loop, ~62 Mi/min. Fixed in #5645 (k8scache/factory.go)
+              #      and published, but NEVER RUN: no published image reaches a
+              #      cutoverComplete=true Sovereign (#5640). Raising the limit
+              #      would only buy hours and delete the signal.
+              #
+              #   2. This request is wrong INDEPENDENTLY of the leak. Even the
+              #      fresh-start floor is ~5.8x it, so the pod is Burstable and
+              #      the kubelet ranks it for eviction by how far it exceeds
+              #      requests — putting the catalyst-pin OIDC provider near the
+              #      front of the queue under node pressure, ahead of workloads
+              #      genuinely consuming the node.
+              #
+              # The number is deliberately NOT changed here. The correct value
+              # is the post-fix steady-state floor, and that binary has never
+              # executed anywhere; setting it from today's readings would bake
+              # leaking behaviour permanently into the chart — the same error as
+              # raising the limit, one field over. Re-measure once #5645 runs
+              # (fresh prov or side-load per #5640), then set this from that
+              # floor and reassess Guaranteed QoS for the OIDC provider.
               memory: 96Mi
             limits:
               # tofu provider plugins (hcloud ~80MB, dynadot ~30MB) + state +

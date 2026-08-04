@@ -76,15 +76,94 @@ jobs:
       - name: G110-followup vitest gate — run UI unit tests
         run: |
           cd openova-src/products/catalyst/bootstrap/ui
-          # G114-followup emergency unblock (2026-06-02): pre-existing
-          # main-branch UI test failures (PinInput6 disabled prop returning
-          # undefined; AppsPage/ProvisionPage missing QueryClientProvider in
-          # test setup) block every UI-touching merge. Tests are broken but
-          # the runtime code is fine — verified at PR time. Continue past
-          # failures with a WARN so the image can publish; a follow-up
-          # ticket tracks the test-suite fix.
-          npm test || echo "WARN: pre-existing UI test failures, continuing build"
-          echo "G110-followup gate: catalyst-ui unit tests done (see WARN above for failures)."
+          # The 2026-06-02 G114-followup emergency unblock ran
+          # `npm test || echo "WARN: ..."`, which ALWAYS exits 0. A step
+          # named "vitest gate" therefore could never fail a build.
+          #
+          # Its three named reasons (PinInput6 disabled prop; AppsPage /
+          # ProvisionPage missing QueryClientProvider) are all fixed — the
+          # suite now runs 730 pass / 1 fail. The unblock outlived its
+          # emergency by two months and kept swallowing everything, which is
+          # why SettingsPage.test.tsx has been red since a7fb48245 with
+          # nobody noticing. Its own comment says the assertion "has never
+          # run green".
+          #
+          # Ratcheted: the gate FAILS on any failing test file except those
+          # explicitly allowlisted below. A new red test breaks the build.
+          #
+          # KNOWN_RED — each entry needs an owning issue and a reason.
+          # Currently EMPTY: the suite is fully green.
+          #
+          # The last entry was SettingsPage.test.tsx (the Members link
+          # rendered bare `/users` instead of `/provision/$id/users`). It is
+          # fixed — SettingsPage picks the link form from the presence of
+          # the `:deploymentId` path param, so the mothership route gets the
+          # scoped target and the chroot Sovereign keeps the root-relative
+          # one. Do not re-add an entry to make a red file pass; an
+          # allowlisted file is a file nothing is watching.
+          #
+          # The value is used as a `case` glob, and an empty glob is a bash
+          # syntax error — so "allowlist nothing" is spelled as a sentinel
+          # that can never equal a basename, not as an empty string.
+          KNOWN_RED='__no_known_red__'
+
+          set +e
+          npm test 2>&1 | tee /tmp/vitest-out.txt
+          NPM_RC=${PIPESTATUS[0]}
+          set -e
+
+          # Vitest prints one ` FAIL  <path> > <test>` line per failure — but
+          # wraps FAIL in ANSI color codes (\e[41m\e[1m FAIL \e[22m\e[49m ...),
+          # so a bare `^ *FAIL` grep matches NOTHING vitest emits and the
+          # allowlist logic never engages (#5589 — this fail-open admitted the
+          # #5579 onBack regression). Strip ANSI escapes BEFORE parsing; the
+          # captured live line from run 30788994174 proves old=[] / new=[path].
+          sed -e 's/\x1b\[[0-9;]*m//g' /tmp/vitest-out.txt > /tmp/vitest-plain.txt
+          FAILED_FILES=$(grep -oE '^ *FAIL +[^ ]+\.test\.tsx?' /tmp/vitest-plain.txt \
+                          | awk '{print $2}' | sort -u || true)
+
+          # Vacuity guard on the PARSER itself (#5589 lead 2, the backstop
+          # question): if vitest reported a non-zero "Failed Tests N" summary
+          # but the per-file parse extracted nothing, the format drifted again
+          # — fail closed with the evidence instead of green-through.
+          SUMMARY_FAILS=$(grep -oE 'Failed Tests [0-9]+' /tmp/vitest-plain.txt | grep -oE '[0-9]+' | head -1 || true)
+          if [ -n "${SUMMARY_FAILS}" ] && [ "${SUMMARY_FAILS}" -gt 0 ] && [ -z "${FAILED_FILES}" ]; then
+            echo "FAIL: vitest summary says ${SUMMARY_FAILS} failed test(s) but the per-file parser extracted none — output format drifted again (#5589). Failing closed."
+            exit 1
+          fi
+
+          # Backstop against the parser itself failing open: if vitest exited
+          # non-zero but the grep above extracted NO failing files (config
+          # crash, changed output format, bad flag — a `--reporter=basic`
+          # crash was observed live 2026-08-02), that is an UNPARSEABLE
+          # failure, not a pass. A gate that greens on a suite crash is the
+          # exact declared-vs-actual defect this change removes.
+          if [ "${NPM_RC}" -ne 0 ] && [ -z "${FAILED_FILES}" ]; then
+            echo "FAIL: npm test exited ${NPM_RC} but no ' FAIL <file>' lines were parsed."
+            echo "The suite crashed or vitest changed its output format — failing closed."
+            exit 1
+          fi
+
+          UNEXPECTED=""
+          for f in ${FAILED_FILES}; do
+            case "$(basename "$f")" in
+              ${KNOWN_RED}) echo "KNOWN-RED (tracked): $f" ;;
+              *)            UNEXPECTED="${UNEXPECTED} $f" ;;
+            esac
+          done
+
+          if [ -n "${UNEXPECTED}" ]; then
+            echo "───────────────────────────────────────────────────────────"
+            echo "FAIL: UI unit test failure outside the KNOWN_RED allowlist:"
+            for f in ${UNEXPECTED}; do echo "  $f"; done
+            echo ""
+            echo "This gate used to swallow every failure via '|| echo WARN'."
+            echo "It no longer does. Fix the test, or add it to KNOWN_RED"
+            echo "above WITH an owning issue and a reason — never silently."
+            echo "───────────────────────────────────────────────────────────"
+            exit 1
+          fi
+          echo "G110-followup gate: catalyst-ui unit tests pass (KNOWN_RED entries excepted)."
 
       - name: Build UI image (test)
         uses: docker/build-push-action@v6

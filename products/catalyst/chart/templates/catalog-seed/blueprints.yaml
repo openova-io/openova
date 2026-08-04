@@ -411,12 +411,13 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  # 0.2.22 (#5311): NetworkPolicy carve-out admitting the continuum-controller
-  # to the primary -rw:5432 so its standby probe surfaces status.standbyAvailable
-  # on a TRUE 2-region topology (hw287 residual after the #5335 Secret-RBAC fix).
-  # Keep this display-version in lockstep with delivery source.version +
-  # blueprint.yaml (the #4988 precedent).
-  version: "0.2.22"
+  # 0.2.23 (#5388): dr-failback starvation surfacing — the actor records
+  # dr-failback-starved-at + reason on the HR when the post-failover geometry
+  # persists with the peer unobservable (hw290 G12 leg-6 rebooted-region
+  # datapath shape, #5339), instead of idling silently while a split-brain
+  # persists. Keep this display-version in lockstep with delivery
+  # source.version + blueprint.yaml (the #4988 precedent).
+  version: "0.2.23"
   visibility: listed
   card:
     title: "CNPG Cluster-Pair (Active-Hotstandby DR)"
@@ -446,7 +447,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cnpg-pair
-    version: "0.2.22"
+    version: "0.2.23"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): cluster-pair IS
   # active-hot-standby by construction. Only one topology variant —
   # active-passive — because the chart renders 2 Cluster CRs (primary +
@@ -578,7 +579,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.5.6"
+  version: "1.5.7"
   visibility: listed
   card:
     title: "Keycloak"
@@ -606,7 +607,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-keycloak
-    version: "1.5.6"
+    version: "1.5.7"
   # G117.1+G117.4+G117.6 #2744-followup (2026-06-03): bp-keycloak
   # catalog-seed needs topology + endpoints + sso so application-
   # controller can fan out HRs and operator console can mint silent-SSO
@@ -1726,7 +1727,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.31"
+  version: "0.2.35"
   visibility: listed
   card:
     title: "Apache Guacamole"
@@ -1744,7 +1745,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-guacamole
-    version: "0.2.31"
+    version: "0.2.35"
   topology:
     supported:
     - active-hot-standby
@@ -2257,7 +2258,10 @@ metadata:
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: "1.0.0"
-  visibility: listed
+  # #5468 — UNLISTED until ghcr.io/openova-io/openova/nemo-guardrails:0.21.0
+  # actually exists (never built: package 404, no Containerfile, no workflow).
+  # Keep in lockstep with platform/nemo-guardrails/blueprint.yaml.
+  visibility: unlisted
   card:
     title: "NeMo Guardrails"
     category: "ai-safety"
@@ -2322,7 +2326,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.4.144"
+  version: "1.4.146"
   visibility: listed
   card:
     title: "NewAPI"
@@ -2367,7 +2371,7 @@ business model is reselling LLM access to its own customers; use
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-newapi
-    version: "1.4.144"
+    version: "1.4.146"
   topology:
     supported:
     - active-passive
@@ -2400,7 +2404,23 @@ business model is reselling LLM access to its own customers; use
           - mgmt-A
           roles:
             mgmt-A: singleton
-  endpoints: []
+  # #5389 — lockstep with platform/newapi/blueprint.yaml (see the long note
+  # there). This seed is the in-cluster fallback the bp-catalog-client reads
+  # when the gitea catalog-sovereign repo 404s, so an empty endpoints[] here
+  # reproduces the missing "Open" button + launch-url 404 on exactly the
+  # provs where gitea is unreachable. ssoInitPath is the bare root: the
+  # chart's Exact-`/` HTTPRoute match hands the root to the sandbox-bridge
+  # sidecar, whose zero-click landing page IS NewAPI's OIDC-init route.
+  endpoints:
+  - name: ui
+    hostnameTemplate: "newapi.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+    port: 443
+    protocol: https
+    tls: true
+    visibility: public
+    launchDefault: true
+    ssoEnabled: true
+    ssoInitPath: "/"
   sso:
     realm: sovereign
     protocolMapper: oidc
@@ -2715,7 +2735,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.13"
+  version: "0.1.14"
   visibility: listed
   card:
     title: "Stalwart (per-Organization)"
@@ -2756,7 +2776,7 @@ is event-driven (ADR-0003 §3).
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-stalwart-tenant
-    version: "0.1.13"
+    version: "0.1.14"
   topology:
     supported:
     - active-passive
@@ -2995,7 +3015,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.1.4"
+  version: "1.1.5"
   visibility: unlisted
   # Shareability + Contexts (#3370 generality proof) — seeded verbatim
   # from platform/valkey/blueprint.yaml (lockstep-guarded). One instance
@@ -3038,7 +3058,7 @@ docs/SRE.md §2.5).
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-valkey
-    version: "1.1.4"
+    version: "1.1.5"
   topology:
     supported:
     - active-passive
@@ -3311,7 +3331,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.44"
+  version: "1.2.47"
   visibility: unlisted
   card:
     title: "Harbor"
@@ -3335,7 +3355,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-harbor
-    version: "1.2.44"
+    version: "1.2.47"
   topology:
     supported:
     - active-hot-standby
@@ -3801,7 +3821,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.4.17"
+  version: "1.4.18"
   visibility: unlisted
   card:
     title: "Cilium"
@@ -3818,7 +3838,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cilium
-    version: "1.4.17"
+    version: "1.4.18"
   topology:
     supported:
       - singleton
@@ -4344,7 +4364,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.48"
+  version: "1.2.49"
   visibility: unlisted
   card:
     title: "Gitea"
@@ -4367,7 +4387,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-gitea
-    version: "1.2.48"
+    version: "1.2.49"
   topology:
     supported:
       - active-hot-standby
@@ -4602,7 +4622,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.48"
+  version: "1.0.52"
   visibility: unlisted
   card:
     title: "Kyverno Policy Library"
@@ -4619,7 +4639,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-kyverno-policies
-    version: "1.0.48"
+    version: "1.0.52"
   topology:
     supported:
       - singleton
@@ -4765,7 +4785,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.22"
+  version: "1.2.23"
   visibility: unlisted
   card:
     title: "PowerDNS"
@@ -4782,7 +4802,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-powerdns
-    version: "1.2.22"
+    version: "1.2.23"
   topology:
     supported:
       - singleton
@@ -5006,7 +5026,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.1.2"
+  version: "1.1.3"
   visibility: unlisted
   card:
     title: "Sealed Secrets"
@@ -5023,7 +5043,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-sealed-secrets
-    version: "1.1.2"
+    version: "1.1.3"
   topology:
     supported:
       - singleton
@@ -5052,7 +5072,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.151"
+  version: "0.1.165"
   visibility: unlisted
   card:
     title: "Self-Sovereignty Cutover"
@@ -5069,7 +5089,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-self-sovereign-cutover
-    version: "0.1.151"
+    version: "0.1.165"
   topology:
     supported:
       - singleton
@@ -5157,7 +5177,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.25"
+  version: "0.2.26"
   visibility: unlisted
   card:
     title: "SSO Bridge"
@@ -5174,7 +5194,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-sso-bridge
-    version: "0.2.25"
+    version: "0.2.26"
   topology:
     supported:
       - active-passive
@@ -5739,7 +5759,8 @@ spec:
   # keep this display-version in lockstep with delivery source.version + blueprint.yaml.
   # 0.2.13 (#5224): role-secrets side-gate — replica-role region never mints
   # role/hub Secrets; pair password set single-sourced from the primary region.
-  version: "0.2.13"
+  # 0.2.14 (#5473): replication-source Service selectorType r -> rw (primary only).
+  version: "0.2.17"
   visibility: listed
   # Shareability + Contexts (#3370) — seeded verbatim from
   # platform/postgres/blueprint.yaml (lockstep-guarded). One instance
@@ -5817,6 +5838,27 @@ spec:
             minimum: 1
             maximum: 5
             default: 1
+          primary:
+            type: object
+            description: |
+              #5639 — the OTHER HALF of `mode: active-hot-standby`. Declared
+              here because the per-Org install door now emits it alongside the
+              mode; a mode without a region renders an unsatisfiable
+              nodeAffinity and the primary never schedules.
+            properties:
+              region:
+                type: string
+                default: ""
+                description: |
+                  The canonical `openova.io/region` NODE LABEL the primary
+                  Cluster pins its required nodeAffinity on (e.g.
+                  hz-fsn-rtz-prod). NOT the cloud region and NOT
+                  Application.spec.regions[0], which carry different spellings
+                  (#5482). Stamped from the Sovereign's SOVEREIGN_PRIMARY_REGION
+                  — by the bootstrap-kit slot substitutes for the host shared
+                  instances, and by catalyst-api for a per-Org install. REQUIRED
+                  in active-hot-standby: chart 0.2.17+ refuses to render without
+                  it rather than emitting `openova.io/region In [""]`.
   placementSchema:
     # Canonical placement vocabulary (#3375 / #3768 / #3784). The catalog
     # New-instance picker reads these modes off the wire; the seed
@@ -5838,7 +5880,7 @@ spec:
     # 0.2.12 (#4986): active-hot-standby emits the dr-<instance> Continuum CR so
     # the per-app Topology DR panel renders (shared-pg #3375 rows 51/52/56/57/64).
     # 0.2.13 (#5224): role-secrets side-gate (replica-role region mints nothing).
-    version: "0.2.13"
+    version: "0.2.17"
   # Seeded verbatim from platform/postgres/blueprint.yaml spec.topology.
   # singleton = single-instance Cluster; active-hot-standby = sync
   # replication across regions (ADR-0004 Pillar-3 zero-tx-loss) via the
@@ -5929,7 +5971,10 @@ spec:
   # projection from the enabled per-Org mcpBearer ExternalSecret (no door has to
   # hand-couple bearerSecret.name) so a fresh Org's agenity MCP tools/list
   # surfaces create_application. Lockstep with products/agenity/chart.
-  version: "0.5.20"
+  # 0.5.22 (#5617): the oidc-gate companion gains its egress CNP — the per-Org
+  # namespace is default-deny and the gate's ingress-only CNP left DNS + the
+  # Keycloak token exchange dropped, 500ing every OAuth callback after login.
+  version: "0.5.22"
   visibility: listed
   card:
     title: "Agenity"
@@ -5959,7 +6004,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-agenity
-    version: 0.5.20
+    version: 0.5.22
   topology:
     supported:
       - singleton

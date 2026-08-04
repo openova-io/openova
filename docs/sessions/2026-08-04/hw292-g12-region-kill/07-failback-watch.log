@@ -1,0 +1,11 @@
+[20:06:06Z] regionA_nodes_ready=0
+0 A_in_recovery=NA B_in_recovery=f
+[20:06:52Z] regionA_nodes_ready=4 A_in_recovery=NA B_in_recovery=f
+[20:07:22Z] regionA_nodes_ready=4 A_in_recovery=NA B_in_recovery=f
+[20:07:53Z] regionA_nodes_ready=4 A_in_recovery=NA B_in_recovery=f
+[20:08:24Z] regionA_nodes_ready=4 A_in_recovery=NA B_in_recovery=f
+[20:08:54Z] regionA_nodes_ready=4 A_in_recovery=NA B_in_recovery=f
+[20:09:25Z] regionA_nodes_ready=4 A_in_recovery=NA B_in_recovery=f
+[20:09:55Z] regionA_nodes_ready=4 A_in_recovery=NA B_in_recovery=f
+[20:10:25Z] regionA_nodes_ready=4 A_in_recovery=t B_in_recovery=f
+FAILBACK-CONVERGED: A=replica B=primary (no split-brain)

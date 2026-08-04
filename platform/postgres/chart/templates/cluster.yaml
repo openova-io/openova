@@ -42,7 +42,11 @@ metadata:
     # `-rw` Service of THIS named Cluster is the consumer-facing write
     # endpoint; the cnpg-pair label ties it to the replica half for DR.
     openova.io/cnpg-role: primary
-    openova.io/region: {{ .Values.topology.primary.region | quote }}
+    {{- /* #5639 — FAIL CLOSED. Resolved through bp-postgres.primaryRegion so an
+         unset region is an install ERROR naming the key, never the empty label
+         + empty nodeAffinity selector that made hw292's per-Org primary
+         unschedulable for 7h behind an `install succeeded` HelmRelease. */}}
+    openova.io/region: {{ include "bp-postgres.primaryRegion" . | quote }}
     catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
     {{- end }}
 spec:
@@ -63,7 +67,10 @@ spec:
           - matchExpressions:
               - key: openova.io/region
                 operator: In
-                values: [{{ .Values.topology.primary.region | quote }}]
+                # #5639 — see bp-postgres.primaryRegion. An empty value here is
+                # `In [""]`: no node carries an empty region label, so the Pods
+                # are Pending FOREVER, not merely slow to schedule.
+                values: [{{ include "bp-postgres.primaryRegion" . | quote }}]
     podAntiAffinityType: preferred
   {{- else }}
   instances: {{ .Values.topology.instances | default 1 }}
@@ -81,6 +88,35 @@ spec:
       {{- $first := first .Values.databases }}
       database: {{ (default (dict) $first).name | default "app" | quote }}
       owner: {{ (default (dict) $first).owner | default "app" | quote }}
+      {{- if $first }}
+      {{- /*
+      #5504: the initdb OWNER must be born holding the SAME Secret the
+      managed.roles entry below declares for it.
+
+      Without this, the first binding's owner is created TWICE over: initdb
+      mints it with CNPG's auto-generated `<cluster>-app` credential, and
+      managed.roles then declares it with `passwordSecret: <roleSecretName>`.
+      The initdb credential is the one Postgres actually keeps, so every
+      consumer — which is handed the roleSecret — is rejected with
+      SQLSTATE 28P01, while CNPG reports the role as
+      `managedRolesStatus.byStatus.reconciled` over a password that never
+      took effect. The comment below asserts drift is "ALTER USER'd away";
+      proven false on hw291 for the initdb owner specifically.
+
+      Live proof (hw291, shared-pg, owner=harbor): shared-pg-harbor (len 32)
+      was REJECTED as user harbor while shared-pg-app (len 64) AUTHENTICATED.
+      `gitea` and `keycloak` — same chart, same managed.roles shape, but NOT
+      the initdb owner — both authenticated. That control isolates the owner
+      collision as the mechanism. Consequence was a hard Pillar-5 stall:
+      harbor-core/jobservice crashlooping took cutover step-02/03 down with
+      them and parked the chain at 9%.
+
+      Naming the same Secret in both places makes the role have ONE source of
+      truth from creation rather than two that CNPG silently ranks.
+      */}}
+      secret:
+        name: {{ include "bp-postgres.roleSecretName" (dict "ctx" $ "db" $first) | quote }}
+      {{- end }}
 
   {{- /*
   managed.roles — one declarative per-consumer login role per binding.
@@ -135,7 +171,24 @@ spec:
     {{- if $meshSvc }}
     services:
       additional:
-        - selectorType: r
+        # #5473 — selectorType MUST be `rw` (primary only), not `r`.
+        # CNPG expands `r` to {cnpg.io/cluster, cnpg.io/podRole: instance},
+        # which selects EVERY instance — primary and standbys alike. This
+        # Service is the cross-region REPLICATION SOURCE, so with `r` the
+        # region-b replica's WAL receiver dials the mesh alias and lands on
+        # whichever instance the Service happens to pick. Measured live on
+        # hw291: all three shared-pg*-mesh Services resolved to 3 endpoints,
+        # and 2 of 3 DR pairs were replicating through a STANDBY (shared-pg
+        # via shared-pg-3, shared-pg-c via shared-pg-c-1) — a cascade whose
+        # RPO is not primary-anchored, whose severing point is an ordinary
+        # standby pod no runbook protects, and which lands differently on
+        # every reconnect. shared-pg-b hit the primary by luck, 1-in-3.
+        # `rw` is what bp-cnpg-pair's replication Service already uses
+        # (primary-cluster.yaml), and what the write alias 30 lines below
+        # uses; this was the one place the pattern drifted. Nothing observed
+        # it, because the Continuum CRs for these pairs carry no standby
+        # probe and reported Healthy/lag-0 throughout.
+        - selectorType: rw
           serviceTemplate:
             metadata:
               name: {{ include "bp-postgres.replicationServiceName" . }}

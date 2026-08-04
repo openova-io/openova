@@ -97,16 +97,37 @@ data:
   # re-added (helm-controller drift-check uses the install-time capability
   # snapshot — see Chart.yaml 1.4.2). bp-sso-bridge's AppRegistration watcher
   # runs post-ESO with the CRD present and applies THIS declaration verbatim
-  # every tick, materialising `hubble-ui-oauth2-proxy-oidc` (key
-  # `client-secret`) in kube-system from OpenBao sso/sovereign/hubble-ui —
-  # the secret the oauth2-proxy Deployment consumes for
-  # OAUTH2_PROXY_CLIENT_SECRET when ssoBridgeSync is enabled. Fresh-prov-safe
-  # + zero-touch.
+  # every tick, materialising `hubble-ui-oauth2-proxy-oidc` in kube-system from
+  # OpenBao sso/sovereign/hubble-ui — the secret the oauth2-proxy Deployment
+  # consumes when ssoBridgeSync is enabled. Fresh-prov-safe + zero-touch.
+  #
+  # #5416 (2026-07-27) — `cookie-secret` joins `client-secret` in the SAME
+  # declared Secret, via bp-sso-bridge 0.2.26's multi-key `data` form.
+  #
+  # WHY: the cookie secret was chart-managed
+  # (hubble-ui-oauth2-proxy-secret.yaml, `lookup`-or-`randAlphaNum 32`). On a
+  # 2-region Sovereign each region runs its own Flux/Helm against its own
+  # apiserver, so the lookup misses in the second region and a DIFFERENT value
+  # is minted there. hubble.<fqdn> is fanned at BOTH regions' envoys by one
+  # shared wildcard VIP, so requests round-robin and each proxy rejects the
+  # peer region's AES-encrypted session cookie ("cookie signature not valid" /
+  # "CSRF token mismatch") — the exact defect measured on the bp-oidc-gate
+  # instances on hw290 (#5416), same class, same chart idiom.
+  #
+  # The client secret never had that problem because it does not come from a
+  # per-region generator: Keycloak owns it and bp-sso-bridge publishes it to
+  # this bundle. Adding `cookie_secret` to the bundle (derived deterministically
+  # from the KC client secret, the idiom the bundle's `session_secret` already
+  # used) puts the cookie secret on the same proven carrier.
   externalSecret.json: |
     {
       "name": "hubble-ui-oauth2-proxy-oidc",
       "namespace": {{ $ov.serviceRef.namespace | quote }},
       "secretKey": "client-secret",
-      "property": "client_secret"
+      "property": "client_secret",
+      "data": [
+        { "secretKey": "client-secret", "property": "client_secret" },
+        { "secretKey": "cookie-secret", "property": "cookie_secret" }
+      ]
     }
 {{- end }}

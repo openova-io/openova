@@ -161,6 +161,44 @@ core:
   secretName: harbor-core-secret
 ```
 
+### Multi-region: one session/queue/cache store per Sovereign (#5406)
+
+A 2-region Sovereign runs a Harbor front-end on **both** control planes, and one
+shared wildcard VIP fans `registry.<sovereign-fqdn>` at both regions' envoys —
+so both regions serve. Harbor's three stateful stores are therefore anchored in
+the **active** region and reached from the standby over Cilium ClusterMesh:
+
+| Store | Contents | Anchor |
+|---|---|---|
+| Postgres | registry metadata | `shared-pg-mesh-rw.shared-data` (global-Service alias) |
+| Object Storage | image + chart blobs | one bucket, written by both regions |
+| **Redis** | OIDC **session** (db 0), jobservice queue (db 1), registry blob-descriptor cache (db 2) | **`harbor-redis-mesh.harbor`** (global-Service alias) |
+
+Redis used to be the exception: upstream's `redis.type: internal` default gave
+each region its own store, so a session minted by whichever region handled
+`/c/oidc/callback` was invisible to the other and `/api/v2.0/users/current`
+401'd on every request that landed on the other region — per-request, within a
+single page load. The same split ran the jobservice queue and the registry blob
+cache twice, uncoordinated, over one shared database and one shared bucket.
+
+The chart now publishes `harbor-redis-mesh` as a Cilium ClusterMesh global
+Service on both regions (`crossRegion.enabled`, wired by bootstrap-kit slot 19
+to `SOVEREIGN_ENABLE_CNPG_PAIR`), and the standby's upstream redis is flipped to
+`type: external` pointing at it — which both removes its duplicate store and
+repoints every consumer. Ships alongside identity-based CiliumNetworkPolicies,
+because a plain NetworkPolicy can never admit a ClusterMesh peer (Cilium
+AND-injects the local cluster label into every selector it derives).
+
+**Failover:** on an active-region kill the standby loses this Redis — it already
+loses its Postgres the same way, so Harbor's control plane needs
+`bp-continuum`'s switchover either way (see `blueprint.yaml`
+`topology.perTopology.active-hot-standby.switchover`). The Redis anchor rides
+the same substitute seam as `SOVEREIGN_HARBOR_PG_HOST`, so a switchover
+repoints it exactly the way it repoints the database.
+
+A **single-region** Sovereign never reaches the ClusterMesh gate: no global
+Service, no policy, `redis.type: internal` — identical to the pre-#5406 render.
+
 ### Pull-mirror policy
 
 ```json

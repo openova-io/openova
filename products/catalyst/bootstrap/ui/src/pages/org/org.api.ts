@@ -117,7 +117,11 @@ export type OrgDomainMode = 'free-subdomain' | 'byo'
 export type OrgProvisionStepState = 'pending' | 'done' | 'failed'
 
 export interface OrgProvisionSteps {
-  vcluster: OrgProvisionStepState
+  /** #5489 — absent for a namespace-isolated Org: no vCluster is ever
+   *  provisioned for that tier, so the API omits the step rather than
+   *  reporting "done" over an object that does not exist. Render only
+   *  the steps the payload carries. */
+  vcluster?: OrgProvisionStepState
   bp_charts: OrgProvisionStepState
   dns: OrgProvisionStepState
   certs: OrgProvisionStepState
@@ -137,15 +141,25 @@ export interface OrgProvisionRecord {
   admin_email: string
   company_name?: string
   otech_fqdn: string
-  vcluster_name: string
+  /** #5489/#5501 — absent for a namespace-isolated Org (no vCluster is
+   *  authored for that tier), and the bare slug for a vcluster-tier one:
+   *  the name the org-controller stamps at status.vcluster.name, never a
+   *  client-side `vc-` synthesis. */
+  vcluster_name?: string
   /** Legacy BE wire key — see org_tenant_id note above. */
   tenant_namespace: string
   console_host: string
   commit_sha?: string
   last_error?: string
   steps: OrgProvisionSteps
-  created_at: string
-  updated_at: string
+  /** #5501 — the OBSERVED phase of the Org's boundary as the
+   *  org-controller reports it (Ready | Provisioning | Pending | Failed).
+   *  Absent when the substrate has never been observed. */
+  boundary_phase?: string
+  /** #5501 — absent when genuinely unknown; the API no longer publishes a
+   *  Go zero timestamp (0001-01-01T00:00:00Z) as a measurement. */
+  created_at?: string
+  updated_at?: string
 }
 
 export interface OrgCreateRequest {

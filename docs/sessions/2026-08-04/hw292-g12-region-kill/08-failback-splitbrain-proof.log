@@ -1,0 +1,17 @@
+=== §6 FAILBACK DIRECTION PROOF — 20:11:06Z ===
+--- region-A: who am I streaming FROM? ---
+in_recovery=true sender=cnpg-pair-bp-cnpg-pair-primary-rw status=streaming
+--- region-A: is it write-FENCED? (a true replica must reject writes) ---
+command terminated with exit code 1
+--- region-B: still the writable primary? ---
+in_recovery=false
+--- DIVERGENCE CHECK: post-failback write on B must appear on A (one line, no fork) ---
+35
+INSERT 0 1
+--- region-A row-set (must equal B: no divergent history) ---
+A count=1 max_id=1 last=g12-sentinel-prekill-2026-08-03 19:59:50.340756+00
+B count=3 max_id=35 last=g12-sentinel-prekill-2026-08-03 19:59:50.340756+00
+--- timeline comparison (a fork shows as different TL) ---
+A timeline: 1
+B timeline: 2
+--- HR failback audit annotations ---

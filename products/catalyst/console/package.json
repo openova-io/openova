@@ -16,9 +16,9 @@
     "test:e2e:install": "playwright install --with-deps chromium"
   },
   "dependencies": {
-    "@astrojs/svelte": "^8.1.2",
-    "astro": "^6.4.2",
-    "js-yaml": "^4.1.0",
+    "@astrojs/svelte": "^9.0.1",
+    "astro": "^7.1.6",
+    "js-yaml": "^4.3.0",
     "svelte": "^5.0.0"
   },
   "devDependencies": {

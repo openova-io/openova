@@ -24,6 +24,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -54,6 +55,19 @@ import (
 func (h *Handler) chrootEnsureDeployment(depID string) *Deployment {
 	selfFQDN := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN"))
 	if selfFQDN == "" {
+		return nil
+	}
+	// #5488 — NEVER synthesize (or store) a record for a blank id. Doing
+	// so used to mint a permanent map entry keyed "" whose Deployment
+	// carried ID:"" but a matching SovereignFQDN — indistinguishable from
+	// the real imported record to chrootServesDeployment, so the cutover
+	// pre-flight (resolveCutoverDeployment, nondeterministic sync.Map
+	// order) sometimes resolved a record that could not name its own
+	// on-disk kubeconfig paths and aborted a healthy multi-region run
+	// (hw291 dep 2c2d746b578c636b). A caller with no id gets nil — the
+	// honest 404 — instead of a poisoned self-record.
+	depID = strings.TrimSpace(depID)
+	if depID == "" {
 		return nil
 	}
 	if val, ok := h.deployments.Load(depID); ok {
@@ -734,6 +748,49 @@ func fullInventoryRequested(r *http.Request) bool {
 	return strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("inventory")), "full")
 }
 
+// parseJobsStatusFilter reads the ?status= query param for ListJobs
+// (#5485 defect 5 — the parameter was accepted and silently ignored,
+// so ?status=failed returned every row; the console masked it by
+// filtering client-side, but any API consumer trusting the parameter
+// got everything).
+//
+// Returns the normalised (lowercase) status and ok=true. An absent /
+// blank param normalises to "" (no filtering). A value outside the
+// store vocabulary (pending / running / succeeded / failed) writes the
+// handler's standard 400 {"error","detail"} response and returns
+// ok=false.
+func parseJobsStatusFilter(w http.ResponseWriter, r *http.Request) (string, bool) {
+	raw := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("status")))
+	switch raw {
+	case "", jobs.StatusPending, jobs.StatusRunning, jobs.StatusSucceeded, jobs.StatusFailed:
+		return raw, true
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "invalid-status",
+			"detail": fmt.Sprintf(
+				"status %q must be one of %s / %s / %s / %s",
+				raw, jobs.StatusPending, jobs.StatusRunning,
+				jobs.StatusSucceeded, jobs.StatusFailed),
+		})
+		return "", false
+	}
+}
+
+// filterJobsByStatus keeps only the rows whose wire Status equals the
+// (already-normalised) filter value. Flat row-level equality — a group
+// row is kept iff its own rolled-up Status matches, exactly what the
+// row's `status` field promises an API consumer. Returns a fresh slice;
+// never nil.
+func filterJobsByStatus(in []jobs.Job, status string) []jobs.Job {
+	out := make([]jobs.Job, 0, len(in))
+	for _, j := range in {
+		if strings.EqualFold(j.Status, status) {
+			out = append(out, j)
+		}
+	}
+	return out
+}
+
 // ListJobs handles GET /api/v1/deployments/{depId}/jobs.
 //
 // Returns `{ "jobs": [...] }` — the slice is sorted started-at DESC
@@ -758,6 +815,12 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 			"error":  "missing-depId",
 			"detail": "deployment id path segment is required",
 		})
+		return
+	}
+	// #5485 defect 5 — validate ?status= up front so a bad value 400s
+	// before any store seeding work runs.
+	statusFilter, ok := parseJobsStatusFilter(w, r)
+	if !ok {
 		return
 	}
 	// Issue #689 — ownership check. If the deployment is unknown the
@@ -815,6 +878,13 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	// reconciler, and cutover step); only this read decides how much to show.
 	if !fullInventoryRequested(r) {
 		out = jobs.FilterFiniteJobs(out)
+	}
+	// #5485 defect 5 — honour ?status= server-side. Applied AFTER the
+	// view selection above so the filter narrows exactly the rows this
+	// response would otherwise return (finite view or full inventory
+	// alike); absent param leaves both views byte-identical to before.
+	if statusFilter != "" {
+		out = filterJobsByStatus(out, statusFilter)
 	}
 	if out == nil {
 		out = []jobs.Job{}

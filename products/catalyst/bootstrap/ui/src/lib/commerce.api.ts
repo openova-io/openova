@@ -182,6 +182,39 @@ export interface CatalogEntryEdit {
 }
 
 /**
+ * CatalogEntryPatch — the fields ONE per-field inline save changes (#5510).
+ *
+ * A per-field save must carry ONLY the keys the operator actually edited. A
+ * key that is ABSENT means "leave whatever the store holds alone"; a key that
+ * is PRESENT-but-empty means "the operator cleared this field" and is written.
+ * `undefined` is therefore load-bearing — never spread a full 5-field record
+ * into a patch to "keep the shape regular".
+ */
+export type CatalogEntryPatch = Partial<CatalogEntryEdit>
+
+/**
+ * toStoreColumns — project a CatalogEntryPatch onto the store's column names,
+ * carrying ONLY the keys the patch actually declares (#5510).
+ *
+ * This is the whole point of the patch type: the returned object is spread
+ * over the authoritative store row, so a key we omit here is a column the
+ * store keeps. Written key-by-key on purpose — a generic key loop would need
+ * a cast to satisfy the per-key value types, and a cast here is exactly how a
+ * stray `undefined` would sneak back into the wire body.
+ */
+function toStoreColumns(patch: CatalogEntryPatch): Partial<CommerceApp> {
+  const columns: Partial<CommerceApp> = {}
+  if (patch.name !== undefined) columns.name = patch.name
+  if (patch.tagline !== undefined) columns.tagline = patch.tagline
+  if (patch.supported_topologies !== undefined) {
+    columns.supported_topologies = patch.supported_topologies
+  }
+  if (patch.icon_light !== undefined) columns.icon_light = patch.icon_light
+  if (patch.icon_dark !== undefined) columns.icon_dark = patch.icon_dark
+  return columns
+}
+
+/**
  * CatalogSaveVerdict — the #3668/#5113 dual-write verdict for one catalog
  * card-save. The catalyst-api `apps` create/update proxy wraps the upstream
  * store row in a `{stored, committed, reason}` envelope
@@ -218,60 +251,75 @@ export function parseCatalogEditEnvelope(body: unknown, slug: string): CatalogSa
 }
 
 /**
- * saveCatalogEdit persists an admin's catalog-entry edit to the Organization
- * commerce catalog store.
+ * saveCatalogEdit persists ONE per-field catalog-entry edit to the
+ * Organization commerce catalog store.
  *
- * The store's UpdateApp does a FULL `$set` of every column from the decoded
- * row, so a partial PUT would zero the untouched columns (deployable,
- * published, helm_chart, …). To stay additive we therefore:
+ * ── #5510: this is a PARTIAL PATCH, not a whole-record replace ──────────
+ *
+ * The wire endpoint cannot express a partial patch: `PUT /catalog/admin/apps/
+ * {id}` decodes the body into a `store.App` and `Store.UpdateApp` issues a
+ * full `$set` of every column (core/services/catalog/store/store.go), so
+ * whatever the body omits is written as its zero value. Partial-patch
+ * SEMANTICS are therefore implemented here, client-side, as read-modify-write
+ * against the authoritative store row:
  *
  *   1. list every store App and find the row whose slug matches this
  *      catalog entry (slugs are bare — the catalog id's `bp-` prefix is
  *      stripped by the caller);
- *   2. if it exists, MERGE the edited fields onto the FULL existing row
- *      (the runtime object still carries every store column even though the
- *      CommerceApp type only declares a few) and PUT it back by its `_id`,
- *      so no column is lost;
+ *   2. if it exists, overlay ONLY the keys `patch` declares onto the FULL
+ *      existing row (the runtime object still carries every store column
+ *      even though the CommerceApp type only declares a few) and PUT it back
+ *      by its `_id`, so no column is lost;
  *   3. if no row exists yet (a seed-only catalog entry the commerce store
- *      never had), POST a new minimal row (slug + the edited fields) so the
- *      edit still persists and overlays the seed on the next catalog read.
+ *      never had), POST a new row from `createSeed` + the patch — there is
+ *      no stored value to preserve on this path, so seeding the row with the
+ *      values the page currently renders keeps the create non-destructive.
+ *
+ * The bug this shape fixes: the caller used to build a FULL 5-field record
+ * from the IaC card and PUT `{...existing, ...allFiveFields}`, so every field
+ * the store held but the IaC lacked was overwritten with an IaC-derived
+ * default on the next per-field save — a Summary-only save silently reverted
+ * `name` and `icon_light`, with a green toast and HTTP 200. The same body is
+ * also what catalyst-api commits to git (commitCatalogAppEditToGit decodes
+ * these exact JSON tags), so a fat body destroyed the value in BOTH legs.
+ * Passing only the edited keys removes the class in both.
  *
  * Returns the CatalogSaveVerdict (#5113 facet-a / UAT row 132): the caller
  * surfaces "Saved to IaC ✓" vs "Saved to store — IaC commit failed: …"
  * instead of closing silently.
+ *
+ * @param slug       catalog entry id (`bp-`-prefixed or bare).
+ * @param patch      ONLY the fields this save edits (#5510).
+ * @param createSeed values to seed a brand-new store row with, used ONLY
+ *                  when no row exists yet. Never applied over a stored value.
  */
 export async function saveCatalogEdit(
   slug: string,
-  edit: CatalogEntryEdit,
+  patch: CatalogEntryPatch,
+  createSeed: CatalogEntryPatch = {},
 ): Promise<CatalogSaveVerdict> {
   const bare = slug.replace(/^bp-/, '')
+  const columns = toStoreColumns(patch)
   const apps = await listApps()
   const existing = apps.find((a) => (a.slug ?? '').replace(/^bp-/, '') === bare)
 
-  // The edited fields, with the legacy `icon` kept in sync to the light
-  // icon when the admin set one (so a single-icon consumer still updates).
-  const patch: Partial<CommerceApp> = {
-    name: edit.name,
-    tagline: edit.tagline,
-    supported_topologies: edit.supported_topologies,
-    icon_light: edit.icon_light,
-    icon_dark: edit.icon_dark,
-  }
-
   if (existing && existing.id) {
-    // Merge onto the full runtime row so untouched columns survive the
-    // full-$set UpdateApp.
-    const merged = { ...existing, ...patch }
+    // Overlay the edited keys onto the full runtime row: the untouched
+    // columns keep their STORED values through the full-$set UpdateApp.
+    const merged: CommerceApp = { ...existing, ...columns }
     const body = await updateCommerce('apps', existing.id, merged)
     return parseCatalogEditEnvelope(body, bare)
   }
 
-  // No store row yet — create one carrying the edit. slug is required by
-  // the store; name falls back to the slug when the admin left it blank.
-  const body = await createCommerce<CommerceApp>('apps', {
+  // No store row yet — create one from the seed + the edit. slug is required
+  // by the store; name falls back to the seed, then to the slug when neither
+  // the edit nor the seed names the entry.
+  const created: CommerceApp = {
+    ...toStoreColumns(createSeed),
+    ...columns,
     slug: bare,
-    name: edit.name || bare,
-    ...patch,
-  })
+    name: patch.name ?? createSeed.name ?? bare,
+  }
+  const body = await createCommerce<CommerceApp>('apps', created)
   return parseCatalogEditEnvelope(body, bare)
 }
