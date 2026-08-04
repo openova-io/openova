@@ -3560,11 +3560,18 @@ if ! grep -q 'MISSING_MANIFEST_CM' "$DT_F"; then
   echo "FAIL: Day-2 reconciler does not publish the missing-artifact manifest ConfigMap (the air-gap offline-media list + the actionable signal) (#5265)" >&2
   c70_fail=1
 fi
-# (g) DETECT is the default mode when enabled (the zero-egress posture). Capture
-#     the RECONCILE_MODE env pair to a file (no pipe) then assert its value.
+# (g) The default mode must make ZERO external egress in steady state. #5640
+#     round 2 moved the default from `detect` to `request`, which is detect's
+#     behaviour exactly until an operator files a one-shot delivery request —
+#     so the zero-egress-by-default property is preserved while a delivery path
+#     exists. `warm` (the always-on mirror) must NEVER be the default.
 grep -A1 'name: RECONCILE_MODE' "$DT_F" > "$TMP/dt-mode.txt" || true
-if ! grep -q 'value: "detect"' "$TMP/dt-mode.txt"; then
-  echo "FAIL: Day-2 reconciler default mode is not detect — the zero-egress mode MUST be the default when enabled (#5265)" >&2
+if ! grep -qE 'value: "(detect|request)"' "$TMP/dt-mode.txt"; then
+  echo "FAIL: Day-2 reconciler default mode is neither detect nor request — the default MUST be a mode that makes zero external egress in steady state (#5265 #5640)" >&2
+  c70_fail=1
+fi
+if grep -q 'value: "warm"' "$TMP/dt-mode.txt"; then
+  echo "FAIL: Day-2 reconciler defaults to warm — an ALWAYS-ON upstream mirror is a standing outbound tether and can never be the default posture (#5640 Refs Principle #11)" >&2
   c70_fail=1
 fi
 # (h) WARM mode contains the helm pull upstream + helm push local, gated behind mode=warm.
@@ -3581,14 +3588,97 @@ if ! grep -q 'helm push' "$DT_W"; then
   echo "FAIL: warm mode reconciler does not helm-push local (#5265)" >&2
   c70_fail=1
 fi
-# The warm helm pull/push must be RUNTIME-gated on mode=warm, not always-on
-# (the script branches `if [ "${RECONCILE_MODE}" = "warm" ]`).
-if ! grep -q '"${RECONCILE_MODE}" = "warm"' "$DT_W"; then
-  echo "FAIL: the warm upstream pull is not runtime-gated on mode=warm — detect must never reach upstream (#5265)" >&2
+# Every upstream fetch must be RUNTIME-gated by ONE decision function, so there
+# is a single place where "may this cycle reach upstream" is answered. Before
+# #5640 round 2 each call site carried its own `[ "${RECONCILE_MODE}" = "warm" ]`
+# literal, which is how the operator-gated mode could have been added to one
+# call site and forgotten at another.
+if ! grep -q 'daytwo_delivery_allowed()' "$DT_W"; then
+  echo "FAIL: the Day-2 reconciler has no daytwo_delivery_allowed() gate — every upstream fetch must sit behind ONE decision function, not a per-call-site mode literal (#5640)" >&2
+  c70_fail=1
+fi
+# That function must FAIL CLOSED: only warm and an in-scope request may pass, and
+# any other RECONCILE_MODE value (including a typo) falls through to closed.
+if ! grep -qF 'request) daytwo_in_scope "$1" "$2" "$3" && return 0; return 1 ;;' "$DT_W"; then
+  echo "FAIL: daytwo_delivery_allowed does not require an in-scope request in request mode — the delivery window would not be scope-bounded (#5640)" >&2
+  c70_fail=1
+fi
+if ! grep -qF '*) return 1 ;;' "$DT_W"; then
+  echo "FAIL: daytwo_delivery_allowed has no closed default branch — an unrecognised RECONCILE_MODE would fail OPEN (#5640)" >&2
+  c70_fail=1
+fi
+if ! grep -q 'warm_chart "${_c}" "${_v}"' "$DT_W"; then
+  echo "FAIL: the chart leg no longer routes its upstream pull through warm_chart (#5265)" >&2
+  c70_fail=1
+fi
+# The upstream `helm registry login` is itself egress, so it must be LAZY — never
+# performed at container start, where detect/request would dial upstream before
+# any delivery decision was made.
+if ! grep -q 'daytwo_helm_login_once' "$DT_W"; then
+  echo "FAIL: the upstream helm registry login is not deferred into daytwo_helm_login_once — a start-up login dials upstream before any delivery decision, breaking the zero-egress contract of detect/request (#5640)" >&2
+  c70_fail=1
+fi
+# (i) #5640 round 2 — the operator-gated delivery contract, asserted on the
+#     DEFAULT render (the posture a fresh prov actually gets).
+for c70_env in REQUEST_CM DELIVERY_AUDIT_CM REQUEST_MAX_REFS; do
+  if ! grep -qF "name: ${c70_env}" "$DT_F"; then
+    echo "FAIL: Day-2 reconciler does not project ${c70_env} — the operator-gated delivery path cannot be configured (#5640)" >&2
+    c70_fail=1
+  fi
+done
+# One-shot: consumption is recorded in the AUDIT ConfigMap, so re-applying the
+# same request cannot re-open the window and a Pod restart cannot forget it.
+if ! grep -q 'lastConsumedRequestId' "$DT_F"; then
+  echo "FAIL: the delivery request is not consumed durably (no lastConsumedRequestId) — the same request would re-fire every cycle, which IS the always-on mirror this mode exists to avoid (#5640)" >&2
+  c70_fail=1
+fi
+# Audited: every attempt records who asked, for what, and what happened.
+if ! grep -q 'daytwo_audit ' "$DT_F"; then
+  echo "FAIL: delivery attempts are not written to the durable audit trail (#5640)" >&2
+  c70_fail=1
+fi
+# Bounded: an over-size scope is REFUSED, never truncated.
+if ! grep -qF 'REFUSING rather than truncating' "$DT_F"; then
+  echo "FAIL: an over-size delivery scope is not refused — silent truncation turns a bounded window into an unbounded one nobody notices (#5640)" >&2
+  c70_fail=1
+fi
+# (j) #5640 round 2 — the FAIL-CLOSED readiness surface. A missing pin must be a
+#     visible NOT-READY Deployment, not a log line plus a ConfigMap nobody reads.
+if ! grep -q 'readinessProbe' "$DT_F"; then
+  echo "FAIL: the Day-2 reconciler has no readinessProbe — a Sovereign holding an unpullable pin would stay silently 1/1 READY, which is the #5640 silent freeze restored" >&2
+  c70_fail=1
+fi
+if ! grep -qF 'grep -qx READY /tmp/daytwo-work/health' "$DT_F"; then
+  echo "FAIL: the readinessProbe does not read the health verdict the loop writes — it would report readiness of something other than the measured cycle outcome (#5640)" >&2
+  c70_fail=1
+fi
+if ! grep -qF 'echo "NOTREADY no-cycle-completed-yet" > "${HEALTH_FILE}"' "$DT_F"; then
+  echo "FAIL: the health file is not seeded NOT-READY — before the first cycle the probe would read a missing file rather than an explicit not-ready verdict (#5640)" >&2
+  c70_fail=1
+fi
+if ! grep -qF 'unpullable-pins=$((CHART_MISS + IMAGE_MISS))' "$DT_F"; then
+  echo "FAIL: the readiness verdict is not computed from the MEASURED missing count — a probe that does not read the measurement is a knob, not a gate (#5640)" >&2
+  c70_fail=1
+fi
+# Anchored on the rendered YAML key, not the substring: the template's own
+# comment explains WHY there is no liveness probe and would false-positive here.
+if grep -qE '^[[:space:]]+livenessProbe:' "$DT_F"; then
+  echo "FAIL: the Day-2 reconciler carries a livenessProbe — a Sovereign missing an image must go NOT-READY, never restart-loop (#5640)" >&2
+  c70_fail=1
+fi
+# (k) #5640 round 2 — the copy must INVERT a step-07-pivoted ref before using it
+#     as a source. Without this the delivery path is a local->local self-copy for
+#     the exact hw292 shape and can never deliver anything.
+if ! grep -q 'offlinemirror_upstream_ref' "$DT_W"; then
+  echo "FAIL: the Day-2 image delivery never calls offlinemirror_upstream_ref — post-cutover every enumerated ref is already registry.<fqdn>/... (step-07 podspec sweep), so the copy would ask skopeo to copy the local registry to ITSELF (#5640)" >&2
+  c70_fail=1
+fi
+if ! grep -qF 'source and destination are the SAME registry' "$DT_W"; then
+  echo "FAIL: the Day-2 image delivery has no same-registry refusal — a self-copy would be reported as a copy failure rather than as an unknown upstream (#5640)" >&2
   c70_fail=1
 fi
 if [ "$c70_fail" -ne 0 ]; then exit 1; fi
-echo "  PASS (#5265/#5640: Day-2 local-Harbor reconciler is a Deployment [region-kill canon], PRESENT by default with enabled=false still rendering nothing, reuses the 03b bootstrapkit_pins extractor + the durable artifact-API probe, publishes the offline-media missing manifest, defaults to zero-egress detect mode, and gates the upstream helm-pull/push behind opt-in warm mode; step count unchanged at 11)"
+echo "  PASS (#5265/#5640: Day-2 local-Harbor reconciler is a Deployment [region-kill canon], PRESENT by default with enabled=false still rendering nothing, reuses the 03b bootstrapkit_pins extractor + the durable artifact-API probe, publishes the offline-media missing manifest, defaults to a zero-egress-in-steady-state mode and never to warm, routes EVERY upstream fetch through one fail-closed daytwo_delivery_allowed gate with a lazy upstream login, carries the one-shot/audited/bounded operator-gated delivery contract, inverts a step-07-pivoted ref before copying and refuses a same-registry self-copy, and exposes the measured missing count as a fail-closed readinessProbe with no livenessProbe; step count unchanged at 11)"
 
 echo "[cutover-contract] Case 71: #5359 secondary-region legs — steps 05/06/08 mount the optional cutover-secondary-kubeconfigs Secret and run fail-loud region-B pivot/hold legs; single-region renders inert; step count stays 11"
 # hw288 (dep 027f07559af1f9f7): cc=true with region-B still on github/ghcr/quay
@@ -3961,8 +4051,16 @@ fi
 # (f) SOVEREIGNTY. detect must never download skopeo nor dial upstream: every
 #     egress-bearing call sits behind a mode=warm runtime branch. Assert the
 #     warm-gate is what guards the image copy, not merely present somewhere.
-if ! grep -qF '[ "${RECONCILE_MODE}" = "warm" ] && daytwo_warm_image' "$DT_F"; then
-  echo "FAIL: the Day-2 image copy is not runtime-gated on mode=warm — detect mode would reach upstream and break the zero-egress contract (#5640 Refs #5265)" >&2
+if ! grep -qF 'if daytwo_delivery_allowed "${_img}" "${_upref}" "${_lp}"; then' "$DT_F"; then
+  echo "FAIL: the Day-2 image copy is not runtime-gated by daytwo_delivery_allowed — detect (and request with no open window) would reach upstream and break the zero-egress contract (#5640 Refs #5265)" >&2
+  c75_fail=1
+fi
+# The gate must be REACHED before the copy, i.e. daytwo_warm_image may only ever
+# be called from inside it. A second, ungated call site is how the zero-egress
+# contract would quietly stop holding.
+c75_calls=$(grep -c 'daytwo_warm_image "' "$DT_F" || true)
+if [ "${c75_calls}" -ne 1 ]; then
+  echo "FAIL: daytwo_warm_image is invoked from ${c75_calls} call site(s); exactly ONE is allowed so every copy is behind the single delivery gate (#5640)" >&2
   c75_fail=1
 fi
 if ! grep -qF 'daytwo_ensure_skopeo || return 1' "$DT_F"; then

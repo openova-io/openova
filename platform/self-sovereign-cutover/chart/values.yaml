@@ -2050,22 +2050,70 @@ daytwoReconciler:
   # Reconcile loop interval (seconds). 300 = 5 min, matching the mirrorResync
   # cadence so a Git pin bump and its Harbor artifact land in the same window.
   intervalSeconds: 300
-  # detect | warm.
-  #   detect (DEFAULT when enabled) — reaches ONLY the local Gitea mirror +
-  #     local Harbor (ZERO external egress). Reports the exact pinned
-  #     (chart, version) artifacts MISSING from local Harbor to the manifest
+  # detect | request | warm.
+  #
+  #   detect — reaches ONLY the local Gitea mirror + local Harbor (ZERO
+  #     external egress). Reports the exact pinned (chart, version) artifacts
+  #     and declared IMAGE refs MISSING from local Harbor to the manifest
   #     ConfigMap + logs. That set IS the air-gapped Sovereign's offline-media
   #     side-load list, and it turns the previously-SILENT strand into a
-  #     visible, actionable signal.
-  #   warm — additionally `helm pull`s each missing chart from
-  #     warm.upstreamOciPrefix (operator credential) and `helm push`es it into
-  #     local Harbor, and `skopeo copy`s each missing IMAGE from its recorded
-  #     upstream into local Harbor, then re-checks. Only this mode reaches
-  #     upstream, and only on the operator's schedule (the exact companion of
-  #     the Git mirror reaching github.com on that schedule). Fail-SOFT: a warm
-  #     miss is logged + left in the manifest; the loop never crash-loops and
-  #     workloads keep running on the installed version.
-  mode: detect
+  #     visible, actionable signal. It delivers NOTHING.
+  #
+  #   request (DEFAULT, #5640) — detect's behaviour EXACTLY, plus a delivery
+  #     path the operator opens deliberately, one request at a time. With no
+  #     request present the mode is byte-for-byte detect: no upstream host is
+  #     dialled, skopeo is never downloaded, the step-08 deny-egress proof and
+  #     the no-automatic-tether contract are untouched. It is therefore a safe
+  #     DEFAULT in a way `warm` is not — and it means an operator who needs one
+  #     stale image does NOT have to edit the chart, roll the reconciler, and
+  #     remember to turn it off again.
+  #
+  #     To deliver, the operator creates ONE ConfigMap naming the exact refs:
+  #
+  #       kubectl -n <release-ns> create configmap \
+  #         self-sovereign-cutover-daytwo-request \
+  #         --from-literal=requestId=2026-08-04-catalyst-api-leak-fix \
+  #         --from-literal=requestedBy=ops@customer.example \
+  #         --from-literal=scope='ghcr.io/openova-io/openova/catalyst-api:e3342f9'
+  #
+  #     The loop consumes that requestId ONCE — scope-bounded (only the listed
+  #     refs, capped at request.maxRefsPerRequest), audited (every attempt is
+  #     appended to the delivery ConfigMap with timestamp, requestId,
+  #     requestedBy, source, destination and outcome), and then CLOSED: the
+  #     same requestId never fires again, so the egress window does not stay
+  #     open because someone forgot. `scope=ALL_MISSING` delivers the whole
+  #     current missing set for operators who want that, and is still one-shot.
+  #
+  #   warm — an ALWAYS-ON managed-update posture: every cycle, forever,
+  #     unbounded in scope, with a standing credential. It is a legitimate
+  #     choice for an operator who has decided to track upstream continuously,
+  #     but be clear-eyed that it IS a standing outbound tether and is NOT the
+  #     sovereignty-preserving option. Prefer `request` unless you specifically
+  #     want continuous tracking.
+  #
+  # Both delivery modes are fail-SOFT: a failed fetch is logged + left in the
+  # missing manifest; the loop never crash-loops and workloads keep running on
+  # the installed version.
+  mode: request
+  # #5640 — the operator-gated delivery request (mode=request only).
+  request:
+    # ConfigMap the operator creates to open ONE delivery window. Absent =>
+    # zero egress. Keys: requestId (required, the one-shot key), requestedBy
+    # (recorded in the audit trail), scope (newline-separated refs, or the
+    # literal ALL_MISSING).
+    configMapName: "self-sovereign-cutover-daytwo-request"
+    # Durable append-only audit + one-shot state. `state` carries the last
+    # consumed requestId (so consumption survives a Pod restart); `audit.log`
+    # carries the per-ref outcome lines. Never deleted by the loop.
+    auditConfigMapName: "self-sovereign-cutover-daytwo-delivery"
+    # Upper bound on refs ONE request may deliver. A scope this size is an
+    # operator mistake, not an intent; the request is refused rather than
+    # silently truncated (truncation is how a bounded window becomes an
+    # unbounded one nobody notices).
+    maxRefsPerRequest: 50
+    # Audit lines retained in the ConfigMap (it is capped at 1 MiB by the
+    # apiserver). Oldest lines roll off; the Pod log keeps the full history.
+    auditMaxLines: 500
   # Durable ConfigMap (release namespace) the loop writes the missing-artifact
   # manifest into each cycle. An empty manifest (ALL_PINS_PRESENT) is the
   # all-clear. Air-gapped operators consume this as the offline-media manifest.
@@ -2103,12 +2151,20 @@ daytwoReconciler:
     upstreamOciPrefix: "oci://ghcr.io/openova-io"
     # Bare host of upstreamOciPrefix — the `helm registry login` target.
     registryHost: "ghcr.io"
-    # OPERATOR-SUPPLIED upstream credential for warm mode. The cutover strips
-    # its own ghcr auth from ghcr-pull (step-06 mothershipAuthsToStrip, by
-    # design), so warm mode needs a credential the operator provisions when they
-    # choose a managed-update posture. Empty name => anonymous pulls only
-    # (openova-io charts are PRIVATE, so they stay in the missing manifest until
-    # a credential is supplied or the operator side-loads via the manifest).
+    # OPERATOR-SUPPLIED upstream credential for the delivery modes (request and
+    # warm). The cutover strips its own ghcr auth from ghcr-pull (step-06
+    # mothershipAuthsToStrip lists ghcr.io / harbor.openova.io / xpkg.upbound.io,
+    # by design), so on a cutover Sovereign there is NO inherited credential and
+    # NO path for one to appear without the operator provisioning it. That is
+    # the intended shape: delivery is credential-scoped to something the
+    # operator owns, chose to create, and can revoke by deleting this Secret.
+    # Empty name => anonymous pulls only (openova-io packages are PRIVATE, so
+    # they stay in the missing manifest until a credential is supplied or the
+    # operator side-loads via that manifest).
+    # The credential applies to warm.registryHost — it is NOT hard-wired to
+    # ghcr.io, so an operator mirroring the catalog into their OWN registry
+    # points registryHost + upstreamOciPrefix there and this Secret authenticates
+    # BOTH the chart leg and the image leg against it.
     credentialSecret:
       name: ""
       # Defaults to the release namespace when empty (the reconciler Pod's own

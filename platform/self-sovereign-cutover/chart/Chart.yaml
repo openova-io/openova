@@ -1,5 +1,75 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.165 (#5640 round 2, Refs #5644 #5265 #4975 #960) — the Day-2 delivery path
+# becomes one that can ACTUALLY deliver, and an unpullable pin becomes a FAILING
+# condition instead of a silent freeze.
+#
+# THREE findings, measured against the shipped 0.1.164 template, not inferred.
+#
+# 1. THE DELIVERY PATH COULD NOT DELIVER THE DEFECT IT WAS BUILT FOR. step-07's
+#    pod-spec sweep (sweep_one_workload -> podspec_pivot_ref) rewrites every
+#    workload image to `registry.<fqdn>/<local-path>`. Post-cutover, therefore,
+#    every ref the Day-2 loop reads off the LIVE cluster already carries the
+#    LOCAL host — which is the only shape the hw292 defect takes. 0.1.164 passed
+#    that ref straight to skopeo as the SOURCE, so `mode=warm` asked skopeo to
+#    copy the local registry to ITSELF for an artifact local Harbor had just
+#    404'd. It could never have delivered anything, and it would have failed as
+#    "copy error" rather than "unknown upstream". FIX: `offlinemirror_upstream_ref`
+#    in the SHARED 03a resolver — the exact inverse of `offlinemirror_local_paths`,
+#    one function in one place — plus a same-registry refusal so a self-copy can
+#    never be attempted or mistaken for a transient failure.
+#
+# 2. `warm` IS A STANDING TETHER, so it is the wrong thing to reach for. It runs
+#    every cycle, forever, unbounded in scope, with a standing credential, and
+#    the only record is a rotating Pod log. Turning it on to fix one stale image
+#    re-tethers the Sovereign permanently. NEW `mode: request` (now the DEFAULT):
+#    detect's behaviour exactly — zero external egress, no upstream host dialled,
+#    skopeo never downloaded, the upstream `helm registry login` made LAZY so
+#    even it cannot fire at start-up — until an operator files ONE delivery
+#    request. That request is initiated (a ConfigMap the operator creates),
+#    scope-bounded (only the refs it names, or ALL_MISSING; an over-size scope is
+#    REFUSED, never truncated), credential-scoped (step-06 strips the cutover's
+#    own ghcr auth, so the credential can only be one the operator provisioned
+#    and can revoke), audited (timestamp, requestId, requestedBy, source,
+#    destination, outcome, to a durable ConfigMap) and ONE-SHOT (the consumed
+#    requestId is recorded durably, so re-applying the same request does not
+#    re-open the window; a new window needs a new requestId). Because a
+#    request-less cycle dials nothing, this is safe as a DEFAULT in a way `warm`
+#    is not. `warm` is kept and documented as the always-on posture it is.
+#
+# 3. THE MISSING SET WAS STILL A SILENT FREEZE. 0.1.164 wrote it to a ConfigMap
+#    and to logs; nothing turned it into a failing condition, so the operator
+#    still found out when a UAT row would not go green. The loop now writes a
+#    readiness verdict from the MEASURED cycle outcome and the container carries
+#    a readinessProbe on it: READY requires every enabled leg to have completed
+#    AND zero missing artifacts, and "I could not check" is NOT-READY, never
+#    all-clear. `kubectl get deploy cutover-daytwo-harbor-reconciler` reading 0/1
+#    IS the statement "this Sovereign holds a pin its registry cannot serve".
+#    Deliberately no livenessProbe — the correct response is not-ready, never a
+#    restart loop.
+#
+# Also fixed: the operator-supplied warm credential was hard-wired to ghcr.io
+# (`&& [ "${WARM_REGISTRY_HOST}" = "ghcr.io" ]`), so an operator mirroring the
+# catalog into their OWN registry — the posture values.yaml explicitly documents
+# — had their credential silently ignored and every private ref fell back to
+# anonymous, which reads as "the image is missing". It now binds to
+# warm.registryHost.
+#
+# PROVEN, NOT ASSERTED. tests/daytwo-image-leg.sh grows from 4 scenarios to 12,
+# all EXECUTING the rendered script against stub kubectl/curl/skopeo: the
+# shipped default with no request makes zero egress while still reporting the
+# full missing set; an open request copies the ref it names and NOT the missing
+# ref it omits (the bounded-window control); a step-07-pivoted ref is copied
+# FROM ghcr.io with no self-copy; an un-invertible local ref is refused before
+# any copy; a consumed requestId and an identity-less request both deliver
+# nothing; and the readiness verdict is walked in BOTH directions — NOT-READY on
+# a missing pin, READY on a clean measured cycle, NOT-READY on a broken read.
+#
+# New values: daytwoReconciler.mode=request (default) and
+# daytwoReconciler.request.{configMapName,auditConfigMapName,maxRefsPerRequest,
+# auditMaxLines}. No RBAC change (the runner ClusterRole already grants
+# configmaps create + get/list/watch + update/patch). Step count unchanged at 11.
+#
 # 0.1.164 (#5359 Refs #5650 #5379 #3379 #960) — the sovereignty gate becomes a
 # FLEET assertion, and step-05's secondary readiness starts asserting
 # convergence instead of a stale status field.
@@ -3099,7 +3169,7 @@ name: bp-self-sovereign-cutover
 # copyAttempts,skopeoStaticURL,maxRefsPerCycle}. No RBAC change (the runner
 # ClusterRole already grants deployments/statefulsets/daemonsets/jobs/cronjobs
 # get+list+watch). Step count unchanged at 11.
-version: 0.1.164
+version: 0.1.165
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
