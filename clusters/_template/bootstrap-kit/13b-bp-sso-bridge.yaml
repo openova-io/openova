@@ -170,7 +170,7 @@ spec:
       #   policy-dropped → `no OpenBao token` every tick → grafana/hubble 503,
       #   gitea 500. Fix: CNP egress now also names kube-dns + keycloak + openbao.
       #   #4449 fixed the INGRESS side; this is the EGRESS side. Refs #4458 #4449.
-      version: 0.2.26
+      version: 0.2.27
       sourceRef:
         kind: HelmRepository
         name: bp-sso-bridge

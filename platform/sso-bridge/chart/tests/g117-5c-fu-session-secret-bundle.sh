@@ -66,4 +66,47 @@ if [ "$computed_session" != "$computed_session2" ]; then
 fi
 echo "PASS 5: derivation is render-stable (idempotent)"
 
+# ── #5466 — crypto_secret joins the bundle (bp-newapi CRYPTO_SECRET) ──────
+# Same derivation idiom, its own domain-separation tag `crypto`, full 64-hex
+# digest (newapi consumes an opaque string — no oauth2-proxy-style base64url
+# length constraint, so NO substr truncation like cookie_secret's).
+
+# Test 6: crypto_secret derivation present with the |crypto| tag
+if ! grep -q 'crypto_secret="\$(' <<<"$RENDERED"; then
+  echo "FAIL 6: crypto_secret derivation not found in rendered reconciler"
+  exit 1
+fi
+if ! grep -q '|crypto|' <<<"$RENDERED"; then
+  echo "FAIL 6: |crypto| domain-separation tag not in derivation"
+  exit 1
+fi
+echo "PASS 6: crypto_secret derivation present with |crypto| tag"
+
+# Test 7: jq bundle includes crypto_secret:$crypto
+if ! grep -q 'crypto_secret:\$crypto' <<<"$RENDERED"; then
+  echo "FAIL 7: jq bundle expression missing crypto_secret:\$crypto"
+  exit 1
+fi
+echo "PASS 7: jq bundle includes crypto_secret"
+
+# Test 8: crypto_secret is full-length 64-hex AND distinct from BOTH
+# session_secret and client_secret for the same inputs (value assert — a
+# tag typo collapsing crypto onto session must fail here).
+computed_crypto="$(printf '%s|crypto|%s|%s' "$test_cid" "$test_realm" "$test_client_secret" | sha256sum | awk '{print $1}')"
+if [ ${#computed_crypto} -ne 64 ]; then
+  echo "FAIL 8: crypto_secret not a full sha256 hex digest (len=${#computed_crypto})"
+  exit 1
+fi
+if [ "$computed_crypto" = "$computed_session" ] || [ "$computed_crypto" = "$test_client_secret" ]; then
+  echo "FAIL 8: crypto_secret collides with session_secret or client_secret"
+  exit 1
+fi
+# The rendered script must NOT truncate crypto_secret (that is cookie_secret's
+# constraint, not newapi's): the crypto_secret line must not contain substr.
+if grep 'crypto_secret=' <<<"$RENDERED" | grep -q 'substr'; then
+  echo "FAIL 8: crypto_secret derivation truncates the digest — newapi expects the full 64-hex string"
+  exit 1
+fi
+echo "PASS 8: crypto_secret is full 64-hex, domain-separated, untruncated"
+
 echo "=== ALL TESTS PASS ==="

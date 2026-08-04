@@ -2326,7 +2326,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.4.146"
+  version: "1.4.147"
   visibility: listed
   card:
     title: "NewAPI"
@@ -2371,7 +2371,7 @@ business model is reselling LLM access to its own customers; use
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-newapi
-    version: "1.4.146"
+    version: "1.4.147"
   topology:
     supported:
     - active-passive
@@ -5177,7 +5177,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.26"
+  version: "0.2.27"
   visibility: unlisted
   card:
     title: "SSO Bridge"
@@ -5194,7 +5194,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-sso-bridge
-    version: "0.2.26"
+    version: "0.2.27"
   topology:
     supported:
       - active-passive

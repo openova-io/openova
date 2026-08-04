@@ -39,9 +39,19 @@ the configmap mirrors this gate.
 {{- if and (not $effDbSecret) .Values.cnpg.enabled -}}
 {{- $effDbSecret = default (printf "%s-newapi-db-dsn" (include "bp-newapi.fullname" .)) .Values.cnpg.dsnSecretName -}}
 {{- end -}}
-{{- /* Resolve credentials secret: explicit override > chart auto-provision */ -}}
+{{- /* Resolve credentials secret: explicit override > bridge-synced (#5466) >
+   chart auto-provision. Under bp-newapi.credsBridgeSynced (placement.role=all
+   + keycloak mode + ssoBridgeSync + sovereign realm + ESO capability — see
+   _helpers.tpl) SESSION_SECRET/CRYPTO_SECRET come from the bp-sso-bridge-
+   published `-app-creds-oidc` Secret, whose values are derived ONCE per KC
+   client into the OpenBao sso/sovereign/<cid> bundle and delivered
+   identically to EVERY region — the chart-local `lookup`-or-randAlphaNum
+   generator minted a DIFFERENT pair per region behind the one shared VIP
+   (the hw291 `securecookie: the value is not valid` 401, A16 class #5480). */ -}}
 {{- $effCredsSecret := .Values.credentials.existingSecret -}}
-{{- if and (not $effCredsSecret) .Values.credentials.autoProvision -}}
+{{- if and (not $effCredsSecret) (eq (include "bp-newapi.credsBridgeSynced" .) "true") -}}
+{{- $effCredsSecret = include "bp-newapi.credsBridgeSecretName" . -}}
+{{- else if and (not $effCredsSecret) .Values.credentials.autoProvision -}}
 {{- $effCredsSecret = default (printf "%s-app-creds" (include "bp-newapi.fullname" .)) .Values.credentials.autoSecretName -}}
 {{- end -}}
 {{- /* Resolve sandbox token signing key secret: explicit override > chart auto-provision */ -}}
@@ -317,9 +327,15 @@ spec:
             {{- end }}
 
             # ── App credentials (NewAPI-internal) ─────────────────────
-            # Secret name resolution (issue #943):
+            # Secret name resolution (issue #943, #5466):
             #   1. .Values.credentials.existingSecret (operator override)
-            #   2. else chart-emitted credentials-secret.yaml output
+            #   2. else the bp-sso-bridge-published `-app-creds-oidc`
+            #      Secret when bp-newapi.credsBridgeSynced (#5466) —
+            #      SESSION_SECRET/CRYPTO_SECRET derived once per KC client
+            #      in the OpenBao bundle, so BOTH regions of a 2-region
+            #      Sovereign resolve ONE value and a session set behind
+            #      either region validates on the other (A16, #5480)
+            #   3. else chart-emitted credentials-secret.yaml output
             #      when .Values.credentials.autoProvision (DEFAULT true)
             - name: SESSION_SECRET
               valueFrom:

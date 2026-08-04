@@ -118,6 +118,63 @@ Helm has no boolean return; these emit the strings "true"/"false". Test with
 {{- end -}}
 
 {{/*
+#5466 / #5480 (A16 class) — is the region-consistent SESSION_SECRET/
+CRYPTO_SECRET bridge carrier ACTIVE for this install?
+
+credentials-secret.yaml's `lookup`-or-`randAlphaNum 64` is PER-CLUSTER: on a
+2-region Sovereign each region's own Flux/Helm hits its own apiserver, the
+lookup misses in the second region, and each region mints a DIFFERENT
+SESSION_SECRET/CRYPTO_SECRET pair. newapi.<fqdn> is fanned at BOTH regions'
+pods by one shared VIP, so a session cookie set by one region is rejected by
+the other (`[sessions] ERROR! securecookie: the value is not valid`, hw291,
+UAT rows 37/38). The fix rides the SAME carrier the sibling OIDC client
+secret already uses (#3374): bp-sso-bridge publishes derived, per-KC-client
+`session_secret`/`crypto_secret` properties into the OpenBao
+sso/sovereign/<clientId> bundle (0.2.27), and every region's ExternalSecret
+resolves that ONE bundle — never generated twice. Mirrors the #5416 fix for
+the oauth2-proxy cookie secret (bp-oidc-gate 0.1.8 / bp-cilium 1.4.18).
+
+"true" only when EVERY leg of the carrier is present for THIS install:
+  - placement.role == all — the sovereign-admin install (slot 80, #4291
+    de-vclustered): seams + app render in the SAME host cluster, so the
+    ExternalSecret lands next to the Pod. host-seams renders no Pod;
+    vcluster-app renders the Pod where ESO does NOT exist (the in-vCluster
+    placeholder path is unchanged — same scoping as keycloak-client-secret).
+  - adminUI keycloak mode + ssoBridgeSync.enabled + sovereignFQDN + a
+    sovereign-realm issuer — the EXACT gate set under which
+    sso-app-registration.yaml registers the KC client, which is what makes
+    bp-sso-bridge mint the client and publish the bundle this consumes.
+    A per-Org overlay (issuer realm org-<sub>, #4169) is excluded.
+  - no operator credentials.existingSecret override (Principle #4 — BYO
+    bytes always win).
+  - the ESO CRD capability — without it the ExternalSecret cannot render
+    and pointing the Pod at the bridge Secret would wedge it forever.
+When "false" everything renders exactly as pre-#5466.
+*/}}
+{{- define "bp-newapi.credsBridgeSynced" -}}
+{{- $kcMode := eq .Values.auth.adminUI.mode "keycloak" -}}
+{{- $sync := .Values.auth.adminUI.keycloak.ssoBridgeSync -}}
+{{- $issuer := .Values.auth.adminUI.keycloak.issuer | default "" -}}
+{{- $issuerRealm := "" -}}
+{{- if $issuer -}}
+{{- $issuerRealm = regexReplaceAll ".*/realms/([^/?#]+).*" $issuer "${1}" -}}
+{{- end -}}
+{{- $issuerIsSovereign := or (not $issuer) (eq $issuerRealm "sovereign") -}}
+{{- if and (eq (include "bp-newapi.placementRole" .) "all") $kcMode $sync.enabled .Values.sovereignFQDN $issuerIsSovereign (not .Values.credentials.existingSecret) (.Capabilities.APIVersions.Has "external-secrets.io/v1beta1") -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{/*
+#5466 — name of the bridge-published app-credentials Secret (ExternalSecret
+target, creationPolicy Owner). Distinct from the chart-generated
+`<fullname>-app-creds` (helm.sh/resource-policy: keep) so ESO needs no
+ownership takeover of a helm-kept object — the same reasoning #5416 used
+for the oidc-gate `-oidc` Secret.
+*/}}
+{{- define "bp-newapi.credsBridgeSecretName" -}}
+{{- printf "%s-app-creds-oidc" (include "bp-newapi.fullname" .) -}}
+{{- end -}}
+
+{{/*
 ServiceAccount name.
 */}}
 {{- define "bp-newapi.serviceAccountName" -}}

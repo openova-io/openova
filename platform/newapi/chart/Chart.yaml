@@ -964,7 +964,37 @@ name: bp-newapi
 #   gap). Cross-region replication would be WRONG (the bearer must byte-match
 #   the REGION-LOCAL bridge ADMIN_SECRET), so the fix is the region-local
 #   producer. Pairs with bp-openbao 1.2.64 (external-secrets-push policy grant).
-version: 1.4.146
+# 1.4.147 (#5466 #5480, 2026-08-05): SESSION_SECRET/CRYPTO_SECRET stop being
+#   minted per region — the A16 class, the newapi instance PROVEN split live
+#   on hw291. credentials-secret.yaml generates them with `lookup`-or-
+#   `randAlphaNum 64`; on a 2-region Sovereign each region's own Flux/Helm
+#   misses the lookup and mints a DIFFERENT pair, and newapi.<fqdn> is fanned
+#   at BOTH regions' pods by one shared VIP — so the SSO code exchange
+#   SUCCEEDS in one region (region-B: GET /api/oauth/sovereign 200, user
+#   sovereign_2 created + promoted to role 100, verified in the region-B DB)
+#   and the SAME page load then hits region-A, which logs `[sessions] ERROR!
+#   securecookie: the value is not valid`, 401s /api/user/self, and dumps the
+#   user on /login?expired=true (UAT rows 37/38; #5466's filed premise of a
+#   KC-side 403 was falsified by the 2026-07-29 re-walk). FIX: carry both
+#   values on the SAME seam the sibling OIDC_CLIENT_SECRET has used since
+#   #3374 and the oauth2-proxy cookie secret since #5416 — bp-sso-bridge
+#   0.2.27 publishes `crypto_secret` (derived once per KC client, tag
+#   `crypto`) next to the pre-existing `session_secret` (#2807) in the
+#   OpenBao sso/sovereign/<cid> bundle, and the new templates/credentials-
+#   externalsecret.yaml (creationPolicy Owner, Secret `-app-creds-oidc`)
+#   delivers BOTH into every region; the Deployment reads them from it under
+#   bp-newapi.credsBridgeSynced (placement.role=all + kc mode + ssoBridgeSync
+#   + sovereign realm + no operator override + ESO capability). Everywhere
+#   the carrier is absent (vcluster-app — no ESO in the vCluster, per-Org
+#   issuer, masterKey mode, BYO existingSecret, sync off) the chart-generated
+#   fallback renders exactly as before. UPGRADE: until bp-sso-bridge 0.2.27's
+#   next tick lands crypto_secret in the bundle, a rolled Pod waits in
+#   CreateContainerConfigError, then starts on its own (#5416 hubble
+#   precedent; both pins bump in this commit). Requires bp-sso-bridge >=
+#   0.2.27. Render seam guarded by tests/5466-credentials-region-
+#   consistency-render.sh (fails on the pre-#5466 shape, plus a fallback
+#   vacuity control).
+version: 1.4.147
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

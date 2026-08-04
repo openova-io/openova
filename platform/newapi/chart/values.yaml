@@ -333,6 +333,21 @@ valkey:
 # Operator may bring their own bytes via per-Sovereign overlay setting
 # `existingSecret` — when non-empty it takes precedence and the chart-
 # emitted Secret is NOT rendered.
+#
+# #5466 / #5480 (A16 class): on the sovereign-admin default path
+# (placement.role=all + adminUI keycloak mode + ssoBridgeSync on +
+# sovereignFQDN + sovereign-realm issuer + ESO CRD present) the chart-
+# generated Secret is NOT rendered either — `lookup`-or-generate is
+# per-cluster, so each region of a 2-region Sovereign minted a DIFFERENT
+# SESSION_SECRET/CRYPTO_SECRET pair behind the one shared VIP and the
+# peer region 401'd every session it did not mint (hw291 `[sessions]
+# ERROR! securecookie: the value is not valid`, UAT rows 37/38). Instead
+# templates/credentials-externalsecret.yaml resolves both values from
+# the bp-sso-bridge-published OpenBao bundle sso/sovereign/<clientId>
+# (session_secret #2807 / crypto_secret 0.2.27 — derived once per KC
+# client), so EVERY region gets the same bytes — the identical carrier
+# the OIDC client secret (#3374) and the oauth2-proxy cookie secret
+# (#5416) already ride. Requires bp-sso-bridge >= 0.2.27.
 credentials:
   existingSecret: "" # operator-supplied (e.g. "newapi-app-creds")
   autoProvision: true
