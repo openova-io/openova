@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-04T09:15:05Z` |
+| Last refreshed | `2026-08-04T09:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5406](https://github.com/openova-io/openova/issues/5406) | Harbor SSO session never holds: active/active across both regions behind one hos | Other |
 | [#5408](https://github.com/openova-io/openova/issues/5408) | Wizard component model: phantom ids in the deployment payload, cnpg+postgres inv | Other |
 | [#5409](https://github.com/openova-io/openova/issues/5409) | PinInput6 maxLength={6} silently truncates a pasted sign-in code before the past | Other |
 | [#5410](https://github.com/openova-io/openova/issues/5410) | uptime-kuma is hard-coded to 128Mi in KnownApps and OOMKills permanently (40 res | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5648](https://github.com/openova-io/openova/issues/5648) | SSO restamp erased 5 freshly-walked green rows from a merge that touched only ci | Other |
 | [#5649](https://github.com/openova-io/openova/issues/5649) | Org teardown reaps one producer's route name in one region — deleted Orgs leav | Other |
 | [#5650](https://github.com/openova-io/openova/issues/5650) | Post-cutover Sovereign fetches charts.loft.sh every 15m: step-08's deny-egress h | Other |
+| [#5659](https://github.com/openova-io/openova/issues/5659) | §854 holds live in both regions, but the guard is declarative nowhere and enfor | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-04T09:16 | [#5658](https://github.com/openova-io/openova/pull/5658) | #5641 | fix(qa-fixtures): QA CNPG Clusters pinned a Hetzner region o |
 | 2026-08-04T08:50 | [#5657](https://github.com/openova-io/openova/pull/5657) | #5644 | feat(cutover): post-cutover delivery that can actually deliv |
 | 2026-08-04T06:21 | [#5656](https://github.com/openova-io/openova/pull/5656) | #5379 | fix(cutover): make the sovereignty gate a per-region asserti |
 | 2026-08-04T05:10 | [#5654](https://github.com/openova-io/openova/pull/5654) | #5652 | fix(cutover): declare the known loft tether so 0.1.162's sou |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-02T23:23 | [#5588](https://github.com/openova-io/openova/pull/5588) | #5579 | fix(wizard): restore the #5572 onBack fix that the #5579 sal |
 | 2026-08-02T20:42 | [#5587](https://github.com/openova-io/openova/pull/5587) | #5561 | fix(kyverno-policies): solver carve-out prose states the tru |
 | 2026-08-02T20:26 | [#5586](https://github.com/openova-io/openova/pull/5586) | #5563 | fix(sealed-secrets): repoint chart dependency to the live bi |
-| 2026-08-02T19:06 | [#5584](https://github.com/openova-io/openova/pull/5584) | #4023 | build(deps): protobuf v1.33.0 PAIRED with golang/protobuf v1 |
 
 ---
 
