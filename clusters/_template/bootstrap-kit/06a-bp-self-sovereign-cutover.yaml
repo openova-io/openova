@@ -1057,7 +1057,11 @@ spec:
       # 0.1.167 (#5391): settled-roll pre-flight gains a NAMED, validated,
       #   audited operator override (annotation contract) + fail-closed gate
       #   reads; re-serialized past main 0.1.166. Lockstep (pin-sync gate).
-      version: 0.1.167
+      # 0.1.168 (#5650): step-06 Phase-2c pivots the vcluster-system/loft
+      # index.yaml HelmRepository off charts.loft.sh into local Harbor +
+      # suspends bp-vcluster-helmrepo so it holds; the step-08 fluxSourceHostLint
+      # exception for charts.loft.sh is removed (empty allowHosts).
+      version: 0.1.168
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
