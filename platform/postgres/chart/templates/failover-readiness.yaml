@@ -1,0 +1,168 @@
+{{- /*
+Failover-readiness probe Pod (#5623 — chart 0.2.18).
+
+A faithful port of bp-cnpg-pair's failover-readiness.yaml for the shared-pg
+active-hot-standby replica half. Polls the replica cluster's designated primary
+(its CNPG `-rw` Service) for the WAL APPLY lag and, when that lag falls below
+`topology.walStreaming.targetLagSeconds`, flips the Pod's Ready condition true so
+the region-B dr-promoter (dr-promoter.yaml) treats the replica as PROMOTABLE.
+
+Lag measure (#5133): compare the standby's `pg_last_wal_replay_lsn()` against its
+`pg_last_wal_receive_lsn()`. When the standby has REPLAYED everything its WAL
+receiver has RECEIVED the apply lag is zero — idle-safe (a caught-up SYNCHRONOUS
+standby of an idle primary reads 0, NOT an ever-growing
+`now() - pg_last_xact_replay_timestamp()` clock skew) AND region-kill-safe (during
+a region-A kill the receiver freezes and replay catches up to it → 0 → promotable,
+with no dependency on the dead primary being reachable). Only a genuinely-behind
+(async) standby falls through to a seconds-based apply lag the threshold gates.
+
+AUTH (#5133): the probe authenticates as the `streaming_replica` role via its
+CNPG-issued client cert (CNPG pg_hba admits `hostssl postgres streaming_replica
+all cert`). The shared-pg Cluster CRs run with the postgres superuser usable, but
+`streaming_replica` mutual-TLS is the region-kill-safe path (it needs no reachable
+primary and no password) and matches the externalCluster streaming connection.
+The cert lives in this replica cluster's own CNPG-generated
+`<replica>-replication` Secret.
+
+Side + gating: renders ONLY when the dr-promoter itself renders
+(`bp-postgres.autoPromoteActive` — active-hot-standby AND side=replica AND sync
+AND autoPromote.enabled) so autoPromote-off / async / singleton / primary-side
+renders are byte-identical. Its region-B node-affinity pins the replica region
+(fail-closed via bp-postgres.replicaRegion).
+*/ -}}
+{{- if and (ne (toString .Values.enabled) "false") (include "bp-postgres.autoPromoteActive" .) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-failover-readiness
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+    catalyst.openova.io/role: failover-readiness-probe
+  annotations:
+    catalyst.openova.io/blueprint: bp-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bp-postgres
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      catalyst.openova.io/role: failover-readiness-probe
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-postgres
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        catalyst.openova.io/role: failover-readiness-probe
+        catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+        # kyverno cilium-l7-mtls (Enforce) — required on the Pod template or the
+        # Deployment is DENIED at admission (#3238).
+        policy.cilium.io/enforced: "true"
+    spec:
+      # Probe runs in the replica region — the half that survives a region-A
+      # kill (same pin as the dr-promoter).
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: openova.io/region
+                    operator: In
+                    values: [{{ include "bp-postgres.replicaRegion" . | quote }}]
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 26   # postgres in upstream cnpg image
+        runAsGroup: 26
+        fsGroup: 26
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: probe
+          image: {{ include "bp-postgres.imageRef" . | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              REPLICA_HOST="{{ include "bp-postgres.replicaName" . }}-rw"
+              THRESHOLD={{ .Values.topology.walStreaming.targetLagSeconds }}
+              # streaming_replica mutual-TLS: sslmode=require + the CNPG-issued
+              # client cert (server-side `cert` pg_hba verifies it against the
+              # cluster CA) — the region-kill-safe auth the externalCluster uses.
+              CONN="host=${REPLICA_HOST} port=5432 dbname=postgres user=streaming_replica sslmode=require sslcert=/tls/client/tls.crt sslkey=/tls/client/tls.key"
+              # Apply lag in seconds. CASE ladder (#5133):
+              #  1. NOT in recovery → already promoted → 0 (ready).
+              #  2. replay_lsn caught up to receive_lsn → applied all received
+              #     WAL → 0 (idle-safe + region-kill-safe: no dead-primary dep).
+              #  3. otherwise (genuinely behind) → seconds since last replayed
+              #     xact, so targetLagSeconds gates async lag.
+              LAG_SQL="SELECT CASE
+                WHEN NOT pg_is_in_recovery() THEN 0
+                WHEN pg_last_wal_receive_lsn() IS NOT NULL
+                     AND pg_last_wal_replay_lsn() >= pg_last_wal_receive_lsn() THEN 0
+                ELSE COALESCE(GREATEST(0, EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::bigint), 2147483647)
+              END"
+              while true; do
+                # Heartbeat first — the livenessProbe reads /tmp/alive's mtime to
+                # detect a WEDGED loop; /tmp/ready is the SEPARATE promotability
+                # signal the readinessProbe surfaces (alive vs promotable).
+                : > /tmp/alive
+                LAG=$(psql "${CONN}" -tAXc "${LAG_SQL}" 2>/dev/null || echo "999999")
+                case "${LAG}" in ''|*[!0-9]*) LAG=999999 ;; esac
+                if [ "${LAG}" -lt "${THRESHOLD}" ]; then
+                  date -u +"%FT%TZ replica lag=${LAG}s < threshold=${THRESHOLD}s — promotable" > /tmp/ready
+                else
+                  rm -f /tmp/ready
+                  date -u +"%FT%TZ replica lag=${LAG}s >= threshold=${THRESHOLD}s — NOT promotable"
+                fi
+                sleep 10
+              done
+          env:
+            - name: PGCONNECT_TIMEOUT
+              value: "5"
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "test -f /tmp/alive && test -z \"$(find /tmp/alive -mmin +1)\""
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["test", "-f", "/tmp/ready"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: {{ .Values.topology.walStreaming.timeoutSeconds }}
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            # streaming_replica client cert + key (CNPG-issued for THIS replica
+            # cluster) — 0440 root:26 so libpq (uid 26) accepts the key.
+            - name: replication-cert
+              mountPath: /tls/client
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: replication-cert
+          secret:
+            secretName: {{ include "bp-postgres.replicaName" . }}-replication
+            defaultMode: 0440
+{{- end }}

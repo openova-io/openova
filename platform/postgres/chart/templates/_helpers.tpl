@@ -83,6 +83,42 @@ replica side renders ONLY the follower Cluster + its mesh stub + netpol.
 {{- end -}}
 
 {{/*
+Region-B automatic DR promotion — active? (chart 0.2.18, #5623)
+
+The shared-pg data instances render the EXACT bp-cnpg-pair split-side replica
+shape but shipped NO region-local promoter, so on a region-A kill their region-B
+replicas stayed `pg_is_in_recovery()=t` for the whole outage — keycloak and every
+other platform database read-only, the auth path unrecoverable in region-B (hw292
+G12, 2026-08-03). This gate renders the SAME proven bp-cnpg-pair dr-promoter shape
+(templates/dr-promoter.yaml + the shared _dr-promoter-scripts.tpl partials) on this
+side, so the survivor auto-promotes RPO=0 with the same false-promote guards.
+
+TRUE only when ALL of (mirrors bp-cnpg-pair.autoPromoteActive exactly):
+  - renderReplicaHalf            (active-hot-standby AND side=replica|secondary —
+                                  the actor runs ON cluster-B, the half that
+                                  survives a region-A kill)
+  - autoPromote.enabled          (operator gate; default TRUE — absent key ⇒
+                                  enabled, hasKey-guarded because sprig `default`
+                                  swallows a literal `false`)
+  - replication.mode == sync     (the anti-split-brain DATA FENCE: with
+                                  synchronous_commit=remote_apply + FIRST 1 pinned
+                                  to the cross-region replica, the old primary
+                                  CANNOT durably commit while its sync standby is
+                                  unreachable or diverged, so an automatic promote
+                                  can never lose or fork committed data. async has
+                                  no fence → the promoter does NOT render there.)
+renderReplicaHalf is already false when the whole chart is disabled or singleton;
+dr-promoter.yaml additionally guards on `ne (toString .Values.enabled) "false"`.
+*/}}
+{{- define "bp-postgres.autoPromoteActive" -}}
+{{- $topology := .Values.topology | default dict -}}
+{{- $ap := dig "autoPromote" dict $topology -}}
+{{- $apEnabled := true -}}
+{{- if hasKey $ap "enabled" }}{{- $apEnabled = $ap.enabled -}}{{- end -}}
+{{- if and (include "bp-postgres.renderReplicaHalf" .) $apEnabled (eq (dig "replication" "mode" "sync" $topology) "sync") -}}true{{- end -}}
+{{- end -}}
+
+{{/*
 Whether this install publishes the ClusterMesh-global `-mesh` (read) +
 `-mesh-rw` (write) Service aliases — gated on `topology.clusterMesh.enabled`
 + a MULTI-REGION signal, deliberately DECOUPLED from `activeHotStandby` (#4460).

@@ -78,13 +78,22 @@ spec:
     podAntiAffinityType: preferred
 
   # ── Replica-cluster mode ─────────────────────────────────────────
-  # `replica.enabled: true` configures this Cluster as a CNPG replica
-  # cluster: instances bootstrap via streaming replication from the named
-  # externalCluster source. bp-continuum's switchover path patches
+  # `replica.enabled` configures this Cluster as a CNPG replica cluster:
+  # instances bootstrap via streaming replication from the named
+  # externalCluster source. bp-continuum's switchover path drives
   # `replica.enabled: false` here (and flips the primary CR to the inverse)
   # to promote/demote atomically.
+  #
+  # DR-durability (#5623, mirror of bp-cnpg-pair 0.2.12 / #5125 Defect-1):
+  # `replica.enabled` is DRIVEN by the `topology.promoted` VALUE, NOT a
+  # hard-coded `true`. Default/absent promoted (false) → `enabled: true`
+  # (normal replica); promoted:true → `enabled: false` (CNPG promotes it to a
+  # writable primary). Region-kill failover MUST flip the region-B HelmRelease
+  # DESIRED state (`spec.values.topology.promoted: true`) — the exact seam the
+  # dr-promoter actor patches — so flux drift-correction RE-AFFIRMS the
+  # promotion instead of a live-object patch it reverts mid-outage (hw256 G12).
   replica:
-    enabled: true
+    enabled: {{ not (.Values.topology.promoted | default false) }}
     source: {{ include "bp-postgres.instanceName" . }}
 
   # ── Bootstrap from primary ──────────────────────────────────────

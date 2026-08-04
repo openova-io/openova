@@ -162,6 +162,95 @@ topology:
     sync:
       commit: remote_apply  # on | remote_write | remote_apply
       numSync: 1
+
+  # ── DR failover promotion seam (#5623, mirror of bp-cnpg-pair 0.2.12) ──
+  # When true, the REPLICA half's Cluster CR renders `replica.enabled: false`
+  # → CNPG promotes it to a writable primary. Region-kill failover MUST flip
+  # this on the region-B HelmRelease DESIRED state
+  # (`spec.values.topology.promoted: true`) — NEVER a `kubectl patch` of the
+  # live Cluster CR, which flux/kustomize reverts mid-outage (the hw256 G12
+  # lesson, #5125). The dr-promoter actor (below) drives exactly this value
+  # and then suspend-latches the HR so drift-correction cannot re-demote the
+  # survivor. Default/absent ⇒ replica mode (backward-safe; only consulted on
+  # the active-hot-standby replica half). See replica-cluster.yaml.
+  promoted: false
+
+  # ── Failover-readiness probe threshold (#5623 / #5133) ────────────────
+  # The failover-readiness probe Pod (failover-readiness.yaml, side=replica)
+  # flips its Ready condition when the standby's WAL APPLY lag falls below
+  # targetLagSeconds; the dr-promoter actor gates promotion on that Ready
+  # signal (a lagging standby is never promoted — data safety over RTO).
+  # Only consulted on the active-hot-standby replica half.
+  walStreaming:
+    targetLagSeconds: 30
+    timeoutSeconds: 60
+
+  # ── Region-B AUTOMATIC DR promotion (#5623) ───────────────────────────
+  # The shared-pg pairs render the EXACT bp-cnpg-pair replica shape but had
+  # NO region-local promoter, so on the hw292 G12 region-kill (2026-08-03)
+  # their region-B replicas stayed read-only for the WHOLE outage while
+  # bp-cnpg-pair's own dr-promoter auto-promoted at T0+2m16s — keycloak (a
+  # shared-pg consumer) unrecoverable in region-B. This ships the SAME proven
+  # promoter shape on the shared-pg replica half: a region-B-local Deployment
+  # (Deployment NOT CronJob — #5157: a CronJob scheduler dies with the region)
+  # whose signals container watches the LOCAL replica's WAL receiver AND
+  # POSITIVELY probes region-A liveness (pg_isready of the `-mesh` primary
+  # endpoint over the ClusterMesh — #5178), and whose actor promotes via the
+  # `topology.promoted` HR-value seam + a durable suspend latch (#5218) only
+  # after the region-A-loss clock has held primaryDownHoldSeconds AND the pair
+  # reached streaming steady-state (steadyStateArmSeconds — #5220) AND the
+  # failover-readiness probe is Ready. DATA FENCE: rendered ONLY when
+  # replication.mode=sync (remote_apply + FIRST 1 pinned to the cross-region
+  # replica means the old primary cannot COMMIT while its sync standby is
+  # unreachable/diverged — automatic promotion can never lose or fork
+  # committed data). The full #5245 durable-substitute handoff, TL-ahead
+  # re-promote and region-A dr-failback leg are deliberately NOT ported here
+  # (follow-up); as with bp-cnpg-pair 0.2.14–0.2.17 the operator lifts the
+  # suspend latch on region-A recovery (RUNBOOKS §6.1).
+  autoPromote:
+    enabled: true
+    # Poll cadence for both containers.
+    intervalSeconds: 10
+    # The region-A-loss clock (local WAL stream absent AND region-A
+    # unreachable) must hold CONTINUOUSLY this long before the actor promotes.
+    # An intra-region primary restart/switchover reconnects in seconds and
+    # clears the clock; 120s auto-recovers a real region kill in ~2-4 min.
+    primaryDownHoldSeconds: 120
+    # #5178 startup grace — a freshly-(re)started replica still completing its
+    # first catchup must NEVER trip the promote clock. Must exceed a normal
+    # basebackup+catchup.
+    startupGraceSeconds: 300
+    # #5178 region-A liveness probe timeout (seconds) for the pg_isready of the
+    # `-mesh` primary endpoint. Only rc=2 (no response) counts as unreachable;
+    # every other result fail-safes to "region-A alive" (do NOT promote).
+    livenessProbeTimeoutSeconds: 5
+    # #5218 same-tick durable latch — after flipping the HR promoted value the
+    # actor polls (bounded by this) until helm renders replica.enabled=false,
+    # then IMMEDIATELY suspends the HR so kustomize's SSA re-apply of the atomic
+    # spec.values cannot reclaim the nested `promoted` key and re-demote in the
+    # gap. A ceiling on the fast path (the per-tick self-heal is the backstop),
+    # never a correctness dependency.
+    promoteRenderWaitSeconds: 90
+    # #5220 steady-state ARM gate — the promoter is INELIGIBLE to promote until
+    # the signals container has OBSERVED the replica actively STREAMING from
+    # region-A held CONTINUOUSLY this long. A convergence-time transient (a
+    # primary restart-storm, or a replica that never streamed) must never look
+    # like a region kill. Once armed it stays armed for the pod's life.
+    steadyStateArmSeconds: 180
+    # The flux HelmRelease whose DESIRED state (spec.values.topology.promoted)
+    # carries the promotion. Per-instance: the bootstrap-kit slots 16a/16c/16d
+    # stamp bp-postgres-shared / -shared-b / -shared-c respectively.
+    hr:
+      name: bp-postgres-shared
+      namespace: flux-system
+    # kubectl-bearing image for the actor container. Same harbor-proxy-pull-
+    # compliant (`*/proxy-*/*`) prefix as the signals/postgres image so the
+    # whole Pod matches ONE kyverno anyPattern glob.
+    kubectlImage:
+      repository: harbor.openova.io/proxy-dockerhub/alpine/k8s
+      tag: "1.30.0"
+      pullPolicy: IfNotPresent
+
   # ── Cilium ClusterMesh — the canonical inter-region replication transport
   # (ADR-0001 §9). The primary's `-mesh` global Service publishes its read
   # endpoint across the mesh; the replica's externalCluster dials it. OFF

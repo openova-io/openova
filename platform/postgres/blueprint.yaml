@@ -24,7 +24,13 @@ spec:
   # unsatisfiable nodeAffinity that left hw292's per-Org primary unschedulable
   # for 7h behind an `install succeeded` HelmRelease. configSchema gains
   # topology.primary.region, which the per-Org install door now emits.
-  version: 0.2.17
+  # 0.2.18 (#5623): region-B AUTOMATIC DR promotion for the shared-pg pairs — a
+  # ported bp-cnpg-pair dr-promoter + failover-readiness probe + topology.promoted
+  # HR-value seam on the active-hot-standby replica half, so a region-A kill
+  # auto-promotes the survivor (keycloak et al. writable in region-B) instead of
+  # leaving it pg_is_in_recovery()=t for the whole outage (hw292 G12). sync-only
+  # data fence; default-OFF preserved for singleton/primary/async.
+  version: 0.2.18
   card:
     title: PostgreSQL
     summary: |

@@ -1,0 +1,679 @@
+{{- /*
+Region-B DR auto-promoter for the shared-pg pairs (#5623 — chart 0.2.18).
+
+WHY THIS EXISTS
+---------------
+The three shared-pg data instances (bp-postgres-shared{,-b,-c}) render the EXACT
+bp-cnpg-pair split-side replica shape but shipped NO region-local promoter. On the
+hw292 G12 region-kill (2026-08-03, dep 1c56518035a83e03, cutoverComplete=true)
+bp-cnpg-pair's own region-B dr-promoter auto-promoted at T0+2m16s (RPO=0), but the
+three shared-pg replicas each stayed `pg_is_in_recovery()=t` for the WHOLE outage —
+keycloak (a shared-pg consumer) and every other platform database read-only, so the
+auth path could not recover in region-B even in principle (the gateway answered 503
+throughout — a real availability gap behind a correct-looking HTTP layer).
+
+This Deployment is a FAITHFUL PORT of bp-cnpg-pair's dr-promoter (chart 0.2.17): the
+same region-B-local actor that survives the loss of region-A, the same signals/actor
+split, the same false-promote guards. It is templated with bp-postgres's own naming
+helpers + the shared-pg HR-value seam. The #5245 durable-substitute handoff, TL-ahead
+re-promote and region-A dr-failback leg that bp-cnpg-pair added on top (0.2.18–0.2.23)
+are deliberately NOT ported here (tracked as follow-up) — as with bp-cnpg-pair
+0.2.14–0.2.17, the suspend latch keeps the survivor writable through the outage and
+the operator lifts it on region-A recovery (RUNBOOKS §6.1). Live region-kill proof on
+the shared-pg pairs is owed on the next 2-region G12 walk.
+
+WHY A DEPLOYMENT, NOT A CronJob (#5157)
+---------------------------------------
+A region-local actor that must run DURING a region outage is a continuous Deployment
+loop: a CronJob's scheduler is the (regional) control plane and does not reliably
+resume after recovery. side=replica-gated so it runs ON cluster-B with zero
+dependency on anything in region-A.
+
+WHY IT PATCHES THE HELMRELEASE, NEVER THE LIVE Cluster CR (#5125-D1)
+--------------------------------------------------------------------
+A live `kubectl patch spec.replica.enabled=false` is reverted by flux drift-
+correction mid-outage (hw256 G12), silently re-demoting the promoted survivor. The
+chart drives `replica.enabled` from the `topology.promoted` VALUE, so the actor flips
+the region-B HelmRelease DESIRED state (`spec.values.topology.promoted: true`) and
+helm renders `replica.enabled:false` → CNPG promotes.
+
+DURABILITY — the SUSPEND latch (#5178 Defect-B / #5218)
+-------------------------------------------------------
+`spec.values` on a HelmRelease is an ATOMIC RawExtension owned by the applying flux
+Kustomization; its next SSA re-apply drops the actor's nested `promoted` key → helm
+re-renders `replica.enabled:true` → CNPG re-demotes. The actor makes the promotion
+durable by SUSPENDING the HR (`spec.suspend: true`) once helm has rendered the
+promotion — a field the Kustomization does not own, so drift-correction cannot remove
+it, and a suspended HR freezes helm-controller so the promoted survivor stays
+writable. Every write uses a CUSTOM `--field-manager=dr-promoter` so kustomize-
+controller's managed-fields cleanup (which claims `kubectl`-prefixed managers on every
+reconcile) cannot strip the latch.
+
+HOW IT DECIDES (region-B-local signals + a POSITIVE region-A probe)
+-------------------------------------------------------------------
+1. PRIMARY LOSS (#5178) — the signals container arms the promote clock ONLY when
+   BOTH hold: (a) the LOCAL WAL receiver is ABSENT (catchup/starting/waiting/streaming
+   all count as ALIVE), AND (b) a DIRECT pg_isready of the region-A primary over the
+   ClusterMesh (`-mesh`:5432 — the exact endpoint the replica streams from) returns
+   "no response" (rc=2). region-A REACHABLE + local stream stalled ⇒ replication fault
+   ⇒ do NOT promote. A startup grace holds the clock clear while a fresh replica
+   finishes its first catchup. FAIL-SAFE: no cross-region liveness path wired ⇒ observe
+   only, NEVER promote.
+2. STEADY-STATE ARM (#5220) — the actor is INELIGIBLE to promote until the signals
+   container has OBSERVED the replica actively STREAMING (a live pg_stat_wal_receiver
+   row + a set receive-LSN — the #5239 non-privileged signal) CONTINUOUSLY for
+   steadyStateArmSeconds. A region-A-down signal before the first stable stream is a
+   convergence-time transient, never a real kill.
+3. PROMOTABILITY (#5133) — the failover-readiness Pod's Ready condition (LSN
+   apply==receive: the standby has APPLIED everything it RECEIVED).
+4. ANTI-FLAP (#5178) — never re-promote a cluster that has ALREADY left the source
+   timeline; once promoted it latches (suspend) so it can neither re-demote nor
+   re-promote.
+
+ANTI-SPLIT-BRAIN (sync-only fence) — the pair runs synchronous replication
+(remote_apply + FIRST 1 pinned to the cross-region replica), so the region-A primary
+CANNOT COMMIT while its only synchronous standby is unreachable: nothing committed on
+A that B lacks (RPO=0), no committed-data fork on a mere partition, and after recovery
+the stale primary stays write-fenced. The promoter therefore renders ONLY when
+replication.mode=sync (see bp-postgres.autoPromoteActive) — async has no fence.
+*/ -}}
+{{- if (include "bp-postgres.autoPromoteActive" .) }}
+{{- $ap := .Values.topology.autoPromote | default dict }}
+{{- $hr := $ap.hr | default dict }}
+{{- $hrName := $hr.name | default "bp-postgres-shared" }}
+{{- $hrNamespace := $hr.namespace | default "flux-system" }}
+{{- $kimg := $ap.kubectlImage | default dict }}
+{{- $krepo := $kimg.repository | default "harbor.openova.io/proxy-dockerhub/alpine/k8s" }}
+{{- $ktag := $kimg.tag | default "1.30.0" }}
+{{- $kpull := $kimg.pullPolicy | default "IfNotPresent" }}
+{{- $interval := $ap.intervalSeconds | default 10 }}
+{{- $hold := $ap.primaryDownHoldSeconds | default 120 }}
+{{- $startupGrace := $ap.startupGraceSeconds | default 300 }}
+{{- $probeTimeout := $ap.livenessProbeTimeoutSeconds | default 5 }}
+{{- $renderWait := $ap.promoteRenderWaitSeconds | default 90 }}
+{{- $armSeconds := $ap.steadyStateArmSeconds | default 180 }}
+{{- $peerClusters := .Values.topology.networkPolicy.crossRegionPeerClusters | default list }}
+{{- /* #5178 — the region-A liveness gate is meaningful ONLY when the mesh egress to
+       region-A can be wired: clusterMesh on AND at least one peer ClusterMesh name.
+       Without it the actor observes but NEVER promotes (fail-safe), because it has no
+       way to POSITIVELY prove region-A is gone. */ -}}
+{{- $livenessEnabled := and (ne (toString (dig "clusterMesh" "enabled" true .Values.topology)) "false") (gt (len $peerClusters) 0) }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-dr-promoter
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+    catalyst.openova.io/role: dr-promoter
+---
+# Local-namespace reads: failover-readiness Pod Ready condition + the replica
+# Cluster CR's replica.enabled state.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-dr-promoter
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [clusters]
+    verbs: [get]
+    resourceNames: [{{ include "bp-postgres.replicaName" . }}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-dr-promoter
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "bp-postgres.instanceName" . }}-dr-promoter
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-postgres.instanceName" . }}-dr-promoter
+    namespace: {{ include "bp-postgres.namespace" . }}
+---
+# The promotion surface: get (idempotence + suspend-state read) + patch (merge-patch
+# of spec.values.topology.promoted AND, for the #5218 durable latch, spec.suspend) on
+# EXACTLY this instance's HelmRelease — resourceNames-pinned, no list/create/delete.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-dr-promoter
+  namespace: {{ $hrNamespace }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+rules:
+  - apiGroups: [helm.toolkit.fluxcd.io]
+    resources: [helmreleases]
+    verbs: [get, patch]
+    resourceNames: [{{ $hrName }}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-dr-promoter
+  namespace: {{ $hrNamespace }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "bp-postgres.instanceName" . }}-dr-promoter
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-postgres.instanceName" . }}-dr-promoter
+    namespace: {{ include "bp-postgres.namespace" . }}
+---
+# Egress for the promoter Pod. The kube-apiserver is a reserved Cilium entity a vanilla
+# k8s NetworkPolicy cannot express (#4428 idiom), so the whole egress allow-list lives
+# in ONE CiliumNetworkPolicy: apiserver (kubectl) + kube-dns (service-name resolution)
+# + the replica cluster's 5432 (the signals psql) + (#5178) the region-A primary's 5432
+# across the ClusterMesh (the signals pg_isready liveness probe). Everything else stays
+# denied.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-dr-promoter-egress
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+spec:
+  endpointSelector:
+    matchLabels:
+      catalyst.openova.io/role: dr-promoter
+      catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . }}
+  egress:
+    - toEntities:
+        - kube-apiserver
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            cnpg.io/cluster: {{ include "bp-postgres.replicaName" . }}
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+{{- if $livenessEnabled }}
+    # #5178 region-A liveness probe path — the signals container pg_isready's the
+    # region-A primary over the mesh (the SAME `-mesh`:5432 the replica streams from) to
+    # POSITIVELY confirm region-A is gone before arming the promote clock. Cross-region
+    # ClusterMesh endpoints carry their OWN pod identity; a plain local `toEndpoints` is
+    # implicitly ANDed with the LOCAL cluster and never matches the remote primary
+    # (#4846), so admit the peer cluster(s) by identity. EMPTY crossRegionPeerClusters
+    # (or clusterMesh off) → this rule is absent AND $livenessEnabled=false → the actor
+    # fail-safes to observe-only (never promotes).
+    - toEndpoints:
+        - matchLabels:
+            cnpg.io/cluster: {{ include "bp-postgres.instanceName" . }}
+          matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: In
+              values:
+                {{- range $peerClusters }}
+                - {{ . | quote }}
+                {{- end }}
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-dr-promoter
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+    catalyst.openova.io/role: dr-promoter
+  annotations:
+    catalyst.openova.io/blueprint: bp-postgres
+spec:
+  replicas: 1
+  # Single actor; never two promotion loops at once (#5157 shape).
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bp-postgres
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      catalyst.openova.io/role: dr-promoter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-postgres
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        catalyst.openova.io/role: dr-promoter
+        catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+        # kyverno cilium-l7-mtls (Enforce) — required on the Pod template or the
+        # Deployment is DENIED at admission (#3238).
+        policy.cilium.io/enforced: "true"
+    spec:
+      # The actor runs in the replica region — the half that survives a region-A
+      # kill (same pin as failover-readiness).
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: openova.io/region
+                    operator: In
+                    values: [{{ include "bp-postgres.replicaRegion" . | quote }}]
+      serviceAccountName: {{ include "bp-postgres.instanceName" . }}-dr-promoter
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 26
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        # ── signals — PRIMARY-LOSS detector (#5178 liveness-gated, #5220 arm) ──
+        # psql (streaming_replica client cert, #5133 auth) against the LOCAL replica
+        # `-rw` for pg_stat_wal_receiver state, PLUS a POSITIVE region-A liveness probe
+        # (pg_isready of the `-mesh` endpoint over the ClusterMesh). The promote clock
+        # is armed ONLY when the LOCAL WAL receiver is ABSENT (catchup/starting/waiting/
+        # streaming all count as ALIVE) AND region-A is genuinely UNREACHABLE, and never
+        # during the startup grace. It is CLEARED the moment the receiver returns,
+        # region-A answers, the replica leaves recovery, psql itself fails (fail-safe),
+        # or no liveness path is wired.
+        - name: signals
+          image: {{ include "bp-postgres.imageRef" . | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              CONN="host={{ include "bp-postgres.replicaName" . }}-rw port=5432 dbname=postgres user=streaming_replica sslmode=require sslcert=/tls/client/tls.crt sslkey=/tls/client/tls.key"
+              # STATE classification, from signals the streaming_replica role can READ on
+              # a standby (#5239 — it lacks pg_read_all_stats, so the privileged columns
+              # of pg_stat_wal_receiver are NULLed for it; detect streaming with objects
+              # every role can read):
+              #   'promoted'   — NOT in recovery: the local cluster is writable
+              #                  (already promoted / diverged off the source TL).
+              #   'streaming'  — a live pg_stat_wal_receiver ROW (its pid, hence EXISTS,
+              #                  is visible to all) AND pg_last_wal_receive_lsn() set —
+              #                  genuinely streaming right now (both required; the LSN
+              #                  persists after a receiver stops, but the ROW is present
+              #                  ONLY while a walreceiver process is live).
+              #   'receiving'  — a WAL receiver row EXISTS but no WAL received yet (the
+              #                  brief connect/handshake window) — region-A ALIVE.
+              #   'noreceiver' — no WAL receiver row at all → POTENTIAL loss.
+              Q="SELECT CASE
+                WHEN NOT pg_is_in_recovery() THEN 'promoted'
+                WHEN EXISTS (SELECT 1 FROM pg_stat_wal_receiver) AND pg_last_wal_receive_lsn() IS NOT NULL THEN 'streaming'
+                WHEN EXISTS (SELECT 1 FROM pg_stat_wal_receiver) THEN 'receiving'
+                ELSE 'noreceiver'
+              END"
+              STARTED=$(date -u +%s)
+              echo "[dr-promoter/signals] loop started (interval=${INTERVAL_SECONDS}s startupGrace=${STARTUP_GRACE_SECONDS}s primaryLiveness=${PRIMARY_LIVENESS_ENABLED} primaryMeshHost=${PRIMARY_MESH_HOST})"
+              clear_clock() {
+                if [ -f /shared/primary-wal-down-since ]; then
+                  echo "$(date -u +"%FT%TZ") [dr-promoter/signals] $1 — hold clock cleared"
+                fi
+                rm -f /shared/primary-wal-down-since
+              }
+              while true; do
+                : > /shared/signals-alive
+                STATE=$(psql "${CONN}" -tAXc "${Q}" 2>/dev/null || echo "unknown")
+                NOW=$(date -u +%s)
+                # ── #5220 steady-state ARM gate ──────────────────────────────────
+                # The promoter must OBSERVE the pair reach a stable STREAMING steady-
+                # state before ANY region-A-death is believable. A convergence-time
+                # transient (a primary restart-storm, or a replica that has not streamed
+                # even once) must never arm the promoter → never promote. Once armed it
+                # STAYS armed for the pod's life; a brief non-streaming blip only
+                # RESTARTS the arm window, never un-arms.
+                if [ "${STATE}" = "streaming" ]; then
+                  if [ ! -f /shared/armed ]; then
+                    if [ ! -f /shared/streaming-since ]; then
+                      echo "${NOW}" > /shared/streaming-since
+                      echo "$(date -u +"%FT%TZ") [dr-promoter/signals] first stable stream observed — arm window ${STEADY_STATE_ARM_SECONDS}s started; promoter stays DISARMED until continuous streaming holds (#5220)"
+                    else
+                      SSINCE=$(cat /shared/streaming-since 2>/dev/null || echo "${NOW}")
+                      if [ "$((NOW - SSINCE))" -ge "${STEADY_STATE_ARM_SECONDS}" ]; then
+                        : > /shared/armed
+                        echo "$(date -u +"%FT%TZ") [dr-promoter/signals] ARMED — streaming steady-state held $((NOW - SSINCE))s (>=${STEADY_STATE_ARM_SECONDS}s); region-A-death detection is now live (#5220)"
+                      fi
+                    fi
+                  fi
+                else
+                  rm -f /shared/streaming-since
+                fi
+                # STARTUP GRACE — a fresh replica still doing its first catchup must never
+                # arm the clock (#5178).
+                if [ "$((NOW - STARTED))" -lt "${STARTUP_GRACE_SECONDS}" ]; then
+                  clear_clock "startup grace ($((NOW - STARTED))s<${STARTUP_GRACE_SECONDS}s, state=${STATE})"
+                  sleep "${INTERVAL_SECONDS}"; continue
+                fi
+                case "${STATE}" in
+                  promoted)
+                    # Left recovery → already promoted/diverged. Mark it so the actor
+                    # never re-promotes (anti-flap #5178).
+                    : > /shared/diverged
+                    clear_clock "state=promoted (local cluster writable)"
+                    ;;
+                  streaming|receiving)
+                    clear_clock "state=${STATE} (WAL receiver alive)"
+                    ;;
+                  unknown)
+                    clear_clock "state=unknown (local replica probe failed — fail-safe)"
+                    ;;
+                  noreceiver)
+                    # LOCAL WAL stream absent — require a POSITIVE region-A-unreachable
+                    # proof before arming (#5178: the LOCAL signal alone false-promoted a
+                    # healthy replica against a live region-A on hw266).
+                    if [ "${PRIMARY_LIVENESS_ENABLED}" != "true" ]; then
+                      clear_clock "state=noreceiver but NO region-A liveness path (clusterMesh off / crossRegionPeerClusters empty) — auto-promote inert, fail-safe"
+                    elif pg_isready -h "${PRIMARY_MESH_HOST}" -p 5432 -t "${PROBE_TIMEOUT}" -q; then
+                      # region-A REACHABLE + local WAL absent ⇒ replication fault, NOT a
+                      # region kill. Clear the promote clock; DO NOT promote.
+                      clear_clock "state=noreceiver but region-A REACHABLE (pg_isready ok @ ${PRIMARY_MESH_HOST}) — replication fault, data safety: NOT promoting"
+                    else
+                      RC=$?
+                      if [ "${RC}" -eq 2 ]; then
+                        if [ ! -f /shared/primary-wal-down-since ]; then
+                          echo "${NOW}" > /shared/primary-wal-down-since
+                          echo "$(date -u +"%FT%TZ") [dr-promoter/signals] WAL receiver ABSENT and region-A UNREACHABLE (pg_isready rc=2 @ ${PRIMARY_MESH_HOST}) — primary loss; hold clock started"
+                        fi
+                      else
+                        clear_clock "state=noreceiver, region-A probe ambiguous (pg_isready rc=${RC}) — fail-safe, NOT arming"
+                      fi
+                    fi
+                    ;;
+                esac
+                sleep "${INTERVAL_SECONDS}"
+              done
+          env:
+            - name: PGCONNECT_TIMEOUT
+              value: "5"
+            # #5178 region-A liveness probe target — the SAME ClusterMesh `-mesh`
+            # endpoint the replica streams from (templated from replicationServiceName,
+            # never hardcoded).
+            - name: PRIMARY_MESH_HOST
+              value: {{ include "bp-postgres.replicationServiceName" . | quote }}
+            - name: PRIMARY_LIVENESS_ENABLED
+              value: {{ if $livenessEnabled }}"true"{{ else }}"false"{{ end }}
+            - name: PROBE_TIMEOUT
+              value: {{ $probeTimeout | quote }}
+            - name: STARTUP_GRACE_SECONDS
+              value: {{ $startupGrace | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ $interval | quote }}
+            - name: STEADY_STATE_ARM_SECONDS
+              value: {{ $armSeconds | quote }}
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "test -f /shared/signals-alive && test -z \"$(find /shared/signals-alive -mmin +1)\""
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["test", "-f", "/shared/signals-alive"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            runAsUser: 26   # postgres in upstream cnpg image
+            runAsGroup: 26
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+            - name: tmp
+              mountPath: /tmp
+            - name: replication-cert
+              mountPath: /tls/client
+              readOnly: true
+        # ── actor — the PROMOTER + durable SUSPEND LATCH (#5178 / #5218) ──
+        # Each tick runs in a subshell (a persistent fault retries next tick instead of
+        # crashing the pod — #5157 shape). A `suspend_hr` helper sets spec.suspend=true,
+        # READBACK-VERIFIES it landed, and logs loudly on failure. Ordering:
+        #   1. SELF-HEAL LATCH (every tick) — if the promotion is DRIVEN + RENDERED (HR
+        #      promoted=true AND local replica.enabled=false) OR the local cluster has
+        #      already left recovery (/shared/diverged), and the HR is NOT suspended,
+        #      RE-ASSERT spec.suspend=true. Both arms require POSITIVE render evidence,
+        #      so it can never freeze a pre-render HR and strand an un-rendered promotion.
+        #   2. ANTI-FLAP — already suspended (latched) ⇒ done. HR promoted but not yet
+        #      rendered ⇒ WAIT for the render (never suspend a pre-render HR — a suspended
+        #      HR is not reconciled by helm, so the promotion would never land).
+        #   3. PROMOTE — armed → hold expired → NOT already diverged → local Cluster
+        #      still a replica → failover-readiness Ready. Flip the HR desired state,
+        #      then STAY IN THE SAME TICK (#5218): poll until helm renders
+        #      replica.enabled=false and suspend IMMEDIATELY.
+        - name: actor
+          image: {{ printf "%s:%s" $krepo $ktag | quote }}
+          imagePullPolicy: {{ $kpull | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              # #5218/#5245 — EVERY write uses a CUSTOM field manager. kustomize-
+              # controller's managed-fields cleanup REPLACES every manager matching the
+              # `kubectl` prefix with itself on each reconcile of the applying
+              # Kustomization and drops the claimed fields absent from its manifest, which
+              # would strip spec.suspend every reconcile. A custom manager is NOT in that
+              # cleanup list, so the latch survives (live precedent: catalyst-api's
+              # substitute flips persist under manager `catalyst-api`).
+              FM="--field-manager=dr-promoter"
+              # suspend_hr <reason> — patch spec.suspend=true (+ latched-at annotation),
+              # then READBACK-VERIFY it landed. Returns non-zero (logged) on RBAC/conflict
+              # so the caller re-asserts next tick.
+              suspend_hr() {
+                _reason="$1"
+                if kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-auto-promote-latched-at\":\"$(date -u +"%FT%TZ")\"}},\"spec\":{\"suspend\":true}}" >/dev/null 2>&1; then
+                  _v=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.spec.suspend}' 2>/dev/null || echo "")
+                  if [ "${_v}" = "true" ]; then
+                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] LATCHED (${_reason}): HR ${HR_NAMESPACE}/${HR_NAME} spec.suspend=true VERIFIED — promotion durable; flux drift-correction can no longer revert spec.values and re-demote the survivor (#5178 Defect-B / #5218)"
+                    return 0
+                  fi
+                  echo "$(date -u +"%FT%TZ") [dr-promoter/actor] ERROR (${_reason}): spec.suspend patch accepted but readback='${_v}' (expected true) — HR NOT frozen; re-asserting next tick (#5218)"
+                  return 1
+                fi
+                echo "$(date -u +"%FT%TZ") [dr-promoter/actor] ERROR (${_reason}): spec.suspend patch FAILED (RBAC/conflict?) — HR NOT frozen; re-asserting next tick (#5218)"
+                return 1
+              }
+              echo "[dr-promoter/actor] loop started (hold=${HOLD_SECONDS}s interval=${INTERVAL_SECONDS}s renderWait=${PROMOTE_RENDER_WAIT_SECONDS}s hr=${HR_NAMESPACE}/${HR_NAME})"
+              while true; do
+                : > /shared/actor-alive
+                (
+                  set -eu
+                  SUSPENDED=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.spec.suspend}' 2>/dev/null || echo "")
+                  HR_PROMOTED=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.spec.values.topology.promoted}' 2>/dev/null || echo "")
+                  REPLICA_ENABLED=$(kubectl -n "${NAMESPACE}" get clusters.postgresql.cnpg.io "${REPLICA_CLUSTER}" -o jsonpath='{.spec.replica.enabled}' 2>/dev/null || echo "")
+                  DIVERGED=""; [ -f /shared/diverged ] && DIVERGED="true"
+
+                  # 1. SELF-HEAL LATCH — keep an already-rendered promotion durable. Fires
+                  #    on the post-promote tick AND re-freezes the HR if anything ever
+                  #    un-suspends it. Both arms require POSITIVE render evidence
+                  #    (replica.enabled=false OR the cluster already left recovery) so it
+                  #    can never freeze a pre-render HR and strand the promotion.
+                  if [ "${SUSPENDED}" != "true" ] && { { [ "${HR_PROMOTED}" = "true" ] && [ "${REPLICA_ENABLED}" = "false" ]; } || [ "${DIVERGED}" = "true" ]; }; then
+                    suspend_hr "self-heal" || true
+                    exit 0
+                  fi
+                  # 2. ANTI-FLAP — latched ⇒ done.
+                  if [ "${SUSPENDED}" = "true" ]; then
+                    exit 0
+                  fi
+                  # Promote driven but not yet rendered (replica.enabled still true, not
+                  # diverged) — WAIT for helm; never suspend now (a suspended HR is not
+                  # reconciled, the promote would never land) and never re-promote.
+                  if [ "${HR_PROMOTED}" = "true" ]; then
+                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] HR promoted=true but not yet rendered (replica.enabled='${REPLICA_ENABLED}') — waiting for helm-controller; self-heal latch suspends the instant it renders (#5218)"
+                    exit 0
+                  fi
+
+                  # 3. PROMOTE decision (not promoted, not suspended).
+                  # #5220 ARM GATE — never promote until the pair has OBSERVED a stable
+                  # streaming steady-state (the signals container sets /shared/armed). A
+                  # region-A-down signal BEFORE the first stable stream is a convergence-
+                  # time transient, NEVER a real kill; a pair that never reached steady-
+                  # state can never promote, so the suspend latch can never cement a false
+                  # positive.
+                  if [ ! -f /shared/armed ]; then
+                    if [ -f /shared/primary-wal-down-since ]; then
+                      echo "$(date -u +"%FT%TZ") [dr-promoter/actor] REFUSING promote: region-A-down signal present but the DR pair never reached streaming steady-state (UNARMED) — convergence-time transient, not a real kill; holding (#5220)"
+                    fi
+                    exit 0
+                  fi
+                  [ -f /shared/primary-wal-down-since ] || exit 0
+                  DOWN_SINCE=$(cat /shared/primary-wal-down-since)
+                  NOW=$(date -u +%s)
+                  DOWN_FOR=$((NOW - DOWN_SINCE))
+                  if [ "${DOWN_FOR}" -lt "${HOLD_SECONDS}" ]; then
+                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] region-A unreachable ${DOWN_FOR}s < hold ${HOLD_SECONDS}s — waiting"
+                    exit 0
+                  fi
+                  # ANTI-FLAP: never re-promote a cluster that already left the source
+                  # timeline — that IS the runaway (hw266 TL2→TL25).
+                  if [ -f /shared/diverged ]; then
+                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] REFUSING promote: local cluster already diverged (left the source timeline) — re-clone required, NOT re-promote (RUNBOOKS §6.1 / #5178 anti-flap)"
+                    exit 0
+                  fi
+                  if [ "${REPLICA_ENABLED}" != "true" ]; then
+                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] local Cluster CR replica.enabled=${REPLICA_ENABLED} — not a replica; nothing to promote"
+                    exit 0
+                  fi
+                  READY=$(kubectl -n "${NAMESPACE}" get pod -l "${READY_SELECTOR}" -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}')
+                  if ! echo "${READY}" | grep -qw True; then
+                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] failover-readiness NOT Ready (got: '${READY}') — standby not promotable; holding (data safety over RTO)"
+                    exit 0
+                  fi
+                  echo "$(date -u +"%FT%TZ") [dr-promoter/actor] PROMOTING: region-A WAL stream absent AND region-A unreachable ${DOWN_FOR}s >= ${HOLD_SECONDS}s AND failover-readiness Ready — patching HR desired state (#5125-D1 seam)"
+                  kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-auto-promoted-at\":\"$(date -u +"%FT%TZ")\",\"catalyst.openova.io/dr-auto-promote-reason\":\"region-A WAL stream absent and region-A unreachable ${DOWN_FOR}s; failover-readiness Ready (#5623/#5178)\"}},\"spec\":{\"values\":{\"topology\":{\"promoted\":true}}}}"
+                  echo "$(date -u +"%FT%TZ") [dr-promoter/actor] PROMOTED (step 1/2): HR ${HR_NAMESPACE}/${HR_NAME} spec.values.topology.promoted=true — helm-controller renders replica.enabled:false → CNPG promotes"
+                  # 3b. SAME-TICK DURABLE LATCH (#5218) — do NOT wait for the next tick.
+                  #     Poll until helm renders replica.enabled=false (the promotion has
+                  #     LANDED), then suspend IMMEDIATELY so kustomize cannot reclaim the
+                  #     atomic spec.values and re-demote in the gap. Bounded; the step-1
+                  #     self-heal is the backstop if the render outlasts the ceiling.
+                  RE=""
+                  i=0
+                  while [ "${i}" -lt "${PROMOTE_RENDER_WAIT_SECONDS}" ]; do
+                    RE=$(kubectl -n "${NAMESPACE}" get clusters.postgresql.cnpg.io "${REPLICA_CLUSTER}" -o jsonpath='{.spec.replica.enabled}' 2>/dev/null || echo "")
+                    if [ "${RE}" = "false" ]; then
+                      echo "$(date -u +"%FT%TZ") [dr-promoter/actor] PROMOTION RENDERED (step 2/2): replica.enabled=false after ${i}s — suspending HR now (#5218)"
+                      suspend_hr "post-promote same-tick" || true
+                      break
+                    fi
+                    i=$((i + 1))
+                    sleep 1
+                  done
+                  if [ "${RE}" != "false" ]; then
+                    echo "$(date -u +"%FT%TZ") [dr-promoter/actor] NOTE: helm has not rendered replica.enabled=false within ${PROMOTE_RENDER_WAIT_SECONDS}s of the promote patch (replica.enabled='${RE}') — the per-tick self-heal latch will suspend the instant it renders (#5218)"
+                  fi
+                ) || echo "[dr-promoter/actor] tick returned non-zero — retry in ${INTERVAL_SECONDS}s"
+                sleep "${INTERVAL_SECONDS}"
+              done
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: HR_NAME
+              value: {{ $hrName | quote }}
+            - name: HR_NAMESPACE
+              value: {{ $hrNamespace | quote }}
+            - name: HOLD_SECONDS
+              value: {{ $hold | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ $interval | quote }}
+            # #5218 — ceiling on the same-tick post-promote poll that waits for helm to
+            # render replica.enabled=false before suspending.
+            - name: PROMOTE_RENDER_WAIT_SECONDS
+              value: {{ $renderWait | quote }}
+            - name: REPLICA_CLUSTER
+              value: {{ include "bp-postgres.replicaName" . | quote }}
+            - name: READY_SELECTOR
+              value: "catalyst.openova.io/role=failover-readiness-probe,catalyst.openova.io/cnpg-pair={{ include "bp-postgres.instanceName" . }}"
+            # kubectl writes its discovery/http cache under $HOME.
+            - name: HOME
+              value: /tmp
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "test -f /shared/actor-alive && test -z \"$(find /shared/actor-alive -mmin +1)\""
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["test", "-f", "/shared/actor-alive"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: shared
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        # THIS replica cluster's own CNPG-issued streaming_replica client cert (exists
+        # locally on cluster-B, no cross-cluster sync) — 0440 root:26, the perms libpq
+        # requires for an sslkey (#5133).
+        - name: replication-cert
+          secret:
+            secretName: {{ include "bp-postgres.replicaName" . }}-replication
+            defaultMode: 0440
+{{- end }}

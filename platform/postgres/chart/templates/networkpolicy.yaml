@@ -168,6 +168,30 @@ spec:
       cnpg.io/cluster: {{ include "bp-postgres.replicaName" . }}
   policyTypes: [Ingress]
   ingress:
+{{- if (include "bp-postgres.autoPromoteActive" .) }}
+    # #5623 failover-readiness probe — polls the replica's -rw for the WAL apply
+    # lag. Same intra-cluster 5432 path as the dr-promoter signals container.
+    - from:
+        - podSelector:
+            matchLabels:
+              catalyst.openova.io/role: failover-readiness-probe
+              catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+      ports:
+        - port: 5432
+          protocol: TCP
+    # #5623 dr-promoter signals container — polls the replica's -rw for
+    # pg_stat_wal_receiver (primary-loss detection). This netpol selects the
+    # replica Pods and default-denies every ingress it does not list, so the
+    # promoter's psql would otherwise time out.
+    - from:
+        - podSelector:
+            matchLabels:
+              catalyst.openova.io/role: dr-promoter
+              catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+      ports:
+        - port: 5432
+          protocol: TCP
+{{- end }}
     # OWN-cluster pods (#3322 carve-out): the replica Cluster's instance-2
     # joins instance-1 via the replica's -rw Service on 5432; without an
     # explicit allow for the replica's OWN cnpg.io/cluster label it
@@ -190,6 +214,49 @@ spec:
           protocol: TCP
         - port: {{ .Values.topology.networkPolicy.operatorMetricsPort }}
           protocol: TCP
+{{- if (include "bp-postgres.autoPromoteActive" .) }}
+---
+# #5623 Egress carve-out for the failover-readiness probe Pod — it must resolve
+# DNS and reach the replica's -rw Service on 5432. (The dr-promoter Pod carries
+# its OWN egress CiliumNetworkPolicy in dr-promoter.yaml, which additionally
+# admits the kube-apiserver entity + the region-A liveness probe.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-probe-egress
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+spec:
+  podSelector:
+    matchLabels:
+      catalyst.openova.io/role: failover-readiness-probe
+      catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+  policyTypes: [Egress]
+  egress:
+    # DNS to kube-dns
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Replica CR Pods on 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: {{ include "bp-postgres.replicaName" . }}
+      ports:
+        - port: 5432
+          protocol: TCP
+{{- end }}
 {{- if gt (len .Values.topology.networkPolicy.crossRegionPeerClusters) 0 }}
 ---
 # CROSS-REGION DR (#4846): the PRIMARY region's Pods (the primary Cluster

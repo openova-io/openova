@@ -425,6 +425,11 @@ topology:
   replica: { region: hz-hel-rtz-prod }
   networkPolicy:
     crossRegionPeerClusters: [hw228-mesh]
+  # Isolate this case to the #4846 crossregion admission — the #5623 dr-promoter
+  # (default-ON) carries its OWN dr-promoter-egress CiliumNetworkPolicy, asserted
+  # separately in Cases 20a-20c below; disabling it here keeps the "exactly 1 CNP"
+  # crossregion-dr assertion focused.
+  autoPromote: { enabled: false }
 databases:
   - name: registry
     owner: harbor
@@ -1122,3 +1127,140 @@ fi
 echo "  PASS (= singleton renders with NO region key and NO region pin)"
 
 rm -f "${neg_vals}" "${neg_replica_vals}" "${singleton_vals}"
+
+# ── Case 20a: #5623 — region-B AUTOMATIC DR promotion (dr-promoter) ───────────
+# The shared-pg pairs render the EXACT bp-cnpg-pair replica shape but shipped NO
+# region-local promoter, so on the hw292 G12 region-kill (2026-08-03) their
+# region-B replicas stayed pg_is_in_recovery()=t for the WHOLE outage (keycloak
+# read-only). This ports the proven bp-cnpg-pair dr-promoter onto the shared-pg
+# replica half: signals/actor split, #5178 liveness gate + startup grace, #5220
+# steady-state arm gate, #5133 failover-readiness Ready gate, #5218 same-tick
+# durable suspend latch, anti-flap, sync-only fence, HR-value promote seam.
+echo "[render] Case 20a: #5623 dr-promoter — side-gating, #5157 Deployment shape, HR-desired-state promotion, guards"
+cat > "$TMP/promoter.values.yaml" <<'YAML'
+instance: { name: shared-pg, namespace: shared-data }
+topology:
+  mode: active-hot-standby
+  side: secondary
+  instances: 1
+  primary: { region: hz-fsn-rtz-prod }
+  replica: { region: hz-hel-rtz-prod }
+  networkPolicy:
+    crossRegionPeerClusters: [peer-mesh-a]
+YAML
+helm template shared-pg . -f "$TMP/promoter.values.yaml" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/promoter.yaml" 2>"$TMP/promoter.err" \
+  || { cat "$TMP/promoter.err" >&2; fail "#5623 dr-promoter render errored"; }
+
+# 1. side=replica renders the promoter + the failover-readiness probe.
+grep -q 'catalyst.openova.io/role: dr-promoter' "$TMP/promoter.yaml" \
+  || fail "#5623 side=replica default render missing the dr-promoter"
+grep -q 'catalyst.openova.io/role: failover-readiness-probe' "$TMP/promoter.yaml" \
+  || fail "#5623 side=replica render missing the failover-readiness probe (the promotability signal)"
+# 2. #5157 Deployment (NOT CronJob) with strategy Recreate (single actor).
+if grep -q '^kind: CronJob$' "$TMP/promoter.yaml"; then
+  fail "#5623 dr-promoter must NOT be a CronJob (#5157: a CronJob scheduler dies with the region)"; fi
+awk '/^kind: Deployment$/{d=1} d&&/name: shared-pg-dr-promoter$/{f=1} f&&/type: Recreate/{print "RECREATE"; exit}' "$TMP/promoter.yaml" | grep -q RECREATE \
+  || fail "#5623 dr-promoter must be a Deployment with strategy Recreate (single actor, #5157 shape)"
+# 3. The promotion is an HR-DESIRED-STATE flip of spec.values.topology.promoted,
+#    NEVER a live Cluster-CR patch (the #5125-D1 seam).
+grep -qF '\"spec\":{\"values\":{\"topology\":{\"promoted\":true}}}' "$TMP/promoter.yaml" \
+  || fail "#5623 actor does not promote via the spec.values.topology.promoted HR-value seam (the #5125-D1 durable path)"
+grep -q '.spec.values.topology.promoted' "$TMP/promoter.yaml" \
+  || fail "#5623 actor does not read HR spec.values.topology.promoted for idempotence"
+if grep -qE 'patch +clusters.postgresql.cnpg.io' "$TMP/promoter.yaml"; then
+  fail "#5623 actor must NEVER patch the live Cluster CR (flux reverts it mid-outage — hw256 G12)"; fi
+# 4. Promotability gate reads the failover-readiness probe's Ready signal.
+grep -q 'catalyst.openova.io/role=failover-readiness-probe' "$TMP/promoter.yaml" \
+  || fail "#5623 actor does not gate on the failover-readiness Ready condition (#5133 promotability signal)"
+# 5. #5178 POSITIVE region-A liveness gate (pg_isready of the -mesh endpoint) + grace.
+grep -q 'pg_isready -h "${PRIMARY_MESH_HOST}"' "$TMP/promoter.yaml" \
+  || fail "#5623 signals container missing the #5178 pg_isready region-A liveness probe"
+grep -q 'startup grace' "$TMP/promoter.yaml" \
+  || fail "#5623 signals container missing the #5178 startup grace"
+# 6. #5220 steady-state ARM gate — and it must PRECEDE the promote merge-patch.
+grep -q '/shared/armed' "$TMP/promoter.yaml" \
+  || fail "#5623 actor missing the #5220 steady-state arm gate (/shared/armed)"
+arm_line=$(grep -n 'never reached streaming steady-state' "$TMP/promoter.yaml" | head -1 | cut -d: -f1)
+promote_line=$(grep -n 'PROMOTING: region-A WAL stream absent' "$TMP/promoter.yaml" | head -1 | cut -d: -f1)
+[ -n "$arm_line" ] && [ -n "$promote_line" ] && [ "$arm_line" -lt "$promote_line" ] \
+  || fail "#5623 the #5220 arm gate (REFUSING while UNARMED) must precede the promote merge-patch"
+# 7. #5218 durable suspend LATCH + self-heal + readback-verify + same-tick.
+grep -qF '\"spec\":{\"suspend\":true}' "$TMP/promoter.yaml" \
+  || fail "#5623 actor missing the durable suspend LATCH (spec.suspend=true) — the HR-value patch alone is reverted by flux"
+grep -q 'suspend_hr()' "$TMP/promoter.yaml" || fail "#5623 actor missing the suspend_hr helper"
+grep -q 'VERIFIED' "$TMP/promoter.yaml" || fail "#5623 suspend_hr must READBACK-VERIFY spec.suspend after patching"
+grep -q 'suspend_hr "post-promote same-tick"' "$TMP/promoter.yaml" \
+  || fail "#5623 actor missing the #5218 same-tick post-promote suspend call"
+grep -q 'suspend_hr "self-heal"' "$TMP/promoter.yaml" \
+  || fail "#5623 actor missing the per-loop self-heal suspend re-assert"
+# 8. Custom field-manager so kustomize managed-fields cleanup cannot strip the latch.
+grep -q 'field-manager=dr-promoter' "$TMP/promoter.yaml" \
+  || fail "#5623 actor writes must use --field-manager=dr-promoter (kustomize strips kubectl-managed fields)"
+# 9. Anti-flap: never re-promote an already-diverged cluster.
+grep -q 'already diverged' "$TMP/promoter.yaml" \
+  || fail "#5623 actor missing the anti-flap 'already diverged' guard (#5178 — the hw266 TL runaway)"
+# 10. RBAC minimal + resourceNames-pinned: helmreleases get/patch on THIS HR only,
+#     NO kustomizations verbs (the #5245 handoff is not ported).
+grep -q 'resourceNames: \[bp-postgres-shared\]' "$TMP/promoter.yaml" \
+  || fail "#5623 dr-promoter HR Role must be resourceNames-pinned to bp-postgres-shared"
+if grep -q 'kustomizations' "$TMP/promoter.yaml"; then
+  fail "#5623 dr-promoter must NOT grant kustomizations verbs (the #5245 durable-substitute handoff is a follow-up, not ported)"; fi
+# 11. dr-promoter-egress CNP admits the kube-apiserver entity (kubectl egress).
+grep -q 'kube-apiserver' "$TMP/promoter.yaml" \
+  || fail "#5623 dr-promoter-egress CNP missing the kube-apiserver entity — kubectl egress would be default-denied"
+# 12. The failover-readiness probe egress NetworkPolicy renders.
+grep -q 'shared-pg-probe-egress' "$TMP/promoter.yaml" \
+  || fail "#5623 missing the failover-readiness probe egress NetworkPolicy"
+# 13. NO NodePort — ever.
+if grep -q 'NodePort' "$TMP/promoter.yaml"; then fail "#5623 render leaked a NodePort (ABSOLUTELY FORBIDDEN)"; fi
+echo "  PASS (dr-promoter Deployment/Recreate; HR-value promote seam; failover-readiness gate; #5178 liveness+grace; #5220 arm-before-promote; #5218 latch+self-heal+verify; anti-flap; pinned RBAC; egress CNP)"
+
+# ── Case 20b: #5623 — negative gates (no promoter off the sync replica path) ──
+echo "[render] Case 20b: #5623 dr-promoter absent for primary / async / autoPromote-off / singleton"
+helm template shared-pg . -f "$TMP/promoter.values.yaml" --set topology.side=primary \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/prom-primary.yaml" 2>&1 || fail "#5623 primary render errored"
+if grep -qE 'role: dr-promoter|role: failover-readiness-probe|shared-pg-probe-egress' "$TMP/prom-primary.yaml"; then
+  fail "#5623 side=primary must render ZERO dr-promoter/probe resources (the actor must survive a region-A kill on cluster-B)"; fi
+helm template shared-pg . -f "$TMP/promoter.values.yaml" --set topology.replication.mode=async \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/prom-async.yaml" 2>&1 || fail "#5623 async render errored"
+if grep -q 'role: dr-promoter' "$TMP/prom-async.yaml"; then
+  fail "#5623 replication.mode=async must render ZERO dr-promoter resources (no sync-rep data fence)"; fi
+helm template shared-pg . -f "$TMP/promoter.values.yaml" --set topology.autoPromote.enabled=false \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/prom-off.yaml" 2>&1 || fail "#5623 autoPromote-off render errored"
+if grep -qE 'role: dr-promoter|role: failover-readiness-probe|shared-pg-probe-egress' "$TMP/prom-off.yaml"; then
+  fail "#5623 autoPromote.enabled=false must render ZERO dr-promoter/probe resources"; fi
+if grep -qE 'role: dr-promoter|role: failover-readiness-probe|shared-pg-probe-egress' "$TMP/shared.yaml"; then
+  fail "#5623 singleton render leaked dr-promoter/probe resources (active-hot-standby replica only)"; fi
+echo "  PASS (no promoter/probe on primary / async / autoPromote-off / singleton)"
+
+# ── Case 20c: #5623 — fail-safe observe-only WITHOUT a cross-region liveness path ─
+echo "[render] Case 20c: #5623 fail-safe — no peer clusters => observe-only (PRIMARY_LIVENESS_ENABLED=false, no region-A egress rule)"
+cat > "$TMP/promoter-nopeer.values.yaml" <<'YAML'
+instance: { name: shared-pg, namespace: shared-data }
+topology:
+  mode: active-hot-standby
+  side: secondary
+  instances: 1
+  primary: { region: hz-fsn-rtz-prod }
+  replica: { region: hz-hel-rtz-prod }
+YAML
+helm template shared-pg . -f "$TMP/promoter-nopeer.values.yaml" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/promoter-nopeer.yaml" 2>&1 || fail "#5623 no-peer render errored"
+grep -q 'role: dr-promoter' "$TMP/promoter-nopeer.yaml" \
+  || fail "#5623 the promoter still renders without peers (observe-only), so it can auto-arm once the mesh is wired"
+awk '/name: PRIMARY_LIVENESS_ENABLED/{getline; if ($0 ~ /"false"/) f=1} END{exit f?0:1}' "$TMP/promoter-nopeer.yaml" \
+  || fail "#5623 no-peer render must set PRIMARY_LIVENESS_ENABLED=false (fail-safe observe-only)"
+if grep -q 'io.cilium.k8s.policy.cluster' "$TMP/promoter-nopeer.yaml"; then
+  fail "#5623 no-peer render must NOT emit the region-A liveness egress rule (nothing proves region-A gone)"; fi
+echo "  PASS (observe-only fail-safe: PRIMARY_LIVENESS_ENABLED=false, no region-A egress rule)"
+
+# ── Case 20d: #5623 — the promoted VALUE drives replica.enabled (both directions) ─
+echo "[render] Case 20d: #5623 replica.enabled follows topology.promoted (default replica, promoted->primary)"
+awk '/^kind: Cluster$/{c=1} c&&/^  name: shared-pg-replica$/{r=1} r&&/^    enabled: /{print; exit}' "$TMP/promoter.yaml" | grep -q 'enabled: true' \
+  || fail "#5623 default (promoted absent/false) replica half must render replica.enabled: true"
+helm template shared-pg . -f "$TMP/promoter.values.yaml" --set topology.promoted=true \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/prom-promoted.yaml" 2>&1 || fail "#5623 promoted render errored"
+awk '/^kind: Cluster$/{c=1} c&&/^  name: shared-pg-replica$/{r=1} r&&/^    enabled: /{print; exit}' "$TMP/prom-promoted.yaml" | grep -q 'enabled: false' \
+  || fail "#5623 topology.promoted=true must render replica.enabled: false (CNPG promotes the survivor)"
+echo "  PASS (promoted:false -> replica.enabled:true; promoted:true -> replica.enabled:false)"
