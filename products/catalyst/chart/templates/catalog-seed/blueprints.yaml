@@ -5760,7 +5760,9 @@ spec:
   # 0.2.13 (#5224): role-secrets side-gate — replica-role region never mints
   # role/hub Secrets; pair password set single-sourced from the primary region.
   # 0.2.14 (#5473): replication-source Service selectorType r -> rw (primary only).
-  version: "0.2.17"
+  # 0.2.18 (#5623): region-B AUTOMATIC DR promotion — ported bp-cnpg-pair dr-promoter
+  # + failover-readiness + topology.promoted HR-value seam on the AHS replica half.
+  version: "0.2.18"
   visibility: listed
   # Shareability + Contexts (#3370) — seeded verbatim from
   # platform/postgres/blueprint.yaml (lockstep-guarded). One instance
@@ -5880,7 +5882,9 @@ spec:
     # 0.2.12 (#4986): active-hot-standby emits the dr-<instance> Continuum CR so
     # the per-app Topology DR panel renders (shared-pg #3375 rows 51/52/56/57/64).
     # 0.2.13 (#5224): role-secrets side-gate (replica-role region mints nothing).
-    version: "0.2.17"
+    # 0.2.18 (#5623): region-B automatic DR promotion (dr-promoter + failover-readiness
+    # + topology.promoted seam) on the active-hot-standby replica half.
+    version: "0.2.18"
   # Seeded verbatim from platform/postgres/blueprint.yaml spec.topology.
   # singleton = single-instance Cluster; active-hot-standby = sync
   # replication across regions (ADR-0004 Pillar-3 zero-tx-loss) via the

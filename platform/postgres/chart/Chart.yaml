@@ -1,5 +1,42 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.18 — #5623 (Refs #5137 #5178 #5218 #5220 #5133 #5157): region-B AUTOMATIC DR
+#   promotion for the shared-pg pairs. The three shared-pg instances render the EXACT
+#   bp-cnpg-pair split-side replica shape but shipped NO region-local promoter, so on
+#   the hw292 G12 region-kill (2026-08-03, dep 1c56518035a83e03, cutoverComplete=true)
+#   bp-cnpg-pair's own region-B dr-promoter auto-promoted at T0+2m16s (RPO=0) while all
+#   three shared-pg replicas stayed pg_is_in_recovery()=t for the WHOLE outage —
+#   keycloak (a shared-pg consumer) and every platform database read-only, the auth
+#   path unrecoverable in region-B (the gateway 503'd on four fresh-TCP samples). This
+#   ports the PROVEN bp-cnpg-pair dr-promoter (chart 0.2.17) onto the shared-pg replica
+#   half, templated with bp-postgres's own naming helpers + the shared-pg HR-value seam:
+#     - templates/dr-promoter.yaml — a side=replica-gated Deployment (NOT a CronJob,
+#       #5157) whose signals container watches the LOCAL replica's WAL receiver AND
+#       POSITIVELY probes region-A liveness (pg_isready of the -mesh endpoint over the
+#       ClusterMesh — #5178), and whose actor promotes via the topology.promoted
+#       HR-value seam + a durable spec.suspend latch (#5218, custom field-manager) only
+#       after the region-A-loss clock held primaryDownHoldSeconds AND the pair reached
+#       streaming steady-state (steadyStateArmSeconds — #5220) AND the failover-readiness
+#       probe is Ready (#5133). Anti-flap: never re-promote an already-diverged cluster.
+#     - templates/failover-readiness.yaml — the #5133 LSN apply==receive promotability
+#       probe (streaming_replica mutual-TLS).
+#     - replica-cluster.yaml now drives replica.enabled from the topology.promoted VALUE
+#       (mirror of bp-cnpg-pair 0.2.12 / #5125-D1) so the promotion is the DESIRED state
+#       flux drift-correction RE-AFFIRMS, never a live-object patch it reverts mid-outage.
+#     - networkpolicy.yaml admits the promoter signals + probe to the replica 5432 and
+#       adds the probe egress; dr-promoter.yaml carries its own egress CNP (apiserver +
+#       kube-dns + replica 5432 + the region-A liveness probe by peer identity).
+#   DATA FENCE: rendered ONLY when replication.mode=sync (the old primary cannot commit
+#   while its sync standby is unreachable — automatic promotion can never lose or fork
+#   committed data). Default-OFF preserved: singleton / primary / async / autoPromote-off
+#   render ZERO promoter resources (byte-identical to 0.2.17). The #5245 durable-substitute
+#   handoff, TL-ahead re-promote and region-A dr-failback leg bp-cnpg-pair added on top
+#   (0.2.18-0.2.23) are NOT ported (follow-up); as with bp-cnpg-pair 0.2.14-0.2.17 the
+#   suspend latch holds the survivor writable through the outage and the operator lifts it
+#   on region-A recovery (RUNBOOKS §6.1). New values under topology: promoted, walStreaming,
+#   autoPromote.*. tests/postgres-render.sh Cases 20a-20d added. LIVE region-kill proof on
+#   the shared-pg pairs is owed on the next 2-region G12 walk. Lockstep: 16a/16c/16d HR
+#   pins + blueprint.yaml + catalog-seed → 0.2.18.
 # 0.2.17 — #5639 (Refs #960 #3986): FAIL CLOSED on an unresolvable region. Both
 #   active-hot-standby Cluster halves pin a REQUIRED nodeAffinity on the
 #   `openova.io/region` node label, and both read the value straight off
@@ -254,7 +291,7 @@ name: bp-postgres
 #   the singleton render is byte-identical to 0.2.9 (the ipBlock only rendered
 #   under crossRegion, which singletons never set). Lockstep slot pins 16a/16c/
 #   16d → 0.2.10. tests/postgres-render.sh Case 4e/4f added.
-version: 0.2.17
+version: 0.2.18
 appVersion: "0.1.2"
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable

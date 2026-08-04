@@ -161,7 +161,13 @@ spec:
       # region-A. Lockstep with the other 16* bp-postgres slots.
       # 0.2.14 (#5473): replication-source Service selectorType r -> rw —
       # `r` matched every instance, so a standby could serve as DR source.
-      version: 0.2.17
+      # 0.2.18 (#5623): region-B AUTOMATIC DR promotion — the ported bp-cnpg-pair
+      # dr-promoter + failover-readiness probe + topology.promoted HR-value seam on
+      # the active-hot-standby replica half. On the hw292 G12 region-kill this
+      # instance's region-B replica stayed read-only for the whole outage (keycloak
+      # unrecoverable in region-B) because ONLY bp-cnpg-pair shipped a promoter. sync-
+      # only fence; autoPromote.hr.name above targets THIS HR. Lockstep 16a/16c/16d.
+      version: 0.2.18
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
@@ -236,6 +242,14 @@ spec:
         region: '${SOVEREIGN_PRIMARY_REGION:-}'
       replica:
         region: '${SOVEREIGN_REPLICA_REGION:-}'
+      # ── Region-B automatic DR promotion (#5623) ─────────────────────────
+      # The side=replica dr-promoter patches THIS instance's HR DESIRED state
+      # (spec.values.topology.promoted=true) on a region-A kill, so hr.name MUST
+      # be this slot's own HelmRelease (this equals the chart default; pinned
+      # explicitly so 16c/16d — which override it to -b/-c — stay symmetrical).
+      autoPromote:
+        hr:
+          name: bp-postgres-shared
       # #4442 — HOST shared-data instance: the singleton operator-probe NP
       # (networkpolicy-singleton-operator-probe.yaml) default-denies 5432 to
       # cross-namespace consumers (keycloak/gitea/harbor in OTHER namespaces,
