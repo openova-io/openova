@@ -192,31 +192,32 @@ catalog-seed + regenerates the derived catalog on every chart bump, closing the
 only helps FUTURE deploy-bot bumps; existing branches still needed one manual
 rebase, done below.
 
-**Merged (chart chain):** #5674 (loft.sh chart-source pivot, cutover 0.1.168 /
-umbrella 1.4.1289) — landed after 3 rebases through the deploybot umbrella treadmill.
-
-**Rebased in a quiet window (last deploy-bot chart mint ~50 min prior) + pushed +
-in merge-waiter:**
-- **#5672** — org-console teardown reaper (#5364/#5649/R17): reaps both producers'
-  route shapes + listeners + Certificate + both TLS-Secret shapes + boundary
-  Namespace per region. Rebased clean, umbrella + slot-13 re-serialized to
+**Merged — chart chain fully drained:**
+- **#5674** (loft.sh chart-source pivot, cutover 0.1.168 / umbrella 1.4.1289) —
+  landed after 3 rebases through the deploybot umbrella treadmill.
+- **#5672** (sha 407c00e74) — org-console teardown reaper (#5364/#5649/R17): reaps
+  both producers' route shapes + listeners + Certificate + both TLS-Secret shapes +
+  boundary Namespace per region. Rebased clean, umbrella + slot-13 re-serialized to
   1.4.1291 (changelog history preserved), bootstrap-kit lockstep + catalog-seed
   drift guards green, reap-handler pkg builds. Conflict was purely the two umbrella
-  version sites (Go payload clean).
-- **#5675** — shared-pg dr-promoter (#5623): keycloak + shared-pg pairs auto-promote
-  on region-kill (reuses the proven bp-cnpg-pair promoter, #5178 flap guard),
-  bp-postgres 0.2.17→0.2.18. Conflict was only the two GENERATED catalog files
-  (blueprints.json + catalog.generated.ts); resolved by taking the clean 0.2.18
-  seed and REGENERATING via build-catalog.mjs (never hand-merge generated JSON/TS).
-  Render cases 20b/20c/20d + region-selector-fail-closed + lockstep all green.
+  version sites (Go payload clean). #5364 → status/uat (runtime reap proof
+  live-walk-gated on the next fresh prov).
+- **#5675** (sha d2ee38f13) — shared-pg dr-promoter (#5623): keycloak + shared-pg
+  pairs auto-promote on region-kill (reuses the proven bp-cnpg-pair promoter, #5178
+  flap guard), bp-postgres 0.2.17→0.2.18. Conflict was only the two GENERATED
+  catalog files (blueprints.json + catalog.generated.ts); resolved by regenerating
+  from the clean 0.2.18 seed via build-catalog.mjs (never hand-merge generated
+  JSON/TS). Render cases 20b/20c/20d + region-selector-fail-closed + lockstep all
+  green. #5623 → status/uat (region-kill auto-promote proof live-walk-gated).
 
-Both file sets are disjoint (umbrella+slot-13 vs bp-postgres slots+catalog), so
-their CI runs concurrently; each merges on green tolerating only the
-`ghcr-pin-existence` continue-on-error check, with a dirty-bail if a fresh
-deploy-bot mint re-conflicts either.
+Both file sets were disjoint (umbrella+slot-13 vs bp-postgres slots+catalog), so
+their CI ran concurrently; each merged on green tolerating only the
+`ghcr-pin-existence` continue-on-error check. No treadmill re-conflict — #5678's
+root-cause fix plus the ~50-min post-mint quiet window held the queue stable.
 
-**Fix-wave tally (2026-08-05):** 13 PRs merged (#5662 #5386 #5666 #5667 #5669 #5673
-#5676 #5677 #5674 #5604 + #5597 direct + #5671 + #5678), 6 issues evidence-closed
-(#5589 #5388 #5456 #5512 #5520 #5509), 5 already-fixed correctly declined (#5639
-#5637 #5634 #5616 #5615 — all with merged fix PRs at status/uat), 2 chart PRs
-rebased+pushed+waiting (#5672 #5675).
+**Fix-wave tally (2026-08-05):** 15 PRs merged (#5662 #5386 #5666 #5667 #5669 #5673
+#5676 #5677 #5674 #5604 + #5597 direct + #5671 + #5678 + #5672 + #5675), 6 issues
+evidence-closed (#5589 #5388 #5456 #5512 #5520 #5509), 2 fixes → status/uat with
+merge evidence (#5364 #5623 — runtime proof fresh-prov-gated), 5 already-fixed
+correctly declined (#5639 #5637 #5634 #5616 #5615 — all with merged fix PRs at
+status/uat). Chart-PR queue fully drained; #5678 closes the treadmill root cause.
