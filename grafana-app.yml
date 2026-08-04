@@ -1,0 +1,172 @@
+- generic [ref=f9e3]:
+  - complementary [ref=f9e4]:
+    - generic [ref=f9e5]:
+      - generic [ref=f9e6]: OpenOva Sovereign
+      - button "hw288.omani.works" [ref=f9e11]
+    - navigation [ref=f9e15]:
+      - link "Dashboard" [ref=f9e16] [cursor=pointer]:
+        - /url: /dashboard
+      - link "Cloud" [ref=f9e19] [cursor=pointer]:
+        - /url: /cloud
+      - link "Apps" [ref=f9e22] [cursor=pointer]:
+        - /url: /apps
+      - link "Catalog" [ref=f9e25] [cursor=pointer]:
+        - /url: /catalog
+      - link "Agenity" [ref=f9e28] [cursor=pointer]:
+        - /url: /sandbox
+      - link "Jobs" [ref=f9e31] [cursor=pointer]:
+        - /url: /jobs
+      - link "Compliance" [ref=f9e34] [cursor=pointer]:
+        - /url: /sre/compliance
+      - link "Users" [ref=f9e37] [cursor=pointer]:
+        - /url: /users
+      - link "Organizations" [ref=f9e40] [cursor=pointer]:
+        - /url: /organizations
+      - link "Billing" [ref=f9e43] [cursor=pointer]:
+        - /url: /billing
+      - link "Settings" [ref=f9e46] [cursor=pointer]:
+        - /url: /settings
+    - button "EB emrah.baysal@openova.io hw288.omani.works" [ref=f9e170]:
+      - generic [ref=f9e51]: EB
+      - generic [ref=f9e52]:
+        - paragraph [ref=f9e53]: emrah.baysal@openova.io
+        - paragraph [ref=f9e54]: hw288.omani.works
+  - generic [ref=f9e57]:
+    - banner [ref=f9e58]:
+      - generic [ref=f9e59]:
+        - heading "Applications" [level=1] [ref=f9e60]
+        - link "← Back to apps" [ref=f9e61] [cursor=pointer]:
+          - /url: /dashboard
+      - generic [ref=f9e62]:
+        - 'link "Sovereign status: Degraded. Open the Dashboard." [ref=f9e171] [cursor=pointer]':
+          - /url: /dashboard
+          - generic [ref=f9e173]: Degraded
+        - button "No notifications" [ref=f9e64]
+        - button "Switch to light theme" [ref=f9e68]
+        - button "E" [ref=f9e175] [cursor=pointer]
+    - main [ref=f9e76]:
+      - generic [ref=f9e77]:
+        - generic [ref=f9e78]:
+          - img "Grafana" [ref=f9e79]
+          - generic [ref=f9e80]:
+            - heading "bp-grafana — Grafana" [level=1] [ref=f9e81]:
+              - text: bp-grafana
+              - generic [ref=f9e82]: — Grafana
+            - paragraph [ref=f9e83]: Curated dashboards across metrics, logs, and traces
+            - generic [ref=f9e84]:
+              - generic [ref=f9e85]: INSIGHTS
+              - generic [ref=f9e86]: BOOTSTRAP
+              - generic [ref=f9e87]: default
+              - generic [ref=f9e88]: bp-grafana
+              - generic [ref=f9e89]: Ready
+              - button "Bootstrap blueprint (not in marketplace)" [disabled] [ref=f9e176]
+              - generic "Phase derived from Application CR status" [ref=f9e91]: "source: Application CR"
+        - tablist "App detail tabs" [ref=f9e92]:
+          - tab "Overview" [selected] [ref=f9e93] [cursor=pointer]:
+            - text: Overview
+            - tab: Overview
+          - tab "Topology" [ref=f9e94] [cursor=pointer]:
+            - text: Topology
+            - tab: Topology
+          - tab "Resources" [ref=f9e95] [cursor=pointer]:
+            - text: Resources
+            - tab: Resources
+          - tab "Compliance" [ref=f9e96] [cursor=pointer]:
+            - text: Compliance
+            - tab: Compliance
+          - tab "Logs" [ref=f9e97] [cursor=pointer]:
+            - text: Logs
+            - tab: Logs
+          - tab "Settings" [ref=f9e98] [cursor=pointer]:
+            - text: Settings
+            - tab: Settings
+          - tab "Members" [ref=f9e99] [cursor=pointer]:
+            - text: Members
+            - tab: Members
+          - tab "Endpoints" [ref=f9e100] [cursor=pointer]:
+            - text: Endpoints
+            - tab: Endpoints
+          - tab "Jobs 1" [ref=f9e101] [cursor=pointer]:
+            - text: Jobs
+            - generic [ref=f9e102]: "1"
+            - tab: Jobs
+          - tab "Dependencies 7" [ref=f9e103] [cursor=pointer]:
+            - text: Dependencies
+            - generic [ref=f9e104]: "7"
+            - tab: Dependencies
+        - tabpanel [ref=f9e105]:
+          - generic [ref=f9e106]:
+            - heading "Overview" [level=2] [ref=f9e107]
+            - generic [ref=f9e108]:
+              - generic [ref=f9e109]:
+                - term [ref=f9e110]: Name
+                - definition [ref=f9e111]: bp-grafana
+              - generic [ref=f9e112]:
+                - term [ref=f9e113]: Status
+                - definition [ref=f9e114]: Ready
+              - generic [ref=f9e115]:
+                - term [ref=f9e116]: Namespace
+                - definition [ref=f9e117]: default
+              - generic [ref=f9e118]:
+                - term [ref=f9e119]: Blueprint
+                - definition [ref=f9e120]: bp-grafana
+              - generic [ref=f9e121]:
+                - term [ref=f9e122]: Placement
+                - definition [ref=f9e123]: singleton
+          - generic [ref=f9e124]:
+            - heading "About" [level=2] [ref=f9e125]
+            - paragraph [ref=f9e126]: Curated dashboards across metrics, logs, and traces
+          - generic [ref=f9e127]:
+            - heading "Bundled dependencies" [level=2] [ref=f9e128]
+            - paragraph [ref=f9e129]: "Auto-installed alongside Grafana:"
+            - list [ref=f9e130]:
+              - listitem [ref=f9e131]: CloudNative PG
+              - listitem [ref=f9e132]: Loki
+              - listitem [ref=f9e133]: Mimir
+              - listitem [ref=f9e134]: Tempo
+              - listitem [ref=f9e135]: Keycloak
+              - listitem [ref=f9e136]: gateway-api
+              - listitem [ref=f9e137]: PostgreSQL
+          - generic [ref=f9e138]:
+            - heading "Organization" [level=2] [ref=f9e139]
+            - paragraph [ref=f9e140]: Installing into hw288.omani.works — currently 61 components targeted.
+          - generic [ref=f9e141]:
+            - heading "Access tiers (Members)" [level=2] [ref=f9e142]
+            - list "Access tier options for Members" [ref=f9e143]:
+              - listitem [ref=f9e144]: "tier: viewer"
+              - listitem [ref=f9e145]: "tier: developer"
+              - listitem [ref=f9e146]: "tier: operator"
+              - listitem [ref=f9e147]: "tier: admin"
+              - listitem [ref=f9e148]: "tier: owner"
+          - generic [ref=f9e149]:
+            - heading "Available regions" [level=2] [ref=f9e150]
+            - list "Available cluster regions" [ref=f9e177]:
+              - listitem [ref=f9e178]: hw288.omani.works (me-east-215-a)
+              - listitem [ref=f9e179]: hw288.omani.works (me-east-215-b)
+          - generic [ref=f9e152]:
+            - heading "What you can do here" [level=2] [ref=f9e153]
+            - list [ref=f9e154]:
+              - listitem [ref=f9e155]:
+                - strong [ref=f9e156]: Topology
+                - text: — see the live region rollout, switch placement modes, add/remove regions.
+              - listitem [ref=f9e157]:
+                - strong [ref=f9e158]: Resources
+                - text: — browse the live K8s objects (Deployment, Service, Pod, ConfigMap, Secret) backing this Application.
+              - listitem [ref=f9e159]:
+                - strong [ref=f9e160]: Compliance
+                - text: — per-Application compliance score and policy violations.
+              - listitem [ref=f9e161]:
+                - strong [ref=f9e162]: Logs
+                - text: — stream container logs in real time (xterm-style viewer).
+              - listitem [ref=f9e163]:
+                - strong [ref=f9e164]: Settings
+                - text: — edit parameters against the Blueprint's configSchema and Save them (required fields like
+                - code [ref=f9e165]: siteTitle
+                - text: are validated; an empty required value surfaces a "required" inline error); Upgrade the Blueprint (a dialog lists the available versions); or Uninstall (a dialog will ask you to Type the application name to confirm).
+              - listitem [ref=f9e166]:
+                - strong [ref=f9e167]: Members
+                - text: "— Add Member, change a member's tier, or remove access. Example:"
+                - code [ref=f9e168]: qa-user1
+                - text: with tier
+                - code [ref=f9e169]: developer
+                - text: can install and edit, but cannot grant access to other users.

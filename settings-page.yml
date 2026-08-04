@@ -1,0 +1,428 @@
+- generic [ref=f43e3]:
+  - complementary [ref=f43e4]:
+    - generic [ref=f43e5]:
+      - generic [ref=f43e6]: OpenOva Sovereign
+      - button "hw287.omantel.biz" [ref=f43e11]
+    - navigation [ref=f43e15]:
+      - link "Dashboard" [ref=f43e16] [cursor=pointer]:
+        - /url: /dashboard
+      - link "Cloud" [ref=f43e19] [cursor=pointer]:
+        - /url: /cloud
+      - link "Apps" [ref=f43e22] [cursor=pointer]:
+        - /url: /apps
+      - link "Catalog" [ref=f43e25] [cursor=pointer]:
+        - /url: /catalog
+      - link "Agenity" [ref=f43e28] [cursor=pointer]:
+        - /url: /sandbox
+      - link "Jobs" [ref=f43e31] [cursor=pointer]:
+        - /url: /jobs
+      - link "Compliance" [ref=f43e34] [cursor=pointer]:
+        - /url: /sre/compliance
+      - link "Users" [ref=f43e37] [cursor=pointer]:
+        - /url: /users
+      - link "Organizations" [ref=f43e40] [cursor=pointer]:
+        - /url: /organizations
+      - link "Billing" [ref=f43e43] [cursor=pointer]:
+        - /url: /billing
+      - link "Settings" [ref=f43e46] [cursor=pointer]:
+        - /url: /settings
+    - button "EB emrah.baysal@openova.io hw287.omantel.biz" [ref=f43e349]:
+      - generic [ref=f43e51]: EB
+      - generic [ref=f43e52]:
+        - paragraph [ref=f43e53]: emrah.baysal@openova.io
+        - paragraph [ref=f43e54]: hw287.omantel.biz
+  - generic [ref=f43e57]:
+    - banner [ref=f43e58]:
+      - heading "Settings" [level=1] [ref=f43e60]
+      - generic [ref=f43e61]:
+        - 'link "Sovereign status: Operation in progress. Open the Dashboard." [ref=f43e350] [cursor=pointer]':
+          - /url: /dashboard
+          - generic [ref=f43e352]: Operation in progress
+        - button "No notifications" [ref=f43e63]
+        - button "Switch to light theme" [ref=f43e67]
+        - button "E" [ref=f43e354] [cursor=pointer]
+    - status [ref=f43e355]:
+      - generic [ref=f43e357]: An operation is in progress — the Sovereign is running a finite cutover / switchover. Convergence is unaffected.
+      - link "View progress →" [ref=f43e358] [cursor=pointer]:
+        - /url: /dashboard
+    - main [ref=f43e75]:
+      - generic [ref=f43e77]:
+        - complementary [ref=f43e78]:
+          - navigation [ref=f43e79]:
+            - link "Organization" [ref=f43e80] [cursor=pointer]:
+              - /url: "#organization"
+            - link "Sovereign" [ref=f43e81] [cursor=pointer]:
+              - /url: "#sovereign"
+            - link "API tokens" [ref=f43e82] [cursor=pointer]:
+              - /url: "#api-tokens"
+            - link "Cloud credentials" [ref=f43e83] [cursor=pointer]:
+              - /url: "#cloud-credentials"
+            - link "DNS" [ref=f43e84] [cursor=pointer]:
+              - /url: "#dns"
+            - link "Domain mode" [ref=f43e85] [cursor=pointer]:
+              - /url: "#domain-mode"
+            - link "Parent domains" [ref=f43e86] [cursor=pointer]:
+              - /url: "#parent-domains"
+            - link "Marketplace" [ref=f43e87] [cursor=pointer]:
+              - /url: "#marketplace"
+            - link "Notifications" [ref=f43e88] [cursor=pointer]:
+              - /url: "#notifications"
+            - link "Members" [ref=f43e89] [cursor=pointer]:
+              - /url: "#members"
+            - link "Danger zone" [ref=f43e90] [cursor=pointer]:
+              - /url: "#danger-zone"
+            - link "Sovereignty" [ref=f43e91] [cursor=pointer]:
+              - /url: "#sovereignty"
+        - main [ref=f43e92]:
+          - generic [ref=f43e93]:
+            - generic [ref=f43e95]:
+              - heading "Organization" [level=2] [ref=f43e96]
+              - paragraph [ref=f43e97]: Organisation profile, billing contact, logo.
+            - generic [ref=f43e98]:
+              - generic [ref=f43e99]:
+                - term [ref=f43e100]: Name
+                - definition [ref=f43e101]: Omantel
+              - generic [ref=f43e102]:
+                - term [ref=f43e103]: Billing email
+                - definition [ref=f43e104]: emrah.baysal@openova.io
+              - generic [ref=f43e105]:
+                - term [ref=f43e106]: Industry
+                - definition [ref=f43e107]: Financial Services
+              - generic [ref=f43e108]:
+                - term [ref=f43e109]: Headquarters
+                - definition [ref=f43e110]: Frankfurt, Germany
+          - generic [ref=f43e111]:
+            - generic [ref=f43e113]:
+              - heading "Sovereign" [level=2] [ref=f43e114]
+              - paragraph [ref=f43e115]: FQDN, region, Capacity (control plane sizing), deployment id, creation date.
+            - generic [ref=f43e116]:
+              - generic [ref=f43e117]:
+                - term [ref=f43e118]: Sovereign FQDN
+                - definition [ref=f43e119]: hw287.omantel.biz
+              - generic [ref=f43e120]:
+                - term [ref=f43e121]: Region
+                - definition [ref=f43e122]: me-east-215-a
+              - generic [ref=f43e123]:
+                - term [ref=f43e124]: Capacity
+                - definition [ref=f43e125]: m7n.xlarge.8
+              - generic [ref=f43e126]:
+                - term [ref=f43e127]: Control plane size
+                - definition [ref=f43e128]: m7n.xlarge.8
+              - generic [ref=f43e129]:
+                - term [ref=f43e130]: Deployment ID
+                - definition [ref=f43e131]: 4b5e42caac23429f
+              - generic [ref=f43e132]:
+                - term [ref=f43e133]: Created
+                - definition [ref=f43e134]: 7/23/2026, 5:24:11 PM
+              - generic [ref=f43e135]:
+                - term [ref=f43e136]: Status
+                - definition [ref=f43e137]: ready
+          - generic [ref=f43e138]:
+            - generic [ref=f43e139]:
+              - generic [ref=f43e140]:
+                - heading "API tokens" [level=2] [ref=f43e141]
+                - paragraph [ref=f43e142]: List, create, and revoke service tokens.
+              - generic [ref=f43e143]:
+                - generic "Backend API not yet wired — display only" [ref=f43e144]: API pending
+                - button "Create token" [disabled] [ref=f43e145]
+            - list [ref=f43e146]:
+              - listitem [ref=f43e147]:
+                - generic [ref=f43e148]:
+                  - generic [ref=f43e149]: Catalyst API
+                  - generic [ref=f43e150]: Sovereign control plane
+                - generic [ref=f43e151]:
+                  - code [ref=f43e152]: ••••••••••••••••
+                  - button "Revoke" [disabled] [ref=f43e153]
+              - listitem [ref=f43e154]:
+                - generic [ref=f43e155]:
+                  - generic [ref=f43e156]: OpenBao
+                  - generic [ref=f43e157]: Secrets vault
+                - generic [ref=f43e158]:
+                  - code [ref=f43e159]: ••••••••••••••••
+                  - button "Revoke" [disabled] [ref=f43e160]
+              - listitem [ref=f43e161]:
+                - generic [ref=f43e162]:
+                  - generic [ref=f43e163]: Harbor
+                  - generic [ref=f43e164]: Container registry
+                - generic [ref=f43e165]:
+                  - code [ref=f43e166]: ••••••••••••••••
+                  - button "Revoke" [disabled] [ref=f43e167]
+              - listitem [ref=f43e168]:
+                - generic [ref=f43e169]:
+                  - generic [ref=f43e170]: Gitea
+                  - generic [ref=f43e171]: GitOps source
+                - generic [ref=f43e172]:
+                  - code [ref=f43e173]: ••••••••••••••••
+                  - button "Revoke" [disabled] [ref=f43e174]
+              - listitem [ref=f43e175]:
+                - generic [ref=f43e176]:
+                  - generic [ref=f43e177]: Keycloak
+                  - generic [ref=f43e178]: Identity provider
+                - generic [ref=f43e179]:
+                  - code [ref=f43e180]: ••••••••••••••••
+                  - button "Revoke" [disabled] [ref=f43e181]
+          - generic [ref=f43e182]:
+            - generic [ref=f43e183]:
+              - generic [ref=f43e184]:
+                - heading "Cloud credentials" [level=2] [ref=f43e185]
+                - paragraph [ref=f43e186]: Hetzner provider token + S3 backup keys.
+              - generic "Backend API not yet wired — display only" [ref=f43e188]: API pending
+            - list [ref=f43e189]:
+              - listitem [ref=f43e190]:
+                - generic [ref=f43e191]: Hetzner provider token
+                - generic [ref=f43e192]:
+                  - code [ref=f43e193]: ••••••••••••••••
+                  - button "Rotate" [disabled] [ref=f43e194]
+              - listitem [ref=f43e195]:
+                - generic [ref=f43e196]: S3 backup access key
+                - generic [ref=f43e197]:
+                  - code [ref=f43e198]: ••••••••••••••••
+                  - button "Rotate" [disabled] [ref=f43e199]
+              - listitem [ref=f43e200]:
+                - generic [ref=f43e201]: S3 backup secret key
+                - generic [ref=f43e202]:
+                  - code [ref=f43e203]: ••••••••••••••••
+                  - button "Rotate" [disabled] [ref=f43e204]
+          - generic [ref=f43e205]:
+            - generic [ref=f43e207]:
+              - heading "DNS" [level=2] [ref=f43e208]
+              - paragraph [ref=f43e209]: Pool domain, subdomain, TLS issuer status.
+            - generic [ref=f43e210]:
+              - generic [ref=f43e211]:
+                - term [ref=f43e212]: Pool domain
+                - definition [ref=f43e213]: omantel.biz
+              - generic [ref=f43e214]:
+                - term [ref=f43e215]: Pool subdomain
+                - definition [ref=f43e216]: hw287
+              - generic [ref=f43e217]:
+                - term [ref=f43e218]: BYO domain
+                - definition [ref=f43e219]: —
+              - generic [ref=f43e220]:
+                - term [ref=f43e221]: TLS issuer
+                - definition [ref=f43e222]: Let’s Encrypt (cert-manager)
+          - generic [ref=f43e223]:
+            - generic [ref=f43e225]:
+              - heading "Domain mode" [level=2] [ref=f43e226]
+              - paragraph [ref=f43e227]: Pool vs Bring-Your-Own — read-only after activation.
+            - generic [ref=f43e228]:
+              - generic [ref=f43e229]:
+                - term [ref=f43e230]: Mode
+                - definition [ref=f43e231]: pool
+              - generic [ref=f43e232]:
+                - term [ref=f43e233]: Lock state
+                - definition [ref=f43e234]: Locked (Sovereign activated)
+          - generic [ref=f43e235]:
+            - generic [ref=f43e237]:
+              - heading "Parent domains" [level=2] [ref=f43e238]
+              - paragraph [ref=f43e239]: The pool of registrar domains this Sovereign serves via PowerDNS — add / remove pool domains, watch NS-flip + DNS propagation.
+            - generic [ref=f43e240]:
+              - generic [ref=f43e241]:
+                - paragraph [ref=f43e243]: Domains served by this Sovereign's PowerDNS. The primary hosts your console + API; pool domains are offered to Organizations for free subdomain allocation.
+                - button "+ Add another domain" [ref=f43e244]
+              - table [ref=f43e359]:
+                - rowgroup [ref=f43e360]:
+                  - row [ref=f43e361]:
+                    - columnheader "Domain" [ref=f43e362]
+                    - columnheader "Role" [ref=f43e363]
+                    - columnheader "Status" [ref=f43e364]
+                    - columnheader "Registrar" [ref=f43e365]
+                    - columnheader "Added" [ref=f43e366]
+                    - columnheader "actions" [ref=f43e367]
+                - rowgroup [ref=f43e368]:
+                  - row [ref=f43e369]:
+                    - cell [ref=f43e370]:
+                      - button "hw287.omantel.biz" [ref=f43e371]:
+                        - generic [ref=f43e372]: ▸
+                        - text: hw287.omantel.biz
+                    - cell "primary" [ref=f43e373]
+                    - cell "Ready" [ref=f43e374]
+                    - cell "—" [ref=f43e376]
+                    - cell "—" [ref=f43e377]
+                    - cell "locked" [ref=f43e378]
+                  - row [ref=f43e379]:
+                    - cell [ref=f43e380]:
+                      - button "omani.homes" [ref=f43e381]:
+                        - generic [ref=f43e382]: ▸
+                        - text: omani.homes
+                    - cell "org-pool" [ref=f43e383]
+                    - cell "Ready" [ref=f43e384]
+                    - cell "—" [ref=f43e386]
+                    - cell "7/23/2026" [ref=f43e387]
+                    - cell [ref=f43e388]:
+                      - button "Remove" [ref=f43e389]
+                  - row [ref=f43e390]:
+                    - cell [ref=f43e391]:
+                      - button "omani.rest" [ref=f43e392]:
+                        - generic [ref=f43e393]: ▸
+                        - text: omani.rest
+                    - cell "org-pool" [ref=f43e394]
+                    - cell "Ready" [ref=f43e395]
+                    - cell "—" [ref=f43e397]
+                    - cell "7/23/2026" [ref=f43e398]
+                    - cell [ref=f43e399]:
+                      - button "Remove" [ref=f43e400]
+                  - row [ref=f43e401]:
+                    - cell [ref=f43e402]:
+                      - button "omani.trade" [ref=f43e403]:
+                        - generic [ref=f43e404]: ▸
+                        - text: omani.trade
+                    - cell "org-pool" [ref=f43e405]
+                    - cell "Ready" [ref=f43e406]
+                    - cell "—" [ref=f43e408]
+                    - cell "7/23/2026" [ref=f43e409]
+                    - cell [ref=f43e410]:
+                      - button "Remove" [ref=f43e411]
+                  - row [ref=f43e412]:
+                    - cell [ref=f43e413]:
+                      - button "omani.works" [ref=f43e414]:
+                        - generic [ref=f43e415]: ▸
+                        - text: omani.works
+                    - cell "org-pool" [ref=f43e416]
+                    - cell "Ready" [ref=f43e417]
+                    - cell "—" [ref=f43e419]
+                    - cell "7/23/2026" [ref=f43e420]
+                    - cell [ref=f43e421]:
+                      - button "Remove" [ref=f43e422]
+                  - row [ref=f43e423]:
+                    - cell [ref=f43e424]:
+                      - button "omantel.biz" [ref=f43e425]:
+                        - generic [ref=f43e426]: ▸
+                        - text: omantel.biz
+                    - cell "primary" [ref=f43e427]
+                    - cell "Ready" [ref=f43e428]
+                    - cell "dynadot" [ref=f43e430]
+                    - cell "—" [ref=f43e431]
+                    - cell "locked" [ref=f43e432]
+          - generic [ref=f43e246]:
+            - generic [ref=f43e248]:
+              - heading "Marketplace" [level=2] [ref=f43e249]
+              - paragraph [ref=f43e250]: Public storefront, branding, Organization wildcard ingress. Changes are committed to your GitOps repo and reconciled by Flux within ~1 minute.
+            - generic [ref=f43e251]:
+              - generic [ref=f43e252]:
+                - paragraph [ref=f43e254]: "Public storefront, *.{sovereignFQDN} Organization wildcard, and back-office routes are exposed."
+                - switch [checked] [ref=f43e255] [cursor=pointer]
+              - generic [ref=f43e257]:
+                - generic [ref=f43e258]:
+                  - generic [ref=f43e259]:
+                    - paragraph [ref=f43e260]: Storefront name
+                    - paragraph [ref=f43e261]: Display name in the storefront header (e.g. Otech Cloud).
+                  - textbox "Otech Cloud" [ref=f43e263]
+                - generic [ref=f43e264]:
+                  - generic [ref=f43e265]:
+                    - paragraph [ref=f43e266]: Tagline
+                    - paragraph [ref=f43e267]: Sub-headline shown under the storefront name.
+                  - textbox "Cloud + SaaS for Oman" [ref=f43e269]
+                - generic [ref=f43e270]:
+                  - generic [ref=f43e271]:
+                    - paragraph [ref=f43e272]: Primary colour
+                    - paragraph [ref=f43e273]: Accent colour for the storefront chrome (#RRGGBB hex).
+                  - generic [ref=f43e275]:
+                    - textbox [ref=f43e276] [cursor=pointer]: "#3b82f6"
+                    - textbox "#3B82F6" [ref=f43e277]
+              - generic [ref=f43e278]:
+                - generic [ref=f43e279]: No pending changes.
+                - button "Save changes" [ref=f43e280]
+          - generic [ref=f43e281]:
+            - generic [ref=f43e282]:
+              - generic [ref=f43e283]:
+                - heading "Notifications" [level=2] [ref=f43e284]
+                - paragraph [ref=f43e285]: Email + Slack hooks for provisioning events.
+              - generic "Backend API not yet wired — display only" [ref=f43e287]: API pending
+            - generic [ref=f43e288]:
+              - generic [ref=f43e289]:
+                - term [ref=f43e290]: Email recipients
+                - definition [ref=f43e291]: —
+              - generic [ref=f43e292]:
+                - term [ref=f43e293]: Slack webhook
+                - definition [ref=f43e294]: —
+          - generic [ref=f43e295]:
+            - generic [ref=f43e297]:
+              - heading "Members" [level=2] [ref=f43e298]
+              - paragraph [ref=f43e299]: Operators with admin / dev / viewer roles.
+            - paragraph [ref=f43e300]: Operators are managed on the dedicated User Access page so role bindings, app grants, and namespace scopes share one editor.
+            - link "Open User Access →" [ref=f43e301] [cursor=pointer]:
+              - /url: /users
+          - generic [ref=f43e302]:
+            - generic [ref=f43e304]:
+              - heading "Danger zone" [level=2] [ref=f43e305]
+              - paragraph [ref=f43e306]: Wipe Sovereign, decommission, transfer ownership.
+            - list [ref=f43e307]:
+              - listitem [ref=f43e308]:
+                - generic [ref=f43e309]:
+                  - paragraph [ref=f43e310]: Decommission Sovereign
+                  - paragraph [ref=f43e311]: Tears down every cloud resource provisioned for this Sovereign. Irreversible.
+                - link "Decommission…" [ref=f43e313] [cursor=pointer]:
+                  - /url: /decommission/4b5e42caac23429f
+              - listitem [ref=f43e314]:
+                - generic [ref=f43e315]:
+                  - paragraph [ref=f43e316]: Wipe Sovereign data
+                  - paragraph [ref=f43e317]: Wipes deployment state but keeps the cloud account. Used when the Sovereign got into a bad state and you want to reprovision from the wizard.
+                - generic [ref=f43e318]: API pending
+              - listitem [ref=f43e320]:
+                - generic [ref=f43e321]:
+                  - paragraph [ref=f43e322]: Transfer ownership
+                  - paragraph [ref=f43e323]: Hands Sovereign administration to a new operator account.
+                - generic [ref=f43e324]: API pending
+          - region "Sovereignty status" [ref=f43e327]:
+            - generic [ref=f43e328]:
+              - generic [ref=f43e335]:
+                - heading "Cluster sovereignty" [level=2] [ref=f43e336]
+                - paragraph [ref=f43e337]: This Sovereign is currently soft-tethered to the openova-io mothership for container pulls and GitOps source. Achieving true sovereignty repoints registries, mirrors the catalog into local Gitea, and runs an egress-block self-test.
+              - generic [ref=f43e338]: Tethered
+            - region "Sovereignty cutover progress" [ref=f43e434]:
+              - generic [ref=f43e435]:
+                - generic [ref=f43e436]:
+                  - heading "Cutover in progress" [level=3] [ref=f43e437]
+                  - paragraph [ref=f43e438]: Step 2 of 11 complete — the operator is not required to keep this tab open.
+                - generic [ref=f43e439]: 18%
+              - list [ref=f43e442]:
+                - listitem [ref=f43e443]:
+                  - generic [ref=f43e447]:
+                    - generic [ref=f43e448]:
+                      - paragraph [ref=f43e449]: Mirror GitOps repository
+                      - generic [ref=f43e450]: 18:28:57
+                    - paragraph [ref=f43e451]: Clone github.com/openova-io/openova into the local Gitea so Flux can read manifests without leaving the cluster.
+                - listitem [ref=f43e452]:
+                  - generic [ref=f43e456]:
+                    - generic [ref=f43e457]:
+                      - paragraph [ref=f43e458]: Create Harbor proxy projects
+                      - generic [ref=f43e459]: 18:29:02
+                    - paragraph [ref=f43e460]: Provision proxy-ghcr / proxy-docker / proxy-k8s / proxy-gcr / proxy-quay / proxy-xpkg / proxy-ecr in the local Harbor.
+                - listitem [ref=f43e461]:
+                  - generic [ref=f43e465]:
+                    - generic [ref=f43e466]:
+                      - paragraph [ref=f43e467]: Pre-warm critical images
+                      - generic [ref=f43e468]: 18:29:02
+                    - paragraph [ref=f43e469]: Pull every image referenced by an installed HelmRelease through Harbor so the cluster never depends on the mothership again.
+                - listitem [ref=f43e470]:
+                  - generic [ref=f43e481]:
+                    - paragraph [ref=f43e483]: Pivot containerd registries
+                    - paragraph [ref=f43e484]: Hot-reload registries.yaml on every node from harbor.openova.io to harbor.<sovereign-fqdn> via a DaemonSet sentinel; each node acks the v2 (local Harbor) rewrite.
+                - listitem [ref=f43e485]:
+                  - generic [ref=f43e496]:
+                    - paragraph [ref=f43e498]: Repoint Flux GitRepository
+                    - paragraph [ref=f43e499]: Patch the flux-system/openova GitRepository.url from GitHub to the local Gitea HTTP service. Flux reconciles from local Git.
+                - listitem [ref=f43e500]:
+                  - generic [ref=f43e511]:
+                    - paragraph [ref=f43e513]: Repoint HelmRepositories
+                    - paragraph [ref=f43e514]: Patch every oci://ghcr.io/openova-io HelmRepository to oci://harbor.<sovereign-fqdn>/openova-io.
+                - listitem [ref=f43e515]:
+                  - generic [ref=f43e526]:
+                    - paragraph [ref=f43e528]: Update catalyst-api environment
+                    - paragraph [ref=f43e529]: Set CATALYST_GITOPS_REPO_URL to the local Gitea URL and remove the upstream-fallback default.
+                - listitem [ref=f43e530]:
+                  - generic [ref=f43e541]:
+                    - paragraph [ref=f43e543]: Egress-block self-test
+                    - paragraph [ref=f43e544]: Apply a NetworkPolicy denying egress to github.com + ghcr.io + harbor.openova.io for 10 minutes; assert all reconciles stay green.
+                - listitem [ref=f43e545]:
+                  - generic [ref=f43e556]:
+                    - paragraph [ref=f43e558]: Mint local Gitea token
+                    - paragraph [ref=f43e559]: Mint a long-lived Gitea API token so the host GitOps loop + the mirror-resync CronJob authenticate against local Gitea after cutover.
+                - listitem [ref=f43e560]:
+                  - generic [ref=f43e571]:
+                    - paragraph [ref=f43e573]: Pivot vCluster registries
+                    - paragraph [ref=f43e574]: Repoint every Organization vCluster’s containerd + pull secrets at the local Harbor so Organization workloads stop pulling from ghcr.io.
+                - listitem [ref=f43e575]:
+                  - generic [ref=f43e586]:
+                    - paragraph [ref=f43e588]: Pivot Crossplane providers
+                    - paragraph [ref=f43e589]: Rewrite Crossplane provider + function package refs from upstream registries to the local Harbor proxy projects.

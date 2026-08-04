@@ -147,10 +147,6 @@ rules:
   - apiGroups: [""]
     resources: ["services"]   # #4639 (Refs #4637): registry-pivot DaemonSet resolves the cilium-gateway Service ClusterIP (node-routable, serves registry.<fqdn> wildcard TLS + token realm) for the dfdaemon hostAlias instead of the un-hairpinnable public gateway EIP
     verbs: ["get", "list", "watch"]
-  - apiGroups: [""]
-    resources: ["services"]   # #5359 step-05 secondary leg: annotate gitea-http with service.cilium.io/global+shared so the region-B zero-backend alias resolves it over ClusterMesh; without patch the annotate 403s and every 2-region cutover dies at the step-05 Ready wait
-    resourceNames: ["gitea-http"]
-    verbs: ["patch", "update"]
   - apiGroups: ["gateway.networking.k8s.io"]
     resources: ["gateways"]   # step 06 Phase -1 (#1871, chart 0.1.32): wait for cilium-gateway Programmed=True before URL rewrite
     verbs: ["get", "list", "watch"]

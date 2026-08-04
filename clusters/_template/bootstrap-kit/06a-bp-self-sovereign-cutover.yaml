@@ -1049,7 +1049,15 @@ spec:
       # default", which detect holds literally, and shipping it off left the
       # gap as silent as the issue describes. Step count stays 11; no RBAC
       # change. New chart test tests/daytwo-image-leg.sh + contract Case 75.
-      version: 0.1.166
+      # 0.1.166 (#5359): the step-05 secondary-region pivot target defaults to
+      # the Sovereign's OWN external Gitea door (https://gitea.<fqdn>) — the
+      # in-cluster mesh candidate is retired (headless gitea-http cannot be
+      # mesh-shared and the secondary's own empty Gitea answers that name, the
+      # hw292 gen=2/obs=1 stick), and an empty candidate chain fails loud.
+      # 0.1.167 (#5391): settled-roll pre-flight gains a NAMED, validated,
+      #   audited operator override (annotation contract) + fail-closed gate
+      #   reads; re-serialized past main 0.1.166. Lockstep (pin-sync gate).
+      version: 0.1.167
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

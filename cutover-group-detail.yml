@@ -1,0 +1,158 @@
+- generic [ref=f41e3]:
+  - complementary [ref=f41e4]:
+    - generic [ref=f41e5]:
+      - generic [ref=f41e6]: OpenOva Sovereign
+      - button "hw287.omantel.biz" [ref=f41e11]
+    - navigation [ref=f41e15]:
+      - link "Dashboard" [ref=f41e16] [cursor=pointer]:
+        - /url: /dashboard
+      - link "Cloud" [ref=f41e19] [cursor=pointer]:
+        - /url: /cloud
+      - link "Apps" [ref=f41e22] [cursor=pointer]:
+        - /url: /apps
+      - link "Catalog" [ref=f41e25] [cursor=pointer]:
+        - /url: /catalog
+      - link "Agenity" [ref=f41e28] [cursor=pointer]:
+        - /url: /sandbox
+      - link "Jobs" [ref=f41e31] [cursor=pointer]:
+        - /url: /jobs
+      - link "Compliance" [ref=f41e34] [cursor=pointer]:
+        - /url: /sre/compliance
+      - link "Users" [ref=f41e37] [cursor=pointer]:
+        - /url: /users
+      - link "Organizations" [ref=f41e40] [cursor=pointer]:
+        - /url: /organizations
+      - link "Billing" [ref=f41e43] [cursor=pointer]:
+        - /url: /billing
+      - link "Settings" [ref=f41e46] [cursor=pointer]:
+        - /url: /settings
+    - button "EB emrah.baysal@openova.io hw287.omantel.biz" [ref=f41e82]:
+      - generic [ref=f41e51]: EB
+      - generic [ref=f41e52]:
+        - paragraph [ref=f41e53]: emrah.baysal@openova.io
+        - paragraph [ref=f41e54]: hw287.omantel.biz
+  - generic [ref=f41e57]:
+    - banner [ref=f41e58]:
+      - heading "Cutover" [level=1] [ref=f41e83]
+      - generic [ref=f41e61]:
+        - 'link "Sovereign status: Operation in progress. Open the Dashboard." [ref=f41e84] [cursor=pointer]':
+          - /url: /dashboard
+          - generic [ref=f41e86]: Operation in progress
+        - button "No notifications" [ref=f41e63]
+        - button "Switch to light theme" [ref=f41e67]
+        - button "E" [ref=f41e88] [cursor=pointer]
+    - status [ref=f41e89]:
+      - generic [ref=f41e91]: An operation is in progress — the Sovereign is running a finite cutover / switchover. Convergence is unaffected.
+      - link "View progress →" [ref=f41e92] [cursor=pointer]:
+        - /url: /dashboard
+    - main [ref=f41e75]:
+      - generic [ref=f41e76]:
+        - generic [ref=f41e93]:
+          - link "← Back to jobs" [ref=f41e94] [cursor=pointer]:
+            - /url: /jobs
+          - generic [ref=f41e95]: last update 06:28:57 PM
+          - generic [ref=f41e96]: Running
+        - generic [ref=f41e100]:
+          - img "Provisioning dependency flow" [ref=f41e102]:
+            - generic [ref=f41e133]:
+              - generic "Harbor Prewarm — Running" [ref=f41e134]:
+                - generic: ◐
+                - generic: Harbor Prewarm
+              - generic "Harbor Projects — Succeeded · 5ms" [ref=f41e138]:
+                - generic: ✓
+                - generic: Harbor Projects
+                - generic: 5ms
+              - generic "Gitea Mirror — Succeeded" [ref=f41e141]:
+                - generic: ✓
+                - generic: Gitea Mirror
+              - generic "Reconcilers — Running" [ref=f41e144]:
+                - generic: ◐
+                - generic: Reconcilers
+              - generic "Bootstrap Cluster — Succeeded" [ref=f41e148]:
+                - generic: ✓
+                - generic: Bootstrap Cluster
+              - generic "Terraform Output — Succeeded · 8ms" [ref=f41e151]:
+                - generic: ✓
+                - generic: Terraform Output
+                - generic: 8ms
+              - generic "Terraform Apply — Succeeded · 328ms" [ref=f41e154]:
+                - generic: ✓
+                - generic: Terraform Apply
+                - generic: 328ms
+              - generic "Terraform Plan — Succeeded · 341ms" [ref=f41e157]:
+                - generic: ✓
+                - generic: Terraform Plan
+                - generic: 341ms
+              - generic "Terraform Init — Succeeded · 375ms" [ref=f41e160]:
+                - generic: ✓
+                - generic: Terraform Init
+                - generic: 375ms
+              - generic "Catalyst Api Env Patch — Pending" [ref=f41e163]:
+                - generic: ○
+                - generic: Catalyst Api Env …
+              - generic "Crossplane Provider Pivot — Pending" [ref=f41e166]:
+                - generic: ○
+                - generic: Crossplane Provid…
+              - generic "Egress Block Test — Pending" [ref=f41e169]:
+                - generic: ○
+                - generic: Egress Block Test
+              - generic "Flux Gitrepository Patch — Pending" [ref=f41e172]:
+                - generic: ○
+                - generic: Flux Gitrepositor…
+              - generic "Gitea Token Mint — Pending" [ref=f41e175]:
+                - generic: ○
+                - generic: Gitea Token Mint
+              - generic "Helmrepository Patches — Pending" [ref=f41e178]:
+                - generic: ○
+                - generic: Helmrepository Pa…
+              - generic "Registry Pivot — Pending" [ref=f41e181]:
+                - generic: ○
+                - generic: Registry Pivot
+              - generic "Vcluster Registry Pivot — Pending" [ref=f41e184]:
+                - generic: ○
+                - generic: Vcluster Registry…
+              - generic "Apps (me-east-215-a) — Pending" [ref=f41e201]:
+                - generic: ○
+                - generic: Apps (me-east-215…
+              - generic "Bootstrap (me-east-215-a) — Running · 96 jobs" [ref=f41e187]:
+                - generic: "96"
+                - generic: Bootstrap (me-eas…
+                - generic: 96 jobs
+                - generic [ref=f41e191] [cursor=pointer]: ⊕ 96
+              - generic "Cutover (me-east-215-a) — Succeeded · 1 job" [ref=f41e193]:
+                - generic: "1"
+                - generic: Cutover (me-east-…
+                - generic: 1 job
+                - generic [ref=f41e196] [cursor=pointer]: ⊕ 1
+              - generic "Handover (me-east-215-a) — Pending" [ref=f41e198]:
+                - generic: ○
+                - generic: Handover (me-east…
+              - generic "Bootstrap (me-east-215-b-1) — Succeeded · 66 jobs" [ref=f41e204]:
+                - generic: "66"
+                - generic: Bootstrap (me-eas…
+                - generic: 66 jobs
+                - generic [ref=f41e207] [cursor=pointer]: ⊕ 66
+              - generic "Cutover (me-east-215-b-1) — Succeeded · 1 job" [ref=f41e209]:
+                - generic: "1"
+                - generic: Cutover (me-east-…
+                - generic: 1 job
+                - generic [ref=f41e212] [cursor=pointer]: ⊕ 1
+              - generic "Handover (me-east-215-b-1) — Pending" [ref=f41e214]:
+                - generic: ○
+                - generic: Handover (me-east…
+              - generic "Apps (me-east-215-b-1) — Pending" [ref=f41e217]:
+                - generic: ○
+                - generic: Apps (me-east-215…
+          - toolbar "Canvas depth" [ref=f41e220]:
+            - button "Decrease depth" [ref=f41e221] [cursor=pointer]: ◀
+            - generic [ref=f41e222]: L2/3
+            - button "Increase depth" [ref=f41e223] [cursor=pointer]: ▶
+          - button "Canvas full-screen" [ref=f41e224] [cursor=pointer]
+      - complementary "Logs for Cutover" [ref=f41e227]:
+        - generic [ref=f41e228]:
+          - generic [ref=f41e229]: running
+          - generic "Cutover" [ref=f41e230]
+          - button "Show global (all-components) log" [ref=f41e231] [cursor=pointer]
+          - button "Enter full-screen" [ref=f41e235] [cursor=pointer]
+          - button "Close log pane" [ref=f41e238] [cursor=pointer]
+        - generic [ref=f41e241]: No execution recorded yet.

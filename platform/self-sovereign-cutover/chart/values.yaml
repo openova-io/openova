@@ -2355,16 +2355,18 @@ stepTimeouts:
   # census itself is still the ~105-min slow path this ceiling was sized for, and
   # a slow-but-reachable-egress run needs the same headroom regardless.
   harborPrewarmSeconds: 9600
-  # #5359 — raised 600 -> 1800. The step-05 secondary leg now walks a CANDIDATE
+  # #5359 — raised 600 -> 1800. The step-05 secondary leg walks a CANDIDATE
   # URL CHAIN, giving each candidate its own secondaryRegions.
-  # gitRepositoryReadySeconds (300s) window to converge. Worst case is
-  # regions x candidates x 300s (a 2-region Sovereign: 1 x 2 x 300 = 600s) on
-  # top of the region-A patch, and the ceiling must exceed the sum or the Job is
-  # killed mid-chain and the failure reads as a deadline rather than as the
-  # unreachable-Gitea diagnosis the leg was about to print. 1800 leaves headroom
-  # for a 3-region topology. The step stays event-driven (catalyst-api watches
-  # to completion), so a converging run still returns in seconds and never waits
-  # out the ceiling.
+  # gitRepositoryReadySeconds (300s) window to converge. The 0.1.166 default
+  # chain is ONE candidate (the Sovereign's own external Gitea door — the
+  # doomed in-cluster mesh candidate is retired), so the default worst case is
+  # regions x 1 x 300s on top of the region-A patch; the ceiling must exceed
+  # that sum or the Job is killed mid-chain and the failure reads as a deadline
+  # rather than as the unreachable-Gitea diagnosis the leg was about to print.
+  # 1800 keeps headroom for a 3-region topology AND for an operator-supplied
+  # multi-candidate chain. The step stays event-driven (catalyst-api watches
+  # to completion), so a converging run still returns in seconds and never
+  # waits out the ceiling.
   fluxGitRepositoryPatchSeconds: 1800
   # Step 06 (helmrepository-patches) activeDeadlineSeconds. This step now
   # has FOUR potentially-slow waits inside one Job and the deadline must
@@ -2778,38 +2780,46 @@ secondaryRegions:
   # it still describes the previous spec.
   gitRepositoryReadySeconds: 300
   # Git URL the SECONDARY regions' GitRepository is pivoted to. Empty
-  # (default) = try the same in-cluster URL region-A uses
-  # (sovereign.giteaInternalURL + gitea.org/gitea.repo) FIRST, then fall
-  # back to giteaFallbackURL / the public door below. Setting this
-  # pins the chain to exactly one URL (explicit operator intent).
+  # (default) = the chain is the Sovereign's OWN external Gitea door
+  # (giteaFallbackURL / giteaFallbackToPublicDoor below). Setting this
+  # pins the chain to exactly one URL (explicit operator intent — e.g.
+  # the qaTestEnabled LE-staging case where the public door is
+  # x509-hostile and the operator must name a reachable path).
   #
-  # #5359 — why the in-cluster URL is a candidate and not a certainty.
-  # `gitea-http.gitea.svc.cluster.local` resolves LOCALLY in the
-  # secondary: a 2-region Sovereign installs bp-gitea in both regions, so
-  # the secondary has its own same-named Service selecting its own
-  # (empty, never mirrored) Gitea. The step-05 mesh alias cannot override
-  # that, because BOTH Services are HEADLESS (clusterIP: None) and Cilium
+  # #5359 — why the in-cluster URL is NOT in the default chain (0.1.166;
+  # 0.1.151..0.1.165 tried it first and every 2-region cutover burned a
+  # gitRepositoryReadySeconds window on it). `gitea-http.gitea.svc.
+  # cluster.local` resolves LOCALLY in the secondary: a 2-region
+  # Sovereign installs bp-gitea in both regions, so the secondary has
+  # its own same-named Service selecting its own (empty, never mirrored)
+  # Gitea. The retired step-05 mesh alias could not override that,
+  # because BOTH Services are HEADLESS (clusterIP: None) and Cilium
   # ClusterMesh global-services do not span headless Services at all —
   # CoreDNS answers straight from the local EndpointSlice, making
-  # `service.cilium.io/global` inert. Live on hw292 region-b that name
-  # resolved to 10.43.3.228 (its own gitea pod), whose openova/openova
-  # advertises zero refs → "pkt-line 3: EOF" on every fetch.
+  # `service.cilium.io/global` inert — and even a non-headless global
+  # pair would MERGE the empty local backend into the pool. Live on
+  # hw292 region-b that name resolved to 10.43.3.228 (its own gitea
+  # pod), whose openova/openova advertises zero refs → "pkt-line 3: EOF"
+  # on every fetch, generation=2/observedGeneration=1 for 22h.
   giteaURL: ""
-  # #5359 — fallback candidate tried when the in-cluster URL does not
-  # converge. Empty + giteaFallbackToPublicDoor=true (the default) means
+  # #5359 — the DEFAULT secondary pivot target. Empty +
+  # giteaFallbackToPublicDoor=true (the default) means
   # `https://gitea.<sovereign.fqdn>/<org>/<repo>`: the Sovereign's OWN
   # external Gitea door. That is ON-Sovereign, not a tether — it is the
-  # Sovereign's own gateway VIP, it satisfies the step-08 source-host
+  # Sovereign's own gateway VIP (served DIRECT per §854: LB-IPAM VIP /
+  # hostPort, never a NodePort), it satisfies the step-08 source-host
   # lint's *.<fqdn> exemption, and the step-08 secondary deny-egress leg
   # already carves out that gateway's public IPs so the hold does not cut
   # it. Live-verified on hw292: from region-b this door served HEAD
   # 7bcd1d59… — byte-identical to region-A's in-cluster Gitea, i.e. the
   # PIVOTED content — while the in-cluster name served zero refs.
   #
-  # The old caveat about LE-STAGING certs making the public door
-  # x509-hostile still holds for qaTestEnabled provs; those set
-  # giteaFallbackToPublicDoor=false and must supply a mesh path that
-  # actually works, rather than silently pivoting to an unreachable URL.
+  # The key keeps its historical FALLBACK spelling so pinned values files
+  # survive the 0.1.166 default flip unchanged (#5323 key-rename class).
+  # giteaFallbackToPublicDoor=false with giteaURL and giteaFallbackURL
+  # both empty leaves a secondary with NO candidate: the leg fails LOUD
+  # at its first region (stamping result=failed) instead of silently
+  # pivoting to an unreachable URL or leaving the region tethered.
   giteaFallbackURL: ""
   giteaFallbackToPublicDoor: true
   # Extra CIDRs allowed by the SECONDARY regions' deny-egress hold, ON

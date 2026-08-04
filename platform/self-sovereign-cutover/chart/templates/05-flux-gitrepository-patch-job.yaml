@@ -35,22 +35,36 @@ patch this Job iterates every kubeconfig in /secondary-kubeconfigs
 at run start from its on-PVC secondary kubeconfig store; mounted
 optional:true so a single-region Sovereign renders the leg inert) and:
 
-  1. establishes the ClusterMesh global-Service path to the local
-     Gitea (the bp-cnpg-pair / bp-openbao cross-region-mesh idiom):
-     annotates region-A's gitea-http Service `service.cilium.io/
-     global=true` + creates the same-named zero-backend alias Service
-     in the secondary's `gitea` namespace, so `gitea-http.gitea.svc`
-     resolves there and the dial crosses the mesh to region-A;
-  2. mirrors the basic-auth Secret into the secondary's flux-system;
-  3. applies the SAME url/branch/secretRef/ignore patch to the
-     secondary's GitRepository (secondaryRegions.giteaURL overrides
-     the URL; empty = the same in-cluster URL region-A uses);
-  4. FAIL-LOUD waits for the secondary GitRepository to reach
-     Ready=True on the pivoted URL (secondaryRegions.
-     gitRepositoryReadySeconds) — succeeding without region-B
-     reconciling local Gitea would re-mint the #5359 false positive;
-  5. records `step.flux-gitrepository-patch.region.<key>.result` on
+  1. mirrors the basic-auth Secret into the secondary's flux-system;
+  2. applies the SAME branch/secretRef/ignore patch to the secondary's
+     GitRepository with the URL from the candidate chain — DEFAULT is
+     the Sovereign's OWN external Gitea door https://gitea.<fqdn>/...
+     (the only target live-proven reachable from a secondary; hw292);
+     secondaryRegions.giteaURL pins one explicit URL instead;
+  3. FAIL-LOUD waits for the secondary GitRepository to CONVERGE —
+     observedGeneration == generation with Ready=True (secondaryRegions.
+     gitRepositoryReadySeconds per candidate); succeeding without
+     region-B reconciling the pivoted URL would re-mint the #5359
+     false positive;
+  4. records `step.flux-gitrepository-patch.region.<key>.result` on
      the status ConfigMap (the per-region tracking #5359 asks for).
+
+The 0.1.151..0.1.165 ClusterMesh global-Service leg (annotate region-A's
+gitea-http + a same-named alias Service in the secondary) is DELETED,
+not parked: both regions' gitea-http Services are HEADLESS (clusterIP:
+None), which Cilium global-services cannot span — CoreDNS answers a
+headless name straight from the LOCAL EndpointSlice — and the secondary
+runs its OWN (empty, never-mirrored) bp-gitea behind that same name, so
+from a secondary the in-cluster URL can never converge; even a
+non-headless global pair would MERGE the empty local backend into the
+pool. hw292 measured the consequence: region-b resolved the name to its
+own zero-ref Gitea (10.43.3.228), source-controller failed every fetch
+with "pkt-line 3: EOF", and — because source-controller v1.4.1 advances
+status.observedGeneration only on a SUCCESSFUL reconcile
+(ComputeReconcileResult adds WithStatusObservedGeneration on the nil /
+Stalling / Generic-Ignore branches only) — the object sat at
+generation=2 / observedGeneration=1 for 22h, serving the pre-pivot
+github.com artifact behind a result=success stamp.
 
 Image phase: post.
 */ -}}
@@ -105,20 +119,24 @@ data:
             value: {{ .Values.gitRepositorySecretRef.patSourceKey | quote }}
           - name: GIT_AUTH_USERNAME
             value: {{ .Values.gitRepositorySecretRef.username | quote }}
-          # #5359 — secondary-region leg inputs. SECONDARY_GITEA_URL empty =
-          # reuse LOCAL_GITEA_URL (the in-cluster Service URL, reachable from
-          # the secondary via the ClusterMesh global-Service alias this leg
-          # establishes). STATUS_CONFIGMAP receives the per-region
+          # #5359 — secondary-region leg inputs. SECONDARY_GITEA_URL non-empty
+          # pins the candidate chain to exactly that URL (explicit operator
+          # intent, e.g. the qaTestEnabled LE-staging case where the public
+          # door is x509-hostile). Empty (default) = the chain is the door
+          # below. STATUS_CONFIGMAP receives the per-region
           # step.<step>.region.<key>.* tracking keys.
           - name: SECONDARY_GITEA_URL
             value: {{ if .Values.secondaryRegions.giteaURL }}{{ printf "%s/%s/%s" (.Values.secondaryRegions.giteaURL | trimSuffix "/") .Values.gitea.org .Values.gitea.repo | quote }}{{ else }}""{{ end }}
-          # #5359 — the fallback candidate, tried only if the in-cluster mesh
-          # URL fails to CONVERGE in the secondary. Defaults to the Sovereign's
-          # OWN external Gitea door, which is on-Sovereign (it satisfies the
-          # step-08 source-host lint's *.<fqdn> exemption) and is the only path
-          # live-proven to serve region-A's pivoted repo from region-B on hw292.
-          # Set secondaryRegions.giteaFallbackURL to "" to disable the fallback
-          # and make a mesh failure immediately fatal.
+          # #5359 — the DEFAULT pivot target for secondaries: the Sovereign's
+          # OWN external Gitea door. On-Sovereign (its own gateway VIP — it
+          # satisfies the step-08 source-host lint's *.<fqdn> exemption, and
+          # the step-08 secondary hold carves out that gateway's public IPs)
+          # and the only path live-proven to serve region-A's pivoted repo
+          # from region-B (hw292: HEAD 7bcd1d59..., byte-identical to
+          # region-A's in-cluster Gitea). The in-cluster mesh URL is retired
+          # from the default chain — see the leg header. The env name keeps
+          # its historical FALLBACK spelling so pinned values files and the
+          # contract tests stay stable across the 0.1.166 default flip.
           - name: SECONDARY_GITEA_FALLBACK_URL
             value: {{ if .Values.secondaryRegions.giteaFallbackURL }}{{ printf "%s/%s/%s" (.Values.secondaryRegions.giteaFallbackURL | trimSuffix "/") .Values.gitea.org .Values.gitea.repo | quote }}{{ else if .Values.secondaryRegions.giteaFallbackToPublicDoor }}{{ printf "https://gitea.%s/%s/%s" .Values.sovereign.fqdn .Values.gitea.org .Values.gitea.repo | quote }}{{ else }}""{{ end }}
           - name: SECONDARY_GITREPO_READY_SECONDS
@@ -230,43 +248,48 @@ data:
             # Empty/absent = single-region Sovereign = this whole block
             # no-ops (pre-#5359 behavior byte-identical).
             #
-            # #5359 CANDIDATE URL CHAIN (hw292, dep 1c56518035a83e03). The leg
-            # used to pivot the secondary to LOCAL_GITEA_URL unconditionally —
-            # `http://gitea-http.gitea.svc.cluster.local:3000`. That name does
-            # NOT reach region-A from a secondary region, and the mesh alias
-            # below cannot make it: a 2-region Sovereign installs bp-gitea in
-            # BOTH regions from the bootstrap-kit, so the secondary already runs
-            # its own `gitea/gitea-http` Service whose selector matches its own
-            # (empty, never mirrored) Gitea pod; and BOTH Services are HEADLESS
-            # (clusterIP: None), which Cilium ClusterMesh global-services cannot
-            # span at all — a headless Service is resolved by CoreDNS straight
-            # from the LOCAL EndpointSlice, so `service.cilium.io/global` is
-            # inert on it. Live on hw292: region-b resolved that name to
-            # 10.43.3.228, its OWN gitea pod, whose openova/openova advertises
-            # zero refs, giving source-controller "pkt-line 3: EOF" on every
-            # fetch from 07:39:48Z onward.
+            # #5359 CANDIDATE URL CHAIN (hw292, dep 1c56518035a83e03). The
+            # DEFAULT chain for a secondary is the Sovereign's OWN external
+            # Gitea door (SECONDARY_GITEA_FALLBACK_URL,
+            # https://gitea.<fqdn>/...): on-Sovereign, world-reachable through
+            # the Sovereign's own gateway VIP with no cross-region Service-DNS
+            # assumption, and the only target live-proven to serve region-A's
+            # pivoted repo from a secondary — hw292 region-b fetched HEAD
+            # 7bcd1d59... through it, byte-identical to region-A's in-cluster
+            # Gitea, while the in-cluster name served zero refs.
             #
-            # So the URL is a candidate, not a certainty, and the only honest
-            # prober is the secondary's OWN source-controller: it dials the exact
-            # URL, from the right cluster, with the right credential. Each
-            # candidate is patched in and given a bounded window to CONVERGE
-            # (below); the first that converges wins, and exhausting the chain is
-            # fatal. The fallback is the Sovereign's own external Gitea door,
-            # which is on-Sovereign (it satisfies the step-08 source-host lint's
-            # *.<SOVEREIGN_FQDN> exemption, and the step-08 secondary hold
-            # already carves out that gateway's public IPs) and was
-            # live-verified reachable from hw292 region-b, serving the pivoted
-            # revision 7bcd1d59... byte-identical to region-A's in-cluster Gitea.
+            # LOCAL_GITEA_URL (gitea-http.gitea.svc) is region-A's OWN patch
+            # target only — it is NOT in the default secondary chain any more.
+            # From a secondary that name resolves to the secondary's own empty
+            # bp-gitea (both Services headless, so the ClusterMesh
+            # global-Service annotation is inert — see the leg header), proven
+            # on hw292 as "pkt-line 3: EOF" on every fetch, generation=2 /
+            # observedGeneration=1 for 22h behind a result=success stamp.
+            # Keeping it as a leading candidate would burn
+            # gitRepositoryReadySeconds per region on a target that
+            # structurally cannot converge there.
+            #
+            # The only honest prober is the secondary's OWN source-controller:
+            # it dials the exact URL, from the right cluster, with the right
+            # credential. Each candidate is patched in and given a bounded
+            # window to CONVERGE (below); the first that converges wins, and
+            # exhausting the chain — or having NO candidate configured — is
+            # fatal, never a soft skip.
             sec_url_chain="${SECONDARY_GITEA_URL:-}"
             if [ -z "${sec_url_chain}" ]; then
-              sec_url_chain="${LOCAL_GITEA_URL}"
-              [ -n "${SECONDARY_GITEA_FALLBACK_URL:-}" ] && sec_url_chain="${sec_url_chain} ${SECONDARY_GITEA_FALLBACK_URL}"
+              sec_url_chain="${SECONDARY_GITEA_FALLBACK_URL:-}"
             fi
-            echo "[flux-gitrepository-patch] #5359 secondary candidate URL chain: ${sec_url_chain}"
+            echo "[flux-gitrepository-patch] #5359 secondary candidate URL chain: ${sec_url_chain:-<none configured>}"
             for skc in /secondary-kubeconfigs/*.yaml; do
               [ -e "${skc}" ] || continue
               region=$(basename "${skc}" .yaml)
-              # ${sec_url_chain}, NOT ${sec_url}: the single-URL variable now
+              if [ -z "${sec_url_chain}" ]; then
+                echo "[flux-gitrepository-patch] FATAL: secondary region ${region} has NO candidate pivot URL — secondaryRegions.giteaURL and .giteaFallbackURL are empty and .giteaFallbackToPublicDoor=false. An unpivoted secondary keeps reconciling its pre-cutover github.com source and reverts every per-region pivot on its next Kustomization interval (#5359); set one of those values — refusing to succeed (#5359)" >&2
+                kubectl -n "${CUTOVER_NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
+                  -p "{\"data\":{\"step.flux-gitrepository-patch.region.${region}.result\":\"failed\",\"step.flux-gitrepository-patch.region.${region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"step.flux-gitrepository-patch.region.${region}.lastError\":\"no candidate pivot URL configured\"}}" || true
+                exit 1
+              fi
+              # ${sec_url_chain}, NOT ${sec_url}: the single-URL variable
               # exists only inside the candidate loop below, and this line runs
               # before it. Under the Job's `set -u` a stale reference here is
               # not a cosmetic log bug — it aborts the leg on the FIRST
@@ -274,53 +297,14 @@ data:
               # Sovereign.
               echo "[flux-gitrepository-patch] #5359 secondary region ${region}: pivoting its GitRepository, candidates -> ${sec_url_chain}"
 
-              # 1a. Share region-A's gitea-http endpoints into the mesh (the
-              # bp-cnpg-pair global-Service idiom). Annotating the LIVE
-              # Service is additive + idempotent; the durable bp-gitea-side
-              # annotation is tracked on #5359.
-              kubectl -n gitea annotate --overwrite service gitea-http \
-                "service.cilium.io/global=true" "service.cilium.io/shared=true" \
-                || echo "[flux-gitrepository-patch] WARN: could not annotate gitea/gitea-http global (mesh share) — secondary clone will fail if the alias has no reachable backend"
-
-              # 1b. Same-named zero-backend alias Service in the SECONDARY
-              # cluster so gitea-http.gitea.svc resolves there and the dial
-              # crosses the mesh to region-A (bp-openbao
-              # cross-region-mesh-service.yaml is the reference shape).
-              cat >/tmp/gitea-mesh-alias.yaml <<EOF
-            apiVersion: v1
-            kind: Namespace
-            metadata:
-              name: gitea
-            ---
-            apiVersion: v1
-            kind: Service
-            metadata:
-              name: gitea-http
-              namespace: gitea
-              labels:
-                app.kubernetes.io/managed-by: self-sovereign-cutover
-                catalyst.openova.io/component: cutover-secondary-gitea-mesh-alias
-              annotations:
-                service.cilium.io/global: "true"
-                catalyst.openova.io/mirrored-from: region-a/gitea/gitea-http
-            spec:
-              type: ClusterIP
-              selector:
-                app.kubernetes.io/name: gitea
-              ports:
-                - name: http
-                  port: 3000
-                  targetPort: 3000
-                  protocol: TCP
-            EOF
-              kubectl --kubeconfig "${skc}" apply -f /tmp/gitea-mesh-alias.yaml
-
-              # 2. Basic-auth Secret in the secondary's flux-system (same PAT
-              # bytes written to /tmp/git-auth-secret.yaml above).
+              # 1. Basic-auth Secret in the secondary's flux-system (same PAT
+              # bytes written to /tmp/git-auth-secret.yaml above). The door
+              # terminates on the same Gitea behind the same
+              # REQUIRE_SIGNIN_VIEW=true, so the same PAT authenticates it.
               kubectl --kubeconfig "${skc}" apply -f /tmp/git-auth-secret.yaml
 
-              # 3. Same patch shape as region-A (URL may differ via
-              # secondaryRegions.giteaURL).
+              # 2. Same patch shape as region-A (URL from the candidate
+              # chain; secondaryRegions.giteaURL pins it).
               if ! kubectl --kubeconfig "${skc}" get gitrepository "${GITREPO_NAME}" -n "${GITREPO_NAMESPACE}" >/dev/null 2>&1; then
                 echo "[flux-gitrepository-patch] #5359 secondary ${region}: GitRepository ${GITREPO_NAMESPACE}/${GITREPO_NAME} absent — no flux git tether to pivot in this region; recording skipped"
                 kubectl -n "${CUTOVER_NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
@@ -353,7 +337,7 @@ data:
                   -n "${GITREPO_NAMESPACE}" \
                   "reconcile.fluxcd.io/requestedAt=$(date +%s)"
 
-                # 4. FAIL-LOUD readiness. #5359 (hw292): the predicate here USED
+                # 3. FAIL-LOUD readiness. #5359 (hw292): the predicate here USED
                 # to be `Ready == True && spec.url == sec_url`, and both halves
                 # were unsound.
                 #
@@ -404,7 +388,7 @@ data:
                 exit 1
               fi
 
-              # 5. Per-region durable tracking (#5359). giteaURL records WHICH
+              # 4. Per-region durable tracking (#5359). giteaURL records WHICH
               # candidate converged, so an operator can see from the status
               # ConfigMap alone whether the secondary took the in-cluster mesh
               # path or the Sovereign's external Gitea door.
