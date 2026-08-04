@@ -607,6 +607,14 @@ export function StepReview() {
     workerCount:      r.workerCount,
   }))
   const totalHourly = regionRows.reduce((acc, r) => acc + r.hourlyCost, 0)
+  // #4706 admission floor (#5661) — multi-region is the BCP default; a
+  // single-region prov must DECLARE itself or CreateDeployment rejects the
+  // body with HTTP 400 before Validate ever runs. The operator picking a
+  // one-region topology card on StepTopology IS the deliberate, declared
+  // act the floor demands — thread it to the wire. Multi-region topologies
+  // leave the field unset (JSON.stringify drops undefined), preserving the
+  // server's multi-region default semantics unchanged.
+  const bcpTopology = regionsPayload.length < 2 ? 'single-region' : undefined
   const r0 = regionsPayload[0] ?? {
     provider: '',
     cloudRegion: '',
@@ -762,6 +770,9 @@ export function StepReview() {
           // full array now means nothing changes when the multi-region
           // apply path activates.
           regions: regionsPayload,
+          // #4706/#5661 — deliberate single-region declaration; undefined
+          // (and therefore absent from the wire) for multi-region.
+          bcpTopology,
           // SSH key
           sshPublicKey: store.sshPublicKey,
           // Hetzner Object Storage credentials (issue #371) — Phase 0b.
@@ -906,6 +917,7 @@ export function StepReview() {
             />
             <Field label="HA"      value={store.haEnabled ? 'Enabled — 3-node etcd quorum per region' : 'Disabled — single CP node'} />
             <Field label="AIR-GAP" value={store.airgap ? 'Enabled — isolated forensic / DR region' : 'Disabled'} />
+            <Field label="BCP topology" value={bcpTopology ?? 'multi-region (default)'} />
           </FieldGrid>
         </Section>
 
