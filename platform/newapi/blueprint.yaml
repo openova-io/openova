@@ -7,7 +7,7 @@ metadata:
     catalyst.openova.io/section: pts-4-6-llm-serving
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.4.146 # lockstep with chart/Chart.yaml (#5374 Guaranteed QoS; #5375: region-local admin-token PushSecret closes the M2 region-B SecretSyncedError / DR gap)
+  version: 1.4.147 # lockstep with chart/Chart.yaml (#5466: SESSION_SECRET/CRYPTO_SECRET off the per-region lookup-or-generate onto the bp-sso-bridge OpenBao carrier — A16 class #5480; requires bp-sso-bridge >= 0.2.27)
   card:
     title: NewAPI
     summary: |

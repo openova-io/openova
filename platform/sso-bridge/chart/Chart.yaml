@@ -1,6 +1,22 @@
 apiVersion: v2
 name: bp-sso-bridge
-version: 0.2.26
+version: 0.2.27
+# 0.2.27 (#5466 #5480, 2026-08-05): PUBLISH `crypto_secret` in the
+# sso/<realm>/<cid> bundle — same A16-class extension as 0.2.26's
+# cookie_secret, this time for bp-newapi. newapi's chart minted
+# SESSION_SECRET + CRYPTO_SECRET with a `lookup`-or-`randAlphaNum 64`
+# template; on a 2-region Sovereign each region's own Flux/Helm misses the
+# lookup and mints a DIFFERENT pair behind the one shared VIP, so the
+# region that did not set the session cookie rejects it (`[sessions]
+# ERROR! securecookie: the value is not valid` on hw291 region-A after
+# region-B's exchange succeeded — the falsified-premise of #5466).
+# SESSION_SECRET consumes the bundle's EXISTING `session_secret` (#2807
+# idiom, tag `session`); `crypto_secret` is the same derivation with its
+# own domain-separation tag `crypto` (full 64-hex digest — newapi reads
+# the value as an opaque string, no base64url length constraint like
+# oauth2-proxy's cookie secret). Bundle-only change: consumers that don't
+# reference the key ignore it; every pre-0.2.27 ExternalSecret resolves
+# byte-identically.
 # 0.2.26 (#5416, 2026-07-27): PUBLISH `cookie_secret` in the sso/<realm>/<cid>
 # bundle + accept a MULTI-key `externalSecret.json` declaration.
 # WHY: every oauth2-proxy gate chart (bp-oidc-gate's three instances,

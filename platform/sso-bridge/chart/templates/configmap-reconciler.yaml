@@ -982,20 +982,43 @@ data:
       # is REJECTED at startup ("cookie_secret must be 16, 24, or 32 bytes").
       # Distinct from session_secret (different domain-separation tag) so a
       # consumer of one never gains the other.
-      local issuer session_secret cookie_secret
+      #
+      # #5466 (2026-08-05) — `crypto_secret`, the SAME derivation idiom, for
+      # bp-newapi's CRYPTO_SECRET (token-at-rest encryption key, read next to
+      # SESSION_SECRET by upstream's controller/auth.go).
+      #
+      # WHY IT BELONGS IN THIS BUNDLE: bp-newapi minted SESSION_SECRET +
+      # CRYPTO_SECRET with a `lookup`-or-`randAlphaNum 64` chart template
+      # (credentials-secret.yaml) — the exact A16 shape (#5480). On a 2-region
+      # Sovereign each region's own Flux/Helm misses the lookup and mints a
+      # DIFFERENT pair, and newapi.<fqdn> is fanned at BOTH regions' pods by
+      # one shared VIP, so the region that did not set the session cookie
+      # rejects it — measured live on hw291: region-B `GET
+      # /api/oauth/sovereign` 200 creates + promotes the SSO user, then the
+      # SAME page load hits region-A which logs `[sessions] ERROR!
+      # securecookie: the value is not valid` and 401s (UAT rows 37/38).
+      # SESSION_SECRET maps onto the bundle's existing `session_secret`
+      # (64-hex digest, tag `session`); CRYPTO_SECRET gets its own
+      # domain-separation tag `crypto`, full 64-hex digest (newapi consumes
+      # the value as an opaque string, no base64url length constraint), so a
+      # consumer of one never gains the other. Consumers that don't
+      # reference the key just ignore it, as with session/cookie.
+      local issuer session_secret cookie_secret crypto_secret
       issuer="https://auth.$(sovereign_fqdn)/realms/${realm}"
       session_secret="$(printf '%s|session|%s|%s' "${cid}" "${realm}" "${secret}" | sha256sum | awk '{print $1}')"
       cookie_secret="$(printf '%s|cookie|%s|%s' "${cid}" "${realm}" "${secret}" | sha256sum | awk '{print substr($1,1,32)}')"
+      crypto_secret="$(printf '%s|crypto|%s|%s' "${cid}" "${realm}" "${secret}" | sha256sum | awk '{print $1}')"
       local bundle
       bundle="$(jq -nc \
         --arg cid "${cid}" \
         --arg secret "${secret}" \
         --arg session "${session_secret}" \
         --arg cookie "${cookie_secret}" \
+        --arg crypto "${crypto_secret}" \
         --arg issuer "${issuer}" \
         --arg realm "${realm}" \
         '{client_id:$cid, client_secret:$secret, session_secret:$session,
-          cookie_secret:$cookie,
+          cookie_secret:$cookie, crypto_secret:$crypto,
           issuer_url:$issuer, realm:$realm,
           authorize_url:($issuer+"/protocol/openid-connect/auth"),
           token_url:($issuer+"/protocol/openid-connect/token"),
