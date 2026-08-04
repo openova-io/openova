@@ -3635,7 +3635,7 @@ name: bp-catalyst-platform
 #   Bootstrap-kit slot-06a pin bumped in lockstep (pin-sync gate).
 #   (1.4.1281-1.4.1283 were taken on main by the #5666 merge and image-deploy
 #   cycles while this PR was in flight; re-serialized to 1.4.1284 at merge.)
-version: 1.4.1284
+version: 1.4.1285
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
