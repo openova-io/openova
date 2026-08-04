@@ -44,6 +44,19 @@ is the day-2 list above.
   (the provisioner's default; `len(Regions) < 2 → "single-region"` is first-class,
   `provisioner.go:254`). Single region, single cluster, 1× cpx52 topology per
   `feedback_multiregion_topology_1_cpx52_per_region` sizing.
+- 🛑 **`"bcpTopology": "single-region"` is MANDATORY in the body.** Verified at
+  `products/catalyst/bootstrap/api/internal/handler/deployments.go:1377-1383`:
+  admission rejects with **HTTP 400 before `Validate()`, `writeTfvars()` or tofu
+  ever run** when `BcpTopology` is empty AND `len(Regions) < 2`. This is founder
+  ruling #4706 ("the fundamental requirement of 2 region mimicking agreement") —
+  multi-region is the BCP default and a single-region prov must be a *deliberate,
+  declared* act. Nothing pre-defaults the field: `deployments.go:1132` constructs
+  the Request without it and no console/UI path sets it (zero `bcpTopology` hits
+  in `products/catalyst/bootstrap/ui/src/`). Omitting it costs a round-trip and,
+  worse, reads as an infrastructure failure when it is an admission policy.
+  **This is a policy checkpoint, not just a field**: the mothership being
+  single-region is exactly the deliberate exception #4706 contemplates, but it is
+  the founder's own 2-region ruling being consciously set aside for this box.
 - **TLD**: `omantel.biz` per the L3 rotation — hw290/291/292 minted wildcard certs
   on `omani.works` this week; LE = 5 certs/week/registered-domain. Do not burn the
   last slot on a rehearsal.
@@ -95,8 +108,38 @@ records; nothing on Contabo is destroyed until day 15.
 ## 7. Honest risks (not hidden)
 
 1. **The Hetzner path is ~6 weeks unproven live** — the entire reason G-B exists. Budget one re-fire.
-2. Single cluster = no HA — same posture as Contabo today; accepted, and recoverable later by re-prov'ing multi-region once that tail is paid down.
-3. LE budget on `omantel.biz` unknown-fresh — verify before fire; staging-issuer fallback exists for walk-only phases.
-4. Mothership catalyst-api (Contabo) must be scaled up to fire the prov (#5558 keeps it at 0) — hand-scale is acceptable here; it is the box being retired.
+   The single most concrete failure point, narrowed by the 2026-08-04 code audit: the
+   **#5090 dnsdist `hostPort:53` DNS front door**. The mechanism is sound and §854-clean
+   (`platform/powerdns/chart/templates/dnsdist.yaml:39-98` — DaemonSet `hostPort: 53`,
+   backing Service stays ClusterIP, never a NodePort; enabled only inside the
+   `provider == "hetzner"` branch at `cloudinit-control-plane.tftpl:795`), but
+   `infra/providers/hetzner/main.tf:199-201` flags it in-code as **LIVE-GATED: unproven
+   until a real Hetzner prov confirms `dig @<node> <fqdn>` resolves**. If hostPort binding
+   or the eBPF DNAT to the pod misbehaves on real Hetzner hardware, the Sovereign's own
+   FQDN never resolves and Phase 1 stalls at ACME/cert issuance **even though k3s and Flux
+   converge underneath** — which presents as a confusing healthy-but-unreachable cluster.
+   Walk `dig` FIRST, before concluding anything else is broken.
+2. **Single-region overlay is empty-set-safe** (audited, no fix needed before firing):
+   `main.tf:566-570` filters `local.secondary_regions` on `i > 0`, so every secondary
+   `for_each` resource materialises as an empty set — no `regions[1]` indexing, no
+   `count = 2`. Cross-region bootstrap-kit components default OFF via envsubst fallback
+   (`SOVEREIGN_ENABLE_HOT_STANDBY:-false`, `CONTINUUM_ENABLED:-false`,
+   `SOVEREIGN_ENABLE_CNPG_PAIR:-false`, `CILIUM_CLUSTERMESH_PROXY_ENABLED:=false`) and
+   render **empty-but-Ready rather than stuck NotReady**, so they cannot wedge the
+   all-HRs-Ready convergence gate. No `evs-ssd`/`huaweicloud`/`me-east` leak reaches the
+   Hetzner path (`EVS_CSI_ENABLED: "false"` at `cloudinit-control-plane.tftpl:771`).
+3. Single cluster = no HA — same posture as Contabo today; accepted, and recoverable later by re-prov'ing multi-region once that tail is paid down.
+4. LE budget on `omantel.biz` unknown-fresh — verify before fire; staging-issuer fallback exists for walk-only phases.
+5. ~~Mothership catalyst-api must be scaled up first (#5558 keeps it at 0)~~ — **RETRACTED on live evidence 2026-08-04**: `kubectl -n catalyst get deploy` shows `catalyst-api 1/1` and pod `catalyst-api-6667895dbc-b8hz9` Running for 31h. #5558 describes a past state; no hand-scale is needed. (Flux IS still dead — all four controllers at `replicas=0`, #5573 — but that does not block firing a prov, only GitOps-driven change to the mothership itself.)
+
+**De-risked on 2026-08-04 (live, so the D1 plan drops a step):** the running mothership
+image `fad88bdb9` is 430 commits behind main, but **zero of those 430 commits touch
+`infra/providers/hetzner/` or `internal/provisioner/`** — and the tofu modules are baked
+INTO the image at `/infra/providers/<provider>/` (`provisioner.go:1870,1923`), confirmed
+by `kubectl exec` (`hetzner/` present with main.tf, variables.tf, versions.tf, outputs.tf,
+cloudinit-worker.tftpl). **So the mothership can fire a current-code Hetzner prov with no
+roll first.** A §854 scan of the BAKED module found every nodePort-range number to be a
+cloud-init byte-size guardrail against Hetzner's 32768-byte `user_data` cap, or a comment
+recording an *eradicated* nodePort — zero live nodePort wiring.
 
 Refs #5618 (closed stale), #5573 #5558 #5567 #5348 (retired-with-box class), #5359 #5511 (deferred-multiregion root), #5614 (issuer hardcode), #5090 #5080 (unproven-live Hetzner commits).

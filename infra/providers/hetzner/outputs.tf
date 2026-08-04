@@ -12,8 +12,11 @@ output "load_balancer_ip" {
 }
 
 # #4053 — public IPv4 of the dedicated CONSOLE load balancer. The
-# console./api.<fqdn> A-records point HERE (forwards 443→node:31443 to the
-# isolated cilium-gateway-console), while the wildcard *.<fqdn> keeps pointing
+# console./api.<fqdn> A-records point HERE (forwards 443→node:443 to the
+# isolated cilium-gateway-console — see hcloud_load_balancer_service.console_https,
+# listen_port=443 destination_port=443; the ":31443" this line used to name was a
+# nodePort that §854/#4765 eradicated and no resource has referenced since),
+# while the wildcard *.<fqdn> keeps pointing
 # at load_balancer_ip above (the shared cilium-gateway). catalyst-api reads this
 # and threads it to pool-domain-manager /commit as consoleLoadBalancerIP so a
 # poisoned shared-gateway CEC can never 404 the console. Empty-safe: a consumer
