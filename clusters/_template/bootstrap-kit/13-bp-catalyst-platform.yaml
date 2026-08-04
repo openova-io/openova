@@ -1308,7 +1308,7 @@ spec:
       #   API_SESSION_TIMEOUT aligned to the oidc-gate session so >60-min
       #   revisits stop 403-wedging on a dead cached token; lockstep w/
       #   slot-52 pin 0.2.34 (pin-sync gate).
-      version: 1.4.1270
+      version: 1.4.1271
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
