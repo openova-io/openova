@@ -1,5 +1,59 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.166 (#5359, Refs #5656 #5650 #5591 #5511 #960) — the secondary-region pivot
+# target defaults to the Sovereign's OWN external Gitea door, and the doomed
+# in-cluster mesh candidate is retired from the default chain.
+#
+# WHY (hw292, dep 1c56518035a83e03, code-anchored). The 0.1.151..0.1.165 default
+# chain tried `gitea-http.gitea.svc` first, expecting the step-05 ClusterMesh
+# global-Service leg to carry the dial to region-A. It structurally cannot:
+# both regions' gitea-http Services are HEADLESS (clusterIP: None), which
+# Cilium global-services do not span (CoreDNS answers a headless name from the
+# LOCAL EndpointSlice), and the secondary runs its OWN empty bp-gitea behind
+# the same name — so region-b fetched its own zero-ref Gitea, failed every
+# fetch with "pkt-line 3: EOF", and sat at generation=2/observedGeneration=1
+# for 22h. The stick is source-controller v1.4.1 semantics, not a status bug:
+# ComputeReconcileResult adds patch.WithStatusObservedGeneration ONLY on the
+# nil-error / Stalling / Generic-Ignore branches, so a permanently-failing
+# fetch NEVER advances observedGeneration — which is exactly why 0.1.164's
+# convergence predicate is the sound one, and why the doomed candidate burned
+# a full gitRepositoryReadySeconds window per region per cutover before the
+# chain even reached a viable URL.
+#
+# THE CHANGE.
+# 1. DEFAULT secondary chain = https://gitea.<fqdn>/<org>/<repo> — the door is
+#    ON-Sovereign (its own gateway VIP, served DIRECT per §854 — never a
+#    NodePort), needs no cross-region Service-DNS assumption, satisfies the
+#    step-08 source-host lint's *.<fqdn> exemption, and is the only target
+#    live-proven to serve the PIVOTED revision from a secondary (hw292
+#    region-b: HEAD 7bcd1d59..., byte-identical to region-A's Gitea).
+#    secondaryRegions.giteaURL still pins one explicit URL (the qaTestEnabled
+#    LE-staging path); giteaFallbackURL/giteaFallbackToPublicDoor keep their
+#    key names (#5323 key-rename class) but now define the DEFAULT target.
+# 2. The mesh leg (annotate region-A's gitea-http global + same-named alias
+#    Service applied into the secondary) is DELETED, with its now-unused
+#    gitea-http services patch/update RBAC rule. The alias apply also fought
+#    the secondary's own bp-gitea for the Service name — live drift, not just
+#    dead code.
+# 3. An EMPTY chain (door disabled, nothing pinned) fails LOUD at the first
+#    secondary region with result=failed + an actionable lastError, instead of
+#    leaving the region tethered or pivoting it to an unreachable URL.
+#
+# PROVEN BOTH DIRECTIONS. tests/step05-secondary-chain.sh drives the rendered
+# leg under sh/dash/bash with set -eu: door-default converge, stale-Ready
+# (gen!=obs) rejection, operator pin, empty-chain FATAL + status stamp, and
+# two render discriminators (door-first chain; mesh machinery absent) each
+# mutation-proven against the verbatim pre-0.1.166 shape. The full suite run
+# against the 0.1.165 template exits 1 with 6 assertions red (the two
+# discriminators, the empty-chain diagnosis under all three shells, and the
+# empty-chain status stamp); against 0.1.166 it is 20/20 green.
+#
+# NOT COVERED (recorded, not swept): step-04's secondary node-layer containerd
+# pivot (the tracked #5379 remainder), and the secondary's own Gitea stays
+# empty — the door routes every secondary to region-A's Gitea, so a region-A
+# loss leaves secondaries without a git source until the per-region mirror
+# lands (the #5359-thread DR gap). Step count unchanged at 11; no new values.
+#
 # 0.1.165 (#5640 round 2, Refs #5644 #5265 #4975 #960) — the Day-2 delivery path
 # becomes one that can ACTUALLY deliver, and an unpullable pin becomes a FAILING
 # condition instead of a silent freeze.
@@ -3169,7 +3223,7 @@ name: bp-self-sovereign-cutover
 # copyAttempts,skopeoStaticURL,maxRefsPerCycle}. No RBAC change (the runner
 # ClusterRole already grants deployments/statefulsets/daemonsets/jobs/cronjobs
 # get+list+watch). Step count unchanged at 11.
-version: 0.1.165
+version: 0.1.166
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
