@@ -125,6 +125,11 @@ data:
             value: {{ .Values.sovereign.fqdn | quote }}
           - name: STATUS_CONFIGMAP
             value: {{ .Values.status.configMapName | quote }}
+          # #5359 — the per-region lint driver stamps
+          # step.egress-block-test.region.<key>.fluxSourceLint on the status
+          # ConfigMap, which lives in the cutover release namespace.
+          - name: CUTOVER_NAMESPACE
+            value: {{ .Release.Namespace | quote }}
           # #3678 — active call-home assertion knobs. During the hold, curl
           # each CALL_HOME_HOSTS entry FROM this pod (under the policy); any
           # that connects fails the proof.
@@ -213,6 +218,15 @@ data:
             value: {{ eq (toString .Values.egressTest.fluxSourceHostLint.enabled) "true" | quote }}
           - name: FLUX_SOURCE_HOST_ALLOW
             value: {{ .Values.egressTest.fluxSourceHostLint.allowHosts | default (list) | join " " | quote }}
+          # #5359 — pre-hold Flux SOURCE HEALTH lint. The host lint reads
+          # spec.url; this reads whether the controller ever converged on it.
+          # hw292 region-b carried a Sovereign-local GitRepository URL that
+          # source-controller had never once fetched (generation=2,
+          # observedGeneration=1, Ready=False), so it kept serving the
+          # pre-cutover github.com artifact and reverted all 64 pivoted
+          # HelmRepositories every 5m. A host-only lint passes over that.
+          - name: FLUX_SOURCE_HEALTH_LINT
+            value: {{ eq (toString .Values.egressTest.fluxSourceHealthLint.enabled) "true" | quote }}
           - name: HARBOR_PUBLIC_URL
             value: {{ .Values.sovereign.harborPublicURL | quote }}
           - name: HARBOR_USERNAME
@@ -829,8 +843,27 @@ data:
             # traverses containerd, so a certs.d redirect cannot cover it. The
             # exemption set here is therefore strictly the Sovereign's OWN
             # hosts plus in-cluster DNS — anything else is a live tether.
+            # #5359 (hw292, dep 1c56518035a83e03) — the lint MUST run PER REGION.
+            # It shipped in 0.1.162 measuring ONE cluster, which is the same
+            # shape as the defect it exists to catch: on hw292 region-a held 69
+            # HelmRepositories on the local Harbor and 0 on ghcr, while region-b
+            # held 0 local and 64 on ghcr, and cutoverComplete=true was set from
+            # the region-a measurement alone. A fleet property asserted from a
+            # single-region sample is not asserted at all.
+            #
+            # ARGS: $1 = region label (for the operator-facing message), $2 =
+            # kubeconfig path ("" = this Job's own in-cluster context = the
+            # primary). The `_fs_kubectl` shim is written on ONE line on purpose:
+            # chart/tests/flux-source-host-lint.sh extracts this function out of
+            # the RENDER with an awk range that terminates on the first bare `}`
+            # line, so a nested multi-line function definition would silently
+            # truncate the function under test and leave the suite validating a
+            # fragment (the #5646 drift shape).
             run_flux_source_host_lint() {
-              echo "[egress-block-test] #5650: PRE-HOLD Flux source-host lint — every HelmRepository/GitRepository/OCIRepository URL must resolve to a Sovereign-local host (registry./gitea./harbor.${SOVEREIGN_FQDN}, in-cluster DNS, or an explicit FLUX_SOURCE_HOST_ALLOW entry). containerd redirects do NOT cover these: source-controller dials them directly."
+              _fs_region="${1:-primary}"
+              _FS_KUBECONFIG="${2:-}"
+              _fs_kubectl() { if [ -n "${_FS_KUBECONFIG:-}" ]; then kubectl --kubeconfig="${_FS_KUBECONFIG}" "$@"; else kubectl "$@"; fi; }
+              echo "[egress-block-test] #5650/#5359: PRE-HOLD Flux source-host lint [region=${_fs_region}] — every HelmRepository/GitRepository/OCIRepository URL must resolve to a Sovereign-local host (registry./gitea./harbor.${SOVEREIGN_FQDN}, in-cluster DNS, or an explicit FLUX_SOURCE_HOST_ALLOW entry). containerd redirects do NOT cover these: source-controller dials them directly."
               # WORK_DIR defaults to the Job's /work emptyDir; overridable so the
               # function is drivable from chart/tests/flux-source-host-lint.sh.
               # The `: >` MUST be checked: if the scratch file cannot be created
@@ -843,10 +876,32 @@ data:
                 echo "  FAIL — cannot create ${_fs_off}; refusing to report PASS from a lint that cannot record an offender (fail-closed)"
                 return 1
               fi
+              _fs_raw="${WORK_DIR:-/work}/fluxsrc-raw.$$"
+              _fs_err="${WORK_DIR:-/work}/fluxsrc-err.$$"
               for _fk in helmrepositories gitrepositories ocirepositories; do
-                kubectl get "${_fk}" -A \
-                  -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.spec.url}{" "}{.spec.suspend}{"\n"}{end}' 2>/dev/null \
-                | while IFS=' ' read -r _fns _fname _furl _fsusp; do
+                # #5359 FAIL-CLOSED ENUMERATION. This used to be a bare
+                # `kubectl … 2>/dev/null` piped into the reader: when the get
+                # FAILED (unreadable secondary kubeconfig, unreachable API,
+                # expired cert) the pipe carried zero rows, no offender was
+                # recorded, and the lint returned PASS for a region it had never
+                # measured. Against a secondary cluster that is not a hypothetical
+                # — it is the single most likely failure mode, and it would
+                # re-mint exactly the false positive this issue is about.
+                if ! _fs_kubectl get "${_fk}" -A \
+                  -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.spec.url}{" "}{.spec.suspend}{"\n"}{end}' >"${_fs_raw}" 2>"${_fs_err}"; then
+                  # A kind that is not INSTALLED is zero rows, not a tether: a
+                  # Sovereign with no OCIRepository CRD legitimately has none.
+                  # Anything else (auth, TLS, connection) means the region could
+                  # not be measured and the verdict must be FAIL.
+                  if grep -qiE "server doesn't have a resource type|could not find the requested resource|no matches for kind|the server could not find the requested resource" "${_fs_err}" 2>/dev/null; then
+                    : > "${_fs_raw}"
+                  else
+                    echo "  FAIL — region ${_fs_region}: cannot enumerate ${_fk} ($(head -1 "${_fs_err}" 2>/dev/null)). Refusing to report PASS for a region that could not be measured (fail-closed, #5359)"
+                    rm -f "${_fs_off}" "${_fs_raw}" "${_fs_err}"
+                    return 1
+                  fi
+                fi
+                while IFS=' ' read -r _fns _fname _furl _fsusp; do
                     [ -n "${_fns}" ] && [ -n "${_furl}" ] || continue
                     # Strip scheme, then any path/port, leaving the bare host.
                     _fh="${_furl#*://}"; _fh="${_fh%%/*}"; _fh="${_fh%%:*}"
@@ -874,21 +929,120 @@ data:
                       continue
                     fi
                     printf '%s/%s [%s] %s (host:%s)\n' "${_fns}" "${_fname}" "${_fk}" "${_furl}" "${_fh}" >> "${_fs_off}"
-                  done
+                done <"${_fs_raw}"
               done
+              rm -f "${_fs_raw}" "${_fs_err}"
               if [ -s "${_fs_off}" ]; then
-                echo "  FAIL — these Flux source objects still point at a NON-Sovereign host. Each is a live tether that the deny-egress hold cannot detect, because the hold is time-boxed and torn down while these keep reconciling on their own interval (fix = mirror the upstream into the local Harbor/Gitea and repoint the source, or declare a reviewed exception in egressTest.fluxSourceHostLint.allowHosts):"
-                sort -u "${_fs_off}" | while IFS= read -r _o; do echo "    EXTERNAL-SOURCE ${_o}"; done
+                echo "  FAIL — region ${_fs_region}: these Flux source objects still point at a NON-Sovereign host. Each is a live tether that the deny-egress hold cannot detect, because the hold is time-boxed and torn down while these keep reconciling on their own interval (fix = mirror the upstream into the local Harbor/Gitea and repoint the source, or declare a reviewed exception in egressTest.fluxSourceHostLint.allowHosts):"
+                sort -u "${_fs_off}" | while IFS= read -r _o; do echo "    EXTERNAL-SOURCE [${_fs_region}] ${_o}"; done
                 rm -f "${_fs_off}"
                 return 1
               fi
               rm -f "${_fs_off}"
-              echo "  PASS — every non-suspended Flux source resolves to a Sovereign-local host; no external dependency remains in the object graph (#5650)"
+              echo "  PASS — region ${_fs_region}: every non-suspended Flux source resolves to a Sovereign-local host; no external dependency remains in the object graph (#5650)"
               return 0
             }
-            if [ "${FLUX_SOURCE_HOST_LINT}" = "true" ]; then
-              if ! run_flux_source_host_lint; then
-                echo "[egress-block-test] Flux source-host lint FAILED before the hold — sovereignty proof FAILED (cutoverComplete stays false). This is the dependency half of Pillar 5: surviving a 600s isolation window is necessary but not sufficient when a source keeps fetching from the public internet on its own interval once the policy is gone (#5650)"
+            # ── #5359 FLUX SOURCE HEALTH LINT ──────────────────────────────
+            # The host lint above reads spec.url. A URL is a DECLARATION, and
+            # hw292 proved a declaration can be cosmetic: step-05's secondary leg
+            # patched region-b's GitRepository url to the local Gitea and reported
+            # success, but source-controller never once fetched from it —
+            # generation=2, observedGeneration=1, Ready=False
+            # ("pkt-line 3: EOF") from 07:39:48Z onward. source-controller
+            # therefore kept SERVING the last artifact it had, which was
+            # main@sha1:4cc85ad9…, fetched from PUBLIC github.com at 07:31:11Z
+            # before the pivot. region-b's kustomize-controller then re-applied
+            # that pre-cutover GitHub content every 5m, reverting all 64
+            # HelmRepositories the step-06 leg had just patched.
+            #
+            # So a host-only lint can pass over a region whose real source of
+            # truth is still the public internet. What discriminates the two is
+            # not the URL but whether the controller has CONVERGED on it:
+            # observedGeneration == generation AND Ready=True.
+            #
+            # SCOPE — why `type: oci` HelmRepositories are exempt, measured not
+            # assumed. source-controller does not reconcile them (they are static
+            # config consumed by helm-controller), so they carry `status: {}` with
+            # no conditions and no observedGeneration at all. Live on hw292 that
+            # is 70/70 HelmRepositories in region-a and 65/65 in region-b —
+            # asserting health over them would fail every region of every
+            # Sovereign and wedge the flow this guard protects (#5505 shape).
+            # Restricted to the kinds a controller actually drives, the live
+            # blast radius on hw292 is exactly ONE object: region-b's
+            # flux-system/openova GitRepository — the defect itself.
+            run_flux_source_health_lint() {
+              _fh_region="${1:-primary}"
+              _FS_KUBECONFIG="${2:-}"
+              _fs_kubectl() { if [ -n "${_FS_KUBECONFIG:-}" ]; then kubectl --kubeconfig="${_FS_KUBECONFIG}" "$@"; else kubectl "$@"; fi; }
+              echo "[egress-block-test] #5359: PRE-HOLD Flux source-health lint [region=${_fh_region}] — every non-suspended reconciled source (GitRepository/OCIRepository) must have observedGeneration == generation AND Ready=True, or its pivoted URL is a declaration the controller never honoured and the region is still served from its pre-cutover artifact."
+              _fh_off="${WORK_DIR:-/work}/fluxhealth-offenders.$$"
+              if ! : > "${_fh_off}" 2>/dev/null; then
+                echo "  FAIL — cannot create ${_fh_off}; refusing to report PASS from a lint that cannot record an offender (fail-closed)"
+                return 1
+              fi
+              _fh_raw="${WORK_DIR:-/work}/fluxhealth-raw.$$"
+              _fh_err="${WORK_DIR:-/work}/fluxhealth-err.$$"
+              for _hk in gitrepositories ocirepositories; do
+                if ! _fs_kubectl get "${_hk}" -A \
+                  -o jsonpath='{range .items[*]}{.metadata.namespace}{"|"}{.metadata.name}{"|"}{.spec.suspend}{"|"}{.metadata.generation}{"|"}{.status.observedGeneration}{"|"}{.status.conditions[?(@.type=="Ready")].status}{"|"}{.status.conditions[?(@.type=="Ready")].message}{"\n"}{end}' >"${_fh_raw}" 2>"${_fh_err}"; then
+                  if grep -qiE "server doesn't have a resource type|could not find the requested resource|no matches for kind|the server could not find the requested resource" "${_fh_err}" 2>/dev/null; then
+                    : > "${_fh_raw}"
+                  else
+                    echo "  FAIL — region ${_fh_region}: cannot enumerate ${_hk} ($(head -1 "${_fh_err}" 2>/dev/null)). Refusing to report PASS for a region that could not be measured (fail-closed, #5359)"
+                    rm -f "${_fh_off}" "${_fh_raw}" "${_fh_err}"
+                    return 1
+                  fi
+                fi
+                # `|`-separated on purpose: observedGeneration and the Ready
+                # condition are ABSENT on an unreconciled object, and with a
+                # space separator an empty middle field collapses and every later
+                # field shifts left — the reader would then compare the wrong two
+                # values and pass. The separator is load-bearing.
+                while IFS='|' read -r _hns _hname _hsusp _hgen _hobs _hready _hmsg; do
+                  [ -n "${_hns}" ] && [ -n "${_hname}" ] || continue
+                  [ "${_hsusp}" = "true" ] && continue
+                  if [ "${_hready}" = "True" ] && [ -n "${_hgen}" ] && [ "${_hobs}" = "${_hgen}" ]; then
+                    continue
+                  fi
+                  printf '%s/%s [%s] Ready=%s generation=%s observedGeneration=%s %s\n' \
+                    "${_hns}" "${_hname}" "${_hk}" "${_hready:-<none>}" "${_hgen:-<none>}" "${_hobs:-<none>}" "${_hmsg}" >> "${_fh_off}"
+                done <"${_fh_raw}"
+              done
+              rm -f "${_fh_raw}" "${_fh_err}"
+              if [ -s "${_fh_off}" ]; then
+                echo "  FAIL — region ${_fh_region}: these Flux sources have NOT converged on their declared URL. Until observedGeneration catches up with generation on a Ready source, the controller is still serving the artifact it fetched BEFORE the pivot — which on a cutover is the public upstream. The declared URL is Sovereign-local; the content being applied is not:"
+                sort -u "${_fh_off}" | while IFS= read -r _o; do echo "    STALE-SOURCE [${_fh_region}] ${_o}"; done
+                rm -f "${_fh_off}"
+                return 1
+              fi
+              rm -f "${_fh_off}"
+              echo "  PASS — region ${_fh_region}: every non-suspended reconciled Flux source has converged on its declared Sovereign-local URL (#5359)"
+              return 0
+            }
+            # ── #5359 PER-REGION DRIVER ────────────────────────────────────
+            # Every region is evaluated — no short-circuit — so one run names
+            # every offender in the fleet instead of stopping at the first. The
+            # verdict is an AND across regions, and an unreadable region is a
+            # FAIL, not a skip: `cutoverComplete=true` must be structurally
+            # unable to be set while ANY region has an off-Sovereign or
+            # unconverged Flux source.
+            if [ "${FLUX_SOURCE_HOST_LINT}" = "true" ] || [ "${FLUX_SOURCE_HEALTH_LINT}" = "true" ]; then
+              _fs_verdict=0
+              for _fs_target in "primary=" $(for _k in /secondary-kubeconfigs/*.yaml; do [ -e "${_k}" ] && printf '%s=%s ' "$(basename "${_k}" .yaml)" "${_k}"; done); do
+                _fs_rlabel="${_fs_target%%=*}"
+                _fs_rkc="${_fs_target#*=}"
+                _fs_rstate="pass"
+                if [ "${FLUX_SOURCE_HOST_LINT}" = "true" ]; then
+                  run_flux_source_host_lint "${_fs_rlabel}" "${_fs_rkc}" || { _fs_verdict=1; _fs_rstate="failed"; }
+                fi
+                if [ "${FLUX_SOURCE_HEALTH_LINT}" = "true" ]; then
+                  run_flux_source_health_lint "${_fs_rlabel}" "${_fs_rkc}" || { _fs_verdict=1; _fs_rstate="failed"; }
+                fi
+                [ "${_fs_rlabel}" = "primary" ] || kubectl -n "${CUTOVER_NAMESPACE:-catalyst}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
+                  -p "{\"data\":{\"step.egress-block-test.region.${_fs_rlabel}.fluxSourceLint\":\"${_fs_rstate}\"}}" >/dev/null 2>&1 || true
+              done
+              if [ "${_fs_verdict}" != "0" ]; then
+                echo "[egress-block-test] Flux source lint FAILED before the hold — sovereignty proof FAILED (cutoverComplete stays false). This is the dependency half of Pillar 5: surviving a 600s isolation window is necessary but not sufficient when a source keeps fetching from the public internet on its own interval once the policy is gone (#5650), and it proves nothing at all about a region the hold never measured (#5359)"
                 exit 1
               fi
             fi

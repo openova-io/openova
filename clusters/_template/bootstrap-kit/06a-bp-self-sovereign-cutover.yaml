@@ -1049,7 +1049,7 @@ spec:
       # default", which detect holds literally, and shipping it off left the
       # gap as silent as the issue describes. Step count stays 11; no RBAC
       # change. New chart test tests/daytwo-image-leg.sh + contract Case 75.
-      version: 0.1.163
+      version: 0.1.164
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

@@ -1,5 +1,99 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.164 (#5359 Refs #5650 #5379 #3379 #960) — the sovereignty gate becomes a
+# FLEET assertion, and step-05's secondary readiness starts asserting
+# convergence instead of a stale status field.
+#
+# THE LIVE FAILURE. hw292 (dep 1c56518035a83e03) set cutoverComplete=true,
+# progressPercent=100, failedStep and lastError both empty, at
+# 2026-08-03T08:12:04Z. Measured on it 2026-08-04:
+#
+#   region-a: 69 HelmRepositories -> local Harbor, 0 -> ghcr.io
+#   region-b:  0 HelmRepositories -> local Harbor, 64 -> ghcr.io
+#   control (same object, both regions):
+#     bp-cilium  region-a  oci://registry.hw292.omani.works/openova-io
+#     bp-cilium  region-b  oci://ghcr.io/openova-io
+#
+# #5379's per-secondary-region legs were PRESENT in the deployed chart
+# (0.1.159) and had recorded region.me-east-215-b-1.result=success for steps
+# 05, 06 AND 08. They ran; they did not work; and nothing said so.
+#
+# ROOT CAUSE, in two parts.
+#
+# (1) The URL region-b was pivoted TO is not reachable from region-b. Step-05
+# patched its GitRepository to `http://gitea-http.gitea.svc.cluster.local:3000`
+# and relied on a ClusterMesh global-Service alias to carry the dial to
+# region-a. It cannot. A 2-region Sovereign installs bp-gitea in BOTH regions
+# from the bootstrap-kit, so region-b already had a same-named Service
+# selecting its OWN Gitea — which no step ever mirrors, and whose
+# /data/git/repositories does not exist. And even with no local backend the
+# alias could not work: both Services are HEADLESS (clusterIP: None), and
+# Cilium global-services do not span a headless Service at all — CoreDNS
+# answers straight from the local EndpointSlice, so `service.cilium.io/global`
+# is inert on it. Live: region-b resolved that name to 10.43.3.228, its own
+# gitea pod, whose openova/openova advertises zero refs, giving
+# source-controller "pkt-line 3: EOF" on every fetch from 07:39:48Z onward.
+#
+# (2) The readiness wait could not see that, because it asserted on a STATUS
+# field immediately after mutating the SPEC. The predicate was
+# `Ready == True && spec.url == sec_url`. The url half is a tautology — the leg
+# wrote that value one line earlier. The Ready half still described the
+# PREVIOUS spec: region-b carried Ready=True from its last successful clone of
+# PUBLIC github.com, so the first loop iteration matched and the leg recorded
+# result=success at 07:39:48Z — the same second Ready actually flipped to
+# False. source-controller never advanced observedGeneration past 1 against
+# generation 2, kept serving the github.com artifact (main@sha1:4cc85ad9...,
+# stored 07:31:11Z), and region-b's kustomize-controller re-applied that
+# pre-cutover content every 5m — reverting all 64 HelmRepositories the step-06
+# leg had pivoted and read-back-asserted three minutes later. 22h after
+# cc=true, generation was still 2 and observedGeneration still 1.
+#
+# WHAT CHANGES.
+#
+# * Step-05's secondary leg walks a CANDIDATE URL CHAIN and its success
+#   predicate is CONVERGENCE — observedGeneration == generation on a Ready
+#   source. Nothing else distinguishes "fetched from the new URL" from "still
+#   holding what it fetched from the old one". The candidates are the
+#   in-cluster mesh URL first, then the Sovereign's OWN external Gitea door
+#   (secondaryRegions.giteaFallbackToPublicDoor, default on) — on-Sovereign,
+#   already carved out of the step-08 secondary hold, and live-verified from
+#   hw292 region-b serving HEAD 7bcd1d59..., byte-identical to region-a's
+#   in-cluster Gitea. Exhausting the chain is FATAL. The only honest prober of
+#   a URL is the secondary's own source-controller, so each candidate is
+#   patched in and given a bounded window rather than probed synthetically.
+#   stepTimeouts.fluxGitRepositoryPatchSeconds 600 -> 1800 to fit the chain.
+#
+# * The #5650 fluxSourceHostLint becomes PER-REGION. It shipped measuring one
+#   cluster, which is the same shape as the defect it exists to catch: a fleet
+#   property asserted from a single-region sample. Both lints now take a
+#   region label + kubeconfig, the driver fans out over every
+#   /secondary-kubeconfigs entry, every region is evaluated (no short-circuit,
+#   so one run names every offender), and the verdict is an AND. Enumeration is
+#   FAIL-CLOSED: the old `kubectl ... 2>/dev/null` pipe turned an unreadable
+#   secondary into zero rows, zero offenders and a PASS for a region that was
+#   never measured — against a secondary cluster that is the single most likely
+#   failure mode. A kind that is merely not INSTALLED stays zero rows.
+#
+# * New egressTest.fluxSourceHealthLint. The host lint reads spec.url, and
+#   hw292 proved a URL can be cosmetic. This asserts the controller CONVERGED
+#   on it. Scope was MEASURED, not assumed: `type: oci` HelmRepositories carry
+#   `status: {}` with no observedGeneration (70/70 in region-a, 65/65 in
+#   region-b), so they are exempt — including them would fail every region of
+#   every Sovereign (#5505 blast-radius shape). Scoped to GitRepository +
+#   OCIRepository, the live blast radius on hw292 is exactly ONE object:
+#   region-b's flux-system/openova GitRepository. The defect itself, and
+#   nothing else.
+#
+# Templates 05 + 08 and values only; no step-count / RBAC change (still 11
+# steps). tests/flux-source-host-lint.sh proves both lints in BOTH directions
+# (24 assertions) and contract Case 76 pins the wiring; both suites were
+# mutation-checked — reverting the observedGeneration half, the fail-closed
+# enumeration, the kubeconfig plumbing, the driver fan-out or the health-lint
+# scope each turns exactly one intended assertion red. Slot-06a pin +
+# blueprint.yaml + catalog-seed source.version + spec.version + the API
+# blueprints.json + the generated UI catalog move to 0.1.164 in lockstep
+# (Inviolable Principle #13).
+# ── prior ──
 # 0.1.160 (#5527 Refs #3379 #5529 #960 — step-07 Phase 3d: stamp the per-Org
 # GitOps tree generator with the local OCI base. The org-services provisioning
 # Deployment (core/services/provisioning) regenerates the per-Org trees —
@@ -3005,7 +3099,7 @@ name: bp-self-sovereign-cutover
 # copyAttempts,skopeoStaticURL,maxRefsPerCycle}. No RBAC change (the runner
 # ClusterRole already grants deployments/statefulsets/daemonsets/jobs/cronjobs
 # get+list+watch). Step count unchanged at 11.
-version: 0.1.163
+version: 0.1.164
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
