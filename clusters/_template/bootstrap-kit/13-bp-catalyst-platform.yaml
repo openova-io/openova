@@ -1315,7 +1315,7 @@ spec:
       #   gate; re-serialized past main's 1.4.1283).
       # 1.4.1287 (#5391): catalog-seed cutover pin 0.1.167 — settled-roll
       #   override. Lockstep w/ slot-06a (pin-sync gate).
-      version: 1.4.1287
+      version: 1.4.1288
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
