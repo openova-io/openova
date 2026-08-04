@@ -192,6 +192,9 @@ func newScheme() *runtime.Scheme {
 		{Group: "helm.toolkit.fluxcd.io", Version: "v2", Kind: "HelmRelease"},
 		// #3375 DoD-3 — the per-app Continuum DR contract the fan-out mints.
 		{Group: ContinuumGroup, Version: ContinuumVersion, Kind: ContinuumKind},
+		// #5513 — backing CNPG Cluster health observation for the Ready
+		// rollup (a Ready HR over an unrecoverable CNPG must not be Ready).
+		{Group: "postgresql.cnpg.io", Version: "v1", Kind: "Cluster"},
 	} {
 		s.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
 		listGVK := schema.GroupVersionKind{Group: gvk.Group, Version: gvk.Version, Kind: gvk.Kind + "List"}
@@ -212,6 +215,8 @@ func listKindMap() map[schema.GroupVersionResource]string {
 		FluxHelmReleaseGVR:   "HelmReleaseList",
 		// #3375 DoD-3 — per-app Continuum DR contract.
 		ContinuumGVR: "ContinuumList",
+		// #5513 — backing CNPG Cluster health observation.
+		CNPGClusterGVR: "ClusterList",
 	}
 }
 
