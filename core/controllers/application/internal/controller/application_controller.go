@@ -175,6 +175,14 @@ const (
 	ReasonOrgGiteaMissing     = "GiteaOrgMissing"
 	ReasonAwaitingDrain       = "AwaitingFluxDrain"
 
+	// ReasonBackingUnrecoverable — #5513. Stamped on
+	// Application.status.conditions[type=Ready,status=False] when a
+	// downstream HelmRelease is Ready (manifests applied) but the
+	// Application's backing CNPG Cluster CR is in CNPG's terminal
+	// `unrecoverable` phase. Prevents the Application reporting Ready over a
+	// database that has zero pods and needs manual intervention.
+	ReasonBackingUnrecoverable = "BackingClusterUnrecoverable"
+
 	// ReasonInvalidTopology — G117.6 (W2.C1, Refs #2745). Stamped on
 	// `Application.status.conditions[type=Ready,status=False]` when the
 	// resolved BCP topology (from Application.spec.topology override
@@ -1506,7 +1514,24 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	finalPhase := hrPhase
 	finalReady := "True"
 	finalReason := ReasonReconciled
-	finalMessage := fmt.Sprintf("Application %s/%s reconciled into %d region(s)", app.GetNamespace(), app.GetName(), len(plan.Regions))
+	// #5513 — the region count in the status message MUST derive from the
+	// EFFECTIVE materialised per-cluster set, NEVER from the DECLARED
+	// plan.Regions. An active-hot-standby provision whose fan-out collapses
+	// to a single cluster (e.g. an empty region label — root cause tracked
+	// in the placement/object-model chain, #5476) materialises ONE
+	// HelmRelease while spec.placement still names two regions. The old code
+	// read len(plan.Regions)=2 and fabricated "installed across 2 region(s)"
+	// over a single HelmRelease — a DR posture that does not exist. When the
+	// topology fan-out owns the install, perClusterStatus carries exactly the
+	// HRs that were actually rendered (one row per materialised cluster), so
+	// it is the same source the per-cluster table renders — the claim can
+	// never exceed reality. The legacy single-HR host path (no fan-out) keeps
+	// len(plan.Regions), byte-identical to before.
+	effectiveRegions := len(plan.Regions)
+	if fanoutOwnsInstall {
+		effectiveRegions = len(perClusterStatus)
+	}
+	finalMessage := fmt.Sprintf("Application %s/%s reconciled into %d region(s)", app.GetNamespace(), app.GetName(), effectiveRegions)
 	if finalPhase == "" {
 		finalPhase = PhaseProvisioning
 	}
@@ -1528,7 +1553,30 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 		finalReady = "True"
 		finalReason = ReasonReconciled
 		finalMessage = fmt.Sprintf("Application %s/%s installed across %d region(s); Ready=True from downstream HelmRelease(s)",
-			app.GetNamespace(), app.GetName(), len(plan.Regions))
+			app.GetNamespace(), app.GetName(), effectiveRegions)
+	}
+
+	// #5513 — a downstream HelmRelease Ready=True means "Helm applied the
+	// manifests", NOT "the workload came up". A CNPG-backed Application can
+	// carry a Ready HelmRelease while its backing CNPG Cluster sits in the
+	// terminal `unrecoverable` state (0 pods, ConsistentSystemID=False,
+	// "needs manual intervention"). Reporting the Application Ready over that
+	// is the fabricated DR posture #5513 walked live. Observe the backing
+	// CNPG Cluster CR(s) — matched by the chart-stamped
+	// app.kubernetes.io/instance label (= each per-cluster HR name) — and
+	// downgrade to Degraded when any is unrecoverable, so the reported Ready
+	// condition matches the workload reality. Read-only + failure-tolerant:
+	// a missing CNPG CRD (no Postgres in this Sovereign) or a transient list
+	// error NEVER fabricates a downgrade — the HR-derived phase stands.
+	if finalReady == "True" {
+		if cnpgNs, cnpgName, unrecoverable := r.backingCNPGUnrecoverable(ctx, app, perClusterStatus); unrecoverable {
+			finalPhase = PhaseDegraded
+			finalReady = "False"
+			finalReason = ReasonBackingUnrecoverable
+			finalMessage = fmt.Sprintf(
+				"Application %s/%s: backing CNPG cluster %s/%s is in an unrecoverable state and needs manual intervention; not reporting Ready",
+				app.GetNamespace(), app.GetName(), cnpgNs, cnpgName)
+		}
 	}
 	su := statusUpdate{
 		Phase:         finalPhase,
