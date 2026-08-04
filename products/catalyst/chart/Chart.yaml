@@ -3625,7 +3625,7 @@ name: bp-catalyst-platform
 #   cause of the "An error has occurred" 403-PERMISSION_DENIED page on every
 #   >60-min revisit (UAT rows 35/115 on hw292). Bootstrap-kit slot-52 pin
 #   bumped in lockstep (pin-sync gate).
-version: 1.4.1272
+version: 1.4.1273
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
