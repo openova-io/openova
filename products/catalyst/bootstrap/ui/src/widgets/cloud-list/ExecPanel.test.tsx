@@ -13,6 +13,17 @@
  * (ExecPanel.tsx:289). The old iframe-first assertions were therefore
  * asserting a path the shipped code no longer takes.
  *
+ * ORDERING NOTE (#5633)
+ * ---------------------
+ * `phase === 'fallback-loading'` and `phase === 'fallback-ready'` render
+ * byte-identical markup, and the WebSocket is dialled in the passive effect
+ * (ExecPanel.tsx:129-148) that React flushes in a scheduler task AFTER the
+ * one that commits that markup. So no `waitFor` on a DOM node alone can
+ * imply that the socket exists — under CPU pressure the scheduler yields
+ * between the two and the DOM-only wait resolves first. Every wait in this
+ * file that precedes a `wsInstance` assertion therefore names `wsInstance`
+ * in the wait condition itself.
+ *
  * Vitest coverage for the shipped contract:
  *   - Open Shell button → POST /session → WS+xterm mounts immediately
  *   - No Guacamole iframe and no "Recording: ON" claim on the WS path
@@ -116,12 +127,24 @@ describe('ExecPanel', () => {
       />,
     )
     fireEvent.click(screen.getByTestId('exec-panel-open'))
+    // #5633 — the wait condition has to cover the socket, not just the DOM.
+    // React COMMITS the `fallback-loading` markup (banner + terminal <div>)
+    // in one scheduler task and dials the WebSocket in the passive effect
+    // (ExecPanel.tsx:129-148) that it flushes in a LATER one. Nothing in the
+    // DOM distinguishes `fallback-loading` from `fallback-ready`, so a
+    // DOM-only wait is satisfied strictly BEFORE the socket exists. Whenever
+    // a render overruns React's 5ms frame budget the scheduler yields
+    // between commit and passive-effect flush, the MutationObserver driving
+    // waitFor fires in the intervening microtask checkpoint, and the wait
+    // resolves with `wsInstance` still null. Waiting on both is not a weaker
+    // assertion: a socket that is never dialled still fails the test, on the
+    // waitFor timeout. Do NOT move this back out of the waitFor.
     await waitFor(() => {
       expect(screen.getByTestId('exec-panel-fallback-terminal')).toBeTruthy()
+      expect(wsInstance).not.toBeNull()
     })
     // The WS is dialled against the server-supplied fallback URL
     // (ExecPanel.tsx:131-140).
-    expect(wsInstance).not.toBeNull()
     expect(wsInstance!.url).toBe(HAPPY_SESSION.fallbackWebSocketUrl)
     // …and the Guacamole iframe never mounts: ExecPanel.tsx:289 gates it on
     // the `iframe-*` phases and openShell no longer enters them
@@ -158,10 +181,13 @@ describe('ExecPanel', () => {
       />,
     )
     fireEvent.click(screen.getByTestId('exec-panel-open'))
+    // #5633 — same commit-before-effect ordering as the happy-path test
+    // above: the banner is committed a scheduler task before the socket is
+    // dialled, so the wait has to name the socket too.
     await waitFor(() => {
       expect(screen.getByTestId('exec-panel-fallback-banner')).toBeTruthy()
+      expect(wsInstance).not.toBeNull()
     })
-    expect(wsInstance).not.toBeNull()
     expect(wsInstance!.url).toContain('/k8s/exec/default/wp-1/web')
     // Draining well past the iframe-load timeout must not disturb the live
     // shell — that timer is only armed in the `iframe-loading` phase
