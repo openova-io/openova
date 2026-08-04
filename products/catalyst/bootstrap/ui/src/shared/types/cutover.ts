@@ -362,6 +362,16 @@ export interface CutoverStatus {
   harborProjectCount?: number
   /** True iff the egress-block test ran for 10 min with all reconciles green. */
   egressTestPassed?: boolean
+  /**
+   * #5391 — the named settled-roll override audit record. Step-03 Phase A0
+   * writes newline-joined `<ns>/<name>=<reason>` entries into the status
+   * ConfigMap when the settled-roll gate passed WITH one or more validated
+   * operator overrides (the catalyst.openova.io/cutover-settled-roll-override
+   * annotation on a genuinely-stuck HelmRelease). Undefined/empty when no
+   * override was used — the progress card MUST make a used override visible
+   * so an acceptance walk can SEE the cutover ran with an exclusion.
+   */
+  settledRollOverrides?: string
   /** Error message at the first-failed step. Empty in the success path. */
   error?: string
 }
@@ -490,6 +500,10 @@ export function parseCutoverStatus(input: unknown): CutoverStatus {
     mirroredCommitSHA: firstString(raw.mirroredCommitSHA, rawKey(raw, 'mirroredCommitSHA')),
     harborProjectCount: firstNumber(raw.harborProjectCount, rawKey(raw, 'harborProjectCount')),
     egressTestPassed,
+    settledRollOverrides: firstString(
+      raw.settledRollOverrides,
+      rawKey(raw, 'settledRollOverrides'),
+    ),
     error: firstString(raw.error, raw.lastError),
   }
 }

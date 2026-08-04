@@ -627,6 +627,46 @@ func TestBuildCutoverStatusResponse_PromotesKeys(t *testing.T) {
 	}
 }
 
+// TestBuildCutoverStatusResponse_5391_SurfacesSettledRollOverrides proves
+// the #5391 named-override audit record (written by step-03 Phase A0 into
+// the status ConfigMap when the settled-roll gate passed WITH a validated
+// operator override) surfaces as a first-class /status field — so a walk
+// can SEE that an override was used — and stays absent/empty when no
+// override was used or a later clean pass cleared the record.
+func TestBuildCutoverStatusResponse_5391_SurfacesSettledRollOverrides(t *testing.T) {
+	withOverride := map[string]string{
+		"cutoverComplete":        "false",
+		"settledRollOverrides":   "delta-corp/bp-keycloak=quota-wedged plan-quota #5393",
+		"settledRollOverridesAt": "2026-08-05T10:00:00Z",
+	}
+	resp := buildCutoverStatusResponseFromMap(withOverride, nil)
+	if resp.SettledRollOverrides != "delta-corp/bp-keycloak=quota-wedged plan-quota #5393" {
+		t.Errorf("SettledRollOverrides = %q, want the recorded <ns>/<name>=<reason> entry", resp.SettledRollOverrides)
+	}
+	if resp.SettledRollOverridesAt != "2026-08-05T10:00:00Z" {
+		t.Errorf("SettledRollOverridesAt = %q, want the recorded timestamp", resp.SettledRollOverridesAt)
+	}
+
+	// A clean pass writes empty values (the gate clears the record so a
+	// previous override never lingers as a phantom audit entry) — the
+	// response must NOT fabricate anything.
+	cleared := map[string]string{
+		"cutoverComplete":        "true",
+		"settledRollOverrides":   "",
+		"settledRollOverridesAt": "",
+	}
+	resp = buildCutoverStatusResponseFromMap(cleared, nil)
+	if resp.SettledRollOverrides != "" || resp.SettledRollOverridesAt != "" {
+		t.Errorf("cleared record: SettledRollOverrides = %q / At = %q, want both empty", resp.SettledRollOverrides, resp.SettledRollOverridesAt)
+	}
+
+	// Absent keys (an env whose cutover never ran step-03) behave the same.
+	resp = buildCutoverStatusResponseFromMap(map[string]string{}, nil)
+	if resp.SettledRollOverrides != "" || resp.SettledRollOverridesAt != "" {
+		t.Errorf("absent keys: SettledRollOverrides = %q / At = %q, want both empty", resp.SettledRollOverrides, resp.SettledRollOverridesAt)
+	}
+}
+
 // TestBuildCutoverStatusResponse_StateAlwaysDefined proves the
 // `state` field is ALWAYS one of the two UI-parseable values
 // (`tethered` | `sovereign`), regardless of how sparse or empty the

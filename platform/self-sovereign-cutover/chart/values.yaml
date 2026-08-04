@@ -670,6 +670,24 @@ prewarm:
   # re-triggers. The "settled-roll pre-flight" STONE principle. Default true; set
   # false ONLY as an emergency override on an env you have manually confirmed
   # settled.
+  #
+  # #5391 — NAMED PER-RELEASE OVERRIDE (prefer this over enabled=false, which
+  # kills the whole gate). A Stalled=True/RetriesExceeded HelmRelease never
+  # reaches Ready on its own (Flux stops retrying permanently — live hw290/
+  # hw291, quota-wedged per-Org customer apps #5393), which held the entire
+  # Sovereign's cutover closed forever. A sovereign-admin excludes ONE
+  # genuinely-stuck release by annotating it:
+  #
+  #   kubectl annotate helmrelease <name> -n <ns> \
+  #     catalyst.openova.io/cutover-settled-roll-override="<reason>"
+  #
+  # The annotation key is a FIXED contract (not a values knob — the audit
+  # trail must not be configurable away). Validation is fail-closed: an
+  # empty reason, an annotation on a healthy release, or one on a genuinely
+  # mid-roll release (neither Stalled=True nor Ready.reason=DependencyNotReady)
+  # each FATAL the gate naming the release. Honored overrides are recorded in
+  # the status ConfigMap (settledRollOverrides) and surfaced on
+  # GET /sovereign/cutover/status; recording failure is itself FATAL.
   settledRollPreflight:
     enabled: true
   # #5237 round 2 (Refs #5007 #3379) — PIN-AWARE prewarm: union the chart-

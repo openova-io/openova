@@ -1649,13 +1649,22 @@ if ! grep -q 'Phase A0: settled-roll pre-flight' "$TMP/prewarm_a0_block.txt"; th
   exit 1
 fi
 # The gate MUST enumerate pending HelmReleases (the pin-bump drift source).
-if ! grep -q 'kubectl get helmreleases -A -o json' "$TMP/prewarm_a0_block.txt"; then
-  echo "FAIL: Phase A0 does not inspect HelmReleases for a pending roll (observedGeneration/Ready) — the pin-bump drift (running != desired) would slip through (#4982)" >&2
+# #5391: the reads go through srp_kubectl_json — a bounded-retry reader that
+# FAIL-CLOSES when the inventory cannot be read (the pre-#5391 bare
+# `kubectl ... || true` silently PASSED the gate on a read failure).
+if ! grep -q 'srp_kubectl_json helmreleases -A' "$TMP/prewarm_a0_block.txt"; then
+  echo "FAIL: Phase A0 does not inspect HelmReleases for a pending roll (observedGeneration/Ready) via the fail-closed srp_kubectl_json reader — the pin-bump drift (running != desired) would slip through (#4982/#5391)" >&2
   exit 1
 fi
 # ...AND pending Deployments/StatefulSets.
-if ! grep -q 'kubectl get deployments,statefulsets -A -o json' "$TMP/prewarm_a0_block.txt"; then
-  echo "FAIL: Phase A0 does not inspect Deployments/StatefulSets for a pending rollout (#4982)" >&2
+if ! grep -q 'srp_kubectl_json deployments,statefulsets -A' "$TMP/prewarm_a0_block.txt"; then
+  echo "FAIL: Phase A0 does not inspect Deployments/StatefulSets for a pending rollout via the fail-closed srp_kubectl_json reader (#4982/#5391)" >&2
+  exit 1
+fi
+# The reader itself must refuse to fail open — a gate that cannot read the
+# roll state must not certify the env settled.
+if ! grep -q 'refusing to fail open' "$TMP/prewarm_a0_block.txt"; then
+  echo "FAIL: Phase A0 no longer fail-closes when the HR/workload inventory is unreadable (#5391)" >&2
   exit 1
 fi
 # It MUST fail-CLOSED (exit 1) on an unsettled env, gated behind the
@@ -4264,5 +4273,163 @@ fi
 
 if [ "$c76_fail" -ne 0 ]; then exit 1; fi
 echo "  PASS (#5359: both source lints take a region+kubeconfig and dial it, the driver fans out across every secondary and ANDs the verdict with an unreadable region counted as FAIL, the health lint is scoped to reconciled kinds only and reads pipe-separated fields, and step-05's secondary leg walks a candidate URL chain whose success predicate is observedGeneration==generation on a Ready source, fatal when exhausted; vacuity control: step-08 ${c76_l08} lines / step-05 ${c76_l05} lines)"
+
+echo "[cutover-contract] Case 77: Step-03 Phase A0 named settled-roll override (#5391) — EXECUTED, not grepped: the gate still blocks a stuck HR with no override, passes WITH a valid named override AND records it, and fail-closes on malformed/over-broad overrides"
+# #5391: a Stalled=True/RetriesExceeded HR never becomes Ready (Flux stops
+# retrying permanently), so the pre-#5391 gate held the whole Sovereign's
+# cutover closed forever (hw290/hw291, #5393 quota-wedged customer apps).
+# The recovery seam is a NAMED, validated, audited override annotation on
+# the specific stuck HelmRelease. This case extracts the gate block from
+# the RENDERED run.sh between its extraction anchors and EXECUTES it with
+# a stubbed kubectl in seven directions — a real behavioural gate, not a
+# token-passing grep (feedback_test_theater_vs_real_testing.md).
+if ! command -v jq >/dev/null 2>&1; then
+  echo "FAIL: Case 77 requires jq on the test runner (ubuntu-latest ships it; install jq locally) — refusing to skip, a skipped gate is a fail-open gate (#5391)" >&2
+  exit 1
+fi
+mkdir -p "$TMP/c77/bin"
+# Slice the step-03 CM document, then the run.sh script block, strip the
+# 4-space YAML literal indent, then cut the anchored gate block.
+sed -n '/^  name: cutover-step-03-harbor-prewarm$/,/^---$/p' "$TMP/render.yaml" > "$TMP/c77/step03.yaml"
+awk '/^  run\.sh: \|$/{f=1;next} f && /^  [^ ]/{f=0} f{print}' "$TMP/c77/step03.yaml" | sed -e 's/^    //' > "$TMP/c77/runsh.txt"
+{
+  echo 'set -eu'
+  sed -n '/settled-roll-preflight BEGIN/,/settled-roll-preflight END/p' "$TMP/c77/runsh.txt"
+} > "$TMP/c77/gate.sh"
+if ! grep -q 'settled_roll_preflight()' "$TMP/c77/gate.sh"; then
+  echo "FAIL: could not extract the settled-roll gate block from the rendered run.sh (extraction anchors moved?) (#5391)" >&2
+  exit 1
+fi
+# Vacuity control on the extraction itself: the block must be non-trivially
+# sized AND end at the END anchor, or the harness would execute the whole
+# prewarm script (or nothing).
+c77_lines=$(wc -l < "$TMP/c77/gate.sh")
+if [ "${c77_lines}" -lt 40 ] || ! tail -1 "$TMP/c77/gate.sh" | grep -q 'settled-roll-preflight END'; then
+  echo "FAIL: extracted gate block is malformed (${c77_lines} lines; END anchor not last) — Case 77 would not be executing what production executes (#5391)" >&2
+  exit 1
+fi
+# The annotation key is a FIXED audit contract — assert the literal.
+if ! grep -q 'SETTLED_ROLL_OVERRIDE_ANNOTATION="catalyst.openova.io/cutover-settled-roll-override"' "$TMP/c77/gate.sh"; then
+  echo "FAIL: the override annotation key drifted from the documented contract catalyst.openova.io/cutover-settled-roll-override (#5391)" >&2
+  exit 1
+fi
+# The audit-record env must be wired on the step-03 podSpec.
+if ! grep -q 'name: STATUS_CONFIGMAP_NAME' "$TMP/c77/step03.yaml"; then
+  echo "FAIL: step-03 podSpec is missing STATUS_CONFIGMAP_NAME — the override audit record has no target (#5391)" >&2
+  exit 1
+fi
+cat > "$TMP/c77/bin/kubectl" <<'C77STUB'
+#!/bin/sh
+# Case 77 stub kubectl — dispatches on argv; fixtures + patch log via env.
+case "$*" in
+  *"get helmreleases"*) cat "${C77_HR_FIXTURE:?}" ;;
+  *"get deployments,statefulsets"*) printf '{"items":[]}' ;;
+  *"patch configmap"*) printf '%s\n' "$*" >> "${C77_PATCH_LOG:?}"; exit "${C77_PATCH_RC:-0}" ;;
+  *) echo "c77-stub-kubectl: unhandled args: $*" >&2; exit 9 ;;
+esac
+C77STUB
+chmod +x "$TMP/c77/bin/kubectl"
+c77_run() {
+  # $1 = HR fixture; $2 = patch rc (default 0). Gate output → $TMP/c77/out.txt.
+  : > "$TMP/c77/patch.log"
+  C77_HR_FIXTURE="$1" C77_PATCH_LOG="$TMP/c77/patch.log" C77_PATCH_RC="${2:-0}" \
+  PATH="$TMP/c77/bin:$PATH" \
+  STATUS_CONFIGMAP_NAME=self-sovereign-cutover-status \
+  STATUS_CONFIGMAP_NAMESPACE=cutover-test \
+  SETTLED_ROLL_PREFLIGHT=true \
+  sh "$TMP/c77/gate.sh" > "$TMP/c77/out.txt" 2>&1
+}
+# Fixture: the live hw290 shape — Stalled=True/RetriesExceeded, gen settled.
+cat > "$TMP/c77/stuck.json" <<'C77F'
+{"items":[{"metadata":{"name":"bp-keycloak","namespace":"delta-corp","generation":5},"spec":{},"status":{"observedGeneration":5,"conditions":[{"type":"Ready","status":"False","reason":"UpgradeFailed","message":"Helm upgrade failed for release delta-corp/bp-keycloak: context deadline exceeded"},{"type":"Stalled","status":"True","reason":"RetriesExceeded","message":"Failed to upgrade after 1 attempt(s)"}]}}]}
+C77F
+jq '.items[0].metadata.annotations = {"catalyst.openova.io/cutover-settled-roll-override":"quota-wedged plan-quota #5393"}' \
+  "$TMP/c77/stuck.json" > "$TMP/c77/override.json"
+jq '.items[0].metadata.annotations = {"catalyst.openova.io/cutover-settled-roll-override":"   "}' \
+  "$TMP/c77/stuck.json" > "$TMP/c77/empty-reason.json"
+jq '.items[0].metadata.annotations = {"catalyst.openova.io/cutover-settled-roll-override":"stale override"} | .items[0].status = {"observedGeneration":5,"conditions":[{"type":"Ready","status":"True","reason":"ReconciliationSucceeded","message":"Release reconciliation succeeded"}]}' \
+  "$TMP/c77/stuck.json" > "$TMP/c77/healthy-annotated.json"
+jq '.items[0].metadata.annotations = {"catalyst.openova.io/cutover-settled-roll-override":"impatient"} | .items[0].status = {"observedGeneration":5,"conditions":[{"type":"Ready","status":"False","reason":"Progressing","message":"Running upgrade"}]}' \
+  "$TMP/c77/stuck.json" > "$TMP/c77/midroll-annotated.json"
+jq '.items[0].status = {"observedGeneration":5,"conditions":[{"type":"Ready","status":"True","reason":"ReconciliationSucceeded","message":"Release reconciliation succeeded"}]}' \
+  "$TMP/c77/stuck.json" > "$TMP/c77/clean.json"
+jq '.items[0].metadata.annotations = {"catalyst.openova.io/cutover-settled-roll-override":"quota-wedged plan-quota #5393"} | .items += [{"metadata":{"name":"bp-wordpress-tenant","namespace":"delta-corp","generation":4,"annotations":{"catalyst.openova.io/cutover-settled-roll-override":"dependency of quota-wedged bp-keycloak #5393"}},"spec":{},"status":{"observedGeneration":4,"conditions":[{"type":"Ready","status":"False","reason":"DependencyNotReady","message":"dependency delta-corp/bp-keycloak is not ready"}]}}]' \
+  "$TMP/c77/stuck.json" > "$TMP/c77/cascade.json"
+# (1) Direction 1 — pre-#5391 behaviour preserved: stuck HR, no override → BLOCK.
+if c77_run "$TMP/c77/stuck.json"; then
+  echo "FAIL: gate PASSED on a Stalled HR with no override — the default weakened (#5391)" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+if ! grep -q 'env NOT settled' "$TMP/c77/out.txt" || ! grep -q 'TERMINAL' "$TMP/c77/out.txt"; then
+  echo "FAIL: blocked run does not name the offender as TERMINAL (#5391/#5392 diagnostics regressed)" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+if ! grep -q 'kubectl annotate helmrelease' "$TMP/c77/out.txt"; then
+  echo "FAIL: blocked run does not print the named-override remedy command (#5391)" >&2
+  exit 1
+fi
+if [ -s "$TMP/c77/patch.log" ]; then
+  echo "FAIL: a BLOCKED run wrote to the status ConfigMap — the audit record must only reflect an override actually used (#5391)" >&2
+  exit 1
+fi
+# (2) Direction 2 — valid named override: gate passes AND records.
+if ! c77_run "$TMP/c77/override.json"; then
+  echo "FAIL: gate BLOCKED a Stalled HR carrying a valid named override (#5391)" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+if ! grep -q 'env settled WITH 1 named operator override' "$TMP/c77/out.txt"; then
+  echo "FAIL: override pass does not announce the override in the step log (#5391)" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+if ! grep -q 'settledRollOverrides' "$TMP/c77/patch.log" || ! grep -q 'delta-corp/bp-keycloak=quota-wedged plan-quota #5393' "$TMP/c77/patch.log"; then
+  echo "FAIL: override pass did not durably record <ns>/<name>=<reason> into the status ConfigMap patch (#5391); patch log was:" >&2
+  cat "$TMP/c77/patch.log" >&2
+  exit 1
+fi
+# (3) Direction 3a — override without a reason is REJECTED.
+if c77_run "$TMP/c77/empty-reason.json"; then
+  echo "FAIL: gate honored an override with an EMPTY reason (#5391 fail-closed violated)" >&2
+  exit 1
+fi
+grep -q 'reason is EMPTY' "$TMP/c77/out.txt" || { echo "FAIL: empty-reason rejection does not tell the operator what to fix (#5391)" >&2; exit 1; }
+# (3b) Override naming a HEALTHY release is REJECTED (stale/over-broad).
+if c77_run "$TMP/c77/healthy-annotated.json"; then
+  echo "FAIL: gate honored an override naming a HEALTHY HelmRelease (#5391 fail-closed violated)" >&2
+  exit 1
+fi
+grep -q 'names a HEALTHY HelmRelease' "$TMP/c77/out.txt" || { echo "FAIL: healthy-HR rejection does not name the class (#5391)" >&2; exit 1; }
+# (3c) Override on a genuinely MID-ROLL release is REJECTED (it will settle).
+if c77_run "$TMP/c77/midroll-annotated.json"; then
+  echo "FAIL: gate honored an override on a genuinely mid-roll release (#5391 fail-closed violated)" >&2
+  exit 1
+fi
+grep -q 'genuinely mid-roll' "$TMP/c77/out.txt" || { echo "FAIL: mid-roll rejection does not name the class (#5391)" >&2; exit 1; }
+# (4) An override that cannot be RECORDED is refused — no unaudited carve-outs.
+if c77_run "$TMP/c77/override.json" 1; then
+  echo "FAIL: gate passed with an override whose audit-record patch FAILED (#5391 unaudited carve-out)" >&2
+  exit 1
+fi
+grep -q 'MUST be recorded to be used' "$TMP/c77/out.txt" || { echo "FAIL: record-failure rejection does not explain itself (#5391)" >&2; exit 1; }
+# (5) Vacuity control — an all-healthy env still passes, and the pass CLEARS
+#     any previous run's record (empty settledRollOverrides write).
+if ! c77_run "$TMP/c77/clean.json"; then
+  echo "FAIL: gate blocked a fully-healthy env — Case 77 harness or gate broken (#5391)" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+grep -q 'settledRollOverrides' "$TMP/c77/patch.log" || { echo "FAIL: clean pass did not clear the settledRollOverrides record — a previous override would linger as a phantom audit entry (#5391)" >&2; exit 1; }
+# (6) DependencyNotReady cascade — the hw290 shape: the stalled root AND its
+#     permanently-DependencyNotReady dependent are both overridable by name.
+if ! c77_run "$TMP/c77/cascade.json"; then
+  echo "FAIL: gate blocked the stalled-root + DependencyNotReady-dependent pair despite both carrying named overrides (#5391 hw290 cascade shape)" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+grep -q 'env settled WITH 2 named operator override' "$TMP/c77/out.txt" || { echo "FAIL: cascade pass does not announce both overrides (#5391)" >&2; exit 1; }
+echo "  PASS (#5391: gate executed in 7 directions — stuck+no-override blocks with TERMINAL diagnosis and remedy, valid named override passes AND records <ns>/<name>=<reason> durably, empty-reason/healthy/mid-roll overrides all fail-closed, unrecordable override refused, clean pass clears the record, hw290 DependencyNotReady cascade overridable; extracted gate ${c77_lines} lines)"
 
 echo "[cutover-contract] All gates green."
