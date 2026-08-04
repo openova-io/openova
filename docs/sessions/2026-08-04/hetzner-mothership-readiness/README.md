@@ -80,6 +80,18 @@ is the day-2 list above.
   `python3 scripts/reset-uat.py <env>` BEFORE fire, then fire.
 - **Zero-touch**: no hand-patching during convergence; a wedge = a defect to fix
   at source, re-fire. DEBUG-BEFORE-WIPE if it fails (cloud-init log first).
+- **NO cutover on this box**: fire with `fireCutoverOnHandover: false` and do NOT
+  run `bp-self-sovereign-cutover` on the mothership until #5640 is fixed — a
+  cutover Sovereign's local Harbor is authoritative and nothing mirrors newly
+  published images into it (18 catalyst-api tags published since hw292's
+  prewarm; zero arrived). Cutover on the mothership would freeze its own
+  delivery pipeline — the #5642/#5645 merged-but-undeliverable leak fix is the
+  live demonstration. The mothership stays on GitHub+ghcr by design until #5640
+  lands.
+- **Fire body**: `fire-body.hfmp.template.json` in this directory — Request-struct
+  verified, placeholders resolve from the deployments PVC at fire time. This
+  fresh prov carries #5645 at bootstrap and thereby unblocks #5642, #5617,
+  #5591, #5359 (the whole merged-not-delivered queue).
 
 ### 3b. Offline IaC validation of the single-region Hetzner path (2026-08-04)
 
