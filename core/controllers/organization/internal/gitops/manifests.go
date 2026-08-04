@@ -712,6 +712,12 @@ spec:
     # pod identity under Cilium (#4360) and never matches a ClusterMesh remote
     # identity (#4656), so a CIDR-shaped DNS allow would be inert here and
     # silently re-break the second region of a 2-region Sovereign.
+    #
+    # L3/L4 ONLY — deliberately no L7 dns rule here. An L7 DNS rule would put
+    # EVERY pod in the Organization namespace behind the cilium-agent DNS proxy,
+    # which is a datapath and latency change this policy has no reason to make:
+    # the goal is to stop denying DNS, not to filter it. A per-workload chart CNP
+    # may still add an L7 DNS rule for its own pods; Cilium unions the two.
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
@@ -722,9 +728,6 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
-          rules:
-            dns:
-              - matchPattern: "*"
     # Admit egress to the cluster API (the reserved kube-apiserver entity) so an
     # in-vcluster Org app pod / in-cluster client can reach :443/:6443.
     - toEntities:
