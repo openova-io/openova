@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-04T06:15:02Z` |
+| Last refreshed | `2026-08-04T06:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-04T06:21 | [#5656](https://github.com/openova-io/openova/pull/5656) | #5379 | fix(cutover): make the sovereignty gate a per-region asserti |
 | 2026-08-04T05:10 | [#5654](https://github.com/openova-io/openova/pull/5654) | #5652 | fix(cutover): declare the known loft tether so 0.1.162's sou |
 | 2026-08-04T05:00 | [#5653](https://github.com/openova-io/openova/pull/5653) | #4437 | fix(netpol): cluster DNS for every constrained workload + a  |
 | 2026-08-04T04:26 | [#5652](https://github.com/openova-io/openova/pull/5652) | #5650 | feat(cutover): assert Flux sources are Sovereign-local, not  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-02T20:26 | [#5586](https://github.com/openova-io/openova/pull/5586) | #5563 | fix(sealed-secrets): repoint chart dependency to the live bi |
 | 2026-08-02T19:06 | [#5584](https://github.com/openova-io/openova/pull/5584) | #4023 | build(deps): protobuf v1.33.0 PAIRED with golang/protobuf v1 |
 | 2026-08-02T16:50 | [#5581](https://github.com/openova-io/openova/pull/5581) | chore(deps): bump fast-uri from 3.1.2 to 3.1.5 in /products/ |  |
-| 2026-08-02T16:50 | [#5580](https://github.com/openova-io/openova/pull/5580) | #17536 | chore(deps): bump astro and @astrojs/svelte in /core/marketp |
 
 ---
 
