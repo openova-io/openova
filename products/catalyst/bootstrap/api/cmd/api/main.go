@@ -1082,6 +1082,22 @@ func main() {
 	// on a ticker, and a no-op when the registry/dynamic-client isn't wired.
 	go h.ReconcileTenantRegistryFromOrgCRs(context.Background())
 
+	// #5635 — the SAME consolidation for the per-Org console GATEWAY surface
+	// (wildcard Certificate + console-https-<slug>/console-http-<slug>
+	// listener pair + the console HTTPRoute). That surface also has two
+	// producers, and only the BSS door (provisionOrgConsoleTLS) fans it out to
+	// every region — the marketplace-funnel Org's surface is written by the
+	// org-controller, which has no per-region client and never converges the
+	// second region. One shared EIP round-robins every region's envoy, so a
+	// host only one region can serve resets ~1/N of all customer connections
+	// (the split-write class #5394/#5406/#5414/#5416/#5511). This loop lists
+	// the Organization CRs — the one object BOTH doors create — and re-runs
+	// the multi-region emitter for each, making the fan-out unconditional
+	// (creation-path independent) and reconciled (an Org missing from a region
+	// converges rather than staying however it was first written). Every write
+	// is idempotent, so a healthy Sovereign sees zero object churn.
+	go h.ReconcileOrgConsoleTLSFromOrgCRs(context.Background())
+
 	// #4877 — level-triggered self-heal for the three OpenBao seed seams
 	// (newapi-admin-token / anthropic / per-Org mcp-bearer). Those seeds fire
 	// from EXACTLY ONE place (runOrganizationPipeline, once per HTTP Org-create,
