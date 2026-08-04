@@ -1316,7 +1316,13 @@ spec:
       # 1.4.1287 (#5391): catalog-seed cutover pin 0.1.167 — settled-roll
       #   override. Lockstep w/ slot-06a (pin-sync gate).
       # 1.4.1289 (#5650): catalog-seed cutover pin 0.1.168 (loft pivot).
-      version: 1.4.1290
+      # 1.4.1284 (#5364 #5649): cutover-driver ClusterRole delete verbs for the
+      #   org-console orphan reap (httproutes/certificates/secrets/namespaces
+      #   delete + gateways update) — the teardown mirror of the #5635
+      #   create-side reconcile; deleted Orgs converge to fully-deleted in
+      #   every region.
+      #   (re-serialized past main 1.4.1290 to 1.4.1291 at rebase — #5364 #5649.)
+      version: 1.4.1291
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

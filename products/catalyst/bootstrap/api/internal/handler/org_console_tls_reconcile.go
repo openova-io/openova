@@ -159,6 +159,13 @@ func (h *Handler) reconcileOrgConsoleTLSOnce(ctx context.Context) {
 		h.log.Info("org-console-tls-reconcile: pass complete — per-Org console gateway surface re-ensured in every region (#5635)",
 			"orgs", len(list.Items), "reconciled", reconciled, "skipped", skipped)
 	}
+
+	// #5364/#5649 — the DELETE-side mirror of the ensure pass above: reap the
+	// per-Org console surface (both producers' route name shapes, listener
+	// pair, Certificate, TLS Secrets) and the orphaned org Namespace of every
+	// Org whose CR no longer exists, in every region. Same seam, same ticker,
+	// level-triggered in both directions — see org_console_tls_reap.go.
+	h.reapOrgConsoleTLSOrphans(ctx, deps)
 }
 
 // orgConsoleTLSRecordFromOrgCR builds the free-subdomain provisioning record
