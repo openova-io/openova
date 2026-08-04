@@ -57,23 +57,22 @@ is the day-2 list above.
   **This is a policy checkpoint, not just a field**: the mothership being
   single-region is exactly the deliberate exception #4706 contemplates, but it is
   the founder's own 2-region ruling being consciously set aside for this box.
-- **FQDN**: **`hfmp.openova.io`** (proposed 2026-08-04 on founder steer "ideally
-  it is supposed to be the openova itself"; label awaiting founder confirm).
-  This is the naming canon's own shape — ARCHITECTURE §4 reserves
-  `{location-code}.{sovereign-domain}` for mothership control-planes; the table's
-  literal examples are `gitea.hfmp.openova.io` / `console.hnmp.openova.io`. Fire
-  in **`sovereignDomainMode: "byo"`** with parent zone `openova.io`: byo never
-  calls Dynadot at apply (`mapDomainModeForTofu`, provisioner.go:3742) and the
-  parent-zone writer only ADDS `console.hfmp.openova.io` etc. records
-  (`deployments.go:2197`) — the running mothership's apex hostnames are untouched,
-  so the prov is collision-free by construction. The bare apex `openova.io` as
-  sovereign FQDN is REJECTED: unsupported shape (first-label identity derivation,
-  provisioner.go:3771, and parent-zone writes would target `.io`), and an apex
-  prov would rewrite DNS for the very hostnames serving the prov mid-flight. LE
-  note: the `*.hfmp.openova.io` wildcard counts against `openova.io`'s
-  5-certs/week budget — verify before fire. (`omantel.biz` per the L3 rotation
-  was the pre-steer pick; superseded — this box is not a test env, it is the
-  mothership candidate.)
+- **FQDN**: **`openova.io`** — the ENTIRE domain (founder RULING 2026-08-04:
+  "we are talking about giving the entire openova domain for this environment";
+  the earlier `hfmp.openova.io` subdomain proposal is DEAD, as is `omantel.biz`).
+  Fire in **`sovereignDomainMode: "byo"`**: byo never calls Dynadot at apply
+  (`mapDomainModeForTofu`, provisioner.go:3742), Validate() imposes no FQDN
+  shape so the apex is accepted, and byo synthesizes the primary parent domain
+  from the FQDN itself (provisioner.go §ParentDomains) — identity derivation
+  uses first label `openova`. **Planned consequence, not an accident**: on
+  Phase-0 success the parent-zone writer (`deployments.go:2197`) repoints
+  `console.openova.io` / `auth.` / `api.` / `marketplace.` at the new Hetzner
+  LB while the old mothership still runs — the console-plane DNS cutover
+  happens AT PROV TIME. The wizard's browser view may drop when TTL expires
+  mid-convergence; monitoring continues via kubectl against Contabo. Rollback
+  of a failed prov = restore those A records in the current PowerDNS zone
+  (authoritative until the NS/glue swap). #5614's hardcoded
+  `console.openova.io` issuer matches from first boot.
 - **Law compliance**: ONE environment at a time (founder 2026-07-15) — wipe hw292
   (dep `1c56518035a83e03`, healthy, all extractable proofs banked in
   docs/sessions/2026-08-03..04 + UAT stamps) via the canonical wipe endpoint,
@@ -88,10 +87,16 @@ is the day-2 list above.
   delivery pipeline — the #5642/#5645 merged-but-undeliverable leak fix is the
   live demonstration. The mothership stays on GitHub+ghcr by design until #5640
   lands.
-- **Fire body**: `fire-body.hfmp.template.json` in this directory — Request-struct
-  verified, placeholders resolve from the deployments PVC at fire time. This
-  fresh prov carries #5645 at bootstrap and thereby unblocks #5642, #5617,
-  #5591, #5359 (the whole merged-not-delivered queue).
+- **Fire route**: the mothership wizard UI at `console.openova.io` on the
+  LATEST build (founder ruling 2026-08-04; the earlier curl/template path is
+  deleted). Two deliverables gate the click: (1) PR #5662 — the wizard never
+  sent `bcpTopology`, so a Single-region fire 400'd at the #4706 admission
+  floor; (2) roll the mothership `catalyst-ui` to the image carrying it
+  (mothership Flux is at replicas=0 per #5573, so the roll is a direct pin
+  bump). In the wizard: Hetzner → Single-region topology → BYO domain
+  `openova.io` → creds → Launch. This fresh prov carries #5645 at bootstrap
+  and thereby unblocks #5642, #5617, #5591, #5359 (the whole
+  merged-not-delivered queue).
 
 ### 3b. Offline IaC validation of the single-region Hetzner path (2026-08-04)
 
@@ -145,18 +150,18 @@ apply to the real POST body):
 
 ## 5. Elevation runbook (G-C)
 
-### 5.0 Domain strategy — nothing is ever renamed; the front door swings
+### 5.0 Domain strategy — the new box IS `openova.io` from birth (founder ruling 2026-08-04)
 
-- New mothership sovereign FQDN: **`hfmp.openova.io`** (rationale in §3; label
-  awaiting founder confirm).
-- The apex well-known names (`console.openova.io`, `harbor.openova.io`, MX for
-  `openova.io`) are a **front door**, distinct from either mothership's identity
-  FQDN. Today they resolve to Contabo; elevation swings them to the Hetzner box
-  (steps 5–7 below); rollback is the same swing reversed. Neither box is ever
-  renamed — the old mothership keeps its identity until retirement, the new one
-  is born `hfmp.openova.io` and keeps that identity after elevation.
-- Post-elevation, `console.openova.io` being served by the new env makes the
-  #5614 hardcoded issuer match by construction (step 7).
+- New mothership sovereign FQDN: **`openova.io`** — the entire domain, not a
+  subdomain (§3). The console-plane A-records (`console.` / `auth.` / `api.` /
+  `marketplace.`) repoint to the new box at Phase-0 success of the fire itself,
+  so the console-plane leg of elevation COLLAPSES INTO THE PROV.
+- What remains as post-convergence elevation: NS/glue swap for `openova.io` →
+  the new PowerDNS (step 5), MX + Stalwart data-copy (step 4), deployments-PVC
+  export/seed (steps 2+6), Contabo frozen read-only 14 days (rollback = restore
+  the A records + revert NS/MX; nothing destroyed until day 15).
+- `console.openova.io` served by the new env from first boot means the #5614
+  hardcoded issuer matches by construction — no post-hoc issuer work.
 
 Pre-cutover (while rehearsal converges):
 1. Drop Dynadot TTLs on `openova.io` + pool TLDs (`omani.homes/rest/trade`, `omani.works`, `omantel.biz`) to 300s.
@@ -216,7 +221,7 @@ records; nothing on Contabo is destroyed until day 15.
    all-HRs-Ready convergence gate. No `evs-ssd`/`huaweicloud`/`me-east` leak reaches the
    Hetzner path (`EVS_CSI_ENABLED: "false"` at `cloudinit-control-plane.tftpl:771`).
 3. Single cluster = no HA — same posture as Contabo today; accepted, and recoverable later by re-prov'ing multi-region once that tail is paid down.
-4. ~~LE budget on `openova.io` unknown-fresh~~ — **MEASURED 2026-08-04 (certspotter CT; crt.sh was 502)**: 1 of 5 weekly LE slots used (`signal.openova.io`, 2026-08-03), so 4 free — the `*.hfmp.openova.io` wildcard fits with re-fire headroom. Staging-issuer fallback still exists for walk-only phases. Re-check only if the fire slips past ~2026-08-10.
+4. ~~LE budget on `openova.io` unknown-fresh~~ — **MEASURED 2026-08-04 (certspotter CT; crt.sh was 502)**: 1 of 5 weekly LE slots used (`signal.openova.io`, 2026-08-03), so 4 free — the `*.openova.io` wildcard fits with re-fire headroom. Staging-issuer fallback still exists for walk-only phases. Re-check only if the fire slips past ~2026-08-10.
 5. ~~Mothership catalyst-api must be scaled up first (#5558 keeps it at 0)~~ — **RETRACTED on live evidence 2026-08-04**: `kubectl -n catalyst get deploy` shows `catalyst-api 1/1` and pod `catalyst-api-6667895dbc-b8hz9` Running for 31h. #5558 describes a past state; no hand-scale is needed. (Flux IS still dead — all four controllers at `replicas=0`, #5573 — but that does not block firing a prov, only GitOps-driven change to the mothership itself.)
 
 **De-risked on 2026-08-04 (live, so the D1 plan drops a step):** the running mothership
