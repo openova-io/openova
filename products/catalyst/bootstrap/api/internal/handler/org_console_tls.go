@@ -199,6 +199,29 @@ type orgConsoleTLSNames struct {
 	HTTPSName    string // console-https-<slug> — listener name
 	HTTPName     string // console-http-<slug>  — listener name
 	RouteName    string // catalyst-ui-<slug>-<parent-dashed>
+
+	// RouteNameOrgController is the name the OTHER producer of this exact
+	// surface — the org-controller's reconcileTenantRoute
+	// (core/controllers/organization/internal/controller/tenant_route.go:141)
+	// — gives the console HTTPRoute for the SAME ConsoleHost:
+	// `catalyst-ui-<console-host-dashed>`, e.g.
+	// `catalyst-ui-console-uatco-omani-homes`.
+	//
+	// #5635: the two producers agree byte-for-byte on the Certificate name and
+	// on BOTH listener names (#4241 consolidated those) but they NEVER agreed
+	// on the HTTPRoute name — this emitter dashes the ORG ZONE, the
+	// org-controller dashes the CONSOLE HOST. Live on hw292: `uatco` (funnel
+	// door → org-controller) carried `catalyst-ui-console-uatco-omani-homes`
+	// while `r17probe` (BSS door → this emitter) carried
+	// `catalyst-ui-r17probe-omani-homes`. Creating ours on top of an existing
+	// org-controller route would attach a SECOND HTTPRoute to the same
+	// hostname on the same Gateway, whose overlapping `/` match is resolved by
+	// Gateway-API creation-timestamp precedence — deterministic but a
+	// duplicated surface that only one of the two teardown paths reaps
+	// (teardownTenantRoute targets the org-controller name only). So the
+	// emitter ADOPTS an existing org-controller route in a region instead of
+	// duplicating it — see ensureOrgConsoleHTTPRoute.
+	RouteNameOrgController string
 }
 
 // resolveOrgConsoleTLSNames computes the deterministic names/hosts from a
@@ -224,16 +247,18 @@ func resolveOrgConsoleTLSNames(rec store.OrganizationProvisionRecord) (orgConsol
 		return orgConsoleTLSNames{}, false
 	}
 	parentDashed := strings.ReplaceAll(parent, ".", "-")
+	consoleHost := "console." + slug + "." + parent
 	return orgConsoleTLSNames{
-		Slug:         slug,
-		ParentDomain: parent,
-		WildcardHost: "*." + slug + "." + parent,
-		OrgZone:      slug + "." + parent,
-		ConsoleHost:  "console." + slug + "." + parent,
-		CertName:     "org-wildcard-tls-" + slug + "-" + parentDashed,
-		HTTPSName:    "console-https-" + slug,
-		HTTPName:     "console-http-" + slug,
-		RouteName:    "catalyst-ui-" + slug + "-" + parentDashed,
+		Slug:                   slug,
+		ParentDomain:           parent,
+		WildcardHost:           "*." + slug + "." + parent,
+		OrgZone:                slug + "." + parent,
+		ConsoleHost:            consoleHost,
+		CertName:               "org-wildcard-tls-" + slug + "-" + parentDashed,
+		HTTPSName:              "console-https-" + slug,
+		HTTPName:               "console-http-" + slug,
+		RouteName:              "catalyst-ui-" + slug + "-" + parentDashed,
+		RouteNameOrgController: "catalyst-ui-" + strings.ReplaceAll(consoleHost, ".", "-"),
 	}, true
 }
 
@@ -773,13 +798,55 @@ func ensureOrgConsoleListener(ctx context.Context, dyn dynamic.Interface, names 
 	return nil
 }
 
+// orgConsoleRouteAlreadyServed reports whether THIS region already carries the
+// org-controller's console HTTPRoute for the same ConsoleHost
+// (names.RouteNameOrgController). #5635: both producers emit an equivalent
+// route under different names, so creating ours on top would duplicate the
+// surface for one hostname. `true` means adopt-and-skip; any read error is
+// reported as `false` so a transient apiserver failure degrades to the
+// pre-#5635 behaviour (write our own route) rather than to no route at all.
+func orgConsoleRouteAlreadyServed(ctx context.Context, dyn dynamic.Interface, names orgConsoleTLSNames) bool {
+	if names.RouteNameOrgController == "" || names.RouteNameOrgController == names.RouteName {
+		return false
+	}
+	existing, err := dyn.Resource(httpRouteGVR).Namespace(catalystConsoleNamespace).
+		Get(ctx, names.RouteNameOrgController, metav1.GetOptions{})
+	if err != nil || existing == nil {
+		return false
+	}
+	// Presence alone is not enough — assert it actually serves OUR console
+	// host, so a same-named route for a different host never suppresses ours.
+	hosts, found, err := unstructured.NestedStringSlice(existing.Object, "spec", "hostnames")
+	if err != nil || !found {
+		return false
+	}
+	for _, h := range hosts {
+		if strings.EqualFold(strings.TrimSpace(h), names.ConsoleHost) {
+			return true
+		}
+	}
+	return false
+}
+
 // ensureOrgConsoleHTTPRoute Creates the per-Org console HTTPRoute (idempotent
 // — AlreadyExists = success). A faithful clone of the canonical catalyst-ui
 // HTTPRoute (catalyst-api for /readyz, /healthz, /auth/handover, /api/,
 // /catalyst/; catalyst-ui for /), re-hostnamed to console.<slug>.<parent> and
 // parented on cilium-gateway-console. Lands in catalyst-system alongside the
 // catalyst-ui/catalyst-api Services it references (no ReferenceGrant needed).
+//
+// #5635: skipped in a region that already carries the org-controller's
+// equivalent route for the same ConsoleHost (see orgConsoleRouteAlreadyServed)
+// — the region is served, and a second route for one hostname is a duplicated
+// surface only one teardown path reaps.
 func ensureOrgConsoleHTTPRoute(ctx context.Context, dyn dynamic.Interface, names orgConsoleTLSNames, rec store.OrganizationProvisionRecord) error {
+	if orgConsoleRouteAlreadyServed(ctx, dyn, names) {
+		return nil
+	}
+	return createOrgConsoleHTTPRoute(ctx, dyn, names, rec)
+}
+
+func createOrgConsoleHTTPRoute(ctx context.Context, dyn dynamic.Interface, names orgConsoleTLSNames, rec store.OrganizationProvisionRecord) error {
 	apiBackend := func() []any {
 		return []any{map[string]any{
 			"group": "", "kind": "Service",
