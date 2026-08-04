@@ -266,7 +266,13 @@ data:
             for skc in /secondary-kubeconfigs/*.yaml; do
               [ -e "${skc}" ] || continue
               region=$(basename "${skc}" .yaml)
-              echo "[flux-gitrepository-patch] #5359 secondary region ${region}: pivoting its GitRepository -> ${sec_url}"
+              # ${sec_url_chain}, NOT ${sec_url}: the single-URL variable now
+              # exists only inside the candidate loop below, and this line runs
+              # before it. Under the Job's `set -u` a stale reference here is
+              # not a cosmetic log bug — it aborts the leg on the FIRST
+              # secondary region, before any pivot, for every 2-region
+              # Sovereign.
+              echo "[flux-gitrepository-patch] #5359 secondary region ${region}: pivoting its GitRepository, candidates -> ${sec_url_chain}"
 
               # 1a. Share region-A's gitea-http endpoints into the mesh (the
               # bp-cnpg-pair global-Service idiom). Annotating the LIVE
