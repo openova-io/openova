@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-04T23:00:06Z` |
+| Last refreshed | `2026-08-04T23:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-04T23:10 | [#5678](https://github.com/openova-io/openova/pull/5678) | #5583 | ci(blueprint-release): sync catalog-seed + regenerate catalo |
 | 2026-08-04T22:20 | [#5677](https://github.com/openova-io/openova/pull/5677) | #5476 | fix(catalyst-api): wire spine object-model ownership chain + |
 | 2026-08-04T22:03 | [#5676](https://github.com/openova-io/openova/pull/5676) | #5513 | fix(controllers): AHS status reports materialised regions +  |
 | 2026-08-04T22:16 | [#5674](https://github.com/openova-io/openova/pull/5674) | #5650 | fix(cutover): pivot the vcluster-system/loft chart source of |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-04T16:15 | [#5631](https://github.com/openova-io/openova/pull/5631) | #5590 | chore(deps): bump undici from 7.28.0 to 7.29.0 in /products/ |
 | 2026-08-04T16:16 | [#5630](https://github.com/openova-io/openova/pull/5630) | #213 | chore(deps): bump ip-address from 10.2.0 to 10.4.0 in /produ |
 | 2026-08-03T21:54 | [#5629](https://github.com/openova-io/openova/pull/5629) | #5527 | fix(provisioning): per-Org GitOps tree emitters cutover-awar |
-| 2026-08-03T20:41 | [#5628](https://github.com/openova-io/openova/pull/5628) | #5598 | fix(guacamole): #5598 REST-session lifetime aligned with the |
 
 ---
 
