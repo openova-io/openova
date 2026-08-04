@@ -102,9 +102,15 @@ Counts: **27 MERGED-AWAITING-PROOF** (boarded — proof on hw293) · **8 NEEDS-C
 #5443 #5445 #5450 #5451 #5484 #5488 #5489 #5496 #5499 #5500 #5501 #5502 #5504
 #5505 #5510 #5514 #5515 #5516 #5527 #5591 #5640.
 
-**Boarding candidates (small, agents in flight):** #5466 (newapi split
-SESSION_SECRET, 1 template — A16 class) · #5394+#5341 (region-b MCP HR
-suspend=true — arm the slot) · #5359 (linchpin, see below). Queued wave-2:
+**Boarded late (merged post-sweep):** #5394+#5341 via **PR #5666** (2026-08-04T16:41Z)
+— the region-b MCP edge slot never armed `ingress.hosts.mcp.host`
+(13e-bp-catalyst-secondary-edge-routes.yaml; the 13d suspend is deliberate and
+untouched). Recipe: fresh-TCP sampling of `mcp.<fqdn>` N/N from both regions +
+the new `TestBootstrapKit_McpSecondaryEdgeArmedBothLegs` guard (both-directions
+falsifiability proven pre-merge).
+
+**Boarding candidates (agents in flight):** #5466 (newapi split SESSION_SECRET,
+1 template — A16 class) · #5359 (linchpin, see below). Queued wave-2:
 #5508 #5509 #5364 #5391 #5485-remainder.
 
 **Next-train (large):** #5476 #5480 (15 region-blind generator templates)
