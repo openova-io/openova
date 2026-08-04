@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-04T17:30:08Z` |
+| Last refreshed | `2026-08-04T17:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -309,6 +309,7 @@ flowchart LR
 |---|---|---|---|
 | 2026-08-04T17:24 | [#5670](https://github.com/openova-io/openova/pull/5670) | #5509 | docs(guacamole): multi-region session forensics — #5509 is t |
 | 2026-08-04T17:15 | [#5669](https://github.com/openova-io/openova/pull/5669) | #5508 | fix(ui): TopologyTab consumes healthGates — unverified lag r |
+| 2026-08-04T17:44 | [#5668](https://github.com/openova-io/openova/pull/5668) | #5666 | fix(cutover): secondary-region pivot target defaults to the  |
 | 2026-08-04T16:56 | [#5667](https://github.com/openova-io/openova/pull/5667) | #5466 | fix(newapi): one SESSION_SECRET/CRYPTO_SECRET per KC client, |
 | 2026-08-04T16:41 | [#5666](https://github.com/openova-io/openova/pull/5666) | #5394 | fix(#5394): arm the region-b mcp leg in slot 13e — last dead |
 | 2026-08-04T15:43 | [#5662](https://github.com/openova-io/openova/pull/5662) | #4706 | fix(wizard): thread the Single-region topology choice to the |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-03T20:27 | [#5624](https://github.com/openova-io/openova/pull/5624) | #4437 | fix(agenity): per-Org oidc-gate egress CNP — DNS + Keycloak  |
 | 2026-08-03T20:10 | [#5622](https://github.com/openova-io/openova/pull/5622) | #5616 | fix(ui): #5616 instance-create vCluster selector offers only |
 | 2026-08-03T20:37 | [#5621](https://github.com/openova-io/openova/pull/5621) | #5601 | fix(catalyst-api): DR Switchover gate — derive replicaPromot |
-| 2026-08-03T20:37 | [#5620](https://github.com/openova-io/openova/pull/5620) | #3687 | fix(catalyst-api): Organization DELETE deletes the CR so the |
 
 ---
 
