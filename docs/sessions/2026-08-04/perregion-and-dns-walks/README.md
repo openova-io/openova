@@ -155,3 +155,33 @@ This is why #5591 cannot be closed here, and the reason is stronger than the pro
 making before: not "the checklist has an unchecked box" but "the box cannot be checked on this env".
 
 Refs #5591 #5359 #5656 #5640
+
+## Walk 5 — live browser walk of the per-Org gate (#5617)
+
+Playwright, real navigation. First attempt: `net::ERR_CONNECTION_RESET` — the #5511 coin-flip,
+reproduced in-browser rather than only by curl. Retry landed.
+
+    https://agenity.uatco.omani.homes/  ->  302
+    -> https://console.hw292.omani.works/login?next=https://api.hw292.omani.works/oidc/auth
+         ?client_id=catalyst-pin&redirect_uri=https://auth.hw292.omani.works/realms/sovereign/
+          broker/catalyst-pin/endpoint&response_type=code&scope=openid+email+profile+groups
+
+Rendered: `heading "Sign in"`, "Enter your email to receive a 6-digit PIN.", an Email textbox and a
+disabled "Send code" button — the canonical passwordless-PIN form. The `state` decodes to
+`{"ru":"https://agenity.uatco.omani.homes/oauth2/callback", ...}`, so the return URL threads through
+correctly.
+
+| leg | verdict |
+|---|---|
+| per-Org host reachable | ~50% of fresh TCP (#5511), reproduced in-browser |
+| gate issues the OAuth redirect | **PASS** |
+| IdP brokering to the sovereign realm | **PASS** — canonical PIN form, no error page |
+| token exchange at `/oauth2/callback` | **NOT REACHED** — behind PIN authentication |
+
+**The callback-500 is not reproducible from the entry point today.** It sits one authenticated step
+past where an unauthenticated walk reaches. What remains proven independently is that the hop it
+fails on is denied by configuration (walk 1: zero port-53 rules, against a control of 5 policies that
+carry them). Recording the distinction rather than collapsing it: *the failing hop is proven denied;
+the failure itself was not re-observed today.*
+
+Refs #5617 #5511 #5653 #5640
