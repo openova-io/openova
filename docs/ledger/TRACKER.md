@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-04T17:15:04Z` |
+| Last refreshed | `2026-08-04T17:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,7 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#5394](https://github.com/openova-io/openova/issues/5394) | MCP endpoint is ~50% dead: bp-openova-mcp is single-region but mcp.<fqdn> fronts | Other |
 | [#5395](https://github.com/openova-io/openova/issues/5395) | gamma-corp is entirely unrouted: all 6 per-Org HTTPRoutes NoMatchingListenerHost | Other |
 | [#5396](https://github.com/openova-io/openova/issues/5396) | bp-velero upgrade-crds pre-upgrade hook is Kyverno-rejected (no harbor-proxy ima | Other |
 | [#5401](https://github.com/openova-io/openova/issues/5401) | SECURITY: per-Org console /settings renders the Sovereign operator panel to an o | Other |
@@ -254,7 +255,6 @@ flowchart LR
 | [#5504](https://github.com/openova-io/openova/issues/5504) | bp-postgres: initdb owner and managed.roles mint the same role with different cr | Other |
 | [#5505](https://github.com/openova-io/openova/issues/5505) | P0: all Namespace creates denied — #5494 flipped 10 policies to Enforce, expos | Other |
 | [#5508](https://github.com/openova-io/openova/issues/5508) | Topology tab renders replication lag 0.0 s behind a green pill while the API rep | Other |
-| [#5509](https://github.com/openova-io/openova/issues/5509) | Guacamole: postgresql-shared/self/effectivePermissions 403s deterministically fo | Other |
 | [#5510](https://github.com/openova-io/openova/issues/5510) | Catalog card: a single-field Save silently reverts untouched sibling fields —  | Other |
 | [#5513](https://github.com/openova-io/openova/issues/5513) | active-hot-standby renders a 2-region pair over a singleton: empty openova.io/re | Other |
 | [#5514](https://github.com/openova-io/openova/issues/5514) | P1: Switch over armed against a phantom standby — replication-status 200s with | Other |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-04T17:24 | [#5670](https://github.com/openova-io/openova/pull/5670) | #5509 | docs(guacamole): multi-region session forensics — #5509 is t |
+| 2026-08-04T17:15 | [#5669](https://github.com/openova-io/openova/pull/5669) | #5508 | fix(ui): TopologyTab consumes healthGates — unverified lag r |
 | 2026-08-04T16:56 | [#5667](https://github.com/openova-io/openova/pull/5667) | #5466 | fix(newapi): one SESSION_SECRET/CRYPTO_SECRET per KC client, |
 | 2026-08-04T16:41 | [#5666](https://github.com/openova-io/openova/pull/5666) | #5394 | fix(#5394): arm the region-b mcp leg in slot 13e — last dead |
 | 2026-08-04T15:43 | [#5662](https://github.com/openova-io/openova/pull/5662) | #4706 | fix(wizard): thread the Single-region topology choice to the |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-03T20:10 | [#5622](https://github.com/openova-io/openova/pull/5622) | #5616 | fix(ui): #5616 instance-create vCluster selector offers only |
 | 2026-08-03T20:37 | [#5621](https://github.com/openova-io/openova/pull/5621) | #5601 | fix(catalyst-api): DR Switchover gate — derive replicaPromot |
 | 2026-08-03T20:37 | [#5620](https://github.com/openova-io/openova/pull/5620) | #3687 | fix(catalyst-api): Organization DELETE deletes the CR so the |
-| 2026-08-03T19:53 | [#5619](https://github.com/openova-io/openova/pull/5619) | #5535 | fix(catalyst-api): P0 — main compiles again; unstall catalys |
-| 2026-08-04T16:16 | [#5606](https://github.com/openova-io/openova/pull/5606) | chore(deps): bump @anthropic-ai/claude-agent-sdk from 0.3.21 |  |
 
 ---
 
