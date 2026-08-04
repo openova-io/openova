@@ -185,31 +185,38 @@ small crew still running. After it: freeze.
 
 ## Chart-PR merge queue — state at end of the 2026-08-05 fix wave
 
-**Merged (chart chain drained one):** #5674 (loft.sh chart-source pivot, cutover
-0.1.168 / umbrella 1.4.1289) — landed after 3 rebases through the deploybot
-umbrella treadmill.
+**Root-cause fix LANDED:** #5678 (`scripts/sync-catalog-seed-pin.py` +
+`blueprint-release.yaml` `sync_seed` step) — the deploy-bot auto-bump now syncs the
+catalog-seed + regenerates the derived catalog on every chart bump, closing the
+#5583 lockstep-coverage gap that made the treadmill re-conflict chart PRs. This
+only helps FUTURE deploy-bot bumps; existing branches still needed one manual
+rebase, done below.
 
-**Rebased-ready but TREADMILL-DEFERRED (no deadline until the fire):**
+**Merged (chart chain):** #5674 (loft.sh chart-source pivot, cutover 0.1.168 /
+umbrella 1.4.1289) — landed after 3 rebases through the deploybot umbrella treadmill.
+
+**Rebased in a quiet window (last deploy-bot chart mint ~50 min prior) + pushed +
+in merge-waiter:**
 - **#5672** — org-console teardown reaper (#5364/#5649/R17): reaps both producers'
   route shapes + listeners + Certificate + both TLS-Secret shapes + boundary
-  Namespace per region. Rebased clean to umbrella 1.4.1290, go guards green; went
-  DIRTY again on a deploybot re-mint before CI finished.
+  Namespace per region. Rebased clean, umbrella + slot-13 re-serialized to
+  1.4.1291 (changelog history preserved), bootstrap-kit lockstep + catalog-seed
+  drift guards green, reap-handler pkg builds. Conflict was purely the two umbrella
+  version sites (Go payload clean).
 - **#5675** — shared-pg dr-promoter (#5623): keycloak + shared-pg pairs auto-promote
-  on region-kill (reuses the proven bp-cnpg-pair promoter, #5178 flap guard).
-  bp-postgres 0.2.18. Same treadmill exposure.
+  on region-kill (reuses the proven bp-cnpg-pair promoter, #5178 flap guard),
+  bp-postgres 0.2.17→0.2.18. Conflict was only the two GENERATED catalog files
+  (blueprints.json + catalog.generated.ts); resolved by taking the clean 0.2.18
+  seed and REGENERATING via build-catalog.mjs (never hand-merge generated JSON/TS).
+  Render cases 20b/20c/20d + region-selector-fail-closed + lockstep all green.
 
-**Why deferred, not abandoned:** the deploybot mints the umbrella `version:` faster
-than a chart PR's CI completes, so every rebase is overtaken before merge — the
-documented `deploybot_treadmill_chart_pr_version_collision` class. These PRs are
-MERGED-AWAITING-PROOF (they change nothing until the fresh prov, which is
-hw292-walk-gated), so there is no value in hand-racing an automated bot.
-**Land them in the pre-fire quiet window**, when the wipe+fire sequence is
-operator-coordinated and deploybot activity can be paused/serialized — OR fix the
-root (deploybot should not bump the umbrella `version:` on every image deploy;
-see #5583 for the adjacent lockstep-coverage gap). Both branches are pushed and
-green-modulo-serialization; a single rebase each lands them in a lull.
+Both file sets are disjoint (umbrella+slot-13 vs bp-postgres slots+catalog), so
+their CI runs concurrently; each merges on green tolerating only the
+`ghcr-pin-existence` continue-on-error check, with a dirty-bail if a fresh
+deploy-bot mint re-conflicts either.
 
-**Fix-wave tally (2026-08-05):** 12 PRs merged (#5662 #5386 #5666 #5667 #5669 #5673
-#5676 #5677 #5674 #5604 + #5597 direct + #5671), 6 issues evidence-closed (#5589
-#5388 #5456 #5512 #5520 #5509), 5 already-fixed correctly declined (#5639 #5637
-#5634 #5616 #5615), 2 chart PRs treadmill-deferred (#5672 #5675).
+**Fix-wave tally (2026-08-05):** 13 PRs merged (#5662 #5386 #5666 #5667 #5669 #5673
+#5676 #5677 #5674 #5604 + #5597 direct + #5671 + #5678), 6 issues evidence-closed
+(#5589 #5388 #5456 #5512 #5520 #5509), 5 already-fixed correctly declined (#5639
+#5637 #5634 #5616 #5615 — all with merged fix PRs at status/uat), 2 chart PRs
+rebased+pushed+waiting (#5672 #5675).
