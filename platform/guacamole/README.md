@@ -193,4 +193,73 @@ Session recordings count as **PSD2/DORA/SOX evidence**:
 
 ---
 
+## Operational notes — multi-region session semantics (the #5509 forensics)
+
+**The webapp's REST session store is in-memory and unreplicated.** Guacamole
+1.5.5 keeps auth tokens in an in-process `TokenSessionMap`; there is no
+external/shared session backend in any released version. On a two-region
+Sovereign, each region runs its own webapp copy behind the one public door, so
+a token minted by one copy is **unknown** to the other. Any request that lands
+on the non-minting copy fails with exactly:
+
+```
+HTTP 403, type PERMISSION_DENIED, message "Permission Denied."
+```
+
+produced by upstream `guacamole/src/main/java/org/apache/guacamole/rest/auth/
+AuthenticationService.java:506` (`GuacamoleUnauthorizedException`, thrown when
+the token is absent from the map; it extends `GuacamoleSecurityException` →
+`CLIENT_UNAUTHORIZED(403)`). The same signature appears when a cached token
+expires (see the `#5598` block in `chart/values.yaml`
+`webapp.apiSessionTimeoutMinutes`).
+
+**Do not re-root a per-data-source 403 as an authorization gap.** The hw291
+walk behind #5509 observed `/session/data/postgresql-shared/self/
+effectivePermissions` → 403 in 8/8 runs while plain `postgresql` failed only
+2/8, and recorded it as "`postgresql-shared` deterministically rejects a
+header-authenticated user". Upstream source refutes that reading:
+
+- `postgresql-shared` is advertised to **every** authenticated principal by
+  design, in every auth mode — the JDBC jar's second provider returns an
+  (empty) `SharedUserContext` unconditionally
+  (`...auth/jdbc/sharing/SharedAuthenticationProviderService.java:82-92`).
+  The chart wires the jar via `POSTGRESQL_HOSTNAME`
+  (`chart/templates/guacamole-deployment.yaml:130`); no upstream property
+  exists to suppress the second registration (verified against the full
+  1.5.5 property list), and nothing header-specific is involved.
+- On the session-owning pod that endpoint **cannot** return 403: `SharedUser.
+  getEffectivePermissions()` returns a valid empty permission view
+  (`...sharing/user/SharedUser.java:111-112,154`) → HTTP 200. There is no
+  permission check to fail, hence also nothing to "grant".
+- A session genuinely lacking the context would return **404 NOT_FOUND**
+  (`GuacamoleSession.java:161`), which the SPA explicitly tolerates per-source
+  (`app/rest/services/dataSourceService.js:98-99` resolves 404s); only
+  non-404 failures reject the whole fan-out and render `.fatal-page-error`.
+- Therefore a run that returns 200 for `postgresql` and 403 for
+  `postgresql-shared` under one token was served by **two different pods** —
+  a single pod either knows the token (both 200) or not (both 403). The 8/8
+  vs 2/8 split is one routing mechanism with systematic (non-independent)
+  request-to-backend assignment — the SPA fires its per-source burst in a
+  fixed order, so a deterministic distribution over two backends yields a
+  fixed per-endpoint loser — not two defects. Probability arguments that
+  assume i.i.d. per-request routing do not hold across reused/pooled
+  connections (cf. `reference_browser_repeat_count_cannot_sample_a_round_
+  robin_http2_pinning.md`).
+
+**Discriminating live test** (settles owner-vs-routing in minutes): mint one
+token, then replay BOTH endpoints ~20× each over **fresh TCP connections**
+(fresh-TCP curl, never a browser loop). Routing class → both endpoints fail on
+the same connections at the same per-region rate. A true per-source
+authorization gap → `postgresql-shared` fails on every connection including
+the minting region's.
+
+**Fix ownership**: single-owner routing for the webapp (the A16
+two-copies-behind-one-door class, #5480 family) — not chart/values changes in
+this Blueprint. Neither "grant postgresql-shared" (nothing to grant) nor
+"stop advertising it" (no upstream knob; and the plain-`postgresql` leg keeps
+failing at the per-region routing rate, so the SPA still fatals) can close
+UAT rows 35/115. Refs #5509 #5480.
+
+---
+
 *Part of [OpenOva](https://openova.io)*
