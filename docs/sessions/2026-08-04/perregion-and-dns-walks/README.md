@@ -85,3 +85,33 @@ row must not be invented to carry a finding — that would move the denominator.
 recorded against their issues and in `docs/ledger/PATH-TO-100.md`.
 
 Refs #5617 #5591 #5640 #5653 #5592 #5619 #960
+
+## Walk 3 — the HTTP round-trip, which reordered the triage
+
+Added after walks 1 and 2. Fresh-TCP sampling (one new connection per sample, so HTTP/2 connection
+pinning cannot mask a round-robin):
+
+| host | scope | ok | fail | fail rate |
+|---|---|---|---|---|
+| `agenity.uatco.omani.homes` | per-Org app | 6 | 8 | **57%** |
+| `wordpress.uatco.omani.homes` | per-Org app, different workload, same Org | 7 | 7 | **50%** |
+| `console.hw292.omani.works` | Sovereign-level | **10** | **0** | **0%** |
+
+The Sovereign-level host is the control and it settles it: 10/10 HTTP 200. So the failure is not
+general gateway instability, not DNS, not client-side — it is specific to **per-Org hostnames**, and
+it hits two unrelated per-Org workloads at the same rate. That is **#5511** (per-Org gateway surface
+written region-a only), not #5617.
+
+Failures appear as `SSL_connect: Connection reset by peer` at the TLS handshake — before any HTTP
+status — so a probe that records only status codes scores them as blanks. **My first pass did exactly
+that:** `|| echo ERR` produced the token `000ERR`, which matched neither branch of my classifier, and
+the run reported `failed=0` while the printed codes plainly showed failures. The numbers above are
+from the corrected classifier. A counter that cannot represent the failure mode reports zero failures,
+which is the same shape as every other defect in this session's ledger.
+
+**Triage consequence:** when the connection does land, `agenity.uatco` returns **302** — the gate
+redirecting correctly, not the 500 in #5617's original repro. #5617 remains real and structurally
+proven (walk 1), but its symptom is downstream of an OAuth round-trip that is only reachable half the
+time. Fixing #5617 alone would leave every per-Org app failing ~half of all connections.
+
+Refs #5511 #5617 #5459
