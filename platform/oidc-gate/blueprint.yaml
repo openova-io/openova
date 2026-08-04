@@ -9,7 +9,12 @@ spec:
   # 0.1.6 (#4556): spaTokenSeed — TRUE zero-click for a token-paste SPA
   # (agenity/chepherd). 302s the bare root, post-SSO, to /app/?token=<sentinel>
   # so the SPA seeds localStorage and lands authenticated with NO paste.
-  version: 0.1.8
+  # 0.1.9 (#5617): the chart ships its own per-instance CiliumNetworkPolicy
+  # pair (gateway-ingress + egress with kube-dns / Keycloak backchannel /
+  # upstream) instead of relying on bp-plane-isolation leaving the oidc-gate
+  # namespace's egress open. Lockstep with platform/oidc-gate/chart +
+  # the bootstrap-kit slot 13c pin.
+  version: 0.1.9
   card:
     title: oidc-gate
     summary: |

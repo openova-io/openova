@@ -686,6 +686,48 @@ spec:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: flux-system
   egress:
+    # CLUSTER DNS — 53 UDP + TCP to kube-system CoreDNS.
+    #
+    # #5617 ROOT CAUSE. This policy carries an egress section under
+    # endpointSelector {}, and in Cilium the moment ANY policy selecting an
+    # endpoint declares egress, that endpoint's egress becomes deny-by-default
+    # outside the union of every such policy. So this one rule set decides
+    # egress for EVERY pod in the Org namespace. It used to name kube-apiserver
+    # and same-namespace endpoints and NOTHING else — no DNS — which left every
+    # workload that ships no DNS egress of its own unable to resolve a single
+    # name. Measured live on hw292 Org uatco: the bp-oidc-gate companion
+    # (ingress-only CNP) 500'd every OAuth callback AFTER a successful login —
+    # oauthproxy.go:881, lookup keycloak.keycloak.svc.cluster.local on
+    # 10.96.0.10:53 i/o timeout — while the sibling agenity pod in the SAME
+    # namespace resolved fine because its chart ships an egress CNP with DNS.
+    #
+    # Fixing it per-chart is a per-instance patch that the NEXT per-Org chart
+    # re-breaks (#4437 was the first recurrence, #5617 the second). DNS belongs
+    # in the namespace baseline: it is required by every workload without
+    # exception, and admitting it weakens no isolation boundary — CoreDNS is a
+    # read-only name service, and cross-Org/cross-Environment denial is
+    # unchanged because this grants nothing but :53 to kube-system.
+    #
+    # toEndpoints, NEVER toCIDR/ipBlock: a CIDR rule cannot match an in-cluster
+    # pod identity under Cilium (#4360) and never matches a ClusterMesh remote
+    # identity (#4656), so a CIDR-shaped DNS allow would be inert here and
+    # silently re-break the second region of a 2-region Sovereign.
+    #
+    # L3/L4 ONLY — deliberately no L7 dns rule here. An L7 DNS rule would put
+    # EVERY pod in the Organization namespace behind the cilium-agent DNS proxy,
+    # which is a datapath and latency change this policy has no reason to make:
+    # the goal is to stop denying DNS, not to filter it. A per-workload chart CNP
+    # may still add an L7 DNS rule for its own pods; Cilium unions the two.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
     # Admit egress to the cluster API (the reserved kube-apiserver entity) so an
     # in-vcluster Org app pod / in-cluster client can reach :443/:6443.
     - toEntities:

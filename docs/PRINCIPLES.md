@@ -386,6 +386,19 @@ These are OpenOva-platform-specific anti-patterns — concrete PR / issue receip
 
 **Proving it:** render the template twice (each render = one region's Helm run) and hash. Pre-fix yields two values; post-fix the chart should render **zero** literals for that key. Verify live by hash only — never print secret values, this repo is public. A digest of `e3b0c442` everywhere means your jsonpath matched nothing (sha256 of empty input), not that the values match.
 
+### A17 — Ingress-only policy shipped into a namespace whose egress is already constrained
+
+| | |
+|---|---|
+| **Receipt** | #4437 (bp-sso-bridge's egress CNP omitted openbao), #5617 (the per-Org bp-oidc-gate companion shipped `oidc-gate-<cid>-gateway-ingress` and no egress counterpart) — the second recurrence, 2026-08-04 |
+| **Shape** | A chart writes the policy half that makes its pod **reachable** and stops there. The pod is Running, its HTTPRoute resolves, the browser reaches it — and its first outbound name lookup is dropped, because something ELSE in that namespace already declared egress. |
+| **Why this is wrong** | Cilium evaluates the **union** of every policy selecting an endpoint, and the moment ANY of them declares `egress` that endpoint is deny-by-default outside the union. On this platform a per-Organization `<slug>` namespace always carries such a policy (`allow-gateway-and-apiserver`, `endpointSelector: {}`). So "my chart only adds an ingress allow" is never true there. The symptom is maximally misleading: on #5617 the whole OAuth round-trip succeeded and the callback then 500'd after a 48–60 s DNS timeout, which reads as a Keycloak or token problem, not a policy one. The control that settles it is a **sibling pod in the same namespace** — on hw292 the agenity pod resolved the identical name because its chart ships an egress CNP. |
+| **Right fix shape** | Fix at the seam that decides egress for the whole namespace, not per consumer. #5617's durable fix put cluster DNS in the per-Org baseline CNP (`core/controllers/organization/internal/gitops/manifests.go`) so every current and future per-Org workload has it, and made the chart carry its own halves so it is correct wherever it is installed. Destinations are `toEndpoints`/`toEntities`, **never** `toCIDR`/`ipBlock` — a CIDR matches neither an in-cluster pod identity (#4360) nor a ClusterMesh remote identity (#4656), so a CIDR-shaped DNS allow is inert and silently strands the peer region. |
+
+**The port trap (#4437, still live):** allowing only the Service port drops the traffic. Cilium's verdict runs **after** the Service DNAT, so the **Pod** target port is the load-bearing one — a Keycloak allow must name 80 **and** 8080.
+
+**Guard:** `scripts/check-netpol-egress-completeness.py` renders every policy-bearing chart and asserts, per selected endpoint, that the union of its egress rules allows 53/UDP + 53/TCP to cluster DNS. It asserts on parsed **values** — a hollow `egress: []`, a `port: 53` aimed at the workload's own namespace, and a UDP-only rule are all FAIL — and its Phase 0 proves the classifier still bites five known-broken shapes before any verdict is trusted.
+
 ---
 
 ## Cross-cutting flags that trigger a "stop and investigate" pass
@@ -540,6 +553,7 @@ Mapping (Anti-pattern → Principle it violates):
 | A14 (bulk-template closure overrides evidence) | §6, §7 |
 | A15 (stable-state walk passed off as fresh-prov) | §7, Part IV rule 7 + [`DOD.md`](DOD.md) (operator-walked fresh-prov evidence) |
 | A16 (per-region secret on a shared VIP) | §2 (no workarounds), §7, Part III.4 (repo-wide enumeration on class recurrence) |
+| A17 (ingress-only policy in an egress-constrained namespace) | §2 (no workarounds), §7, Part III.4 (repo-wide enumeration on class recurrence) |
 
 When you catch a new shape of failure in a PR review, add an A16+ entry here with the PR / issue number, the shape, why it's wrong, and the right fix shape. The catalog grows so the next session catches the same shape sooner.
 
