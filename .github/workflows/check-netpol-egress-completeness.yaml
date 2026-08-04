@@ -1,0 +1,69 @@
+name: check — network-policy egress completeness (#5617)
+
+# The #5617 / #4437 CLASS gate.
+#
+# Twice a chart has shipped a policy that constrains a workload and named only
+# the INGRESS half. #4437: bp-sso-bridge's egress CNP omitted openbao. #5617:
+# the per-Org bp-oidc-gate companion shipped `oidc-gate-<cid>-gateway-ingress`
+# and no egress counterpart, so under the per-Org namespace's default-deny the
+# gate pod could not resolve cluster DNS and EVERY OAuth callback returned 500
+# AFTER a successful login (live hw292, Org uatco).
+#
+# scripts/check-netpol-egress-completeness.py renders every policy-bearing
+# chart and asserts, per selected endpoint, that the UNION of its egress rules
+# allows 53/UDP + 53/TCP to cluster DNS. It asserts on the parsed VALUES, never
+# on the presence of an `egress` key — a hollow `egress: []` is a FAIL, which is
+# the #5639/#5641 lesson applied here. Phase 0 proves the classifier still bites
+# five known-broken shapes before any verdict is trusted; a chart that renders
+# zero policy documents, or fails to render at all, is a blind spot and FAILS.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'platform/**'
+      - 'products/**'
+      - 'clusters/_template/bootstrap-kit/**'
+      - 'core/controllers/organization/**'
+      - 'scripts/check-netpol-egress-completeness.py'
+      - '.github/workflows/check-netpol-egress-completeness.yaml'
+  pull_request:
+    paths:
+      - 'platform/**'
+      - 'products/**'
+      - 'clusters/_template/bootstrap-kit/**'
+      - 'core/controllers/organization/**'
+      - 'scripts/check-netpol-egress-completeness.py'
+      - '.github/workflows/check-netpol-egress-completeness.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  netpol-egress-completeness:
+    name: Every constrained workload keeps cluster DNS
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          # >= 3.16.2 for the same dependency-resolution reasons documented in
+          # check-no-nodeports.yaml — 3.16.0 cannot fetch a subchart on a clean
+          # checkout, which would read as a policy blind spot rather than the
+          # helm bug it is.
+          version: v3.16.3
+
+      - name: Run the egress-completeness class gate
+        run: python3 scripts/check-netpol-egress-completeness.py --table

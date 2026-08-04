@@ -1,0 +1,172 @@
+{{- /*
+bp-oidc-gate per-instance NETWORK POLICY pair (#5617).
+
+WHY THIS EXISTS
+───────────────────────────────────────────────────────────────────────
+Until 0.1.9 this chart shipped NO policy at all. The gate pods were
+reachable, and could dial out, only because a DIFFERENT chart happened to
+leave the door open: bp-plane-isolation (slot 26b) renders the `oidc-gate`
+namespace's default-deny with `gatewayIngress: true` for the ingress half
+and an egress half that is deliberately unconstrained
+(`namespaceSelector: {}` + `ipBlock 0.0.0.0/0`). Its own values file says
+so, verbatim: "It egresses to keycloak (backchannel OIDC) + its upstream
+app — both covered by the open egress rule".
+
+That cross-chart implicit dependency IS the #5617 class. The identical gate
+resource set, rendered by bp-agenity into a per-Organization namespace where
+NOTHING leaves egress open, could not resolve cluster DNS and 500'd every
+OAuth callback AFTER a successful login (live hw292, Org uatco,
+oauthproxy.go:881: lookup keycloak.keycloak.svc.cluster.local on
+10.96.0.10:53 i/o timeout). Same chart shape, different namespace, silently
+broken — because the policy lived somewhere else. So the gate now carries
+its own two halves and is correct wherever it is installed.
+
+ADDITIVE, NOT A TIGHTENING OF TODAY'S BEHAVIOUR
+───────────────────────────────────────────────────────────────────────
+Cilium evaluates the UNION of every policy selecting an endpoint. While
+bp-plane-isolation's open-egress rule is present the union is unchanged, so
+this cannot sever a gate that works today; it only removes the dependency on
+that rule still being there tomorrow.
+
+DESTINATIONS ARE toEndpoints/toEntities, NEVER toCIDR
+───────────────────────────────────────────────────────────────────────
+An ipBlock/toCIDR rule matches neither an in-cluster pod identity (#4360)
+nor a ClusterMesh remote pod identity (#4656), so on a 2-region Sovereign a
+CIDR-shaped allow silently drops the region whose Keycloak backend is
+remote. Every rule below names identities.
+*/ -}}
+{{- $root := . -}}
+{{- $np := .Values.networkPolicy | default dict -}}
+{{- if and (ne (toString $np.enabled) "false") ($root.Capabilities.APIVersions.Has "cilium.io/v2") }}
+{{- $egressCfg := $np.egress | default dict -}}
+{{- $kcNamespace := $egressCfg.keycloakNamespace | default "keycloak" -}}
+{{- $kcPort := $egressCfg.keycloakPort | default 80 -}}
+{{- $kcInternal := trimSuffix "/" ($root.Values.keycloakInternalURL | default "") -}}
+{{- range $inst := .Values.instances }}
+{{- if ne (toString $inst.enabled | default "true") "false" }}
+{{- $hostname := include "bp-oidc-gate.instanceHostname" (dict "root" $root "inst" $inst) }}
+{{- if $hostname }}
+{{- $gateName := printf "oidc-gate-%s" $inst.name }}
+{{- /*
+Upstream identity, derived from the instance's own `upstream` URL — the one
+place the dial target is already declared, so the policy can never drift from
+what oauth2-proxy actually proxies to. Shape:
+  http://<service>.<namespace>.svc.cluster.local:<port>
+A bare single-label host (http://svc:8080) is read as this release's own
+namespace, which is what a bare service name means. An empty upstream is a
+chart-authoring error and fails the render (Inviolable Principle #4).
+*/ -}}
+{{- $raw := $inst.upstream | default "" }}
+{{- if not $raw }}
+{{- fail (printf "bp-oidc-gate: instance %q has no `upstream` — the egress policy cannot name a destination it was never told about" $inst.name) }}
+{{- end }}
+{{- $isTLS := hasPrefix "https://" $raw }}
+{{- $noScheme := regexReplaceAll "^https?://" $raw "" }}
+{{- $hostPort := first (splitList "/" $noScheme) }}
+{{- $hpParts := splitList ":" $hostPort }}
+{{- $upHost := index $hpParts 0 }}
+{{- $upPort := ternary "443" "80" $isTLS }}
+{{- if gt (len $hpParts) 1 }}{{- $upPort = index $hpParts 1 }}{{- end }}
+{{- $hostLabels := splitList "." $upHost }}
+{{- $upNamespace := $root.Release.Namespace }}
+{{- if gt (len $hostLabels) 1 }}{{- $upNamespace = index $hostLabels 1 }}{{- end }}
+---
+# ── CiliumNetworkPolicy — admit the Cilium Gateway Envoy to the gate pod ──
+# The gate's HTTPRoute owns the app's public hostname; gateway traffic carries
+# the reserved `ingress` ENTITY identity that NO K8s NetworkPolicy selector can
+# match, so under any default-deny the gateway→gate hop is dropped and the
+# browser sees envoy 503 (the #4180/#3785/#3374 class).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ printf "%s-gateway-ingress" $gateName | quote }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "bp-oidc-gate.labels" $root | nindent 4 }}
+    catalyst.openova.io/component: {{ printf "%s-netpol" $gateName | quote }}
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: bp-oidc-gate
+      catalyst.openova.io/component: {{ $gateName }}
+  ingress:
+    - fromEntities:
+        - ingress
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "4180"
+              protocol: TCP
+---
+# ── CiliumNetworkPolicy — the gate's EGRESS half (#5617) ──────────────────
+# Exactly the gate's dial surface, nothing wider:
+#   1. kube-dns :53 UDP+TCP — LOAD-BEARING. Once ANY policy constrains this
+#      endpoint's egress, an unnamed DNS is a denied DNS, and oauth2-proxy's
+#      first act on a callback is to resolve the Keycloak backchannel host.
+#   2. the Keycloak backchannel (redeem / jwks / userinfo) — the Service port
+#      AND the Pod target port 8080, because Cilium's verdict runs AFTER the
+#      Service DNAT so the POD port is the load-bearing one (#4437's port trap:
+#      allowing only 80 drops the traffic).
+#   3. the proxied upstream, derived from this instance's own `upstream` URL.
+#   4. world:443 ONLY when keycloakInternalURL is unset (#3844 public-discovery
+#      mode) — an off-cluster hop nothing but `toEntities: [world]` can name.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ printf "%s-egress" $gateName | quote }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "bp-oidc-gate.labels" $root | nindent 4 }}
+    catalyst.openova.io/component: {{ printf "%s-netpol" $gateName | quote }}
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: bp-oidc-gate
+      catalyst.openova.io/component: {{ $gateName }}
+  egress:
+    # 1. Cluster DNS.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    # 2. Keycloak backchannel — Service port AND Pod port 8080.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $kcNamespace }}
+      toPorts:
+        - ports:
+            - port: {{ $kcPort | quote }}
+              protocol: TCP
+            - port: "8080"
+              protocol: TCP
+    # 3. The proxied upstream ({{ $raw }}).
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $upNamespace }}
+      toPorts:
+        - ports:
+            - port: {{ $upPort | quote }}
+              protocol: TCP
+{{- if not $kcInternal }}
+    # 4. Public-issuer discovery fallback (#3844 public-discovery mode).
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

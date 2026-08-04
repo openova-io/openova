@@ -147,7 +147,30 @@ name: bp-oidc-gate
 # has used since #2807) and the per-instance ExternalSecret now pulls BOTH
 # properties into the one `oidc-gate-<name>-oidc` Secret. Requires
 # bp-sso-bridge >= 0.2.26.
-version: 0.1.8
+#
+# 0.1.9 (#5617, 2026-08-04): the gate finally ships its OWN network policy.
+# Until now this chart rendered NONE, and the gate pods were reachable — and
+# able to dial out — only because a DIFFERENT chart left the door open:
+# bp-plane-isolation (slot 26b) covers the `oidc-gate` namespace with a
+# gateway-ingress CNP plus a default-deny whose EGRESS half is deliberately
+# unconstrained (`namespaceSelector: {}` + `ipBlock 0.0.0.0/0`); its values
+# file says so verbatim ("It egresses to keycloak … both covered by the open
+# egress rule"). That cross-chart implicit dependency IS the #5617 class: the
+# byte-equivalent gate resource set rendered by bp-agenity into a per-Org
+# namespace, where nothing leaves egress open, could not resolve cluster DNS
+# and 500'd EVERY OAuth callback after a successful login (live hw292, Org
+# uatco). templates/networkpolicy.yaml now renders both halves per instance —
+# `<gate>-gateway-ingress` (reserved `ingress` entity → :4180) and
+# `<gate>-egress` (kube-dns 53 UDP+TCP · the Keycloak backchannel on the
+# Service port AND pod port 8080 per the #4437 port trap · the instance's own
+# upstream, derived from its `upstream` URL so the policy cannot drift · and
+# world:443 only in #3844 public-discovery mode). Destinations are
+# toEndpoints/toEntities, never toCIDR — a CIDR matches neither an in-cluster
+# pod identity (#4360) nor a ClusterMesh remote identity (#4656). ADDITIVE:
+# Cilium unions every policy selecting an endpoint, so while
+# bp-plane-isolation's open-egress rule is present the effective union is
+# unchanged and no working gate can be severed.
+version: 0.1.9
 appVersion: "7.6.0"
 description: |
   Catalyst generic OIDC gate — a per-app oauth2-proxy instance set that

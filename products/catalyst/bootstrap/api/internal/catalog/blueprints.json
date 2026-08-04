@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-03T22:43:19.703Z",
+  "generatedAt": "2026-08-04T04:31:50.589Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -3552,7 +3552,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.1.8",
+      "version": "0.1.9",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [
         "bp-cilium",
