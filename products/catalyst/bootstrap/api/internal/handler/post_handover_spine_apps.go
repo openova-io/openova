@@ -293,11 +293,20 @@ func (h *Handler) runPostHandoverSpineApplications(dep *Deployment) {
 	// REAL region count so the controller resolves multi-region topology
 	// (len(env.spec.regions) > 1) — the gate ResolveTopology + buildContinuumPlan
 	// both key off.
-	if err := h.ensureSpineOrganization(dyn, dep, orgRef); err != nil {
+	// #5476 — wire the object-model ownership chain (Application → Environment
+	// → Organization) so cascade + GC are Kubernetes-native, not label-only.
+	// Each ensure returns the server-assigned UID from its apply response; we
+	// thread it down as the ownerReference of the next resource. A "" UID
+	// (ensure failed / apiserver returned no UID) makes the next resource SKIP
+	// the ownerReference rather than write a dangling one — no regression on
+	// the degraded path, the chain simply wires on the next idempotent pass.
+	orgUID, err := h.ensureSpineOrganization(dyn, dep, orgRef)
+	if err != nil {
 		h.log.Warn("spine-apps: ensure control-plane Organization failed; spine apps will sit Pending until it lands",
 			"id", dep.ID, "org", orgRef, "err", err)
 	}
-	if err := h.ensureSpineEnvironment(dyn, dep, envRef, orgRef, regions); err != nil {
+	envUID, err := h.ensureSpineEnvironment(dyn, dep, envRef, orgRef, regions, orgUID)
+	if err != nil {
 		h.log.Warn("spine-apps: ensure control-plane Environment failed; spine apps will sit Pending until it lands",
 			"id", dep.ID, "env", envRef, "err", err)
 	}
@@ -310,7 +319,7 @@ func (h *Handler) runPostHandoverSpineApplications(dep *Deployment) {
 	wantPresent := len(drCapableSpine)
 	for {
 		present := h.presentSpineHRs(dyn, dep)
-		enrolled = h.enrollSpineApplications(dyn, dep, present, envRef, orgRef, regions, ownerLabels)
+		enrolled = h.enrollSpineApplications(dyn, dep, present, envRef, orgRef, regions, ownerLabels, envUID)
 		// Done once we have enrolled an Application CR for every spine HR
 		// that is actually present. If a spine HR never appears (a Sovereign
 		// that does not install all four) we still finish on the budget.
@@ -388,11 +397,12 @@ func (h *Handler) enrollSpineApplications(
 	orgRef string,
 	regions []string,
 	ownerLabels map[string]string,
+	envUID string,
 ) int {
 	enrolled := 0
 	for _, sc := range present {
-		obj := renderSpineApplicationCR(sc, envRef, orgRef, regions, ownerLabels)
-		err := applySpineApplicationCR(dyn, obj)
+		obj := renderSpineApplicationCR(sc, envRef, orgRef, regions, ownerLabels, envUID)
+		_, err := applySpineApplicationCR(dyn, obj)
 		if err != nil {
 			if isNoMatchOrCRDMissing(err) {
 				h.log.Info("spine-apps: Application CRD not registered yet; will retry",
@@ -416,19 +426,18 @@ func (h *Handler) enrollSpineApplications(
 // force:true server-side-apply, which CREATES-or-MERGES idempotently against
 // a real apiserver (the adopt-not-roll contract: re-running merges the same
 // fields rather than re-rendering).
-var applySpineApplicationCR = func(dyn dynamic.Interface, obj *unstructured.Unstructured) error {
+var applySpineApplicationCR = func(dyn dynamic.Interface, obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
 	data, err := obj.MarshalJSON()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	_, err = dyn.Resource(ApplicationGVR()).Namespace(spineApplicationNamespace).
+	return dyn.Resource(ApplicationGVR()).Namespace(spineApplicationNamespace).
 		Patch(ctx, obj.GetName(), types.ApplyPatchType, data, metav1.PatchOptions{
 			FieldManager: spineApplyFieldManager,
 			Force:        boolPtr(true),
 		})
-	return err
 }
 
 // renderSpineApplicationCR composes the idempotent Application CR for one
@@ -460,12 +469,27 @@ var applySpineApplicationCR = func(dyn dynamic.Interface, obj *unstructured.Unst
 // distinct from Org / signup apps. The
 // `catalyst.openova.io/adopts-helmrelease` label names the EXISTING spine
 // HR the CR adopts (Invariant #3 — adopt, never roll).
-func renderSpineApplicationCR(sc spineComponent, envRef, orgRef string, regions []string, ownerLabels map[string]string) *unstructured.Unstructured {
+func renderSpineApplicationCR(sc spineComponent, envRef, orgRef string, regions []string, ownerLabels map[string]string, envUID string) *unstructured.Unstructured {
 	obj := &unstructured.Unstructured{}
 	obj.SetAPIVersion(ApplicationGVR().Group + "/" + ApplicationGVR().Version)
 	obj.SetKind("Application")
 	obj.SetName(spineApplicationName(sc.Chart))
 	obj.SetNamespace(spineApplicationNamespace)
+
+	// #5476 — own the spine Application by its control-plane Environment so
+	// deletion cascade + GC are Kubernetes-native rather than resting entirely
+	// on label hygiene (which is how orphans survive a wipe). The Environment
+	// is cluster-scoped, so a namespaced Application may reference it as an
+	// owner. Only wire the ref when the Environment's UID is known — an empty
+	// UID would be a dangling owner reference, worse than none.
+	if envUID != "" {
+		obj.SetOwnerReferences([]metav1.OwnerReference{{
+			APIVersion: EnvironmentGVR().Group + "/" + EnvironmentGVR().Version,
+			Kind:       "Environment",
+			Name:       envRef,
+			UID:        types.UID(envUID),
+		}})
+	}
 
 	lbls := map[string]string{}
 	for k, v := range ownerLabels {
@@ -653,7 +677,7 @@ func spineOrganizationSlug(dep *Deployment) string {
 // a re-run server-side-applies the same fields. NotFound of the CRD (e.g.
 // the Organization CRD not yet registered) is surfaced so the caller logs +
 // the next enrollment pass retries.
-func (h *Handler) ensureSpineOrganization(dyn dynamic.Interface, dep *Deployment, orgRef string) error {
+func (h *Handler) ensureSpineOrganization(dyn dynamic.Interface, dep *Deployment, orgRef string) (string, error) {
 	dep.mu.Lock()
 	fqdn := strings.TrimSpace(dep.Request.SovereignFQDN)
 	email := strings.TrimSpace(dep.Request.OrgEmail)
@@ -700,7 +724,11 @@ func (h *Handler) ensureSpineOrganization(dyn dynamic.Interface, dep *Deployment
 		"openova.io/sovereign":           fqdn,
 	})
 	obj.Object["spec"] = spec
-	return applySpineClusterResource(dyn, organizationGVR(), "", obj)
+	applied, err := applySpineClusterResource(dyn, organizationGVR(), "", obj)
+	if err != nil {
+		return "", err
+	}
+	return spineAppliedUID(applied), nil
 }
 
 // ensureSpineEnvironment server-side-applies the Sovereign-self control-plane
@@ -715,7 +743,7 @@ func (h *Handler) ensureSpineOrganization(dyn dynamic.Interface, dep *Deployment
 // (defaults.multi-region) on a ≥2-region Sovereign. We emit one CRD-valid
 // region triple per real region (provider/region/buildingBlock satisfying
 // the CRD enums + the `^[a-z]{3}[a-z0-9]?$` region pattern). Idempotent.
-func (h *Handler) ensureSpineEnvironment(dyn dynamic.Interface, dep *Deployment, envRef, orgRef string, regions []string) error {
+func (h *Handler) ensureSpineEnvironment(dyn dynamic.Interface, dep *Deployment, envRef, orgRef string, regions []string, orgUID string) (string, error) {
 	regionObjs := make([]interface{}, 0, len(regions))
 	for _, sc := range spineRegionSpecs(dep) {
 		regionObjs = append(regionObjs, spineEnvRegionObject(sc))
@@ -726,6 +754,12 @@ func (h *Handler) ensureSpineEnvironment(dyn dynamic.Interface, dep *Deployment,
 	for len(regionObjs) < len(regions) {
 		regionObjs = append(regionObjs, spineEnvRegionObject(provisioner.RegionSpec{}))
 	}
+	// #5476 — make the region codes pairwise distinct. spineEnvRegionCode
+	// collapses me-east-215-a and me-east-215-b to the SAME 3-letter base
+	// ("meea"), so a 2-region Sovereign wrote two IDENTICAL region triples and
+	// the -cp Environment could not tell its regions apart (issue Part 2). De-
+	// dupe in place, staying CRD-pattern-valid (`^[a-z]{3}[a-z0-9]?$`).
+	dedupeSpineEnvRegionCodes(regionObjs)
 	placement := "single-region"
 	if len(regionObjs) > 1 {
 		placement = "multi-region"
@@ -749,8 +783,27 @@ func (h *Handler) ensureSpineEnvironment(dyn dynamic.Interface, dep *Deployment,
 		"openova.io/organization":        orgRef,
 		"openova.io/sovereign":           fqdn,
 	})
+	// #5476 — own the -cp Environment by its control-plane Organization, matching
+	// the sibling per-Org `-prod` Environment (which the organization-controller
+	// already stamps with this exact owner ref in environment_ensure.go). Both
+	// CRs are cluster-scoped, so a cluster-scoped controller owner ref is GC-safe
+	// and ties the Environment's lifecycle to the Org. Skip when the Org UID is
+	// unknown rather than write a dangling ref.
+	if orgUID != "" {
+		obj.SetOwnerReferences([]metav1.OwnerReference{{
+			APIVersion: organizationGVR().Group + "/" + organizationGVR().Version,
+			Kind:       "Organization",
+			Name:       orgRef,
+			UID:        types.UID(orgUID),
+			Controller: boolPtr(true),
+		}})
+	}
 	obj.Object["spec"] = spec
-	return applySpineClusterResource(dyn, EnvironmentGVR(), "", obj)
+	applied, err := applySpineClusterResource(dyn, EnvironmentGVR(), "", obj)
+	if err != nil {
+		return "", err
+	}
+	return spineAppliedUID(applied), nil
 }
 
 // spineRegionSpecs returns the deployment's RegionSpec rows (provider +
@@ -850,10 +903,10 @@ func spineEnvRegionCode(cloudRegion string) string {
 // Create/Update-based applier (the dynamic-fake client cannot decode an
 // ApplyPatchType body). force:true CREATES-or-MERGES idempotently against a
 // real apiserver.
-var applySpineClusterResource = func(dyn dynamic.Interface, gvr schema.GroupVersionResource, namespace string, obj *unstructured.Unstructured) error {
+var applySpineClusterResource = func(dyn dynamic.Interface, gvr schema.GroupVersionResource, namespace string, obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
 	data, err := obj.MarshalJSON()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -862,9 +915,62 @@ var applySpineClusterResource = func(dyn dynamic.Interface, gvr schema.GroupVers
 	if namespace != "" {
 		applied = ri.Namespace(namespace)
 	}
-	_, err = applied.Patch(ctx, obj.GetName(), types.ApplyPatchType, data, metav1.PatchOptions{
+	return applied.Patch(ctx, obj.GetName(), types.ApplyPatchType, data, metav1.PatchOptions{
 		FieldManager: spineApplyFieldManager,
 		Force:        boolPtr(true),
 	})
-	return err
+}
+
+// spineAppliedUID extracts the server-assigned UID off an apply response so the
+// producer can wire the ownership chain (Organization → Environment →
+// Application, #5476). Returns "" for a nil response or an object that carries
+// no UID — the caller then SKIPS the ownerReference rather than emitting one
+// with an empty UID (a dangling owner ref GC cannot resolve).
+func spineAppliedUID(obj *unstructured.Unstructured) string {
+	if obj == nil {
+		return ""
+	}
+	return string(obj.GetUID())
+}
+
+// dedupeSpineEnvRegionCodes makes the -cp Environment's region codes pairwise
+// distinct in place (#5476, issue Part 2). spineEnvRegionCode derives a code
+// from the first three letters + the first trailing alnum, so it collapses
+// me-east-215-a and me-east-215-b to the SAME "meea" — the -a/-b discriminator
+// is never reached — and a 2-region Sovereign ends up with two identical region
+// triples that the Environment cannot tell apart. On a collision we keep the
+// 3-letter stem and swap the 4th character for the first unused value from
+// [a-z0-9], which stays CRD-pattern-valid (`^[a-z]{3}[a-z0-9]?$`). The region
+// VALUES are cosmetic for the spine path (the application-controller reads only
+// len(spec.regions)); distinctness is what the object model needs.
+func dedupeSpineEnvRegionCodes(regionObjs []interface{}) {
+	const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+	seen := map[string]bool{}
+	for _, ro := range regionObjs {
+		m, ok := ro.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		code, _ := m["region"].(string)
+		if code != "" && !seen[code] {
+			seen[code] = true
+			continue
+		}
+		stem := code
+		if len(stem) > 3 {
+			stem = stem[:3]
+		}
+		if stem == "" {
+			stem = "reg"
+		}
+		for _, c := range alphabet {
+			cand := stem + string(c)
+			if !seen[cand] {
+				code = cand
+				break
+			}
+		}
+		seen[code] = true
+		m["region"] = code
+	}
 }
