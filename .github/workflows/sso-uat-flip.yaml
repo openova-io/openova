@@ -26,7 +26,22 @@ on:
       - "platform/sso-bridge/**"
       - "platform/oidc-gate/**"
       - "platform/openova-flow-server/**"
-      - "products/catalyst/bootstrap/api/**"
+      # #5597 — SCOPED to the catalyst-api SSO/auth-landing surface only, NOT
+      # the whole `bootstrap/api/**`. The broad glob fired the SSO-row flip on
+      # ANY api change: commit 71c54d8d (the #5535 cutover secondary-kubeconfigs
+      # fix, touching cutover_secondary_kubeconfigs.go + jobs.go — zero SSO/auth
+      # code) erased six freshly-walked ✅ rows (28/40/41/42/43/45) and pushed
+      # the headline 34→28. Only the auth/handover-token/session/PIN/oidc files
+      # below can change a zero-click SSO LANDING; the cutover/jobs/deployment
+      # and post_handover-* spine plumbing cannot, and must not trip this flip.
+      - "products/catalyst/bootstrap/api/internal/auth/**"
+      - "products/catalyst/bootstrap/api/internal/handler/auth*.go"
+      - "products/catalyst/bootstrap/api/internal/handler/handover.go"
+      - "products/catalyst/bootstrap/api/internal/handler/handover_jwt.go"
+      - "products/catalyst/bootstrap/api/internal/handler/org_handover.go"
+      - "products/catalyst/bootstrap/api/internal/handler/pinstore.go"
+      - "products/catalyst/bootstrap/api/internal/handler/openbao_sso_init.go"
+      - "products/catalyst/bootstrap/api/cmd/api/oidc_session_validator.go"
       - "core/console/**"
       # SSO-component bootstrap-kit slots ONLY — never the whole kit. The former
       # broad patterns (products/catalyst/chart/** + bootstrap-kit/**) are
