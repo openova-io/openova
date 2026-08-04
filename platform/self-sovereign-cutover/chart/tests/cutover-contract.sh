@@ -3709,11 +3709,21 @@ for s in "$S05" "$S06" "$S08"; do
     c71_fail=1
   fi
 done
-# (b) Step-05 leg: mesh global-Service path + FAIL-LOUD Ready wait + per-region
-# status keys. A leg that silently skipped an unready region-B would re-mint
-# the exact hw288 false positive.
-if ! grep -q 'service.cilium.io/global' "$S05"; then
-  echo "FAIL: step-05 leg does not establish the ClusterMesh global-Service path to the local Gitea (#5359)" >&2
+# (b) Step-05 leg: FAIL-LOUD convergence wait + per-region status keys. A leg
+# that silently skipped an unready region-B would re-mint the exact hw288
+# false positive.
+# 0.1.166: the ClusterMesh global-Service path (annotate gitea-http +
+# same-named alias Service in the secondary) is RETIRED — both gitea-http
+# Services are headless, which Cilium global-services cannot span, and the
+# secondary's own empty bp-gitea sits behind the same name (hw292:
+# "pkt-line 3: EOF", gen=2/obs=1 for 22h). Its REAPPEARANCE in step-05 is the
+# regression this now guards against.
+if grep -q 'service.cilium.io/global' "$S05"; then
+  echo "FAIL: step-05 re-grew the retired ClusterMesh global-Service leg — a headless gitea-http cannot be mesh-shared and the secondary's own empty Gitea answers that name; the secondary pivot target is the Sovereign's own Gitea door (#5359)" >&2
+  c71_fail=1
+fi
+if grep -q 'gitea-mesh-alias' "$S05"; then
+  echo "FAIL: step-05 re-grew the retired secondary gitea-http alias Service apply — it fights the secondary's own bp-gitea for the same Service name and cannot carry the dial (#5359)" >&2
   c71_fail=1
 fi
 if ! grep -q 'SECONDARY_GITREPO_READY_SECONDS' "$S05"; then
@@ -3788,7 +3798,7 @@ if [ "${c71_steps}" -ne 11 ]; then
   c71_fail=1
 fi
 if [ "$c71_fail" -ne 0 ]; then exit 1; fi
-echo "  PASS (#5359: steps 05/06/08 mount cutover-secondary-kubeconfigs optional:true [single-region inert]; step-05 pivots + FAIL-LOUD Ready-waits every secondary GitRepository over the mesh global-Service path; step-06 pivots every secondary HR with a zero-upstream read-back assert + re-syncs the STRIPPED auth bytes post-Phase-3b; step-08 extends the deny-egress hold to every region [region-A manifest inherited + mesh toEndpoints + own-gateway IPs] with teardown + per-region verdicts; step count unchanged at 11)"
+echo "  PASS (#5359: steps 05/06/08 mount cutover-secondary-kubeconfigs optional:true [single-region inert]; step-05 pivots + FAIL-LOUD convergence-waits every secondary GitRepository against the Sovereign's own Gitea door [the retired mesh global-Service leg stays absent]; step-06 pivots every secondary HR with a zero-upstream read-back assert + re-syncs the STRIPPED auth bytes post-Phase-3b; step-08 extends the deny-egress hold to every region [region-A manifest inherited + mesh toEndpoints + own-gateway IPs] with teardown + per-region verdicts; step count unchanged at 11)"
 
 # ── Case 72 (#5443): the marketplace's chart set is mirrored + asserted ──────
 # Step-06 pivots `openova-catalog` — the HelmRepository every per-Org

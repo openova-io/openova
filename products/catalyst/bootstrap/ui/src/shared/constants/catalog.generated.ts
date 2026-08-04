@@ -3617,7 +3617,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.4.147",
+    "version": "1.4.148",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg",
@@ -4775,7 +4775,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.165",
+    "version": "0.1.166",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-gitea",
