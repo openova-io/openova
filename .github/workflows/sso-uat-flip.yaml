@@ -49,6 +49,35 @@ on:
       - "clusters/_template/bootstrap-kit/56-bp-openova-flow-server.yaml"
       - "clusters/_template/bootstrap-kit/80-newapi.yaml"
 
+      # ── EXCLUSIONS (#5648) — must follow the positive patterns ──────────
+      # Same class as the #5106 narrowing above, twice more on 2026-08-04.
+      # Both receipts, because the pattern is what matters:
+      #
+      #   a031424a flipped 5 rows by matching `platform/cilium/**` on
+      #   `platform/cilium/README.md`. That whole commit was a CI workflow,
+      #   docs/SECURITY.md, a README and two shell scripts — no SSO code, no
+      #   chart code, nothing that reaches a running Sovereign.
+      #
+      #   bee6695e flipped 12 rows by matching
+      #   `products/catalyst/bootstrap/api/**` on
+      #   `products/catalyst/bootstrap/api/internal/catalog/blueprints.json`.
+      #   That file is a CATALOG LOCKSTEP SITE: every `bp-*` chart version bump
+      #   in the repo edits it, exactly like the chart/** and bootstrap-kit/**
+      #   surfaces #5106 already removed for this reason. bee6695e was the
+      #   cutover Flux-source lint (#5652) — it cannot affect an SSO landing.
+      #
+      # Cost so far: 31 live-walked rows erased in one day; 12 had to be
+      # physically re-walked and 7 could not be, because they sit behind a PIN.
+      # A row erased by a merge that cannot affect it is not conservatism — it
+      # is evidence destruction, and it reads downstream as "the number never
+      # moves".
+      #
+      # The law in the header is unchanged: a real SSO-chain change still
+      # flips. Every genuine SSO change touches Go/templates/values under the
+      # component paths above, none of which are excluded here.
+      - "!**/*.md"
+      - "!products/catalyst/bootstrap/api/internal/catalog/**"
+
 permissions:
   contents: write
 
