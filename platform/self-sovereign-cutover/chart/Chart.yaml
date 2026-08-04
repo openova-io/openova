@@ -2889,6 +2889,24 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
+# 0.1.163 (#5650 Refs #5505) — declare the one KNOWN Flux-source tether so the
+# 0.1.162 lint cannot wedge the flow it protects.
+#
+# 0.1.162 shipped fluxSourceHostLint with allowHosts EMPTY. But
+# clusters/_template/bootstrap-kit/60-bp-vcluster-helmrepo.yaml installs
+# HelmRepository vcluster-system/loft at https://charts.loft.sh on EVERY
+# Sovereign — that slot's own comment marks the URL an optional operator
+# overlay for a Harbor proxy cache (Principle #4a), and nothing in the cutover
+# drives it. So an empty allowHosts would have failed step-08 on every fresh
+# prov and held cutoverComplete=false: a guard that wedges the very flow it
+# protects, which is the #5505 shape and worse than the tether it reports.
+#
+# allowHosts now ships ["charts.loft.sh"]. This is not a weakening — it turns
+# an UNKNOWN residual tether into a DECLARED one, in Git, diffable and
+# reviewable, which is what the key exists for. Every undeclared host still
+# fails closed. Deleting this entry is the definition of done for the #5650
+# instance fix (mirror the loft chart locally, repoint slot 60), at which
+# point the lint proves the tether is gone rather than tolerating it.
 # 0.1.162 (#5650 Refs #5527 #3379 #3678) — step-08 gains a Flux SOURCE host
 # lint, the timing-independent half of the Pillar-5 proof.
 #
@@ -2987,7 +3005,7 @@ name: bp-self-sovereign-cutover
 # copyAttempts,skopeoStaticURL,maxRefsPerCycle}. No RBAC change (the runner
 # ClusterRole already grants deployments/statefulsets/daemonsets/jobs/cronjobs
 # get+list+watch). Step count unchanged at 11.
-version: 0.1.162
+version: 0.1.163
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

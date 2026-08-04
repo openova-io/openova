@@ -1766,7 +1766,31 @@ egressTest:
   # an entry is a reviewable sovereignty exception, not a config tweak.
   fluxSourceHostLint:
     enabled: true
-    allowHosts: []
+    # SHIPPED EXCEPTION, and the reason it is not empty.
+    #
+    # `clusters/_template/bootstrap-kit/60-bp-vcluster-helmrepo.yaml` installs
+    # HelmRepository vcluster-system/loft at https://charts.loft.sh on every
+    # Sovereign. That slot's own comment says an operator MAY swap the URL for
+    # a Harbor proxy cache per Principle #4a (mirror-everything) — it is an
+    # optional overlay, and nothing in the cutover drives it. So the tether is
+    # present on every fresh prov by construction.
+    #
+    # With an empty allowHosts this lint would therefore fail step-08 on EVERY
+    # fresh prov and hold cutoverComplete=false — a guard that wedges the very
+    # flow it protects. That is the #5505 shape (a flip whose blast radius was
+    # wider than intended) and shipping it would be worse than the tether.
+    #
+    # Declaring the host here is not a weakening: it converts an UNKNOWN
+    # residual tether into a DECLARED one, visible in Git, diffable, and
+    # reviewable — which is exactly what this key is for. Every host nobody has
+    # declared still fails closed, which is the property the lint exists to
+    # enforce.
+    #
+    # Removing this entry is the definition of done for the #5650 instance fix
+    # (mirror the loft chart into the local Harbor and repoint slot 60). When
+    # that lands, delete the entry and the lint proves the tether is gone.
+    allowHosts:
+      - charts.loft.sh
   # #3678 — TRUE deny-egress shape. defaultDenyEgress flips the Step-08
   # CCNP from a SUBTRACTIVE 4-CIDR block (default-allow, deny only the
   # listed hosts — which left console.openova.io + every un-enumerated
