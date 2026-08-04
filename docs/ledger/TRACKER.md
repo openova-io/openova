@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-04T22:15:05Z` |
+| Last refreshed | `2026-08-04T22:30:11Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-04T22:20 | [#5677](https://github.com/openova-io/openova/pull/5677) | #5476 | fix(catalyst-api): wire spine object-model ownership chain + |
 | 2026-08-04T22:03 | [#5676](https://github.com/openova-io/openova/pull/5676) | #5513 | fix(controllers): AHS status reports materialised regions +  |
+| 2026-08-04T22:16 | [#5674](https://github.com/openova-io/openova/pull/5674) | #5650 | fix(cutover): pivot the vcluster-system/loft chart source of |
 | 2026-08-04T19:39 | [#5673](https://github.com/openova-io/openova/pull/5673) | #5646 | fix(funnel): honest provisioning timeline — progress never 1 |
 | 2026-08-04T20:55 | [#5671](https://github.com/openova-io/openova/pull/5671) | #5391 | feat(cutover): named, validated, audited sovereign-admin ove |
 | 2026-08-04T17:24 | [#5670](https://github.com/openova-io/openova/pull/5670) | #5509 | docs(guacamole): multi-region session forensics — #5509 is t |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-04T16:16 | [#5630](https://github.com/openova-io/openova/pull/5630) | #213 | chore(deps): bump ip-address from 10.2.0 to 10.4.0 in /produ |
 | 2026-08-03T21:54 | [#5629](https://github.com/openova-io/openova/pull/5629) | #5527 | fix(provisioning): per-Org GitOps tree emitters cutover-awar |
 | 2026-08-03T20:41 | [#5628](https://github.com/openova-io/openova/pull/5628) | #5598 | fix(guacamole): #5598 REST-session lifetime aligned with the |
-| 2026-08-03T20:36 | [#5627](https://github.com/openova-io/openova/pull/5627) | #5626 | fix(console): four source defects behind the fail-open vites |
-| 2026-08-03T20:58 | [#5625](https://github.com/openova-io/openova/pull/5625) | #5348 | fix(stalwart-tenant): §854 — disable nodePort allocation on  |
 
 ---
 
