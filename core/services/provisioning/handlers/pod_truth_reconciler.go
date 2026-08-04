@@ -354,7 +354,7 @@ func (h *Handler) reconcileOneProvision(ctx context.Context, p *store.Provision)
 //	"Deploying WordPress"              -> "wordpress"
 //	"Deploying Uptime Kuma"            -> "uptime-kuma"
 //	"Installing mysql (dependency)"    -> "mysql"
-//	"Creating tenant"                  -> ""
+//	"Creating Organization"                  -> ""
 //
 // Returns "" for non-app steps (namespace, vcluster, TLS, health checks).
 func slugFromStepName(name string) string {

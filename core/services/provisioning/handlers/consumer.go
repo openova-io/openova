@@ -1310,7 +1310,7 @@ func (h *Handler) startProvisioning(ctx context.Context, tenantID, orderID, plan
 	sort.Strings(depSlugs)
 
 	steps := []store.ProvisionStep{
-		{Name: "Creating tenant", Status: "pending"},
+		{Name: "Creating Organization", Status: "pending"},
 		{Name: "Committing manifests to Git", Status: "pending"},
 		{Name: "Provisioning vCluster", Status: "pending"},
 	}

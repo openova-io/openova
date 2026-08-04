@@ -2,7 +2,7 @@
   // #3860 / UAT row 86 — live provisioning-stage timeline.
   //
   // Renders the ordered stages the provisioning service emits for a funnel
-  // Org (core/services/provisioning/handlers/consumer.go): Creating tenant →
+  // Org (core/services/provisioning/handlers/consumer.go): Creating Organization →
   // Committing manifests to Git → Provisioning vCluster → Installing <dep>
   // (dependency) → Deploying <app> → Configuring TLS certificates → Running
   // health checks. Stage NAMES are rendered verbatim from the backend

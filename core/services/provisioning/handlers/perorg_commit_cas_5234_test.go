@@ -258,7 +258,7 @@ func (c *capturingPublisher) Close() {}
 
 func funnelSteps() []store.ProvisionStep {
 	return []store.ProvisionStep{
-		{Name: "Creating tenant", Status: "completed"},
+		{Name: "Creating Organization", Status: "completed"},
 		{Name: "Committing manifests to Git", Status: "completed"},
 		{Name: "Provisioning vCluster", Status: "completed"},
 		{Name: "Deploying WordPress", Status: "running"},

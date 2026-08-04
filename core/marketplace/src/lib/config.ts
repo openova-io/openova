@@ -353,7 +353,7 @@ export const consoleLaunchHref = (
   const params = new URLSearchParams({ host: base, token, next });
   // #3860 / UAT row 86 — thread the Org id (tenant_id) so the interstitial
   // can poll GET /api/provisioning/tenant/<id> and render the live
-  // Creating tenant → Committing manifests → Provisioning vCluster →
+  // Creating Organization → Committing manifests → Provisioning vCluster →
   // Deploying <app> → TLS → Health stage timeline instead of a bare spinner.
   // Prefer the caller-supplied id, else the one setActiveOrg persisted before
   // this redirect. Absent (e.g. a returning user whose id was cleared) the
