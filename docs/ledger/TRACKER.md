@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-04T23:15:04Z` |
+| Last refreshed | `2026-08-04T23:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -312,6 +312,7 @@ flowchart LR
 | 2026-08-04T22:03 | [#5676](https://github.com/openova-io/openova/pull/5676) | #5513 | fix(controllers): AHS status reports materialised regions +  |
 | 2026-08-04T22:16 | [#5674](https://github.com/openova-io/openova/pull/5674) | #5650 | fix(cutover): pivot the vcluster-system/loft chart source of |
 | 2026-08-04T19:39 | [#5673](https://github.com/openova-io/openova/pull/5673) | #5646 | fix(funnel): honest provisioning timeline — progress never 1 |
+| 2026-08-04T23:28 | [#5672](https://github.com/openova-io/openova/pull/5672) | #5364 | fix(catalyst-api): reap the deleted-Org console surface + na |
 | 2026-08-04T20:55 | [#5671](https://github.com/openova-io/openova/pull/5671) | #5391 | feat(cutover): named, validated, audited sovereign-admin ove |
 | 2026-08-04T17:24 | [#5670](https://github.com/openova-io/openova/pull/5670) | #5509 | docs(guacamole): multi-region session forensics — #5509 is t |
 | 2026-08-04T17:15 | [#5669](https://github.com/openova-io/openova/pull/5669) | #5508 | fix(ui): TopologyTab consumes healthGates — unverified lag r |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-04T16:15 | [#5632](https://github.com/openova-io/openova/pull/5632) | #5164 | chore(deps): bump hono from 4.12.30 to 4.12.34 in /products/ |
 | 2026-08-04T16:15 | [#5631](https://github.com/openova-io/openova/pull/5631) | #5590 | chore(deps): bump undici from 7.28.0 to 7.29.0 in /products/ |
 | 2026-08-04T16:16 | [#5630](https://github.com/openova-io/openova/pull/5630) | #213 | chore(deps): bump ip-address from 10.2.0 to 10.4.0 in /produ |
-| 2026-08-03T21:54 | [#5629](https://github.com/openova-io/openova/pull/5629) | #5527 | fix(provisioning): per-Org GitOps tree emitters cutover-awar |
 
 ---
 
