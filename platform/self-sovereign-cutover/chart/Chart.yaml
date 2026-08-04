@@ -2889,6 +2889,38 @@ name: bp-self-sovereign-cutover
 # step-count / RBAC / deadline change (still 11 steps). New contract Case 62
 # asserts the self-heal warm + re-HEAD path is present in the rendered
 # script.
+# 0.1.162 (#5650 Refs #5527 #3379 #3678) — step-08 gains a Flux SOURCE host
+# lint, the timing-independent half of the Pillar-5 proof.
+#
+# The deny-egress hold applies a cluster-wide default-deny CCNP, holds for
+# durationSeconds, and is then TORN DOWN. It therefore proves that nothing
+# external was REACHABLE during the window. It cannot prove the Sovereign has
+# no external DEPENDENCY, and ADR-0002 asserts the second. Live hw292:
+# HelmRepository vcluster-system/loft -> https://charts.loft.sh, interval 15m,
+# not suspended, referenced by a live HelmRelease. A 15m interval can straddle
+# a 600s hold entirely, so it never dialled while the policy was up; its
+# artifact was re-fetched from the public internet ~10h AFTER
+# cutoverComplete=true was set. The hold passed and was right to pass — nothing
+# asserted over the object graph.
+#
+# The new lint asserts the property directly: every non-suspended
+# HelmRepository / GitRepository / OCIRepository must resolve to a
+# Sovereign-local host, failing closed (allowHosts defaults empty, so an
+# external host is a tether until a human declares an exception in Git under
+# review). Its exemption set is deliberately NARROWER than
+# podspecRefHostLint's: that lint exempts step-04 HOST_PROJECT_MAP hosts
+# because containerd rewrites IMAGE pulls via certs.d, but source-controller
+# fetches these URLs itself and never traverses containerd, so a certs.d
+# redirect cannot cover a source object.
+#
+# New chart/tests/flux-source-host-lint.sh extracts the shell function from
+# the RENDER (not a hand-kept copy, per #5646) and drives it against a stub
+# kubectl in BOTH directions — external source fails, local source passes,
+# same source with an allowHosts entry passes. That last case is the vacuity
+# control proving the failure keyed on the HOST. The suite immediately earned
+# itself by catching a fail-OPEN bug in the first draft: when the scratch file
+# could not be created, every append no-op'd and the lint returned PASS having
+# examined nothing. Now fail-closed, with a regression case pinning it.
 # 0.1.161 (#5640 Refs #5265 #4975 #5095 #5525 #3944) — the Day-2 reconciler
 # gains an IMAGE leg, and ships ON by default in zero-egress detect mode.
 #
@@ -2955,7 +2987,7 @@ name: bp-self-sovereign-cutover
 # copyAttempts,skopeoStaticURL,maxRefsPerCycle}. No RBAC change (the runner
 # ClusterRole already grants deployments/statefulsets/daemonsets/jobs/cronjobs
 # get+list+watch). Step count unchanged at 11.
-version: 0.1.161
+version: 0.1.162
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
