@@ -109,9 +109,17 @@ untouched). Recipe: fresh-TCP sampling of `mcp.<fqdn>` N/N from both regions +
 the new `TestBootstrapKit_McpSecondaryEdgeArmedBothLegs` guard (both-directions
 falsifiability proven pre-merge).
 
-**Boarding candidates (agents in flight):** #5466 (newapi split SESSION_SECRET,
-1 template — A16 class) · #5359 (linchpin, see below). Queued wave-2:
-#5508 #5509 #5364 #5391 #5485-remainder.
+**Boarded late (merged post-sweep, cont.):** #5466 via **PR #5667** (2026-08-04T16:56Z)
+— newapi SESSION_SECRET/CRYPTO_SECRET was minted per-region behind the shared
+VIP (A16 class); fixed by riding the #5416 bp-sso-bridge→OpenBao→ExternalSecret
+carrier (bp-newapi 1.4.147 + bp-sso-bridge 0.2.27, all lockstep sites).
+Recipe: matching secret hashes across regions via fresh-TCP, then UAT rows
+37/38 signed-in landings. NOTE: new tags publish on the post-merge
+blueprint-release run — the pre-fire ghcr-tag gate must confirm both exist.
+
+**Boarding candidates (agents in flight):** #5359 (linchpin, see below) ·
+wave-2 dispatched: #5508 (TopologyTab healthGates) + #5509 (guacamole
+postgresql-shared advertisement). Queued: #5364 #5391 #5485-remainder.
 
 **Next-train (large):** #5476 #5480 (15 region-blind generator templates)
 #5513 #5646 #5649 #5358 #5086 (parked with Hetzner).
