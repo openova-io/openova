@@ -207,7 +207,7 @@ records; nothing on Contabo is destroyed until day 15.
    all-HRs-Ready convergence gate. No `evs-ssd`/`huaweicloud`/`me-east` leak reaches the
    Hetzner path (`EVS_CSI_ENABLED: "false"` at `cloudinit-control-plane.tftpl:771`).
 3. Single cluster = no HA — same posture as Contabo today; accepted, and recoverable later by re-prov'ing multi-region once that tail is paid down.
-4. LE budget on `openova.io` unknown-fresh (the FQDN moved under the apex per §3/§5.0) — verify before fire; staging-issuer fallback exists for walk-only phases.
+4. ~~LE budget on `openova.io` unknown-fresh~~ — **MEASURED 2026-08-04 (certspotter CT; crt.sh was 502)**: 1 of 5 weekly LE slots used (`signal.openova.io`, 2026-08-03), so 4 free — the `*.hfmp.openova.io` wildcard fits with re-fire headroom. Staging-issuer fallback still exists for walk-only phases. Re-check only if the fire slips past ~2026-08-10.
 5. ~~Mothership catalyst-api must be scaled up first (#5558 keeps it at 0)~~ — **RETRACTED on live evidence 2026-08-04**: `kubectl -n catalyst get deploy` shows `catalyst-api 1/1` and pod `catalyst-api-6667895dbc-b8hz9` Running for 31h. #5558 describes a past state; no hand-scale is needed. (Flux IS still dead — all four controllers at `replicas=0`, #5573 — but that does not block firing a prov, only GitOps-driven change to the mothership itself.)
 
 **De-risked on 2026-08-04 (live, so the D1 plan drops a step):** the running mothership
