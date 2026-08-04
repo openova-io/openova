@@ -1069,6 +1069,80 @@ helmRepositories:
     - "bootstrap-kit"
     - "org-tenants"
 
+  # ── #5650: vcluster loft chart-source pivot (step-06 Phase-2c) ──────────
+  #
+  # The ONE Flux source the URL-pivot above cannot reach. The
+  # bp-vcluster-helmrepo slot installs HelmRepository vcluster-system/loft at
+  # https://charts.loft.sh — a TRADITIONAL index.yaml source (spec.type
+  # default, NOT oci) in the vcluster-system namespace (NOT flux-system =
+  # helmRepositories.namespace), which the org-controller renders every
+  # per-Org vcluster boundary HelmRelease against
+  # (core/controllers/organization/internal/gitops/manifests.go, sourceRef
+  # name=loft namespace=vcluster-system, chart=vcluster version=0.33.*). The
+  # Phase-1 URL-pivot walks flux-system and matches only the openova-io OCI
+  # UPSTREAM_PREFIX, so it misses loft on BOTH axes → post-cutover the loft
+  # source keeps re-fetching charts.loft.sh on its 15m interval. That interval
+  # can straddle the 600s step-08 hold entirely, so the timed deny-egress
+  # proof never observes it (the residual tether #5650 found live on hw292,
+  # artifact re-fetched ~10h after cutoverComplete=true).
+  #
+  # This leg closes it. Because charts.loft.sh is an index.yaml repo that no
+  # OpenOva registry mirrors, and the source default must stay upstream for
+  # non-Sovereign / pre-cutover installs (the step-10 philosophy — keep chart
+  # defaults, rewrite POST-handover), the pivot is a runtime cutover step, not
+  # a source-chart change:
+  #   1. MIRROR — `helm pull` the upstream vcluster chart (egress still open at
+  #      step-06) and `helm push` it OCI into the Sovereign-local Harbor
+  #      `openova-io` project (the loft-canonical air-gapped pattern).
+  #   2. PIVOT  — live-patch the loft HelmRepository to spec.type=oci,
+  #      spec.url=oci://registry.<fqdn>/openova-io, spec.secretRef=ghcr-pull
+  #      (Phase-0 already added the registry.<fqdn> auth) + spec.certSecretRef
+  #      to the in-cluster Harbor CA (both replicated into vcluster-system,
+  #      where source-controller reads them). The tenant HRs resolve
+  #      chart=vcluster version=0.33.* against the mirrored OCI tag unchanged.
+  #   3. DURABLE — suspend the bp-vcluster-helmrepo HelmRelease (live + a
+  #      spec.suspend:true edit to the Gitea slot file) so the next 15m
+  #      reconcile does not re-render the loft HR back to charts.loft.sh.
+  #
+  # FAIL-CLOSED: any sub-step that cannot complete leaves the loft HR on
+  # charts.loft.sh and FATALs — step-08's fluxSourceHostLint (allowHosts now
+  # empty) then fails the cutover on it, loudly, rather than stamping a false
+  # cutoverComplete=true. That is the property the #5652 lint exists to
+  # enforce; this leg is what makes it pass honestly.
+  vclusterLoftPivot:
+    # Default true — the residual tether is present on every fresh prov by
+    # construction, so the keystone cc=true path needs the pivot. Set false
+    # only on a Sovereign whose bp-vcluster-helmrepo overlay ALREADY points
+    # loft at a Sovereign-local OCI mirror (then there is nothing to pivot and
+    # the empty-allowHosts lint passes on the pre-set local URL).
+    enabled: true
+    # The HelmRepository the bp-vcluster-helmrepo slot installs (matches the
+    # org-controller CATALYST_VCLUSTER_HELMREPO_{NAME,NAMESPACE} defaults).
+    helmRepositoryName: "loft"
+    namespace: "vcluster-system"
+    # The HelmRelease that reconciles the loft HR — suspended so it stops
+    # reverting the live pivot. Lives in flux-system (bootstrap-kit slot 60).
+    helmReleaseName: "bp-vcluster-helmrepo"
+    helmReleaseNamespace: "flux-system"
+    # The slot file in the local Gitea mirror where the durable suspend lands
+    # (the Phase-2 clone's bootstrap-kit tree — the same durable source the
+    # other HR pivots write to).
+    slotFile: "clusters/_template/bootstrap-kit/60-bp-vcluster-helmrepo.yaml"
+    # Upstream index.yaml chart coordinates to mirror. version is a helm
+    # constraint that MUST match the org-controller's
+    # CATALYST_VCLUSTER_CHART_VERSION default so the tag helm resolves +
+    # pushes is the tag Flux resolves the same constraint against.
+    upstreamRepoURL: "https://charts.loft.sh"
+    chartName: "vcluster"
+    chartVersion: "0.33.*"
+    # Local Harbor push project — the SAME openova-io project the other HR
+    # pivots target and Phase-0 already added registry.<fqdn> auth for, so the
+    # pivoted loft url reuses ghcr-pull + the cutover-harbor-ca trust ref.
+    localProject: "openova-io"
+    # Bounded upstream-pull retries (absorb a transient charts.loft.sh blip;
+    # a genuine failure still FATALs fail-closed).
+    pullAttempts: 3
+
 # ── HelmRepository TLS-trust for the in-cluster Harbor (Refs #3379) ──────
 #
 # THE LAST LEG OF THE CUTOVER CERT-TAIL. Step-06 Phase-1 pivots every
@@ -1766,31 +1840,32 @@ egressTest:
   # an entry is a reviewable sovereignty exception, not a config tweak.
   fluxSourceHostLint:
     enabled: true
-    # SHIPPED EXCEPTION, and the reason it is not empty.
+    # allowHosts is EMPTY — the #5650 instance fix has landed, so there is no
+    # longer a residual external Flux source to declare an exception for, and an
+    # external host is a tether until a human declares otherwise here, in Git,
+    # under review.
     #
+    # HISTORY. This key formerly carried `charts.loft.sh`, a SHIPPED EXCEPTION
+    # for the one Flux source the step-06 URL-pivot missed:
     # `clusters/_template/bootstrap-kit/60-bp-vcluster-helmrepo.yaml` installs
-    # HelmRepository vcluster-system/loft at https://charts.loft.sh on every
-    # Sovereign. That slot's own comment says an operator MAY swap the URL for
-    # a Harbor proxy cache per Principle #4a (mirror-everything) — it is an
-    # optional overlay, and nothing in the cutover drives it. So the tether is
-    # present on every fresh prov by construction.
+    # HelmRepository vcluster-system/loft at https://charts.loft.sh (a
+    # traditional index.yaml source the org-controller renders per-Org vcluster
+    # HelmReleases against). The URL-pivot walked flux-system OCI
+    # HelmRepositories only, so it missed loft on BOTH axes — wrong namespace
+    # (vcluster-system) and wrong kind (index.yaml, not the openova-io OCI
+    # prefix). The exception was the honest stop-gap: convert an UNKNOWN
+    # residual tether into a DECLARED one until the mirror+repoint landed.
     #
-    # With an empty allowHosts this lint would therefore fail step-08 on EVERY
-    # fresh prov and hold cutoverComplete=false — a guard that wedges the very
-    # flow it protects. That is the #5505 shape (a flip whose blast radius was
-    # wider than intended) and shipping it would be worse than the tether.
-    #
-    # Declaring the host here is not a weakening: it converts an UNKNOWN
-    # residual tether into a DECLARED one, visible in Git, diffable, and
-    # reviewable — which is exactly what this key is for. Every host nobody has
-    # declared still fails closed, which is the property the lint exists to
-    # enforce.
-    #
-    # Removing this entry is the definition of done for the #5650 instance fix
-    # (mirror the loft chart into the local Harbor and repoint slot 60). When
-    # that lands, delete the entry and the lint proves the tether is gone.
-    allowHosts:
-      - charts.loft.sh
+    # It has landed. `helmRepositories.vclusterLoftPivot` (step-06 Phase-2c)
+    # now mirrors the upstream vcluster chart into the Sovereign's local Harbor
+    # while egress is still open, repoints the loft HelmRepository to that
+    # Sovereign-local OCI copy (oci://registry.<fqdn>/openova-io), and suspends
+    # the bp-vcluster-helmrepo HelmRelease (live + durably in the Gitea slot)
+    # so the pivot is not reverted. By the time this step-08 lint runs the loft
+    # source already resolves to a Sovereign-local host and passes with an
+    # EMPTY allowHosts — the lint now proves the tether is GONE, not merely
+    # declared. Every host nobody has declared still fails closed (#5650).
+    allowHosts: []
   # #5359 — the SOURCE-HEALTH half of the same gate. fluxSourceHostLint above
   # asserts what every Flux source DECLARES (spec.url); this asserts whether the
   # controller ever CONVERGED on that declaration (observedGeneration ==

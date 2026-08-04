@@ -171,6 +171,20 @@ got=$(run_case "loft-allowed" "charts.loft.sh" \
   "helmrepositories|vcluster-system loft https://charts.loft.sh ")
 expect "same source with an explicit allowHosts entry" PASS "${got}"
 
+# 3b. #5650 INSTANCE FIX — after step-06 Phase-2c pivots the loft HR, the SAME
+#     vcluster-system/loft source resolves to the Sovereign-local OCI mirror and
+#     must PASS with an EMPTY allowHosts (the shipped default no longer carries
+#     charts.loft.sh). This is the both-directions proof tied to the fix itself:
+#     the identical ns/name that FAILED in case 2 on https://charts.loft.sh now
+#     PASSES here on oci://registry.<fqdn>/openova-io with no exception — the
+#     pivot, not an allowlist entry, is what flips the verdict. Without Phase-2c
+#     this case would still be on charts.loft.sh and fail closed (the removed
+#     exception is exactly what this replaces).
+got=$(run_case "loft-pivoted-local" "" \
+  "helmrepositories|flux-system bp-cilium oci://registry.${FQDN}/openova-io " \
+  "helmrepositories|vcluster-system loft oci://registry.${FQDN}/openova-io ")
+expect "loft HR pivoted to Sovereign-local OCI (empty allowHosts, #5650 instance fix)" PASS "${got}"
+
 # 4. A suspended source cannot reconcile — reported, but must not fail.
 got=$(run_case "loft-suspended" "" \
   "helmrepositories|vcluster-system loft https://charts.loft.sh true")

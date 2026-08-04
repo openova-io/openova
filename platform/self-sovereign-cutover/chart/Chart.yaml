@@ -1,5 +1,15 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.167 (#5650) — INSTANCE FIX for the residual charts.loft.sh tether. Step-06
+# gains Phase-2c (helmRepositories.vclusterLoftPivot): it mirrors the upstream
+# vcluster chart into local Harbor while egress is still open, repoints the
+# index.yaml HelmRepository vcluster-system/loft to that Sovereign-local OCI copy
+# (oci://registry.<fqdn>/openova-io, secretRef+certSecretRef replicated into
+# vcluster-system), and suspends the bp-vcluster-helmrepo HelmRelease (live +
+# durable Gitea slot edit) so the pivot is not reverted. egressTest
+# .fluxSourceHostLint.allowHosts drops its charts.loft.sh exception — the #5652
+# lint now proves the tether is GONE, not merely declared. Step count unchanged
+# at 11. New contract coverage in tests/flux-source-host-lint.sh.
 # 0.1.166 (#5359, Refs #5656 #5650 #5591 #5511 #960) — the secondary-region pivot
 # target defaults to the Sovereign's OWN external Gitea door, and the doomed
 # in-cluster mesh candidate is retired from the default chain.
@@ -3223,7 +3233,7 @@ name: bp-self-sovereign-cutover
 # copyAttempts,skopeoStaticURL,maxRefsPerCycle}. No RBAC change (the runner
 # ClusterRole already grants deployments/statefulsets/daemonsets/jobs/cronjobs
 # get+list+watch). Step count unchanged at 11.
-version: 0.1.166
+version: 0.1.167
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
