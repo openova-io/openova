@@ -182,3 +182,34 @@ What remains genuinely unclaimed is the NEEDS-CODE-LARGE set (#5476, #5480, #551
 #5358) — multi-file redesigns the manifest classes as next-train, not blocking this
 train — plus the fresh-prov-gated proof set. #5650 (loft.sh chart tether) is the last
 small crew still running. After it: freeze.
+
+## Chart-PR merge queue — state at end of the 2026-08-05 fix wave
+
+**Merged (chart chain drained one):** #5674 (loft.sh chart-source pivot, cutover
+0.1.168 / umbrella 1.4.1289) — landed after 3 rebases through the deploybot
+umbrella treadmill.
+
+**Rebased-ready but TREADMILL-DEFERRED (no deadline until the fire):**
+- **#5672** — org-console teardown reaper (#5364/#5649/R17): reaps both producers'
+  route shapes + listeners + Certificate + both TLS-Secret shapes + boundary
+  Namespace per region. Rebased clean to umbrella 1.4.1290, go guards green; went
+  DIRTY again on a deploybot re-mint before CI finished.
+- **#5675** — shared-pg dr-promoter (#5623): keycloak + shared-pg pairs auto-promote
+  on region-kill (reuses the proven bp-cnpg-pair promoter, #5178 flap guard).
+  bp-postgres 0.2.18. Same treadmill exposure.
+
+**Why deferred, not abandoned:** the deploybot mints the umbrella `version:` faster
+than a chart PR's CI completes, so every rebase is overtaken before merge — the
+documented `deploybot_treadmill_chart_pr_version_collision` class. These PRs are
+MERGED-AWAITING-PROOF (they change nothing until the fresh prov, which is
+hw292-walk-gated), so there is no value in hand-racing an automated bot.
+**Land them in the pre-fire quiet window**, when the wipe+fire sequence is
+operator-coordinated and deploybot activity can be paused/serialized — OR fix the
+root (deploybot should not bump the umbrella `version:` on every image deploy;
+see #5583 for the adjacent lockstep-coverage gap). Both branches are pushed and
+green-modulo-serialization; a single rebase each lands them in a lull.
+
+**Fix-wave tally (2026-08-05):** 12 PRs merged (#5662 #5386 #5666 #5667 #5669 #5673
+#5676 #5677 #5674 #5604 + #5597 direct + #5671), 6 issues evidence-closed (#5589
+#5388 #5456 #5512 #5520 #5509), 5 already-fixed correctly declined (#5639 #5637
+#5634 #5616 #5615), 2 chart PRs treadmill-deferred (#5672 #5675).
