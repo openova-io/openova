@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-04T16:45:03Z` |
+| Last refreshed | `2026-08-04T17:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-04T16:56 | [#5667](https://github.com/openova-io/openova/pull/5667) | #5466 | fix(newapi): one SESSION_SECRET/CRYPTO_SECRET per KC client, |
 | 2026-08-04T16:41 | [#5666](https://github.com/openova-io/openova/pull/5666) | #5394 | fix(#5394): arm the region-b mcp leg in slot 13e — last dead |
 | 2026-08-04T15:43 | [#5662](https://github.com/openova-io/openova/pull/5662) | #4706 | fix(wizard): thread the Single-region topology choice to the |
 | 2026-08-04T09:16 | [#5658](https://github.com/openova-io/openova/pull/5658) | #5641 | fix(qa-fixtures): QA CNPG Clusters pinned a Hetzner region o |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-03T20:37 | [#5620](https://github.com/openova-io/openova/pull/5620) | #3687 | fix(catalyst-api): Organization DELETE deletes the CR so the |
 | 2026-08-03T19:53 | [#5619](https://github.com/openova-io/openova/pull/5619) | #5535 | fix(catalyst-api): P0 — main compiles again; unstall catalys |
 | 2026-08-04T16:16 | [#5606](https://github.com/openova-io/openova/pull/5606) | chore(deps): bump @anthropic-ai/claude-agent-sdk from 0.3.21 |  |
-| 2026-08-04T16:16 | [#5605](https://github.com/openova-io/openova/pull/5605) | #6839 | chore(deps): bump fastify from 5.10.0 to 5.11.0 in /products |
 
 ---
 
