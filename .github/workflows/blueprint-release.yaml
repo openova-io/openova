@@ -809,12 +809,78 @@ jobs:
           echo "bp_file=${bp_file}" >> "$GITHUB_OUTPUT"
           echo "prev_version=${current}" >> "$GITHUB_OUTPUT"
 
+      # ──────────────────────────────────────────────────────────────
+      # LOCKSTEP — catalog-seed + generated catalog (issue #5583)
+      # ──────────────────────────────────────────────────────────────
+      # bump_pin + bump_blueprint above cover only 3 of the 5 lockstep sites a
+      # chart bump must move (Chart.yaml itself is written by the deploy-bot
+      # that triggered this run). The remaining two:
+      #
+      #   4. products/catalyst/chart/templates/catalog-seed/blueprints.yaml —
+      #      the seeded card's spec.version AND its delivery source.version. The
+      #      catalog-seed is the in-cluster fallback the bp-catalog-client reads
+      #      when the gitea catalog-sovereign repo 404s.
+      #   5. the committed generated catalog
+      #      (products/catalyst/bootstrap/api/internal/catalog/blueprints.json +
+      #      products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts),
+      #      regenerated from the already-bumped blueprint.yaml by build-catalog.mjs.
+      #
+      # Since the #4432/R21 catalog-seed display-drift guards and the #5520
+      # regenerate-and-prove-no-diff gate landed, omitting sites 4+5 REDDENS main
+      # on every deploy-bot bump (issue #5583) and cascades that red into every
+      # open PR. Writing them here makes one bump = one atomically-green commit.
+      #
+      # Node is pinned to the same '22' the #5520 gate
+      # (.github/workflows/check-catalog-generated-drift.yaml) uses;
+      # build-catalog.mjs has ZERO npm dependencies (node builtins only), so no
+      # `npm ci` is needed — this is exactly the invocation that gate runs.
+      - name: "Set up Node (catalog regeneration)"
+        if: steps.chart.outputs.skip != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: "Lockstep-sync catalog-seed + regenerate catalog for ${{ steps.chart.outputs.name }}"
+        if: steps.chart.outputs.skip != 'true'
+        id: sync_seed
+        env:
+          CHART_NAME: ${{ steps.chart.outputs.name }}
+          CHART_VERSION: ${{ steps.chart.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          # (4) Sync the catalog-seed card spec.version + delivery source.version
+          # for the ONE entry (or entries) whose manifests.chart == CHART_NAME.
+          # Idempotent: a graceful no-op when the chart is not seeded (the
+          # products/catalyst umbrella card renders {{ .Chart.Version }} and is
+          # skipped) or is already at CHART_VERSION. Never rewrites a Go-template
+          # version line into a literal.
+          python3 scripts/sync-catalog-seed-pin.py "${CHART_NAME}" "${CHART_VERSION}"
+
+          # (5) Regenerate the committed catalog from the (already-bumped)
+          # blueprint.yaml sources. Deterministic + zero npm deps — the same
+          # command #5520's drift gate runs.
+          ( cd products/catalyst/bootstrap/ui && node scripts/build-catalog.mjs )
+
+          # Did any of the three managed files actually move? Emit `bumped` so
+          # the commit step stages them — and so a seed-only change (a chart
+          # seeded but absent from the kit whose blueprint.yaml was already at
+          # spec.version) can still drive a commit.
+          SEED_FILES="products/catalyst/chart/templates/catalog-seed/blueprints.yaml products/catalyst/bootstrap/api/internal/catalog/blueprints.json products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts"
+          if git diff --quiet -- $SEED_FILES; then
+            echo "INFO: catalog-seed + generated catalog already in sync for ${CHART_NAME}=${CHART_VERSION} — no-op."
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "catalog-seed / generated catalog updated for ${CHART_NAME}=${CHART_VERSION}."
+            echo "bumped=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: "Commit + push bootstrap-kit pin bump + blueprint.yaml lockstep"
         # Run if either side has staged changes — usually they bump in
         # tandem, but a kit-only chart (no blueprint.yaml) or a non-kit
         # leaf (no pin file) might bump only one. Either is sufficient
         # to commit.
-        if: steps.chart.outputs.skip != 'true' && (steps.bump_pin.outputs.bumped == 'true' || steps.bump_blueprint.outputs.bumped == 'true')
+        if: steps.chart.outputs.skip != 'true' && (steps.bump_pin.outputs.bumped == 'true' || steps.bump_blueprint.outputs.bumped == 'true' || steps.sync_seed.outputs.bumped == 'true')
         env:
           CHART_NAME: ${{ steps.chart.outputs.name }}
           CHART_VERSION: ${{ steps.chart.outputs.version }}
@@ -824,10 +890,18 @@ jobs:
           BP_PREV_VERSION: ${{ steps.bump_blueprint.outputs.prev_version }}
           PIN_BUMPED: ${{ steps.bump_pin.outputs.bumped }}
           BP_BUMPED: ${{ steps.bump_blueprint.outputs.bumped }}
+          SEED_BUMPED: ${{ steps.sync_seed.outputs.bumped }}
         run: |
           set -euo pipefail
           git config user.name "hatiyildiz"
           git config user.email "hatiyildiz@users.noreply.github.com"
+
+          # The three catalog-seed / generated-catalog files (#5583). Kept as
+          # vars so both the initial stage and the retry re-apply reference the
+          # identical set.
+          SEED_SEED="products/catalyst/chart/templates/catalog-seed/blueprints.yaml"
+          SEED_JSON="products/catalyst/bootstrap/api/internal/catalog/blueprints.json"
+          SEED_TS="products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts"
 
           # Idempotent reset-and-rewrite on push conflict — parallel
           # matrix jobs (multiple Blueprints bumped in one push) can race
@@ -855,13 +929,39 @@ jobs:
             sed -i -E "s|^  version: .*\$|  version: ${CHART_VERSION}|" "$bp"
             return 0
           }
+          # Re-apply the catalog-seed sync + catalog regeneration for THIS chart
+          # after a `git reset --hard origin/main` (retry path only) — the reset
+          # wipes the sync_seed step's working-tree edits, so a retry commit
+          # would otherwise drop sites 4+5 and re-introduce exactly the #5583
+          # red. The helper is idempotent and build-catalog.mjs is deterministic,
+          # so this converges to the same final state on every attempt. Returns 0
+          # iff the managed files ended up changed vs origin/main.
+          resync_seed() {
+            if ! python3 scripts/sync-catalog-seed-pin.py "${CHART_NAME}" "${CHART_VERSION}" --quiet; then
+              echo "::error title=catalog-seed resync failed::sync-catalog-seed-pin.py errored on retry for ${CHART_NAME}=${CHART_VERSION}" >&2
+              return 2
+            fi
+            if ! ( cd products/catalyst/bootstrap/ui && node scripts/build-catalog.mjs ) >/dev/null; then
+              echo "::error title=catalog regen failed::build-catalog.mjs errored on retry for ${CHART_NAME}=${CHART_VERSION}" >&2
+              return 2
+            fi
+            if git diff --quiet -- "$SEED_SEED" "$SEED_JSON" "$SEED_TS"; then
+              return 1
+            fi
+            return 0
+          }
 
-          # Stage whichever files were rewritten.
+          # Stage whichever files were rewritten. The working tree already
+          # carries the bump_pin / bump_blueprint / sync_seed edits from the
+          # steps above, so the initial attempt only needs `git add`.
           if [ "${PIN_BUMPED}" = "true" ] && [ -n "${PIN_FILE}" ]; then
             git add "${PIN_FILE}"
           fi
           if [ "${BP_BUMPED}" = "true" ] && [ -n "${BP_FILE}" ]; then
             git add "${BP_FILE}"
+          fi
+          if [ "${SEED_BUMPED}" = "true" ]; then
+            git add "$SEED_SEED" "$SEED_JSON" "$SEED_TS"
           fi
 
           if git diff --staged --quiet; then
@@ -892,16 +992,27 @@ jobs:
               "${CHART_NAME}" "${PREV_VERSION}" "${CHART_VERSION}" "${BP_PREV_VERSION}" "${CHART_VERSION}")
           elif [ "${PIN_BUMPED}" = "true" ]; then
             msg="deploy(${CHART_NAME}): bump bootstrap-kit pin ${PREV_VERSION} -> ${CHART_VERSION} (auto, Refs TBD-A6)"
-          else
+          elif [ "${BP_BUMPED}" = "true" ]; then
             # Only blueprint.yaml moved — chart is not in the bootstrap kit
             # (e.g. an opt-in Application Blueprint like bp-velero, bp-vllm).
             msg="deploy(${CHART_NAME}): lockstep blueprint.yaml spec.version ${BP_PREV_VERSION} -> ${CHART_VERSION} (auto, Refs TBD-A20, #1856)"
+          else
+            # Only the catalog-seed + generated catalog moved (#5583) — the pin
+            # and blueprint.yaml were already at CHART_VERSION for this chart.
+            msg="deploy(${CHART_NAME}): lockstep catalog-seed + generated catalog -> ${CHART_VERSION} (auto, Refs #5583)"
+          fi
+          # When the catalog-seed sync rode along with a pin/blueprint bump,
+          # note it as a secondary body line (#5583). Same printf-with-\n shape
+          # as the pin+blueprint case above — never a literal newline in this
+          # block-scalar (TBD-A23 / #1864).
+          if [ "${SEED_BUMPED}" = "true" ] && { [ "${PIN_BUMPED}" = "true" ] || [ "${BP_BUMPED}" = "true" ]; }; then
+            msg=$(printf '%s\n\nAlso locksteps catalog-seed spec.version + delivery pin + generated catalog -> %s (Refs #5583).' "${msg}" "${CHART_VERSION}")
           fi
           git commit -m "${msg}"
 
           for i in 1 2 3; do
             if git push origin HEAD:main; then
-              echo "Pushed lockstep bump for ${CHART_NAME}=${CHART_VERSION} (pin=${PIN_BUMPED}, blueprint=${BP_BUMPED})"
+              echo "Pushed lockstep bump for ${CHART_NAME}=${CHART_VERSION} (pin=${PIN_BUMPED}, blueprint=${BP_BUMPED}, seed=${SEED_BUMPED})"
               exit 0
             fi
             echo "push attempt $i failed — re-fetching origin/main and re-applying lockstep"
@@ -910,6 +1021,7 @@ jobs:
 
             did_pin=0
             did_bp=0
+            did_seed=0
             if [ "${PIN_BUMPED}" = "true" ] && [ -n "${PIN_FILE}" ]; then
               if rewrite_pin "${PIN_FILE}"; then
                 git add "${PIN_FILE}"
@@ -922,7 +1034,17 @@ jobs:
                 did_bp=1
               fi
             fi
-            if [ "$did_pin" -eq 0 ] && [ "$did_bp" -eq 0 ]; then
+            # Re-apply the catalog-seed sync AFTER the blueprint.yaml rewrite so
+            # build-catalog.mjs regenerates from the freshly-bumped source
+            # (#5583). Idempotent + deterministic, so this is a no-op when
+            # origin/main already carries this chart's seed sync.
+            if [ "${SEED_BUMPED}" = "true" ]; then
+              if resync_seed; then
+                git add "$SEED_SEED" "$SEED_JSON" "$SEED_TS"
+                did_seed=1
+              fi
+            fi
+            if [ "$did_pin" -eq 0 ] && [ "$did_bp" -eq 0 ] && [ "$did_seed" -eq 0 ]; then
               echo "origin/main already at ${CHART_VERSION} — nothing to push"
               exit 0
             fi
@@ -930,13 +1052,11 @@ jobs:
               echo "no changes after re-fetch — already at ${CHART_VERSION} on origin/main"
               exit 0
             fi
-            if [ "$did_pin" -eq 1 ] && [ "$did_bp" -eq 1 ]; then
-              git commit -m "deploy(${CHART_NAME}): bump bootstrap-kit pin -> ${CHART_VERSION} + blueprint.yaml lockstep (auto, Refs TBD-A6 + TBD-A20, retry $i)"
-            elif [ "$did_pin" -eq 1 ]; then
-              git commit -m "deploy(${CHART_NAME}): bump bootstrap-kit pin -> ${CHART_VERSION} (auto, Refs TBD-A6, retry $i)"
-            else
-              git commit -m "deploy(${CHART_NAME}): lockstep blueprint.yaml spec.version -> ${CHART_VERSION} (auto, Refs TBD-A20, retry $i)"
-            fi
+            parts=""
+            if [ "$did_pin" -eq 1 ]; then parts="pin"; fi
+            if [ "$did_bp" -eq 1 ]; then parts="${parts:+${parts}+}blueprint.yaml"; fi
+            if [ "$did_seed" -eq 1 ]; then parts="${parts:+${parts}+}catalog-seed"; fi
+            git commit -m "deploy(${CHART_NAME}): lockstep ${parts} -> ${CHART_VERSION} (auto, Refs TBD-A6 + TBD-A20 + #5583, retry $i)"
           done
           echo "::error title=Lockstep push failed::3 attempts exhausted for ${CHART_NAME}=${CHART_VERSION}."
           exit 1
