@@ -67,6 +67,45 @@ is the day-2 list above.
 - **Zero-touch**: no hand-patching during convergence; a wedge = a defect to fix
   at source, re-fire. DEBUG-BEFORE-WIPE if it fails (cloud-init log first).
 
+### 3b. Offline IaC validation of the single-region Hetzner path (2026-08-04)
+
+Run against a scratch copy of `infra/` with **synthetic, format-valid dummy
+credentials** (no real tokens; nothing was applied, nothing provisioned):
+
+| Step | Result |
+|---|---|
+| `tofu init -backend=false` | OK — hcloud 1.66.0 + aws 5.100.0 from the lock file |
+| `tofu validate` | **Success! The configuration is valid.** |
+| `tofu plan -refresh=false` (single-region tfvars) | **Plan: 24 to add, 0 to change, 0 to destroy** — no errors |
+| `length(local.secondary_regions)` | **0** — confirms the audit's empty-set claim for single-region, measured not inferred |
+
+🛑 **VACUITY CHECK — the plan being green does NOT clear the cloud-init guardrail.**
+Measured directly via `tofu console`:
+
+- `length(nonsensitive(local.worker_cloud_init))` = **4889** bytes vs the 30720 guard
+  (`main.tf:1049`) — a real pass with a large margin.
+- `length(nonsensitive(local.control_plane_cloud_init))` = **`(known after apply)`**
+  — it depends on values not resolvable at plan time. Therefore the tight
+  control-plane guard (`length(...) <= 32576`, only **192 B** below Hetzner's
+  32768 hard cap, `main.tf:1039`) **was never evaluated by this plan**. A green
+  plan is silent about it; the check fires at APPLY.
+
+So the control-plane cloud-init size stays an **apply-time risk**, unchanged by
+this exercise. Given the guard has been raised four times (31744 → 32256 →
+32512 → 32576) it sits close to the ceiling, and a single-region render has
+never been measured. If the prov dies at apply with "Rendered control-plane
+cloud-init is N bytes, exceeds 32576", that is this, not an infra fault.
+
+**Two tfvars-shape traps found the hard way** (both cost a failed plan; both
+apply to the real POST body):
+- `regions[]` element attributes are **camelCase** — `cloudRegion`,
+  `controlPlaneSize`, `workerSize`, `workerCount`. snake_case is rejected.
+- `parent_domains_yaml` is a **YAML inline array of objects**, e.g.
+  `[{name: omantel.biz, role: primary}, {name: omani.homes, role: org-pool}]`.
+  A newline-separated list of bare domains makes `yamldecode` return a scalar
+  and `cloudinit-control-plane.tftpl:641` fails with "Iteration over
+  non-iterable value" — which reads like a template bug and is not one.
+
 ### 4. Mothership-role walk (the ~30-row core, replaces "walk everything")
 
 1. Prov converges: all HRs Ready, zero NodePorts (`scripts/check-live-nodeports.sh`), CSI storage, no local-path.
