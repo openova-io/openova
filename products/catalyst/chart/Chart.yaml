@@ -3635,7 +3635,7 @@ name: bp-catalyst-platform
 #   Bootstrap-kit slot-06a pin bumped in lockstep (pin-sync gate).
 #   (1.4.1281-1.4.1283 were taken on main by the #5666 merge and image-deploy
 #   cycles while this PR was in flight; re-serialized to 1.4.1284 at merge.)
-version: 1.4.1285
+version: 1.4.1286
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
@@ -3785,7 +3785,7 @@ version: 1.4.1285
 #   unsatisfiable on kom4dc (me-east-215-*), which kept the production
 #   Continuum seed unfireable. Backwards-compatible (all-letter labels
 #   still match). Flux CreateReplace flows it to live Sovereigns.
-appVersion: 1.4.1276
+appVersion: 1.4.1286
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
