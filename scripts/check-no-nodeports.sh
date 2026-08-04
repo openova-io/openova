@@ -426,6 +426,39 @@ if [ -n "${CACHE_MASKED}" ]; then
   echo ""
 fi
 
+# ─────────────────────────────────────────────────────────────────────────
+# TAMPER-EVIDENCE for the guard's own negative coverage.
+#
+# The scan above deliberately EXCLUDES
+# platform/kyverno-policies/chart/tests/ — those Services carry
+# `type: NodePort` on purpose, as the "bad" inputs proving the §854
+# ClusterPolicy actually DENIES a NodePort (#5088/#5089). kyverno-test.yaml
+# asserts `result: fail` against exactly those resources.
+#
+# But an exclusion with nothing behind it is worse than no exclusion: if
+# someone "helpfully" converts the fixtures to ClusterIP, this scan still
+# passes, kyverno-test's deny-assertions no longer exercise anything, and
+# the §854 Enforce policy silently loses its only negative coverage — with
+# ZERO signal. (This has been proposed repeatedly under the reasoning "the
+# repo still greps NodePort, convert them".)
+#
+# So: assert the fixtures are STILL NodePort. This check fails when the
+# guard's own test coverage is removed, which is the failure mode the
+# exclusion would otherwise hide.
+FIXTURE_DIR="platform/kyverno-policies/chart/tests/forbid-nodeport-service"
+if [ -d "${FIXTURE_DIR}" ]; then
+  fixture_hits="$(grep -rlE '(^|[[:space:]])type:[[:space:]]*NodePort' "${FIXTURE_DIR}" 2>/dev/null || true)"
+  if [ -z "${fixture_hits}" ]; then
+    fail "§854 NEGATIVE-TEST COVERAGE LOST: no 'type: NodePort' fixture remains under ${FIXTURE_DIR}."
+    echo "  The forbid-nodeport-service policy's deny-assertions (kyverno-test.yaml," >&2
+    echo "  result: fail) now exercise nothing — the Enforce policy is unproven." >&2
+    echo "  Those fixtures MUST stay NodePort. Restore them; do not 'clean them up'." >&2
+  else
+    echo "OK — §854 negative-test fixtures intact (still NodePort): ${fixture_hits}"
+  fi
+fi
+
+echo ""
 if [ "${EXIT}" -ne 0 ]; then
   echo "───────────────────────────────────────────────────────────────" >&2
   echo "NodePorts are ABSOLUTELY FORBIDDEN (founder 2026-07-03, #4765)." >&2
