@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-04T23:30:09Z` |
+| Last refreshed | `2026-08-04T23:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -310,6 +310,7 @@ flowchart LR
 | 2026-08-04T23:10 | [#5678](https://github.com/openova-io/openova/pull/5678) | #5583 | ci(blueprint-release): sync catalog-seed + regenerate catalo |
 | 2026-08-04T22:20 | [#5677](https://github.com/openova-io/openova/pull/5677) | #5476 | fix(catalyst-api): wire spine object-model ownership chain + |
 | 2026-08-04T22:03 | [#5676](https://github.com/openova-io/openova/pull/5676) | #5513 | fix(controllers): AHS status reports materialised regions +  |
+| 2026-08-04T23:31 | [#5675](https://github.com/openova-io/openova/pull/5675) | #5623 | feat(bp-postgres): region-B auto DR promoter for the shared- |
 | 2026-08-04T22:16 | [#5674](https://github.com/openova-io/openova/pull/5674) | #5650 | fix(cutover): pivot the vcluster-system/loft chart source of |
 | 2026-08-04T19:39 | [#5673](https://github.com/openova-io/openova/pull/5673) | #5646 | fix(funnel): honest provisioning timeline — progress never 1 |
 | 2026-08-04T23:28 | [#5672](https://github.com/openova-io/openova/pull/5672) | #5364 | fix(catalyst-api): reap the deleted-Org console surface + na |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-03T20:59 | [#5636](https://github.com/openova-io/openova/pull/5636) | #4028 | fix(marketplace): surface the 429 rate-limit response in the |
 | 2026-08-04T16:15 | [#5632](https://github.com/openova-io/openova/pull/5632) | #5164 | chore(deps): bump hono from 4.12.30 to 4.12.34 in /products/ |
 | 2026-08-04T16:15 | [#5631](https://github.com/openova-io/openova/pull/5631) | #5590 | chore(deps): bump undici from 7.28.0 to 7.29.0 in /products/ |
-| 2026-08-04T16:16 | [#5630](https://github.com/openova-io/openova/pull/5630) | #213 | chore(deps): bump ip-address from 10.2.0 to 10.4.0 in /produ |
 
 ---
 
