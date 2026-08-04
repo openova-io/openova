@@ -91,3 +91,35 @@ Residue after T3:    #4277-gated rows + whatever T2 newly discovers (each gets
    never a hand-patch).
 
 Refs #960 #5640 #5642 #5635 #5617 #5359 #4277
+
+## Passenger list — 48-issue sweep result (2026-08-05, agent-verified per-issue)
+
+Counts: **27 MERGED-AWAITING-PROOF** (boarded — proof on hw293) · **8 NEEDS-CODE-SMALL**
+(boarding candidates, agents dispatched) · **8 NEEDS-CODE-LARGE** (next train, except
+#5359 — see below) · **4 STALE** (closed with evidence this session) · **1 FOUNDER-GATED** (#5328).
+
+**Boarded (merged, recipe on each issue):** #5265 #5420 #5422 #5429 #5436 #5437
+#5443 #5445 #5450 #5451 #5484 #5488 #5489 #5496 #5499 #5500 #5501 #5502 #5504
+#5505 #5510 #5514 #5515 #5516 #5527 #5591 #5640.
+
+**Boarding candidates (small, agents in flight):** #5466 (newapi split
+SESSION_SECRET, 1 template — A16 class) · #5394+#5341 (region-b MCP HR
+suspend=true — arm the slot) · #5359 (linchpin, see below). Queued wave-2:
+#5508 #5509 #5364 #5391 #5485-remainder.
+
+**Next-train (large):** #5476 #5480 (15 region-blind generator templates)
+#5513 #5646 #5649 #5358 #5086 (parked with Hetzner).
+
+**⚠️ LINCHPIN — #5359 (cutover pivots only the control-plane region).** Gates
+#5527, #5591, #5649 AND the whole region-b listener row set (86/90/219/234
+class). State: #5379's per-region legs ran and stamped success but region-b
+Flux reverted the pivot in ~5 min (GitRepository generation 2 /
+observedGeneration 1 — source-controller never observed the new spec); #5656
+now makes step-05 refuse the stale Ready (loud instead of silent). The chart
+already carries secondary-region machinery (cilium global-service annotation +
+`giteaFallbackToPublicDoor` → `https://gitea.<fqdn>`). Open question a dispatched
+agent is resolving pre-freeze: WHY observedGeneration sticks (wedged
+source-controller vs suspended object vs unreachable URL) and which pivot-target
+default is §854-clean and region-reachable. If unresolved by freeze, the train
+departs anyway — #5656 guarantees hw293's cutover fails LOUDLY at step-05
+rather than silently half-pivoting, which is itself the diagnostic we need.
