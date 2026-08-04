@@ -159,3 +159,26 @@ source-controller vs suspended object vs unreachable URL) and which pivot-target
 default is §854-clean and region-reachable. If unresolved by freeze, the train
 departs anyway — #5656 guarantees hw293's cutover fails LOUDLY at step-05
 rather than silently half-pivoting, which is itself the diagnostic we need.
+
+## Verification pass on the sweep's NEEDS-CODE-SMALL bucket (2026-08-05, second half)
+
+The sweep's "needs code" classification proved OPTIMISTIC — re-checking each against
+merged PRs, most were already fixed:
+
+| Issue | Reality | Evidence |
+|---|---|---|
+| #5466 | MERGED today | PR #5667 (A16 secret via sso-bridge carrier) |
+| #5394/#5341 | MERGED today | PR #5666 (region-b MCP edge slot armed) |
+| #5364 | PR in flight | PR #5672 (teardown reaper; also covers #5649) |
+| #5391 | PR in flight | PR #5671 (cutover settled-roll override) |
+| #5508 | MERGED today | PR #5669 (honest unverified-lag) |
+| #5509 | folded → #5480 | PR #5670 forensics (premise refuted, A16 class) |
+| #5646 | MERGED today | PR #5673 (provisioning-timeline honesty) |
+| **#5639** | **already fixed** (pre-today) | PRs #5641 + #5658 (fail-closed `required` region + class gate `check-region-selector-fail-closed.sh`); value-asserted render test green on main. Delivery-only leg → hw293. |
+| **#5637** | **already fixed + not a bug** | PR #5643 (founder-verified). Cilium CP encryption opt-out is DOCUMENTED posture (SECURITY.md §2.1 — API-server node excluded to avoid WireGuard key-rotation deadlock); guard `check-live-node-encryption.sh` samples every role/region. Live-walk-only close → hw293. |
+
+**Consequence:** the mergeable-before-fire small-fix pipeline is essentially DRAINED.
+What remains genuinely unclaimed is the NEEDS-CODE-LARGE set (#5476, #5480, #5513,
+#5358) — multi-file redesigns the manifest classes as next-train, not blocking this
+train — plus the fresh-prov-gated proof set. #5650 (loft.sh chart tether) is the last
+small crew still running. After it: freeze.

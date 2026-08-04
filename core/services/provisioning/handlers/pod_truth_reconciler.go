@@ -53,9 +53,16 @@ func (h *Handler) reconcilePodTruth(ctx context.Context) {
 	}
 	for i := range all {
 		p := &all[i]
-		// Ignore terminal states — failed is user-visible and intentionally
-		// frozen; completed has nothing to advance.
-		if p.Status != "provisioning" {
+		// #5646 — a `failed` record is NOT frozen. The workload can recover on
+		// its own after the record was written (e.g. a dependency that crossed
+		// the 10-minute readiness budget but came up moments later — mysql was
+		// 1/1 Running for half a day while the funnel still showed a permanent
+		// failure). The record must RE-OBSERVE reality and supersede the earlier
+		// failure stamp, not carry a final verdict forever. So we reconcile both
+		// in-flight (`provisioning`) AND `failed` records here; only the terminal
+		// SUCCESS state (`completed`) is skipped — it has nothing left to advance.
+		// Level-triggered, not write-once.
+		if p.Status != "provisioning" && p.Status != "failed" {
 			continue
 		}
 		if p.Subdomain == "" {
@@ -167,17 +174,40 @@ func (h *Handler) reconcileOneProvision(ctx context.Context, p *store.Provision)
 	_ = advanced
 	stepAdvanced := map[int]bool{}
 	for i, step := range p.Steps {
-		if step.Status == "completed" || step.Status == "failed" {
+		// Skip only steps already at their happy terminal state. A `failed`
+		// step is NOT skipped — #5646: if its workload is now Ready the failure
+		// was transient (crossed a readiness budget then recovered) and must be
+		// SUPERSEDED, level-triggered, so the timeline reflects the healthy Org
+		// rather than a permanent verdict.
+		if step.Status == "completed" {
 			continue
 		}
 		slug := slugFromStepName(step.Name)
 		if slug == "" || !ready[slug] {
 			continue
 		}
-		slog.Warn("pod-truth: advancing stuck step — pod is Ready",
-			"tenant", p.Subdomain, "step", step.Name, "slug", slug)
-		h.markStep(ctx, p.ID, i, step.Name, "running")  // running first if was pending
+		// #5646 — respect the DECLARED phase order. Never mark a step completed
+		// while an EARLIER step is still pending/running/failed, or the timeline
+		// shows a later stage green above an unresolved earlier one (the
+		// "Running health checks completed before the dependency it depends on
+		// failed" defect). Advancing strictly in declared order keeps the record
+		// monotonic and honest; a later pass completes step i once its
+		// predecessors have.
+		if !priorStepsComplete(p.Steps, i) {
+			continue
+		}
+		if step.Status == "failed" {
+			slog.Warn("pod-truth: superseding failed step — pod is now Ready",
+				"tenant", p.Subdomain, "step", step.Name, "slug", slug)
+		} else {
+			slog.Warn("pod-truth: advancing stuck step — pod is Ready",
+				"tenant", p.Subdomain, "step", step.Name, "slug", slug)
+		}
+		h.markStep(ctx, p.ID, i, step.Name, "running")  // running first if was pending/failed
 		h.completeStep(ctx, p.ID, p.TenantID, i, step.Name, len(p.Steps))
+		// Keep the in-memory snapshot consistent so priorStepsComplete + the
+		// allDone roll-up below see this completion within the same pass.
+		p.Steps[i].Status = "completed"
 		stepAdvanced[i] = true
 		advanced = true
 		// Publish provision.app_ready so the tenant service clears the
@@ -213,16 +243,26 @@ func (h *Handler) reconcileOneProvision(ctx context.Context, p *store.Provision)
 			"Provisioning vCluster":        true, // in case orphan left this mid-way
 		}
 		for i, step := range p.Steps {
-			if step.Status == "completed" || step.Status == "failed" {
+			// As with the per-app loop, a `failed` tail step is re-observable
+			// (#5646): once every app is Ready the tail condition it gates on is
+			// satisfied, so a transient failure must be superseded. Only an
+			// already-`completed` step is skipped.
+			if step.Status == "completed" {
 				continue
 			}
 			if !tailNames[step.Name] {
+				continue
+			}
+			// Declared-phase order (#5646): never green a tail step above an
+			// earlier step that is still unresolved.
+			if !priorStepsComplete(p.Steps, i) {
 				continue
 			}
 			slog.Warn("pod-truth: auto-completing tail step — all apps Ready",
 				"tenant", p.Subdomain, "step", step.Name)
 			h.markStep(ctx, p.ID, i, step.Name, "running")
 			h.completeStep(ctx, p.ID, p.TenantID, i, step.Name, len(p.Steps))
+			p.Steps[i].Status = "completed"
 			advanced = true
 		}
 	}
@@ -328,6 +368,12 @@ func (h *Handler) reconcileOneProvision(ctx context.Context, p *store.Provision)
 	// finalize. Without this unconditional check the status would stay
 	// 'provisioning' forever and the UI shows 'Running 9/9' (exactly
 	// what the user saw on emrah5). Issue #119.
+	//
+	// #5646 — this is ALSO the recovery path for a record previously written
+	// `failed`: once the superseding above has flipped the last failed step to
+	// completed, every step is completed and the overall verdict flips from
+	// failed back to completed with progress 100, and a fresh provision.completed
+	// is emitted so downstream state reflects the recovered Organization.
 	allDone := true
 	for _, s := range p.Steps {
 		if s.Status != "completed" {
@@ -335,9 +381,9 @@ func (h *Handler) reconcileOneProvision(ctx context.Context, p *store.Provision)
 			break
 		}
 	}
-	if allDone {
+	if allDone && p.Status != "completed" {
 		slog.Info("pod-truth: all steps completed — marking provision succeeded",
-			"tenant", p.Subdomain, "provision_id", p.ID)
+			"tenant", p.Subdomain, "provision_id", p.ID, "prior_status", p.Status)
 		p.Status = "completed"
 		p.Progress = 100
 		if err := h.Store.UpdateProvision(ctx, p.ID, p); err == nil {
@@ -347,6 +393,24 @@ func (h *Handler) reconcileOneProvision(ctx context.Context, p *store.Provision)
 			})
 		}
 	}
+}
+
+// priorStepsComplete reports whether every step BEFORE index i is in the
+// terminal "completed" state. The pod-truth reconciler uses it to advance the
+// timeline strictly in DECLARED phase order (#5646): a step is only greened
+// once all of its predecessors are, so the customer never sees a later stage
+// completed above an earlier one that is still pending, running, or failed.
+// i <= 0 has no predecessors and is trivially true.
+func priorStepsComplete(steps []store.ProvisionStep, i int) bool {
+	if i > len(steps) {
+		i = len(steps)
+	}
+	for j := 0; j < i; j++ {
+		if steps[j].Status != "completed" {
+			return false
+		}
+	}
+	return true
 }
 
 // slugFromStepName extracts the app slug from step names like:

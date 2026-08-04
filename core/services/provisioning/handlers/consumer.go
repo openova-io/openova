@@ -1894,6 +1894,14 @@ func (h *Handler) failProvision(ctx context.Context, provisionID, tenantID strin
 	}
 
 	p.Status = "failed"
+	// #5646 — progress must never read 100 on a run that failed. A concurrent
+	// pod-truth reconcile (or an earlier step-completion roll-up) can have left
+	// Progress at 100 just before this failure lands; without recomputing it the
+	// customer sees a FULL progress bar sitting above "Provisioning didn't
+	// finish". Recompute from the steps that ACTUALLY completed — the failed /
+	// still-pending steps are excluded, so on a failed run this is always < 100.
+	// The invariant the funnel UI relies on: progress == 100 ⟺ status == completed.
+	p.Progress = completedStepProgress(p.Steps)
 	if err := h.Store.UpdateProvision(ctx, provisionID, p); err != nil {
 		slog.Error("failed to mark provision as failed", "error", err)
 	}
@@ -1904,6 +1912,24 @@ func (h *Handler) failProvision(ctx context.Context, provisionID, tenantID strin
 	})
 
 	slog.Error("provisioning failed", "provision_id", provisionID, "step", stepIndex, "error", message)
+}
+
+// completedStepProgress returns the percent of steps that are in the terminal
+// "completed" state. Because a failing (or still-running) provision always has
+// at least one non-completed step, the result is guaranteed < 100 — which is
+// exactly the property #5646's failProvision relies on to enforce the
+// progress == 100 ⟺ status == "completed" invariant. Empty step list → 0.
+func completedStepProgress(steps []store.ProvisionStep) int {
+	if len(steps) == 0 {
+		return 0
+	}
+	completed := 0
+	for _, s := range steps {
+		if s.Status == "completed" {
+			completed++
+		}
+	}
+	return (completed * 100) / len(steps)
 }
 
 func (h *Handler) updateProgress(ctx context.Context, provisionID string, progress int) {
