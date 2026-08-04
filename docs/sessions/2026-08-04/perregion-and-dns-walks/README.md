@@ -115,3 +115,43 @@ proven (walk 1), but its symptom is downstream of an OAuth round-trip that is on
 time. Fixing #5617 alone would leave every per-Org app failing ~half of all connections.
 
 Refs #5511 #5617 #5459
+
+## Walk 4 — the #5591 remediation, run as an experiment, and what it proved
+
+The one-line HR patch had been refused at operator-permission level earlier. It went through on retry,
+so rather than apply-and-declare I ran it as a timed experiment with 10-second sampling.
+
+    t-0     values.compliancePolicies = {}                       Enforce 1/25   forbid-nodeport-service Audit
+    patch   values.compliancePolicies = {"bootstrapMode": false} generation 2 / observedGeneration 2
+    t+10s                                                        Enforce 9/25   forbid-nodeport-service Enforce
+    t+20s                                                        Enforce 9/25   forbid-nodeport-service Enforce
+    t+30s                                                        Enforce 9/25   forbid-nodeport-service Enforce
+    t+40s                                                        Enforce 1/25   forbid-nodeport-service Audit   <-- reverted
+    t+60s                                                        Enforce 1/25   forbid-nodeport-service Audit
+
+Post-revert readback: `values.compliancePolicies=` empty, `generation 3 / observedGeneration 3`.
+
+**The fix works and does not hold.** The policies genuinely flip; `forbid-nodeport-service` genuinely
+reaches Enforce; and something reverts it inside 40 seconds.
+
+**What reverts it.** The HelmRelease carries `kustomize.toolkit.fluxcd.io/name: bootstrap-kit` and
+`catalyst.openova.io/slot: 27a` — it is owned by region-b's `bootstrap-kit` Kustomization, which
+reconciles from region-b's GitRepository. That source is the #5359 defect:
+
+    url      = http://gitea-http.gitea.svc.cluster.local:3000/openova/openova
+    revision = main@sha1:4cc85ad9...      a real commit on PUBLIC github.com
+    gen/obs  = 2 / 1                      the cutover pivot was never processed
+
+Region-b reconciles slot 27a from public GitHub, where `bootstrapMode` is not false. A live mutation
+is therefore *drift*, and Flux corrects drift. The system is behaving exactly as designed on top of a
+broken source.
+
+**#5591 and #5359 are one defect at two layers.** #5591's live remediation is not difficult on this
+environment — it is impossible, with a measured half-life under 40 seconds. It also explains cleanly
+why region-a's flip persists: region-a's `bootstrap-kit` reconciles from local Gitea, where the
+cutover wrote the pivoted values, and region-b's does not.
+
+This is why #5591 cannot be closed here, and the reason is stronger than the process argument I was
+making before: not "the checklist has an unchecked box" but "the box cannot be checked on this env".
+
+Refs #5591 #5359 #5656 #5640
