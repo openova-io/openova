@@ -774,7 +774,7 @@ controllers:
       # re-apply, NOT the sweep). 89993b2 is a direct DESCENDANT of b23af68 so it
       # CONTAINS the #4393 Guaranteed-QoS LimitRange fix AS WELL AS #4455 + #4462.
       # Durable fix to the deploy-bump whole-file clobber tracked in #4464.
-      tag: "8523ecf"
+      tag: "7148b21"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
