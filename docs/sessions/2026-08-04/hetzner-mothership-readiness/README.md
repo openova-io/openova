@@ -70,13 +70,20 @@ is the day-2 list above.
   parent-zone writes land in PowerDNS and are therefore invisible to the
   public zone, so the fire is **collision-free even on the bare apex**: the
   old mothership keeps serving `console.openova.io` (45.151.123.50, TTL
-  already 300s) throughout the prov. The domain handover is the wizard's own
-  **BYO NS-delegation step** (`StepNSDelegation.tsx`): post-convergence,
-  swap `openova.io`'s NS at Dynadot to the new box's PowerDNS and the ENTIRE
-  domain serves from the new mothership. Rollback = revert NS at Dynadot.
-  ⚠️ Dynadot `set_dns2` REPLACES the full record set — any API-driven change
-  must carry every record incl. MX (memory: feedback_dynadot_dns). Prep
-  Stalwart/MX on the new box BEFORE the NS swap — mail moves with the zone.
+  already 300s) throughout the prov. **The domain handover is PER-RECORD at
+  Dynadot — the NS-swap idea is DEAD** (founder challenge 2026-08-04,
+  vindicated by zone measurement): the zone carries the public WEBSITE on
+  the apex+www, the MAIL plane (MX/SPF/DMARC; SPF pins the old IP), a
+  catch-all wildcard, ~29 cert-bearing hostnames incl. live `signal`
+  (cert 2026-08-03), `langfuse`/`langflow`/`temporal`/`analytics`,
+  `webmail`/`sogo`, `cinova.*` (⛔ never-touch), AND the tenant-domain
+  backbone — `omani.works` NS = `ns1/2/3.openova.io`. A zone move would
+  have taken all of that dark. See §5.0 for the per-record disposition.
+  Cert on the new box: same mechanism the old box uses today — Dynadot-API
+  DNS-01 (no `_acme-challenge` delegation exists; measured) — zero public
+  record changes; verify during the walk. ⚠️ Dynadot rules (memory
+  feedback_dynadot_dns): plain `set_dns2` WIPES the zone — only ever
+  `add_dns_to_current_setting=yes`; MX is web-panel-only, not API.
 - **Law compliance**: ONE environment at a time (founder 2026-07-15) — wipe hw292
   (dep `1c56518035a83e03`, healthy, all extractable proofs banked in
   docs/sessions/2026-08-03..04 + UAT stamps) via the canonical wipe endpoint,
@@ -156,15 +163,27 @@ apply to the real POST body):
 
 ### 5.0 Domain strategy — the new box IS `openova.io` from birth (founder ruling 2026-08-04)
 
-- New mothership sovereign FQDN: **`openova.io`** — the entire domain, not a
-  subdomain (§3). Public DNS is Dynadot-hosted (measured — see §3), so the
-  prov itself changes NOTHING public; the whole domain moves in ONE
-  deliberate act: the NS swap at Dynadot to the new box's PowerDNS
-  (the wizard's BYO NS-delegation step), done post-convergence.
-- Elevation order: Stalwart data-copy + MX records staged on the new box
-  FIRST (mail moves with the zone), deployments-PVC export/seed (steps 2+6),
-  THEN the NS swap (step 5), Contabo frozen read-only 14 days (rollback =
-  revert NS at Dynadot; nothing destroyed until day 15).
+- New mothership sovereign FQDN: **`openova.io`** — the entire domain as its
+  identity (§3), taken over **name-by-name at Dynadot** (NS stays at Dynadot;
+  no zone move). Every flip is one record via
+  `set_dns2 … add_dns_to_current_setting=yes` / per-record edit, one rollback.
+- **Zone disposition (measured 2026-08-04 — dig + cert-history + dns.md):**
+
+  | Records | Disposition |
+  |---|---|
+  | `console`, `api`, `auth`, `marketplace`, `flux-webhook` | **Wave 1** → new LB IP, only after UAT-by-IP passes (`curl --resolve` walk) |
+  | `ns1/2/3` (glue), `pdns`, `pool` — tenant-domain backbone (`omani.*` NS) | **Wave 2**, own step: new PowerDNS must serve the pool zones first, then flip |
+  | `harbor` | **Wave 3** after pivot settles — every Sovereign's cutover step-08 references it |
+  | MX, SPF, DKIM, `mail`, `webmail`, `sogo` | **Mail day** — dedicated step: Stalwart data-copy → MX flip (WEB PANEL ONLY) → SPF to new IP. Never bundled with the fire |
+  | apex `@`, `www` (public website) | **STAYS** — own migration, unhurried, out of pivot scope |
+  | `signal` (live, cert 2026-08-03), `analytics`, `langfuse`, `langflow`, `temporal` | **STAY** — identify/migrate individually later |
+  | `cinova.*` | ⛔ **NEVER-TOUCH** |
+  | `omantel`, `sme`, `sme2`, `admin`, `wshell`, `ping`, wildcard `*` | Legacy/catch-all — untouched; retire in cleanup, never during pivot |
+
+- Elevation order: deployments-PVC export/seed → UAT-by-IP on the new box →
+  Wave 1 flip → Wave 2 backbone → mail day → Wave 3. Contabo frozen
+  read-only 14 days after Wave 1; rollback at every wave = revert that
+  wave's records only. Nothing destroyed until day 15.
 - `console.openova.io` served by the new env from first boot means the #5614
   hardcoded issuer matches by construction — no post-hoc issuer work.
 
