@@ -29,12 +29,14 @@ Every fix listed below is **merged and inside the image hw292 provisions with**.
 
 **Publish blocker found and fixed this cycle:** bp-gitea 1.2.49 silently failed to publish because `httproute-render.sh` piped `echo` into `grep -q` under `pipefail` — `grep -q` closes the pipe on first match, `echo` dies with SIGPIPE 141, and the pipeline reported FAIL **on a passing value**. Herestrings removed the pipe (`bf59fb5f0`); blueprint-release green, 1.2.49 on ghcr. Any chart whose tests use that idiom is exposed to the same false failure.
 
-**Held, merging the moment hw292 reports ready** (a deploybot roll mid-prov abandons the provisioning — prov-preflight gate 5):
+**Formerly held pending hw292 readiness** (a deploybot roll mid-prov abandons the provisioning — prov-preflight gate 5). hw292 reported ready and the freeze thawed; **both merged**:
 
 | PR | issue | state |
 |---|---|---|
-| #5534 | #5485 defects 4–6 (suspended HR shows healthy, `?status=` ignored, `/fleet/applications` duplicates) | CI green, 0 fails |
-| #5535 | #5488 cutover pre-flight aborts on a recoverable condition | CI green; 7/7 tests re-run independently |
+| #5534 | #5485 defects 4–6 (suspended HR shows healthy, `?status=` ignored, `/fleet/applications` duplicates) | **MERGED** |
+| #5535 | #5488 cutover pre-flight aborts on a recoverable condition | **MERGED** |
+
+Both are in `main` and inside published images — but read Gate 5 below before treating that as delivered to hw292, which it is not.
 
 ---
 
