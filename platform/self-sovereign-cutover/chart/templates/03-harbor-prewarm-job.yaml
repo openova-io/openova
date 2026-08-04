@@ -102,7 +102,7 @@ data:
       exit 1
     fi
 
-    # ─── Phase A0: settled-roll pre-flight (#4982, Refs #3379) ─────────
+    # ─── Phase A0: settled-roll pre-flight (#4982 #5391, Refs #3379) ───
     # harbor-prewarm mirrors the RUNNING / declared-template image tags
     # (Phase A below). If any HelmRelease or Deployment/StatefulSet on the
     # HOST cluster is MID-ROLL — a bootstrap-kit pin bumped but not yet
@@ -127,15 +127,136 @@ data:
     # rendering the desired chart version off each HelmRelease spec); this
     # gate prevents the whole class today with no render dependency. Runs
     # BEFORE the ~5-min skopeo static-binary download so it fails fast.
-    if [ "${SETTLED_ROLL_PREFLIGHT:-true}" = "true" ]; then
+    #
+    # #5391 NAMED OPERATOR OVERRIDE — the recovery seam. Once Flux marks an
+    # HR Stalled=True (RetriesExceeded) it has stopped retrying PERMANENTLY:
+    # the hw290/hw291 quota-wedged customer releases (#5393) could never
+    # reach Ready, so this gate held the ENTIRE Sovereign's cutover closed
+    # forever with no operator remedy. A sovereign-admin may now exclude a
+    # SPECIFIC genuinely-stuck release:
+    #
+    #   kubectl annotate helmrelease <name> -n <ns> \
+    #     catalyst.openova.io/cutover-settled-roll-override="<reason>"
+    #
+    # The DEFAULT is unchanged — every non-suspended HR must be Ready. An
+    # override is explicit, per-release, and validated FAIL-CLOSED before
+    # any exclusion happens:
+    #   - empty/whitespace reason                  → gate FATALs (unnamed why)
+    #   - annotated release is HEALTHY             → gate FATALs (stale/over-broad)
+    #   - annotated release mid-roll (neither Stalled=True nor
+    #     Ready.reason=DependencyNotReady)         → gate FATALs (it will settle
+    #                                                on its own; overriding would
+    #                                                paper over a live roll)
+    # Honored overrides are recorded DURABLY in the cutover status
+    # ConfigMap (settledRollOverrides / settledRollOverridesAt) — surfaced
+    # as a first-class field on GET /sovereign/cutover/status and in the
+    # admin console — and an override that cannot be recorded is REFUSED
+    # (no unaudited carve-outs). The exclusion narrows only the settle
+    # CHECK: the excluded release's running images + charts are still
+    # mirrored by the Phase A / A2 enumerations, which are gate-independent.
+    # ── settled-roll-preflight BEGIN (Case 77 extraction anchor — tests/cutover-contract.sh executes this block verbatim with a stubbed kubectl) ──
+    SETTLED_ROLL_OVERRIDE_ANNOTATION="catalyst.openova.io/cutover-settled-roll-override"
+    srp_kubectl_json() {
+      # kubectl get "$@" -o json with a bounded retry; JSON on stdout,
+      # diagnostics on stderr. The gate must SEE the roll state to certify
+      # anything — a read failure returns 1 and the caller FATALs
+      # (fail-closed) instead of silently passing on an empty offender
+      # list (the assert-on-the-VALUE-not-the-KEY trap: the pre-#5391 gate
+      # PASSED whenever the kubectl read itself failed).
+      _srp_i=1
+      while [ "${_srp_i}" -le 5 ]; do
+        if _srp_out=$(kubectl get "$@" -o json 2>/dev/null) && [ -n "${_srp_out}" ]; then
+          printf '%s' "${_srp_out}"
+          return 0
+        fi
+        echo "[harbor-prewarm] Phase A0: kubectl get $* failed (attempt ${_srp_i}/5); retry in 5s" >&2
+        _srp_i=$((_srp_i+1))
+        sleep 5
+      done
+      return 1
+    }
+    srp_record_overrides() {
+      # $1 = newline-joined honored "<ns>/<name>=<reason>" list; "" CLEARS
+      # the record on a clean pass so a previous run's override cannot
+      # linger in the status CM as a phantom audit entry.
+      if [ -z "${STATUS_CONFIGMAP_NAME:-}" ] || [ -z "${STATUS_CONFIGMAP_NAMESPACE:-}" ]; then
+        [ -z "$1" ] && return 0
+        echo "[harbor-prewarm] FATAL: settled-roll override(s) in effect but STATUS_CONFIGMAP_NAME/NAMESPACE is unset — cannot write the audit record; an override MUST be recorded to be used (#5391)"
+        return 1
+      fi
+      _srp_at=""
+      [ -n "$1" ] && _srp_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      _srp_patch=$(jq -cn --arg v "$1" --arg at "${_srp_at}" '{data: {settledRollOverrides: $v, settledRollOverridesAt: $at}}')
+      if kubectl patch configmap "${STATUS_CONFIGMAP_NAME}" -n "${STATUS_CONFIGMAP_NAMESPACE}" --type merge -p "${_srp_patch}" >/dev/null 2>&1; then
+        return 0
+      fi
+      if [ -z "$1" ]; then
+        echo "[harbor-prewarm] WARN: could not clear the settledRollOverrides record on ${STATUS_CONFIGMAP_NAMESPACE}/${STATUS_CONFIGMAP_NAME} (best-effort on a clean pass)"
+        return 0
+      fi
+      echo "[harbor-prewarm] FATAL: settled-roll override(s) in effect but the audit-record patch to ConfigMap ${STATUS_CONFIGMAP_NAMESPACE}/${STATUS_CONFIGMAP_NAME} failed — an override MUST be recorded to be used (#5391)"
+      return 1
+    }
+    settled_roll_preflight() {
       echo "[harbor-prewarm] Phase A0: settled-roll pre-flight — no HelmRelease/workload may be mid-roll before the mirror is built"
+      if ! _srp_hr_json=$(srp_kubectl_json helmreleases -A); then
+        echo "[harbor-prewarm] FATAL: Phase A0 could not list HelmReleases after 5 attempts — the gate cannot certify a roll state it cannot read; refusing to fail open (#5391)"
+        return 1
+      fi
+      if ! _srp_wl_json=$(srp_kubectl_json deployments,statefulsets -A); then
+        echo "[harbor-prewarm] FATAL: Phase A0 could not list Deployments/StatefulSets after 5 attempts — the gate cannot certify a roll state it cannot read; refusing to fail open (#5391)"
+        return 1
+      fi
+      # #5391 override validation FIRST, before ANY exclusion — the gate
+      # fail-closes on a malformed or over-broad override rather than
+      # honoring it. A SUSPENDED HR is outside the gate's domain entirely
+      # (skipped below), so its annotations are not judged here.
+      or_bad=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" '
+        .items[]
+        | select((.spec.suspend // false) | not)
+        | select((.metadata.annotations // {}) | has($okey))
+        | ((.metadata.annotations[$okey] // "") | gsub("^\\s+|\\s+$"; "")) as $reason
+        | ((((.status.conditions // []) | map(select(.type=="Ready")) | (.[0].status // "Unknown")) == "True")
+           and ((.status.observedGeneration // -1) >= (.metadata.generation // 0))) as $healthy
+        | (((.status.conditions // []) | map(select(.type=="Stalled")) | (.[0].status // "False")) == "True") as $stalled
+        | (((.status.conditions // []) | map(select(.type=="Ready")) | (.[0].reason // ""))) as $why
+        | if ($reason | length) == 0 then "\(.metadata.namespace)/\(.metadata.name)\tEMPTY-REASON"
+          elif $healthy then "\(.metadata.namespace)/\(.metadata.name)\tHEALTHY"
+          elif (($stalled or ($why == "DependencyNotReady")) | not) then "\(.metadata.namespace)/\(.metadata.name)\tMID-ROLL"
+          else empty end') || {
+        echo "[harbor-prewarm] FATAL: Phase A0 override-validation jq failed — refusing to fail open (#5391)"
+        return 1
+      }
+      if [ -n "${or_bad}" ]; then
+        echo "[harbor-prewarm] FATAL: invalid settled-roll override annotation(s) (${SETTLED_ROLL_OVERRIDE_ANNOTATION}) — fail-closed, NO exclusion honored (#5391):"
+        printf '%s\n' "${or_bad}" | while IFS="$(printf '\t')" read -r _srp_hr _srp_class; do
+          case "${_srp_class}" in
+            EMPTY-REASON) echo "[harbor-prewarm]   ${_srp_hr}: annotation present but the reason is EMPTY — an override must say why; re-annotate with a non-empty reason (or remove it)" ;;
+            HEALTHY)      echo "[harbor-prewarm]   ${_srp_hr}: names a HEALTHY HelmRelease (Ready=True, observedGeneration==generation) — a stale/over-broad override; remove the annotation" ;;
+            MID-ROLL)     echo "[harbor-prewarm]   ${_srp_hr}: genuinely mid-roll (neither Stalled=True nor Ready.reason=DependencyNotReady) — it will settle on its own; wait and re-trigger instead of overriding" ;;
+          esac
+        done
+        return 1
+      fi
+      # Every remaining annotated HR is a VALIDATED override (named, stuck,
+      # reasoned). Newlines/tabs in the reason are flattened so the record
+      # stays one line per release.
+      or_used=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" '
+        .items[]
+        | select((.spec.suspend // false) | not)
+        | select((.metadata.annotations // {}) | has($okey))
+        | "\(.metadata.namespace)/\(.metadata.name)=\((.metadata.annotations[$okey] | gsub("[\\n\\t]"; " ") | gsub("^\\s+|\\s+$"; "")))"') || {
+        echo "[harbor-prewarm] FATAL: Phase A0 override-enumeration jq failed — refusing to fail open (#5391)"
+        return 1
+      }
       # HelmReleases: a SUSPENDED HR is intentionally frozen (it will NOT
       # roll during the cutover, so its running IS its desired) → skip it.
+      # A validly-overridden HR (annotation, validated above) → skip it.
       # Otherwise flag when the spec out-ran the controller
       # (observedGeneration < generation — the pin-bump case) OR Ready !=
       # True (mid-reconcile / failed upgrade).
-      # #5391: distinguish TERMINAL from mid-roll. Once Flux marks an HR
-      # Stalled=True (reason RetriesExceeded) it has stopped retrying
+      # #5391/#5392: distinguish TERMINAL from mid-roll. Once Flux marks an
+      # HR Stalled=True (reason RetriesExceeded) it has stopped retrying
       # PERMANENTLY — that release will never reach Ready on its own, so
       # "wait for the roll to settle and re-trigger" is false advice: the
       # operator would wait forever. Live hw290 (dep 31106b6aa4a7e8e7):
@@ -143,9 +264,10 @@ data:
       # (delta-corp/bp-keycloak `context deadline exceeded` alone cascaded
       # DependencyNotReady onto 4 siblings). Tag those rows so the operator
       # can tell "wait 5 minutes" from "this blocks you until you act".
-      hr_pending=$(kubectl get helmreleases -A -o json 2>/dev/null | jq -r '
+      hr_pending=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" '
         .items[]
         | select((.spec.suspend // false) | not)
+        | select(((.metadata.annotations // {}) | has($okey)) | not)
         | select(
             ((.status.observedGeneration // -1) < (.metadata.generation // 0))
             or (((.status.conditions // []) | map(select(.type=="Ready")) | (.[0].status // "Unknown")) != "True")
@@ -154,13 +276,16 @@ data:
         | (((.status.conditions // []) | map(select(.type=="Ready")) | (.[0].message // "")) | split("\n")[0]) as $why
         | "HelmRelease/\(.metadata.namespace)/\(.metadata.name)"
           + (if $stalled then "  [TERMINAL: Flux stalled — it has STOPPED retrying and will never clear itself]" else "" end)
-          + (if ($why | length) > 0 then "  (\($why))" else "" end)' 2>/dev/null || true)
+          + (if ($why | length) > 0 then "  (\($why))" else "" end)') || {
+        echo "[harbor-prewarm] FATAL: Phase A0 HelmRelease-offender jq failed — refusing to fail open (#5391)"
+        return 1
+      }
       # Deployments + StatefulSets: a pending rollout — observedGeneration
       # behind the spec, or updated/ready replicas short of desired. Skip
       # intentionally scaled-to-zero (spec.replicas == 0). DaemonSets are
       # deliberately NOT gated: cordoned / control-plane-tainted nodes skew
       # desired-vs-ready legitimately and would false-positive the gate.
-      wl_pending=$(kubectl get deployments,statefulsets -A -o json 2>/dev/null | jq -r '
+      wl_pending=$(printf '%s' "${_srp_wl_json}" | jq -r '
         .items[]
         | select((.spec.replicas // 1) > 0)
         | select(
@@ -168,7 +293,10 @@ data:
             or ((.status.updatedReplicas // 0) < (.spec.replicas // 1))
             or ((.status.readyReplicas // 0) < (.spec.replicas // 1))
           )
-        | "\(.kind // "Workload")/\(.metadata.namespace)/\(.metadata.name)"' 2>/dev/null || true)
+        | "\(.kind // "Workload")/\(.metadata.namespace)/\(.metadata.name)"') || {
+        echo "[harbor-prewarm] FATAL: Phase A0 workload-offender jq failed — refusing to fail open (#5391)"
+        return 1
+      }
       unsettled=$(printf '%s\n%s\n' "${hr_pending}" "${wl_pending}" | grep -c . || true)
       if [ "${unsettled}" -gt 0 ]; then
         terminal=$(printf '%s\n' "${hr_pending}" | grep -c 'TERMINAL:' || true)
@@ -180,17 +308,37 @@ data:
           echo "[harbor-prewarm]   flux reconcile helmrelease <name> -n <namespace> --reset     # clears Stalled and retries"
           echo "[harbor-prewarm]   (or remove the Organization if the release belongs to a customer app you no longer need)"
           echo "[harbor-prewarm] Fix the underlying failure first — the message in parentheses above is the Helm error that stalled it."
+          echo "[harbor-prewarm] If a release is GENUINELY unfixable right now (e.g. quota-wedged, #5393), a sovereign-admin may exclude that ONE release from this gate with a named, audited override (#5391):"
+          echo "[harbor-prewarm]   kubectl annotate helmrelease <name> -n <namespace> ${SETTLED_ROLL_OVERRIDE_ANNOTATION}=\"<why it is stuck / ticket ref>\""
+          echo "[harbor-prewarm]   The override is validated fail-closed (a healthy or merely mid-roll release is REJECTED), recorded in the cutover status ConfigMap, and shown on GET /sovereign/cutover/status."
         fi
         if [ "${unsettled}" -gt "${terminal}" ]; then
           echo "[harbor-prewarm] The remainder are genuinely mid-roll — wait for them to settle (HelmRelease Ready=True + observedGeneration==generation; workloads updated==ready==desired replicas), then re-trigger the cutover."
         fi
-        echo "[harbor-prewarm] (settled-roll pre-flight #4982/#5391; emergency override for a manually confirmed-settled env: prewarm.settledRollPreflight.enabled=false)"
-        exit 1
+        if [ -n "${or_used}" ]; then
+          echo "[harbor-prewarm] NOTE: these named overrides were validated and WOULD be honored, but the offenders above remain outside them:"
+          printf '%s\n' "${or_used}" | sed 's/^/  override: /'
+        fi
+        echo "[harbor-prewarm] (settled-roll pre-flight #4982/#5391; named per-release override: the ${SETTLED_ROLL_OVERRIDE_ANNOTATION} annotation; whole-gate emergency kill for a manually confirmed-settled env: prewarm.settledRollPreflight.enabled=false)"
+        return 1
       fi
-      echo "[harbor-prewarm] Phase A0: env settled — no HelmRelease/Deployment/StatefulSet mid-roll; building the mirror from running == desired tags"
+      srp_record_overrides "${or_used}" || return 1
+      if [ -n "${or_used}" ]; then
+        or_count=$(printf '%s\n' "${or_used}" | grep -c . || true)
+        echo "[harbor-prewarm] Phase A0: env settled WITH ${or_count} named operator override(s) (#5391) — each excluded release is terminal-stuck; its running images/charts are still mirrored by the enumerations below:"
+        printf '%s\n' "${or_used}" | sed 's/^/  override: /'
+        echo "[harbor-prewarm] override record written to ConfigMap ${STATUS_CONFIGMAP_NAMESPACE}/${STATUS_CONFIGMAP_NAME} key settledRollOverrides (surfaced on GET /sovereign/cutover/status)"
+      else
+        echo "[harbor-prewarm] Phase A0: env settled — no HelmRelease/Deployment/StatefulSet mid-roll; building the mirror from running == desired tags"
+      fi
+      return 0
+    }
+    if [ "${SETTLED_ROLL_PREFLIGHT:-true}" = "true" ]; then
+      settled_roll_preflight || exit 1
     else
       echo "[harbor-prewarm] Phase A0: settled-roll pre-flight DISABLED (prewarm.settledRollPreflight.enabled=false) — mirroring running tags without a settle check"
     fi
+    # ── settled-roll-preflight END (Case 77 extraction anchor) ──
 
     if ! command -v skopeo >/dev/null 2>&1; then
       echo "[harbor-prewarm] skopeo not on PATH; downloading static binary"
@@ -2626,6 +2774,19 @@ data:
           # disable override. The key is always present in values.yaml.
           - name: SETTLED_ROLL_PREFLIGHT
             value: {{ .Values.prewarm.settledRollPreflight.enabled | quote }}
+          # #5391 — the named-override audit-record target. Phase A0 writes
+          # every honored settled-roll override (the
+          # catalyst.openova.io/cutover-settled-roll-override annotation,
+          # validated fail-closed) into the cutover status ConfigMap keys
+          # settledRollOverrides / settledRollOverridesAt so
+          # GET /sovereign/cutover/status + the admin console can show a
+          # walk that an override was used; a clean pass clears the record.
+          # An override that cannot be recorded FATALs the step — no
+          # unaudited carve-outs.
+          - name: STATUS_CONFIGMAP_NAME
+            value: {{ .Values.status.configMapName | quote }}
+          - name: STATUS_CONFIGMAP_NAMESPACE
+            value: {{ .Release.Namespace | quote }}
           # #4994 (Refs #3379), #5030 — content-digest idempotency. When true
           # (default) each skopeo copy first compares the SOURCE manifest digest
           # (`skopeo inspect --raw | sha256sum` on the SOURCE — the sha256 of the

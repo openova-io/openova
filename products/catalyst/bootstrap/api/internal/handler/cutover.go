@@ -2315,8 +2315,18 @@ type cutoverStatusResponse struct {
 	ProgressPercent             int                 `json:"progressPercent"`
 	FailedStep                  string              `json:"failedStep,omitempty"`
 	LastError                   string              `json:"lastError,omitempty"`
-	Steps                       []cutoverStepStatus `json:"steps"`
-	Raw                         map[string]string   `json:"raw,omitempty"`
+	// SettledRollOverrides (#5391) — the audit record step-03 Phase A0
+	// writes when the settled-roll gate passed WITH one or more NAMED
+	// operator overrides (the catalyst.openova.io/cutover-settled-roll-
+	// override annotation on a genuinely-stuck HelmRelease, validated
+	// fail-closed by the gate). Newline-joined "<ns>/<name>=<reason>"
+	// entries; empty when the last pass used no override. Surfaced
+	// first-class so a walk can SEE that an override was used without
+	// digging through Raw.
+	SettledRollOverrides   string              `json:"settledRollOverrides,omitempty"`
+	SettledRollOverridesAt string              `json:"settledRollOverridesAt,omitempty"`
+	Steps                  []cutoverStepStatus `json:"steps"`
+	Raw                    map[string]string   `json:"raw,omitempty"`
 }
 
 // cutoverStateValue returns the canonical wire string for the overall
@@ -2613,6 +2623,8 @@ func buildCutoverStatusResponseFromMap(status map[string]string, stepNames []str
 	}
 	resp.FailedStep = status["failedStep"]
 	resp.LastError = status["lastError"]
+	resp.SettledRollOverrides = status["settledRollOverrides"]
+	resp.SettledRollOverridesAt = status["settledRollOverridesAt"]
 
 	resp.Steps = make([]cutoverStepStatus, 0, len(stepNames))
 	for _, name := range stepNames {
