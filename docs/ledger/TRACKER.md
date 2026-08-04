@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-04T04:15:04Z` |
+| Last refreshed | `2026-08-04T04:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-04T04:26 | [#5652](https://github.com/openova-io/openova/pull/5652) | #5650 | feat(cutover): assert Flux sources are Sovereign-local, not  |
 | 2026-08-04T04:12 | [#5651](https://github.com/openova-io/openova/pull/5651) | #5553 | fix(ui-test): ExecPanel waits for the socket, not just the D |
 | 2026-08-04T00:39 | [#5647](https://github.com/openova-io/openova/pull/5647) | #5635 | fix(catalyst-api): reconcile the per-Org console gateway sur |
 | 2026-08-03T23:48 | [#5645](https://github.com/openova-io/openova/pull/5645) | #5642 | fix(k8scache): AddCluster no-ops on an unchanged kubeconfig  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-02T16:50 | [#5580](https://github.com/openova-io/openova/pull/5580) | #17536 | chore(deps): bump astro and @astrojs/svelte in /core/marketp |
 | 2026-08-02T13:32 | [#5579](https://github.com/openova-io/openova/pull/5579) | #5554 | fix(wizard+api): salvage the six genuinely-new changes from  |
 | 2026-08-02T11:31 | [#5578](https://github.com/openova-io/openova/pull/5578) | #5563 | fix(854): NodePort guard advised deleting an allowlist entry |
-| 2026-08-02T11:13 | [#5577](https://github.com/openova-io/openova/pull/5577) | #5559 | docs(uat): R21 independent re-walk reconfirms #5559 — 6 iner |
 
 ---
 
