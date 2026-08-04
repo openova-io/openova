@@ -1313,7 +1313,7 @@ spec:
       #   own external Gitea door; the headless-doomed in-cluster mesh
       #   candidate is retired. Lockstep w/ slot-06a pin 0.1.166 (pin-sync
       #   gate; re-serialized past main's 1.4.1283).
-      version: 1.4.1285
+      version: 1.4.1286
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
