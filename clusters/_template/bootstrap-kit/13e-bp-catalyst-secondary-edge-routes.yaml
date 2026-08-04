@@ -94,6 +94,27 @@ spec:
           host: api.${SOVEREIGN_FQDN}
         marketplace:
           host: marketplace.${SOVEREIGN_FQDN}
+        # #5394 / #5341 — ARM the region-b mcp leg. The chart has shipped
+        # service-mcp.yaml (ClusterMesh global-Service stub + mcp.<fqdn>
+        # HTTPRoute on the SHARED kube-system/cilium-gateway) since
+        # #5342/chart 0.2.0, gated on this host with default "" — and its
+        # own values.yaml comment says "the slot fills this on multi-region
+        # provs". This slot never did: #5342 bumped only the version pin
+        # here, and #5399 armed only the 13d region-a half
+        # (multiRegion.enabled → service.cilium.io/global on region-a's mcp
+        # Service). With this host unset the region-b HR reconciled Ready
+        # while rendering ZERO mcp resources, so region-b's envoy had no
+        # mcp vhost and bare-404'd its share of the two-region VIP
+        # round-robin — reproduced on fresh hw292 (dep 1c56518035a83e03,
+        # 2026-08-03: 12 fresh-TCP samples alternate 404/405 ~50/50).
+        # Second instance of the same activation-left-to-a-second-file
+        # class on this exact chain; the render guard in
+        # tests/e2e/bootstrap-kit now pins both halves.
+        # No extra multi-region gate needed: this HR is
+        # SECONDARY_EDGE_SUSPEND everywhere except the secondary CP of a
+        # 2-region prov, so single-region + primary renders are unchanged.
+        mcp:
+          host: mcp.${SOVEREIGN_FQDN}
       # Mirror slot 13's marketplace gate so region-b proxies marketplace.<fqdn>
       # (→ org-services gateway/admin/marketplace over the mesh) exactly when
       # region-a serves it.
