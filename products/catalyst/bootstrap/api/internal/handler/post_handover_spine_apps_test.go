@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
@@ -79,7 +80,7 @@ func TestRenderSpineApplicationCR_ContractShape(t *testing.T) {
 		"catalyst.openova.io/organization": "t99.omani.works",
 		"catalyst.openova.io/environment":  "t99-omani-works-cp",
 	}
-	cr := renderSpineApplicationCR(sc, "t99-omani-works-cp", "t99-omani-works", []string{"me-east-215", "eu-west-101"}, owner)
+	cr := renderSpineApplicationCR(sc, "t99-omani-works-cp", "t99-omani-works", []string{"me-east-215", "eu-west-101"}, owner, "")
 
 	if got := cr.GetName(); got != "spine-openbao" {
 		t.Fatalf("name = %q, want spine-openbao", got)
@@ -170,7 +171,7 @@ func TestRenderSpineApplicationCR_StampsRequiredConfig(t *testing.T) {
 
 	// keycloak roster row carries Config{realmName} → spec.parameters.realmName set.
 	kc := spineComponent{Chart: "keycloak", HRName: "bp-keycloak", BlueprintName: "bp-keycloak", BlueprintVersion: "1.0.0", MultiRegionMode: "active-hot-standby", Config: map[string]interface{}{"realmName": "sovereign"}}
-	cr := renderSpineApplicationCR(kc, "t99-omani-works-cp", "t99-omani-works", []string{"me-east-215", "eu-west-101"}, owner)
+	cr := renderSpineApplicationCR(kc, "t99-omani-works-cp", "t99-omani-works", []string{"me-east-215", "eu-west-101"}, owner, "")
 	realm, found, _ := unstructured.NestedString(cr.Object, "spec", "parameters", "realmName")
 	if !found {
 		t.Fatalf("spec.parameters.realmName must be stamped for the keycloak spine (configSchema required: [realmName]); it was omitted")
@@ -186,7 +187,7 @@ func TestRenderSpineApplicationCR_StampsRequiredConfig(t *testing.T) {
 	// openbao roster row has no Config → no spec.parameters at all (Blueprint
 	// declares no required config; stamping an empty map would be noise).
 	ob := spineComponent{Chart: "openbao", HRName: "bp-openbao", BlueprintName: "bp-openbao", BlueprintVersion: "1.2.25", MultiRegionMode: "active-passive"}
-	crOB := renderSpineApplicationCR(ob, "t99-omani-works-cp", "t99-omani-works", []string{"me-east-215", "eu-west-101"}, owner)
+	crOB := renderSpineApplicationCR(ob, "t99-omani-works-cp", "t99-omani-works", []string{"me-east-215", "eu-west-101"}, owner, "")
 	if _, found, _ := unstructured.NestedMap(crOB.Object, "spec", "parameters"); found {
 		t.Fatalf("spec.parameters must be absent for a component with no required config (openbao)")
 	}
@@ -324,16 +325,14 @@ func TestPresentSpineHRs_OnlyExistingSpine(t *testing.T) {
 func withCreateUpdateApplier(t *testing.T) func() {
 	t.Helper()
 	prev := applySpineApplicationCR
-	applySpineApplicationCR = func(dyn dynamic.Interface, obj *unstructured.Unstructured) error {
+	applySpineApplicationCR = func(dyn dynamic.Interface, obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
 		ri := dyn.Resource(ApplicationGVR()).Namespace(spineApplicationNamespace)
 		existing, err := ri.Get(context.Background(), obj.GetName(), metav1.GetOptions{})
 		if err == nil {
 			obj.SetResourceVersion(existing.GetResourceVersion())
-			_, uerr := ri.Update(context.Background(), obj, metav1.UpdateOptions{})
-			return uerr
+			return ri.Update(context.Background(), obj, metav1.UpdateOptions{})
 		}
-		_, cerr := ri.Create(context.Background(), obj, metav1.CreateOptions{})
-		return cerr
+		return ri.Create(context.Background(), obj, metav1.CreateOptions{})
 	}
 	return func() { applySpineApplicationCR = prev }
 }
@@ -362,7 +361,7 @@ func TestEnrollSpineApplications_StampsOneCRPerPresentHR(t *testing.T) {
 	regions := spineRegions(dep)
 	owner := spineOwnerLabels(dep)
 
-	enrolled := h.enrollSpineApplications(dyn, dep, present, envRef, orgRef, regions, owner)
+	enrolled := h.enrollSpineApplications(dyn, dep, present, envRef, orgRef, regions, owner, "")
 	if enrolled != 4 {
 		t.Fatalf("enrolled = %d, want 4", enrolled)
 	}
@@ -382,7 +381,7 @@ func TestEnrollSpineApplications_StampsOneCRPerPresentHR(t *testing.T) {
 
 	// Idempotent re-run: still 4 enrolled, and the total Application count
 	// stays 4 (server-side-apply merge, no duplicates).
-	enrolled2 := h.enrollSpineApplications(dyn, dep, present, envRef, orgRef, regions, owner)
+	enrolled2 := h.enrollSpineApplications(dyn, dep, present, envRef, orgRef, regions, owner, "")
 	if enrolled2 != 4 {
 		t.Fatalf("re-run enrolled = %d, want 4 (idempotent)", enrolled2)
 	}
@@ -402,7 +401,7 @@ func TestEnrollSpineApplications_StampsOneCRPerPresentHR(t *testing.T) {
 func withCreateUpdateClusterApplier(t *testing.T) func() {
 	t.Helper()
 	prev := applySpineClusterResource
-	applySpineClusterResource = func(dyn dynamic.Interface, gvr schema.GroupVersionResource, namespace string, obj *unstructured.Unstructured) error {
+	applySpineClusterResource = func(dyn dynamic.Interface, gvr schema.GroupVersionResource, namespace string, obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
 		ri := dyn.Resource(gvr)
 		var applied dynamic.ResourceInterface = ri
 		if namespace != "" {
@@ -411,11 +410,20 @@ func withCreateUpdateClusterApplier(t *testing.T) func() {
 		existing, err := applied.Get(context.Background(), obj.GetName(), metav1.GetOptions{})
 		if err == nil {
 			obj.SetResourceVersion(existing.GetResourceVersion())
-			_, uerr := applied.Update(context.Background(), obj, metav1.UpdateOptions{})
-			return uerr
+			// Preserve the UID the "apiserver" assigned on first create so a
+			// re-run returns the same UID (the ownership chain stays stable).
+			if obj.GetUID() == "" {
+				obj.SetUID(existing.GetUID())
+			}
+			return applied.Update(context.Background(), obj, metav1.UpdateOptions{})
 		}
-		_, cerr := applied.Create(context.Background(), obj, metav1.CreateOptions{})
-		return cerr
+		// Simulate the apiserver assigning a UID on create so ensureSpine*
+		// can thread a real UID down the ownership chain (#5476). Deterministic
+		// so tests can assert the exact owner-ref UID.
+		if obj.GetUID() == "" {
+			obj.SetUID(types.UID("uid-" + obj.GetName()))
+		}
+		return applied.Create(context.Background(), obj, metav1.CreateOptions{})
 	}
 	return func() { applySpineClusterResource = prev }
 }
@@ -452,10 +460,11 @@ func TestEnsureSpinePrereqs_OrgAndMultiRegionEnv(t *testing.T) {
 	envRef := spineEnvironmentRef(dep)
 	regions := spineRegions(dep)
 
-	if err := h.ensureSpineOrganization(dyn, dep, orgRef); err != nil {
+	orgUID, err := h.ensureSpineOrganization(dyn, dep, orgRef)
+	if err != nil {
 		t.Fatalf("ensureSpineOrganization: %v", err)
 	}
-	if err := h.ensureSpineEnvironment(dyn, dep, envRef, orgRef, regions); err != nil {
+	if _, err := h.ensureSpineEnvironment(dyn, dep, envRef, orgRef, regions, orgUID); err != nil {
 		t.Fatalf("ensureSpineEnvironment: %v", err)
 	}
 
@@ -516,12 +525,235 @@ func TestEnsureSpinePrereqs_OrgAndMultiRegionEnv(t *testing.T) {
 	}
 
 	// Idempotent re-run: no error, no duplicate Environment.
-	if err := h.ensureSpineEnvironment(dyn, dep, envRef, orgRef, regions); err != nil {
+	if _, err := h.ensureSpineEnvironment(dyn, dep, envRef, orgRef, regions, orgUID); err != nil {
 		t.Fatalf("ensureSpineEnvironment (re-run): %v", err)
 	}
 	list, _ := dyn.Resource(EnvironmentGVR()).List(context.Background(), metav1.ListOptions{})
 	if len(list.Items) != 1 {
 		t.Fatalf("Environment count after re-run = %d, want 1 (idempotent)", len(list.Items))
+	}
+}
+
+// newSpineAdjacentRegionDeployment builds a 2-region deployment whose cloud
+// regions are ADJACENT (me-east-215-a / me-east-215-b) — the exact shape that
+// pre-#5476 collapsed to a single "meea" region code twice, so the -cp
+// Environment carried two IDENTICAL region triples (issue Part 2).
+func newSpineAdjacentRegionDeployment() *Deployment {
+	return &Deployment{
+		ID: "dep-spine-adj",
+		Request: provisioner.Request{
+			SovereignFQDN: "hw291.omantel.biz",
+			Regions: []provisioner.RegionSpec{
+				{Provider: "huawei", CloudRegion: "me-east-215-a"},
+				{Provider: "huawei", CloudRegion: "me-east-215-b"},
+			},
+		},
+	}
+}
+
+// TestSpineEnvRegionCode_AdjacentRegionsCollide documents the raw producer
+// defect: spineEnvRegionCode derives its code from the first three letters +
+// the first trailing alnum, which never reaches the -a/-b discriminator, so
+// two adjacent cloud regions collapse to the SAME base code. The Environment
+// ensure MUST de-dupe this (asserted separately below).
+func TestSpineEnvRegionCode_AdjacentRegionsCollide(t *testing.T) {
+	a := spineEnvRegionCode("me-east-215-a")
+	b := spineEnvRegionCode("me-east-215-b")
+	if a != b {
+		t.Fatalf("expected the raw region-code deriver to collide on adjacent regions "+
+			"(this is the #5476 root cause); got %q and %q", a, b)
+	}
+	if a != "meea" {
+		t.Fatalf("spineEnvRegionCode(me-east-215-a) = %q, want meea", a)
+	}
+}
+
+// TestEnsureSpineEnvironment_DistinctRegionCodes is the region-dedup contract,
+// exercised BOTH directions (#5476, issue Part 2).
+//
+//   - Direction 1 (fails pre-fix): a 2-region Sovereign whose cloud regions
+//     collapse to the same base code (me-east-215-a / me-east-215-b → "meea")
+//     must land TWO DISTINCT, CRD-pattern-valid region codes on the -cp
+//     Environment. Pre-fix wrote "meea" twice; the assertion below fails then.
+//   - Direction 2 (no-op): a 2-region Sovereign whose codes are already
+//     distinct (me-east-215 / eu-west-101 → meea / euwe) is passed through
+//     unchanged — the de-dupe never rewrites a code that does not collide.
+func TestEnsureSpineEnvironment_DistinctRegionCodes(t *testing.T) {
+	re := regexp.MustCompile(`^[a-z]{3}[a-z0-9]?$`)
+
+	readEnvRegionCodes := func(t *testing.T, dep *Deployment) []string {
+		t.Helper()
+		defer withCreateUpdateClusterApplier(t)()
+		dyn := spinePrereqFakeDynamic()
+		h := New(silentLogger())
+		envRef := spineEnvironmentRef(dep)
+		orgRef := spineOrganizationSlug(dep)
+		regions := spineRegions(dep)
+		if _, err := h.ensureSpineEnvironment(dyn, dep, envRef, orgRef, regions, ""); err != nil {
+			t.Fatalf("ensureSpineEnvironment: %v", err)
+		}
+		env, err := dyn.Resource(EnvironmentGVR()).Get(context.Background(), envRef, metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("Environment %q not created: %v", envRef, err)
+		}
+		raw, _, _ := unstructured.NestedSlice(env.Object, "spec", "regions")
+		codes := make([]string, 0, len(raw))
+		for i, r := range raw {
+			m, ok := r.(map[string]interface{})
+			if !ok {
+				t.Fatalf("region[%d] not a map: %T", i, r)
+			}
+			code, _ := m["region"].(string)
+			if !re.MatchString(code) {
+				t.Fatalf("region[%d] code %q does not match CRD pattern", i, code)
+			}
+			codes = append(codes, code)
+		}
+		return codes
+	}
+
+	// Direction 1 — colliding adjacent regions are de-duped to distinct codes.
+	adj := readEnvRegionCodes(t, newSpineAdjacentRegionDeployment())
+	if len(adj) != 2 {
+		t.Fatalf("adjacent-region env: got %d region codes, want 2", len(adj))
+	}
+	if adj[0] == adj[1] {
+		t.Fatalf("adjacent-region env carries DUPLICATE region codes %v — the #5476 defect; "+
+			"the -cp Environment cannot tell its two regions apart", adj)
+	}
+
+	// Direction 2 — already-distinct regions pass through unchanged (no-op).
+	dis := readEnvRegionCodes(t, newSpineTestDeployment())
+	if len(dis) != 2 || dis[0] != "meea" || dis[1] != "euwe" {
+		t.Fatalf("already-distinct env codes = %v, want [meea euwe] unchanged", dis)
+	}
+}
+
+// TestRenderSpineApplicationCR_EnvOwnerRefWiredOnlyWhenUIDKnown covers the pure
+// render both directions (#5476, issue Part 3):
+//   - envUID known  → the Application carries an ownerReference to its
+//     Environment (Kubernetes-native cascade), fails pre-fix (no owner refs
+//     existed at all).
+//   - envUID empty  → NO ownerReference is written; a dangling ref with an
+//     empty UID would be worse than none, so the producer skips it.
+func TestRenderSpineApplicationCR_EnvOwnerRefWiredOnlyWhenUIDKnown(t *testing.T) {
+	sc := spineComponent{Chart: "harbor", HRName: "bp-harbor", BlueprintName: "bp-harbor", BlueprintVersion: "1.2.26", MultiRegionMode: "active-hot-standby"}
+
+	// Direction 1 — UID known.
+	cr := renderSpineApplicationCR(sc, "hw291-omantel-biz-cp", "hw291-omantel-biz", []string{"me-east-215-a", "me-east-215-b"}, map[string]string{}, "env-uid-123")
+	refs := cr.GetOwnerReferences()
+	if len(refs) != 1 {
+		t.Fatalf("want exactly one ownerReference (Application → Environment); got %d", len(refs))
+	}
+	or := refs[0]
+	if or.Kind != "Environment" || or.Name != "hw291-omantel-biz-cp" || string(or.UID) != "env-uid-123" {
+		t.Fatalf("ownerReference = %+v, want Environment/hw291-omantel-biz-cp uid env-uid-123", or)
+	}
+	if or.APIVersion != EnvironmentGVR().Group+"/"+EnvironmentGVR().Version {
+		t.Fatalf("ownerReference APIVersion = %q, want %q", or.APIVersion, EnvironmentGVR().Group+"/"+EnvironmentGVR().Version)
+	}
+
+	// Direction 2 — UID unknown → no owner ref (graceful skip, no regression).
+	crNoUID := renderSpineApplicationCR(sc, "hw291-omantel-biz-cp", "hw291-omantel-biz", []string{"me-east-215-a"}, map[string]string{}, "")
+	if len(crNoUID.GetOwnerReferences()) != 0 {
+		t.Fatalf("no ownerReference must be written when the Environment UID is unknown; got %v", crNoUID.GetOwnerReferences())
+	}
+}
+
+// TestSpineOwnershipChain_AppOwnedByEnvOwnedByOrg drives the FULL producer flow
+// and proves the Kubernetes-native ownership chain the object model needs so
+// cascade + GC no longer rest entirely on label hygiene (#5476, issue Part 3):
+//
+//	Application  --ownerRef-->  Environment  --ownerRef-->  Organization
+//
+// Both directions:
+//   - the fresh flow wires every hop with the real server-assigned UID
+//     (fails pre-fix, where NO Application CR carried ownerReferences and the
+//     -cp Environment carried none back to its Organization);
+//   - a second idempotent pass is a no-op — no duplicates, the owner refs stay
+//     singular, and the UIDs are stable.
+func TestSpineOwnershipChain_AppOwnedByEnvOwnedByOrg(t *testing.T) {
+	defer withCreateUpdateClusterApplier(t)()
+	defer withCreateUpdateApplier(t)()
+	dyn := spinePrereqFakeDynamic(
+		spineHRObj("bp-openbao"),
+		spineHRObj("bp-keycloak"),
+		spineHRObj("bp-harbor"),
+		spineHRObj("bp-gitea"),
+	)
+	h := New(silentLogger())
+	dep := newSpineAdjacentRegionDeployment()
+
+	envRef := spineEnvironmentRef(dep)
+	orgRef := spineOrganizationSlug(dep)
+	regions := spineRegions(dep)
+	owner := spineOwnerLabels(dep)
+
+	runChain := func(t *testing.T) {
+		t.Helper()
+		orgUID, err := h.ensureSpineOrganization(dyn, dep, orgRef)
+		if err != nil {
+			t.Fatalf("ensureSpineOrganization: %v", err)
+		}
+		if orgUID == "" {
+			t.Fatalf("ensureSpineOrganization returned an empty UID; the chain cannot wire")
+		}
+		envUID, err := h.ensureSpineEnvironment(dyn, dep, envRef, orgRef, regions, orgUID)
+		if err != nil {
+			t.Fatalf("ensureSpineEnvironment: %v", err)
+		}
+		if envUID == "" {
+			t.Fatalf("ensureSpineEnvironment returned an empty UID; the chain cannot wire")
+		}
+
+		// Environment --ownerRef--> Organization.
+		env, err := dyn.Resource(EnvironmentGVR()).Get(context.Background(), envRef, metav1.GetOptions{})
+		if err != nil {
+			t.Fatalf("Environment %q not created: %v", envRef, err)
+		}
+		envRefs := env.GetOwnerReferences()
+		if len(envRefs) != 1 || envRefs[0].Kind != "Organization" || envRefs[0].Name != orgRef || string(envRefs[0].UID) != orgUID {
+			t.Fatalf("Environment ownerReferences = %+v, want single Organization/%s uid %s", envRefs, orgRef, orgUID)
+		}
+
+		// Application --ownerRef--> Environment, for every enrolled spine app.
+		present := h.presentSpineHRs(dyn, dep)
+		enrolled := h.enrollSpineApplications(dyn, dep, present, envRef, orgRef, regions, owner, envUID)
+		if enrolled != len(present) || enrolled == 0 {
+			t.Fatalf("enrolled = %d, want %d (>0)", enrolled, len(present))
+		}
+		for _, sc := range present {
+			app, err := dyn.Resource(ApplicationGVR()).Namespace(spineApplicationNamespace).
+				Get(context.Background(), spineApplicationName(sc.Chart), metav1.GetOptions{})
+			if err != nil {
+				t.Fatalf("spine Application %s not created: %v", spineApplicationName(sc.Chart), err)
+			}
+			appRefs := app.GetOwnerReferences()
+			if len(appRefs) != 1 || appRefs[0].Kind != "Environment" || appRefs[0].Name != envRef || string(appRefs[0].UID) != envUID {
+				t.Fatalf("Application %s ownerReferences = %+v, want single Environment/%s uid %s",
+					app.GetName(), appRefs, envRef, envUID)
+			}
+		}
+	}
+
+	// Direction 1 — fresh flow wires the whole chain.
+	runChain(t)
+
+	// Direction 2 — re-run is an idempotent no-op: no duplicate CRs, owner refs
+	// stay singular, UIDs stable.
+	runChain(t)
+
+	envList, _ := dyn.Resource(EnvironmentGVR()).List(context.Background(), metav1.ListOptions{})
+	if len(envList.Items) != 1 {
+		t.Fatalf("Environment count after re-run = %d, want 1 (idempotent)", len(envList.Items))
+	}
+	orgList, _ := dyn.Resource(organizationGVR()).List(context.Background(), metav1.ListOptions{})
+	if len(orgList.Items) != 1 {
+		t.Fatalf("Organization count after re-run = %d, want 1 (idempotent)", len(orgList.Items))
+	}
+	appList, _ := dyn.Resource(ApplicationGVR()).Namespace(spineApplicationNamespace).List(context.Background(), metav1.ListOptions{})
+	if len(appList.Items) != 4 {
+		t.Fatalf("Application count after re-run = %d, want 4 (no duplicates)", len(appList.Items))
 	}
 }
 
