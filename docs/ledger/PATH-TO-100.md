@@ -1,6 +1,6 @@
-# PATH TO 100% — **hw292 pending** (refreshed 2026-07-31)
+# PATH TO 100% — **hw292 live, cc=true** (refreshed 2026-08-04)
 
-> **Source of truth:** [`UAT.md`](UAT.md). **Current env = hw292** (`hw292.omani.works`, 2-region Huawei me-east-215-a/-b-1) — **fire staged, not yet executed**; hw291 was wiped 2026-07-31 08:54Z after banking cc=true.
+> **Source of truth:** [`UAT.md`](UAT.md). **Current env = hw292** (`hw292.omani.works`, dep `1c56518035a83e03`, 2-region Huawei me-east-215-a/-b-1) — **fired 2026-08-03T04:04Z, converged, `cutoverComplete=true` 08:12:30Z**, and G12 region-kill re-proven **6/6 zero-touch** on 2026-08-04 (promotion T0+136s, failback with a clean re-clone, no split-brain — `docs/sessions/2026-08-04/hw292-g12-region-kill/`). hw291 was wiped 2026-07-31 08:54Z after banking cc=true.
 > This file maps every non-green row to its gate + owner. A row stays non-green until the hw292 walk verifies it — **merge ≠ green** (founder rule). Nothing below is a walk stamp; this is the *fix map*, and it says exactly which fixes are already inside the image hw292 will boot.
 
 ---
@@ -73,13 +73,42 @@ Placement rows 98–109 are superseded by the #4325 devcluster reclassification 
 
 ## §854 disposition — closed, and re-proven this cycle
 
-`scripts/check-no-nodeports.sh` on `main`, 2026-07-31: **zero NodePorts across sources + rendered charts**, every chart rendered. The guard is itself vacuity-tested (#5518, merged): it self-checks that its pattern matches 4/4 banned forms, rejects 2/2 allowed forms, and scans ≥200 files before trusting a pass — so a green result can no longer mean "the guard matched nothing". A raw `grep NodePort` across the repo returns hundreds of hits; every one inspected is the ban's own prose — comments explaining cilium's internal BPF-masquerade requirement, the documented removal of the #4691 fallback, and the guard workflow itself. **Raw grep is not the audit; the render-and-adjudicate guard is.** Kyverno `forbid-nodeport-service` runs Enforce with a fail-closed webhook, made tamper-evident by #5386.
+`scripts/check-no-nodeports.sh` on `main`, 2026-07-31: **zero NodePorts across sources + rendered charts**, every chart rendered. The guard is itself vacuity-tested (#5518, merged): it self-checks that its pattern matches 4/4 banned forms, rejects 2/2 allowed forms, and scans ≥200 files before trusting a pass — so a green result can no longer mean "the guard matched nothing". A raw `grep NodePort` across the repo returns hundreds of hits; every one inspected is the ban's own prose — comments explaining cilium's internal BPF-masquerade requirement, the documented removal of the #4691 fallback, and the guard workflow itself. **Raw grep is not the audit; the render-and-adjudicate guard is.**
+
+**Correction, 2026-08-04 — the enforcement half of that claim held in only ONE region.** This file previously stated flatly that Kyverno `forbid-nodeport-service` "runs Enforce with a fail-closed webhook, made tamper-evident by #5386". Measured live on hw292:
+
+| region | HR `values.compliancePolicies` | ClusterPolicies at Enforce | `forbid-nodeport-service` |
+|---|---|---|---|
+| region-a | `{"bootstrapMode": false}` | 9 of 25 | **Enforce** |
+| region-b | `{}` — never patched | 1 of 25 | **Audit only** |
+
+So on a 2-region Sovereign the NodePort ban was *advisory* in half the fleet: region-b would record a NodePort Service, not block it. The §854 literal scan still passes in both regions (0 NodePorts; 176 svc region-a / 159 region-b), so nothing was violating it — the gap is that region-b would not have *stopped* one. Root cause is **#5591**: the Wave 5.90 phase-2b `bootstrapMode` flip reached only the primary region. The source fix is merged (`bb8ceec71` #5592, compile-repaired `ef2d59767` #5619), unit-tested (`TestPolicyEnforceFlip_FlipsEveryRegion_5591`), and delivered in published images — but hw292's phase-2b ran *before* delivery, so its region-b remains unflipped until remediated.
+
+The lesson generalizes past this instance and matches the [per-region split class](reference): a security posture verified in one region is not a fleet property. Assert it per-region or do not assert it.
 
 ---
 
+## Gate 5 — the delivery chain itself (found 2026-08-04, the largest single cause of stalled progress)
+
+Steps 1–3 of this plan were never the constraint. **The chain from `main` to a running binary was broken in two independent places, and both looked like "the fix didn't work".**
+
+**5a. `build-ui` was failing, so nothing published at all.** Across the last ten `catalyst-build` runs on `main`, six had `build-ui=failure` with `deploy=skipped` — meaning six merges published *no image*. The cause was a genuine race in `ExecPanel.test.tsx` (#5633): the component renders byte-identical markup for `fallback-loading` and `fallback-ready` and dials its socket in a passive effect, so under CPU-starved CI the scheduler yields between commit and effect flush and the assertion runs before the socket exists. Reproduced 8/8 under load, 0/12 after the fix. **Fixed and merged (#5651); two consecutive greens since, each with `deploy=success`.** #5626 and #5633 closed on that evidence.
+
+Behind it sat the reason nobody noticed for two months: the vitest step ran `npm test || echo WARN` from `f61a52ab6` until #5553, so the gate **exited 0 unconditionally**. When it finally told the truth, four source defects surfaced at once. A fail-open gate is worse than no gate — it manufactures the appearance of coverage.
+
+**5b. Even a published image cannot reach a cutover Sovereign.** hw292's local Harbor holds exactly `["fad88bd"]` for catalyst-api — the step-03 prewarm tag, digest byte-identical to the running pod. **18 catalyst-api tags have published to ghcr since; zero arrived.** Three independent severances: `proxy-ghcr` has `registry_id = None` (a push-populated project, not a pull-through cache), `mirrorResync.enabled: false` is the deliberate Principle-14 git severance, and #5644's Day-2 IMAGE leg ships in cutover chart `0.1.161`/`0.1.162` while hw292 runs `0.1.159` — *the remedy cannot pass through the gap it remedies*. Note also that the shipped default `mode: detect` writes the missing set to a ConfigMap and copies nothing; only `mode: warm` delivers, and it needs an operator credential. Tracked as **#5640**.
+
+The practical consequence: **#5642**'s catalyst-api leak fix (`Factory.AddCluster` rebuilt all 42 informers on byte-identical kubeconfigs) is correct, merged, published — and has never run. The live pod still leaks **62.1 Mi/min**, monotonic, 21 restarts at a ~59-minute cadence. Raising the memory limit remains the wrong fix: at that rate an 8Gi ceiling buys three hours instead of one and hides the defect.
+
+## Gate 6 — sovereignty proves the wrong property (#5650)
+
+Step-08's deny-egress hold is genuinely deny-*all* (`defaultDenyEgress: true` since #3678) — an earlier claim in this session that it blocked a named list was wrong and was corrected on the issue. But the hold is **time-boxed and then torn down**, so it proves nothing external was *reachable* for 600s. It cannot prove the Sovereign has no external *dependency*. Live: `vcluster-system/loft` → `https://charts.loft.sh`, interval **15m**, referenced by a live HelmRelease, artifact re-fetched from the public internet ~10h *after* `cutoverComplete=true`. A 15-minute interval straddles a 10-minute window entirely.
+
+Fixed in cutover chart **0.1.162** (PR #5652, merged, **published to ghcr and verified**): a pre-hold lint asserting every non-suspended `HelmRepository`/`GitRepository`/`OCIRepository` resolves to a Sovereign-local host, `allowHosts` empty by default so it fails closed. Its test drives the function extracted from the *render* in both directions and caught a fail-open bug in the first draft, where an uncreatable scratch file made the lint return PASS having examined nothing.
+
 ## What actually moves the number next
 
-1. **Fire hw292** (`POST /sovereign/api/v1/deployments`, body staged, prov-preflight 16/16 PASS). Everything above is already inside the image it boots.
-2. Converge (~45 min) → auto-cutover → `cutoverComplete=true`.
-3. **Walk.** The walk is what turns every "delivered" row in the table above into a green stamp — and it is the only thing that legitimately moves the durable number.
-4. Merge #5534 + #5535 the moment the env reports ready, so the next cycle starts one train further along.
+1. **Walk hw292.** It is live, cc=true, and G12-proven; every "delivered" row above becomes a green stamp only by walking it. This is the only thing that legitimately moves the durable number.
+2. **Close the delivery chain (#5640)** — without it, every future fix repeats 5b: correct in source, invisible in production.
+3. **Remediate #5591 on region-b** (one HR patch) so the NodePort ban is enforcing fleet-wide rather than in half of it.
+4. Merge #5534 + #5535, now unblocked — the env is ready and the merge freeze is thawed.
