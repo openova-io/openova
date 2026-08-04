@@ -1738,6 +1738,35 @@ egressTest:
   # them by design). Default ON — the class-breaker for #5026.
   podspecRefHostLint:
     enabled: true
+  # #5650 — Flux SOURCE host lint. The companion to podspecRefHostLint, and the
+  # timing-independent half of the Pillar-5 proof.
+  #
+  # The deny-egress hold below applies a cluster-wide default-deny CCNP, holds
+  # for durationSeconds, and is then TORN DOWN. That proves nothing external was
+  # REACHABLE during the window. It does NOT prove the Sovereign has no external
+  # DEPENDENCY, and ADR-0002 asserts the second. Live hw292 (2026-08-04):
+  # HelmRepository vcluster-system/loft -> https://charts.loft.sh, interval 15m,
+  # not suspended, referenced by a live HelmRelease. A 15m interval can straddle
+  # a 600s hold entirely, so it never dialled while the policy was up; its
+  # artifact was then re-fetched from the public internet ~10h AFTER
+  # cutoverComplete=true. The hold passed, and was right to pass — nothing
+  # asserted over the object graph.
+  #
+  # This lint asserts the property directly: every non-suspended HelmRepository,
+  # GitRepository and OCIRepository must resolve to a Sovereign-local host.
+  #
+  # NOTE the exemption set is deliberately NARROWER than podspecRefHostLint's.
+  # That lint exempts step-04 HOST_PROJECT_MAP hosts because containerd rewrites
+  # IMAGE pulls via certs.d. Flux's source-controller fetches these URLs itself
+  # and never traverses containerd, so a certs.d redirect cannot cover a source
+  # object — only genuinely local hosts count.
+  #
+  # allowHosts is EMPTY by default so the lint fails closed: an external host is
+  # a tether until a human declares otherwise here, in Git, under review. Adding
+  # an entry is a reviewable sovereignty exception, not a config tweak.
+  fluxSourceHostLint:
+    enabled: true
+    allowHosts: []
   # #3678 — TRUE deny-egress shape. defaultDenyEgress flips the Step-08
   # CCNP from a SUBTRACTIVE 4-CIDR block (default-allow, deny only the
   # listed hosts — which left console.openova.io + every un-enumerated

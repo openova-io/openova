@@ -201,6 +201,18 @@ data:
           # #5026 — pre-hold ref-host lint toggle (treadmill-breaker).
           - name: PODSPEC_REFHOST_LINT
             value: {{ eq (toString .Values.egressTest.podspecRefHostLint.enabled) "true" | quote }}
+          # #5650 — pre-hold Flux SOURCE host lint. The deny-egress hold below
+          # proves nothing external is REACHABLE for 600s; it cannot prove
+          # nothing external is DEPENDED UPON, because the policy is torn down
+          # when the hold ends and a source whose reconcile interval straddles
+          # the window never dials during it. Live hw292: vcluster-system/loft
+          # (charts.loft.sh, interval 15m) sat Ready through a passing hold and
+          # re-fetched from the public internet ~10h after cutoverComplete=true.
+          # This lint is the timing-independent half of the proof.
+          - name: FLUX_SOURCE_HOST_LINT
+            value: {{ eq (toString .Values.egressTest.fluxSourceHostLint.enabled) "true" | quote }}
+          - name: FLUX_SOURCE_HOST_ALLOW
+            value: {{ .Values.egressTest.fluxSourceHostLint.allowHosts | default (list) | join " " | quote }}
           - name: HARBOR_PUBLIC_URL
             value: {{ .Values.sovereign.harborPublicURL | quote }}
           - name: HARBOR_USERNAME
@@ -788,6 +800,95 @@ data:
             if [ "${PODSPEC_REFHOST_LINT}" = "true" ]; then
               if ! run_podspec_refhost_lint; then
                 echo "[egress-block-test] ref-host lint FAILED before the hold — sovereignty proof FAILED (cutoverComplete stays false; every offender above must be pivoted to ${LOCAL_REGISTRY_HOST} — fix the step-07 sweep coverage or the workload chart's default image host)"
+                exit 1
+              fi
+            fi
+
+            # ── #5650 FLUX SOURCE HOST LINT ────────────────────────────────
+            # WHY this exists as a SEPARATE assertion from the hold. The hold
+            # applies a cluster-wide default-deny egress CCNP, runs for
+            # ${DURATION}s, and is then TORN DOWN. It therefore proves exactly
+            # one thing: nothing external was REACHABLE during that window. It
+            # cannot prove the Sovereign has no external DEPENDENCY, and those
+            # are different claims — Pillar 5 / ADR-0002 assert the second.
+            #
+            # The concrete miss (hw292, dep 1c56518035a83e03): HelmRepository
+            # vcluster-system/loft -> https://charts.loft.sh, spec.interval 15m,
+            # not suspended, referenced by a live HelmRelease. A 15m interval can
+            # straddle a 600s hold entirely, so the tether need never fire while
+            # the policy is up; its artifact was then re-fetched from the public
+            # internet at 18:36:28Z, ~10h AFTER cutoverComplete=true was set.
+            # The hold passed and was correct to pass. The gap is that nothing
+            # asserted over the object graph.
+            #
+            # SCOPE NOTE — why the step-04 redirect exemption does NOT apply
+            # here. run_podspec_refhost_lint exempts HOST_PROJECT_MAP hosts
+            # because containerd rewrites IMAGE pulls via certs.d/<host>/
+            # hosts.toml. Flux's source-controller fetches HelmRepository /
+            # GitRepository / OCIRepository URLs itself over HTTPS and never
+            # traverses containerd, so a certs.d redirect cannot cover it. The
+            # exemption set here is therefore strictly the Sovereign's OWN
+            # hosts plus in-cluster DNS — anything else is a live tether.
+            run_flux_source_host_lint() {
+              echo "[egress-block-test] #5650: PRE-HOLD Flux source-host lint — every HelmRepository/GitRepository/OCIRepository URL must resolve to a Sovereign-local host (registry./gitea./harbor.${SOVEREIGN_FQDN}, in-cluster DNS, or an explicit FLUX_SOURCE_HOST_ALLOW entry). containerd redirects do NOT cover these: source-controller dials them directly."
+              # WORK_DIR defaults to the Job's /work emptyDir; overridable so the
+              # function is drivable from chart/tests/flux-source-host-lint.sh.
+              # The `: >` MUST be checked: if the scratch file cannot be created
+              # (missing or read-only mount) every later append silently no-ops,
+              # `-s` is false, and the lint returns PASS having examined nothing.
+              # That is a fail-OPEN guard — the exact shape this lint exists to
+              # eliminate — and the test suite caught it here before it shipped.
+              _fs_off="${WORK_DIR:-/work}/fluxsrc-offenders.$$"
+              if ! : > "${_fs_off}" 2>/dev/null; then
+                echo "  FAIL — cannot create ${_fs_off}; refusing to report PASS from a lint that cannot record an offender (fail-closed)"
+                return 1
+              fi
+              for _fk in helmrepositories gitrepositories ocirepositories; do
+                kubectl get "${_fk}" -A \
+                  -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.spec.url}{" "}{.spec.suspend}{"\n"}{end}' 2>/dev/null \
+                | while IFS=' ' read -r _fns _fname _furl _fsusp; do
+                    [ -n "${_fns}" ] && [ -n "${_furl}" ] || continue
+                    # Strip scheme, then any path/port, leaving the bare host.
+                    _fh="${_furl#*://}"; _fh="${_fh%%/*}"; _fh="${_fh%%:*}"
+                    [ -n "${_fh}" ] || continue
+                    # Sovereign-local: the local registry, the local Gitea, the
+                    # local Harbor, any *.<SOVEREIGN_FQDN>, in-cluster service
+                    # DNS, and loopback.
+                    case "${_fh}" in
+                      "${LOCAL_REGISTRY_HOST}"|"gitea.${SOVEREIGN_FQDN}"|"harbor.${SOVEREIGN_FQDN}"|*".${SOVEREIGN_FQDN}") continue ;;
+                      *.svc|*.svc.cluster.local|localhost|127.0.0.1) continue ;;
+                    esac
+                    # Explicit operator-declared exceptions (default EMPTY, so
+                    # this lint fails closed: a host is a tether until someone
+                    # states otherwise in values, in Git, under review).
+                    _fex=0
+                    for _fa in ${FLUX_SOURCE_HOST_ALLOW:-}; do
+                      [ "${_fh}" = "${_fa}" ] && { _fex=1; break; }
+                    done
+                    [ "${_fex}" = "1" ] && continue
+                    # A suspended source cannot reconcile, so it is reported
+                    # distinctly — still a declared dependency worth seeing, but
+                    # not a live fetch. It does NOT fail the lint.
+                    if [ "${_fsusp}" = "true" ]; then
+                      echo "    SUSPENDED (not failing) ${_fns}/${_fname} [${_fk}] ${_furl} (host:${_fh})"
+                      continue
+                    fi
+                    printf '%s/%s [%s] %s (host:%s)\n' "${_fns}" "${_fname}" "${_fk}" "${_furl}" "${_fh}" >> "${_fs_off}"
+                  done
+              done
+              if [ -s "${_fs_off}" ]; then
+                echo "  FAIL — these Flux source objects still point at a NON-Sovereign host. Each is a live tether that the deny-egress hold cannot detect, because the hold is time-boxed and torn down while these keep reconciling on their own interval (fix = mirror the upstream into the local Harbor/Gitea and repoint the source, or declare a reviewed exception in egressTest.fluxSourceHostLint.allowHosts):"
+                sort -u "${_fs_off}" | while IFS= read -r _o; do echo "    EXTERNAL-SOURCE ${_o}"; done
+                rm -f "${_fs_off}"
+                return 1
+              fi
+              rm -f "${_fs_off}"
+              echo "  PASS — every non-suspended Flux source resolves to a Sovereign-local host; no external dependency remains in the object graph (#5650)"
+              return 0
+            }
+            if [ "${FLUX_SOURCE_HOST_LINT}" = "true" ]; then
+              if ! run_flux_source_host_lint; then
+                echo "[egress-block-test] Flux source-host lint FAILED before the hold — sovereignty proof FAILED (cutoverComplete stays false). This is the dependency half of Pillar 5: surviving a 600s isolation window is necessary but not sufficient when a source keeps fetching from the public internet on its own interval once the policy is gone (#5650)"
                 exit 1
               fi
             fi
