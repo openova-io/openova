@@ -2523,8 +2523,17 @@ qaFixtures:
   # replacement + Hetzner cross-region NodePort filtering are resolved.
   cnpgPrimaryClusterName: cluster-primary
   cnpgReplicaClusterName: cluster-replica
-  cnpgPrimaryRegion: hz-fsn-rtz-prod
-  cnpgReplicaRegion: hz-fsn-rtz-prod
+  # #5639 CLASS — NO provider-specific default. Both Cluster CRs pin a
+  # REQUIRED nodeAffinity on this exact `openova.io/region` NODE LABEL, so
+  # the old `hz-fsn-rtz-prod` default made every QA fixture on a Huawei
+  # Sovereign unschedulable forever behind a green HelmRelease. Empty here
+  # ⇒ the chart's `required` fires and names the key; the bootstrap-kit
+  # supplies ${SOVEREIGN_REGION_CANONICAL_LABEL}, the local cluster's own label
+  # cloud-init stamps on every node. cnpgReplicaRegion empty ⇒ falls back
+  # to the primary (this fixture is single-region by design; the cross-
+  # region drill belongs to bp-cnpg-pair + Continuum).
+  cnpgPrimaryRegion: ""
+  cnpgReplicaRegion: ""
   cnpgInstances: 1
   cnpgImage: ghcr.io/cloudnative-pg/postgresql:16.4-1
   cnpgStorageSize: 1Gi

@@ -1836,8 +1836,29 @@ spec:
       # cross-region NodePort 32379 filtered").
       cnpgPrimaryClusterName: ${QA_CNPG_PRIMARY_CLUSTER:-cluster-primary}
       cnpgReplicaClusterName: ${QA_CNPG_REPLICA_CLUSTER:-cluster-replica}
-      cnpgPrimaryRegion: ${QA_CNPG_PRIMARY_REGION:-hz-fsn-rtz-prod}
-      cnpgReplicaRegion: ${QA_CNPG_REPLICA_REGION:-hz-fsn-rtz-prod}
+      # #5639 CLASS — was `${QA_CNPG_PRIMARY_REGION:-hz-fsn-rtz-prod}`.
+      # NOTHING in this repo has ever defined QA_CNPG_PRIMARY_REGION (verified
+      # live on hw292: the bootstrap-kit Kustomization's postBuild.substitute
+      # has no such key), so the literal ALWAYS won — every QA Sovereign on
+      # Huawei pinned a HETZNER node label on both fixture Clusters' REQUIRED
+      # nodeAffinity, and both sat Pending forever while the HelmRelease still
+      # reported install succeeded. A near-miss region is exactly as
+      # unschedulable as the empty one #5639 was filed for. The neighbouring
+      # Continuum fixture at qaFixtures.primaryRegion was already threaded off
+      # a real substitute; the CNPG Cluster fixture — the only one of the two
+      # that actually affects SCHEDULING — was missed.
+      #
+      # SOVEREIGN_REGION_CANONICAL_LABEL, not SOVEREIGN_PRIMARY_REGION: it is
+      # the LOCAL cluster's own openova.io/region label (region-b's kustomize
+      # carries `hw-...-b-rtz-prod` where SOVEREIGN_PRIMARY_REGION still names
+      # region-a), so the fixture pins a label the nodes it lands on provably
+      # carry, without depending on slot 13 staying suspended on secondaries.
+      # Empty replica ⇒ the chart falls back to the primary region: this
+      # fixture is single-region by design (the cross-region drill belongs to
+      # bp-cnpg-pair + Continuum). Both empty ⇒ the chart's `required` fires
+      # and names the key instead of emitting an unsatisfiable selector.
+      cnpgPrimaryRegion: ${SOVEREIGN_REGION_CANONICAL_LABEL:-}
+      cnpgReplicaRegion: ${QA_CNPG_REPLICA_REGION:-}
       cnpgImage: ${QA_CNPG_IMAGE:-ghcr.io/cloudnative-pg/postgresql:16.4-1}
       # #4057/#3971 — empty default ⇒ the qaFixtures CNPG Cluster CR OMITS
       # storageClass (the chart's `{{- with .Values.qaFixtures.cnpgStorageClass }}`

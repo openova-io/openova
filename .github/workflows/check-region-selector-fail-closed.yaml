@@ -1,0 +1,59 @@
+name: check — region nodeAffinity selectors fail closed (#5639)
+
+# Permanent guard that every REQUIRED `openova.io/region` nodeAffinity in the
+# catalog refuses to render a region it cannot resolve.
+#
+# A required nodeAffinity whose value no node carries is not a scheduling
+# delay — it is unschedulable FOREVER, and nothing downstream notices: Helm
+# renders valid YAML, the API server accepts it, and the HelmRelease reports
+# "install succeeded" over a Pod that never starts. On hw292 a per-Org
+# bp-postgres primary sat Pending for 7+ hours behind exactly that green badge
+# because the chart emitted `openova.io/region In [""]` (#5639).
+#
+# The gate has two phases and both are load-bearing. Phase 1 enumerates every
+# template in the repo that emits the selector and fails on any that is not
+# registered — so adding a region-pinned workload forces the author to say how
+# it fails closed. Phase 2 renders each registered chart TWICE: with the region
+# supplied (must succeed, and the rendered VALUE must be that region) and with
+# it withheld (must fail the render). Asserting on the KEY is what let #5639
+# survive; asserting in only one direction is what lets a guard rot.
+#
+# Per docs/PRINCIPLES.md #4a this workflow renders templates locally — it does
+# not deploy anything or call cloud APIs.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'platform/postgres/chart/**'
+      - 'platform/cnpg-pair/chart/**'
+      - 'platform/wordpress-tenant/chart/**'
+      - 'products/catalyst/chart/**'
+      - 'scripts/check-region-selector-fail-closed.sh'
+      - '.github/workflows/check-region-selector-fail-closed.yaml'
+  pull_request:
+    paths:
+      - 'platform/postgres/chart/**'
+      - 'platform/cnpg-pair/chart/**'
+      - 'platform/wordpress-tenant/chart/**'
+      - 'products/catalyst/chart/**'
+      - 'scripts/check-region-selector-fail-closed.sh'
+      - '.github/workflows/check-region-selector-fail-closed.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  region-selector-fail-closed:
+    name: Every region selector fails closed
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Run region-selector fail-closed gate
+        run: bash scripts/check-region-selector-fail-closed.sh
