@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-04T13:45:10Z` |
+| Last refreshed | `2026-08-04T14:00:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,7 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#5401](https://github.com/openova-io/openova/issues/5401) | SECURITY: per-Org console /settings renders the Sovereign operator panel to an o | Other |
 | [#5404](https://github.com/openova-io/openova/issues/5404) | Operator-console vitest suite is red on main (68 failed / 1876 passed across 9 f | Other |
 | [#5406](https://github.com/openova-io/openova/issues/5406) | Harbor SSO session never holds: active/active across both regions behind one hos | Other |
 | [#5408](https://github.com/openova-io/openova/issues/5408) | Wizard component model: phantom ids in the deployment payload, cnpg+postgres inv | Other |
@@ -297,7 +298,6 @@ flowchart LR
 | [#5640](https://github.com/openova-io/openova/issues/5640) | Post-cutover Sovereigns cannot receive newly published images — local Harbor i | Other |
 | [#5642](https://github.com/openova-io/openova/issues/5642) | catalyst-api OOMKilling in a loop on hw292 (15 restarts, requests 96Mi vs limits | Other |
 | [#5646](https://github.com/openova-io/openova/issues/5646) | Customer-facing provisioning timeline: banned term 'Creating tenant', steps comp | Other |
-| [#5648](https://github.com/openova-io/openova/issues/5648) | SSO restamp erased 5 freshly-walked green rows from a merge that touched only ci | Other |
 | [#5649](https://github.com/openova-io/openova/issues/5649) | Org teardown reaps one producer's route name in one region — deleted Orgs leav | Other |
 | [#5650](https://github.com/openova-io/openova/issues/5650) | Post-cutover Sovereign fetches charts.loft.sh every 15m: step-08's deny-egress h | Other |
 
