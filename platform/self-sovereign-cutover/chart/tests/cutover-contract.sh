@@ -3630,8 +3630,16 @@ if ! grep -q 'SECONDARY_GITREPO_READY_SECONDS' "$S05"; then
   echo "FAIL: step-05 leg has no bounded secondary GitRepository Ready wait (#5359)" >&2
   c71_fail=1
 fi
-if ! grep -q 'region-B is still git-tethered' "$S05"; then
-  echo "FAIL: step-05 leg lost its fail-loud secondary-not-Ready FATAL (#5359)" >&2
+# The FATAL's WORDING changed in 0.1.164 (the predicate moved from a stale
+# Ready=True to convergence, and the leg now exhausts a candidate URL chain
+# before giving up), so this asserts the two invariants rather than the old
+# sentence: the branch is reached and it is fatal. Case 76 pins the predicate.
+if ! grep -q 'refusing to succeed (#5359)' "$S05"; then
+  echo "FAIL: step-05 leg lost its fail-loud secondary-not-converged FATAL (#5359)" >&2
+  c71_fail=1
+fi
+if ! grep -q 'region-B is still serving its pre-cutover artifact' "$S05"; then
+  echo "FAIL: step-05's FATAL no longer names the consequence (region-B serving its pre-cutover artifact, reverting every pivoted HelmRepository) — the operator gets a verdict with no diagnosis (#5359)" >&2
   c71_fail=1
 fi
 if ! grep -q 'step.flux-gitrepository-patch.region.' "$S05"; then
@@ -3995,5 +4003,168 @@ if [ "${c75_lines}" -lt 200 ] || ! grep -qF 'kind: Deployment' "$DT_F"; then
 fi
 if [ "$c75_fail" -ne 0 ]; then exit 1; fi
 echo "  PASS (#5640: the Day-2 IMAGE leg mounts+sources the shared 03a resolver and its coverage-map env, enumerates declared workload templates as well as running Pods, proves presence with step-08's local-Harbor /v2 manifest probe, copies with step-03's exact skopeo invocation plus the #5095 and #5525 secondary-source fallbacks, keeps every upstream reach behind a mode=warm runtime branch, and refuses to report a zero-ref enumeration as an all-clear; render vacuity control: ${c75_lines}-line Deployment)"
+
+# ── Case 76 (#5359): the Flux source lint is PER-REGION and fail-closed, and
+#    step-05's secondary readiness asserts CONVERGENCE, not a stale Ready ──────
+#
+# hw292 (dep 1c56518035a83e03) set cutoverComplete=true, progressPercent=100,
+# failedStep empty, with region-b holding 64/64 HelmRepositories on ghcr.io and
+# 0 on the local Harbor. The #5379 per-secondary-region legs WERE in the
+# deployed chart (0.1.159) and reported region.me-east-215-b-1.result=success
+# for steps 05, 06 and 08. What actually happened:
+#
+#   step-05 patched region-b's GitRepository url -> the in-cluster Gitea Service
+#   name, which in a secondary region resolves to that region's OWN bp-gitea
+#   (empty, never mirrored) because both Services are headless and Cilium
+#   global-services cannot span a headless Service. Every fetch then failed
+#   ("pkt-line 3: EOF"), observedGeneration froze at 1 against generation 2, and
+#   source-controller kept serving the artifact it had cached from PUBLIC
+#   github.com minutes earlier. The readiness wait had already passed, because
+#   it accepted the Ready=True left over from that github.com fetch. region-b's
+#   kustomize-controller re-applied the pre-cutover content every 5m, reverting
+#   all 64 HelmRepositories step-06 had just pivoted and read-back-asserted.
+#
+# The behavioural proof of the two lints lives in tests/flux-source-host-lint.sh
+# (verdicts in both directions against stubbed inventories, plus mutation
+# coverage). THIS case pins the wiring those functions need in order to be
+# reached at all: the per-region driver, the fail-closed enumeration, and
+# step-05's convergence predicate.
+echo "[cutover-contract] Case 76: #5359 per-region Flux source lint (host + health, fail-closed) and step-05 convergence-based secondary readiness"
+c76_fail=0
+C76_08="$TMP/c76-08.yaml"
+C76_05="$TMP/c76-05.yaml"
+awk '/stepName: egress-block-test/,/^---/' "$TMP/render.yaml" >"$C76_08"
+awk '/stepName: flux-gitrepository-patch/,/^---/' "$TMP/render.yaml" >"$C76_05"
+
+# (a) VACUITY CONTROL FIRST. Every assertion below is a grep for a string; if
+#     either capture is empty the negative ones pass on nothing.
+c76_l08=$(wc -l < "$C76_08"); c76_l05=$(wc -l < "$C76_05")
+if [ "${c76_l08}" -lt 200 ] || [ "${c76_l05}" -lt 100 ]; then
+  echo "FAIL: vacuity control — captured step-08 is ${c76_l08} lines and step-05 is ${c76_l05}; Case 76 would be asserting over nothing (#5359)" >&2
+  c76_fail=1
+fi
+
+# (b) Both lint functions exist and take a region + kubeconfig.
+for c76_fn in 'run_flux_source_host_lint() {' 'run_flux_source_health_lint() {'; do
+  if ! grep -qF "$c76_fn" "$C76_08"; then
+    echo "FAIL: step-08 does not define ${c76_fn%% *} — the #5359 gate is absent" >&2
+    c76_fail=1
+  fi
+done
+if ! grep -qF '_FS_KUBECONFIG="${2:-}"' "$C76_08"; then
+  echo "FAIL: the source lints do not accept a kubeconfig argument, so they can only ever measure the primary region — the exact shape of #5359" >&2
+  c76_fail=1
+fi
+if ! grep -qF 'kubectl --kubeconfig="${_FS_KUBECONFIG}"' "$C76_08"; then
+  echo "FAIL: the lints never pass --kubeconfig to kubectl; a per-region verdict would be a second measurement of the primary (#5359)" >&2
+  c76_fail=1
+fi
+
+# (c) The driver fans out over EVERY region and ANDs the verdict. A short-circuit
+#     would stop at the first offender and hide the rest of the fleet.
+if ! grep -qF 'for _k in /secondary-kubeconfigs/*.yaml' "$C76_08"; then
+  echo "FAIL: the source-lint driver does not iterate the secondary kubeconfigs — the gate stays single-region (#5359)" >&2
+  c76_fail=1
+fi
+if ! grep -qF '_fs_verdict=1' "$C76_08"; then
+  echo "FAIL: the driver has no across-region verdict accumulator; one region's failure would not fail the step (#5359)" >&2
+  c76_fail=1
+fi
+# The exit must be INSIDE the verdict branch: a lint whose failure does not
+# stop the step leaves cutoverComplete free to be set anyway.
+if ! grep -A3 'if \[ "${_fs_verdict}" != "0" \]; then' "$C76_08" | grep -qF 'exit 1'; then
+  echo "FAIL: a failing per-region source lint does not exit non-zero — cutoverComplete could still be set over a tethered region (#5359)" >&2
+  c76_fail=1
+fi
+
+# (d) FAIL-CLOSED enumeration. The pre-#5359 code piped `kubectl … 2>/dev/null`
+#     into the reader, so an unreadable secondary produced zero rows, zero
+#     offenders and a PASS for a region that was never measured.
+# Anchored on a leading space, NOT a bare substring: `_fs_kubectl get …`
+# CONTAINS `kubectl get …`, so a plain -F match here reports the pre-#5359 form
+# for the fixed code and this assertion would fail forever on a correct chart.
+if grep -qE '(^|[[:space:]])kubectl get "\$\{_fk\}" -A' "$C76_08"; then
+  echo "FAIL: step-08 still enumerates sources without a kubeconfig shim (pre-#5359 single-cluster form)" >&2
+  c76_fail=1
+fi
+# ... and the shim must actually be the thing doing the enumerating.
+if ! grep -qF '_fs_kubectl get "${_fk}" -A' "$C76_08"; then
+  echo "FAIL: the host lint does not enumerate through the kubeconfig shim — it cannot reach a secondary region (#5359)" >&2
+  c76_fail=1
+fi
+if ! grep -qF 'Refusing to report PASS for a region that could not be measured' "$C76_08"; then
+  echo "FAIL: enumeration failure is not fail-closed — an unreadable secondary kubeconfig would read as a clean region (#5359)" >&2
+  c76_fail=1
+fi
+# ... but a kind that is merely NOT INSTALLED is zero rows, not a tether.
+if ! grep -qF "server doesn't have a resource type" "$C76_08"; then
+  echo "FAIL: no carve-out for an uninstalled source kind — a Sovereign without the OCIRepository CRD would be wedged (#5359)" >&2
+  c76_fail=1
+fi
+
+# (e) The HEALTH lint's scope was measured, not guessed: `type: oci`
+#     HelmRepositories carry no status at all (70/70 in hw292 region-a), so
+#     including them would fail every region of every Sovereign.
+if grep -qE 'for _hk in [a-z ]*helmrepositories' "$C76_08"; then
+  echo "FAIL: the health lint includes HelmRepositories, which carry no observedGeneration for type:oci — it would fail every region of every Sovereign (#5359, #5505 blast-radius shape)" >&2
+  c76_fail=1
+fi
+if ! grep -qF 'for _hk in gitrepositories ocirepositories; do' "$C76_08"; then
+  echo "FAIL: the health lint does not cover the reconciled source kinds (#5359)" >&2
+  c76_fail=1
+fi
+# The `|` separator is load-bearing: observedGeneration is ABSENT on an
+# unreconciled object and a space separator would collapse the field, shifting
+# every later value left so the reader compares the wrong two and passes.
+if ! grep -qF '{"|"}{.status.observedGeneration}{"|"}' "$C76_08"; then
+  echo "FAIL: the health lint's jsonpath is not pipe-separated — an absent observedGeneration would collapse the row and the comparison would silently read the wrong fields (#5359)" >&2
+  c76_fail=1
+fi
+
+# (f) Step-05's secondary readiness must assert CONVERGENCE. The old predicate
+#     was `Ready == True && spec.url == sec_url`: the url half is a tautology
+#     (the leg wrote that value one line earlier) and the Ready half still
+#     describes the PREVIOUS spec immediately after a patch.
+if ! grep -qF '[ "${sg_obs}" = "${sg_gen}" ]' "$C76_05"; then
+  echo "FAIL: step-05's secondary readiness does not require observedGeneration == generation — it would accept the stale Ready=True left over from the pre-pivot github.com fetch, which is precisely how hw292 recorded success at the same second the fetch started failing (#5359)" >&2
+  c76_fail=1
+fi
+if ! grep -qF 'sec_url_chain' "$C76_05"; then
+  echo "FAIL: step-05 has no secondary candidate-URL chain — a secondary that cannot reach the in-cluster Gitea name has no other path and the pivot is cosmetic (#5359)" >&2
+  c76_fail=1
+fi
+# Exhausting the chain must be FATAL, never a soft skip.
+if ! grep -qF 'did not CONVERGE (observedGeneration==generation with Ready=True) on any candidate URL' "$C76_05"; then
+  echo "FAIL: step-05 does not fail loudly when no candidate URL converges (#5359)" >&2
+  c76_fail=1
+fi
+if ! grep -A8 'if \[ -z "${sg_ready}" \]; then' "$C76_05" | grep -qF 'exit 1'; then
+  echo "FAIL: step-05's no-candidate-converged branch does not exit 1 (#5359)" >&2
+  c76_fail=1
+fi
+# The fallback candidate must be ON-Sovereign, or the "fix" would trade a dead
+# URL for a real tether.
+c76_fb=$(grep -A1 'name: SECONDARY_GITEA_FALLBACK_URL' "$C76_05" | grep 'value:' | head -1)
+case "${c76_fb}" in
+  *'gitea.'*) : ;;
+  *) echo "FAIL: SECONDARY_GITEA_FALLBACK_URL does not render the Sovereign's own gitea door (got: ${c76_fb}) (#5359)" >&2; c76_fail=1 ;;
+esac
+case "${c76_fb}" in
+  *github.com*|*ghcr.io*|*openova.io*)
+    echo "FAIL: SECONDARY_GITEA_FALLBACK_URL renders an OFF-Sovereign host (${c76_fb}) — that is a tether, not a fallback (#5359)" >&2; c76_fail=1 ;;
+esac
+
+# (g) The step-05 ceiling must exceed the worst-case candidate chain, or the Job
+#     is killed mid-chain and the failure reads as a deadline instead of as the
+#     unreachable-Gitea diagnosis.
+c76_dl=$(grep -m1 'activeDeadlineSeconds' "$C76_05" | tr -dc '0-9')
+c76_rdy=$(grep -A1 'name: SECONDARY_GITREPO_READY_SECONDS' "$C76_05" | grep 'value:' | tr -dc '0-9')
+if [ -n "${c76_dl}" ] && [ -n "${c76_rdy}" ] && [ "${c76_dl}" -le $((c76_rdy * 2)) ]; then
+  echo "FAIL: step-05 activeDeadlineSeconds (${c76_dl}) does not exceed two candidate windows (2 x ${c76_rdy}); the chain would be truncated by the deadline (#5359)" >&2
+  c76_fail=1
+fi
+
+if [ "$c76_fail" -ne 0 ]; then exit 1; fi
+echo "  PASS (#5359: both source lints take a region+kubeconfig and dial it, the driver fans out across every secondary and ANDs the verdict with an unreadable region counted as FAIL, the health lint is scoped to reconciled kinds only and reads pipe-separated fields, and step-05's secondary leg walks a candidate URL chain whose success predicate is observedGeneration==generation on a Ready source, fatal when exhausted; vacuity control: step-08 ${c76_l08} lines / step-05 ${c76_l05} lines)"
 
 echo "[cutover-contract] All gates green."

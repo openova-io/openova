@@ -112,6 +112,15 @@ data:
           # step.<step>.region.<key>.* tracking keys.
           - name: SECONDARY_GITEA_URL
             value: {{ if .Values.secondaryRegions.giteaURL }}{{ printf "%s/%s/%s" (.Values.secondaryRegions.giteaURL | trimSuffix "/") .Values.gitea.org .Values.gitea.repo | quote }}{{ else }}""{{ end }}
+          # #5359 — the fallback candidate, tried only if the in-cluster mesh
+          # URL fails to CONVERGE in the secondary. Defaults to the Sovereign's
+          # OWN external Gitea door, which is on-Sovereign (it satisfies the
+          # step-08 source-host lint's *.<fqdn> exemption) and is the only path
+          # live-proven to serve region-A's pivoted repo from region-B on hw292.
+          # Set secondaryRegions.giteaFallbackURL to "" to disable the fallback
+          # and make a mesh failure immediately fatal.
+          - name: SECONDARY_GITEA_FALLBACK_URL
+            value: {{ if .Values.secondaryRegions.giteaFallbackURL }}{{ printf "%s/%s/%s" (.Values.secondaryRegions.giteaFallbackURL | trimSuffix "/") .Values.gitea.org .Values.gitea.repo | quote }}{{ else if .Values.secondaryRegions.giteaFallbackToPublicDoor }}{{ printf "https://gitea.%s/%s/%s" .Values.sovereign.fqdn .Values.gitea.org .Values.gitea.repo | quote }}{{ else }}""{{ end }}
           - name: SECONDARY_GITREPO_READY_SECONDS
             value: {{ .Values.secondaryRegions.gitRepositoryReadySeconds | quote }}
           - name: STATUS_CONFIGMAP
@@ -220,12 +229,50 @@ data:
             # secondary region, materialised by catalyst-api at run start).
             # Empty/absent = single-region Sovereign = this whole block
             # no-ops (pre-#5359 behavior byte-identical).
-            sec_url="${SECONDARY_GITEA_URL:-}"
-            [ -n "${sec_url}" ] || sec_url="${LOCAL_GITEA_URL}"
+            #
+            # #5359 CANDIDATE URL CHAIN (hw292, dep 1c56518035a83e03). The leg
+            # used to pivot the secondary to LOCAL_GITEA_URL unconditionally —
+            # `http://gitea-http.gitea.svc.cluster.local:3000`. That name does
+            # NOT reach region-A from a secondary region, and the mesh alias
+            # below cannot make it: a 2-region Sovereign installs bp-gitea in
+            # BOTH regions from the bootstrap-kit, so the secondary already runs
+            # its own `gitea/gitea-http` Service whose selector matches its own
+            # (empty, never mirrored) Gitea pod; and BOTH Services are HEADLESS
+            # (clusterIP: None), which Cilium ClusterMesh global-services cannot
+            # span at all — a headless Service is resolved by CoreDNS straight
+            # from the LOCAL EndpointSlice, so `service.cilium.io/global` is
+            # inert on it. Live on hw292: region-b resolved that name to
+            # 10.43.3.228, its OWN gitea pod, whose openova/openova advertises
+            # zero refs, giving source-controller "pkt-line 3: EOF" on every
+            # fetch from 07:39:48Z onward.
+            #
+            # So the URL is a candidate, not a certainty, and the only honest
+            # prober is the secondary's OWN source-controller: it dials the exact
+            # URL, from the right cluster, with the right credential. Each
+            # candidate is patched in and given a bounded window to CONVERGE
+            # (below); the first that converges wins, and exhausting the chain is
+            # fatal. The fallback is the Sovereign's own external Gitea door,
+            # which is on-Sovereign (it satisfies the step-08 source-host lint's
+            # *.<SOVEREIGN_FQDN> exemption, and the step-08 secondary hold
+            # already carves out that gateway's public IPs) and was
+            # live-verified reachable from hw292 region-b, serving the pivoted
+            # revision 7bcd1d59... byte-identical to region-A's in-cluster Gitea.
+            sec_url_chain="${SECONDARY_GITEA_URL:-}"
+            if [ -z "${sec_url_chain}" ]; then
+              sec_url_chain="${LOCAL_GITEA_URL}"
+              [ -n "${SECONDARY_GITEA_FALLBACK_URL:-}" ] && sec_url_chain="${sec_url_chain} ${SECONDARY_GITEA_FALLBACK_URL}"
+            fi
+            echo "[flux-gitrepository-patch] #5359 secondary candidate URL chain: ${sec_url_chain}"
             for skc in /secondary-kubeconfigs/*.yaml; do
               [ -e "${skc}" ] || continue
               region=$(basename "${skc}" .yaml)
-              echo "[flux-gitrepository-patch] #5359 secondary region ${region}: pivoting its GitRepository -> ${sec_url}"
+              # ${sec_url_chain}, NOT ${sec_url}: the single-URL variable now
+              # exists only inside the candidate loop below, and this line runs
+              # before it. Under the Job's `set -u` a stale reference here is
+              # not a cosmetic log bug — it aborts the leg on the FIRST
+              # secondary region, before any pivot, for every 2-region
+              # Sovereign.
+              echo "[flux-gitrepository-patch] #5359 secondary region ${region}: pivoting its GitRepository, candidates -> ${sec_url_chain}"
 
               # 1a. Share region-A's gitea-http endpoints into the mesh (the
               # bp-cnpg-pair global-Service idiom). Annotating the LIVE
@@ -280,7 +327,12 @@ data:
                   -p "{\"data\":{\"step.flux-gitrepository-patch.region.${region}.result\":\"skipped\",\"step.flux-gitrepository-patch.region.${region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" || true
                 continue
               fi
-              cat >/tmp/patch-secondary.yaml <<EOF
+              sg_ready=""
+              sg_chosen=""
+              sg_msg=""
+              for sec_url in ${sec_url_chain}; do
+                echo "[flux-gitrepository-patch] #5359 secondary ${region}: trying candidate ${sec_url}"
+                cat >/tmp/patch-secondary.yaml <<EOF
             spec:
               url: ${sec_url}
               ref:
@@ -294,44 +346,71 @@ data:
                 !/platform
                 !/products
             EOF
-              kubectl --kubeconfig "${skc}" patch gitrepository "${GITREPO_NAME}" \
-                -n "${GITREPO_NAMESPACE}" \
-                --type=merge --patch-file /tmp/patch-secondary.yaml
-              kubectl --kubeconfig "${skc}" annotate --overwrite gitrepository "${GITREPO_NAME}" \
-                -n "${GITREPO_NAMESPACE}" \
-                "reconcile.fluxcd.io/requestedAt=$(date +%s)"
+                kubectl --kubeconfig "${skc}" patch gitrepository "${GITREPO_NAME}" \
+                  -n "${GITREPO_NAMESPACE}" \
+                  --type=merge --patch-file /tmp/patch-secondary.yaml
+                kubectl --kubeconfig "${skc}" annotate --overwrite gitrepository "${GITREPO_NAME}" \
+                  -n "${GITREPO_NAMESPACE}" \
+                  "reconcile.fluxcd.io/requestedAt=$(date +%s)"
 
-              # 4. FAIL-LOUD readiness: the secondary MUST reconcile the
-              # local Gitea within the bounded window, or the step fails and
-              # cutoverComplete stays false — a silent skip here IS the
-              # #5359 false positive.
-              sg_deadline=$(( $(date +%s) + ${SECONDARY_GITREPO_READY_SECONDS} ))
-              sg_ready=""
-              while [ "$(date +%s)" -lt "${sg_deadline}" ]; do
-                sg_status=$(kubectl --kubeconfig "${skc}" get gitrepository "${GITREPO_NAME}" -n "${GITREPO_NAMESPACE}" \
-                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
-                sg_url=$(kubectl --kubeconfig "${skc}" get gitrepository "${GITREPO_NAME}" -n "${GITREPO_NAMESPACE}" \
-                  -o jsonpath='{.spec.url}' 2>/dev/null || echo "")
-                if [ "${sg_status}" = "True" ] && [ "${sg_url}" = "${sec_url}" ]; then
-                  sg_ready="yes"
-                  break
-                fi
-                echo "[flux-gitrepository-patch] #5359 secondary ${region}: Ready=${sg_status:-<none>} url=${sg_url:-<none>} — re-checking in 10s"
-                sleep 10
-              done
-              if [ -z "${sg_ready}" ]; then
+                # 4. FAIL-LOUD readiness. #5359 (hw292): the predicate here USED
+                # to be `Ready == True && spec.url == sec_url`, and both halves
+                # were unsound.
+                #
+                #   * `spec.url` is the value this leg had just WRITTEN one line
+                #     earlier, so that half is a tautology — it can never be
+                #     false and it proves nothing about the fetch.
+                #   * `Ready` is a STATUS field, and immediately after a patch it
+                #     still describes the PREVIOUS spec. On hw292 the object went
+                #     into the loop carrying Ready=True from its last successful
+                #     clone of PUBLIC github.com, so the very first iteration
+                #     matched and the leg recorded result=success at 07:39:48Z —
+                #     the same second the Ready condition actually flipped to
+                #     False. The controller then never advanced past
+                #     observedGeneration=1 while metadata.generation stayed 2,
+                #     and 22h later it was still serving that pre-pivot GitHub
+                #     artifact.
+                #
+                # The sound predicate is CONVERGENCE: source-controller has
+                # processed THIS generation (observedGeneration == generation)
+                # and the outcome was success (Ready=True). Nothing else can
+                # distinguish "fetched from the new URL" from "still holding what
+                # it fetched from the old one".
+                sg_deadline=$(( $(date +%s) + ${SECONDARY_GITREPO_READY_SECONDS} ))
+                while [ "$(date +%s)" -lt "${sg_deadline}" ]; do
+                  sg_json=$(kubectl --kubeconfig "${skc}" get gitrepository "${GITREPO_NAME}" -n "${GITREPO_NAMESPACE}" \
+                    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}|{.metadata.generation}|{.status.observedGeneration}|{.spec.url}' 2>/dev/null || echo "")
+                  sg_status=$(printf '%s' "${sg_json}" | cut -d'|' -f1)
+                  sg_gen=$(printf '%s' "${sg_json}" | cut -d'|' -f2)
+                  sg_obs=$(printf '%s' "${sg_json}" | cut -d'|' -f3)
+                  sg_url=$(printf '%s' "${sg_json}" | cut -d'|' -f4)
+                  if [ "${sg_status}" = "True" ] && [ -n "${sg_gen}" ] && [ "${sg_obs}" = "${sg_gen}" ] && [ "${sg_url}" = "${sec_url}" ]; then
+                    sg_ready="yes"
+                    sg_chosen="${sec_url}"
+                    break
+                  fi
+                  echo "[flux-gitrepository-patch] #5359 secondary ${region}: Ready=${sg_status:-<none>} generation=${sg_gen:-<none>} observedGeneration=${sg_obs:-<none>} (need observedGeneration==generation on a Ready source) — re-checking in 10s"
+                  sleep 10
+                done
+                [ -n "${sg_ready}" ] && break
                 sg_msg=$(kubectl --kubeconfig "${skc}" get gitrepository "${GITREPO_NAME}" -n "${GITREPO_NAMESPACE}" \
                   -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null || echo "")
-                echo "[flux-gitrepository-patch] FATAL: secondary region ${region} GitRepository did not reach Ready=True on ${sec_url} within ${SECONDARY_GITREPO_READY_SECONDS}s: ${sg_msg} — region-B is still git-tethered; refusing to succeed (#5359)" >&2
+                echo "[flux-gitrepository-patch] #5359 secondary ${region}: candidate ${sec_url} did not converge within ${SECONDARY_GITREPO_READY_SECONDS}s: ${sg_msg}"
+              done
+              if [ -z "${sg_ready}" ]; then
+                echo "[flux-gitrepository-patch] FATAL: secondary region ${region} GitRepository did not CONVERGE (observedGeneration==generation with Ready=True) on any candidate URL in [${sec_url_chain}] — last error: ${sg_msg}. region-B is still serving its pre-cutover artifact and every HelmRepository this cutover pivots there will be reverted on the next Kustomization interval; refusing to succeed (#5359)" >&2
                 kubectl -n "${CUTOVER_NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
-                  -p "{\"data\":{\"step.flux-gitrepository-patch.region.${region}.result\":\"failed\",\"step.flux-gitrepository-patch.region.${region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" || true
+                  -p "{\"data\":{\"step.flux-gitrepository-patch.region.${region}.result\":\"failed\",\"step.flux-gitrepository-patch.region.${region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"step.flux-gitrepository-patch.region.${region}.lastError\":\"$(printf '%s' "${sg_msg}" | tr -d '\"' | cut -c1-200)\"}}" || true
                 exit 1
               fi
 
-              # 5. Per-region durable tracking (#5359).
+              # 5. Per-region durable tracking (#5359). giteaURL records WHICH
+              # candidate converged, so an operator can see from the status
+              # ConfigMap alone whether the secondary took the in-cluster mesh
+              # path or the Sovereign's external Gitea door.
               kubectl -n "${CUTOVER_NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
-                -p "{\"data\":{\"step.flux-gitrepository-patch.region.${region}.result\":\"success\",\"step.flux-gitrepository-patch.region.${region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" || true
-              echo "[flux-gitrepository-patch] #5359 secondary region ${region}: GitRepository Ready on local Gitea"
+                -p "{\"data\":{\"step.flux-gitrepository-patch.region.${region}.result\":\"success\",\"step.flux-gitrepository-patch.region.${region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"step.flux-gitrepository-patch.region.${region}.giteaURL\":\"${sg_chosen}\"}}" || true
+              echo "[flux-gitrepository-patch] #5359 secondary region ${region}: GitRepository CONVERGED on ${sg_chosen} (observedGeneration==generation, Ready=True)"
             done
             echo "[flux-gitrepository-patch] done"
         resources:

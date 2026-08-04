@@ -1791,6 +1791,32 @@ egressTest:
     # that lands, delete the entry and the lint proves the tether is gone.
     allowHosts:
       - charts.loft.sh
+  # #5359 — the SOURCE-HEALTH half of the same gate. fluxSourceHostLint above
+  # asserts what every Flux source DECLARES (spec.url); this asserts whether the
+  # controller ever CONVERGED on that declaration (observedGeneration ==
+  # generation on a Ready source).
+  #
+  # Why both are needed, from the live hw292 failure. Step-05's secondary leg
+  # patched region-b's GitRepository url to the local Gitea and recorded
+  # result=success. source-controller then failed every fetch from that URL
+  # ("pkt-line 3: EOF") and never advanced observedGeneration past 1, so it kept
+  # serving main@sha1:4cc85ad9... — the artifact it had fetched from PUBLIC
+  # github.com minutes earlier. region-b's kustomize-controller re-applied that
+  # pre-cutover content every 5m and reverted all 64 HelmRepositories the
+  # step-06 leg had pivoted. A host lint reading spec.url sees a clean local URL
+  # and passes; only the convergence check separates a real pivot from a
+  # cosmetic one.
+  #
+  # SCOPE is deliberately narrow and was MEASURED, not assumed: only kinds a
+  # controller actually reconciles (GitRepository, OCIRepository). `type: oci`
+  # HelmRepositories are static config for helm-controller and carry `status: {}`
+  # with no observedGeneration at all — 70/70 in hw292 region-a and 65/65 in
+  # region-b — so including them would fail every region of every Sovereign and
+  # wedge the flow this guard protects (the #5505 blast-radius shape). With that
+  # scope the live blast radius on hw292 is exactly one object: region-b's
+  # flux-system/openova GitRepository, i.e. the defect itself.
+  fluxSourceHealthLint:
+    enabled: true
   # #3678 — TRUE deny-egress shape. defaultDenyEgress flips the Step-08
   # CCNP from a SUBTRACTIVE 4-CIDR block (default-allow, deny only the
   # listed hosts — which left console.openova.io + every un-enumerated
@@ -2255,7 +2281,17 @@ stepTimeouts:
   # census itself is still the ~105-min slow path this ceiling was sized for, and
   # a slow-but-reachable-egress run needs the same headroom regardless.
   harborPrewarmSeconds: 9600
-  fluxGitRepositoryPatchSeconds: 600
+  # #5359 — raised 600 -> 1800. The step-05 secondary leg now walks a CANDIDATE
+  # URL CHAIN, giving each candidate its own secondaryRegions.
+  # gitRepositoryReadySeconds (300s) window to converge. Worst case is
+  # regions x candidates x 300s (a 2-region Sovereign: 1 x 2 x 300 = 600s) on
+  # top of the region-A patch, and the ceiling must exceed the sum or the Job is
+  # killed mid-chain and the failure reads as a deadline rather than as the
+  # unreachable-Gitea diagnosis the leg was about to print. 1800 leaves headroom
+  # for a 3-region topology. The step stays event-driven (catalyst-api watches
+  # to completion), so a converging run still returns in seconds and never waits
+  # out the ceiling.
+  fluxGitRepositoryPatchSeconds: 1800
   # Step 06 (helmrepository-patches) activeDeadlineSeconds. This step now
   # has FOUR potentially-slow waits inside one Job and the deadline must
   # cover their SUM in the worst case:
@@ -2655,21 +2691,53 @@ secondaryRegions:
   # region) renders the legs inert. Must match catalyst-api's
   # CATALYST_CUTOVER_SECONDARY_KUBECONFIGS_SECRET (default identical).
   kubeconfigSecretName: "cutover-secondary-kubeconfigs"
-  # Step 05 region-B leg: bounded wait for the secondary GitRepository
-  # to reach Ready=True on the pivoted local-Gitea URL. FAIL-LOUD: a
-  # secondary that cannot reconcile the local Gitea fails the step —
-  # succeeding anyway would re-mint the #5359 false positive.
+  # Step 05 region-B leg: bounded wait, PER CANDIDATE URL, for the
+  # secondary GitRepository to CONVERGE — observedGeneration ==
+  # generation with Ready=True, not merely Ready=True. FAIL-LOUD: a
+  # secondary that cannot converge on any candidate fails the step.
+  #
+  # #5359 (hw292): the old predicate accepted a stale Ready=True left
+  # over from the object's last successful clone of PUBLIC github.com,
+  # so the leg recorded success at 07:39:48Z — the same second Ready
+  # actually flipped to False — and the region stayed on its pre-pivot
+  # artifact for 22h. Ready is a status field; immediately after a patch
+  # it still describes the previous spec.
   gitRepositoryReadySeconds: 300
   # Git URL the SECONDARY regions' GitRepository is pivoted to. Empty
-  # (default) = the same in-cluster URL region-A uses
-  # (sovereign.giteaInternalURL + gitea.org/gitea.repo), reachable from
-  # the secondary via the ClusterMesh global-Service alias the step-05
-  # leg establishes (gitea-http.gitea.svc, the bp-cnpg-pair idiom the
-  # #5359 design note names). Override per-Sovereign if a topology
-  # needs the public https://gitea.<fqdn> door instead (note: LE-staging
-  # certs on fresh provs make the public door x509-hostile; the mesh
-  # alias is the canonical path).
+  # (default) = try the same in-cluster URL region-A uses
+  # (sovereign.giteaInternalURL + gitea.org/gitea.repo) FIRST, then fall
+  # back to giteaFallbackURL / the public door below. Setting this
+  # pins the chain to exactly one URL (explicit operator intent).
+  #
+  # #5359 — why the in-cluster URL is a candidate and not a certainty.
+  # `gitea-http.gitea.svc.cluster.local` resolves LOCALLY in the
+  # secondary: a 2-region Sovereign installs bp-gitea in both regions, so
+  # the secondary has its own same-named Service selecting its own
+  # (empty, never mirrored) Gitea. The step-05 mesh alias cannot override
+  # that, because BOTH Services are HEADLESS (clusterIP: None) and Cilium
+  # ClusterMesh global-services do not span headless Services at all —
+  # CoreDNS answers straight from the local EndpointSlice, making
+  # `service.cilium.io/global` inert. Live on hw292 region-b that name
+  # resolved to 10.43.3.228 (its own gitea pod), whose openova/openova
+  # advertises zero refs → "pkt-line 3: EOF" on every fetch.
   giteaURL: ""
+  # #5359 — fallback candidate tried when the in-cluster URL does not
+  # converge. Empty + giteaFallbackToPublicDoor=true (the default) means
+  # `https://gitea.<sovereign.fqdn>/<org>/<repo>`: the Sovereign's OWN
+  # external Gitea door. That is ON-Sovereign, not a tether — it is the
+  # Sovereign's own gateway VIP, it satisfies the step-08 source-host
+  # lint's *.<fqdn> exemption, and the step-08 secondary deny-egress leg
+  # already carves out that gateway's public IPs so the hold does not cut
+  # it. Live-verified on hw292: from region-b this door served HEAD
+  # 7bcd1d59… — byte-identical to region-A's in-cluster Gitea, i.e. the
+  # PIVOTED content — while the in-cluster name served zero refs.
+  #
+  # The old caveat about LE-STAGING certs making the public door
+  # x509-hostile still holds for qaTestEnabled provs; those set
+  # giteaFallbackToPublicDoor=false and must supply a mesh path that
+  # actually works, rather than silently pivoting to an unreachable URL.
+  giteaFallbackURL: ""
+  giteaFallbackToPublicDoor: true
   # Extra CIDRs allowed by the SECONDARY regions' deny-egress hold, ON
   # TOP of egressTest.allowIntraClusterCIDRs + allowProviderCIDRs (both
   # inherited verbatim) + the auto-resolved public IPs of the
