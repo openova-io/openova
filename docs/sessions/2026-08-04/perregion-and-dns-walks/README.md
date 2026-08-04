@@ -185,3 +185,45 @@ carry them). Recording the distinction rather than collapsing it: *the failing h
 the failure itself was not re-observed today.*
 
 Refs #5617 #5511 #5653 #5640
+
+## Walk 6 — the synthesis: four issues are one defect
+
+Probing #5649 (Org teardown leaves routes) produced a control that reframes everything above.
+Measured both regions against `r17probe` (Organization deleted hours earlier) and `uatco` (live
+funnel Organization):
+
+| object | region-a | region-b |
+|---|---|---|
+| namespace `r17probe` | absent | absent |
+| namespace `uatco` | **present** | **absent** |
+| HTTPRoute `catalyst-ui-r17probe-omani-homes` | **orphaned** | **orphaned** |
+| listeners `console-{http,https}-r17probe` | absent — reaped | **present — 2 orphans** |
+| listeners `console-{http,https}-uatco` | **present** | **absent** |
+
+**The regions are exactly inverted.** region-a holds the live Org's listeners and none of the dead
+Org's; region-b holds the dead Org's and none of the live Org's. Region-b did not half-apply
+anything — it never received the create and never received the delete. It is unsynced in *both*
+directions, which is why it simultaneously lacks live surface and accumulates dead surface.
+
+### One root cause, four issues
+
+Region-b's `bootstrap-kit` reconciles from a GitRepository still serving **public github.com** at
+`generation 2 / observedGeneration 1` (#5359). Every per-Org GitOps write and reap flows through that
+stream. That single fact predicts and explains:
+
+| issue | symptom | explanation |
+|---|---|---|
+| #5511 | per-Org hosts fail ~50% of fresh TCP (57% / 50%, Sovereign control 0%) | region-b has no `*.uatco.omani.homes` listener |
+| #5649 | deleted Org leaves routes + listeners | region-b never received the reap |
+| #5591 | region-b Kyverno at Audit; live patch reverts in <40s | region-b re-applies GitHub state |
+| #5359 | region-b's 64 HelmRepositories still on ghcr.io | the source itself |
+
+Worked all night as four defects. They are one: **region-b is not receiving the Sovereign's GitOps
+stream at all.**
+
+**Falsifiable prediction:** fixing #5359 should resolve the ~50% per-Org failure rate in #5511 with no
+change to gateway code. That is the cheapest test of this synthesis on the next 2-region cutover, and
+it is the correct sequencing — #5359 first, then the teardown reaper, then re-verify #5511 and #5591
+by observation rather than by patching.
+
+Refs #5359 #5511 #5591 #5649 #5656
