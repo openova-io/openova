@@ -115,3 +115,62 @@ data:
         esac
       fi
     }
+
+    # offlinemirror_upstream_ref REF -> the UPSTREAM ref a local-registry ref
+    # came from, or EMPTY (exit 1) when the map cannot name one.
+    #
+    # WHY THIS EXISTS (#5640). step-07's pod-spec sweep rewrites every workload
+    # image to `registry.<fqdn>/<local-path>` (sweep_one_workload ->
+    # podspec_pivot_ref). Post-cutover, therefore, the refs a Day-2 loop reads
+    # off the LIVE cluster no longer carry an upstream host at all. Handing such
+    # a ref to a copy as the SOURCE asks skopeo to copy the local registry to
+    # itself — for an artifact the local registry has just 404'd, which can never
+    # deliver anything. Recovering the upstream is not guesswork: the forward map
+    # is injective on the classes that exist, so it inverts.
+    #
+    #   registry.<fqdn>/openova-io/openova/catalyst-api:e3342f9
+    #       -> ghcr.io/openova-io/openova/catalyst-api:e3342f9   (host-drop inverse)
+    #   registry.<fqdn>/proxy-dockerhub/library/redis:7
+    #       -> docker.io/library/redis:7                         (project inverse)
+    #
+    # A mothership host-swapped path (project "" in the map) already carries its
+    # `proxy-<x>` segment, so the project inverse below resolves it to the ORIGIN
+    # host rather than back to harbor.openova.io — which is both correct and the
+    # source #5095's DIRECT fallback prefers anyway. No separate branch needed.
+    #
+    # A ref that already carries a real registry host is returned unchanged: it
+    # is an upstream ref, and there is nothing to invert.
+    offlinemirror_upstream_ref() {
+      _ur=$(offlinemirror_normalize_ref "$1")
+      case "${_ur}" in
+        "${LOCAL_REGISTRY_HOST}"/*) _ur_path="${_ur#*/}" ;;
+        */*)
+          _ur_h="${_ur%%/*}"
+          case "${_ur_h}" in
+            *.*|*:*|localhost) printf '%s\n' "${_ur}"; return 0 ;;
+            *) _ur_path="${_ur}" ;;
+          esac ;;
+        *) _ur_path="${_ur}" ;;
+      esac
+      case "${_ur_path}" in
+        */*) _ur_proj="${_ur_path%%/*}"; _ur_rest="${_ur_path#*/}" ;;
+        *) return 1 ;;
+      esac
+      # (1) project -> host: the exact inverse of the coverage-map lookup above.
+      for _ur_pair in ${HOST_PROJECT_MAP}; do
+        _ur_ph="${_ur_pair%%:*}"
+        case "${_ur_pair}" in *:*) _ur_pp="${_ur_pair#*:}" ;; *) _ur_pp="" ;; esac
+        if [ -n "${_ur_pp}" ] && [ "${_ur_pp}" = "${_ur_proj}" ]; then
+          printf '%s/%s\n' "${_ur_ph}" "${_ur_rest}"
+          return 0
+        fi
+      done
+      # (2) the openova-io host-drop DUAL dest, inverted. Same literal the
+      # forward branch above emits, so the two can never drift apart.
+      case "${_ur_path}" in
+        openova-io/*) printf 'ghcr.io/%s\n' "${_ur_path}"; return 0 ;;
+      esac
+      # Undecidable. Return EMPTY and let the caller fail loudly — a caller that
+      # guessed would produce the self-copy this function exists to prevent.
+      return 1
+    }
