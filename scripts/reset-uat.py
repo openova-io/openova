@@ -30,7 +30,26 @@ docs/sessions/<date>/evidence/. Only the live UAT tables are cleared.
 """
 import sys, os, re, glob, datetime
 
-ENV = sys.argv[1] if len(sys.argv) > 1 else "pending fresh prov"
+USAGE = "Usage: reset-uat.py [<env-label>]      e.g.  reset-uat.py hwNNN"
+
+# A flag-shaped argv[1] is NEVER an env label. Before this guard, `reset-uat.py
+# --help` took the flag AS the label and destructively reset every positive
+# evidence cell in UAT.md (166 cells, 2026-08-04) while printing a line that
+# read like help output — the operator's "what does this do?" reflex silently
+# erased the ledger. Same class as #5648: a mechanism firing on an input that
+# cannot mean what the mechanism assumes. Fail closed on anything starting
+# with '-', and treat -h/--help as the documented help path.
+_arg = sys.argv[1] if len(sys.argv) > 1 else None
+if _arg is not None and _arg.startswith("-"):
+    if _arg in ("-h", "--help"):
+        print(USAGE)
+        print(__doc__)
+        sys.exit(0)
+    print(f"reset-uat: refusing to treat {_arg!r} as an env label.\n{USAGE}",
+          file=sys.stderr)
+    sys.exit(2)
+
+ENV = _arg if _arg else "pending fresh prov"
 today = datetime.date.today().isoformat()
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
