@@ -265,6 +265,35 @@ export function CutoverProgressCard({
         </p>
       ) : null}
 
+      {status.settledRollOverrides ? (
+        /* #5391 — the settled-roll gate passed WITH named operator
+         * override(s). This is an AUDIT surface: a walk must be able to
+         * SEE that specific stuck HelmReleases were excluded from the
+         * pre-flight, in-progress AND after sovereignty is achieved. */
+        <div
+          data-testid="cutover-settled-roll-overrides"
+          role="status"
+          className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs text-amber-300"
+        >
+          <p className="font-semibold">
+            Settled-roll pre-flight passed with named override
+            {status.settledRollOverrides.includes('\n') ? 's' : ''}
+          </p>
+          <ul className="mt-1 list-inside list-disc font-mono text-[11px]">
+            {status.settledRollOverrides.split('\n').map((entry) => (
+              <li key={entry} className="truncate" title={entry}>
+                {entry}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-[11px] text-amber-300/80">
+            Each excluded HelmRelease was validated as genuinely stuck
+            (Stalled or DependencyNotReady); its running images were still
+            mirrored. Resolve the underlying failure after cutover.
+          </p>
+        </div>
+      ) : null}
+
       <ol className="flex flex-col gap-2">
         {CUTOVER_STEPS.map((def) => (
           <CutoverStepRow key={def.id} def={def} rec={recordFor(status, def.id)} />

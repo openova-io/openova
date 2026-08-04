@@ -53,6 +53,45 @@ name: bp-self-sovereign-cutover
 # empty — the door routes every secondary to region-A's Gitea, so a region-A
 # loss leaves secondaries without a git source until the per-region mirror
 # lands (the #5359-thread DR gap). Step count unchanged at 11; no new values.
+# 0.1.167 (#5391, Refs #5393 #4982 #5392) — the settled-roll pre-flight gains a
+# NAMED, validated, audited operator override, closing the "no operator remedy"
+# gap: a Stalled=True/RetriesExceeded HelmRelease never becomes Ready on its own
+# (Flux stops retrying permanently — live hw290 dep 31106b6aa4a7e8e7 and hw291,
+# quota-wedged per-Org customer apps #5393), so ONE stuck customer release held
+# the ENTIRE Sovereign's cutover closed forever. PR #5392 shipped diagnostics
+# only; this release adds the recovery seam without weakening the default.
+#
+# 1. NAMED OVERRIDE — a sovereign-admin excludes ONE genuinely-stuck release:
+#      kubectl annotate helmrelease <name> -n <ns> \
+#        catalyst.openova.io/cutover-settled-roll-override="<reason>"
+#    The default is unchanged: every non-suspended HR must be Ready. Only an
+#    annotated release is excluded, and the annotation key is a FIXED contract
+#    (not a values knob). The exclusion narrows only the settle CHECK — the
+#    release's running images/charts are still mirrored by Phase A/A2.
+# 2. FAIL-CLOSED VALIDATION before any exclusion: an empty/whitespace reason,
+#    an annotation on a HEALTHY release (Ready=True + observedGeneration==
+#    generation), or one on a genuinely MID-ROLL release (neither Stalled=True
+#    nor Ready.reason=DependencyNotReady) each FATAL the gate naming the
+#    release — a stale or over-broad override can never widen the carve-out.
+#    The DependencyNotReady leg exists because the hw290 cascade shape is a
+#    stalled root plus dependents that are PERMANENTLY DependencyNotReady.
+# 3. AUDITED — every honored override is written durably to the status CM
+#    (settledRollOverrides = "<ns>/<name>=<reason>" lines +
+#    settledRollOverridesAt), surfaced first-class on GET /sovereign/cutover/
+#    status and in the admin console's progress card; an override that cannot
+#    be recorded is REFUSED (no unaudited carve-outs), and a later clean pass
+#    clears the record so it never lingers as a phantom entry.
+# 4. THE GATE'S READS FAIL CLOSED — the pre-#5391 `kubectl ... || true` bare
+#    captures silently PASSED the gate whenever the HR/workload list read
+#    failed (an empty offender list from a failed read is not a settled env).
+#    Reads now retry 5x then FATAL, and every jq stage FATALs on error.
+# Step-03 env gains STATUS_CONFIGMAP_NAME/NAMESPACE (the audit-record target,
+# RBAC already held configmaps patch). tests/cutover-contract.sh Case 77
+# EXECUTES the extracted rendered gate with a stubbed kubectl in 7 directions;
+# Case 41 re-keyed to the fail-closed reader. No step-count change (still 11),
+# no RBAC change.
+# (0.1.166 was taken on main by the #5359 secondary-pivot release while
+#  this PR was in flight; re-serialized to 0.1.167 at merge.)
 #
 # 0.1.165 (#5640 round 2, Refs #5644 #5265 #4975 #960) — the Day-2 delivery path
 # becomes one that can ACTUALLY deliver, and an unpullable pin becomes a FAILING
@@ -3223,7 +3262,7 @@ name: bp-self-sovereign-cutover
 # copyAttempts,skopeoStaticURL,maxRefsPerCycle}. No RBAC change (the runner
 # ClusterRole already grants deployments/statefulsets/daemonsets/jobs/cronjobs
 # get+list+watch). Step count unchanged at 11.
-version: 0.1.166
+version: 0.1.167
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

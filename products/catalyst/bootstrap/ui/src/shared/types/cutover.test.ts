@@ -491,6 +491,63 @@ describe('applyCutoverStepUpdate — reducer for SSE step frames', () => {
   })
 })
 
+/* ────────────── #5391 settled-roll override audit record ────────────── */
+
+describe('parseCutoverStatus — #5391 settledRollOverrides audit record', () => {
+  it('parses the typed top-level field (the /status first-class field)', () => {
+    const out = parseCutoverStatus({
+      cutoverComplete: false,
+      settledRollOverrides:
+        'delta-corp/bp-keycloak=quota-wedged plan-quota #5393',
+      steps: [],
+    })
+    expect(out.settledRollOverrides).toBe(
+      'delta-corp/bp-keycloak=quota-wedged plan-quota #5393',
+    )
+  })
+
+  it('falls back to the raw status-ConfigMap key (older typed field absent)', () => {
+    const out = parseCutoverStatus({
+      cutoverComplete: true,
+      steps: [],
+      raw: {
+        settledRollOverrides:
+          'delta-corp/bp-keycloak=quota-wedged plan-quota #5393\ndelta-corp/bp-wordpress-tenant=dependency of bp-keycloak #5393',
+      },
+    })
+    expect(out.settledRollOverrides).toMatch(/bp-keycloak=/)
+    expect(out.settledRollOverrides).toMatch(/bp-wordpress-tenant=/)
+  })
+
+  it('is undefined when no override was used or a clean pass cleared it', () => {
+    expect(
+      parseCutoverStatus({ cutoverComplete: true, steps: [] })
+        .settledRollOverrides,
+    ).toBeUndefined()
+    // A clean pass writes the empty string to CLEAR a previous record —
+    // the empty string must not surface as a phantom entry.
+    expect(
+      parseCutoverStatus({
+        cutoverComplete: true,
+        settledRollOverrides: '',
+        steps: [],
+      }).settledRollOverrides,
+    ).toBeUndefined()
+  })
+
+  it('survives the flat SSE status-ConfigMap shape', () => {
+    const out = parseCutoverStatusConfigMap({
+      cutoverComplete: 'false',
+      settledRollOverrides:
+        'delta-corp/bp-keycloak=quota-wedged plan-quota #5393',
+      'step.harbor-prewarm.result': 'success',
+    })
+    expect(out?.settledRollOverrides).toBe(
+      'delta-corp/bp-keycloak=quota-wedged plan-quota #5393',
+    )
+  })
+})
+
 /* ─────────────────── compile-time brand assertion (smoke) ───────────── */
 
 describe('CutoverState — branded compile-time guarantee', () => {

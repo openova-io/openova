@@ -155,3 +155,43 @@ describe('CutoverProgressCard — terminal sovereignty achieved', () => {
     )
   })
 })
+
+describe('CutoverProgressCard — #5391 settled-roll override audit banner', () => {
+  it('is absent when no override was used', () => {
+    render(<CutoverProgressCard status={buildInitialCutoverStatus()} />)
+    expect(screen.queryByTestId('cutover-settled-roll-overrides')).toBeNull()
+  })
+
+  it('names every excluded HelmRelease while the cutover is in flight', () => {
+    const status: CutoverStatus = parseCutoverStatus({
+      cutoverComplete: false,
+      settledRollOverrides:
+        'delta-corp/bp-keycloak=quota-wedged plan-quota #5393\ndelta-corp/bp-wordpress-tenant=dependency of bp-keycloak #5393',
+      steps: [{ name: 'harbor-prewarm', result: 'success' }],
+    })
+    render(<CutoverProgressCard status={status} />)
+    const banner = screen.getByTestId('cutover-settled-roll-overrides')
+    expect(banner.textContent).toMatch(/named override/)
+    expect(banner.textContent).toMatch(/delta-corp\/bp-keycloak=quota-wedged/)
+    expect(banner.textContent).toMatch(/delta-corp\/bp-wordpress-tenant=/)
+  })
+
+  it('stays visible after sovereignty is achieved — the audit trail must not vanish on success', () => {
+    const terminal: CutoverStatus = parseCutoverStatus({
+      state: 'sovereign',
+      cutoverComplete: true,
+      settledRollOverrides:
+        'delta-corp/bp-keycloak=quota-wedged plan-quota #5393',
+      steps: CUTOVER_STEPS.map((s) => ({
+        step: s.id,
+        status: 'done',
+        finishedAt: '2026-08-05T10:01:00Z',
+      })),
+    })
+    render(<CutoverProgressCard status={terminal} />)
+    expect(screen.getByTestId('cutover-achieved-summary')).toBeTruthy()
+    expect(
+      screen.getByTestId('cutover-settled-roll-overrides').textContent,
+    ).toMatch(/bp-keycloak/)
+  })
+})
