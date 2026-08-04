@@ -994,7 +994,7 @@ name: bp-newapi
 #   0.2.27. Render seam guarded by tests/5466-credentials-region-
 #   consistency-render.sh (fails on the pre-#5466 shape, plus a fallback
 #   vacuity control).
-version: 1.4.147
+version: 1.4.148
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM
