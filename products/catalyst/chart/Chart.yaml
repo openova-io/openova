@@ -3640,9 +3640,9 @@ name: bp-catalyst-platform
 #   audited, fail-closed). Bootstrap-kit slot-06a pin bumped in lockstep.
 #   (1.4.1285/1.4.1286 taken on main by deploybot mints while in flight;
 #   re-serialized to 1.4.1287 at merge.)
-# 1.4.1288 — #5650: catalog-seed bp-self-sovereign-cutover pin 0.1.167 ->
-#   0.1.168 (loft.sh chart-source pivot). Re-serialized past main 1.4.1287.
-version: 1.4.1288
+# 1.4.1289 — #5650: catalog-seed bp-self-sovereign-cutover pin 0.1.167 ->
+#   0.1.168 (loft.sh chart-source pivot). Re-serialized past main 1.4.1288.
+version: 1.4.1289
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
