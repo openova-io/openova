@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-04T22:00:04Z` |
+| Last refreshed | `2026-08-04T22:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,7 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#5393](https://github.com/openova-io/openova/issues/5393) | Per-Org plan quota: vcluster control-plane overhead (1500m) is billed to the cus | Other |
 | [#5394](https://github.com/openova-io/openova/issues/5394) | MCP endpoint is ~50% dead: bp-openova-mcp is single-region but mcp.<fqdn> fronts | Other |
 | [#5395](https://github.com/openova-io/openova/issues/5395) | gamma-corp is entirely unrouted: all 6 per-Org HTTPRoutes NoMatchingListenerHost | Other |
 | [#5396](https://github.com/openova-io/openova/issues/5396) | bp-velero upgrade-crds pre-upgrade hook is Kyverno-rejected (no harbor-proxy ima | Other |
@@ -270,7 +271,6 @@ flowchart LR
 | [#5573](https://github.com/openova-io/openova/issues/5573) | Mothership GitOps loop is DEAD — all 4 Flux controllers at replicas=0 + flux-s | Other |
 | [#5575](https://github.com/openova-io/openova/issues/5575) | Wizard component catalog is unvalidated: 6 components have no Blueprint, 8 carry | Other |
 | [#5583](https://github.com/openova-io/openova/issues/5583) | deploy-bot chart bumps cover 2 of 5 lockstep sites — every bump turns main red | Other |
-| [#5589](https://github.com/openova-io/openova/issues/5589) | vitest gate is fail-open in practice: Jest-format parser matches nothing vitest  | Other |
 | [#5591](https://github.com/openova-io/openova/issues/5591) | phase2b bootstrapMode->false flip is primary-region-only: secondary regions keep | Other |
 | [#5596](https://github.com/openova-io/openova/issues/5596) | cutoverComplete=true certifies sovereignty while region-B keeps 64/65 HelmReposi | Other |
 | [#5597](https://github.com/openova-io/openova/issues/5597) | openova-uat-bot erases verified UAT rows on a Co-authored-by trailer substring m | Other |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-04T22:03 | [#5676](https://github.com/openova-io/openova/pull/5676) | #5513 | fix(controllers): AHS status reports materialised regions +  |
 | 2026-08-04T19:39 | [#5673](https://github.com/openova-io/openova/pull/5673) | #5646 | fix(funnel): honest provisioning timeline — progress never 1 |
 | 2026-08-04T20:55 | [#5671](https://github.com/openova-io/openova/pull/5671) | #5391 | feat(cutover): named, validated, audited sovereign-admin ove |
 | 2026-08-04T17:24 | [#5670](https://github.com/openova-io/openova/pull/5670) | #5509 | docs(guacamole): multi-region session forensics — #5509 is t |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-03T20:41 | [#5628](https://github.com/openova-io/openova/pull/5628) | #5598 | fix(guacamole): #5598 REST-session lifetime aligned with the |
 | 2026-08-03T20:36 | [#5627](https://github.com/openova-io/openova/pull/5627) | #5626 | fix(console): four source defects behind the fail-open vites |
 | 2026-08-03T20:58 | [#5625](https://github.com/openova-io/openova/pull/5625) | #5348 | fix(stalwart-tenant): §854 — disable nodePort allocation on  |
-| 2026-08-03T20:27 | [#5624](https://github.com/openova-io/openova/pull/5624) | #4437 | fix(agenity): per-Org oidc-gate egress CNP — DNS + Keycloak  |
 
 ---
 
