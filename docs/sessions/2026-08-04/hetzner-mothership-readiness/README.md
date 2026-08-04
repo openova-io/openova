@@ -64,15 +64,19 @@ is the day-2 list above.
   (`mapDomainModeForTofu`, provisioner.go:3742), Validate() imposes no FQDN
   shape so the apex is accepted, and byo synthesizes the primary parent domain
   from the FQDN itself (provisioner.go §ParentDomains) — identity derivation
-  uses first label `openova`. **Planned consequence, not an accident**: on
-  Phase-0 success the parent-zone writer (`deployments.go:2197`) repoints
-  `console.openova.io` / `auth.` / `api.` / `marketplace.` at the new Hetzner
-  LB while the old mothership still runs — the console-plane DNS cutover
-  happens AT PROV TIME. The wizard's browser view may drop when TTL expires
-  mid-convergence; monitoring continues via kubectl against Contabo. Rollback
-  of a failed prov = restore those A records in the current PowerDNS zone
-  (authoritative until the NS/glue swap). #5614's hardcoded
-  `console.openova.io` issuer matches from first boot.
+  uses first label `openova`. **DNS mechanics, MEASURED 2026-08-04 (`dig`),
+  correcting this doc's earlier claim**: `openova.io`'s public NS is Dynadot's
+  own DNS (`ns1/ns2.dyna-ns.net`) — NOT the mothership PowerDNS. The prov's
+  parent-zone writes land in PowerDNS and are therefore invisible to the
+  public zone, so the fire is **collision-free even on the bare apex**: the
+  old mothership keeps serving `console.openova.io` (45.151.123.50, TTL
+  already 300s) throughout the prov. The domain handover is the wizard's own
+  **BYO NS-delegation step** (`StepNSDelegation.tsx`): post-convergence,
+  swap `openova.io`'s NS at Dynadot to the new box's PowerDNS and the ENTIRE
+  domain serves from the new mothership. Rollback = revert NS at Dynadot.
+  ⚠️ Dynadot `set_dns2` REPLACES the full record set — any API-driven change
+  must carry every record incl. MX (memory: feedback_dynadot_dns). Prep
+  Stalwart/MX on the new box BEFORE the NS swap — mail moves with the zone.
 - **Law compliance**: ONE environment at a time (founder 2026-07-15) — wipe hw292
   (dep `1c56518035a83e03`, healthy, all extractable proofs banked in
   docs/sessions/2026-08-03..04 + UAT stamps) via the canonical wipe endpoint,
@@ -153,13 +157,14 @@ apply to the real POST body):
 ### 5.0 Domain strategy — the new box IS `openova.io` from birth (founder ruling 2026-08-04)
 
 - New mothership sovereign FQDN: **`openova.io`** — the entire domain, not a
-  subdomain (§3). The console-plane A-records (`console.` / `auth.` / `api.` /
-  `marketplace.`) repoint to the new box at Phase-0 success of the fire itself,
-  so the console-plane leg of elevation COLLAPSES INTO THE PROV.
-- What remains as post-convergence elevation: NS/glue swap for `openova.io` →
-  the new PowerDNS (step 5), MX + Stalwart data-copy (step 4), deployments-PVC
-  export/seed (steps 2+6), Contabo frozen read-only 14 days (rollback = restore
-  the A records + revert NS/MX; nothing destroyed until day 15).
+  subdomain (§3). Public DNS is Dynadot-hosted (measured — see §3), so the
+  prov itself changes NOTHING public; the whole domain moves in ONE
+  deliberate act: the NS swap at Dynadot to the new box's PowerDNS
+  (the wizard's BYO NS-delegation step), done post-convergence.
+- Elevation order: Stalwart data-copy + MX records staged on the new box
+  FIRST (mail moves with the zone), deployments-PVC export/seed (steps 2+6),
+  THEN the NS swap (step 5), Contabo frozen read-only 14 days (rollback =
+  revert NS at Dynadot; nothing destroyed until day 15).
 - `console.openova.io` served by the new env from first boot means the #5614
   hardcoded issuer matches by construction — no post-hoc issuer work.
 
