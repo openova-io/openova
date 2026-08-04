@@ -714,3 +714,58 @@ rules:
   - apiGroups: ["orgs.openova.io"]
     resources: ["organizations"]
     verbs: ["create"]
+
+  # ───────────────────────────────────────────────────────────────
+  # Issues #5364 / #5649 — ORG-CONSOLE ORPHAN REAP, the teardown mirror
+  # of the #5635 create-side reconcile. reapOrgConsoleTLSOrphans
+  # (org_console_tls_reap.go), run inside the reconcileOrgConsoleTLSOnce
+  # ticker pass, deletes — in EVERY region cluster — the per-Org console
+  # surface of an Organization whose CR no longer exists:
+  #   1. BOTH producers' console HTTPRoute name shapes
+  #      (catalyst-ui-<slug>-<parent-dashed> AND
+  #      catalyst-ui-console-<host-dashed>; teardownTenantRoute only ever
+  #      targeted the second, in one region) → DELETE on httproutes.
+  #   2. The per-Org console-https-<slug>/console-http-<slug> listener
+  #      pair on cilium-gateway-console → UPDATE on gateways. Update, not
+  #      just the patch granted above: the strip is the same
+  #      read-modify-write the org-controller's removeConsoleOrgListener
+  #      uses, because SSA (patch) cannot prune list entries owned by
+  #      ANOTHER field manager and the funnel-door listeners are owned by
+  #      the org-controller's Update manager.
+  #   3. The per-Org wildcard Certificate → DELETE on certificates.
+  #   4. The org-wildcard-tls-* TLS Secrets → DELETE on secrets.
+  #      cert-manager does NOT owner-ref the backing Secret without
+  #      --enable-certificate-owner-ref (the R17 region-a orphan), and the
+  #      #5511 mirror writes copies into secondaries that nothing else
+  #      deletes. In-code scope guard: kube-system only, name prefix
+  #      org-wildcard-tls-, type kubernetes.io/tls, org identity derived
+  #      from producer labels / cert-manager annotations only.
+  #   5. The orphaned org boundary Namespace — deleting it is what reaps
+  #      the host-deployed bp-keycloak + its PVCs + every tenant
+  #      HelmRelease inside it (#5364's original orphan) → DELETE on
+  #      namespaces. In-code scope guard: only namespaces carrying an org
+  #      identity label (openova.io/organization / catalyst.openova.io/org
+  #      / kustomize.toolkit.fluxcd.io/name=org-tenants), never a
+  #      protected/system namespace, never any namespace whose identity
+  #      matches a live Organization CR.
+  # The reaper aborts entirely when the Organization List fails, excludes
+  # the Sovereign's own console surface by FQDN, and only deletes objects
+  # it positively identified — see the safety model in
+  # org_console_tls_reap.go. get/list/watch on every resource here is
+  # already granted above.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways"]
+    verbs: ["update"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
+    verbs: ["delete"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    verbs: ["delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["delete"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["delete"]

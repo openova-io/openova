@@ -3642,7 +3642,24 @@ name: bp-catalyst-platform
 #   re-serialized to 1.4.1287 at merge.)
 # 1.4.1289 — #5650: catalog-seed bp-self-sovereign-cutover pin 0.1.167 ->
 #   0.1.168 (loft.sh chart-source pivot). Re-serialized past main 1.4.1288.
-version: 1.4.1290
+# 1.4.1291 — #5364 #5649: grant the catalyst-api cutover-driver SA the delete
+#   verbs for the org-console orphan REAP — the teardown mirror of the #5635
+#   create-side reconcile. reapOrgConsoleTLSOrphans (org_console_tls_reap.go,
+#   same reconcile ticker) deletes in EVERY region the per-Org console surface
+#   of an Org whose CR no longer exists: BOTH producers' HTTPRoute name shapes
+#   (teardownTenantRoute only ever targeted the org-controller's, in one
+#   region — the hw292 R17 both-region route orphan), the per-Org listener
+#   pair (gateways UPDATE: SSA cannot prune another manager's list entries),
+#   the wildcard Certificate, the org-wildcard-tls-* TLS Secrets (cert-manager
+#   never GCs the backing Secret without --enable-certificate-owner-ref, and
+#   the #5511 mirror copies had NO deleter — the R17 region-a Secret orphan),
+#   and the orphaned org boundary Namespace (which reaps the host-deployed
+#   bp-keycloak + tenant HelmReleases inside it — #5364's original orphan).
+#   Level-triggered both directions; live Orgs + the Sovereign's own console
+#   surface are excluded by CR-list + FQDN guards. Refs #5364 #5649.
+#   (1.4.1283 was consumed by the TBD-A6 auto re-publish mid-branch.)
+#   (re-serialized past main 1.4.1290 to 1.4.1291 at rebase — #5364 #5649.)
+version: 1.4.1291
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
