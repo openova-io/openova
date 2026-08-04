@@ -88,6 +88,7 @@ POLICY_KINDS = {"NetworkPolicy", "CiliumNetworkPolicy"}
 # not a per-workload policy a chart author owns.
 
 HELM_TIMEOUT = os.environ.get("HELM_TIMEOUT", "60s")
+DEP_TIMEOUT = os.environ.get("DEP_TIMEOUT", "180s")
 
 # ── Per-chart render overlay ─────────────────────────────────────────────
 # Policies that are values-gated render as NOTHING under default values, and a
@@ -183,7 +184,8 @@ RENDER_SKIP_ALLOWLIST: dict[str, str] = {
 POLICY_OFF_BY_DESIGN: dict[str, str] = {
     "platform/cilium-policies/chart": (
         "scaffold chart — `policies: {}` by default and the placeholder CNP carries an "
-        "EMPTY endpointSelector (a namespace baseline, out of scope) even when enabled"
+        "EMPTY endpointSelector — a namespace baseline, which this invariant does not "
+        "govern — even when enabled"
     ),
 }
 
@@ -402,13 +404,28 @@ def render(chart_dir: str, namespace: str) -> tuple[list[dict], str]:
         cmd += ["--api-versions", a]
     for v in vals:
         cmd += ["--set", v]
-    try:
-        r = subprocess.run(
-            ["timeout", HELM_TIMEOUT] + cmd,
-            cwd=REPO,
-            capture_output=True,
-            text=True,
+    def run(argv: list[str], timeout: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["timeout", timeout] + argv, cwd=REPO, capture_output=True, text=True
         )
+
+    try:
+        r = run(cmd, HELM_TIMEOUT)
+        # Missing-dependency recovery, narrow on purpose (the check-no-nodeports.sh
+        # idiom). `.gitignore` excludes platform/*/chart/charts/ and no Chart.lock
+        # is committed, so a CLEAN checkout has neither — which is why a sweep can
+        # pass on a dev machine off a stale cached tarball and fail on the runner
+        # with "missing in charts/ directory". Recover ONLY from that failure; a
+        # chart failing for any other reason must still reach the ratchet rather
+        # than be masked by a network round-trip. NO_NETWORK=1 suppresses it.
+        if r.returncode != 0 and os.environ.get("NO_NETWORK") != "1" \
+                and "missing in charts/ directory" in (r.stderr or ""):
+            dep = run(["helm", "dependency", "update", chart_dir], DEP_TIMEOUT)
+            if dep.returncode == 0:
+                r = run(cmd, HELM_TIMEOUT)
+            else:
+                tail = (dep.stderr or dep.stdout or "").strip().splitlines()
+                return [], "helm dependency update failed: " + (tail[-1][:200] if tail else "?")
     except Exception as exc:  # pragma: no cover
         return [], str(exc)
     if r.returncode != 0:
@@ -570,7 +587,7 @@ def phase0(dns_ns: str, n_charts: int, n_policy_charts: int) -> None:
             )
             sys.exit(2)
         if not in_scope:
-            print(f"  self-test OK  [out of scope] {label}")
+            print(f"  self-test OK  [not a workload policy] {label}")
             continue
         ok, reason = group_allows_dns(
             [(doc.get("kind"), r) for r in ((doc.get("spec") or {}).get("egress") or [])],
@@ -783,7 +800,7 @@ def main() -> int:
                 baselines[r[0]] = baselines.get(r[0], 0) + 1
         if baselines:
             print("Namespace-baseline policies (empty selector — the namespace author's "
-                  "posture, not a per-workload policy, so out of scope for this invariant):")
+                  "posture, not a per-workload policy, so this invariant does not apply):")
             for c, n in sorted(baselines.items()):
                 print(f"  - `{c}`: {n}")
             print()
