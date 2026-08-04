@@ -160,7 +160,16 @@ apply to the real POST body):
 
 Pre-cutover (while rehearsal converges):
 1. Drop Dynadot TTLs on `openova.io` + pool TLDs (`omani.homes/rest/trade`, `omani.works`, `omantel.biz`) to 300s.
-2. Export Contabo deployments-PVC records (`/deps/tofu/*/tofu.auto.tfvars.json`, kubeconfigs, handover JWT keys) — the only persistent credential cache. Copy, verify hashes, do NOT print values.
+2. Export Contabo deployments-PVC records — the only persistent credential cache.
+   **Inventoried live 2026-08-04** (in-pod path `/var/lib/catalyst/`, NOT `/deps/` —
+   that prefix is the debug-pod mount convention only): the export set is small
+   and enumerable — `handover-jwt-private.pem` + its two `.jwk` siblings (crown
+   jewels), `deployments/` + `executions/` records, `tofu/_shared/` +
+   `tofu/nat-eip-blocklist.json`, `magic-jti.log`, and `kubeconfigs/` (mostly
+   wiped-dep forensic residue; cheap to take wholesale). Exactly ONE live tofu
+   workdir exists (`1c56518035a83e03` = hw292) and the pre-fire wipe removes it,
+   so the ONE-env law is satisfied by construction at fire time. Copy, verify
+   hashes, do NOT print values.
 3. Inventory Stalwart mailboxes + DNS (MX/SPF/DKIM/DMARC) for `openova.io`.
 
 Cutover (evening, low traffic):
