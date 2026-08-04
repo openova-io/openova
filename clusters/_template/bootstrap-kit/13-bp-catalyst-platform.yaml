@@ -1308,12 +1308,12 @@ spec:
       #   API_SESSION_TIMEOUT aligned to the oidc-gate session so >60-min
       #   revisits stop 403-wedging on a dead cached token; lockstep w/
       #   slot-52 pin 0.2.34 (pin-sync gate).
-      # 1.4.1283 (#5359): catalog-seed bp-self-sovereign-cutover 0.1.165 ->
+      # 1.4.1284 (#5359): catalog-seed bp-self-sovereign-cutover 0.1.165 ->
       #   0.1.166 — secondary-region pivot target defaults to the Sovereign's
       #   own external Gitea door; the headless-doomed in-cluster mesh
       #   candidate is retired. Lockstep w/ slot-06a pin 0.1.166 (pin-sync
-      #   gate).
-      version: 1.4.1283
+      #   gate; re-serialized past main's 1.4.1283).
+      version: 1.4.1284
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

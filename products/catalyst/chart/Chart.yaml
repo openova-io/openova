@@ -3625,7 +3625,7 @@ name: bp-catalyst-platform
 #   cause of the "An error has occurred" 403-PERMISSION_DENIED page on every
 #   >60-min revisit (UAT rows 35/115 on hw292). Bootstrap-kit slot-52 pin
 #   bumped in lockstep (pin-sync gate).
-# 1.4.1283 — #5359: catalog-seed bp-self-sovereign-cutover pin 0.1.165 ->
+# 1.4.1284 — #5359: catalog-seed bp-self-sovereign-cutover pin 0.1.165 ->
 #   0.1.166. The step-05 secondary-region pivot target defaults to the
 #   Sovereign's OWN external Gitea door (https://gitea.<fqdn>); the in-cluster
 #   mesh candidate is retired from the default chain (headless gitea-http
@@ -3633,9 +3633,9 @@ name: bp-catalyst-platform
 #   name — the hw292 gen=2/obs=1 observedGeneration stick), and an empty
 #   candidate chain fails loud with a per-region result=failed stamp.
 #   Bootstrap-kit slot-06a pin bumped in lockstep (pin-sync gate).
-#   (1.4.1281 and 1.4.1282 were taken on main by the #5666 merge and the
-#   045477c image-deploy cycle while this PR was in flight.)
-version: 1.4.1283
+#   (1.4.1281-1.4.1283 were taken on main by the #5666 merge and image-deploy
+#   cycles while this PR was in flight; re-serialized to 1.4.1284 at merge.)
+version: 1.4.1284
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which

@@ -32,6 +32,7 @@ import {
 import {
   getContinuumReplicationStatus,
   lagBucket,
+  type ContinuumHealthGate,
   type LagBucket,
 } from '@/lib/continuum.api'
 import { getHierarchicalInfrastructure } from '@/lib/infrastructure.types'
@@ -330,6 +331,69 @@ export function TopologyTab({
     [drStatus],
   )
   const lagColor: LagBucket = useMemo(() => lagBucket(lagSeconds), [lagSeconds])
+
+  // ── #5508 — the healthGates verdict QUALIFIES the lag reading ─────
+  //
+  // The API already says when the measurement is unverified (hw291:
+  // walLagSeconds:0 alongside streaming-replication=Warn "unverified" +
+  // standby-available=Warn "not verifiable") — this tab used to render the
+  // number behind a green pill and throw both gates away, making the one
+  // surface an operator reads during a DR decision strictly LESS honest
+  // than the API behind it. Same defect class as the #5478 controller
+  // guard: a control that reports instead of measuring. Two rules:
+  //
+  //   • degradedGates — every Warn/Fail gate renders as an explicit row
+  //     under the lag line, and the lag pill can never render green while
+  //     any is present (a Fail forces red, a Warn caps the bucket at
+  //     yellow).
+  //   • lagUnverified — the gates that qualify the MEASUREMENT chain mark
+  //     the number itself meaningless; render "— unverified", never a
+  //     numeric zero. Derived structurally, no message-text matching:
+  //       - streaming-replication Warn → replication health unverified.
+  //       - standby-available    Warn → the standby leg is unverifiable; a
+  //         lag against an unverifiable leg is not a measurement (the
+  //         reductio on hw291: dr-spine-openbao, a raft store with no
+  //         PostgreSQL at all, reported a PostgreSQL lag of 0).
+  //       - wal-lag-under-rpo    Warn with lag <= 30 → the backend's
+  //         not-reported branch (walLagHealthGate's over-threshold branch
+  //         requires lag > 30, and THAT genuine reading must keep
+  //         rendering numerically).
+  //     A Fail is a VERIFIED fault: the number stays (a real reading of a
+  //     broken state) behind a red pill.
+  //
+  // An absent/empty healthGates list (older backend) leaves every render
+  // exactly as before — verified readings are untouched.
+  const healthGates: ContinuumHealthGate[] = useMemo(() => {
+    const g = drStatus?.healthGates
+    return Array.isArray(g) ? g : []
+  }, [drStatus])
+  const degradedGates = useMemo(
+    () =>
+      healthGates.filter((g) => {
+        const s = (g.status ?? '').toLowerCase()
+        return s === 'warn' || s === 'fail'
+      }),
+    [healthGates],
+  )
+  const anyGateFail = useMemo(
+    () => degradedGates.some((g) => (g.status ?? '').toLowerCase() === 'fail'),
+    [degradedGates],
+  )
+  const lagUnverified = useMemo(
+    () =>
+      healthGates.some((g) => {
+        if ((g.status ?? '').toLowerCase() !== 'warn') return false
+        if (g.name === 'streaming-replication' || g.name === 'standby-available') return true
+        return g.name === 'wal-lag-under-rpo' && (lagSeconds == null || lagSeconds <= 30)
+      }),
+    [healthGates, lagSeconds],
+  )
+  const effectiveLagColor: LagBucket = useMemo(() => {
+    if (lagUnverified) return 'unknown'
+    if (anyGateFail) return 'red'
+    if (degradedGates.length > 0 && lagColor === 'green') return 'yellow'
+    return lagColor
+  }, [lagUnverified, anyGateFail, degradedGates, lagColor])
 
   // #4886 / #4552 — the DR section renders for App-CR apps with a Standby
   // placement target (the existing #3375 hasStandby path) AND for ANY app whose
@@ -773,11 +837,11 @@ export function TopologyTab({
                 <span className="text-[var(--color-text-dim)]">Replication lag</span>
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 font-semibold tabular-nums ${
-                    lagColor === 'green'
+                    effectiveLagColor === 'green'
                       ? 'bg-green-500/10 text-green-400'
-                      : lagColor === 'yellow'
+                      : effectiveLagColor === 'yellow'
                         ? 'bg-yellow-500/10 text-yellow-400'
-                        : lagColor === 'red'
+                        : effectiveLagColor === 'red'
                           ? 'bg-red-500/10 text-red-400'
                           : 'bg-[var(--color-bg)] text-[var(--color-text-dim)]'
                   }`}
@@ -786,11 +850,24 @@ export function TopologyTab({
                   {/* #5514 — a lag NUMBER is a claim that a standby is being
                       measured. On a VERIFIED-absent standby (#4901) the backend
                       keeps reporting 0, which reads as perfect health during an
-                      outage; render "—" instead of that false zero. */}
-                  {lagSeconds == null || standbyAbsent ? '—' : `${lagSeconds.toFixed(1)} s`}
+                      outage; render "—" instead of that false zero.
+                      #5508 — same for an UNVERIFIED measurement: when the
+                      health gates say the reading is unverified, the zero is a
+                      report, not a measurement. */}
+                  {lagSeconds == null || standbyAbsent || lagUnverified
+                    ? '—'
+                    : `${lagSeconds.toFixed(1)} s`}
                 </span>
                 {standbyAbsent ? (
                   <span className="text-[10px] text-red-400">no standby leg to measure</span>
+                ) : null}
+                {!standbyAbsent && lagUnverified ? (
+                  <span
+                    className="text-[10px] text-yellow-400"
+                    data-testid="topology-tab-dr-lag-unverified"
+                  >
+                    unverified — the health gates below report no live measurement
+                  </span>
                 ) : null}
                 {lagSeconds == null && drQ.isLoading ? (
                   <span className="text-[10px] text-[var(--color-text-dim)]">measuring…</span>
@@ -801,6 +878,27 @@ export function TopologyTab({
                   </span>
                 ) : null}
               </div>
+
+              {/* #5508 — every Warn/Fail health gate renders next to the
+                  reading it qualifies. The hw291 defect was precisely that the
+                  API returned these and the tab surfaced neither. */}
+              {degradedGates.length > 0 ? (
+                <ul className="mt-2 space-y-0.5" data-testid="topology-tab-dr-gates">
+                  {degradedGates.map((g) => {
+                    const failed = (g.status ?? '').toLowerCase() === 'fail'
+                    return (
+                      <li
+                        key={g.name}
+                        className={`text-[10px] ${failed ? 'text-red-400' : 'text-yellow-400'}`}
+                        data-testid={`topology-tab-dr-gate-${g.name}`}
+                      >
+                        {failed ? '✕' : '⚠'} {g.name}
+                        {g.message ? ` — ${g.message}` : ''}
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : null}
 
               {/* Armed manual Switchover (#4552). The button opens a confirm
                   dialog that runs a read-only RPO/health preflight and only

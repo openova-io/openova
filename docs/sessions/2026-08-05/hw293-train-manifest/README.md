@@ -117,9 +117,16 @@ Recipe: matching secret hashes across regions via fresh-TCP, then UAT rows
 37/38 signed-in landings. NOTE: new tags publish on the post-merge
 blueprint-release run — the pre-fire ghcr-tag gate must confirm both exist.
 
+**Boarded late (merged post-sweep, cont.):** #5508 via **PR #5669**
+(2026-08-04T17:15Z) — TopologyTab now consumes healthGates: unverified lag
+renders as unknown (em-dash), never 0.0s-green; overcorrection-locked both
+ways (Fail gate keeps red numerics; genuine high lag keeps its number).
+Recipe: UAT DR rows — an app with unverified gates shows unknown, verified
+shows numeric.
+
 **Boarding candidates (agents in flight):** #5359 (linchpin, see below) ·
-wave-2 dispatched: #5508 (TopologyTab healthGates) + #5509 (guacamole
-postgresql-shared advertisement). Queued: #5364 #5391 #5485-remainder.
+#5509 (guacamole postgresql-shared advertisement). Queued: #5364 #5391
+#5485-remainder.
 
 **Next-train (large):** #5476 #5480 (15 region-blind generator templates)
 #5513 #5646 #5649 #5358 #5086 (parked with Hetzner).
