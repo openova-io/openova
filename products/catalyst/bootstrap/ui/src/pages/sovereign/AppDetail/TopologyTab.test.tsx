@@ -809,6 +809,208 @@ describe('TopologyTab — #4886 bootstrap-HR DR off the live Continuum CR', () =
     expect(screen.getByTestId('topology-tab-dr-switchover').textContent).toContain('nothing to promote')
   })
 
+  it('#5508: an UNVERIFIED lag (streaming-replication + standby-available gates Warn) renders as unknown, never 0.0 s green', async () => {
+    // The live hw291 shape (dep 2c2d746b578c636b): the API returns
+    // walLagSeconds:0 WITH the two Warn gates saying the measurement is
+    // unverified — and the tab rendered "Replication lag 0.0 s" behind a
+    // green pill, surfacing neither gate. The reductio on the same env:
+    // dr-spine-openbao (a raft store with no PostgreSQL at all) reported a
+    // PostgreSQL lag of 0 through the identical shape.
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
+    getApplicationPlacement.mockResolvedValue({
+      targets: [
+        { region: 'me-east-215-a', cluster: 'c', vcluster: 'host', role: 'Primary' },
+        { region: 'me-east-215-b', cluster: 'c-b', vcluster: 'host', role: 'Standby', standbyType: 'Hot' },
+      ],
+      derivedFromRuntime: true,
+    })
+    getContinuumReplicationStatus.mockResolvedValue({
+      continuum: 'dr-shared-pg',
+      namespace: 'shared-data',
+      primaryRegion: 'me-east-215-a',
+      currentPrimary: 'me-east-215-a',
+      walLagSeconds: 0,
+      streamingState: 'streaming',
+      replicas: [{ region: 'me-east-215-b', role: 'replica', lagSeconds: 0 }],
+      healthGates: [
+        {
+          name: 'streaming-replication',
+          status: 'Warn',
+          severity: 'warning',
+          message: 'replication health not reported by the Continuum CR; unverified',
+        },
+        { name: 'wal-lag-under-rpo', status: 'Pass', severity: 'info' },
+        {
+          name: 'standby-available',
+          status: 'Warn',
+          severity: 'warning',
+          message:
+            'standby leg not verifiable from live cluster state (no cnpg pair resolvable); reporting unknown, not healthy',
+        },
+      ],
+      source: 'live',
+    })
+
+    render(withProviders(<TopologyTab sovereignId="dep-hw291" applicationName="shared-pg" namespace="shared-data" />))
+
+    // POSITIVE CONTROL (vacuity check) — the DR panel AND the lag cell really
+    // rendered; the negative assertions below cannot pass on an empty render.
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
+    })
+    const lagCell = await screen.findByTestId('topology-tab-dr-lag-value')
+
+    // THE regression: an unverified lag must read as unknown, never a
+    // numeric zero…
+    expect(lagCell.textContent).toContain('—')
+    expect(lagCell.textContent).not.toContain('0.0 s')
+    expect(document.body.textContent).not.toContain('0.0 s')
+    // …and a Warn gate can NEVER sit behind a green pill.
+    expect(lagCell.className).not.toContain('text-green-400')
+    // The unverified qualifier is stated in plain text.
+    expect(screen.getByTestId('topology-tab-dr-lag-unverified')).toBeTruthy()
+    // BOTH Warn gates are surfaced next to the reading they qualify.
+    expect(screen.getByTestId('topology-tab-dr-gate-streaming-replication').textContent).toContain('unverified')
+    expect(screen.getByTestId('topology-tab-dr-gate-standby-available').textContent).toContain('not verifiable')
+  })
+
+  it('#5508 CONTROL: all-Pass gates keep the verified numeric lag + green pill unchanged (the guard must not swallow real data)', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
+    getApplicationPlacement.mockResolvedValue({
+      targets: [
+        { region: 'me-east-215-a', cluster: 'c', vcluster: 'host', role: 'Primary' },
+        { region: 'me-east-215-b', cluster: 'c-b', vcluster: 'host', role: 'Standby', standbyType: 'Hot' },
+      ],
+      derivedFromRuntime: true,
+    })
+    getContinuumReplicationStatus.mockResolvedValue({
+      continuum: 'dr-shared-pg',
+      namespace: 'shared-data',
+      primaryRegion: 'me-east-215-a',
+      currentPrimary: 'me-east-215-a',
+      walLagSeconds: 1.7,
+      streamingState: 'streaming',
+      syncState: 'async',
+      healthGates: [
+        { name: 'streaming-replication', status: 'Pass', severity: 'info' },
+        { name: 'wal-lag-under-rpo', status: 'Pass', severity: 'info' },
+        { name: 'standby-available', status: 'Pass', severity: 'info', message: 'hot-standby in me-east-215-b is reachable' },
+      ],
+      source: 'live',
+    })
+
+    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
+    })
+    const lagCell = await screen.findByTestId('topology-tab-dr-lag-value')
+    // Verified reading renders EXACTLY as before: the number, green bucket.
+    await waitFor(() => {
+      expect(lagCell.textContent).toContain('1.7 s')
+    })
+    expect(lagCell.className).toContain('text-green-400')
+    // No unverified qualifier, no degraded-gate rows.
+    expect(screen.queryByTestId('topology-tab-dr-lag-unverified')).toBeNull()
+    expect(screen.queryByTestId('topology-tab-dr-gates')).toBeNull()
+  })
+
+  it('#5508: a Fail gate is a VERIFIED fault — the real number stays but the pill degrades to red, never green', async () => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
+    getApplicationPlacement.mockResolvedValue({
+      targets: [
+        { region: 'me-east-215-a', cluster: 'c', vcluster: 'host', role: 'Primary' },
+        { region: 'me-east-215-b', cluster: 'c-b', vcluster: 'host', role: 'Standby', standbyType: 'Hot' },
+      ],
+      derivedFromRuntime: true,
+    })
+    getContinuumReplicationStatus.mockResolvedValue({
+      continuum: 'dr-shared-pg',
+      namespace: 'shared-data',
+      primaryRegion: 'me-east-215-a',
+      currentPrimary: 'me-east-215-a',
+      walLagSeconds: 3.2,
+      streamingState: 'catchup',
+      healthGates: [
+        {
+          name: 'streaming-replication',
+          status: 'Fail',
+          severity: 'critical',
+          message: 'replication reported unhealthy on the Continuum CR',
+        },
+        { name: 'wal-lag-under-rpo', status: 'Pass', severity: 'info' },
+      ],
+      source: 'live',
+    })
+
+    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
+    })
+    const lagCell = await screen.findByTestId('topology-tab-dr-lag-value')
+    await waitFor(() => {
+      expect(lagCell.textContent).toContain('3.2 s')
+    })
+    expect(lagCell.className).toContain('text-red-400')
+    expect(lagCell.className).not.toContain('text-green-400')
+    // The verified fault is surfaced as an explicit gate row.
+    expect(screen.getByTestId('topology-tab-dr-gate-streaming-replication').textContent).toContain('unhealthy')
+  })
+
+  it('#5508: an OVER-THRESHOLD wal-lag Warn keeps its genuine numeric reading (only the not-reported branch reads unknown)', async () => {
+    // The other Warn cause on the same gate: lag 45s > the 30s promotability
+    // threshold. That number is a REAL measurement the operator needs — a
+    // blanket gates-warn→dash overcorrection would hide it. The backend's
+    // not-reported branch is only reachable with the zero-value lag (<=30),
+    // which is how the component discriminates structurally.
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationStatus.mockResolvedValue({ name: 'shared-pg', namespace: 'shared-data', spec: {}, status: {} })
+    getApplicationPlacement.mockResolvedValue({
+      targets: [
+        { region: 'me-east-215-a', cluster: 'c', vcluster: 'host', role: 'Primary' },
+        { region: 'me-east-215-b', cluster: 'c-b', vcluster: 'host', role: 'Standby', standbyType: 'Hot' },
+      ],
+      derivedFromRuntime: true,
+    })
+    getContinuumReplicationStatus.mockResolvedValue({
+      continuum: 'dr-shared-pg',
+      namespace: 'shared-data',
+      primaryRegion: 'me-east-215-a',
+      currentPrimary: 'me-east-215-a',
+      walLagSeconds: 45,
+      streamingState: 'streaming',
+      healthGates: [
+        { name: 'streaming-replication', status: 'Pass', severity: 'info' },
+        {
+          name: 'wal-lag-under-rpo',
+          status: 'Warn',
+          severity: 'warning',
+          message: 'replication lag 45s exceeds the 30s promotability threshold',
+        },
+        { name: 'standby-available', status: 'Pass', severity: 'info' },
+      ],
+      source: 'live',
+    })
+
+    render(withProviders(<TopologyTab sovereignId="dep-z" applicationName="shared-pg" namespace="shared-data" />))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-dr-panel')).toBeTruthy()
+    })
+    const lagCell = await screen.findByTestId('topology-tab-dr-lag-value')
+    await waitFor(() => {
+      expect(lagCell.textContent).toContain('45.0 s')
+    })
+    // Not green (the gate warns), and the number is NOT swallowed.
+    expect(lagCell.className).not.toContain('text-green-400')
+    expect(screen.queryByTestId('topology-tab-dr-lag-unverified')).toBeNull()
+    expect(screen.getByTestId('topology-tab-dr-gate-wal-lag-under-rpo').textContent).toContain('exceeds')
+  })
+
   it('does NOT render DR for a SINGLETON bootstrap app (synthesized fallback is never passed off as live)', async () => {
     getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
     getApplicationPlacement.mockResolvedValue({
