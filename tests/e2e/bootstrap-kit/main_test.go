@@ -1767,3 +1767,245 @@ func TestBootstrapKit_LbIpamSharingCrossNamespace(t *testing.T) {
 	}
 	t.Logf("sovereign-vip sharing contract: %d files checked, every sharing-key has its cross-namespace grant, zero wildcard grants", checked)
 }
+
+// TestBootstrapKit_McpSecondaryEdgeArmedBothLegs — #5394 / #5341 render guard.
+//
+// bp-openova-mcp is PRIMARY-ONLY BY DESIGN (slot 13d suspend:
+// ${SECONDARY_HR_SUSPEND} — its dependsOn edge bp-catalyst-platform is
+// suspended on every secondary CP, so un-suspending 13d on region-b would
+// recreate the hw256 permanently-False HR fan-out, #5114 defect 2). The
+// mcp.<fqdn> hostname still fronts the TWO-region shared VIP, so serving it
+// from region-b takes a two-leg ClusterMesh proxy chain:
+//
+//	leg A (region-a): products/openova-mcp service.yaml publishes the real
+//	    Service to ClusterMesh (service.cilium.io/global: "true"), gated on
+//	    multiRegion.enabled — armed by slot 13d (#5399).
+//	leg B (region-b): platform/catalyst-edge-routes service-mcp.yaml renders
+//	    a same-name/same-ns global-Service stub + the mcp.<fqdn> HTTPRoute,
+//	    gated on ingress.hosts.mcp.host — armed by slot 13e.
+//
+// This chain was broken TWICE by the same activation-left-to-a-second-file
+// class: #5342 shipped both chart legs but armed neither slot; #5399 armed
+// only 13d. The un-armed 13e half meant every fresh 2-region prov (hw290,
+// hw291, hw292 dep 1c56518035a83e03) had a Ready region-b edge HR rendering
+// ZERO mcp resources → region-b envoy bare-404s its share of the VIP
+// round-robin, and a region-A kill takes the Pillar-4 MCP surface 100% dead.
+//
+// The guard pins BOTH slot arms (on the VALUE, not key presence — an empty
+// host is exactly the defect) and helm-renders BOTH chart legs in BOTH
+// directions (armed → resources with input-keyed hostnames + annotation
+// VALUES; un-armed → nothing), so neither a slot regression nor a chart
+// gate regression can pass vacuously.
+func TestBootstrapKit_McpSecondaryEdgeArmedBothLegs(t *testing.T) {
+	root := repoRoot(t)
+
+	// ── Slot-side arms (pure YAML — always runs, no helm needed) ──────────
+	loadHR := func(file, hrName string) map[string]any {
+		t.Helper()
+		raw, err := os.ReadFile(filepath.Join(root, "clusters", "_template", "bootstrap-kit", file))
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		dec := yaml.NewDecoder(strings.NewReader(string(raw)))
+		for {
+			var doc map[string]any
+			if derr := dec.Decode(&doc); derr != nil {
+				break
+			}
+			if doc == nil {
+				continue
+			}
+			if kind, _ := doc["kind"].(string); kind != "HelmRelease" {
+				continue
+			}
+			meta, _ := doc["metadata"].(map[string]any)
+			if meta == nil {
+				continue
+			}
+			if name, _ := meta["name"].(string); name == hrName {
+				return doc
+			}
+		}
+		t.Fatalf("%s: HelmRelease %q not found", file, hrName)
+		return nil
+	}
+	dig := func(doc map[string]any, path ...string) any {
+		cur := any(doc)
+		for _, p := range path {
+			m, ok := cur.(map[string]any)
+			if !ok {
+				return nil
+			}
+			cur = m[p]
+		}
+		return cur
+	}
+
+	// Leg B slot arm: 13e MUST supply the mcp host (the #5394 producer —
+	// this exact value was missing across hw290/hw291/hw292 while both
+	// charts were correct). Exact-match on the VALUE: "" or a key-only
+	// stanza fails.
+	edgeHR := loadHR("13e-bp-catalyst-secondary-edge-routes.yaml", "bp-catalyst-secondary-edge")
+	if got, _ := dig(edgeHR, "spec", "values", "ingress", "hosts", "mcp", "host").(string); got != "mcp.${SOVEREIGN_FQDN}" {
+		t.Errorf("slot 13e ingress.hosts.mcp.host = %q, want %q — without it the edge chart's service-mcp.yaml gate renders NOTHING on region-b and mcp.<fqdn> bare-404s its share of the two-region VIP (#5394, reproduced hw292)", got, "mcp.${SOVEREIGN_FQDN}")
+	}
+	// 13e stays suspend-gated to the secondary CP — the arming above must
+	// ride the EXISTING region conditional, never replace it.
+	if got, _ := dig(edgeHR, "spec", "suspend").(string); !strings.Contains(got, "SECONDARY_EDGE_SUSPEND") {
+		t.Errorf("slot 13e spec.suspend = %q, want the ${SECONDARY_EDGE_SUSPEND} conditional — the edge HR must stay inert on the primary CP and on single-region provs (#5289)", got)
+	}
+
+	// Leg A slot arm: 13d publishes region-a's Service to ClusterMesh on
+	// multi-region provs (#5399) …
+	mcpHR := loadHR("13d-bp-openova-mcp.yaml", "bp-openova-mcp")
+	if got, _ := dig(mcpHR, "spec", "values", "multiRegion", "enabled").(string); !strings.Contains(got, "${SOVEREIGN_ENABLE_HOT_STANDBY") {
+		t.Errorf("slot 13d values.multiRegion.enabled = %q, want the ${SOVEREIGN_ENABLE_HOT_STANDBY} substitution (#5399) — without it region-a's mcp Service never joins ClusterMesh and the region-b stub has nothing to reach", got)
+	}
+	// … and 13d MUST stay primary-only (#5114 defect 2): the naive #5394
+	// "fix" of un-suspending it on region-b would deadlock on its
+	// bp-catalyst-platform dependsOn edge (suspended on every secondary CP).
+	if got, _ := dig(mcpHR, "spec", "suspend").(string); !strings.Contains(got, "SECONDARY_HR_SUSPEND") {
+		t.Errorf("slot 13d spec.suspend = %q, want the ${SECONDARY_HR_SUSPEND} conditional — bp-openova-mcp is primary-only BY DESIGN (#5114 hw256 defect 2); region-b coverage comes from the 13e edge proxy, not from installing the HR there", got)
+	}
+
+	// ── Chart-side render, both legs, both directions ─────────────────────
+	helmBin := os.Getenv("HELM_BIN")
+	if helmBin == "" {
+		helmBin = "helm"
+	}
+	if _, err := exec.LookPath(helmBin); err != nil {
+		t.Skipf("helm not on PATH (%v) — slot-side arms above still ran; skipping render halves", err)
+	}
+	render := func(dir string, args ...string) []map[string]any {
+		t.Helper()
+		cmd := exec.Command(helmBin, append([]string{"template"}, args...)...)
+		cmd.Dir = filepath.Join(root, dir)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("helm template %s %v: %v\noutput:\n%s", dir, args, err, out)
+		}
+		var docs []map[string]any
+		dec := yaml.NewDecoder(strings.NewReader(string(out)))
+		for {
+			var doc map[string]any
+			if derr := dec.Decode(&doc); derr != nil {
+				break
+			}
+			if doc != nil {
+				docs = append(docs, doc)
+			}
+		}
+		return docs
+	}
+	find := func(docs []map[string]any, kind, name string) map[string]any {
+		for _, d := range docs {
+			if k, _ := d["kind"].(string); k != kind {
+				continue
+			}
+			meta, _ := d["metadata"].(map[string]any)
+			if meta == nil {
+				continue
+			}
+			if n, _ := meta["name"].(string); n == name {
+				return d
+			}
+		}
+		return nil
+	}
+
+	// Distinctive input FQDN: every positive assert below is keyed to it, so
+	// the armed direction can only pass if the render followed OUR input —
+	// the vacuity control on the positive half.
+	const guardFQDN = "guard-5394.example"
+	const stubName = "openova-mcp-bp-openova-mcp"
+	edgeDir := filepath.Join("platform", "catalyst-edge-routes", "chart")
+	mcpDir := filepath.Join("products", "openova-mcp", "chart")
+
+	// Leg B armed: the slot-13e-shaped values (post-substitution).
+	armed := render(edgeDir, "catalyst-secondary-edge", ".", "-n", "catalyst-system",
+		"--set", "ingress.gateway.enabled=true",
+		"--set", "ingress.hosts.console.host=console."+guardFQDN,
+		"--set", "ingress.hosts.api.host=api."+guardFQDN,
+		"--set", "ingress.hosts.marketplace.host=marketplace."+guardFQDN,
+		"--set", "ingress.hosts.mcp.host=mcp."+guardFQDN,
+	)
+	stub := find(armed, "Service", stubName)
+	if stub == nil {
+		t.Fatalf("edge chart armed render: ClusterMesh stub Service %q missing — region-b would have no backend for mcp.<fqdn> (#5394)", stubName)
+	}
+	for _, anno := range []string{"service.cilium.io/global", "service.cilium.io/shared"} {
+		if got, _ := dig(stub, "metadata", "annotations", anno).(string); got != "true" {
+			t.Errorf("edge stub Service annotation %s = %q, want %q — key-without-value does NOT join ClusterMesh (assert the VALUE, not the key)", anno, got, "true")
+		}
+	}
+	route := find(armed, "HTTPRoute", "openova-mcp")
+	if route == nil {
+		t.Fatalf("edge chart armed render: HTTPRoute openova-mcp missing — region-b envoy would keep bare-404ing mcp.<fqdn> (#5394)")
+	}
+	hostnames, _ := dig(route, "spec", "hostnames").([]any)
+	if len(hostnames) != 1 || hostnames[0] != "mcp."+guardFQDN {
+		t.Errorf("edge mcp HTTPRoute hostnames = %v, want exactly [mcp.%s] (input-keyed)", hostnames, guardFQDN)
+	}
+	parents, _ := dig(route, "spec", "parentRefs").([]any)
+	if len(parents) != 1 {
+		t.Fatalf("edge mcp HTTPRoute parentRefs = %v, want exactly 1", parents)
+	}
+	parent, _ := parents[0].(map[string]any)
+	if got, _ := parent["name"].(string); got != "cilium-gateway" {
+		t.Errorf("edge mcp HTTPRoute parentRef name = %q, want %q — mcp rides the SHARED gateway, matching products/openova-mcp httpRoute.parentRef", got, "cilium-gateway")
+	}
+	if got, _ := parent["namespace"].(string); got != "kube-system" {
+		t.Errorf("edge mcp HTTPRoute parentRef namespace = %q, want kube-system", got)
+	}
+
+	// Leg B un-armed (vacuity control): default render must contain ZERO mcp
+	// resources — the gate really gates, and the armed matches above are not
+	// matching something unconditional.
+	unarmed := render(edgeDir, "catalyst-secondary-edge", ".", "-n", "catalyst-system")
+	if d := find(unarmed, "Service", stubName); d != nil {
+		t.Errorf("edge chart DEFAULT render leaks the mcp stub Service — smoke-render-mode:default-off broken (single-region provs would grow a dangling ClusterMesh stub)")
+	}
+	if d := find(unarmed, "HTTPRoute", "openova-mcp"); d != nil {
+		t.Errorf("edge chart DEFAULT render leaks the mcp HTTPRoute — smoke-render-mode:default-off broken")
+	}
+
+	// Leg A armed: multiRegion.enabled=true publishes the real Service.
+	regionA := render(mcpDir, "openova-mcp", ".", "-n", "catalyst-system",
+		"--set", "sovereignFqdn="+guardFQDN,
+		"--set", "multiRegion.enabled=true",
+	)
+	realSvc := find(regionA, "Service", stubName)
+	if realSvc == nil {
+		t.Fatalf("openova-mcp armed render: Service %q missing — the fullname contract with the region-b stub broke (ClusterMesh merges by name+namespace)", stubName)
+	}
+	if got, _ := dig(realSvc, "metadata", "annotations", "service.cilium.io/global").(string); got != "true" {
+		t.Errorf("region-a mcp Service service.cilium.io/global = %q, want %q — an EMPTY value is exactly the hw290 shape the mesh ignores", got, "true")
+	}
+	// Cross-leg port contract: the stub's port must equal the real Service's.
+	realPorts, _ := dig(realSvc, "spec", "ports").([]any)
+	stubPorts, _ := dig(stub, "spec", "ports").([]any)
+	if len(realPorts) != 1 || len(stubPorts) != 1 {
+		t.Fatalf("port contract: want exactly 1 port each (real=%v stub=%v)", realPorts, stubPorts)
+	}
+	realPortMap, _ := realPorts[0].(map[string]any)
+	stubPortMap, _ := stubPorts[0].(map[string]any)
+	rp, _ := realPortMap["port"].(int)
+	sp, _ := stubPortMap["port"].(int)
+	if rp == 0 || rp != sp {
+		t.Errorf("port contract: region-a Service port %d != region-b stub port %d — region-b dials would land on a dead port", rp, sp)
+	}
+
+	// Leg A un-armed (vacuity control): default render must NOT publish.
+	regionAOff := render(mcpDir, "openova-mcp", ".", "-n", "catalyst-system",
+		"--set", "sovereignFqdn="+guardFQDN,
+	)
+	offSvc := find(regionAOff, "Service", stubName)
+	if offSvc == nil {
+		t.Fatalf("openova-mcp default render: Service %q missing entirely — the un-armed control cannot run", stubName)
+	}
+	if got := dig(offSvc, "metadata", "annotations", "service.cilium.io/global"); got != nil {
+		t.Errorf("openova-mcp default render carries service.cilium.io/global=%v — single-region installs must NOT join ClusterMesh (multiRegion gate broken)", got)
+	}
+
+	t.Logf("#5394 mcp secondary-edge chain: slot 13d+13e arms present, both chart legs render armed (input-keyed, value-asserted) and stay empty un-armed, port contract %d==%d", rp, sp)
+}
