@@ -124,8 +124,23 @@ ways (Fail gate keeps red numerics; genuine high lag keeps its number).
 Recipe: UAT DR rows — an app with unverified gates shows unknown, verified
 shows numeric.
 
-**Boarding candidates (agents in flight):** #5359 (linchpin, see below) ·
-#5509 (guacamole postgresql-shared advertisement). Queued: #5364 #5391
+**Boarded late — THE LINCHPIN:** #5359 via **PR #5668** (2026-08-04T17:44Z,
+cutover chart 0.1.166, umbrella 1.4.1284). Root cause, both halves measured:
+flux source-controller never advances observedGeneration on a permanently
+failing fetch, and the failing fetch was structural — gitea-http.gitea.svc in
+region-b resolves to region-b's OWN empty headless Gitea (global-services
+cannot span headless Services). Fix: secondaries pivot to the Sovereign's
+external Gitea door (gateway VIP, DIRECT, no NodePort); mesh machinery
+deleted; empty chain fails loud per-region. 20-assertion contract test proven
+red-then-green across sh/dash/bash. Recipe: hw293 cutover → region-b
+GitRepository gen==obsGen, Ready=True, serving the pivoted SHA; then the
+per-Org listener family (86/90/219/234) and #5527/#5591/#5649 re-verify.
+Residuals recorded on the issue: step-04 secondary containerd pivot, region-b
+empty-Gitea DR gap. (#5509 resolved separately: premise refuted, folded into
+#5480 — PR #5670 forensics.)
+
+**Boarding candidates (agents in flight):** #5364 (org-teardown second
+producer leg) · #5391 (cutover pre-flight operator override). Queued:
 #5485-remainder.
 
 **Next-train (large):** #5476 #5480 (15 region-blind generator templates)
