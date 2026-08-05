@@ -2326,7 +2326,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.4.148"
+  version: "1.4.149"
   visibility: listed
   card:
     title: "NewAPI"
@@ -2371,7 +2371,7 @@ business model is reselling LLM access to its own customers; use
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-newapi
-    version: "1.4.148"
+    version: "1.4.149"
   topology:
     supported:
     - active-passive
