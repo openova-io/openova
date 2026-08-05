@@ -33,7 +33,12 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { saveCatalogEdit, type CatalogEntryEdit, type CatalogEntryPatch } from '@/lib/commerce.api'
+import {
+  saveCatalogEdit,
+  type BlankedField,
+  type CatalogEntryEdit,
+  type CatalogEntryPatch,
+} from '@/lib/commerce.api'
 
 /** How long the save-verdict toast stays visible (#5113 facet-a). */
 export const TOAST_MS = 6_000
@@ -101,6 +106,11 @@ export function CatalogInlineField<T>({
   //   committed:null  → amber  "Saved to store — no IaC verdict reported"
   // Auto-dismisses after TOAST_MS; never blocks the next edit.
   const [notice, setNotice] = useState<SaveNotice | null>(null)
+  // #5610 — the blank-write confirmation. Non-null while a save has been
+  // REFUSED by saveCatalogEdit because it would clear these non-empty stored
+  // columns; the operator either confirms (re-save with allowBlank) or backs
+  // out. Nothing has reached the wire while this is set.
+  const [pendingBlank, setPendingBlank] = useState<BlankedField[] | null>(null)
   const editorRef = useRef<HTMLDivElement>(null)
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -117,16 +127,31 @@ export function CatalogInlineField<T>({
     noticeTimerRef.current = setTimeout(() => setNotice(null), TOAST_MS)
   }
 
-  // Re-seed the draft from the latest current value each time the editor opens,
-  // so re-opening after an external refetch starts from the live value.
+  // Re-seed the draft from the latest current value each time the editor opens.
+  //
+  // #5610 — this, not `useState(initialDraft)`, is what makes a LATE-ARRIVING
+  // value reach the editor. The `useState` initializer captures the value at
+  // MOUNT and never sees another (the stale-initial-state trap); the editor is
+  // only ever populated through this function, which reads the CURRENT
+  // render's prop, so a value that lands after mount is picked up on the next
+  // open. `CatalogInlineField.blank-guard-5610.test.tsx` pins that, because
+  // the property is a habit of this function rather than something the type
+  // system enforces — dropping the re-seed here is a silent regression to a
+  // blank editor over non-empty content.
+  //
+  // A value arriving while the editor is OPEN is deliberately NOT adopted:
+  // overwriting a half-typed draft from a background refetch would be a second
+  // data-loss bug wearing the first one's clothes.
   const open = () => {
     setDraft(initialDraft)
     setError(null)
+    setPendingBlank(null)
     setEditing(true)
   }
   const cancel = () => {
     setEditing(false)
     setError(null)
+    setPendingBlank(null)
   }
 
   // Autofocus the first focusable control when the editor opens.
@@ -138,7 +163,15 @@ export function CatalogInlineField<T>({
     node?.focus()
   }, [editing])
 
-  const save = async () => {
+  /**
+   * Commit this field.
+   *
+   * @param allowBlank #5610 — store columns whose clearing the operator has
+   *   just CONFIRMED. Empty on the first attempt: saveCatalogEdit then refuses
+   *   (and writes nothing) if the save would blank a non-empty stored value,
+   *   and we raise the confirmation instead of reporting a save.
+   */
+  const save = async (allowBlank: readonly string[] = []) => {
     setSaving(true)
     setError(null)
     // #5510 — send ONLY this field's keys. saveCatalogEdit overlays them onto
@@ -148,9 +181,20 @@ export function CatalogInlineField<T>({
     // silently reverted untouched fields.
     const patch: CatalogEntryPatch = toPatch(draft)
     try {
-      const verdict = await saveCatalogEdit(blueprintId, patch, createSeed)
+      const verdict = await saveCatalogEdit(blueprintId, patch, createSeed, { allowBlank })
+      // #5610 — REFUSED, not saved: the edit would have cleared a non-empty
+      // stored value. Keep the editor open on the operator's draft and ask.
+      // This is the seatbelt for a pre-fill regression: it compares the patch
+      // against the STORED row, not against whatever the editor believes the
+      // current value to be.
+      if (verdict.blanked?.length) {
+        setPendingBlank(verdict.blanked)
+        setSaving(false)
+        return
+      }
       setSaving(false)
       setEditing(false)
+      setPendingBlank(null)
       // Row 132 — surface the dual-write verdict instead of closing
       // silently. committed:false/null NEVER reads as a durable green.
       if (verdict.committed === true) {
@@ -244,6 +288,44 @@ export function CatalogInlineField<T>({
           {error}
         </p>
       ) : null}
+      {/* #5610 — the blank-write confirmation. Reached only when the save was
+          already REFUSED (nothing on the wire), so the destructive path costs
+          a second, deliberate click and names the value at stake. */}
+      {pendingBlank ? (
+        <div
+          className="cif-blank-confirm"
+          role="alert"
+          data-testid={`cif-${fieldKey}-blank-confirm`}
+        >
+          <p className="cif-blank-text">
+            This clears {label}. The stored value{' '}
+            <strong data-testid={`cif-${fieldKey}-blank-current`}>
+              {pendingBlank.map((f) => f.current).join(' · ')}
+            </strong>{' '}
+            will be removed.
+          </p>
+          <div className="cif-actions">
+            <button
+              type="button"
+              className="cif-btn cif-btn-ghost"
+              onClick={() => setPendingBlank(null)}
+              disabled={saving}
+              data-testid={`cif-${fieldKey}-blank-keep`}
+            >
+              Keep it
+            </button>
+            <button
+              type="button"
+              className="cif-btn cif-btn-danger"
+              onClick={() => void save(pendingBlank.map((f) => f.key))}
+              disabled={saving}
+              data-testid={`cif-${fieldKey}-blank-confirm-clear`}
+            >
+              Clear it
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="cif-actions">
         <button
           type="button"
@@ -306,6 +388,18 @@ const CATALOG_INLINE_FIELD_CSS = `
 .cif-topo-summary { font-size: 0.85rem; color: var(--color-text); font-weight: 400; }
 
 .cif-error { margin: 0; color: var(--color-danger); font-size: 0.78rem; }
+
+/* #5610 — the blank-write confirmation strip. */
+.cif-blank-confirm {
+  display: flex; flex-direction: column; gap: 0.4rem;
+  border: 1px solid var(--color-danger, #dc2626); border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  background: color-mix(in srgb, var(--color-danger, #dc2626) 10%, transparent);
+}
+.cif-blank-text { margin: 0; font-size: 0.78rem; color: var(--color-text); font-weight: 400; }
+.cif-blank-text strong { font-weight: 600; }
+.cif-btn-danger { background: var(--color-danger, #dc2626); color: #fff; }
+.cif-btn-danger:hover:not(:disabled) { filter: brightness(0.92); }
 
 /* #5113 facet-a — the per-field save-verdict toast (UAT row 132). */
 .cif-toast {

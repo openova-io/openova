@@ -169,7 +169,16 @@ describe('saveCatalogEdit — partial patch, stored row is the merge base (#5510
   it('an explicitly CLEARED field is written as empty (undefined ≠ empty string)', async () => {
     storeRows.value = [{ ...NAMEPROOF_ROW }]
 
-    await saveCatalogEdit('bp-alloy', { icon_light: '' }, IAC_SEED)
+    // #5610 — clearing a NON-EMPTY stored value now needs the operator's
+    // explicit confirmation, carried as `allowBlank`. The #5510 contract this
+    // test exists for is unchanged and still asserted below: present-but-empty
+    // is a real edit that reaches the store, and it must not drag siblings
+    // with it. What changed is that the intent must be stated, so a blank
+    // editor can no longer wipe a value by accident (see
+    // `commerce.api.blank-guard-5610.test.ts` for the refusal side).
+    await saveCatalogEdit('bp-alloy', { icon_light: '' }, IAC_SEED, {
+      allowBlank: ['icon_light'],
+    })
 
     const sent = mutation().body!
     // Present-but-empty means "the operator cleared it" — it must reach the
