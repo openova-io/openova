@@ -320,7 +320,7 @@ spec:
       #   landing on the other region met a database that had never seen the
       #   code → a VALID Keycloak code answered 403 x3 and the app rendered
       #   signed-out. See `crossRegion` in spec.values below.
-      version: 1.4.151
+      version: 1.4.152
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
