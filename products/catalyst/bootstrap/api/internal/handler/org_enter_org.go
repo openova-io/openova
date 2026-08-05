@@ -40,6 +40,7 @@ import (
 	"github.com/google/uuid"
 
 	auth "github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 )
 
 // enterOrgMaxTTL caps the support session at 60 minutes (§6 B2: "TTL ≤
@@ -160,11 +161,21 @@ func (h *Handler) HandleEnterOrg(w http.ResponseWriter, r *http.Request) {
 	// Mint the handover token targeting the ORG's console (aud =
 	// console.<org>.<sov>). The org's catalyst-api redeems it at
 	// /auth/handover with the SAME validation the Sovereign uses for the
-	// mothership's token (iss=console.openova.io, role=sovereign-admin,
-	// email_verified). The support_session marker drives the in-console
-	// banner; impersonated_org records which org was entered.
+	// mothership's token (role=sovereign-admin, email_verified). The
+	// support_session marker drives the in-console banner; impersonated_org
+	// records which org was entered.
+	//
+	// #5614: `iss` was the bare literal "https://console.openova.io" — a
+	// Pillar-5 mothership tether stamped by a Sovereign into its OWN token,
+	// and the last unconditional duplicate of the #2940 seam in the auth
+	// path. It now resolves through handoverjwt.DefaultIssuer(), the same
+	// single source the signer uses, so a cut-over Sovereign stamps its own
+	// console. Safe in both directions because the redeemer
+	// (acceptedHandoverIssuers, auth_handover.go) accepts the configured
+	// issuer AND the mothership origin — and this token is minted and
+	// redeemed by the same pod, so there is no version-skew window.
 	tokenClaims := jwt.MapClaims{
-		"iss":            "https://console.openova.io",
+		"iss":            handoverjwt.DefaultIssuer(),
 		"sub":            supportPrincipal,
 		"email":          supportPrincipal,
 		"email_verified": true,

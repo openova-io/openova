@@ -96,6 +96,68 @@ type authHandoverClaims struct {
 	InitiatedBy      string `json:"initiated_by"`
 }
 
+// acceptedHandoverIssuers returns the exact set of `iss` values this
+// catalyst-api will honour on a handover token (#5614).
+//
+// The set has two members because ONE endpoint redeems THREE mint paths:
+//
+//   - the Sovereign's own console (handoverjwt.DefaultIssuer(), i.e.
+//     CATALYST_HANDOVER_JWT_ISSUER — https://console.<own-fqdn> after the
+//     cutover step-07 env pivot);
+//   - the MOTHERSHIP's post-provisioning handover, minted by Catalyst-Zero
+//     (which leaves the override unset) as https://console.openova.io and
+//     redeemed here against the cloud-init-mounted mothership public key;
+//   - the "Enter org" support session (#3378 B2, org_enter_org.go), minted and
+//     redeemed by this same pod.
+//
+// A cut-over Sovereign has the override SET, so any single-value comparison
+// necessarily refuses one group or the other. Pre-cutover the override is
+// unset, DefaultIssuer() already IS the mothership origin, and the set
+// collapses to one element — Catalyst-Zero behaviour is byte-unchanged.
+//
+// FAIL-CLOSED contract, in order of how each could turn authn into a hole:
+//   - the returned slice is NEVER empty (the mothership origin is an
+//     unconditional member), so no caller can degenerate into "nothing to
+//     check, therefore allow";
+//   - the empty string is NEVER a member, so a token with no `iss` claim —
+//     which jwt/v5 surfaces as ("", nil), not an error — can never match;
+//   - membership is exact string equality only. No prefix, suffix, wildcard or
+//     substring matching, so a configured issuer of "*" or "" widens nothing.
+//
+// Widening the set is safe only because `iss` is defence-in-depth here, not the
+// primary gate: the RS256 signature is verified against the mounted mothership
+// key or this pod's own signer key BEFORE this runs, and the audience /
+// support-session host check runs after. This function must never become the
+// place where an unsigned or foreign-signed token gains trust.
+func acceptedHandoverIssuers() []string {
+	out := make([]string, 0, 2)
+	if cfg := strings.TrimSpace(handoverjwt.DefaultIssuer()); cfg != "" {
+		out = append(out, cfg)
+	}
+	if ms := strings.TrimSpace(handoverjwt.MothershipIssuer()); ms != "" {
+		if len(out) == 0 || out[0] != ms {
+			out = append(out, ms)
+		}
+	}
+	return out
+}
+
+// handoverIssuerAccepted reports whether iss is a member of the accepted set.
+// Empty / whitespace issuers are refused before the comparison so an absent
+// `iss` claim can never authenticate.
+func handoverIssuerAccepted(iss string) bool {
+	iss = strings.TrimSpace(iss)
+	if iss == "" {
+		return false
+	}
+	for _, want := range acceptedHandoverIssuers() {
+		if iss == want {
+			return true
+		}
+	}
+	return false
+}
+
 // AuthHandover handles GET /auth/handover?token=<jwt>.
 func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 	raw := r.URL.Query().Get("token")
@@ -230,18 +292,18 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ── 3. Validate claims ──────────────────────────────────────────────
-	// #5614 — resolve the expected issuer through the SAME single source the
-	// minter uses (handoverjwt.DefaultIssuer(), which reads
-	// CATALYST_HANDOVER_JWT_ISSUER and falls back to the Catalyst-Zero
-	// mothership origin). The former hardcoded `const expectedIss =
-	// "https://console.openova.io"` was the verify-side survivor of the #2940
-	// duplicate-tether literal: a cut-over Sovereign mints a token with its OWN
-	// console as `iss` and this verifier then 401'd it as "invalid issuer",
-	// rejecting the Sovereign's own handover (hw292, cc=true). One resolver, both
-	// sides — the mint and verify issuers can never drift again.
-	expectedIss := handoverjwt.DefaultIssuer()
+	// #5614 — the expected issuer is a SET, not a single value, because this
+	// one endpoint redeems tokens from three mint paths carrying two different
+	// `iss` values (see acceptedHandoverIssuers). The original hardcoded
+	// `const expectedIss = "https://console.openova.io"` rejected a cut-over
+	// Sovereign's OWN token (hw292, cc=true → 401 "invalid issuer"); the first
+	// remedy swapped it for a bare `handoverjwt.DefaultIssuer()` compare, which
+	// on the very same pod then rejected the MOTHERSHIP's token instead —
+	// trading one broken leg for two. Membership in the accepted set is what
+	// serves all three legs at once.
 	iss, err := claims.GetIssuer()
-	if err != nil || iss != expectedIss {
+	if err != nil || !handoverIssuerAccepted(iss) {
+		h.log.Warn("auth_handover: issuer rejected", "iss", iss)
 		writeAuthError(w, "invalid issuer")
 		return
 	}

@@ -98,6 +98,20 @@ func DefaultIssuer() string {
 	return mothershipIssuer
 }
 
+// MothershipIssuer exposes the Catalyst-Zero origin so VERIFIERS can keep
+// accepting a mothership-minted token after the per-Sovereign override has
+// pivoted DefaultIssuer() away from it.
+//
+// #5614: a cut-over Sovereign sets CATALYST_HANDOVER_JWT_ISSUER, so
+// DefaultIssuer() no longer returns this value — but the Sovereign must still
+// redeem the mothership's post-provisioning handover (package doc above) and
+// the "Enter org" support session (#3378 B2). A verifier that compares against
+// DefaultIssuer() ALONE therefore trades one broken leg for another. The
+// accessor exists so the accepted-issuer SET can be assembled without any
+// caller re-typing the literal — the #2940 rule is "the mothership URL is
+// written once", not "the mothership URL is never read".
+func MothershipIssuer() string { return mothershipIssuer }
+
 // Claims is the exact JWT claim shape Agent C must accept.
 // Custom fields use lowercase JSON keys per RFC 7519 §4 convention.
 type Claims struct {
