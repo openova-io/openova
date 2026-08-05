@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-05T07:00:02Z` |
+| Last refreshed | `2026-08-05T07:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-05T07:14 | [#5689](https://github.com/openova-io/openova/pull/5689) | #5612 | fix(newapi): route inert SSO recovery button through the wor |
 | 2026-08-05T06:35 | [#5688](https://github.com/openova-io/openova/pull/5688) | #5613 | fix(dashboard): treemap Organization layer projects live pod |
 | 2026-08-05T06:31 | [#5687](https://github.com/openova-io/openova/pull/5687) | #5571 | fix(catalyst-api): chroot secondary regions no longer drop o |
 | 2026-08-05T05:50 | [#5686](https://github.com/openova-io/openova/pull/5686) | #5421 | fix(marketplace): redeem consults the cookie session, not th |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-04T09:16 | [#5658](https://github.com/openova-io/openova/pull/5658) | #5641 | fix(qa-fixtures): QA CNPG Clusters pinned a Hetzner region o |
 | 2026-08-04T08:50 | [#5657](https://github.com/openova-io/openova/pull/5657) | #5644 | feat(cutover): post-cutover delivery that can actually deliv |
 | 2026-08-04T06:21 | [#5656](https://github.com/openova-io/openova/pull/5656) | #5379 | fix(cutover): make the sovereignty gate a per-region asserti |
-| 2026-08-04T05:10 | [#5654](https://github.com/openova-io/openova/pull/5654) | #5652 | fix(cutover): declare the known loft tether so 0.1.162's sou |
 
 ---
 
