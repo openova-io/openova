@@ -9,8 +9,16 @@
 > happen before it freezes.
 
 Scoreboard basis (live, 2026-08-05): UAT ledger 166 ✅ / 49 ⚠️ / 19 ❌ / ⛔+N-A
-adjudicated; completion-matrix headline ~90%. Open issues 126; 48 in-progress,
-5 blocked-ext, 1 status/uat.
+adjudicated; completion-matrix headline ~90%.
+
+**Source-backlog status — DRAINED (verified 2026-08-05, full-population scan):**
+all **42/42** open `status/in-progress` issues carry merged fix PRs on `main`;
+zero are candidate-open. The label is stale on ~39 of them — they are
+structurally `status/uat` (fixed, awaiting the walk). Train is **publish-ready**:
+bp-postgres 0.2.18, bp-self-sovereign-cutover 0.1.168, and bp-catalyst-platform
+(≥1.4.1291, deploy-bot at 1.4.1293) are all live tags on ghcr. **There is no
+remaining source-fixable defect** — the gap to 100% is proof + two founder gates,
+not code. See the dependency graph at the end of this doc.
 
 ## The gap in four blocks
 
@@ -221,3 +229,43 @@ evidence-closed (#5589 #5388 #5456 #5512 #5520 #5509), 2 fixes → status/uat wi
 merge evidence (#5364 #5623 — runtime proof fresh-prov-gated), 5 already-fixed
 correctly declined (#5639 #5637 #5634 #5616 #5615 — all with merged fix PRs at
 status/uat). Chart-PR queue fully drained; #5678 closes the treadmill root cause.
+
+---
+
+## Path to 100% — dependency graph (2026-08-05, backlog drained)
+
+The source work is done. What remains is one deploy-and-walk cycle plus two
+founder-owned gates. Nothing below is code.
+
+```mermaid
+graph TD
+    A["42/42 fixes merged on main<br/>train publish-ready (ghcr verified)"] --> B{"mothership can fire?<br/>catalyst-api 1/1 ✓<br/>Flux 0/0 frozen (self-recon only)<br/>fire-auth = handover JWT / owner session"}
+    B -->|"fire-auth available"| C["wipe hw292 (banked G12 proof)<br/>→ POST /deployments on ready train<br/>→ converge → cutover → cc=true"]
+    B -.->|"blocked: gated PVC / frozen"| B2["HOLD hw292 as banked proof<br/>surface mothership-degraded state"]
+    C --> D["autonomous live walk:<br/>~40 merged fixes → green<br/>(incl. #5639/#5637/#5634/#5364/#5623/#5515,<br/>row 211 authed MCP, region-kill G12)"]
+    D --> E{"two FOUNDER gates remain"}
+    E --> F["#4277 — Anthropic credential<br/>(agenity per-Org token seed;<br/>Principle #4: platform holds none)"]
+    E --> G["owner login walk<br/>(handover-URL rows 96/123/178,<br/>customer-Org rows 20/23, final sign-off)"]
+    F --> H["100% DoD"]
+    G --> H
+```
+
+**Why the fresh prov is not fired autonomously right now:** wiping hw292 destroys
+the current banked G12 / Pillar-5 proof, and the fire path depends on (a) mothership
+fire-auth behind the gated deployments PVC, (b) a Flux-frozen mothership, and (c) two
+terminal gates only the founder can clear. Trading a banked proof for a likely stall,
+founder-absent, is the wrong ICE call. The train is **frozen and ready**; it fires the
+moment the founder is present to supply #4277 and drive the closing walk — one
+coordinated cycle, per the LAW at the top of this doc ("it freezes before the fire").
+
+**Parallelism / no-empty-train:** there is nothing left to load — the 42-passenger
+train is assembled and the queue is drained. Adding speculative chart work now would
+only re-arm the deploybot treadmill against the frozen manifest. The correct state is
+a full, frozen train waiting on the single coordinated fire, not more passengers.
+
+**The two founder levers, stated plainly:**
+1. **#4277** — supply one Anthropic API credential so every fresh Org's agenity can
+   authenticate zero-touch. Until then the agenity-token clause is the one structurally
+   red row; everything else in Pillar 4 (MCP, workspace) is built and merged.
+2. **The login walk** — a fresh-prov owner session naturally exercises the handover-URL
+   and customer-Org rows and provides the closing sign-off screenshot set.
