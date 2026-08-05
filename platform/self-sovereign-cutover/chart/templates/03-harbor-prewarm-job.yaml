@@ -413,7 +413,13 @@ data:
     fi
     ghcr_user=$(printf '%s' "${ghcr_auth_b64}" | base64 -d | awk -F: '{print $1}')
     ghcr_pat=$(printf '%s' "${ghcr_auth_b64}" | base64 -d | awk -F: '{print $2}')
-    echo "[harbor-prewarm] ghcr.io auth extracted: user=${ghcr_user} pat=${ghcr_pat:0:8}... (len=${#ghcr_pat})"
+    # #5467 — NEVER print any prefix of the PAT. The `${ghcr_pat:0:8}` disclosed
+    # 4 real secret chars (after the `ghp_` type prefix) + the token type + exact
+    # length + owning account into pod logs, which are read by operators, shipped
+    # by log aggregators, and pasted into issues on a failed cutover. Match the
+    # mothership branch below: user + length only (platform rule — secret values
+    # are never printed; lengths/hashes only).
+    echo "[harbor-prewarm] ghcr.io auth extracted: user=${ghcr_user} (len=${#ghcr_pat})"
 
     # #4975 — OPTIONAL mothership-Harbor source auth. Phase A3 mirrors
     # `harbor.openova.io/proxy-<x>/...` refs (the dominant bootstrap-kit

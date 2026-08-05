@@ -1,5 +1,10 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.169 (#5467) — SECURITY: step-03 harbor-prewarm no longer prints any prefix
+# of the GHCR PAT. The old `pat=${ghcr_pat:0:8}...` disclosed 4 real secret chars
+# (after the `ghp_` type prefix) + the token type + exact length + owning account
+# into pod logs on every cutover; the line now matches the mothership branch
+# (user + length only). Platform rule: secret values are never printed.
 # 0.1.168 (#5650) — INSTANCE FIX for the residual charts.loft.sh tether. Step-06
 # gains Phase-2c (helmRepositories.vclusterLoftPivot): it mirrors the upstream
 # vcluster chart into local Harbor while egress is still open, repoints the
@@ -3272,7 +3277,7 @@ name: bp-self-sovereign-cutover
 # copyAttempts,skopeoStaticURL,maxRefsPerCycle}. No RBAC change (the runner
 # ClusterRole already grants deployments/statefulsets/daemonsets/jobs/cronjobs
 # get+list+watch). Step count unchanged at 11.
-version: 0.1.168
+version: 0.1.169
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
