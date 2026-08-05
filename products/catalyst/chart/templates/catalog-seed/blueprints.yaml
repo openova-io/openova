@@ -62,7 +62,20 @@ spec:
   # hook pod fits the 4-CPU `plan-quota` headroom and actually schedules; the
   # 0.4.21 hook was rejected `exceeded quota: plan-quota` → never created → HR
   # timeout → no external HTTPRoute → host 404.
-  version: "0.4.22"
+  # #5623: →0.4.23 — the active-hot-standby pair must DECLARE what promotes its
+  # standby, and the render FAILS CLOSED without it. On hw292's G12 region-kill
+  # the DR pairs with no region-local promoter stayed read-only for the whole
+  # outage while bp-cnpg-pair's promoted in 2m16s; this chart renders the same
+  # standby shape with no promoter and no Continuum CR, and continuum-controller
+  # is region-A-only (dies with the region it would fail away from, #5137). New
+  # `pg.activeHotStandby.promotion.mechanism` — "manual" is the only value this
+  # chart can honour; "dr-promoter"/"continuum" fail closed so an undelivered
+  # failover cannot be asserted. The value is stamped on the standby Cluster CR
+  # as catalyst.openova.io/dr-promotion-mechanism. Singleton installs are
+  # byte-identical. Enforced catalog-wide by
+  # scripts/check-dr-pairs-declare-promotion.sh. Lockstep with
+  # platform/wordpress-tenant/blueprint.yaml + the bare-slug alias entry below.
+  version: "0.4.23"
   visibility: listed
   card:
     title: "WordPress (per-Organization)"
@@ -91,7 +104,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: "0.4.22"
+    version: "0.4.23"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/wordpress-tenant/blueprint.yaml. Uses {{.AppName}} so
   # multi-instance tenants get distinct hostnames per Application.
@@ -204,7 +217,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.4.22"
+  version: "0.4.23"
   visibility: listed
   card:
     title: "WordPress"
@@ -226,7 +239,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: "0.4.22"
+    version: "0.4.23"
   # Lockstep with the bp-wordpress-tenant entry above + platform/wordpress-tenant/
   # blueprint.yaml. Same chart bytes; this is the bare-slug entrypoint only.
   topology:

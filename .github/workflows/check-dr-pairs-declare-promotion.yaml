@@ -1,0 +1,64 @@
+name: check — every DR pair declares a promotion mechanism (#5623)
+
+# Permanent guard that every CNPG standby half in the catalog has something
+# that will actually promote it when its source region dies.
+#
+# On the hw292 G12 region-kill (2026-08-03) bp-cnpg-pair's region-B dr-promoter
+# promoted at T0+2m16s with RPO=0. The three bp-postgres shared-pg pairs — which
+# render the IDENTICAL standby shape — stayed `pg_is_in_recovery() = t` for the
+# entire outage, because only bp-cnpg-pair shipped a promoter. keycloak is a
+# shared-pg consumer, so the auth path could not recover in region-B even in
+# principle. Nothing in the source distinguished the pair that promotes from the
+# three that could not: all four rendered valid YAML and all four reported Ready.
+#
+# bp-cnpg-pair's own render test asserted its promoter was present, and passed,
+# for every one of the months bp-postgres had none. A property proven in ONE
+# place and assumed fleet-wide is what this gate exists to stop, so Phase 1
+# ENUMERATES the catalog by structural signature (bootstrap.pg_basebackup) and
+# fails on any unregistered standby half — a new DR pair cannot be added without
+# stating what promotes it.
+#
+# Path filters are deliberately the whole of platform/ and products/: the gate's
+# value is catching a standby half in a chart nobody thought to list. Narrowing
+# these to today's known DR charts would reproduce the original defect.
+#
+# Per docs/PRINCIPLES.md #4a this workflow renders templates locally — it does
+# not deploy anything, call cloud APIs, or touch a live cluster.
+#
+# Refs #5623 #5178 #5220 #5133 #5157 #5125 #5639
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'platform/**'
+      - 'products/**'
+      - 'scripts/check-dr-pairs-declare-promotion.sh'
+      - '.github/workflows/check-dr-pairs-declare-promotion.yaml'
+  pull_request:
+    paths:
+      - 'platform/**'
+      - 'products/**'
+      - 'scripts/check-dr-pairs-declare-promotion.sh'
+      - '.github/workflows/check-dr-pairs-declare-promotion.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dr-pairs-declare-promotion:
+    name: Every DR pair declares a promotion mechanism
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet pyyaml
+
+      - name: Run DR-pair promotion-mechanism gate
+        run: bash scripts/check-dr-pairs-declare-promotion.sh

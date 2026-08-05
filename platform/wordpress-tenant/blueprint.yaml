@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/category: organization-app
     catalyst.openova.io/section: pts-7-org-tenant
 spec:
-  version: 0.4.22
+  version: 0.4.23
   card:
     title: WordPress (per-Organization)
     summary: |

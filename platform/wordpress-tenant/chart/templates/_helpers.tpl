@@ -235,6 +235,65 @@ failure-isolation gain). Triggered only when enabled=true.
 {{- end -}}
 
 {{/*
+#5623 — EVERY rendered DR pair MUST DECLARE ITS PROMOTION MECHANISM.
+
+THE DEFECT THIS EXISTS TO PREVENT
+---------------------------------
+On the hw292 G12 region-kill (2026-08-03) `bp-cnpg-pair`'s region-B dr-promoter
+auto-promoted at T0+2m16s while the three `bp-postgres` shared-pg standbys stayed
+`pg_is_in_recovery()=t` for the WHOLE outage — they rendered the identical
+split-side standby shape but shipped no region-local promoter, so nothing in the
+surviving region ever acted on them. bp-postgres 0.2.18 ported the promoter.
+
+THIS chart renders the SAME standby shape (`replica.enabled: true` +
+`bootstrap.pg_basebackup` + `externalClusters[]`, below) and ships NEITHER a
+promoter NOR a `kind: Continuum` CR. The mechanism its own template comment names
+— "Continuum K-Cont-2" — is a REGION-A-ONLY Deployment: on hw292 region-B carries
+no continuum-controller and not even the Continuum CRD (verified live 2026-08-06,
+both regions sampled). So a region-A kill leaves this pair's standby read-only
+with no actor anywhere that can promote it, and NOTHING in the render says so.
+`replica.enabled: true` is additionally hard-coded here (no `topology.promoted`
+HR-value seam like bp-postgres/bp-cnpg-pair), so even a hand-patch of the live
+Cluster CR is reverted by flux drift-correction mid-outage (#5125-D1).
+
+WHY A REQUIRED DECLARATION AND NOT A PORTED PROMOTER
+----------------------------------------------------
+A promoter that promotes without a real quorum/lease signal causes the #5178
+false-promote flap and split-brain. Porting the proven bp-cnpg-pair actor here
+needs a design decision this chart cannot make on its own: the actor's durability
+latch patches a NAMED HelmRelease, and this chart's HR is minted per-Application
+by the application-controller, so there is no stable HR name at render time. That
+seam is real work, tracked on #5623 — it is NOT something to fabricate inline.
+
+What IS shippable and correct today: refuse to render an "HA" pair that silently
+cannot fail over. The operator must state the mechanism out loud, and the value
+they state is stamped onto the standby Cluster CR so it is visible on the LIVE
+object (`kubectl get cluster -o jsonpath=...dr-promotion-mechanism`), not only in
+a values file. `manual` is the only mechanism this chart can actually deliver
+today; `dr-promoter` and `continuum` fail closed naming exactly what is missing,
+so the day one of them ships the declaration becomes true rather than aspirational.
+*/}}
+{{- define "bp-wordpress-tenant.drPromotionMechanism" -}}
+{{- dig "activeHotStandby" "promotion" "mechanism" "" .Values.pg | toString | trim -}}
+{{- end -}}
+
+{{- define "bp-wordpress-tenant.validateActiveHotStandbyPromotion" -}}
+{{- $m := include "bp-wordpress-tenant.drPromotionMechanism" . -}}
+{{- if eq $m "" -}}
+{{- fail "pg.activeHotStandby.promotion.mechanism is REQUIRED when the active-hot-standby pair renders (#5623): this chart renders a cross-region CNPG standby, and an undeclared pair is one that silently never promotes on a region kill. Set it to \"manual\" (operator-run promotion per RUNBOOKS §6.1 — the only mechanism this chart delivers today) or ship an automatic one first." -}}
+{{- end -}}
+{{- if eq $m "dr-promoter" -}}
+{{- fail "pg.activeHotStandby.promotion.mechanism=\"dr-promoter\" is NOT DELIVERABLE by bp-wordpress-tenant (#5623): this chart ships no dr-promoter Deployment and no `topology.promoted` HelmRelease-value promote seam, so declaring it would assert a failover that cannot happen. Port the bp-cnpg-pair/bp-postgres actor (and a stable per-Application HR name for its suspend latch) before declaring this." -}}
+{{- end -}}
+{{- if eq $m "continuum" -}}
+{{- fail "pg.activeHotStandby.promotion.mechanism=\"continuum\" is NOT DELIVERABLE by bp-wordpress-tenant (#5623): this chart renders no `kind: Continuum` CR, and continuum-controller is a region-A-only Deployment that dies with region-A (the #5137 root cause — region-B carries neither the controller nor the Continuum CRD). Continuum orchestrates a PLANNED switchover; it is not an unplanned-region-kill actor." -}}
+{{- end -}}
+{{- if ne $m "manual" -}}
+{{- fail (printf "pg.activeHotStandby.promotion.mechanism=%q is not a recognised mechanism (#5623). Valid: manual | dr-promoter | continuum." $m) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 wp-cli image reference, with optional `global.imageRegistry` rewrite for
 Sovereign Harbor proxy-cache. Mirrors `wordpressImage` so both runtime
 and CLI images route through the same proxy. Returns
