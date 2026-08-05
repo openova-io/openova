@@ -1,0 +1,49 @@
+# sso-flip-guard.yaml — protect the SSO-flip trigger surface (#5597).
+#
+# THE PROBLEM: .github/workflows/sso-uat-flip.yaml flips walked SSO UAT rows to
+# UNVERIFIED on any push to main touching the SSO chain. Its `paths:` filter
+# broadened-and-regressed THREE times (71c54d8d, a031424a, bee6695e — 31
+# live-walked rows erased in one day, 7 un-re-walkable behind a PIN). Each was
+# hand-narrowed after the fact; nothing LOCKED the receipts, so the next
+# broadening silently re-opened the hole.
+#
+# THIS GUARD runs scripts/sso-flip-pathmatch.py --self-test — a faithful mirror
+# of GitHub's `paths:` semantics that parses the flip workflow's OWN path list
+# (single source of truth) and asserts the three receipt commits stay unflipped
+# while genuine SSO-chain changes still flip. It fires whenever the trigger
+# surface itself changes, so a future re-broadening fails CI instead of erasing
+# evidence in production. Self-test is included so the guard's own logic is
+# continuously protected (uat-drift-guard.yaml idiom).
+name: sso-flip-guard
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/sso-uat-flip.yaml"
+      - ".github/workflows/sso-flip-guard.yaml"
+      - "scripts/sso-flip-pathmatch.py"
+      - "scripts/uat-sso-flip.py"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/sso-uat-flip.yaml"
+      - ".github/workflows/sso-flip-guard.yaml"
+      - "scripts/sso-flip-pathmatch.py"
+      - "scripts/uat-sso-flip.py"
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+      - name: Guard the SSO-flip trigger surface (#5597 receipts)
+        run: python3 scripts/sso-flip-pathmatch.py --self-test
