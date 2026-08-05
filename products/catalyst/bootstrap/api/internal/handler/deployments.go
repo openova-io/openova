@@ -1178,7 +1178,12 @@ func (d *Deployment) regionHealthForStateLocked() (regions []provisioner.RegionH
 	// never go Ready) are excluded from the census, instead of permanently
 	// degrading a healthy non-Hetzner Sovereign.
 	regions, secondaryDegraded = provisioner.ComputeRegionHealth(d.Request.Provider, primaryRegion, primaryStates, snapshotSecondaryStatesLocked(d))
-	return regions, secondaryDegraded, regionCensusSourceWatchers, time.Now()
+	// Zero derivedAt on purpose: this census IS this instant, so a timestamp
+	// would carry no information — and stamping time.Now() would make the
+	// payload differ on every poll of a completely unchanged deployment.
+	// "live-watchers" already says "as of right now"; callers omit the
+	// regionCensusAt key for a zero time.
+	return regions, secondaryDegraded, regionCensusSourceWatchers, time.Time{}
 }
 
 // regionCensusIsStale reports whether a census from `source` derived at
