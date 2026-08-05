@@ -104,9 +104,10 @@ const liveRegionCensusListTimeout = 3 * time.Second
 // once per liveRegionCensusTTL; every other poll in the window is free.
 const liveRegionCensusBudget = 8 * time.Second
 
-// regionCensusReadable reports whether a live re-derivation is even meaningful
-// for dep: it is, exactly when Phase 1 has TERMINATED (so the watchers are
-// gone and Result.Regions is frozen) and a Result exists to fall back to.
+// regionCensusRefreshApplicable reports whether a live re-derivation is even
+// meaningful for dep: it is, exactly when Phase 1 has TERMINATED (so the
+// watchers are gone and Result.Regions is frozen) and a Result exists to fall
+// back to.
 // While Phase 1 is still running the watcher path already serves live numbers.
 // The CALLER MUST NOT hold dep.mu.
 func regionCensusRefreshApplicable(dep *Deployment) bool {
