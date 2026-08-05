@@ -1,0 +1,21 @@
+UAT Row 211 — MCP list_applications live capture
+Env: hw292 (dep 1c56518035a83e03) | Endpoint: POST https://mcp.hw292.omani.works/mcp
+Auth: sovereign-admin/owner session JWT (emrah.baysal@openova.io), forwarded as Bearer
+MCP server: openova-mcp v0.1.0-slice1 | JSON-RPC 2.0 | tools/call name=list_applications | isError=False
+Applications returned: 14
+
+NAME                   NAMESPACE         BLUEPRINT          VERSION   PHASE
+spine-gitea            catalyst          bp-gitea           1.2.24    Ready
+spine-harbor           catalyst          bp-harbor          1.2.26    Ready
+spine-keycloak         catalyst          bp-keycloak        1.0.0     Ready
+spine-openbao          catalyst          bp-openbao         1.2.25    Ready
+guacamole              guacamole         bp-guacamole       0.2.33    Ready
+harbor                 harbor            bp-harbor          1.2.47    Ready
+uat-ahs-pg             hw292-omani-works bp-postgres        0.2.16    Ready
+newapi                 newapi            bp-newapi          1.4.146   Ready
+shared-pg              shared-data       bp-postgres        0.2.16    Ready
+shared-pg-b            shared-data       bp-postgres        0.2.16    Ready
+shared-pg-c            shared-data       bp-postgres        0.2.16    Ready
+uatco-agenity          uatco             bp-agenity         0.5.21    Ready
+uatco-mail             uatco             bp-stalwart-tenant 0.1.13    Degraded
+uatco-openclaw         uatco             bp-openclaw        0.2.17    Ready
