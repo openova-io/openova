@@ -960,6 +960,12 @@ spec:
 
               reconcile_catalog_once() {
                 CATALOG_SYNCED=0
+                # Audit identity. In warm mode there is no request, so REQ_ID /
+                # REQ_BY are empty — and warm is precisely the mode whose syncs
+                # most need an attributable record (it is the standing tether).
+                # Label them rather than emitting blank audit fields.
+                _cat_id="${REQ_ID:-warm-mode}"
+                _cat_by="${REQ_BY:-standing-warm-posture}"
                 case "${RECONCILE_MODE}" in
                   warm) : ;;
                   request) if ! catalog_in_scope; then
@@ -1003,10 +1009,10 @@ spec:
                 _cat_local="${GITEA_INTERNAL_URL%/}/${GITEA_ORG}/${GITEA_REPO}.git"
                 _cat_local_auth=$(printf '%s' "${_cat_local}" | sed -E "s,^(https?://),\\1${GITEA_USERNAME}:${_cat_pat}@,")
 
-                echo "[daytwo] catalog leg: requestId '${REQ_ID}' names CATALOG — ONE-SHOT sync ${UPSTREAM_REPO_URL} -> ${GITEA_ORG}/${GITEA_REPO} (local Gitea revision before: ${_cat_before:-unknown})"
+                echo "[daytwo] catalog leg: requestId '${_cat_id}' names CATALOG — ONE-SHOT sync ${UPSTREAM_REPO_URL} -> ${GITEA_ORG}/${GITEA_REPO} (local Gitea revision before: ${_cat_before:-unknown})"
                 if ! git clone --bare --quiet "${UPSTREAM_REPO_URL}" "${_cat_work}/upstream.git" >/dev/null 2>&1; then
                   echo "[daytwo] catalog leg: FAILED to clone ${UPSTREAM_REPO_URL} (no upstream reachability, or no credential for a private catalog) — the mirror is UNCHANGED and the Sovereign keeps running on its current pins"
-                  daytwo_audit "CATALOG\tfailed\t${REQ_ID}\t${REQ_BY}\t${UPSTREAM_REPO_URL}\tclone-failed"
+                  daytwo_audit "CATALOG\tfailed\t${_cat_id}\t${_cat_by}\t${UPSTREAM_REPO_URL}\tclone-failed"
                   REQ_FAILED=$((REQ_FAILED+1))
                   CATALOG_STATUS="clone-failed"
                   return 1
@@ -1015,7 +1021,7 @@ spec:
                   'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*' 2>&1) || {
                   printf '%s\n' "${_cat_err}" | sed -E "s,${_cat_pat}+,REDACTED,g" >&2
                   echo "[daytwo] catalog leg: FAILED to push into the local Gitea mirror — the mirror is UNCHANGED"
-                  daytwo_audit "CATALOG\tfailed\t${REQ_ID}\t${REQ_BY}\t${UPSTREAM_REPO_URL}\tpush-failed"
+                  daytwo_audit "CATALOG\tfailed\t${_cat_id}\t${_cat_by}\t${UPSTREAM_REPO_URL}\tpush-failed"
                   REQ_FAILED=$((REQ_FAILED+1))
                   CATALOG_STATUS="push-failed"
                   return 1
@@ -1027,7 +1033,7 @@ spec:
                   | jq -r '.commit.id // ""' 2>/dev/null || true)
                 CATALOG_SYNCED=1
                 REQ_DELIVERED=$((REQ_DELIVERED+1))
-                daytwo_audit "CATALOG\tdelivered\t${REQ_ID}\t${REQ_BY}\t${UPSTREAM_REPO_URL}\t${GITEA_ORG}/${GITEA_REPO}@${UPSTREAM_BRANCH}\t${_cat_before:-unknown}->${_cat_after:-unknown}"
+                daytwo_audit "CATALOG\tdelivered\t${_cat_id}\t${_cat_by}\t${UPSTREAM_REPO_URL}\t${GITEA_ORG}/${GITEA_REPO}@${UPSTREAM_BRANCH}\t${_cat_before:-unknown}->${_cat_after:-unknown}"
                 if [ -n "${_cat_before}" ] && [ "${_cat_before}" = "${_cat_after}" ]; then
                   echo "[daytwo] catalog leg: sync OK, revision UNCHANGED (${_cat_after}) — the mirror was already current; the chart leg below will find the same pin set"
                 else
