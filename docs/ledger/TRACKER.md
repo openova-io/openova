@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-05T20:15:02Z` |
+| Last refreshed | `2026-08-05T20:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-05T20:21 | [#5705](https://github.com/openova-io/openova/pull/5705) | #5389 | fix(endpoints): guard every hostnameTemplate against unimple |
+| 2026-08-05T20:22 | [#5704](https://github.com/openova-io/openova/pull/5704) | #5602 | fix(#5602): hubble UI 400 — ONE Hubble UI per Sovereign over |
+| 2026-08-05T20:17 | [#5702](https://github.com/openova-io/openova/pull/5702) | #5389 | fix(lockstep): compare endpoints[].hostnameTemplate seed-vs- |
+| 2026-08-05T20:29 | [#5701](https://github.com/openova-io/openova/pull/5701) | #5600 | fix(catalyst-api): re-derive the per-region HelmRelease cens |
 | 2026-08-05T19:12 | [#5700](https://github.com/openova-io/openova/pull/5700) | #5389 | docs(mandate): a denied tool call is ONE COMMAND, never a bl |
 | 2026-08-05T19:32 | [#5699](https://github.com/openova-io/openova/pull/5699) | #4 | fix(endpoints): add {OrgDomain} token so per-Org Open resolv |
 | 2026-08-05T19:09 | [#5698](https://github.com/openova-io/openova/pull/5698) | #4325 | docs(uat): live-anchor the 11 superseded placement rows; rec |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-08-04T22:16 | [#5674](https://github.com/openova-io/openova/pull/5674) | #5650 | fix(cutover): pivot the vcluster-system/loft chart source of |
 | 2026-08-04T19:39 | [#5673](https://github.com/openova-io/openova/pull/5673) | #5646 | fix(funnel): honest provisioning timeline — progress never 1 |
 | 2026-08-04T23:28 | [#5672](https://github.com/openova-io/openova/pull/5672) | #5364 | fix(catalyst-api): reap the deleted-Org console surface + na |
-| 2026-08-04T20:55 | [#5671](https://github.com/openova-io/openova/pull/5671) | #5391 | feat(cutover): named, validated, audited sovereign-admin ove |
-| 2026-08-04T17:24 | [#5670](https://github.com/openova-io/openova/pull/5670) | #5509 | docs(guacamole): multi-region session forensics — #5509 is t |
-| 2026-08-04T17:15 | [#5669](https://github.com/openova-io/openova/pull/5669) | #5508 | fix(ui): TopologyTab consumes healthGates — unverified lag r |
-| 2026-08-04T17:44 | [#5668](https://github.com/openova-io/openova/pull/5668) | #5666 | fix(cutover): secondary-region pivot target defaults to the  |
 
 ---
 
