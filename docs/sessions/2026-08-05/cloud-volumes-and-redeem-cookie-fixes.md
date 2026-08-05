@@ -76,3 +76,56 @@ Genuinely open but **not the clean single-file loop** (deliberately not rushed):
   decision.
 - **#5613 / #5600** — treemap Org-attribution fan-out / post-handover census
   lifecycle — dedicated-session builds.
+
+## Session extension — parallel-batch dispatch cleared the rest
+
+The three "dedicated-session builds" above were then dispatched as isolated
+worktree agents (fix-or-report guard) and **two shipped**, one reported-back —
+plus a follow-up newapi batch. Final corpus, all MERGED to `main`:
+
+| # | fix | commit | lockstep |
+|---|---|---|---|
+| #5611 | cloud Volumes page reads live PVs | `8f66d461f` (#5685) | pure-Go |
+| #5421 | redeem consults cookie session not per-origin token | `4bdcf38ca` (#5686) | marketplace TS/astro |
+| #5571 | chroot secondary regions no longer drop from /k8s/stream fan-out | `f1e027b62` (#5687) | pure-Go |
+| #5613 | treemap Organization layer from live pod attribution (reuse `orgForRow`) | `5bd707840` (#5688) | pure-Go |
+| #5612 | inert newapi SSO recovery button → zero-click bridge at /login | `1196146625` (#5689) | **chart 1.4.148→1.4.149, full 5-lockstep** |
+
+Every agent output was orchestrator-verified before merge (re-ran the falsifiable
+tests, checked assertions for vacuity, confirmed correct-source reuse, ran chart
+render + go guards). The #5612 chart bump's 5-lockstep (catalog-seed spec+source,
+regenerated blueprints.json + catalog.generated.ts, bootstrap-kit slot-80 pin)
+was completed by the orchestrator per the no-umbrella-bump guard.
+
+### Backlog fully dispositioned (area/catalyst clean-fix bucket exhausted)
+
+Beyond the fixes, every remaining open area/catalyst item was accounted for with
+source-verified evidence — no hand-waving:
+
+- **#5609** active-passive selectability — **REFUTED at source** (verified):
+  selectability gates on the blueprint's own `topology.supported`
+  (`InstancesSection.tsx:586,794`), and `producesInstances` has **zero** consumers
+  in the handler package (only defined in `catalog.go`). The issue's causal claim
+  is false; a "fix" would be theater for a non-bug. Needs a live re-walk only.
+- **#5465** catalyst-api OOM at 4Gi mid-cutover — **fixed by #5645** (verified same
+  root cause: `Factory.AddCluster` rebuilding all 42 informers on an unchanged
+  kubeconfig, fired forever by level-triggered call sites; #5645 = one early
+  return). Pending live re-confirm.
+- **#5600** post-cutover false-Degraded — frozen-Phase-1-census architecture item
+  (spot-verified: `regionHealthForStateLocked` returns the persisted snapshot once
+  watchers are torn down; a `region_health` exclusion is inert because suspended
+  HRs already coerce to `StateInstalled` on live observation). Needs a Sovereign-
+  side post-cutover recompute (design call, respects ADR-0002).
+- **#5435** banned-term in showback — decision-gated; de-risked finding: a
+  display-map scoped to the Platform-overhead bucket is collision-safe (that bucket
+  never holds customer apps), but the honest fix is the Deployment rename.
+- **#5602** hubble-UI flow-stream 400 — genuine oauth2-proxy/HTTPRoute config bug
+  but **tertiary** (observability, not pillar) in the **foundational cilium chart**
+  (whole-Sovereign blast radius) — deprioritized, not dispatched blind.
+- **already-fixed-in-code, pending walk:** #5661, #5559, #5601, #5596, #5642,
+  #5444, #5460.
+
+Conclusion: the area/catalyst clean-fix backlog is exhausted — every open item is
+merged-this-turn, fixed-in-code-by-sibling, decision-gated, or refuted. All five
+merged fixes are **deploy-gated** (PR-merge ≠ pillar-shipped) and ride the next
+fresh prov for their live proofs.
