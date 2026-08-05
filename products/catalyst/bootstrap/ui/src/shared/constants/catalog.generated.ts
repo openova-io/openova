@@ -3851,7 +3851,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
         }
       }
     },
-    "hasUserUIEndpoint": false
+    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-openmeter",

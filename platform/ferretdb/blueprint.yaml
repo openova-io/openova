@@ -55,7 +55,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: wire
-    hostnameTemplate: db.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: db.{{.OrgDomain}}
     port: 27017
     protocol: tcp
     tls: false

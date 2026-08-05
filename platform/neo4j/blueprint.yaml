@@ -52,7 +52,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: bolt
-    hostnameTemplate: neo4j.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: neo4j.{{.OrgDomain}}
     port: 7687
     protocol: tcp
     tls: true
@@ -60,7 +60,7 @@ spec:
     launchDefault: false
     ssoEnabled: false
   - name: browser
-    hostnameTemplate: neo4j.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: neo4j.{{.OrgDomain}}
     port: 443
     protocol: https
     tls: true

@@ -52,7 +52,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: http
-    hostnameTemplate: clickhouse.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: clickhouse.{{.OrgDomain}}
     port: 8443
     protocol: https
     tls: true

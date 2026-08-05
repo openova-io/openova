@@ -107,7 +107,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: vllm.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: vllm.{{.OrgDomain}}
     port: 443
     protocol: https
     tls: true

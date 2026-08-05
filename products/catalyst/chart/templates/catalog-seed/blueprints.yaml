@@ -126,7 +126,7 @@ spec:
             rtz-A: singleton
   endpoints:
     - name: ui
-      hostnameTemplate: "{{ "{{" }}.AppName{{ "}}" }}.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      hostnameTemplate: "{{ "{{" }}.AppName{{ "}}" }}.{{ "{{" }}.OrgDomain{{ "}}" }}"
       port: 443
       protocol: https
       tls: true
@@ -260,7 +260,7 @@ spec:
             rtz-A: singleton
   endpoints:
     - name: ui
-      hostnameTemplate: "{{ "{{" }}.AppName{{ "}}" }}.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      hostnameTemplate: "{{ "{{" }}.AppName{{ "}}" }}.{{ "{{" }}.OrgDomain{{ "}}" }}"
       port: 443
       protocol: https
       tls: true
@@ -1070,7 +1070,7 @@ spec:
             rtz-A: singleton
   endpoints:
     - name: http
-      hostnameTemplate: "clickhouse.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      hostnameTemplate: "clickhouse.{{ "{{" }}.OrgDomain{{ "}}" }}"
       port: 8443
       protocol: https
       tls: true
@@ -1175,7 +1175,7 @@ spec:
             rtz-A: singleton
   endpoints:
     - name: api
-      hostnameTemplate: "opensearch.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      hostnameTemplate: "opensearch.{{ "{{" }}.OrgDomain{{ "}}" }}"
       port: 443
       protocol: https
       tls: true
@@ -1183,7 +1183,7 @@ spec:
       launchDefault: false
       ssoEnabled: true
     - name: dashboards
-      hostnameTemplate: "dashboards.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      hostnameTemplate: "dashboards.{{ "{{" }}.OrgDomain{{ "}}" }}"
       port: 443
       protocol: https
       tls: true
@@ -1273,7 +1273,7 @@ spec:
             rtz-A: singleton
   endpoints:
     - name: ui
-      hostnameTemplate: "temporal.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      hostnameTemplate: "temporal.{{ "{{" }}.OrgDomain{{ "}}" }}"
       port: 443
       protocol: https
       tls: true
@@ -1363,7 +1363,7 @@ spec:
     - name: editor
       protocol: https
       port: 443
-      hostnameTemplate: "n8n.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      hostnameTemplate: "n8n.{{ "{{" }}.OrgDomain{{ "}}" }}"
       ssoEnabled: true
       launchDefault: true
   sso:
@@ -1450,7 +1450,7 @@ spec:
             rtz-A: singleton
   endpoints:
     - name: ui
-      hostnameTemplate: "langfuse.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      hostnameTemplate: "langfuse.{{ "{{" }}.OrgDomain{{ "}}" }}"
       port: 443
       protocol: https
       tls: true
@@ -1533,7 +1533,7 @@ spec:
             rtz-A: singleton
   endpoints:
     - name: ui
-      hostnameTemplate: "llm.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      hostnameTemplate: "llm.{{ "{{" }}.OrgDomain{{ "}}" }}"
       port: 443
       protocol: https
       tls: true
@@ -1706,7 +1706,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: bge.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}
+    hostnameTemplate: bge.{{ "{{" }}.OrgDomain{{ "}}" }}
     port: 443
     protocol: https
     tls: true
@@ -1894,7 +1894,7 @@ Blueprint).
             rtz-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: kserve.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}
+    hostnameTemplate: kserve.{{ "{{" }}.OrgDomain{{ "}}" }}
     port: 443
     protocol: https
     tls: true
@@ -1960,7 +1960,7 @@ spec:
             rtz-B: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: litmus.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}
+    hostnameTemplate: litmus.{{ "{{" }}.OrgDomain{{ "}}" }}
     port: 443
     protocol: https
     tls: true
@@ -2055,7 +2055,7 @@ port range) per the operator's per-Sovereign overlay.
             rtz-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: livekit.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}
+    hostnameTemplate: livekit.{{ "{{" }}.OrgDomain{{ "}}" }}
     port: 443
     protocol: https
     tls: true
@@ -2157,7 +2157,7 @@ retired OpenOva product noun.)
             rtz-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: matrix.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}
+    hostnameTemplate: matrix.{{ "{{" }}.OrgDomain{{ "}}" }}
     port: 443
     protocol: https
     tls: true
@@ -2491,7 +2491,23 @@ hook (ADR-0003). Identity-blind by construction.
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
-  endpoints: []
+  # #5389 — lockstep with platform/openclaw/blueprint.yaml. The seed is the
+  # in-cluster fallback the bp-catalog-client uses when the gitea
+  # catalog-sovereign repo 404s; leaving `endpoints: []` here would keep the
+  # Open button dark on exactly that path.
+  endpoints:
+    - name: console
+      hostnameTemplate: "openclaw.{{ "{{" }}.OrgDomain{{ "}}" }}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+  sso:
+    realm: "{{ "{{" }}.OrgSlug{{ "}}" }}"
+    protocolMapper: oidc
+    groupsClaim: groups
 ---
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
@@ -2580,7 +2596,7 @@ adds bp-clickhouse.
             rtz-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: openmeter.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}
+    hostnameTemplate: openmeter.{{ "{{" }}.OrgDomain{{ "}}" }}
     port: 443
     protocol: https
     tls: true
@@ -2810,7 +2826,7 @@ is event-driven (ADR-0003 §3).
             rtz-A: singleton
   endpoints:
   - name: webmail
-    hostnameTemplate: mail.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}
+    hostnameTemplate: mail.{{ "{{" }}.OrgDomain{{ "}}" }}
     port: 443
     protocol: https
     tls: true
@@ -2818,7 +2834,7 @@ is event-driven (ADR-0003 §3).
     launchDefault: true
     ssoEnabled: true
   - name: smtp
-    hostnameTemplate: mail.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}
+    hostnameTemplate: mail.{{ "{{" }}.OrgDomain{{ "}}" }}
     port: 587
     protocol: tcp
     tls: true
@@ -2826,7 +2842,7 @@ is event-driven (ADR-0003 §3).
     launchDefault: false
     ssoEnabled: false
   - name: imap
-    hostnameTemplate: mail.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}
+    hostnameTemplate: mail.{{ "{{" }}.OrgDomain{{ "}}" }}
     port: 993
     protocol: tcp
     tls: true
@@ -2922,7 +2938,7 @@ at the Hetzner firewall by the Sovereign's bp-firewall composition).
             rtz-A: singleton
   endpoints:
   - name: turn
-    hostnameTemplate: turn.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}
+    hostnameTemplate: turn.{{ "{{" }}.OrgDomain{{ "}}" }}
     port: 3478
     protocol: udp
     tls: false
@@ -3091,7 +3107,7 @@ docs/SRE.md §2.5).
             rtz-A: singleton
   endpoints:
   - name: wire
-    hostnameTemplate: valkey.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}
+    hostnameTemplate: valkey.{{ "{{" }}.OrgDomain{{ "}}" }}
     port: 6379
     protocol: tcp
     tls: false
@@ -3297,7 +3313,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: vllm.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}
+    hostnameTemplate: vllm.{{ "{{" }}.OrgDomain{{ "}}" }}
     port: 443
     protocol: https
     tls: true
@@ -6032,7 +6048,7 @@ spec:
             rtz-A: singleton
   endpoints:
     - name: console
-      hostnameTemplate: "agenity.{{ "{{" }}.OrgSlug{{ "}}" }}.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      hostnameTemplate: "agenity.{{ "{{" }}.OrgDomain{{ "}}" }}"
       port: 443
       protocol: https
       tls: true

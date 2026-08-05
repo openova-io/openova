@@ -203,8 +203,27 @@ type EndpointSpec struct {
 
 	// HostnameTemplate is a Go-text/template fragment evaluated by
 	// catalyst-api against the per-Instance / per-Org / per-Sovereign
-	// context. Example: `{{.AppName}}.{{.OrgSlug}}.{{.SovereignFQDN}}`.
-	// Tokens MUST resolve to hostnames matching RFC-1123.
+	// context. Tokens MUST resolve to hostnames matching RFC-1123.
+	//
+	// Supported tokens (catalyst-api resolveHostnameTemplate):
+	// `{{.SovereignFQDN}}` `{{.OrgSlug}}` `{{.AppName}}` `{{.OrgDomain}}`.
+	//
+	// A PER-ORG app MUST name its host with `{{.OrgDomain}}` — e.g.
+	// `agenity.{{.OrgDomain}}`. Composing `{{.OrgSlug}}` with
+	// `{{.SovereignFQDN}}` was the #5389 defect: per-Org apps are served on
+	// the Organization's pool domain (agenity.uatco.omani.homes), and
+	// `<app>.<org>.<SovereignFQDN>` has no HTTPRoute, no DNS and no
+	// certificate — a well-formed, dead Open button. `{{.OrgDomain}}` falls
+	// back to `<slug>.<SovereignFQDN>` for a single-domain Org, so it is a
+	// strict replacement.
+	//
+	// A SOVEREIGN-SINGLETON app names only `{{.SovereignFQDN}}` — e.g.
+	// `grafana.{{.SovereignFQDN}}`.
+	//
+	// Since #5389 an unsupported token, or a token that substitutes to the
+	// empty string, is a hard resolution FAILURE: the endpoint is reported
+	// with no hostname and no launchURL rather than emitting a URL with the
+	// literal braces still in it.
 	HostnameTemplate string `json:"hostnameTemplate"`
 
 	// Port — service port exposed by the Blueprint's Service. Default

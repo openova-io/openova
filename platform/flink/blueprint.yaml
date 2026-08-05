@@ -52,7 +52,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: flink.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: flink.{{.OrgDomain}}
     port: 443
     protocol: https
     tls: true

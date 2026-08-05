@@ -30,7 +30,7 @@ spec:
             rtz-B: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: litmus.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: litmus.{{.OrgDomain}}
     port: 443
     protocol: https
     tls: true

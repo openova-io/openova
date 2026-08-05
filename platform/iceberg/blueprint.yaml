@@ -52,7 +52,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: catalog
-    hostnameTemplate: iceberg.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: iceberg.{{.OrgDomain}}
     port: 443
     protocol: https
     tls: true

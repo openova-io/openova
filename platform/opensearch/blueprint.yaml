@@ -67,7 +67,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: api
-    hostnameTemplate: opensearch.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: opensearch.{{.OrgDomain}}
     port: 443
     protocol: https
     tls: true
@@ -75,7 +75,7 @@ spec:
     launchDefault: false
     ssoEnabled: true
   - name: dashboards
-    hostnameTemplate: dashboards.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: dashboards.{{.OrgDomain}}
     port: 443
     protocol: https
     tls: true

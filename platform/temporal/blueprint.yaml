@@ -87,7 +87,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: temporal.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: temporal.{{.OrgDomain}}
     port: 443
     protocol: https
     tls: true

@@ -279,7 +279,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: webmail
-    hostnameTemplate: mail.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: mail.{{.OrgDomain}}
     port: 443
     protocol: https
     tls: true
@@ -287,7 +287,7 @@ spec:
     launchDefault: true
     ssoEnabled: true
   - name: smtp
-    hostnameTemplate: mail.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: mail.{{.OrgDomain}}
     port: 587
     protocol: tcp
     tls: true
@@ -295,7 +295,7 @@ spec:
     launchDefault: false
     ssoEnabled: false
   - name: imap
-    hostnameTemplate: mail.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: mail.{{.OrgDomain}}
     port: 993
     protocol: tcp
     tls: true

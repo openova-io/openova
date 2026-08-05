@@ -130,7 +130,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: openmeter.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: openmeter.{{.OrgDomain}}
     port: 443
     protocol: https
     tls: true

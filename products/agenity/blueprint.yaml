@@ -172,7 +172,7 @@ spec:
             rtz-A: singleton
   endpoints:
     - name: console
-      hostnameTemplate: agenity.{{.OrgSlug}}.{{.SovereignFQDN}}
+      hostnameTemplate: agenity.{{.OrgDomain}}
       port: 443
       protocol: https
       tls: true

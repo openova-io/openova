@@ -107,7 +107,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: kserve.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: kserve.{{.OrgDomain}}
     port: 443
     protocol: https
     tls: true

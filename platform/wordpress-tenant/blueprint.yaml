@@ -275,7 +275,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: '{{.AppName}}.{{.OrgSlug}}.{{.SovereignFQDN}}'
+    hostnameTemplate: '{{.AppName}}.{{.OrgDomain}}'
     port: 443
     protocol: https
     tls: true
