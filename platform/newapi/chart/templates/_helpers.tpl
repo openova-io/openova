@@ -235,9 +235,13 @@ when there are none — so the primary never bounces a request to the secondary,
 and the secondary (zero local backends by design) always reaches the primary.
 Nothing renders when crossRegion.enabled=false.
 */}}
+The `-}}` on the `if` is load-bearing: without it the block opens with an empty
+line, and `nindent` turns that into a whitespace-only line under
+`annotations:`.
+*/}}
 {{- define "bp-newapi.crossRegionServiceAnnotations" -}}
 {{- $cr := .Values.crossRegion | default dict -}}
-{{- if $cr.enabled }}
+{{- if $cr.enabled -}}
 service.cilium.io/global: "true"
 service.cilium.io/shared: {{ eq (include "bp-newapi.crossRegionRole" .) "primary" | quote }}
 service.cilium.io/affinity: {{ $cr.affinity | default "local" | quote }}
