@@ -769,3 +769,43 @@ rules:
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["delete"]
+
+  # ───────────────────────────────────────────────────────────────
+  # Issue #5635 (APP half) — PER-ORG APP SURFACE CROSS-REGION PROJECTION.
+  # reconcileOrgAppSurfaceAcrossRegions (org_app_surface_mesh.go), run inside
+  # the same reconcileOrgConsoleTLSOnce ticker pass as the console half,
+  # makes a secondary region able to SERVE the Org's purchased-app hosts
+  # instead of resetting/404-ing roughly half of all fresh connections
+  # (measured on hw292: wordpress.uatco.omani.homes 9/20 reachable, the
+  # failures TLS handshake resets; every *.<sovereignFQDN> host on the SAME
+  # shared EIP 4/4). It is the runtime equivalent of what
+  # bp-catalyst-edge-routes renders statically at bootstrap-kit slot 13b for
+  # the platform hosts — per-Org hosts cannot be enumerated at chart-render
+  # time because Orgs and their apps are created at runtime.
+  #
+  # The two verbs added here are the ones that pass could not already do:
+  #   1. NAMESPACES CREATE — the Org boundary namespace `<slug>` exists only
+  #      in the host region (the org-controller's per-Org Flux loop writes
+  #      through its own single-cluster client), so on a secondary the whole
+  #      namespace is absent and every per-Org object inside it is
+  #      necessarily missing. get/list/watch and delete are already granted
+  #      above; only create was missing.
+  #   2. SERVICES CREATE — the zero-backend Cilium ClusterMesh Service stub
+  #      (same name + namespace + ports + selector as the host region's, so
+  #      the mesh merges the pair and the secondary's dial falls through to
+  #      the host region's singleton pod). update/patch/delete on services
+  #      are already granted above — the host-side export annotation
+  #      (service.cilium.io/global + /shared) rides that existing update; only
+  #      create was missing.
+  # httproutes create (the route mirror) is already granted by the #5511
+  # block above. In-code scope guard: the emitter only touches an HTTPRoute
+  # that lives in the Org's OWN namespace `<slug>` AND whose every hostname
+  # is inside that Org's OWN zone `<slug>.<parent>`; it creates nothing when
+  # no secondary region is registered, and it deletes nothing ever.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["create"]
