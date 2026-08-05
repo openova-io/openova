@@ -47,6 +47,59 @@ imagePullSecrets:
 #                sync.fromHost.secrets `newapi/*` mirror + replicateServices.
 placement:
   role: all
+# ─── Cross-region singleton (#5599) ───────────────────────────────────────
+# Bootstrap-kit slot 80 installs this chart on EVERY region's control plane, so
+# a 2-region Sovereign ran TWO complete newapi stacks — two Deployments AND two
+# INDEPENDENT CNPG `Cluster` objects (not a replicated pair) — behind ONE
+# `newapi.<fqdn>` hostname whose shared VIP fans a browser's parallel
+# connections across both gateways (#5459).
+#
+# Measured live on hw292 (dep 1c56518035a83e03), BOTH regions sampled:
+#   region-a  deployment.apps/newapi-bp-newapi                 1/1
+#             cluster.postgresql.cnpg.io/newapi-bp-newapi-newapi-pg  2 ready
+#             httproute newapi-bp-newapi-public -> ["newapi.hw292.omani.works"]
+#   region-b  deployment.apps/newapi-bp-newapi                 1/1
+#             cluster.postgresql.cnpg.io/newapi-bp-newapi-newapi-pg  2 ready
+#             httproute newapi-bp-newapi-public -> ["newapi.hw292.omani.works"]
+#
+# An OAuth authorization code is single-use and stored SERVER-SIDE, so the leg
+# that mints the exchange state writes it into region-A's Postgres while the
+# `/api/oauth/sovereign` callback lands on region-B, whose database has never
+# seen that code — a VALID Keycloak code answered 403 (x3 = the client retrying
+# and losing the coin flip again) and newapi rendered signed-out.
+#
+# #5414 fixed the SESSION_SECRET/CRYPTO_SECRET split at the SECRET seam; the
+# DATASTORE split underneath was never addressed. Same idiom as bp-guacamole
+# 0.2.36 (#5358) and bp-cilium 1.4.19 (#5602), both landed 2026-08-06.
+crossRegion:
+  # Render the ClusterMesh global-Service annotations + the cross-region
+  # CiliumNetworkPolicy, and honour `role`. Default OFF — a single-region
+  # Sovereign renders byte-identically to 1.4.150.
+  enabled: false
+  # This region's role in the pair: primary | secondary. Slot 80 stamps it from
+  # the per-region ${SOVEREIGN_REGION_ROLE} cloud-init substitute — the SAME
+  # var bp-guacamole (52) and bp-cilium (01) consume.
+  #   primary   — the Deployment + the CNPG store + the seed Jobs render here,
+  #               and both Services export their backends to the peer.
+  #   secondary — NO Deployment, NO CNPG Cluster, NO DSN-sync/seed Jobs. The
+  #               Services still render (Cilium merges global Services by
+  #               name+namespace, the HTTPRoute backendRef must resolve, and
+  #               this region's envoy still answers for `newapi.<fqdn>`) but
+  #               match zero local Pods, so `affinity: local` falls through the
+  #               mesh to the primary's singleton.
+  # Any other value FAILS the render — a typo must never silently degrade back
+  # to a second full stack, which is the exact split being removed.
+  role: primary
+  # Peer ClusterMesh cluster name(s) — the SAME source var bp-guacamole (52),
+  # bp-harbor (19), bp-postgres (16a/16c/16d) and bp-cnpg-pair (16b) consume,
+  # ${SOVEREIGN_PEER_CLUSTERMESH_NAMES}. EMPTY (single-region) → NO
+  # CiliumNetworkPolicy is rendered. On hw292 these are `hw292-mesh` (region-a,
+  # cluster-id 219) and `hw292-me-east-b` (region-b, cluster-id 220).
+  peerClusters: []
+  # Cilium global-service backend preference. `local` prefers backends in this
+  # cluster and falls through to the peer only when there are none. Same value
+  # bp-guacamole's guacamole-server and bp-openbao's openbao-active-mesh use.
+  affinity: local
 # ─── Global registry rewrite (matches catalyst / continuum chart pattern) ──
 # When set, the openova-io images (newapi-mirror, newapi-sandbox-bridge,
 # services-metering-sidecar) route through this registry instead of ghcr.io.

@@ -1,5 +1,51 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.151 (#5599, 2026-08-06): a VALID Keycloak authorization code answered
+# 403 x3 on `/api/oauth/sovereign`, and the app rendered signed-out.
+#
+# ROOT CAUSE — not a token/nonce defect and not cutover-specific. An OAuth
+# authorization code is SINGLE-USE and stored SERVER-SIDE. Bootstrap-kit slot
+# 80 installs this chart on EVERY region's control plane, so a 2-region
+# Sovereign ran TWO complete newapi stacks — two Deployments AND two
+# INDEPENDENT CNPG `Cluster` objects, not a replicated pair — behind ONE
+# `newapi.<fqdn>` hostname whose shared VIP fans a browser's parallel
+# connections across both gateways (#5459). The leg that initiated the
+# exchange wrote its state into region-A's Postgres, the callback landed on
+# region-B, whose database had never seen that code, and region-B correctly
+# rejected it. The `x3` is the client retrying and losing the coin flip again.
+#
+# Measured live on hw292 (dep 1c56518035a83e03), BOTH regions sampled:
+# region-a and region-b each carried `deployment.apps/newapi-bp-newapi` 1/1,
+# `cluster.postgresql.cnpg.io/newapi-bp-newapi-newapi-pg` with 2 ready
+# instances, and `httproute newapi-bp-newapi-public` for the SAME hostname.
+#
+# #5414 already fixed newapi's SESSION_SECRET/CRYPTO_SECRET split at the
+# SECRET seam ("~60% bounce to /login?expired=true"). The DATASTORE split
+# underneath it was never addressed, so the component still could not hold a
+# server-side OAuth exchange across regions.
+#
+# FIX (the bp-guacamole 0.2.36 / #5358 and bp-cilium 1.4.19 / #5602 idiom):
+# a new `crossRegion` seam anchors the Sovereign's ONE newapi in the PRIMARY
+# region and reaches it from the secondary over ClusterMesh.
+#   role=primary   — Deployment + CNPG Cluster + DSN-sync/seed hooks render
+#     here, and BOTH Services (the main one and the `-bridge` one the
+#     HTTPRoute's Exact `/` + `/login` rules target) export their backends as
+#     global ClusterMesh services.
+#   role=secondary — NO Deployment, NO CNPG Cluster, NO hook Jobs. The
+#     Services and the HTTPRoute still render (Cilium merges global Services
+#     by name+namespace, and this region's envoy still has to answer for
+#     `newapi.<fqdn>` because the shared VIP fans TCP across both gateways)
+#     but match ZERO local Pods, so `service.cilium.io/affinity: local` falls
+#     through the mesh to the primary's singleton.
+#   crossRegion.enabled=false (DEFAULT, and every single-region Sovereign) —
+#     render is byte-identical to 1.4.150, proven by a full `helm template`
+#     diff. Guarded by tests/crossregion-render.sh, whose Case 3 FAILS against
+#     the 1.4.150 chart and whose Case 1 passes on both.
+# Also adds templates/crossregion-netpol.yaml: the `newapi` namespace is
+# default-deny and `policy-default-local-cluster: "true"` on hw292, so the
+# peer region's hostNetwork cilium-envoy hop (`remote-node`) and its
+# catalyst-system callers (peer-cluster pod endpoints) need an identity-based
+# CNP on the primary side — a k8s NetworkPolicy can never express either.
 # 1.4.149 (#5612, 2026-08-05): the inert "Continue with OpenOva SSO" RECOVERY
 # button. newapi's own session TTL is under an hour; when it lapses mid-visit
 # the embedded SPA client-routes to `/login?expired=true` and offers a
@@ -1030,7 +1076,7 @@ name: bp-newapi
 #   0.2.27. Render seam guarded by tests/5466-credentials-region-
 #   consistency-render.sh (fails on the pre-#5466 shape, plus a fallback
 #   vacuity control).
-version: 1.4.150
+version: 1.4.151
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

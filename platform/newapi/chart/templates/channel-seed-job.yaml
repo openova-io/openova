@@ -79,7 +79,13 @@ Issue #915, 2026-05-05.
 {{- $vllmReady := and $vllm.enabled (ne (default "" $vllm.endpoint) "") -}}
 {{- $hasDefaults := or $qpReady $vllmReady -}}
 {{- $masterKeySecret := .Values.auth.adminUI.masterKeySecret | default "" -}}
-{{- if and (eq (include "bp-newapi.renderApp" .) "true") $cs.enabled $hasDefaults $masterKeySecret -}}
+{{- /* #5599 cross-region singleton: this post-install/post-upgrade hook writes
+   channel rows through the running app into the app's OWN Postgres.
+   `bp-newapi.renderWorkloads` = `renderApp AND NOT crossRegion-secondary`, so a
+   secondary region — which by design runs neither — no longer renders a hook
+   that would fail the release. The Sovereign's ONE channel set is seeded once,
+   into the ONE surviving datastore. crossRegion.enabled=false → unchanged. */ -}}
+{{- if and (eq (include "bp-newapi.renderWorkloads" .) "true") $cs.enabled $hasDefaults $masterKeySecret -}}
 {{- $jobName := include "bp-newapi.channelSeedJobName" . -}}
 ---
 {{- /*

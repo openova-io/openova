@@ -62,8 +62,22 @@ the configmap mirrors this gate.
 {{- /* #3831: the app Deployment renders ONLY under placement.role all|vcluster-app
    (the seams + CNPG render host-side under host-seams). In vcluster-app the slot
    suppresses cnpg.enabled and wires database.existingSecret to the mirrored DSN
-   Secret, so $effDbSecret still resolves non-empty above. */ -}}
-{{- $deployReady := and (eq (include "bp-newapi.renderApp" .) "true") .Values.newapi.enabled $effDbSecret $effCredsSecret -}}
+   Secret, so $effDbSecret still resolves non-empty above.
+
+   #5599 COMPOSES with — never replaces — that gate and the DSN/credentials
+   precedence chain resolved above. `bp-newapi.renderWorkloads` is
+   `renderApp AND NOT crossRegion-secondary`, so:
+     - crossRegion.enabled=false (default)      → identical to pre-1.4.151.
+     - crossRegion secondary                    → NO Deployment, so the
+       Services rendered by service.yaml have ZERO local backends and
+       `service.cilium.io/affinity: local` falls through the ClusterMesh to the
+       primary's singleton. That is the whole fix: an OAuth authorization code
+       is single-use and stored server-side, so two Deployments over two
+       independent Postgres clusters behind one VIP answered a VALID Keycloak
+       code with 403 (#5599, measured live on hw292 in BOTH regions).
+     - the $effDbSecret / $effCredsSecret / $kcConfigured conditions below are
+       UNCHANGED and still decide the primary's render exactly as before. */ -}}
+{{- $deployReady := and (eq (include "bp-newapi.renderWorkloads" .) "true") .Values.newapi.enabled $effDbSecret $effCredsSecret -}}
 {{- if and $kcMode (not $kcConfigured) -}}
 {{- $deployReady = false -}}
 {{- end -}}

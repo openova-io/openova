@@ -7,7 +7,7 @@ metadata:
     catalyst.openova.io/section: pts-4-6-llm-serving
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.4.150 # lockstep with chart/Chart.yaml (#5612: Exact /login recovery-path match on the sandbox-bridge — fixes the inert "Continue with OpenOva SSO" button on /login?expired=true)
+  version: 1.4.151 # lockstep with chart/Chart.yaml (#5599: cross-region singleton — a secondary region renders no newapi Deployment and no CNPG Cluster, so one browser's single-use OAuth authorization code can no longer land on a database that never saw it)
   card:
     title: NewAPI
     summary: |

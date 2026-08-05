@@ -313,7 +313,14 @@ spec:
       #   ExternalSecret above resolves in region-B too (catalyst-api's #4477
       #   seed is primary-only; each region runs its own OpenBao). Pairs with
       #   bp-openbao 1.2.64 (external-secrets-push policy).
-      version: 1.4.150
+      # 1.4.151 — #5599 (UAT row 37): cross-region singleton. This slot installs
+      #   on EVERY region, so a 2-region Sovereign ran TWO newapi Deployments
+      #   over TWO INDEPENDENT CNPG Clusters behind ONE newapi.<fqdn>. An OAuth
+      #   authorization code is single-use and SERVER-SIDE, so the callback
+      #   landing on the other region met a database that had never seen the
+      #   code → a VALID Keycloak code answered 403 x3 and the app rendered
+      #   signed-out. See `crossRegion` in spec.values below.
+      version: 1.4.151
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
@@ -361,6 +368,37 @@ spec:
     # REQUIRED. Empty default = verbatim ghcr.io (byte-identical pre-cutover).
     global:
       imageRegistry: ''
+    # ── Cross-region singleton (#5599) ─────────────────────────────────
+    # This slot installs on EVERY region's control plane, so a 2-region
+    # Sovereign ran TWO complete newapi stacks — two Deployments AND two
+    # INDEPENDENT CNPG Cluster objects (not a replicated pair) — behind ONE
+    # `newapi.<fqdn>` whose shared VIP fans a browser's parallel connections
+    # across both gateways (#5459). An OAuth authorization code is single-use
+    # and stored SERVER-SIDE, so the leg that minted the exchange wrote into
+    # region-A's Postgres while `/api/oauth/sovereign` landed on region-B,
+    # whose database had never seen that code: a VALID Keycloak code answered
+    # 403 (x3 = the client retrying and losing the coin flip again) and newapi
+    # rendered signed-out. Measured live on hw292 (dep 1c56518035a83e03) in
+    # BOTH regions. #5414 fixed the SESSION_SECRET split at the secret seam;
+    # the datastore split underneath it was never addressed.
+    #
+    # Same seam bp-guacamole (52) and bp-cilium (01) use. `enabled` follows
+    # SOVEREIGN_ENABLE_CNPG_PAIR — a single-region prov leaves it false and the
+    # render is byte-identical to 1.4.150.
+    crossRegion:
+      enabled: ${SOVEREIGN_ENABLE_CNPG_PAIR:=false}
+      # Per-region cloud-init substitute (primary on region-A + on every
+      # single-region prov, secondary on region-B). `secondary` renders the
+      # ClusterMesh Service stubs ONLY — no Deployment, no CNPG Cluster, no
+      # DSN-sync/seed hook Jobs — so the stubs have zero local backends and
+      # every dial falls through the mesh to region-A's singleton. The
+      # HTTPRoute still renders there: the shared VIP fans TCP across BOTH
+      # regions' gateways, so region-B must keep answering for the hostname.
+      role: ${SOVEREIGN_REGION_ROLE:=primary}
+      # Peer ClusterMesh cluster name(s) — the SAME source var bp-guacamole
+      # (52), bp-harbor (19), bp-postgres (16a/16c/16d) and bp-cnpg-pair (16b)
+      # consume. EMPTY (single-region) → no CiliumNetworkPolicy is rendered.
+      peerClusters: ${SOVEREIGN_PEER_CLUSTERMESH_NAMES:=[]}
     database:
       # #4291 DE-VCLUSTER — newapi OWNS its CNPG natively in host ns `newapi`
       # (cnpg.enabled below), and the chart's own DSN-sync Job writes exactly

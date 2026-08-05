@@ -1,3 +1,15 @@
+{{- /*
+#5599 — this Service is deliberately still gated on plain `renderApp`, NOT on
+`renderWorkloads`: on a crossRegion SECONDARY it MUST render even though the
+Deployment does not. Cilium merges ClusterMesh global Services BY name +
+namespace, so the name has to exist in every participating cluster; the
+HTTPRoute's backendRef has to resolve; and this region's envoy still has to
+answer for `newapi.<fqdn>` because the shared VIP fans TCP across BOTH regions'
+gateways. With no local Pod the selector matches ZERO backends, so
+`service.cilium.io/affinity: local` falls through the mesh to the primary's
+singleton — which is exactly what stops one browser's OAuth code exchange from
+splitting across two independent Postgres clusters (the 403-on-a-valid-code).
+*/ -}}
 {{- if and (eq (include "bp-newapi.renderApp" .) "true") .Values.newapi.enabled }}
 apiVersion: v1
 kind: Service
@@ -5,6 +17,10 @@ metadata:
   name: {{ include "bp-newapi.fullname" . }}
   labels:
     {{- include "bp-newapi.labels" . | nindent 4 }}
+  {{- with (include "bp-newapi.crossRegionServiceAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   type: {{ .Values.service.type }}
   ports:
@@ -75,6 +91,18 @@ metadata:
   labels:
     {{- include "bp-newapi.labels" . | nindent 4 }}
     catalyst.openova.io/component: newapi-bridge
+  {{- /* #5599 — the bridge Service needs the SAME ClusterMesh treatment as the
+     main one. The HTTPRoute sends Exact `/` AND Exact `/login` here (the
+     zero-click landing page + the #5612 recovery path), and BOTH of those
+     initiate the OIDC round-trip whose authorization code the main Service's
+     backend must later be able to redeem. Annotating only the main Service
+     would leave the entry leg free to land in the secondary region while the
+     callback leg went to the primary — the same defect through a narrower
+     window. */}}
+  {{- with (include "bp-newapi.crossRegionServiceAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 spec:
   type: {{ .Values.service.type }}
   # Publish the bridge endpoint even while the Pod is NotReady (the `newapi`
