@@ -1,5 +1,29 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.1312 — #5635 (APP half): grant catalyst-api `namespaces: create` +
+#   `services: create` so reconcileOrgAppSurfaceAcrossRegions can make a
+#   SECONDARY region serve the per-Org purchased-app hosts instead of
+#   resetting ~half of all fresh connections. Measured on hw292 (2 regions,
+#   cutoverComplete=true) with 20 separate `curl --no-keepalive`
+#   invocations, because HTTP/2 connection pinning hides a round-robin:
+#     wordpress.uatco.omani.homes  ok=9  fail=11  (failures = curl 35, TLS
+#                                                  handshake reset, no HTTP
+#                                                  status)
+#     console.hw292.omani.works    ok=10 fail=0   (control, SAME shared EIP)
+#   The reset — not a 503 — places the failure at listener match, and
+#   region-b indeed carries no `*.uatco.omani.homes` listener and no `uatco`
+#   namespace at all. The console half (#5647) gives every region the
+#   wildcard listener pair, which turns the reset into a 404; this half adds
+#   the route mirror + zero-backend Cilium ClusterMesh Service stub that
+#   makes region-b PROXY to region-a's pod — the exact idiom
+#   bp-catalyst-edge-routes (slot 13b) uses for the platform hosts and
+#   bp-openbao / bp-cnpg-pair use for their cross-region delivery. A chart
+#   cannot enumerate per-Org hosts (Orgs and apps are runtime objects), so
+#   the emitter is in catalyst-api and only these two verbs are new; the
+#   host-side export annotation rides the existing services update grant and
+#   the route mirror rides the existing httproutes create grant. Single-region
+#   Sovereigns are a no-op — the emitter returns before any read when no
+#   secondary region is registered. Refs #5635.
 # 1.4.1190 — #5289 (2-region api./console./marketplace. steady-state 200↔404
 #   flap): the PRIMARY (region-a) half of the ClusterMesh global-Service
 #   proxy fix. When the new `multiRegion.enabled` value is true, the
@@ -3662,7 +3686,7 @@ name: bp-catalyst-platform
 # 1.4.1295 — #5467: bp-self-sovereign-cutover 0.1.168 -> 0.1.169 (harbor-prewarm
 #   GHCR-PAT log-leak fix). Bootstrap-kit slot-06a + catalog-seed pins lockstep.
 #   (re-serialized past main 1.4.1294 at rebase.)
-version: 1.4.1311
+version: 1.4.1312
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
