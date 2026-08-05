@@ -11,14 +11,20 @@
 Scoreboard basis (live, 2026-08-05): UAT ledger 166 ✅ / 49 ⚠️ / 19 ❌ / ⛔+N-A
 adjudicated; completion-matrix headline ~90%.
 
-**Source-backlog status — DRAINED (verified 2026-08-05, full-population scan):**
-all **42/42** open `status/in-progress` issues carry merged fix PRs on `main`;
-zero are candidate-open. The label is stale on ~39 of them — they are
-structurally `status/uat` (fixed, awaiting the walk). Train is **publish-ready**:
-bp-postgres 0.2.18, bp-self-sovereign-cutover 0.1.168, and bp-catalyst-platform
-(≥1.4.1291, deploy-bot at 1.4.1293) are all live tags on ghcr. **There is no
-remaining source-fixable defect** — the gap to 100% is proof + two founder gates,
-not code. See the dependency graph at the end of this doc.
+**Source-backlog status (verified 2026-08-05):** all **42/42** open
+`status/in-progress` issues carry merged fix PRs on `main` — that lane is drained
+and is structurally `status/uat` (fixed, awaiting the walk). Train is
+**publish-ready**: bp-postgres 0.2.18, bp-self-sovereign-cutover 0.1.169, and
+bp-catalyst-platform (≥1.4.1291) are live tags on ghcr.
+
+**Correction (do not overclaim):** the `status/in-progress` lane being drained is
+NOT the same as the whole backlog. There are **~52 open issues with no status
+label** — the genuinely-untriaged bucket — and several ARE real, unstarted,
+source-fixable defects (e.g. **#5467** GHCR-PAT log-leak — fixed this session,
+PR #5680; #5614 handover self-reject; #5435 banned-term leak; #5609 active-passive
+never selectable). This bucket is being worked down directly, highest-severity
+first (security > correctness > cosmetic). So: proof + two founder gates is the
+gap for the *merged* set; the untriaged bucket is live code work in progress.
 
 ## The gap in four blocks
 
