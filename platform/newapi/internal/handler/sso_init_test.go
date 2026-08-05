@@ -120,15 +120,65 @@ func TestSSOInitHandler_DegradesWhenAuthorizeURLMissing(t *testing.T) {
 
 func TestSSOInitHandler_404sNonRootPath(t *testing.T) {
 	// Belt-and-braces: even though the HTTPRoute only sends the bare root
-	// here, the handler must NOT serve the landing page for any other path
-	// (it would shadow the SPA / API if the route were ever misconfigured).
+	// (and, per #5612, /login) here, the handler must NOT serve the landing
+	// page for any other path (it would shadow the SPA / API if the route
+	// were ever misconfigured).
 	h := SSOInitHandler(fullConfig())
-	for _, p := range []string{"/console", "/api/status", "/oauth/sovereign", "/assets/x.js"} {
+	for _, p := range []string{"/console", "/api/status", "/oauth/sovereign", "/assets/x.js", "/login/", "/login/foo"} {
 		rec := httptest.NewRecorder()
 		h(rec, httptest.NewRequest(http.MethodGet, p, nil))
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s status = %d, want 404", p, rec.Code)
 		}
+	}
+}
+
+// TestSSOInitHandler_ServesLandingAtLogin — #5612. NewAPI's own SPA
+// client-routes an expired session to `/login?expired=true` and offers a
+// "Continue with OpenOva SSO" button that does nothing at all (verified live
+// on hw292: no navigation, no /api/oauth/state call, no network request).
+// The bp-newapi HTTPRoute now sends an Exact `/login` match to this same
+// bridge, so a full navigation/reload of the recovery page must run the
+// IDENTICAL deterministic OIDC round-trip the bare root already runs — not
+// depend on the SPA's broken button.
+func TestSSOInitHandler_ServesLandingAtLogin(t *testing.T) {
+	h := SSOInitHandler(fullConfig())
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	rec := httptest.NewRecorder()
+	h(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /login status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"/api/user/self", "/api/oauth/state", `"sovereign"`, `/realms/sovereign`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("/login landing page missing %q", want)
+		}
+	}
+}
+
+// TestSSOInitHandler_LoginFallbackDoesNotSelfLoop — #5612 belt-and-braces.
+// When SSO is unconfigured, fallback() would normally redirect the visitor
+// to /login — but if THIS page is already /login that would be a redirect
+// to itself. In production the chart never routes /login here without SSO
+// configured, but the handler must still degrade safely rather than emit a
+// self-redirecting page if it is ever reached that way.
+func TestSSOInitHandler_LoginFallbackDoesNotSelfLoop(t *testing.T) {
+	h := SSOInitHandler(SSOInitConfig{Slug: "sovereign"}) // no AuthorizeURL/ClientID
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodGet, "/login", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /login status = %d, want 200 (still serves the page)", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `window.location.pathname === "/login"`) {
+		t.Errorf("missing the same-path guard that prevents fallback() from redirecting /login to itself")
+	}
+	if strings.Contains(body, `window.location.replace("/login")`) == false {
+		// The replace-to-/login call must still exist for the bare-root case —
+		// just gated behind the pathname check above.
+		t.Errorf("expected the /login fallback redirect to still be present (guarded)")
 	}
 }
 
