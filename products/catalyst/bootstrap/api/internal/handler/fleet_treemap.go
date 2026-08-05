@@ -57,9 +57,13 @@
 package handler
 
 import (
+	"context"
 	"net/http"
+	"os"
 	"strings"
 	"time"
+
+	"k8s.io/apimachinery/pkg/labels"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
@@ -162,7 +166,8 @@ var fleetTreemapAllowedRoles = []string{
 	"mothership-admin",
 }
 
-// HandleFleetTreemap — GET /api/v1/fleet/treemap
+// HandleFleetTreemap — GET /api/v1/fleet/treemap[?layers=organization|
+// ?group_by=organization]
 //
 // Validates query string, then collects the cheap per-Sovereign
 // summary (already used by /fleet/sovereigns) and projects into the
@@ -170,10 +175,24 @@ var fleetTreemapAllowedRoles = []string{
 // (Sovereign → Cluster → Application) land in a follow-up slice that
 // proxies each Sov's /dashboard/treemap and unions the children.
 //
-// Today the response is a flat single-layer list. The UI renders the
-// "Sovereigns" layer immediately; clicking a cell deep-links to that
-// Sovereign's chroot console (where the existing /dashboard treemap
-// already shows the full Region→Cluster→…→Application hierarchy).
+// #5613 — the ONE exception to "flat single-layer list" today is the
+// Organization layer: when `layers`/`group_by` requests it (either
+// param name — the UI and the issue's curl repro both appear), the
+// handler projects per-Organization items INSTEAD of one row per
+// Sovereign, via collectFleetOrgItems. That reuses the exact same
+// pod→Org resource-attribution join the per-Org showback endpoint uses
+// (buildPodRows + orgForRow + the platformOrg sentinel, all in
+// org_consumption.go / dashboard.go) — NOT the billing-orders path
+// (org_billing_revenue.go), which would size cells by revenue instead
+// of live workload footprint. See the issue's triage comments for why
+// the billing path was rejected.
+//
+// Every other layer token (or no `layers`/`group_by` at all) keeps the
+// original "Sovereigns" projection below. The UI renders that layer
+// immediately; clicking a cell deep-links to that Sovereign's chroot
+// console (where the existing /dashboard treemap already shows the
+// full Region→Cluster→…→Application hierarchy, including its own
+// `organization` group_by — dashboard.go's dimensionKey).
 //
 // Authorisation (TBD-E14b / #1766):
 //
@@ -219,6 +238,22 @@ func (h *Handler) HandleFleetTreemap(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error":  "invalid-color-by",
 			"detail": "unsupported color metric: " + colorBy,
+		})
+		return
+	}
+
+	// #5613 — Organization layer: `layers=organization` (the UI's token)
+	// or `group_by=organization` (the issue repro's alias) requests a
+	// per-Org projection instead of the default per-Sovereign one. Any
+	// deeper sub-layer after "organization" (e.g. "organization,kind")
+	// is accepted but not yet fanned out — same deferred-FAN-OUT
+	// posture as every other dimension on this endpoint today.
+	layers := fleetTreemapLayers(q.Get("layers"), q.Get("group_by"))
+	if len(layers) > 0 && layers[0] == "organization" {
+		items := h.collectFleetOrgItems(r.Context())
+		writeJSON(w, http.StatusOK, fleetTreemapResponse{
+			Items:      items,
+			TotalCount: len(items),
 		})
 		return
 	}
@@ -328,4 +363,157 @@ func fleetTreemapColorValue(s fleetSovereignSummary, colorBy string, now time.Ti
 		}
 		return &pct
 	}
+}
+
+// fleetTreemapLayers parses the `layers` query param (the UI's token)
+// or its `group_by` alias (the alias the issue's curl repro used —
+// `?group_by=organization`) into a trimmed, comma-split slice. Empty
+// when neither param is present, which keeps the original "Sovereigns"
+// projection as the default — fully backward compatible with every
+// existing caller that never set either param.
+func fleetTreemapLayers(layersParam, groupByParam string) []string {
+	raw := strings.TrimSpace(layersParam)
+	if raw == "" {
+		raw = strings.TrimSpace(groupByParam)
+	}
+	if raw == "" {
+		return nil
+	}
+	out := make([]string, 0, 2)
+	for _, l := range strings.Split(raw, ",") {
+		l = strings.TrimSpace(l)
+		if l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// collectFleetOrgItems — #5613 Organization-layer projection.
+//
+// For every Sovereign collectFleetSovereigns knows about, attribute its
+// LIVE pods to Organizations using the EXACT SAME resource-attribution
+// join the per-Org showback endpoint uses: buildPodRows (dashboard.go)
+// to build the pod rows, then orgForRow + the platformOrg sentinel
+// (org_consumption.go) to bucket each row into its owning Org, a
+// customer namespace's real Org, or the synthetic "Platform overhead"
+// bucket. This is deliberately NOT the billing path
+// (HandleGetOrgBillingRevenue / org_billing_revenue.go attributes by
+// order $, keyed on TenantID — the wrong data source for a
+// resource-sized treemap; see the issue's triage comments) — every
+// number here traces to a live Pod's resource requests, same as
+// showback.
+//
+// A Sovereign whose cluster this catalyst-api process cannot list pods
+// for (h.k8sCache has no entry for it — a genuinely remote fleet member,
+// per the FAN-OUT gap documented at the top of this file) degrades to a
+// single Sovereign-level cell rather than being silently dropped or
+// having Org data invented for it (Principle #2 — no fixtures). On the
+// common case — this catalyst-api's own chroot Sovereign, whose cluster
+// self-registers in h.k8sCache exactly like /dashboard/treemap and
+// /org/consumption already read it — the full per-Org fan-out applies.
+func (h *Handler) collectFleetOrgItems(ctx context.Context) []fleetTreemapItem {
+	infraNamespaces := infraNamespaceSet(os.Getenv("SHOWBACK_INFRA_NAMESPACES"))
+	items := make([]fleetTreemapItem, 0)
+
+	for _, sov := range h.collectFleetSovereigns(ctx) {
+		clusterID := sov.ID
+		if h.k8sCache != nil {
+			clusterID = h.resolveChrootClusterID(clusterID)
+		}
+		if clusterID == "" || h.k8sCache == nil || !h.k8sCacheHasCluster(clusterID) {
+			id := sov.ID
+			items = append(items, fleetTreemapItem{
+				ID:    &id,
+				Name:  fleetTreemapDisplayName(sov),
+				Count: 1,
+			})
+			continue
+		}
+
+		pods, _, _ := h.k8sCache.List(clusterID, "pod", labels.Everything())
+		pvcs, _, _ := h.k8sCache.List(clusterID, "persistentvolumeclaim", labels.Everything())
+		podMetrics, _, _ := h.k8sCache.List(clusterID, "podmetrics", labels.Everything())
+		namespaces, _, _ := h.k8sCache.List(clusterID, "namespace", labels.Everything())
+		nodes, _, _ := h.k8sCache.List(clusterID, "node", labels.Everything())
+		replicaSets, _, _ := h.k8sCache.List(clusterID, "replicaset", labels.Everything())
+		rows := buildPodRows(pods, pvcs, podMetrics, namespaces, nodes, replicaSets, clusterID, "")
+
+		parentOrg := sov.FQDN
+		if parentOrg == "" {
+			parentOrg = "sovereign"
+		}
+		items = append(items, fleetOrgItemsForSovereign(rows, parentOrg, infraNamespaces)...)
+	}
+	return items
+}
+
+// fleetOrgItemsForSovereign is the pure-function half of
+// collectFleetOrgItems: attribute one Sovereign's already-built pod rows
+// to Organizations and project the result into the fleet-treemap wire
+// shape, so the attribution math is unit-testable with no live
+// k8scache. Mirrors aggregateConsumption's org/parent/platform bucketing
+// (org_consumption.go) — same orgForRow resolver, same platformOrg
+// sentinel, same "seed the parent so the estate is never blank"
+// contract — but emits fleetTreemapItem rows (id/name/count/percentage/
+// size_value) instead of the showback wire shape. SizeValue reuses the
+// showback cost-unit weights (CPU+memory+storage requests) so cell area
+// reflects live resource footprint, never a billing $ figure.
+func fleetOrgItemsForSovereign(rows []podRow, parentOrg string, infraNamespaces map[string]struct{}) []fleetTreemapItem {
+	type orgTally struct {
+		count int
+		cost  float64
+	}
+	order := make([]string, 0, 4)
+	tallies := map[string]*orgTally{}
+	ensure := func(org string) *orgTally {
+		t, ok := tallies[org]
+		if !ok {
+			t = &orgTally{}
+			tallies[org] = t
+			order = append(order, org)
+		}
+		return t
+	}
+	// Seed the parent so the Sovereign's own estate is never blank,
+	// mirroring aggregateConsumption's §5 "never blank" contract.
+	ensure(parentOrg)
+
+	var total float64
+	for _, row := range rows {
+		org := orgForRow(row, infraNamespaces)
+		t := ensure(org)
+		t.count++
+		cost := row.cpuReq*weightCPUPerMilli +
+			(row.memReq/bytesPerGiB)*weightMemPerGiB +
+			(row.storageLim/bytesPerGiB)*weightStoragePerGiB
+		t.cost += cost
+		total += cost
+	}
+
+	items := make([]fleetTreemapItem, 0, len(order))
+	for _, org := range order {
+		t := tallies[org]
+		id := org
+		name := org
+		switch org {
+		case parentOrg:
+			name = parentOrg
+		case platformOrg:
+			name = "Platform overhead"
+		}
+		var pct *float64
+		if total > 0 {
+			p := round2(t.cost / total * 100)
+			pct = &p
+		}
+		items = append(items, fleetTreemapItem{
+			ID:         &id,
+			Name:       name,
+			Count:      t.count,
+			Percentage: pct,
+			SizeValue:  round2(t.cost),
+		})
+	}
+	return items
 }

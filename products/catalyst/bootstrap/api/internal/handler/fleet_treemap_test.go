@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
 func TestFleetTreemapSizeValueAppsDefault(t *testing.T) {
@@ -275,5 +276,168 @@ func TestHandleFleetTreemapUnprivilegedReturns403(t *testing.T) {
 	h.HandleFleetTreemap(w, req.WithContext(ctx))
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("viewer status=%d want 403 (body=%s)", w.Code, w.Body.String())
+	}
+}
+
+/* ── #5613 — Organization layer ───────────────────────────────────── */
+
+// TestFleetTreemapLayersParam — pure-function coverage for the
+// `layers`/`group_by` alias parsing that gates the #5613 org projection.
+func TestFleetTreemapLayersParam(t *testing.T) {
+	cases := []struct {
+		name             string
+		layers, groupBy  string
+		want             []string
+	}{
+		{"empty both", "", "", nil},
+		{"layers only", "organization", "", []string{"organization"}},
+		{"group_by alias", "", "organization", []string{"organization"}},
+		{"layers wins over group_by", "organization", "sovereign", []string{"organization"}},
+		{"multi-token trims", " organization , kind ", "", []string{"organization", "kind"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := fleetTreemapLayers(c.layers, c.groupBy)
+			if len(got) != len(c.want) {
+				t.Fatalf("got %+v want %+v", got, c.want)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Fatalf("got %+v want %+v", got, c.want)
+				}
+			}
+		})
+	}
+}
+
+// TestFleetOrgItemsForSovereign_SeparatesCustomerFromPlatform — pure-
+// function proof of the #5613 attribution math: a customer-Org row and
+// an infra-namespace row (no Org label) must land in two DIFFERENT
+// buckets — the real Org and the synthetic platformOrg sentinel — using
+// the EXACT SAME orgForRow resolver org_consumption.go's showback
+// aggregation uses (not a re-implementation, not the billing path).
+func TestFleetOrgItemsForSovereign_SeparatesCustomerFromPlatform(t *testing.T) {
+	rows := []podRow{
+		{namespace: "uatco", application: "wordpress", org: "uatco", cpuReq: 100, memReq: 256 << 20},
+		{namespace: "kube-system", application: "coredns", org: "", cpuReq: 50, memReq: 64 << 20},
+	}
+	infra := infraNamespaceSet("")
+	items := fleetOrgItemsForSovereign(rows, "hw292.omani.works", infra)
+
+	if len(items) < 2 {
+		t.Fatalf("expected >=2 items (customer Org + Platform overhead), got %d: %+v", len(items), items)
+	}
+	byName := map[string]fleetTreemapItem{}
+	for _, it := range items {
+		byName[it.Name] = it
+	}
+	uatco, ok := byName["uatco"]
+	if !ok {
+		t.Fatalf("expected a 'uatco' customer Org item; got %+v", items)
+	}
+	if uatco.Count != 1 {
+		t.Errorf("uatco count = %d, want 1 (only the wordpress pod)", uatco.Count)
+	}
+	platform, ok := byName["Platform overhead"]
+	if !ok {
+		t.Fatalf("expected a 'Platform overhead' item; got %+v", items)
+	}
+	if platform.Count != 1 {
+		t.Errorf("platform overhead count = %d, want 1 (only the coredns pod)", platform.Count)
+	}
+}
+
+// TestHandleFleetTreemapOrganizationLayer — the falsifiable end-to-end
+// proof for #5613. Builds a fake fleet with ONE Sovereign whose live
+// estate holds:
+//
+//	(a) a customer namespace ("uatco") carrying the
+//	    openova.io/organization label with a WordPress-shaped pod, and
+//	(b) an infra namespace ("kube-system", in defaultInfraNamespaces)
+//	    with no Org label, holding a coredns-shaped pod.
+//
+// Before the fix, HandleFleetTreemap ignored `layers`/`group_by`
+// entirely and always returned ONE item — the Sovereign itself —
+// regardless of the query string, exactly matching the issue's repro
+// (`{"items":[{...1 Sovereign...}],"total_count":1}`). This test MUST
+// FAIL against that pre-fix behaviour and PASS against the fix; see the
+// session report for the before/after `go test` run proving
+// falsifiability (temporarily reverting fleet_treemap.go's handler
+// change).
+func TestHandleFleetTreemapOrganizationLayer(t *testing.T) {
+	h := newDashHandlerWithCache(t, "hw292dep", false,
+		mkDashNamespaceOrg("uatco", "uatco"),
+		mkDashNamespaceOrg("kube-system", ""), // infra namespace, no org label
+		mkDashPodOnNode("uatco", "wordpress-1", "wordpress", ""),
+		mkDashPodOnNode("kube-system", "coredns-1", "coredns", ""),
+	)
+	dep := &Deployment{
+		ID:        "hw292dep",
+		Status:    "ready",
+		Request:   provisioner.Request{SovereignFQDN: "hw292.omani.works"},
+		StartedAt: time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC),
+	}
+	h.deployments.Store(dep.ID, dep)
+
+	for _, qs := range []string{
+		"layers=organization",
+		"layers=organization,kind",
+		"group_by=organization",
+	} {
+		t.Run(qs, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/fleet/treemap?"+qs, nil)
+			w := httptest.NewRecorder()
+			h.HandleFleetTreemap(w, req)
+			if w.Code != http.StatusOK {
+				t.Fatalf("status=%d want 200 (body=%s)", w.Code, w.Body.String())
+			}
+			var body fleetTreemapResponse
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			// THE #5613 assertion: NOT the pre-fix single-Sovereign
+			// total_count:1 shape. Customer estate must separate from
+			// platform overhead.
+			if body.TotalCount < 2 {
+				t.Fatalf("organization layer must separate customer estate from platform overhead: got total_count=%d items=%+v (this is the exact pre-fix #5613 repro shape: one Sovereign item, total_count:1)", body.TotalCount, body.Items)
+			}
+			names := map[string]bool{}
+			for _, it := range body.Items {
+				names[it.Name] = true
+			}
+			if !names["uatco"] {
+				t.Errorf("expected a customer Org item named 'uatco'; got %+v", body.Items)
+			}
+			if !names["Platform overhead"] {
+				t.Errorf("expected a 'Platform overhead' item; got %+v", body.Items)
+			}
+		})
+	}
+}
+
+// TestHandleFleetTreemapDefaultLayerUnchanged — no `layers`/`group_by`
+// param must keep the pre-#5613 single-row-per-Sovereign behaviour
+// (backward compatibility for every existing caller).
+func TestHandleFleetTreemapDefaultLayerUnchanged(t *testing.T) {
+	h := newDashHandlerWithCache(t, "hw292dep", false,
+		mkDashNamespaceOrg("uatco", "uatco"),
+		mkDashPodOnNode("uatco", "wordpress-1", "wordpress", ""),
+	)
+	dep := &Deployment{
+		ID:      "hw292dep",
+		Status:  "ready",
+		Request: provisioner.Request{SovereignFQDN: "hw292.omani.works"},
+	}
+	h.deployments.Store(dep.ID, dep)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/fleet/treemap", nil)
+	w := httptest.NewRecorder()
+	h.HandleFleetTreemap(w, req)
+	var body fleetTreemapResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.TotalCount != 1 || len(body.Items) != 1 || body.Items[0].Name != "hw292.omani.works" {
+		t.Fatalf("default (no layers param) must stay the single Sovereign row; got %+v", body)
 	}
 }
