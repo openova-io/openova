@@ -647,6 +647,31 @@ spec:
                           FAILURE: the endpoint reports status Unresolved with
                           no hostname and no launchURL, rather than emitting a
                           URL with the literal braces still in it.
+                        # Reject the two documented-but-never-implemented tokens
+                        # at ADMISSION rather than at resolve time (#5389).
+                        #
+                        # Without this a Blueprint authored through the Git
+                        # surface is admitted happily and only degrades later —
+                        # the endpoint goes Unresolved and its Open button dies,
+                        # far from the edit that caused it. platform/sandbox
+                        # shipped `sandbox-{{.InstanceID}}.{{.OrgDomain}}` on a
+                        # `visibility: listed` Blueprint exactly this way.
+                        #
+                        # Deliberately a DENYLIST of the two named tokens, not an
+                        # allowlist: RE2 has no negative lookahead and CEL cannot
+                        # iterate regex matches, so "every {{...}} is one of the
+                        # four" is not expressible here. The general case is
+                        # covered one layer out by
+                        # TestEveryBlueprintHostnameTemplateResolves_5389, which
+                        # feeds every on-disk template through the real resolver,
+                        # and one layer in by the resolver itself failing closed.
+                        # This rule closes the specific hole that actually shipped.
+                        #
+                        # Character classes instead of backslash escapes so the
+                        # expression survives YAML quoting unchanged.
+                        x-kubernetes-validations:
+                          - rule: "!self.matches('[{][{][ ]*[.](InstanceID|ClusterID)')"
+                            message: "endpoints[].hostnameTemplate references {{.InstanceID}} or {{.ClusterID}}, which the resolver has never implemented — it substitutes only SovereignFQDN, OrgSlug, AppName and OrgDomain. For a per-instance host use {{.AppName}}: multiInstance.namingTemplate already makes the Application CR name instance-unique."
                       port:
                         type: integer
                         minimum: 1
