@@ -119,10 +119,22 @@ spec:
   # controller renders (sandbox/<owner-uid>/httproute.yaml in the
   # per-Org Gitea repo). The endpoint here is the canonical hostname
   # template — the per-User Application's effective hostname is
-  # `sandbox-<instanceID>.<orgslug>.<sovereign-fqdn>`.
+  # `sandbox-<instanceID>.<orgDomain>`.
+  #
+  # #5389: this read `sandbox-{{.InstanceID}}.{{.OrgDomain}}`, but
+  # `InstanceID` is NOT a hostname token — `resolveHostnameTemplate`
+  # substitutes only SovereignFQDN / OrgSlug / AppName / OrgDomain. It is
+  # real and implemented for `multiInstance.namingTemplate`, which is where
+  # the confusion came from, so the literal `{{.InstanceID}}` survived
+  # substitution and was emitted inside a URL.
+  #
+  # `{{.AppName}}` is the correct token and yields the SAME host: this
+  # Blueprint's namingTemplate below is `{{.AppName}}-{{.InstanceID}}`, so
+  # the Application CR name is already `sandbox-<instanceID>` and AppName
+  # resolves to exactly that. No hostname shape change.
   endpoints:
     - name: ui
-      hostnameTemplate: "sandbox-{{.InstanceID}}.{{.OrgDomain}}"
+      hostnameTemplate: "{{.AppName}}.{{.OrgDomain}}"
       port: 443
       protocol: https
       tls: true
