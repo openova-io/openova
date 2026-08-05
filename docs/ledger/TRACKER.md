@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-05T01:45:02Z` |
+| Last refreshed | `2026-08-05T02:00:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-05T01:50 | [#5682](https://github.com/openova-io/openova/pull/5682) | #5610 | fix(console): summary inline editor opens pre-filled with th |
+| 2026-08-05T01:46 | [#5681](https://github.com/openova-io/openova/pull/5681) | #5614 | fix(auth): verify handover issuer via DefaultIssuer(), not a |
 | 2026-08-04T23:10 | [#5678](https://github.com/openova-io/openova/pull/5678) | #5583 | ci(blueprint-release): sync catalog-seed + regenerate catalo |
 | 2026-08-04T22:20 | [#5677](https://github.com/openova-io/openova/pull/5677) | #5476 | fix(catalyst-api): wire spine object-model ownership chain + |
 | 2026-08-04T22:03 | [#5676](https://github.com/openova-io/openova/pull/5676) | #5513 | fix(controllers): AHS status reports materialised regions +  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-03T23:48 | [#5645](https://github.com/openova-io/openova/pull/5645) | #5642 | fix(k8scache): AddCluster no-ops on an unchanged kubeconfig  |
 | 2026-08-03T22:46 | [#5644](https://github.com/openova-io/openova/pull/5644) | #5265 | feat(cutover): post-cutover image delivery — Day-2 reconcile |
 | 2026-08-03T22:33 | [#5643](https://github.com/openova-io/openova/pull/5643) | #5637 | fix(security): declare the Cilium control-plane node-encrypt |
-| 2026-08-03T22:37 | [#5641](https://github.com/openova-io/openova/pull/5641) | #5639 | fix(bp-postgres): fail closed on an unresolvable region + em |
-| 2026-08-03T21:40 | [#5638](https://github.com/openova-io/openova/pull/5638) | #4415 | fix(catalog-seed): gate every seed delivery pin on GHCR exis |
 
 ---
 
