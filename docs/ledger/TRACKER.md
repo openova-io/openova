@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-05T19:30:05Z` |
+| Last refreshed | `2026-08-05T19:45:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-08-05T19:12 | [#5700](https://github.com/openova-io/openova/pull/5700) | #5389 | docs(mandate): a denied tool call is ONE COMMAND, never a bl |
+| 2026-08-05T19:32 | [#5699](https://github.com/openova-io/openova/pull/5699) | #4 | fix(endpoints): add {OrgDomain} token so per-Org Open resolv |
 | 2026-08-05T19:09 | [#5698](https://github.com/openova-io/openova/pull/5698) | #4325 | docs(uat): live-anchor the 11 superseded placement rows; rec |
 | 2026-08-05T19:09 | [#5697](https://github.com/openova-io/openova/pull/5697) | #5378 | fix(#5358): guacamole blank page — ONE Guacamole per Soverei |
 | 2026-08-05T18:05 | [#5696](https://github.com/openova-io/openova/pull/5696) | #5592 | fix(854): assert NodePort ban is ENFORCING per region, not j |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-04T17:24 | [#5670](https://github.com/openova-io/openova/pull/5670) | #5509 | docs(guacamole): multi-region session forensics — #5509 is t |
 | 2026-08-04T17:15 | [#5669](https://github.com/openova-io/openova/pull/5669) | #5508 | fix(ui): TopologyTab consumes healthGates — unverified lag r |
 | 2026-08-04T17:44 | [#5668](https://github.com/openova-io/openova/pull/5668) | #5666 | fix(cutover): secondary-region pivot target defaults to the  |
-| 2026-08-04T16:56 | [#5667](https://github.com/openova-io/openova/pull/5667) | #5466 | fix(newapi): one SESSION_SECRET/CRYPTO_SECRET per KC client, |
 
 ---
 
