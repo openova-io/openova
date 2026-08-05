@@ -40,6 +40,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jtistore"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/keycloak"
 )
@@ -229,7 +230,16 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ── 3. Validate claims ──────────────────────────────────────────────
-	const expectedIss = "https://console.openova.io"
+	// #5614 — resolve the expected issuer through the SAME single source the
+	// minter uses (handoverjwt.DefaultIssuer(), which reads
+	// CATALYST_HANDOVER_JWT_ISSUER and falls back to the Catalyst-Zero
+	// mothership origin). The former hardcoded `const expectedIss =
+	// "https://console.openova.io"` was the verify-side survivor of the #2940
+	// duplicate-tether literal: a cut-over Sovereign mints a token with its OWN
+	// console as `iss` and this verifier then 401'd it as "invalid issuer",
+	// rejecting the Sovereign's own handover (hw292, cc=true). One resolver, both
+	// sides — the mint and verify issuers can never drift again.
+	expectedIss := handoverjwt.DefaultIssuer()
 	iss, err := claims.GetIssuer()
 	if err != nil || iss != expectedIss {
 		writeAuthError(w, "invalid issuer")
