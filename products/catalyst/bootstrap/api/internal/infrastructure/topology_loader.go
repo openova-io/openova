@@ -1063,14 +1063,25 @@ func loadPeerings(ctx context.Context, in LoaderInput, rs provisioner.RegionSpec
 	return out
 }
 
-// buildStorage — PVCs from the live cluster + buckets/volumes from
-// the Crossplane managed-resource list. Empty slices when sources
-// aren't reachable.
+// buildStorage — PVCs + block Volumes from the live cluster. Empty
+// slices when sources aren't reachable.
+//
+// #5611: Volumes was previously a hardcoded `[]Volume{}` (the comment
+// claimed "buckets/volumes from the Crossplane managed-resource list"
+// but no query was ever issued), so the cloud Volumes page rendered a
+// positive "Volumes 0 / No volumes yet" on a Sovereign carrying 50 EVS
+// block volumes. A PersistentVolume IS the Kubernetes projection of the
+// cloud block volume attached to a node (Hetzner Volume via
+// hcloud-csi, Huawei EVS via evs.csi.huaweicloud.com), so loadVolumes
+// reads PVs directly — the provider-agnostic source that is populated
+// on every Sovereign, not just the hcloud mothership. Buckets stay []
+// until an object-storage source is wired (honest empty, not a false
+// count — the Buckets page renders the "not collected" empty-state).
 func buildStorage(ctx context.Context, in LoaderInput) StorageData {
 	return StorageData{
 		PVCs:    loadPVCs(ctx, in),
 		Buckets: []Bucket{},
-		Volumes: []Volume{},
+		Volumes: loadVolumes(ctx, in),
 	}
 }
 
@@ -1110,6 +1121,130 @@ func loadPVCs(ctx context.Context, in LoaderInput) (out []PVC) {
 		})
 	}
 	return out
+}
+
+// loadVolumes — the live block-Volume source for the cloud Volumes page
+// (#5611). A PersistentVolume is the Kubernetes projection of the cloud
+// block volume attached to a node (hcloud-csi Volume on Hetzner, EVS on
+// Huawei via evs.csi.huaweicloud.com), so PVs are the provider-agnostic
+// source that is populated on every Sovereign — unlike the hcloud-only
+// Crossplane `volume.hcloud` XRC, which returns nothing on a Huawei
+// Sovereign and produced the false "Volumes 0". Mirrors loadPVCs: reads
+// the same in.DynamicClient (the region this loader is scoped to), so
+// the count matches that region's live PVs and never fabricates a row.
+func loadVolumes(ctx context.Context, in LoaderInput) (out []Volume) {
+	out = []Volume{}
+	defer func() {
+		if r := recover(); r != nil {
+			out = []Volume{}
+		}
+	}()
+	if in.DynamicClient == nil {
+		return out
+	}
+	// PVs are cluster-scoped — list without a namespace.
+	gvr := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumes"}
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	list, err := in.DynamicClient.Resource(gvr).List(cctx, metav1.ListOptions{})
+	if err != nil || list == nil {
+		return out
+	}
+	for _, item := range list.Items {
+		spec, _, _ := nestedMap(item.Object, "spec")
+		status, _, _ := nestedMap(item.Object, "status")
+		out = append(out, Volume{
+			ID:         item.GetName(),
+			Name:       item.GetName(),
+			Capacity:   stringField(stringMapField(spec, "capacity"), "storage"),
+			Region:     pvRegion(spec),
+			AttachedTo: pvClaimRef(spec),
+			Status:     pvPhaseToTopologyStatus(stringField(status, "phase")),
+		})
+	}
+	return out
+}
+
+// pvClaimRef — the "namespace/name" of the PVC bound to this PV, the
+// honest "what claims this volume" the Volumes page's Attachment column
+// surfaces. Empty (→ "detached" in the UI) for an unbound PV.
+func pvClaimRef(spec map[string]any) string {
+	ref, _, _ := nestedMap(spec, "claimRef")
+	if ref == nil {
+		return ""
+	}
+	ns := stringField(ref, "namespace")
+	name := stringField(ref, "name")
+	switch {
+	case ns != "" && name != "":
+		return ns + "/" + name
+	case name != "":
+		return name
+	default:
+		return ""
+	}
+}
+
+// pvRegion — best-effort region/zone from the PV's CSI node-affinity
+// topology term (topology.kubernetes.io/{region,zone} or a driver zone
+// key). Empty when the PV carries no topology constraint — honest empty,
+// never a synthesised region. Fully defensive against unstructured shape
+// surprises (any type mismatch → "").
+func pvRegion(spec map[string]any) string {
+	na, _, _ := nestedMap(spec, "nodeAffinity", "required")
+	if na == nil {
+		return ""
+	}
+	terms, ok := na["nodeSelectorTerms"].([]any)
+	if !ok {
+		return ""
+	}
+	for _, t := range terms {
+		tm, ok := t.(map[string]any)
+		if !ok {
+			continue
+		}
+		exprs, ok := tm["matchExpressions"].([]any)
+		if !ok {
+			continue
+		}
+		for _, e := range exprs {
+			em, ok := e.(map[string]any)
+			if !ok {
+				continue
+			}
+			key := stringField(em, "key")
+			if !strings.Contains(key, "zone") && !strings.Contains(key, "region") {
+				continue
+			}
+			vals, ok := em["values"].([]any)
+			if !ok || len(vals) == 0 {
+				continue
+			}
+			if s, ok := vals[0].(string); ok && s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+// pvPhaseToTopologyStatus — maps a PV's status.phase onto the
+// TopologyStatus vocabulary the Volumes page's StatusPill renders
+// (healthy | degraded | failed | unknown).
+func pvPhaseToTopologyStatus(phase string) string {
+	switch phase {
+	case "Bound":
+		return "healthy"
+	case "Released":
+		return "degraded"
+	case "Failed":
+		return "failed"
+	default:
+		// "Available" (unbound but usable) and "Pending"/"" all read as
+		// unknown — present, not-yet-attached, no false health claim.
+		return "unknown"
+	}
 }
 
 // CascadeFor — given a delete target (kind + id) and the current
