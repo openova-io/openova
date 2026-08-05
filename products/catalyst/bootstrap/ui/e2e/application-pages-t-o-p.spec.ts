@@ -274,14 +274,20 @@ test.describe('Application page bundle T+O+P (slice T+O+P, #1097)', () => {
     })
   })
 
-  test('T2: Topology tab renders editor + status panel', async ({ page }) => {
+  // #5609 — this spec asserted `app-topology-tab` and `topology-editor`, two
+  // testids that do not exist: the tab panel is `app-topology-tabpanel`, and
+  // `TopologyEditor` was superseded by `PlacementEditor` in #3969 and was
+  // never mounted. The specs under bootstrap/ui/e2e are not wired into CI
+  // (playwright-e2e.yml only triggers on products/catalyst/console/**), which
+  // is why the drift went unnoticed. Retargeted at the real surfaces.
+  test('T2: Topology tab renders placement + status panels', async ({ page }) => {
     await mockTopAPI(page)
     await page.goto(`/provision/${DEPLOYMENT_ID}/app/${APP_NAME}`)
     await page.waitForTimeout(500)
     await page.getByTestId('sov-app-tab-topology').click()
     await page.waitForTimeout(500)
-    await expect(page.getByTestId('app-topology-tab')).toBeVisible()
-    await expect(page.getByTestId('topology-editor')).toBeVisible()
+    await expect(page.getByTestId('app-topology-tabpanel')).toBeVisible()
+    await expect(page.getByTestId('topology-tab-placement-panel')).toBeVisible()
     await expect(page.getByTestId('topology-tab-status-panel')).toBeVisible()
     await page.screenshot({
       path: `playwright-report/top-t2-topology-${DEPLOYMENT_ID}.png`,
@@ -289,18 +295,21 @@ test.describe('Application page bundle T+O+P (slice T+O+P, #1097)', () => {
     })
   })
 
-  test('T3: Topology preview opens modal', async ({ page }) => {
+  // #5609 — the old T3 drove a mode radio + Preview modal on the unmounted
+  // TopologyEditor. #3969 deleted both affordances: there is NO mode picker
+  // and no preview modal, the pattern is DERIVED from the placement targets.
+  // Retargeted at the real "Edit placement" → PlacementEditor flow.
+  test('T3: Edit placement opens the placement editor', async ({ page }) => {
     await mockTopAPI(page)
     await page.goto(`/provision/${DEPLOYMENT_ID}/app/${APP_NAME}`)
     await page.waitForTimeout(500)
     await page.getByTestId('sov-app-tab-topology').click()
     await page.waitForTimeout(500)
-    // Switch mode + add region to make the form dirty.
-    await page.getByTestId('topology-editor-mode-active-hotstandby-radio').click()
-    await page.getByTestId('topology-editor-region-hz-hel-rtz-prod-checkbox').click()
-    await page.getByTestId('topology-editor-preview-btn').click()
+    await page.getByTestId('topology-tab-edit-placement').click()
     await page.waitForTimeout(400)
-    await expect(page.getByTestId('topology-editor-preview-modal')).toBeVisible()
+    await expect(page.getByTestId('placement-editor')).toBeVisible()
+    // The derived-pattern label replaces the deleted mode picker.
+    await expect(page.getByTestId('placement-editor-derived-pattern')).toBeVisible()
     await page.screenshot({
       path: `playwright-report/top-t3-topology-preview-${DEPLOYMENT_ID}.png`,
       fullPage: false,

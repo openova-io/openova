@@ -29,7 +29,7 @@ import {
 import { listOrganizations, type OrgRow } from '@/lib/organizations.api'
 import { getHierarchicalInfrastructure } from '@/lib/infrastructure.types'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
-import { ALL_MODES, canonicalizeMode, describeModeForComponent } from '@/widgets/topology/TopologyEditor'
+import { ALL_MODES, canonicalizeMode, describeModeForComponent } from '@/widgets/topology/modes'
 import { BLUEPRINT_BY_ID, TOPOLOGY_BY_ID } from '@/shared/constants/catalog.generated'
 
 // #3599 / #3600 / #5616 — the tier namespaces the backend can RESOLVE:
@@ -565,11 +565,16 @@ export function NewInstanceDialog({
   //
   // #3922 — `supportedModes` is the ALLOWED (selectable) subset; the
   // <select> below renders the FULL canonical ALL_MODES set and merely
-  // DISABLES the unsupported options. This mirrors the app-detail
-  // "Change placement" radio picker (TopologyEditor), which always lists
-  // all four canonical classes and greys out the ones the Blueprint
-  // doesn't support — so the create dialog can no longer silently DROP
-  // active-passive / active-active and disagree with the app-detail view.
+  // DISABLES the unsupported options, so the create dialog can no longer
+  // silently DROP active-passive / active-active.
+  //
+  // #5609 — this <select> is the ONLY production surface that selects a
+  // topology mode. (The app-detail Topology tab uses PlacementEditor, which
+  // by #3969 has NO mode picker — it derives the pattern from the targets.)
+  // So this gate is the single point where a Blueprint's declared
+  // `spec.topology.supported` becomes operator-visible; there is no second
+  // picker to agree or disagree with. Gate behaviour is pinned BOTH ways in
+  // InstancesSection.topology-gate.test.tsx.
   const supportedModes = useMemo<string[]>(() => {
     const raw = bpQuery.data?.raw as
       | { spec?: { topology?: { supported?: string[] } } }
@@ -775,12 +780,11 @@ export function NewInstanceDialog({
         {/* Topology mode — dropdown over the editor's full canonical
             ALL_MODES set (#3856 single vocabulary: singleton / active-passive /
             active-hot-standby / active-active). #3922 — render ALL FOUR and
-            DISABLE the ones the Blueprint doesn't support, exactly like the
-            app-detail "Change placement" radio picker; the create <select>
+            DISABLE the ones the Blueprint doesn't support; the create <select>
             previously DROPPED unsupported modes, so active-passive /
-            active-active vanished from it while the app-detail radio still
-            listed them. Disabled options carry a "(not supported)" suffix so
-            the operator sees the full vocabulary + why a mode is unavailable. */}
+            active-active vanished from it entirely. Disabled options carry a
+            "(not supported)" suffix so the operator sees the full vocabulary +
+            why a mode is unavailable. */}
         <label style={{ display: 'block', marginBottom: '0.6rem', fontSize: '0.85rem' }}>
           <span style={{ display: 'block', marginBottom: '0.2rem' }}>Topology mode</span>
           <select

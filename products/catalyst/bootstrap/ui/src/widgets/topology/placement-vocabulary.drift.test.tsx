@@ -9,7 +9,7 @@
  *
  * The single source of truth is the Go placement package
  * (core/controllers/internal/placement.CanonicalModes); this test pins
- * the FE emitters (TopologyEditor.ALL_MODES, the InstallPage <select>,
+ * the FE emitters (topology/modes.ALL_MODES, the InstallPage <select>,
  * fleet.api.TopologyMode) to the SAME set + asserts the FE canonicaliser
  * folds every legacy spelling exactly as the Go Canonicalize does.
  */
@@ -17,7 +17,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { ALL_MODES, canonicalizeMode, describeMode } from './TopologyEditor'
+import { ALL_MODES, canonicalizeMode, describeMode } from './modes'
 import { canonicalizeTopologyMode } from '@/lib/fleet.api'
 
 // THE canonical vocabulary — must mirror Go placement.CanonicalModes()
@@ -31,7 +31,7 @@ const CANONICAL_MODES = ['singleton', 'active-active', 'active-hot-standby', 'ac
 const LEGACY_SPELLINGS = ['single-region', 'active-hotstandby'] as const
 
 describe('#3375 DoD-1 — one placement vocabulary, every FE surface', () => {
-  it('TopologyEditor.ALL_MODES is exactly the canonical set (no legacy spelling)', () => {
+  it('topology/modes.ALL_MODES is exactly the canonical set (no legacy spelling)', () => {
     expect([...ALL_MODES]).toEqual([...CANONICAL_MODES])
     for (const legacy of LEGACY_SPELLINGS) {
       expect(ALL_MODES as readonly string[]).not.toContain(legacy)
