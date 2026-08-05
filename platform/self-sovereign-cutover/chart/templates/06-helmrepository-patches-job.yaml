@@ -290,6 +290,26 @@ data:
             value: {{ join " " .Values.helmRepositories.readbackReconcileKustomizations | quote }}
           - name: HELMREPO_READBACK_BUDGET_SECONDS
             value: {{ .Values.stepTimeouts.pivotReadbackSeconds | quote }}
+          # #5596 — SECONDARY-region DURABLE pivot assert inputs. The #5359
+          # read-back was single-shot and fired seconds after the patch loop,
+          # so it measured the PATCH and never the PIVOT: region-B's own
+          # kustomize-controller re-applied its (pre-cutover) artifact ~55s
+          # later and put all 64 HelmRepositories back on ghcr.io while the
+          # step had already recorded success. The assert now POKES the
+          # secondary's own GitRepository + HR-owning Kustomizations and will
+          # not certify until one of them has HANDLED that poke — i.e. the
+          # actor that would revert the pivot has already run. See
+          # assert_secondary_pivot_durable in args: below.
+          - name: GITOPS_REPO_NAME
+            value: {{ .Values.gitopsRepository.name | quote }}
+          - name: GITOPS_REPO_NAMESPACE
+            value: {{ .Values.gitopsRepository.namespace | quote }}
+          - name: SECONDARY_READBACK_BUDGET_SECONDS
+            value: {{ .Values.secondaryRegions.pivotReadbackSeconds | quote }}
+          - name: SECONDARY_READBACK_SETTLE_SAMPLES
+            value: {{ .Values.secondaryRegions.pivotReadbackSettleSamples | quote }}
+          - name: SECONDARY_READBACK_INTERVAL_SECONDS
+            value: {{ .Values.secondaryRegions.pivotReadbackIntervalSeconds | quote }}
           # #5650 — vcluster loft chart-source pivot (Phase-2c). Mirrors the
           # upstream vcluster chart into local Harbor + repoints the
           # index.yaml loft HelmRepository (vcluster-system) to the local OCI
@@ -732,10 +752,13 @@ data:
             # still-tethered environment — the sovereignty claim would be
             # false while the evidence trail said otherwise.
             #
-            # The SECONDARY-region leg has had exactly this read-back since
-            # #5359 (see pivot_secondary_regions below, "Read-back assert:
-            # ZERO upstream-prefixed HRs may remain"). Region-A never did.
-            # This is that same assertion, for the region that matters most.
+            # The SECONDARY-region leg has had a read-back of this SHAPE since
+            # #5359 — but a SINGLE-SHOT one, with no convergence budget and no
+            # reconcile re-poke, so it could only ever sample the seconds
+            # between the patch and region-B's next Kustomization re-apply
+            # (#5596; see assert_secondary_pivot_durable below). Region-A never
+            # had one at all. This is that assertion, with a budget, for the
+            # region that matters most.
             #
             # Scope: HELMREPO_NAMESPACE (the namespace Phase-1 patches) —
             # the same scope the #5359 secondary read-back uses, and where
@@ -1535,7 +1558,174 @@ data:
               return 0
             }
 
+            # ---- #5596: secondary-region DURABLE pivot assert ----
+            #
+            # #5359's read-back re-read the secondary's HR set ONCE, right after
+            # the patch loop: it measured the PATCH, never the PIVOT. region-B
+            # re-applies its OWN artifact of the gitops repo, and if that
+            # artifact is the PRE-cutover one every URL goes back upstream
+            # minutes after this step recorded success. hw292: clean read-back
+            # + result=success at 07:41:13Z, region-b kustomize-controller Apply
+            # at 07:42:08Z put all 64 HRs back on ghcr.io, cc=true at 08:12:30Z,
+            # still 64/65 on ghcr 3 days later. 55s is the whole window the old
+            # assert could see. Full forensics in Chart.yaml 0.1.171.
+            #
+            # THE FIX: make the reverting actor run INSIDE the assert — poke the
+            # secondary's GitRepository + HR-owning Kustomizations and refuse to
+            # certify until one of them HANDLED that exact token
+            # (status.lastHandledReconcileAt == token: the re-apply HAPPENED,
+            # not merely that we asked), read-back clean on every sample up to
+            # that point. Offender scope + tolerations are IDENTICAL to
+            # assert_region_a_pivot, so this is never stricter than step-08.
+            #
+            # NB: offenders go to a FILE and are grepped from it — never
+            # `printf | grep -q` (the #5370/#5406/#4969 SIGPIPE shape).
+            secondary_offenders() {
+              # $1 = kubeconfig. Writes offenders to /tmp/.sd-offenders.txt.
+              # Returns non-zero when the ENUMERATION ITSELF failed — an
+              # unreadable region is NOT "zero offenders", and conflating the
+              # two is how a leg certifies a region it never saw.
+              so_kc="$1"
+              if ! kubectl --kubeconfig "${so_kc}" get helmrepository -n "${HELMREPO_NAMESPACE}" \
+                  -o jsonpath='{range .items[*]}{.metadata.name}={.spec.url}{"\n"}{end}' \
+                  > /tmp/.sd-hrs.txt 2>/tmp/.sd-hrs.err; then
+                return 1
+              fi
+              : > /tmp/.sd-offenders.txt
+              while IFS= read -r so_line; do
+                [ -n "${so_line}" ] || continue
+                so_name="${so_line%%=*}"
+                so_url="${so_line#*=}"
+                case "${so_url}" in
+                  "${UPSTREAM_PREFIX}"*) : ;;
+                  *) continue ;;
+                esac
+                case ",${HELMREPO_READBACK_EXCLUDE:-}," in
+                  *",${so_name},"*) continue ;;
+                esac
+                printf '%s=%s\n' "${so_name}" "${so_url}" >> /tmp/.sd-offenders.txt
+              done < /tmp/.sd-hrs.txt
+              return 0
+            }
+
+            secondary_source_diagnosis() {
+              # Best-effort operator context for a failure message: WHY the
+              # secondary would revert (its gitops source state).
+              sg_kc="$1"
+              sg_ready=$(kubectl --kubeconfig "${sg_kc}" get gitrepository "${GITOPS_REPO_NAME}" \
+                -n "${GITOPS_REPO_NAMESPACE}" \
+                -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+              sg_msg=$(kubectl --kubeconfig "${sg_kc}" get gitrepository "${GITOPS_REPO_NAME}" \
+                -n "${GITOPS_REPO_NAMESPACE}" \
+                -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null || echo "")
+              sg_rev=$(kubectl --kubeconfig "${sg_kc}" get gitrepository "${GITOPS_REPO_NAME}" \
+                -n "${GITOPS_REPO_NAMESPACE}" \
+                -o jsonpath='{.status.artifact.revision}' 2>/dev/null || echo "")
+              printf 'GitRepository %s/%s Ready=%s revision=%s%s' \
+                "${GITOPS_REPO_NAMESPACE}" "${GITOPS_REPO_NAME}" \
+                "${sg_ready:-<none>}" "${sg_rev:-<none>}" \
+                "${sg_msg:+ (${sg_msg})}"
+            }
+
+            assert_secondary_pivot_durable() {
+              sd_kc="$1"; sd_region="$2"
+              sd_budget="${SECONDARY_READBACK_BUDGET_SECONDS:-300}"
+              sd_samples="${SECONDARY_READBACK_SETTLE_SAMPLES:-2}"
+              sd_interval="${SECONDARY_READBACK_INTERVAL_SECONDS:-10}"
+              sd_deadline=$(( $(date +%s) + sd_budget ))
+              sd_token=$(date +%s)
+
+              # Which HR-owning Kustomizations actually EXIST in this region —
+              # only those can revert the pivot, and only those can be required
+              # to handle the poke. A region with none of them has nothing that
+              # re-applies HelmRepositories from a durable source, so the plain
+              # read-back is already the whole truth there (single-region-shaped
+              # secondaries, and any topology where the operator moved the slot
+              # Kustomizations, must not fail on an absence).
+              : > /tmp/.sd-ks.txt
+              for sd_ks in ${HELMREPO_READBACK_KUSTOMIZATIONS:-}; do
+                if kubectl --kubeconfig "${sd_kc}" get kustomization "${sd_ks}" \
+                    -n "${HELMREPO_NAMESPACE}" >/dev/null 2>&1; then
+                  printf '%s\n' "${sd_ks}" >> /tmp/.sd-ks.txt
+                fi
+              done
+              sd_ks_count=$(grep -c . /tmp/.sd-ks.txt || true)
+
+              # Poke: force the durable source + every HR-owning Kustomization
+              # to re-apply NOW, so a revert lands inside this window instead of
+              # 55 seconds after the Job exits (the hw292 shape).
+              kubectl --kubeconfig "${sd_kc}" annotate --overwrite gitrepository "${GITOPS_REPO_NAME}" \
+                -n "${GITOPS_REPO_NAMESPACE}" \
+                "reconcile.fluxcd.io/requestedAt=${sd_token}" >/dev/null 2>&1 || true
+              while IFS= read -r sd_ks; do
+                [ -n "${sd_ks}" ] || continue
+                kubectl --kubeconfig "${sd_kc}" annotate --overwrite kustomization "${sd_ks}" \
+                  -n "${HELMREPO_NAMESPACE}" \
+                  "reconcile.fluxcd.io/requestedAt=${sd_token}" >/dev/null 2>&1 || true
+              done < /tmp/.sd-ks.txt
+              echo "[helmrepository-patches] #5596 secondary ${sd_region}: poked ${sd_ks_count} HR-owning Kustomization(s) + ${GITOPS_REPO_NAMESPACE}/${GITOPS_REPO_NAME} with reconcile token ${sd_token}; the pivot must survive their re-apply"
+
+              sd_clean=0
+              sd_handled=0
+              # NB: `[ … ] && sd_handled=1` would exit the whole step under the
+              # script's `set -e` whenever the test is false. Use an if.
+              if [ "${sd_ks_count}" -eq 0 ]; then
+                echo "[helmrepository-patches] #5596 secondary ${sd_region}: none of the HR-owning Kustomizations (${HELMREPO_READBACK_KUSTOMIZATIONS:-<none>}) exist here — nothing in this region re-applies HelmRepositories from a durable source, so the read-back alone is the whole truth"
+                sd_handled=1
+              fi
+              while : ; do
+                if ! secondary_offenders "${sd_kc}"; then
+                  echo "[helmrepository-patches] FATAL: #5596 secondary ${sd_region}: cannot enumerate its HelmRepositories in ${HELMREPO_NAMESPACE} — an unreadable region is NOT a pivoted region; refusing to record success" >&2
+                  sed 's/^/  KUBECTL-STDERR /' /tmp/.sd-hrs.err >&2 || true
+                  return 1
+                fi
+                sd_left=$(grep -c . /tmp/.sd-offenders.txt || true)
+                if [ "${sd_left}" -ne 0 ]; then
+                  echo "[helmrepository-patches] FATAL: #5596 secondary ${sd_region}: ${sd_left} HelmRepository(ies) on ${UPSTREAM_PREFIX} after the pivot — region ${sd_region} would resolve those charts from the public upstream on its next reconcile; refusing to record success. $(secondary_source_diagnosis "${sd_kc}")" >&2
+                  sed 's/^/  STILL-UPSTREAM /' /tmp/.sd-offenders.txt >&2 || true
+                  return 1
+                fi
+                sd_clean=$((sd_clean+1))
+                if [ "${sd_handled}" -eq 0 ]; then
+                  while IFS= read -r sd_ks; do
+                    [ -n "${sd_ks}" ] || continue
+                    sd_h=$(kubectl --kubeconfig "${sd_kc}" get kustomization "${sd_ks}" \
+                      -n "${HELMREPO_NAMESPACE}" \
+                      -o jsonpath='{.status.lastHandledReconcileAt}' 2>/dev/null || echo "")
+                    if [ "${sd_h}" = "${sd_token}" ]; then
+                      sd_handled=1
+                      echo "[helmrepository-patches] #5596 secondary ${sd_region}: Kustomization ${sd_ks} handled reconcile token ${sd_token} — its re-apply has run"
+                      break
+                    fi
+                  done < /tmp/.sd-ks.txt
+                fi
+                if [ "${sd_handled}" -eq 1 ] && [ "${sd_clean}" -ge "${sd_samples}" ]; then
+                  echo "[helmrepository-patches] #5596 secondary ${sd_region}: pivot is DURABLE — zero HelmRepositories on ${UPSTREAM_PREFIX} across ${sd_clean} sample(s) spanning its own re-apply (tolerated: ${HELMREPO_READBACK_EXCLUDE:-<none>})"
+                  return 0
+                fi
+                if [ "$(date +%s)" -ge "${sd_deadline}" ]; then break; fi
+                sleep "${sd_interval}"
+              done
+              echo "[helmrepository-patches] FATAL: #5596 secondary ${sd_region}: the pivot read back CLEAN but could not be proven DURABLE within ${sd_budget}s — none of its HR-owning Kustomizations ($(tr '\n' ' ' < /tmp/.sd-ks.txt)) handled reconcile token ${sd_token}, so their next re-apply lands AFTER this Job exits and nothing downstream re-reads region ${sd_region}. That is exactly the hw292 shape (clean at 07:41:13Z, all 64 reverted at 07:42:08Z). $(secondary_source_diagnosis "${sd_kc}"). Refusing to record success (#5596)" >&2
+              return 1
+            }
+
             pivot_secondary_regions() {
+              pv_regions=0
+              for pv_probe in /secondary-kubeconfigs/*.yaml; do
+                [ -e "${pv_probe}" ] || continue
+                pv_regions=$((pv_regions+1))
+              done
+              # #5596 — say WHICH of the two zero-work states this is. "No
+              # secondary regions exist" (single-region Sovereign) is a
+              # legitimate no-op; "secondary regions exist and were not
+              # pivoted" is the false positive this leg exists to prevent, and
+              # every path below now has to record a per-region verdict.
+              if [ "${pv_regions}" -eq 0 ]; then
+                echo "[helmrepository-patches] #5359 no secondary-region kubeconfigs mounted — single-region Sovereign, secondary leg is inert (not a skipped pivot)"
+                return 0
+              fi
+              echo "[helmrepository-patches] #5359 secondary regions to pivot: ${pv_regions}"
               for pv_kc in /secondary-kubeconfigs/*.yaml; do
                 [ -e "${pv_kc}" ] || continue
                 pv_region=$(basename "${pv_kc}" .yaml)
@@ -1556,11 +1746,30 @@ data:
 
                 # Enumerate the secondary's LIVE HR set (drift-proof — its own
                 # set is authoritative, exactly the Phase-0.9 union discipline).
-                kubectl --kubeconfig "${pv_kc}" get helmrepository -n "${HELMREPO_NAMESPACE}" \
-                  -o jsonpath='{range .items[*]}{.metadata.name}={.spec.url}{"\n"}{end}' 2>/dev/null \
-                  > /tmp/sec_hrs.txt || true
+                #
+                # #5596 — the enumeration's EXIT STATUS is load-bearing. It used
+                # to be `2>/dev/null || true`, which made "the API call failed"
+                # (unreachable region, expired credential, CRD absent) produce
+                # the SAME empty file as "this region genuinely has no
+                # HelmRepositories" — and the empty file recorded `skipped` and
+                # moved on. A region we could not read is not a region we
+                # pivoted; only a SUCCESSFUL listing that is empty may skip.
+                if kubectl --kubeconfig "${pv_kc}" get helmrepository -n "${HELMREPO_NAMESPACE}" \
+                    -o jsonpath='{range .items[*]}{.metadata.name}={.spec.url}{"\n"}{end}' \
+                    > /tmp/sec_hrs.txt 2>/tmp/sec_hrs.err; then
+                  pv_enum_ok=1
+                else
+                  pv_enum_ok=0
+                fi
+                if [ "${pv_enum_ok}" -eq 0 ]; then
+                  echo "[helmrepository-patches] FATAL: #5596 secondary ${pv_region}: enumerating HelmRepositories in ${HELMREPO_NAMESPACE} FAILED — refusing to record skipped on a region this Job could not read (that is indistinguishable from a pivoted region only in the log)" >&2
+                  sed 's/^/  KUBECTL-STDERR /' /tmp/sec_hrs.err >&2 || true
+                  kubectl -n "${CUTOVER_NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
+                    -p "{\"data\":{\"step.helmrepository-patches.region.${pv_region}.result\":\"failed\",\"step.helmrepository-patches.region.${pv_region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"step.helmrepository-patches.region.${pv_region}.lastError\":\"helmrepository enumeration failed\"}}" || true
+                  return 1
+                fi
                 if ! grep -q . /tmp/sec_hrs.txt; then
-                  echo "[helmrepository-patches] #5359 secondary ${pv_region}: no HelmRepositories found — recording skipped"
+                  echo "[helmrepository-patches] #5359 secondary ${pv_region}: listed successfully, zero HelmRepositories in ${HELMREPO_NAMESPACE} — nothing to pivot, recording skipped"
                   kubectl -n "${CUTOVER_NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
                     -p "{\"data\":{\"step.helmrepository-patches.region.${pv_region}.result\":\"skipped\",\"step.helmrepository-patches.region.${pv_region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" || true
                   continue
@@ -1602,18 +1811,15 @@ data:
                   return 1
                 fi
 
-                # Read-back assert: ZERO upstream-prefixed HRs may remain — a
+                # Read-back assert (#5359, made DURABLE by #5596): ZERO
+                # upstream-prefixed HRs may remain — and they must still be zero
+                # after the secondary's own HR-owning Kustomizations have
+                # re-applied, which the assert forces rather than waits for. A
                 # partially-pivoted secondary succeeding anyway IS the #5359
-                # false positive.
-                kubectl --kubeconfig "${pv_kc}" get helmrepository -n "${HELMREPO_NAMESPACE}" \
-                  -o jsonpath='{range .items[*]}{.metadata.name}={.spec.url}{"\n"}{end}' 2>/dev/null \
-                  > /tmp/sec_hrs_after.txt || true
-                pv_left=$(grep -cF -- "=${UPSTREAM_PREFIX}" /tmp/sec_hrs_after.txt || true)
-                if [ "${pv_left}" -ne 0 ]; then
-                  echo "[helmrepository-patches] FATAL: #5359 secondary ${pv_region}: ${pv_left} HelmRepository(ies) still on ${UPSTREAM_PREFIX} after the pivot:" >&2
-                  grep -F -- "=${UPSTREAM_PREFIX}" /tmp/sec_hrs_after.txt | sed 's/^/  STILL-UPSTREAM /' >&2 || true
+                # false positive; a fully-pivoted-then-reverted one is #5596.
+                if ! assert_secondary_pivot_durable "${pv_kc}" "${pv_region}"; then
                   kubectl -n "${CUTOVER_NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
-                    -p "{\"data\":{\"step.helmrepository-patches.region.${pv_region}.result\":\"failed\",\"step.helmrepository-patches.region.${pv_region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" || true
+                    -p "{\"data\":{\"step.helmrepository-patches.region.${pv_region}.result\":\"failed\",\"step.helmrepository-patches.region.${pv_region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"step.helmrepository-patches.region.${pv_region}.lastError\":\"pivot not durable — see Job log\"}}" || true
                   return 1
                 fi
 

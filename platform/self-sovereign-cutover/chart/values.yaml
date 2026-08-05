@@ -2894,6 +2894,39 @@ secondaryRegions:
   # artifact for 22h. Ready is a status field; immediately after a patch
   # it still describes the previous spec.
   gitRepositoryReadySeconds: 300
+  # Step 06 secondary leg: DURABLE pivot assert (#5596). After patching a
+  # secondary region's HelmRepositories, the leg pokes that region's own
+  # GitRepository + HR-owning Kustomizations (helmRepositories.
+  # readbackReconcileKustomizations) with a reconcile token and refuses to
+  # record success until one of those Kustomizations reports
+  # status.lastHandledReconcileAt == that token — i.e. the actor that would
+  # REVERT the pivot has already run — with the read-back clean on every
+  # sample up to that point.
+  #
+  # #5596 (hw292, dep 1c56518035a83e03): the pre-0.1.171 read-back was
+  # single-shot and fired seconds after the patch loop, so it sampled the
+  # PATCH and never the PIVOT. The step recorded
+  # step.helmrepository-patches.region.me-east-215-b-1.result=success at
+  # 07:41:13Z; region-b's kustomize-controller re-applied its FROZEN
+  # pre-cutover artifact at 07:42:08Z and put all 64 HelmRepositories back
+  # on oci://ghcr.io/openova-io. cutoverComplete=true landed at 08:12:30Z
+  # and 3 days later region-b was still 64/65 on ghcr.io. 55 seconds was
+  # the entire width of the window the old assert could see.
+  #
+  # A converged secondary handles the poke in seconds, so a healthy region
+  # costs ~2 samples of wall-clock and never waits the budget out; the
+  # budget is only spent on a region that genuinely cannot prove durability,
+  # where failing loud after 5 minutes is exactly the right trade. Inside
+  # stepTimeouts.helmRepositoryPatchesSeconds (2400s) alongside the region-A
+  # read-back + Phase-3a strip-readiness worst case.
+  pivotReadbackSeconds: 300
+  # Consecutive clean read-backs required (the last of which must land at or
+  # after the poked re-apply). 2 keeps a healthy region fast while still
+  # spanning one interval of live observation.
+  pivotReadbackSettleSamples: 2
+  # Seconds between read-back samples. Same 10s cadence step-05's secondary
+  # convergence poll uses.
+  pivotReadbackIntervalSeconds: 10
   # Git URL the SECONDARY regions' GitRepository is pivoted to. Empty
   # (default) = the chain is the Sovereign's OWN external Gitea door
   # (giteaFallbackURL / giteaFallbackToPublicDoor below). Setting this
