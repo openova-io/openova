@@ -59,7 +59,7 @@ Rows 219, 220, 222 and G8/G9 need the Anthropic credential; `seedAnthropicToken`
 
 | rows | defect | state |
 |---|---|---|
-| 110, 112, 114, 115 | #5389 per-app Open/launch does not land in the app | **root-caused 2026-08-06** (see below); fix in flight. Rows 110/112/114 have since walked ✅ on hw292 — those are *platform* apps on `<app>.<SovereignFQDN>`, which is the one shape that resolves. Row 115 is still ❌ but for an unrelated pair of blockers (PIN wall #5642 + zero seeded guacamole connections, #5598), not for the hostname defect |
+| 110, 112, 114, 115 | #5389 per-app Open/launch does not land in the app | **root-caused 2026-08-06** (see below); fix in flight. Rows 110/112/114 have since walked ✅ on hw292 — those are *platform* apps on `<app>.<SovereignFQDN>`, which is the one shape that resolves. Row 115 is still ❌ but for an unrelated pair of gates (PIN wall #5642 + zero seeded guacamole connections, #5598), not for the hostname defect |
 | 35, R9 | #5358 guacamole blank page after the SSO round-trip completes | filed, reopened on runtime evidence |
 | G12 | #5388 region-kill failback left a data split-brain | first fix merged (cnpg-pair 0.2.23 surfaces peer-probe starvation); re-proof rides hw292 |
 | R17 | #5364 org-delete leaves a half-teardown | filed, reopened on runtime evidence |
