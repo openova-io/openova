@@ -554,9 +554,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "2211d04"
+    tag: "08c1933"
   catalystUi:
-    tag: "2211d04"
+    tag: "08c1933"
   marketplaceApi:
     tag: "3c2f7e4"
   console:
@@ -774,7 +774,7 @@ controllers:
       # re-apply, NOT the sweep). 89993b2 is a direct DESCENDANT of b23af68 so it
       # CONTAINS the #4393 Guaranteed-QoS LimitRange fix AS WELL AS #4455 + #4462.
       # Durable fix to the deploy-bump whole-file clobber tracked in #4464.
-      tag: "7148b21"
+      tag: "08c1933"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -909,7 +909,7 @@ controllers:
       # 0c717f6 (2026-07-02, #4685) — freshness sweep: 8c532a7 had drifted 311
       # commits behind latest GHCR (0c717f6), surfaced the moment #4685 un-masked
       # the blanket false-red. Image published + main-reachable (verified).
-      tag: "8b7fc3b"
+      tag: "08c1933"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -961,7 +961,7 @@ controllers:
       # successful push-on-main build per Inviolable Principle #4a.
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "8b7fc3b"
+      tag: "08c1933"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -999,7 +999,7 @@ controllers:
       # 6d7aacd (2026-06-24, #4236) — freshness sweep on the funnel pool-DNS PR:
       # 34ff594 had drifted 183 commits behind latest GHCR (no code change here,
       # just clearing the staleness gate so the chart ships the current binary).
-      tag: "de18e61"
+      tag: "08c1933"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -1068,7 +1068,7 @@ controllers:
       # #2851 closed the drift gap (auto-bump + sweep + freshness guard).
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "8b7fc3b"
+      tag: "08c1933"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
