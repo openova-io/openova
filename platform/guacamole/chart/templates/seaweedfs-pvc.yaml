@@ -1,7 +1,7 @@
 {{- /* #3374: only provision the recordings PVC when persistence is enabled.
    Default is emptyDir (see guacamole-deployment.yaml volumes note) so the
    webapp Pod is not node-pinned to a local-path PV on a CPU-saturated node. */ -}}
-{{- if and .Values.guacamole.enabled .Values.guacamole.recordings.persistence -}}
+{{- if and (include "bp-guacamole.renderWorkloads" .) .Values.guacamole.recordings.persistence -}}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

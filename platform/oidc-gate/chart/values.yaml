@@ -99,6 +99,30 @@ networkPolicy:
     # allowing only the Service port drops the traffic (#4437's port trap).
     keycloakPort: 80
 
+# ── Cross-region upstream reachability (#5358) ───────────────────────
+# An upstream may be a ClusterMesh SINGLETON: one region owns the workload and
+# the other region's gate reaches it over the mesh through a zero-backend
+# global Service. bp-guacamole 0.2.36 is the first such upstream — Guacamole
+# keeps its REST session in a per-Pod in-memory HashTokenSessionMap, so running
+# one per region behind a shared VIP made a single browser page-load hit two
+# session maps and 403 (the #5358 blank page).
+#
+# The egress half of networkpolicy.yaml names the upstream by
+# `k8s:io.kubernetes.pod.namespace`, and Cilium AND-injects
+# `io.cilium.k8s.policy.cluster=<local>` into every selector derived from a
+# namespaced CNP (`policy-default-local-cluster: "true"`). So WITHOUT the
+# block below the gate on the secondary region is denied its own upstream the
+# moment that upstream stops being local — the policy would silently undo the
+# #5358 fix.
+#
+# EMPTY peerClusters (the default, and every single-region Sovereign) → NO
+# extra rule is rendered and the egress policy is byte-identical to 0.1.9.
+crossRegion:
+  # Peer ClusterMesh cluster name(s) — the SAME source var bp-guacamole (52),
+  # bp-harbor (19), bp-postgres (16a/16c/16d) and bp-cnpg-pair (16b) consume,
+  # ${SOVEREIGN_PEER_CLUSTERMESH_NAMES}.
+  peerClusters: []
+
 # ── Gated app instances ──────────────────────────────────────────────
 # instances:
 #   - name: openova-flow            # instance name (DNS-safe)

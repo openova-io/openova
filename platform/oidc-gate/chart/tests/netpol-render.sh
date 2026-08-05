@@ -91,6 +91,50 @@ if mode == "rule":
     print(body, file=sys.stderr)
     sys.exit(1)
 
+if mode == "peerrule":
+    # #5358 — the cross-region half. Requires ONE egress rule whose
+    # toEndpoints names BOTH the peer ClusterMesh cluster AND the upstream
+    # namespace via matchExpressions, AND allows port/proto. Asserting the
+    # cluster key alone would pass on a rule scoped to the wrong namespace,
+    # which Cilium silently narrows to nothing (#4854 row 67 L2).
+    peer, ns, port, proto = sys.argv[4], sys.argv[5], sys.argv[6], sys.argv[7]
+
+    def expr_has(ep, key, value):
+        for e in ep.get("matchExpressions") or []:
+            if e.get("key") == key and value in (e.get("values") or []):
+                return True
+        return False
+
+    for rule in (doc.get("spec") or {}).get("egress") or []:
+        eps = rule.get("toEndpoints") or []
+        if not any(
+            expr_has(ep, "io.cilium.k8s.policy.cluster", peer)
+            and expr_has(ep, "k8s:io.kubernetes.pod.namespace", ns)
+            for ep in eps
+        ):
+            continue
+        for tp in rule.get("toPorts") or []:
+            for p in tp.get("ports") or []:
+                if str(p.get("port")) == port and str(p.get("protocol")) == proto:
+                    sys.exit(0)
+    print(
+        f"FAIL: {name} has no egress rule allowing {port}/{proto} to namespace "
+        f"{ns} in peer cluster {peer}",
+        file=sys.stderr,
+    )
+    print(body, file=sys.stderr)
+    sys.exit(1)
+
+if mode == "nopeer":
+    for rule in (doc.get("spec") or {}).get("egress") or []:
+        for ep in rule.get("toEndpoints") or []:
+            for e in ep.get("matchExpressions") or []:
+                if e.get("key") == "io.cilium.k8s.policy.cluster":
+                    print(f"FAIL: {name} rendered a peer-cluster rule with no peerClusters set", file=sys.stderr)
+                    print(body, file=sys.stderr)
+                    sys.exit(1)
+    sys.exit(0)
+
 needle = sys.argv[4]
 found = needle in body
 if mode == "present" and not found:
@@ -168,6 +212,47 @@ grep -qF 'name: "oidc-gate-openova-flow"' "$work/off.yaml" || {
   echo "      would then pass vacuously." >&2
   exit 1
 }
+echo "  PASS"
+
+# ── Case 5: the upstream's POD port is allowed, not just the Service port ───
+# #5358/#4437. `upstream` names the SERVICE port, but Cilium's egress verdict
+# runs AFTER the Service DNAT, so the load-bearing port is the backend Pod's.
+# Every real gate upstream on a Sovereign is an :80 Service in front of an
+# :8080 Pod (guacamole-server, openova-flow-server, powerdns-admin), so a
+# policy that allows only :80 drops every proxied request the moment
+# bp-plane-isolation's open-egress rule is not there to mask it — which is
+# exactly the per-Organization namespace bp-agenity installs this gate into.
+echo "[netpol] Case 5: upstream Pod port allowed alongside the Service port (#4437)"
+cat >"$work/svcport.yaml" <<YAML
+sovereignFQDN: ${fqdn}
+realm: sovereign
+instances:
+  - name: guacamole
+    enabled: true
+    clientId: guacamole-gate
+    upstream: http://guacamole-server.guacamole.svc.cluster.local:80
+YAML
+"$helm" template oidc-gate "$chart_dir" -a cilium.io/v2 -f "$work/svcport.yaml" >"$work/svcport-render.yaml" 2>/dev/null
+gegr="oidc-gate-guacamole-egress"
+assert rule "$work/svcport-render.yaml" "$gegr" guacamole 80 TCP
+assert rule "$work/svcport-render.yaml" "$gegr" guacamole 8080 TCP
+echo "  PASS"
+
+# ── Case 6: the cross-region peer rule (#5358) ──────────────────────────────
+# bp-guacamole 0.2.36 anchors the Guacamole webapp in ONE region; the other
+# region's gate reaches it through a zero-backend ClusterMesh global Service.
+# Rule 3 can never authorise that dial — Cilium AND-injects
+# `io.cilium.k8s.policy.cluster=<local>` into every selector derived from a
+# namespaced CNP (`policy-default-local-cluster: "true"`, read live from hw292's
+# cilium-config). Without this rule the policy silently undoes the #5358 fix.
+echo "[netpol] Case 6: crossRegion.peerClusters renders a peer-cluster egress rule"
+"$helm" template oidc-gate "$chart_dir" -a cilium.io/v2 -f "$work/svcport.yaml" \
+  --set 'crossRegion.peerClusters={peer-mesh-b}' >"$work/peer.yaml" 2>/dev/null
+assert peerrule "$work/peer.yaml" "$gegr" peer-mesh-b guacamole 80 TCP
+assert peerrule "$work/peer.yaml" "$gegr" peer-mesh-b guacamole 8080 TCP
+# Vacuity in the other direction: with NO peers the rule must be absent, so a
+# green Case 6 cannot mean "the template always emits a peer rule".
+assert nopeer "$work/svcport-render.yaml" "$gegr"
 echo "  PASS"
 
 echo "[netpol] ALL CASES PASS"
