@@ -145,6 +145,10 @@ import Layout from '../layouts/Layout.astro';
     // imports resolve. No new session mechanism is introduced.
     import { getMyOrgs, setActiveOrgConsoleHost } from '../lib/api';
     import { consoleLaunchHref } from '../lib/config';
+    // #5421 (UAT row 3): the owner pre-check gate lives in a plain module so it
+    // can be unit-tested. Ownership must NOT be gated on the marketplace-origin
+    // localStorage token — a cookie-borne owner has none there.
+    import { redeemOwnerGate } from '../lib/redeemOwnerGate';
     // #5634 (UAT row 92): the response-to-panel decision lives in a plain module
     // so it can be unit-tested; this page keeps only the DOM writes that need the
     // response body.
@@ -239,13 +243,16 @@ import Layout from '../layouts/Layout.astro';
     // AUTHORITATIVELY and performs the redirect itself, so an owner is never
     // trapped on the funnel regardless of the shared script's timing.
     //
-    // Personas (identical gate to Layout's returning-user redirect):
-    //   - no org-token                 → unauthenticated → public funnel (unchanged)
-    //   - org-token + >=1 live Org      → OWNER → hand off to console, NEVER funnel
-    //   - org-token + 0 live Orgs       → signed-in mid-signup (no workspace yet)
+    // #5421 (UAT row 3): ownership is decided by the SERVER (getMyOrgs, which
+    // carries the cross-subdomain `catalyst_session` cookie), NOT by the
+    // marketplace-origin localStorage token — an owner authenticates on the
+    // console origin, so that token is legitimately absent here. Personas:
+    //   - skipConsoleRedirect tenant   → funnel (demo/partner opt-out, unchanged)
+    //   - session with >=1 live Org     → OWNER → hand off to console, NEVER funnel
+    //   - session with 0 live Orgs      → signed-in mid-signup (no workspace yet)
     //                                     → funnel, so they can still redeem
-    //   - org-token but /tenant/orgs errors (expired / API down) → cannot confirm
-    //                                     ownership → funnel, so they are not trapped
+    //   - no session / /tenant/orgs errors (anon / expired / API down) → cannot
+    //                                     confirm ownership → funnel (401 lands here)
     async function init() {
       // Honour the same demo/partner opt-out the Layout redirect respects: those
       // tenants deliberately keep returning visitors ON the marketplace, so we
@@ -256,16 +263,21 @@ import Layout from '../layouts/Layout.astro';
 
       var token = '';
       try { token = localStorage.getItem('org-token') || ''; } catch (_) {}
-      if (!token || skipConsoleRedirect) {
+      // Gate on the opt-out only — NEVER on token presence (#5421). A cookie-borne
+      // owner has no marketplace-origin token; bailing on `!token` is exactly the
+      // bug that showed authed owners the anonymous funnel.
+      if (redeemOwnerGate({ token: token, skipConsoleRedirect: skipConsoleRedirect }) === 'funnel') {
         runFunnel();
         return;
       }
 
-      // Signed in: show a neutral "redirecting…" shim (never the funnel) while
-      // we confirm ownership, suppressing any funnel flash.
+      // Consult the server: show a neutral shim (never the funnel) while we
+      // confirm ownership from the cookie-borne session, suppressing any funnel
+      // flash for an owner. A genuinely anonymous visitor 401s below and falls
+      // through to the funnel.
       show('redeem-loading');
       var loadingCopy = document.querySelector('#redeem-loading p');
-      if (loadingCopy) loadingCopy.textContent = 'Taking you to your dashboard…';
+      if (loadingCopy) loadingCopy.textContent = 'One moment…';
 
       let orgs;
       try {
