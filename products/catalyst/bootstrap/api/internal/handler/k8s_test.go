@@ -317,6 +317,145 @@ func TestHandleK8sStream_EmitsEvent(t *testing.T) {
 	}
 }
 
+// TestHandleK8sStream_ChrootFanOutAcrossAliasMismatchedSecondary — #5571.
+//
+// End-to-end proof that /k8s/stream fans the SSE initial-state snapshot
+// out across EVERY registered cluster on a chroot, even when the
+// self-registered primary carries the "sovereign-<fqdn>" alias
+// (buildChrootClusterRef's fallback when CATALYST_SELF_DEPLOYMENT_ID
+// isn't stamped — documented there as the TYPICAL post-cutover shape) and
+// the secondary kubeconfig is registered under the unrelated real-depID
+// convention ("<depID>-<region>"). Before the #5571 fix,
+// deploymentScopedClusterIDs prefix-matched "<resolvedID>-" against the
+// registered cluster ids; "sovereign-<fqdn>-" never matches
+// "<depID>-<region>", so the secondary region's objects never reached the
+// stream — the Cloud NetworkPolicy/CiliumNetworkPolicy pages silently
+// rendered one region's set with no region label to reveal the omission.
+func TestHandleK8sStream_ChrootFanOutAcrossAliasMismatchedSecondary(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "t99.omani.works")
+
+	const (
+		selfAlias   = "sovereign-t99.omani.works"
+		realDepID   = "7bb723da8da06047"
+		secondaryID = realDepID + "-me-east-215-b-1"
+	)
+
+	podA := newPod("default", "region-a-pod")
+	podB := newPod("default", "region-b-pod")
+
+	scheme := runtime.NewScheme()
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Version: "v1", Kind: "PodList"}, &unstructured.UnstructuredList{})
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Version: "v1", Kind: "Pod"}, &unstructured.Unstructured{})
+	gvrList := map[schema.GroupVersionResource]string{
+		{Version: "v1", Resource: "pods"}: "PodList",
+	}
+	dynA := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrList, podA)
+	dynB := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrList, podB)
+
+	cfg := k8scache.Config{
+		Logger:   quietLog(),
+		Registry: minimalRegistry(),
+		Clusters: []k8scache.ClusterRef{
+			{ID: selfAlias, DynamicClient: dynA, CoreClient: kfake.NewSimpleClientset()},
+			{ID: secondaryID, DynamicClient: dynB, CoreClient: kfake.NewSimpleClientset()},
+		},
+	}
+	f, err := k8scache.NewFactory(cfg)
+	if err != nil {
+		t.Fatalf("NewFactory: %v", err)
+	}
+	if err := f.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(f.Stop)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		ia, _, _ := f.List(selfAlias, "pod", nil)
+		ib, _, _ := f.List(secondaryID, "pod", nil)
+		if len(ia) == 1 && len(ib) == 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	h := &Handler{log: quietLog()}
+	h.SetK8sCache(f, k8scache.NewSARCache(), "X-Forwarded-User")
+	r := newRouter(h)
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	// The URL id doesn't have to match either registered cluster — the
+	// chroot path aliases any unresolved id onto the self-registered
+	// cluster (resolveChrootClusterID), same as a real browser hitting
+	// /sovereigns/<mother-issued-id>/k8s/stream post-cutover.
+	resp, err := http.Get(srv.URL + "/api/v1/sovereigns/anything/k8s/stream?kinds=pod&initialState=1")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	seenClusters := map[string]bool{}
+	seenNames := map[string]bool{}
+	doneCh := make(chan struct{})
+	go func() {
+		defer close(doneCh)
+		br := bufio.NewReader(resp.Body)
+		for {
+			line, err := br.ReadString('\n')
+			if err != nil {
+				return
+			}
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			payload := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+			var ev struct {
+				Cluster string `json:"cluster"`
+				Kind    string `json:"kind"`
+				Type    string `json:"type"`
+				Object  struct {
+					Metadata struct {
+						Name string `json:"name"`
+					} `json:"metadata"`
+				} `json:"object"`
+			}
+			if err := json.Unmarshal([]byte(payload), &ev); err != nil {
+				continue
+			}
+			if ev.Kind != "pod" || ev.Type != "ADDED" {
+				continue
+			}
+			seenClusters[ev.Cluster] = true
+			seenNames[ev.Object.Metadata.Name] = true
+			if seenClusters[selfAlias] && seenClusters[secondaryID] {
+				return
+			}
+		}
+	}()
+	select {
+	case <-doneCh:
+	case <-time.After(3 * time.Second):
+		_ = resp.Body.Close()
+	}
+
+	if !seenClusters[selfAlias] {
+		t.Fatalf("expected an event from the self-registered alias cluster %q; got clusters=%v names=%v",
+			selfAlias, seenClusters, seenNames)
+	}
+	if !seenClusters[secondaryID] {
+		t.Fatalf("#5571 REGRESSION: no event from the alias-mismatched secondary cluster %q — "+
+			"the stream fanned out to only ONE region; got clusters=%v names=%v",
+			secondaryID, seenClusters, seenNames)
+	}
+	if !seenNames["region-a-pod"] || !seenNames["region-b-pod"] {
+		t.Fatalf("expected both region-a-pod and region-b-pod; got names=%v", seenNames)
+	}
+}
+
 // keep metav1 imported even if a future test refactor drops the
 // explicit reference.
 var _ = metav1.GetOptions{}

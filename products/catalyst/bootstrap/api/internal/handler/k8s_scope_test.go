@@ -84,3 +84,54 @@ func TestDeploymentScopedClusterIDs_ExcludesSiblingAndWipedDeployments(t *testin
 		}
 	}
 }
+
+// TestDeploymentScopedClusterIDs_ChrootAliasMismatchStillIncludesSecondary
+// — #5571.
+//
+// On the CHROOT (SOVEREIGN_FQDN set), buildChrootClusterRef self-registers
+// the primary cluster under a "sovereign-<fqdn>" alias whenever
+// CATALYST_SELF_DEPLOYMENT_ID isn't stamped — documented in
+// buildChrootClusterRef as the TYPICAL post-cutover case. Secondary
+// kubeconfig FILES on disk keep the real deployment-id convention
+// ("<depID>-<region>", k8scache.LoadClustersFromDir stem). Neither string
+// is a prefix of the other, so a pure prefix-based scope silently drops
+// the secondary region — exactly the "one region only, no region label"
+// defect this issue reports (hw291 NetworkPolicies/CiliumNetworkPolicies
+// streams returning exactly one region's count).
+//
+// Chroot mode carries none of #3987's cross-deployment leak risk (a
+// chroot's k8sCache is only ever populated by this ONE Sovereign's own
+// self-registration + its own posted-back secondaries), so scoping to
+// "every registered cluster" is correct by construction there.
+func TestDeploymentScopedClusterIDs_ChrootAliasMismatchStillIncludesSecondary(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "t99.omani.works")
+
+	const (
+		selfAlias   = "sovereign-t99.omani.works"    // buildChrootClusterRef fallback id
+		realDepID   = "7bb723da8da06047"             // the mothership-issued deployment id
+		secondaryID = realDepID + "-me-east-215-b-1" // on-disk secondary kubeconfig stem
+	)
+
+	cache := newK8sCacheWithClusters(t, map[string]*dynamicfake.FakeDynamicClient{
+		selfAlias:   fakeHRDynamicClient(t),
+		secondaryID: fakeHRDynamicClient(t),
+	})
+
+	h := &Handler{
+		log:      slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		k8sCache: cache,
+	}
+
+	got := h.deploymentScopedClusterIDs(selfAlias)
+	sort.Strings(got)
+	want := []string{secondaryID, selfAlias}
+
+	if len(got) != len(want) {
+		t.Fatalf("chroot alias-mismatch scope dropped the secondary region: got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("chroot alias-mismatch scope mismatch: got %v, want %v", got, want)
+		}
+	}
+}
