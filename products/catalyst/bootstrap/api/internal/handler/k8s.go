@@ -97,9 +97,9 @@ func (h *Handler) HandleK8sList(w http.ResponseWriter, r *http.Request) {
 		// Helpful 404 lists every registered kind. Shaped this
 		// way so `curl /...invalid` self-documents the registry.
 		writeJSON(w, http.StatusNotFound, map[string]any{
-			"error":            "unknown kind",
-			"kind":             kindName,
-			"availableKinds":   h.k8sCache.Registry().Names(),
+			"error":          "unknown kind",
+			"kind":           kindName,
+			"availableKinds": h.k8sCache.Registry().Names(),
 		})
 		return
 	}
@@ -945,13 +945,47 @@ func (h *Handler) k8sCacheHasCluster(id string) bool {
 // hw136 + two already-wiped deployments whose stale cluster IDs had not
 // been evicted. Scoping the fan-out to the requested deployment's own
 // cluster-id prefix fixes the cross-deployment leak at the read tier
-// (the eviction half is fixed in k8scache's rescan-prune loop). The
-// chroot post-cutover case is unaffected: there every registered cluster
-// IS this Sovereign's (one primary + its secondaries, all sharing the
-// resolved id prefix), so the same prefix scope keeps the full set.
+// (the eviction half is fixed in k8scache's rescan-prune loop).
+//
+// #5571 — the doc comment above previously claimed "the chroot post-
+// cutover case is unaffected: there every registered cluster IS this
+// Sovereign's ... all sharing the resolved id prefix". That assumption is
+// FALSE whenever buildChrootClusterRef falls back to the
+// SOVEREIGN_FQDN-derived alias ("sovereign-<fqdn>") for the self-
+// registered primary — documented there as the TYPICAL post-cutover case,
+// since CATALYST_SELF_DEPLOYMENT_ID is usually never stamped on the
+// chroot. Every secondary kubeconfig FILE on disk keeps the real
+// deployment-id convention ("<depID>-<region>.yaml",
+// k8scache.LoadClustersFromDir stem), so "sovereign-<fqdn>" shares no
+// prefix with "<depID>-<region>" and the loop below silently excluded
+// EVERY secondary region — the "one region only, no region label" read
+// this issue reports (hw291: NetworkPolicies/CiliumNetworkPolicies
+// streams/lists silently returning exactly one region's count instead of
+// the Sovereign-wide set).
+//
+// Chroot mode has no cross-deployment leak risk to guard against in the
+// first place: a chroot's k8sCache is only EVER populated by (a) this
+// same Sovereign's self-registration and (b) this same Sovereign's own
+// posted-back secondary kubeconfigs (SelfHealSecondaryKubeconfigsOnDisk /
+// HandleSovereignSecondaryKubeconfig) — no other code path adds a cluster
+// to a chroot's cache. The #3987 leak is a MOTHERSHIP-ONLY problem (one
+// process manages MANY deployments' clusters at once), so on the chroot
+// we return every registered cluster unconditionally instead of relying
+// on a prefix match that the alias-vs-depID naming mismatch can break.
 func (h *Handler) deploymentScopedClusterIDs(resolvedID string) []string {
 	out := []string{resolvedID}
 	if h.k8sCache == nil {
+		return out
+	}
+	if isChroot() {
+		seen := map[string]struct{}{resolvedID: {}}
+		for _, cid := range h.k8sCache.Clusters() {
+			if _, ok := seen[cid]; ok {
+				continue
+			}
+			seen[cid] = struct{}{}
+			out = append(out, cid)
+		}
 		return out
 	}
 	prefix := resolvedID + "-"
