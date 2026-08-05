@@ -57,7 +57,7 @@ Pairs with:
 {{- end -}}
 {{- /* #3374: no recordings PVC exists when persistence=false (emptyDir) — the
    storageClass-migration hook is then a no-op, so skip it entirely. */ -}}
-{{- if and .Values.guacamole.enabled $migrate .Values.guacamole.recordings.persistence -}}
+{{- if and (include "bp-guacamole.renderWorkloads" .) $migrate .Values.guacamole.recordings.persistence -}}
 apiVersion: batch/v1
 kind: Job
 metadata:

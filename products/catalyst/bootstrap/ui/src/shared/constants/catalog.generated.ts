@@ -1952,7 +1952,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.35",
+    "version": "0.2.36",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-keycloak",
@@ -3687,7 +3687,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.9",
+    "version": "0.1.10",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-cilium",

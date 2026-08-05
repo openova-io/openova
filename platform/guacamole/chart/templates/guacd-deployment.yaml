@@ -1,4 +1,6 @@
-{{- if .Values.guacamole.enabled -}}
+{{- /* #5358: guacd exists only to serve the local webapp; a crossRegion
+   `secondary` region runs neither. */ -}}
+{{- if include "bp-guacamole.renderWorkloads" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

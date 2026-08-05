@@ -14,7 +14,7 @@ Pairs with templates/recordings-pvc-migrate-hook.yaml.
 {{- end -}}
 {{- /* #3374: the migration RBAC is only needed when the recordings PVC exists
    (persistence=true); skip it for the default emptyDir path. */ -}}
-{{- if and .Values.guacamole.enabled $migrate .Values.guacamole.recordings.persistence -}}
+{{- if and (include "bp-guacamole.renderWorkloads" .) $migrate .Values.guacamole.recordings.persistence -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:

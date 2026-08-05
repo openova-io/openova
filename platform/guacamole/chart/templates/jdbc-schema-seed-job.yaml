@@ -47,7 +47,9 @@ postgresql.cnpg.io CRD absent.
 */ -}}
 {{- $db := .Values.guacamole.database | default dict -}}
 {{- $cl := $db.cluster | default dict -}}
-{{- if and .Values.guacamole.enabled (default true $db.enabled) (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
+{{- /* #5358: seeds + enrols against the local CNPG store, which only the
+   crossRegion `primary` region renders. */ -}}
+{{- if and (include "bp-guacamole.renderWorkloads" .) (default true $db.enabled) (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
 {{- $name := $cl.name | default "guacamole-pg" -}}
 {{- $appSecret := $db.appSecretName | default (printf "%s-app" $name) -}}
 {{- $adminGroup := $db.adminGroup | default "sovereign-admins" -}}
