@@ -186,7 +186,7 @@ spec:
           # values.yaml `images.catalystApi.tag` is also bumped (but
           # unused for catalyst-api; kept for Organization services that DO read
           # from values).
-          image: "ghcr.io/openova-io/openova/catalyst-api:a6fa814"
+          image: "ghcr.io/openova-io/openova/catalyst-api:7b6caae"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
