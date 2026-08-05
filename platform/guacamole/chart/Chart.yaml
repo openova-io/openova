@@ -301,7 +301,7 @@ name: bp-guacamole
 # chart/tests/crossregion-render.sh (Case 3 fails against the pre-fix chart —
 # role=secondary there still renders 2 Deployments + 1 CNPG Cluster).
 # Refs #5358.
-version: 0.2.36
+version: 0.2.37
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
