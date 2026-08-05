@@ -3662,7 +3662,7 @@ name: bp-catalyst-platform
 # 1.4.1295 — #5467: bp-self-sovereign-cutover 0.1.168 -> 0.1.169 (harbor-prewarm
 #   GHCR-PAT log-leak fix). Bootstrap-kit slot-06a + catalog-seed pins lockstep.
 #   (re-serialized past main 1.4.1294 at rebase.)
-version: 1.4.1300
+version: 1.4.1301
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
