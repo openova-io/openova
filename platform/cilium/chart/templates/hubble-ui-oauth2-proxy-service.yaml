@@ -10,12 +10,30 @@ OIDC-authenticated before reaching the upstream hubble-ui Service.
 {{- if and (not $hostname) $ov.sovereignFQDN -}}
 {{- $hostname = printf "hubble.%s" $ov.sovereignFQDN -}}
 {{- end -}}
+{{- $meshEnabled := (include "bp-cilium.hubbleUI.meshEnabled" .) -}}
+{{- $isSecondary := (include "bp-cilium.hubbleUI.isMeshSecondary" .) -}}
 {{- if and $ov.enabled $hostname (eq $ov.auth "oidc") -}}
 apiVersion: v1
 kind: Service
 metadata:
   name: hubble-ui-oauth2-proxy
   namespace: {{ $ov.serviceRef.namespace | quote }}
+{{- if $meshEnabled }}
+  {{- /* #5602 — ClusterMesh singleton. `global` makes this region CONSUME the
+     peer region's backends for this Service; `affinity: local` keeps a region
+     with local backends (the PRIMARY) on its own Pod and lets a region with
+     NONE (the SECONDARY, whose Deployment is suppressed) fall through the mesh
+     to the primary's singleton. `shared` is true only on the primary — the
+     secondary must never EXPORT its zero-backend stub back to the primary.
+     Cilium surfaces these remote backends inside Gateway-API envoy clusters:
+     verified live on hw292 region-b, where the envoy cluster
+     `gitea:gitea-http:3000` (global Service) carries 10.42.1.191:3000 from
+     region-A alongside its local 10.43.3.228:3000. */}}
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: {{ if $isSecondary }}"false"{{ else }}"true"{{ end }}
+    service.cilium.io/affinity: "local"
+{{- end }}
   labels:
     app.kubernetes.io/name: bp-cilium
     app.kubernetes.io/component: hubble-ui-oauth2-proxy

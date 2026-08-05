@@ -29,7 +29,14 @@ Gated by auth=oidc AND enabled AND a resolvable hostname.
 {{- $hostname = printf "hubble.%s" $ov.sovereignFQDN -}}
 {{- end -}}
 {{- $proxy := $ov.oauth2Proxy -}}
-{{- if and $ov.enabled $hostname (eq $ov.auth "oidc") -}}
+{{- /* #5602 — on the ClusterMesh SECONDARY region this Deployment is
+   deliberately NOT rendered. Hubble UI's flow/control streams keep their
+   channel state in the hubble-ui backend PROCESS, so a Sovereign must run
+   exactly ONE of them behind the one `hubble.<fqdn>` hostname; suppressing the
+   secondary's proxy is what leaves its Service with ZERO local backends, which
+   is in turn what makes `service.cilium.io/affinity: local` fall through the
+   mesh to the primary. See templates/_hubble-crossregion.tpl. */ -}}
+{{- if and $ov.enabled $hostname (eq $ov.auth "oidc") (not (include "bp-cilium.hubbleUI.isMeshSecondary" .)) -}}
 {{- $sovFQDN := $ov.sovereignFQDN -}}
 {{- if and (not $sovFQDN) $ov.hostname -}}
 {{- $sovFQDN = trimPrefix "hubble." $ov.hostname -}}

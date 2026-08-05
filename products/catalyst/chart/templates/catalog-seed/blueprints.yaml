@@ -3837,7 +3837,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.4.18"
+  version: "1.4.19"
   visibility: unlisted
   card:
     title: "Cilium"
@@ -3854,7 +3854,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cilium
-    version: "1.4.18"
+    version: "1.4.19"
   topology:
     supported:
       - singleton
