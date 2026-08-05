@@ -21,6 +21,20 @@
 //	                                     bare root (Exact `/`) here; every other
 //	                                     path goes to NewAPI, so this never
 //	                                     shadows the SPA / API / OIDC callback.
+//	:8080  GET  /login                 → handler.SSOInitHandler (#5612 —
+//	                                     the same landing page also answers
+//	                                     `/login`, the recovery path NewAPI's
+//	                                     own SPA bounces an expired session to.
+//	                                     Its "Continue with OpenOva SSO" button
+//	                                     is inert (upstream SPA bug, cannot be
+//	                                     patched — pinned mirror); the chart's
+//	                                     HTTPRoute sends an Exact `/login` match
+//	                                     here ONLY when SSO is fully configured
+//	                                     (sovereignFQDN set), so a full
+//	                                     navigation/reload of the expired-
+//	                                     session page runs the deterministic
+//	                                     OIDC round-trip instead of the dead
+//	                                     button.
 //
 // Env contract
 //
@@ -83,17 +97,24 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	// #3374 zero-click bare-URL SSO landing page. Registered LAST and on the
-	// most-specific bare-root path; the bp-newapi HTTPRoute Exact `/` rule is
-	// what actually steers only the bare root to this sidecar (the SPA, API,
-	// and OIDC callback keep flowing to NewAPI). SSOInitHandler itself 404s
-	// any path other than "/" as a belt-and-braces guard.
-	mux.HandleFunc("/", handler.SSOInitHandler(handler.SSOInitConfig{
+	// #3374 zero-click bare-URL SSO landing page, ALSO answering `/login`
+	// (#5612 — the recovery path for an expired session, whose own
+	// "Continue with OpenOva SSO" button is inert). Registered LAST on both
+	// the bare-root and `/login` paths; the bp-newapi HTTPRoute's Exact `/`
+	// and Exact `/login` rules are what actually steer these two paths to
+	// this sidecar (the SPA, API, and OIDC callback keep flowing to NewAPI
+	// for everything else — including `/login` on an overlay where SSO is
+	// unconfigured, since the chart only adds the `/login` HTTPRoute match
+	// once sovereignFQDN is set). SSOInitHandler itself 404s any path other
+	// than "/" or "/login" as a belt-and-braces guard.
+	ssoInit := handler.SSOInitHandler(handler.SSOInitConfig{
 		Slug:         os.Getenv("NEWAPI_SSO_INIT_SLUG"),
 		AuthorizeURL: os.Getenv("NEWAPI_SSO_AUTHORIZE_URL"),
 		ClientID:     os.Getenv("NEWAPI_SSO_CLIENT_ID"),
 		Scopes:       os.Getenv("NEWAPI_SSO_SCOPES"),
-	}))
+	})
+	mux.HandleFunc("/", ssoInit)
+	mux.HandleFunc("/login", ssoInit)
 
 	srv := &http.Server{
 		Addr:              addr,

@@ -29,6 +29,12 @@
 #      path relies on)
 #   5. Operator override — explicit `host` overrides the
 #      `newapi.<fqdn>` derived hostname
+#   7. #5612 — the Exact `/login` recovery-path match is present + routed
+#      to the sandbox-bridge Service when sovereignFQDN is set (the inert
+#      "Continue with OpenOva SSO" button fix)
+#   8. #5612 — the `/login` match is ABSENT when sovereignFQDN is unset
+#      (guards against routing the recovery path into a bridge whose own
+#      fallback would redirect back to /login — a self-loop)
 
 set -euo pipefail
 
@@ -176,5 +182,58 @@ if grep -qE '^  placement: single-region$' <<<"$appcr"; then
   exit 1
 fi
 echo "[bp-newapi] Case 6: PASS"
+
+# ── Case 7: #5612 recovery-path Exact /login match present ────────────
+# NewAPI's own "Continue with OpenOva SSO" button on /login?expired=true is
+# inert (verified live on hw292 — no navigation, no network request). The
+# chart now routes an Exact /login match to the SAME bridge Service that
+# already serves the bare-root zero-click landing page, so a full
+# navigation/reload of the expired-session page recovers deterministically.
+echo "[bp-newapi] Case 7: #5612 — Exact /login match routes to the bridge Service"
+login_matches=$(echo "$route_block" | grep -c 'value: "/login"' || true)
+if [ "$login_matches" -lt 1 ]; then
+  echo "FAIL: no Exact /login match rendered with sovereignFQDN set — #5612 recovery path missing"
+  echo "$route_block"
+  exit 1
+fi
+if ! echo "$route_block" | grep -A2 'value: "/login"' | grep -q "smoke-bp-newapi-bridge"; then
+  echo "FAIL: /login match does not backendRef the bridge Service"
+  exit 1
+fi
+echo "[bp-newapi] Case 7: PASS"
+
+# ── Case 8: #5612 /login match absent without sovereignFQDN ───────────
+# Without sovereignFQDN, bp-newapi.sandboxBridgeEnv never populates
+# NEWAPI_SSO_AUTHORIZE_URL/CLIENT_ID (_helpers.tpl), so the bridge's own
+# fallback() would redirect an unconfigured /login hit back to /login — a
+# self-loop. The HTTPRoute must gate the /login match on the SAME signal so
+# an unconfigured overlay keeps NewAPI's stock SPA /login page instead.
+echo "[bp-newapi] Case 8: #5612 — /login match ABSENT when sovereignFQDN is unset"
+nofqdn_values=$(mktemp)
+cat > "$nofqdn_values" <<'EOF'
+auth:
+  adminUI:
+    mode: masterKey
+database:
+  existingSecret: test-dsn
+ingress:
+  host: api.smoke.omani.works
+  httpRoute:
+    enabled: true
+    host: newapi.smoke.omani.works
+EOF
+out_nofqdn=$("$helm" template smoke "$chart_dir" -f "$nofqdn_values" 2>&1)
+rm -f "$nofqdn_values"
+route_block_nofqdn=$(echo "$out_nofqdn" | awk '/^---$/{f=0} /^kind: HTTPRoute$/{f=1} f')
+if [ -z "$route_block_nofqdn" ]; then
+  echo "FAIL: HTTPRoute did not render with an explicit httpRoute.host + no sovereignFQDN"
+  exit 1
+fi
+if grep -q 'value: "/login"' <<<"$route_block_nofqdn"; then
+  echo "FAIL: #5612 REGRESSION — /login match rendered WITHOUT sovereignFQDN (self-redirect-loop risk)"
+  echo "$route_block_nofqdn"
+  exit 1
+fi
+echo "[bp-newapi] Case 8: PASS"
 
 echo "[bp-newapi] All HTTPRoute render cases PASS"

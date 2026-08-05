@@ -120,6 +120,34 @@
 //     the setup wizard. (An overlay with no SSO configured still degrades to
 //     /login, since reloading would loop forever with nothing to land on.)
 // Refs #3374.
+//
+// ── #5612 (2026-08-05): the inert "Continue with OpenOva SSO" RECOVERY button ──
+// newapi's own session TTL is under an hour (facet 1 of #5612 — a separate
+// session-lifetime issue, not addressed here). When the session lapses
+// mid-visit, NewAPI's embedded SPA client-routes to `/login?expired=true`
+// and offers a "Continue with OpenOva SSO" button. Live evidence on hw292:
+// clicking it does NOTHING — no navigation, no /api/oauth/state call, no
+// network request at all. Root cause is the SAME class of defect already
+// diagnosed above for the bare-root page: the SPA's onCustomOAuthClicked
+// handler (web/src/helpers/api.js) needs a `custom_oauth_providers` entry to
+// act on, and NewAPI v0.13.2's discovery surface never exposes one to the
+// client at `/login` render time (the exact gap the 0.1.16 fix above routed
+// AROUND for `/`, rather than fixed — the SPA is a pinned mirror, not a
+// fork, so its button-click JS cannot be patched here).
+//
+// FIX: apply the SAME workaround NewAPI's `/` never needed a click for —
+// serve THIS deterministic, chart-driven landing page for `/login` too. The
+// chart's HTTPRoute (templates/httproute.yaml) now sends an Exact `/login`
+// match to this same bridge, so any FULL navigation to the expired-session
+// page (a reload, a bookmark, a hard `window.location` redirect, or the
+// User simply retyping the URL after the button no-ops) runs the identical
+// self-check -> state-mint -> authorize-redirect chain that already
+// recovers the bare root — no dependency on the SPA's broken button at all.
+// The HTTPRoute only adds this second Exact match when `sovereignFQDN` is
+// set (mirrors the gate on NEWAPI_SSO_AUTHORIZE_URL below), so an
+// unconfigured overlay never routes `/login` here — see the fallback()
+// same-path guard below for why that gate matters even with it in place.
+// Refs #5612.
 package handler
 
 import (
@@ -171,7 +199,24 @@ var ssoInitTemplate = template.Must(template.New("sso-init").Parse(`<!doctype ht
   var AUTHORIZE_URL = {{ .AuthorizeURL }}; // KC authorize endpoint, carries ?kc_idp_hint=catalyst-pin
   var CLIENT_ID = {{ .ClientID }};
   var SCOPES = {{ .Scopes }};
-  function fallback(){ window.location.replace("/login"); }
+  // #5612 - this same handler now also serves /login (the recovery path
+  // for an expired session). If SSO is unconfigured (AUTHORIZE_URL/CLIENT_ID
+  // empty) fallback() would normally send the visitor to /login - but when
+  // THIS page IS /login that would loop forever. The chart only routes
+  // /login here when SSO IS configured (httproute.yaml gates the Exact
+  // /login match on sovereignFQDN, the same signal that populates
+  // AUTHORIZE_URL/CLIENT_ID), so this branch should be unreachable in
+  // practice; it stays as a belt-and-braces guard against ever redirecting a
+  // page to itself.
+  function fallback(){
+    if (window.location.pathname === "/login") {
+      document.title = "Sign-in unavailable";
+      document.querySelector(".box").innerHTML =
+        "<div>OpenOva SSO is not available right now. Please contact your administrator.</div>";
+      return;
+    }
+    window.location.replace("/login");
+  }
   // #3374 (2026-06-18) — self-reload instead of falling through to /login when
   // NewAPI is configured for SSO but still WARMING UP (DSN-gate + GORM migrate,
   // up to ~2min on a fresh prov). The SPA's /login bounces an unseeded NewAPI
@@ -286,10 +331,19 @@ func jsLiteral(s string) template.JS {
 	return template.JS("\"" + template.JSEscapeString(s) + "\"")
 }
 
+// ssoInitAllowedPaths are the ONLY two paths this handler ever serves. `/` is
+// the #3374 zero-click bare-URL landing page; `/login` is the #5612 recovery
+// path for an expired session (NewAPI's own "Continue with OpenOva SSO"
+// button on `/login?expired=true` is inert — see the file header). Any other
+// path 404s so a misconfigured HTTPRoute (sending more than these two paths
+// here) fails loud instead of shadowing the SPA.
+var ssoInitAllowedPaths = map[string]bool{"/": true, "/login": true}
+
 // SSOInitHandler returns an http.HandlerFunc that serves the zero-click
-// landing page for EXACTLY the bare root path. It 404s any other path so a
-// misconfigured route (sending more than `/` here) fails loud instead of
-// shadowing the SPA. Method is GET/HEAD only.
+// landing page for EXACTLY the bare root path and, per #5612, the `/login`
+// recovery path. It 404s any other path so a misconfigured route (sending
+// more than `/` or `/login` here) fails loud instead of shadowing the SPA.
+// Method is GET/HEAD only.
 func SSOInitHandler(cfg SSOInitConfig) http.HandlerFunc {
 	slug := strings.TrimSpace(cfg.Slug)
 	if slug == "" {
@@ -306,7 +360,7 @@ func SSOInitHandler(cfg SSOInitConfig) http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if r.URL.Path != "/" {
+		if !ssoInitAllowedPaths[r.URL.Path] {
 			http.NotFound(w, r)
 			return
 		}

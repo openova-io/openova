@@ -1,5 +1,41 @@
 apiVersion: v2
 name: bp-newapi
+# 1.4.149 (#5612, 2026-08-05): the inert "Continue with OpenOva SSO" RECOVERY
+# button. newapi's own session TTL is under an hour; when it lapses mid-visit
+# the embedded SPA client-routes to `/login?expired=true` and offers a
+# "Continue with OpenOva SSO" button. Live evidence on hw292: the click does
+# NOTHING — no navigation, no /api/oauth/state call, no network request at
+# all. ROOT CAUSE is the SAME class of defect the #3374 0.1.16 fix already
+# routed around for the bare root: NewAPI v0.13.2 gives the SPA's own
+# onCustomOAuthClicked handler no `custom_oauth_providers` data to act on at
+# `/login` render time, so the click is a no-op. NewAPI is consumed as a
+# PINNED MIRROR, not a fork — the SPA's button JS cannot be patched.
+#
+# FIX: templates/httproute.yaml now routes an Exact `/login` match to the
+# SAME sandbox-bridge Service that already serves the bare-root zero-click
+# landing page (sso_init.go's SSOInitHandler answers both paths identically).
+# Any FULL navigation to the expired-session page — a reload, a bookmark, the
+# User retyping the URL after the dead button — now runs the deterministic
+# self-check → state-mint → Keycloak-authorize-redirect chain instead of
+# depending on the SPA's broken click handler. Gated on `sovereignFQDN` (the
+# same signal that populates NEWAPI_SSO_AUTHORIZE_URL/CLIENT_ID in
+# `bp-newapi.sandboxBridgeEnv`, _helpers.tpl) so an unconfigured overlay never
+# routes `/login` into a page whose own fallback link points back at
+# `/login` — that would be a redirect loop; those overlays keep NewAPI's
+# stock SPA login page exactly as before this change.
+#
+# newapi's own session TTL (facet 1 of #5612 — why the session expires in
+# under an hour) is a SEPARATE, not-yet-addressed gap in newapi's own
+# session/JWT config; this fix covers only the recovery-path button.
+#
+# New tests/httproute-render.sh Case 7 (the /login match renders + targets
+# the bridge when sovereignFQDN is set) + Case 8 (the match is ABSENT
+# without sovereignFQDN — the self-loop guard); new sso_init_test.go
+# TestSSOInitHandler_ServesLandingAtLogin +
+# TestSSOInitHandler_LoginFallbackDoesNotSelfLoop. Lockstep: blueprint.yaml
+# spec.version + catalog-seed blueprints.yaml + regenerated blueprints.json /
+# catalog.generated.ts + clusters/_template/bootstrap-kit/80-newapi.yaml pin
+# → 1.4.149 (NOT bumped in this PR — see PR body). Refs #5612.
 # 1.4.141 (#5374, UAT row 238): the chart-owned per-Org CNPG Cluster's
 # resources go requests==limits (500m/512Mi) → Guaranteed QoS on the
 # long-running postgres instance pod. Pre-fix the 50m/128Mi requests vs
@@ -994,7 +1030,7 @@ name: bp-newapi
 #   0.2.27. Render seam guarded by tests/5466-credentials-region-
 #   consistency-render.sh (fails on the pre-#5466 shape, plus a fallback
 #   vacuity control).
-version: 1.4.148
+version: 1.4.149
 appVersion: "0.13.2"
 description: |
   Catalyst Blueprint scratch chart for NewAPI — multi-tenant LLM

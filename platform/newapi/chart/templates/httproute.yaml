@@ -98,6 +98,41 @@ lands the owner signed-in (verified live on hw136). Gated + overrideable.
         <fullname>-bridge. */}}
         - name: {{ .Values.gateway.bridgeBackendService | default (printf "%s-bridge" (include "bp-newapi.fullname" .)) }}
           port: {{ .Values.sandboxBridge.port }}
+{{- /*
+#5612 (2026-08-05) — the inert "Continue with OpenOva SSO" RECOVERY button.
+When newapi's session lapses (facet 1 of #5612 — the sub-hour TTL, addressed
+separately), the embedded SPA client-routes to `/login?expired=true` and
+offers a "Continue with OpenOva SSO" button. Live evidence on hw292: the
+click does NOTHING (no navigation, no /api/oauth/state call, no network
+request) — the SAME class of runtime-discovery gap already documented above
+for the bare root (NewAPI v0.13.2 gives the SPA's click handler no
+custom_oauth_providers data to act on). The SPA is a pinned mirror, not a
+fork, so the button's JS cannot be patched here.
+
+Route an Exact `/login` match to the SAME bridge that already serves the
+bare-root zero-click page (sso_init.go's SSOInitHandler answers both paths
+identically — self-check /api/user/self → /api/oauth/state → Keycloak
+authorize redirect). Any FULL navigation to the expired-session page (a
+reload, a bookmark, the User retyping the URL) now recovers deterministically
+instead of dead-ending on the broken button.
+
+Gated on `.Values.sovereignFQDN` — the SAME signal that decides whether
+`bp-newapi.sandboxBridgeEnv` (_helpers.tpl) populates NEWAPI_SSO_AUTHORIZE_URL
+/ NEWAPI_SSO_CLIENT_ID. Without it the bridge's config is empty and its own
+fallback() redirects to /login — routing /login to a page whose only escape
+hatch IS /login would be a redirect loop, so an unconfigured overlay leaves
+`/login` flowing to NewAPI's stock SPA login page instead (PathPrefix `/`
+below), exactly as before this change.
+*/}}
+{{- if .Values.sovereignFQDN }}
+    - matches:
+        - path:
+            type: Exact
+            value: "/login"
+      backendRefs:
+        - name: {{ .Values.gateway.bridgeBackendService | default (printf "%s-bridge" (include "bp-newapi.fullname" .)) }}
+          port: {{ .Values.sandboxBridge.port }}
+{{- end }}
 {{- end }}
     - matches:
         - path:
