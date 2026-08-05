@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-05T22:45:02Z` |
+| Last refreshed | `2026-08-05T23:00:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-05T22:58 | [#5709](https://github.com/openova-io/openova/pull/5709) | #5597 | fix(uat): never flip a UAT row whose walk post-dates the cit |
 | 2026-08-05T22:04 | [#5708](https://github.com/openova-io/openova/pull/5708) | #5609 | fix(console): pin the active-passive topology gate on the re |
 | 2026-08-05T22:00 | [#5707](https://github.com/openova-io/openova/pull/5707) | #5599 | fix(bp-newapi): cross-region singleton — one newapi, one Pos |
 | 2026-08-05T21:00 | [#5706](https://github.com/openova-io/openova/pull/5706) | #5705 | fix(crd): reject unimplemented hostnameTemplate tokens at ad |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-05T02:09 | [#5680](https://github.com/openova-io/openova/pull/5680) | #5467 | fix(cutover): stop harbor-prewarm printing the GHCR PAT pref |
 | 2026-08-04T23:10 | [#5678](https://github.com/openova-io/openova/pull/5678) | #5583 | ci(blueprint-release): sync catalog-seed + regenerate catalo |
 | 2026-08-04T22:20 | [#5677](https://github.com/openova-io/openova/pull/5677) | #5476 | fix(catalyst-api): wire spine object-model ownership chain + |
-| 2026-08-04T22:03 | [#5676](https://github.com/openova-io/openova/pull/5676) | #5513 | fix(controllers): AHS status reports materialised regions +  |
 
 ---
 
