@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-05T14:45:08Z` |
+| Last refreshed | `2026-08-05T15:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-05T14:51 | [#5695](https://github.com/openova-io/openova/pull/5695) | #5575 | test(wizard): fail-closed catalog integrity gate — no phanto |
 | 2026-08-05T14:30 | [#5694](https://github.com/openova-io/openova/pull/5694) | #5348 | ci(§854): guard that every LoadBalancer Service template sta |
 | 2026-08-05T13:53 | [#5692](https://github.com/openova-io/openova/pull/5692) | #5535 | ci(uat): lock the SSO-flip trigger surface against evidence- |
 | 2026-08-05T13:44 | [#5691](https://github.com/openova-io/openova/pull/5691) | #5348 | fix(stalwart-sovereign): explicit nodePort:0 on mail LoadBal |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-05T00:05 | [#5665](https://github.com/openova-io/openova/pull/5665) | chore(deps): bump fast-uri from 3.1.4 to 3.1.5 |  |
 | 2026-08-05T00:05 | [#5664](https://github.com/openova-io/openova/pull/5664) | chore(deps): bump fast-uri from 3.1.4 to 3.1.5 in /products/ |  |
 | 2026-08-05T00:05 | [#5663](https://github.com/openova-io/openova/pull/5663) | #5041 | chore(deps): bump undici from 7.25.0 to 7.29.0 |
-| 2026-08-04T15:43 | [#5662](https://github.com/openova-io/openova/pull/5662) | #4706 | fix(wizard): thread the Single-region topology choice to the |
 
 ---
 
