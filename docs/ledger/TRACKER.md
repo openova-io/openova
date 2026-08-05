@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-05T00:00:03Z` |
+| Last refreshed | `2026-08-05T00:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -320,6 +320,9 @@ flowchart LR
 | 2026-08-04T17:44 | [#5668](https://github.com/openova-io/openova/pull/5668) | #5666 | fix(cutover): secondary-region pivot target defaults to the  |
 | 2026-08-04T16:56 | [#5667](https://github.com/openova-io/openova/pull/5667) | #5466 | fix(newapi): one SESSION_SECRET/CRYPTO_SECRET per KC client, |
 | 2026-08-04T16:41 | [#5666](https://github.com/openova-io/openova/pull/5666) | #5394 | fix(#5394): arm the region-b mcp leg in slot 13e — last dead |
+| 2026-08-05T00:05 | [#5665](https://github.com/openova-io/openova/pull/5665) | chore(deps): bump fast-uri from 3.1.4 to 3.1.5 |  |
+| 2026-08-05T00:05 | [#5664](https://github.com/openova-io/openova/pull/5664) | chore(deps): bump fast-uri from 3.1.4 to 3.1.5 in /products/ |  |
+| 2026-08-05T00:05 | [#5663](https://github.com/openova-io/openova/pull/5663) | #5041 | chore(deps): bump undici from 7.25.0 to 7.29.0 |
 | 2026-08-04T15:43 | [#5662](https://github.com/openova-io/openova/pull/5662) | #4706 | fix(wizard): thread the Single-region topology choice to the |
 | 2026-08-04T09:16 | [#5658](https://github.com/openova-io/openova/pull/5658) | #5641 | fix(qa-fixtures): QA CNPG Clusters pinned a Hetzner region o |
 | 2026-08-04T08:50 | [#5657](https://github.com/openova-io/openova/pull/5657) | #5644 | feat(cutover): post-cutover delivery that can actually deliv |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-03T22:33 | [#5643](https://github.com/openova-io/openova/pull/5643) | #5637 | fix(security): declare the Cilium control-plane node-encrypt |
 | 2026-08-03T22:37 | [#5641](https://github.com/openova-io/openova/pull/5641) | #5639 | fix(bp-postgres): fail closed on an unresolvable region + em |
 | 2026-08-03T21:40 | [#5638](https://github.com/openova-io/openova/pull/5638) | #4415 | fix(catalog-seed): gate every seed delivery pin on GHCR exis |
-| 2026-08-03T20:59 | [#5636](https://github.com/openova-io/openova/pull/5636) | #4028 | fix(marketplace): surface the 429 rate-limit response in the |
-| 2026-08-04T16:15 | [#5632](https://github.com/openova-io/openova/pull/5632) | #5164 | chore(deps): bump hono from 4.12.30 to 4.12.34 in /products/ |
-| 2026-08-04T16:15 | [#5631](https://github.com/openova-io/openova/pull/5631) | #5590 | chore(deps): bump undici from 7.28.0 to 7.29.0 in /products/ |
 
 ---
 
