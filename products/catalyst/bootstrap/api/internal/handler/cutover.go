@@ -1746,6 +1746,22 @@ func (h *Handler) runCutover(ctx context.Context, deps *cutoverDeps, steps []cut
 		Level:   "info",
 		Message: "Self-Sovereignty Cutover completed successfully",
 	})
+
+	// #5600 — the cutover is the single biggest post-Phase-1 churn of
+	// HelmReleases there is: it SUSPENDS bp-catalyst-platform, bp-continuum,
+	// bp-openova-mcp, bp-self-sovereign-cutover and bp-velero on the secondary
+	// and installs/patches HRs in BOTH regions. Every one of those changes is
+	// invisible to the Phase-1-terminal census stamped on Result.Regions, which
+	// is exactly why a fully-converged hw292 advertised "Degraded" the moment
+	// it reached cutoverComplete=true. Force a live re-derivation now (bypassing
+	// the poll TTL) so the very first console load after the cutover shows the
+	// cluster as it is, not as it was when Phase 1 ended.
+	if dep := h.resolveCutoverDeployment(); dep != nil {
+		if h.forceRefreshLiveRegionCensus(ctx, dep) {
+			h.log.Info("cutover: per-region HelmRelease census re-derived from live cluster state post-completion (#5600)",
+				"deploymentID", dep.ID)
+		}
+	}
 }
 
 // forceRerun (#5437): the engine has decided this step must produce a FRESH

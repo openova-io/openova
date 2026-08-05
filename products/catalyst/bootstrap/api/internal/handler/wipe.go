@@ -608,6 +608,10 @@ func (h *Handler) runWipePurge(dep *Deployment, id string, body wipeRequest, pre
 	// phase1_watch goroutine clearing it on its terminal exit.
 	dep.mu.Lock()
 	live := dep.liveWatcher
+	// #5600 — drop the cached LIVE region census too. It is derived from a
+	// cluster that is about to be destroyed; a re-provision under the same
+	// deployment id must re-read, never inherit the previous cluster's counts.
+	invalidateLiveRegionCensusLocked(dep)
 	dep.mu.Unlock()
 	if live != nil {
 		live.Cancel()

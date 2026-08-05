@@ -215,6 +215,38 @@ type Deployment struct {
 	// 200 response used to return directly. Nil until the first wipe
 	// completes.
 	lastWipeReport *wipeResponse
+
+	// liveRegionCensus / liveRegionCensusDegraded / liveRegionCensusAt —
+	// #5600. The most recent per-region HelmRelease census RE-DERIVED FROM
+	// LIVE CLUSTER STATE after the Phase-1 watchers were torn down, plus
+	// the wall-clock instant it was derived.
+	//
+	// Result.Regions / Result.ComponentStates are written EXACTLY ONCE, by
+	// markPhase1Done, and never refreshed — so for the whole post-handover
+	// lifetime the census described the cluster as it was the moment Phase 1
+	// ended. Everything after that is invisible to it, including all 11
+	// cutover steps (which suspend bp-catalyst-platform / bp-continuum /
+	// bp-openova-mcp / bp-self-sovereign-cutover / bp-velero on the
+	// secondary and install/patch HRs in BOTH regions). hw292 read
+	// "region-b 57/65, degraded" off that frozen map while the live cluster
+	// had 67 HRs with ZERO un-suspended non-Ready ones.
+	//
+	// These fields are the live re-derivation refreshLiveRegionCensus
+	// publishes. Deliberately IN-MEMORY ONLY (never persisted via
+	// toRecord/fromRecord): a rehydrated record must re-read the cluster
+	// rather than inherit yet another frozen number.
+	liveRegionCensus         []provisioner.RegionHealth
+	liveRegionCensusDegraded bool
+	liveRegionCensusAt       time.Time
+
+	// liveRegionCensusAttemptAt / liveRegionCensusRefreshing gate how often
+	// the live re-derivation runs: at most one attempt per
+	// liveRegionCensusTTL per deployment, and never two concurrently. The
+	// ATTEMPT (not the success) is what the TTL throttles, so an
+	// unreachable cluster cannot turn every poll into a bounded-but-real
+	// apiserver round trip.
+	liveRegionCensusAttemptAt  time.Time
+	liveRegionCensusRefreshing bool
 }
 
 // SlimForHandover returns a copy of the receiver retaining ONLY the
@@ -1026,13 +1058,30 @@ func (d *Deployment) State() map[string]any {
 		// result. While the Phase-1 watchers are still attached (the
 		// pre-handover polling window) we RECOMPUTE the census live off
 		// the in-memory informer caches so the counts track convergence;
-		// once the watchers are torn down at handover we fall back to the
-		// snapshot markPhase1Done persisted onto Result.Regions. Both
-		// paths are surface-only — neither changes d.Status.
-		regions, secondaryDegraded := d.regionHealthForStateLocked()
+		// once the watchers are torn down at handover we serve the live
+		// one-shot re-derivation (#5600) and, only when even that is
+		// unavailable, the frozen snapshot markPhase1Done persisted onto
+		// Result.Regions. Every path is surface-only — none changes
+		// d.Status.
+		regions, secondaryDegraded, censusSource, censusAt := d.regionHealthForStateLocked()
 		if len(regions) > 0 {
 			out["regions"] = regions
 			out["secondaryDegraded"] = secondaryDegraded
+			// #5600 — provenance, always. An operator (and a UAT walker)
+			// must be able to tell a live number from a Phase-1 relic:
+			// the frozen snapshot is what made hw292 advertise Degraded
+			// on a fully-converged, cut-over Sovereign. When the live
+			// re-derivation is unavailable we still serve the snapshot,
+			// but we say so instead of presenting it as current.
+			if censusSource != "" {
+				out["regionCensusSource"] = censusSource
+			}
+			if !censusAt.IsZero() {
+				out["regionCensusAt"] = censusAt.UTC().Format(time.RFC3339)
+			}
+			if regionCensusIsStale(censusSource, censusAt) {
+				out["regionCensusStale"] = true
+			}
 		}
 	}
 	// adoptedAt — handover-finalisation flag (issue #317) lifted to the
@@ -1058,28 +1107,56 @@ func (d *Deployment) State() map[string]any {
 }
 
 // regionHealthForStateLocked returns the per-region HelmRelease health
-// census + the secondaryDegraded roll-up for State() (#3611). The CALLER
-// MUST hold d.mu.
+// census + the secondaryDegraded roll-up for State() (#3611), together with
+// the SOURCE the numbers came from and the instant they were derived
+// (#5600). The CALLER MUST hold d.mu.
 //
-// While the Phase-1 watchers are still attached (liveWatcher for the
-// primary, secondaryWatchers for the rest) it recomputes the census LIVE
-// off the in-memory informer caches so a poll during convergence tracks
-// the real counts. Once the watchers are torn down (handover, or a record
-// restored from disk where no watcher is attached) it returns the snapshot
-// markPhase1Done persisted onto Result.Regions. Both paths are surface-
-// only — this never touches d.Status.
+// Source preference, best first:
+//
+//	(1) live-watchers   — while the Phase-1 watchers are still attached
+//	                     (liveWatcher for the primary, secondaryWatchers for
+//	                     the rest) the census is recomputed off the in-memory
+//	                     informer caches, so a poll during convergence tracks
+//	                     the real counts.
+//	(2) live-list       — once the watchers are torn down (handover, or a
+//	                     record restored from disk), the census published by
+//	                     refreshLiveRegionCensus — a one-shot live list of
+//	                     every region's bp-* HelmReleases (#5600).
+//	(3) phase1-snapshot — the census markPhase1Done stamped onto
+//	                     Result.Regions. LAST RESORT. It is written exactly
+//	                     once, at Phase-1 termination, and never refreshed, so
+//	                     post-cutover it is provably not current — callers
+//	                     surface regionCensusStale=true alongside it rather
+//	                     than presenting it as live.
+//
+// All three paths are surface-only — this never touches d.Status.
 //
 // SnapshotComponents() on each watcher takes only that watcher's own lock,
 // never d.mu, so calling it under d.mu is safe.
-func (d *Deployment) regionHealthForStateLocked() (regions []provisioner.RegionHealth, secondaryDegraded bool) {
+func (d *Deployment) regionHealthForStateLocked() (regions []provisioner.RegionHealth, secondaryDegraded bool, source string, derivedAt time.Time) {
 	primaryAttached := d.liveWatcher != nil
 	secondariesAttached := len(d.secondaryWatchers) > 0
 	if !primaryAttached && !secondariesAttached {
-		// No live watchers — surface the persisted snapshot verbatim.
-		if d.Result == nil {
-			return nil, false
+		// #5600 — prefer the LIVE re-derivation over the frozen Phase-1
+		// snapshot. Result.Regions describes the cluster as it was when
+		// Phase 1 ended; every HelmRelease the 11-step cutover suspended,
+		// installed or patched afterwards is invisible to it.
+		if len(d.liveRegionCensus) > 0 {
+			return d.liveRegionCensus, d.liveRegionCensusDegraded,
+				regionCensusSourceLiveList, d.liveRegionCensusAt
 		}
-		return d.Result.Regions, d.Result.SecondaryDegraded
+		// No live census available (no readable kubeconfig, unreachable
+		// apiserver, or the first poll of a freshly-restarted process) —
+		// surface the persisted snapshot, labelled as the relic it is.
+		if d.Result == nil {
+			return nil, false, "", time.Time{}
+		}
+		var snapAt time.Time
+		if d.Result.Phase1FinishedAt != nil {
+			snapAt = *d.Result.Phase1FinishedAt
+		}
+		return d.Result.Regions, d.Result.SecondaryDegraded,
+			regionCensusSourcePhase1Snapshot, snapAt
 	}
 
 	// Primary states: prefer the live informer cache; fall back to the
@@ -1100,7 +1177,28 @@ func (d *Deployment) regionHealthForStateLocked() (regions []provisioner.RegionH
 	// hcloud control-plane HRs on a Huawei Sovereign, which are suspended and
 	// never go Ready) are excluded from the census, instead of permanently
 	// degrading a healthy non-Hetzner Sovereign.
-	return provisioner.ComputeRegionHealth(d.Request.Provider, primaryRegion, primaryStates, snapshotSecondaryStatesLocked(d))
+	regions, secondaryDegraded = provisioner.ComputeRegionHealth(d.Request.Provider, primaryRegion, primaryStates, snapshotSecondaryStatesLocked(d))
+	return regions, secondaryDegraded, regionCensusSourceWatchers, time.Now()
+}
+
+// regionCensusIsStale reports whether a census from `source` derived at
+// `derivedAt` must be advertised to the console as NOT-CURRENT (#5600).
+//
+// The Phase-1 snapshot is ALWAYS stale — it is written once at Phase-1
+// termination and never refreshed, so by the time anything reads it the
+// cluster has moved on (on hw292 by an entire 11-step cutover). A live-list
+// census goes stale only after liveRegionCensusStaleAfter, which is several
+// refresh TTLs, so one failed refresh does not flap the flag. The watcher
+// path is never stale — it IS the informer cache.
+func regionCensusIsStale(source string, derivedAt time.Time) bool {
+	switch source {
+	case regionCensusSourcePhase1Snapshot:
+		return true
+	case regionCensusSourceLiveList:
+		return derivedAt.IsZero() || time.Since(derivedAt) > liveRegionCensusStaleAfter
+	default:
+		return false
+	}
 }
 
 func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
@@ -1670,7 +1768,7 @@ func (h *Handler) ListDeployments(w http.ResponseWriter, r *http.Request) {
 		// #3611 — roll-up the per-region census so the list can badge a
 		// degraded secondary on a "ready" deployment. Same live-or-
 		// persisted source as State(); surface-only.
-		_, entry.SecondaryDegraded = dep.regionHealthForStateLocked()
+		_, entry.SecondaryDegraded, _, _ = dep.regionHealthForStateLocked()
 		if !dep.StartedAt.IsZero() {
 			entry.StartedAt = dep.StartedAt.UTC().Format(time.RFC3339)
 		}
@@ -1683,6 +1781,15 @@ func (h *Handler) ListDeployments(w http.ResponseWriter, r *http.Request) {
 		}
 		owner := strings.TrimSpace(strings.ToLower(dep.OwnerEmail))
 		dep.mu.Unlock()
+
+		// #5600 — keep the roll-up honest without paying for it inline.
+		// GET /deployments Ranges the whole fleet, so a SYNCHRONOUS live
+		// re-derivation here would multiply the per-deployment budget by
+		// the fleet size; the kick is TTL-gated and fire-and-forget, and
+		// the next list poll serves the refreshed number. GET
+		// /deployments/{id} — the single surface the readiness pill reads
+		// — refreshes synchronously instead.
+		h.kickLiveRegionCensusRefresh(dep)
 
 		// Owner filter — when an effective owner is set, only emit
 		// deployments whose OwnerEmail matches case-insensitively.
@@ -1784,6 +1891,16 @@ func (h *Handler) GetDeployment(w http.ResponseWriter, r *http.Request) {
 	// freshly-signed. Best-effort: on mint failure, leave the existing
 	// URL in place so a transient signer error doesn't break polling.
 	h.remintHandoverURLForReadyDeployment(dep)
+	// #5600 — re-derive the per-region HelmRelease census from LIVE cluster
+	// state before serving it. Result.Regions is written exactly once, by
+	// markPhase1Done, and never refreshed: post-cutover it describes a cluster
+	// that no longer exists, which is how hw292 advertised "Degraded /
+	// region-b 57/65" while the live secondary had 67 HRs and ZERO
+	// un-suspended non-Ready ones. TTL-gated (liveRegionCensusTTL) and
+	// budget-bounded, so at most one poll per window pays for it and an
+	// unreachable cluster degrades to the labelled fallback instead of
+	// hanging the response.
+	h.refreshLiveRegionCensusIfStale(r.Context(), dep)
 	state := dep.State()
 	// #3925 surface D — enrich with `operationInProgress` so the
 	// Convergence-Monitor top-bar chip can render OPERATION-IN-PROGRESS
