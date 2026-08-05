@@ -228,6 +228,15 @@ spec:
               value: {{ .Values.upstream.branch | quote }}
             - name: UPSTREAM_PREFIX
               value: {{ .Values.helmRepositories.upstreamPrefix | quote }}
+            # #5640 catalog leg — the upstream catalog the ONE-SHOT `CATALOG`
+            # request re-syncs into the local Gitea mirror. Read ONLY inside an
+            # open request that explicitly names CATALOG; never dialled otherwise.
+            - name: UPSTREAM_REPO_URL
+              value: {{ .Values.upstream.repoURL | quote }}
+            # #3584 — the git-push username the catalog leg embeds alongside the
+            # PAT, exactly as step-01 does.
+            - name: GITEA_USERNAME
+              value: {{ .Values.gitRepositorySecretRef.username | quote }}
             # catalyst-gitea-token PAT — the SAME coordinates + auth path steps
             # 01/05 read (a PAT is a direct local sha1 lookup, immune to the
             # openova-sso apiAuth hang a BasicAuth password takes mid-converge).
@@ -264,6 +273,8 @@ spec:
               value: {{ eq (toString .Values.daytwoReconciler.charts.enabled) "true" | quote }}
             - name: IMAGE_LEG_ENABLED
               value: {{ eq (toString .Values.daytwoReconciler.images.enabled) "true" | quote }}
+            - name: CATALOG_LEG_ENABLED
+              value: {{ eq (toString .Values.daytwoReconciler.catalog.enabled) "true" | quote }}
             # ── warm-mode source (operator-supplied; only read when mode=warm) ──
             - name: WARM_UPSTREAM_OCI_PREFIX
               value: {{ .Values.daytwoReconciler.warm.upstreamOciPrefix | quote }}
@@ -330,6 +341,9 @@ spec:
               : "${RECONCILE_MODE:=request}"
               : "${CHART_LEG_ENABLED:=true}"
               : "${IMAGE_LEG_ENABLED:=true}"
+              : "${CATALOG_LEG_ENABLED:=true}"
+              : "${GITEA_USERNAME:=gitea_admin}"
+              : "${UPSTREAM_REPO_URL:=}"
               : "${IMAGE_SCAN_MAX:=400}"
               : "${REQUEST_MAX_REFS:=50}"
               : "${AUDIT_MAX_LINES:=500}"
@@ -892,6 +906,143 @@ spec:
                 return 0
               }
 
+              # ── #5640 leg 0: the CATALOG (git) pin ────────────────────────
+              # THE HEAD OF THE CHAIN. The chart leg below enumerates its pin set
+              # from the LOCAL GITEA MIRROR (`bootstrapkit_pins` over
+              # clusters/_template/bootstrap-kit at ${UPSTREAM_BRANCH}). Post
+              # cutover that mirror is FROZEN: `mirrorResync.enabled: false` is
+              # the deliberate Principle-14 severance (#2622/#3606 — an
+              # unattended */5 CronJob is a standing tether AND breaches the
+              # step-08 600s deny-egress hold), and nothing else re-runs step-01.
+              #
+              # So on a steady-state cut-over Sovereign the chart+image legs are
+              # STRUCTURALLY a no-op: they can only ever deliver artifacts for
+              # pins that already exist in the frozen mirror, and the frozen
+              # mirror by definition never names a version published after
+              # cutover. Measured on hw292 (dep 1c56518035a83e03, cc=true,
+              # 2026-08-06): local Gitea main@7bcd1d59, bootstrap-kit slot 06a
+              # still pinning bp-self-sovereign-cutover 0.1.159 while upstream
+              # main had moved to 0.1.169 — ten chart versions, zero arrived,
+              # and the chart leg correctly reported ALL_PINS_PRESENT the whole
+              # time because every FROZEN pin genuinely was present. That is the
+              # exact shape of "#5640 is invisible from the repo side".
+              #
+              # This leg closes it inside the SAME operator-gated window the
+              # artifact legs already use: one-shot, scope-bounded, audited,
+              # zero-egress-by-default. It writes INTO the local Gitea mirror; it
+              # does NOT repoint any Flux source. After the window closes Flux
+              # still reconciles EXCLUSIVELY from local Gitea + local Harbor, so
+              # Principle #11 / ADR-0002 hold literally — what P11 forbids is
+              # "reconciling Flux from github.com/openova-io/openova", not the
+              # operator refreshing their own mirror on their own schedule
+              # (CLAUDE.md §Customer-Sync makes that refresh canon).
+              #
+              # Ordering is load-bearing: this runs FIRST in the cycle so the
+              # freshly-synced pins are what the chart leg enumerates in the SAME
+              # open window. Running it last would sync the pins and then consume
+              # the request, leaving the new chart undeliverable until someone
+              # filed a SECOND request — the bootstrapping trap all over again,
+              # one layer up.
+              CATALOG_STATUS="disabled"
+              CATALOG_SYNCED=0
+              # `CATALOG` must be named EXPLICITLY: ALL_MISSING deliberately does
+              # NOT imply it. ALL_MISSING means "fetch the artifacts I am already
+              # missing" — a bounded, known set. A catalog re-sync MOVES THE PINS
+              # THEMSELVES and can therefore trigger chart upgrades across the
+              # whole Sovereign. Folding that into a wildcard would let an
+              # operator who wanted two images get an unrequested platform-wide
+              # upgrade. Different blast radius ⇒ different opt-in.
+              catalog_in_scope() {
+                [ "${REQ_ACTIVE}" = "1" ] || return 1
+                grep -qx 'CATALOG' "${REQ_SCOPE_FILE}" 2>/dev/null && return 0
+                return 1
+              }
+
+              reconcile_catalog_once() {
+                CATALOG_SYNCED=0
+                # Audit identity. In warm mode there is no request, so REQ_ID /
+                # REQ_BY are empty — and warm is precisely the mode whose syncs
+                # most need an attributable record (it is the standing tether).
+                # Label them rather than emitting blank audit fields.
+                _cat_id="${REQ_ID:-warm-mode}"
+                _cat_by="${REQ_BY:-standing-warm-posture}"
+                case "${RECONCILE_MODE}" in
+                  warm) : ;;
+                  request) if ! catalog_in_scope; then
+                             CATALOG_STATUS="not-requested"
+                             echo "[daytwo] catalog leg: no open request names CATALOG — the local Gitea mirror is left FROZEN and this leg makes ZERO external egress"
+                             return 0
+                           fi ;;
+                  *)    CATALOG_STATUS="not-requested"
+                        echo "[daytwo] catalog leg: mode=${RECONCILE_MODE} never reaches upstream — the local Gitea mirror is left FROZEN (this is detect's contract)"
+                        return 0 ;;
+                esac
+
+                if [ -z "${UPSTREAM_REPO_URL}" ]; then
+                  echo "[daytwo] catalog leg: upstream repo URL is empty — refusing to sync"
+                  CATALOG_STATUS="no-upstream"
+                  return 1
+                fi
+                _cat_pat=$(read_pat)
+                if [ -z "${_cat_pat}" ]; then
+                  echo "[daytwo] catalog leg: PAT ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}.${PAT_SOURCE_KEY} not readable — cannot push to the local Gitea mirror this cycle"
+                  CATALOG_STATUS="pat-unreadable"
+                  return 1
+                fi
+
+                _cat_api="${GITEA_INTERNAL_URL%/}/api/v1/repos/${GITEA_ORG}/${GITEA_REPO}"
+                _cat_before=$(curl -fsS --max-time 30 -H "Authorization: token ${_cat_pat}" \
+                  "${_cat_api}/branches/${UPSTREAM_BRANCH}" 2>/dev/null \
+                  | jq -r '.commit.id // ""' 2>/dev/null || true)
+
+                # The push shape is step-01's, deliberately and exactly:
+                # bare clone + EXPLICIT refspecs. NEVER `git push --mirror` and
+                # never Gitea pull-mirror mode — both PRUNE refs the upstream
+                # does not have, which would clobber the sovereign-local refs
+                # step-06 (HelmRepository pivots) and step-07 (catalyst-api env)
+                # pushed into this very repo. That clobber is the G62/#3606
+                # regression; re-introducing it here would silently un-pivot the
+                # Sovereign back onto ghcr — a Principle-11 violation delivered
+                # by the very mechanism meant to preserve it.
+                _cat_work="${WORK}/catalog-sync"
+                rm -rf "${_cat_work}"; mkdir -p "${_cat_work}"
+                _cat_local="${GITEA_INTERNAL_URL%/}/${GITEA_ORG}/${GITEA_REPO}.git"
+                _cat_local_auth=$(printf '%s' "${_cat_local}" | sed -E "s,^(https?://),\\1${GITEA_USERNAME}:${_cat_pat}@,")
+
+                echo "[daytwo] catalog leg: requestId '${_cat_id}' names CATALOG — ONE-SHOT sync ${UPSTREAM_REPO_URL} -> ${GITEA_ORG}/${GITEA_REPO} (local Gitea revision before: ${_cat_before:-unknown})"
+                if ! git clone --bare --quiet "${UPSTREAM_REPO_URL}" "${_cat_work}/upstream.git" >/dev/null 2>&1; then
+                  echo "[daytwo] catalog leg: FAILED to clone ${UPSTREAM_REPO_URL} (no upstream reachability, or no credential for a private catalog) — the mirror is UNCHANGED and the Sovereign keeps running on its current pins"
+                  daytwo_audit "CATALOG\tfailed\t${_cat_id}\t${_cat_by}\t${UPSTREAM_REPO_URL}\tclone-failed"
+                  REQ_FAILED=$((REQ_FAILED+1))
+                  CATALOG_STATUS="clone-failed"
+                  return 1
+                fi
+                _cat_err=$(cd "${_cat_work}/upstream.git" && git push --force "${_cat_local_auth}" \
+                  'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*' 2>&1) || {
+                  printf '%s\n' "${_cat_err}" | sed -E "s,${_cat_pat}+,REDACTED,g" >&2
+                  echo "[daytwo] catalog leg: FAILED to push into the local Gitea mirror — the mirror is UNCHANGED"
+                  daytwo_audit "CATALOG\tfailed\t${_cat_id}\t${_cat_by}\t${UPSTREAM_REPO_URL}\tpush-failed"
+                  REQ_FAILED=$((REQ_FAILED+1))
+                  CATALOG_STATUS="push-failed"
+                  return 1
+                }
+                rm -rf "${_cat_work}"
+
+                _cat_after=$(curl -fsS --max-time 30 -H "Authorization: token ${_cat_pat}" \
+                  "${_cat_api}/branches/${UPSTREAM_BRANCH}" 2>/dev/null \
+                  | jq -r '.commit.id // ""' 2>/dev/null || true)
+                CATALOG_SYNCED=1
+                REQ_DELIVERED=$((REQ_DELIVERED+1))
+                daytwo_audit "CATALOG\tdelivered\t${_cat_id}\t${_cat_by}\t${UPSTREAM_REPO_URL}\t${GITEA_ORG}/${GITEA_REPO}@${UPSTREAM_BRANCH}\t${_cat_before:-unknown}->${_cat_after:-unknown}"
+                if [ -n "${_cat_before}" ] && [ "${_cat_before}" = "${_cat_after}" ]; then
+                  echo "[daytwo] catalog leg: sync OK, revision UNCHANGED (${_cat_after}) — the mirror was already current; the chart leg below will find the same pin set"
+                else
+                  echo "[daytwo] catalog leg: sync OK, local Gitea ${UPSTREAM_BRANCH} moved ${_cat_before:-unknown} -> ${_cat_after:-unknown}; the chart leg below now enumerates the NEW pin set inside this SAME open window"
+                fi
+                CATALOG_STATUS="ok"
+                return 0
+              }
+
               reconcile_charts_once() {
                 : > "${MISSING_CHARTS_FILE}"
                 CHART_PINS=0; CHART_PRESENT=0; CHART_WARMED=0; CHART_MISS=0
@@ -1013,6 +1164,16 @@ spec:
               # never present as "all clear", which is the exact laundering that
               # kept #5640 invisible.
               publish_health() {
+                # CATALOG_STATUS is deliberately NOT a readiness input. Readiness
+                # here means a durable STATE — "this Sovereign holds a pin its
+                # registry cannot serve". `not-requested` is the normal, correct,
+                # sovereign steady state (no operator has opened a window), and a
+                # failed one-shot catalog sync is an EVENT, not a state: the
+                # Sovereign keeps running correctly on its current pins. Folding
+                # either into readiness would make every healthy cut-over
+                # Sovereign report 0/1 forever, which is how a real signal gets
+                # muted. The catalog outcome is carried by the audit ConfigMap,
+                # the cycle log line, and REQ_FAILED instead.
                 _ph_reason=""
                 if [ "${CHART_LEG_ENABLED}" = "true" ] && [ "${CHART_STATUS}" != "ok" ]; then
                   _ph_reason="chart-leg-${CHART_STATUS}"
@@ -1033,12 +1194,21 @@ spec:
 
               reconcile_once() {
                 _rc=0
-                CHART_STATUS="disabled"; IMAGE_STATUS="disabled"
+                CHART_STATUS="disabled"; IMAGE_STATUS="disabled"; CATALOG_STATUS="disabled"
                 : > "${MISSING_CHARTS_FILE}"; : > "${MISSING_IMAGES_FILE}"
                 CHART_PINS=0; CHART_PRESENT=0; CHART_WARMED=0; CHART_MISS=0
                 IMAGE_REFS=0; IMAGE_PRESENT=0; IMAGE_WARMED=0; IMAGE_MISS=0
+                CATALOG_SYNCED=0
                 REQ_DELIVERED=0; REQ_FAILED=0
                 daytwo_load_request
+                # Leg 0 FIRST — see reconcile_catalog_once's header. A catalog
+                # sync that landed AFTER the chart leg would move the pins and
+                # then have the window consumed under it, so the newly-pinned
+                # chart would need a SECOND request to be delivered. Running it
+                # first means one request moves the whole chain.
+                if [ "${CATALOG_LEG_ENABLED}" = "true" ]; then
+                  reconcile_catalog_once || _rc=1
+                fi
                 if [ "${CHART_LEG_ENABLED}" = "true" ]; then
                   reconcile_charts_once || _rc=1
                 fi
@@ -1049,7 +1219,7 @@ spec:
                 daytwo_audit_flush
                 publish_manifest
                 publish_health
-                echo "[daytwo] cycle complete: charts(${CHART_STATUS}) missing=${CHART_MISS} | images(${IMAGE_STATUS}) missing=${IMAGE_MISS} (manifest -> ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM})"
+                echo "[daytwo] cycle complete: catalog(${CATALOG_STATUS}) synced=${CATALOG_SYNCED} | charts(${CHART_STATUS}) missing=${CHART_MISS} | images(${IMAGE_STATUS}) missing=${IMAGE_MISS} (manifest -> ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM})"
                 return "${_rc}"
               }
 

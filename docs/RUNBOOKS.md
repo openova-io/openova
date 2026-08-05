@@ -435,6 +435,82 @@ Cilium's `reserved:ingress` endpoint is not covered by default-deny NotIn-namesp
 
 **Fix:** added "zero peer entries" Warn for future regressions (PR #1525).
 
+### 2.10a Delivering a newly published chart or image to a cut-over Sovereign (#5640)
+
+After cutover the Sovereign's local Harbor + local Gitea are the **only** sources
+that matter (step-04 pivots node containerd, step-05/06 repoint every Flux
+source). Nothing published upstream afterwards reaches it on its own — that is
+the design, not a defect. Delivery is **operator-initiated, one-shot and
+audited**, never a background pull.
+
+**The delivery chain has three legs, and the git leg is the head of it.** The
+Day-2 reconciler's chart and image legs enumerate their work from the local
+Gitea mirror; if that mirror is frozen (`mirrorResync.enabled: false`, the
+deliberate Principle-14 severance) they can only ever deliver artifacts for pins
+that already exist in it, and will report `ALL_PINS_PRESENT` indefinitely — every
+frozen pin genuinely *is* present. Refresh the catalog first, or the other two
+legs have nothing new to fetch.
+
+**Normal path — in-band, on chart ≥ 0.1.170.** One ConfigMap opens one window:
+
+```bash
+kubectl -n catalyst create configmap self-sovereign-cutover-daytwo-request \
+  --from-literal=requestId=$(date -u +%Y-%m-%d)-catalog-refresh \
+  --from-literal=requestedBy=ops@customer.example \
+  --from-literal=scope=CATALOG
+```
+
+Within one reconcile interval (default 300s) the loop syncs the mirror, then
+delivers the newly-pinned charts and images **in the same window**, then consumes
+the `requestId` and closes. Re-applying the same request is inert; a new window
+needs a new `requestId`.
+
+- `scope=CATALOG` — refresh the catalog pins (and deliver what they newly need).
+- `scope=ALL_MISSING` — deliver the currently-missing artifacts only. It
+  deliberately does **not** imply `CATALOG`: a catalog sync moves the pins
+  themselves and has platform-wide blast radius, so it is a separate opt-in.
+- `scope=<explicit refs>` — one or more `ghcr.io/...:tag` / `<chart>:<version>`
+  lines, capped by `request.maxRefsPerRequest` (over-size requests are refused,
+  never truncated).
+
+Audit trail and one-shot state:
+
+```bash
+kubectl -n catalyst get cm self-sovereign-cutover-daytwo-delivery -o jsonpath='{.data.audit\.log}'
+kubectl -n catalyst get cm self-sovereign-cutover-daytwo-missing  -o yaml   # offline-media list
+```
+
+Air-gapped Sovereigns never file a request; the missing manifest **is** their
+offline-media side-load list.
+
+**First delivery to a Sovereign cut over before 0.1.170 — the bootstrapping
+trap.** The catalog leg ships *inside* the cutover chart, and the chart version
+comes from the frozen mirror, so the remedy cannot pass through the gap it
+remedies. That first delivery is operator-initiated by design:
+
+```bash
+scripts/sovereign-daytwo-bootstrap.sh --kubeconfig <sovereign.yaml>            # dry run
+scripts/sovereign-daytwo-bootstrap.sh --kubeconfig <sovereign.yaml> --apply
+```
+
+It re-stamps the cutover's **own** step-01 (gitea-mirror) and step-03
+(harbor-prewarm) from the `cutover-step-*` PodSpec ConfigMaps already on the
+cluster — no new manifests, no patches, no new credential path. Flux then rolls
+the cutover HelmRelease onto the newly-mirrored pin, which carries the catalog
+leg. Needed **once per Sovereign**; after that, use the in-band request above.
+
+Step-06 strips the cutover's own ghcr auth by design, so private `openova-io`
+packages need a credential the operator owns
+(`daytwoReconciler.warm.credentialSecret`) — pointing `warm.registryHost` +
+`warm.upstreamOciPrefix` at the operator's own mirror works identically.
+
+Sovereignty note: none of this repoints a Flux source. The catalog leg writes
+*into* the local Gitea and the artifact legs write *into* the local Harbor;
+after the window closes the Sovereign still reconciles exclusively from its own
+Gitea + Harbor, satisfying Principle #11 / ADR-0002. `mode: warm` exists but is a
+standing outbound tether and is **not** the sovereignty-preserving option —
+prefer `request`.
+
 ### 2.11 Per-instance verification ledger
 
 Every Sovereign instance carries a `docs/ledger/TRUST.md` ledger of claimed-done items in 4 states:
