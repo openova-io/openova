@@ -308,6 +308,16 @@ export function CatalogDetail() {
     light: card.iconLight || bundledLogo || '',
     dark: card.iconDark || '',
   }
+  // #5610 — the summary editor's initial DRAFT: the summary the hero is CURRENTLY
+  // rendering, so the pencil opens pre-filled instead of blank. Mirrors iconDraft
+  // (and the icon field's initialDraft) exactly. The former `initialDraft=
+  // {iacSeed.tagline}` used a narrower chain (tagline||summary, NO description)
+  // than the hero's renderDisplay (tagline||summary||description), so a card whose
+  // visible summary came from `description` opened the editor EMPTY — one Save away
+  // from writing "" over a non-empty summary. Like iconDraft this only affects what
+  // the editor OPENS showing; `createSeed` stays iacSeed and only an explicit Save
+  // persists it (the #5510 merge-base guard prevents sibling reverts).
+  const summaryDraft = card.tagline || card.summary || card.description || ''
   // Refetch the catalog item after any per-field save so the new value renders
   // live (and the next field's create-seed picks up the saved sibling).
   //
@@ -475,7 +485,7 @@ export function CatalogDetail() {
                 label="Summary"
                 createSeed={iacSeed}
                 editable={isAdmin && !editingIaC}
-                initialDraft={iacSeed.tagline}
+                initialDraft={summaryDraft}
                 renderDisplay={() => (
                   <span data-testid="catalog-summary">
                     {card.tagline || card.summary || card.description || (

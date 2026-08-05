@@ -215,6 +215,33 @@ describe('CatalogDetail per-field inline editing (#3668 §5A)', () => {
     expect(Object.keys(patch)).toEqual(['tagline'])
   })
 
+  it('#5610 — the summary editor opens PRE-FILLED with the visible summary, never blank (wipe hazard)', async () => {
+    // A card whose visible summary comes ONLY from `description` (no tagline,
+    // no summary) — the live hw292 shape. The hero renders `description`; the
+    // editor must open showing that same text, not "". Opening blank is one
+    // Save away from writing "" over a non-empty summary.
+    const DESC_ONLY = {
+      ...GRAFANA_CATALOG,
+      card: { title: 'Alloy', summary: '', description: 'Node agent for logs, metrics, and traces' },
+    }
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      if (url.includes('/instances')) return jsonRes({ items: [] })
+      if (url.includes('/catalog/')) return jsonRes(DESC_ONLY)
+      return jsonRes({})
+    }) as typeof fetch
+
+    renderCatalog()
+    // Hero shows the description-sourced summary.
+    expect((await screen.findByTestId('catalog-summary')).textContent).toBe(
+      'Node agent for logs, metrics, and traces',
+    )
+    // Open the inline editor — it must be pre-filled, not empty.
+    fireEvent.click(screen.getByTestId('cif-summary-edit'))
+    const input = screen.getByTestId('cif-summary-input') as HTMLTextAreaElement
+    expect(input.value).toBe('Node agent for logs, metrics, and traces')
+  })
+
   it('editing SUPPORTED TOPOLOGIES toggles a mode and sends only that set', async () => {
     renderCatalog()
     fireEvent.click(await screen.findByTestId('cif-topologies-edit'))
