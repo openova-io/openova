@@ -1322,7 +1322,7 @@ spec:
       #   create-side reconcile; deleted Orgs converge to fully-deleted in
       #   every region.
       #   (re-serialized past main 1.4.1290 to 1.4.1291 at rebase — #5364 #5649.)
-      version: 1.4.1298
+      version: 1.4.1299
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
