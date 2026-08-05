@@ -226,6 +226,17 @@ export function PlacementEditor({
           // NOT Primary when the capability already has its one Primary
           // (primary+standby gate). A target already Primary stays selectable.
           const primaryDisabled = t.role !== 'Primary' && !canAddPrimary(targets, capability)
+          // #5639 — the option list is `[current, ...available]` minus
+          // falsy entries. When the infra topology query returned nothing
+          // (it is gated on sovereignId, 401s without a session, and throws
+          // on any non-2xx) AND the target carries no region, BOTH halves
+          // are falsy and this renders a <select> with ZERO options: a blank
+          // box that reads identically to "still loading". Compute it once
+          // so the empty case can say so out loud instead.
+          const regionOptions = [
+            t.region,
+            ...availableRegions.filter((r) => r !== t.region),
+          ].filter(Boolean)
           return (
             <li
               key={i}
@@ -241,7 +252,12 @@ export function PlacementEditor({
                     onChange={(e) => setTarget(i, { region: e.target.value })}
                     data-testid={`placement-editor-target-${i}-region`}
                   >
-                    {[t.region, ...availableRegions.filter((r) => r !== t.region)].filter(Boolean).map((r) => (
+                    {regionOptions.length === 0 ? (
+                      <option value="" data-testid={`placement-editor-target-${i}-region-empty`}>
+                        — no regions reported —
+                      </option>
+                    ) : null}
+                    {regionOptions.map((r) => (
                       <option key={r} value={r}>
                         {r}
                       </option>
