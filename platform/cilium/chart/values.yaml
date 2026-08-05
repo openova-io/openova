@@ -500,6 +500,60 @@ catalystOverlay:
         limits:
           cpu: 100m
           memory: 64Mi
+    # ── #5602 — ONE Hubble UI per Sovereign over Cilium ClusterMesh ──────
+    #
+    # Hubble UI's data plane is NOT a stateless REST API. `/api/service-map-
+    # stream` and `/api/control-stream` speak hubble-ui's own `customprotocol`
+    # long-poll: the FIRST POST carries the serialized GetEventsRequest and
+    # mints a channel that lives in an IN-PROCESS map
+    # (backend/internal/customprotocol/route/route.go `getChannel` ->
+    # `r.channels.GetByIdUnsafe(cid)`); every FOLLOW-UP poll for that channel
+    # carries an EMPTY body and only drains it. A poll that lands on a
+    # DIFFERENT backend process finds no such channel, mints a fresh one from
+    # the empty body, and backend/internal/apiserver/service_map_stream.go
+    # answers `len(req.GetEventTypes()) == 0` with
+    # `ch.TerminateStatus(http.StatusBadRequest)` — HTTP 400. The SPA drops the
+    # stream and paints "Idle / Data streams are reconnecting…" forever.
+    #
+    # Live-proven on hw292 (dep 1c56518035a83e03), region-b hubble-ui:
+    #   nginx    POST /api/service-map-stream HTTP/1.1" 400 62   (12:54:13Z)
+    #   backend  msg="GetEventsRequest parsed" ... req=          <- EMPTY body
+    #   backend  msg="Requested events are empty, terminating..."
+    # while the SAME second's other polls carry the full req= and return 200.
+    #
+    # The Sovereign runs ONE `hubble.<fqdn>` hostname but bootstrap-kit slot 01
+    # installs bp-cilium on EVERY region, so a 2-region Sovereign ran TWO
+    # independent hubble-ui backends behind ONE shared VIP with no affinity.
+    #
+    # FIX (the bp-guacamole 0.2.36 / #5358 idiom): anchor the workload in the
+    # PRIMARY region and reach it from the secondary over ClusterMesh.
+    #   enabled=false (DEFAULT, and every single-region Sovereign) — render is
+    #     byte-identical to pre-1.4.19.
+    #   role=primary   — full oauth2-proxy Deployment; its Service is exported
+    #     as a global ClusterMesh service (affinity local keeps region-A traffic
+    #     on region-A's Pod).
+    #   role=secondary — NO oauth2-proxy Deployment. The Service still renders
+    #     (the HTTPRoute backendRef must resolve, and this region's envoy must
+    #     still answer for `hubble.<fqdn>` — the shared ELB fans TCP across BOTH
+    #     regions' gateways) but has ZERO local backends, so
+    #     `service.cilium.io/affinity: local` falls through the mesh to the
+    #     primary's singleton.
+    #
+    # Cilium DOES surface remote-cluster backends inside Gateway-API envoy
+    # clusters — verified live on hw292 region-b, where the envoy cluster
+    # `gitea:gitea-http:3000` (a global Service) carries BOTH 10.43.3.228:3000
+    # (local) and 10.42.1.191:3000 (region-A) while the local Endpoints object
+    # lists only the former.
+    #
+    # Only meaningful with auth=oidc (the Catalyst default): under auth=none
+    # the HTTPRoute targets the UPSTREAM `hubble-ui` Service, which this chart
+    # does not own and therefore cannot annotate. auth=none + crossRegion is a
+    # no-op — behaviour is unchanged, never a new failure mode.
+    crossRegion:
+      enabled: false
+      # `primary` owns the Sovereign's ONE Hubble UI; `secondary` renders the
+      # mesh stub only. Any other value fails the render.
+      role: primary
 
   # #4656/#4854 — vpc-podcidr-route-reconciler: per-node pod-CIDR VPC routes
   # on no-CCM Huawei. #4807's whole-/16 peering routes only carry pod traffic
