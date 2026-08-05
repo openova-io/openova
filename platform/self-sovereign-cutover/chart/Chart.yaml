@@ -1,5 +1,52 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.170 (#5640) — THE HEAD OF THE DELIVERY CHAIN. The Day-2 reconciler gains a
+# CATALOG (git) leg, and it runs FIRST in each cycle.
+#
+# What was still severed after 0.1.161/0.1.162 shipped the chart + image legs:
+# both of those enumerate their work from the LOCAL GITEA MIRROR, and post
+# cutover that mirror is FROZEN (`mirrorResync.enabled: false`, the deliberate
+# Principle-14 severance; nothing else re-runs step-01). So they could only ever
+# deliver artifacts for pins that ALREADY EXISTED in the frozen mirror, and then
+# correctly reported ALL_PINS_PRESENT forever — every frozen pin genuinely was
+# present. That is exactly why #5640 stayed invisible from the repo side.
+# Measured on hw292 (dep 1c56518035a83e03, cutoverComplete=true, 2026-08-06):
+# local Gitea bootstrap-kit slot 06a pinning 0.1.159 while upstream main had
+# reached 0.1.169 — ten chart versions published, zero arrived, nothing red.
+#
+# The catalog leg fires ONLY inside the same operator-gated window the artifact
+# legs already use: one-shot, scope-bounded, audited, and only when the request
+# scope names the literal `CATALOG`. `ALL_MISSING` deliberately does NOT imply
+# it — a catalog sync moves the PINS THEMSELVES (platform-wide blast radius),
+# where ALL_MISSING is bounded to artifacts already known missing. With no such
+# request the leg makes ZERO external egress and says so.
+#
+# Sovereignty: the leg writes INTO the local Gitea mirror and repoints NOTHING.
+# After the window closes Flux still reconciles EXCLUSIVELY from local Gitea +
+# local Harbor, so Principle #11 / ADR-0002 hold literally — P11 forbids
+# "reconciling Flux from github.com/openova-io/openova", not an operator
+# refreshing their own mirror on their own schedule (CLAUDE.md §Customer-Sync
+# makes that refresh canon). What #3606 correctly killed was the UNATTENDED */5
+# CronJob, a standing tether that also breached the step-08 600s hold.
+# The push keeps step-01's explicit refspecs and never prunes, so the
+# sovereign-local refs step-06/07 pushed survive the sync — a `git push
+# --mirror` here would silently un-pivot the Sovereign back onto ghcr (the
+# G62/#3606 regression), and tests/daytwo-catalog-leg.sh C6 guards that.
+#
+# Ordering is load-bearing: leg 0 runs BEFORE the chart leg so the freshly
+# synced pins are enumerated inside the SAME open window; running it last would
+# move the pins and then have the window consumed under them, needing a SECOND
+# request. Guarded by C5 with an inverted control.
+#
+# BOOTSTRAPPING TRAP, stated plainly: this chart cannot deliver itself to a
+# Sovereign cut over before 0.1.170, because the pin lives in the frozen mirror.
+# That first delivery is operator-initiated by design —
+# `scripts/sovereign-daytwo-bootstrap.sh` re-stamps the cutover's OWN step-01 +
+# step-03 from the PodSpec ConfigMaps already on the cluster. It is needed once,
+# never again.
+#
+# New gate: tests/daytwo-catalog-leg.sh — 7 scenarios + 4 vacuity inversions,
+# every structural assertion proven to FAIL on its defective shape.
 # 0.1.169 (#5467) — SECURITY: step-03 harbor-prewarm no longer prints any prefix
 # of the GHCR PAT. The old `pat=${ghcr_pat:0:8}...` disclosed 4 real secret chars
 # (after the `ghp_` type prefix) + the token type + exact length + owning account
@@ -3277,7 +3324,7 @@ name: bp-self-sovereign-cutover
 # copyAttempts,skopeoStaticURL,maxRefsPerCycle}. No RBAC change (the runner
 # ClusterRole already grants deployments/statefulsets/daemonsets/jobs/cronjobs
 # get+list+watch). Step count unchanged at 11.
-version: 0.1.169
+version: 0.1.170
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

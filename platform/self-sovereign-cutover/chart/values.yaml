@@ -2213,6 +2213,46 @@ daytwoReconciler:
   # Lines are `CHART\t<chart>\t<version>`, `IMAGE\t<upstream-ref>\t<local-path>
   # \t<http-code>` and `UNMAPPED\t<ref>\t<host>`.
   missingManifestConfigMapName: "self-sovereign-cutover-daytwo-missing"
+  # #5640 leg 0 — the CATALOG (git) pin. THE HEAD OF THE CHAIN.
+  #
+  # THE GAP THIS CLOSES. The chart leg below enumerates its pin set from the
+  # LOCAL GITEA MIRROR. Post-cutover that mirror is FROZEN — `mirrorResync
+  # .enabled: false` above is the deliberate Principle-14 severance, and
+  # nothing else re-runs step-01. So on a steady-state cut-over Sovereign the
+  # chart and image legs are STRUCTURALLY a no-op: they can only ever deliver
+  # artifacts for pins that ALREADY EXIST in the frozen mirror, and the frozen
+  # mirror by definition never names a version published after cutover. The
+  # chart leg then correctly reports ALL_PINS_PRESENT forever — every frozen
+  # pin genuinely IS present — which is precisely why #5640 was invisible.
+  #
+  # Measured on hw292 (dep 1c56518035a83e03, cutoverComplete=true, 2026-08-06):
+  # local Gitea main@7bcd1d59 with bootstrap-kit slot 06a still pinning
+  # bp-self-sovereign-cutover 0.1.159 while upstream main had reached 0.1.169.
+  # Ten chart versions published, zero arrived, nothing reported wrong.
+  #
+  # SOVEREIGNTY. This leg is NOT a re-tether and NOT a revival of the banned
+  # */5 resync CronJob. It fires ONLY inside the same operator-gated window the
+  # artifact legs use — one-shot, scope-bounded, audited — and only when the
+  # request scope names the literal `CATALOG`. It writes INTO the local Gitea
+  # mirror; it does NOT repoint any Flux source. After the window closes Flux
+  # still reconciles EXCLUSIVELY from local Gitea + local Harbor, so Principle
+  # #11 / ADR-0002 hold literally: what P11 forbids is "reconciling Flux from
+  # github.com/openova-io/openova", not an operator refreshing their own mirror
+  # on their own schedule — which CLAUDE.md §Customer-Sync makes canon
+  # ("Sovereigns pull on their own schedule"). What #3606 correctly killed was
+  # the UNATTENDED CronJob, which was a standing tether and also breached the
+  # step-08 600s deny-egress hold. An air-gapped Sovereign simply never files a
+  # CATALOG request; its offline-media list stays the missing manifest.
+  #
+  # `ALL_MISSING` deliberately does NOT imply `CATALOG` — see the reconciler's
+  # catalog_in_scope comment. Different blast radius, so a separate opt-in.
+  catalog:
+    # Master switch for the leg. false => the loop never syncs the mirror even
+    # when a request names CATALOG. The upstream it syncs FROM is
+    # `upstream.repoURL` (the same value step-01 uses), so an operator who
+    # mirrors the catalog into their OWN forge points that at it and this leg
+    # follows without further configuration.
+    enabled: true
   # #5265 leg — the frozen bootstrap-kit CHART pins.
   charts:
     enabled: true
