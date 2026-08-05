@@ -141,7 +141,16 @@ spec:
       # 1370 → 1420 (WG-only). Layers on the 1.4.9/1.4.10 zero-nodeport +
       # authMode=legacy work. Cross-region ClusterMesh pod path needs a fresh
       # 2-region prov to verify (datapath change). Refs #4656.
-      version: 1.4.18
+      # 1.4.19 (#5602, 2026-08-06): ONE Hubble UI per Sovereign over
+      # ClusterMesh. Hubble UI's flow/control streams are a long-poll whose
+      # channel state lives in the hubble-ui backend PROCESS, so the two
+      # backends this slot installs on a 2-region Sovereign — behind ONE
+      # hubble.<fqdn> whose shared ELB fans TCP across both gateways —
+      # answered every cross-region poll HTTP 400 ("Requested events are
+      # empty"), which the SPA paints as a permanent "Idle / Data streams are
+      # reconnecting…". crossRegion below anchors the singleton in the primary
+      # region; the secondary keeps only a zero-backend mesh stub. Refs #5602.
+      version: 1.4.19
       sourceRef:
         kind: HelmRepository
         name: bp-cilium
@@ -537,6 +546,34 @@ spec:
           # restart (hw250 #5059). --oidc-issuer-url + --login-url stay PUBLIC.
           # Verified live: this URL answers the discovery doc 200 in-cluster.
           keycloakInternalURL: http://keycloak.keycloak.svc.cluster.local
+        # ── #5602 — ONE Hubble UI per Sovereign over ClusterMesh ─────────
+        # This slot installs bp-cilium on EVERY region, so a 2-region
+        # Sovereign ran TWO independent hubble-ui backends behind ONE
+        # `hubble.${SOVEREIGN_FQDN}` whose shared Huawei ELB fans TCP across
+        # both regions' gateways. Hubble UI's `/api/service-map-stream` +
+        # `/api/control-stream` are a long-poll whose channel state lives in
+        # the hubble-ui backend PROCESS — only the OPENING message carries the
+        # GetEventsRequest, every follow-up poll is EMPTY — so a poll that
+        # crossed regions hit an unknown channel and hubble-ui answered
+        # HTTP 400 "Requested events are empty, terminating...". The SPA
+        # renders that as a permanent "Idle / Data streams are reconnecting…".
+        # Measured on hw292 (dep 1c56518035a83e03): region-b nginx logged
+        # `POST /api/service-map-stream" 400 62` and the backend logged
+        # `GetEventsRequest parsed ... req=` (empty) at the SAME second, while
+        # sibling polls carried the full req= and returned 200.
+        #
+        # Same seam bp-guacamole (52) uses for the identical per-Pod session
+        # split (#5358) and bp-harbor (19) for its Redis split (#5406).
+        # `enabled` follows SOVEREIGN_ENABLE_CNPG_PAIR — a single-region prov
+        # leaves it false and the render is byte-identical to 1.4.18.
+        crossRegion:
+          enabled: ${SOVEREIGN_ENABLE_CNPG_PAIR:=false}
+          # Per-region cloud-init substitute (primary on region-A + on every
+          # single-region prov, secondary on region-B). `secondary` renders NO
+          # oauth2-proxy Deployment — only the ClusterMesh Service stub — so
+          # the stub has zero local backends and every dial falls through the
+          # mesh to region-A's singleton Hubble UI.
+          role: ${SOVEREIGN_REGION_ROLE:=primary}
 
       # ── #4656/#4854 — per-node pod-CIDR VPC route reconciler ───────────
       # #4807's whole-/16 pod-CIDR peering routes only carry native-routed

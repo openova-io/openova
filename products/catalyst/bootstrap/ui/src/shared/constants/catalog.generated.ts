@@ -725,7 +725,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.4.18",
+    "version": "1.4.19",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [],
     "shareable": false,
