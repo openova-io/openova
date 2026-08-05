@@ -62,7 +62,7 @@ jobs:
       # tested file) fails CI at PR time, not at operator-walk time on
       # a fresh prov. Reviewer-agent on PR #2709 flagged this gap.
       - name: Set up Node for vitest
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'npm'
