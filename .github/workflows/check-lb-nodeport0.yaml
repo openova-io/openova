@@ -1,0 +1,53 @@
+# check-lb-nodeport0.yaml — every LoadBalancer Service template must state nodePort:0.
+#
+# §854 / #5348 / #5690: a `type: LoadBalancer` Service that OMITS an explicit
+# `nodePort` renders clean but auto-allocates a NodePort per port at apply time.
+# check-no-nodeports.sh catches nonzero `nodePort:` literals and `type: NodePort`
+# — but it structurally cannot catch this ABSENCE (there's no forbidden token to
+# match), which is exactly why #5690 (bp-stalwart-sovereign mail, 5 unguarded LB
+# ports) lived behind a clean render until a manual audit found it. This guard is
+# the durable version of that audit: it fails CI if any LB Service template lacks
+# `allocateLoadBalancerNodePorts: false` + explicit `nodePort: 0`. --self-test is
+# always run so the guard's own resolver (incl. the `$svcType` var indirection)
+# stays protected (uat-drift-guard.yaml idiom).
+name: check-lb-nodeport0
+
+on:
+  pull_request:
+    paths:
+      - "platform/*/chart/templates/**"
+      - "products/*/chart/templates/**"
+      - "products/*/charts/*/templates/**"
+      - "platform/*/chart/values.yaml"
+      - "products/*/chart/values.yaml"
+      - "scripts/check-lb-nodeport0.py"
+      - ".github/workflows/check-lb-nodeport0.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "platform/*/chart/templates/**"
+      - "products/*/chart/templates/**"
+      - "products/*/charts/*/templates/**"
+      - "platform/*/chart/values.yaml"
+      - "products/*/chart/values.yaml"
+      - "scripts/check-lb-nodeport0.py"
+      - ".github/workflows/check-lb-nodeport0.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+      - name: Self-test the LB nodePort:0 guard
+        run: python3 scripts/check-lb-nodeport0.py --self-test
+      - name: Enforce nodePort:0 on every LoadBalancer Service template (§854/#5348)
+        run: python3 scripts/check-lb-nodeport0.py
