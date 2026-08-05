@@ -234,9 +234,9 @@ region and the exchange splits again in the other direction.
 when there are none — so the primary never bounces a request to the secondary,
 and the secondary (zero local backends by design) always reaches the primary.
 Nothing renders when crossRegion.enabled=false.
-*/}}
-The `-}}` on the `if` is load-bearing: without it the block opens with an empty
-line, and `nindent` turns that into a whitespace-only line under
+
+The `-}}` on the `if` below is load-bearing: without it the returned block opens
+with an empty line, and `nindent` turns that into a whitespace-only line under
 `annotations:`.
 */}}
 {{- define "bp-newapi.crossRegionServiceAnnotations" -}}
