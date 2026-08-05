@@ -213,12 +213,31 @@ func DerivePattern(targets []PlacementTarget, _ PlacementCapability) Pattern {
 // editor surfaces it as a disabled radio + inline reason.
 const MultiPrimaryNotSupportedReason = "MultiPrimaryNotSupported"
 
+// TargetMissingRegionReason is the canonical validation reason emitted when
+// a DECLARED placement target carries no region (#5639).
+//
+// A target with an empty region is not "unspecified, fill in a default" — it
+// renders literally, as `openova.io/region: ""` on the workload and
+// `nodeAffinity ... values: [""]` in its required node selector. No node ever
+// carries the empty-string region, so the Pod is unschedulable FOREVER while
+// the HelmRelease still reports install succeeded. hw292's per-Org
+// bp-postgres sat that way for 2d9h in `Setting up primary`, 0 ready, with a
+// green badge on every status surface.
+//
+// So the placement gate fails CLOSED on it: an empty region is rejected here,
+// naming the target, rather than accepted and rendered into an impossible
+// constraint downstream. The frontend mirrors this in
+// products/catalyst/bootstrap/ui/src/shared/lib/placement.ts.
+const TargetMissingRegionReason = "TargetMissingRegion"
+
 // ValidatePlacement enforces the capability gate + the role/standbyType
 // invariants (#3969 §7.1, §7.3). It returns a non-nil *PlacementError with
 // a stable Reason the caller maps onto the Application condition / API
 // response. It does NOT mutate the inputs.
 //
 // Invariants enforced:
+//   - every target names a region (#5639 — an empty one is unschedulable,
+//     not "default", see TargetMissingRegionReason);
 //   - every target has a valid Role;
 //   - a Standby target has a valid StandbyType; a Primary target has none;
 //   - at least one Primary (when any targets are declared);
@@ -228,6 +247,19 @@ func ValidatePlacement(p Placement, capability PlacementCapability) error {
 	cap := NormalizeCapability(capability)
 	var primaries int
 	for i, t := range p.Targets {
+		// #5639 — checked FIRST because it is the invariant that decides
+		// whether the target can run at all. A target that names no region
+		// renders `openova.io/region In [""]`; no node carries the empty
+		// string, so the workload never schedules while the install still
+		// reports success.
+		if strings.TrimSpace(t.Region) == "" {
+			return &PlacementError{
+				Reason: TargetMissingRegionReason,
+				Msg: "target[" + itoa(i) + "] declares no region; an empty region renders " +
+					"openova.io/region In [\"\"], which no node can satisfy, so the workload is " +
+					"unschedulable forever while the install still reports success (#5639)",
+			}
+		}
 		if !t.Role.IsValid() {
 			return &PlacementError{
 				Reason: "InvalidRole",

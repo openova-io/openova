@@ -826,10 +826,23 @@ export function NewInstanceDialog({
           ) : availableRegions.length === 0 ? (
             <p
               data-testid="instance-regions-empty"
-              style={{ fontSize: '0.78rem', margin: 0, color: 'var(--color-text-dim)' }}
+              style={{
+                fontSize: '0.78rem',
+                margin: 0,
+                color: requiresMultiRegion ? 'var(--color-danger)' : 'var(--color-text-dim)',
+              }}
             >
-              No cluster regions reported for this Sovereign — the server will
-              place the instance in its default region.
+              {/* #5639 — the fall-back-to-a-server-default promise is TRUE
+                  for singleton and FALSE for every multi-region class: there
+                  is no default second region, and Create is simultaneously
+                  disabled by the ≥2 rule below. Telling the operator both at
+                  once left them with a reassurance and a dead button. The
+                  same "an unset region will be defaulted" assumption is what
+                  rendered `openova.io/region: ""` onto hw292's per-Org
+                  Cluster, so it is named, not papered over. */}
+              {requiresMultiRegion
+                ? `No cluster regions reported for this Sovereign, so ${topology} cannot be placed — it needs 2 regions and there is no default second region to fall back to. Check the infrastructure topology for this Sovereign first.`
+                : 'No cluster regions reported for this Sovereign — the server will place the instance in its default region.'}
             </p>
           ) : (
             availableRegions.map((region) => (

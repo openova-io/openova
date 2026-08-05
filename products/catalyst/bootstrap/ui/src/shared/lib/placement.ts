@@ -154,6 +154,22 @@ export function normalizeCapability(raw: string | null | undefined): Capability 
  */
 export const MULTI_PRIMARY_NOT_SUPPORTED = 'MultiPrimaryNotSupported'
 
+/**
+ * The canonical reason emitted when a DECLARED placement target carries no
+ * region (#5639). Mirrors Go `TargetMissingRegionReason` in
+ * core/controllers/pkg/apis/blueprint/v1alpha1/placement_target.go — the Go
+ * drift gate pins the two spellings together.
+ *
+ * An empty region is not "unspecified, server picks a default". It renders
+ * literally: `openova.io/region: ""` on the workload and
+ * `nodeAffinity ... values: [""]` in its REQUIRED node selector. No node
+ * carries the empty-string region, so the Pod is unschedulable forever while
+ * the HelmRelease still reports install succeeded — hw292's per-Org
+ * bp-postgres sat exactly that way for 2d9h, 0 ready, green on every status
+ * surface. So the editor fails CLOSED rather than writing it.
+ */
+export const TARGET_MISSING_REGION = 'TargetMissingRegion'
+
 /** Count Primary targets. */
 export function primaryCount(targets: PlacementTarget[]): number {
   return targets.filter((t) => t.role === 'Primary').length
@@ -182,6 +198,15 @@ export function validatePlacement(
   let primaries = 0
   for (let i = 0; i < targets.length; i++) {
     const t = targets[i]
+    // #5639 — checked FIRST: whether the target names a region decides
+    // whether it can run at all. Blank (or whitespace-only) is rejected, not
+    // defaulted.
+    if (!(t.region ?? '').trim()) {
+      return {
+        reason: TARGET_MISSING_REGION,
+        message: `target ${i + 1} declares no region — an empty region pins the workload to a node label no node carries, so it would never schedule. Pick a region.`,
+      }
+    }
     if (t.role !== 'Primary' && t.role !== 'Standby') {
       return { reason: 'InvalidRole', message: `target ${i + 1} role "${t.role}" is not Primary|Standby` }
     }

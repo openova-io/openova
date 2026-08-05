@@ -33,6 +33,7 @@ import (
 	"testing"
 
 	"github.com/openova-io/openova/core/controllers/internal/placement"
+	bpv1alpha1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 )
 
 func TestPlacementVocabulary_CanonicalModesAreFour(t *testing.T) {
@@ -115,6 +116,51 @@ func TestPlacementVocabulary_BootstrapUIAllModesIsCanonical(t *testing.T) {
 		if strings.Contains(allModesLine, legacy) {
 			t.Errorf("ALL_MODES must NOT carry the legacy spelling %s", legacy)
 		}
+	}
+}
+
+// #5639 — the placement VALIDATION reasons must agree across the two gates
+// as strictly as the mode vocabulary does. The frontend `validatePlacement`
+// (shared/lib/placement.ts) declares itself "the FE gate, mirroring Go
+// ValidatePlacement"; before #5639 neither side inspected Target.Region, so
+// a region-less target passed both and rendered `openova.io/region In [""]`
+// — a constraint no node can satisfy, which left hw292's per-Org bp-postgres
+// unschedulable for 2d9h under a green "install succeeded".
+//
+// If one side is renamed or the check is dropped, the console and the API
+// disagree about what a valid placement is and the operator gets an
+// unactionable reason string (or none). Pin the literal.
+func TestPlacementValidation_5639_MissingRegionReasonMatchesFE(t *testing.T) {
+	root := findRepoRoot(t)
+	fe := mustReadRepoFile(t, root, "products", "catalyst", "bootstrap", "ui", "src", "shared", "lib", "placement.ts")
+
+	want := bpv1alpha1.TargetMissingRegionReason
+	if !strings.Contains(fe, "'"+want+"'") {
+		t.Errorf("FE placement.ts does not carry the Go reason %q — the two placement gates have drifted", want)
+	}
+	// The FE must actually GATE on the region, not merely export the
+	// constant. A dropped check with a surviving constant is the exact shape
+	// #5639 was: the vocabulary present, the assertion absent.
+	if !strings.Contains(fe, "TARGET_MISSING_REGION") {
+		t.Errorf("FE placement.ts exports no TARGET_MISSING_REGION reason")
+	}
+	if !strings.Contains(fe, "t.region") {
+		t.Errorf("FE validatePlacement never reads t.region — the empty-region gate is missing")
+	}
+
+	// Both directions of the Go gate itself, so this file fails if the check
+	// is deleted even when the constant survives.
+	withRegion := bpv1alpha1.Placement{Targets: []bpv1alpha1.PlacementTarget{
+		{Region: "hw-me-east-215-a-rtz-prod", Cluster: "c-a", VCluster: "mgmt", Role: bpv1alpha1.DataRolePrimary},
+	}}
+	if err := bpv1alpha1.ValidatePlacement(withRegion, bpv1alpha1.CapabilityPrimaryStandby); err != nil {
+		t.Errorf("a target with a real region must validate, got %v", err)
+	}
+	withoutRegion := bpv1alpha1.Placement{Targets: []bpv1alpha1.PlacementTarget{
+		{Region: "", Cluster: "c-a", VCluster: "mgmt", Role: bpv1alpha1.DataRolePrimary},
+	}}
+	if err := bpv1alpha1.ValidatePlacement(withoutRegion, bpv1alpha1.CapabilityPrimaryStandby); err == nil {
+		t.Errorf("a target with no region must be rejected (#5639)")
 	}
 }
 
