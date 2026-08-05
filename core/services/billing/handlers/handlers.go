@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -58,11 +60,18 @@ var globalCheckoutRateLimiter = &checkoutRateLimiter{
 	window:  60 * time.Second,
 }
 
-// Allow returns true when the userID is within the budget. Should be
-// called once per checkout request. Concurrent-safe.
-func (rl *checkoutRateLimiter) Allow(userID string) bool {
+// Allow returns whether the userID is within the budget, and — when it is NOT —
+// how many whole seconds remain before the window rolls over.
+//
+// #5634 (UAT row 92): the retry window is returned rather than kept private
+// because the funnel has to TELL the customer how long to wait. Before this the
+// handler answered 429 with no window at all, the marketplace fell back to its
+// 10s default, and the customer was advised to retry ~50s early into a 60s
+// window — which re-trips this very limiter and makes the throttling worse.
+// Should be called once per checkout request. Concurrent-safe.
+func (rl *checkoutRateLimiter) Allow(userID string) (bool, int) {
 	if userID == "" {
-		return true // unauth requests get blocked elsewhere (401)
+		return true, 0 // unauth requests get blocked elsewhere (401)
 	}
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
@@ -70,10 +79,19 @@ func (rl *checkoutRateLimiter) Allow(userID string) bool {
 	b, ok := rl.buckets[userID]
 	if !ok || now.Sub(b.windowStart) > rl.window {
 		rl.buckets[userID] = &checkoutBucket{count: 1, windowStart: now}
-		return true
+		return true, 0
 	}
 	b.count++
-	return b.count <= rl.max
+	if b.count <= rl.max {
+		return true, 0
+	}
+	// Round UP the remaining window: advising a shorter wait than the limiter
+	// enforces guarantees the next attempt is rejected too.
+	remaining := int(math.Ceil((rl.window - now.Sub(b.windowStart)).Seconds()))
+	if remaining < 1 {
+		remaining = 1
+	}
+	return false, remaining
 }
 
 // Handler holds dependencies for billing HTTP handlers.
@@ -196,9 +214,18 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// #2941 (2026-06-03): per-customer rate-limit (5 req/60s).
-	if !globalCheckoutRateLimiter.Allow(userID) {
-		slog.Warn("checkout: rate-limit exceeded", "userID", userID)
-		respond.Error(w, http.StatusTooManyRequests, "checkout rate-limit exceeded — please wait before retrying")
+	// #5634 (UAT row 92): answer with the retry window in BOTH places a caller
+	// may look — the standard `Retry-After` header (RFC 9110 §10.2.3, which is
+	// also what any intermediary in front of us would send) and the JSON body,
+	// matching the gateway limiter's `retry_after` shape. The marketplace funnel
+	// renders it as "wait N seconds"; with no window it guessed, and guessed low.
+	if allowed, retryAfter := globalCheckoutRateLimiter.Allow(userID); !allowed {
+		slog.Warn("checkout: rate-limit exceeded", "userID", userID, "retryAfter", retryAfter)
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+		respond.JSON(w, http.StatusTooManyRequests, map[string]any{
+			"error":       "checkout rate-limit exceeded — please wait before retrying",
+			"retry_after": retryAfter,
+		})
 		return
 	}
 

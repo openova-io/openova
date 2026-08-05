@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strconv"
 	"testing"
 	"time"
 
@@ -422,21 +423,100 @@ func TestCheckoutRateLimiter_2941(t *testing.T) {
 		window:  60 * time.Second,
 	}
 	for i := 0; i < 5; i++ {
-		if !rl.Allow("user-A") {
+		allowed, retryAfter := rl.Allow("user-A")
+		if !allowed {
 			t.Fatalf("request %d for user-A should be allowed (under cap)", i+1)
+		}
+		// #5634: an ALLOWED request must not advertise a wait. A limiter that
+		// always hands back a window would satisfy the throttle assertions below
+		// while telling every healthy customer to go away and come back.
+		if retryAfter != 0 {
+			t.Errorf("request %d for user-A allowed but advertised retryAfter=%d, want 0", i+1, retryAfter)
 		}
 	}
 	// 6th request must be rejected.
-	if rl.Allow("user-A") {
+	allowed, retryAfter := rl.Allow("user-A")
+	if allowed {
 		t.Errorf("6th request for user-A should be REJECTED (over cap)")
 	}
+	// #5634: and it must say how long to wait, within the real 60s window. The
+	// marketplace renders this verbatim as "Wait N seconds"; when the handler
+	// sent nothing the funnel guessed 10s into a 60s window, so the customer's
+	// retry re-tripped this same limiter.
+	if retryAfter < 55 || retryAfter > 60 {
+		t.Errorf("rejected request should report the remaining 60s window, got retryAfter=%d", retryAfter)
+	}
 	// Different user — independent bucket, should pass.
-	if !rl.Allow("user-B") {
+	if allowed, _ := rl.Allow("user-B"); !allowed {
 		t.Errorf("user-B should be allowed (independent bucket)")
 	}
 	// Empty userID — should pass (auth middleware handles 401).
-	if !rl.Allow("") {
+	if allowed, _ := rl.Allow(""); !allowed {
 		t.Errorf("empty userID should pass through (handled by auth layer)")
+	}
+}
+
+// TestCheckout_RateLimited429_CarriesRetryWindow_5634 is the wire-level half of
+// the #5634 (UAT row 92) guard: the throttled checkout response must carry its
+// retry window in BOTH places a caller looks — the standard `Retry-After` header
+// and the JSON body's `retry_after` — because `core/marketplace` renders it as
+// the "wait N seconds" notice the customer acts on.
+//
+// Pre-fix this handler answered `respond.Error(...)`, i.e. `{"error": "..."}`
+// with no window and no header, so the funnel fell back to its 10s default
+// against a 60s window.
+func TestCheckout_RateLimited429_CarriesRetryWindow_5634(t *testing.T) {
+	const userID = "user-5634-throttled"
+
+	// Drive the limiter straight into its rejected state so the handler
+	// short-circuits before any store access.
+	globalCheckoutRateLimiter.mu.Lock()
+	globalCheckoutRateLimiter.buckets[userID] = &checkoutBucket{count: 99, windowStart: time.Now()}
+	globalCheckoutRateLimiter.mu.Unlock()
+	t.Cleanup(func() {
+		globalCheckoutRateLimiter.mu.Lock()
+		delete(globalCheckoutRateLimiter.buckets, userID)
+		globalCheckoutRateLimiter.mu.Unlock()
+	})
+
+	h := &Handler{}
+	body, _ := json.Marshal(checkoutRequest{PlanID: "plan-starter", TenantID: "tenant-5634"})
+	req := httptest.NewRequest(http.MethodPost, "/billing/checkout", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = withCustomerClaims(req, userID, "walk@t99.omani.works")
+
+	rec := httptest.NewRecorder()
+	h.Checkout(rec, req)
+
+	if rec.Code != http.StatusTooManyRequests {
+		raw, _ := io.ReadAll(rec.Body)
+		t.Fatalf("want 429, got %d (body=%s)", rec.Code, string(raw))
+	}
+
+	hdr := rec.Header().Get("Retry-After")
+	if hdr == "" {
+		t.Fatalf("429 carries no Retry-After header — an intermediary-agnostic client has no window to show")
+	}
+	hdrSec, err := strconv.Atoi(hdr)
+	if err != nil {
+		t.Fatalf("Retry-After header %q is not delta-seconds: %v", hdr, err)
+	}
+	if hdrSec < 1 || hdrSec > 60 {
+		t.Errorf("Retry-After=%d outside the limiter's 60s window", hdrSec)
+	}
+
+	var payload struct {
+		Error      string `json:"error"`
+		RetryAfter int    `json:"retry_after"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("429 body is not JSON: %v", err)
+	}
+	if payload.RetryAfter != hdrSec {
+		t.Errorf("body retry_after=%d disagrees with Retry-After header=%d", payload.RetryAfter, hdrSec)
+	}
+	if payload.Error == "" {
+		t.Errorf("429 body carries no error message")
 	}
 }
 

@@ -180,7 +180,9 @@ import Layout from '../layouts/Layout.astro';
         let body: any = null;
         try { body = await res.json(); } catch { body = null; }
 
-        const outcome = classifyRedeemPreview(res.status, body);
+        // Headers go in too: a 429 raised by the gateway itself carries its
+        // window in the standard `Retry-After` header and no JSON body.
+        const outcome = classifyRedeemPreview(res.status, body, res.headers);
 
         if (outcome.panel === 'redeem-ended') {
           // Campaign ended — body still has credit + description.

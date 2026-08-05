@@ -62,8 +62,8 @@ function notValidText(): string {
 }
 
 /** Drive the page's decision the way `validate()` does: classify, then apply. */
-function submit(status: number, body: unknown): RedeemPanelId {
-  const outcome = classifyRedeemPreview(status, body);
+function submit(status: number, body: unknown, headers?: Headers): RedeemPanelId {
+  const outcome = classifyRedeemPreview(status, body, headers);
   applyRedeemOutcome(document, outcome);
   return outcome.panel;
 }
@@ -115,6 +115,27 @@ describe('a rate-limited redeem submit IS surfaced', () => {
   it('still renders a usable wait when the 429 carries no body at all', () => {
     expect(submit(429, null)).toBe('redeem-throttled');
     expect(throttleText()).toContain(`Wait ${DEFAULT_RETRY_AFTER_SEC} seconds`);
+  });
+
+  // #5634 second pass: the gateway/CDN answers some 429s itself, with the
+  // standard `Retry-After` header and no JSON body. Reading only the body meant
+  // those fell back to the 10s default however long the real window was.
+  it('takes the wait from the Retry-After header when the body has none', () => {
+    expect(submit(429, null, new Headers({ 'Retry-After': '45' }))).toBe('redeem-throttled');
+    expect(throttleText()).toContain('Wait 45 seconds');
+  });
+
+  it('never advises a shorter wait than the response asked for', () => {
+    submit(429, GATEWAY_REDEEM_429, new Headers({ 'Retry-After': '60' }));
+    expect(throttleText()).toContain('Wait 60 seconds');
+    expect(throttleText()).not.toContain('Wait 10 seconds');
+  });
+
+  it('ignores an absent or unusable Retry-After and keeps the body window', () => {
+    submit(429, GATEWAY_REDEEM_429, new Headers());
+    expect(throttleText()).toContain('Wait 10 seconds');
+    submit(429, GATEWAY_REDEEM_429, new Headers({ 'Retry-After': 'soon' }));
+    expect(throttleText()).toContain('Wait 10 seconds');
   });
 });
 
