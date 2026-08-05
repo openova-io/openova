@@ -7,7 +7,7 @@ metadata:
     catalyst.openova.io/section: pts-4-6-llm-serving
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.4.149 # lockstep with chart/Chart.yaml (#5612: Exact /login recovery-path match on the sandbox-bridge — fixes the inert "Continue with OpenOva SSO" button on /login?expired=true)
+  version: 1.4.150 # lockstep with chart/Chart.yaml (#5612: Exact /login recovery-path match on the sandbox-bridge — fixes the inert "Continue with OpenOva SSO" button on /login?expired=true)
   card:
     title: NewAPI
     summary: |
