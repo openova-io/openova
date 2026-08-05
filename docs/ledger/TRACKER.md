@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-05T20:45:06Z` |
+| Last refreshed | `2026-08-05T21:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-05T21:00 | [#5706](https://github.com/openova-io/openova/pull/5706) | #5705 | fix(crd): reject unimplemented hostnameTemplate tokens at ad |
 | 2026-08-05T20:21 | [#5705](https://github.com/openova-io/openova/pull/5705) | #5389 | fix(endpoints): guard every hostnameTemplate against unimple |
 | 2026-08-05T20:22 | [#5704](https://github.com/openova-io/openova/pull/5704) | #5602 | fix(#5602): hubble UI 400 — ONE Hubble UI per Sovereign over |
 | 2026-08-05T20:36 | [#5703](https://github.com/openova-io/openova/pull/5703) | #4975 | feat(cutover): close the head of the post-cutover delivery c |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-04T22:03 | [#5676](https://github.com/openova-io/openova/pull/5676) | #5513 | fix(controllers): AHS status reports materialised regions +  |
 | 2026-08-04T23:31 | [#5675](https://github.com/openova-io/openova/pull/5675) | #5623 | feat(bp-postgres): region-B auto DR promoter for the shared- |
 | 2026-08-04T22:16 | [#5674](https://github.com/openova-io/openova/pull/5674) | #5650 | fix(cutover): pivot the vcluster-system/loft chart source of |
-| 2026-08-04T19:39 | [#5673](https://github.com/openova-io/openova/pull/5673) | #5646 | fix(funnel): honest provisioning timeline — progress never 1 |
 
 ---
 
