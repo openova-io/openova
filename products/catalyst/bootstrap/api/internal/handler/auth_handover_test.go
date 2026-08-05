@@ -488,6 +488,36 @@ func TestAuthHandover_WrongIssuer(t *testing.T) {
 	assertAuthError(t, w, http.StatusUnauthorized, "invalid issuer")
 }
 
+// TestAuthHandover_PerSovereignIssuer_5614 — a cut-over Sovereign mints a handover
+// token with its OWN console as `iss`; the verifier must resolve the expected
+// issuer through handoverjwt.DefaultIssuer() (which honours
+// CATALYST_HANDOVER_JWT_ISSUER, the SAME single source the minter uses) and ACCEPT
+// it. The former hardcoded `const expectedIss = "https://console.openova.io"`
+// 401'd the Sovereign's own token as "invalid issuer" (the #2940 duplicate-literal
+// drift surviving on the verify side) — this test FAILS on that hardcode and
+// passes only when both sides share one resolver.
+func TestAuthHandover_PerSovereignIssuer_5614(t *testing.T) {
+	const sovIssuer = "https://console.hw292.omani.works"
+	t.Setenv("CATALYST_HANDOVER_JWT_ISSUER", sovIssuer)
+
+	h, privKey, _ := testHandoverSetup(t)
+
+	c := validClaims("sov.test")
+	c.Issuer = sovIssuer // the Sovereign's OWN console — what its minter emits post-cutover
+	tok := signClaims(t, privKey, c)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/handover?token="+tok, nil)
+	w := httptest.NewRecorder()
+	h.AuthHandover(w, req)
+
+	if w.Code == http.StatusUnauthorized {
+		t.Fatalf("#5614 regression: Sovereign rejected its OWN handover token — got 401 %q", w.Body.String())
+	}
+	if w.Code != http.StatusFound {
+		t.Fatalf("status: got %d want 302 (own token accepted → dashboard redirect)", w.Code)
+	}
+}
+
 func TestAuthHandover_WrongRole(t *testing.T) {
 	h, privKey, _ := testHandoverSetup(t)
 
