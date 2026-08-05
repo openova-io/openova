@@ -59,9 +59,17 @@ import (
 // runtimePlacementResponse is the body of GET
 // /applications/{name}/placement. `Targets` is the #3969 PlacementTarget
 // list derived from the live runtime; the FE feeds it straight into
-// derivePattern. `DerivedFromRuntime` is always true here — it lets the FE
-// distinguish "real, observed placement" from the legacy spec/status
-// projection it falls back to when this endpoint is unavailable.
+// derivePattern. `DerivedFromRuntime` lets the FE distinguish "real,
+// observed placement" from the legacy spec/status projection it falls back
+// to when this endpoint could not consult the runtime.
+//
+// #5568 — it is true ONLY when the live k8s cache was actually queried (a
+// genuine runtime observation, even if that query legitimately found zero
+// targets). It MUST be false on the no-data-plane path (k8sCache == nil),
+// where no runtime is consulted: pairing `targets: []` with
+// `derivedFromRuntime: true` there falsely asserts the empty list was
+// runtime-observed, when the branch is taken precisely because it was not —
+// the exact fabrication UAT row 55 leans on this flag to rule out.
 type runtimePlacementResponse struct {
 	Targets            []bpv1.PlacementTarget `json:"targets"`
 	DerivedFromRuntime bool                   `json:"derivedFromRuntime"`
@@ -81,9 +89,12 @@ func (h *Handler) HandleApplicationPlacement(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if h.k8sCache == nil {
-		// No data plane (pre-handover mothership / CI) — honest empty
-		// placement; the FE keeps its legacy spec/status fallback.
-		writeJSON(w, http.StatusOK, runtimePlacementResponse{Targets: []bpv1.PlacementTarget{}, DerivedFromRuntime: true})
+		// No data plane (pre-handover mothership / CI) — no runtime is
+		// consulted on this path, so DerivedFromRuntime MUST be false (#5568):
+		// the empty list is NOT a runtime observation, and the honest signal
+		// tells the FE to keep its legacy spec/status fallback rather than
+		// treat `targets: []` as an authoritative "no placement" verdict.
+		writeJSON(w, http.StatusOK, runtimePlacementResponse{Targets: []bpv1.PlacementTarget{}, DerivedFromRuntime: false})
 		return
 	}
 

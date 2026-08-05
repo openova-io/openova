@@ -381,3 +381,21 @@ func TestPlacementRuntime_Unknown_EmptyTargets(t *testing.T) {
 		t.Fatalf("derivedFromRuntime must be true even when empty")
 	}
 }
+
+// #5568 — the no-data-plane path (k8sCache == nil, pre-handover mothership / CI)
+// consults NO runtime, so it must report derivedFromRuntime=FALSE. Pairing an
+// empty target list with true there falsely asserts the emptiness was
+// runtime-observed. Distinct from Unknown_EmptyTargets above, where the cache IS
+// present and genuinely-empty → true is correct. Falsifiable: fails on the old
+// hardcoded `true`.
+func TestPlacementRuntime_NoDataPlane_NotDerived_5568(t *testing.T) {
+	// No SetK8sCache call → h.k8sCache stays nil.
+	h := NewWithPDM(quietHandlerLogger(), &fakePDM{})
+	resp := callPlacement(t, h, "dep-no-dataplane", "any-component")
+	if len(resp.Targets) != 0 {
+		t.Fatalf("no data plane: got %d targets want 0 (%+v)", len(resp.Targets), resp.Targets)
+	}
+	if resp.DerivedFromRuntime {
+		t.Fatalf("#5568: derivedFromRuntime must be FALSE when no runtime was consulted (k8sCache==nil), got true")
+	}
+}
