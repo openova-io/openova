@@ -1061,7 +1061,7 @@ spec:
       # index.yaml HelmRepository off charts.loft.sh into local Harbor +
       # suspends bp-vcluster-helmrepo so it holds; the step-08 fluxSourceHostLint
       # exception for charts.loft.sh is removed (empty allowHosts).
-      version: 0.1.170
+      version: 0.1.171
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

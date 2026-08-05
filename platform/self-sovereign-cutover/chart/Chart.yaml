@@ -1,5 +1,51 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.171 (#5596) — THE SECONDARY-REGION PIVOT IS NOW PROVEN DURABLE, NOT MERELY
+# APPLIED. Step-06's #5359 secondary read-back was SINGLE-SHOT and fired within
+# seconds of the patch loop, so it measured the PATCH and never the PIVOT.
+# region-B runs its OWN kustomize-controller against its OWN artifact of the
+# gitops repo; when that artifact is the pre-cutover one, the next re-apply puts
+# every URL back on oci://ghcr.io/openova-io — after the step recorded success.
+#
+# Measured read-only on hw292 (dep 1c56518035a83e03, 2-region me-east-215-a/-b-1)
+# on 2026-08-06, three days after the run:
+#   07:31:11Z  region-b GitRepository artifact frozen at main@sha1:4cc85ad9…
+#              (Ready=False GitOperationFailed, "unable to list remote … EOF")
+#   07:41:13Z  step.helmrepository-patches.region.me-east-215-b-1.result=success
+#   07:42:08Z  region-b kustomize-controller Apply — sole field manager,
+#              generation 3, all 64 HelmRepositories back on ghcr.io
+#   08:12:30Z  cutoverComplete=true
+#   +3d        region-a 69/69 on oci://registry.hw292.omani.works, region-b
+#              64/65 on oci://ghcr.io/openova-io (the 65th is the third-party
+#              vcluster-system/loft, out of scope in both regions).
+# 55 seconds is the entire width of the window the old assert could see. It was
+# a guard aimed at something that cannot fail.
+#
+# THE FIX — assert_secondary_pivot_durable() makes the reverting actor run
+# INSIDE the assert: it pokes the secondary's own GitRepository + HR-owning
+# Kustomizations with a reconcile token and refuses to certify until one of
+# those Kustomizations reports status.lastHandledReconcileAt == that token
+# (proof the re-apply HAPPENED, not merely that we asked), with the read-back
+# clean on every sample up to that point. Any offender at any sample fails the
+# leg; a poke never handled inside secondaryRegions.pivotReadbackSeconds also
+# fails it, because the revert would then land after the Job exits and nothing
+# downstream re-reads region-B. Offender scope and tolerations are identical to
+# region-A's assert (upstream prefix only, in helmRepositories.namespace, minus
+# readbackExcludeNames), so this can never be STRICTER than the step-08 gate.
+#
+# Two sibling no-op paths closed in the same leg: a FAILED HelmRepository
+# enumeration used to be `2>/dev/null || true` and therefore indistinguishable
+# from a region that genuinely has none — it recorded `skipped` and moved on;
+# it now fails loud (a region we could not read is not a region we pivoted).
+# And "no secondary kubeconfigs mounted" now says so explicitly, so a
+# single-region Sovereign's legitimate inert leg reads differently from a
+# multi-region one that skipped its pivot. Single-region behaviour is unchanged.
+#
+# Guarded by tests/step06-secondary-durable.sh, vacuity-checked BOTH ways:
+# against 0.1.170's chart C5 (revert-on-re-apply), C6 (unreadable region) and
+# C7 (poke never handled) all exit 0 — the defect — while C1/C2/C3/C4/C8 pass on
+# both trees, so the guard cannot be satisfied by blanket failure.
+#
 # 0.1.170 (#5640) — THE HEAD OF THE DELIVERY CHAIN. The Day-2 reconciler gains a
 # CATALOG (git) leg, and it runs FIRST in each cycle.
 #
@@ -3324,7 +3370,7 @@ name: bp-self-sovereign-cutover
 # copyAttempts,skopeoStaticURL,maxRefsPerCycle}. No RBAC change (the runner
 # ClusterRole already grants deployments/statefulsets/daemonsets/jobs/cronjobs
 # get+list+watch). Step count unchanged at 11.
-version: 0.1.170
+version: 0.1.171
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
