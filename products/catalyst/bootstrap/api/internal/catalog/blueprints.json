@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-05T18:39:09.978Z",
+  "generatedAt": "2026-08-05T19:12:29.430Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -1817,7 +1817,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.2.35",
+      "version": "0.2.37",
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [
         "bp-keycloak",
@@ -3552,7 +3552,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.1.9",
+      "version": "0.1.10",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [
         "bp-cilium",

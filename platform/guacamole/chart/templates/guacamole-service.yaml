@@ -1,4 +1,28 @@
+{{- /*
+Guacamole webapp Service — and, on a 2-region Sovereign, the ClusterMesh
+global Service that makes ADR-0001 §11 ("ONE Guacamole per Sovereign") true
+on the wire (#5358).
+
+Cilium merges ClusterMesh global Services BY name+namespace, so this Service
+must exist under the SAME name in EVERY participating cluster — which it
+does, because the bootstrap-kit installs slot 52 on every region.
+
+  PRIMARY   — the selector matches the local webapp Pod (guacamole-deployment
+              .yaml renders it here), and `shared: "true"` EXPORTS those
+              backends to the peer region.
+  SECONDARY — `bp-guacamole.renderWorkloads` suppresses the webapp Deployment,
+              so this selector matches ZERO local Pods and `affinity: local`
+              falls through the mesh to the primary's singleton. `shared:
+              "false"` keeps the secondary from ever exporting a webapp of its
+              own, so the primary can never land a session in the secondary
+              region — which is the entire bug (see values.yaml `crossRegion`
+              for the live hw292 measurement).
+
+crossRegion.enabled=false → no annotations at all, byte-identical to 0.2.35.
+*/ -}}
 {{- if .Values.guacamole.enabled -}}
+{{- $cr := .Values.crossRegion | default dict -}}
+{{- $role := include "bp-guacamole.crossRegionRole" . -}}
 apiVersion: v1
 kind: Service
 metadata:
@@ -7,6 +31,13 @@ metadata:
   labels:
     {{- include "bp-guacamole.labels" . | nindent 4 }}
     catalyst.openova.io/component: webapp
+  {{- if $cr.enabled }}
+  annotations:
+    service.cilium.io/global: "true"
+    # Only the primary exports backends; see the header comment.
+    service.cilium.io/shared: {{ eq $role "primary" | quote }}
+    service.cilium.io/affinity: {{ (($cr.webapp | default dict).affinity | default "local") | quote }}
+  {{- end }}
 spec:
   type: ClusterIP
   selector:

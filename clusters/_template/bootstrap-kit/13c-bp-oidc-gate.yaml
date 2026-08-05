@@ -97,7 +97,7 @@ spec:
       # absent in a per-Org namespace, 500'd every OAuth callback on hw292.
       # Additive: Cilium unions policies, so the effective egress set here is
       # unchanged while slot 26b is installed.
-      version: 0.1.9
+      version: 0.1.10
       sourceRef:
         kind: HelmRepository
         name: bp-oidc-gate
@@ -126,6 +126,18 @@ spec:
     # inside the cluster on Huawei/kom4dc). KC_HOSTNAME is pinned public by
     # bp-keycloak so the token `iss` still matches the public issuer.
     keycloakInternalURL: http://keycloak.keycloak.svc.cluster.local
+    # #5358 — an upstream may be a ClusterMesh SINGLETON: bp-guacamole 0.2.36
+    # anchors the Guacamole webapp in the primary region (Guacamole's REST
+    # session lives in a per-Pod in-memory map, so one instance per region
+    # behind a shared VIP 403'd half of every page load and rendered a blank
+    # page). The secondary region's gate then reaches that webapp across the
+    # mesh — a dial the gate's own egress policy cannot authorise by namespace
+    # alone, because Cilium AND-injects `io.cilium.k8s.policy.cluster=<local>`
+    # into every selector derived from a namespaced CNP. Naming the peer
+    # cluster(s) here is what keeps that hop open. EMPTY on a single-region
+    # prov → no extra rule, policy byte-identical to 0.1.9.
+    crossRegion:
+      peerClusters: ${SOVEREIGN_PEER_CLUSTERMESH_NAMES:=[]}
     instances:
       # openova-flow (#3374 §3 row 9). Upstream is the slot-56 Service
       # in catalyst-system; the gate proxies it at the public hostname.

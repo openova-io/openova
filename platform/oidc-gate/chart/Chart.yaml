@@ -170,7 +170,43 @@ name: bp-oidc-gate
 # Cilium unions every policy selecting an endpoint, so while
 # bp-plane-isolation's open-egress rule is present the effective union is
 # unchanged and no working gate can be severed.
-version: 0.1.9
+# 0.1.10 (#5358): the egress half learns about ClusterMesh singletons and about
+# the post-DNAT port. Two independent gaps, both of which silently break a gate
+# whose upstream is not a plain local Service on its own pod port:
+#   (1) POD PORT. Rule 3 derived its allowed port from the `upstream` URL, which
+#       names the SERVICE port — but Cilium's egress verdict runs AFTER the
+#       Service DNAT, so the load-bearing port is the BACKEND POD's. This is the
+#       exact #4437 trap rule 2 already documented for the Keycloak hop and rule
+#       3 did not apply. Every real gate upstream on a Sovereign is an :80
+#       Service in front of an :8080 Pod (guacamole-server, openova-flow-server,
+#       powerdns-admin), so rule 3 allowed :80 and dropped the actual dial —
+#       masked today ONLY by bp-plane-isolation's open-egress rule, i.e. the very
+#       cross-chart dependency #5617 set out to remove, and ABSENT in the
+#       per-Organization namespaces bp-agenity installs this same gate into.
+#       Rule 3 now allows the Service port AND the Pod port (new per-instance
+#       `upstreamPodPort`, default 8080; when it equals the Service port only one
+#       port is emitted, so the existing single-port renders are unchanged).
+#   (2) PEER CLUSTER. bp-guacamole 0.2.36 anchors the Guacamole webapp in ONE
+#       region and lets the other region's gate reach it through a zero-backend
+#       ClusterMesh global Service — because Guacamole's REST session lives in a
+#       per-Pod in-memory HashTokenSessionMap and one instance per region behind
+#       a shared VIP 403'd half of every page load (#5358's blank page). Rule 3
+#       can NEVER authorise that dial: Cilium AND-injects
+#       `io.cilium.k8s.policy.cluster=<local>` into every selector derived from a
+#       namespaced CNP (`policy-default-local-cluster: "true"`, read live from
+#       hw292's cilium-config). New `crossRegion.peerClusters` (same source var
+#       bp-guacamole/bp-harbor/bp-postgres/bp-cnpg-pair consume,
+#       ${SOVEREIGN_PEER_CLUSTERMESH_NAMES}) emits rule 3b: the SAME upstream
+#       namespace + ports in the NAMED peer cluster(s) only — no `world`, no
+#       extra ports, no widening of the local surface. Without it the gate's own
+#       policy would silently undo the #5358 fix the moment slot 13c rolled.
+# EMPTY peerClusters (the default, and every single-region Sovereign) → no rule
+# 3b, and the rendered policy is byte-identical to 0.1.9. Lockstep:
+# 13c-bp-oidc-gate.yaml pin + crossRegion.peerClusters + blueprint.yaml.
+# Guard: chart/tests/netpol-render.sh Cases 5 + 6 (Case 5 FAILS against the
+# pre-fix chart, which allows only :80 to the guacamole namespace).
+# Refs #5358 #5617 #4437.
+version: 0.1.10
 appVersion: "7.6.0"
 description: |
   Catalyst generic OIDC gate — a per-app oauth2-proxy instance set that

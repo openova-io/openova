@@ -198,7 +198,7 @@ spec:
       # dead cached GUAC_AUTH token → 403 PERMISSION_DENIED on every
       # session API call → bare "An error has occurred" page (UAT rows
       # 35/115 on hw292). Session lifetime now matches the gate cookie.
-      version: 0.2.35
+      version: 0.2.37
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
@@ -228,6 +228,36 @@ spec:
     # REQUIRED. Empty default = verbatim ghcr.io (byte-identical pre-cutover).
     global:
       imageRegistry: ''
+    # ── Cross-region singleton (#5358) ─────────────────────────────────
+    # ADR-0001 §11 says ONE Guacamole per Sovereign, but this slot installs on
+    # EVERY region's control plane, so a 2-region Sovereign ran TWO independent
+    # Guacamoles behind ONE shared wildcard VIP. Guacamole keeps its REST
+    # session in a per-Pod in-memory HashTokenSessionMap, so `POST /api/tokens`
+    # minted by whichever region answered was UNKNOWN to the other, which
+    # returned 403 PERMISSION_DENIED — and the SPA's only handler for that call
+    # is requestService.DIE, leaving the page stuck in `.view.loading`
+    # (`.loading * { visibility: hidden }`) = the #5358 BLANK page.
+    #
+    # Measured live on hw292 (dep 1c56518035a83e03): ONE token minted on
+    # region-A returned 200 on region-A's Pod and 403 on region-B's Pod, and the
+    # webapp access logs show a single page-load split across both regions in
+    # the SAME second.
+    #
+    # Same seam bp-harbor (19) uses for the identical Redis session split
+    # (#5406). `enabled` follows SOVEREIGN_ENABLE_CNPG_PAIR — a single-region
+    # prov leaves it false and the render is byte-identical to 0.2.35.
+    crossRegion:
+      enabled: ${SOVEREIGN_ENABLE_CNPG_PAIR:=false}
+      # Per-region cloud-init substitute (primary on region-A + on every
+      # single-region prov, secondary on region-B). `secondary` renders the
+      # ClusterMesh Service stub ONLY — no webapp, no guacd, no CNPG store — so
+      # the stub has zero local backends and every dial falls through the mesh
+      # to region-A's singleton.
+      role: ${SOVEREIGN_REGION_ROLE:=primary}
+      # Peer ClusterMesh cluster name(s) — the SAME source var bp-harbor (19),
+      # bp-postgres (16a/16c/16d) and bp-cnpg-pair (16b) consume. EMPTY
+      # (single-region) → no CiliumNetworkPolicy is rendered.
+      peerClusters: ${SOVEREIGN_PEER_CLUSTERMESH_NAMES:=[]}
     # ── Bootstrap self-registration (#3687, extends #3370) ──────────────
     # The chart self-registers the Application CR for guacamole (the
     # canonical instance representation every console surface reads),

@@ -39,6 +39,9 @@ remote. Every rule below names identities.
 {{- $np := .Values.networkPolicy | default dict -}}
 {{- if and (ne (toString $np.enabled) "false") ($root.Capabilities.APIVersions.Has "cilium.io/v2") }}
 {{- $egressCfg := $np.egress | default dict -}}
+{{- /* #5358 — peer ClusterMesh cluster names; EMPTY (single-region) renders no
+     extra egress rule, so the policy stays byte-identical to 0.1.9. */ -}}
+{{- $peerClusters := (($root.Values.crossRegion | default dict).peerClusters | default list) -}}
 {{- $kcNamespace := $egressCfg.keycloakNamespace | default "keycloak" -}}
 {{- $kcPort := $egressCfg.keycloakPort | default 80 -}}
 {{- $kcInternal := trimSuffix "/" ($root.Values.keycloakInternalURL | default "") -}}
@@ -70,6 +73,23 @@ chart-authoring error and fails the render (Inviolable Principle #4).
 {{- $hostLabels := splitList "." $upHost }}
 {{- $upNamespace := $root.Release.Namespace }}
 {{- if gt (len $hostLabels) 1 }}{{- $upNamespace = index $hostLabels 1 }}{{- end }}
+{{- /*
+The upstream's POD port, which is what the policy verdict actually sees.
+`upstream` names the SERVICE port, but Cilium's egress verdict runs AFTER the
+Service DNAT, so the load-bearing port is the backend Pod's — the exact
+#4437 trap rule 2 already documents for the Keycloak hop. Every gate upstream
+on a Sovereign today is an :80 Service in front of an :8080 Pod
+(guacamole-server, openova-flow-server, powerdns-admin), so 8080 is the
+default; override per instance with `upstreamPodPort` when it differs.
+Emitting both is a negligible widening (same namespace, same identity) and
+removes a silent-drop failure mode that is otherwise masked only by
+bp-plane-isolation's open-egress rule — the very cross-chart dependency #5617
+set out to remove, and one that is ABSENT in the per-Organization namespaces
+bp-agenity installs this same gate into.
+*/ -}}
+{{- $upPodPort := ($inst.upstreamPodPort | default "8080") | toString }}
+{{- $upPorts := list $upPort }}
+{{- if ne $upPodPort $upPort }}{{- $upPorts = append $upPorts $upPodPort }}{{- end }}
 ---
 # ── CiliumNetworkPolicy — admit the Cilium Gateway Envoy to the gate pod ──
 # The gate's HTTPRoute owns the app's public hostname; gateway traffic carries
@@ -149,14 +169,46 @@ spec:
               protocol: TCP
             - port: "8080"
               protocol: TCP
-    # 3. The proxied upstream ({{ $raw }}).
+    # 3. The proxied upstream ({{ $raw }}) — Service port AND Pod port; see the
+    #    $upPodPort note above (#4437 post-DNAT trap).
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: {{ $upNamespace }}
       toPorts:
         - ports:
-            - port: {{ $upPort | quote }}
+            {{- range $upPorts }}
+            - port: {{ . | quote }}
               protocol: TCP
+            {{- end }}
+{{- if gt (len $peerClusters) 0 }}
+    # 3b. The SAME upstream in a peer ClusterMesh cluster (#5358). Rule 3
+    #     above can only ever match a LOCAL Pod: Cilium AND-injects
+    #     `io.cilium.k8s.policy.cluster=<local>` into every selector derived
+    #     from a namespaced CNP. When the upstream is a mesh singleton (one
+    #     region owns the workload, the other reaches it through a
+    #     zero-backend global Service — bp-guacamole 0.2.36) the local-only
+    #     rule denies the dial and the gate 502s. Scoped to the upstream's own
+    #     namespace + port in the named peer cluster(s) only — no `world`, no
+    #     extra ports, no widening of the local surface.
+    - toEndpoints:
+        - matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: In
+              values:
+                {{- range $peerClusters }}
+                - {{ . | quote }}
+                {{- end }}
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: In
+              values:
+                - {{ $upNamespace | quote }}
+      toPorts:
+        - ports:
+            {{- range $upPorts }}
+            - port: {{ . | quote }}
+              protocol: TCP
+            {{- end }}
+{{- end }}
 {{- if not $kcInternal }}
     # 4. Public-issuer discovery fallback (#3844 public-discovery mode).
     - toEntities:

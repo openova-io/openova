@@ -30,6 +30,71 @@ catalystBlueprint:
 # openova-io so they carry their own registry and are untouched.
 global:
   imageRegistry: ""
+# ── Cross-region singleton discipline (#5358) ────────────────────────────
+# ADR-0001 §11 mandates ONE Guacamole per Sovereign. Until 0.2.36 the
+# bootstrap-kit installed this chart identically on EVERY region's control
+# plane, so a 2-region Sovereign ran TWO fully independent Guacamoles — each
+# with its own webapp Pod, its own guacd, and its own CNPG permission store —
+# while ONE shared wildcard VIP fanned `guacamole.<fqdn>` at BOTH regions'
+# envoys.
+#
+# Guacamole keeps its REST session in a per-Pod IN-MEMORY HashTokenSessionMap
+# (o.a.g.rest.auth.HashTokenSessionMap — there is no shared-session option
+# upstream), so a token minted by whichever region answered `POST /api/tokens`
+# is UNKNOWN to the other region's Pod, which answers 403 PERMISSION_DENIED.
+# The browser opens several parallel HTTP/1.1 connections per page load and
+# the shared VIP spreads them across both regions, so a SINGLE page load is
+# routinely served by both instances.
+#
+# Measured live on hw292 (dep 1c56518035a83e03, webapp access logs, one page
+# load in the SAME second):
+#     region-A  POST /guacamole/api/tokens                        200  ← minted
+#     region-B  GET  …/postgresql/self/effectivePermissions        403
+#     region-B  GET  …/postgresql-shared/connectionGroups/ROOT/tree 403
+#     region-B  GET  /guacamole/images/warning.svg                 200  ← error icon
+# and reproduced as a control: the SAME token replayed against region-A's Pod
+# returns 200 while region-B's Pod returns 403 PERMISSION_DENIED.
+#
+# The 403 is fatal to the SPA: homeController's only error handler is
+# `requestService.DIE`, so `rootConnectionGroups` stays null, `isLoaded()`
+# never turns true, and home.html keeps `class="home-view view loading"` —
+# whose CSS is `.loading * { visibility: hidden }`. Every element stays in the
+# DOM but invisible, which is exactly the reported BLANK page whose innerText
+# is pure whitespace (UAT rows 35 / R9).
+#
+# The fix is the SAME idiom bp-harbor 1.2.45 (#5406) used for the identical
+# Redis-backed session split, and bp-openbao / bp-cnpg-pair / bp-catalyst-
+# edge-routes use for their singletons: anchor the workload in the PRIMARY
+# region and let the secondary reach it over Cilium ClusterMesh.
+#
+#   enabled=false (DEFAULT, and every single-region Sovereign)
+#     → renders exactly what 0.2.35 rendered. Byte-identical.
+#   enabled=true, role=primary
+#     → full workload set + `service.cilium.io/global|shared` on the webapp
+#       Service so the peer can dial it, + a CiliumNetworkPolicy admitting the
+#       peer region's oidc-gate Pods to :8080.
+#   enabled=true, role=secondary
+#     → NO webapp/guacd/JDBC workloads at all; the webapp Service renders as a
+#       ZERO-backend ClusterMesh stub so every dial falls through to primary.
+crossRegion:
+  # Render the ClusterMesh global-Service annotations + the cross-region
+  # CiliumNetworkPolicy, and honour `role`. Default OFF.
+  enabled: false
+  # This region's role in the pair: primary | secondary. Slot 52 stamps it
+  # from the per-region ${SOVEREIGN_REGION_ROLE} cloud-init substitute.
+  role: primary
+  # Peer ClusterMesh cluster name(s) — the SAME source var bp-harbor (19),
+  # bp-postgres (16a/16c/16d) and bp-cnpg-pair (16b) consume,
+  # ${SOVEREIGN_PEER_CLUSTERMESH_NAMES}. EMPTY (single-region) → NO
+  # CiliumNetworkPolicy is rendered.
+  peerClusters: []
+  webapp:
+    # Cilium global-service backend preference. `local` prefers backends in
+    # this cluster and falls through to the peer only when there are none —
+    # so the primary never bounces a request to the secondary, and the
+    # secondary (which has no local backends by design) always reaches the
+    # primary. Same value bp-openbao's openbao-active-mesh uses.
+    affinity: local
 # Top-level enable gate. When false, NO resources render. Verified by
 # `helm template` test in tests/.
 guacamole:

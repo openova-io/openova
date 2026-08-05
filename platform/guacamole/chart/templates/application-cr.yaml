@@ -20,7 +20,9 @@ false; the slot opts in) AND the Capabilities apps.openova.io/v1 gate
 (benign skip pre-CRD; CR materialises on the first post-CRD upgrade).
 Leaf platform app — no shareable Context, so spec.parameters is empty.
 */ -}}
-{{- if and .Values.bootstrapOwned.enabled (.Capabilities.APIVersions.Has "apps.openova.io/v1") }}
+{{- /* #5358: the Application CR represents the ONE Guacamole instance; only the
+   crossRegion `primary` region self-registers it (no double-carding). */ -}}
+{{- if and .Values.bootstrapOwned.enabled (not (include "bp-guacamole.isMeshSecondary" .)) (.Capabilities.APIVersions.Has "apps.openova.io/v1") }}
 apiVersion: apps.openova.io/v1
 kind: Application
 metadata:

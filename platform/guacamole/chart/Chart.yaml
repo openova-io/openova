@@ -245,7 +245,63 @@ name: bp-guacamole
 # were proven INTACT on the same env (fresh-login effectivePermissions
 # carried ADMINISTER + 5 CREATE_*), so the session lifetime, not the JDBC
 # permission chain, was the operator-visible failure.
-version: 0.2.35
+# 0.2.36 (#5358): ONE Guacamole per Sovereign, enforced on the wire. ADR-0001
+# §11 has always said "one Guacamole per Sovereign" and the chart's own
+# Application CR claims `placement: singleton`, but the bootstrap-kit installs
+# slot 52 on EVERY region's control plane — so a 2-region Sovereign actually ran
+# TWO fully independent Guacamoles (own webapp, own guacd, own CNPG permission
+# store) behind ONE shared wildcard VIP. Guacamole keeps its REST session in a
+# per-Pod IN-MEMORY HashTokenSessionMap (no shared-session option exists
+# upstream), so a token minted by whichever region answered `POST /api/tokens`
+# is UNKNOWN to the other region's Pod, which answers 403 PERMISSION_DENIED.
+# A browser opens several parallel HTTP/1.1 connections per page load and the
+# VIP spreads them across both regions, so a SINGLE page load is routinely
+# served by both instances.
+#   Live proof, hw292 (dep 1c56518035a83e03) webapp access logs, one page load
+#   in the SAME second:
+#     region-A  POST /guacamole/api/tokens                         200  ← minted
+#     region-B  GET  …/postgresql/self/effectivePermissions         403
+#     region-B  GET  …/postgresql-shared/connectionGroups/ROOT/tree 403
+#     region-B  GET  /guacamole/images/warning.svg                  200
+#   and as a CONTROL: the SAME token replayed in the same instant returned 200
+#   on region-A's Pod and 403 PERMISSION_DENIED on region-B's.
+# The 403 is fatal to the SPA because homeController's only error handler for
+# the connection-tree call is `requestService.DIE`: `rootConnectionGroups` stays
+# null, `isLoaded()` never turns true, and home.html keeps
+# `class="home-view view loading"` whose CSS is `.loading * { visibility:
+# hidden }` — every element stays in the DOM but invisible. That is exactly the
+# reported BLANK page whose innerText is pure whitespace (UAT rows 35 / R9), and
+# the same 403 cascade paints the generic "An error has occurred" banner on the
+# runs where the DIE broadcast wins the race — one cause, both reported
+# symptoms. NOTE this is a DIFFERENT defect from the 0.2.34 session-lifetime fix
+# (#5598): that one needed >60 min idle, this one reproduces on a cold first
+# load and is the reason #5358 kept reopening after #5378 moved SSO server-side.
+# FIX (the idiom bp-harbor 1.2.45 used for the identical Redis session split,
+# #5406, and bp-openbao / bp-cnpg-pair / bp-catalyst-edge-routes use for their
+# singletons): a new top-level `crossRegion` block anchors the workload in the
+# PRIMARY region and lets the secondary reach it over Cilium ClusterMesh.
+#   - crossRegion.enabled=false (DEFAULT, every single-region Sovereign) →
+#     render is BYTE-IDENTICAL to 0.2.35 (verified by diffing the full
+#     `helm template` output against origin/main).
+#   - role=primary  → full workload set; the guacamole-server Service gains
+#     `service.cilium.io/global|shared: "true"` + `affinity: local`, plus a
+#     CiliumNetworkPolicy admitting the PEER region's oidc-gate Pods to :8080.
+#     A plain k8s NetworkPolicy can never do this: Cilium AND-injects
+#     `io.cilium.k8s.policy.cluster=<local>` into every selector derived from
+#     one (`policy-default-local-cluster: "true"`, read live from hw292's
+#     cilium-config), and an ipBlock is equally inert (#4656/#4846/#4854).
+#   - role=secondary → NO webapp / guacd / CNPG Cluster / seed Job / enroll
+#     CronJob / Application CR at all; only the guacamole-server Service renders,
+#     as a ZERO-backend mesh stub with `shared: "false"` so the secondary can
+#     never export a webapp of its own. Zero local backends is what makes
+#     `affinity: local` fall through to the primary.
+# Lockstep: 52-bp-guacamole.yaml pin + values + blueprint.yaml + catalog-seed
+# source.version → 0.2.36. Paired with bp-oidc-gate 0.1.10, whose egress policy
+# must name the peer cluster or it silently re-breaks this hop. New guard:
+# chart/tests/crossregion-render.sh (Case 3 fails against the pre-fix chart —
+# role=secondary there still renders 2 Deployments + 1 CNPG Cluster).
+# Refs #5358.
+version: 0.2.37
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless

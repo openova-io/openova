@@ -28,7 +28,9 @@ template until the CRD is registered (bootstrap order lands bp-cnpg first).
    value directly — the same idiom newapi's httproute.yaml uses for ssoInit. */ -}}
 {{- $dbOn := or (not (hasKey $db "enabled")) $db.enabled -}}
 {{- $clOn := or (not (hasKey $cl "enabled")) $cl.enabled -}}
-{{- if and .Values.guacamole.enabled $dbOn $clOn (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
+{{- /* #5358: the permission store belongs to the ONE webapp (ADR-0001 §11), so
+   a crossRegion `secondary` region renders no CNPG Cluster of its own. */ -}}
+{{- if and (include "bp-guacamole.renderWorkloads" .) $dbOn $clOn (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
 {{- $name := $cl.name | default "guacamole-pg" -}}
 {{- $ns := $cl.namespace | default .Release.Namespace -}}
 {{- $owner := $cl.owner | default "guacamole" -}}

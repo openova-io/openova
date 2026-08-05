@@ -1,4 +1,7 @@
-{{- if .Values.guacamole.enabled -}}
+{{- /* #5358: no guacd Deployment on a crossRegion `secondary` region, so no
+   Service either (unlike guacamole-server, guacd is never dialled across the
+   mesh — each region's webapp uses its own). */ -}}
+{{- if include "bp-guacamole.renderWorkloads" . -}}
 apiVersion: v1
 kind: Service
 metadata:

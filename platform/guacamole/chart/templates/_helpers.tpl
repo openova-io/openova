@@ -135,6 +135,52 @@ guacamole-auth-sso-openid implicit flow (fragment-replay-broken upstream
 {{- end }}
 
 {{/*
+Cross-region role (#5358 region-split). `primary` (default) = this region
+owns the ONE Guacamole the Sovereign runs (ADR-0001 §11); `secondary` = this
+region renders the ClusterMesh Service stub ONLY and reaches the primary's
+webapp over the mesh. Any other value fails the render.
+*/}}
+{{- define "bp-guacamole.crossRegionRole" -}}
+{{- $cr := .Values.crossRegion | default dict -}}
+{{- $role := $cr.role | default "primary" -}}
+{{- if not (has $role (list "primary" "secondary")) -}}
+{{- fail (printf "bp-guacamole: invalid crossRegion.role %q — must be \"primary\" (owns the singleton webapp) or \"secondary\" (mesh stub only)" $role) -}}
+{{- end -}}
+{{- $role -}}
+{{- end }}
+
+{{/*
+Mesh-secondary predicate (#5358 region-split). Emits "true" when this region is
+the ClusterMesh SECONDARY — i.e. the region that must run NO Guacamole workload
+so its `guacamole-server` Service has ZERO local backends and
+`service.cilium.io/affinity: local` falls through the mesh to the primary's
+singleton. Empty string otherwise.
+
+Deliberately independent of `.Values.guacamole.enabled` so callers that do not
+gate on that value (application-cr.yaml) keep their existing semantics.
+*/}}
+{{- define "bp-guacamole.isMeshSecondary" -}}
+{{- $cr := .Values.crossRegion | default dict -}}
+{{- if and $cr.enabled (eq (include "bp-guacamole.crossRegionRole" .) "secondary") -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/*
+Workload render gate (#5358 region-split). Emits "true" when this region must
+run the Guacamole workload set (webapp + guacd + JDBC store), empty otherwise.
+
+crossRegion.enabled=false (the default, and every single-region Sovereign)
+always renders the workloads, so the default render is byte-identical to
+pre-0.2.36.
+*/}}
+{{- define "bp-guacamole.renderWorkloads" -}}
+{{- if and .Values.guacamole.enabled (not (include "bp-guacamole.isMeshSecondary" .)) -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/*
 OIDC issuer fail-fast — Guacamole won't authenticate without it.
 */}}
 {{- define "bp-guacamole.oidcIssuer" -}}

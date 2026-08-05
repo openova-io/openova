@@ -1,0 +1,84 @@
+{{- /*
+Cross-region webapp reachability CiliumNetworkPolicy (#5358).
+
+The `guacamole` namespace carries bp-plane-isolation's `guacamole-default-deny`
+NetworkPolicy, and in sso.mode=header this chart adds its own
+`guacamole-server-ingress` k8s NetworkPolicy admitting ONLY the oidc-gate Pods.
+
+A plain k8s NetworkPolicy can NEVER admit a ClusterMesh peer. Cilium
+AND-injects `io.cilium.k8s.policy.cluster=<local>` into every selector it
+derives from a k8s NetworkPolicy — confirmed on hw292 by the agent config
+itself, `policy-default-local-cluster: "true"` in the kube-system
+`cilium-config` ConfigMap. (An `ipBlock` is equally inert: a ClusterMesh remote
+Pod is a KNOWN endpoint carrying its own identity, never a CIDR identity —
+#4656 / #4846 / #4854.)
+
+So once crossRegion anchors the webapp in the primary region, the SECONDARY
+region's oidc-gate Pod dialling across the mesh needs an identity-based
+CiliumNetworkPolicy on the primary side. Cilium evaluates the UNION of every
+policy selecting an endpoint, so this is purely ADDITIVE to the default-deny
+and to the header-mode ingress guard: it grants peer-region reachability on the
+webapp port ONLY, from peer-cluster oidc-gate identities ONLY — no `world`, no
+extra ports, and it does NOT widen the local-cluster surface.
+
+Rendered on BOTH regions so a role flip needs no policy change and has no
+ordering hazard: on the secondary it selects zero local webapp Pods and is
+therefore inert.
+
+ANY-NAMESPACE note (the #4854 row 67 L2 trap, mirrored from
+platform/harbor/chart/templates/redis-crossregion-netpol.yaml): a namespaced
+CNP's fromEndpoints is implicitly ANDed with BOTH
+`io.cilium.k8s.policy.cluster=<local>` AND
+`k8s:io.kubernetes.pod.namespace=<this policy's namespace>`. The gate lives in
+namespace `oidc-gate`, NOT in `guacamole`, so the namespace key MUST be named
+explicitly — otherwise the rule is silently narrowed to peer-region Pods that
+happen to sit in a same-named `guacamole` namespace and matches nothing.
+
+Gated on `crossRegion.enabled` AND a non-empty `crossRegion.peerClusters` AND
+the cilium.io/v2 Capabilities check (the #2988/#3102 idiom, so the chart still
+installs on CRD-less clusters such as kind CI). EMPTY peer list (single-region)
+→ NO policy → the default render is byte-identical to 0.2.35.
+*/ -}}
+{{- $cr := .Values.crossRegion | default dict -}}
+{{- $peers := $cr.peerClusters | default list -}}
+{{- if and .Values.guacamole.enabled $cr.enabled (gt (len $peers) 0) (.Capabilities.APIVersions.Has "cilium.io/v2") -}}
+{{- $sso := .Values.guacamole.sso | default dict -}}
+{{- $gate := $sso.gate | default dict -}}
+{{- $gateNs := $gate.namespace | default "oidc-gate" -}}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ printf "%s-crossregion-ingress" (include "bp-guacamole.webappName" .) | quote }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+    {{- /* `bp-guacamole.labels` already sets catalyst.openova.io/blueprint;
+         re-emitting a key Helm has already written is inert AND fails
+         helm-controller's post-render unmarshal with `mapping key already
+         defined`, so use a distinct key (the #5406 lesson). */}}
+    catalyst.openova.io/subcomponent: guacamole-crossregion-netpol
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "bp-guacamole.webappSelectorLabels" . | nindent 6 }}
+  ingress:
+    - fromEndpoints:
+        - matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: In
+              values:
+                {{- range $peers }}
+                - {{ . | quote }}
+                {{- end }}
+            # Named explicitly — see the ANY-NAMESPACE note above.
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: In
+              values:
+                - {{ $gateNs | quote }}
+          matchLabels:
+            {{- $gate.podSelector | default (dict "app.kubernetes.io/name" "bp-oidc-gate") | toYaml | nindent 12 }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.guacamole.webapp.port | quote }}
+              protocol: TCP
+{{- end }}

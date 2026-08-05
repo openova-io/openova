@@ -1,4 +1,7 @@
-{{- if .Values.guacamole.enabled -}}
+{{- /* #5358: `renderWorkloads` is empty on a crossRegion `secondary` region —
+   that region must run NO webapp Pod so its guacamole-server Service has zero
+   local backends and falls through the ClusterMesh to the primary singleton. */ -}}
+{{- if include "bp-guacamole.renderWorkloads" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
