@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-05T13:45:04Z` |
+| Last refreshed | `2026-08-05T14:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-05T13:53 | [#5692](https://github.com/openova-io/openova/pull/5692) | #5535 | ci(uat): lock the SSO-flip trigger surface against evidence- |
 | 2026-08-05T13:44 | [#5691](https://github.com/openova-io/openova/pull/5691) | #5348 | fix(stalwart-sovereign): explicit nodePort:0 on mail LoadBal |
 | 2026-08-05T07:14 | [#5689](https://github.com/openova-io/openova/pull/5689) | #5612 | fix(newapi): route inert SSO recovery button through the wor |
 | 2026-08-05T06:35 | [#5688](https://github.com/openova-io/openova/pull/5688) | #5613 | fix(dashboard): treemap Organization layer projects live pod |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-05T00:05 | [#5663](https://github.com/openova-io/openova/pull/5663) | #5041 | chore(deps): bump undici from 7.25.0 to 7.29.0 |
 | 2026-08-04T15:43 | [#5662](https://github.com/openova-io/openova/pull/5662) | #4706 | fix(wizard): thread the Single-region topology choice to the |
 | 2026-08-04T09:16 | [#5658](https://github.com/openova-io/openova/pull/5658) | #5641 | fix(qa-fixtures): QA CNPG Clusters pinned a Hetzner region o |
-| 2026-08-04T08:50 | [#5657](https://github.com/openova-io/openova/pull/5657) | #5644 | feat(cutover): post-cutover delivery that can actually deliv |
 
 ---
 
