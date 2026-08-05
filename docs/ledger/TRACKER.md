@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-05T23:00:08Z` |
+| Last refreshed | `2026-08-05T23:15:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-05T23:08 | [#5711](https://github.com/openova-io/openova/pull/5711) | #5614 | fix(auth): accept the handover issuer SET, not a single valu |
+| 2026-08-05T23:07 | [#5710](https://github.com/openova-io/openova/pull/5710) | #5436 | fix(cutover): step-06 secondary leg must prove the pivot DUR |
 | 2026-08-05T22:58 | [#5709](https://github.com/openova-io/openova/pull/5709) | #5597 | fix(uat): never flip a UAT row whose walk post-dates the cit |
 | 2026-08-05T22:04 | [#5708](https://github.com/openova-io/openova/pull/5708) | #5609 | fix(console): pin the active-passive topology gate on the re |
 | 2026-08-05T22:00 | [#5707](https://github.com/openova-io/openova/pull/5707) | #5599 | fix(bp-newapi): cross-region singleton — one newapi, one Pos |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-05T01:50 | [#5682](https://github.com/openova-io/openova/pull/5682) | #5610 | fix(console): summary inline editor opens pre-filled with th |
 | 2026-08-05T01:46 | [#5681](https://github.com/openova-io/openova/pull/5681) | #5614 | fix(auth): verify handover issuer via DefaultIssuer(), not a |
 | 2026-08-05T02:09 | [#5680](https://github.com/openova-io/openova/pull/5680) | #5467 | fix(cutover): stop harbor-prewarm printing the GHCR PAT pref |
-| 2026-08-04T23:10 | [#5678](https://github.com/openova-io/openova/pull/5678) | #5583 | ci(blueprint-release): sync catalog-seed + regenerate catalo |
-| 2026-08-04T22:20 | [#5677](https://github.com/openova-io/openova/pull/5677) | #5476 | fix(catalyst-api): wire spine object-model ownership chain + |
 
 ---
 
