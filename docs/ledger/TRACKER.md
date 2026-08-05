@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-05T23:30:05Z` |
+| Last refreshed | `2026-08-05T23:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,7 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#5393](https://github.com/openova-io/openova/issues/5393) | Per-Org plan quota: vcluster control-plane overhead (1500m) is billed to the cus | Other |
 | [#5394](https://github.com/openova-io/openova/issues/5394) | MCP endpoint is ~50% dead: bp-openova-mcp is single-region but mcp.<fqdn> fronts | Other |
 | [#5395](https://github.com/openova-io/openova/issues/5395) | gamma-corp is entirely unrouted: all 6 per-Org HTTPRoutes NoMatchingListenerHost | Other |
 | [#5396](https://github.com/openova-io/openova/issues/5396) | bp-velero upgrade-crds pre-upgrade hook is Kyverno-rejected (no harbor-proxy ima | Other |
@@ -299,7 +300,6 @@ flowchart LR
 | [#5650](https://github.com/openova-io/openova/issues/5650) | Post-cutover Sovereign fetches charts.loft.sh every 15m: step-08's deny-egress h | Other |
 | [#5661](https://github.com/openova-io/openova/issues/5661) | Sovereign wizard cannot fire a single-region prov — Single-region topology cho | Other |
 | [#5690](https://github.com/openova-io/openova/issues/5690) | §854/#5348: bp-stalwart-sovereign mail LoadBalancer Service omits explicit node | Other |
-| [#5693](https://github.com/openova-io/openova/issues/5693) | §854 guard gap: no check catches a LoadBalancer Service that OMITS explicit nod | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-05T23:42 | [#5712](https://github.com/openova-io/openova/pull/5712) | #5634 | fix(marketplace,billing): carry the real 429 retry window in |
 | 2026-08-05T23:08 | [#5711](https://github.com/openova-io/openova/pull/5711) | #5614 | fix(auth): accept the handover issuer SET, not a single valu |
 | 2026-08-05T23:07 | [#5710](https://github.com/openova-io/openova/pull/5710) | #5436 | fix(cutover): step-06 secondary leg must prove the pivot DUR |
 | 2026-08-05T22:58 | [#5709](https://github.com/openova-io/openova/pull/5709) | #5597 | fix(uat): never flip a UAT row whose walk post-dates the cit |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-05T02:53 | [#5683](https://github.com/openova-io/openova/pull/5683) | #5568 | fix(placement): derivedFromRuntime false on the no-data-plan |
 | 2026-08-05T01:50 | [#5682](https://github.com/openova-io/openova/pull/5682) | #5610 | fix(console): summary inline editor opens pre-filled with th |
 | 2026-08-05T01:46 | [#5681](https://github.com/openova-io/openova/pull/5681) | #5614 | fix(auth): verify handover issuer via DefaultIssuer(), not a |
-| 2026-08-05T02:09 | [#5680](https://github.com/openova-io/openova/pull/5680) | #5467 | fix(cutover): stop harbor-prewarm printing the GHCR PAT pref |
 
 ---
 
