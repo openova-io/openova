@@ -198,7 +198,7 @@ spec:
       # dead cached GUAC_AUTH token → 403 PERMISSION_DENIED on every
       # session API call → bare "An error has occurred" page (UAT rows
       # 35/115 on hw292). Session lifetime now matches the gate cookie.
-      version: 0.2.36
+      version: 0.2.37
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
