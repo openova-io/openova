@@ -5055,7 +5055,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "section": "pts-4-5-communication",
     "depends": [
       "bp-cert-manager",

@@ -32,8 +32,14 @@ name: bp-stalwart-sovereign
 #   has not yet rendered (e.g. operator opted out or a Sovereign was
 #   provisioned before this slot existed).
 #
+# 0.1.1 (#5690) — §854/#5348 hardening: the public mail LoadBalancer Service
+# (service-mail.yaml) now states allocateLoadBalancerNodePorts:false + an
+# explicit nodePort:0 on every port, and hard-fails on service.mail.type=
+# NodePort — mirroring the bp-stalwart-tenant guard. Prevents the apiserver
+# from silently auto-allocating a nodePort per mail port on apply.
+#
 # Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
-version: 0.1.0
+version: 0.1.1
 appVersion: "0.16.3"
 description: |
   Catalyst Blueprint scratch chart for the Sovereign-local Stalwart
