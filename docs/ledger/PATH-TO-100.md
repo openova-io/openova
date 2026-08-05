@@ -1,4 +1,4 @@
-# PATH TO 100% — **hw292 live, cc=true** (refreshed 2026-08-04)
+# PATH TO 100% — **hw292 live, cc=true** (refreshed 2026-08-06)
 
 > **Source of truth:** [`UAT.md`](UAT.md). **Current env = hw292** (`hw292.omani.works`, dep `1c56518035a83e03`, 2-region Huawei me-east-215-a/-b-1) — **fired 2026-08-03T04:04Z, converged, `cutoverComplete=true` 08:12:30Z**, and G12 region-kill re-proven **6/6 zero-touch** on 2026-08-04 (promotion T0+136s, failback with a clean re-clone, no split-brain — `docs/sessions/2026-08-04/hw292-g12-region-kill/`). hw291 was wiped 2026-07-31 08:54Z after banking cc=true.
 > This file maps every non-green row to its gate + owner. A row stays non-green until the hw292 walk verifies it — **merge ≠ green** (founder rule). Nothing below is a walk stamp; this is the *fix map*, and it says exactly which fixes are already inside the image hw292 will boot.
@@ -7,7 +7,11 @@
 
 ## Where the ledger actually stands
 
-The ledger is in its **reset state** — `scripts/reset-uat.py hw292` flushed 135 hw291 evidence cells to ☐/⏳ on 2026-07-31, per the founder's each-new-env-flushes-all-evidence law. A raw tally right now reads near-zero **by design**; it is not a regression and must never be presented as one.
+The ledger was reset for this env — `scripts/reset-uat.py hw292` flushed 135 hw291 evidence cells to ☐/⏳ on 2026-07-31, per the founder's each-new-env-flushes-all-evidence law — and has been re-walked upward from there ever since. It is **no longer** near-zero, so the "a raw tally reads near-zero by design" note that stood here from 2026-07-31 has been retired rather than left to mislead.
+
+**Live tally, `scripts/uat-tally.py` on this commit (2026-08-06): 156 ✅ / 286 data rows = 54.5%** — ✅ 156 · ⚠️ 47 · ◑ 5 · ❌ 19 · ☐ 12 · ⛔ 45 · N/A 2. Read the verdict from the status column only; the tally script does that and a whole-line glyph search does not (it over-reported by 23 rows when last measured, always optimistically).
+
+The **denominator honesty** matters as much as the numerator: 45 rows are ⛔ — assertions superseded by a merged, founder-approved design decision — and they can never go green as written. The largest single block is the 11-row placement family (rows 98–108), voided by #4325's deliberate de-vcluster of the mgmt/rtz/dmz planes. Those are not product faults and must not be counted as gaps; equally, they are not passes. Until the founder rules on rewrite-vs-exclude (see "Not achievable as written" below), 54.5% is the honest raw figure and 156/241 = 64.7% is the honest figure with the ⛔ set excluded from the denominator. Quote whichever, but say which.
 
 The last **walked** tally, on hw291 before the wipe, was **135 ✅ / 281 = 48.0% raw** (`dc18c6d9a`). The last walked north-star remains hw288 at **214 ✅ / 281 = 82.0%** (2026-07-26). Durable structural state — the number that survives a flush — stands at the last evidence-backed value; see the completion matrix, and change it only on walk evidence.
 
@@ -55,12 +59,47 @@ Rows 219, 220, 222 and G8/G9 need the Anthropic credential; `seedAnthropicToken`
 
 | rows | defect | state |
 |---|---|---|
-| 110, 112, 114, 115 | #5389 per-app Open/launch does not land in the app | filed, unfixed |
+| 110, 112, 114, 115 | #5389 per-app Open/launch does not land in the app | **root-caused 2026-08-06** (see below); fix in flight. Rows 110/112/114 have since walked ✅ on hw292 — those are *platform* apps on `<app>.<SovereignFQDN>`, which is the one shape that resolves. Row 115 is still ❌ but for an unrelated pair of blockers (PIN wall #5642 + zero seeded guacamole connections, #5598), not for the hostname defect |
 | 35, R9 | #5358 guacamole blank page after the SSO round-trip completes | filed, reopened on runtime evidence |
 | G12 | #5388 region-kill failback left a data split-brain | first fix merged (cnpg-pair 0.2.23 surfaces peer-probe starvation); re-proof rides hw292 |
 | R17 | #5364 org-delete leaves a half-teardown | filed, reopened on runtime evidence |
 | 212, 213 | per-Org MCP — #5516 proved Org-scoped reads never worked on any env; fix PR #5522 routes to the own-org seam | merged, delivered on hw292 |
 | — | #5385 deployment health aggregate reads stale-degraded (trust kubectl, not the badge) | filed, affects walk trust |
+
+### #5389 root cause — the endpoint hostname vocabulary cannot express a per-Org app host
+
+Found 2026-08-06, measured live on hw292 (dep `1c56518035a83e03`, `cutoverComplete=true`). The earlier row-114 fix (`bp-newapi` declaring `endpoints: []`) was correct but addressed only a *missing declaration*. The residual defect is deeper: for a per-Org app the declared hostname **evaluates to a host that does not exist**, so the launch button is not mis-styled — it points nowhere.
+
+**Per-Org apps are served on the tenant POOL domain.** Every per-Org hostname actually served on hw292:
+
+```
+agenity.uatco.omani.homes
+console.uatco.omani.homes
+console.r17probe.omani.homes
+wordpress.uatco.omani.homes
+```
+
+Across all 21 live `HTTPRoute`s in both regions, **zero** hostnames match `<app>.<org>.hw292.omani.works`. Platform apps sit on `<app>.hw292.omani.works` (`gitea.`, `grafana.`, `registry.`, `auth.`, `bao.`, `newapi.`, …) and resolve fine — which is why rows 110/112/114 pass and the per-Org rows do not.
+
+**But every per-Org blueprint declares the SovereignFQDN shape.** 30 `hostnameTemplate` declarations across 26 blueprints use `<app>.{{.OrgSlug}}.{{.SovereignFQDN}}` — including the two apps that are actually live per-Org on hw292:
+
+- `products/agenity/blueprint.yaml:175` → `agenity.{{.OrgSlug}}.{{.SovereignFQDN}}` → evaluates to `agenity.uatco.hw292.omani.works`; **served host is `agenity.uatco.omani.homes`**
+- `platform/wordpress-tenant/blueprint.yaml:278` → `{{.AppName}}.{{.OrgSlug}}.{{.SovereignFQDN}}` → evaluates to `wordpress.uatco.hw292.omani.works`; **served host is `wordpress.uatco.omani.homes`**
+
+plus `neo4j` (x2), `llm-gateway`, `librechat`, `opensearch` (x2), `stalwart-tenant` (x3), `valkey`, `milvus`, `matrix`, `temporal`, `langfuse`, `livekit`, `openmeter`, `flink`, `stunner`, `litmus`, `clickhouse`, `ferretdb`, `iceberg`, `kserve`, `strimzi`, `vllm`, `bge`, `anthropic-adapter`.
+
+**No blueprint can currently be written correctly, because the vocabulary has no token for the pool domain.** `evaluateHostnameTemplate` (`products/catalyst/bootstrap/api/internal/handler/endpoint_handler.go:1889`) substitutes exactly three tokens — `{SovereignFQDN}`, `{OrgSlug}`, `{AppName}` (plus their `{{.X}}` aliases) — and both call sites pass the Sovereign FQDN and never the Org's pool domain:
+
+- `:713` — `evaluateHostnameTemplate(ep.HostnameTemplate, h.endpointSovereignFQDN(), org, appName)` (silent-SSO launch URL)
+- `:1816` — same three arguments, over `bp.Endpoints` (resolved-endpoint list)
+
+So the per-Org host is not merely mis-templated in 26 files; it is **inexpressible**. Fixing the blueprints alone cannot work — the resolver needs an Org-pool-domain token and the callers need to supply it.
+
+**It also fails open, which is why this reached a walk instead of a 500.** `strings.NewReplacer` leaves an unrecognised token untouched, the result is then `strings.ToLower`-ed, and `buildLaunchURL` emits it as a URL regardless. An unresolvable template therefore produces a confident-looking dead link rather than an error — the same failure-open shape called out in the [render-guard](reference) and fail-open-CI lessons.
+
+**Separately, `bp-openclaw` reproduces the row-114 dark-button defect exactly.** `platform/openclaw/blueprint.yaml:25` is `visibility: listed`, the chart ships `platform/openclaw/chart/templates/httproute.yaml`, and the blueprint declares **no `endpoints` key at all** (zero occurrences) — a listed, route-bearing app with nothing for the console to render a launch control from.
+
+Full write-up on **#5389**; fix in flight. Do not stamp the per-Org launch rows green on a link that renders — check that the host it points at is one the Sovereign actually serves.
 
 ## Gate 4 — the ⚠️ partials
 
@@ -71,7 +110,9 @@ Still the largest actionable group and still the highest-leverage triage target.
 
 ## Not achievable as written (⛔)
 
-Placement rows 98–109 are superseded by the #4325 devcluster reclassification (founder verdict). Plus R1/M1/G5 (janitor), R19 (sandbox — concept removed 2026-06-30), R20 (delivery), 94/95 (funnel). For the ledger to reach 100% these need either rewriting to match the shipped design or formal exclusion from the denominator. **Founder call.**
+Placement rows **98–108** are superseded by the #4325 de-vcluster reclassification (founder verdict); row 109 is also ⛔ but for an unrelated reason (the KC account-console REST 401 is an accepted consequence of passwordless-PIN, #688 — its #3642 link was a mis-link and is corrected in the ledger). Plus R1/M1/G5 (janitor), R19 (sandbox — concept removed 2026-06-30), R20 (delivery), 94/95 (funnel). For the ledger to reach 100% these need either rewriting to match the shipped design or formal exclusion from the denominator. **Founder call.**
+
+The 98–108 supersession is **re-anchored to live state 2026-08-06**, not resting on the merged PR alone — this family was re-flipped ❌ once before by a walker who re-asserted the dead expectation (corrected in `d8761bf2b`), so every one of the 11 rows now carries a dated hw292 live re-confirmation and `env=hw292` in place of its wiped-env stamp. Measured on dep `1c56518035a83e03`: across 53 namespaces the only vcluster-related one is `vcluster-system` (the controller ns, itself holding zero workloads), no `mgmt` / `rtz` / `dmz` namespace exists, and all 7 named platform apps run in host namespaces with live pods (`gitea`, `grafana`, `guacamole`, `harbor`, `keycloak`, `newapi`, `openbao`). Row 107 in particular asserts the exact **opposite** of the correct post-#4325 design — "none of the 7 named apps appear under `host`" — when host is precisely where they now correctly belong. **This is verdict classification against a merged decision plus live state; no walk is claimed by any of these 11 rows.**
 
 ## §854 disposition — closed, and re-proven this cycle
 
@@ -84,9 +125,20 @@ Placement rows 98–109 are superseded by the #4325 devcluster reclassification 
 | region-a | `{"bootstrapMode": false}` | 9 of 25 | **Enforce** |
 | region-b | `{}` — never patched | 1 of 25 | **Audit only** |
 
-So on a 2-region Sovereign the NodePort ban was *advisory* in half the fleet: region-b would record a NodePort Service, not block it. The §854 literal scan still passes in both regions (0 NodePorts; 176 svc region-a / 159 region-b), so nothing was violating it — the gap is that region-b would not have *stopped* one. Root cause is **#5591**: the Wave 5.90 phase-2b `bootstrapMode` flip reached only the primary region. The source fix is merged (`bb8ceec71` #5592, compile-repaired `ef2d59767` #5619), unit-tested (`TestPolicyEnforceFlip_FlipsEveryRegion_5591`), and delivered in published images — but hw292's phase-2b ran *before* delivery, so its region-b remains unflipped until remediated.
+So on a 2-region Sovereign the NodePort ban was *advisory* in half the fleet: region-b would record a NodePort Service, not block it. The §854 literal scan still passes in both regions (0 NodePorts; 176 svc region-a / 159 region-b **as counted on 2026-08-04** — region-a has since grown to 192, see the 2026-08-06 re-measurement below), so nothing was violating it — the gap is that region-b would not have *stopped* one. Root cause is **#5591**: the Wave 5.90 phase-2b `bootstrapMode` flip reached only the primary region. The source fix is merged (`bb8ceec71` #5592, compile-repaired `ef2d59767` #5619), unit-tested (`TestPolicyEnforceFlip_FlipsEveryRegion_5591`), and delivered in published images — but hw292's phase-2b ran *before* delivery, so its region-b remains unflipped until remediated.
 
 The lesson generalizes past this instance and matches the [per-region split class](reference): a security posture verified in one region is not a fleet property. Assert it per-region or do not assert it.
+
+**Update, 2026-08-06 — the gap is now CAUGHT BY A GUARD, not merely described here.** The correction above stated the split but left nothing enforcing it, so the same drift would have gone unnoticed on the next env. `scripts/check-live-nodeports.sh` gained a **Phase 2 enforcement-posture check** (PR **#5696**, merged `712860075`): it reads `forbid-nodeport-service`'s `spec.validationFailureAction` in the cluster it is pointed at and **fails closed** — `Enforce` → pass, `Audit` → FAIL, policy absent → FAIL, any unrecognised action → FAIL. Its verdict classifier is vacuity-self-tested in-script (`Enforce`→PASS, `Audit`→not-PASS, `""`→ABSENT, `weird`→not-PASS), so a degenerate always-pass cannot survive its own file. Phase 1 (the literal scan) passing no longer implies compliance; the script says so in its own failure text.
+
+Re-measured live on hw292 (dep `1c56518035a83e03`) 2026-08-06, and the guard demonstrably discriminates **in both directions on the live fleet** — which is what makes this a proof rather than an assertion:
+
+| region | Services scanned | live NodePorts | `forbid-nodeport-service` | `check-live-nodeports.sh` exit |
+|---|---|---|---|---|
+| region-a (`me-east-215-a`) | 192 | 0 | **Enforce** | **0 — pass** |
+| region-b (`me-east-215-b-1`) | 159 | 0 | **Audit** | **1 — FAIL** |
+
+Both regions are still literally clean (0 NodePorts), and that is exactly the point: the only thing separating them is the *posture*, and only Phase 2 can see it. The source-side every-region flip (#5592/#5619) remains correct and merged — hw292 simply provisioned before delivery, so its region-b stays unflipped until remediated (item 3 below). Fleet enforcement is proven by running the guard **once per region kubeconfig**; running it once against the primary is the exact mistake that hid this for days.
 
 ---
 
