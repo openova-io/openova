@@ -148,3 +148,29 @@ spec:
       singleton:
         placement:
           tier: rtz
+---
+# hostnameTemplate names {{.InstanceID}}, which resolveHostnameTemplate has
+# NEVER implemented — it substitutes only SovereignFQDN / OrgSlug / AppName /
+# OrgDomain (#5389). Everything else in this document is deliberately VALID so
+# the rejection is attributable to the hostnameTemplate CEL rule alone and not
+# to some incidental schema error.
+#
+# This is the shape that actually shipped: platform/sandbox carried
+# `sandbox-{{.InstanceID}}.{{.OrgDomain}}` on a visibility:listed Blueprint,
+# was admitted without complaint, and only degraded later — the endpoint went
+# Unresolved and its Open button died far from the edit that caused it.
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-bad-hostname-token
+spec:
+  version: 1.0.0
+  visibility: listed
+  card:
+    title: hostnameTemplate uses an unimplemented token
+  endpoints:
+    - name: ui
+      hostnameTemplate: 'sandbox-{{.InstanceID}}.{{.OrgDomain}}'
+      port: 443
+      protocol: https
+      tls: true

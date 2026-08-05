@@ -605,6 +605,17 @@ spec:
                             placement: *PLACEMENT_SPEC
                 endpoints:
                   type: array
+                  # Bounded so the apiserver can cost-estimate the per-item CEL
+                  # rules below (#5389). An unbounded array makes any rule on an
+                  # item field appear astronomically expensive: the
+                  # hostnameTemplate check alone measured 96.5x its per-rule
+                  # budget as a regex, and even as four cheap contains() calls it
+                  # pushed the WHOLE schema 8.7x over its total — which rejects
+                  # the pre-existing topology rules too and leaves the CRD
+                  # uninstallable. Measured live: the largest endpoints[] across
+                  # all 99 Blueprints in this repo is 3 (platform/stalwart-tenant),
+                  # so 16 is generous headroom and constrains nothing real.
+                  maxItems: 16
                   description: |
                     Named external endpoints surfaced by this Blueprint.
                     The Endpoints tab UI (G117.3) renders one card per
@@ -667,10 +678,22 @@ spec:
                         # and one layer in by the resolver itself failing closed.
                         # This rule closes the specific hole that actually shipped.
                         #
-                        # Character classes instead of backslash escapes so the
-                        # expression survives YAML quoting unchanged.
+                        # Uses contains(), NOT matches(). A regex here was
+                        # measured at 96.5x the per-rule CEL cost budget, because
+                        # endpoints[] declares no maxItems so the apiserver
+                        # estimates the rule over an unbounded array — and it
+                        # pushed the ENTIRE schema 9.7x over its total budget,
+                        # which rejects the pre-existing topology rules too and
+                        # leaves the CRD uninstallable. Four contains() calls are
+                        # cheap and stay inside budget.
+                        #
+                        # Two spellings per token is exact coverage, not an
+                        # approximation: resolveHostnameTemplate's own replacer
+                        # handles only `{{.X}}` and `{{ .X }}`, so any other
+                        # spacing is unresolvable regardless of this rule and is
+                        # caught by the resolver failing closed.
                         x-kubernetes-validations:
-                          - rule: "!self.matches('[{][{][ ]*[.](InstanceID|ClusterID)')"
+                          - rule: "!self.contains('{{.InstanceID}}') && !self.contains('{{ .InstanceID }}') && !self.contains('{{.ClusterID}}') && !self.contains('{{ .ClusterID }}')"
                             message: "endpoints[].hostnameTemplate references {{.InstanceID}} or {{.ClusterID}}, which the resolver has never implemented — it substitutes only SovereignFQDN, OrgSlug, AppName and OrgDomain. For a per-instance host use {{.AppName}}: multiInstance.namingTemplate already makes the Application CR name instance-unique."
                       port:
                         type: integer
