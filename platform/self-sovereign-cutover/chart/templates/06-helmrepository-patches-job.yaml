@@ -1560,48 +1560,25 @@ data:
 
             # ---- #5596: secondary-region DURABLE pivot assert ----
             #
-            # THE DEFECT THIS CLOSES. #5359's read-back re-read the secondary's
-            # HelmRepository set ONCE, immediately after the patch loop. It
-            # therefore measured the PATCH, never the PIVOT. region-B runs its
-            # OWN kustomize-controller against its OWN artifact of the gitops
-            # repo; if that artifact is the PRE-cutover one — its GitRepository
-            # frozen on a stale revision, which #5359's step-05 convergence gate
-            # catches at step-05 time but which can also go stale AFTER that
-            # gate passed — the next re-apply puts every URL back on the
-            # upstream prefix, minutes after this step recorded success.
+            # #5359's read-back re-read the secondary's HR set ONCE, right after
+            # the patch loop: it measured the PATCH, never the PIVOT. region-B
+            # re-applies its OWN artifact of the gitops repo, and if that
+            # artifact is the PRE-cutover one every URL goes back upstream
+            # minutes after this step recorded success. hw292: clean read-back
+            # + result=success at 07:41:13Z, region-b kustomize-controller Apply
+            # at 07:42:08Z put all 64 HRs back on ghcr.io, cc=true at 08:12:30Z,
+            # still 64/65 on ghcr 3 days later. 55s is the whole window the old
+            # assert could see. Full forensics in Chart.yaml 0.1.171.
             #
-            # Live on hw292 (dep 1c56518035a83e03, 2-region me-east-215-a/-b-1):
-            #   07:31:11Z  region-b GitRepository artifact frozen at
-            #              main@sha1:4cc85ad9… (Ready=False GitOperationFailed,
-            #              "unable to list remote … pkt-line 3: EOF")
-            #   07:41:13Z  step.helmrepository-patches.region.me-east-215-b-1
-            #              .result=success — single-shot read-back saw 0 left
-            #   07:42:08Z  region-b kustomize-controller Apply (sole field
-            #              manager, generation 3) — all 64 HelmRepositories back
-            #              on oci://ghcr.io/openova-io
-            #   08:12:30Z  cutoverComplete=true
-            #   +3d        region-b: 64/65 HelmRepositories still on ghcr.io.
-            # 55 seconds is the entire width of the window the old assert
-            # sampled in. It was a guard aimed at something that cannot fail.
+            # THE FIX: make the reverting actor run INSIDE the assert — poke the
+            # secondary's GitRepository + HR-owning Kustomizations and refuse to
+            # certify until one of them HANDLED that exact token
+            # (status.lastHandledReconcileAt == token: the re-apply HAPPENED,
+            # not merely that we asked), read-back clean on every sample up to
+            # that point. Offender scope + tolerations are IDENTICAL to
+            # assert_region_a_pivot, so this is never stricter than step-08.
             #
-            # THE FIX: make the reverting actor run INSIDE the assert. Poke the
-            # secondary's own GitRepository + the HR-owning Kustomizations with
-            # a reconcile token, and refuse to certify until one of those
-            # Kustomizations has HANDLED that exact token
-            # (status.lastHandledReconcileAt == token — proof the re-apply
-            # HAPPENED, not merely that we asked for it), with the read-back
-            # clean on every sample up to and including that point. Any
-            # offender at ANY sample fails the leg; a poke that is never handled
-            # inside the budget also fails it, because a revert would then land
-            # after this Job exits and nothing downstream re-reads region-B.
-            #
-            # Offender scope + tolerations are IDENTICAL to region-A's
-            # assert_region_a_pivot: the upstream prefix only, in
-            # HELMREPO_NAMESPACE, minus HELMREPO_READBACK_EXCLUDE (which mirrors
-            # step-08's whitelist). Third-party sources outside the namespace
-            # (vcluster-system/loft) were never in scope and still are not.
-            #
-            # NB: offenders go to a FILE and are grepped from the file — never
+            # NB: offenders go to a FILE and are grepped from it — never
             # `printf | grep -q` (the #5370/#5406/#4969 SIGPIPE shape).
             secondary_offenders() {
               # $1 = kubeconfig. Writes offenders to /tmp/.sd-offenders.txt.
