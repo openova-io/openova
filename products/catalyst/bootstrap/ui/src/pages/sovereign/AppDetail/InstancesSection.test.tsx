@@ -185,9 +185,11 @@ describe('NewInstanceDialog — dropdowns (#3600)', () => {
     // longer DROPS active-passive / active-active (the truncation bug).
     expect(values).toEqual(['singleton', 'active-active', 'active-hot-standby', 'active-passive'])
     // Modes the blueprint does NOT support (this fixture: only singleton +
-    // active-hot-standby) are present-but-disabled, exactly like the
-    // app-detail "Change placement" radio greys them out — they are never
-    // silently removed.
+    // active-hot-standby) are present-but-disabled — never silently removed.
+    // #5609 — the ENABLE direction (a blueprint that DOES declare
+    // active-passive gets it selectable) is pinned in
+    // InstancesSection.topology-gate.test.tsx; this assertion alone could be
+    // satisfied by disabling everything.
     const byValue = (v: string) => options.find((o) => o.getAttribute('value') === v)!
     expect((byValue('singleton') as HTMLOptionElement).disabled).toBe(false)
     expect((byValue('active-hot-standby') as HTMLOptionElement).disabled).toBe(false)

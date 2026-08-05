@@ -18,7 +18,7 @@
 //	(b) the console editor type (products/catalyst/console/src/lib/api/
 //	    types.ts BcpTopology union)
 //	(c) the bootstrap-ui editor option set
-//	    (products/catalyst/bootstrap/ui/.../TopologyEditor.tsx ALL_MODES)
+//	    (products/catalyst/bootstrap/ui/.../topology/modes.ts ALL_MODES)
 //
 // The catalyst-api surface + the FE canonicaliser parity are pinned by
 // their own drift tests (products/catalyst/bootstrap/api/.../
@@ -96,12 +96,15 @@ func TestPlacementVocabulary_ConsoleBcpTopologyIsCanonical(t *testing.T) {
 
 func TestPlacementVocabulary_BootstrapUIAllModesIsCanonical(t *testing.T) {
 	root := findRepoRoot(t)
-	editor := mustReadRepoFile(t, root, "products", "catalyst", "bootstrap", "ui", "src", "widgets", "topology", "TopologyEditor.tsx")
-	// ALL_MODES is the bootstrap-ui editor's option set — it must be the
+	// #5609 — ALL_MODES moved out of the former TopologyEditor.tsx (whose
+	// React component was never mounted in production and was deleted) into
+	// the vocabulary-only module topology/modes.ts.
+	editor := mustReadRepoFile(t, root, "products", "catalyst", "bootstrap", "ui", "src", "widgets", "topology", "modes.ts")
+	// ALL_MODES is the bootstrap-ui picker's option set — it must be the
 	// canonical four, with no legacy spelling as a member of the array.
 	allModesLine := extractLineContaining(editor, "export const ALL_MODES")
 	if allModesLine == "" {
-		t.Fatalf("could not find ALL_MODES declaration in TopologyEditor.tsx")
+		t.Fatalf("could not find ALL_MODES declaration in topology/modes.ts")
 	}
 	for _, m := range placement.CanonicalModes() {
 		if !strings.Contains(allModesLine, "'"+m+"'") {
