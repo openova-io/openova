@@ -999,7 +999,7 @@ controllers:
       # 6d7aacd (2026-06-24, #4236) — freshness sweep on the funnel pool-DNS PR:
       # 34ff594 had drifted 183 commits behind latest GHCR (no code change here,
       # just clearing the staleness gate so the chart ships the current binary).
-      tag: "08c1933"
+      tag: "50fc200"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
