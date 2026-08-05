@@ -1,4 +1,9 @@
-import { parseRateLimitBody, rateLimitMessage } from './rateLimitNotice';
+import {
+  parseRateLimitBody,
+  rateLimitMessage,
+  retryAfterSeconds,
+  type HeaderBag,
+} from './rateLimitNotice';
 
 const API_BASE = '/api';
 
@@ -82,29 +87,75 @@ async function request<T>(path: string, opts?: RequestInit): Promise<T> {
       const retry = await fetch(`${API_BASE}${path}`, { ...opts, headers: retryHeaders });
       if (!retry.ok) {
         const body = await retry.text();
-        throw new Error(requestErrorMessage(retry.status, body));
+        throw requestError(retry.status, body, retry.headers);
       }
       return retry.json();
     }
   }
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(requestErrorMessage(res.status, body));
+    throw requestError(res.status, body, res.headers);
   }
   return res.json();
+}
+
+/**
+ * A 429 raised anywhere in the funnel. Carries the server's own retry window so
+ * a caller can decide what to do with a THROTTLE specifically, instead of having
+ * to pattern-match the customer-facing string. `message` is that customer-facing
+ * string, because most callers do just surface `e.message`.
+ */
+export class RateLimitError extends Error {
+  readonly status = 429;
+  readonly retryAfterSec: number;
+  constructor(message: string, retryAfterSec: number) {
+    super(message);
+    this.name = 'RateLimitError';
+    this.retryAfterSec = retryAfterSec;
+  }
 }
 
 /**
  * #5634 (UAT row 92): callers surface `e.message` straight to the customer
  * (CheckoutStep puts it in `provisionError`), so a throttled checkout used to
  * read as a raw status code joined to a raw JSON blob. A 429 becomes the plain
- * wait-and-retry notice instead, carrying the gateway's own `retry_after`.
- * Every other status keeps the existing `<status>: <body>` shape that other
- * call sites already match on.
+ * wait-and-retry notice instead, carrying the server's own retry window from
+ * whichever place the response put it — the `Retry-After` header (what the
+ * gateway/CDN sends) or the body's `retry_after` (what our services send).
+ *
+ * Every other status keeps the existing `<status>: <body>` shape ON PURPOSE:
+ * `CheckoutStep.svelte` matches on it (`msg.startsWith('409')` at the
+ * slug-collision retry), so this shape is load-bearing, not incidental.
  */
-function requestErrorMessage(status: number, body: string): string {
-  if (status === 429) return rateLimitMessage(parseRateLimitBody(body), 'checkout');
+export function requestErrorMessage(status: number, body: string, headers?: HeaderBag): string {
+  if (status === 429) return rateLimitMessage(parseRateLimitBody(body), 'checkout', headers);
   return `${status}: ${body}`;
+}
+
+function requestError(status: number, body: string, headers?: HeaderBag): Error {
+  const message = requestErrorMessage(status, body, headers);
+  if (status === 429) {
+    return new RateLimitError(message, retryAfterSeconds(parseRateLimitBody(body), headers));
+  }
+  return new Error(message);
+}
+
+/**
+ * #5634 sibling: a refresh that fails must only end the session when the server
+ * actually REJECTED the credentials. This used to clear the tokens on ANY
+ * non-ok status and on any network error, so a 429 — which is exactly what a
+ * rapid-retry storm produces, i.e. UAT row 92's own scenario — silently signed
+ * the customer out mid-checkout. So did a 503 during a rolling restart. Both are
+ * recoverable; only 401/403 mean "these credentials are no longer good".
+ */
+function isAuthRejection(status: number): boolean {
+  return status === 401 || status === 403;
+}
+
+function clearAuthTokens(): void {
+  localStorage.removeItem('org-token');
+  localStorage.removeItem('org-refresh-token');
+  notifyAuthChanged();
 }
 
 async function tryRefresh(): Promise<void> {
@@ -119,16 +170,13 @@ async function tryRefresh(): Promise<void> {
     if (res.ok) {
       const data = await res.json();
       setAuthTokens(data.token, data.refresh_token);
-    } else {
-      localStorage.removeItem('org-token');
-      localStorage.removeItem('org-refresh-token');
-      notifyAuthChanged();
+    } else if (isAuthRejection(res.status)) {
+      clearAuthTokens();
     }
+    // Any other status (429, 5xx) is transient: keep the session and let the
+    // caller surface the original failure so the customer can retry.
   } catch {
-    // Refresh failed — clear tokens.
-    localStorage.removeItem('org-token');
-    localStorage.removeItem('org-refresh-token');
-    notifyAuthChanged();
+    // Network error — transient by definition. Keep the session.
   }
 }
 
@@ -326,6 +374,12 @@ export type VoucherPreview = {
 // commit (the redeem itself commits at checkout). Returns null on unknown/invalid
 // (404) or non-redeemable/capped (410) codes — only a live, redeemable voucher's
 // credit should pre-apply. credit_omr is whole OMR; normalised to baisa per #85.
+//
+// #5634 sibling: a 429 is RE-THROWN rather than folded into that same null. This
+// path is behind the same burst limiter as /redeem, and the blanket catch made a
+// throttled preview indistinguishable from an invalid code — the cart silently
+// dropped the voucher's credit to zero with nothing said. Null still means "the
+// code does not apply"; a throw means "we could not find out right now".
 export const redeemVoucherPreview = async (code: string): Promise<VoucherPreview | null> => {
   try {
     const raw = await request<{
@@ -346,7 +400,8 @@ export const redeemVoucherPreview = async (code: string): Promise<VoucherPreview
       active: raw.active ?? false,
       accepting_redemptions: raw.accepting_redemptions ?? false,
     };
-  } catch {
+  } catch (e) {
+    if (e instanceof RateLimitError) throw e;
     return null;
   }
 };

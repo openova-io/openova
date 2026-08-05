@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,6 +68,12 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 
 		if int(count) > rl.rpm {
 			retryAfter := 60 - now.Second()
+			if retryAfter < 1 {
+				retryAfter = 1
+			}
+			// #5634: the standard header too, not only the body — it is what an
+			// intermediary would send and what a generic client reads.
+			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 			respond.JSON(w, http.StatusTooManyRequests, map[string]any{
 				"error":       "rate limit exceeded",
 				"retry_after": retryAfter,
@@ -92,6 +99,7 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 					rl.client.Do(ctx, rl.client.B().Expire().Key(rkey).Seconds(int64(win)).Build())
 				}
 				if int(rcount) > rl.redeemLimit {
+					w.Header().Set("Retry-After", strconv.Itoa(win))
 					respond.JSON(w, http.StatusTooManyRequests, map[string]any{
 						"error":       "too many redeem attempts — please wait a few seconds and try again",
 						"retry_after": win,

@@ -7,7 +7,7 @@
 // the "Voucher not valid" panel. A rate-limited customer was therefore told their
 // code was bad. 429 now gets its own panel and carries the server's retry window.
 
-import { rateLimitMessage } from './rateLimitNotice';
+import { rateLimitMessage, type HeaderBag } from './rateLimitNotice';
 
 export const REDEEM_PANELS = [
   'redeem-loading',
@@ -37,15 +37,17 @@ export type RedeemOutcome =
 /**
  * Map a redeem-preview response onto the panel the customer should see.
  * `status` is the HTTP status; `body` is the parsed JSON body, or null when the
- * response carried none.
+ * response carried none; `headers` is the response's own header bag, which is
+ * where an intermediary (the Cilium/Envoy gateway, a CDN) puts its retry window
+ * when it answers the 429 itself and sends no JSON at all.
  */
-export function classifyRedeemPreview(status: number, body: unknown): RedeemOutcome {
+export function classifyRedeemPreview(status: number, body: unknown, headers?: HeaderBag): RedeemOutcome {
   if (status === 404) return { panel: 'redeem-not-valid', detail: NOT_VALID_DEFAULT_DETAIL };
   if (status === 410) return { panel: 'redeem-ended' };
   // #5634: 429 is answered by the gateway limiter, not by the voucher store —
   // it says nothing about whether the code is valid, so it must not reach the
   // "Voucher not valid" panel.
-  if (status === 429) return { panel: 'redeem-throttled', detail: rateLimitMessage(body, 'redeem') };
+  if (status === 429) return { panel: 'redeem-throttled', detail: rateLimitMessage(body, 'redeem', headers) };
   // Everything else non-2xx keeps the previous generic treatment (`!res.ok`).
   if (status < 200 || status >= 300) {
     return { panel: 'redeem-not-valid', detail: GENERIC_VALIDATE_DETAIL };

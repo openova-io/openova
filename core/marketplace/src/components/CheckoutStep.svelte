@@ -185,7 +185,17 @@
           console.error('[checkout] getCreditBalance failed — voucher credit will not apply:', e);
           return 0;
         }),
-      code ? redeemVoucherPreview(code).then(p => p?.credit_baisa ?? 0).catch(() => 0) : Promise.resolve(0),
+      // #5634: an unknown/expired code resolves to null and quietly contributes
+      // 0. A THROTTLED preview rejects instead — say so, rather than showing a
+      // silently reduced total the customer cannot explain.
+      code
+        ? redeemVoucherPreview(code)
+            .then(p => p?.credit_baisa ?? 0)
+            .catch((e) => {
+              creditError = e instanceof Error ? e.message : String(e);
+              return 0;
+            })
+        : Promise.resolve(0),
     ]).then(([ledger, voucher]) => { creditBaisa = ledger + voucher; });
   });
 
