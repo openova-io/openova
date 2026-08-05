@@ -320,8 +320,89 @@ if [ -n "${OWNED}" ]; then
   FATAL=1
 fi
 
+# ─── Phase 2 — enforcement POSTURE, per region (§854, #5591) ─────────────
+# Counting zero NodePorts proves nothing about PREVENTION. A cluster whose
+# forbid-nodeport-service ClusterPolicy sits at Audit would RECORD the next
+# NodePort rather than block it — and Phase 1 above would still print a
+# clean "OK: zero live node ports". Scan-clean and ban-enforcing are two
+# different properties, and only one of them was ever being checked.
+#
+# Not hypothetical. Measured live on hw292 (2026-08-04): region-a ran 9
+# ClusterPolicies at Enforce while region-b ran 1, because the Wave 5.90
+# phase-2b `bootstrapMode` flip reached only the primary region. Both
+# regions passed the literal scan, so for days every §854 audit reported
+# clean while half the fleet would not have STOPPED a NodePort. The flip
+# itself is fixed at the source (#5592/#5619, every-region), but nothing
+# ever verified the resulting posture — this is that verification.
+#
+# This guard asserts posture for the ONE cluster it is pointed at. Fleet
+# enforcement is proven by running it once per region kubeconfig; a
+# per-region property must be asserted per region or not asserted at all.
+
+posture_verdict() {
+  # $1 = spec.validationFailureAction as read from the cluster ("" if absent)
+  case "$1" in
+    Enforce) echo PASS   ;;
+    Audit)   echo AUDIT  ;;
+    "")      echo ABSENT ;;
+    *)       echo AUDIT  ;;  # unknown action is never treated as enforcing
+  esac
+}
+
+# Vacuity guard: the classifier must be capable of every verdict, so a
+# degenerate always-PASS cannot pass this file's own self-test.
+pv_fail() { echo "POSTURE SELF-TEST FAIL: $1" >&2; exit 2; }
+[ "$(posture_verdict Enforce)" = PASS ]   || pv_fail "Enforce must be PASS"
+[ "$(posture_verdict Audit)"   = AUDIT ]  || pv_fail "Audit must NOT be PASS"
+[ "$(posture_verdict '')"      = ABSENT ] || pv_fail "absent policy must be ABSENT"
+[ "$(posture_verdict weird)"   = AUDIT ]  || pv_fail "unknown action must not be PASS"
+
+echo ""
+echo "== §854 enforcement posture (${CONTEXT:-current context}) =="
+if ! "${KCTL[@]}" get crd clusterpolicies.kyverno.io >/dev/null 2>&1; then
+  echo "WARN: Kyverno CRDs absent — cannot assess enforcement posture here." >&2
+  echo "      Reporting NOTHING rather than a false clean." >&2
+else
+  ACTION="$("${KCTL[@]}" get clusterpolicy forbid-nodeport-service \
+              -o jsonpath='{.spec.validationFailureAction}' 2>/dev/null || true)"
+  case "$(posture_verdict "${ACTION}")" in
+    PASS)
+      echo "OK: forbid-nodeport-service = Enforce (the ban BLOCKS, not just records)."
+      ;;
+    ABSENT)
+      echo "───────────────────────────────────────────────────────────────" >&2
+      echo "FAIL: forbid-nodeport-service ClusterPolicy is ABSENT (§854, #5591)." >&2
+      echo "Kyverno is installed but the NodePort ban is not present at all, so" >&2
+      echo "nothing in this cluster would stop a NodePort Service being admitted." >&2
+      echo "Check that bp-kyverno-policies is installed and Ready in this region." >&2
+      echo "───────────────────────────────────────────────────────────────" >&2
+      FATAL=1
+      ;;
+    *)
+      echo "───────────────────────────────────────────────────────────────" >&2
+      echo "FAIL: forbid-nodeport-service = '${ACTION}', not Enforce (§854, #5591)." >&2
+      echo "This cluster would RECORD a NodePort, not block it. A zero-NodePort" >&2
+      echo "scan here proves only that nobody has tried yet — not that the ban" >&2
+      echo "holds. Phase 1 passing above does NOT make this cluster compliant." >&2
+      echo "" >&2
+      echo "Root cause is almost always the Wave 5.90 phase-2b flip not reaching" >&2
+      echo "this region: bp-kyverno-policies renders Audit whenever" >&2
+      echo "compliancePolicies.bootstrapMode is true (the chart default), and the" >&2
+      echo "helper hard-forces Audit in that mode regardless of the per-policy" >&2
+      echo "canonical action. Confirm with:" >&2
+      echo "  kubectl -n flux-system get hr bp-kyverno-policies -o jsonpath='{.spec.values}'" >&2
+      echo "An empty value means this region was never flipped. The durable fix is" >&2
+      echo "the every-region phase-2b flip (#5592/#5619) — re-trigger it rather" >&2
+      echo "than hand-patching, so the next fresh prov is correct too." >&2
+      echo "───────────────────────────────────────────────────────────────" >&2
+      FATAL=1
+      ;;
+  esac
+fi
+
 [ "${FATAL}" -eq 1 ] && exit 1
 
 echo ""
-echo "OK: zero live node ports in owned namespaces across ${TOTAL} Service(s) (#4765)."
+echo "OK: zero live node ports in owned namespaces across ${TOTAL} Service(s) (#4765),"
+echo "    and forbid-nodeport-service is Enforce in this region (#5591)."
 exit 0
