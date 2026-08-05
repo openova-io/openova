@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-05T05:45:04Z` |
+| Last refreshed | `2026-08-05T06:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-05T05:50 | [#5686](https://github.com/openova-io/openova/pull/5686) | #5421 | fix(marketplace): redeem consults the cookie session, not th |
+| 2026-08-05T05:51 | [#5685](https://github.com/openova-io/openova/pull/5685) | #5611 | fix(cloud): Volumes page reads live PVs, not a hardcoded emp |
 | 2026-08-05T05:11 | [#5684](https://github.com/openova-io/openova/pull/5684) | #5610 | fix(console): clear catalog IaC editor 'unsaved changes' aft |
 | 2026-08-05T02:53 | [#5683](https://github.com/openova-io/openova/pull/5683) | #5568 | fix(placement): derivedFromRuntime false on the no-data-plan |
 | 2026-08-05T01:50 | [#5682](https://github.com/openova-io/openova/pull/5682) | #5610 | fix(console): summary inline editor opens pre-filled with th |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-04T05:10 | [#5654](https://github.com/openova-io/openova/pull/5654) | #5652 | fix(cutover): declare the known loft tether so 0.1.162's sou |
 | 2026-08-04T05:00 | [#5653](https://github.com/openova-io/openova/pull/5653) | #4437 | fix(netpol): cluster DNS for every constrained workload + a  |
 | 2026-08-04T04:26 | [#5652](https://github.com/openova-io/openova/pull/5652) | #5650 | feat(cutover): assert Flux sources are Sovereign-local, not  |
-| 2026-08-04T04:12 | [#5651](https://github.com/openova-io/openova/pull/5651) | #5553 | fix(ui-test): ExecPanel waits for the socket, not just the D |
-| 2026-08-04T00:39 | [#5647](https://github.com/openova-io/openova/pull/5647) | #5635 | fix(catalyst-api): reconcile the per-Org console gateway sur |
 
 ---
 
