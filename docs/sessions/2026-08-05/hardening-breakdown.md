@@ -97,3 +97,21 @@ handover login. This is the top gate on Stream 1/2 proof.
 - Independently (no env): Stream 3 design decisions (#5600 recompute design; #5435
   rename-vs-map call) can be made by the founder in parallel with the walk.
 - ci-cd/infra (7 issues) are not on the pillar path and can run as a separate lane.
+
+## status/uat walkability — per-issue proof (not wholesale), 2026-08-05
+Two independent gates decide if a `status/uat` fix is walkable on **hw292** (fired
+2026-08-03T04:05Z): **deploy** (is the fix's PR merged *before* the fire?) and **auth**
+(does the assertion need an owner session?). Result — **zero** are unauthenticated-walkable
+on hw292:
+
+| gate class | issues | why unwalkable on hw292 |
+|---|---|---|
+| **Deploy-gated (16)** — fix merged AFTER the fire | #5639 #5637 #5634 #5623 #5616 #5614 #5613 #5612 #5611 #5610 #5583 #5571 #5568 #5467 #5421 #5364 | hw292 runs pre-fix code; walking tests old behavior = theater. **Only a fresh prov on `1.4.1300` proves these.** |
+| **Deployed but auth-gated (1)** | #5515 (predates fire) | assertion is the authed sovereign-admin per-app placement view (`bootstrap/ui/.../placement.ts`) — needs the owner session (the security-gated auth). |
+| **No merged PR (2)** | #5597 (uat-bot erase behavior) · #5439 (fixed-by-sibling #5527) | not a fix-walk; separate handling. |
+
+**Consequence:** 16 of 19 `status/uat` items can be proven *only* by the fresh-prov walk (they
+converge on the same single action), and the 17th (#5515) plus every ☐ row need the owner-session
+auth. There is no unauthenticated hw292 walk that advances a `status/uat` row — proven per-issue
+by merge timestamp + surface, not declared wholesale. The critical path is unchanged: fresh prov
+on `1.4.1300` → owner-session walk (auth verdict) → the 5+16 fixes prove together.
