@@ -156,6 +156,29 @@ for bp_name in $bp_names; do
     fail=1
   fi
 
+  # Extract endpoints[].hostnameTemplate per-name (#5389). This was the ONE
+  # endpoint field the lockstep did not compare, and the gap was not
+  # theoretical: the #5389 sweep found 30 source templates AND 22 chart-seed
+  # lines composing OrgSlug with SovereignFQDN, and the seed half was
+  # invisible to this script the whole time. A hostnameTemplate that drifts
+  # seed-vs-source sends the per-app Open button to a different host under
+  # the in-cluster fallback path than under the gitea path — the launch URL
+  # is well-formed and dead, which is exactly how #5389 presented.
+  #
+  # Compare as 'name=template' pairs so the diff names the offending
+  # endpoint. The seed stores the template Helm-escaped
+  # ({{ "{{" }}.OrgDomain{{ "}}" }}); we read the RENDERED seed, where that
+  # has already collapsed to the literal the API will see, so the two sides
+  # are directly comparable.
+  seed_host="$(yq eval-all "select(.kind == \"Blueprint\" and .metadata.name == \"$bp_name\") | .spec.endpoints[]? | .name + \"=\" + (.hostnameTemplate // \"\")" "$TMP/rendered.yaml" 2>/dev/null | sort -u || true)"
+  src_host="$(yq eval '.spec.endpoints[]? | .name + "=" + (.hostnameTemplate // "")' "$source_file" 2>/dev/null | sort -u || true)"
+  if [ "$seed_host" != "$src_host" ]; then
+    echo "DRIFT: $bp_name endpoints[].hostnameTemplate:"
+    echo "  chart-seed: $(echo "$seed_host" | tr '\n' ',' | sed 's/,$//')"
+    echo "  platform/ : $(echo "$src_host" | tr '\n' ',' | sed 's/,$//')"
+    fail=1
+  fi
+
   # Extract sso.realm (presence + value) — both empty = OK; one-side-only = drift.
   seed_realm="$(yq eval-all "select(.kind == \"Blueprint\" and .metadata.name == \"$bp_name\") | .spec.sso.realm // \"\"" "$TMP/rendered.yaml" 2>/dev/null || true)"
   src_realm="$(yq eval '.spec.sso.realm // ""' "$source_file" 2>/dev/null || true)"
