@@ -97,8 +97,16 @@ nothing.
    because vcluster-app ships cnpg.enabled=false (the CNPG Cluster is host-rendered
    by the host-seams HR); the Job needs only the MIRRORED `-app` Secret, not the
    Cluster CR. role=all keeps both gates "true" so standalone/host-placed installs
-   are byte-identical. */ -}}
-{{- if and (eq (include "bp-newapi.renderApp" .) "true") $seedEnabled .Values.newapi.enabled $kcMode .Values.sovereignFQDN -}}
+   are byte-identical.
+
+   #5599 layers the cross-region singleton gate ON TOP of the same reasoning:
+   `bp-newapi.renderWorkloads` = `renderApp AND NOT crossRegion-secondary`. A
+   secondary region runs no Deployment to rollout-restart and owns no CNPG
+   store whose `public.users` table could ever appear, so this hook would hit
+   the SAME wait_for_users_table deadline described above and fail the release.
+   The Sovereign's ONE seed/promote pair belongs with the ONE workload.
+   crossRegion.enabled=false (the default) → unchanged. */ -}}
+{{- if and (eq (include "bp-newapi.renderWorkloads" .) "true") $seedEnabled .Values.newapi.enabled $kcMode .Values.sovereignFQDN -}}
 {{- $clusterName := printf "%s-newapi-pg" (include "bp-newapi.fullname" .) -}}
 {{- $cnpgSecretName := printf "%s-app" $clusterName -}}
 {{- $jobName := include "bp-newapi.adminSeedJobName" . -}}

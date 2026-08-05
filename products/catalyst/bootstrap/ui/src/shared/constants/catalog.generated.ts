@@ -3617,7 +3617,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.4.150",
+    "version": "1.4.151",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg",

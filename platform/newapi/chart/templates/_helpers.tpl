@@ -118,6 +118,133 @@ Helm has no boolean return; these emit the strings "true"/"false". Test with
 {{- end -}}
 
 {{/*
+Cross-region singleton gates (#5599).
+
+THE DEFECT. Bootstrap-kit slot 80 installs this chart on EVERY region's control
+plane, so a 2-region Sovereign ran TWO complete newapi stacks — two Deployments
+AND two INDEPENDENT CNPG `Cluster` objects (NOT a replicated pair) — behind ONE
+`newapi.<fqdn>` hostname whose shared VIP fans a browser's parallel connections
+across both gateways (#5459: a browser can never be assumed to pin one backend).
+
+An OAuth **authorization code is single-use and stored SERVER-SIDE**. The leg
+that mints the exchange state writes it into region-A's Postgres; the
+`/api/oauth/sovereign` callback lands on region-B, whose database has never seen
+that code, and region-B CORRECTLY rejects it — a *valid* Keycloak code answered
+403, three times as the client retries and loses the coin flip again (#5599,
+measured live on hw292 dep 1c56518035a83e03: region-a
+`newapi-bp-newapi-newapi-pg` instances=2 AND region-b
+`newapi-bp-newapi-newapi-pg` instances=2, both Ready, both fronted by
+httproute `newapi-bp-newapi-public` → ["newapi.hw292.omani.works"]).
+
+#5414 already fixed the SESSION_SECRET/CRYPTO_SECRET split at the SECRET seam
+(#5466's credsBridgeSynced above). The DATASTORE split underneath it was never
+addressed, so the component still could not hold a server-side OAuth exchange
+across regions.
+
+THE FIX — the bp-guacamole 0.2.36 (#5358) / bp-cilium 1.4.19 (#5602) idiom:
+  role=primary   — keeps the Deployment + its CNPG store and EXPORTS its
+                   Services as global ClusterMesh services.
+  role=secondary — renders NO Deployment, NO CNPG Cluster, NO DSN-sync /
+                   seed Jobs. Its Services still render (Cilium merges global
+                   Services by name+namespace, the HTTPRoute backendRef must
+                   resolve, and this region's envoy still has to answer for
+                   `newapi.<fqdn>` because the shared VIP fans TCP across BOTH
+                   gateways) but match ZERO local Pods, so
+                   `service.cilium.io/affinity: local` falls through the mesh
+                   to the primary's singleton.
+
+crossRegion.enabled=false (the DEFAULT, and every single-region Sovereign)
+renders byte-identically to 1.4.150 — both gates below are no-ops.
+
+Two SEPARATE gates because the two placement axes are orthogonal: under the
+#3831 host/vCluster split the workload and the datastore live in DIFFERENT
+clusters, so the cross-region suppression has to compose with whichever axis
+this install is on rather than replace it.
+*/}}
+{{- define "bp-newapi.crossRegionRole" -}}
+{{- $cr := .Values.crossRegion | default dict -}}
+{{- $role := $cr.role | default "primary" -}}
+{{- if not (has $role (list "primary" "secondary")) -}}
+{{- fail (printf "bp-newapi: invalid crossRegion.role %q — must be \"primary\" (owns the singleton newapi + its Postgres) or \"secondary\" (ClusterMesh Service stub only)" $role) -}}
+{{- end -}}
+{{- $role -}}
+{{- end -}}
+
+{{/*
+Mesh-secondary predicate (#5599). "true" when this region must run NO newapi
+workload and NO newapi Postgres. Empty string otherwise.
+
+Deliberately independent of `.Values.newapi.enabled` and of placement.role so
+each caller keeps composing its OWN existing gate set — this only ever REMOVES
+render, never adds it.
+*/}}
+{{- define "bp-newapi.isMeshSecondary" -}}
+{{- $cr := .Values.crossRegion | default dict -}}
+{{- if and $cr.enabled (eq (include "bp-newapi.crossRegionRole" .) "secondary") -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+Workload render gate (#5599). Composes the #3831 placement gate
+(`bp-newapi.renderApp`) with the cross-region singleton gate: "true" only when
+this install renders the app AND this region is not the mesh secondary.
+
+Consumers: the Deployment (whose own DSN/credentials precedence chain still
+applies ON TOP of this — see deployment.yaml), the admin-sso-seed Job/CronJob
+and the channel-seed Job (both are post-install/post-upgrade HOOKS that talk to
+the migrated DB schema and rollout-restart the Deployment; on a secondary with
+neither present they would fail the HelmRelease and the mesh-stub Services
+would never install).
+
+The Services, HTTPRoute, ConfigMap, ServiceAccount and the region-local
+token-signing-key Secret + its #5375 admin-token PushSecret deliberately stay
+on plain `renderApp` — the Services ARE the mesh stub, and #5375's DR contract
+requires every region to keep seeding its OWN OpenBao with its OWN bridge
+ADMIN_SECRET so a promote finds a bearer.
+*/}}
+{{- define "bp-newapi.renderWorkloads" -}}
+{{- if and (eq (include "bp-newapi.renderApp" .) "true") (not (include "bp-newapi.isMeshSecondary" .)) -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{/*
+Datastore render gate (#5599). Composes the #3831 seams gate
+(`bp-newapi.renderSeams`) with the cross-region singleton gate.
+
+Consumers: cnpg-cluster.yaml (the `Cluster` CR **and** its DSN-placeholder
+Secret) and database-secret-sync-job.yaml. The sync Job is a post-install/
+post-upgrade hook that polls CNPG's `<cluster>-app` Secret until it exists —
+on a secondary with no Cluster it would poll to its budget, exit non-zero and
+wedge the release, so the Job must go wherever the Cluster goes.
+*/}}
+{{- define "bp-newapi.renderDataStore" -}}
+{{- if and (eq (include "bp-newapi.renderSeams" .) "true") (not (include "bp-newapi.isMeshSecondary" .)) -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{/*
+ClusterMesh global-Service annotations (#5599). Emitted by BOTH Services in
+service.yaml (the main one and the `-bridge` one the HTTPRoute's Exact `/` and
+`/login` rules target — annotating only one would leave the other path split,
+which is the same bug in a narrower window).
+
+`shared` is "true" ONLY on the primary: the secondary must never export a
+backend set of its own, or the primary could land a session in the secondary
+region and the exchange splits again in the other direction.
+`affinity: local` prefers local backends and falls through to the peer only
+when there are none — so the primary never bounces a request to the secondary,
+and the secondary (zero local backends by design) always reaches the primary.
+Nothing renders when crossRegion.enabled=false.
+*/}}
+{{- define "bp-newapi.crossRegionServiceAnnotations" -}}
+{{- $cr := .Values.crossRegion | default dict -}}
+{{- if $cr.enabled }}
+service.cilium.io/global: "true"
+service.cilium.io/shared: {{ eq (include "bp-newapi.crossRegionRole" .) "primary" | quote }}
+service.cilium.io/affinity: {{ $cr.affinity | default "local" | quote }}
+{{- end }}
+{{- end -}}
+
+{{/*
 #5466 / #5480 (A16 class) — is the region-consistent SESSION_SECRET/
 CRYPTO_SECRET bridge carrier ACTIVE for this install?
 

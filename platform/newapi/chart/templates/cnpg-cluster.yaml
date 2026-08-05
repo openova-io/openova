@@ -50,7 +50,16 @@ Without the gate, a cold install fails with "no matches for kind
 Cluster". Same pattern the bp-external-dns chart uses (issue #190) and
 the platform/powerdns/chart/templates/cnpg-cluster.yaml mirror.
 */}}
-{{- if and (eq (include "bp-newapi.renderSeams" .) "true") .Values.cnpg.enabled -}}
+{{- /* #5599 cross-region singleton: an OAuth authorization code is single-use
+   and stored SERVER-SIDE, so the Sovereign may hold exactly ONE newapi
+   datastore. `bp-newapi.renderDataStore` = `renderSeams AND NOT
+   crossRegion-secondary` — it COMPOSES with the #3831 placement gate rather
+   than replacing it, and with crossRegion.enabled=false (the default) it is a
+   no-op. A secondary region renders neither the Cluster CR nor the DSN
+   placeholder Secret below; database-secret-sync-job.yaml carries the same
+   gate so its post-install hook cannot poll forever for a `<cluster>-app`
+   Secret that will never exist. */ -}}
+{{- if and (eq (include "bp-newapi.renderDataStore" .) "true") .Values.cnpg.enabled -}}
 {{- $clusterName := printf "%s-newapi-pg" (include "bp-newapi.fullname" .) -}}
 {{- $dsnSecretName := default (printf "%s-newapi-db-dsn" (include "bp-newapi.fullname" .)) .Values.cnpg.dsnSecretName -}}
 {{- $database := .Values.cnpg.database | default "newapi" -}}

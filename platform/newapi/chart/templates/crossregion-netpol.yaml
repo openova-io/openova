@@ -1,0 +1,148 @@
+{{- /*
+Cross-region reachability CiliumNetworkPolicy (#5599).
+
+Once crossRegion anchors the ONE newapi workload in the primary region, every
+dial that used to be satisfied region-locally has to cross the ClusterMesh —
+and the `newapi` namespace is default-deny (verified live on hw292: the
+`newapi-default-deny` NetworkPolicy from bp-plane-isolation sits alongside this
+chart's own `newapi-bp-newapi` NetworkPolicy in BOTH regions).
+
+A plain k8s NetworkPolicy can NEVER admit a ClusterMesh peer. Cilium
+AND-injects `io.cilium.k8s.policy.cluster=<local>` into every selector it
+derives from a k8s NetworkPolicy — confirmed on hw292 by the agent config
+itself, `policy-default-local-cluster: "true"` in the kube-system
+`cilium-config` ConfigMap (cluster-name `hw292-mesh`, id 219; the peer is
+`hw292-me-east-b`, id 220). An `ipBlock` is equally inert: a ClusterMesh remote
+Pod is a KNOWN endpoint carrying its own identity, never a CIDR identity
+(#4656 / #4846 / #4854). So the peer-region legs need an identity-based CNP on
+the primary side. Cilium evaluates the UNION of every policy selecting an
+endpoint, so this is purely ADDITIVE to the default-deny, to
+`networkpolicy.yaml` and to `cilium-ingress-networkpolicy.yaml` — it opens the
+newapi ports ONLY, to peer-cluster identities ONLY, and does not widen the
+local-cluster surface by one byte.
+
+TWO legs, because two different identity classes reach newapi from the peer:
+
+  1. The peer region's GATEWAY. `cilium-envoy` is a hostNetwork DaemonSet
+     (verified on hw292: `spec.template.spec.hostNetwork=true`, per §854 the
+     gateway is served direct on the host ports, never a nodePort), so a
+     hostNetwork Pod carries the node's identity and its cross-mesh forward
+     arrives as `remote-node` — NOT as a pod endpoint any `fromEndpoints`
+     selector could name. This is the leg that carries a real User's browser
+     request from the secondary region's VIP to the primary's Pod, so without
+     it the fix would trade a 403 for a timeout. bp-plane-isolation's
+     `newapi-allow-gateway-ingress` happens to admit
+     `fromEntities: [ingress, host, remote-node]` on this namespace today, but
+     a chart must not depend on a sibling chart's policy for its own datapath.
+
+  2. The peer region's in-cluster CALLERS — `sandbox-controller` +
+     catalyst-api's admin-API client in `catalyst-system`, and whatever else
+     `networkPolicy.ingress.allowedFromNamespaces` /
+     `networkPolicy.ingress.fromNamespaceLabels` name. Those ARE pod endpoints
+     and used to be served by their own region's local newapi; with the
+     singleton they must reach across, and only a CNP naming both the peer
+     cluster and the namespace can express that.
+
+ANY-NAMESPACE note (the #4854 row 67 L2 trap, mirrored from
+platform/harbor/chart/templates/redis-crossregion-netpol.yaml and
+platform/guacamole/chart/templates/crossregion-netpol.yaml): a namespaced CNP's
+`fromEndpoints` is implicitly ANDed with BOTH
+`io.cilium.k8s.policy.cluster=<local>` AND
+`k8s:io.kubernetes.pod.namespace=<this policy's namespace>`. The callers live in
+`catalyst-system` / `traefik`, NOT in `newapi`, so the namespace key MUST be
+named explicitly — otherwise the rule is silently narrowed to peer-region Pods
+that happen to sit in a same-named `newapi` namespace and matches nothing.
+
+Rendered on BOTH regions so a role flip needs no policy change and has no
+ordering hazard: on the secondary it selects zero local newapi Pods and is
+therefore inert.
+
+Gated on `crossRegion.enabled` AND a non-empty `crossRegion.peerClusters` AND
+the cilium.io/v2 Capabilities check (the #2988/#3102 idiom, so the chart still
+installs on CRD-less clusters such as kind CI). EMPTY peer list (single-region)
+→ NO policy → the default render is byte-identical to 1.4.150.
+*/ -}}
+{{- $cr := .Values.crossRegion | default dict -}}
+{{- $peers := $cr.peerClusters | default list -}}
+{{- $np := .Values.networkPolicy | default dict -}}
+{{- if and (eq (include "bp-newapi.renderApp" .) "true") .Values.newapi.enabled $np.enabled $cr.enabled (gt (len $peers) 0) (.Capabilities.APIVersions.Has "cilium.io/v2") -}}
+{{- $npIngress := $np.ingress | default dict -}}
+{{- /* Caller namespaces: the `kubernetes.io/metadata.name` of the primary
+   fromNamespaceLabels selector (traefik by default) plus every entry of
+   allowedFromNamespaces (catalyst-system by default) — the SAME caller set
+   networkpolicy.yaml admits locally, re-expressed so it also resolves across
+   the mesh. */ -}}
+{{- $callerNs := list -}}
+{{- with (($npIngress.fromNamespaceLabels | default dict))  }}
+{{- $n := index . "kubernetes.io/metadata.name" | default "" -}}
+{{- if $n }}{{- $callerNs = append $callerNs $n -}}{{- end }}
+{{- end }}
+{{- range ($npIngress.allowedFromNamespaces | default list) -}}
+{{- $callerNs = append $callerNs . -}}
+{{- end -}}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ printf "%s-crossregion-ingress" (include "bp-newapi.fullname" .) | quote }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "bp-newapi.labels" . | nindent 4 }}
+    {{- /* `bp-newapi.labels` already sets catalyst.openova.io/blueprint;
+         re-emitting a key Helm has already written is inert AND fails
+         helm-controller's post-render unmarshal with `mapping key already
+         defined`, so use a distinct key (the #5406 lesson). */}}
+    catalyst.openova.io/subcomponent: newapi-crossregion-netpol
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "bp-newapi.selectorLabels" . | nindent 6 }}
+  ingress:
+    {{- /* Leg 1 — the peer region's hostNetwork cilium-envoy forwarding a
+       browser request across the mesh. Entity selectors cannot be qualified by
+       cluster (a reserved identity is not a pod endpoint), so this is scoped
+       instead by opening ONLY the newapi ports. */}}
+    - fromEntities:
+        - remote-node
+      toPorts:
+        - ports:
+            - port: {{ .Values.newapi.port | quote }}
+              protocol: TCP
+            {{- if .Values.meteringSidecar.enabled }}
+            - port: {{ .Values.meteringSidecar.port | quote }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.sandboxBridge.enabled }}
+            - port: {{ .Values.sandboxBridge.port | quote }}
+              protocol: TCP
+            {{- end }}
+    {{- /* Leg 2 — the peer region's in-cluster callers. */}}
+    {{- if gt (len $callerNs) 0 }}
+    - fromEndpoints:
+        - matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: In
+              values:
+                {{- range $peers }}
+                - {{ . | quote }}
+                {{- end }}
+            # Named explicitly — see the ANY-NAMESPACE note above.
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: In
+              values:
+                {{- range $callerNs }}
+                - {{ . | quote }}
+                {{- end }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.newapi.port | quote }}
+              protocol: TCP
+            {{- if .Values.meteringSidecar.enabled }}
+            - port: {{ .Values.meteringSidecar.port | quote }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.sandboxBridge.enabled }}
+            - port: {{ .Values.sandboxBridge.port | quote }}
+              protocol: TCP
+            {{- end }}
+    {{- end }}
+{{- end }}
