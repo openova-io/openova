@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-05T05:00:02Z` |
+| Last refreshed | `2026-08-05T05:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-05T05:11 | [#5684](https://github.com/openova-io/openova/pull/5684) | #5610 | fix(console): clear catalog IaC editor 'unsaved changes' aft |
 | 2026-08-05T02:53 | [#5683](https://github.com/openova-io/openova/pull/5683) | #5568 | fix(placement): derivedFromRuntime false on the no-data-plan |
 | 2026-08-05T01:50 | [#5682](https://github.com/openova-io/openova/pull/5682) | #5610 | fix(console): summary inline editor opens pre-filled with th |
 | 2026-08-05T01:46 | [#5681](https://github.com/openova-io/openova/pull/5681) | #5614 | fix(auth): verify handover issuer via DefaultIssuer(), not a |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-04T04:26 | [#5652](https://github.com/openova-io/openova/pull/5652) | #5650 | feat(cutover): assert Flux sources are Sovereign-local, not  |
 | 2026-08-04T04:12 | [#5651](https://github.com/openova-io/openova/pull/5651) | #5553 | fix(ui-test): ExecPanel waits for the socket, not just the D |
 | 2026-08-04T00:39 | [#5647](https://github.com/openova-io/openova/pull/5647) | #5635 | fix(catalyst-api): reconcile the per-Org console gateway sur |
-| 2026-08-03T23:48 | [#5645](https://github.com/openova-io/openova/pull/5645) | #5642 | fix(k8scache): AddCluster no-ops on an unchanged kubeconfig  |
 
 ---
 
