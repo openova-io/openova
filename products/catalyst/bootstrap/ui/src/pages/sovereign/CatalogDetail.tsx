@@ -659,6 +659,13 @@ export function CatalogDetail() {
               // #5496 — same key mismatch as refetchCatalog: the save above
               // already uses qualifiedName, so the invalidation must too.
               void qc.invalidateQueries({ queryKey: ['catalog-item', qualifiedName] })
+              // #5610 Facet B — re-baseline the editor to the just-committed YAML
+              // so its "unsaved changes" indicator clears on a SUCCESSFUL commit.
+              // YamlEditor's dirty state is `yaml !== initial`, and `initial` is a
+              // useMemo over seedYaml (= this committedIac). Without this the
+              // baseline stays the pre-commit value (the async catalog refetch may
+              // lag), so the badge stays lit though the commit landed durably.
+              setCommittedIac(yaml)
               return `Committed to IaC ✓ (${resp.path || 'catalog-sovereign'})`
             }}
           />
