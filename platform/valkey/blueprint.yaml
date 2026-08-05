@@ -154,7 +154,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: wire
-    hostnameTemplate: valkey.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: valkey.{{.OrgDomain}}
     port: 6379
     protocol: tcp
     tls: false

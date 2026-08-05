@@ -3716,7 +3716,7 @@
           }
         }
       },
-      "hasUserUIEndpoint": false
+      "hasUserUIEndpoint": true
     },
     {
       "id": "bp-openmeter",

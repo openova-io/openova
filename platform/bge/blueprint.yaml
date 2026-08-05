@@ -92,7 +92,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: bge.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: bge.{{.OrgDomain}}
     port: 443
     protocol: https
     tls: true

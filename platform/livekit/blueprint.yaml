@@ -142,7 +142,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: livekit.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: livekit.{{.OrgDomain}}
     port: 443
     protocol: https
     tls: true

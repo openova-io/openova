@@ -623,9 +623,30 @@ spec:
                         maxLength: 253
                         description: |
                           Go text/template emitting an RFC-1123 hostname
-                          after evaluation. Tokens: {{.AppName}}
-                          {{.InstanceID}} {{.OrgSlug}} {{.SovereignFQDN}}
-                          {{.ClusterID}}.
+                          after evaluation.
+
+                          Tokens the resolver ACTUALLY implements
+                          (catalyst-api resolveHostnameTemplate):
+                          {{.SovereignFQDN}} {{.OrgSlug}} {{.AppName}}
+                          {{.OrgDomain}}.
+
+                          {{.OrgDomain}} (#5389) is the Organization's own
+                          domain suffix — <subdomain>.<tenantPublic.parentDomain>
+                          for a pool Org, falling back to
+                          <slug>.<SovereignFQDN> for a single-domain Org. It is
+                          the ONLY correct way to name a per-Org app host: live
+                          per-Org HTTPRoutes are served on the pool domain
+                          (agenity.uatco.omani.homes), never on
+                          <app>.<org>.<SovereignFQDN>. Composing {{.OrgSlug}}
+                          with {{.SovereignFQDN}} yields a host with no
+                          HTTPRoute, no DNS and no certificate.
+
+                          {{.InstanceID}} and {{.ClusterID}} were documented
+                          here but were NEVER implemented by the resolver. Since
+                          #5389 an unimplemented token is a hard resolution
+                          FAILURE: the endpoint reports status Unresolved with
+                          no hostname and no launchURL, rather than emitting a
+                          URL with the literal braces still in it.
                       port:
                         type: integer
                         minimum: 1

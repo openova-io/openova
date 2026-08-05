@@ -113,7 +113,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: turn
-    hostnameTemplate: turn.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: turn.{{.OrgDomain}}
     port: 3478
     protocol: udp
     tls: false

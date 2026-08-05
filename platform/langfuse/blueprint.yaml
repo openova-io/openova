@@ -46,7 +46,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: langfuse.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: langfuse.{{.OrgDomain}}
     port: 443
     protocol: https
     tls: true

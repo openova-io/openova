@@ -119,7 +119,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: anthropic.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: anthropic.{{.OrgDomain}}
     port: 443
     protocol: https
     tls: true

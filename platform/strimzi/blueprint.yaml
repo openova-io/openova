@@ -67,7 +67,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: wire
-    hostnameTemplate: kafka.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: kafka.{{.OrgDomain}}
     port: 9093
     protocol: tcp
     tls: true

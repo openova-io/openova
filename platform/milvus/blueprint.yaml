@@ -52,7 +52,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: grpc
-    hostnameTemplate: milvus.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: milvus.{{.OrgDomain}}
     port: 19530
     protocol: grpc
     tls: true

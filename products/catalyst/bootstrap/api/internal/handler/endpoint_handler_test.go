@@ -69,6 +69,9 @@ func fakeEndpointDynamic(seed ...runtime.Object) (func() (dynamic.Interface, err
 		// #3370: the generic Context-status check reads reflected
 		// credential Secrets.
 		secretGVR: "SecretList",
+		// #5389: resolveOrgDomain lists Organizations to answer the
+		// {OrgDomain} hostname token.
+		OrganizationGVR(): "OrganizationList",
 	}
 	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, seed...)
 	return func() (dynamic.Interface, error) {
@@ -1131,13 +1134,20 @@ func TestBuildLaunchURL_SSOInitPath(t *testing.T) {
 }
 
 func TestEvaluateHostnameTemplate_BothSyntaxes(t *testing.T) {
-	got := evaluateHostnameTemplate("{AppName}.{OrgSlug}.{SovereignFQDN}", "t01.example.com", "acme", "wp")
+	v := hostnameVars{SovereignFQDN: "t01.example.com", OrgSlug: "acme", AppName: "wp", OrgDomain: "acme.omani.homes"}
+	got := evaluateHostnameTemplate("{AppName}.{OrgSlug}.{SovereignFQDN}", v)
 	if got != "wp.acme.t01.example.com" {
 		t.Fatalf("single-curly substitution wrong: %s", got)
 	}
-	got2 := evaluateHostnameTemplate("{{.AppName}}.{{.OrgSlug}}.{{.SovereignFQDN}}", "t01.example.com", "acme", "wp")
+	got2 := evaluateHostnameTemplate("{{.AppName}}.{{.OrgSlug}}.{{.SovereignFQDN}}", v)
 	if got2 != "wp.acme.t01.example.com" {
 		t.Fatalf("double-curly substitution wrong: %s", got2)
+	}
+	// #5389 — the OrgDomain token in all three accepted syntaxes.
+	for _, tmpl := range []string{"{AppName}.{OrgDomain}", "{{.AppName}}.{{.OrgDomain}}", "{{ .AppName }}.{{ .OrgDomain }}"} {
+		if got := evaluateHostnameTemplate(tmpl, v); got != "wp.acme.omani.homes" {
+			t.Fatalf("OrgDomain substitution wrong for %q: %s", tmpl, got)
+		}
 	}
 }
 

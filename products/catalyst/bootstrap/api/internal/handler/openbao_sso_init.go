@@ -87,7 +87,24 @@ func (h *Handler) HandleOpenBaoSSOInit(w http.ResponseWriter, r *http.Request) {
 	if !tls {
 		scheme = "http"
 	}
-	hostname := evaluateHostnameTemplate(ep.HostnameTemplate, h.endpointSovereignFQDN(), "", bp)
+	// This shim only ever serves Sovereign-singleton HR-backed apps (openbao
+	// et al.), so there is no Org context: OrgSlug/OrgDomain are empty and a
+	// template that references either FAILS here rather than redirecting the
+	// browser to a host with an unsubstituted token in it (#5389).
+	hostname, hostErr := resolveHostnameTemplate(ep.HostnameTemplate, hostnameVars{
+		SovereignFQDN: h.endpointSovereignFQDN(),
+		AppName:       bp,
+	})
+	if hostErr != nil {
+		h.log.Warn("openbao-sso-init: hostnameTemplate unresolved; refusing to redirect to a dead host",
+			"app", bp, "endpoint", ep.Name, "hostnameTemplate", ep.HostnameTemplate, "error", hostErr.Error())
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"code": "hostname-unresolved",
+			"message": fmt.Sprintf("endpoint %q hostnameTemplate %q could not be resolved: %v",
+				ep.Name, ep.HostnameTemplate, hostErr),
+		})
+		return
+	}
 
 	// The deep-link fallback is the blueprint's own ssoInitPath rendered
 	// against the resolved host. This is exactly what the legacy launch-url

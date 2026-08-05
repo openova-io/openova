@@ -117,6 +117,12 @@ type resolvedEndpoint struct {
 	LaunchURL         string `json:"launchURL,omitempty"`
 }
 
+// endpointStatusUnresolved — #5389. The Blueprint's hostnameTemplate could
+// not be fully substituted (unknown token, or a token that substituted to the
+// empty string). The endpoint is reported with an EMPTY hostname + no
+// launchURL so no consumer can construct a dead link from it.
+const endpointStatusUnresolved = "Unresolved"
+
 // applicationSummary mirrors `schema/ApplicationSummary`.
 type applicationSummary struct {
 	ID        string `json:"id"`
@@ -441,7 +447,7 @@ func (h *Handler) HandleListAppEndpoints(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
-	endpoints := h.resolveEndpoints(app, bpDoc)
+	endpoints := h.resolveEndpoints(r.Context(), client, app, bpDoc)
 	writeJSON(w, http.StatusOK, listEndpointsResponse{Items: endpoints})
 }
 
@@ -710,7 +716,28 @@ func (h *Handler) HandleGetLaunchURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hostname := evaluateHostnameTemplate(ep.HostnameTemplate, h.endpointSovereignFQDN(), org, appName)
+	hostname, hostErr := resolveHostnameTemplate(ep.HostnameTemplate, hostnameVars{
+		SovereignFQDN: h.endpointSovereignFQDN(),
+		OrgSlug:       org,
+		AppName:       appName,
+		OrgDomain:     h.resolveOrgDomain(r.Context(), client, org),
+	})
+	if hostErr != nil {
+		// #5389 fail LOUD. Pre-fix, an unsupported/typo'd token survived the
+		// replacer verbatim and this handler answered 200 with
+		// `https://neo4j.{{.orgdomain}}/…` — a well-formed, dead Open button.
+		// Answering 409 makes the console show its error path instead of
+		// navigating the operator into the void.
+		h.log.Warn("launch-url: hostnameTemplate unresolved; refusing to emit a dead URL",
+			"app", appName, "org", org, "blueprint", bp, "endpoint", ep.Name,
+			"hostnameTemplate", ep.HostnameTemplate, "error", hostErr.Error())
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"code": "hostname-unresolved",
+			"message": fmt.Sprintf("endpoint %q hostnameTemplate %q could not be resolved: %v",
+				ep.Name, ep.HostnameTemplate, hostErr),
+		})
+		return
+	}
 	tls := true
 	if ep.TLS != nil {
 		tls = *ep.TLS
@@ -1800,7 +1827,7 @@ func blueprintHasUserUIEndpoint(bp *blueprintMeta) bool {
 // application-controller's per-cluster Helm reconciler is the actual
 // source of truth; for the first cut we always answer Ready for an
 // existing Application).
-func (h *Handler) resolveEndpoints(app *unstructured.Unstructured, bp *blueprintMeta) []resolvedEndpoint {
+func (h *Handler) resolveEndpoints(ctx context.Context, client dynamic.Interface, app *unstructured.Unstructured, bp *blueprintMeta) []resolvedEndpoint {
 	out := []resolvedEndpoint{}
 	if bp == nil {
 		return out
@@ -1808,12 +1835,21 @@ func (h *Handler) resolveEndpoints(app *unstructured.Unstructured, bp *blueprint
 	org := extractOrgFromApp(app)
 	appName := app.GetName()
 	fqdn := h.endpointSovereignFQDN()
+	vars := hostnameVars{
+		SovereignFQDN: fqdn,
+		OrgSlug:       org,
+		AppName:       appName,
+		// #5389 — the Organization's own domain. Resolved once per request,
+		// not per endpoint: every endpoint of one Application belongs to the
+		// same Org.
+		OrgDomain: h.resolveOrgDomain(ctx, client, org),
+	}
 	for _, ep := range bp.Endpoints {
 		tls := true
 		if ep.TLS != nil {
 			tls = *ep.TLS
 		}
-		hostname := evaluateHostnameTemplate(ep.HostnameTemplate, fqdn, org, appName)
+		hostname, hostErr := resolveHostnameTemplate(ep.HostnameTemplate, vars)
 		re := resolvedEndpoint{
 			Name:             ep.Name,
 			HostnameTemplate: ep.HostnameTemplate,
@@ -1827,6 +1863,20 @@ func (h *Handler) resolveEndpoints(app *unstructured.Unstructured, bp *blueprint
 			SSOInitPath:      ep.SSOInitPath,
 			SSOShim:          ep.SSOShim,
 			Status:           "Ready",
+		}
+		if hostErr != nil {
+			// #5389 fail-loud: an unresolved template must NOT be published
+			// as a hostname or a launch URL. Surface the endpoint as
+			// Unresolved so the console can say "this app has no reachable
+			// front door" instead of handing the operator a dead link.
+			re.Status = endpointStatusUnresolved
+			if h.log != nil {
+				h.log.Warn("endpoint: hostnameTemplate unresolved; suppressing launch URL",
+					"app", appName, "org", org, "endpoint", ep.Name,
+					"hostnameTemplate", ep.HostnameTemplate, "error", hostErr.Error())
+			}
+			out = append(out, re)
+			continue
 		}
 		if ep.SSOEnabled {
 			// #3226 — prefer the server-side shim URL when the endpoint
@@ -1873,7 +1923,27 @@ func pickEndpoint(bp *blueprintMeta, name string) *endpointDecl {
 	return nil
 }
 
-// evaluateHostnameTemplate is a minimal substitution engine for the
+// hostnameVars is the substitution vocabulary a Blueprint's
+// hostnameTemplate may reference.
+type hostnameVars struct {
+	// SovereignFQDN — the catalyst-api SOVEREIGN_FQDN env / wired override.
+	SovereignFQDN string
+	// OrgSlug — the Application's Organization slug.
+	OrgSlug string
+	// AppName — the Application CR name.
+	AppName string
+	// OrgDomain — the Organization's own domain suffix (#5389). See
+	// endpoint_org_domain.go for the derivation; this is the token every
+	// per-Org Blueprint must compose its host from.
+	OrgDomain string
+}
+
+// errHostnameUnresolved marks a hostnameTemplate that could not be fully
+// substituted. Callers MUST treat it as "no launch URL", never as a
+// best-effort host.
+var errHostnameUnresolved = errors.New("hostname template unresolved")
+
+// resolveHostnameTemplate is a minimal substitution engine for the
 // fields the Blueprint's hostnameTemplate may reference. The full Go
 // text/template engine isn't needed because the field is constrained
 // to a small set of well-known tokens.
@@ -1883,22 +1953,72 @@ func pickEndpoint(bp *blueprintMeta, name string) *endpointDecl {
 //	{SovereignFQDN}  → the catalyst-api SOVEREIGN_FQDN env
 //	{OrgSlug}        → the Application's Org slug
 //	{AppName}        → the Application's name
+//	{OrgDomain}      → the Organization's domain suffix (#5389)
 //
 // Plus the Go-template-style {{.X}} aliases for compatibility with
 // the existing exemplar blueprint files.
-func evaluateHostnameTemplate(tmpl, fqdn, org, appName string) string {
+//
+// # Fail LOUD, not open (#5389)
+//
+// The pre-#5389 engine returned `strings.ToLower(rep.Replace(tmpl))`
+// unconditionally. strings.NewReplacer leaves any token it does not know
+// LITERAL, so a typo'd or unsupported token — `{{.OrgDomian}}`, or
+// `{{.OrgDomain}}` itself before the engine was taught about it — produced a
+// "hostname" still containing braces, which buildLaunchURL then happily
+// wrapped in `https://…/` and the console published as the Open button's
+// target. Equally, an EMPTY substitution (no Org slug on a per-Org template)
+// collapsed to `chat..example.com` / `.example.com` — syntactically a URL,
+// semantically nowhere.
+//
+// Both are now hard failures: an unresolved template yields
+// ("", errHostnameUnresolved) and the caller suppresses the launch URL and
+// logs a Warn naming the template. A missing Open button is a visible,
+// diagnosable gap; a dead Open button is a silent lie.
+func resolveHostnameTemplate(tmpl string, v hostnameVars) (string, error) {
+	raw := strings.TrimSpace(tmpl)
+	if raw == "" {
+		return "", fmt.Errorf("%w: empty hostnameTemplate", errHostnameUnresolved)
+	}
 	rep := strings.NewReplacer(
-		"{SovereignFQDN}", fqdn,
-		"{OrgSlug}", org,
-		"{AppName}", appName,
-		"{{.SovereignFQDN}}", fqdn,
-		"{{ .SovereignFQDN }}", fqdn,
-		"{{.OrgSlug}}", org,
-		"{{ .OrgSlug }}", org,
-		"{{.AppName}}", appName,
-		"{{ .AppName }}", appName,
+		"{SovereignFQDN}", v.SovereignFQDN,
+		"{OrgSlug}", v.OrgSlug,
+		"{AppName}", v.AppName,
+		"{OrgDomain}", v.OrgDomain,
+		"{{.SovereignFQDN}}", v.SovereignFQDN,
+		"{{ .SovereignFQDN }}", v.SovereignFQDN,
+		"{{.OrgSlug}}", v.OrgSlug,
+		"{{ .OrgSlug }}", v.OrgSlug,
+		"{{.AppName}}", v.AppName,
+		"{{ .AppName }}", v.AppName,
+		"{{.OrgDomain}}", v.OrgDomain,
+		"{{ .OrgDomain }}", v.OrgDomain,
 	)
-	return strings.ToLower(rep.Replace(tmpl))
+	host := strings.ToLower(strings.TrimSpace(rep.Replace(raw)))
+	if host == "" {
+		return "", fmt.Errorf("%w: %q resolved to the empty string", errHostnameUnresolved, tmpl)
+	}
+	// (1) An unknown token survived the replacer verbatim.
+	if strings.ContainsAny(host, "{}") {
+		return "", fmt.Errorf("%w: %q → %q still carries an unsubstituted token "+
+			"(supported: {SovereignFQDN} {OrgSlug} {AppName} {OrgDomain})", errHostnameUnresolved, tmpl, host)
+	}
+	// (2) A known token substituted to "" and collapsed a DNS label.
+	if strings.HasPrefix(host, ".") || strings.HasSuffix(host, ".") || strings.Contains(host, "..") {
+		return "", fmt.Errorf("%w: %q → %q has an empty DNS label (a token substituted to \"\")",
+			errHostnameUnresolved, tmpl, host)
+	}
+	return host, nil
+}
+
+// evaluateHostnameTemplate is the lenient wrapper for call sites that only
+// need "the host, or nothing". It never returns a partially substituted
+// string — see resolveHostnameTemplate.
+func evaluateHostnameTemplate(tmpl string, v hostnameVars) string {
+	host, err := resolveHostnameTemplate(tmpl, v)
+	if err != nil {
+		return ""
+	}
+	return host
 }
 
 // buildLaunchURL constructs the silent-SSO launch URL.

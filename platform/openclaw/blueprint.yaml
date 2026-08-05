@@ -133,6 +133,38 @@ spec:
             - rtz-A
           roles:
             rtz-A: singleton
+  # #5389 — bp-openclaw is `visibility: listed` (customer-installable) and
+  # chart/templates/httproute.yaml publishes a real Cilium-Gateway front door,
+  # yet the Blueprint declared NO endpoints at all. Both console surfaces read
+  # that list and both went dark: Handler.userUIGatePasses fails closed on an
+  # empty endpoints[], so AppDetail rendered no hero Open CTA and the AppsPage
+  # grid rendered no button; HandleGetLaunchURL's pickEndpoint returned nil, so
+  # GET /catalyst/v1/apps/bp-openclaw/launch-url answered 404
+  # endpoint-not-found. Exactly the bp-newapi row-114 defect, second instance.
+  #
+  # The host is the one README.md §Exposure and the org-gitops overlay agree on
+  # (organization_gitops.go: owHost = console.<sub>.<parent> with the leftmost
+  # label swapped to `openclaw`) — i.e. openclaw.<subdomain>.<parentDomain>,
+  # which is what {{.OrgDomain}} resolves to.
+  #
+  # No ssoInitPath: the controller (controller/main.go rootHandler) has no
+  # app-local OIDC-init route — bare `/` serves a landing page and every other
+  # path requires a bearer JWT — so the launch URL uses the legacy app-root +
+  # `prompt=none&kc_idp_hint=catalyst-pin` shape. Declaring a path the app does
+  # not serve would trade a dark button for a 404.
+  endpoints:
+    - name: console
+      hostnameTemplate: openclaw.{{.OrgDomain}}
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+      ssoEnabled: true
+  sso:
+    realm: '{{.OrgSlug}}'
+    protocolMapper: oidc
+    groupsClaim: groups
   manifests:
     chart: ./chart
   depends:

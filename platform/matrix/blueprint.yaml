@@ -173,7 +173,7 @@ spec:
             rtz-A: singleton
   endpoints:
   - name: ui
-    hostnameTemplate: matrix.{{.OrgSlug}}.{{.SovereignFQDN}}
+    hostnameTemplate: matrix.{{.OrgDomain}}
     port: 443
     protocol: https
     tls: true
