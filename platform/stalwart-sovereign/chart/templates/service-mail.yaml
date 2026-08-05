@@ -25,7 +25,18 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  type: {{ .Values.service.mail.type }}
+  {{- $svcType := .Values.service.mail.type | default "LoadBalancer" }}
+  {{- if eq $svcType "NodePort" }}
+  {{- fail "bp-stalwart-sovereign: service.mail.type=NodePort is FORBIDDEN (§854, #5348) — use LoadBalancer (cloud-LB / Cilium LB-IPAM shared VIP) or ClusterIP" }}
+  {{- end }}
+  type: {{ $svcType }}
+  {{- if eq $svcType "LoadBalancer" }}
+  # 🛑 zero nodePorts, ever (§854, #5348): the LB VIP is served directly by
+  # the cloud-LB / Cilium LB-IPAM datapath — node:3xxxx must not exist.
+  # Without this field the apiserver silently allocates a nodePort per port
+  # and the Kyverno forbid-nodeport-service guard denies the install.
+  allocateLoadBalancerNodePorts: false
+  {{- end }}
   externalTrafficPolicy: {{ .Values.service.mail.externalTrafficPolicy }}
   selector:
     {{- include "bp-stalwart-sovereign.selectorLabels" . | nindent 4 }}
@@ -34,20 +45,39 @@ spec:
       port: {{ .Values.service.mail.ports.smtp }}
       targetPort: smtp
       protocol: TCP
+      {{- if eq $svcType "LoadBalancer" }}
+      # 🛑 #5348: state ZERO explicitly — omitting nodePort is NOT enough.
+      # allocateLoadBalancerNodePorts:false only stops NEW allocations; an
+      # apply that OMITS nodePort leaves an existing allocation in place.
+      # `nodePort: 0` is the release sentinel the apiserver clears on apply.
+      nodePort: 0
+      {{- end }}
     - name: submission
       port: {{ .Values.service.mail.ports.submission }}
       targetPort: submission
       protocol: TCP
+      {{- if eq $svcType "LoadBalancer" }}
+      nodePort: 0
+      {{- end }}
     - name: submissions
       port: {{ .Values.service.mail.ports.submissions }}
       targetPort: submissions
       protocol: TCP
+      {{- if eq $svcType "LoadBalancer" }}
+      nodePort: 0
+      {{- end }}
     - name: imap
       port: {{ .Values.service.mail.ports.imap }}
       targetPort: imap
       protocol: TCP
+      {{- if eq $svcType "LoadBalancer" }}
+      nodePort: 0
+      {{- end }}
     - name: imaps
       port: {{ .Values.service.mail.ports.imaps }}
       targetPort: imaps
       protocol: TCP
+      {{- if eq $svcType "LoadBalancer" }}
+      nodePort: 0
+      {{- end }}
 {{- end }}

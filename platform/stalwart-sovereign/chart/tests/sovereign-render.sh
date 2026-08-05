@@ -67,6 +67,24 @@ grep -q "name: smtp" <<<"$out" \
 grep -q "name: submission" <<<"$out" \
   || { echo "FAIL: no submission port name"; exit 1; }
 
+# §854 / #5348: the public mail LoadBalancer MUST carry the explicit
+# nodePort:0 guard on every port + allocateLoadBalancerNodePorts:false on the
+# spec — a clean render is NOT platform-clean (the apiserver silently
+# auto-allocates a nodePort per port otherwise, exactly the powerdns-anycast
+# violation #5348 caught). Assert BOTH directions: the positive checks prove
+# the LB path actually rendered the guard (a bare "no 3xxxx" would pass
+# vacuously on a ClusterIP-only render), and the negative check proves no
+# auto-allocated nodePort leaked into the 30000-32767 range.
+grep -q "allocateLoadBalancerNodePorts: false" <<<"$out" \
+  || { echo "FAIL: mail LoadBalancer missing allocateLoadBalancerNodePorts:false (§854/#5348)"; exit 1; }
+np0=$(grep -cE '^[[:space:]]*nodePort: 0[[:space:]]*$' <<<"$out" || true)
+[[ "$np0" -eq 5 ]] \
+  || { echo "FAIL: expected 5 explicit 'nodePort: 0' (one per mail port), got $np0 (§854/#5348)"; exit 1; }
+if grep -qE 'nodePort: 3[0-2][0-9]{3}' <<<"$out"; then
+  echo "FAIL: mail Service leaked an auto-allocated nodePort in 30000-32767 (§854)"; exit 1
+fi
+echo "[stalwart-sovereign] §854 nodePort:0 guard: PASS"
+
 # ClusterIP for admin API
 grep -q "stalwart-sovereign-http" <<<"$out" \
   || { echo "FAIL: no http ClusterIP Service"; exit 1; }

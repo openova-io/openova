@@ -24,8 +24,9 @@ spec:
   #     `catalyst-openova-kc-credentials` chart-rendered Secret via
   #     Helm `lookup`). NO Keycloak OIDC — Console is the only client.
   #
+  # 0.1.1 (#5690) — §854/#5348 mail-LoadBalancer nodePort:0 hardening.
   # Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
-  version: 0.1.0
+  version: 0.1.1
   card:
     title: Stalwart (Sovereign Console mail)
     summary: |
