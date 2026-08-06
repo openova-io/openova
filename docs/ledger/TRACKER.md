@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T00:45:05Z` |
+| Last refreshed | `2026-08-06T01:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-08-06T00:44 | [#5721](https://github.com/openova-io/openova/pull/5721) | #5459 | docs(uat): re-walk the 12 unwalked SSO rows live on hw292 po |
+| 2026-08-06T00:53 | [#5719](https://github.com/openova-io/openova/pull/5719) | #5650 | fix(cutover): pivot the loft chart source in EVERY region, n |
 | 2026-08-06T00:31 | [#5718](https://github.com/openova-io/openova/pull/5718) | #5678 | ci(lockstep): run the release writer and assert all five sit |
 | 2026-08-06T00:34 | [#5717](https://github.com/openova-io/openova/pull/5717) | #5642 | fix(k8scache): sync-watcher aborts on the per-cluster stop c |
 | 2026-08-06T00:01 | [#5716](https://github.com/openova-io/openova/pull/5716) | #5610 | fix(console): guard the catalog per-field save against silen |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-05T13:53 | [#5692](https://github.com/openova-io/openova/pull/5692) | #5535 | ci(uat): lock the SSO-flip trigger surface against evidence- |
 | 2026-08-05T13:44 | [#5691](https://github.com/openova-io/openova/pull/5691) | #5348 | fix(stalwart-sovereign): explicit nodePort:0 on mail LoadBal |
 | 2026-08-05T07:14 | [#5689](https://github.com/openova-io/openova/pull/5689) | #5612 | fix(newapi): route inert SSO recovery button through the wor |
-| 2026-08-05T06:35 | [#5688](https://github.com/openova-io/openova/pull/5688) | #5613 | fix(dashboard): treemap Organization layer projects live pod |
 
 ---
 
