@@ -1,5 +1,12 @@
 /**
- * StorageClassesPage.test.tsx — placeholder lock-in.
+ * StorageClassesPage.test.tsx
+ *
+ * #5611: this file previously LOCKED IN the placeholder — it asserted
+ * the "storage class data is not in the current informer set" empty
+ * state and its #321 docs link, i.e. it pinned the defect in place and
+ * would have gone red on the fix. The `storageclass` GVR is now in the
+ * catalyst-api k8scache registry, so the route renders the live list
+ * instead, and this asserts THAT.
  */
 
 import { describe, it, expect, afterEach, beforeEach } from 'vitest'
@@ -69,10 +76,14 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('StorageClassesPage', () => {
-  it('renders header + empty state + docs link', async () => {
+  it('#5611: renders the live storageclass list, not the #321 placeholder', async () => {
     renderPage()
-    expect(await screen.findByTestId('cloud-storage-classes-page')).toBeTruthy()
-    expect(screen.getByTestId('cloud-storage-classes-empty')).toBeTruthy()
-    expect(screen.getByTestId('cloud-storage-classes-docs-link')).toBeTruthy()
+    // The generic K8sListPage's container for kind=storageclass. Its
+    // presence is what proves the route is wired to the live stream.
+    expect(await screen.findByTestId('cloud-storageclass-list')).toBeTruthy()
+    // And the placeholder is genuinely gone — without this the assertion
+    // above could pass alongside a leftover stub.
+    expect(screen.queryByTestId('cloud-storage-classes-empty')).toBeNull()
+    expect(screen.queryByTestId('cloud-storage-classes-docs-link')).toBeNull()
   })
 })

@@ -26,10 +26,13 @@ const STORAGE_TILES: readonly StorageTile[] = [
     hasData: true,
   },
   {
+    // #5611 — the storage-class informer landed (k8scache registry kind
+    // `storageclass`), so this tile counts live objects instead of
+    // rendering the not-collected marker "—".
     id: 'storage-classes',
     label: 'Storage Classes',
-    tagline: 'Awaiting storage-class informer (#321).',
-    hasData: false,
+    tagline: 'Provisioner + reclaim policy presets backing every PVC.',
+    hasData: true,
   },
   {
     id: 'buckets',
@@ -46,21 +49,43 @@ const STORAGE_TILES: readonly StorageTile[] = [
 ]
 
 export function CloudStoragePage() {
-  const { deploymentId, data, isLoading } = useCloud()
+  const { deploymentId, data, isLoading, k8sSnapshot, k8sRevision } = useCloud()
 
   const counts = useMemo(() => {
     const out: Record<StorageTile['id'], number | null> = {
       pvcs: 0,
+      // #5611 — null until the SSE stream delivers initialState; a
+      // storage-class count of 0 before the stream connects would be a
+      // false zero, so the tile keeps rendering "—" until then.
       'storage-classes': null,
       buckets: 0,
       volumes: 0,
+    }
+    // Storage classes are cluster-scoped K8s objects streamed through
+    // the k8scache SSE, not projected onto the topology response, so
+    // this count comes from the snapshot — the same source the
+    // /cloud?view=list chip tallies. Snapshot keys are
+    // `storageclass:<name>@<cluster>` (#5571), so both regions' copies
+    // of `evs-ssd` are counted, matching the PersistentVolumes chip.
+    if (k8sSnapshot && k8sSnapshot.size > 0) {
+      let sc = 0
+      for (const key of k8sSnapshot.keys()) {
+        if (key.split(':', 1)[0] === 'storageclass') sc += 1
+      }
+      out['storage-classes'] = sc
     }
     if (!data) return out
     out.pvcs = data.storage?.pvcs?.length ?? 0
     out.buckets = data.storage?.buckets?.length ?? 0
     out.volumes = data.storage?.volumes?.length ?? 0
     return out
-  }, [data])
+    // k8sRevision looks "unnecessary" to the linter but is load-bearing:
+    // k8sSnapshot is a MUTABLE Map whose identity does not change as SSE
+    // deltas are folded in, so the revision counter is the only signal
+    // that its contents moved. Same dependency CloudPage's kindCounts
+    // carries for the same reason.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, k8sSnapshot, k8sRevision])
 
   return (
     <div data-testid="cloud-storage-page">

@@ -600,20 +600,63 @@ export function CiliumClusterwideNetworkPoliciesListPage() {
   )
 }
 
+/**
+ * StorageClass columns (#5611).
+ *
+ * StorageClass carries `provisioner` / `reclaimPolicy` /
+ * `volumeBindingMode` / `allowVolumeExpansion` at the TOP level of the
+ * object — not under `spec` — so `colSpec` does not apply and each
+ * column extracts directly.
+ */
+function colTop(key: string, header: string) {
+  return {
+    header,
+    extract: (o: K8sObject) => {
+      const v = o[key]
+      return v == null ? '—' : String(v)
+    },
+  }
+}
+
+/** The `storageclass.kubernetes.io/is-default-class` annotation is what
+ *  `kubectl get sc` renders as the "(default)" name suffix. */
+const SC_DEFAULT_ANNOTATION = 'storageclass.kubernetes.io/is-default-class'
+const COL_SC_DEFAULT = {
+  header: 'Default',
+  extract: (o: K8sObject) =>
+    o.metadata?.annotations?.[SC_DEFAULT_ANNOTATION] === 'true' ? 'yes' : '—',
+  tone: (o: K8sObject): CellTone | undefined =>
+    o.metadata?.annotations?.[SC_DEFAULT_ANNOTATION] === 'true' ? 'ok' : undefined,
+}
+
+/**
+ * StorageClassesListPage — #5611.
+ *
+ * Was a stub reading "the storage.k8s.io/StorageClass GVR is not yet in
+ * the catalyst-api k8scache registry", with `hasData: false` in kinds.ts
+ * so the chip rendered the not-collected marker "—" on a Sovereign
+ * serving 2 classes per region. The GVR is now registered
+ * (api/internal/k8scache/kinds.go `storageclass`), so this renders live
+ * objects like every other wired kind — including the #5571 Region
+ * column, which matters here because BOTH regions serve a class named
+ * `evs-ssd` and they must not read as one.
+ */
 export function StorageClassesListPage() {
   return (
-    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)] p-6 text-sm text-[var(--color-text-dim)]">
-      <h2 className="mb-1 text-lg font-semibold text-[var(--color-text-strong)]">Storage Classes</h2>
-      <p>
-        The <code className="font-mono">storage.k8s.io/StorageClass</code> GVR is not yet in the
-        catalyst-api k8scache registry. Tracking work to add it lives in
-        {' '}
-        <a href="https://github.com/openova-io/openova/issues/321" className="underline">
-          issue #321
-        </a>
-        .
-      </p>
-    </div>
+    <K8sListPage
+      kind="storageclass"
+      title="Storage Classes"
+      tagline="Provisioner + reclaim policy presets backing every PVC."
+      columns={[
+        COL_NAME,
+        colTop('provisioner', 'Provisioner'),
+        colTop('reclaimPolicy', 'Reclaim Policy'),
+        colTop('volumeBindingMode', 'Binding Mode'),
+        colTop('allowVolumeExpansion', 'Expandable'),
+        COL_SC_DEFAULT,
+        COL_AGE,
+      ]}
+    />
   )
 }
 

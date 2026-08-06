@@ -104,6 +104,21 @@ var DefaultKinds = []Kind{
 	// bridge (PV.csi.volumeAttributes carries the hcloud volume id).
 	{Name: "persistentvolume", GVR: schema.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumes"}, Namespaced: false},
 
+	// Storage (storage.k8s.io/v1). Cluster-scoped.
+	//
+	// #5611 — the cloud list's "Storage Classes" chip rendered the
+	// not-collected marker "—" and its page rendered a stub reading
+	// "the storage.k8s.io/StorageClass GVR is not yet in the
+	// catalyst-api k8scache registry", while every Sovereign serves 2
+	// of them (evs-ssd default + seaweedfs-storage, both regions of
+	// hw292, verified live 2026-08-06). The GVR is core Kubernetes and
+	// served on every cluster, so this is NOT Optional — no discovery
+	// probe needed. Read verbs for storage.k8s.io/storageclasses are
+	// ALREADY on the catalyst-api-cutover-driver ClusterRole
+	// (chart/templates/clusterrole-cutover-driver.yaml §5), so the
+	// chroot in-cluster fallback needs no RBAC change.
+	{Name: "storageclass", GVR: schema.GroupVersionResource{Group: "storage.k8s.io", Version: "v1", Resource: "storageclasses"}, Namespaced: false},
+
 	// Workloads (apps/v1).
 	{Name: "deployment", GVR: schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, Namespaced: true},
 	{Name: "statefulset", GVR: schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "statefulsets"}, Namespaced: true},
@@ -463,6 +478,9 @@ var kindShortAliases = map[string]string{
 	"pvcs":   "persistentvolumeclaim", // pluralised short form (matrix usage)
 	"pv":     "persistentvolume",
 	"pvs":    "persistentvolume",
+	// #5611 — kubectl's own short form for StorageClass.
+	"sc":     "storageclass",
+	"scs":    "storageclass",
 	"deploy": "deployment",
 	"sts":    "statefulset",
 	"ds":     "daemonset",
