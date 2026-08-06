@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T18:00:07Z` |
+| Last refreshed | `2026-08-06T18:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,11 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#5359](https://github.com/openova-io/openova/issues/5359) | Cutover pivots ONLY the control-plane region — region-B Flux (GitRepository→ | Other |
+| [#5364](https://github.com/openova-io/openova/issues/5364) | Org-CR deletion orphans the org Namespace + host-deployed bp-keycloak when per-O | Other |
+| [#5370](https://github.com/openova-io/openova/issues/5370) | CI red on main: sandbox-mcp-server Go-toolchain latent break + intermittent char | Other |
+| [#5373](https://github.com/openova-io/openova/issues/5373) | per-Org realm flag (CATALYST_PER_ORG_REALM_ENABLED) is DELIBERATELY dormant —  | Other |
+| [#5385](https://github.com/openova-io/openova/issues/5385) | Deployment health aggregate is stale-degraded + counts suspended HRs inconsisten | Other |
 | [#5389](https://github.com/openova-io/openova/issues/5389) | P1: per-app Open/launch button does not land the user in the app (rows 110/112/1 | Other |
 | [#5391](https://github.com/openova-io/openova/issues/5391) | Cutover: a Stalled/RetriesExceeded per-Org HelmRelease permanently blocks the So | Other |
 | [#5393](https://github.com/openova-io/openova/issues/5393) | Per-Org plan quota: vcluster control-plane overhead (1500m) is billed to the cus | Other |
@@ -287,19 +292,14 @@ flowchart LR
 | [#5623](https://github.com/openova-io/openova/issues/5623) | Region-kill: the three shared-pg DR pairs never promote — only bp-cnpg-pair sh | Other |
 | [#5634](https://github.com/openova-io/openova/issues/5634) | UAT row 92: funnel discards the 429 rate-limit response — a throttled customer | Other |
 | [#5635](https://github.com/openova-io/openova/issues/5635) | Per-Org app FQDN fails ~50% of fresh connections — single-region namespace beh | Other |
-| [#5639](https://github.com/openova-io/openova/issues/5639) | Per-Org bp-postgres active-hot-standby renders an empty region selector — pod  | Other |
 | [#5640](https://github.com/openova-io/openova/issues/5640) | Post-cutover Sovereigns cannot receive newly published images — local Harbor i | Other |
 | [#5642](https://github.com/openova-io/openova/issues/5642) | catalyst-api OOMKilling in a loop on hw292 (15 restarts, requests 96Mi vs limits | Other |
-| [#5646](https://github.com/openova-io/openova/issues/5646) | Customer-facing provisioning timeline: banned term 'Creating tenant', steps comp | Other |
-| [#5649](https://github.com/openova-io/openova/issues/5649) | Org teardown reaps one producer's route name in one region — deleted Orgs leav | Other |
 | [#5650](https://github.com/openova-io/openova/issues/5650) | Post-cutover Sovereign fetches charts.loft.sh every 15m: step-08's deny-egress h | Other |
-| [#5690](https://github.com/openova-io/openova/issues/5690) | §854/#5348: bp-stalwart-sovereign mail LoadBalancer Service omits explicit node | Other |
 | [#5750](https://github.com/openova-io/openova/issues/5750) | Guacamole row-35 ERROR page: diagnostic to distinguish known #5358 chart-drift f | Other |
 | [#5752](https://github.com/openova-io/openova/issues/5752) | bp-stalwart-tenant: per-Org install door emits empty spec.parameters — domain/ | Other |
 | [#5759](https://github.com/openova-io/openova/issues/5759) | sovereign-daytwo-bootstrap --apply REVERTS a completed cutover: 62/69 HelmReposi | Other |
 | [#5762](https://github.com/openova-io/openova/issues/5762) | products/catalyst/bootstrap/ui e2e + marketplace customer-journey: triage the 16 | Other |
 | [#5767](https://github.com/openova-io/openova/issues/5767) | catalyst-api has no graceful shutdown — SIGTERM kills orphan-release mid-persi | Other |
-| [#5769](https://github.com/openova-io/openova/issues/5769) | #5646 guard is vacuous: TestProvisionStepNames transcribes consumer.go's step li | Other |
 
 ---
 
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-06T18:10 | [#5777](https://github.com/openova-io/openova/pull/5777) | #5646 | fix(#5646): the failed-run progress recompute was unguarded  |
+| 2026-08-06T18:05 | [#5776](https://github.com/openova-io/openova/pull/5776) | #5646 | fix(#5769): the #5646 step-name guard read a transcript, not |
+| 2026-08-06T18:00 | [#5775](https://github.com/openova-io/openova/pull/5775) | #5768 | test(catalyst-api): guard that main() actually wires the gra |
 | 2026-08-06T17:55 | [#5774](https://github.com/openova-io/openova/pull/5774) | #5752 | test(stalwart-params): unchecked assertion panicked the bina |
 | 2026-08-06T17:55 | [#5773](https://github.com/openova-io/openova/pull/5773) | #5750 | test(guacamole-drift): self-test could not see its own fail- |
 | 2026-08-06T17:55 | [#5772](https://github.com/openova-io/openova/pull/5772) | #5690 | fix(§854): LB nodePort:0 guard counted presence, not ports — |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-06T03:58 | [#5740](https://github.com/openova-io/openova/pull/5740) | #5646 | fix(funnel): banned term still reaches the customer from a h |
 | 2026-08-06T04:11 | [#5739](https://github.com/openova-io/openova/pull/5739) | #5646 | fix(marketplace): test the redeem OUTCOME, not the gate deci |
 | 2026-08-06T04:18 | [#5738](https://github.com/openova-io/openova/pull/5738) | #5661 | test(wizard): guard the single-region topology WIRE contract |
-| 2026-08-06T04:01 | [#5737](https://github.com/openova-io/openova/pull/5737) | #5661 | fix(cloud): storage counts read every region + wire the stor |
-| 2026-08-06T03:57 | [#5736](https://github.com/openova-io/openova/pull/5736) | #5515 | fix(placement): the Go derivePattern still fails open into s |
-| 2026-08-06T03:28 | [#5735](https://github.com/openova-io/openova/pull/5735) | #817 | fix(catalyst-api): stop four DR surfaces reporting health, c |
 
 ---
 
