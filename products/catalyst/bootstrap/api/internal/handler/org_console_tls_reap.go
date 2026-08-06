@@ -73,7 +73,12 @@
 //     (the chart's apex pair `console-https`/`console-http` never matches);
 //     Certificate/Secret name prefix `org-wildcard-tls-` (the Sovereign's
 //     per-zone wildcards are `sovereign-wildcard-tls-*`) + a label- or
-//     cert-manager-annotation-derived org zone; Namespace with an org
+//     cert-manager-annotation-derived org zone, where the label derivation
+//     (orgZoneFromProducerLabels) accepts BOTH producers' parent-label
+//     vocabularies — catalyst-api's `pool-parent` and the org-controller's
+//     `parent-zone` — through ONE shared helper, so the Certificate and
+//     Secret scans cannot drift onto different identity rules (#5649);
+//     Namespace with an org
 //     identity label (`openova.io/organization` / `catalyst.openova.io/org`
 //     / `kustomize.toolkit.fluxcd.io/name=org-tenants`) and NOT in the
 //     protected-namespace denylist. Anything that cannot be positively
@@ -136,6 +141,11 @@ const (
 	orgConsoleListenerHTTPSPrefix = consoleApexListenerHTTPSName + "-"
 	orgConsoleListenerHTTPPrefix  = consoleApexListenerHTTPName + "-"
 	consoleHostLabelPrefix        = "console."
+	// orgTenantsKustomizationName — the Flux Kustomization that renders the
+	// funnel-materialized per-Org tenant namespaces (clusters/<sov-fqdn>/
+	// org-tenants). Only namespaces carrying THIS value are name-keyed
+	// candidates; see orgNamespaceReapIdentity.
+	orgTenantsKustomizationName = "org-tenants"
 )
 
 // orgConsoleReapProtectedNamespaces — hard denylist (safety model #4). A
@@ -255,6 +265,79 @@ func orgZoneSlugParent(zone, sovereignFQDN string) (slug string, ok bool) {
 		return "", false
 	}
 	return slug, true
+}
+
+// orgZoneFromProducerLabels derives an artifact's org zone `<slug>.<parent>`
+// from the identity labels the producers stamp, accepting BOTH producers'
+// parent-label vocabularies:
+//
+//   - catalyst-api  — `catalyst.openova.io/pool-parent`
+//     (org_console_tls.go orgConsoleTLSLabels)
+//   - org-controller — `catalyst.openova.io/parent-zone`
+//     (core/controllers/organization/.../tenant_console_tls.go:363 and
+//     tenant_route.go:149)
+//
+// Returns "" when no positive identity can be derived, so every caller falls
+// through to its own secondary source (Certificate → spec.commonName,
+// Secret → the `cert-manager.io/common-name` annotation) and, failing that,
+// leaves the object alone (safety model #4).
+//
+// SHARED ON PURPOSE. Before this helper the Certificate scan read both label
+// spellings while the Secret scan read only `pool-parent`. That asymmetry was
+// invisible to every test in the package because the fixtures hand-write the
+// label set they expect: flipping catalyst-api's own emitter from
+// `pool-parent` to `parent-zone` left the WHOLE internal/handler suite green
+// (256s, `ok`) while making the #5511 mirrored TLS Secret in every secondary
+// region permanently unreapable — the mirror carries no cert-manager
+// annotation, so there is no fallback behind the label. One helper means the
+// two scans cannot drift apart again by construction. Refs #5649 #5364.
+func orgZoneFromProducerLabels(labels map[string]string) string {
+	sub := strings.TrimSpace(labels["catalyst.openova.io/org-subdomain"])
+	if sub == "" {
+		return ""
+	}
+	parent := strings.TrimSpace(labels["catalyst.openova.io/pool-parent"])
+	if parent == "" {
+		parent = strings.TrimSpace(labels["catalyst.openova.io/parent-zone"])
+	}
+	if parent == "" {
+		return "" // slug without a parent zone — the caller's fallback decides
+	}
+	return sub + "." + parent
+}
+
+// orgNamespaceReapIdentity is the pure candidate test scanOrgNamespaces
+// applies to one Namespace: returns the org identity the namespace is keyed
+// on, or ok=false when it is not a positively-identified org boundary
+// namespace. Exposed as a standalone predicate so the producer→reaper
+// round-trip guard can feed it the Namespace an emitter ACTUALLY wrote
+// instead of re-stating the rule in a fixture (Refs #5649).
+func orgNamespaceReapIdentity(name string, labels map[string]string) (string, bool) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" || orgConsoleReapProtectedNamespaces[name] || strings.HasPrefix(name, "kube-") {
+		return "", false
+	}
+	identity := labels["openova.io/organization"]
+	if identity == "" {
+		identity = labels["catalyst.openova.io/org"]
+	}
+	if identity == "" {
+		// Third shape: the funnel-materialized tenant ns, identified ONLY by
+		// the org-tenants Kustomization that renders it — identity is the ns
+		// name itself. The label VALUE is pinned (not merely the key) because
+		// the scan's List selector pins it: a namespace rendered by any OTHER
+		// Kustomization (`catalyst-tenant-<slug>-vcluster`, the live shape on
+		// hw292) must NOT become a name-keyed candidate.
+		if labels["kustomize.toolkit.fluxcd.io/name"] != orgTenantsKustomizationName {
+			return "", false
+		}
+		identity = name
+	}
+	identity = strings.ToLower(strings.TrimSpace(identity))
+	if identity == "" || !orgSlugRE.MatchString(identity) {
+		return "", false
+	}
+	return identity, true
 }
 
 // reapCandidateOldEnough applies the age grace (safety model #2). A zero
@@ -388,18 +471,7 @@ func (h *Handler) scanOrgConsoleCertificates(ctx context.Context, sc *orgConsole
 		if !reapCandidateOldEnough(c.GetCreationTimestamp()) {
 			continue
 		}
-		zone := strings.TrimSpace(c.GetLabels()["catalyst.openova.io/org-subdomain"])
-		if zone != "" {
-			parent := strings.TrimSpace(c.GetLabels()["catalyst.openova.io/pool-parent"])
-			if parent == "" {
-				parent = strings.TrimSpace(c.GetLabels()["catalyst.openova.io/parent-zone"])
-			}
-			if parent == "" {
-				zone = "" // label slug without a parent zone — fall through to commonName
-			} else {
-				zone = zone + "." + parent
-			}
-		}
+		zone := orgZoneFromProducerLabels(c.GetLabels())
 		if zone == "" {
 			zone = nestedString(c.Object, "spec", "commonName")
 		}
@@ -429,12 +501,7 @@ func (h *Handler) scanOrgConsoleSecrets(ctx context.Context, sc *orgConsoleReapS
 		if !reapCandidateOldEnough(s.CreationTimestamp) {
 			continue
 		}
-		zone := ""
-		if sub := strings.TrimSpace(s.Labels["catalyst.openova.io/org-subdomain"]); sub != "" {
-			if parent := strings.TrimSpace(s.Labels["catalyst.openova.io/pool-parent"]); parent != "" {
-				zone = sub + "." + parent
-			}
-		}
+		zone := orgZoneFromProducerLabels(s.Labels)
 		if zone == "" {
 			zone = strings.TrimSpace(s.Annotations["cert-manager.io/common-name"])
 		}
@@ -454,25 +521,19 @@ func (h *Handler) scanOrgConsoleSecrets(ctx context.Context, sc *orgConsoleReapS
 // every tenant HelmRelease inside it (#5364).
 func (h *Handler) scanOrgNamespaces(ctx context.Context, sc *orgConsoleReapScan) {
 	seen := map[string]bool{}
-	addNS := func(name, identity string, ts metav1.Time) {
+	addNS := func(name string, labels map[string]string, ts metav1.Time) {
+		identity, ok := orgNamespaceReapIdentity(name, labels)
+		if !ok || seen[strings.ToLower(strings.TrimSpace(name))] || !reapCandidateOldEnough(ts) {
+			return
+		}
 		name = strings.ToLower(strings.TrimSpace(name))
-		identity = strings.ToLower(strings.TrimSpace(identity))
-		if name == "" || identity == "" || seen[name] {
-			return
-		}
-		if orgConsoleReapProtectedNamespaces[name] || strings.HasPrefix(name, "kube-") {
-			return
-		}
-		if !orgSlugRE.MatchString(identity) || !reapCandidateOldEnough(ts) {
-			return
-		}
 		seen[name] = true
 		sc.namespaces[identity] = append(sc.namespaces[identity], name)
 	}
 	for _, selector := range []string{
 		"openova.io/organization",
 		"catalyst.openova.io/org",
-		"kustomize.toolkit.fluxcd.io/name=org-tenants",
+		"kustomize.toolkit.fluxcd.io/name=" + orgTenantsKustomizationName,
 	} {
 		list, err := sc.target.core.CoreV1().Namespaces().List(ctx, metav1.ListOptions{LabelSelector: selector})
 		if err != nil {
@@ -482,14 +543,7 @@ func (h *Handler) scanOrgNamespaces(ctx context.Context, sc *orgConsoleReapScan)
 		}
 		for i := range list.Items {
 			ns := &list.Items[i]
-			identity := ns.Labels["openova.io/organization"]
-			if identity == "" {
-				identity = ns.Labels["catalyst.openova.io/org"]
-			}
-			if identity == "" {
-				identity = ns.Name
-			}
-			addNS(ns.Name, identity, ns.CreationTimestamp)
+			addNS(ns.Name, ns.Labels, ns.CreationTimestamp)
 		}
 	}
 }
