@@ -1,0 +1,159 @@
+name: Test — trees with no PR-time gate (#5741)
+
+# WHY THIS EXISTS
+#
+# A repo-wide enumeration on 2026-08-06 (PRINCIPLES III.4, the #5010 shape)
+# found that large parts of the tree had unit suites which NO workflow ran at
+# PR time — 40 Go test files / 304 test funcs across 8 modules, plus the
+# sovereign-admin console's 222 vitest files / 1977 cases. A pull request
+# could change any of them and nothing red could appear.
+#
+# That is the limiting case of the defect class that dominated that session:
+# a guard that cannot go red. A test that never executes is a guard that can
+# never go red, and it is invisible precisely because the suite exists and
+# looks like coverage.
+#
+# Two independent instances triggered the sweep rather than a third being
+# waited for:
+#   - `core/services/**` had no PR-time Go gate  (#5733, provisioning only)
+#   - `core/marketplace`'s vitest ran in no workflow at all (#5646 / PR #5740)
+#
+# THE TRAP THIS FILE IS BUILT TO AVOID (#5515)
+#
+# Trigger breadth is NOT assertion breadth. All seven controller workflows
+# already *trigger* on `core/controllers/pkg/**`, but every one of them scoped
+# its `run:` to `./<x>/... ./internal/...` — so the canonical placement model's
+# only real coverage rode `build-sandbox-controller.yaml`, the build for a
+# product deleted 2026-06-30. Here the `paths:` list and the thing actually
+# executed are kept deliberately in lockstep, one module per matrix entry.
+#
+# NOT a duplicate of catalyst-build.yaml. That workflow does run the UI vitest
+# suite, fail-closed, with an empty KNOWN_RED allowlist — but it triggers on
+# `push: branches: [main]` only. Its own comment claims the gate makes a
+# regression "fail CI at PR time, not at operator-walk time"; the trigger block
+# contradicts the comment. This file is the PR-time half it describes.
+
+on:
+  pull_request:
+    paths:
+      - 'core/marketplace-api/**'
+      - 'core/pool-domain-manager/**'
+      - 'core/services/catalog/**'
+      - 'core/services/domain/**'
+      - 'core/services/gateway/**'
+      - 'core/services/metering-sidecar/**'
+      - 'core/services/notification/**'
+      - 'core/services/tenant/**'
+      - 'products/catalyst/bootstrap/ui/**'
+      - '.github/workflows/test-ungated-trees.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'core/marketplace-api/**'
+      - 'core/pool-domain-manager/**'
+      - 'core/services/catalog/**'
+      - 'core/services/domain/**'
+      - 'core/services/gateway/**'
+      - 'core/services/metering-sidecar/**'
+      - 'core/services/notification/**'
+      - 'core/services/tenant/**'
+      - 'products/catalyst/bootstrap/ui/**'
+      - '.github/workflows/test-ungated-trees.yaml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-ungated-trees-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go-modules:
+    name: go test — ${{ matrix.module }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # One entry per module that had NO PR-time gate. Each is its own Go
+        # module (there is no root go.mod in this repo), so each needs its own
+        # working-directory — a single `go test ./...` from the root would
+        # silently cover none of them.
+        module:
+          - core/marketplace-api
+          - core/pool-domain-manager
+          - core/services/catalog
+          - core/services/domain
+          - core/services/gateway
+          - core/services/metering-sidecar
+          - core/services/notification
+          - core/services/tenant
+    steps:
+      - uses: actions/checkout@v4
+
+      # `go-version-file`, not an explicit `go-version:` as most workflows in
+      # this repo use, because these eight modules do NOT agree: 1.22 for six
+      # of them, 1.23 for pool-domain-manager, 1.26.0 for services/tenant.
+      # Pinning one literal would build two of them under the wrong toolchain.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+
+      # `-count=1` defeats the test cache so a green here always means the
+      # suite actually ran on this SHA rather than replaying a cached result.
+      #
+      # The `--- PASS` assertion is this gate's own vacuity check, and it is
+      # not decoration. `go test ./...` exits 0 on a module with NO test files
+      # at all — it just prints `[no test files]`. Without the second check,
+      # a module whose suite is deleted, renamed out of `_test.go`, or moved
+      # behind a build tag would go on reporting green forever, which is the
+      # exact failure this whole workflow exists to end. A gate that cannot
+      # distinguish "everything passed" from "nothing ran" is not a gate.
+      - name: go test
+        working-directory: ${{ matrix.module }}
+        run: |
+          set -o pipefail
+          go test -count=1 -v ./... 2>&1 | tee /tmp/out.txt
+          n=$(grep -c '^--- PASS' /tmp/out.txt || true)
+          s=$(grep -c '^--- SKIP' /tmp/out.txt || true)
+          echo "::notice::${{ matrix.module }} ran ${n} test functions, skipped ${s}"
+          # Skips are reported, never hidden. core/pool-domain-manager declares
+          # 187 tests but executes 180: the 7 covering reserve / conflict /
+          # expiry / commit / token-mismatch / release / sweeper are Postgres
+          # integration tests gated on `PDM_TEST_DSN`, and because this module
+          # had no workflow at all they have never run anywhere. A gate that
+          # printed a clean "180 passed" would be the same lie in a new place.
+          # Wiring a Postgres service container for them is tracked on #5741.
+          if [ "${s:-0}" -gt 0 ]; then
+            grep '^--- SKIP' /tmp/out.txt | sed 's/^/::warning::skipped: /'
+          fi
+          if [ "${n:-0}" -eq 0 ]; then
+            echo "::error::${{ matrix.module }} reported zero executed tests — the suite vanished or stopped being discovered; go test exits 0 in that case, so this check is what catches it."
+            exit 1
+          fi
+
+  bootstrap-ui-vitest:
+    name: vitest — sovereign-admin console
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: products/catalyst/bootstrap/ui/package-lock.json
+
+      - name: Install
+        working-directory: products/catalyst/bootstrap/ui
+        run: npm ci
+
+      # Plain `npm test` (= `vitest run`). No `|| true`, no `|| echo WARN` —
+      # the 2026-06-02 emergency unblock in catalyst-build.yaml used exactly
+      # that shape and swallowed every failure for two months, which is how
+      # SettingsPage.test.tsx stayed red since a7fb48245 with nobody noticing.
+      - name: vitest
+        working-directory: products/catalyst/bootstrap/ui
+        run: npm test
