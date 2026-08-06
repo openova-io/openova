@@ -54,3 +54,49 @@ describe('CatalogDetail blueprint name key (#5449)', () => {
     expect(SRC).toMatch(/const\s+name\s*=\s*\(params\.blueprintName\s*\?\?\s*''\)\.replace\(\/\^bp-\/,\s*''\)/)
   })
 })
+
+/**
+ * #5496 — the SECOND half of the same drift, and the one with teeth.
+ *
+ * #5449 corrected the REGISTRATION site (`queryKey: ['catalog-item',
+ * qualifiedName]`) and left the INVALIDATION site on the bare `name`. A key
+ * that never matches makes `invalidateQueries` a silent no-op, so the 30s
+ * `staleTime` window holds the pre-save document. The next per-field save then
+ * computes its merge base from that stale cache and writes the *pre-edit*
+ * sibling values back — the first save is silently reverted, with no error and
+ * nothing in the UI to show a write was lost.
+ *
+ * The fix is live, but nothing locked it: with the invalidation key put back to
+ * the bare `name`, all 43 tests across the six CatalogDetail suites still
+ * passed. That is precisely the state #5449 shipped in — a half-applied fix
+ * under a green suite — so the guard below asserts the property for EVERY
+ * `catalog-item` key rather than for the one call site that happened to be
+ * wrong at the time.
+ */
+describe('CatalogDetail catalog-item cache key is uniform (#5496)', () => {
+  const keys = [...SRC.matchAll(/\['catalog-item',\s*([A-Za-z0-9_]+)\s*\]/g)].map((m) => m[1])
+
+  it('finds every catalog-item key site', () => {
+    // Vacuity guard: if the key shape is ever refactored, this test must fail
+    // loudly rather than silently assert over an empty list.
+    expect(keys.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('registers AND invalidates on the same qualified key', () => {
+    // A single bare `name` anywhere in this set re-opens the lost-update bug:
+    // the registered key and the invalidated key stop matching and the refetch
+    // becomes a no-op.
+    expect(keys).not.toContain('name')
+    expect(new Set(keys)).toEqual(new Set(['qualifiedName']))
+  })
+
+  it('keeps the documented refetch contract honest', () => {
+    // The comment above refetchCatalog states the refetch exists so "the next
+    // field's merge base picks up the saved sibling". If the key drifts, that
+    // sentence becomes false while still reading as reassuring in review.
+    const fn = SRC.match(/const refetchCatalog = \(\) => \{[\s\S]*?\n  \}/)
+    expect(fn, 'refetchCatalog not found').toBeTruthy()
+    expect((fn as RegExpMatchArray)[0]).toContain('qualifiedName')
+    expect((fn as RegExpMatchArray)[0]).not.toMatch(/\['catalog-item',\s*name\s*\]/)
+  })
+})
