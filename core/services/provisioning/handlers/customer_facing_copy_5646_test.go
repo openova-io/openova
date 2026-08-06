@@ -145,17 +145,25 @@ func TestFailedStepMessage_KeepsTheDiagnostic(t *testing.T) {
 // draws, so a future edit that reintroduces "Creating tenant" is caught here
 // and not on a customer's screen.
 func TestProvisionStepNames_NoBannedTerm(t *testing.T) {
-	// The shipped step list (consumer.go startProvisioning) with the runtime-
-	// interpolated entries filled from the live hw292 catalog: dependency slugs
-	// come from the catalog verbatim, app names from the catalog display title.
-	emitted := []store.ProvisionStep{
-		{Name: "Creating Organization"},
-		{Name: "Committing manifests to Git"},
-		{Name: "Provisioning vCluster"},
-		{Name: fmt.Sprintf("Installing %s (dependency)", "mysql")},
-		{Name: fmt.Sprintf("Deploying %s", appDisplayName(map[string]string{"wp": "WordPress"}, "wp"))},
-		{Name: "Configuring TLS certificates"},
-		{Name: "Running health checks"},
+	// Read from the PRODUCER, never transcribed (#5769). This list used to be
+	// hand-copied into the test, which meant putting "Creating tenant" back into
+	// consumer.go left this guard green — the guard could not detect a change to
+	// the thing it was copying. buildProvisionSteps is the function
+	// startProvisioning itself calls; the runtime-interpolated entries are fed
+	// the same shapes the live hw292 catalog produces (dependency slugs verbatim,
+	// app names as catalog display titles).
+	emitted := buildProvisionSteps(
+		[]string{"mysql"},
+		[]string{"wp"},
+		map[string]string{"wp": "WordPress"},
+	)
+
+	// Vacuity check: a guard that iterates an empty list passes trivially. If
+	// the producer ever returns nothing, that is a defect in its own right and
+	// must not read as "no banned terms found".
+	if len(emitted) < 7 {
+		t.Fatalf("buildProvisionSteps returned %d steps, want >= 7 — "+
+			"a short or empty list makes the banned-term scan below vacuous", len(emitted))
 	}
 
 	for field, val := range customerVisibleFields(emitted) {
