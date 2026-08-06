@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T00:30:04Z` |
+| Last refreshed | `2026-08-06T00:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5393](https://github.com/openova-io/openova/issues/5393) | Per-Org plan quota: vcluster control-plane overhead (1500m) is billed to the cus | Other |
 | [#5394](https://github.com/openova-io/openova/issues/5394) | MCP endpoint is ~50% dead: bp-openova-mcp is single-region but mcp.<fqdn> fronts | Other |
 | [#5395](https://github.com/openova-io/openova/issues/5395) | gamma-corp is entirely unrouted: all 6 per-Org HTTPRoutes NoMatchingListenerHost | Other |
 | [#5396](https://github.com/openova-io/openova/issues/5396) | bp-velero upgrade-crds pre-upgrade hook is Kyverno-rejected (no harbor-proxy ima | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5650](https://github.com/openova-io/openova/issues/5650) | Post-cutover Sovereign fetches charts.loft.sh every 15m: step-08's deny-egress h | Other |
 | [#5661](https://github.com/openova-io/openova/issues/5661) | Sovereign wizard cannot fire a single-region prov — Single-region topology cho | Other |
 | [#5690](https://github.com/openova-io/openova/issues/5690) | §854/#5348: bp-stalwart-sovereign mail LoadBalancer Service omits explicit node | Other |
+| [#5720](https://github.com/openova-io/openova/issues/5720) | auth: POST /api/v1/auth/pin/issue creates an enabled Keycloak realm user for ANY | Other |
 
 ---
 
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-06T00:44 | [#5721](https://github.com/openova-io/openova/pull/5721) | #5459 | docs(uat): re-walk the 12 unwalked SSO rows live on hw292 po |
+| 2026-08-06T00:31 | [#5718](https://github.com/openova-io/openova/pull/5718) | #5678 | ci(lockstep): run the release writer and assert all five sit |
+| 2026-08-06T00:34 | [#5717](https://github.com/openova-io/openova/pull/5717) | #5642 | fix(k8scache): sync-watcher aborts on the per-cluster stop c |
 | 2026-08-06T00:01 | [#5716](https://github.com/openova-io/openova/pull/5716) | #5610 | fix(console): guard the catalog per-field save against silen |
 | 2026-08-06T00:06 | [#5715](https://github.com/openova-io/openova/pull/5715) | #5623 | fix(dr): every CNPG DR pair must declare a promotion mechani |
 | 2026-08-05T23:56 | [#5714](https://github.com/openova-io/openova/pull/5714) | #3599 | fix(placement): reject a region-less placement target instea |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-05T13:44 | [#5691](https://github.com/openova-io/openova/pull/5691) | #5348 | fix(stalwart-sovereign): explicit nodePort:0 on mail LoadBal |
 | 2026-08-05T07:14 | [#5689](https://github.com/openova-io/openova/pull/5689) | #5612 | fix(newapi): route inert SSO recovery button through the wor |
 | 2026-08-05T06:35 | [#5688](https://github.com/openova-io/openova/pull/5688) | #5613 | fix(dashboard): treemap Organization layer projects live pod |
-| 2026-08-05T06:31 | [#5687](https://github.com/openova-io/openova/pull/5687) | #5571 | fix(catalyst-api): chroot secondary regions no longer drop o |
-| 2026-08-05T05:50 | [#5686](https://github.com/openova-io/openova/pull/5686) | #5421 | fix(marketplace): redeem consults the cookie session, not th |
-| 2026-08-05T05:51 | [#5685](https://github.com/openova-io/openova/pull/5685) | #5611 | fix(cloud): Volumes page reads live PVs, not a hardcoded emp |
 
 ---
 
