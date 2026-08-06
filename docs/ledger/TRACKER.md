@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T08:30:05Z` |
+| Last refreshed | `2026-08-06T08:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,7 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#5410](https://github.com/openova-io/openova/issues/5410) | uptime-kuma is hard-coded to 128Mi in KnownApps and OOMKills permanently (40 res | Other |
 | [#5414](https://github.com/openova-io/openova/issues/5414) | newapi loses sessions ~60% of loads: each region mints its own SESSION_SECRET/CR | Other |
 | [#5416](https://github.com/openova-io/openova/issues/5416) | oidc-gate mints its cookie secret per region, so each gate rejects the peer's se | Other |
 | [#5419](https://github.com/openova-io/openova/issues/5419) | postgres chart: wizard instances collapse onto one Cluster/postgres (_helpers.tp | Other |
@@ -293,7 +294,6 @@ flowchart LR
 | [#5720](https://github.com/openova-io/openova/issues/5720) | auth: POST /api/v1/auth/pin/issue creates an enabled Keycloak realm user for ANY | Other |
 | [#5728](https://github.com/openova-io/openova/issues/5728) | continuum: GET /continuum/{name} and its SSE stream fabricate a healthy DR recor | Other |
 | [#5731](https://github.com/openova-io/openova/issues/5731) | P0 continuum: POST /continuum/{name}/switchover returns 200 status=completed for | Other |
-| [#5734](https://github.com/openova-io/openova/issues/5734) | No gate enforces the bp-catalyst-platform umbrella republish after a platform/*  | Other |
 | [#5741](https://github.com/openova-io/openova/issues/5741) | 40 test files / 304 test funcs across 8 Go modules run in NO workflow — a PR c | Other |
 | [#5743](https://github.com/openova-io/openova/issues/5743) | deploy-bot version race: chart version went BACKWARDS on main; published 1.4.132 | Other |
 | [#5744](https://github.com/openova-io/openova/issues/5744) | auto-close guard misses commit messages AND the past-tense keywords (closed/fixe | Other |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-06T08:41 | [#5760](https://github.com/openova-io/openova/pull/5760) | #2879 | feat(ci): umbrella-republish gate for platform/products char |
+| 2026-08-06T08:32 | [#5758](https://github.com/openova-io/openova/pull/5758) | #817 | fix(deploy-bot): make Chart.yaml version bump atomic and for |
 | 2026-08-06T07:34 | [#5756](https://github.com/openova-io/openova/pull/5756) | #5650 | fix(cutover): step-08 gains a Crossplane Provider PACKAGE ho |
 | 2026-08-06T07:33 | [#5755](https://github.com/openova-io/openova/pull/5755) | #5615 | fix(catalyst-api): stamp domain/keycloak parameters for a pe |
 | 2026-08-06T07:33 | [#5754](https://github.com/openova-io/openova/pull/5754) | #5615 | fix(stalwart-tenant): stop baking chart version into the imm |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-06T01:13 | [#5723](https://github.com/openova-io/openova/pull/5723) | #5672 | fix(catalyst-api): org-teardown reap keys on BOTH producers' |
 | 2026-08-06T01:12 | [#5722](https://github.com/openova-io/openova/pull/5722) | #901 | fix(auth): defer pin/issue realm write to pin/verify — no un |
 | 2026-08-06T00:44 | [#5721](https://github.com/openova-io/openova/pull/5721) | #5459 | docs(uat): re-walk the 12 unwalked SSO rows live on hw292 po |
-| 2026-08-06T00:53 | [#5719](https://github.com/openova-io/openova/pull/5719) | #5650 | fix(cutover): pivot the loft chart source in EVERY region, n |
-| 2026-08-06T00:31 | [#5718](https://github.com/openova-io/openova/pull/5718) | #5678 | ci(lockstep): run the release writer and assert all five sit |
 
 ---
 
