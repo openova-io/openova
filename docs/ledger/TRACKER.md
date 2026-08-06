@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T04:30:07Z` |
+| Last refreshed | `2026-08-06T04:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-06T04:33 | [#5745](https://github.com/openova-io/openova/pull/5745) | #5738 | ci: auto-close guard read neither commit messages nor the pa |
 | 2026-08-06T04:16 | [#5742](https://github.com/openova-io/openova/pull/5742) | #5716 | ci: 8 Go modules and the sovereign-admin console had no PR-t |
 | 2026-08-06T03:58 | [#5740](https://github.com/openova-io/openova/pull/5740) | #5646 | fix(funnel): banned term still reaches the customer from a h |
 | 2026-08-06T04:11 | [#5739](https://github.com/openova-io/openova/pull/5739) | #5646 | fix(marketplace): test the redeem OUTCOME, not the gate deci |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-05T23:08 | [#5711](https://github.com/openova-io/openova/pull/5711) | #5614 | fix(auth): accept the handover issuer SET, not a single valu |
 | 2026-08-05T23:07 | [#5710](https://github.com/openova-io/openova/pull/5710) | #5436 | fix(cutover): step-06 secondary leg must prove the pivot DUR |
 | 2026-08-05T22:58 | [#5709](https://github.com/openova-io/openova/pull/5709) | #5597 | fix(uat): never flip a UAT row whose walk post-dates the cit |
-| 2026-08-05T22:04 | [#5708](https://github.com/openova-io/openova/pull/5708) | #5609 | fix(console): pin the active-passive topology gate on the re |
 
 ---
 
