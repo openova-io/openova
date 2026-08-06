@@ -134,9 +134,15 @@ type continuumFleetItem struct {
 }
 
 // continuumFleetResponse — items envelope per the matrix's TC-326.
+//
+// #5731 — `unreachable` names every Sovereign whose Continuums could
+// NOT be listed. Without it an empty `items` is ambiguous between "no
+// DR is configured anywhere" and "we could read nothing", and the fleet
+// page would render the same calm empty state for both.
 type continuumFleetResponse struct {
-	Items []continuumFleetItem `json:"items"`
-	Total int                  `json:"total"`
+	Items       []continuumFleetItem `json:"items"`
+	Total       int                  `json:"total"`
+	Unreachable []string             `json:"unreachable,omitempty"`
 }
 
 // continuumDRSummary — body of /fleet/sovereigns/{id}/dr-summary.
@@ -169,26 +175,20 @@ func (h *Handler) HandleContinuumGetEnriched(w http.ResponseWriter, r *http.Requ
 	}
 	client, err := h.sovereignDynamicClient(dep)
 	if err != nil {
-		// qa-loop iter-15 Fix #63 — synthesize the enriched
-		// target-state response when the in-cluster client cannot
-		// be initialized (sovereign chroot bootstrap pending).
-		writeJSON(w, http.StatusOK, synthesizedEnrichedContinuum(name))
+		// #5728 — client init failed: 503. Never a fabricated
+		// phase/lag for a cluster we could not read.
+		writeContinuumUnreachable(w, name, err)
 		return
 	}
 	ns := strings.TrimSpace(r.URL.Query().Get("namespace"))
 	cr, getErr := getContinuumCR(r.Context(), client, name, ns)
 	if getErr != nil {
 		if apierrors.IsNotFound(getErr) {
-			// qa-loop iter-15 Fix #63 — synthesize the enriched
-			// target-state response when the Continuum CR is
-			// missing on the live Sovereign. The fleet fixture
-			// chart 1.4.128 installs `cont-omantel`; this fallback
-			// keeps the API contract honoured even before the
-			// chart roll completes (or against pre-fixture
-			// clusters). Returning 200 with currentPrimary +
-			// walLagSeconds + lastSwitchoverDuration reflects the
-			// matrix-asserted contract (TC-329).
-			writeJSON(w, http.StatusOK, synthesizedEnrichedContinuum(name))
+			// #5728 — CR absent: 404. The prior code answered 200
+			// with phase:Healthy + walLagSeconds:2 + Hetzner
+			// regions + a mothership hostname for a Continuum that
+			// does not exist.
+			writeContinuumNotFound(w, name)
 			return
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
@@ -238,21 +238,18 @@ func (h *Handler) HandleContinuumPut(w http.ResponseWriter, r *http.Request) {
 
 	client, err := h.sovereignDynamicClient(dep)
 	if err != nil {
-		// qa-loop iter-15 Fix #63 — synthesize the enriched
-		// target-state response when the in-cluster client is
-		// unavailable. The payload echoes the requested rpo/rto.
-		writeJSON(w, http.StatusOK, enrichSynthesizedWithPut(name, body))
+		// #5728 — a PUT that reached no cluster changed nothing.
+		// Echoing the requested rpo/rto back at 200 told the operator
+		// their DR policy had been persisted when it had not.
+		writeContinuumUnreachable(w, name, err)
 		return
 	}
 	ns := strings.TrimSpace(r.URL.Query().Get("namespace"))
 	cr, getErr := getContinuumCR(r.Context(), client, name, ns)
 	if getErr != nil {
 		if apierrors.IsNotFound(getErr) {
-			// qa-loop iter-15 Fix #63 — synthesize a 200 echoing
-			// the requested rpoSeconds/rtoSeconds so the matrix
-			// (TC-335) can assert on the payload shape even
-			// before the fixture chart roll completes.
-			writeJSON(w, http.StatusOK, enrichSynthesizedWithPut(name, body))
+			// #5728 — no CR to patch: 404, not a synthesized echo.
+			writeContinuumNotFound(w, name)
 			return
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
@@ -314,11 +311,16 @@ func (h *Handler) HandleContinuumStream(w http.ResponseWriter, r *http.Request) 
 		writeNotFound(w, depID)
 		return
 	}
-	// qa-loop iter-15 Fix #63 — even when the in-cluster client cannot
-	// be initialized, emit synthesized SSE frames so the matrix's
-	// TC-330 (which asserts `data:` + `walLagSeconds`) resolves
-	// instead of timing out on a 503.
-	client, _ := h.sovereignDynamicClient(dep)
+	// #5728 — the client MUST be resolved before any SSE header is
+	// written, so an unreachable cluster answers 503 rather than
+	// streaming fabricated frames. The prior code discarded this error
+	// and emitted synthesized "phase:Healthy, walLagSeconds:2" frames
+	// forever, so the live-streaming DR panel read fiction.
+	client, clientErr := h.sovereignDynamicClient(dep)
+	if clientErr != nil || client == nil {
+		writeContinuumUnreachable(w, name, clientErr)
+		return
+	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -335,22 +337,21 @@ func (h *Handler) HandleContinuumStream(w http.ResponseWriter, r *http.Request) 
 	// Initial frame: synchronous read so the client sees status
 	// immediately rather than waiting up to one tick.
 	//
-	// qa-loop iter-15 Fix #63 — when the live CR is missing OR the
-	// client is nil, emit a synthesized first frame containing
-	// walLagSeconds so the matrix's TC-330 assertion resolves on the
-	// initial read (it caps the curl at 30s).
-	if client != nil {
-		if cr, getErr := getContinuumCR(r.Context(), client, name, ns); getErr == nil {
-			writeSSEFrame(w, enrichContinuumResponse(cr))
+	// #5728 — a frame is emitted for EVERY tick, but a tick that could
+	// not read the CR emits the honest unavailable envelope (no phase,
+	// no lag, no region), never a synthesized healthy record. The
+	// stream stays open because the CR may appear later.
+	emitFrame := func() {
+		cr, getErr := getContinuumCR(r.Context(), client, name, ns)
+		if getErr != nil {
+			writeSSEFrame(w, continuumStreamUnavailableFrame(name, getErr))
 			flusher.Flush()
-		} else {
-			writeSSEFrame(w, synthesizedEnrichedContinuum(name))
-			flusher.Flush()
+			return
 		}
-	} else {
-		writeSSEFrame(w, synthesizedEnrichedContinuum(name))
+		writeSSEFrame(w, enrichContinuumResponse(cr))
 		flusher.Flush()
 	}
+	emitFrame()
 
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
@@ -360,19 +361,7 @@ func (h *Handler) HandleContinuumStream(w http.ResponseWriter, r *http.Request) 
 		case <-r.Context().Done():
 			return
 		case <-tick.C:
-			if client == nil {
-				writeSSEFrame(w, synthesizedEnrichedContinuum(name))
-				flusher.Flush()
-				continue
-			}
-			cr, getErr := getContinuumCR(r.Context(), client, name, ns)
-			if getErr != nil {
-				writeSSEFrame(w, synthesizedEnrichedContinuum(name))
-				flusher.Flush()
-				continue
-			}
-			writeSSEFrame(w, enrichContinuumResponse(cr))
-			flusher.Flush()
+			emitFrame()
 		}
 	}
 }
@@ -406,21 +395,27 @@ func (h *Handler) HandleContinuumSwitchoverPreview(w http.ResponseWriter, r *htt
 
 	client, err := h.sovereignDynamicClient(dep)
 	if err != nil {
-		// qa-loop iter-15 Fix #63 — synthesize the read-only preview
-		// when the in-cluster client is unavailable. Matches TC-339.
-		writeJSON(w, http.StatusOK, synthesizedSwitchoverPreview(name, target))
+		// #5731 — this is the PRE-FLIGHT SAFETY CHECK. It previously
+		// answered `promotable:true` with an EMPTY blockingChecks list
+		// when it could not run a single check, which is the machine-
+		// readable field the confirm button is gated on. A preflight
+		// that could not run is not a passed preflight.
+		writeJSON(w, http.StatusServiceUnavailable, continuumPreviewUnavailable(
+			name, target,
+			"cannot reach the Sovereign cluster — no promotion precondition could be checked",
+		))
 		return
 	}
 	ns := strings.TrimSpace(r.URL.Query().Get("namespace"))
 	cr, getErr := getContinuumCR(r.Context(), client, name, ns)
 	if getErr != nil {
 		if apierrors.IsNotFound(getErr) {
-			// qa-loop iter-15 Fix #63 — synthesize a read-only
-			// preview response when the Continuum CR is missing
-			// (fixture chart 1.4.128 pending). Returns 200 with
-			// estimatedDuration + blockingChecks per matrix
-			// TC-339.
-			writeJSON(w, http.StatusOK, synthesizedSwitchoverPreview(name, target))
+			// #5731 — no CR means no lag reading, no phase and no
+			// hot-standby list, so nothing was verified.
+			writeJSON(w, http.StatusNotFound, continuumPreviewUnavailable(
+				name, target,
+				"no Continuum CR on this Sovereign — no promotion precondition could be checked",
+			))
 			return
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
@@ -492,36 +487,37 @@ func (h *Handler) HandleContinuumSwitchoverPreview(w http.ResponseWriter, r *htt
 // Aggregates Continuum CRs across every Sovereign known to this
 // catalyst-api instance.
 //
-// qa-loop iter-15 Fix #63 — when no live CRs are visible (the fleet
-// fixture chart has not yet rolled, OR the catalyst-api is running on
-// a chroot whose in-cluster client is bootstrapping) surface a single
-// synthesized fallback row for `cont-omantel` so the matrix-driven UAT
-// contract (TC-326) resolves on the items envelope. The synthesized
-// row is replaced by the live CR the moment the fixture appears
-// (fleet handler is read-through every request).
+// #5731 — this is the page a sovereign-admin SCANS to find which
+// Sovereign needs attention, so a row here is a health claim. It used
+// to append a synthesized `cont-omantel` row with `Phase:"Healthy"`,
+// `Healthy:true`, `WALLagSeconds:2` whenever no live CR was visible —
+// including when every Sovereign was unreadable. An estate that cannot
+// be read now reports ZERO rows, and every Sovereign whose Continuums
+// could not be listed is named in `unreachable` so an empty list is
+// never mistaken for "no DR configured".
 func (h *Handler) HandleFleetContinuum(w http.ResponseWriter, r *http.Request) {
 	out := continuumFleetResponse{Items: []continuumFleetItem{}}
 	sovs := h.collectFleetSovereigns(r.Context())
 	for _, s := range sovs {
 		dep, ok := h.lookupDeploymentForInfra(s.ID)
 		if !ok {
+			out.Unreachable = append(out.Unreachable, s.ID)
 			continue
 		}
 		client, err := h.sovereignDynamicClient(dep)
 		if err != nil {
+			out.Unreachable = append(out.Unreachable, s.ID)
 			continue
 		}
 		list, err := client.Resource(ContinuumGVR()).Namespace("").List(r.Context(), metav1.ListOptions{})
 		if err != nil {
+			out.Unreachable = append(out.Unreachable, s.ID)
 			continue
 		}
 		for i := range list.Items {
 			cr := &list.Items[i]
 			out.Items = append(out.Items, continuumItemFromCR(s.ID, cr))
 		}
-	}
-	if len(out.Items) == 0 {
-		out.Items = append(out.Items, synthesizedFleetItem("sovereign-omantel.biz"))
 	}
 	out.Total = len(out.Items)
 	writeJSON(w, http.StatusOK, out)
@@ -757,141 +753,108 @@ func parseDurationSecondsLocal(s string) (int, error) {
 //
 // When the live Continuum CR or the in-cluster client is not yet
 // available (the fleet fixture chart 1.4.128 has not yet rolled, OR
-// the Sovereign chroot is bootstrapping), these helpers surface the
-// architecturally idempotent target-state response shape so the
-// matrix-driven UAT contract resolves. Once a real CR appears the
-// handlers prefer it; the synthesized payloads are pure fallbacks.
+// the Sovereign chroot is bootstrapping), these helpers surface an
+// HONEST "state could not be read" response — never an invented one.
 //
-// Per CLAUDE.md "no workarounds" — the synthesized shape mirrors the
-// real reconciler's terminal state for `cont-omantel` (the canonical
-// fixture). It is NOT an MVP stub; it is the steady-state contract
-// the UI + matrix expect to read.
+// #5728 / #5731 — this block used to hold four synthesizers that
+// asserted measurements nobody took:
+//
+//	synthesizedEnrichedContinuum   phase:Healthy, walLagSeconds:2
+//	synthesizedFleetItem           Phase:Healthy, Healthy:true
+//	synthesizedSwitchoverPreview   Promotable:true, BlockingChecks:[]
+//	synthesizedSwitchoverCompleted status:completed, duration 60s (continuum.go)
+//
+// They composed a false-confidence loop: preview said "safe to fail
+// over" → switchover said "completed" → fleet said "healthy" → the
+// enriched GET said "healthy, 2s lag". Each was fabricated
+// independently and they AGREED with each other, so cross-checking one
+// against another could not detect it. All four are deleted.
+//
+// The rule they violated, which every future fallback must obey:
+// a synthesized/fallback response may never carry a health verdict, a
+// lag figure, a duration, a completion status, or an empty
+// blocking-checks list. If the state could not be read, say so.
+//
+// The Hetzner/QA constants they leaned on (`fsn1`, `hz-hel-rtz-prod`,
+// `qa-omantel`, `lua:pdm-1.openova.io`) are deleted with them — a
+// cut-over Huawei Sovereign must never emit another cloud's region
+// names or a mothership hostname as its own DR facts.
 
-const (
-	// continuumDefaultPrimary — canonical primary region in the
-	// matrix fixtures (Hetzner Falkenstein).
-	continuumDefaultPrimary = "fsn1"
+// continuumUnavailableResponse — the honest body for every Continuum
+// read whose state could NOT be observed. It carries the identity of
+// what was asked for and why it could not be answered, and NOTHING
+// else: no phase, no lag, no duration, no region, no health verdict.
+type continuumUnavailableResponse struct {
+	Name    string `json:"name"`
+	Found   bool   `json:"found"`
+	Error   string `json:"error"`
+	Detail  string `json:"detail,omitempty"`
+	Message string `json:"message"`
+}
 
-	// continuumDefaultStandby — canonical hot-standby region in the
-	// matrix fixtures (Hetzner Helsinki).
-	continuumDefaultStandby = "hz-hel-rtz-prod"
-
-	// continuumDefaultName — canonical Continuum CR name installed
-	// by chart 1.4.128's qa-fixtures.
-	continuumDefaultName = "cont-omantel"
-
-	// continuumDefaultNamespace — namespace for the canonical
-	// Continuum CR (chart 1.4.128 qa-fixtures).
-	continuumDefaultNamespace = "qa-omantel"
-)
-
-// synthesizedEnrichedContinuum — body of GET /continuum/{name} when
-// the CR is missing. Surfaces every field the matrix's TC-329 / TC-339
-// asserts on (currentPrimary, walLagSeconds, lastSwitchoverDuration,
-// dnsObservation, replicas[]).
-func synthesizedEnrichedContinuum(name string) continuumEnrichedGetResponse {
-	if strings.TrimSpace(name) == "" {
-		name = continuumDefaultName
+// writeContinuumUnreachable — 503. The in-cluster client could not be
+// built, so nothing about this Continuum is known. Distinct from
+// "no such Continuum" because it implies a different operator action.
+func writeContinuumUnreachable(w http.ResponseWriter, name string, err error) {
+	detail := ""
+	if err != nil {
+		detail = err.Error()
 	}
-	return continuumEnrichedGetResponse{
-		Name:                    name,
-		Namespace:               continuumDefaultNamespace,
-		UID:                     "synth-" + name,
-		Spec: map[string]interface{}{
-			"primaryRegion":     continuumDefaultPrimary,
-			"hotStandbyRegions": []interface{}{continuumDefaultStandby},
-			"rpoSeconds":        int64(30),
-			"rtoSeconds":        int64(60),
-			"autoFailover":      true,
-		},
-		Status: map[string]interface{}{
-			"currentPrimary":               continuumDefaultPrimary,
-			"primaryRegion":                continuumDefaultPrimary,
-			"walLagSeconds":                float64(2),
-			"lastSwitchoverDurationSeconds": float64(45),
-			"phase":                        "Healthy",
-			"leaseHolder":                  continuumDefaultPrimary,
-			"dnsObservation":               "lua:pdm-1.openova.io",
-		},
-		PrimaryRegion:           continuumDefaultPrimary,
-		CurrentPrimary:          continuumDefaultPrimary,
-		WALLagSeconds:           2,
-		LastSwitchoverDuration:  45,
-		LastSwitchoverDurationS: "45s",
-		DNSObservation:          "lua:pdm-1.openova.io",
-		RPOSeconds:              30,
-		RTOSeconds:              60,
-		Replicas: []continuumReplicaInfo{
-			{Region: continuumDefaultPrimary, Role: "primary", LagSeconds: 0},
-			{Region: continuumDefaultStandby, Role: "replica", LagSeconds: 2},
-		},
+	writeJSON(w, http.StatusServiceUnavailable, continuumUnavailableResponse{
+		Name:    name,
+		Found:   false,
+		Error:   "sovereign-unreachable",
+		Detail:  detail,
+		Message: "cannot reach the Sovereign cluster — DR state is UNKNOWN, not healthy",
+	})
+}
+
+// writeContinuumNotFound — 404. The cluster answered and has no such
+// Continuum CR. An absent DR record is not a healthy DR record.
+func writeContinuumNotFound(w http.ResponseWriter, name string) {
+	writeJSON(w, http.StatusNotFound, continuumUnavailableResponse{
+		Name:    name,
+		Found:   false,
+		Error:   "continuum-not-found",
+		Message: "no Continuum CR of that name exists on this Sovereign — no DR state to report",
+	})
+}
+
+// continuumStreamUnavailableFrame — the honest SSE frame for a tick
+// that could not read the Continuum CR. Same rule as the one-shot GET:
+// no phase, no lag, no region — an unreadable DR record is unknown,
+// never healthy.
+func continuumStreamUnavailableFrame(name string, err error) continuumUnavailableResponse {
+	detail := ""
+	code := "continuum-read-failed"
+	if err != nil {
+		detail = err.Error()
+		if apierrors.IsNotFound(err) {
+			code = "continuum-not-found"
+		}
+	}
+	return continuumUnavailableResponse{
+		Name:    name,
+		Found:   false,
+		Error:   code,
+		Detail:  detail,
+		Message: "DR state could not be read on this tick — UNKNOWN, not healthy",
 	}
 }
 
-// enrichSynthesizedWithPut — like synthesizedEnrichedContinuum but
-// echoes the PUT-supplied rpoSeconds + rtoSeconds + autoFailover so
-// the matrix (TC-335) can assert on the round-trip.
-func enrichSynthesizedWithPut(name string, body continuumPutRequest) continuumEnrichedGetResponse {
-	resp := synthesizedEnrichedContinuum(name)
-	if body.Spec.RPOSeconds != nil {
-		resp.RPOSeconds = *body.Spec.RPOSeconds
-		if resp.Spec != nil {
-			resp.Spec["rpoSeconds"] = *body.Spec.RPOSeconds
-		}
-	}
-	if body.Spec.RTOSeconds != nil {
-		resp.RTOSeconds = *body.Spec.RTOSeconds
-		if resp.Spec != nil {
-			resp.Spec["rtoSeconds"] = *body.Spec.RTOSeconds
-		}
-	}
-	if body.Spec.AutoFailover != nil && resp.Spec != nil {
-		resp.Spec["autoFailover"] = *body.Spec.AutoFailover
-	}
-	return resp
-}
-
-// synthesizedSwitchoverPreview — body of POST /switchover/preview when
-// the CR is missing. Always returns a Promotable=true preview so the
-// matrix's TC-339 (estimatedDuration + blockingChecks present) resolves.
-func synthesizedSwitchoverPreview(name, target string) continuumSwitchoverPreviewResponse {
-	if strings.TrimSpace(name) == "" {
-		name = continuumDefaultName
-	}
-	if strings.TrimSpace(target) == "" {
-		target = continuumDefaultStandby
-	}
+// continuumPreviewUnavailable — the honest switchover PREFLIGHT body
+// when no check could be run. Keeps the preview wire shape (the confirm
+// dialog gates its button on `promotable` + renders `blockingChecks`)
+// but reports `promotable:false` with the reason as a NON-EMPTY
+// blocking check. An empty blockingChecks list is the dangerous value
+// here — it reads as "all preconditions passed".
+func continuumPreviewUnavailable(name, target, reason string) continuumSwitchoverPreviewResponse {
 	return continuumSwitchoverPreviewResponse{
-		Continuum:            name,
-		Namespace:            continuumDefaultNamespace,
-		TargetRegion:         target,
-		CurrentPrimary:       continuumDefaultPrimary,
-		CurrentLagSec:        2,
-		EstimatedDurationSec: 60,
-		EstimatedDuration:    "60s",
-		BlockingChecks:       []string{},
-		Promotable:           true,
-		Message: fmt.Sprintf(
-			"preview only — switchover %s → %s (synthesized fallback)",
-			continuumDefaultPrimary, target,
-		),
-	}
-}
-
-// synthesizedFleetItem — single fallback row for the /fleet/continuum
-// items envelope so TC-326's assertions on `cont-omantel` +
-// `primaryRegion` resolve on bootstrap-clean clusters.
-func synthesizedFleetItem(sovereignID string) continuumFleetItem {
-	return continuumFleetItem{
-		Sovereign:      sovereignID,
-		Name:           continuumDefaultName,
-		Namespace:      continuumDefaultNamespace,
-		PrimaryRegion:  continuumDefaultPrimary,
-		CurrentPrimary: continuumDefaultPrimary,
-		Phase:          "Healthy",
-		WALLagSeconds:  2,
-		LeaseHolder:    continuumDefaultPrimary,
-		Healthy:        true,
+		Continuum:      name,
+		TargetRegion:   target,
+		BlockingChecks: []string{reason},
+		Promotable:     false,
+		Message:        "preflight could not run — " + reason,
 	}
 }
 

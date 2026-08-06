@@ -39,12 +39,24 @@ export interface ContinuumSwitchoverRequest {
 
 /** ContinuumSwitchoverResponse — switchover-request body.
  *
- * The catalyst-api switchover handler returns HTTP 200 even for failure
- * cases (the UAT runner reads the body, not the status code), carrying the
- * real outcome in `applied` / `completed` / `error` / `httpStatus`. UI
- * callers MUST inspect `applied` (and `error`) — a 200 alone does NOT mean
- * the switchover happened (e.g. `error:"no-live-dr-pair"`, `applied:false`
- * when the app isn't placed active-hot-standby on a 2-region Sovereign).
+ * Status codes (#5731):
+ *   202 — the request was PATCHED onto the Continuum CR (`status:
+ *         "requested"`). The K-Cont-2 reconciler runs the 7-step
+ *         sequence afterwards; this response is NOT a completion.
+ *   200 — the live cnpg-pair path really performed the promotion
+ *         (`status:"completed"`), or an authz/validation branch is
+ *         carrying its semantic code in `httpStatus` + `error`.
+ *   404 — the deployment is not registered with this catalyst-api.
+ *   503 — the Sovereign cluster could not be reached.
+ *
+ * A 404/503 means NOTHING was attempted and the DR state is UNKNOWN. The
+ * handler used to answer 200 `completed` on both, which reported a
+ * finished failover for a cluster it could not reach.
+ *
+ * UI callers MUST still inspect `applied` (and `error`) — some branches
+ * carry their outcome in the body (e.g. `error:"no-live-dr-pair"`,
+ * `applied:false` when the app isn't placed active-hot-standby on a
+ * 2-region Sovereign).
  */
 export interface ContinuumSwitchoverResponse {
   name: string
@@ -56,13 +68,15 @@ export interface ContinuumSwitchoverResponse {
   requestedAt: string
   requestedBy?: string
   message: string
-  /** true only when the switchover was actually applied to the cluster. */
+  /** "requested" (202, reconciler will run it) | "completed" (live pair promoted) | a semantic error code. */
+  status?: string
+  /** true when the request was applied to the cluster (patched or promoted). */
   applied?: boolean
-  /** true once the promotion completed. */
+  /** true ONLY when a promotion was observed — never set for a request that is merely queued. */
   completed?: boolean
-  /** present on any failure/no-op outcome (e.g. "no-live-dr-pair"). */
+  /** present on any failure/no-op outcome (e.g. "no-live-dr-pair", "sovereign-unreachable"). */
   error?: string
-  /** the semantic HTTP status carried in-body (the wire status is 200). */
+  /** the semantic HTTP status carried in-body. */
   httpStatus?: number
 }
 
@@ -167,10 +181,20 @@ export interface ContinuumFleetItem {
   healthy: boolean
 }
 
-/** ContinuumFleetResponse — items envelope of GET /fleet/continuum. */
+/** ContinuumFleetResponse — items envelope of GET /fleet/continuum.
+ *
+ * #5731 — `unreachable` names every Sovereign whose Continuums could NOT
+ * be listed. The endpoint used to append a synthesized `Healthy: true`
+ * row whenever `items` came back empty, so an unreadable estate rendered
+ * as a healthy one. It now returns zero rows instead, which makes
+ * `unreachable` the only way to distinguish "no DR is configured" from
+ * "we could read nothing" — a renderer that ignores it will show the
+ * same calm empty state for both.
+ */
 export interface ContinuumFleetResponse {
   items: ContinuumFleetItem[]
   total: number
+  unreachable?: string[]
 }
 
 /**

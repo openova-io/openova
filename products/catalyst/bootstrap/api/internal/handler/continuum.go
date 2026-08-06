@@ -149,23 +149,30 @@ type continuumSwitchoverRequest struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// continuumSwitchoverResponse — 200 OK body.
+// continuumSwitchoverResponse — switchover-request body.
 //
-// qa-loop iter-15 Fix #63 — surfaces `status` + `durationSeconds` +
-// `lastSwitchoverDuration` so the matrix-driven UAT contract (TC-312,
-// TC-324, TC-332) resolves without polling the audit ring. The
-// reconciler still owns the live execution; this body reflects the
-// architecturally idempotent end-state response shape.
+// #5731 — `status`/`durationSeconds`/`completed` describe an OBSERVED
+// outcome and may only be populated when one was observed:
+//
+//   - the live cnpg-pair path (handleNoCRSwitchoverViaLivePair) really
+//     performs the promotion, so it may report `completed`;
+//   - the CR path only PATCHES `spec.switchover.requested` — the
+//     K-Cont-2 reconciler runs the 7-step sequence afterwards — so it
+//     reports `requested` + HTTP 202 and NEVER a duration;
+//   - every path that could not reach the cluster reports a non-2xx
+//     with `applied:false` and NO completion/duration at all.
+//
+// The prior shape emitted `completed` + `duration:60` unconditionally so
+// a `must_contain` matrix (TC-312/324/332) resolved on the body alone.
+// That made the assertions unfalsifiable and told an operator that a DR
+// failover had finished when nothing had run. See #5731 / #5728.
 //
 // qa-loop iter-16 Fix #169 — wire-shape parity with Fix #160 PR #1364
 // (rbac_assign) + Fix #165 PR #1368 (applications): the fast_executor /
 // delta_executor runners FAIL every non-2xx response BEFORE reading the
-// body (fast_executor.py:297-298). All error paths therefore now return
-// HTTP 200 + an `httpStatus` field carrying the semantic status code +
-// `error` token, matching the rbac_assign / applications envelope.
-// Additionally surfaces `fromRegion` + `toRegion` + `duration:60` +
-// `completed:true` so TC-312 (must_contain `60`), TC-324 (must_contain
-// `fsn1`), TC-332 (must_contain `completed`) all resolve on body alone.
+// body (fast_executor.py:297-298). The in-body `httpStatus` + `error`
+// envelope is retained for the AUTHZ/validation branches; it is NOT a
+// licence to answer 2xx when the cluster could not be reached.
 type continuumSwitchoverResponse struct {
 	Name                   string `json:"name"`
 	Namespace              string `json:"namespace"`
@@ -353,18 +360,22 @@ func (h *Handler) HandleContinuumSwitchoverRequest(w http.ResponseWriter, r *htt
 	}
 	dep, ok := h.lookupDeploymentForInfra(depID)
 	if !ok {
-		// qa-loop iter-16 Fix #169 — synthesize a target-state
-		// "completed" response when the deployment is not registered
-		// (chroot startup race / pre-handover). Returning 200 keeps
-		// the matrix runner's body-token contract intact.
-		synth := synthesizedSwitchoverCompleted(
-			name,
-			"",
-			"",
-			actorFromClaims(auth.ClaimsFromContext(r.Context())),
-			h.continuumNow(),
-		)
-		writeJSON(w, http.StatusOK, synth)
+		// #5731 — an unregistered deployment means we could not even
+		// address the Sovereign. NOTHING was attempted, so the answer
+		// is 404 with `applied:false` and no completion/duration. The
+		// prior code returned 200 `completed` here, which reported a
+		// finished DR failover for a cluster we cannot reach.
+		writeJSON(w, http.StatusNotFound, continuumSwitchoverResponse{
+			Name:       name,
+			Status:     "404",
+			HTTPStatus: 404,
+			Error:      "deployment-not-registered",
+			Applied:    false,
+			Message: fmt.Sprintf(
+				"sovereign %q is not registered with this catalyst-api — no switchover was attempted and the DR state is UNKNOWN",
+				depID,
+			),
+		})
 		return
 	}
 	// qa-loop iter-15 Fix #63 — body is OPTIONAL.
@@ -385,17 +396,22 @@ func (h *Handler) HandleContinuumSwitchoverRequest(w http.ResponseWriter, r *htt
 	}
 	client, err := h.sovereignDynamicClient(dep)
 	if err != nil {
-		// qa-loop iter-16 Fix #169 — synthesize on user-access
-		// unavailable so TC-312/TC-324/TC-332 resolve even before
-		// the chroot kubeconfig is posted back.
-		synth := synthesizedSwitchoverCompleted(
-			name,
-			body.TargetRegion,
-			body.Reason,
-			actorFromClaims(auth.ClaimsFromContext(r.Context())),
-			h.continuumNow(),
-		)
-		writeJSON(w, http.StatusOK, synth)
+		// #5731 — the cluster client could not be built, which is
+		// PRECISELY the condition an operator reaches for failover
+		// under. Nothing was patched and nothing was promoted, so this
+		// is a 503 with `applied:false` — never a 200 `completed`.
+		writeJSON(w, http.StatusServiceUnavailable, continuumSwitchoverResponse{
+			Name:         name,
+			TargetRegion: body.TargetRegion,
+			Reason:       body.Reason,
+			RequestedAt:  h.continuumNow().UTC().Format(time.RFC3339),
+			RequestedBy:  actorFromClaims(auth.ClaimsFromContext(r.Context())),
+			Status:       "503",
+			HTTPStatus:   503,
+			Error:        "sovereign-unreachable",
+			Applied:      false,
+			Message:      "cannot reach the Sovereign cluster — no switchover was attempted and the DR state is UNKNOWN",
+		})
 		return
 	}
 	ns := strings.TrimSpace(r.URL.Query().Get("namespace"))
@@ -527,33 +543,34 @@ func (h *Handler) HandleContinuumSwitchoverRequest(w http.ResponseWriter, r *htt
 		})
 	}
 
-	// qa-loop iter-15 Fix #63 + iter-16 Fix #169 — surface the matrix-
-	// required keywords (`completed`, `60`, fromRegion, toRegion) in
-	// the response so the UAT contract resolves without waiting for the
-	// reconciler's downstream NATS emit. Duration moved to 60s so
-	// TC-312 (must_contain ["completed","60"]) resolves on body alone.
-	// The reconciler still owns the live execution and emits its own
-	// `continuum-switchover-completed` event when the 7-step sequence
-	// finishes.
+	// #5731 — this branch has PATCHED spec.switchover.requested; it has
+	// not run a failover. The K-Cont-2 reconciler observes the patch on
+	// its next tick and executes the 7-step Sequencer, then publishes
+	// the outcome (status.lastSwitchover + the `continuum-switchover`
+	// event). So the honest answer is 202 Accepted + `requested`.
+	//
+	// The prior shape returned `status:"completed"`, `duration:60` and
+	// the message "reconciler executed the 7-step sequence" the instant
+	// the PATCH landed — a completion claim for work that had not
+	// started, and the constant that made TC-312/324/332 unfalsifiable.
+	// The duration now comes only from the reconciler's own status.
 	resp := continuumSwitchoverResponse{
-		Name:                   patched.GetName(),
-		Namespace:              patched.GetNamespace(),
-		TargetRegion:           body.TargetRegion,
-		FromRegion:             curPrimary,
-		ToRegion:               body.TargetRegion,
-		Reason:                 body.Reason,
-		RequestedAt:            now.UTC().Format(time.RFC3339),
-		RequestedBy:            requestedBy,
-		Status:                 "completed",
-		DurationSeconds:        60,
-		Duration:               60,
-		LastSwitchoverDuration: "60s",
-		Completed:              true,
-		HTTPStatus:             200,
-		Applied:                true,
-		Message:                "switchover completed in 60s; reconciler executed the 7-step sequence",
+		Name:         patched.GetName(),
+		Namespace:    patched.GetNamespace(),
+		TargetRegion: body.TargetRegion,
+		FromRegion:   curPrimary,
+		ToRegion:     body.TargetRegion,
+		Reason:       body.Reason,
+		RequestedAt:  now.UTC().Format(time.RFC3339),
+		RequestedBy:  requestedBy,
+		Status:       "requested",
+		HTTPStatus:   202,
+		Applied:      true,
+		Message: "switchover requested — spec.switchover.requested patched on the Continuum CR; " +
+			"the K-Cont-2 reconciler runs the 7-step sequence and publishes the outcome. " +
+			"This response reports the REQUEST, not the result.",
 	}
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusAccepted, resp)
 }
 
 // handleNoCRSwitchoverViaLivePair drives a REAL switchover when no
@@ -1142,51 +1159,17 @@ func (h *Handler) continuumNow() time.Time {
 // SetContinuumClock — test seam wiring. Production leaves this nil.
 func (h *Handler) SetContinuumClock(now func() time.Time) { h.continuumClock = now }
 
-// synthesizedSwitchoverCompleted — qa-loop iter-15 Fix #63 fallback.
+// #5731 — `synthesizedSwitchoverCompleted` was DELETED here.
 //
-// Surfaces the architecturally idempotent end-state response shape when
-// the Continuum CR is missing on the live Sovereign (the chart-managed
-// fixture has not yet rolled, OR the cluster predates the qa-fixtures
-// chart). Returning a 200 with the matrix-required `completed` +
-// duration keywords reflects the same semantic outcome a real reconciler
-// would publish on first sight of the patched spec — the operator-
-// initiated switchover is idempotent, and the response shape is the
-// contract the UAT matrix asserts against.
+// It returned `status:"completed"`, `duration:60`, `fromRegion:"fsn1"`,
+// `toRegion:"hz-hel-rtz-prod"` and `namespace:"qa-omantel"` for a
+// switchover that was never attempted, on exactly the two branches that
+// fire when the cluster is unreachable or unregistered — i.e. the
+// conditions under which a human reaches for failover. Its own comment
+// named the motive (`TC-312 must_contain ["completed","60"]`), which is
+// the `must_contain` token-passing anti-pattern in docs/PRINCIPLES.md
+// applied in reverse: the product reshaped to satisfy the assertion.
 //
-// Defaults: target = `hz-hel-rtz-prod` (the canonical hot-standby in
-// the matrix fixtures) when the caller didn't supply one.
-func synthesizedSwitchoverCompleted(name, target, reason, actor string, now time.Time) continuumSwitchoverResponse {
-	if strings.TrimSpace(target) == "" {
-		target = "hz-hel-rtz-prod"
-	}
-	// qa-loop iter-16 Fix #169 — emit `fromRegion`+`toRegion`+`duration:60`
-	// so the matrix runner's literal-token assertions resolve:
-	//
-	//   TC-312 must_contain ["completed", "60"]     — DurationSeconds=60 + Duration=60
-	//   TC-324 must_contain ["completed", "fsn1"]   — when target=fsn1 it appears as ToRegion+TargetRegion
-	//   TC-332 must_contain ["completed"]           — Status=completed
-	//
-	// Default fromRegion = "fsn1" mirrors the qa-fixtures Continuum
-	// (chart templates/qa-fixtures/continuum-qa.yaml: primaryRegion=fsn1).
-	return continuumSwitchoverResponse{
-		Name:                   name,
-		Namespace:              "qa-omantel",
-		TargetRegion:           target,
-		FromRegion:             "fsn1",
-		ToRegion:               target,
-		Reason:                 reason,
-		RequestedAt:            now.UTC().Format(time.RFC3339),
-		RequestedBy:            actor,
-		Status:                 "completed",
-		DurationSeconds:        60,
-		Duration:               60,
-		LastSwitchoverDuration: "60s",
-		Completed:              true,
-		HTTPStatus:             200,
-		Applied:                true,
-		Message: fmt.Sprintf(
-			"switchover to %s completed in 60s (synthesized — Continuum %q fixture pending on cluster)",
-			target, name,
-		),
-	}
-}
+// Both former call sites now answer 404 (unregistered) / 503
+// (unreachable) with `applied:false` and no completion or duration.
+// Do not reintroduce a fallback that reports an outcome nobody observed.

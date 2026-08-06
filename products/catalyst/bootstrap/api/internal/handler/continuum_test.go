@@ -328,15 +328,22 @@ func TestHandleContinuumSwitchover_PatchesSpec(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
-	// qa-loop iter-16 Fix #169 — wire-shape parity with Fix #160/#165:
-	// the switchover endpoint now ALWAYS returns 200 with body tokens
-	// (matrix runner FAILs on non-2xx before reading body).
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	// #5731 — the handler PATCHES spec.switchover.requested; the K-Cont-2
+	// reconciler executes afterwards. 202 Accepted + status "requested" is
+	// the honest answer. It previously returned 200 "completed" + a 60s
+	// duration the moment the PATCH landed.
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status: got %d want 202; body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{"completed", "60", "fromRegion", "toRegion"} {
+	for _, want := range []string{`"status":"requested"`, "fromRegion", "toRegion"} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Errorf("body missing %q token; got %s", want, rec.Body.String())
+		}
+	}
+	for _, forbidden := range []string{"completed", "durationSeconds", "lastSwitchoverDuration"} {
+		if bytes.Contains(rec.Body.Bytes(), []byte(forbidden)) {
+			t.Errorf("body claims %q for a switchover the reconciler has not run; got %s",
+				forbidden, rec.Body.String())
 		}
 	}
 
@@ -653,18 +660,18 @@ func TestHandleContinuumSwitchover_409WhenTargetEqualsCurrent(t *testing.T) {
 
 // ── qa-loop iter-16 Fix #169 — wire-shape parity tests (TC-pinning) ─
 
-// TestHandleContinuumSwitchover_TC312_HappyPath60s pins TC-312:
+// TestHandleContinuumSwitchover_TC312_HappyPath pins TC-312.
 //
-//	must_contain: ["completed", "60"]
-//
-// Wire-shape contract: 200 OK with body carrying both tokens (Status
-// field = "completed", DurationSeconds = 60, LastSwitchoverDuration =
-// "60s"). Mirrors Fix #160 PR #1364 (rbac_assign) + Fix #165 PR #1368
-// (applications) literal-token contract.
-func TestHandleContinuumSwitchover_TC312_HappyPath60s(t *testing.T) {
+// #5731 — the assertion was `must_contain: ["completed", "60"]`, and
+// the handler emitted both tokens unconditionally, so TC-312 could not
+// fail. It is now pointed at OBSERVED state: a real Continuum CR is
+// installed on the fake cluster and the test asserts the switchover
+// request landed ON THE CR (spec.switchover.*), not that two literals
+// appeared in a response body.
+func TestHandleContinuumSwitchover_TC312_HappyPath(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	cr := newContinuumUnstructured("cont-omantel", "qa-omantel", "qa-wp", "fsn1", []string{"hz-hel-rtz-prod"})
-	factory, _ := fakeContinuumDynamicFactory(cr)
+	factory, client := fakeContinuumDynamicFactory(cr)
 	h.dynamicFactory = factory
 	dep := installUserAccessDeployment(t, h, "dep-tc312")
 
@@ -679,31 +686,44 @@ func TestHandleContinuumSwitchover_TC312_HappyPath60s(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("TC-312 status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("TC-312 status: got %d want 202; body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{"completed", "60"} {
-		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
-			t.Errorf("TC-312 body missing %q token; got %s", want, rec.Body.String())
-		}
+	// The measurement: did the request reach the CR?
+	got, err := client.Resource(ContinuumGVR()).Namespace("qa-omantel").
+		Get(context.Background(), "cont-omantel", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("TC-312 re-fetch CR: %v", err)
 	}
-	for _, must_not := range []string{"timeout", "failed"} {
-		if bytes.Contains(rec.Body.Bytes(), []byte(must_not)) {
-			t.Errorf("TC-312 body has forbidden %q token; got %s", must_not, rec.Body.String())
+	requested, _, _ := unstructured.NestedBool(got.Object, "spec", "switchover", "requested")
+	if !requested {
+		t.Error("TC-312 spec.switchover.requested: got false want true")
+	}
+	target, _, _ := unstructured.NestedString(got.Object, "spec", "switchover", "targetRegion")
+	if target != "hz-hel-rtz-prod" {
+		t.Errorf("TC-312 spec.switchover.targetRegion: got %q want hz-hel-rtz-prod", target)
+	}
+	// No duration and no completion may be claimed — the reconciler has
+	// not run. These were the tokens the old assertion demanded.
+	for _, forbidden := range []string{"completed", "durationSeconds", "timeout", "failed"} {
+		if bytes.Contains(rec.Body.Bytes(), []byte(forbidden)) {
+			t.Errorf("TC-312 body has forbidden %q token; got %s", forbidden, rec.Body.String())
 		}
 	}
 }
 
-// TestHandleContinuumSwitchover_TC324_FailbackToFsn1 pins TC-324:
+// TestHandleContinuumSwitchover_TC324_FailbackToPrimary pins TC-324.
 //
-//	must_contain: ["completed", "fsn1"]
-//
-// Wire-shape contract: target=fsn1 surfaces as ToRegion+TargetRegion.
-func TestHandleContinuumSwitchover_TC324_FailbackToFsn1(t *testing.T) {
+// #5731 — was `must_contain: ["completed", "fsn1"]`. The `fsn1` token
+// resolved because the handler echoed a HARDCODED Hetzner region on the
+// fallback path. It now asserts the caller-supplied failback target is
+// what landed on the CR, and the region literal comes from the fixture
+// the test itself installed, not from a constant in the handler.
+func TestHandleContinuumSwitchover_TC324_FailbackToPrimary(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	// Continuum currently primary=hel (post-switchover), failback to fsn1.
 	cr := newContinuumUnstructured("cont-omantel", "qa-omantel", "qa-wp", "hz-hel-rtz-prod", []string{"fsn1"})
-	factory, _ := fakeContinuumDynamicFactory(cr)
+	factory, client := fakeContinuumDynamicFactory(cr)
 	h.dynamicFactory = factory
 	dep := installUserAccessDeployment(t, h, "dep-tc324")
 
@@ -718,16 +738,22 @@ func TestHandleContinuumSwitchover_TC324_FailbackToFsn1(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("TC-324 status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("TC-324 status: got %d want 202; body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{"completed", "fsn1"} {
-		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
-			t.Errorf("TC-324 body missing %q token; got %s", want, rec.Body.String())
+	got, err := client.Resource(ContinuumGVR()).Namespace("qa-omantel").
+		Get(context.Background(), "cont-omantel", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("TC-324 re-fetch CR: %v", err)
+	}
+	target, _, _ := unstructured.NestedString(got.Object, "spec", "switchover", "targetRegion")
+	if target != "fsn1" {
+		t.Errorf("TC-324 spec.switchover.targetRegion: got %q want fsn1 (the failback target)", target)
+	}
+	for _, forbidden := range []string{"completed", "durationSeconds", "failed"} {
+		if bytes.Contains(rec.Body.Bytes(), []byte(forbidden)) {
+			t.Errorf("TC-324 body has forbidden %q token; got %s", forbidden, rec.Body.String())
 		}
-	}
-	if bytes.Contains(rec.Body.Bytes(), []byte("failed")) {
-		t.Errorf("TC-324 body has forbidden %q token; got %s", "failed", rec.Body.String())
 	}
 }
 
@@ -765,15 +791,18 @@ func TestHandleContinuumSwitchover_TC331_ViewerForbidden(t *testing.T) {
 	}
 }
 
-// TestHandleContinuumSwitchover_TC332_OperatorCanSwitchover pins TC-332:
+// TestHandleContinuumSwitchover_TC332_OperatorCanSwitchover pins TC-332.
 //
-//	must_contain: ["completed"], must_not_contain: ["403"]
-//
-// Wire-shape contract: operator-tier caller → HTTP 200 + "completed".
+// #5731 — was `must_contain: ["completed"]`, which the handler answered
+// unconditionally. TC-332's real subject is AUTHORIZATION: an
+// operator-tier caller must get through the tier gate and have the
+// request land on the CR. That is what it now measures — the operator's
+// identity is asserted in `spec.switchover.requestedBy`, which a
+// synthesized body could never have carried.
 func TestHandleContinuumSwitchover_TC332_OperatorCanSwitchover(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	cr := newContinuumUnstructured("cont-omantel", "qa-omantel", "qa-wp", "fsn1", []string{"hz-hel-rtz-prod"})
-	factory, _ := fakeContinuumDynamicFactory(cr)
+	factory, client := fakeContinuumDynamicFactory(cr)
 	h.dynamicFactory = factory
 	dep := installUserAccessDeployment(t, h, "dep-tc332")
 
@@ -789,26 +818,45 @@ func TestHandleContinuumSwitchover_TC332_OperatorCanSwitchover(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("TC-332 status: got %d want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	if !bytes.Contains(rec.Body.Bytes(), []byte("completed")) {
-		t.Errorf("TC-332 body missing %q token; got %s", "completed", rec.Body.String())
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("TC-332 status: got %d want 202; body=%s", rec.Code, rec.Body.String())
 	}
 	if bytes.Contains(rec.Body.Bytes(), []byte(`"status":"403"`)) {
 		t.Errorf("TC-332 body has forbidden 403 status; got %s", rec.Body.String())
 	}
+	got, err := client.Resource(ContinuumGVR()).Namespace("qa-omantel").
+		Get(context.Background(), "cont-omantel", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("TC-332 re-fetch CR: %v", err)
+	}
+	requested, _, _ := unstructured.NestedBool(got.Object, "spec", "switchover", "requested")
+	if !requested {
+		t.Error("TC-332 operator tier did not reach the CR: spec.switchover.requested is false")
+	}
+	requestedBy, _, _ := unstructured.NestedString(got.Object, "spec", "switchover", "requestedBy")
+	if requestedBy != "op@acme.io" {
+		t.Errorf("TC-332 spec.switchover.requestedBy: got %q want op@acme.io", requestedBy)
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte("completed")) {
+		t.Errorf("TC-332 body claims completion for a switchover the reconciler has not run; got %s",
+			rec.Body.String())
+	}
 }
 
-// TestHandleContinuumSwitchoverPreview_TC339_DryRunPreflight pins TC-339:
+// TestHandleContinuumSwitchoverPreview_TC339_DryRunPreflight pins TC-339.
 //
-//	must_contain: ["estimatedDuration", "blockingChecks"]
-//	must_not_contain: ["500"]
-//
-// Wire-shape contract: preview returns 200 even when CR is missing.
+// #5731 — was run against NO CR (`fakeContinuumDynamicFactory()` with no
+// arguments), which is exactly the branch that synthesized
+// `promotable:true` with an empty blockingChecks list. Asserting that
+// the tokens `estimatedDuration` + `blockingChecks` merely APPEAR was
+// satisfied by that fabrication. It now runs against a real CR and
+// asserts the preflight VALUES are derived from it. The no-CR case is
+// covered separately by the honesty guard
+// (continuum_dr_synthesis_5731_test.go).
 func TestHandleContinuumSwitchoverPreview_TC339_DryRunPreflight(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
-	factory, _ := fakeContinuumDynamicFactory() // no CR — exercises synth path
+	cr := newContinuumUnstructured("cont-omantel", "qa-omantel", "qa-wp", "fsn1", []string{"hz-hel-rtz-prod"})
+	factory, _ := fakeContinuumDynamicFactory(cr)
 	h.dynamicFactory = factory
 	dep := installUserAccessDeployment(t, h, "dep-tc339")
 
@@ -826,10 +874,22 @@ func TestHandleContinuumSwitchoverPreview_TC339_DryRunPreflight(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("TC-339 status: got %d want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{"estimatedDuration", "blockingChecks"} {
-		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
-			t.Errorf("TC-339 body missing %q token; got %s", want, rec.Body.String())
-		}
+	var resp continuumSwitchoverPreviewResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("TC-339 decode: %v", err)
+	}
+	// Derived from the CR the test installed — not from a constant.
+	if resp.Continuum != "cont-omantel" {
+		t.Errorf("TC-339 continuum: got %q want cont-omantel (read off the CR)", resp.Continuum)
+	}
+	if resp.Namespace != "qa-omantel" {
+		t.Errorf("TC-339 namespace: got %q want qa-omantel (read off the CR)", resp.Namespace)
+	}
+	if resp.CurrentPrimary != "fsn1" {
+		t.Errorf("TC-339 currentPrimary: got %q want fsn1 (spec.primaryRegion of the CR)", resp.CurrentPrimary)
+	}
+	if resp.TargetRegion != "hz-hel-rtz-prod" {
+		t.Errorf("TC-339 targetRegion: got %q want hz-hel-rtz-prod", resp.TargetRegion)
 	}
 	if bytes.Contains(rec.Body.Bytes(), []byte(`"500"`)) {
 		t.Errorf("TC-339 body has forbidden %q token; got %s", "500", rec.Body.String())
