@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T02:45:02Z` |
+| Last refreshed | `2026-08-06T03:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-06T02:49 | [#5732](https://github.com/openova-io/openova/pull/5732) | #5635 | test(catalyst-api): pin the per-Org console listener by rend |
+| 2026-08-06T02:56 | [#5730](https://github.com/openova-io/openova/pull/5730) | #5467 | fix(guard): execute-and-detect guard for credential prefixes |
 | 2026-08-06T02:14 | [#5729](https://github.com/openova-io/openova/pull/5729) | #5253 | docs(uat): re-walk 18 dead-env rows live on hw292 — 8 flip g |
 | 2026-08-06T02:07 | [#5727](https://github.com/openova-io/openova/pull/5727) | #5434 | docs(uat): re-walk 14 rows stranded on dead-env evidence — 2 |
 | 2026-08-06T02:19 | [#5726](https://github.com/openova-io/openova/pull/5726) | #5612 | test(newapi): bind the #5612 session-secret carrier to the S |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-05T20:17 | [#5702](https://github.com/openova-io/openova/pull/5702) | #5389 | fix(lockstep): compare endpoints[].hostnameTemplate seed-vs- |
 | 2026-08-05T20:29 | [#5701](https://github.com/openova-io/openova/pull/5701) | #5600 | fix(catalyst-api): re-derive the per-region HelmRelease cens |
 | 2026-08-05T19:12 | [#5700](https://github.com/openova-io/openova/pull/5700) | #5389 | docs(mandate): a denied tool call is ONE COMMAND, never a bl |
-| 2026-08-05T19:32 | [#5699](https://github.com/openova-io/openova/pull/5699) | #4 | fix(endpoints): add {OrgDomain} token so per-Org Open resolv |
-| 2026-08-05T19:09 | [#5698](https://github.com/openova-io/openova/pull/5698) | #4325 | docs(uat): live-anchor the 11 superseded placement rows; rec |
 
 ---
 
