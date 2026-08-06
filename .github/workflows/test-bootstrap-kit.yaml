@@ -134,6 +134,35 @@ jobs:
         #   python3 scripts/audit-placement-conformance.py live --kubeconfig <kc>
         run: python3 scripts/audit-placement-conformance.py rendered
 
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: newapi session-secret carrier active in the SHIPPING slot (#5612)
+        # #5612 ("newapi session expires in under an hour") is not a TTL —
+        # upstream NewAPI v0.13.2 seals sessions in a gorilla cookie store with
+        # MaxAge 2592000 (30 days). It was two newapi instances behind one
+        # fanned `newapi.<fqdn>` VIP holding DIFFERENT SESSION_SECRETs, so a
+        # cookie sealed by one region was rejected by the other and the SPA
+        # bounced the user to /login?expired=true. #5466/#5480 closed it by
+        # moving SESSION_SECRET/CRYPTO_SECRET onto the bp-sso-bridge → OpenBao
+        # → ExternalSecret carrier.
+        #
+        # That fix is GATED (bp-newapi.credsBridgeSynced): drop any one leg —
+        # placement.role, adminUI keycloak mode, ssoBridgeSync, sovereignFQDN,
+        # the sovereign-realm issuer, or a credentials.existingSecret override —
+        # and the chart silently falls back to the per-region `randAlphaNum 64`
+        # generator, reintroducing the split. Every chart-level test hand-sets
+        # those legs itself, so slot drift could never turn them red.
+        #
+        # This guard renders bp-newapi from the REAL bootstrap-kit slot 80 and
+        # asserts the carrier is active in what a Sovereign actually installs.
+        # It lives in THIS workflow (not only the chart-release gate) because
+        # the drift it exists to catch can land in clusters/** with no chart
+        # change at all, and the chart-release job would never run.
+        run: |
+          pip install pyyaml --quiet 2>/dev/null || true
+          bash platform/newapi/chart/tests/5612-slot80-session-carrier-render.sh
+
   pin-sync-audit:
     # TBD-A6 regression test. Asserts every Chart.yaml in platform/* or
     # products/* whose chart is pinned in clusters/_template/bootstrap-
