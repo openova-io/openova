@@ -19,8 +19,11 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
+	"sort"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -30,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 )
@@ -114,18 +118,77 @@ func orgCRWithSource(slug, parentDomain, source string) *unstructured.Unstructur
 	}}
 }
 
+// consoleListenersAppliedTo returns the Gateway listeners ONE region's client
+// actually received, as rendered listener NAME -> rendered hostname VALUE,
+// read out of the SSA apply payloads themselves.
+//
+// Why the payload and not dyn.Actions() presence: the defect this file guards
+// is per-Org — on hw292 region-b carried `console-https-r17probe` while
+// `console-https-uatco` was absent, so ~50% of fresh TCP connections to
+// console.uatco.omani.homes were reset at the TLS handshake. A check that only
+// asks "was the console Gateway patched in this region" answers YES on that
+// exact cluster state, because ANOTHER Org's patch satisfies it. Reading the
+// applied listeners by name+hostname is what makes the assertion able to go red
+// on the live defect.
+func consoleListenersAppliedTo(t *testing.T, dyn *dynamicfake.FakeDynamicClient) map[string]string {
+	t.Helper()
+	applied := map[string]string{}
+	for _, a := range dyn.Actions() {
+		if a.GetResource() != consoleGatewayGVR || a.GetVerb() != "patch" {
+			continue
+		}
+		pa, ok := a.(k8stesting.PatchAction)
+		if !ok || pa.GetName() != consoleGatewayName {
+			continue
+		}
+		var obj map[string]any
+		if err := json.Unmarshal(pa.GetPatch(), &obj); err != nil {
+			t.Fatalf("unmarshal console Gateway apply payload: %v", err)
+		}
+		listeners, found, err := unstructured.NestedSlice(obj, "spec", "listeners")
+		if err != nil || !found {
+			continue
+		}
+		for _, l := range listeners {
+			lm, ok := l.(map[string]any)
+			if !ok {
+				continue
+			}
+			name, _ := lm["name"].(string)
+			hostname, _ := lm["hostname"].(string)
+			if name != "" {
+				applied[name] = hostname
+			}
+		}
+	}
+	return applied
+}
+
+// orgWildcardForConsoleHost derives the per-Org wildcard a console host must be
+// served by: console.<slug>.<parent> -> *.<slug>.<parent>. Pure string work,
+// deliberately NOT a call into resolveOrgConsoleTLSNames — a guard that asks the
+// production resolver what to expect agrees with the emitter by construction and
+// cannot catch the emitter rendering the wrong hostname.
+func orgWildcardForConsoleHost(consoleHost string) string {
+	_, zone, found := strings.Cut(consoleHost, ".")
+	if !found {
+		return ""
+	}
+	return "*." + zone
+}
+
 // consoleSurfacePresent reports whether a region cluster carries BOTH halves of
-// an Org's console gateway surface: a Gateway listener SSA patch was issued for
-// this Org's listener pair, and an HTTPRoute in catalyst-system serves the Org's
-// console host (under EITHER producer's name — the gateway edge does not care
-// which name serves the host, only that one does).
+// an Org's console gateway surface: a Gateway listener SSA patch was issued
+// carrying THIS Org's wildcard hostname, and an HTTPRoute in catalyst-system
+// serves the Org's console host (under EITHER producer's name — the gateway edge
+// does not care which name serves the host, only that one does).
 func consoleSurfacePresent(t *testing.T, dyn *dynamicfake.FakeDynamicClient, consoleHost string) (listener bool, route string) {
 	t.Helper()
-	for _, a := range dyn.Actions() {
-		if a.GetResource() == consoleGatewayGVR && a.GetVerb() == "patch" {
-			if pa, ok := a.(interface{ GetName() string }); ok && pa.GetName() == consoleGatewayName {
-				listener = true
-			}
+	wildcard := orgWildcardForConsoleHost(consoleHost)
+	for _, hostname := range consoleListenersAppliedTo(t, dyn) {
+		if hostname == wildcard {
+			listener = true
+			break
 		}
 	}
 	list, err := dyn.Resource(httpRouteGVR).Namespace(catalystConsoleNamespace).
@@ -297,6 +360,92 @@ func TestReconcileOrgConsoleTLSFromOrgCRs_BackfillsMissingSecondaryRegion(t *tes
 	if len(serving) != 1 || serving[0] != orgCtrlRoute {
 		t.Errorf("host region routes for %s = %v, want exactly [%s] (adopted, not duplicated)", host, serving, orgCtrlRoute)
 	}
+}
+
+// TestReconcileOrgConsoleTLSFromOrgCRs_EveryRegionCarriesEveryOrgsListenerPair
+// — #5635 lock 3: the LISTENER level, pinned by rendered value, in every region.
+//
+// This is hw292's live state on 2026-08-06, read off both regions'
+// kube-system/cilium-gateway-console:
+//
+//	region-a  console-https-uatco     *.uatco.omani.homes      <- present
+//	          console-http-uatco      *.uatco.omani.homes
+//	region-b  console-https-r17probe  *.r17probe.omani.homes   <- a DIFFERENT Org
+//	          console-http-r17probe   *.r17probe.omani.homes
+//	region-b  (no listener for *.uatco.omani.homes)
+//
+// The shared console EIP 212.72.24.85 round-robins both regions' hostNetwork
+// cilium-envoy, so a fresh TCP connection landing on region-b finds NO listener
+// matching SNI console.uatco.omani.homes and is reset during the TLS handshake
+// — measured 8/16 that day, failures all curl rc=35, against a same-EIP
+// console.hw292.omani.works control at 10/10.
+//
+// WHY THIS TEST EXISTS SEPARATELY from the two locks above. Region-b in that
+// capture HAS per-Org listeners and HAS been patched — just for the wrong Org.
+// Any assertion phrased as "a per-Org listener exists in this region", "the
+// console Gateway was patched here", or a COUNT of listeners is satisfied by
+// that exact broken state. Only pinning the rendered name AND hostname, per Org,
+// per region, can go red on it. Both are asserted against literals rather than
+// against resolveOrgConsoleTLSNames, so an emitter that renders a wrong-but-
+// self-consistent hostname is still caught.
+func TestReconcileOrgConsoleTLSFromOrgCRs_EveryRegionCarriesEveryOrgsListenerPair(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "hw292.omani.works")
+
+	hostDyn := fakeDynForOrgConsoleReconcile(t,
+		funnelOrgCR("uatco", "omani.homes"), // the funnel door — hw292's failing Org
+		bssOrgCR("r17probe", "omani.homes"), // the BSS door — hw292's working Org
+	)
+	secDyn := fakeDynForOrgConsoleReconcile(t)
+	hostCore := k8sfake.NewSimpleClientset(
+		issuedOrgWildcardSecret("org-wildcard-tls-uatco-omani-homes"),
+		issuedOrgWildcardSecret("org-wildcard-tls-r17probe-omani-homes"),
+	)
+	secCore := k8sfake.NewSimpleClientset()
+
+	h := newReconcileHandler(t, hostDyn, secDyn, hostCore, secCore)
+	h.reconcileOrgConsoleTLSOnce(context.Background())
+
+	// listener NAME -> the hostname it MUST carry. Literals on purpose.
+	wantListeners := map[string]string{
+		"console-https-uatco":    "*.uatco.omani.homes",
+		"console-http-uatco":     "*.uatco.omani.homes",
+		"console-https-r17probe": "*.r17probe.omani.homes",
+		"console-http-r17probe":  "*.r17probe.omani.homes",
+	}
+
+	for _, region := range []struct {
+		name string
+		dyn  *dynamicfake.FakeDynamicClient
+	}{
+		{"region-a-host", hostDyn},
+		{"region-b-secondary", secDyn},
+	} {
+		applied := consoleListenersAppliedTo(t, region.dyn)
+		for _, name := range sortedKeys(wantListeners) {
+			want := wantListeners[name]
+			got, ok := applied[name]
+			if !ok {
+				t.Errorf("#5635 [%s]: listener %q (%s) was NEVER applied to this region — "+
+					"every fresh TCP connection for that host landing here is reset at the TLS "+
+					"handshake; region carries %v",
+					region.name, name, want, sortedKeys(applied))
+				continue
+			}
+			if got != want {
+				t.Errorf("#5635 [%s]: listener %q hostname = %q, want %q",
+					region.name, name, got, want)
+			}
+		}
+	}
+}
+
+func sortedKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // TestOrgConsoleTLSRecordFromOrgCR_SkipCases — the CR→record derivation must
