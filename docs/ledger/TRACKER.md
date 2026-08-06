@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T02:00:05Z` |
+| Last refreshed | `2026-08-06T02:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5394](https://github.com/openova-io/openova/issues/5394) | MCP endpoint is ~50% dead: bp-openova-mcp is single-region but mcp.<fqdn> fronts | Other |
 | [#5395](https://github.com/openova-io/openova/issues/5395) | gamma-corp is entirely unrouted: all 6 per-Org HTTPRoutes NoMatchingListenerHost | Other |
 | [#5396](https://github.com/openova-io/openova/issues/5396) | bp-velero upgrade-crds pre-upgrade hook is Kyverno-rejected (no harbor-proxy ima | Other |
 | [#5401](https://github.com/openova-io/openova/issues/5401) | SECURITY: per-Org console /settings renders the Sovereign operator panel to an o | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5661](https://github.com/openova-io/openova/issues/5661) | Sovereign wizard cannot fire a single-region prov — Single-region topology cho | Other |
 | [#5690](https://github.com/openova-io/openova/issues/5690) | §854/#5348: bp-stalwart-sovereign mail LoadBalancer Service omits explicit node | Other |
 | [#5720](https://github.com/openova-io/openova/issues/5720) | auth: POST /api/v1/auth/pin/issue creates an enabled Keycloak realm user for ANY | Other |
+| [#5728](https://github.com/openova-io/openova/issues/5728) | continuum: GET /continuum/{name} and its SSE stream fabricate a healthy DR recor | Other |
 
 ---
 
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-06T02:14 | [#5729](https://github.com/openova-io/openova/pull/5729) | #5253 | docs(uat): re-walk 18 dead-env rows live on hw292 — 8 flip g |
+| 2026-08-06T02:07 | [#5727](https://github.com/openova-io/openova/pull/5727) | #5434 | docs(uat): re-walk 14 rows stranded on dead-env evidence — 2 |
+| 2026-08-06T02:01 | [#5725](https://github.com/openova-io/openova/pull/5725) | #5571 | fix(catalyst-ui): /k8s/stream fold collapsed both regions in |
 | 2026-08-06T01:21 | [#5724](https://github.com/openova-io/openova/pull/5724) | #5616 | fix(api,ui): #5616 refuse a placement vCluster tier this Sov |
 | 2026-08-06T01:13 | [#5723](https://github.com/openova-io/openova/pull/5723) | #5672 | fix(catalyst-api): org-teardown reap keys on BOTH producers' |
 | 2026-08-06T01:12 | [#5722](https://github.com/openova-io/openova/pull/5722) | #901 | fix(auth): defer pin/issue realm write to pin/verify — no un |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-05T19:32 | [#5699](https://github.com/openova-io/openova/pull/5699) | #4 | fix(endpoints): add {OrgDomain} token so per-Org Open resolv |
 | 2026-08-05T19:09 | [#5698](https://github.com/openova-io/openova/pull/5698) | #4325 | docs(uat): live-anchor the 11 superseded placement rows; rec |
 | 2026-08-05T19:09 | [#5697](https://github.com/openova-io/openova/pull/5697) | #5378 | fix(#5358): guacamole blank page — ONE Guacamole per Soverei |
-| 2026-08-05T18:05 | [#5696](https://github.com/openova-io/openova/pull/5696) | #5592 | fix(854): assert NodePort ban is ENFORCING per region, not j |
-| 2026-08-05T14:51 | [#5695](https://github.com/openova-io/openova/pull/5695) | #5575 | test(wizard): fail-closed catalog integrity gate — no phanto |
-| 2026-08-05T14:30 | [#5694](https://github.com/openova-io/openova/pull/5694) | #5348 | ci(§854): guard that every LoadBalancer Service template sta |
 
 ---
 
