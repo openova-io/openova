@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T16:30:03Z` |
+| Last refreshed | `2026-08-06T16:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,9 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#5393](https://github.com/openova-io/openova/issues/5393) | Per-Org plan quota: vcluster control-plane overhead (1500m) is billed to the cus | Other |
+| [#5394](https://github.com/openova-io/openova/issues/5394) | MCP endpoint is ~50% dead: bp-openova-mcp is single-region but mcp.<fqdn> fronts | Other |
+| [#5395](https://github.com/openova-io/openova/issues/5395) | gamma-corp is entirely unrouted: all 6 per-Org HTTPRoutes NoMatchingListenerHost | Other |
 | [#5396](https://github.com/openova-io/openova/issues/5396) | bp-velero upgrade-crds pre-upgrade hook is Kyverno-rejected (no harbor-proxy ima | Other |
 | [#5401](https://github.com/openova-io/openova/issues/5401) | SECURITY: per-Org console /settings renders the Sovereign operator panel to an o | Other |
 | [#5404](https://github.com/openova-io/openova/issues/5404) | Operator-console vitest suite is red on main (68 failed / 1876 passed across 9 f | Other |
@@ -291,9 +294,6 @@ flowchart LR
 | [#5650](https://github.com/openova-io/openova/issues/5650) | Post-cutover Sovereign fetches charts.loft.sh every 15m: step-08's deny-egress h | Other |
 | [#5690](https://github.com/openova-io/openova/issues/5690) | §854/#5348: bp-stalwart-sovereign mail LoadBalancer Service omits explicit node | Other |
 | [#5720](https://github.com/openova-io/openova/issues/5720) | auth: POST /api/v1/auth/pin/issue creates an enabled Keycloak realm user for ANY | Other |
-| [#5728](https://github.com/openova-io/openova/issues/5728) | continuum: GET /continuum/{name} and its SSE stream fabricate a healthy DR recor | Other |
-| [#5731](https://github.com/openova-io/openova/issues/5731) | P0 continuum: POST /continuum/{name}/switchover returns 200 status=completed for | Other |
-| [#5741](https://github.com/openova-io/openova/issues/5741) | 40 test files / 304 test funcs across 8 Go modules run in NO workflow — a PR c | Other |
 | [#5750](https://github.com/openova-io/openova/issues/5750) | Guacamole row-35 ERROR page: diagnostic to distinguish known #5358 chart-drift f | Other |
 | [#5752](https://github.com/openova-io/openova/issues/5752) | bp-stalwart-tenant: per-Org install door emits empty spec.parameters — domain/ | Other |
 | [#5759](https://github.com/openova-io/openova/issues/5759) | sovereign-daytwo-bootstrap --apply REVERTS a completed cutover: 62/69 HelmReposi | Other |
