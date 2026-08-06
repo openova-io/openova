@@ -188,7 +188,33 @@ name: bp-stalwart-tenant
 #   entry (#5348 — false alone only stops NEW allocations; an apply that OMITS
 #   nodePort never clears an existing one); (c) template `fail` on
 #   type=NodePort so an overlay can never opt back in. Refs #5615 #5348 #5088.
-version: 0.1.14
+#
+# 0.1.15 (2026-08-06): re-diagnosed hw292 funnel Org uatco after 0.1.14 —
+#   uatco-mail-rtz-a's StatefulSet pod was STILL stuck ContainerCreating
+#   (`MountVolume.SetUp failed for volume "tls" : secret "stalwart-tls" not
+#   found`), release still pinned at 0.1.13 (chart-delivery gap, #5640, not a
+#   chart defect). But the LIVE StatefulSet had already been created by the
+#   failed 0.1.13 install, and templates/deployment.yaml's
+#   volumeClaimTemplates[].metadata.labels rendered via the FULL
+#   `bp-stalwart-tenant.labels` helper — which bakes in
+#   `helm.sh/chart: bp-stalwart-tenant-<Chart.Version>` +
+#   `app.kubernetes.io/version: <Chart.AppVersion>`. `spec.
+#   volumeClaimTemplates` is IMMUTABLE post-create (only 'replicas',
+#   'ordinals', 'template', 'updateStrategy',
+#   'persistentVolumeClaimRetentionPolicy', 'minReadySeconds' may change), so
+#   EVERY chart bump — including 0.1.14 above — changes that label and
+#   permanently blocks `helm upgrade` for any Org whose StatefulSet already
+#   exists ("Forbidden: updates to statefulset spec ... forbidden"). This is
+#   the mechanical cause of memory
+#   reference_stalwart_tenant_no_inplace_upgrade_and_splan_bundle_sizing.md's
+#   "CANNOT be upgraded in place" finding. Fix: new `stableLabels` helper
+#   (name/instance/managed-by/blueprint only, no version-bearing keys) used
+#   ONLY on the volumeClaimTemplate metadata; every other resource keeps the
+#   full `.labels` helper unchanged. Guard:
+#   tests/volumeclaimtemplate-stable-labels.sh renders the chart at two
+#   different versions and asserts the volumeClaimTemplates block is
+#   byte-identical. Refs #5615 #960.
+version: 0.1.15
 appVersion: "0.15.5"
 description: |
   Catalyst Blueprint scratch chart for a per-Org (per-vcluster) dedicated

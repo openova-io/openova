@@ -37,6 +37,30 @@ catalyst.openova.io/blueprint: bp-stalwart-tenant
 {{- end }}
 
 {{/*
+STABLE labels for objects Kubernetes treats as IMMUTABLE post-create
+(currently: the StatefulSet's volumeClaimTemplates[].metadata). Live
+root-cause (hw292 funnel Org `uatco`, 2026-08-06): the full
+`bp-stalwart-tenant.labels` helper embeds `helm.sh/chart: <name>-<Chart.
+Version>` + `app.kubernetes.io/version: <Chart.AppVersion>` — both churn
+on every chart release. `spec.volumeClaimTemplates` only allows patches
+to 'replicas', 'ordinals', 'template', 'updateStrategy',
+'persistentVolumeClaimRetentionPolicy' and 'minReadySeconds' — ANY other
+diff (including a label-only one) makes `kubectl`/Helm's patch fail with
+`Forbidden: updates to statefulset spec ... forbidden`. Using the FULL
+labels helper there meant every future chart bump (e.g. the #5615 §854
+nodeport fix, 0.1.13 -> 0.1.14) would permanently block `helm upgrade`
+for any Org whose StatefulSet already exists — the mechanical reason
+this chart "has no in-place upgrade path". This helper carries only the
+labels that do NOT change across a chart version bump.
+*/}}
+{{- define "bp-stalwart-tenant.stableLabels" -}}
+app.kubernetes.io/name: {{ include "bp-stalwart-tenant.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+catalyst.openova.io/blueprint: bp-stalwart-tenant
+{{- end }}
+
+{{/*
 Selector labels.
 */}}
 {{- define "bp-stalwart-tenant.selectorLabels" -}}

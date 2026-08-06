@@ -58,7 +58,18 @@ spec:
   # Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
   # 0.1.14 (#5615): §854 — allocateLoadBalancerNodePorts:false + nodePort: 0
   # on the SMTP/IMAP LoadBalancer Services so the Kyverno guard admits them.
-  version: 0.1.14
+  # 0.1.15 (2026-08-06, live hw292 funnel Org uatco): the StatefulSet's
+  # volumeClaimTemplates[].metadata.labels rendered via the FULL labels
+  # helper, which embeds the chart version (helm.sh/chart) + appVersion
+  # (app.kubernetes.io/version). volumeClaimTemplates is IMMUTABLE
+  # post-create, so EVERY chart bump — including the 0.1.14 fix above —
+  # permanently blocked `helm upgrade` for any Org whose StatefulSet
+  # already exists ("Forbidden: updates to statefulset spec ... forbidden"),
+  # matching memory reference_stalwart_tenant_no_inplace_upgrade_and_
+  # splan_bundle_sizing.md's "cannot be upgraded in place" finding. Switched
+  # the PVC template to a new stableLabels helper carrying only
+  # version-independent labels. Refs #5615 #960.
+  version: 0.1.15
   card:
     title: Stalwart (per-Organization)
     summary: |
