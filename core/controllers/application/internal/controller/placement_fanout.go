@@ -250,6 +250,19 @@ func blueprintReplicationFor(choice bpv1alpha1.BcpTopology, bpTopo *bpv1alpha1.T
 // BcpTopology enum, used ONLY for the HR `LabelTopology` value +
 // observability rollups. It does not gate the render (the per-target roles
 // do). The mapping is the obvious 1:1 between the two vocabularies.
+//
+// #5515 — `PatternNotReported` has NO honest BcpTopology counterpart (the
+// enum carries no "unknown" member), and the `default:` arm below would map
+// it onto `singleton` — re-introducing, one layer down, exactly the fail-open
+// DerivePattern just closed. It cannot arrive here: this function is only
+// reached from placementVariantFromTargets, which the application-controller
+// calls at step §8c AFTER step 5.1 has run ValidatePlacement over the same
+// target list and markFailed'd on `NoPrimary` — and a no-Primary list is the
+// only input that derives `not-reported`. That ordering is the actual guard,
+// so it is pinned by an executable test
+// (TestPatternNotReported_5515_UnreachableInFanout) rather than left to a
+// comment. The explicit case below exists so the fall-through can never
+// silently absorb it if that ordering is ever changed.
 func patternToBcpTopology(p bpv1alpha1.Pattern) bpv1alpha1.BcpTopology {
 	switch p {
 	case bpv1alpha1.PatternActiveActive:
@@ -258,7 +271,12 @@ func patternToBcpTopology(p bpv1alpha1.Pattern) bpv1alpha1.BcpTopology {
 		return bpv1alpha1.BcpActiveHotStandby
 	case bpv1alpha1.PatternActivePassive:
 		return bpv1alpha1.BcpActivePassive
+	case bpv1alpha1.PatternSingleton:
+		return bpv1alpha1.BcpSingleton
 	default:
+		// Includes PatternNotReported — unreachable per the ValidatePlacement
+		// ordering above; kept as the conservative label rather than a
+		// fabricated DR posture.
 		return bpv1alpha1.BcpSingleton
 	}
 }

@@ -96,6 +96,31 @@ interface RegionStatus {
   lastTransitionTime?: string
 }
 
+/**
+ * PlacementSource — where the rendered target list came from (#5568).
+ *
+ *   runtime  — the /placement endpoint reported `derivedFromRuntime: true`
+ *              AND returned targets: a genuine live observation.
+ *   declared — the targets came from `spec.placement` / `status.perCluster` /
+ *              the legacy mode+regions projection, or from a /placement
+ *              response that admitted no runtime was consulted. Desired
+ *              state, not observed state.
+ *   none     — no targets from any source; the pattern is `not reported`.
+ *
+ * The distinction is the whole point of the endpoint's `derivedFromRuntime`
+ * field, which #5568 found hardcoded `true` server-side. That half is fixed;
+ * this type is the consumer that makes the flag mean something — without it
+ * a declared 2-region pair and an observed 2-region pair render identically.
+ */
+type PlacementSource = 'runtime' | 'declared' | 'none'
+
+/** The chip copy per provenance. Never prints a source it cannot back. */
+const PLACEMENT_SOURCE_LABEL: Record<PlacementSource, string> = {
+  runtime: 'runtime-observed',
+  declared: 'declared · not observed',
+  none: 'no source',
+}
+
 export function TopologyTab({
   sovereignId,
   applicationName,
@@ -156,6 +181,24 @@ export function TopologyTab({
     return Array.isArray(t) ? (t as PlacementTarget[]) : []
   }, [placementQ.data])
 
+  // #5568 — `derivedFromRuntime` is the endpoint's PROVENANCE flag: true only
+  // when the live k8s cache was actually queried. Until now NOTHING in the
+  // frontend read it (grep: one type declaration in catalog.api.ts and a pile
+  // of test mocks, zero production consumers), so the field asserted a
+  // discrimination the UI never made — the same "carries zero information"
+  // defect the server-side hardcode had, moved one hop downstream.
+  //
+  // It is load-bearing because the fallback chain below is keyed on
+  // EMPTINESS, not on provenance: whenever the runtime reports no targets the
+  // panel silently projects `spec.placement` / `status.perCluster` instead and
+  // renders the result identically. So a DECLARED intention and an OBSERVED
+  // fact reach the same Pattern chip with nothing to tell them apart — which
+  // is how a 2-region pair renders over a 1-region runtime (#5513).
+  //
+  // Null response = the endpoint was unreachable (getApplicationPlacement
+  // returns null on !res.ok), which is not a runtime observation either.
+  const runtimeWasConsulted = placementQ.data?.derivedFromRuntime === true
+
   // Pull the Blueprint card for placementCapability (gates >1 Primary).
   const blueprintRef = app?.spec?.blueprintRef
   const blueprintQ = useQuery({
@@ -188,12 +231,24 @@ export function TopologyTab({
   //      explicitly chose in the editor (used pre-rollout / when the data
   //      plane is unavailable).
   //   3. legacy status.targets / mode+regions projection.
-  const targets: PlacementTarget[] = useMemo(() => {
-    if (runtimeTargets.length > 0) return runtimeTargets
+  //
+  // #5568 — the resolver now also reports WHICH rung it landed on, because the
+  // rung is the provenance: rung 1 is observed, rungs 2 and 3 are declared.
+  // The panel renders that distinction instead of presenting all three the
+  // same way.
+  const resolved: { targets: PlacementTarget[]; source: PlacementSource } = useMemo(() => {
+    // Rung 1 is only an OBSERVATION when the endpoint says a runtime was
+    // actually consulted (#5568). If it reports derivedFromRuntime:false the
+    // targets did not come from live state, so they are not treated as such.
+    if (runtimeTargets.length > 0 && runtimeWasConsulted) {
+      return { targets: runtimeTargets, source: 'runtime' as const }
+    }
+    const declared = (t: PlacementTarget[]) => ({ targets: t, source: 'declared' as const })
+    if (runtimeTargets.length > 0) return declared(runtimeTargets)
     const specPlacement = app?.spec?.placement
     if (specPlacement && typeof specPlacement === 'object') {
       const t = (specPlacement as Record<string, unknown>).targets
-      if (Array.isArray(t) && t.length > 0) return t as PlacementTarget[]
+      if (Array.isArray(t) && t.length > 0) return declared(t as PlacementTarget[])
     }
     // Legacy fallback: project from status.targets (recon rollup), else
     // from the legacy mode + regions.
@@ -230,11 +285,11 @@ export function TopologyTab({
           } as PlacementTarget
         })
         .filter((t): t is PlacementTarget => t !== null)
-      if (effective.length > 0) return effective
+      if (effective.length > 0) return declared(effective)
     }
     const statusTargets = status.targets
     if (Array.isArray(statusTargets) && statusTargets.length > 0) {
-      return statusTargets as PlacementTarget[]
+      return declared(statusTargets as PlacementTarget[])
     }
     const statusRegions = (status.regions ?? []) as RegionStatus[]
     // status.placement is an OBJECT on a real (#3373/#3969) controller; only
@@ -246,8 +301,15 @@ export function TopologyTab({
           ? status.placement
           : ''
     const regions = Array.isArray(app?.spec?.regions) ? app!.spec!.regions! : statusRegions.map((r) => r.name)
-    return targetsFromLegacy({ mode, regions, statusRegions })
-  }, [app, runtimeTargets])
+    const legacy = targetsFromLegacy({ mode, regions, statusRegions })
+    // Nothing anywhere — an empty list is neither observed nor declared, and
+    // derivePattern renders it as `not reported` (#5515). Labelling it
+    // "declared" would assert a desired state that was never written.
+    return legacy.length > 0 ? declared(legacy) : { targets: legacy, source: 'none' as const }
+  }, [app, runtimeTargets, runtimeWasConsulted])
+
+  const targets: PlacementTarget[] = resolved.targets
+  const placementSource: PlacementSource = resolved.source
 
   const pattern = useMemo(() => derivePattern(targets), [targets])
 
@@ -574,6 +636,31 @@ export function TopologyTab({
             >
               {patternLabel(pattern)}
             </span>
+            {/* #5568 — the PROVENANCE of the targets this pattern was derived
+                from. `derivedFromRuntime` exists to make exactly this
+                distinction and had no consumer, so a declared 2-region pair
+                and an observed one rendered identically. Only the runtime rung
+                is allowed to read as observed. */}
+            {pattern !== PATTERN_NOT_REPORTED && (
+              <>
+                {' · '}
+                <span
+                  className={
+                    placementSource === 'runtime'
+                      ? 'text-[var(--color-text-dim)]'
+                      : 'font-semibold text-yellow-400'
+                  }
+                  data-testid="topology-tab-placement-source"
+                  title={
+                    placementSource === 'runtime'
+                      ? 'Derived from live runtime state observed in the region clusters.'
+                      : 'Projected from the DECLARED placement (spec/status). No live runtime observation backs this — it is desired state, not observed state.'
+                  }
+                >
+                  {PLACEMENT_SOURCE_LABEL[placementSource]}
+                </span>
+              </>
+            )}
           </span>
         </div>
 

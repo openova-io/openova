@@ -1047,3 +1047,155 @@ describe('TopologyTab — #4886 bootstrap-HR DR off the live Continuum CR', () =
     expect(screen.queryByTestId('topology-tab-dr-switchover')).toBeNull()
   })
 })
+
+describe('TopologyTab — #5568 derivedFromRuntime is consumed, not discarded', () => {
+  /**
+   * #5568 found `derivedFromRuntime` hardcoded `true` on every return path of
+   * GET /applications/{name}/placement — a provenance flag that could not
+   * fail. PR #5683 fixed the server half. The client half was still missing:
+   * a repo-wide grep for the field found ONE production reference (the type
+   * declaration in catalog.api.ts) and a pile of test mocks. Nothing read it.
+   *
+   * That mattered because the fallback chain below the runtime rung is keyed
+   * on EMPTINESS, not provenance: whenever the runtime reports no targets the
+   * panel silently projects `spec.placement` / `status.perCluster` and renders
+   * the result through the same Pattern chip. So a DECLARED two-region pair
+   * and an OBSERVED two-region pair were pixel-identical — the #5513 shape,
+   * and the #5731 class: a surface reporting a state it did not observe.
+   *
+   * Both directions are asserted. The declared cases alone would pass against
+   * a component that always printed "declared"; the runtime control alone is
+   * what the pre-fix tree already satisfied.
+   */
+  beforeEach(() => {
+    getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+  })
+
+  it('runtime-observed targets are labelled runtime-observed (control — must not always say declared)', async () => {
+    getApplicationPlacement.mockResolvedValue({
+      targets: [
+        { region: 'me-east-215-a', cluster: 'dep-x', vcluster: 'mgmt', role: 'Primary' },
+        { region: 'me-east-215-b', cluster: 'dep-x-b', vcluster: 'mgmt', role: 'Primary' },
+      ],
+      derivedFromRuntime: true,
+    })
+
+    render(
+      withProviders(
+        <TopologyTab sovereignId="dep-x" applicationName="grafana" namespace="mgmt" isBootstrap />,
+      ),
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-placement-source')).toBeTruthy()
+    })
+    expect(screen.getByTestId('topology-tab-placement-source').textContent).toBe('runtime-observed')
+    expect(screen.getByTestId('topology-tab-pattern').textContent).toBe('active-active')
+  })
+
+  it('the no-data-plane response (derivedFromRuntime:false) must NOT render its spec projection as observed', async () => {
+    // The #5568 sharp end: k8sCache==nil returns 200 + targets:[] +
+    // derivedFromRuntime:false. No runtime was consulted. The panel still
+    // renders SOMETHING (the declared spec) — it must say so.
+    getApplicationPlacement.mockResolvedValue({ targets: [], derivedFromRuntime: false })
+    getApplicationStatus.mockResolvedValue({
+      name: 'shared-pg',
+      namespace: 'shared-data',
+      spec: {
+        placement: {
+          targets: [
+            { region: 'me-east-215-a', cluster: 'c-a', vcluster: 'host', role: 'Primary' },
+            { region: 'me-east-215-b', cluster: 'c-b', vcluster: 'host', role: 'Standby', standbyType: 'Hot' },
+          ],
+        },
+      },
+      status: {},
+    })
+
+    render(
+      withProviders(<TopologyTab sovereignId="dep-y" applicationName="shared-pg" namespace="shared-data" />),
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-placement-source')).toBeTruthy()
+    })
+    // The pattern still renders — the operator keeps their declared view.
+    expect(screen.getByTestId('topology-tab-pattern').textContent).toBe('active-hot-standby')
+    // But it is NOT presented as an observation.
+    const source = screen.getByTestId('topology-tab-placement-source').textContent ?? ''
+    expect(source).not.toBe('runtime-observed')
+    expect(source).toContain('declared')
+  })
+
+  it('a runtime that returned targets but admitted derivedFromRuntime:false is still not an observation', async () => {
+    // Provenance beats non-emptiness: a populated list from a response that
+    // says no runtime was consulted is a projection, whatever its length.
+    getApplicationPlacement.mockResolvedValue({
+      targets: [
+        { region: 'me-east-215-a', cluster: 'c-a', vcluster: 'host', role: 'Primary' },
+        { region: 'me-east-215-b', cluster: 'c-b', vcluster: 'host', role: 'Standby', standbyType: 'Hot' },
+      ],
+      derivedFromRuntime: false,
+    })
+
+    render(
+      withProviders(<TopologyTab sovereignId="dep-y" applicationName="shared-pg" namespace="shared-data" />),
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-placement-source')).toBeTruthy()
+    })
+    expect(screen.getByTestId('topology-tab-placement-source').textContent).not.toBe('runtime-observed')
+  })
+
+  it('a runtime observation that found NOTHING must not let the declared spec pose as observed', async () => {
+    // derivedFromRuntime:true + targets:[] — the runtime WAS read and genuinely
+    // holds nothing. The chain falls back to the declared spec (so the operator
+    // still sees their intent), but that intent is not an observation.
+    getApplicationPlacement.mockResolvedValue({ targets: [], derivedFromRuntime: true })
+    getApplicationStatus.mockResolvedValue({
+      name: 'uatwalk-ahs',
+      namespace: 'uatcorp',
+      spec: {
+        placement: {
+          targets: [
+            { region: 'me-east-215-a', cluster: 'c-a', vcluster: 'host', role: 'Primary' },
+            { region: 'me-east-215-b', cluster: 'c-b', vcluster: 'host', role: 'Standby', standbyType: 'Hot' },
+          ],
+        },
+      },
+      status: {},
+    })
+
+    render(
+      withProviders(<TopologyTab sovereignId="dep-y" applicationName="uatwalk-ahs" namespace="uatcorp" />),
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-placement-source')).toBeTruthy()
+    })
+    expect(screen.getByTestId('topology-tab-placement-source').textContent).not.toBe('runtime-observed')
+  })
+
+  it('an un-derivable pattern prints no provenance chip at all (nothing to attribute)', async () => {
+    getApplicationPlacement.mockResolvedValue({ targets: [], derivedFromRuntime: false })
+    getApplicationStatus.mockResolvedValue({
+      name: 'cilium',
+      namespace: 'kube-system',
+      spec: {},
+      status: {},
+    })
+
+    render(
+      withProviders(
+        <TopologyTab sovereignId="dep-z" applicationName="cilium" namespace="kube-system" isBootstrap />,
+      ),
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-placement-empty')).toBeTruthy()
+    })
+    expect(screen.getByTestId('topology-tab-pattern').textContent).toBe('not reported')
+    expect(screen.queryByTestId('topology-tab-placement-source')).toBeNull()
+  })
+})
