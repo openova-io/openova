@@ -86,18 +86,35 @@ func TestDefaultedParameters_StalwartTenantExplicitValuesWin(t *testing.T) {
 	}
 	got := defaultedParameters("bp-stalwart-tenant", "singleton", "hw292.omani.works", "uatco", "console.uatco.omani.homes", explicit)
 
-	domain := got["domain"].(map[string]interface{})
+	// Checked assertions, matching this file's first test. An unchecked
+	// `.(map[string]interface{})` here panics the whole test BINARY the moment
+	// the stamper regresses to a no-op, and Go abandons every test that had not
+	// yet run — the six siblings below reported nothing at all. A regression
+	// must fail this test, not silence the suite.
+	domain, ok := got["domain"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("domain must be a map, got %#v — the stamper dropped it entirely", got["domain"])
+	}
 	if domain["primary"] != "pinned.example" {
 		t.Fatalf("a caller-pinned domain.primary must NOT be overwritten, got %#v", domain["primary"])
 	}
-	keycloak := got["keycloak"].(map[string]interface{})
+	keycloak, ok := got["keycloak"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("keycloak must be a map, got %#v — the stamper dropped it entirely", got["keycloak"])
+	}
 	if keycloak["realmURL"] != "https://auth.pinned.example/realms/org-pinned" {
 		t.Fatalf("a caller-pinned keycloak.realmURL must NOT be overwritten, got %#v", keycloak["realmURL"])
 	}
 	// ingress.webmail.host was NOT explicitly pinned, so the stamp still
 	// lands alongside the preserved explicit values.
-	ingress := got["ingress"].(map[string]interface{})
-	webmail := ingress["webmail"].(map[string]interface{})
+	ingress, ok := got["ingress"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("ingress must be stamped even when domain/keycloak are pinned, got %#v", got["ingress"])
+	}
+	webmail, ok := ingress["webmail"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("ingress.webmail must be a map, got %#v", ingress["webmail"])
+	}
 	if webmail["host"] != "mail.uatco.omani.homes" {
 		t.Fatalf("ingress.webmail.host must still be stamped when not explicitly pinned, got %#v", webmail["host"])
 	}
