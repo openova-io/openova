@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T11:15:06Z` |
+| Last refreshed | `2026-08-06T11:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -312,6 +312,7 @@ flowchart LR
 | 2026-08-06T09:44 | [#5761](https://github.com/openova-io/openova/pull/5761) | #5741 | ci(#5741): wire PDM Postgres integration + widen playwright- |
 | 2026-08-06T08:41 | [#5760](https://github.com/openova-io/openova/pull/5760) | #2879 | feat(ci): umbrella-republish gate for platform/products char |
 | 2026-08-06T08:32 | [#5758](https://github.com/openova-io/openova/pull/5758) | #817 | fix(deploy-bot): make Chart.yaml version bump atomic and for |
+| 2026-08-06T11:23 | [#5757](https://github.com/openova-io/openova/pull/5757) | #5459 | fix(bp-openbao): SSO landing re-validates a cached token bef |
 | 2026-08-06T07:34 | [#5756](https://github.com/openova-io/openova/pull/5756) | #5650 | fix(cutover): step-08 gains a Crossplane Provider PACKAGE ho |
 | 2026-08-06T07:33 | [#5755](https://github.com/openova-io/openova/pull/5755) | #5615 | fix(catalyst-api): stamp domain/keycloak parameters for a pe |
 | 2026-08-06T07:33 | [#5754](https://github.com/openova-io/openova/pull/5754) | #5615 | fix(stalwart-tenant): stop baking chart version into the imm |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T02:07 | [#5727](https://github.com/openova-io/openova/pull/5727) | #5434 | docs(uat): re-walk 14 rows stranded on dead-env evidence — 2 |
 | 2026-08-06T02:19 | [#5726](https://github.com/openova-io/openova/pull/5726) | #5612 | test(newapi): bind the #5612 session-secret carrier to the S |
 | 2026-08-06T02:01 | [#5725](https://github.com/openova-io/openova/pull/5725) | #5571 | fix(catalyst-ui): /k8s/stream fold collapsed both regions in |
-| 2026-08-06T01:21 | [#5724](https://github.com/openova-io/openova/pull/5724) | #5616 | fix(api,ui): #5616 refuse a placement vCluster tier this Sov |
 
 ---
 
