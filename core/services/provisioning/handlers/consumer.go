@@ -1309,27 +1309,7 @@ func (h *Handler) startProvisioning(ctx context.Context, tenantID, orderID, plan
 	}
 	sort.Strings(depSlugs)
 
-	steps := []store.ProvisionStep{
-		{Name: "Creating Organization", Status: "pending"},
-		{Name: "Committing manifests to Git", Status: "pending"},
-		{Name: "Provisioning vCluster", Status: "pending"},
-	}
-	for _, dep := range depSlugs {
-		steps = append(steps, store.ProvisionStep{
-			Name:   fmt.Sprintf("Installing %s (dependency)", dep),
-			Status: "pending",
-		})
-	}
-	for _, appID := range apps {
-		steps = append(steps, store.ProvisionStep{
-			Name:   fmt.Sprintf("Deploying %s", appDisplayName(appNames, appID)),
-			Status: "pending",
-		})
-	}
-	steps = append(steps,
-		store.ProvisionStep{Name: "Configuring TLS certificates", Status: "pending"},
-		store.ProvisionStep{Name: "Running health checks", Status: "pending"},
-	)
+	steps := buildProvisionSteps(depSlugs, apps, appNames)
 
 	provision := &store.Provision{
 		TenantID:  tenantID,
@@ -1963,4 +1943,40 @@ func (h *Handler) publishEvent(_ context.Context, eventType, tenantID string, da
 	if err := h.Producer.Publish(pubCtx, topicProvisionEvents, event); err != nil {
 		slog.Error("failed to publish event", "type", eventType, "error", err)
 	}
+}
+
+// buildProvisionSteps returns the provisioning timeline exactly as the funnel
+// draws it, for the given dependency slugs and application ids.
+//
+// Extracted from startProvisioning for ONE reason (#5769): the #5646 guard
+// asserting no banned term reaches a customer's screen had no producer to call,
+// so it transcribed this list into the test file. A transcript cannot detect a
+// change to the thing it transcribes — putting "Creating tenant" back into the
+// producer left that guard green. The guard now calls this function, so the
+// names it checks are the names that ship.
+//
+// Pure: no receiver, no I/O, no clock. The caller resolves depSlugs/appNames
+// from the catalog first, which is the part that needs a cluster.
+func buildProvisionSteps(depSlugs, apps []string, appNames map[string]string) []store.ProvisionStep {
+	steps := []store.ProvisionStep{
+		{Name: "Creating Organization", Status: "pending"},
+		{Name: "Committing manifests to Git", Status: "pending"},
+		{Name: "Provisioning vCluster", Status: "pending"},
+	}
+	for _, dep := range depSlugs {
+		steps = append(steps, store.ProvisionStep{
+			Name:   fmt.Sprintf("Installing %s (dependency)", dep),
+			Status: "pending",
+		})
+	}
+	for _, appID := range apps {
+		steps = append(steps, store.ProvisionStep{
+			Name:   fmt.Sprintf("Deploying %s", appDisplayName(appNames, appID)),
+			Status: "pending",
+		})
+	}
+	return append(steps,
+		store.ProvisionStep{Name: "Configuring TLS certificates", Status: "pending"},
+		store.ProvisionStep{Name: "Running health checks", Status: "pending"},
+	)
 }
