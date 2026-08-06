@@ -218,12 +218,16 @@ jobs:
           MARKETPLACE_BASE_URL: http://localhost:4321
           CI: '1'
         run: |
-          set -o pipefail
+          # `set +e` / `${PIPESTATUS[0]}` / `set -e` — NOT `set -o
+          # pipefail; ...; rc=$?`. GH Actions runs `run:` blocks as
+          # `bash -e {0}`; with pipefail alone, a failing `npx playwright
+          # test | tee` aborts the script right there under errexit and
+          # `rc=$?` never executes. Matches catalyst-build.yaml's own
+          # G110-followup gate, which got this right already.
+          set +e
           npx playwright test --reporter=list 2>&1 | tee /tmp/marketplace-pw.log
-          rc=$?
-          # `rc` captured immediately after the tee'd command, before any
-          # other command could reset $? — see the matching comment in
-          # test-ungated-trees.yaml's go test steps for why this matters.
+          rc=${PIPESTATUS[0]}
+          set -e
           specs=$(find playwright -iname '*.spec.ts' | wc -l)
           passed=$(grep -oE '[0-9]+ passed' /tmp/marketplace-pw.log | tail -1 | grep -oE '[0-9]+' || true)
           failed=$(grep -oE '[0-9]+ failed' /tmp/marketplace-pw.log | tail -1 | grep -oE '[0-9]+' || true)
@@ -348,12 +352,18 @@ jobs:
           PLAYWRIGHT_BASEPATH: /
           CI: '1'
         run: |
-          set -o pipefail
+          # `set +e` / `${PIPESTATUS[0]}` / `set -e` — see the marketplace-
+          # e2e job above for why `set -o pipefail; ...; rc=$?` is dead
+          # code under GH Actions' default `bash -e` shell. This is not
+          # theoretical here: it is EXACTLY the bug that made the KNOWN_RED
+          # case statement below never run on this job's first push — every
+          # quarantined spec still failed the check because the script died
+          # at the `npx playwright test | tee` line before `rc=$?` (and
+          # everything after it) ever executed.
+          set +e
           npx playwright test "e2e/${{ matrix.spec }}.spec.ts" --reporter=list 2>&1 | tee /tmp/bootstrap-ui-pw.log
-          rc=$?
-          # `rc` captured immediately after the tee'd command, before any
-          # other command could reset $? — see the matching comment in
-          # test-ungated-trees.yaml's go test steps for why this matters.
+          rc=${PIPESTATUS[0]}
+          set -e
           passed=$(grep -oE '[0-9]+ passed' /tmp/bootstrap-ui-pw.log | tail -1 | grep -oE '[0-9]+' || true)
           failed=$(grep -oE '[0-9]+ failed' /tmp/bootstrap-ui-pw.log | tail -1 | grep -oE '[0-9]+' || true)
           echo "::notice::e2e/${{ matrix.spec }}.spec.ts — ${passed:-0} passed, ${failed:-0} failed"

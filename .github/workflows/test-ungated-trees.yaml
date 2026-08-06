@@ -128,9 +128,22 @@ jobs:
       - name: go test
         working-directory: ${{ matrix.module }}
         run: |
-          set -o pipefail
+          # `set +e` around the command that is EXPECTED to sometimes fail,
+          # then `${PIPESTATUS[0]}` (not a bare `$?` after `set -o
+          # pipefail`), then `set -e` again — mirrors catalyst-build.yaml's
+          # own G110-followup gate exactly. Reason this matters and is not
+          # decoration: GitHub Actions runs `run:` blocks as `bash -e {0}`
+          # by default. `set -o pipefail; go test ... | tee ...; rc=$?`
+          # LOOKS like it captures the real exit code, but under `-e` the
+          # pipeline's own non-zero (pipefail-derived) status aborts the
+          # script the instant the pipe finishes — `rc=$?` never runs. That
+          # exact shape shipped in the sibling playwright-e2e.yml jobs and
+          # silently defeated their entire KNOWN_RED quarantine logic; not
+          # hypothetical here either.
+          set +e
           go test -count=1 -v ./... 2>&1 | tee /tmp/out.txt
-          rc=$?
+          rc=${PIPESTATUS[0]}
+          set -e
           n=$(grep -c '^--- PASS' /tmp/out.txt || true)
           s=$(grep -c '^--- SKIP' /tmp/out.txt || true)
           echo "::notice::${{ matrix.module }} ran ${n} test functions, skipped ${s}"
@@ -144,13 +157,11 @@ jobs:
             echo "::error::${{ matrix.module }} reported zero executed tests — the suite vanished or stopped being discovered; go test exits 0 in that case, so this check is what catches it."
             exit 1
           fi
-          # `rc` captured immediately after the tee'd command, BEFORE any
-          # other command could reset $?. Without this, a module with e.g.
-          # 40 passes + 1 genuine `--- FAIL` would satisfy n>0 and s==0 above
-          # and this step would exit 0 anyway — a real regression hidden by
-          # the very checks meant to catch a vanished suite. Checked last
-          # (not first) so the notices/warnings above still print before the
-          # step dies.
+          # A module with e.g. 40 passes + 1 genuine `--- FAIL` would
+          # satisfy n>0 and s==0 above and this step would exit 0 anyway —
+          # a real regression hidden by the very checks meant to catch a
+          # vanished suite. Checked last (not first) so the notices/
+          # warnings above still print before the step dies.
           if [ "${rc}" -ne 0 ]; then
             echo "::error::${{ matrix.module }} go test exited ${rc} — see the FAIL output above."
             exit "${rc}"
@@ -202,9 +213,13 @@ jobs:
       - name: go test
         working-directory: core/pool-domain-manager
         run: |
-          set -o pipefail
+          # `set +e` / `${PIPESTATUS[0]}` / `set -e` — see the go-modules
+          # job's comment above for why a bare `set -o pipefail; ...; rc=$?`
+          # is dead code under GH Actions' default `bash -e` shell.
+          set +e
           go test -count=1 -v ./... 2>&1 | tee /tmp/out.txt
-          rc=$?
+          rc=${PIPESTATUS[0]}
+          set -e
           n=$(grep -c '^--- PASS' /tmp/out.txt || true)
           s=$(grep -c '^--- SKIP' /tmp/out.txt || true)
           echo "::notice::core/pool-domain-manager ran ${n} test functions, skipped ${s}"
@@ -217,12 +232,10 @@ jobs:
             echo "::error::core/pool-domain-manager skipped ${s} test function(s) even though PDM_TEST_DSN is set — the Postgres service container or DSN plumbing is broken."
             exit 1
           fi
-          # `rc` captured immediately after the tee'd command (see the
-          # matching comment in the go-modules job above) — without this, a
-          # genuine `--- FAIL` in the reservation logic would sit alongside
-          # 186 passes, satisfy n>0 and s==0, and this step would exit 0
-          # despite a real regression in the subdomain-pool reservation
-          # semantics this job exists to cover.
+          # A genuine `--- FAIL` in the reservation logic would sit
+          # alongside 186 passes, satisfy n>0 and s==0, and this step would
+          # exit 0 despite a real regression in the subdomain-pool
+          # reservation semantics this job exists to cover.
           if [ "${rc}" -ne 0 ]; then
             echo "::error::core/pool-domain-manager go test exited ${rc} — see the FAIL output above."
             exit "${rc}"
