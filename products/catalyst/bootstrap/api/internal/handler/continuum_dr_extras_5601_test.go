@@ -97,6 +97,76 @@ func TestReplicationStatus_5601_HealthyCaughtUpCRIsPromotable(t *testing.T) {
 	}
 }
 
+// TestReplicationStatus_5601_FailedOverPhaseKeepsFailbackArmed guards the
+// SECOND ready phase, which nothing else did.
+//
+// `phaseReady` accepts "Healthy" OR "FailedOver", and the code comment above it
+// states why: FailedOver is the post-switchover steady state, and the failback
+// path has to stay armed there or an operator who switched over to region-B can
+// never switch back. That reasoning was recorded in prose and unguarded in
+// fact — deleting `|| phase == "FailedOver"` left all 8 tests in this file
+// green, so the failback control could regress to exactly this issue's symptom
+// ("no caught-up standby to promote" over a healthy pair) in the one state
+// where an operator most needs it.
+//
+// Same shape as the omission this issue documents: the response asserted the
+// opposite of the CR it claims to read.
+func TestReplicationStatus_5601_FailedOverPhaseKeepsFailbackArmed(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	cr := newContinuumUnstructured(
+		"dr-shared-pg", "shared-data", "shared-pg",
+		"me-east-215-a", []string{"me-east-215-b"})
+	// The post-switchover steady state: the controller has completed a
+	// failover, the pair is caught up, and the operator now wants to fail BACK.
+	setContinuumControllerStatus(cr, "FailedOver", true, 0)
+	primary, replica := newCNPGPairFixture("shared-pg", "shared-data", "me-east-215-a", "me-east-215-b")
+	factory, _ := fakeContinuumDynamicFactory(cr, primary, replica)
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-5601-failedover-failback")
+
+	resp := fetchReplicationStatus(t, h, dep.ID, "dr-shared-pg", "shared-data")
+
+	if !resp.ReplicaPromotable {
+		t.Errorf("replicaPromotable: got false want true for phase=FailedOver — " +
+			"FailedOver is the post-switchover steady state; disarming it strands the " +
+			"operator on the region they just failed over to, with no way back")
+	}
+	if resp.StandbyAvailable == nil || !*resp.StandbyAvailable {
+		t.Errorf("standbyAvailable: got %v want true", resp.StandbyAvailable)
+	}
+	if resp.WALLagSeconds != 0 {
+		t.Errorf("walLagSeconds: got %v want 0", resp.WALLagSeconds)
+	}
+}
+
+// TestReplicationStatus_5601_UnreconciledPhaseIsNotPromotable is the control
+// for the test above: widening the accepted phases must not become "any phase
+// is ready". A phase the controller has not reconciled to a ready state carries
+// no positive evidence, so it must stay NOT promotable — otherwise the fix for
+// the false-negative becomes a false-positive, and the Switchover button offers
+// to promote a standby that is still converging.
+func TestReplicationStatus_5601_UnreconciledPhaseIsNotPromotable(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	cr := newContinuumUnstructured(
+		"dr-shared-pg", "shared-data", "shared-pg",
+		"me-east-215-a", []string{"me-east-215-b"})
+	// standbyAvailable=true but the phase is NOT one of the reconciled-ready
+	// pair — positive standby evidence alone must not arm the control.
+	setContinuumControllerStatus(cr, "Progressing", true, 0)
+	primary, replica := newCNPGPairFixture("shared-pg", "shared-data", "me-east-215-a", "me-east-215-b")
+	factory, _ := fakeContinuumDynamicFactory(cr, primary, replica)
+	h.dynamicFactory = factory
+	dep := installUserAccessDeployment(t, h, "dep-5601-progressing-not-promotable")
+
+	resp := fetchReplicationStatus(t, h, dep.ID, "dr-shared-pg", "shared-data")
+
+	if resp.ReplicaPromotable {
+		t.Error("replicaPromotable: got true want false for phase=Progressing — " +
+			"a phase the controller has not reconciled to ready is not positive evidence, " +
+			"and offering to promote a converging standby is the inverse defect")
+	}
+}
+
 // The controller's lag spelling — status.replicationLagSeconds — must reach
 // the response's walLagSeconds AND a low reading must keep the pair
 // promotable.
@@ -235,4 +305,3 @@ func TestReplicationStatus_5601_LinkedPairExplicitFalseStillWins(t *testing.T) {
 		t.Errorf("replicaPromotable: got true want false — an explicit producer-written false must never be overridden by the derived reading")
 	}
 }
-
