@@ -145,10 +145,12 @@ import Layout from '../layouts/Layout.astro';
     // imports resolve. No new session mechanism is introduced.
     import { getMyOrgs, setActiveOrgConsoleHost } from '../lib/api';
     import { consoleLaunchHref } from '../lib/config';
-    // #5421 (UAT row 3): the owner pre-check gate lives in a plain module so it
-    // can be unit-tested. Ownership must NOT be gated on the marketplace-origin
-    // localStorage token — a cookie-borne owner has none there.
-    import { redeemOwnerGate } from '../lib/redeemOwnerGate';
+    // #5421 (UAT row 3): the WHOLE ownership decision — gate, server consult,
+    // and the REASON a visitor was funnelled — lives in a plain module so it can
+    // be unit-tested end-to-end. Testing only the gate hid the fact that
+    // 'consult-server' still funnels a cookie-borne owner, because the
+    // Organization mesh cannot authenticate that probe (see the module doc).
+    import { resolveRedeemDestination } from '../lib/redeemDestination';
     // #5634 (UAT row 92): the response-to-panel decision lives in a plain module
     // so it can be unit-tested; this page keeps only the DOM writes that need the
     // response body.
@@ -265,46 +267,36 @@ import Layout from '../layouts/Layout.astro';
 
       var token = '';
       try { token = localStorage.getItem('org-token') || ''; } catch (_) {}
-      // Gate on the opt-out only — NEVER on token presence (#5421). A cookie-borne
-      // owner has no marketplace-origin token; bailing on `!token` is exactly the
-      // bug that showed authed owners the anonymous funnel.
-      if (redeemOwnerGate({ token: token, skipConsoleRedirect: skipConsoleRedirect }) === 'funnel') {
-        runFunnel();
-        return;
-      }
+      var activeId = '';
+      try { activeId = localStorage.getItem('org-active-org') || ''; } catch (_) {}
 
-      // Consult the server: show a neutral shim (never the funnel) while we
-      // confirm ownership from the cookie-borne session, suppressing any funnel
-      // flash for an owner. A genuinely anonymous visitor 401s below and falls
-      // through to the funnel.
+      // Show a neutral shim (never the funnel) while the decision resolves, so
+      // an owner never sees a funnel flash. Cheap for the opt-out path, which
+      // resolves synchronously below.
       show('redeem-loading');
       var loadingCopy = document.querySelector('#redeem-loading p');
       if (loadingCopy) loadingCopy.textContent = 'One moment…';
 
-      let orgs;
-      try {
-        orgs = await getMyOrgs();
-      } catch (_) {
-        // Token present but ownership unconfirmable (expired session, API down):
-        // fall through to the public funnel rather than trapping the visitor.
+      // #5421 — the gate + the server consult + the pick, in one tested unit.
+      const outcome = await resolveRedeemDestination({
+        skipConsoleRedirect: skipConsoleRedirect,
+        token: token,
+        activeOrgId: activeId,
+        fetchOrgs: getMyOrgs,
+      });
+
+      if (outcome.destination === 'funnel') {
+        // Every non-owner path lands here: the demo/partner opt-out, a visitor
+        // with no live Organization, and — until #5421 closes — a cookie-borne
+        // owner whose probe the Organization mesh could not authenticate
+        // (`reason === 'probe-unauthenticated'`). Funnelling rather than
+        // trapping is deliberate: nobody is ever stuck on a dead shim.
         runFunnel();
         return;
       }
 
-      const live = Array.isArray(orgs)
-        ? orgs.filter((o) => o && o.status !== 'deleted')
-        : [];
-      if (live.length === 0) {
-        // Signed in but not yet an owner (mid-signup returning visitor).
-        runFunnel();
-        return;
-      }
-
-      // OWNER — hand off to the console dashboard. Prefer the active org, else
-      // the first live one, mirroring Layout.astro's pick + CheckoutStep.
-      let activeId = '';
-      try { activeId = localStorage.getItem('org-active-org') || ''; } catch (_) {}
-      const pick = (activeId && live.find((o) => o.id === activeId)) || live[0];
+      // OWNER — hand off to the console dashboard.
+      const pick = outcome.org;
       const slug = (pick && pick.slug) ? String(pick.slug) : '';
       // #4176 — stamp the SERVER-AUTHORITATIVE console host so the derivation
       // lands on the Org's chosen POOL TLD (console.<slug>.<pool-apex>) instead
