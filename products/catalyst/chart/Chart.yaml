@@ -3704,7 +3704,7 @@ name: bp-catalyst-platform
 # 1.4.1295 — #5467: bp-self-sovereign-cutover 0.1.168 -> 0.1.169 (harbor-prewarm
 #   GHCR-PAT log-leak fix). Bootstrap-kit slot-06a + catalog-seed pins lockstep.
 #   (re-serialized past main 1.4.1294 at rebase.)
-version: 1.4.1322
+version: 1.4.1323
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
@@ -3854,7 +3854,7 @@ version: 1.4.1322
 #   unsatisfiable on kom4dc (me-east-215-*), which kept the production
 #   Continuum seed unfireable. Backwards-compatible (all-letter labels
 #   still match). Flux CreateReplace flows it to live Sovereigns.
-appVersion: 1.4.1312
+appVersion: 1.4.1323
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
