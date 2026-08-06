@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T15:00:02Z` |
+| Last refreshed | `2026-08-06T15:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,9 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#5396](https://github.com/openova-io/openova/issues/5396) | bp-velero upgrade-crds pre-upgrade hook is Kyverno-rejected (no harbor-proxy ima | Other |
+| [#5401](https://github.com/openova-io/openova/issues/5401) | SECURITY: per-Org console /settings renders the Sovereign operator panel to an o | Other |
+| [#5404](https://github.com/openova-io/openova/issues/5404) | Operator-console vitest suite is red on main (68 failed / 1876 passed across 9 f | Other |
 | [#5406](https://github.com/openova-io/openova/issues/5406) | Harbor SSO session never holds: active/active across both regions behind one hos | Other |
 | [#5408](https://github.com/openova-io/openova/issues/5408) | Wizard component model: phantom ids in the deployment payload, cnpg+postgres inv | Other |
 | [#5409](https://github.com/openova-io/openova/issues/5409) | PinInput6 maxLength={6} silently truncates a pasted sign-in code before the past | Other |
@@ -244,7 +247,6 @@ flowchart LR
 | [#5489](https://github.com/openova-io/openova/issues/5489) | Four surfaces report a vCluster that does not exist (parent row hardcodes it, ku | Other |
 | [#5496](https://github.com/openova-io/openova/issues/5496) | Catalog per-field save silently reverts the previous save — query invalidated  | Other |
 | [#5499](https://github.com/openova-io/openova/issues/5499) | harbor-core crashloops on 28P01 blocking the cutover — region-b consumes a rol | Other |
-| [#5500](https://github.com/openova-io/openova/issues/5500) | Application install returns HTTP 200 for a rejected install (body says 400) —  | Other |
 | [#5501](https://github.com/openova-io/openova/issues/5501) | POST /api/v1/organizations reports state:done with all six steps done in 0s whil | Other |
 | [#5502](https://github.com/openova-io/openova/issues/5502) | org-controller reports reason=VClusterProvisioning for host-tier Orgs that never | Other |
 | [#5504](https://github.com/openova-io/openova/issues/5504) | bp-postgres: initdb owner and managed.roles mint the same role with different cr | Other |
@@ -275,7 +277,6 @@ flowchart LR
 | [#5611](https://github.com/openova-io/openova/issues/5611) | Cloud list: Volumes claims 0 while 50 EVS block volumes are attached (Storage Cl | Other |
 | [#5612](https://github.com/openova-io/openova/issues/5612) | newapi session expires in under an hour and the 'Continue with OpenOva SSO' reco | Other |
 | [#5613](https://github.com/openova-io/openova/issues/5613) | Dashboard treemap Organization layer is inert: /api/v1/fleet/treemap returns one | Other |
-| [#5614](https://github.com/openova-io/openova/issues/5614) | Sovereign rejects its OWN handover token: auth_handover.go hardcodes expectedIss | Other |
 | [#5616](https://github.com/openova-io/openova/issues/5616) | Application-create vCluster selector: all 5 options are consumed as a namespace  | Other |
 | [#5617](https://github.com/openova-io/openova/issues/5617) | Per-Org oidc-gate has a gateway-ingress CNP but no egress policy — under names | Other |
 | [#5623](https://github.com/openova-io/openova/issues/5623) | Region-kill: the three shared-pg DR pairs never promote — only bp-cnpg-pair sh | Other |
@@ -288,7 +289,6 @@ flowchart LR
 | [#5646](https://github.com/openova-io/openova/issues/5646) | Customer-facing provisioning timeline: banned term 'Creating tenant', steps comp | Other |
 | [#5649](https://github.com/openova-io/openova/issues/5649) | Org teardown reaps one producer's route name in one region — deleted Orgs leav | Other |
 | [#5650](https://github.com/openova-io/openova/issues/5650) | Post-cutover Sovereign fetches charts.loft.sh every 15m: step-08's deny-egress h | Other |
-| [#5661](https://github.com/openova-io/openova/issues/5661) | Sovereign wizard cannot fire a single-region prov — Single-region topology cho | Other |
 | [#5690](https://github.com/openova-io/openova/issues/5690) | §854/#5348: bp-stalwart-sovereign mail LoadBalancer Service omits explicit node | Other |
 | [#5720](https://github.com/openova-io/openova/issues/5720) | auth: POST /api/v1/auth/pin/issue creates an enabled Keycloak realm user for ANY | Other |
 | [#5728](https://github.com/openova-io/openova/issues/5728) | continuum: GET /continuum/{name} and its SSE stream fabricate a healthy DR recor | Other |
