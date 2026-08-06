@@ -90,7 +90,17 @@ jobs:
 
       - name: Run unit tests
         working-directory: core/controllers
-        run: go test -count=1 -race ./application/... ./internal/...
+        # #5515 — `./pkg/...` added. The paths filter above already TRIGGERS
+        # this workflow on `core/controllers/pkg/**`, but the test pattern
+        # excluded that tree, so the canonical placement model
+        # (pkg/apis/blueprint/v1alpha1 — DerivePattern + ValidatePlacement, the
+        # functions this controller's own fan-out calls) had its unit suite run
+        # by exactly ONE workflow in the repo: build-sandbox-controller.yaml,
+        # the build for the LEGACY Sandbox controller removed 2026-06-30. A
+        # model whose only CI coverage rides a deleted product is one file
+        # deletion away from having none. Trigger and assertion now cover the
+        # same tree.
+        run: go test -count=1 -race ./application/... ./internal/... ./pkg/...
 
       # On pull_request runs we stop here — image push requires
       # `packages: write` which only main-branch authors hold.
