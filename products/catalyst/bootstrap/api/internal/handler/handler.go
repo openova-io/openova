@@ -66,6 +66,20 @@ type Handler struct {
 	// runs. map[string]struct{}.
 	clusterMeshLoopActive sync.Map
 
+	// orphanReleaseWG tracks the releaseOrphanedReservation goroutines that
+	// restoreFromStore fires (#489). Those goroutines outlive the call that
+	// spawned them: after pdm.Release returns they clear the dep's PDM
+	// pointers and call persistDeployment, i.e. they WRITE to the store
+	// directory. Without a join point nothing can observe when that write
+	// has landed — which is #5765: the test asserted on the recorded
+	// Release call, returned, and t.TempDir()'s RemoveAll then raced the
+	// still-pending persist ("directory not empty").
+	//
+	// Waiting on the release alone is not sufficient and never was; the
+	// observable side effect the caller cares about is the persist. Use
+	// waitOrphanReleases to join.
+	orphanReleaseWG sync.WaitGroup
+
 	// pdm — pool-domain-manager client. Required in production; tests can
 	// inject a fake via NewWithPDM. The default URL points at the in-cluster
 	// service FQDN so a stock Catalyst-Zero deployment "just works" without

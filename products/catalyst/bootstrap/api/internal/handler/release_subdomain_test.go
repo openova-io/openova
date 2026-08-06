@@ -295,19 +295,23 @@ func TestRestoreFromStore_PodRestartOrphanReleasesPDMSlot(t *testing.T) {
 	// fires releaseOrphanedReservation as a goroutine.
 	h := NewWithStore(silentLogger(), fpdm, st)
 
-	// Wait briefly for the async release to fire — capped at 2s. Use
-	// the mutex-protected snapshot accessor; a direct read of
-	// fpdm.releases here races the goroutine's append (race detector
-	// flagged it on first CI run before the accessor was added).
-	deadline := time.Now().Add(2 * time.Second)
-	var releases []releaseCall
-	for time.Now().Before(deadline) {
-		releases = fpdm.snapshotReleases()
-		if len(releases) > 0 {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	// Join the async release goroutine rather than racing a timer (#5765).
+	//
+	// The previous version polled for up to 2s and broke the loop the
+	// instant the Release call was RECORDED. That is the wrong event: the
+	// goroutine continues past pdm.Release to clear the dep's PDM pointers
+	// and call persistDeployment — a WRITE into this test's t.TempDir().
+	// The test then returned and TempDir's RemoveAll raced that write,
+	// failing the whole package with "unlinkat ...: directory not empty"
+	// on loaded CI runners while passing locally. Waiting on the WaitGroup
+	// covers the goroutine's full body, so there is no timer to lose and
+	// nothing still writing when cleanup runs.
+	//
+	// Still read through the mutex-protected snapshot accessor: a direct
+	// read of fpdm.releases races the goroutine's append (the race
+	// detector flagged that before the accessor existed).
+	h.waitOrphanReleases()
+	releases := fpdm.snapshotReleases()
 
 	if got := len(releases); got != 1 {
 		t.Fatalf("expected 1 orphan PDM Release; got %d (%+v)", got, releases)
@@ -326,18 +330,12 @@ func TestRestoreFromStore_PodRestartOrphanReleasesPDMSlot(t *testing.T) {
 		t.Errorf("Status=%q, want failed (Pod-restart rewrite contract)", dep.Status)
 	}
 
-	// Wait for the success-path field clear (the goroutine clears the
-	// pointers + persists after a successful release).
-	deadline = time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		dep.mu.Lock()
-		cleared := dep.pdmPoolDomain == "" && dep.pdmSubdomain == ""
-		dep.mu.Unlock()
-		if cleared {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	// No wait needed for the success-path field clear: waitOrphanReleases
+	// above already joined the goroutine that clears the pointers and
+	// persists, so by here the clear has either happened or never will.
+	// Asserting directly turns a timing-dependent poll into a real
+	// assertion — if the clear regresses, this fails deterministically
+	// instead of flaking under load (#5765).
 	dep.mu.Lock()
 	defer dep.mu.Unlock()
 	if dep.pdmPoolDomain != "" || dep.pdmSubdomain != "" {
