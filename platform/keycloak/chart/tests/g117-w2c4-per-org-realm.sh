@@ -217,7 +217,10 @@ if [ "$secret_a" = "$secret_b" ]; then
   echo "FAIL: broker secrets are identical across Orgs (cross-Org isolation violation)" >&2
   exit 1
 fi
-echo "  PASS (acme secret=${secret_a:0:8}…  beta-org secret=${secret_b:0:8}…  distinct)"
+# #5467 — the assertion above already compared the two secrets in FULL; the
+# echo only has to report the verdict. Printing 8 characters of each adds no
+# diagnostic and discloses two derived broker secrets into public CI logs.
+echo "  PASS (acme len=${#secret_a}  beta-org len=${#secret_b}  distinct)"
 
 echo "[g117-w2c4-per-org-realm] Case 11: broker secret is deterministic across renders (idempotent)"
 out_re=$(helm template smoke "$CHART_DIR" \

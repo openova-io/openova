@@ -42,7 +42,11 @@ if [ -z "$PW" ] || [ "$PW" = "null" ]; then
   echo "FAIL 1: keycloak-admin Secret missing or empty admin-password"
   exit 1
 fi
-echo "PASS 1: keycloak-admin Secret renders admin-password (${PW:0:6}...)"
+# #5467 — length only, never a prefix. The rendered admin-password is a
+# deterministic function of the chart values, so a prefix printed here is a
+# prefix of the real Sovereign admin password for anyone who renders with the
+# real sovereignFQDN — and CI logs on a public repo are world-readable.
+echo "PASS 1: keycloak-admin Secret renders admin-password (len=${#PW})"
 
 # Test 2: resource-policy: keep so the password persists across uninstall
 KEEP="$(echo "$OUT" | yq 'select(.kind=="Secret" and .metadata.name=="keycloak-admin") | .metadata.annotations["helm.sh/resource-policy"]')"

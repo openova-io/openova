@@ -1322,7 +1322,9 @@ spec:
       #   create-side reconcile; deleted Orgs converge to fully-deleted in
       #   every region.
       #   (re-serialized past main 1.4.1290 to 1.4.1291 at rebase — #5364 #5649.)
-      version: 1.4.1319
+      # 1.4.1320 (#5467): catalog-seed cutover pin 0.1.173 — step-09 no longer
+      #   prints the tail of the minted Gitea token. Lockstep w/ slot-06a.
+      version: 1.4.1320
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

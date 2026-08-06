@@ -1,5 +1,37 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.173 (#5467) — STEP-09 STOPS PRINTING THE TAIL OF THE MINTED GITEA TOKEN.
+# #5467 was filed and fixed against step-03, which printed `pat=${ghcr_pat:0:8}`
+# — the first 8 characters of the GHCR PAT. The fix landed in 0.1.169. What the
+# issue did not have is the SECOND instance, three steps later in the same
+# chart:
+#
+#   09-gitea-token-mint-job.yaml:271
+#   echo "[gitea-token-mint] minted token: ...${new_token##???…???}"
+#
+# `##` with 35 literal `?` glob-strips the first 35 characters and emits the
+# LAST 5 of a freshly minted Gitea API token — the credential the host GitOps
+# loop authenticates with for the remainder of the Sovereign's life. Same
+# disclosure class as step-03, different spelling: no `:0:N`, no `cut -c`, no
+# `%.8s`. Every grep-shaped sweep for the step-03 idiom walks straight past it,
+# which is why it survived the 0.1.169 fix. The surrounding code is otherwise
+# careful to a fault — `# Extract the sha1 field WITHOUT printing it` sits 8
+# lines above, and the error paths sed-redact the token — and this one line was
+# quietly contradicting all of it on every cutover.
+#
+# Now: `minted token: set (len=${#new_token})`. That is the entire diagnostic
+# the line ever carried (did mint return a plausible sha1, or junk) at zero
+# bytes of disclosure — matching the step-03 branch and the mothership branch.
+#
+# Found by the new scripts/check-no-credential-prefix-logging.sh, which does not
+# grep. It binds every credential-carrying variable in an output statement to a
+# sentinel, EXECUTES the statement, and fails on a PARTIAL run of sentinel bytes
+# in the emitted output. Truncation by any mechanism — invented or not yet
+# invented — lands in the same net; full interpolation (a Secret NAME, a
+# `printf '%s:%s'` feeding skopeo --src-creds) does not, so the 531 legitimate
+# credential-named statements in this repo stay quiet. Step count unchanged
+# at 11; no values, RBAC or step-boundary change.
+#
 # 0.1.172 (#5650) — THE LOFT CHART-SOURCE PIVOT NOW COVERS EVERY REGION. 0.1.168
 # shipped step-06 Phase-2c as a PRIMARY-ONLY block: every kubectl in it ran
 # against the Job's own in-cluster context. Bootstrap-kit slot 60 installs the
@@ -3414,7 +3446,7 @@ name: bp-self-sovereign-cutover
 # copyAttempts,skopeoStaticURL,maxRefsPerCycle}. No RBAC change (the runner
 # ClusterRole already grants deployments/statefulsets/daemonsets/jobs/cronjobs
 # get+list+watch). Step count unchanged at 11.
-version: 0.1.172
+version: 0.1.173
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

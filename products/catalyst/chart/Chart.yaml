@@ -1,5 +1,11 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.1320 — #5467: catalog-seed bp-self-sovereign-cutover pin 0.1.172 ->
+#   0.1.173. Step-09 gitea-token-mint stopped emitting the LAST 5 chars of
+#   the freshly minted Gitea API token via ${new_token##???...???} — the same
+#   disclosure class as the step-03 GHCR-PAT prefix (#5467, fixed in 0.1.169)
+#   in a spelling no grep for that idiom would ever match. Seed-pin bump only
+#   on this side; lockstep w/ slot-06a (pin-sync gate).
 # 1.4.1312 — #5635 (APP half): grant catalyst-api `namespaces: create` +
 #   `services: create` so reconcileOrgAppSurfaceAcrossRegions can make a
 #   SECONDARY region serve the per-Org purchased-app hosts instead of

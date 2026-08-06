@@ -32,7 +32,10 @@ if [ -z "$GRAFANA_EMPTY" ] || [ "$GRAFANA_EMPTY" = "null" ]; then
   echo "FAIL 1: empty salt did not produce a derived secret"
   exit 1
 fi
-echo "PASS 1: empty-salt grafana secret = ${GRAFANA_EMPTY:0:8}..."
+# #5467 — length only. Tests 2 and 3 below compare the secrets in FULL, so the
+# prefix printed here was never load-bearing; it just put 8 characters of a
+# derived client secret into the log.
+echo "PASS 1: empty-salt grafana secret derived (len=${#GRAFANA_EMPTY})"
 
 # Test 2: Non-empty salt → different secret than empty
 GRAFANA_SALTED=$(extract_secret "rotation-2026-06-02" '.clients[] | select(.clientId=="grafana") | .secret')
@@ -40,7 +43,7 @@ if [ "$GRAFANA_SALTED" = "$GRAFANA_EMPTY" ]; then
   echo "FAIL 2: salt change did not rotate the derived secret"
   exit 1
 fi
-echo "PASS 2: salted grafana secret = ${GRAFANA_SALTED:0:8}... (differs from empty)"
+echo "PASS 2: salted grafana secret (len=${#GRAFANA_SALTED}) differs from empty-salt"
 
 # Test 3: Same salt value renders identically (idempotent)
 GRAFANA_SALTED_AGAIN=$(extract_secret "rotation-2026-06-02" '.clients[] | select(.clientId=="grafana") | .secret')
