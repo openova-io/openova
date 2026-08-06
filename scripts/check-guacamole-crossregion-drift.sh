@@ -227,8 +227,25 @@ echo "== bp-guacamole per-region read (namespace=${NAMESPACE}) =="
 i=0
 for kc in "${KUBECONFIGS[@]}"; do
   i=$((i + 1))
+  # APPLIED, not DESIRED. `.spec.chart.spec.version` is what the HelmRelease
+  # WANTS; `.status.history[0].chartVersion` is what Helm last actually
+  # installed. On hw292 (2026-08-06) region-a read spec=0.2.37 / applied=0.2.33
+  # with Ready=False "dependency 'flux-system/bp-cilium' is not ready" — the
+  # upgrade was pending, never applied. Reading spec made this script report
+  # UNEXPECTED-NEW ("every serving region already carries the fix") on an
+  # estate where BOTH regions were in fact running 0.2.33 — a textbook
+  # KNOWN-DRIFT it sent the walker away from. A desired version is not
+  # evidence of what is running (#5750).
   ver="$(kubectl --kubeconfig "${kc}" get hr bp-guacamole -n "${RELEASE_NAMESPACE}" \
-           -o jsonpath='{.spec.chart.spec.version}' 2>/dev/null || true)"
+           -o jsonpath='{.status.history[0].chartVersion}' 2>/dev/null || true)"
+  # Fall back to the desired pin ONLY when there is no install history at all
+  # (never installed). Labelled, because it is a weaker reading.
+  ver_src="applied"
+  if [ -z "${ver}" ]; then
+    ver="$(kubectl --kubeconfig "${kc}" get hr bp-guacamole -n "${RELEASE_NAMESPACE}" \
+             -o jsonpath='{.spec.chart.spec.version}' 2>/dev/null || true)"
+    [ -n "${ver}" ] && ver_src="desired-no-history"
+  fi
   ready="$(kubectl --kubeconfig "${kc}" get deploy guacamole-server -n "${NAMESPACE}" \
              -o jsonpath='{.status.readyReplicas}' 2>/dev/null || true)"
   ready_bit=0
@@ -236,7 +253,7 @@ for kc in "${KUBECONFIGS[@]}"; do
     ''|0) ready_bit=0 ;;
     *)    ready_bit=1 ;;
   esac
-  echo "  region ${i} (${kc}): chart=${ver:-<unreadable>} guacamole-server ready=${ready:-0}"
+  echo "  region ${i} (${kc}): chart=${ver:-<unknown>} (${ver_src}) guacamole-server ready=${ready_bit}"
   ROWS="${ROWS}${ver}"$'\t'"${ready_bit}"$'\n'
 done
 
