@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T20:30:04Z` |
+| Last refreshed | `2026-08-06T20:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-06T20:37 | [#5782](https://github.com/openova-io/openova/pull/5782) | #5567 | feat(guard): detect admission webhooks whose target Service  |
 | 2026-08-06T20:09 | [#5781](https://github.com/openova-io/openova/pull/5781) | #5598 | test(guacamole): guard the SSO permission-enrollment path (# |
 | 2026-08-06T19:01 | [#5780](https://github.com/openova-io/openova/pull/5780) | #5601 | test(continuum): guard the FailedOver failback phase, which  |
 | 2026-08-06T18:50 | [#5779](https://github.com/openova-io/openova/pull/5779) | #5640 | test(cutover): assert the Day-2 reconciler ships ARMED, not  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T06:33 | [#5748](https://github.com/openova-io/openova/pull/5748) | #960 | docs(uat): add live screenshot evidence for 19 funnel/orgs g |
 | 2026-08-06T06:36 | [#5747](https://github.com/openova-io/openova/pull/5747) | #2725 | docs(uat): screenshot SSO/meta/robustness evidence + re-walk |
 | 2026-08-06T06:27 | [#5746](https://github.com/openova-io/openova/pull/5746) | #960 | docs(uat): real screenshots for 30 hw292 topology/placement/ |
-| 2026-08-06T04:33 | [#5745](https://github.com/openova-io/openova/pull/5745) | #5738 | ci: auto-close guard read neither commit messages nor the pa |
 
 ---
 
