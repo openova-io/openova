@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-catalyst-platform
-# 1.4.1321 — #5439: catalog-seed bp-self-sovereign-cutover pin 0.1.173 ->
+# 1.4.1322 — #5439: catalog-seed bp-self-sovereign-cutover pin 0.1.173 ->
 #   0.1.174. Step-07 gains Phase 3e, the IMAGE-registry half of the
 #   post-cutover re-tether #5527 closed for CHART bases: the org-controller,
 #   org-services/provisioning and catalyst-api all emitted the MOTHERSHIP
@@ -3704,7 +3704,7 @@ name: bp-catalyst-platform
 # 1.4.1295 — #5467: bp-self-sovereign-cutover 0.1.168 -> 0.1.169 (harbor-prewarm
 #   GHCR-PAT log-leak fix). Bootstrap-kit slot-06a + catalog-seed pins lockstep.
 #   (re-serialized past main 1.4.1294 at rebase.)
-version: 1.4.1321
+version: 1.4.1322
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which

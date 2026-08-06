@@ -1322,12 +1322,16 @@ spec:
       #   create-side reconcile; deleted Orgs converge to fully-deleted in
       #   every region.
       #   (re-serialized past main 1.4.1290 to 1.4.1291 at rebase — #5364 #5649.)
-      # 1.4.1321 (#5439): catalog-seed cutover pin 0.1.174 — step-07 Phase 3e
+      # 1.4.1322 (#5439): catalog-seed cutover pin 0.1.174 — step-07 Phase 3e
       #   pivots the per-Org IMAGE registry host off the mothership Harbor.
-      #   Lockstep w/ slot-06a.
+      #   (re-serialized past main 1.4.1321 at rebase — the deploy-bot took
+      #   1.4.1321 for the c85b41e image sweep while this branch was rebasing;
+      #   same version + different content is the #5323 hollow-pin shape, which
+      #   every lockstep gate passes through because each tree is internally
+      #   consistent.) Lockstep w/ slot-06a.
       # 1.4.1320 (#5467): catalog-seed cutover pin 0.1.173 — step-09 no longer
       #   prints the tail of the minted Gitea token. Lockstep w/ slot-06a.
-      version: 1.4.1321
+      version: 1.4.1322
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
