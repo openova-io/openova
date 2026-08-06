@@ -1,0 +1,56 @@
+name: check-sovereign-daytwo-bootstrap-refuse
+
+# #5759 — assert scripts/sovereign-daytwo-bootstrap.sh REFUSES on a
+# cutoverComplete=true Sovereign instead of re-stamping the force-push that
+# reverts a completed cutover.
+#
+# WHY THIS EXISTS. Running `scripts/sovereign-daytwo-bootstrap.sh --apply` on
+# hw292 (dep 1c56518035a83e03, 2-region, cutoverComplete=true) on 2026-08-06
+# re-stamped step-01 (gitea-mirror), which force-pushed upstream
+# openova/openova onto this Sovereign's local Gitea mirror
+# (`git push --force ... refs/heads/*:refs/heads/*`) and silently discarded
+# step-06's durable HelmRepository-pivot commit. 62 of 69 region-a
+# HelmRepositories reverted to oci://ghcr.io/openova-io; step-06 had already
+# stripped the ghcr-pull credential (severance working as designed), so Flux
+# was left authenticating to a registry it deliberately no longer holds
+# credentials for. 44 of 72 HelmReleases went not-Ready, unrecoverable
+# in-cluster — the only remedy would be re-tethering the Sovereign, exactly
+# what cutover exists to prevent.
+#
+# This workflow runs scripts/tests/test-sovereign-daytwo-bootstrap-refuse.sh,
+# which proves the fix against the REAL historical script blob (via
+# `git show origin/main:...`, not a synthetic fixture — docs/PRINCIPLES.md
+# A18) and two vacuity controls: a genuinely pre-cutover Sovereign
+# (cutoverComplete=false) must still be a clean no-op, and an
+# unreadable/absent cutoverComplete must ALSO refuse (fail-closed).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/sovereign-daytwo-bootstrap.sh'
+      - 'scripts/tests/test-sovereign-daytwo-bootstrap-refuse.sh'
+      - '.github/workflows/check-sovereign-daytwo-bootstrap-refuse.yaml'
+  pull_request:
+    paths:
+      - 'scripts/sovereign-daytwo-bootstrap.sh'
+      - 'scripts/tests/test-sovereign-daytwo-bootstrap-refuse.sh'
+      - '.github/workflows/check-sovereign-daytwo-bootstrap-refuse.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    name: script refuses on cutoverComplete=true, exits clean on cutoverComplete=false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history — the self-test reads the REAL pre-#5759 script blob
+          # via `git show origin/main:scripts/sovereign-daytwo-bootstrap.sh`.
+          fetch-depth: 0
+
+      - name: Prove the script refuses for the real #5759 incident shape
+        run: bash scripts/tests/test-sovereign-daytwo-bootstrap-refuse.sh

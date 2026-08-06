@@ -3537,7 +3537,122 @@ name: bp-self-sovereign-cutover
 # render and drives it against a stub kubectl; RED on main (function absent),
 # GREEN here (16/16 assertions), including a case pinned to the live hw292
 # region-a digest-pinned provider-opentofu pivot verbatim.
-version: 0.1.175
+#
+# 0.1.176 (#5759, Refs #5640 #960) — the Day-2 delivery path stops being able
+# to REVERT a completed cutover.
+#
+# THE LIVE FAILURE. hw292 (dep 1c56518035a83e03, cutoverComplete=true since
+# 2026-08-03T08:12:04Z) ran `scripts/sovereign-daytwo-bootstrap.sh --apply` on
+# 2026-08-06, which re-stamps this chart's OWN step-01 (gitea-mirror) Job from
+# the PodSpec ConfigMap already on the cluster. Step-01's push is
+# `git push --force <local-gitea> refs/heads/*:refs/heads/* refs/tags/*:
+# refs/tags/*` against a FRESH bare clone of the public upstream repo — a raw
+# ref overwrite, not a merge. Step-06 (helmrepository-patches) had already
+# committed a durable "cutover: pivot N HelmRepository URLs to local Harbor"
+# commit onto that SAME local branch; that commit exists ONLY in this
+# Sovereign's Gitea and is never reachable from a fresh upstream clone, so the
+# force-push did not mask it, it DISCARDED it:
+#
+#   HelmRepository census, region-a: 62 -> oci://ghcr.io/openova-io (UPSTREAM)
+#                                      7 -> local registry
+#   HelmChart 'flux-system/flux-system-bp-cilium' not ready: failed to
+#     configure login options: no auth config for 'ghcr.io' in the
+#     docker-registry Secret 'ghcr-pull'
+#   44 of 72 HelmReleases not Ready.
+#
+# Step-06 had ALREADY stripped the ghcr-pull credential as part of cutover
+# severance (working exactly as designed — mirrorResync.enabled: false is the
+# documented MASTER SEVERANCE SWITCH), so the Sovereign was left
+# authenticating to a registry it deliberately no longer holds credentials
+# for, with NO in-cluster remedy: the only fix would be restoring the
+# stripped credential, i.e. re-tethering — exactly what cutover exists to
+# prevent. The environment could not self-heal and was lost.
+#
+# THE SAME DEFECT IN THE CHART ITSELF, more urgent than the script: this
+# release's own Day-2 reconciler (12-daytwo-harbor-pin-reconciler.yaml,
+# `daytwoReconciler.enabled: true` BY DEFAULT since #5640/0.1.170) runs the
+# IDENTICAL force-push, against the IDENTICAL local Gitea repo and branch, in
+# its CATALOG leg (`reconcile_catalog_once`) whenever an operator's one-shot
+# request names CATALOG post-cutover (the DOCUMENTED, in-band, RECOMMENDED
+# successor to the standalone script), or every cycle in
+# `daytwoReconciler.mode: warm`. That is a LIVE LATENT failure on every
+# cutover Sovereign already running >= 0.1.170, not a one-off script misuse.
+#
+# WHAT CHANGES.
+#
+# 1. REFUSE-BY-DEFAULT, both call sites. `reconcile_catalog_once()` now reads
+#    the cutover-status ConfigMap's cutoverComplete once per cycle
+#    (CUTOVER_COMPLETE, computed in reconcile_once()) and refuses its
+#    force-push outright unless it reads the LITERAL string 'false' — 'true',
+#    empty and unreadable are all treated as unsafe, fail-closed. There is no
+#    override knob: the mechanism cannot GUARANTEE the re-render preserves
+#    the pivot (a raw ref overwrite structurally cannot), so a flag would only
+#    move the same silent revert one step further from the operator's eyes.
+#    Blocked attempts are audited distinctly (`CATALOG blocked`, not
+#    `failed`) and counted in REQ_FAILED; CATALOG_STATUS stays OUT of
+#    publish_health() exactly as before (an event, not a durable state).
+#    scripts/sovereign-daytwo-bootstrap.sh gets the identical treatment and is
+#    reduced to a pure refusal (its Job-stamping path is now unreachable
+#    dead weight and has been removed) — see the script's own header for the
+#    full incident writeup.
+#
+# 2. A CONTINUOUS post-advance property assertion, `daytwoReconciler.
+#    sourceHostLint` (default true): `run_daytwo_source_host_lint()` runs
+#    EVERY reconcile cycle once cutoverComplete=true and asserts zero
+#    HelmRepository/GitRepository/OCIRepository resolve to a non-Sovereign
+#    host — the SAME host-classification shape and allowHosts list as
+#    step-08's egressTest.fluxSourceHostLint (single-source discipline, not a
+#    forked exception list), reused rather than re-derived. The difference
+#    from step-08's copy is WHEN it runs: that one fires ONCE, inside the
+#    600s deny-egress hold, torn down with it at the ORIGINAL cutover. This
+#    reconciler is a standing Deployment (#5157 — a CronJob's scheduler dies
+#    with its region on a region-kill), so its copy keeps watching for the
+#    Sovereign's ENTIRE post-cutover life — interval-independent — and
+#    catches a revert from ANY cause: this reconciler's own (now-refused)
+#    CATALOG leg, a sovereign-admin re-stamping an unfixed step-01 ConfigMap
+#    by hand via the script (chart-embedded fixes only protect a Sovereign
+#    already upgraded past 0.1.176), or a cause nobody has written yet.
+#    UNLIKE catalog leg status, a drift folds INTO publish_health() (0/1
+#    READY) — "the registry contract is silently broken" is a durable STATE,
+#    not a one-off event, and stays true every cycle until fixed. Gated the
+#    OPPOSITE way from item 1's refuse (requires the LITERAL 'true', not
+#    "not false") so an unmeasurable cutover state cannot manufacture a false
+#    drift report on a Sovereign that might still be mid-cutover.
+#
+# 3. VERDICT ON THE SIBLING (#5759 item 3), stated with evidence rather than
+#    assumed: `daytwoReconciler`'s CATALOG leg SHARES the defect — same
+#    refspec (`refs/heads/*:refs/heads/* refs/tags/*:refs/tags/*`), same
+#    target branch, same local Gitea repo, same force overwrite semantics —
+#    and is fixed the same way in this release (item 1 above). It is NOT a
+#    standing tether in the default posture (`mode: request`, no CATALOG
+#    scope open, dials nothing every 300s cycle); it fires only on an
+#    explicit operator request or in `mode: warm`.
+#
+# GUARDS. chart/tests/daytwo-catalog-leg.sh grows two scenarios (C8: an
+# explicit CATALOG request on a cutoverComplete=true Sovereign is BLOCKED,
+# not synced, zero egress, audited distinctly; C9: the identical request on
+# cutoverComplete=false is UNCHANGED from the pre-fix C2 shape — the guard is
+# a real condition, not an always-block) plus two vacuity inversions (the
+# refuse condition neutered reproduces the pre-fix sync-through exactly).
+# New chart/tests/daytwo-source-host-lint.sh (14 assertions) proves the drift
+# lint fails on a post-cutover drift and passes on a local source (the base
+# shape shared with step-08's lint), AND — the property unique to this file —
+# stays silent on the BYTE-IDENTICAL offending row pre-cutover / with an
+# unmeasurable cutover status, flipping only on cutoverComplete=true; RED
+# against the pre-0.1.176 chart (function does not exist), GREEN here.
+# scripts/tests/test-sovereign-daytwo-bootstrap-refuse.sh drives the REAL
+# pre-#5759 script blob via `git show origin/main:...` (not a synthetic
+# fixture — docs/PRINCIPLES.md A18) against an identical stub kubectl: RED —
+# the historical script stamps the Job; GREEN — the fixed script refuses;
+# plus the same two vacuity controls. No RBAC change (helmrepositories/
+# gitrepositories/ocirepositories get/list/watch was already granted
+# cluster-wide for step-08's use). Step count unchanged at 11 — this bump
+# touches the Day-2 reconciler and an out-of-chart operator script, not a
+# cutover step. New values: daytwoReconciler.sourceHostLint.{enabled}. Slot-06a
+# pin + blueprint.yaml + catalog-seed source.version + spec.version + the API
+# blueprints.json + the generated UI catalog move to 0.1.176 in lockstep
+# (Inviolable Principle #13).
+version: 0.1.176
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
