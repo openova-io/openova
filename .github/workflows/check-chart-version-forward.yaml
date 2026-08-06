@@ -1,0 +1,78 @@
+name: check-chart-version-forward
+
+# #5743 — assert a chart's `version:` can never move backward relative to
+# origin/main, and that `version == appVersion`, across a deploy-bot bump.
+#
+# WHY THIS EXISTS. Two independent deploy-bots (catalyst-build.yaml's Wave-
+# 5.48 step and services-build.yaml's own bump) raced to patch-bump
+# products/catalyst/chart/Chart.yaml `version:`, each computing "next" from a
+# value captured earlier in its own job rather than from origin/main at push
+# time. On a real push-conflict, catalyst-build.yaml's retry path (the shared
+# `deploy-bump` composite action's `-X theirs` cherry-pick — correct for a
+# last-writer-wins image tag, wrong for a monotonic counter) blindly
+# overwrote origin/main's ALREADY-HIGHER version with a stale, lower one:
+#
+#   04:06:32  a23de78d9  version=1.4.1325  appVersion=1.4.1325
+#   04:07:56  GHCR publishes 1.4.1325   (carries #5737's storage fix)
+#   04:08:28  b76f3ca7b  version=1.4.1324  appVersion=1.4.1325   <- BACKWARDS
+#   04:10:30  GHCR publishes 1.4.1324   (does NOT carry #5737's fix)
+#
+# The existing five-site lockstep guard (check-release-lockstep-writer.yaml)
+# does not catch this — it only asserts the five #817 sites agree WITH EACH
+# OTHER, never that the version moved forward relative to origin/main.
+# Self-consistent is not the same as correct (the #5741 distinction).
+#
+# scripts/bump-chart-version.sh + scripts/push-chart-version-bump.sh (now
+# called by BOTH deploy-bots) are the PREVENTIVE fix. This workflow is the
+# DETECTIVE backstop: it runs scripts/tests/test-chart-version-forward.sh,
+# which proves scripts/check-chart-version-forward.sh rejects the REAL
+# historical incident pair (not a synthetic `2.0.0 -> 1.0.0` fixture —
+# docs/PRINCIPLES.md A18: a guard proven only against synthetic input failed
+# to catch the very commit that motivated it) and that the fixed atomic
+# mechanism converges instead of repeating the incident under a real
+# concurrent push race against a bare repo.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/check-chart-version-forward.sh'
+      - 'scripts/bump-chart-version.sh'
+      - 'scripts/push-chart-version-bump.sh'
+      - 'scripts/tests/test-chart-version-forward.sh'
+      - '.github/workflows/catalyst-build.yaml'
+      - '.github/workflows/services-build.yaml'
+      - '.github/workflows/check-chart-version-forward.yaml'
+      - '.github/actions/deploy-bump/action.yaml'
+      - 'products/catalyst/chart/Chart.yaml'
+  pull_request:
+    paths:
+      - 'scripts/check-chart-version-forward.sh'
+      - 'scripts/bump-chart-version.sh'
+      - 'scripts/push-chart-version-bump.sh'
+      - 'scripts/tests/test-chart-version-forward.sh'
+      - '.github/workflows/catalyst-build.yaml'
+      - '.github/workflows/services-build.yaml'
+      - '.github/workflows/check-chart-version-forward.yaml'
+      - '.github/actions/deploy-bump/action.yaml'
+      - 'products/catalyst/chart/Chart.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    name: guard rejects the real #5743 incident, accepts a correct bump, converges under a real race
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history — the self-test extracts the ACTUAL Chart.yaml blob
+          # content from the real 215d6e4bf / a23de78d9 / b76f3ca7b commits
+          # (falling back to hardcoded values verified 2026-08-06 if a
+          # shallow clone or history rewrite ever makes them unreachable).
+          fetch-depth: 0
+
+      - name: Prove the guard goes RED for the real incident and GREEN once fixed
+        run: bash scripts/tests/test-chart-version-forward.sh

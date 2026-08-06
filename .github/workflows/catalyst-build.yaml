@@ -710,25 +710,30 @@ jobs:
           grep -E "image: \".*catalyst-(api|ui):" "${API_KUST_TPL}" "${UI_KUST_TPL}"
           grep -A1 "CATALYST_BUILD_SHA" "${API_TPL}" | head -2
 
-          # Wave 5.48 (#2272) — bump bp-catalyst-platform Chart.yaml patch
-          # version so Blueprint Release re-publishes the OCI artifact
-          # pointing at the bumped image SHAs. Without this bump, Blueprint
-          # Release skips re-publish (it only triggers on chart-content
-          # changes per blueprint-release.yaml:617-639) → Flux on every
-          # Sovereign sees the same chart version → no roll → Wave 5.44/
-          # 5.47 stuck on hw01 for 25+ minutes after merge before being
-          # surfaced. Surfaced live on hw01 2026-05-24T05:48Z.
-          CHART_YAML="products/catalyst/chart/Chart.yaml"
-          CUR_VER=$(grep -E '^version: 1\.4\.[0-9]+$' "${CHART_YAML}" | head -1 | awk '{print $2}')
-          if [ -z "${CUR_VER}" ]; then
-            echo "::error title=Wave 5.48 chart-bump failed::Could not parse version: from ${CHART_YAML}"
-            exit 1
-          fi
-          CUR_PATCH="${CUR_VER##*.}"
-          NEXT_PATCH=$((CUR_PATCH + 1))
-          NEXT_VER="1.4.${NEXT_PATCH}"
-          sed -i -E "s|^version: 1\.4\.[0-9]+\$|version: ${NEXT_VER}|" "${CHART_YAML}"
-          echo "Chart.yaml version bump: ${CUR_VER} -> ${NEXT_VER}"
+          # Wave 5.48 (#2272) used to bump bp-catalyst-platform Chart.yaml's
+          # `version:` right here, in the same working-tree pass as the image
+          # SHA edits above, then let it ride to origin/main bundled inside
+          # the "Commit and push manifest updates" step's ONE commit below.
+          #
+          # #5743 (2026-08-06): that in-place sed computed NEXT_VER ONCE from
+          # whatever this job's checkout happened to show, never touched
+          # `appVersion:` at all, and rode the generic `deploy-bump` composite
+          # action's push-conflict recovery — a cherry-pick with `-X theirs`,
+          # correct for a last-writer-wins image tag but wrong for a monotonic
+          # counter. On a real race against services-build.yaml's own
+          # Chart.yaml bump, that recovery path blindly overwrote origin/main's
+          # ALREADY-HIGHER version with this job's stale pre-computed number:
+          # commit b76f3ca7b landed version=1.4.1324 as a direct child of
+          # a23de78d9 (version=1.4.1325) — the higher-numbered, earlier-
+          # published 1.4.1325 artifact turned out to carry FEWER fixes than
+          # the "regressed" 1.4.1324 that published four minutes later.
+          #
+          # The version/appVersion bump now happens in its OWN dedicated,
+          # atomic step below ("Atomically bump Chart.yaml version"), driven
+          # by scripts/bump-chart-version.sh + scripts/push-chart-version-
+          # bump.sh — the SAME two scripts services-build.yaml now calls for
+          # its half of this same field, so the two deploy-bots can never
+          # diverge on how "next version" is computed again.
 
           # contabo's catalyst-platform Kustomization at
           # ./products/catalyst/chart/templates reconciles every 10 min
@@ -884,8 +889,51 @@ jobs:
             products/catalyst/chart/templates/api-deployment-kustomize.yaml
             products/catalyst/chart/templates/ui-deployment.yaml
             products/catalyst/chart/templates/ui-deployment-kustomize.yaml
-            products/catalyst/chart/Chart.yaml
           commit-message: "deploy: update catalyst images to ${{ needs.build-ui.outputs.sha_short }} (+ #2851 controller sweep)"
+
+      # ──────────────────────────────────────────────────────────────
+      # ATOMIC CHART VERSION BUMP (Refs #5743)
+      # ──────────────────────────────────────────────────────────────
+      # Runs as its OWN commit, deliberately decoupled from the image/
+      # template bump above: that field is legitimately last-writer-wins
+      # (whichever build's image tag lands last is correct) and stays on
+      # the generic `deploy-bump` composite action. Chart.yaml's
+      # `version:`/`appVersion:` pair is a MONOTONIC COUNTER shared with
+      # services-build.yaml's own bump of the same file — a different
+      # conflict-resolution policy is required, so it gets its own retry
+      # loop via the shared, independently-tested scripts:
+      #
+      #   scripts/bump-chart-version.sh        — read-modify-write: always
+      #     re-reads origin/main's CURRENT version+appVersion (never a
+      #     value snapshotted earlier in this job) and derives
+      #     next = max(version, appVersion) + 1, so it can never regress
+      #     either field and self-heals any pre-existing drift.
+      #   scripts/check-chart-version-forward.sh — the hard guard, called
+      #     internally by bump-chart-version.sh before it writes anything:
+      #     fails loudly unless the new version strictly exceeds BOTH old
+      #     fields and new version == new appVersion.
+      #   scripts/push-chart-version-bump.sh   — commits + pushes with a
+      #     5-attempt retry that resets to fresh origin/main and re-calls
+      #     bump-chart-version.sh on every attempt, so a losing race just
+      #     means "compute a still-higher number and try again" — there is
+      #     no stale intent commit anywhere for a conflict policy to fall
+      #     back on. Proven under a real concurrent race in
+      #     scripts/tests/test-chart-version-forward.sh (T5).
+      - name: "Atomically bump products/catalyst/chart/Chart.yaml version"
+        id: bump_chart_version
+        run: |
+          set -euo pipefail
+          git config user.name  "hatiyildiz"
+          git config user.email "269457768+hatiyildiz@users.noreply.github.com"
+          NEXT="$(scripts/push-chart-version-bump.sh \
+            products/catalyst/chart/Chart.yaml \
+            "deploy(bp-catalyst-platform): bump chart version")"
+          if [ -n "${NEXT}" ]; then
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+            echo "next_version=${NEXT}" >> "$GITHUB_OUTPUT"
+          else
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+          fi
 
       # Closes #712. The push above is made by GITHUB_TOKEN; per GitHub
       # Actions design, commits authored by GITHUB_TOKEN do NOT re-trigger
@@ -897,8 +945,13 @@ jobs:
       # SHA was superseded). Explicit workflow_dispatch reliably re-runs
       # blueprint-release on every deploy commit, picking up the new
       # values.yaml SHA tags.
+      #
+      # #5743: gated on the CHART VERSION bump's own push outcome, not the
+      # image/template commit's — publishing only makes sense once
+      # Chart.yaml's version actually moved (it is what blueprint-release
+      # reads to name the OCI artifact).
       - name: Trigger blueprint-release for the chart bump
-        if: steps.deploy_commit.outputs.pushed == 'true'
+        if: steps.bump_chart_version.outputs.pushed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
