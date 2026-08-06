@@ -68,7 +68,7 @@ jobs:
           # Detect GitHub auto-close keywords with a whitespace/start
           # boundary, followed by whitespace and a #NNN reference.
           # Mirrors GH's documented closing-keyword grammar.
-          PATTERN='(^|[[:space:]])(Closes|Fixes|Resolves|Close|Fix|Resolve)[[:space:]]+#[0-9]+'
+          PATTERN='(^|[[:space:]])(Closes|Closed|Close|Fixes|Fixed|Fix|Resolves|Resolved|Resolve)[[:space:]]+#[0-9]+'
 
           if printf '%s' "${PR_BODY:-}" | grep -iqE "${PATTERN}"; then
             echo ""
@@ -103,3 +103,80 @@ jobs:
           fi
 
           echo "OK — PR body does not use Closes/Fixes/Resolves keywords."
+
+  no-auto-close-keywords-commits:
+    name: Reject Closes/Fixes/Resolves in commit messages on this PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      # WHY THIS JOB EXISTS (#5744)
+      #
+      # The job above inspects `github.event.pull_request.body` and nothing
+      # else. But on a SQUASH merge — this repo's merge mode — GitHub composes
+      # the squash commit message from the BRANCH COMMIT MESSAGES, and it is
+      # that text GitHub parses for closing keywords. So a PR body that
+      # correctly says `Refs #N` still auto-closes #N if any commit on the
+      # branch says `fixed #N`.
+      #
+      # Not hypothetical: PR #5738's commit body line 3 read
+      #   "PR #5662 fixed #5661 with 12 lines in StepReview.tsx"
+      # — prose ABOUT an earlier PR, not an instruction — and #5661 closed on
+      # merge. The body gate passed correctly the whole time. It reads as full
+      # coverage of "this PR cannot auto-close an issue" and is half of it.
+      #
+      # That is `docs/PRINCIPLES.md` A18 shape 5: the check that cannot go red
+      # for the path the defect actually takes.
+      - name: Checkout (full history for commit range)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Inspect commit messages for auto-close keywords
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -u
+
+          echo "PR #${PR_NUMBER}"
+          echo "Range: ${BASE_SHA}..${HEAD_SHA}"
+
+          # Same grammar as the PR-body job above — keep the two in step.
+          PATTERN='(^|[[:space:]])(Closes|Closed|Close|Fixes|Fixed|Fix|Resolves|Resolved|Resolve)[[:space:]]+#[0-9]+'
+
+          # %B = full message (subject + body). A conventional-commit subject
+          # like `fix(scope): ...` cannot match: the pattern requires
+          # whitespace before the keyword and `#NNN` after it.
+          HITS=$(git log --format='%H%n%B%n--' "${BASE_SHA}..${HEAD_SHA}" \
+                 | grep -inE "${PATTERN}" || true)
+
+          if [ -n "${HITS}" ]; then
+            echo ""
+            echo "Detected auto-close keyword in a commit message on this branch:"
+            printf '%s\n' "${HITS}"
+            echo ""
+            if printf '%s' "${PR_LABELS}" | tr ',' '\n' | grep -qx "ci-gate-exception"; then
+              echo "Label 'ci-gate-exception' is present — guard ALLOWS this PR."
+              exit 0
+            fi
+
+            echo "::error::A commit message uses an auto-close keyword (Closes/Fixes/Resolves) but the PR lacks the 'ci-gate-exception' label."
+            echo ""
+            echo "On squash merge GitHub parses the COMMIT text, not just the PR"
+            echo "body — so this closes the issue on merge even when the PR body"
+            echo "correctly says 'Refs #N'. Auto-close bypasses the operator-walk"
+            echo "DoD: issues close only after the walk-with-screenshot lands."
+            echo ""
+            echo "How to fix:"
+            echo "  1. Reword the commit(s): 'fixed #N' -> 'Refs #N', or when"
+            echo "     referring to earlier work, name it without the keyword —"
+            echo "     'PR #5662 addressed #5661' rather than 'fixed #5661'."
+            echo "     git commit --amend, or git rebase -i for older commits."
+            echo "  2. OR add 'ci-gate-exception' if this PR genuinely has no"
+            echo "     operator-visible surface."
+            exit 1
+          fi
+
+          echo "OK — no commit message on this branch uses Closes/Fixes/Resolves."
