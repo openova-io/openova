@@ -1947,6 +1947,34 @@ egressTest:
   # flux-system/openova GitRepository, i.e. the defect itself.
   fluxSourceHealthLint:
     enabled: true
+  # #5650 — the PROVIDER-PACKAGE half of the same class, on a DIFFERENT
+  # controller. fluxSourceHostLint above enumerates HelmRepository /
+  # GitRepository / OCIRepository — Flux's three source kinds. It does NOT
+  # (and structurally cannot) see `pkg.crossplane.io/v1.Provider.spec.package`,
+  # because a Provider is none of those three kinds and Crossplane's package
+  # manager is not Flux. Crossplane fetches spec.package with its own
+  # `remote.Image()` call directly from the crossplane-system controller Pod
+  # (never through containerd, so a step-04 HOST_PROJECT_MAP redirect cannot
+  # cover it either — see step-11's header for the full mechanism), on its
+  # own reconcile loop, independent of the 600s hold. Step-11
+  # (crossplane-provider-pivot) already pivots spec.package durably (live
+  # patch + a Gitea git-push of the rewritten overlay, so a Kustomization
+  # reconcile cannot silently revert it) — this lint is what PROVES the pivot
+  # held, the same relationship fluxSourceHostLint has to steps 05/06.
+  #
+  # Without this lint, a Provider installed AFTER step-11 ran (an operator's
+  # own `kubectl apply -f provider-foo.yaml`, or any future bootstrap-kit
+  # change landing a new Provider CR) would silently tether to
+  # xpkg.upbound.io and nothing in the cutover proof would catch it — the
+  # exact defect class #5650 exists to close, one CRD kind wider than the
+  # issue's original finding.
+  #
+  # allowHosts is EMPTY by default, same rationale as fluxSourceHostLint: a
+  # host is a tether until a human declares otherwise here, in Git, under
+  # review.
+  providerPackageHostLint:
+    enabled: true
+    allowHosts: []
   # #3678 — TRUE deny-egress shape. defaultDenyEgress flips the Step-08
   # CCNP from a SUBTRACTIVE 4-CIDR block (default-allow, deny only the
   # listed hosts — which left console.openova.io + every un-enumerated
