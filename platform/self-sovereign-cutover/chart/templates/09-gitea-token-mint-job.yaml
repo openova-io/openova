@@ -268,7 +268,18 @@ data:
               printf '%s\n' "${mint_response}" | sed -E "s,${GITEA_PASSWORD}+,REDACTED,g" >&2
               exit 1
             fi
-            echo "[gitea-token-mint] minted token: ...${new_token##???????????????????????????????????}" 2>/dev/null || echo "[gitea-token-mint] minted token: <redacted>"
+            # #5467 — do NOT print any fragment of the minted token. The old
+            # `${new_token##???…???}` glob-stripped the first 35 characters and
+            # emitted the LAST 5 of a live Gitea API token — the credential the
+            # host GitOps loop authenticates with for the rest of the
+            # Sovereign's life. It is the same disclosure class as the step-03
+            # GHCR-PAT prefix, in a different spelling: no `:0:N`, no `cut -c`,
+            # so no grep for the step-03 idiom would ever have found it. The
+            # comment 8 lines up already says "WITHOUT printing it"; this line
+            # was quietly contradicting it on every cutover.
+            # Length + set/unset is the whole diagnostic: it distinguishes
+            # "mint returned a plausible sha1" from "mint returned junk".
+            echo "[gitea-token-mint] minted token: set (len=${#new_token})"
 
             # ── 4. Validate the token against Gitea ──────────────────────
             # GET /api/v1/user with `Authorization: token <X>` returns
