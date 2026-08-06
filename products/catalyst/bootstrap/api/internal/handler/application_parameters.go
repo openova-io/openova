@@ -145,6 +145,16 @@ func defaultedParameters(blueprint, topology, sovereignFQDN, orgSlug, orgConsole
 		stampOpenovaMCPOrgParameters(out, sovereignFQDN, orgSlug, orgConsoleHost)
 	}
 
+	// #5752 — bp-stalwart-tenant (catalog slug stalwart-mail) never had a
+	// case here, so a funnel install landed with parameters:{} — no
+	// domain.primary (the chart's certificate.yaml Certificate, and
+	// therefore the StatefulSet's non-optional stalwart-tls Secret mount,
+	// never renders without it) and no keycloak.realmURL (the Blueprint's
+	// OWN configSchema requires it). See stampStalwartTenantParameters.
+	if isStalwartTenantBlueprint(blueprint) {
+		stampStalwartTenantParameters(out, sovereignFQDN, orgConsoleHost)
+	}
+
 	// bp-postgres: seed `topology.mode` when the caller supplied NOTHING at all.
 	// Preserved verbatim from the #4283 shape — a caller that DID supply values
 	// keeps them, and we do not start declaring a mode where we previously
@@ -713,6 +723,106 @@ func isOpenovaMCPBlueprint(blueprint string) bool {
 	b := strings.TrimSpace(strings.ToLower(blueprint))
 	b = strings.TrimPrefix(b, "bp-")
 	return b == "openova-mcp"
+}
+
+// isStalwartTenantBlueprint reports whether the blueprint id refers to
+// bp-stalwart-tenant (with or without the `bp-` prefix). Catalog slug is
+// `stalwart-mail`; the Blueprint/chart name is `bp-stalwart-tenant` — this
+// checks the latter, matching the value both install doors actually pass
+// (Application.spec.blueprintRef.name / seed.Blueprint).
+func isStalwartTenantBlueprint(blueprint string) bool {
+	b := strings.TrimSpace(strings.ToLower(blueprint))
+	b = strings.TrimPrefix(b, "bp-")
+	return b == "stalwart-tenant"
+}
+
+// stalwartTenantSharedRealm is the realm name of the shared Sovereign
+// Keycloak realm every per-Org app in this codebase falls back to when
+// per-Org realms are disabled (CATALYST_PER_ORG_REALM_ENABLED=false, the
+// Sovereign default) — see auth.go's broker-login URL builder
+// (`https://auth.<sov-fqdn>/realms/sovereign/broker/...`) and the
+// openbao_sso_init_test.go / openbao/client_test.go fixtures, which already
+// exercise this exact issuer shape.
+const stalwartTenantSharedRealm = "sovereign"
+
+// stampStalwartTenantParameters populates the two parameter groups
+// bp-stalwart-tenant needs to actually converge on this Application-CR
+// install door — #5752, live-diagnosed on hw292 funnel Org `uatco`
+// (2026-08-06).
+//
+// THE BUG IT FIXES. `uatco-mail`'s Application CR installed through this
+// door with `spec.parameters: {}`. The chart's
+// `bp-stalwart-tenant.tenantDomain` helper reads `domain.primary` (or the
+// legacy/forward-looking aliases) and resolves to "" when none are set;
+// `templates/certificate.yaml` gates the WHOLE cert-manager Certificate for
+// `mail.<tenant-domain>` on that value being non-empty (smoke-render-safe by
+// design — CI's default-values render must stay valid). With an empty
+// domain the Certificate is never created, cert-manager never materialises
+// the `stalwart-tls` Secret, and the StatefulSet's non-optional `tls`
+// Secret volume mount blocks the Pod at ContainerCreating FOREVER — live
+// kubelet Events on hw292: `MountVolume.SetUp failed for volume "tls":
+// secret "stalwart-tls" not found`, repeated x1737 over 2d10h. Separately,
+// the chart's OWN configSchema (platform/stalwart-tenant/blueprint.yaml)
+// declares `required: [keycloak]` + `keycloak.required: [realmURL]` — an
+// empty parameters map does not even satisfy the Blueprint's own contract.
+//
+// THE FIX mirrors the proven stampAgenity*/stampOpenovaMCP* shape:
+//   - domain.primary + ingress.webmail.host — derived from orgConsoleHost
+//     the SAME way stampAgenityGateHost derives agenity.<slug>.<pool>
+//     (console.<slug>.<pool> → <slug>.<pool>): domain.primary = <slug>.
+//     <pool>, ingress.webmail.host = mail.<slug>.<pool>.
+//   - keycloak.realmURL — falls back to the shared Sovereign realm
+//     (stalwartTenantSharedRealm) every other per-Org app in this Sovereign
+//     already authenticates against under the default
+//     CATALYST_PER_ORG_REALM_ENABLED=false posture, rather than a per-Org
+//     realm host that is NXDOMAIN by default.
+//
+// Deference (same as every stampAgenity*/stampOpenovaMCP* sibling): every
+// field is set only when the caller did not already pin a non-empty value;
+// nothing here is forced onto an explicit install request. No-op on the
+// domain/ingress side when orgConsoleHost is empty or has no dotted zone
+// (mothership / Catalyst-Zero / registry-miss — fail-closed, matches the
+// chart's existing smoke-render-safe behaviour); no-op on the keycloak side
+// when sovereignFQDN is empty (same mothership case).
+func stampStalwartTenantParameters(params map[string]interface{}, sovereignFQDN, orgConsoleHost string) {
+	host := strings.ToLower(strings.TrimSpace(orgConsoleHost))
+	if host != "" {
+		// console.<slug>.<pool> -> <slug>.<pool>; require a dotted host so a
+		// bare label can't produce a zone-less domain (mirrors
+		// stampAgenityGateHost's guard).
+		if parts := strings.SplitN(host, ".", 2); len(parts) == 2 && parts[1] != "" {
+			orgZone := parts[1]
+
+			domain, _ := params["domain"].(map[string]interface{})
+			if domain == nil {
+				domain = map[string]interface{}{}
+			}
+			setIfAbsentString(domain, "primary", orgZone)
+			params["domain"] = domain
+
+			ingress, _ := params["ingress"].(map[string]interface{})
+			if ingress == nil {
+				ingress = map[string]interface{}{}
+			}
+			webmail, _ := ingress["webmail"].(map[string]interface{})
+			if webmail == nil {
+				webmail = map[string]interface{}{}
+			}
+			setIfAbsentString(webmail, "host", "mail."+orgZone)
+			ingress["webmail"] = webmail
+			params["ingress"] = ingress
+		}
+	}
+
+	fqdn := strings.TrimSpace(sovereignFQDN)
+	if fqdn != "" {
+		keycloak, _ := params["keycloak"].(map[string]interface{})
+		if keycloak == nil {
+			keycloak = map[string]interface{}{}
+		}
+		setIfAbsentString(keycloak, "realmURL", "https://auth."+fqdn+"/realms/"+stalwartTenantSharedRealm)
+		params["keycloak"] = keycloak
+	}
 }
 
 // postgresConfigSchemaMode folds the canonical placement topology onto the
