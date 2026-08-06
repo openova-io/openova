@@ -164,6 +164,78 @@ func TestPlacementValidation_5639_MissingRegionReasonMatchesFE(t *testing.T) {
 	}
 }
 
+// #5515 — the placement DERIVATION must agree across the two surfaces as
+// strictly as the mode vocabulary does.
+//
+// This is the drift the existing gates above could not see. The frontend
+// `derivePattern` (shared/lib/placement.ts) took the no-Primary guard in
+// PR #5519 on 2026-07-30; the Go `DerivePattern` — which the FE module's own
+// header names as the source it mirrors — kept failing open into `singleton`
+// for another six days, and its unit suite ASSERTED the fail-open
+// (`{"empty targets — singleton", want: PatternSingleton}`). Nothing in CI
+// could go red, because every gate compared VOCABULARY (which token strings
+// exist) and none compared BEHAVIOUR (what each side returns for the same
+// input).
+//
+// So this pins behaviour, both directions, on both sides:
+//
+//	no Primary  -> not-reported   (never a confident pattern name)
+//	one Primary -> singleton      (a genuine singleton still reports one)
+//
+// It reads the FE file with a STRICT reader rather than the package's
+// mustReadRepoFile, which t.Skipf's when the file cannot be read — a drift
+// gate that silently skips on a moved path is the same fail-open one layer
+// up.
+func TestPlacementDerivation_5515_NoPrimaryGuardMatchesFE(t *testing.T) {
+	root := findRepoRoot(t)
+	fePath := filepath.Join(root, "products", "catalyst", "bootstrap", "ui", "src", "shared", "lib", "placement.ts")
+	raw, err := os.ReadFile(fePath)
+	if err != nil {
+		t.Fatalf("could not read the FE placement module at %s (%v) — the drift gate must "+
+			"FAIL, not skip, when the surface it pins has moved", fePath, err)
+	}
+	fe := string(raw)
+
+	// (a) The FE carries the token AND the guard that returns it. A surviving
+	//     constant with a deleted check is the #5639 shape.
+	if !strings.Contains(fe, "PATTERN_NOT_REPORTED") {
+		t.Errorf("FE placement.ts exports no PATTERN_NOT_REPORTED token")
+	}
+	if !strings.Contains(fe, "primaries === 0") {
+		t.Errorf("FE derivePattern has no `primaries === 0` guard — the empty/no-Primary " +
+			"target list falls through to `singleton` again (#5515)")
+	}
+
+	// (b) The FE token spelling and the Go token must be the same string, or
+	//     the two surfaces render different words for the same state.
+	if !strings.Contains(fe, "'"+string(bpv1alpha1.PatternNotReported)+"'") {
+		t.Errorf("FE placement.ts does not carry the Go token %q — the two derivations have drifted",
+			bpv1alpha1.PatternNotReported)
+	}
+
+	// (c) The Go behaviour itself, both directions — so this file fails if the
+	//     guard is removed even when every token above survives.
+	noPrimary := []bpv1alpha1.PlacementTarget{
+		{Region: "region-b", Cluster: "mgmt-B", VCluster: "mgmt",
+			Role: bpv1alpha1.DataRoleStandby, StandbyType: bpv1alpha1.StandbyHot},
+	}
+	if got := bpv1alpha1.DerivePattern(noPrimary, bpv1alpha1.CapabilityPrimaryStandby); got != bpv1alpha1.PatternNotReported {
+		t.Errorf("Go DerivePattern returned %q for a target list with no Primary, want %q (#5515)",
+			got, bpv1alpha1.PatternNotReported)
+	}
+	if got := bpv1alpha1.DerivePattern(nil, bpv1alpha1.CapabilityPrimaryStandby); got == bpv1alpha1.PatternSingleton {
+		t.Errorf("Go DerivePattern fails open: an EMPTY target list returned the confident %q", got)
+	}
+	// Control — a real singleton must still report `singleton`, else "always
+	// return not-reported" would satisfy the two assertions above.
+	onePrimary := []bpv1alpha1.PlacementTarget{
+		{Region: "region-a", Cluster: "mgmt-A", VCluster: "mgmt", Role: bpv1alpha1.DataRolePrimary},
+	}
+	if got := bpv1alpha1.DerivePattern(onePrimary, bpv1alpha1.CapabilityPrimaryStandby); got != bpv1alpha1.PatternSingleton {
+		t.Errorf("VACUITY: a genuine one-Primary placement derived %q, want %q", got, bpv1alpha1.PatternSingleton)
+	}
+}
+
 // ── helpers ──────────────────────────────────────────────────────────
 
 func mustReadRepoFile(t *testing.T, root string, parts ...string) string {

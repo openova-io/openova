@@ -133,10 +133,22 @@ func applicationUpdateRequestNormalize(b applicationUpdateRequest) applicationUp
 	// Regions Primary-first (regions[0] == primary, per placement_projection).
 	// Only fires when Mode is empty, so an explicit {mode,regions} caller (or
 	// a body that sets both) is byte-unchanged.
+	//
+	// #5515 — the fold is skipped when the pattern is NOT DERIVABLE (a target
+	// list with no Primary). This value is not a display label here: it is
+	// PERSISTED onto spec.placement.mode of the Application CR, and the CRD
+	// puts no enum on that field, so whatever lands here is what every
+	// downstream reader believes. Pre-fix DerivePattern returned a confident
+	// `singleton` for a no-Primary list, so an invalid placement was stored as
+	// a deliberate single-region posture. Leaving Mode empty makes the request
+	// fail CLOSED on the existing "placement.mode is required when placement
+	// is set" 400, which names the problem instead of persisting a fiction.
 	if b.Placement != nil && len(b.Placement.Targets) > 0 && strings.TrimSpace(b.Placement.Mode) == "" {
-		b.Placement.Mode = string(bpv1.DerivePattern(b.Placement.Targets, ""))
-		if len(b.Placement.Regions) == 0 {
-			b.Placement.Regions = regionsFromPlacementTargets(b.Placement.Targets)
+		if pattern := bpv1.DerivePattern(b.Placement.Targets, ""); pattern != bpv1.PatternNotReported {
+			b.Placement.Mode = string(pattern)
+			if len(b.Placement.Regions) == 0 {
+				b.Placement.Regions = regionsFromPlacementTargets(b.Placement.Targets)
+			}
 		}
 	}
 	return b

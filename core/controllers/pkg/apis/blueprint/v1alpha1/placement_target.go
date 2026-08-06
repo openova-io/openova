@@ -113,6 +113,15 @@ const (
 	PatternActiveHotStandby Pattern = "active-hot-standby"
 	// PatternActiveActive — ≥2 Primary (requires multi-primary).
 	PatternActiveActive Pattern = "active-active"
+
+	// PatternNotReported — NOT a pattern. The explicit absence of one
+	// (#5515). Emitted when the target list carries no Primary, so no
+	// pattern can be derived from it.
+	//
+	// Mirrors the frontend token `PATTERN_NOT_REPORTED` in
+	// products/catalyst/bootstrap/ui/src/shared/lib/placement.ts; the two
+	// sides are pinned together by the placement-vocabulary drift gate.
+	PatternNotReported Pattern = "not-reported"
 )
 
 // PlacementTarget — one desired target in an Application's Placement
@@ -171,10 +180,36 @@ type Placement struct {
 //	pattern(targets, capability):
 //	  primaries = [t for t in targets if t.role == Primary]
 //	  standbys  = [t for t in targets if t.role == Standby]
+//	  if len(primaries) == 0:             -> "not-reported"   (#5515)
 //	  if len(primaries) >= 2:             -> "active-active"
 //	  if len(standbys)  == 0:             -> "singleton"
 //	  if any(s.standbyType == Hot for s): -> "active-hot-standby"
 //	  else:                               -> "active-passive"
+//
+// #5515 — the no-Primary guard MUST come first and MUST NOT fall through to
+// `singleton`. Every one of the four patterns asserts a live Primary; with
+// zero Primary targets there is no pattern, only missing data. Pre-fix this
+// function returned a CONFIDENT `singleton` for three separate inputs that
+// carry no derivable placement at all:
+//
+//   - `nil` / `[]` — no placement data. `singleton` is the one pattern that
+//     means "no cross-region failover, and that is fine", so defaulting to
+//     it turned every data-collection failure into a deliberate, healthy
+//     single-region choice.
+//   - a list whose roles are all unrecognised (neither Primary nor Standby)
+//     — same counters, same false `singleton`.
+//   - a Standby-only list — pre-fix this skipped the `standbys == 0` arm and
+//     asserted `active-hot-standby` / `active-passive`: an "active-*"
+//     pattern with no active. ValidatePlacement already rejects that list as
+//     `NoPrimary`; the derived label must not contradict its own gate.
+//
+// The frontend mirror (products/catalyst/bootstrap/ui/src/shared/lib/
+// placement.ts) took this guard in PR #5519; this Go function is the source
+// the mirror declares itself a mirror OF, and it kept failing open — which
+// matters more here, because unlike the FE label this value is folded onto
+// the stored `spec.placement.mode` (applications_update.go) and selects the
+// BcpTopology that drives the fan-out + Continuum arming
+// (placement_fanout.go).
 //
 // The capability argument is accepted for symmetry with ValidatePlacement
 // (callers pass both) — the derivation itself reads only the targets, so
@@ -196,6 +231,9 @@ func DerivePattern(targets []PlacementTarget, _ PlacementCapability) Pattern {
 		}
 	}
 	switch {
+	// #5515 — no Primary ⇒ no pattern. Never fail open into `singleton`.
+	case primaries == 0:
+		return PatternNotReported
 	case primaries >= 2:
 		return PatternActiveActive
 	case standbys == 0:
