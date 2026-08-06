@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T09:30:05Z` |
+| Last refreshed | `2026-08-06T09:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-06T09:34 | [#5763](https://github.com/openova-io/openova/pull/5763) | #960 | docs(uat): make all 146 screenshot references clickable on G |
+| 2026-08-06T09:44 | [#5761](https://github.com/openova-io/openova/pull/5761) | #5741 | ci(#5741): wire PDM Postgres integration + widen playwright- |
 | 2026-08-06T08:41 | [#5760](https://github.com/openova-io/openova/pull/5760) | #2879 | feat(ci): umbrella-republish gate for platform/products char |
 | 2026-08-06T08:32 | [#5758](https://github.com/openova-io/openova/pull/5758) | #817 | fix(deploy-bot): make Chart.yaml version bump atomic and for |
 | 2026-08-06T07:34 | [#5756](https://github.com/openova-io/openova/pull/5756) | #5650 | fix(cutover): step-08 gains a Crossplane Provider PACKAGE ho |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-06T02:01 | [#5725](https://github.com/openova-io/openova/pull/5725) | #5571 | fix(catalyst-ui): /k8s/stream fold collapsed both regions in |
 | 2026-08-06T01:21 | [#5724](https://github.com/openova-io/openova/pull/5724) | #5616 | fix(api,ui): #5616 refuse a placement vCluster tier this Sov |
 | 2026-08-06T01:13 | [#5723](https://github.com/openova-io/openova/pull/5723) | #5672 | fix(catalyst-api): org-teardown reap keys on BOTH producers' |
-| 2026-08-06T01:12 | [#5722](https://github.com/openova-io/openova/pull/5722) | #901 | fix(auth): defer pin/issue realm write to pin/verify — no un |
-| 2026-08-06T00:44 | [#5721](https://github.com/openova-io/openova/pull/5721) | #5459 | docs(uat): re-walk the 12 unwalked SSO rows live on hw292 po |
 
 ---
 
