@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T16:45:04Z` |
+| Last refreshed | `2026-08-06T17:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,7 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#5391](https://github.com/openova-io/openova/issues/5391) | Cutover: a Stalled/RetriesExceeded per-Org HelmRelease permanently blocks the So | Other |
 | [#5393](https://github.com/openova-io/openova/issues/5393) | Per-Org plan quota: vcluster control-plane overhead (1500m) is billed to the cus | Other |
 | [#5394](https://github.com/openova-io/openova/issues/5394) | MCP endpoint is ~50% dead: bp-openova-mcp is single-region but mcp.<fqdn> fronts | Other |
 | [#5395](https://github.com/openova-io/openova/issues/5395) | gamma-corp is entirely unrouted: all 6 per-Org HTTPRoutes NoMatchingListenerHost | Other |
@@ -293,7 +294,6 @@ flowchart LR
 | [#5649](https://github.com/openova-io/openova/issues/5649) | Org teardown reaps one producer's route name in one region — deleted Orgs leav | Other |
 | [#5650](https://github.com/openova-io/openova/issues/5650) | Post-cutover Sovereign fetches charts.loft.sh every 15m: step-08's deny-egress h | Other |
 | [#5690](https://github.com/openova-io/openova/issues/5690) | §854/#5348: bp-stalwart-sovereign mail LoadBalancer Service omits explicit node | Other |
-| [#5720](https://github.com/openova-io/openova/issues/5720) | auth: POST /api/v1/auth/pin/issue creates an enabled Keycloak realm user for ANY | Other |
 | [#5750](https://github.com/openova-io/openova/issues/5750) | Guacamole row-35 ERROR page: diagnostic to distinguish known #5358 chart-drift f | Other |
 | [#5752](https://github.com/openova-io/openova/issues/5752) | bp-stalwart-tenant: per-Org install door emits empty spec.parameters — domain/ | Other |
 | [#5759](https://github.com/openova-io/openova/issues/5759) | sovereign-daytwo-bootstrap --apply REVERTS a completed cutover: 62/69 HelmReposi | Other |
