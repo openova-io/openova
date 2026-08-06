@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T03:45:06Z` |
+| Last refreshed | `2026-08-06T04:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-06T03:58 | [#5740](https://github.com/openova-io/openova/pull/5740) | #5646 | fix(funnel): banned term still reaches the customer from a h |
+| 2026-08-06T03:57 | [#5736](https://github.com/openova-io/openova/pull/5736) | #5515 | fix(placement): the Go derivePattern still fails open into s |
 | 2026-08-06T03:28 | [#5735](https://github.com/openova-io/openova/pull/5735) | #817 | fix(catalyst-api): stop four DR surfaces reporting health, c |
 | 2026-08-06T03:29 | [#5733](https://github.com/openova-io/openova/pull/5733) | #5439 | fix(cutover): pivot the per-Org IMAGE registry host — three  |
 | 2026-08-06T02:49 | [#5732](https://github.com/openova-io/openova/pull/5732) | #5635 | test(catalyst-api): pin the per-Org console listener by rend |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-05T21:00 | [#5706](https://github.com/openova-io/openova/pull/5706) | #5705 | fix(crd): reject unimplemented hostnameTemplate tokens at ad |
 | 2026-08-05T20:21 | [#5705](https://github.com/openova-io/openova/pull/5705) | #5389 | fix(endpoints): guard every hostnameTemplate against unimple |
 | 2026-08-05T20:22 | [#5704](https://github.com/openova-io/openova/pull/5704) | #5602 | fix(#5602): hubble UI 400 — ONE Hubble UI per Sovereign over |
-| 2026-08-05T20:36 | [#5703](https://github.com/openova-io/openova/pull/5703) | #4975 | feat(cutover): close the head of the post-cutover delivery c |
-| 2026-08-05T20:17 | [#5702](https://github.com/openova-io/openova/pull/5702) | #5389 | fix(lockstep): compare endpoints[].hostnameTemplate seed-vs- |
 
 ---
 
