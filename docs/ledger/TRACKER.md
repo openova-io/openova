@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T22:30:07Z` |
+| Last refreshed | `2026-08-06T22:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-06T22:38 | [#5785](https://github.com/openova-io/openova/pull/5785) | #5750 | fix(#5750): the drift script read the DESIRED chart version, |
 | 2026-08-06T21:37 | [#5784](https://github.com/openova-io/openova/pull/5784) | #5598 | docs(uat): record root causes on 5 failing rows from today's |
 | 2026-08-06T21:05 | [#5783](https://github.com/openova-io/openova/pull/5783) | #5573 | feat(guard): assert the Flux GitOps loop is RUNNING, not mer |
 | 2026-08-06T20:37 | [#5782](https://github.com/openova-io/openova/pull/5782) | #5567 | feat(guard): detect admission webhooks whose target Service  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T07:33 | [#5753](https://github.com/openova-io/openova/pull/5753) | #5358 | docs(guacamole): root-cause row-35 ERROR page as stale chart |
 | 2026-08-06T07:10 | [#5751](https://github.com/openova-io/openova/pull/5751) | #5612 | fix(newapi): cluster-side guard for the row 37/38 rollout ga |
 | 2026-08-06T06:55 | [#5749](https://github.com/openova-io/openova/pull/5749) | #3668 | docs(uat): screenshot evidence for console/catalog/jobs/clou |
-| 2026-08-06T06:33 | [#5748](https://github.com/openova-io/openova/pull/5748) | #960 | docs(uat): add live screenshot evidence for 19 funnel/orgs g |
 
 ---
 
