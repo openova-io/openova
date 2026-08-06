@@ -17,6 +17,8 @@ on:
       - 'infra/providers/_shared/cloudinit-control-plane.tftpl'
       - 'scripts/check-bootstrap-deps.sh'
       - 'scripts/check-bootstrap-kit-pin-sync.sh'
+      - 'scripts/check-umbrella-republish-gate.py'
+      - 'scripts/sync-catalog-seed-pin.py'
       - 'scripts/check-cloudinit-kustomization-deps.sh'
       - 'scripts/expected-bootstrap-deps.yaml'
       - 'scripts/expected-cloudinit-kustomization-deps.yaml'
@@ -35,6 +37,8 @@ on:
       - 'infra/providers/_shared/cloudinit-control-plane.tftpl'
       - 'scripts/check-bootstrap-deps.sh'
       - 'scripts/check-bootstrap-kit-pin-sync.sh'
+      - 'scripts/check-umbrella-republish-gate.py'
+      - 'scripts/sync-catalog-seed-pin.py'
       - 'scripts/check-cloudinit-kustomization-deps.sh'
       - 'scripts/expected-bootstrap-deps.yaml'
       - 'scripts/expected-cloudinit-kustomization-deps.yaml'
@@ -245,6 +249,31 @@ jobs:
             echo "Running full sweep + --check-ghcr (event=${{ github.event_name }})"
             bash scripts/check-bootstrap-kit-pin-sync.sh --check-ghcr
           fi
+
+      - name: Umbrella-republish gate (#5734)
+        # #5734: check-release-lockstep-writer.py's `umbrella` case proves
+        # (correctly) that a platform/products chart bump is a legitimate
+        # NO-OP for bp-catalyst-platform's own self-referential seed card —
+        # but nothing asserted the opposite-shaped requirement: when a
+        # chart bump moves a DIFFERENT Blueprint's catalog-seed pin
+        # (products/catalyst/chart/templates/catalog-seed/blueprints.yaml),
+        # the umbrella chart that template renders INSIDE
+        # (products/catalyst/chart/Chart.yaml) must also be re-bumped, or
+        # the new pin never reaches a published bp-catalyst-platform OCI
+        # artifact. On a pre-cutover Sovereign (Gitea `catalog`/
+        # `catalog-sovereign` Orgs empty until post-handover cutover) this
+        # in-cluster seed is the ONLY functioning install-time catalog
+        # source (chainedCatalogClient falls straight through to it) — so
+        # this is a real delivery gap, not a cosmetic one.
+        #
+        # No `--base` plumbing needed (unlike the pin-sync audit above):
+        # per catalog-seed pin, blame finds the commit that last wrote it,
+        # and the umbrella's version VALUE right before that commit is
+        # compared against the umbrella's version VALUE now. Runs the same
+        # way on every event — PR-time (blocking), push (observational,
+        # same continue-on-error umbrella as the audit above), and the
+        # #4409 hourly schedule sweep (fail-loud, not excused).
+        run: python3 scripts/check-umbrella-republish-gate.py --ref HEAD
 
   manifest-validation:
     # Static-only validation: blueprint.yaml + chart Chart.yaml + clusters/_template
