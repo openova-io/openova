@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T04:00:06Z` |
+| Last refreshed | `2026-08-06T04:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5401](https://github.com/openova-io/openova/issues/5401) | SECURITY: per-Org console /settings renders the Sovereign operator panel to an o | Other |
 | [#5404](https://github.com/openova-io/openova/issues/5404) | Operator-console vitest suite is red on main (68 failed / 1876 passed across 9 f | Other |
 | [#5406](https://github.com/openova-io/openova/issues/5406) | Harbor SSO session never holds: active/active across both regions behind one hos | Other |
 | [#5408](https://github.com/openova-io/openova/issues/5408) | Wizard component model: phantom ids in the deployment payload, cnpg+postgres inv | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5728](https://github.com/openova-io/openova/issues/5728) | continuum: GET /continuum/{name} and its SSE stream fabricate a healthy DR recor | Other |
 | [#5731](https://github.com/openova-io/openova/issues/5731) | P0 continuum: POST /continuum/{name}/switchover returns 200 status=completed for | Other |
 | [#5734](https://github.com/openova-io/openova/issues/5734) | No gate enforces the bp-catalyst-platform umbrella republish after a platform/*  | Other |
+| [#5741](https://github.com/openova-io/openova/issues/5741) | 40 test files / 304 test funcs across 8 Go modules run in NO workflow — a PR c | Other |
 
 ---
 
@@ -308,6 +308,8 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-08-06T03:58 | [#5740](https://github.com/openova-io/openova/pull/5740) | #5646 | fix(funnel): banned term still reaches the customer from a h |
+| 2026-08-06T04:11 | [#5739](https://github.com/openova-io/openova/pull/5739) | #5646 | fix(marketplace): test the redeem OUTCOME, not the gate deci |
+| 2026-08-06T04:01 | [#5737](https://github.com/openova-io/openova/pull/5737) | #5661 | fix(cloud): storage counts read every region + wire the stor |
 | 2026-08-06T03:57 | [#5736](https://github.com/openova-io/openova/pull/5736) | #5515 | fix(placement): the Go derivePattern still fails open into s |
 | 2026-08-06T03:28 | [#5735](https://github.com/openova-io/openova/pull/5735) | #817 | fix(catalyst-api): stop four DR surfaces reporting health, c |
 | 2026-08-06T03:29 | [#5733](https://github.com/openova-io/openova/pull/5733) | #5439 | fix(cutover): pivot the per-Org IMAGE registry host — three  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-05T22:04 | [#5708](https://github.com/openova-io/openova/pull/5708) | #5609 | fix(console): pin the active-passive topology gate on the re |
 | 2026-08-05T22:00 | [#5707](https://github.com/openova-io/openova/pull/5707) | #5599 | fix(bp-newapi): cross-region singleton — one newapi, one Pos |
 | 2026-08-05T21:00 | [#5706](https://github.com/openova-io/openova/pull/5706) | #5705 | fix(crd): reject unimplemented hostnameTemplate tokens at ad |
-| 2026-08-05T20:21 | [#5705](https://github.com/openova-io/openova/pull/5705) | #5389 | fix(endpoints): guard every hostnameTemplate against unimple |
-| 2026-08-05T20:22 | [#5704](https://github.com/openova-io/openova/pull/5704) | #5602 | fix(#5602): hubble UI 400 — ONE Hubble UI per Sovereign over |
 
 ---
 
