@@ -3735,7 +3735,13 @@ name: bp-catalyst-platform
 #   documented contract (its own SIGPIPE on this file's size made a manual
 #   application necessary this time; arithmetic verified against
 #   scripts/check-chart-version-forward.sh before writing).
-version: 1.4.1328
+# 1.4.1329 — #5459: catalog-seed bp-openbao source.version + spec.version
+#   1.2.64 -> 1.2.65 (SSO landing re-validates a cached token before trusting
+#   it — UAT row 183). check-umbrella-republish-gate.py (#5734) requires this
+#   file's version to move in the SAME PR as any catalog-seed pin move, else
+#   the published bp-catalyst-platform OCI artifact never carries the pin.
+#   Serialized to 1.4.1329 because #5764 took 1.4.1328 on main first.
+version: 1.4.1329
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
@@ -3885,7 +3891,7 @@ version: 1.4.1328
 #   unsatisfiable on kom4dc (me-east-215-*), which kept the production
 #   Continuum seed unfireable. Backwards-compatible (all-letter labels
 #   still match). Flux CreateReplace flows it to live Sovereigns.
-appVersion: 1.4.1328
+appVersion: 1.4.1329
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
