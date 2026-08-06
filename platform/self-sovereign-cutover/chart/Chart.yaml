@@ -1,5 +1,49 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.172 (#5650) — THE LOFT CHART-SOURCE PIVOT NOW COVERS EVERY REGION. 0.1.168
+# shipped step-06 Phase-2c as a PRIMARY-ONLY block: every kubectl in it ran
+# against the Job's own in-cluster context. Bootstrap-kit slot 60 installs the
+# loft HelmRepository in EVERY region, so on a 2-region Sovereign the residual
+# charts.loft.sh tether is TWO objects, not the one #5650 originally named.
+#
+# Measured live on hw292 (dep 1c56518035a83e03, cutoverComplete=true since
+# 2026-08-03T08:12:04Z), sampled 2026-08-06 across 75 minutes — an interval
+# strictly longer than the actor's 15m period, because a single sample inside a
+# window proves nothing about a periodic actor. source-controller in BOTH
+# regions was still dialling the public internet ~63h after cutover:
+#
+#   region-a  23:36:44Z  stored fetched index of size 3.893MB from 'https://charts.loft.sh'
+#   region-b  23:24:43Z  stored fetched index of size 3.893MB from 'https://charts.loft.sh'
+#
+# Region-b's copy is not even referenced by a HelmRelease there and it still
+# reconciles — source-controller drives a HelmRepository on its own interval
+# regardless of consumers, so "nothing uses it" is not "it does not dial out".
+#
+# The consequence was worse than half a tether. Step-08's fluxSourceHostLint
+# runs PER REGION (#5359) over the same target list and its allowHosts went
+# EMPTY in 0.1.168, so a primary-only pivot makes the region-b lint fail and the
+# cutover can never reach cutoverComplete=true on the multi-region topology the
+# DoD requires. The pivot and the lint now build their region list identically.
+#
+# Phase-2c is restructured into loft_pivot_region(<region>,<kubeconfig>) called
+# for the primary and every mounted secondary. Sovereign-wide work (the Harbor
+# chart mirror, the durable Gitea slot suspend) still runs ONCE; only the live
+# patch is per-region, and each region now ends with a READ-BACK — `kubectl
+# patch` exiting 0 is not the object carrying the new URL. A region that cannot
+# be READ is fail-closed, not skipped (#5359: an unreadable region is not a
+# pivoted region).
+#
+# Phase-2c also moved OUT of podSpec.args into the step-06 ConfigMap's
+# phase2c.sh key, `.`-sourced from the step script (the step-03 run.sh pattern,
+# #5593). Step-06 rendered at 109254 B against the 110000 B MAX_ARG_STRLEN
+# early-warning budget — 746 bytes from the wall that killed step-03 live on
+# hw292 — and now renders at 98424 B with the secondary leg included.
+#
+# Guard: chart/tests/loft-pivot-regions.sh drives the REAL Phase-2c block out of
+# the render against a stub kubectl and asserts the per-region verdict in both
+# directions. On 0.1.171 it goes RED on 3 assertions (secondary never pivoted;
+# unreadable secondary passes; non-sticky patch passes) while its 4 controls
+# stay green on both trees, so it cannot be satisfied by disabling Phase-2c.
 # 0.1.171 (#5596) — THE SECONDARY-REGION PIVOT IS NOW PROVEN DURABLE, NOT MERELY
 # APPLIED. Step-06's #5359 secondary read-back was SINGLE-SHOT and fired within
 # seconds of the patch loop, so it measured the PATCH and never the PIVOT.
@@ -3370,7 +3414,7 @@ name: bp-self-sovereign-cutover
 # copyAttempts,skopeoStaticURL,maxRefsPerCycle}. No RBAC change (the runner
 # ClusterRole already grants deployments/statefulsets/daemonsets/jobs/cronjobs
 # get+list+watch). Step count unchanged at 11.
-version: 0.1.171
+version: 0.1.172
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

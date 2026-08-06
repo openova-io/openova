@@ -1127,6 +1127,25 @@ helmRepositories:
   # empty) then fails the cutover on it, loudly, rather than stamping a false
   # cutoverComplete=true. That is the property the #5652 lint exists to
   # enforce; this leg is what makes it pass honestly.
+  #
+  # ── PER-REGION as of 0.1.172 (#5650) ────────────────────────────────────
+  # 0.1.168 shipped this leg PRIMARY-ONLY — every kubectl in Phase-2c ran
+  # against the Job's own in-cluster context. Slot 60 installs the loft
+  # HelmRepository in EVERY region, so on a 2-region Sovereign the tether is
+  # TWO objects. Live on hw292 (dep 1c56518035a83e03), sampled 2026-08-06 over
+  # 75 minutes — deliberately longer than the actor's 15m period, because one
+  # sample inside a window cannot characterise a periodic actor:
+  #   region-a 23:36:44Z / region-b 23:24:43Z
+  #     "stored fetched index of size 3.893MB from 'https://charts.loft.sh'"
+  # both ~63h AFTER cutoverComplete=true. Region-b's copy is referenced by no
+  # HelmRelease and still reconciles — source-controller drives a
+  # HelmRepository on its own interval regardless of consumers.
+  # Phase-2c now runs loft_pivot_region() for the primary and every mounted
+  # secondary kubeconfig — the SAME target list step-08's per-region
+  # fluxSourceHostLint builds, so the pivot covers exactly what the lint
+  # measures. Sovereign-wide work (Harbor chart mirror, durable Gitea slot
+  # suspend) still runs once. Each region ends with a read-back, and a region
+  # that cannot be READ fails the step rather than being skipped (#5359).
   vclusterLoftPivot:
     # Default true — the residual tether is present on every fresh prov by
     # construction, so the keystone cc=true path needs the pivot. Set false
@@ -1136,10 +1155,12 @@ helmRepositories:
     enabled: true
     # The HelmRepository the bp-vcluster-helmrepo slot installs (matches the
     # org-controller CATALYST_VCLUSTER_HELMREPO_{NAME,NAMESPACE} defaults).
+    # Present in EVERY region, which is why the pivot loops the region set.
     helmRepositoryName: "loft"
     namespace: "vcluster-system"
     # The HelmRelease that reconciles the loft HR — suspended so it stops
-    # reverting the live pivot. Lives in flux-system (bootstrap-kit slot 60).
+    # reverting the live pivot. Lives in flux-system (bootstrap-kit slot 60)
+    # in EVERY region, so the suspend is issued per-region too.
     helmReleaseName: "bp-vcluster-helmrepo"
     helmReleaseNamespace: "flux-system"
     # The slot file in the local Gitea mirror where the durable suspend lands

@@ -81,6 +81,299 @@ data:
     {{- range .Values.helmRepositories.names }}
     {{ . }}
     {{- end }}
+  # #5593 — Phase 2c of the step script, mounted and exec (`.`-sourced) FROM
+  # FILE. Step-06 renders within a few hundred bytes of the 110000-byte inline
+  # arg budget, so this block MUST NOT move back into podSpec.args. Its
+  # extraction markers are also what chart/tests/loft-pivot-regions.sh drives.
+  phase2c.sh: |
+    # ---- Phase 2c (#5650): vcluster loft chart-source pivot ----
+    #
+    # The one Flux source the Phase-1/2 URL-pivot cannot reach. The
+    # bp-vcluster-helmrepo slot installs HelmRepository
+    # vcluster-system/loft at https://charts.loft.sh — a TRADITIONAL
+    # index.yaml source (spec.type default, NOT oci) in vcluster-system
+    # (NOT flux-system = HELMREPO_NAMESPACE). Phase-1 walks flux-system
+    # and matches only the openova-io OCI UPSTREAM_PREFIX, so it misses
+    # loft on both axes; post-cutover the org-controller's per-Org
+    # vcluster HelmReleases keep re-fetching charts.loft.sh on the HR's
+    # 15m interval — the residual tether #5650 found live on hw292,
+    # invisible to the timed step-08 hold (a 15m interval can straddle
+    # the 600s window). charts.loft.sh is an index.yaml repo no OpenOva
+    # registry mirrors, and the source default must stay upstream for
+    # non-Sovereign / pre-cutover installs, so the pivot is a RUNTIME
+    # cutover step (step-10 philosophy: keep chart defaults, rewrite
+    # POST-handover):
+    #   1. MIRROR — helm pull the upstream vcluster chart (egress still
+    #      open here) + helm push it OCI into local Harbor openova-io.
+    #   2. PIVOT  — patch the loft HR to type=oci +
+    #      url=oci://registry.<fqdn>/openova-io + secretRef=ghcr-pull
+    #      (Phase-0's registry.<fqdn> auth) + certSecretRef (Harbor CA),
+    #      replicating both secrets into vcluster-system where
+    #      source-controller reads them. Tenant HRs resolve chart=
+    #      vcluster version=0.33.* against the mirrored OCI tag unchanged.
+    #   3. DURABLE — suspend the bp-vcluster-helmrepo HelmRelease (live +
+    #      spec.suspend:true in the Gitea slot) so the 15m reconcile does
+    #      not re-render loft back to charts.loft.sh.
+    # FAIL-CLOSED: any sub-step that cannot complete leaves loft on
+    # charts.loft.sh and FATALs — step-08's fluxSourceHostLint (empty
+    # allowHosts) then fails the cutover on it rather than stamping a
+    # false cutoverComplete=true. See .Values.helmRepositories
+    # .vclusterLoftPivot and the fluxSourceHostLint HISTORY note.
+    #
+    # ── #5650 SECONDARY-REGION LEG (measured on hw292 2026-08-06) ──
+    #
+    # 0.1.168 shipped this pivot as a PRIMARY-ONLY block: every kubectl
+    # in it ran against the Job's own in-cluster context. But slot 60
+    # installs the loft HelmRepository in EVERY region, so on a 2-region
+    # Sovereign the tether is TWO objects, not one. Live on hw292 (dep
+    # 1c56518035a83e03), ~63h after cutoverComplete=true was stamped,
+    # source-controller in BOTH regions was still fetching it on the 15m
+    # interval — sampled across 75 minutes, i.e. an interval strictly
+    # longer than the actor's period, because a single sample inside a
+    # window proves nothing about a periodic actor:
+    #   region-a 23:36:44Z  stored fetched index of size 3.893MB from 'https://charts.loft.sh'
+    #   region-b 23:24:43Z  stored fetched index of size 3.893MB from 'https://charts.loft.sh'
+    # Region-b's copy is not even referenced by a HelmRelease there and
+    # it still reconciles: source-controller drives a HelmRepository on
+    # its own interval regardless of consumers, so "nothing uses it" is
+    # not "it does not dial out".
+    #
+    # And the consequence is worse than half a tether. Step-08's
+    # fluxSourceHostLint runs PER REGION (#5359) over the SAME target
+    # list, and its allowHosts is now EMPTY — so a primary-only pivot
+    # makes the region-b lint fail and the cutover can never reach
+    # cutoverComplete=true on the multi-region topology the DoD requires.
+    # The pivot must cover exactly the regions the lint measures; those
+    # two target lists are built the same way on purpose.
+    #
+    # SHARED vs PER-REGION. The Harbor mirror (one registry endpoint for
+    # the Sovereign) and the durable Gitea slot edit (one Gitea, which
+    # the secondaries also reconcile from after step-05) are
+    # SOVEREIGN-WIDE and run ONCE. Only the live patch — secret
+    # replication + HelmRepository patch + HelmRelease suspend + the
+    # read-back — is per-region.
+    #
+    # The `_lp_kubectl` shim is written on ONE line on purpose:
+    # chart/tests/loft-pivot-regions.sh extracts this function out of the
+    # RENDER with an awk range that terminates on the first bare `}`
+    # line, so a nested multi-line function definition would silently
+    # truncate the function under test (the #5646 drift shape).
+    loft_pivot_region() {
+      _lp_region="${1:-primary}"
+      _LP_KUBECONFIG="${2:-}"
+      _lp_kubectl() { if [ -n "${_LP_KUBECONFIG:-}" ]; then kubectl --kubeconfig="${_LP_KUBECONFIG}" "$@"; else kubectl "$@"; fi; }
+      _lp_kubectl create namespace "${VCL_LOFT_NAMESPACE}" >/dev/null 2>&1 || true
+      # 1. Pull auth. source-controller reads spec.secretRef from the
+      #    HR's OWN namespace, in the HR's OWN cluster — so the bytes
+      #    captured once from the primary must be applied into every
+      #    region, not just this Job's.
+      if [ ! -s "${LOFT_GHCR_SECRET_JSON}" ]; then
+        echo "[helmrepository-patches] FATAL: Phase-2c [${_lp_region}]: no ${GHCR_PULL_SECRET_NAME} bytes were captured from the primary — the pivoted loft HR would 401 (#5650)" >&2
+        return 1
+      fi
+      if jq --arg ns "${VCL_LOFT_NAMESPACE}" '{apiVersion,kind,type,data,metadata:{name:.metadata.name,namespace:$ns}}' "${LOFT_GHCR_SECRET_JSON}" | _lp_kubectl apply -f - >/dev/null 2>&1; then
+        echo "[helmrepository-patches] Phase-2c [${_lp_region}]: replicated ${GHCR_PULL_SECRET_NAME} -> ${VCL_LOFT_NAMESPACE} (carries the registry.${SOVEREIGN_FQDN} auth Phase-0 added)"
+      else
+        echo "[helmrepository-patches] FATAL: Phase-2c [${_lp_region}]: could not replicate ${GHCR_PULL_SECRET_NAME} into ${VCL_LOFT_NAMESPACE} — the pivoted loft HR would 401 (#5650)" >&2
+        return 1
+      fi
+      # 2. Harbor CA trust (optional — absent on a public-CA Harbor).
+      _lp_certref=""
+      if [ -n "${LOFT_TRUST_SECRET}" ] && [ -n "${LOFT_CA_B64}" ]; then
+        if printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n    app.kubernetes.io/managed-by: self-sovereign-cutover\n    bp.openova.io/cutover-step: helmrepository-patches\ntype: Opaque\ndata:\n  ca.crt: %s\n' "${LOFT_TRUST_SECRET}" "${VCL_LOFT_NAMESPACE}" "${LOFT_CA_B64}" | _lp_kubectl apply -f - >/dev/null 2>&1; then
+          _lp_certref="${LOFT_TRUST_SECRET}"
+          echo "[helmrepository-patches] Phase-2c [${_lp_region}]: replicated Harbor CA trust ${LOFT_TRUST_SECRET} -> ${VCL_LOFT_NAMESPACE}"
+        else
+          echo "[helmrepository-patches] Phase-2c WARN [${_lp_region}]: could not apply trust CA into ${VCL_LOFT_NAMESPACE} — pivoting WITHOUT certSecretRef (needs a public-CA Harbor cert)"
+        fi
+      fi
+      # 3. LIVE-PATCH the loft HR in THIS region: index.yaml -> local OCI.
+      if [ -n "${_lp_certref}" ]; then
+        _lp_patch=$(printf '{"spec":{"type":"oci","url":"%s","secretRef":{"name":"%s"},"certSecretRef":{"name":"%s"}}}' "${LOFT_LOCAL_URL}" "${GHCR_PULL_SECRET_NAME}" "${_lp_certref}")
+      else
+        _lp_patch=$(printf '{"spec":{"type":"oci","url":"%s","secretRef":{"name":"%s"}}}' "${LOFT_LOCAL_URL}" "${GHCR_PULL_SECRET_NAME}")
+      fi
+      if _lp_kubectl patch helmrepository "${VCL_LOFT_HR_NAME}" -n "${VCL_LOFT_NAMESPACE}" --type=merge --patch "${_lp_patch}" >/dev/null 2>&1; then
+        _lp_kubectl annotate --overwrite helmrepository "${VCL_LOFT_HR_NAME}" -n "${VCL_LOFT_NAMESPACE}" "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null 2>&1 || true
+        echo "[helmrepository-patches] Phase-2c OK [${_lp_region}]: loft HR pivoted -> type=oci url=${LOFT_LOCAL_URL}"
+      else
+        echo "[helmrepository-patches] FATAL: Phase-2c [${_lp_region}]: kubectl patch of loft HR failed (#5650)" >&2
+        return 1
+      fi
+      # 4. Suspend the bp-vcluster-helmrepo HelmRelease IN THIS REGION so
+      #    its next reconcile does not re-render loft back to
+      #    charts.loft.sh. Slot 60 lands in every region, so the reverting
+      #    actor exists in every region too.
+      if _lp_kubectl get helmrelease "${VCL_LOFT_RELEASE}" -n "${VCL_LOFT_RELEASE_NS}" >/dev/null 2>&1; then
+        if _lp_kubectl patch helmrelease "${VCL_LOFT_RELEASE}" -n "${VCL_LOFT_RELEASE_NS}" --type=merge --patch '{"spec":{"suspend":true}}' >/dev/null 2>&1; then
+          echo "[helmrepository-patches] Phase-2c OK [${_lp_region}]: suspended ${VCL_LOFT_RELEASE_NS}/${VCL_LOFT_RELEASE} (live) so the loft pivot is not reverted"
+        else
+          echo "[helmrepository-patches] Phase-2c WARN [${_lp_region}]: could not suspend ${VCL_LOFT_RELEASE_NS}/${VCL_LOFT_RELEASE} live — the durable Gitea edit below is the backstop"
+        fi
+      else
+        echo "[helmrepository-patches] Phase-2c [${_lp_region}]: HelmRelease ${VCL_LOFT_RELEASE_NS}/${VCL_LOFT_RELEASE} absent — nothing to suspend (loft HR may be operator-managed)"
+      fi
+      # 5. READ-BACK. `kubectl patch` exiting 0 is not the same as the
+      #    object carrying the new URL — an admission webhook or a
+      #    competing controller can revert it inside the same second, and
+      #    a Job that logged OK on an un-pivoted region is precisely the
+      #    single-region-sample failure this leg exists to end. Assert on
+      #    the DECLARATION we just wrote, in the region we wrote it to.
+      _lp_after=$(_lp_kubectl get helmrepository "${VCL_LOFT_HR_NAME}" -n "${VCL_LOFT_NAMESPACE}" -o jsonpath='{.spec.url}' 2>/dev/null || echo "")
+      if [ "${_lp_after}" != "${LOFT_LOCAL_URL}" ]; then
+        echo "[helmrepository-patches] FATAL: Phase-2c [${_lp_region}]: read-back shows spec.url='${_lp_after}', expected '${LOFT_LOCAL_URL}' — the pivot did not stick and this region would keep fetching ${VCL_LOFT_UPSTREAM_REPO} on its 15m interval (#5650)" >&2
+        return 1
+      fi
+      echo "[helmrepository-patches] Phase-2c [${_lp_region}]: read-back OK — spec.url=${_lp_after}"
+      return 0
+    }
+    if [ "${VCL_LOFT_PIVOT_ENABLED}" = "true" ]; then
+      LOFT_LOCAL_URL="oci://${harbor_endpoint}/${VCL_LOFT_LOCAL_PROJECT}"
+      LOFT_GHCR_SECRET_JSON="/tmp/.loft-ghcr-pull.json"
+      LOFT_TRUST_SECRET=""
+      LOFT_CA_B64=""
+      # ---- Target list: the SAME construction step-08's per-region
+      #      fluxSourceHostLint uses (primary + every mounted secondary
+      #      kubeconfig). If these two lists diverge, the lint measures a
+      #      region the pivot never touched — which IS this defect.
+      # SECONDARY_KUBECONFIG_DIR defaults to the Job's real mount and is
+      # overridable ONLY so chart/tests/loft-pivot-regions.sh can drive
+      # this block with a stub region set — the same seam WORK_DIR gives
+      # the step-08 lints. Nothing in the chart ever sets it.
+      loft_targets="primary="
+      for lt_kc in "${SECONDARY_KUBECONFIG_DIR:-/secondary-kubeconfigs}"/*.yaml; do
+        [ -e "${lt_kc}" ] || continue
+        loft_targets="${loft_targets} $(basename "${lt_kc}" .yaml)=${lt_kc}"
+      done
+      # ---- Classify every region: absent / already-oci / needs-pivot.
+      #      A region that cannot be READ is fail-closed: indistinguishable
+      #      from a pivoted one only in the log (#5359).
+      loft_need=""
+      for lt in ${loft_targets}; do
+        lt_region="${lt%%=*}"
+        lt_kc="${lt#*=}"
+        if [ -n "${lt_kc}" ]; then lt_ctx="--kubeconfig=${lt_kc}"; else lt_ctx=""; fi
+        if ! kubectl ${lt_ctx} get helmrepository "${VCL_LOFT_HR_NAME}" -n "${VCL_LOFT_NAMESPACE}" -o json >/tmp/.loft-probe.json 2>/tmp/.loft-probe.err; then
+          if grep -qiE 'not found|no matches for kind|server doesn.t have a resource type|could not find the requested resource' /tmp/.loft-probe.err 2>/dev/null; then
+            echo "[helmrepository-patches] Phase-2c SKIP [${lt_region}]: HelmRepository ${VCL_LOFT_NAMESPACE}/${VCL_LOFT_HR_NAME} not present — bp-vcluster-helmrepo slot not installed in this region (#5650)"
+            continue
+          fi
+          echo "[helmrepository-patches] FATAL: Phase-2c cannot read ${VCL_LOFT_NAMESPACE}/${VCL_LOFT_HR_NAME} in region ${lt_region} ($(head -1 /tmp/.loft-probe.err 2>/dev/null)). An unreadable region is NOT a pivoted region — refusing to record success while it may still be on ${VCL_LOFT_UPSTREAM_REPO} (#5650 #5359)" >&2
+          exit 1
+        fi
+        lt_url=$(jq -r '.spec.url // ""' /tmp/.loft-probe.json 2>/dev/null)
+        lt_type=$(jq -r '.spec.type // ""' /tmp/.loft-probe.json 2>/dev/null)
+        if [ "${lt_type}" = "oci" ]; then
+          # Already OCI (idempotent re-run, or an operator overlay). The
+          # step-08 fluxSourceHostLint judges locality either way; leave it.
+          echo "[helmrepository-patches] Phase-2c SKIP [${lt_region}]: loft HR is already type=oci (${lt_url}) — idempotent re-run / operator overlay (#5650)"
+          continue
+        fi
+        echo "[helmrepository-patches] Phase-2c [${lt_region}]: loft HR on ${lt_url} — queued for pivot -> ${LOFT_LOCAL_URL}"
+        loft_need="${loft_need} ${lt_region}=${lt_kc}"
+      done
+      if [ -z "${loft_need}" ]; then
+        echo "[helmrepository-patches] Phase-2c: no region needs the loft pivot (absent or already local) — nothing to do (#5650)"
+      else
+        echo "[helmrepository-patches] Phase-2c: pivoting loft chart source -> ${LOFT_LOCAL_URL} in region(s):${loft_need} (#5650)"
+        # In-cluster Harbor serves an LE-staging (node-untrusted) cert on
+        # a fresh prov; the Job Pod has no node trust store. Mirror the
+        # same insecure-flag discipline Phase-3a uses (login vs pull take
+        # DIFFERENT flag spellings on helm v3.16.x).
+        case "${HELM_IN_CLUSTER_TLS_VERIFY:-false}" in
+          true|True|TRUE|1|yes) VCL_LFLAG=""; VCL_PFLAG="" ;;
+          *) VCL_LFLAG="--insecure"; VCL_PFLAG="--insecure-skip-tls-verify" ;;
+        esac
+        # 1. MIRROR (ONCE — one Harbor endpoint serves every region).
+        helm registry login "${harbor_endpoint}" ${VCL_LFLAG} \
+          -u "${HARBOR_USERNAME:-admin}" -p "${HARBOR_PASSWORD}" >/dev/null 2>&1 \
+          && echo "[helmrepository-patches] Phase-2c: helm registry login ${harbor_endpoint} OK" \
+          || echo "[helmrepository-patches] Phase-2c WARN: helm registry login ${harbor_endpoint} non-zero (push may still succeed on a public-CA Harbor)"
+        rm -rf /tmp/loft-pull; mkdir -p /tmp/loft-pull
+        loft_pulled=0
+        vcl_att=0
+        while [ "${vcl_att}" -lt "${VCL_LOFT_PULL_ATTEMPTS:-3}" ]; do
+          vcl_att=$((vcl_att + 1))
+          if helm pull "${VCL_LOFT_CHART}" --repo "${VCL_LOFT_UPSTREAM_REPO}" \
+               --version "${VCL_LOFT_VERSION}" -d /tmp/loft-pull >/tmp/.loft-pull.log 2>&1; then
+            loft_pulled=1; break
+          fi
+          echo "[helmrepository-patches] Phase-2c: upstream pull ${VCL_LOFT_UPSTREAM_REPO} ${VCL_LOFT_CHART} ${VCL_LOFT_VERSION} attempt ${vcl_att}/${VCL_LOFT_PULL_ATTEMPTS:-3} failed; retrying in 5s"
+          sleep 5
+        done
+        if [ "${loft_pulled}" != "1" ]; then
+          echo "[helmrepository-patches] FATAL: Phase-2c could not pull the upstream vcluster chart from ${VCL_LOFT_UPSTREAM_REPO} (egress is still open at step-06 — a real upstream/DNS failure, not the deny hold). Leaving loft on the upstream URL; step-08 fluxSourceHostLint fails closed on it (#5650)." >&2
+          sed 's/^/    /' /tmp/.loft-pull.log 2>/dev/null | tail -6 >&2 || true
+          exit 1
+        fi
+        loft_tgz=$(ls /tmp/loft-pull/*.tgz 2>/dev/null | head -n1)
+        if [ -z "${loft_tgz}" ]; then
+          echo "[helmrepository-patches] FATAL: Phase-2c produced no chart tarball for ${VCL_LOFT_CHART} ${VCL_LOFT_VERSION} (#5650)" >&2
+          exit 1
+        fi
+        if ! helm push "${loft_tgz}" "${LOFT_LOCAL_URL}" ${VCL_PFLAG} >/tmp/.loft-push.log 2>&1; then
+          echo "[helmrepository-patches] FATAL: Phase-2c push ${loft_tgz##*/} -> ${LOFT_LOCAL_URL} failed — local Harbor cannot serve the pivoted loft source; leaving loft on the upstream URL (step-08 fails closed) (#5650)" >&2
+          sed 's/^/    /' /tmp/.loft-push.log 2>/dev/null | tail -6 >&2 || true
+          exit 1
+        fi
+        echo "[helmrepository-patches] Phase-2c OK: mirrored ${VCL_LOFT_CHART} ${VCL_LOFT_VERSION} -> ${LOFT_LOCAL_URL}/${VCL_LOFT_CHART}"
+        # 2. Capture the auth + trust material ONCE from the primary, then
+        #    replicate it into every region that needs the pivot.
+        gp_src_ns="${GHCR_PULL_SECRET_NAMESPACE}"
+        kubectl get secret "${GHCR_PULL_SECRET_NAME}" -n "${gp_src_ns}" >/dev/null 2>&1 || gp_src_ns="flux-system"
+        if ! kubectl get secret "${GHCR_PULL_SECRET_NAME}" -n "${gp_src_ns}" -o json >"${LOFT_GHCR_SECRET_JSON}" 2>/dev/null; then
+          echo "[helmrepository-patches] FATAL: Phase-2c could not read ${GHCR_PULL_SECRET_NAME} (tried ${GHCR_PULL_SECRET_NAMESPACE} + flux-system) — the pivoted loft HR would 401 (#5650)" >&2
+          exit 1
+        fi
+        if [ -n "${trust_secret}" ]; then
+          LOFT_CA_B64=$(kubectl get secret "${trust_secret}" -n "${HELMREPO_NAMESPACE}" -o json 2>/dev/null | jq -r '.data["ca.crt"] // empty')
+          [ -n "${LOFT_CA_B64}" ] && LOFT_TRUST_SECRET="${trust_secret}"
+        fi
+        # 3. PIVOT every queued region. One failing region FATALs the
+        #    step: a partially-pivoted Sovereign that reports success is
+        #    the exact shape of the defect (#5359 #5596 #5650).
+        loft_pivoted=0
+        for ln in ${loft_need}; do
+          ln_region="${ln%%=*}"
+          ln_kc="${ln#*=}"
+          if ! loft_pivot_region "${ln_region}" "${ln_kc}"; then
+            echo "[helmrepository-patches] FATAL: Phase-2c region ${ln_region} could not be pivoted off ${VCL_LOFT_UPSTREAM_REPO} — refusing to record success on a partially-pivoted Sovereign (#5650)" >&2
+            exit 1
+          fi
+          loft_pivoted=$((loft_pivoted + 1))
+        done
+        echo "[helmrepository-patches] Phase-2c OK: ${loft_pivoted} region(s) pivoted off ${VCL_LOFT_UPSTREAM_REPO} onto ${LOFT_LOCAL_URL} (#5650)"
+        # 4. DURABLE (ONCE): set spec.suspend=true on the slot file in the
+        #    Gitea clone so the bootstrap-kit reconcile keeps loft
+        #    suspended. One Gitea serves every region after step-05.
+        if [ -f "${VCL_LOFT_SLOT_FILE}" ]; then
+          vcl_yq=""
+          if command -v yq >/dev/null 2>&1; then
+            vcl_yq="yes"
+          else
+            apk add --no-cache yq >/dev/null 2>&1 || true
+            command -v yq >/dev/null 2>&1 && vcl_yq="yes"
+          fi
+          if [ -n "${vcl_yq}" ]; then
+            if yq -i '(select(.kind == "HelmRelease").spec.suspend) = true' "${VCL_LOFT_SLOT_FILE}" 2>/tmp/.loft-yq.log; then
+              edited=$((edited + 1))
+              echo "[helmrepository-patches] Phase-2c OK: durable spec.suspend=true written to ${VCL_LOFT_SLOT_FILE} (yq)"
+            else
+              echo "[helmrepository-patches] Phase-2c WARN: yq edit of ${VCL_LOFT_SLOT_FILE} failed — live suspend holds; durable revert-guard not written:" >&2
+              sed 's/^/    /' /tmp/.loft-yq.log 2>/dev/null | tail -4 >&2 || true
+            fi
+          else
+            echo "[helmrepository-patches] Phase-2c WARN: yq unavailable — durable suspend not written to ${VCL_LOFT_SLOT_FILE}; the live HelmRelease suspend holds the pivot for this cutover"
+          fi
+        else
+          echo "[helmrepository-patches] Phase-2c WARN: ${VCL_LOFT_SLOT_FILE} not present in the local mirror — durable suspend skipped; live suspend holds the pivot"
+        fi
+      fi
+    else
+      echo "[helmrepository-patches] Phase-2c SKIP: vclusterLoftPivot.enabled=false (#5650)"
+    fi
+    # ---- end Phase 2c (#5650) ----
+
   podSpec: |
     serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
     restartPolicy: Never
@@ -343,6 +636,10 @@ data:
             readOnly: true
           - name: bootstrap-kit-pins
             mountPath: /pin-extractor
+            readOnly: true
+          # #5593 — Phase 2c of the step script, `.`-sourced from here.
+          - name: phase2c-script
+            mountPath: /phase2c
             readOnly: true
           - name: tmp
             mountPath: /tmp
@@ -1289,177 +1586,15 @@ data:
               echo "[helmrepository-patches] Phase-2.5 SKIP: ${catalyst_yaml} not present in local mirror"
             fi
 
-            # ---- Phase 2c (#5650): vcluster loft chart-source pivot ----
-            #
-            # The one Flux source the Phase-1/2 URL-pivot cannot reach. The
-            # bp-vcluster-helmrepo slot installs HelmRepository
-            # vcluster-system/loft at https://charts.loft.sh — a TRADITIONAL
-            # index.yaml source (spec.type default, NOT oci) in vcluster-system
-            # (NOT flux-system = HELMREPO_NAMESPACE). Phase-1 walks flux-system
-            # and matches only the openova-io OCI UPSTREAM_PREFIX, so it misses
-            # loft on both axes; post-cutover the org-controller's per-Org
-            # vcluster HelmReleases keep re-fetching charts.loft.sh on the HR's
-            # 15m interval — the residual tether #5650 found live on hw292,
-            # invisible to the timed step-08 hold (a 15m interval can straddle
-            # the 600s window). charts.loft.sh is an index.yaml repo no OpenOva
-            # registry mirrors, and the source default must stay upstream for
-            # non-Sovereign / pre-cutover installs, so the pivot is a RUNTIME
-            # cutover step (step-10 philosophy: keep chart defaults, rewrite
-            # POST-handover):
-            #   1. MIRROR — helm pull the upstream vcluster chart (egress still
-            #      open here) + helm push it OCI into local Harbor openova-io.
-            #   2. PIVOT  — patch the loft HR to type=oci +
-            #      url=oci://registry.<fqdn>/openova-io + secretRef=ghcr-pull
-            #      (Phase-0's registry.<fqdn> auth) + certSecretRef (Harbor CA),
-            #      replicating both secrets into vcluster-system where
-            #      source-controller reads them. Tenant HRs resolve chart=
-            #      vcluster version=0.33.* against the mirrored OCI tag unchanged.
-            #   3. DURABLE — suspend the bp-vcluster-helmrepo HelmRelease (live +
-            #      spec.suspend:true in the Gitea slot) so the 15m reconcile does
-            #      not re-render loft back to charts.loft.sh.
-            # FAIL-CLOSED: any sub-step that cannot complete leaves loft on
-            # charts.loft.sh and FATALs — step-08's fluxSourceHostLint (empty
-            # allowHosts) then fails the cutover on it rather than stamping a
-            # false cutoverComplete=true. See .Values.helmRepositories
-            # .vclusterLoftPivot and the fluxSourceHostLint HISTORY note.
-            if [ "${VCL_LOFT_PIVOT_ENABLED}" = "true" ]; then
-              loft_local_url="oci://${harbor_endpoint}/${VCL_LOFT_LOCAL_PROJECT}"
-              loft_already=0
-              loft_cur_url=$(kubectl get helmrepository "${VCL_LOFT_HR_NAME}" -n "${VCL_LOFT_NAMESPACE}" -o jsonpath='{.spec.url}' 2>/dev/null || echo "")
-              loft_cur_type=$(kubectl get helmrepository "${VCL_LOFT_HR_NAME}" -n "${VCL_LOFT_NAMESPACE}" -o jsonpath='{.spec.type}' 2>/dev/null || echo "")
-              if [ -z "${loft_cur_url}" ]; then
-                echo "[helmrepository-patches] Phase-2c SKIP: HelmRepository ${VCL_LOFT_NAMESPACE}/${VCL_LOFT_HR_NAME} not present — bp-vcluster-helmrepo slot not installed on this Sovereign (#5650)"
-              elif [ "${loft_cur_type}" = "oci" ]; then
-                # Already OCI (idempotent re-run, or an operator overlay). The
-                # step-08 fluxSourceHostLint judges locality either way; leave it.
-                echo "[helmrepository-patches] Phase-2c SKIP: loft HR is already type=oci (${loft_cur_url}) — idempotent re-run / operator overlay (#5650)"
-                loft_already=1
-              fi
-              if [ -n "${loft_cur_url}" ] && [ "${loft_already}" != "1" ]; then
-                echo "[helmrepository-patches] Phase-2c: pivoting loft chart source ${loft_cur_url} -> ${loft_local_url} (#5650)"
-                # In-cluster Harbor serves an LE-staging (node-untrusted) cert on
-                # a fresh prov; the Job Pod has no node trust store. Mirror the
-                # same insecure-flag discipline Phase-3a uses (login vs pull take
-                # DIFFERENT flag spellings on helm v3.16.x).
-                case "${HELM_IN_CLUSTER_TLS_VERIFY:-false}" in
-                  true|True|TRUE|1|yes) VCL_LFLAG=""; VCL_PFLAG="" ;;
-                  *) VCL_LFLAG="--insecure"; VCL_PFLAG="--insecure-skip-tls-verify" ;;
-                esac
-                # 1. MIRROR: helm pull the upstream index chart + push local OCI.
-                helm registry login "${harbor_endpoint}" ${VCL_LFLAG} \
-                  -u "${HARBOR_USERNAME:-admin}" -p "${HARBOR_PASSWORD}" >/dev/null 2>&1 \
-                  && echo "[helmrepository-patches] Phase-2c: helm registry login ${harbor_endpoint} OK" \
-                  || echo "[helmrepository-patches] Phase-2c WARN: helm registry login ${harbor_endpoint} non-zero (push may still succeed on a public-CA Harbor)"
-                rm -rf /tmp/loft-pull; mkdir -p /tmp/loft-pull
-                loft_pulled=0
-                vcl_att=0
-                while [ "${vcl_att}" -lt "${VCL_LOFT_PULL_ATTEMPTS:-3}" ]; do
-                  vcl_att=$((vcl_att + 1))
-                  if helm pull "${VCL_LOFT_CHART}" --repo "${VCL_LOFT_UPSTREAM_REPO}" \
-                       --version "${VCL_LOFT_VERSION}" -d /tmp/loft-pull >/tmp/.loft-pull.log 2>&1; then
-                    loft_pulled=1; break
-                  fi
-                  echo "[helmrepository-patches] Phase-2c: upstream pull ${VCL_LOFT_UPSTREAM_REPO} ${VCL_LOFT_CHART} ${VCL_LOFT_VERSION} attempt ${vcl_att}/${VCL_LOFT_PULL_ATTEMPTS:-3} failed; retrying in 5s"
-                  sleep 5
-                done
-                if [ "${loft_pulled}" != "1" ]; then
-                  echo "[helmrepository-patches] FATAL: Phase-2c could not pull the upstream vcluster chart from ${VCL_LOFT_UPSTREAM_REPO} (egress is still open at step-06 — a real upstream/DNS failure, not the deny hold). Leaving loft on ${loft_cur_url}; step-08 fluxSourceHostLint fails closed on it (#5650)." >&2
-                  sed 's/^/    /' /tmp/.loft-pull.log 2>/dev/null | tail -6 >&2 || true
-                  exit 1
-                fi
-                loft_tgz=$(ls /tmp/loft-pull/*.tgz 2>/dev/null | head -n1)
-                if [ -z "${loft_tgz}" ]; then
-                  echo "[helmrepository-patches] FATAL: Phase-2c produced no chart tarball for ${VCL_LOFT_CHART} ${VCL_LOFT_VERSION} (#5650)" >&2
-                  exit 1
-                fi
-                if ! helm push "${loft_tgz}" "${loft_local_url}" ${VCL_PFLAG} >/tmp/.loft-push.log 2>&1; then
-                  echo "[helmrepository-patches] FATAL: Phase-2c push ${loft_tgz##*/} -> ${loft_local_url} failed — local Harbor cannot serve the pivoted loft source; leaving loft on ${loft_cur_url} (step-08 fails closed) (#5650)" >&2
-                  sed 's/^/    /' /tmp/.loft-push.log 2>/dev/null | tail -6 >&2 || true
-                  exit 1
-                fi
-                echo "[helmrepository-patches] Phase-2c OK: mirrored ${VCL_LOFT_CHART} ${VCL_LOFT_VERSION} -> ${loft_local_url}/${VCL_LOFT_CHART}"
-                # 2. Replicate pull auth + the Harbor CA trust into the loft HR
-                #    namespace — source-controller reads spec.secretRef and
-                #    spec.certSecretRef from the HR's OWN namespace, not flux-system.
-                kubectl create namespace "${VCL_LOFT_NAMESPACE}" >/dev/null 2>&1 || true
-                gp_src_ns="${GHCR_PULL_SECRET_NAMESPACE}"
-                kubectl get secret "${GHCR_PULL_SECRET_NAME}" -n "${gp_src_ns}" >/dev/null 2>&1 || gp_src_ns="flux-system"
-                if kubectl get secret "${GHCR_PULL_SECRET_NAME}" -n "${gp_src_ns}" -o json 2>/dev/null \
-                     | jq --arg ns "${VCL_LOFT_NAMESPACE}" '{apiVersion,kind,type,data,metadata:{name:.metadata.name,namespace:$ns}}' \
-                     | kubectl apply -f - >/dev/null 2>&1; then
-                  echo "[helmrepository-patches] Phase-2c: replicated ${GHCR_PULL_SECRET_NAME} -> ${VCL_LOFT_NAMESPACE} (carries the registry.${SOVEREIGN_FQDN} auth Phase-0 added)"
-                else
-                  echo "[helmrepository-patches] FATAL: Phase-2c could not replicate ${GHCR_PULL_SECRET_NAME} into ${VCL_LOFT_NAMESPACE} — the pivoted loft HR would 401 (#5650)" >&2
-                  exit 1
-                fi
-                loft_certref=""
-                if [ -n "${trust_secret}" ]; then
-                  loft_ca_b64=$(kubectl get secret "${trust_secret}" -n "${HELMREPO_NAMESPACE}" -o json 2>/dev/null | jq -r '.data["ca.crt"] // empty')
-                  if [ -n "${loft_ca_b64}" ]; then
-                    if printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n    app.kubernetes.io/managed-by: self-sovereign-cutover\n    bp.openova.io/cutover-step: helmrepository-patches\ntype: Opaque\ndata:\n  ca.crt: %s\n' \
-                         "${trust_secret}" "${VCL_LOFT_NAMESPACE}" "${loft_ca_b64}" | kubectl apply -f - >/dev/null 2>&1; then
-                      loft_certref="${trust_secret}"
-                      echo "[helmrepository-patches] Phase-2c: replicated Harbor CA trust ${trust_secret} -> ${VCL_LOFT_NAMESPACE}"
-                    else
-                      echo "[helmrepository-patches] Phase-2c WARN: could not apply trust CA into ${VCL_LOFT_NAMESPACE} — pivoting WITHOUT certSecretRef (needs a public-CA Harbor cert)"
-                    fi
-                  fi
-                fi
-                # 3. LIVE-PATCH the loft HR: index.yaml -> local OCI.
-                if [ -n "${loft_certref}" ]; then
-                  loft_patch=$(printf '{"spec":{"type":"oci","url":"%s","secretRef":{"name":"%s"},"certSecretRef":{"name":"%s"}}}' "${loft_local_url}" "${GHCR_PULL_SECRET_NAME}" "${loft_certref}")
-                else
-                  loft_patch=$(printf '{"spec":{"type":"oci","url":"%s","secretRef":{"name":"%s"}}}' "${loft_local_url}" "${GHCR_PULL_SECRET_NAME}")
-                fi
-                if kubectl patch helmrepository "${VCL_LOFT_HR_NAME}" -n "${VCL_LOFT_NAMESPACE}" \
-                     --type=merge --patch "${loft_patch}" >/dev/null 2>&1; then
-                  kubectl annotate --overwrite helmrepository "${VCL_LOFT_HR_NAME}" -n "${VCL_LOFT_NAMESPACE}" \
-                    "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null 2>&1 || true
-                  echo "[helmrepository-patches] Phase-2c OK: loft HR pivoted -> type=oci url=${loft_local_url}"
-                else
-                  echo "[helmrepository-patches] FATAL: Phase-2c kubectl patch of loft HR failed (#5650)" >&2
-                  exit 1
-                fi
-                # 4. Suspend the bp-vcluster-helmrepo HelmRelease (live) so its
-                #    next reconcile does not re-render loft back to charts.loft.sh.
-                if kubectl get helmrelease "${VCL_LOFT_RELEASE}" -n "${VCL_LOFT_RELEASE_NS}" >/dev/null 2>&1; then
-                  if kubectl patch helmrelease "${VCL_LOFT_RELEASE}" -n "${VCL_LOFT_RELEASE_NS}" \
-                       --type=merge --patch '{"spec":{"suspend":true}}' >/dev/null 2>&1; then
-                    echo "[helmrepository-patches] Phase-2c OK: suspended ${VCL_LOFT_RELEASE_NS}/${VCL_LOFT_RELEASE} (live) so the loft pivot is not reverted"
-                  else
-                    echo "[helmrepository-patches] Phase-2c WARN: could not suspend ${VCL_LOFT_RELEASE_NS}/${VCL_LOFT_RELEASE} live — the durable Gitea edit below is the backstop"
-                  fi
-                else
-                  echo "[helmrepository-patches] Phase-2c: HelmRelease ${VCL_LOFT_RELEASE_NS}/${VCL_LOFT_RELEASE} absent — nothing to suspend (loft HR may be operator-managed)"
-                fi
-                # 5. DURABLE: set spec.suspend=true on the slot file in the Gitea
-                #    clone so the bootstrap-kit reconcile keeps loft suspended.
-                if [ -f "${VCL_LOFT_SLOT_FILE}" ]; then
-                  vcl_yq=""
-                  if command -v yq >/dev/null 2>&1; then
-                    vcl_yq="yes"
-                  else
-                    apk add --no-cache yq >/dev/null 2>&1 || true
-                    command -v yq >/dev/null 2>&1 && vcl_yq="yes"
-                  fi
-                  if [ -n "${vcl_yq}" ]; then
-                    if yq -i '(select(.kind == "HelmRelease").spec.suspend) = true' "${VCL_LOFT_SLOT_FILE}" 2>/tmp/.loft-yq.log; then
-                      edited=$((edited + 1))
-                      echo "[helmrepository-patches] Phase-2c OK: durable spec.suspend=true written to ${VCL_LOFT_SLOT_FILE} (yq)"
-                    else
-                      echo "[helmrepository-patches] Phase-2c WARN: yq edit of ${VCL_LOFT_SLOT_FILE} failed — live suspend holds; durable revert-guard not written:" >&2
-                      sed 's/^/    /' /tmp/.loft-yq.log 2>/dev/null | tail -4 >&2 || true
-                    fi
-                  else
-                    echo "[helmrepository-patches] Phase-2c WARN: yq unavailable — durable suspend not written to ${VCL_LOFT_SLOT_FILE}; the live HelmRelease suspend holds the pivot for this cutover"
-                  fi
-                else
-                  echo "[helmrepository-patches] Phase-2c WARN: ${VCL_LOFT_SLOT_FILE} not present in the local mirror — durable suspend skipped; live suspend holds the pivot"
-                fi
-              fi
-            else
-              echo "[helmrepository-patches] Phase-2c SKIP: vclusterLoftPivot.enabled=false (#5650)"
-            fi
+            # Phase 2c (#5650) — the vcluster loft chart-source pivot, sourced
+            # FROM FILE rather than inlined. It is ~10 KiB of shell and step-06
+            # already renders within a few hundred bytes of the 110000-byte
+            # MAX_ARG_STRLEN early-warning budget (#5593): inlining it dies at
+            # exec with "argument list too long" before a single line runs. Same
+            # `.`-source discipline as step-03 run.sh / resolver.sh — it runs in
+            # THIS shell, so ${edited}, ${harbor_endpoint} and ${trust_secret}
+            # are visible to it and its `exit 1` FATALs the whole step.
+            . /phase2c/phase2c.sh
 
             # NOTE (Refs #3379 #3526): the two "nothing to push" paths below
             # must FALL THROUGH to Phase 3 (the readiness-gated strip), NOT
@@ -2385,6 +2520,13 @@ data:
           items:
             - key: extract-pins.sh
               path: extract-pins.sh
+      # #5593 — the same step-06 ConfigMap, exposing ONLY the phase2c.sh key.
+      - name: phase2c-script
+        configMap:
+          name: cutover-step-06-helmrepository-patches
+          items:
+            - key: phase2c.sh
+              path: phase2c.sh
       - name: tmp
         emptyDir: {}
       # #5359 — materialised by catalyst-api (cutover.go runCutover) from its
