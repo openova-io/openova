@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T12:00:02Z` |
+| Last refreshed | `2026-08-06T12:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-06T12:01 | [#5768](https://github.com/openova-io/openova/pull/5768) | #489 | fix(catalyst-api): graceful shutdown — drain HTTP, then join |
 | 2026-08-06T11:42 | [#5766](https://github.com/openova-io/openova/pull/5766) | #5764 | fix(catalyst-api): join the orphan-release goroutine instead |
 | 2026-08-06T10:13 | [#5764](https://github.com/openova-io/openova/pull/5764) | #5759 | fix(self-sovereign-cutover): refuse Day-2 mirror-advance for |
 | 2026-08-06T09:34 | [#5763](https://github.com/openova-io/openova/pull/5763) | #960 | docs(uat): make all 146 screenshot references clickable on G |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T02:56 | [#5730](https://github.com/openova-io/openova/pull/5730) | #5467 | fix(guard): execute-and-detect guard for credential prefixes |
 | 2026-08-06T02:14 | [#5729](https://github.com/openova-io/openova/pull/5729) | #5253 | docs(uat): re-walk 18 dead-env rows live on hw292 — 8 flip g |
 | 2026-08-06T02:07 | [#5727](https://github.com/openova-io/openova/pull/5727) | #5434 | docs(uat): re-walk 14 rows stranded on dead-env evidence — 2 |
-| 2026-08-06T02:19 | [#5726](https://github.com/openova-io/openova/pull/5726) | #5612 | test(newapi): bind the #5612 session-secret carrier to the S |
 
 ---
 
