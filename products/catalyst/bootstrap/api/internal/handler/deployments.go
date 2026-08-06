@@ -616,7 +616,16 @@ func (h *Handler) restoreFromStore() {
 			if dep.Status == "failed" && rec.PDMReservationToken != "" &&
 				rec.PDMPoolDomain != "" && rec.PDMSubdomain != "" &&
 				dep.AdoptedAt == nil && h.pdm != nil {
-				go h.releaseOrphanedReservation(dep.ID, rec.PDMPoolDomain, rec.PDMSubdomain)
+				// Tracked on orphanReleaseWG so callers can join the
+				// goroutine's FULL body — including the trailing
+				// persistDeployment write (#5765). Add before the `go`,
+				// never inside it, or Wait can return before the
+				// goroutine has even been scheduled.
+				h.orphanReleaseWG.Add(1)
+				go func(id, pool, sub string) {
+					defer h.orphanReleaseWG.Done()
+					h.releaseOrphanedReservation(id, pool, sub)
+				}(dep.ID, rec.PDMPoolDomain, rec.PDMSubdomain)
 			}
 		}
 
@@ -716,6 +725,16 @@ func (h *Handler) restoreFromStore() {
 		"dir", h.store.Dir(),
 	)
 }
+
+// waitOrphanReleases blocks until every releaseOrphanedReservation goroutine
+// spawned by restoreFromStore has run to completion — including the trailing
+// persistDeployment write, not just the pdm.Release call.
+//
+// Exists because that goroutine has observable side effects on the store
+// directory after the effect a caller would naturally poll for. Tests that
+// assert on the Release and then return would otherwise leave it writing into
+// an already-being-torn-down t.TempDir() (#5765).
+func (h *Handler) waitOrphanReleases() { h.orphanReleaseWG.Wait() }
 
 // releaseOrphanedReservation calls pdm.Release for a deployment whose
 // status was rewritten to "failed" because the catalyst-api Pod died
