@@ -239,7 +239,24 @@ name: bp-openbao
 #   broad `secret/data/*` ESO grant stays read-only. On already-provisioned
 #   envs the auth-bootstrap hook exits 0 (root token revoked after first run) —
 #   the grant lands on the next fresh prov per the release-train lifecycle.
-version: 1.2.64
+# 1.2.65 — #5459 (UAT row 183 regression): the SSO landing page's re-entry
+#   fast path ("already signed in? -> straight through") trusted a cached
+#   token's CLIENT-SIDE tokenExpirationEpoch alone, computed once at mint
+#   time from lease_duration. It has no way to learn a token was revoked
+#   SERVER-SIDE (explicit revoke, entity/alias churn, any other Vault-
+#   internal invalidation) before its programmed TTL elapsed — the landing
+#   page still shows no login form (session-authenticity "holds") but
+#   redirects straight into the authenticated UI with a dead token, which
+#   403s on its first real call, `sys/internal/ui/mounts` ("Not authorized"
+#   instead of Secrets Engines). Measured live hw292 2026-08-06T06:06Z,
+#   reproduced 3/3 loads, while the server-side ACL/OIDC-role/identity-group
+#   state was independently confirmed correct + converged in BOTH regions
+#   throughout the exact failure window (zero WARNs in the sso-configure
+#   reconciler log) — this was a client-trust bug, not a policy regression.
+#   The landing page now calls auth/token/lookup-self BEFORE trusting a
+#   cached token; a non-200 clears it and falls through to a fresh OIDC
+#   round-trip instead of dead-ending on a silent 403.
+version: 1.2.65
 # 1.2.51 (#3888, Refs #3847): prov-time openbao KV-seed mechanism — the
 # auth-bootstrap Job reads a one-shot cloud-init `openbao-bootstrap-seed`
 # Secret + writes its keys into KV at secret/<prefix>/* with the still-valid

@@ -36,8 +36,13 @@ WHAT THIS PAGE DOES (gesture-free, popup-free, version-stable):
 
   Loop-safety: this page lives at /sso/landing — NOT a Vault UI route, NOT
   the OIDC callback. The bare-path HTTPRoute (/, /ui, /ui/) redirects HERE;
-  a re-entry that already holds a valid token short-circuits to
-  /ui/vault/secrets (idempotent). API clients use /v1/* — never touched.
+  a re-entry re-VALIDATES its cached token server-side (auth/token/lookup-
+  self) before short-circuiting to /ui/vault/secrets — a locally-future-dated
+  tokenExpirationEpoch is not proof the token is still good server-side
+  (#5459, UAT row 183: a revoked-but-not-yet-expired cached token used to
+  sail through this check and only 403 on the authenticated UI's first real
+  call). An invalid cached token is cleared and falls through to a fresh
+  OIDC round-trip. API clients use /v1/* — never touched.
 
   GATE — DO NOT re-add `.Values.gateway.enabled`/`.Values.gateway.host` here
   (#3374, the hw167 2026-06-19 zero-click regression): the landing
@@ -205,14 +210,56 @@ data:
             .catch(function () { fail("Network error starting sign-in."); });
         }
 
-        // Already signed in? (re-entry / idempotent) — straight through.
+        // Already signed in? (re-entry / idempotent) — VALIDATE before
+        // trusting it (#5459, UAT row 183 regression). The prior code
+        // short-circuited straight to POST_LOGIN whenever the CLIENT-SIDE
+        // tokenExpirationEpoch (computed once, at mint time, from the auth
+        // response's lease_duration) still looked future-dated. That never
+        // learns about a SERVER-SIDE revoke that happens before the token's
+        // programmed TTL elapses (an explicit `bao token revoke`, an entity/
+        // alias delete, or any other Vault-internal invalidation) — the
+        // landing page still shows no login form (session-authenticity
+        // "holds") but the dead token then 403s on the FIRST real API call
+        // the authenticated Ember UI makes, `sys/internal/ui/mounts`, which
+        // renders "Not authorized" instead of the Secrets Engines list.
+        // Measured live on hw292 2026-08-06T06:06Z: no token form + `GET
+        // /v1/sys/internal/ui/mounts` 403 `permission denied`, reproduced
+        // 3/3 loads, while auth/oidc/role/operator + the sso-operator-admin/
+        // -read policies + the external sovereign-admins/-ops group mapping
+        // were independently confirmed correct and converged in BOTH
+        // regions throughout the exact failure window (zero WARNs in the
+        // sso-configure reconciler log) — the server-side ACL/OIDC state was
+        // never wrong; only the CLIENT trusted a token it never re-checked.
+        // Fix: ask the server (`auth/token/lookup-self`, the same call the
+        // exchange() path already uses for the cosmetic display name) BEFORE
+        // trusting the cache. A 200 confirms the token is still good — enter
+        // as before. Anything else clears the stale entry and falls through
+        // to begin() (fresh OIDC round-trip), which self-heals the session
+        // exactly as a first-time visit would.
+        function enterIfStillValid(tokenData) {
+          fetch(ORIGIN + "/v1/auth/token/lookup-self", {
+            credentials: "omit",
+            headers: { "X-Vault-Token": tokenData.token, "Accept": "application/json" }
+          }).then(function (r) {
+            if (r.ok) {
+              window.location.replace(POST_LOGIN);
+            } else {
+              try { window.localStorage.removeItem("vault-token" + "☃" + "1"); } catch (e) {}
+              begin();
+            }
+          }).catch(function () {
+            try { window.localStorage.removeItem("vault-token" + "☃" + "1"); } catch (e) {}
+            begin();
+          });
+        }
+
         try {
           var DELIM = "☃";
           var existing = window.localStorage.getItem("vault-token" + DELIM + "1");
           if (existing) {
             var ex = JSON.parse(existing);
             if (ex && ex.token && ex.tokenExpirationEpoch && ex.tokenExpirationEpoch > Date.now() + 30000) {
-              window.location.replace(POST_LOGIN);
+              enterIfStillValid(ex);
               return;
             }
           }
