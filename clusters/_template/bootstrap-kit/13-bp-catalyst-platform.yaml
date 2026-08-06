@@ -1335,7 +1335,9 @@ spec:
       #   mirror-advance force-push refuse-by-default + continuous
       #   source-host drift lint. Lockstep w/ slot-06a; also self-heals the
       #   pre-existing 1.4.1327/1.4.1325 version/appVersion drift.
-      version: 1.4.1328
+      # 1.4.1329 (#5459): catalog-seed bp-openbao pin 1.2.65 — SSO landing
+      #   re-validates a cached token before trusting it. Lockstep w/ slot-08.
+      version: 1.4.1329
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

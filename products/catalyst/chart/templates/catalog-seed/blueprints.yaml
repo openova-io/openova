@@ -3471,7 +3471,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.64"
+  version: "1.2.65"
   visibility: unlisted
   card:
     title: "OpenBao"
@@ -3496,7 +3496,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openbao
-    version: "1.2.64"
+    version: "1.2.65"
   topology:
     supported:
     - active-passive

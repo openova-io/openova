@@ -167,7 +167,12 @@ spec:
       #   region-local admin-token PushSecret can seed every region's vault —
       #   closes the region-B catalyst-newapi-admin-token SecretSyncedError
       #   (path never written in region-B; post-promote DR gap).
-      version: 1.2.64
+      # 1.2.65 — #5763 (UAT row 183 regression): SSO landing re-entry
+      #   re-validates a cached token (auth/token/lookup-self) before
+      #   trusting it into /ui/vault/secrets, instead of trusting a
+      #   client-side-only tokenExpirationEpoch that can't see a server-side
+      #   revoke — closes the "no login form but 403 on mounts" gap.
+      version: 1.2.65
       sourceRef:
         kind: HelmRepository
         name: bp-openbao
