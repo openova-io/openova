@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-05T23:45:06Z` |
+| Last refreshed | `2026-08-06T00:00:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-05T23:56 | [#5714](https://github.com/openova-io/openova/pull/5714) | #3599 | fix(placement): reject a region-less placement target instea |
+| 2026-08-05T23:52 | [#5713](https://github.com/openova-io/openova/pull/5713) | #5635 | fix(catalyst-api): serve per-Org app hosts from every region |
 | 2026-08-05T23:42 | [#5712](https://github.com/openova-io/openova/pull/5712) | #5634 | fix(marketplace,billing): carry the real 429 retry window in |
 | 2026-08-05T23:08 | [#5711](https://github.com/openova-io/openova/pull/5711) | #5614 | fix(auth): accept the handover issuer SET, not a single valu |
 | 2026-08-05T23:07 | [#5710](https://github.com/openova-io/openova/pull/5710) | #5436 | fix(cutover): step-06 secondary leg must prove the pivot DUR |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-05T05:51 | [#5685](https://github.com/openova-io/openova/pull/5685) | #5611 | fix(cloud): Volumes page reads live PVs, not a hardcoded emp |
 | 2026-08-05T05:11 | [#5684](https://github.com/openova-io/openova/pull/5684) | #5610 | fix(console): clear catalog IaC editor 'unsaved changes' aft |
 | 2026-08-05T02:53 | [#5683](https://github.com/openova-io/openova/pull/5683) | #5568 | fix(placement): derivedFromRuntime false on the no-data-plan |
-| 2026-08-05T01:50 | [#5682](https://github.com/openova-io/openova/pull/5682) | #5610 | fix(console): summary inline editor opens pre-filled with th |
-| 2026-08-05T01:46 | [#5681](https://github.com/openova-io/openova/pull/5681) | #5614 | fix(auth): verify handover issuer via DefaultIssuer(), not a |
 
 ---
 
