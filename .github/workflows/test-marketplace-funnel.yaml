@@ -1,0 +1,62 @@
+name: Test — Marketplace Funnel (vitest)
+
+# Runs the unit tests for core/marketplace — the CUSTOMER storefront + funnel
+# (signup, catalog, checkout, voucher redeem, the post-checkout `launching`
+# page).
+#
+# WHY THIS FILE EXISTS (#5646). Before it, `core/marketplace`'s vitest suite ran
+# in NO workflow at all. `marketplace-build.yaml` matches `core/marketplace/**`
+# but only builds and pushes the image, on push-to-main, with no `npm test` step
+# and no pull_request trigger. So `src/lib/redeemPreview.test.ts`,
+# `redeemOwnerGate.test.ts` and `rateLimitNotice.test.ts` — three suites covering
+# the voucher-redeem and rate-limit surfaces a paying customer hits — could go
+# red on main indefinitely without a single check turning red.
+#
+# That is the fail-open-gate class: a guard that cannot fail is not a guard. This
+# is the same gap #5439 closed for core/services/provisioning, applied to the
+# funnel. Adding the #5646 rendered-copy guard without this file would have
+# reproduced exactly that defect — a banned-term check nothing ever executes.
+
+on:
+  push:
+    paths:
+      - 'core/marketplace/**'
+      - '.github/workflows/test-marketplace-funnel.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'core/marketplace/**'
+      - '.github/workflows/test-marketplace-funnel.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: vitest — funnel unit tests + customer-copy guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: core/marketplace
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: core/marketplace/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # No `|| true`, no `|| echo WARN`. vitest exits non-zero on any failing
+      # test and the default shell runs with `set -e`, so a red suite fails the
+      # job. Keep it that way — the WARN form is what made catalyst-build's
+      # vitest gate pass for two months while four source defects sat behind it.
+      - name: Run vitest
+        run: npm test
