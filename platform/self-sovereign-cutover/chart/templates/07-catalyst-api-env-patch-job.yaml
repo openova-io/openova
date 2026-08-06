@@ -119,6 +119,19 @@ data:
             value: {{ .Values.orgProvisioning.deploymentName | quote }}
           - name: ORG_PROVISIONING_NAMESPACE
             value: {{ .Values.orgProvisioning.namespace | quote }}
+          # #5439 Phase 3e: the Sovereign FQDN the local IMAGE registry host is
+          # derived from — harbor.<fqdn>, byte-identical to step-10's
+          # `target_host="harbor.${SOVEREIGN_FQDN}"`.
+          - name: SOVEREIGN_FQDN
+            value: {{ .Values.sovereign.fqdn | quote }}
+          # #5439 Phase 3e: the org-controller Deployment — the generator that
+          # writes per-Org `vcluster/vcluster.yaml`. It is the writer that still
+          # held harbor.openova.io in HelmRelease uatco/vcluster on hw292 AFTER
+          # cutoverComplete=true, because no cutover step ever stamped it.
+          - name: ORG_CONTROLLER_DEPLOYMENT
+            value: {{ .Values.orgController.deploymentName | quote }}
+          - name: ORG_CONTROLLER_NAMESPACE
+            value: {{ .Values.orgController.namespace | quote }}
           # G62 (#2613): Gitea persistence inputs — durable source-of-truth
           # edit so Flux Kustomization doesn't revert the HR patch.
           - name: GITEA_INTERNAL_URL
@@ -967,6 +980,68 @@ data:
             else
               echo "[catalyst-api-env-patch] #5527 Phase 3d SKIP: deploy/${ORG_PROVISIONING_DEPLOYMENT} not found in ${ORG_PROVISIONING_NAMESPACE} (no marketplace tier — no per-Org generator to pivot)"
             fi
+
+            # ---- Phase 3e (#5439): pivot the per-Org IMAGE registry host ----
+            # Phase 3d pivots the CHART base the per-Org generators emit. The
+            # IMAGE registry host they emit is a SECOND field and was never
+            # pivoted by any step: the three generators (org-controller,
+            # provisioning, catalyst-api) all default to `harbor.openova.io`
+            # — the MOTHERSHIP Harbor — and the bp-catalyst-platform chart
+            # ALWAYS stamps that literal onto the first two Deployments, so it
+            # is the live value on every Sovereign from birth.
+            #
+            # Live on hw292, cutoverComplete=true since 2026-08-03T08:12:04Z:
+            #   kubectl -n uatco get hr vcluster -o json | jq -r .spec.values
+            #     "image":{"registry":"harbor.openova.io"
+            #     "statefulSet":{"image":{"registry":"harbor.openova.io"
+            #     "coredns":{...:"harbor.openova.io/proxy-dockerhub/coredns/..."}
+            # Every Organization reconcile re-wrote that into the Flux-owned
+            # per-Org tree AFTER the cutover had reported success — the #5439
+            # re-tether, one field over from the #5527 one.
+            #
+            # WHY A NEW ENV NAME rather than `kubectl set env
+            # CATALYST_VCLUSTER_IMAGE_REGISTRY`: that var IS templated by
+            # products/catalyst/chart/templates/{controllers/organization-
+            # controller-deployment,org-services/provisioning}.yaml, so the
+            # next Flux-driven helm upgrade reverts a set-env on it within
+            # minutes. CATALYST_LOCAL_IMAGE_REGISTRY_HOST appears in NO chart
+            # manifest, so a strategic-merge preserves it — the same durability
+            # argument Phase 3d stakes on CATALYST_LOCAL_REGISTRY_URL.
+            #
+            # The value is byte-identical to step-10's target_host
+            # (harbor.${SOVEREIGN_FQDN}), so the generated source and the
+            # objects step-10 pivots agree and Flux has nothing to
+            # drift-correct. Deployment-absent is a SKIP; present-but-unstamped
+            # is FATAL (fail-open here IS the defect).
+            if [ -z "${SOVEREIGN_FQDN}" ] || [ "${SOVEREIGN_FQDN}" = "example.local" ]; then
+              echo "[catalyst-api-env-patch] #5439 FATAL Phase 3e: sovereign.fqdn not overlaid (got '${SOVEREIGN_FQDN}') — cannot derive the local image-registry host" >&2
+              exit 1
+            fi
+            LOCAL_IMAGE_HOST="harbor.${SOVEREIGN_FQDN}"
+            for _tgt in \
+              "${ORG_CONTROLLER_DEPLOYMENT}:${ORG_CONTROLLER_NAMESPACE}" \
+              "${ORG_PROVISIONING_DEPLOYMENT}:${ORG_PROVISIONING_NAMESPACE}" \
+              "${DEPLOYMENT_NAME}:${DEPLOYMENT_NAMESPACE}"; do
+              _d="${_tgt%%:*}"
+              _n="${_tgt##*:}"
+              if ! kubectl get deploy "${_d}" -n "${_n}" >/dev/null 2>&1; then
+                echo "[catalyst-api-env-patch] #5439 Phase 3e SKIP: deploy/${_d} not found in ${_n}"
+                continue
+              fi
+              echo "[catalyst-api-env-patch] #5439 Phase 3e: CATALYST_LOCAL_IMAGE_REGISTRY_HOST=${LOCAL_IMAGE_HOST} -> deploy/${_d} -n ${_n}"
+              kubectl set env "deploy/${_d}" -n "${_n}" \
+                "CATALYST_LOCAL_IMAGE_REGISTRY_HOST=${LOCAL_IMAGE_HOST}"
+              # Read-back assert — live template value, not intention.
+              _live=$(kubectl get deploy "${_d}" -n "${_n}" \
+                -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name=='CATALYST_LOCAL_IMAGE_REGISTRY_HOST')].value}" 2>/dev/null || echo "")
+              if [ "${_live}" != "${LOCAL_IMAGE_HOST}" ]; then
+                echo "[catalyst-api-env-patch] #5439 FATAL Phase 3e: deploy/${_d} CATALYST_LOCAL_IMAGE_REGISTRY_HOST='${_live}' (want '${LOCAL_IMAGE_HOST}') — the next Organization mutation would write the mothership Harbor back into the per-Org Flux source; Pillar 5 independence not met" >&2
+                exit 1
+              fi
+              echo "[catalyst-api-env-patch] #5439 Phase 3e OK: deploy/${_d} CATALYST_LOCAL_IMAGE_REGISTRY_HOST=${_live}"
+              kubectl rollout status "deploy/${_d}" -n "${_n}" --timeout=180s \
+                || echo "[catalyst-api-env-patch] #5439 WARN Phase 3e: deploy/${_d} rollout slow (best-effort — the fact is in the pod template; step-08's roll-set covers the live roll)"
+            done
 
             # ---- Phase 4 (#4973 #4975 #4961): comprehensive pod-spec image sweep ----
             # The HR global.imageRegistry pivots above (Phases 1-2 + the additionalHRs

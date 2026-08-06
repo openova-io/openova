@@ -850,7 +850,14 @@ func renderOrganizationOverlay(rec store.OrganizationProvisionRecord, versions O
 	// harbor.<sovereign-fqdn> post-handover (ADR-0002). Read here so the
 	// WordPress HelmRelease's `global.imageRegistry` is never hardcoded
 	// (Inviolable Principle #4).
-	imageRegistry := strings.TrimSpace(envOr("CATALYST_VCLUSTER_IMAGE_REGISTRY", "harbor.openova.io"))
+	// #5439: cutover-aware. The chart ALWAYS stamps this env with the
+	// mothership literal, so re-emitting it after cutover writes the
+	// mothership Harbor back into the Flux-owned overlay on the next Org
+	// signup/teardown. With no pivot fact present the resolver returns the
+	// input unchanged — pre-cutover bytes are identical, zero Flux drift.
+	// See cutover_aware_vcluster_5439.go.
+	imageRegistry := vclusterImageRegistryFor(
+		strings.TrimSpace(envOr("CATALYST_VCLUSTER_IMAGE_REGISTRY", mothershipVClusterImageRegistry)))
 
 	data := orgTenantTemplateData{
 		TenantID:              rec.OrganizationID,

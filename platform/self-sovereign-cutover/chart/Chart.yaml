@@ -3446,7 +3446,60 @@ name: bp-self-sovereign-cutover
 # copyAttempts,skopeoStaticURL,maxRefsPerCycle}. No RBAC change (the runner
 # ClusterRole already grants deployments/statefulsets/daemonsets/jobs/cronjobs
 # get+list+watch). Step count unchanged at 11.
-version: 0.1.173
+#
+# 0.1.174 — #5439: step-07 gains Phase 3e, the IMAGE-registry half of the
+# post-cutover re-tether #5527 closed for CHART bases.
+#
+# THE DEFECT, live on hw292 (dep 1c56518035a83e03, cutoverComplete=true since
+# 2026-08-03T08:12:04Z), read off the live object rather than the template:
+#
+#   kubectl -n uatco get helmrelease vcluster -o json | jq -r '.spec.values'
+#     "coredns":{"deployment":{"image":"harbor.openova.io/proxy-dockerhub/coredns/coredns:1.11.3"}}
+#     "image":{"registry":"harbor.openova.io"
+#     "statefulSet":{"image":{"registry":"harbor.openova.io"
+#   kubectl -n catalyst-system get deploy catalyst-organization-controller ...
+#     CATALYST_VCLUSTER_IMAGE_REGISTRY=harbor.openova.io
+#   kubectl -n org-services get deploy provisioning ...
+#     VCLUSTER_IMAGE_REGISTRY=harbor.openova.io
+#
+# Three control-plane generators render the per-Org tree — the org-controller
+# (vcluster/vcluster.yaml), org-services/provisioning (the datastore + catalog
+# app images) and catalyst-api (the legacy org-tenants overlay). All three took
+# the image-registry host from a chart-stamped env whose value is the MOTHERSHIP
+# Harbor on every Sovereign from birth, and NO cutover step ever pivoted it:
+# step-04 rewrites node containerd certs.d, step-07 Phases 1-2/4 rewrite chart
+# values and pod specs, step-10 pivots the three PLATFORM vClusters — none of
+# them touch the generator. So every Organization signup/teardown wrote the
+# mothership host back into a source Flux asserts from, hours or days after the
+# cutover (including its deny-egress proof) had reported success. Exactly the
+# #5439 shape, one field over from #5527's.
+#
+# WHY NOT `kubectl set env CATALYST_VCLUSTER_IMAGE_REGISTRY`: that var IS
+# templated by products/catalyst/chart/templates/{controllers/organization-
+# controller-deployment,org-services/provisioning}.yaml, so the next
+# Flux-driven helm upgrade reverts a set-env on it within minutes. Phase 3e
+# therefore stamps a NEW var — CATALYST_LOCAL_IMAGE_REGISTRY_HOST — that
+# appears in no chart manifest and so survives the 3-way strategic merge, the
+# same durability argument Phase 3d stakes on CATALYST_LOCAL_REGISTRY_URL. The
+# generators resolve it (core/controllers/organization/internal/gitops/
+# cutover_aware_vcluster_5439.go and its two siblings); with no pivot fact
+# present they return the configured value UNCHANGED, so a pre-cutover
+# Sovereign still pulls through the mothership proxy-cache and the rendered
+# bytes are byte-identical (a pre-cutover Sovereign's own Harbor has no
+# proxy-cache projects until step-02 and no mirrored images until step-03 —
+# flipping it early is an ImagePullBackOff, not a fix).
+#
+# The stamped value is harbor.<sovereign.fqdn> — byte-identical to step-10's
+# `target_host`, so the generated source and the objects step-10 pivots agree
+# and Flux has nothing to drift-correct. Contract Case 78 EXECUTES both
+# derivations from their own rendered templates and asserts they match, so a
+# re-worded one cannot silently diverge.
+#
+# New values: orgController.{deploymentName,namespace}. Phase 3e read-back
+# asserts each stamp (FATAL — fail-open here IS the defect), SKIPs an absent
+# Deployment, and FATALs on an un-overlaid sovereign.fqdn. Step count unchanged
+# at 11.
+version: 0.1.174
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

@@ -1302,6 +1302,22 @@ orgProvisioning:
   deploymentName: "provisioning"
   namespace: "org-services"
 
+# #5439 — step-07 Phase 3e: the organization-controller Deployment. It renders
+# the per-Org `vcluster/vcluster.yaml` (core/controllers/organization/internal/
+# gitops/manifests.go) on EVERY Organization reconcile, and the IMAGE registry
+# host it declares was never pivoted by any cutover step — the chart always
+# stamps CATALYST_VCLUSTER_IMAGE_REGISTRY=harbor.openova.io (the MOTHERSHIP
+# Harbor) and no step overrode it. Live on hw292 with cutoverComplete=true,
+# HelmRelease uatco/vcluster still carried `image.registry: harbor.openova.io`
+# in three places. Phase 3e stamps CATALYST_LOCAL_IMAGE_REGISTRY_HOST=
+# harbor.<sovereign.fqdn> — byte-identical to step-10's target_host — onto this
+# Deployment, the provisioning Deployment and catalyst-api. The var is absent
+# from every chart manifest, so it survives the helm/Flux 3-way merge that
+# would revert a set-env on CATALYST_VCLUSTER_IMAGE_REGISTRY itself.
+orgController:
+  deploymentName: "catalyst-organization-controller"
+  namespace: "catalyst-system"
+
 # #4885 (Refs #3379 #4563): step-07 image-registry pivot — the CURATED set of
 # ADDITIONAL openova-io HelmReleases whose chart HONOURS global.imageRegistry
 # and must be pivoted to the local Harbor at cutover.

@@ -986,12 +986,16 @@ func Render(in Inputs) (map[string][]byte, error) {
 	if in.VClusterHelmRepoNamespace == "" {
 		in.VClusterHelmRepoNamespace = "vcluster-system"
 	}
-	if in.VClusterImageRegistry == "" {
-		// Bootstrap default — the Sovereign-local Harbor. Matches the
-		// `global.registryMirror` default in bp-dmz/mgmt/rtz-vcluster.
-		// Cutover Step-04 flips it to harbor.<sovereign-fqdn> per ADR-0002.
-		in.VClusterImageRegistry = "harbor.openova.io"
-	}
+	// #5439: cutover-aware image-registry host. The chart ALWAYS stamps
+	// CATALYST_VCLUSTER_IMAGE_REGISTRY, so the zero-value branch below is
+	// only reached by direct callers/tests — the live value arriving here is
+	// the mothership literal on every Sovereign from birth. Post-cutover that
+	// literal, re-rendered into vcluster/vcluster.yaml on every reconcile,
+	// re-tethers a cut-over Sovereign (see cutover_aware_vcluster_5439.go).
+	// Pre-cutover (no pivot fact) the resolver returns the input unchanged, so
+	// the rendered bytes stay identical and Flux sees zero drift.
+	in.VClusterImageRegistry = vclusterImageRegistryFor(
+		in.VClusterImageRegistry, in.SovereignFQDN, in.HostCluster)
 	if in.Tier == "" {
 		in.Tier = "org"
 	}

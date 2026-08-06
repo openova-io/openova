@@ -396,13 +396,17 @@ func NewManifestGenerator(basePath string) *ManifestGenerator {
 	return &ManifestGenerator{BasePath: basePath}
 }
 
-// registryMirror returns the configured Harbor proxy host, falling back
-// to the bootstrap default when unset.
+// registryMirror returns the Harbor proxy host every emitted image is re-tagged
+// through, falling back to the bootstrap default when unset.
+//
+// #5439: the result is cutover-aware. The chart ALWAYS stamps
+// VCLUSTER_IMAGE_REGISTRY, so on every Sovereign the configured value is the
+// mothership literal from birth; re-emitting it after cutover writes the
+// mothership back into a Flux-owned source on the next org mutation. With no
+// pivot fact present the resolver returns the input unchanged, so pre-cutover
+// output stays byte-identical. See cutover_aware_vcluster_5439.go.
 func (g *ManifestGenerator) registryMirror() string {
-	if g.RegistryMirror == "" {
-		return defaultVClusterRegistryMirror
-	}
-	return g.RegistryMirror
+	return vclusterImageRegistryFor(g.RegistryMirror)
 }
 
 func (g *ManifestGenerator) TenantDir(slug string) string {
