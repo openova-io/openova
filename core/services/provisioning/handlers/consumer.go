@@ -1874,25 +1874,7 @@ func (h *Handler) failProvision(ctx context.Context, provisionID, tenantID strin
 		return
 	}
 
-	if stepIndex < len(p.Steps) && p.Steps[stepIndex].Status != "failed" {
-		p.Steps[stepIndex].Status = "failed"
-		// #5646 — same customer-facing field as failStep. Several callers wrap a
-		// raw error into this message (`vcluster not ready: %s`,
-		// `mirror kubeconfig to flux-system: %s`), so it carries the same
-		// runtime-object-name exposure and gets the same boundary.
-		p.Steps[stepIndex].Message = customerFacingMessage(message)
-		p.Steps[stepIndex].DoneAt = time.Now().UTC()
-	}
-
-	p.Status = "failed"
-	// #5646 — progress must never read 100 on a run that failed. A concurrent
-	// pod-truth reconcile (or an earlier step-completion roll-up) can have left
-	// Progress at 100 just before this failure lands; without recomputing it the
-	// customer sees a FULL progress bar sitting above "Provisioning didn't
-	// finish". Recompute from the steps that ACTUALLY completed — the failed /
-	// still-pending steps are excluded, so on a failed run this is always < 100.
-	// The invariant the funnel UI relies on: progress == 100 ⟺ status == completed.
-	p.Progress = completedStepProgress(p.Steps)
+	markProvisionFailed(p, stepIndex, message)
 	if err := h.Store.UpdateProvision(ctx, provisionID, p); err != nil {
 		slog.Error("failed to mark provision as failed", "error", err)
 	}
@@ -1979,4 +1961,39 @@ func buildProvisionSteps(depSlugs, apps []string, appNames map[string]string) []
 		store.ProvisionStep{Name: "Configuring TLS certificates", Status: "pending"},
 		store.ProvisionStep{Name: "Running health checks", Status: "pending"},
 	)
+}
+
+// markProvisionFailed applies the terminal failed state to p: paints the step
+// red with customer-safe copy, sets the run status, and recomputes progress.
+//
+// Extracted from failProvision for #5646. The progress recompute below was
+// previously inline and therefore unguarded — deleting the single line
+// `p.Progress = completedStepProgress(p.Steps)` left the whole package green,
+// because the only test on this behaviour exercised completedStepProgress (the
+// helper) and nothing asserted the failure path CALLS it. Same shape as #5767's
+// drain: the helper was tested, the wiring was not.
+//
+// Pure: mutates p, no store, no publish, no receiver — so a test can assert the
+// invariant directly instead of standing up a fake Mongo and event bus.
+//
+// The invariant the funnel UI relies on: progress == 100 ⟺ status == completed.
+func markProvisionFailed(p *store.Provision, stepIndex int, message string) {
+	if stepIndex < len(p.Steps) && p.Steps[stepIndex].Status != "failed" {
+		p.Steps[stepIndex].Status = "failed"
+		// #5646 — same customer-facing field as failStep. Several callers wrap a
+		// raw error into this message (`vcluster not ready: %s`,
+		// `mirror kubeconfig to flux-system: %s`), so it carries the same
+		// runtime-object-name exposure and gets the same boundary.
+		p.Steps[stepIndex].Message = customerFacingMessage(message)
+		p.Steps[stepIndex].DoneAt = time.Now().UTC()
+	}
+
+	p.Status = "failed"
+	// A concurrent pod-truth reconcile (or an earlier step-completion roll-up)
+	// can have left Progress at 100 just before this failure lands; without
+	// recomputing it the customer sees a FULL progress bar sitting above
+	// "Provisioning didn't finish". Recompute from the steps that ACTUALLY
+	// completed — the failed / still-pending steps are excluded, so on a failed
+	// run this is always < 100.
+	p.Progress = completedStepProgress(p.Steps)
 }
