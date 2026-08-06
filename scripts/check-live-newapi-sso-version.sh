@@ -151,14 +151,45 @@ if [ ${RC} -ne 0 ] || [ -z "${RAW}" ]; then
   exit 0
 fi
 
-LIVE_VERSION="$(printf '%s' "${RAW}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("spec",{}).get("chart",{}).get("spec",{}).get("version","") or "")')"
+# APPLIED, not DESIRED (#5750 class). `.spec.chart.spec.version` is what the
+# HelmRelease WANTS; `.status.history[0].chartVersion` is what Helm last
+# actually installed. They diverge whenever an upgrade is pending — measured
+# live on hw292 2026-08-06 for a sibling chart: bp-guacamole region-a read
+# spec=0.2.37 / applied=0.2.33 with Ready=False "dependency
+# 'flux-system/bp-cilium' is not ready". Asserting from spec would have this
+# guard print "this cluster carries the fixes" about a version the cluster has
+# never run — the exact SOURCE-vs-LIVE confusion this file's own header warns
+# about, one level down.
+LIVE_VERSION="$(printf '%s' "${RAW}" | python3 -c 'import json,sys
+d=json.load(sys.stdin)
+h=(d.get("status",{}) or {}).get("history") or []
+print((h[0].get("chartVersion") if h else "") or "")')"
+VERSION_SOURCE="applied"
 
 if [ -z "${LIVE_VERSION}" ]; then
-  echo "WARN: bp-newapi HelmRelease has no .spec.chart.spec.version — cannot assert." >&2
+  # No install history at all (never installed). Fall back to the desired pin,
+  # but LABEL it — a desired version is a weaker claim and must not read as
+  # proof of what is running.
+  LIVE_VERSION="$(printf '%s' "${RAW}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("spec",{}).get("chart",{}).get("spec",{}).get("version","") or "")')"
+  VERSION_SOURCE="desired-no-history"
+fi
+
+if [ -z "${LIVE_VERSION}" ]; then
+  echo "WARN: bp-newapi HelmRelease carries neither .status.history[0].chartVersion" >&2
+  echo "      nor .spec.chart.spec.version — cannot assert." >&2
   exit 0
 fi
 
-echo "live bp-newapi chart version: ${LIVE_VERSION}"
+# Surface a pending upgrade explicitly: applied < desired means the cluster is
+# NOT yet running what its HelmRelease asks for, and the operator should know
+# that even when the applied version already clears the floor.
+DESIRED_VERSION="$(printf '%s' "${RAW}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("spec",{}).get("chart",{}).get("spec",{}).get("version","") or "")')"
+if [ -n "${DESIRED_VERSION}" ] && [ "${DESIRED_VERSION}" != "${LIVE_VERSION}" ]; then
+  echo "NOTE: HelmRelease desires ${DESIRED_VERSION} but has applied ${LIVE_VERSION} —"
+  echo "      an upgrade is pending and has NOT landed. Asserting on the applied version."
+fi
+
+echo "live bp-newapi chart version: ${LIVE_VERSION} (${VERSION_SOURCE})"
 echo "required minimum (rows 37/38, #5612+#5599 both fixed): ${MIN_FIXED_VERSION}"
 
 if semver_ge "${LIVE_VERSION}" "${MIN_FIXED_VERSION}"; then
