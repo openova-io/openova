@@ -267,6 +267,24 @@ spec:
               value: {{ .Values.daytwoReconciler.request.auditMaxLines | quote }}
             - name: RELEASE_NAMESPACE
               value: {{ .Release.Namespace | quote }}
+            # #5759 — cutoverComplete read every cycle (never cached): gates
+            # the catalog leg's refuse-by-default AND the source-host drift
+            # lint below. Same ConfigMap + key step-08's egress-block-test Job
+            # and scripts/sovereign-daytwo-bootstrap.sh already read.
+            - name: STATUS_CONFIGMAP
+              value: {{ .Values.status.configMapName | quote }}
+            # #5759 — the source-host drift lint's Sovereign-local allowlist.
+            # SOVEREIGN_FQDN + the host-classification shape are byte-identical
+            # to step-08's egressTest.fluxSourceHostLint (08-egress-block-test-
+            # job.yaml, run_flux_source_host_lint) — single-source discipline:
+            # one allowlist, declared once, consumed by both the one-shot
+            # cutover proof and this standing post-cutover watcher.
+            - name: SOVEREIGN_FQDN
+              value: {{ .Values.sovereign.fqdn | quote }}
+            - name: SOURCE_HOST_LINT_ENABLED
+              value: {{ eq (toString .Values.daytwoReconciler.sourceHostLint.enabled) "true" | quote }}
+            - name: SOURCE_HOST_LINT_ALLOW
+              value: {{ .Values.egressTest.fluxSourceHostLint.allowHosts | default (list) | join " " | quote }}
             # Per-leg switches. Both default true; an operator debugging one
             # half can silence the other without losing the loop.
             - name: CHART_LEG_ENABLED
@@ -347,6 +365,10 @@ spec:
               : "${IMAGE_SCAN_MAX:=400}"
               : "${REQUEST_MAX_REFS:=50}"
               : "${AUDIT_MAX_LINES:=500}"
+              : "${STATUS_CONFIGMAP:=self-sovereign-cutover-status}"
+              : "${SOVEREIGN_FQDN:=}"
+              : "${SOURCE_HOST_LINT_ENABLED:=true}"
+              : "${SOURCE_HOST_LINT_ALLOW:=}"
               WORK=/tmp/daytwo-work
               mkdir -p "${WORK}"
               # #5640 FAIL-CLOSED readiness surface. The reconciler is READY iff
@@ -978,6 +1000,41 @@ spec:
                         return 0 ;;
                 esac
 
+                # #5759 — REFUSE-BY-DEFAULT. Measured live on hw292 (dep
+                # 1c56518035a83e03, cutoverComplete=true) 2026-08-06: this exact
+                # push reverted 62 of 69 region-a HelmRepositories from the
+                # local Harbor back to oci://ghcr.io/openova-io, with the
+                # ghcr-pull credential already stripped by step-06 (severance
+                # working as designed) — 44/72 HelmReleases went not-Ready and
+                # the Sovereign could not self-heal in-cluster (the only
+                # in-cluster remedy would be restoring the stripped upstream
+                # credential, i.e. re-tethering — exactly what cutover exists
+                # to prevent). Root cause, read off the push two lines below:
+                # `git push --force` against a bare clone of UPSTREAM, using
+                # the same explicit-refspec shape template 01 (gitea-mirror)
+                # uses, is a raw ref overwrite, not a merge.
+                # Step-06's durable "cutover: pivot N HelmRepository URLs to
+                # local Harbor" commit lives ONLY on this Sovereign's local
+                # `${UPSTREAM_BRANCH}` and is never reachable from a fresh
+                # upstream clone, so the force-push does not mask that commit,
+                # it DISCARDS it. There is today no merge-preserving
+                # alternative shipped, so this leg cannot guarantee the
+                # re-render preserves the cutover pivot — the exact guarantee
+                # #5759 requires before it may run. Refuse rather than revert
+                # silently. Gated on the LITERAL string 'false' (not merely
+                # "not true"): an unreadable/empty status ConfigMap is treated
+                # as cutover-complete for this check, fail-closed, the same
+                # posture step-08's per-region lint takes on an unmeasurable
+                # region (#5359) — "could not confirm this is safe" is never
+                # "safe".
+                if [ "${CUTOVER_COMPLETE:-}" != "false" ]; then
+                  CATALOG_STATUS="blocked-post-cutover"
+                  echo "[daytwo] catalog leg: REFUSING (#5759) — cutoverComplete='${CUTOVER_COMPLETE:-unreadable}' (expected the literal 'false' to proceed). Force-pushing ${UPSTREAM_REPO_URL} onto this Sovereign's local Gitea mirror would overwrite ${UPSTREAM_BRANCH} wholesale and silently discard step-06's durable HelmRepository-pivot commit, re-tethering every chart Flux re-renders to ghcr.io with no credential left to reach it (step-06 already stripped ghcr-pull auth by design). The mirror is UNCHANGED and the Sovereign keeps running on its current pins. No override exists for this refusal — a real fix needs a merge-preserving mirror mechanism, not a flag."
+                  daytwo_audit "CATALOG\tblocked\t${_cat_id}\t${_cat_by}\t${UPSTREAM_REPO_URL}\tcutoverComplete=${CUTOVER_COMPLETE:-unreadable}"
+                  REQ_FAILED=$((REQ_FAILED+1))
+                  return 1
+                fi
+
                 if [ -z "${UPSTREAM_REPO_URL}" ]; then
                   echo "[daytwo] catalog leg: upstream repo URL is empty — refusing to sync"
                   CATALOG_STATUS="no-upstream"
@@ -1157,6 +1214,92 @@ spec:
                   || echo "[daytwo] WARN: could not update ConfigMap ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM} (logs still carry the manifest)"
               }
 
+              # ── #5759 CONTINUOUS SOURCE-HOST DRIFT LINT ──────────────────────
+              # Same host-classification shape as step-08's egressTest.
+              # fluxSourceHostLint (08-egress-block-test-job.yaml,
+              # run_flux_source_host_lint) — reused, not forked (single-source
+              # discipline: one allowlist, egressTest.fluxSourceHostLint.
+              # allowHosts, feeds both). The difference is WHEN it runs. That
+              # lint fires ONCE, inside the 600s deny-egress hold, at the
+              # ORIGINAL cutover, and is torn down with the hold — proving
+              # nothing about a re-render minutes, days or months later. This
+              # reconciler is a standing Deployment (#5157: a CronJob's
+              # scheduler dies with its region on a region-kill, so this is a
+              # Deployment on purpose), so its own copy keeps watching for the
+              # Sovereign's entire post-cutover life — INTERVAL-INDEPENDENT,
+              # per #5759 item 2 — and catches a revert from ANY cause: this
+              # reconciler's own (now-refused) CATALOG leg, a sovereign-admin
+              # re-stamping an unfixed step-01 PodSpec ConfigMap by hand via
+              # scripts/sovereign-daytwo-bootstrap.sh (chart-embedded fixes
+              # only protect a Sovereign already upgraded past this release),
+              # or a cause nobody has written yet. Measured live on hw292 (dep
+              # 1c56518035a83e03) 2026-08-06: 69/69 local HelmRepositories fell
+              # to 7/69 (62 reverted to ghcr.io) with nothing standing watch.
+              run_daytwo_source_host_lint() {
+                DRIFT_STATUS="skipped"; DRIFT_COUNT=0
+                [ "${SOURCE_HOST_LINT_ENABLED}" = "true" ] || return 0
+                # Pre-cutover, external hosts are the NORMAL, correct state
+                # (nothing has been pivoted yet) — only assert once this
+                # Sovereign claims cutoverComplete=true. Fail-closed the other
+                # way from the catalog-leg refuse above: an unreadable status
+                # here must NOT manufacture a false drift report on a Sovereign
+                # that may still be mid-cutover, so this leg requires the
+                # LITERAL 'true' rather than "not 'false'".
+                if [ "${CUTOVER_COMPLETE:-}" != "true" ]; then
+                  DRIFT_STATUS="not-cutover"
+                  return 0
+                fi
+                _dh_off="${WORK}/source-host-offenders.$$"
+                if ! : > "${_dh_off}" 2>/dev/null; then
+                  echo "[daytwo] source-host lint: cannot create ${_dh_off}; refusing to report clean from a lint that cannot record an offender (fail-closed)"
+                  DRIFT_STATUS="scratch-unwritable"; DRIFT_COUNT=1
+                  return 1
+                fi
+                _dh_raw="${WORK}/source-host-raw.$$"
+                _dh_err="${WORK}/source-host-err.$$"
+                for _dk in helmrepositories gitrepositories ocirepositories; do
+                  if ! kubectl get "${_dk}" -A \
+                    -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.spec.url}{" "}{.spec.suspend}{"\n"}{end}' >"${_dh_raw}" 2>"${_dh_err}"; then
+                    if grep -qiE "server doesn't have a resource type|could not find the requested resource|no matches for kind|the server could not find the requested resource" "${_dh_err}" 2>/dev/null; then
+                      : > "${_dh_raw}"
+                    else
+                      echo "[daytwo] source-host lint: FAIL — cannot enumerate ${_dk} ($(head -1 "${_dh_err}" 2>/dev/null)). Refusing to report clean for a cycle that could not measure (fail-closed, #5759/#5359 shape)"
+                      rm -f "${_dh_off}" "${_dh_raw}" "${_dh_err}"
+                      DRIFT_STATUS="unmeasurable"; DRIFT_COUNT=1
+                      return 1
+                    fi
+                  fi
+                  while IFS=' ' read -r _dns _dname _durl _dsusp; do
+                    [ -n "${_dns}" ] && [ -n "${_durl}" ] || continue
+                    _dh="${_durl#*://}"; _dh="${_dh%%/*}"; _dh="${_dh%%:*}"
+                    [ -n "${_dh}" ] || continue
+                    case "${_dh}" in
+                      "${LOCAL_REGISTRY_HOST}"|"gitea.${SOVEREIGN_FQDN}"|"harbor.${SOVEREIGN_FQDN}"|*".${SOVEREIGN_FQDN}") continue ;;
+                      *.svc|*.svc.cluster.local|localhost|127.0.0.1) continue ;;
+                    esac
+                    _dex=0
+                    for _da in ${SOURCE_HOST_LINT_ALLOW:-}; do
+                      [ "${_dh}" = "${_da}" ] && { _dex=1; break; }
+                    done
+                    [ "${_dex}" = "1" ] && continue
+                    [ "${_dsusp}" = "true" ] && continue
+                    printf '%s/%s [%s] %s (host:%s)\n' "${_dns}" "${_dname}" "${_dk}" "${_durl}" "${_dh}" >> "${_dh_off}"
+                  done <"${_dh_raw}"
+                done
+                rm -f "${_dh_raw}" "${_dh_err}"
+                if [ -s "${_dh_off}" ]; then
+                  DRIFT_COUNT=$(sort -u "${_dh_off}" | wc -l | tr -d ' ')
+                  echo "[daytwo] source-host lint: FAIL — ${DRIFT_COUNT} Flux source object(s) resolve to a non-Sovereign host on a cutoverComplete=true Sovereign (#5759 shape — a mirror advance overwrote the durable pivot, or it was never applied). Fix = re-run step-06's HelmRepository pivot against the CURRENT local Gitea main, or declare a reviewed exception in egressTest.fluxSourceHostLint.allowHosts:"
+                  sort -u "${_dh_off}" | while IFS= read -r _o; do echo "    EXTERNAL-SOURCE-DRIFT ${_o}"; done
+                  rm -f "${_dh_off}"
+                  DRIFT_STATUS="drifted"
+                  return 1
+                fi
+                rm -f "${_dh_off}"
+                DRIFT_STATUS="ok"
+                return 0
+              }
+
               # #5640 FAIL-CLOSED readiness verdict. Written from the MEASURED
               # cycle outcome, never from a knob: READY requires every enabled
               # leg to have completed (status=ok) AND zero missing artifacts. A
@@ -1184,6 +1327,17 @@ spec:
                 if [ "$((CHART_MISS + IMAGE_MISS))" -gt 0 ]; then
                   _ph_reason="${_ph_reason:+${_ph_reason},}unpullable-pins=$((CHART_MISS + IMAGE_MISS))"
                 fi
+                # #5759 — UNLIKE CATALOG_STATUS above, source-host drift IS a
+                # readiness input: it is a durable STATE ("this cluster's Flux
+                # sources have reverted to a registry we deliberately no longer
+                # hold credentials for"), not a one-off event, and it stays
+                # true every cycle until a human fixes it. That is exactly the
+                # shape publish_health() exists to surface.
+                if [ "${DRIFT_STATUS:-}" = "drifted" ]; then
+                  _ph_reason="${_ph_reason:+${_ph_reason},}source-host-drift=${DRIFT_COUNT}"
+                elif [ "${DRIFT_STATUS:-}" = "unmeasurable" ] || [ "${DRIFT_STATUS:-}" = "scratch-unwritable" ]; then
+                  _ph_reason="${_ph_reason:+${_ph_reason},}source-host-lint-${DRIFT_STATUS}"
+                fi
                 if [ -n "${_ph_reason}" ]; then
                   echo "NOTREADY ${_ph_reason}" > "${HEALTH_FILE}"
                   echo "[daytwo] readiness: NOT-READY (${_ph_reason}) — this Deployment now reports 0/1 READY. On a post-cutover Sovereign that is the visible form of 'this cluster holds a pin its registry cannot serve' (#5640)"
@@ -1200,6 +1354,12 @@ spec:
                 IMAGE_REFS=0; IMAGE_PRESENT=0; IMAGE_WARMED=0; IMAGE_MISS=0
                 CATALOG_SYNCED=0
                 REQ_DELIVERED=0; REQ_FAILED=0
+                # #5759 — read fresh every cycle (never cached across cycles):
+                # gates the catalog leg's refuse-by-default AND the
+                # source-host drift lint below. Same ConfigMap+key
+                # scripts/sovereign-daytwo-bootstrap.sh and step-08 read.
+                CUTOVER_COMPLETE=$(kubectl -n "${RELEASE_NAMESPACE}" get configmap "${STATUS_CONFIGMAP}" \
+                  -o jsonpath='{.data.cutoverComplete}' 2>/dev/null || true)
                 daytwo_load_request
                 # Leg 0 FIRST — see reconcile_catalog_once's header. A catalog
                 # sync that landed AFTER the chart leg would move the pins and
@@ -1215,11 +1375,16 @@ spec:
                 if [ "${IMAGE_LEG_ENABLED}" = "true" ]; then
                   reconcile_images_once || _rc=1
                 fi
+                # #5759 — runs every cycle regardless of which legs are
+                # enabled: it watches the CLUSTER's Flux sources, not this
+                # reconciler's own actions, so it must not go blind just
+                # because an operator silenced CHART_LEG_ENABLED/etc.
+                run_daytwo_source_host_lint || _rc=1
                 daytwo_consume_request
                 daytwo_audit_flush
                 publish_manifest
                 publish_health
-                echo "[daytwo] cycle complete: catalog(${CATALOG_STATUS}) synced=${CATALOG_SYNCED} | charts(${CHART_STATUS}) missing=${CHART_MISS} | images(${IMAGE_STATUS}) missing=${IMAGE_MISS} (manifest -> ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM})"
+                echo "[daytwo] cycle complete: catalog(${CATALOG_STATUS}) synced=${CATALOG_SYNCED} | charts(${CHART_STATUS}) missing=${CHART_MISS} | images(${IMAGE_STATUS}) missing=${IMAGE_MISS} | sourceHostLint(${DRIFT_STATUS}) drift=${DRIFT_COUNT} (manifest -> ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM})"
                 return "${_rc}"
               }
 

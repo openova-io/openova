@@ -138,6 +138,7 @@ printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/bin/nslookup"; chmod +x "$TMP/bin
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/bin/sleep"; chmod +x "$TMP/bin/sleep"
 
 STUB_REQUEST_JSON=""; STUB_CONSUMED_ID=""; STUB_CLONE_RC=0; STUB_PUSH_RC=0; STUB_REV="aaaa1111"
+STUB_CUTOVER_COMPLETE="false"   # #5759 — see run_leg's export of CUTOVER_COMPLETE
 
 request_cm() {
   jq -n --arg id "$1" --arg scope "$2" \
@@ -153,6 +154,12 @@ run_leg() {   # run_leg [script-path] -> $TMP/out.txt, $TMP/egress.log
     echo 'set +e'
     while IFS= read -r line; do printf 'export %q\n' "$line"; done < "$TMP/env.txt"
     echo 'export HARBOR_USERNAME=admin HARBOR_PASSWORD=stub GHCR_DOCKERCONFIG='
+    # #5759 — reconcile_once() reads CUTOVER_COMPLETE once per cycle (a live
+    # kubectl get, not a rendered env var) and reconcile_catalog_once() reads
+    # it as a plain variable. Default false so C1-C7 above keep testing what
+    # they always tested (an UNBLOCKED leg); C8 below overrides it to prove
+    # the #5759 refusal.
+    printf 'export CUTOVER_COMPLETE=%q\n' "${STUB_CUTOVER_COMPLETE:-false}"
     cat "$script"
     # Same order reconcile_once runs them in the cluster.
     echo 'daytwo_load_request'
@@ -272,6 +279,29 @@ grep -qE '^\S+\s+CATALOG\s+failed\s+' "$TMP/out.txt" || fail "C7: a failed sync 
 STUB_CLONE_RC=0
 pass "C7: unreachable upstream => mirror untouched, failure audited, Sovereign keeps running on its current pins."
 
+echo "[daytwo-catalog-leg] C8 (#5759): REFUSE-BY-DEFAULT — an explicit CATALOG request on a cutoverComplete=true Sovereign must be BLOCKED, not synced"
+# This is the hw292 (dep 1c56518035a83e03) shape one layer over: C2 already
+# proves an explicit CATALOG request syncs the mirror. C8 proves that same
+# request is REFUSED once this Sovereign claims cutoverComplete=true — the
+# force-push below would otherwise discard step-06's durable HelmRepository-
+# pivot commit exactly as it did live on 2026-08-06.
+request_cm "2026-08-06-catalog-refresh" "CATALOG"; STUB_CONSUMED_ID=""
+STUB_CUTOVER_COMPLETE="true"; run_leg; STUB_CUTOVER_COMPLETE="false"
+grep -q 'RESULT status=blocked-post-cutover synced=0' "$TMP/out.txt" \
+  || { cat "$TMP/out.txt"; fail "C8: expected status=blocked-post-cutover synced=0"; }
+assert_no_egress "C8"
+grep -qi '#5759' "$TMP/out.txt" || fail "C8: the refusal message does not cite #5759"
+grep -qE '^\S+\s+CATALOG\s+blocked\s+' "$TMP/out.txt" \
+  || { sed -n '/---AUDIT---/,$p' "$TMP/out.txt"; fail "C8: a blocked sync must still be audited (distinct from 'failed')"; }
+pass "C8: an explicit CATALOG request is REFUSED outright on a cutoverComplete=true Sovereign — zero egress, audited as blocked, mirror untouched."
+
+echo "[daytwo-catalog-leg] C9 (#5759 control): the SAME request on a cutoverComplete=false Sovereign is UNCHANGED (C2's original behaviour) — the #5759 guard is a real condition, not an always-block"
+request_cm "2026-08-06-catalog-refresh" "CATALOG"; STUB_CONSUMED_ID=""
+STUB_CUTOVER_COMPLETE="false"; run_leg
+grep -q 'RESULT status=ok synced=1 delivered=1' "$TMP/out.txt" \
+  || { cat "$TMP/out.txt"; fail "C9: cutoverComplete=false must reproduce C2's result verbatim — got a different status, meaning #5759's guard fires even pre-cutover (an always-block), which would make C8's PASS meaningless"; }
+pass "C9: cutoverComplete=false leaves the CATALOG leg exactly as C2 proved it — #5759's refusal is conditional, not vacuous."
+
 # ── SECOND DIRECTION ──────────────────────────────────────────────────────────
 # Each mutation reproduces a real defective shape; the paired assertion must
 # stop holding. These are what make the greens above meaningful.
@@ -294,6 +324,20 @@ expect_fail_on_mutant "C1/C3/C4 explicit-opt-in guard (catalog_in_scope removed 
 expect_fail_on_mutant "C2 upstream-target guard (leg no longer reads UPSTREAM_REPO_URL)" \
   's#git clone --bare --quiet "\$\{UPSTREAM_REPO_URL\}"#git clone --bare --quiet ""#' \
   'git clone --bare --quiet "\$\{UPSTREAM_REPO_URL\}"'
+expect_fail_on_mutant "C8 #5759 refuse-by-default guard (condition neutered so it can never trigger)" \
+  's#!= "false" \]; then#!= "true" ]; then#' \
+  '!= "false" \]; then'
+# …and the POSITIVE direction for C8: with the guard neutered, an explicit
+# CATALOG request on a cutoverComplete=true Sovereign must go back to
+# reproducing C2's shape (synced=1) — proving C8's PASS is really the guard
+# acting, not some other change in behaviour.
+sed -E 's#!= "false" \]; then#!= "true" ]; then#' "$TMP/script.sh" > "$TMP/mutant-noguard.sh"
+grep -q 'reconcile_catalog_once()' "$TMP/mutant-noguard.sh" || fail "C8 vacuity: mutant script lost reconcile_catalog_once()"
+request_cm "2026-08-06-catalog-refresh" "CATALOG"; STUB_CONSUMED_ID=""
+STUB_CUTOVER_COMPLETE="true"; run_leg "$TMP/mutant-noguard.sh"; STUB_CUTOVER_COMPLETE="false"
+grep -q 'RESULT status=ok synced=1 delivered=1' "$TMP/out.txt" \
+  || { cat "$TMP/out.txt"; fail "VACUITY: with the #5759 guard neutered, a cutoverComplete=true Sovereign no longer reproduces the pre-fix sync-through shape — C8's PASS may not be testing the guard"; }
+pass "vacuity(C8): with the guard neutered, the pre-#5759 behaviour (sync-through on cutoverComplete=true) comes back exactly — C8's PASS is the guard, not an accident."
 
 # C5's ordering assertion gets its own inverted run: swap the two calls and
 # confirm the comparison flips. A line-number comparison that cannot flip would
@@ -308,4 +352,4 @@ m_chart=$(grep -n 'reconcile_charts_once ||' "$TMP/mutant-order.sh" | head -1 | 
   || fail "VACUITY: the C5 ordering check does not flip when the legs are swapped — it is not actually testing order"
 pass "vacuity(C5 ordering): swapping the legs makes the check fail, so its PASS is meaningful"
 
-echo "[daytwo-catalog-leg] ALL PASS — 7 scenarios + 4 vacuity inversions"
+echo "[daytwo-catalog-leg] ALL PASS — 9 scenarios + 6 vacuity inversions"

@@ -2317,6 +2317,40 @@ daytwoReconciler:
     # `upstream.repoURL` (the same value step-01 uses), so an operator who
     # mirrors the catalog into their OWN forge points that at it and this leg
     # follows without further configuration.
+    #
+    # #5759 — REFUSE-BY-DEFAULT, NOT GATED BY THIS SWITCH. Even with catalog.
+    # enabled=true, reconcile_catalog_once() now refuses its force-push
+    # outright once this Sovereign's cutoverComplete=true (no override knob —
+    # see the template's #5759 comment for why). Measured live on hw292 (dep
+    # 1c56518035a83e03) 2026-08-06: an identical force-push, fired via
+    # scripts/sovereign-daytwo-bootstrap.sh rather than this leg, discarded
+    # step-06's durable HelmRepository-pivot commit and reverted 62/69
+    # region-a HelmRepositories to ghcr.io with no credential left to reach
+    # it. This leg shares the exact mechanism (same refspec, same target
+    # branch, same local Gitea repo) whenever an operator's request names
+    # CATALOG post-cutover, or in mode=warm every cycle — so it is refused the
+    # same way, unconditionally, until a merge-preserving mirror mechanism
+    # ships. Setting this false silences the leg entirely (no refusal message
+    # either); leaving it true keeps the loud, audited refusal visible.
+    enabled: true
+  # #5759 — CONTINUOUS post-advance property assertion, run every cycle once
+  # this Sovereign is cutoverComplete=true: zero HelmRepository / GitRepository
+  # / OCIRepository may resolve to a non-Sovereign host. Same host-
+  # classification shape + allowlist as step-08's egressTest.fluxSourceHostLint
+  # (reused via that SAME allowHosts list — single-source discipline, not a
+  # second exception list to keep in sync), but INTERVAL-INDEPENDENT: step-08's
+  # lint runs ONCE, inside the torn-down 600s deny-egress hold, at the
+  # ORIGINAL cutover. This reconciler is a standing Deployment (#5157 — a
+  # CronJob's scheduler dies with its region on a region-kill), so its own
+  # copy keeps watching for the Sovereign's entire post-cutover life, catching
+  # a revert from ANY cause: this reconciler's own (now-refused) CATALOG leg,
+  # a sovereign-admin re-stamping an unfixed step-01 ConfigMap by hand via
+  # scripts/sovereign-daytwo-bootstrap.sh (chart-embedded fixes only protect a
+  # Sovereign already upgraded past this release), or a cause nobody has
+  # written yet. A drift folds into this Deployment's readiness (0/1 READY),
+  # unlike catalog.enabled's leg status, because "the registry contract is
+  # silently broken" is a durable STATE, not a one-off event.
+  sourceHostLint:
     enabled: true
   # #5265 leg — the frozen bootstrap-kit CHART pins.
   charts:
