@@ -46,6 +46,7 @@
  */
 
 import type { K8sObject, K8sSnapshot } from './useK8sCacheStream'
+import { snapshotKey } from './useK8sCacheStream'
 import type { ArchNodeType, ArchStatus, GraphEdge, GraphNode } from './types'
 
 interface AdaptResult {
@@ -151,7 +152,14 @@ function resolveTopOwner(
     return { kind: 'DaemonSet', namespace: ns, name: ref.name }
   }
   if (ref.kind === 'ReplicaSet' && ref.name) {
-    const rs = snapshot.get(`replicaset:${ns}/${ref.name}`)
+    // #5571: resolve the owning ReplicaSet in the SAME region as the
+    // Pod. Snapshot keys are now cluster-suffixed, and on a 2-region
+    // Sovereign both regions run the same Deployment names — an
+    // unsuffixed lookup would either miss entirely or bind the Pod to
+    // the OTHER region's ReplicaSet.
+    const rs = snapshot.get(
+      snapshotKey('replicaset', ns, ref.name, pod.clusterId ?? ''),
+    )
     if (!rs) {
       return null
     }
@@ -596,7 +604,12 @@ export function k8sToGraph(snapshot: K8sSnapshot): AdaptResult {
     // hcloud-csi sets `volumeID` on the PV's csi block).
     const pvName = (pvc.spec?.['volumeName'] as string | undefined) ?? ''
     if (pvName) {
-      const pv = snapshot.get(`persistentvolume:${pvName}`)
+      // #5571: bind to the PV in the PVC's OWN region — a PV name can
+      // repeat across regions, and crossing the boundary here would
+      // attribute a region-a claim to a region-b disk.
+      const pv = snapshot.get(
+        snapshotKey('persistentvolume', '', pvName, pvc.clusterId ?? ''),
+      )
       const csi = pv?.spec?.['csi'] as { volumeAttributes?: Record<string, string>; volumeHandle?: string } | undefined
       const hcloudID = csi?.volumeAttributes?.['volumeID'] ?? csi?.volumeHandle ?? ''
       if (hcloudID) {

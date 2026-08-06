@@ -18,6 +18,7 @@ import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { resourceDetailHref } from './resource.api'
 import { CLOUD_K8S_TONE_CSS } from './cloudListCss'
+import { REGION_COLUMN } from './k8sColumns'
 import type { K8sListPageProps } from './k8sColumns'
 
 // Re-export the column types + builders + tone classifiers (#4084) from
@@ -61,8 +62,10 @@ export function K8sListPage({
     const out: K8sObject[] = []
     if (!k8sSnapshot) return out
     for (const [key, obj] of k8sSnapshot.entries()) {
-      // Snapshot keys are `${kind}:${ns}/${name}` or `${kind}:${name}`
-      // for cluster-scoped. Filter to the requested kind only.
+      // Snapshot keys are `${kind}:${ns}/${name}@${cluster}` (or
+      // `${kind}:${name}@${cluster}` for cluster-scoped kinds) — the
+      // region suffix is a SUFFIX precisely so this prefix filter is
+      // unaffected by it (#5571).
       if (!key.startsWith(`${kind}:`)) continue
       out.push(obj as K8sObject)
     }
@@ -71,12 +74,27 @@ export function K8sListPage({
         const na = a.metadata?.namespace ?? ''
         const nb = b.metadata?.namespace ?? ''
         if (na !== nb) return na.localeCompare(nb)
-        return (a.metadata?.name ?? '').localeCompare(b.metadata?.name ?? '')
+        const nameA = a.metadata?.name ?? ''
+        const nameB = b.metadata?.name ?? ''
+        if (nameA !== nameB) return nameA.localeCompare(nameB)
+        // #5571: same ns/name in two regions — keep the ordering
+        // deterministic so the two rows never swap between renders.
+        return (a.clusterId ?? '').localeCompare(b.clusterId ?? '')
       })
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [k8sSnapshot, k8sRevision, kind, sortByName])
+
+  // #5571: append a Region column whenever the stream is attributing
+  // objects to a cluster. Rendered even for a single region — an
+  // operator must be able to see WHICH region a set came from, since
+  // "only region-a is listed" and "the estate only has region-a" are
+  // otherwise indistinguishable on a security-posture page.
+  const effectiveColumns = useMemo(
+    () => (rows.some((r) => r.clusterId) ? [...columns, REGION_COLUMN] : columns),
+    [rows, columns],
+  )
 
   return (
     <div data-testid={`cloud-${kind}-list`}>
@@ -102,7 +120,7 @@ export function K8sListPage({
           <table className="w-full border-collapse text-sm" data-testid={`cloud-${kind}-table`}>
             <thead className="text-xs uppercase tracking-wide text-[var(--color-text-dim)]">
               <tr className="border-b border-[var(--color-border)]">
-                {columns.map((c) => (
+                {effectiveColumns.map((c) => (
                   <th key={c.header} className="px-3 py-2 text-left font-medium">
                     {c.header}
                   </th>
@@ -129,6 +147,7 @@ export function K8sListPage({
                       (href ? 'cursor-pointer hover:bg-[var(--color-bg-3)]' : '')
                     }
                     data-testid={`cloud-${kind}-row-${name || i}`}
+                    data-region={obj.clusterId ?? ''}
                     onClick={onRowClick}
                     onKeyDown={(e) => {
                       if (!href) return
@@ -140,7 +159,7 @@ export function K8sListPage({
                     role={href ? 'link' : undefined}
                     tabIndex={href ? 0 : undefined}
                   >
-                    {columns.map((c) => {
+                    {effectiveColumns.map((c) => {
                       const text = c.extract(obj)
                       const tone = c.tone?.(obj)
                       return (
