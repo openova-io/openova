@@ -7,7 +7,7 @@ metadata:
     catalyst.openova.io/section: pts-4-6-llm-serving
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.4.152 # lockstep with chart/Chart.yaml (#5599: cross-region singleton — a secondary region renders no newapi Deployment and no CNPG Cluster, so one browser's single-use OAuth authorization code can no longer land on a database that never saw it)
+  version: 1.4.153 # lockstep with chart/Chart.yaml (#5599: cross-region singleton — a secondary region renders no newapi Deployment and no CNPG Cluster, so one browser's single-use OAuth authorization code can no longer land on a database that never saw it)
   card:
     title: NewAPI
     summary: |
