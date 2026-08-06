@@ -1,4 +1,4 @@
-name: G117 Playwright E2E (Wave-1)
+name: Playwright E2E (console / marketplace / sovereign-admin)
 
 # G117 EPIC — Playwright e2e against the new Catalyst console (catalog
 # drill-down, new-instance dialog, Application detail, Endpoints tab,
@@ -9,17 +9,110 @@ name: G117 Playwright E2E (Wave-1)
 # run against the in-tree mock backend (tests/e2e/fixtures/mock-blueprints.yaml)
 # so this gate never needs a live Sovereign; Wave-2 closeout runs them
 # against hw86 with the live catalyst-api.
+#
+# #5741 FOLLOW-UP — WHY THIS FILE GREW A SECOND AND THIRD JOB
+#
+# Per CLAUDE.md "There are FOUR front-end trees", this repo has FOUR
+# front-end trees, but until now this workflow's `paths:` named only ONE
+# of them (`products/catalyst/console/**`). An e2e spec added under any of
+# the other three ran on `pull_request` in NO workflow. That is the same
+# "guard that cannot go red" shape #5741 opened for the Go side, just for
+# Playwright specs instead of `go test`:
+#
+#   - `core/console/`                    — 0 spec files, 0 config. No gate
+#                                           is added for it: a widened path
+#                                           filter that runs zero specs is
+#                                           not coverage (see #5741 comment
+#                                           thread — "prove it by executed
+#                                           spec count, not by the job going
+#                                           green").
+#   - `core/marketplace/playwright/`     — 1 spec (customer-journey.spec.ts,
+#                                           23 test() cases), never run by
+#                                           any workflow. New `marketplace-e2e`
+#                                           job below, following the spec's
+#                                           own documented hermetic recipe
+#                                           (`npm run build && npm run
+#                                           preview`, every /api/* call
+#                                           intercepted via page.route()).
+#   - `products/catalyst/bootstrap/ui/e2e/` — 23 spec files. Two of them
+#                                           (cosmetic-guards.spec.ts,
+#                                           org-demo.spec.ts) are ALREADY
+#                                           fully PR-gated — every
+#                                           test.describe() in both is
+#                                           wrapped in `@cosmetic-guard` /
+#                                           `@org-demo` and run by
+#                                           cosmetic-guards.yaml /
+#                                           org-demo-e2e.yaml respectively.
+#                                           The other 21 had never run
+#                                           anywhere (≥124 `test(` call
+#                                           sites by static grep — a floor,
+#                                           not the true count: some specs
+#                                           generate additional cases from a
+#                                           loop, e.g. resource-detail.spec.ts
+#                                           has 2 literal `test(` sites but
+#                                           runs 8). New `bootstrap-ui-e2e`
+#                                           matrix job below, one spec file
+#                                           per matrix entry (mirrors the
+#                                           per-module matrix pattern in
+#                                           .github/workflows/test-ungated-
+#                                           trees.yaml), reusing the same
+#                                           "boot Vite dev server in
+#                                           sovereign mode" step
+#                                           org-demo-e2e.yaml already uses.
+#
+# Deliberately did NOT fold the 2 already-covered bootstrap/ui spec files
+# into the new matrix — that would just run them twice under two different
+# boot recipes for no additional coverage.
+#
+# FIRST-RUN FINDING: 16 of the 21 specs failed on this matrix's very first
+# run. Every failure was root-caused against current source (NOT env noise
+# — application-pages-t-o-p.spec.ts's own T2 test already carries a #5609
+# comment admitting exactly this class of gap: "the specs under
+# bootstrap/ui/e2e are not wired into CI ... which is why the drift went
+# unnoticed") and is tracked with its file:line evidence in #5762's triage
+# table: stale `sov-app-tab-*` / `/console/*`-prefixed testids and routes
+# against intentional renames (3 of these are the SAME rename #5609 already
+# fixed in one file but not its siblings), the removed Sandbox menu
+# (founder 2026-06-30), an install-flow placement-mode value rename, and a
+# login-gated `/cloud` view this CI boot doesn't authenticate for. The 16
+# are quarantined via a KNOWN_RED allowlist in the "Run Playwright spec"
+# step below — mirrors catalyst-build.yaml's KNOWN_RED pattern (currently
+# empty there) — so the gate stays LIVE (every spec still executes on
+# every PR) rather than silently swallowing the failures. Fixing the drift
+# itself is #5762's job, not this PR's.
+#
+# core/marketplace's customer-journey.spec.ts also surfaced one real
+# finding: test `05b` mocks a 0-live-org persona while claiming to test the
+# owner-redirect path, and asserts UI copy ("Taking you to your dashboard")
+# that does not exist anywhere in `src/` — the underlying
+# resolveRedeemDestination() logic is correct and already unit-tested
+# (redeemDestination.test.ts CONTROL 4); the e2e assertion is stale. Marked
+# `test.fail()` directly in the spec (same idiom `redeemDestination.test.ts`
+# already uses via vitest's `it.fails()` for the *actual* open gap, #5421)
+# so it stays a live, visible tripwire instead of a silent skip — also
+# tracked in #5762.
+#
+# NO separate "zero executed specs" vacuity step (unlike the go-modules
+# matrix in test-ungated-trees.yaml, which needs one): verified locally
+# that `npx playwright test <nonexistent-or-non-matching-pattern>` prints
+# "Error: No tests found." and exits 1 on its own. `go test ./...` is the
+# one that silently exits 0 on a package with no test files — Playwright
+# does not share that failure mode, so no extra check is needed here.
 
 on:
   push:
     branches: [main]
     paths:
       - 'products/catalyst/console/**'
+      - 'core/marketplace/**'
+      - 'products/catalyst/bootstrap/ui/**'
       - 'docs/api/catalyst-api-openapi.yaml'
       - '.github/workflows/playwright-e2e.yml'
   pull_request:
     paths:
       - 'products/catalyst/console/**'
+      - 'core/marketplace/**'
+      - 'products/catalyst/bootstrap/ui/**'
       - 'docs/api/catalyst-api-openapi.yaml'
       - '.github/workflows/playwright-e2e.yml'
   workflow_dispatch:
@@ -65,4 +158,258 @@ jobs:
         with:
           name: g117-playwright-report
           path: products/catalyst/console/playwright-report/
+          retention-days: 7
+
+  marketplace-e2e:
+    name: core/marketplace customer-journey e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: core/marketplace
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: core/marketplace/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      # Per playwright.config.ts's own doc comment: "designed to run against
+      # `npm run build && npm run preview` locally — no API server required
+      # because every backend call is intercepted via page.route() in the
+      # spec itself." Astro preview binds :4321 by default, matching the
+      # config's MARKETPLACE_BASE_URL fallback.
+      - name: astro build
+        run: npm run build
+
+      - name: Boot astro preview in background
+        run: |
+          nohup npm run preview > /tmp/marketplace-preview.log 2>&1 &
+          echo $! > /tmp/marketplace-preview.pid
+
+      - name: Wait for marketplace preview to be ready
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:4321/; then
+              echo "marketplace preview ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "marketplace preview failed to start in 60s — log follows:"
+          cat /tmp/marketplace-preview.log || true
+          exit 1
+
+      # No file filter — this is the only spec in the testDir today, but we
+      # deliberately don't hardcode its name so a second spec added later
+      # is picked up automatically.
+      - name: Run Playwright customer-journey e2e
+        env:
+          MARKETPLACE_BASE_URL: http://localhost:4321
+          CI: '1'
+        run: |
+          # `set +e` / `${PIPESTATUS[0]}` / `set -e` — NOT `set -o
+          # pipefail; ...; rc=$?`. GH Actions runs `run:` blocks as
+          # `bash -e {0}`; with pipefail alone, a failing `npx playwright
+          # test | tee` aborts the script right there under errexit and
+          # `rc=$?` never executes. Matches catalyst-build.yaml's own
+          # G110-followup gate, which got this right already.
+          set +e
+          npx playwright test --reporter=list 2>&1 | tee /tmp/marketplace-pw.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          specs=$(find playwright -iname '*.spec.ts' | wc -l)
+          passed=$(grep -oE '[0-9]+ passed' /tmp/marketplace-pw.log | tail -1 | grep -oE '[0-9]+' || true)
+          failed=$(grep -oE '[0-9]+ failed' /tmp/marketplace-pw.log | tail -1 | grep -oE '[0-9]+' || true)
+          echo "::notice::core/marketplace/playwright — ${specs} spec file(s) on disk, reporter summary: ${passed:-0} passed, ${failed:-0} failed"
+          exit "${rc}"
+
+      - name: Stop marketplace preview
+        if: always()
+        run: |
+          if [ -f /tmp/marketplace-preview.pid ]; then
+            kill "$(cat /tmp/marketplace-preview.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: marketplace-playwright-report
+          path: core/marketplace/playwright-report/
+          retention-days: 7
+
+  bootstrap-ui-e2e:
+    name: sovereign-admin console e2e — ${{ matrix.spec }}
+    runs-on: ubuntu-latest
+    # 30, not the repo's usual 15-20 for this tree (org-demo-e2e.yaml,
+    # cosmetic-guards.yaml): those run ONE actively-maintained spec each.
+    # This matrix runs 21 files that have NEVER executed in CI before —
+    # local spot-checks while wiring this job found real, pre-existing
+    # selector drift (see PR body / #5741 comment), and a file with many
+    # failing tests can burn close to 16 min just on Playwright's own
+    # `retries: 1` × 30s-timeout budget before a single install/boot step
+    # is counted. Generous timeout so a slow-but-real failure set reports
+    # cleanly instead of getting cut off as an ambiguous "cancelled".
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every spec file under products/catalyst/bootstrap/ui/e2e/ EXCEPT
+        # cosmetic-guards and org-demo, which already have dedicated
+        # PR-gated workflows (cosmetic-guards.yaml, org-demo-e2e.yaml) that
+        # cover 100% of their test.describe() blocks. This list — 21 spec
+        # files — had ZERO PR-time execution before this job (see the file
+        # header comment above for the finding from wiring it).
+        spec:
+          - application-pages-t-o-p
+          - cloud-architecture
+          - cloud-crud
+          - cloud-list-pages
+          - cloud-nav
+          - cloud-shell
+          - compliance-dashboards
+          - continuum-dr-section
+          - fleet-dashboard
+          - install-flow
+          - k8s-stream
+          - logs-exec-sessions
+          - org-multi-domain
+          - org-tier-rbac
+          - parent-domains-829
+          - post-v2-polish-366
+          - rbac-management
+          - rbac-membership
+          - resource-detail
+          - sandbox
+          - sovereignty
+    defaults:
+      run:
+        working-directory: products/catalyst/bootstrap/ui
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: products/catalyst/bootstrap/ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser (chromium)
+        run: npx playwright install --with-deps chromium
+
+      # Same boot recipe as .github/workflows/org-demo-e2e.yaml: sovereign
+      # mode forces a non-null sovereignFQDN so SovereignConsoleLayout's
+      # auth gate doesn't hang on `sov-auth-loading`. bootstrap/ui has no
+      # mock backend today (per playwright-smoke.yaml's own comment); the
+      # specs in this matrix rely on the SPA's fixture fallback / self-
+      # contained page.route() mocks instead (verified per-file before
+      # wiring this matrix — none needs a live cluster or a different boot
+      # env than this one).
+      - name: Boot Catalyst UI in sovereign mode
+        env:
+          VITE_CATALYST_MODE: sovereign
+          VITE_SOVEREIGN_FQDN: acme.otech.example
+          HOST: 0.0.0.0
+        run: |
+          nohup npm run dev > /tmp/catalyst-ui-dev.log 2>&1 &
+          echo $! > /tmp/catalyst-ui.pid
+
+      - name: Wait for Catalyst UI to be ready
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:5173/wizard; then
+              echo "UI ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "UI failed to start in 60s — log follows:"
+          cat /tmp/catalyst-ui-dev.log || true
+          exit 1
+
+      # No `--grep` filter — unlike cosmetic-guards.spec.ts / org-demo.spec.ts,
+      # none of these 21 files is shared with another workflow, so the whole
+      # file runs here.
+      - name: Run Playwright spec
+        env:
+          PLAYWRIGHT_HOST: http://localhost:5173
+          PLAYWRIGHT_BASEPATH: /
+          CI: '1'
+        run: |
+          # `set +e` / `${PIPESTATUS[0]}` / `set -e` — see the marketplace-
+          # e2e job above for why `set -o pipefail; ...; rc=$?` is dead
+          # code under GH Actions' default `bash -e` shell. This is not
+          # theoretical here: it is EXACTLY the bug that made the KNOWN_RED
+          # case statement below never run on this job's first push — every
+          # quarantined spec still failed the check because the script died
+          # at the `npx playwright test | tee` line before `rc=$?` (and
+          # everything after it) ever executed.
+          set +e
+          npx playwright test "e2e/${{ matrix.spec }}.spec.ts" --reporter=list 2>&1 | tee /tmp/bootstrap-ui-pw.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          passed=$(grep -oE '[0-9]+ passed' /tmp/bootstrap-ui-pw.log | tail -1 | grep -oE '[0-9]+' || true)
+          failed=$(grep -oE '[0-9]+ failed' /tmp/bootstrap-ui-pw.log | tail -1 | grep -oE '[0-9]+' || true)
+          echo "::notice::e2e/${{ matrix.spec }}.spec.ts — ${passed:-0} passed, ${failed:-0} failed"
+          if [ "${rc}" -eq 0 ] && [ "${passed:-0}" -eq 0 ]; then
+            echo "::error::e2e/${{ matrix.spec }}.spec.ts exited 0 but reported zero passed tests — the spec vanished or stopped matching. A gate that cannot tell 'everything passed' from 'nothing ran' is not a gate."
+            exit 1
+          fi
+
+          if [ "${rc}" -ne 0 ]; then
+            # KNOWN_RED — this matrix's first-ever run found 16 of 21 specs
+            # were already failing (root-caused, not env noise: #5762 has
+            # the full triage table — stale sov-app-tab-* / /console/*
+            # testids and routes against intentional renames, the removed
+            # Sandbox menu, an install-flow value rename, and a login-gated
+            # /cloud view the CI boot doesn't authenticate for). Quarantined
+            # here so the gate stays LIVE (every listed spec still executes
+            # every PR) instead of silently swallowing failures the way the
+            # 2026-06-02 `|| echo WARN` unblock did — see catalyst-build.yaml's
+            # KNOWN_RED for the precedent this mirrors. Do NOT add an entry
+            # to make a red spec pass — fix the spec or the product, cite the
+            # reason in #5762, and remove the entry once it goes green.
+            case "${{ matrix.spec }}" in
+              application-pages-t-o-p|cloud-architecture|cloud-crud|cloud-list-pages|cloud-nav|cloud-shell|continuum-dr-section|fleet-dashboard|install-flow|org-multi-domain|org-tier-rbac|parent-domains-829|post-v2-polish-366|rbac-membership|sandbox|sovereignty)
+                echo "::warning::e2e/${{ matrix.spec }}.spec.ts is KNOWN-RED (tracked in #5762, not this PR) — not failing the gate. Root cause + fix shape are in #5762's triage table."
+                exit 0
+                ;;
+              *)
+                echo "::error::e2e/${{ matrix.spec }}.spec.ts failed outside the KNOWN_RED allowlist. Fix the spec or the product, or add a #5762-referenced entry above WITH the root cause — never silently."
+                exit "${rc}"
+                ;;
+            esac
+          fi
+
+      - name: Stop Catalyst UI
+        if: always()
+        run: |
+          if [ -f /tmp/catalyst-ui.pid ]; then
+            kill "$(cat /tmp/catalyst-ui.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bootstrap-ui-playwright-report-${{ matrix.spec }}
+          path: |
+            products/catalyst/bootstrap/ui/playwright-report/
+            products/catalyst/bootstrap/ui/test-results/
           retention-days: 7

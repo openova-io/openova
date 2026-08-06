@@ -32,6 +32,19 @@ name: Test — trees with no PR-time gate (#5741)
 # `push: branches: [main]` only. Its own comment claims the gate makes a
 # regression "fail CI at PR time, not at operator-walk time"; the trigger block
 # contradicts the comment. This file is the PR-time half it describes.
+#
+# #5741 FOLLOW-UP — core/pool-domain-manager has its OWN job below
+# (`pool-domain-manager`), not a `go-modules` matrix entry. On this
+# workflow's very first run it reported "ran 180 test functions, skipped 7":
+# the 7 subdomain-pool RESERVATION tests (Reserve/Conflict/Expiry/Commit/
+# TokenMismatch/Release/Sweeper — internal/store/store_test.go) all
+# `t.Skip` on an unset `PDM_TEST_DSN`. They are legitimate Postgres
+# integration tests, not broken ones, but since this module had no
+# workflow at all until tonight they had never run anywhere. The dedicated
+# job below brings up a `postgres` service container and sets
+# `PDM_TEST_DSN` so they execute — and treats any remaining skip as fatal,
+# not merely a warning, because "no Postgres reachable" would defeat the
+# entire point of that job.
 
 on:
   pull_request:
@@ -80,8 +93,10 @@ jobs:
         # working-directory — a single `go test ./...` from the root would
         # silently cover none of them.
         module:
+          # core/pool-domain-manager is deliberately NOT in this list — it
+          # has its own `pool-domain-manager` job below with a Postgres
+          # service container (#5741 follow-up).
           - core/marketplace-api
-          - core/pool-domain-manager
           - core/services/catalog
           - core/services/domain
           - core/services/gateway
@@ -113,24 +128,117 @@ jobs:
       - name: go test
         working-directory: ${{ matrix.module }}
         run: |
-          set -o pipefail
+          # `set +e` around the command that is EXPECTED to sometimes fail,
+          # then `${PIPESTATUS[0]}` (not a bare `$?` after `set -o
+          # pipefail`), then `set -e` again — mirrors catalyst-build.yaml's
+          # own G110-followup gate exactly. Reason this matters and is not
+          # decoration: GitHub Actions runs `run:` blocks as `bash -e {0}`
+          # by default. `set -o pipefail; go test ... | tee ...; rc=$?`
+          # LOOKS like it captures the real exit code, but under `-e` the
+          # pipeline's own non-zero (pipefail-derived) status aborts the
+          # script the instant the pipe finishes — `rc=$?` never runs. That
+          # exact shape shipped in the sibling playwright-e2e.yml jobs and
+          # silently defeated their entire KNOWN_RED quarantine logic; not
+          # hypothetical here either.
+          set +e
           go test -count=1 -v ./... 2>&1 | tee /tmp/out.txt
+          rc=${PIPESTATUS[0]}
+          set -e
           n=$(grep -c '^--- PASS' /tmp/out.txt || true)
           s=$(grep -c '^--- SKIP' /tmp/out.txt || true)
           echo "::notice::${{ matrix.module }} ran ${n} test functions, skipped ${s}"
-          # Skips are reported, never hidden. core/pool-domain-manager declares
-          # 187 tests but executes 180: the 7 covering reserve / conflict /
-          # expiry / commit / token-mismatch / release / sweeper are Postgres
-          # integration tests gated on `PDM_TEST_DSN`, and because this module
-          # had no workflow at all they have never run anywhere. A gate that
-          # printed a clean "180 passed" would be the same lie in a new place.
-          # Wiring a Postgres service container for them is tracked on #5741.
+          # Skips are reported, never hidden. A gate that stays silent about
+          # a skip is the same "guard that cannot go red" this file exists
+          # to end — it just moves the blind spot instead of closing it.
           if [ "${s:-0}" -gt 0 ]; then
             grep '^--- SKIP' /tmp/out.txt | sed 's/^/::warning::skipped: /'
           fi
           if [ "${n:-0}" -eq 0 ]; then
             echo "::error::${{ matrix.module }} reported zero executed tests — the suite vanished or stopped being discovered; go test exits 0 in that case, so this check is what catches it."
             exit 1
+          fi
+          # A module with e.g. 40 passes + 1 genuine `--- FAIL` would
+          # satisfy n>0 and s==0 above and this step would exit 0 anyway —
+          # a real regression hidden by the very checks meant to catch a
+          # vanished suite. Checked last (not first) so the notices/
+          # warnings above still print before the step dies.
+          if [ "${rc}" -ne 0 ]; then
+            echo "::error::${{ matrix.module }} go test exited ${rc} — see the FAIL output above."
+            exit "${rc}"
+          fi
+
+  pool-domain-manager:
+    name: go test — core/pool-domain-manager (+ Postgres reservation integration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: pdm
+          POSTGRES_PASSWORD: pdm
+          POSTGRES_DB: pdm_test
+        options: >-
+          --health-cmd "pg_isready -U pdm"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    env:
+      # internal/store.New() applies internal/store/migrations.sql itself on
+      # connect (idempotent CREATE TABLE IF NOT EXISTS pool_allocations, per
+      # the migrations.sql header comment) — the bare Postgres instance above
+      # is enough, no separate schema-load step needed.
+      PDM_TEST_DSN: postgres://pdm:pdm@localhost:5432/pdm_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/pool-domain-manager/go.mod
+          cache-dependency-path: core/pool-domain-manager/go.sum
+
+      # Same vacuity discipline as the go-modules matrix above, PLUS a hard
+      # failure on any skip. This job exists specifically to give the 7
+      # PDM_TEST_DSN-gated reservation tests in internal/store/store_test.go
+      # (TestReserveHappyPath, TestReserveConflict, TestExpiryFreesName,
+      # TestCommitFlipsState, TestCommitTokenMismatch, TestReleaseRemovesRow,
+      # TestExpireReservationsSweeper) a real Postgres to run against — the
+      # mechanism that stops two Organizations claiming the same
+      # `.omani.homes` subdomain. A skip here means the DSN plumbing broke,
+      # not "no Postgres available" — that would defeat the entire point of
+      # this job, so unlike the shared matrix above (which only warns), a
+      # skip here is FATAL.
+      - name: go test
+        working-directory: core/pool-domain-manager
+        run: |
+          # `set +e` / `${PIPESTATUS[0]}` / `set -e` — see the go-modules
+          # job's comment above for why a bare `set -o pipefail; ...; rc=$?`
+          # is dead code under GH Actions' default `bash -e` shell.
+          set +e
+          go test -count=1 -v ./... 2>&1 | tee /tmp/out.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          n=$(grep -c '^--- PASS' /tmp/out.txt || true)
+          s=$(grep -c '^--- SKIP' /tmp/out.txt || true)
+          echo "::notice::core/pool-domain-manager ran ${n} test functions, skipped ${s}"
+          if [ "${n:-0}" -eq 0 ]; then
+            echo "::error::core/pool-domain-manager reported zero executed tests — the suite vanished or stopped being discovered; go test exits 0 in that case, so this check is what catches it."
+            exit 1
+          fi
+          if [ "${s:-0}" -gt 0 ]; then
+            grep '^--- SKIP' /tmp/out.txt | sed 's/^/::error::skipped (should be 0 with PDM_TEST_DSN wired): /'
+            echo "::error::core/pool-domain-manager skipped ${s} test function(s) even though PDM_TEST_DSN is set — the Postgres service container or DSN plumbing is broken."
+            exit 1
+          fi
+          # A genuine `--- FAIL` in the reservation logic would sit
+          # alongside 186 passes, satisfy n>0 and s==0, and this step would
+          # exit 0 despite a real regression in the subdomain-pool
+          # reservation semantics this job exists to cover.
+          if [ "${rc}" -ne 0 ]; then
+            echo "::error::core/pool-domain-manager go test exited ${rc} — see the FAIL output above."
+            exit "${rc}"
           fi
 
   bootstrap-ui-vitest:
