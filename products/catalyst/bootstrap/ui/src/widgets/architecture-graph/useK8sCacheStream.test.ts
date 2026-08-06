@@ -99,7 +99,10 @@ describe('useK8sCacheStream', () => {
       })
     })
     expect(result.current.snapshot.size).toBe(1)
-    expect(result.current.snapshot.get('pod:default/p1')).toBeDefined()
+    // #5571: the key carries the region as an `@{cluster}` suffix.
+    expect(
+      result.current.snapshot.get('pod:default/p1@sovereign-omantel.biz'),
+    ).toBeDefined()
   })
 
   it('drops a frame whose object is missing entirely', async () => {
@@ -150,7 +153,7 @@ describe('useK8sCacheStream', () => {
         at: 'x',
       })
     })
-    const obj = result.current.snapshot.get('pod:default/p1') as
+    const obj = result.current.snapshot.get('pod:default/p1@alpha') as
       | { status?: { phase?: string } }
       | undefined
     expect(obj?.status?.phase).toBe('Running')
@@ -172,10 +175,14 @@ describe('useK8sCacheStream', () => {
     expect(result.current.snapshot.size).toBe(0)
   })
 
-  it('objectKey composes `kind:ns/name` and `kind:name` for cluster-scoped', () => {
+  it('objectKey composes `kind:ns/name@cluster` and `kind:name@cluster`', () => {
     expect(
-      objectKey('pod', { metadata: { namespace: 'default', name: 'p1' } }),
-    ).toBe('pod:default/p1')
-    expect(objectKey('node', { metadata: { name: 'n1' } })).toBe('node:n1')
+      objectKey('pod', { metadata: { namespace: 'default', name: 'p1' } }, 'r-a'),
+    ).toBe('pod:default/p1@r-a')
+    expect(objectKey('node', { metadata: { name: 'n1' } }, 'r-a')).toBe(
+      'node:n1@r-a',
+    )
+    // No region context → legacy unsuffixed form (mothership/tests).
+    expect(objectKey('node', { metadata: { name: 'n1' } }, '')).toBe('node:n1')
   })
 })

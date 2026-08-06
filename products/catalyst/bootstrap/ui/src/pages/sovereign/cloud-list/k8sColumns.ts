@@ -45,6 +45,44 @@ export interface K8sListColumn {
   tone?: (obj: K8sObject) => CellTone | undefined
 }
 
+/**
+ * #5571: render a k8scache cluster id as an operator-readable region.
+ *
+ * Cluster ids arrive in two conventions:
+ *   - secondaries: `<deploymentID>-<region>`   e.g.
+ *     `1c56518035a83e03-me-east-215-b-1` → `me-east-215-b-1`
+ *   - the chroot's self-registered primary: `sovereign-<fqdn>` e.g.
+ *     `sovereign-t99.omani.works` → `primary`
+ *
+ * Anything unrecognised renders verbatim — never blank, because a
+ * blank region cell is exactly the "partial set reads as complete"
+ * failure this column exists to prevent.
+ */
+export function regionLabel(clusterId: string): string {
+  if (!clusterId) return '—'
+  if (clusterId.startsWith('sovereign-')) return 'primary'
+  // `<32-hex-ish depID>-<region>` — split on the FIRST dash only if the
+  // head looks like a deployment id (hex, ≥8 chars).
+  const dash = clusterId.indexOf('-')
+  if (dash > 0) {
+    const head = clusterId.slice(0, dash)
+    if (head.length >= 8 && /^[0-9a-f]+$/i.test(head)) {
+      return clusterId.slice(dash + 1)
+    }
+  }
+  return clusterId
+}
+
+/**
+ * #5571: the Region column. Injected by K8sListPage (not declared by
+ * each kind in kindsPages.tsx) so EVERY Cloud list page gains region
+ * attribution at once and no kind can be forgotten.
+ */
+export const REGION_COLUMN: K8sListColumn = {
+  header: 'Region',
+  extract: (obj) => regionLabel(obj.clusterId ?? ''),
+}
+
 export interface K8sListPageProps {
   /** Kind name as registered in the k8scache registry (e.g. "pod",
    *  "deployment", "service"). */

@@ -128,16 +128,41 @@ export interface K8sObject {
    */
   displayName?: string
   vclusterNamespace?: string
+  /**
+   * #5571: the k8scache cluster id (region) this object was observed
+   * in, stamped from the SSE event's `cluster` field as the delta is
+   * applied. The wire `object` never carries it — region identity
+   * lives on the ENVELOPE, so it has to be copied down onto the object
+   * or it is lost the moment the event is folded into the snapshot.
+   *
+   * Consumers that display estate-wide sets (the Cloud list pages)
+   * MUST surface this, otherwise one region's set is indistinguishable
+   * from the whole Sovereign's.
+   */
+  clusterId?: string
   [key: string]: unknown
 }
 
 /**
  * Snapshot is the in-memory mirror of every object the graph layer
- * cares about — keyed by composite id `{kind}:{namespace}/{name}` so a
- * Pod in two namespaces doesn't collide.
+ * cares about — keyed by composite id
+ * `{kind}:{namespace}/{name}@{cluster}` so a Pod in two namespaces
+ * doesn't collide, AND the SAME `{ns}/{name}` in two REGIONS doesn't
+ * collide either (#5571).
  *
  * Cluster-scoped kinds (Namespace, Node, PV, server.hcloud,
- * volume.hcloud) use `{kind}:{name}` (empty namespace).
+ * volume.hcloud) use `{kind}:{name}@{cluster}` (empty namespace).
+ *
+ * 🛑 The `@{cluster}` suffix is load-bearing (#5571). A 2-region
+ * Sovereign runs the SAME chart in both regions, so a large share of
+ * objects share `{ns}/{name}` across regions — measured on hw292:
+ * 21 of 64 NetworkPolicies and 37 of 99 CiliumNetworkPolicies. Keying
+ * without the cluster silently drops the loser of each collision and
+ * makes a DELETE in one region erase the row for the other, which the
+ * Cloud security-posture pages read as "policy absent". The suffix
+ * form (not a prefix) is deliberate: every existing key scan is
+ * `key.startsWith(`${kind}:`)` / `key.split(':', 1)[0]`, which keeps
+ * working unchanged.
  */
 export type K8sSnapshot = Map<string, K8sObject>
 
@@ -160,17 +185,43 @@ export interface UseK8sCacheStreamOptions {
 }
 
 /**
- * Compose the composite snapshot key for an event. Empty namespace
- * for cluster-scoped kinds so PV / Node / server.hcloud all key on
- * `{kind}:{name}` cleanly.
+ * Compose the composite snapshot key from raw coordinates. Empty
+ * namespace for cluster-scoped kinds so PV / Node / server.hcloud all
+ * key on `{kind}:{name}` cleanly.
+ *
+ * `cluster` is REQUIRED (#5571) — it is appended as a `@{cluster}`
+ * SUFFIX so `key.startsWith(`${kind}:`)` and `key.split(':', 1)[0]`
+ * scans elsewhere in the SPA keep working verbatim. It is required
+ * rather than defaulted so a new call site cannot silently
+ * re-introduce the cross-region collapse by forgetting it; pass `''`
+ * only where there is genuinely no region context.
  */
-export function objectKey(kind: string, obj: K8sObject): string {
-  const ns = obj.metadata?.namespace ?? ''
-  const name = obj.metadata?.name ?? ''
-  if (ns) {
-    return `${kind}:${ns}/${name}`
-  }
-  return `${kind}:${name}`
+export function snapshotKey(
+  kind: string,
+  ns: string,
+  name: string,
+  cluster: string,
+): string {
+  const base = ns ? `${kind}:${ns}/${name}` : `${kind}:${name}`
+  return cluster ? `${base}@${cluster}` : base
+}
+
+/**
+ * Compose the composite snapshot key for an event's object. See
+ * `snapshotKey` — `cluster` comes from the SSE event ENVELOPE
+ * (`payload.cluster`), never from the object itself.
+ */
+export function objectKey(
+  kind: string,
+  obj: K8sObject,
+  cluster: string,
+): string {
+  return snapshotKey(
+    kind,
+    obj.metadata?.namespace ?? '',
+    obj.metadata?.name ?? '',
+    cluster,
+  )
 }
 
 export function useK8sCacheStream(
@@ -260,11 +311,20 @@ export function useK8sCacheStream(
       if (!payload.object || !payload.object.metadata) {
         return
       }
-      const key = objectKey(payload.kind, payload.object)
+      // #5571: region identity lives on the event ENVELOPE, not on the
+      // object. Key by it so the two regions of a 2-region Sovereign
+      // cannot overwrite each other, and stamp it DOWN onto the stored
+      // object so consumers (Cloud list pages, owner-ref resolution)
+      // can still tell the regions apart after the fold.
+      const cluster = payload.cluster ?? ''
+      const key = objectKey(payload.kind, payload.object, cluster)
       if (payload.type === 'DELETED') {
         snapshotRef.current.delete(key)
       } else {
-        snapshotRef.current.set(key, payload.object)
+        snapshotRef.current.set(
+          key,
+          cluster ? { ...payload.object, clusterId: cluster } : payload.object,
+        )
       }
       setState((prev) => ({
         snapshot: snapshotRef.current,
