@@ -726,7 +726,7 @@ func (h *Handler) restoreFromStore() {
 	)
 }
 
-// waitOrphanReleases blocks until every releaseOrphanedReservation goroutine
+// WaitOrphanReleases blocks until every releaseOrphanedReservation goroutine
 // spawned by restoreFromStore has run to completion — including the trailing
 // persistDeployment write, not just the pdm.Release call.
 //
@@ -734,7 +734,13 @@ func (h *Handler) restoreFromStore() {
 // directory after the effect a caller would naturally poll for. Tests that
 // assert on the Release and then return would otherwise leave it writing into
 // an already-being-torn-down t.TempDir() (#5765).
-func (h *Handler) waitOrphanReleases() { h.orphanReleaseWG.Wait() }
+//
+// Exported for the SIGTERM drain in cmd/api (#5767): a Pod killed between
+// pdm.Release and persistDeployment leaves an on-disk record still claiming a
+// reservation that no longer exists in PDM — the exact #489 subdomain-lock
+// symptom this goroutine was written to prevent. Call it AFTER
+// http.Server.Shutdown returns, so no new work can arrive while draining.
+func (h *Handler) WaitOrphanReleases() { h.orphanReleaseWG.Wait() }
 
 // releaseOrphanedReservation calls pdm.Release for a deployment whose
 // status was rewritten to "failed" because the catalyst-api Pod died

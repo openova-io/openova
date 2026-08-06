@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -2186,11 +2189,40 @@ func main() {
 			"addr", ln.Addr().String())
 	}
 
+	// #5767 — graceful shutdown. This was a bare http.ListenAndServe, so
+	// SIGTERM killed the process where it stood. That is not a cosmetic
+	// gap: restoreFromStore's orphan-release goroutine calls pdm.Release,
+	// THEN clears the dep's PDM pointers, THEN persists. Killed between the
+	// first and last step it leaves an on-disk record still claiming a
+	// reservation that no longer exists in PDM — the exact #489
+	// "every Pod restart permanently locks a subdomain" symptom that
+	// goroutine exists to prevent. A rolling restart is the most common
+	// event in this platform's life, so the fix for #489 was itself
+	// killable by the routine case.
+	//
+	// Order matters: Shutdown FIRST (stop accepting, drain in-flight
+	// requests), then join the orphan releases. Draining first would let a
+	// new request spawn work after we had already waited.
+	srv := &http.Server{Addr: ":" + port, Handler: r}
+	drained := make(chan struct{})
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		defer close(drained)
+		drainOnSignal(sigCh, srv, h, defaultDrainBudget, log)
+	}()
+
 	log.Info("catalyst api listening", "port", port)
-	if err := http.ListenAndServe(":"+port, r); err != nil {
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error("server error", "err", err)
 		os.Exit(1)
 	}
+	// ErrServerClosed is the normal path out of a signalled shutdown, not a
+	// failure — wait for the drain goroutine before returning so the process
+	// does not exit while it is still joining.
+	<-drained
+	log.Info("catalyst api stopped cleanly")
 }
 
 func env(key, fallback string) string {

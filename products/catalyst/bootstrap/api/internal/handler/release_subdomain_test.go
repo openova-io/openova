@@ -310,7 +310,7 @@ func TestRestoreFromStore_PodRestartOrphanReleasesPDMSlot(t *testing.T) {
 	// Still read through the mutex-protected snapshot accessor: a direct
 	// read of fpdm.releases races the goroutine's append (the race
 	// detector flagged that before the accessor existed).
-	h.waitOrphanReleases()
+	h.WaitOrphanReleases()
 	releases := fpdm.snapshotReleases()
 
 	if got := len(releases); got != 1 {
@@ -330,7 +330,7 @@ func TestRestoreFromStore_PodRestartOrphanReleasesPDMSlot(t *testing.T) {
 		t.Errorf("Status=%q, want failed (Pod-restart rewrite contract)", dep.Status)
 	}
 
-	// No wait needed for the success-path field clear: waitOrphanReleases
+	// No wait needed for the success-path field clear: WaitOrphanReleases
 	// above already joined the goroutine that clears the pointers and
 	// persists, so by here the clear has either happened or never will.
 	// Asserting directly turns a timing-dependent poll into a real
