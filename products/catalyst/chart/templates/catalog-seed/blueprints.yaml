@@ -2764,7 +2764,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.14"
+  version: "0.1.15"
   visibility: listed
   card:
     title: "Stalwart (per-Organization)"
@@ -2805,7 +2805,7 @@ is event-driven (ADR-0003 §3).
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-stalwart-tenant
-    version: "0.1.14"
+    version: "0.1.15"
   topology:
     supported:
     - active-passive

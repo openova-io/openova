@@ -141,10 +141,19 @@ spec:
             # ContainerCreating until the cert exists is the correct
             # convergence behaviour and matches bp-stalwart-sovereign.
   volumeClaimTemplates:
+    # #5615-followup (2026-08-06, live hw292 funnel Org uatco): use the
+    # STABLE label subset here, never the full bp-stalwart-tenant.labels
+    # helper. volumeClaimTemplates[].metadata is immutable post-create on
+    # a StatefulSet — a version-bearing label (helm.sh/chart,
+    # app.kubernetes.io/version) here means EVERY future chart bump
+    # permanently blocks `helm upgrade` for any Org whose StatefulSet
+    # already exists ("Forbidden: updates to statefulset spec ...
+    # forbidden"). See templates/_helpers.tpl stableLabels + the
+    # volumeclaimtemplate-stable-labels.sh guard.
     - metadata:
         name: data
         labels:
-          {{- include "bp-stalwart-tenant.labels" . | nindent 10 }}
+          {{- include "bp-stalwart-tenant.stableLabels" . | nindent 10 }}
       spec:
         accessModes:
           {{- toYaml .Values.persistence.spool.accessModes | nindent 10 }}
