@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T01:15:02Z` |
+| Last refreshed | `2026-08-06T01:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-06T01:21 | [#5724](https://github.com/openova-io/openova/pull/5724) | #5616 | fix(api,ui): #5616 refuse a placement vCluster tier this Sov |
 | 2026-08-06T01:13 | [#5723](https://github.com/openova-io/openova/pull/5723) | #5672 | fix(catalyst-api): org-teardown reap keys on BOTH producers' |
 | 2026-08-06T01:12 | [#5722](https://github.com/openova-io/openova/pull/5722) | #901 | fix(auth): defer pin/issue realm write to pin/verify — no un |
 | 2026-08-06T00:44 | [#5721](https://github.com/openova-io/openova/pull/5721) | #5459 | docs(uat): re-walk the 12 unwalked SSO rows live on hw292 po |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-05T18:05 | [#5696](https://github.com/openova-io/openova/pull/5696) | #5592 | fix(854): assert NodePort ban is ENFORCING per region, not j |
 | 2026-08-05T14:51 | [#5695](https://github.com/openova-io/openova/pull/5695) | #5575 | test(wizard): fail-closed catalog integrity gate — no phanto |
 | 2026-08-05T14:30 | [#5694](https://github.com/openova-io/openova/pull/5694) | #5348 | ci(§854): guard that every LoadBalancer Service template sta |
-| 2026-08-05T13:53 | [#5692](https://github.com/openova-io/openova/pull/5692) | #5535 | ci(uat): lock the SSO-flip trigger surface against evidence- |
 
 ---
 
