@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T07:00:13Z` |
+| Last refreshed | `2026-08-06T07:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5408](https://github.com/openova-io/openova/issues/5408) | Wizard component model: phantom ids in the deployment payload, cnpg+postgres inv | Other |
-| [#5409](https://github.com/openova-io/openova/issues/5409) | PinInput6 maxLength={6} silently truncates a pasted sign-in code before the past | Other |
 | [#5410](https://github.com/openova-io/openova/issues/5410) | uptime-kuma is hard-coded to 128Mi in KnownApps and OOMKills permanently (40 res | Other |
 | [#5414](https://github.com/openova-io/openova/issues/5414) | newapi loses sessions ~60% of loads: each region mints its own SESSION_SECRET/CR | Other |
 | [#5416](https://github.com/openova-io/openova/issues/5416) | oidc-gate mints its cookie secret per region, so each gate rejects the peer's se | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#5741](https://github.com/openova-io/openova/issues/5741) | 40 test files / 304 test funcs across 8 Go modules run in NO workflow — a PR c | Other |
 | [#5743](https://github.com/openova-io/openova/issues/5743) | deploy-bot version race: chart version went BACKWARDS on main; published 1.4.132 | Other |
 | [#5744](https://github.com/openova-io/openova/issues/5744) | auto-close guard misses commit messages AND the past-tense keywords (closed/fixe | Other |
+| [#5750](https://github.com/openova-io/openova/issues/5750) | Guacamole row-35 ERROR page: diagnostic to distinguish known #5358 chart-drift f | Other |
+| [#5752](https://github.com/openova-io/openova/issues/5752) | bp-stalwart-tenant: per-Org install door emits empty spec.parameters — domain/ | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-06T07:10 | [#5751](https://github.com/openova-io/openova/pull/5751) | #5612 | fix(newapi): cluster-side guard for the row 37/38 rollout ga |
 | 2026-08-06T06:55 | [#5749](https://github.com/openova-io/openova/pull/5749) | #3668 | docs(uat): screenshot evidence for console/catalog/jobs/clou |
 | 2026-08-06T06:33 | [#5748](https://github.com/openova-io/openova/pull/5748) | #960 | docs(uat): add live screenshot evidence for 19 funnel/orgs g |
 | 2026-08-06T06:36 | [#5747](https://github.com/openova-io/openova/pull/5747) | #2725 | docs(uat): screenshot SSO/meta/robustness evidence + re-walk |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T00:01 | [#5716](https://github.com/openova-io/openova/pull/5716) | #5610 | fix(console): guard the catalog per-field save against silen |
 | 2026-08-06T00:06 | [#5715](https://github.com/openova-io/openova/pull/5715) | #5623 | fix(dr): every CNPG DR pair must declare a promotion mechani |
 | 2026-08-05T23:56 | [#5714](https://github.com/openova-io/openova/pull/5714) | #3599 | fix(placement): reject a region-less placement target instea |
-| 2026-08-05T23:52 | [#5713](https://github.com/openova-io/openova/pull/5713) | #5635 | fix(catalyst-api): serve per-Org app hosts from every region |
 
 ---
 
