@@ -399,6 +399,34 @@ These are OpenOva-platform-specific anti-patterns — concrete PR / issue receip
 
 **Guard:** `scripts/check-netpol-egress-completeness.py` renders every policy-bearing chart and asserts, per selected endpoint, that the union of its egress rules allows 53/UDP + 53/TCP to cluster DNS. It asserts on parsed **values** — a hollow `egress: []`, a `port: 53` aimed at the workload's own namespace, and a UDP-only rule are all FAIL — and its Phase 0 proves the classifier still bites five known-broken shapes before any verdict is trusted.
 
+### A18 — The guard that cannot go red
+
+| | |
+|---|---|
+| **Receipt** | 2026-08-06, **thirteen instances in one session**, seven distinct shapes. Named ones: #5591 (scan-vs-enforce), #5389 (CRD documents-but-admits), #5600 (self-agreeing synthetic map), #5609 (test hand-feeds a prop production never passes), #5515 (the unit suite *asserted* the fail-open), #5611 (`StorageClassesPage.test.tsx` asserted the empty state), #5741 (40 Go test files + 1977 vitest cases run by no PR-time workflow at all) |
+| **Shape** | A check exists, is named for the defect, and passes — because it was never able to observe the defect. The suite reads as coverage, which is exactly why nobody re-examines it. |
+| **Why this is wrong** | This is the mechanism by which *"already fixed"* issues stay broken. Almost every defect found on 2026-08-06 was in something believed fixed, and it survived because the thing looking for it could not fail. It defeats §7 at the root: the evidence that a surface is verified is itself fabricated, so re-verification reproduces the same false green forever. |
+| **Right fix shape** | Make the guard fail on the pre-fix tree **before** trusting it green on the post-fix tree, and keep a vacuity control in the same run so "assert nothing" cannot pass. Fix at the seam that decides the outcome, not at the surface that displays it. |
+
+**The one question that catches all seven shapes:** *if the bug were present, could this check have gone red?* Ask it of the check, not of the code.
+
+**The seven shapes, each with the tell:**
+
+1. **Scanned but never enforced** — the job runs a detector and discards its exit code. Tell: no `exit 1` on the finding path (#5591).
+2. **The fixture is a photocopy of the contract** — the test's expected value is generated from the same source as the actual. Tell: a helper builds both sides (#5600).
+3. **"Was anything patched" standing in for "was THIS patched"** — an existence assertion where an identity assertion was meant (#5389).
+4. **The product reshaped so the assertion passes** — the inverse: `must_contain` tokens satisfied by fabricating the tokens. See also A8 (#5609, #5731).
+5. **No gate at all for a whole tree** — the suite is real, comprehensive, and run by nothing at PR time. Tell: `paths:` names the tree but `run:` does not, or no workflow names it at all (#5741).
+6. **A reachable gate argued out of mattering** — "that job can't see my diff" asserted from its *name* rather than its `paths:`. Tell: the job is `in_progress` on your branch while you explain why it is irrelevant.
+7. **The test PINS the fail-open as correct** — the worst one, because the fix turns CI red and *looks* like the regression. Tell: `want:` names the behaviour you are removing (#5515: `{name: "empty targets — singleton", want: PatternSingleton}`; #5611: an assertion on the "not in the current informer set" empty state).
+
+**Two corollaries that produced wrong conclusions on their own:**
+
+- **Trigger breadth is not assertion breadth.** All seven controller workflows *trigger* on `core/controllers/pkg/**`; every one scoped its `run:` to `./<x>/... ./internal/...`. The canonical placement model's only real coverage therefore rode `build-sandbox-controller.yaml` — the build for a product deleted 2026-06-30. A model whose sole gate belongs to a deleted product is one file deletion from having none. Read the `run:` line, not the `paths:` list.
+- **A comment asserting a property is not the property.** `catalyst-build.yaml`'s vitest step says it makes a regression *"fail CI at PR time, not at operator-walk time"*; its trigger block is `push: branches: [main]`. The gate is real and fail-closed — it just runs after the merge it was meant to block. Same for source comments: #5515's `DerivePattern` was commented "display only" while being persisted to `spec.placement.mode` (no CRD enum) and selecting the BcpTopology that arms the Continuum DR contract.
+
+**Guard:** `.github/workflows/test-ungated-trees.yaml` runs the nine previously ungated trees at PR time, and carries its own vacuity check — `go test ./...` **exits 0 on a module with no test files**, so the step asserts `--- PASS` count > 0 and fails explicitly otherwise. Verified both directions: a real module reports its executed count; an empty module exits 0 and trips the assertion.
+
 ---
 
 ## Cross-cutting flags that trigger a "stop and investigate" pass
@@ -554,6 +582,7 @@ Mapping (Anti-pattern → Principle it violates):
 | A15 (stable-state walk passed off as fresh-prov) | §7, Part IV rule 7 + [`DOD.md`](DOD.md) (operator-walked fresh-prov evidence) |
 | A16 (per-region secret on a shared VIP) | §2 (no workarounds), §7, Part III.4 (repo-wide enumeration on class recurrence) |
 | A17 (ingress-only policy in an egress-constrained namespace) | §2 (no workarounds), §7, Part III.4 (repo-wide enumeration on class recurrence) |
+| A18 (the guard that cannot go red) | §7 (verify before claiming done), §15 (real validators only), Part IV rule 1 (defensive shapes trigger investigation) |
 
 When you catch a new shape of failure in a PR review, add an A16+ entry here with the PR / issue number, the shape, why it's wrong, and the right fix shape. The catalog grows so the next session catches the same shape sooner.
 
