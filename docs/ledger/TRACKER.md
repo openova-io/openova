@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T18:15:03Z` |
+| Last refreshed | `2026-08-06T18:30:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,7 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#5358](https://github.com/openova-io/openova/issues/5358) | SSO: Guacamole intermittently rejects the valid Keycloak id_token (invalid/old n | Other |
 | [#5359](https://github.com/openova-io/openova/issues/5359) | Cutover pivots ONLY the control-plane region — region-B Flux (GitRepository→ | Other |
 | [#5364](https://github.com/openova-io/openova/issues/5364) | Org-CR deletion orphans the org Namespace + host-deployed bp-keycloak when per-O | Other |
 | [#5370](https://github.com/openova-io/openova/issues/5370) | CI red on main: sandbox-mcp-server Go-toolchain latent break + intermittent char | Other |
@@ -287,7 +288,6 @@ flowchart LR
 | [#5611](https://github.com/openova-io/openova/issues/5611) | Cloud list: Volumes claims 0 while 50 EVS block volumes are attached (Storage Cl | Other |
 | [#5612](https://github.com/openova-io/openova/issues/5612) | newapi session expires in under an hour and the 'Continue with OpenOva SSO' reco | Other |
 | [#5613](https://github.com/openova-io/openova/issues/5613) | Dashboard treemap Organization layer is inert: /api/v1/fleet/treemap returns one | Other |
-| [#5616](https://github.com/openova-io/openova/issues/5616) | Application-create vCluster selector: all 5 options are consumed as a namespace  | Other |
 | [#5617](https://github.com/openova-io/openova/issues/5617) | Per-Org oidc-gate has a gateway-ingress CNP but no egress policy — under names | Other |
 | [#5623](https://github.com/openova-io/openova/issues/5623) | Region-kill: the three shared-pg DR pairs never promote — only bp-cnpg-pair sh | Other |
 | [#5634](https://github.com/openova-io/openova/issues/5634) | UAT row 92: funnel discards the 429 rate-limit response — a throttled customer | Other |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-06T18:29 | [#5778](https://github.com/openova-io/openova/pull/5778) | #5752 | docs(uat): retract row 48's refuted producesInstances mechan |
 | 2026-08-06T18:10 | [#5777](https://github.com/openova-io/openova/pull/5777) | #5646 | fix(#5646): the failed-run progress recompute was unguarded  |
 | 2026-08-06T18:05 | [#5776](https://github.com/openova-io/openova/pull/5776) | #5646 | fix(#5769): the #5646 step-name guard read a transcript, not |
 | 2026-08-06T18:00 | [#5775](https://github.com/openova-io/openova/pull/5775) | #5768 | test(catalyst-api): guard that main() actually wires the gra |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T04:16 | [#5742](https://github.com/openova-io/openova/pull/5742) | #5716 | ci: 8 Go modules and the sovereign-admin console had no PR-t |
 | 2026-08-06T03:58 | [#5740](https://github.com/openova-io/openova/pull/5740) | #5646 | fix(funnel): banned term still reaches the customer from a h |
 | 2026-08-06T04:11 | [#5739](https://github.com/openova-io/openova/pull/5739) | #5646 | fix(marketplace): test the redeem OUTCOME, not the gate deci |
-| 2026-08-06T04:18 | [#5738](https://github.com/openova-io/openova/pull/5738) | #5661 | test(wizard): guard the single-region topology WIRE contract |
 
 ---
 
