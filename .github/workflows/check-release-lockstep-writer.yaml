@@ -1,0 +1,75 @@
+name: check — release writer moves all five lockstep sites (#5583)
+
+# A chart bump is only complete when FIVE sites move together: Chart.yaml,
+# blueprint.yaml spec.version, the catalog-seed card spec.version AND delivery
+# source.version, the committed generated catalog (blueprints.json +
+# catalog.generated.ts), and the bootstrap-kit slot pin. The deploy-bot writes
+# site 1; `.github/workflows/blueprint-release.yaml` writes sites 2..5 after the
+# chart publishes.
+#
+# Before #5678 that writer covered only sites 2 and 5, so every deploy-bot bump
+# left seed + generated-catalog drift on main. That drift is not silent: it
+# reddens the `pull_request` legs of check-catalog-seed-lockstep,
+# check-catalog-generated-drift (#5520) and the bootstrap-kit Go guards on EVERY
+# open PR, through no fault of theirs (#5583). Two hand-fix commits in one hour
+# on 2026-08-02/03 (c6e79239f, 90c69ae46) were the treadmill this replaces.
+#
+# The gates that go red are all downstream of the writer, and none of them can
+# see the writer itself — they only see the state it left behind, after the fact,
+# on someone else's PR. This gate is the missing upstream one: it runs the
+# writer's own steps against a scratch clone with a local bare `origin` and
+# asserts on the commit that actually lands. It therefore fails for every way the
+# writer can regress — a deleted step, an `if:` that stops firing, a `git add`
+# that forgets a file, a retry path that drops a site — and not merely for a
+# deleted grep token.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/blueprint-release.yaml'
+      - '.github/workflows/check-release-lockstep-writer.yaml'
+      - 'scripts/check-release-lockstep-writer.py'
+      - 'scripts/sync-catalog-seed-pin.py'
+      - 'products/catalyst/bootstrap/ui/scripts/build-catalog.mjs'
+      - 'products/catalyst/chart/templates/catalog-seed/blueprints.yaml'
+      - 'clusters/_template/bootstrap-kit/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/blueprint-release.yaml'
+      - '.github/workflows/check-release-lockstep-writer.yaml'
+      - 'scripts/check-release-lockstep-writer.py'
+      - 'scripts/sync-catalog-seed-pin.py'
+      - 'products/catalyst/bootstrap/ui/scripts/build-catalog.mjs'
+  workflow_dispatch:
+
+jobs:
+  writer:
+    name: run the release writer and assert all five sites converge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # node 22 = the pin the #5520 drift gate uses; build-catalog.mjs has zero
+      # npm dependencies, so no `npm ci` is needed.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      # The harness runs the repo's own bootstrap-kit Go lockstep guards against
+      # the tree the writer pushed — they are the guards that actually redden, so
+      # asserting on them is the point. Without Go on PATH the harness FAILS
+      # rather than silently reporting on less than it claims.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: false
+
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet pyyaml
+
+      - name: Run the release lockstep writer guard
+        run: python3 scripts/check-release-lockstep-writer.py --scratch-dir "${RUNNER_TEMP}"
+
+      - name: Self-test the catalog-seed sync helper
+        run: python3 scripts/sync-catalog-seed-pin.py --self-test

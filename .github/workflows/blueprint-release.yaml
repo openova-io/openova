@@ -830,6 +830,16 @@ jobs:
       # on every deploy-bot bump (issue #5583) and cascades that red into every
       # open PR. Writing them here makes one bump = one atomically-green commit.
       #
+      # 🛑 THE FIVE SITES ARE GUARDED. `scripts/check-release-lockstep-writer.py`
+      # (workflow: check-release-lockstep-writer.yaml) EXECUTES the steps below —
+      # `chart`, `bump_pin`, `bump_blueprint`, `sync_seed` and the commit+push
+      # step — against a scratch clone with a local bare `origin`, then asserts on
+      # the commit that actually lands. Deleting a step, narrowing an `if:`,
+      # dropping a path from `git add`, or letting the push-retry re-apply only
+      # some sites all turn that gate RED. If you add a SIXTH site, add its step
+      # id to WRITER_STEP_IDS in that script — otherwise the new step is not run
+      # by the guard and the convergence assertions will fail closed.
+      #
       # Node is pinned to the same '22' the #5520 gate
       # (.github/workflows/check-catalog-generated-drift.yaml) uses;
       # build-catalog.mjs has ZERO npm dependencies (node builtins only), so no
