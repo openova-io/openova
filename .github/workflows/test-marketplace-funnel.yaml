@@ -60,3 +60,10 @@ jobs:
       # vitest gate pass for two months while four source defects sat behind it.
       - name: Run vitest
         run: npm test
+
+      # #5421 — build the site too. The redeem page imports the helpers these
+      # tests cover, and a type error there fails `astro build` while vitest
+      # stays green. Without this step the only thing that catches it is the
+      # image build in marketplace-build.yaml, which runs AFTER merge.
+      - name: astro build
+        run: npm run build
