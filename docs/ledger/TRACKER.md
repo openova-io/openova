@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T21:00:04Z` |
+| Last refreshed | `2026-08-06T21:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-06T21:05 | [#5783](https://github.com/openova-io/openova/pull/5783) | #5573 | feat(guard): assert the Flux GitOps loop is RUNNING, not mer |
 | 2026-08-06T20:37 | [#5782](https://github.com/openova-io/openova/pull/5782) | #5567 | feat(guard): detect admission webhooks whose target Service  |
 | 2026-08-06T20:09 | [#5781](https://github.com/openova-io/openova/pull/5781) | #5598 | test(guacamole): guard the SSO permission-enrollment path (# |
 | 2026-08-06T19:01 | [#5780](https://github.com/openova-io/openova/pull/5780) | #5601 | test(continuum): guard the FailedOver failback phase, which  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T06:55 | [#5749](https://github.com/openova-io/openova/pull/5749) | #3668 | docs(uat): screenshot evidence for console/catalog/jobs/clou |
 | 2026-08-06T06:33 | [#5748](https://github.com/openova-io/openova/pull/5748) | #960 | docs(uat): add live screenshot evidence for 19 funnel/orgs g |
 | 2026-08-06T06:36 | [#5747](https://github.com/openova-io/openova/pull/5747) | #2725 | docs(uat): screenshot SSO/meta/robustness evidence + re-walk |
-| 2026-08-06T06:27 | [#5746](https://github.com/openova-io/openova/pull/5746) | #960 | docs(uat): real screenshots for 30 hw292 topology/placement/ |
 
 ---
 
