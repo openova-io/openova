@@ -18,13 +18,25 @@ func TestValidateShape_PlacementNil_OK(t *testing.T) {
 	}
 }
 
+// #5616 — this used to assert that ALL FOUR tiers validate
+// unconditionally. That assertion was the defect written down as a test:
+// mgmt/dmz/rtz resolve to host namespaces no Sovereign creates, so
+// accepting them produced a 201 followed by a permanently Degraded
+// Application. The contract is now "vocabulary AND availability"; the
+// availability half is covered in placement_availability_5616_test.go.
 func TestValidateShape_PlacementValidTiers(t *testing.T) {
 	for _, tier := range []string{"", "host", "mgmt", "dmz", "rtz"} {
-		r := validReq()
-		r.Placement = &InstancePlacementRequest{VCluster: tier}
-		if err := r.ValidateShape(); err != nil {
-			t.Errorf("vcluster %q must validate, got %v", tier, err)
-		}
+		t.Run(tier, func(t *testing.T) {
+			// Every tier in the VOCABULARY is well-formed; the only way
+			// one may be refused is the availability gate.
+			SetAvailableVClusterTiers("mgmt,dmz,rtz")
+			t.Cleanup(func() { SetAvailableVClusterTiers("") })
+			r := validReq()
+			r.Placement = &InstancePlacementRequest{VCluster: tier}
+			if err := r.ValidateShape(); err != nil {
+				t.Errorf("vcluster %q must validate when the tier is installed, got %v", tier, err)
+			}
+		})
 	}
 }
 
@@ -38,8 +50,11 @@ func TestValidateShape_PlacementUnknownTierRejected(t *testing.T) {
 }
 
 func TestValidateShape_PlacementEmptyClusterEntryRejected(t *testing.T) {
+	// #5616 — pin the tier to one that is always available so this test
+	// keeps exercising the CLUSTERS check rather than tripping the new
+	// availability gate first.
 	r := validReq()
-	r.Placement = &InstancePlacementRequest{VCluster: "rtz", Clusters: []string{"mgmt-A", " "}}
+	r.Placement = &InstancePlacementRequest{VCluster: "host", Clusters: []string{"mgmt-A", " "}}
 	err := r.ValidateShape()
 	if err == nil || err.Code != "placement-clusters-invalid" {
 		t.Fatalf("want placement-clusters-invalid, got %v", err)
@@ -47,6 +62,11 @@ func TestValidateShape_PlacementEmptyClusterEntryRejected(t *testing.T) {
 }
 
 func TestBuild_PlacementPassesThroughToSeed(t *testing.T) {
+	// #5616 — an INSTALLED rtz tier must still pass straight through to
+	// the seed. This is the vacuity check on the availability gate: it
+	// refuses tiers the Sovereign lacks, never tiers it has.
+	SetAvailableVClusterTiers("rtz")
+	t.Cleanup(func() { SetAvailableVClusterTiers("") })
 	r := validReq()
 	r.Placement = &InstancePlacementRequest{
 		VCluster: "rtz",

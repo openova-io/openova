@@ -26,6 +26,7 @@ import (
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/giteapr"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/instances"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/precheck"
 )
 
@@ -635,6 +636,13 @@ func TestCreateInstance_HappyPath(t *testing.T) {
 // post-create Topology tab reflects it. Asserts the OBJECT form of
 // spec.placement + spec.regions land verbatim.
 func TestCreateInstance_PlacementStampedOnCR(t *testing.T) {
+	// #5616 — the subject here is "the chosen placement is stamped
+	// verbatim", not tier availability. `rtz` is only choosable on a
+	// Sovereign that installs the rtz vCluster, so declare it installed;
+	// the availability gate itself is pinned in
+	// internal/instances/placement_availability_5616_test.go.
+	instances.SetAvailableVClusterTiers("rtz")
+	t.Cleanup(func() { instances.SetAvailableVClusterTiers("") })
 	h, _, dyn := newTestHandlerWithEndpoint(t)
 	h.SetCatalogClient(fakeBlueprintInCatalog("wordpress",
 		[]map[string]interface{}{}, true, []string{"singleton", "active-hot-standby"}))

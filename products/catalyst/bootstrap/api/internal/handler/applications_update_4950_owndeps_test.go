@@ -27,6 +27,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/instances"
 )
 
 // realConsolePlacementPUT is the EXACT body shape the Sovereign console
@@ -35,6 +37,14 @@ import (
 // the LOCKED capitalised vocabulary ("Primary"/"Standby"), matching
 // core/controllers/pkg/apis/blueprint/v1alpha1/placement_target.go and the FE
 // placement.ts DataRole type.
+//
+// #5616 — this body was RECORDED from the console before the placement
+// editor stopped defaulting fresh targets to the `mgmt` tier. It is kept
+// verbatim because it is the wire-compat fixture for #4950 (targets[] +
+// ownedDependencies must decode), but `vcluster: "mgmt"` is only a legal
+// placement on a Sovereign that actually installs the mgmt vCluster — so
+// the tests below declare it installed rather than quietly weakening the
+// availability gate.
 const realConsolePlacementPUT = `{"placement":{` +
 	`"targets":[` +
 	`{"region":"me-east-215-a","cluster":"mgmt-A","vcluster":"mgmt","role":"Primary"},` +
@@ -49,6 +59,10 @@ const realConsolePlacementPUT = `{"placement":{` +
 // NOT dropped-to-empty-mode which 400'd. This guards BOTH fix arms (the struct
 // field so Path-A succeeds, and the fallback carrying targets).
 func TestDecodeApplicationUpdateBody_4950_OwnedDependenciesKeepsTargets(t *testing.T) {
+	// #5616 — the recorded body places on `mgmt`; validate it as a
+	// Sovereign that installs that tier would.
+	instances.SetAvailableVClusterTiers("mgmt")
+	t.Cleanup(func() { instances.SetAvailableVClusterTiers("") })
 	body, err := decodeApplicationUpdateBody([]byte(realConsolePlacementPUT))
 	if err != nil {
 		t.Fatalf("decode failed: %v", err)
@@ -81,6 +95,9 @@ func TestDecodeApplicationUpdateBody_4950_OwnedDependenciesKeepsTargets(t *testi
 // active-hot-standby pattern across both regions — the operator-visible
 // Edit-placement→Apply outcome from the hw235 walk (app `shared-pg`).
 func TestHandleApplicationUpdate_4950_ConsolePlacementApply_Returns200(t *testing.T) {
+	// #5616 — see the fixture note: the recorded body places on `mgmt`.
+	instances.SetAvailableVClusterTiers("mgmt")
+	t.Cleanup(func() { instances.SetAvailableVClusterTiers("") })
 	// Seed the app as a singleton in region-a so the Apply is a non-destructive
 	// scale-up (singleton → active-hot-standby, +1 region) that needs no ?force.
 	cr := makeAppCR("acme", "shared-pg", "1.2.3", "singleton", []string{"me-east-215-a"})
