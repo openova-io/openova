@@ -1,0 +1,55 @@
+name: Test — Provisioning Service (Go)
+
+# Runs the Go tests for core/services/provisioning — the per-Org GitOps tree
+# generator.
+#
+# WHY THIS FILE EXISTS (#5439). Before it, `core/services/**` had NO Go test
+# gate at all: services-build.yaml matches `core/services/**` but only builds
+# and pushes images, on push-to-main, with no `go test` step and no
+# pull_request trigger. Every unit test under core/services/provisioning/
+# — including the #5527 cutover-aware catalog-base tests and the #5439
+# cutover-aware image-registry tests — could go red on main indefinitely
+# without a single check turning red. That is the fail-open-gate class: a
+# guard that cannot fail is not a guard.
+#
+# Scoped to the provisioning module because it is its own Go module
+# (core/services/provisioning/go.mod); sibling services under core/services/
+# still need their own gates and are deliberately NOT claimed here.
+
+on:
+  push:
+    paths:
+      - 'core/services/provisioning/**'
+      - '.github/workflows/test-provisioning-service.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'core/services/provisioning/**'
+      - '.github/workflows/test-provisioning-service.yaml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core/services/provisioning
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: core/services/provisioning/go.sum
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Vet
+        run: go vet ./...
+
+      # No `|| true`, no `|| echo WARN` — a red test must fail the job.
+      - name: Run unit tests
+        run: go test -race -count=1 ./...

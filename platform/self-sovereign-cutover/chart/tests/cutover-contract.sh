@@ -4442,4 +4442,97 @@ fi
 grep -q 'env settled WITH 2 named operator override' "$TMP/c77/out.txt" || { echo "FAIL: cascade pass does not announce both overrides (#5391)" >&2; exit 1; }
 echo "  PASS (#5391: gate executed in 7 directions — stuck+no-override blocks with TERMINAL diagnosis and remedy, valid named override passes AND records <ns>/<name>=<reason> durably, empty-reason/healthy/mid-roll overrides all fail-closed, unrecordable override refused, clean pass clears the record, hw290 DependencyNotReady cascade overridable; extracted gate ${c77_lines} lines)"
 
+# ── Case 78 (#5439): step-07 Phase 3e — the per-Org IMAGE registry host ──────
+# LIVE hw292 2026-08-06 (dep 1c56518035a83e03, cutoverComplete=true since
+# 2026-08-03T08:12:04Z):
+#   kubectl -n uatco get helmrelease vcluster -o json | jq -r '.spec.values'
+#     "coredns":{"deployment":{"image":"harbor.openova.io/proxy-dockerhub/coredns/coredns:1.11.3"}}
+#     "image":{"registry":"harbor.openova.io"
+#     "statefulSet":{"image":{"registry":"harbor.openova.io"
+#   kubectl -n catalyst-system get deploy catalyst-organization-controller -o jsonpath=...
+#     CATALYST_VCLUSTER_IMAGE_REGISTRY=harbor.openova.io
+# #5527/Phase 3d pivoted the CHART base the per-Org generators emit; the IMAGE
+# registry host is a SECOND field and no step pivoted it, so every Organization
+# reconcile wrote the MOTHERSHIP Harbor back into the Flux-owned per-Org tree
+# after the cutover had reported success. Phase 3e stamps the local host on all
+# three generator Deployments.
+echo "[cutover-contract] Case 78: step-07 Phase 3e stamps CATALYST_LOCAL_IMAGE_REGISTRY_HOST on all three per-Org generators (#5439)"
+awk '/name: cutover-step-07-catalyst-api-env-patch/{c=1} /name: cutover-step-08-egress-block-test/{c=0} c' "$TMP/render.yaml" > "$TMP/s07e.yaml"
+if [ ! -s "$TMP/s07e.yaml" ]; then
+  echo "FAIL: cannot extract the step-07 ConfigMap from the render (#5439 vacuity check)" >&2
+  exit 1
+fi
+# (a) the org-controller target is values-driven and present. This is THE writer
+#     that was missing: it renders vcluster/vcluster.yaml on every Organization
+#     reconcile and no cutover step had ever named it.
+if ! grep -qF 'ORG_CONTROLLER_DEPLOYMENT' "$TMP/s07e.yaml" \
+   || ! grep -qF 'value: "catalyst-organization-controller"' "$TMP/s07e.yaml" \
+   || ! grep -qF 'value: "catalyst-system"' "$TMP/s07e.yaml"; then
+  echo "FAIL: step-07 lacks the ORG_CONTROLLER_DEPLOYMENT/NAMESPACE inputs — Phase 3e cannot reach the generator that wrote harbor.openova.io into HelmRelease uatco/vcluster on hw292 (#5439)" >&2
+  exit 1
+fi
+# (b) all THREE generator Deployments must be in the stamp loop. Naming only the
+#     provisioning one (the #5527 target) leaves the live re-tether writer out.
+for _t in '${ORG_CONTROLLER_DEPLOYMENT}:${ORG_CONTROLLER_NAMESPACE}' \
+          '${ORG_PROVISIONING_DEPLOYMENT}:${ORG_PROVISIONING_NAMESPACE}' \
+          '${DEPLOYMENT_NAME}:${DEPLOYMENT_NAMESPACE}'; do
+  if ! grep -qF "$_t" "$TMP/s07e.yaml"; then
+    echo "FAIL: step-07 Phase 3e does not stamp ${_t} — that generator keeps emitting the mothership Harbor into the Flux source after cutover (#5439)" >&2
+    exit 1
+  fi
+done
+# (c) the stamp itself + the read-back FATAL + the Deployment-absent SKIP.
+if ! grep -qF '"CATALYST_LOCAL_IMAGE_REGISTRY_HOST=${LOCAL_IMAGE_HOST}"' "$TMP/s07e.yaml"; then
+  echo "FAIL: step-07 never stamps CATALYST_LOCAL_IMAGE_REGISTRY_HOST — the generators have no readable pivot fact for the image host (#5439)" >&2
+  exit 1
+fi
+if ! grep -qF 'would write the mothership Harbor back into the per-Org Flux source' "$TMP/s07e.yaml"; then
+  echo "FAIL: step-07 Phase 3e has no read-back FATAL — a failed stamp on an existing Deployment fails open into the exact #5439 defect" >&2
+  exit 1
+fi
+if ! grep -qF 'Phase 3e SKIP' "$TMP/s07e.yaml"; then
+  echo "FAIL: step-07 Phase 3e has no explicit Deployment-absent SKIP (#5439)" >&2
+  exit 1
+fi
+# (d) the unconfigured-overlay guard: sovereign.fqdn left at the chart default
+#     must FATAL rather than stamp `harbor.example.local`.
+if ! grep -qF 'sovereign.fqdn not overlaid' "$TMP/s07e.yaml"; then
+  echo "FAIL: step-07 Phase 3e has no example-default guard — an unconfigured overlay would stamp harbor.example.local (#5439)" >&2
+  exit 1
+fi
+# (e) EXECUTE the rendered derivation, and pin it to step-10's. The two must
+#     agree exactly: step-10 pivots the LIVE platform-vCluster objects while
+#     Phase 3e pivots the GENERATED per-Org source. If they disagree, Flux
+#     drift-corrects one against the other forever. Extract BOTH from their own
+#     rendered templates rather than restating either here.
+d78=$(grep -F 'LOCAL_IMAGE_HOST="harbor.${SOVEREIGN_FQDN}"' "$TMP/s07e.yaml" | head -1 | sed 's/^ *//')
+if [ -z "$d78" ]; then
+  echo "FAIL: cannot extract the LOCAL_IMAGE_HOST derivation from the step-07 render (#5439 vacuity check)" >&2
+  exit 1
+fi
+awk '/name: cutover-step-10-vcluster-registry-pivot/{c=1} /name: cutover-step-11-crossplane-provider-pivot/{c=0} c' "$TMP/render.yaml" > "$TMP/s10e.yaml"
+d78b=$(grep -F 'target_host="harbor.${SOVEREIGN_FQDN}"' "$TMP/s10e.yaml" | head -1 | sed 's/^ *//')
+if [ -z "$d78b" ]; then
+  echo "FAIL: cannot extract step-10's target_host derivation — the cross-step consistency check would pass vacuously (#5439)" >&2
+  exit 1
+fi
+got78=$(SOVEREIGN_FQDN="t90.omani.works" sh -c "$d78; printf '%s' \"\$LOCAL_IMAGE_HOST\"")
+got78b=$(SOVEREIGN_FQDN="t90.omani.works" sh -c "$d78b; printf '%s' \"\$target_host\"")
+if [ "$got78" != "harbor.t90.omani.works" ]; then
+  echo "FAIL: Phase 3e derivation maps t90.omani.works -> '$got78', want harbor.t90.omani.works (#5439)" >&2
+  exit 1
+fi
+if [ "$got78" != "$got78b" ]; then
+  echo "FAIL: Phase 3e stamps '$got78' but step-10 pivots the live vCluster objects to '$got78b' — the generated source and the pivoted objects disagree and Flux drift-corrects forever (#5439)" >&2
+  exit 1
+fi
+# (f) CONTROL — green on the pre-fix tree too: Phase 3d's chart-base stamp must
+#     still be intact. #5439 is additive; if this fix removed or renamed the
+#     #5527 seam it would trade one re-tether for another.
+if ! grep -qF '"CATALYST_LOCAL_REGISTRY_URL=${LOCAL_OCI_BASE}"' "$TMP/s07e.yaml"; then
+  echo "FAIL: the #5527 Phase 3d chart-base stamp was lost while adding Phase 3e (#5439 control)" >&2
+  exit 1
+fi
+echo "  PASS (#5439: Phase 3e present with a values-driven org-controller target, stamps all three generator Deployments, executed derivation equals step-10's target_host exactly, read-back FATAL + absent-Deployment SKIP + unconfigured-overlay guard, #5527 Phase 3d intact)"
+
 echo "[cutover-contract] All gates green."
