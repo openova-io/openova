@@ -150,6 +150,11 @@ export const KIND_TO_REGISTRY: Partial<Record<CloudListKind, string>> = {
   namespaces: 'namespace',
   nodes: 'node',
   persistentvolumes: 'persistentvolume',
+  // #5611 — storage.k8s.io/StorageClass. Adding the mapping here is what
+  // auto-subscribes the CloudPage SSE (CLOUD_PAGE_K8S_KINDS is derived
+  // from this map) AND makes the chip count tally live objects instead
+  // of the not-collected "—".
+  'storage-classes': 'storageclass',
   endpointslices: 'endpointslice',
   // Wave-2 Family-E (#1583, C11-005/C11-006): Kyverno PolicyReport CRDs.
   policyreports: 'policyreport',
@@ -359,7 +364,10 @@ export const KINDS: readonly CloudKindEntry[] = [
   { id: 'secrets', label: 'Secrets', tagline: 'Sensitive bundles (values redacted)', hasData: true, Component: SecretsListPage, icon: ICON_SECRET, category: 'config', primary: false },
   { id: 'volumes', label: 'Volumes', tagline: 'Cloud block volumes', hasData: true, Component: VolumesPage, icon: ICON_VOLUME, category: 'storage', primary: false },
   { id: 'persistentvolumes', label: 'PersistentVolumes', tagline: 'Cluster-scoped backing volumes', hasData: true, Component: PersistentVolumesListPage, icon: ICON_PV, category: 'storage', primary: false },
-  { id: 'storage-classes', label: 'Storage Classes', tagline: 'Provisioner + reclaim policy presets', hasData: false, Component: StorageClassesListPage, icon: ICON_STORAGE_CLASS, category: 'storage', primary: false },
+  // #5611 — hasData flipped false→true: the `storageclass` GVR is now in
+  // the catalyst-api k8scache registry, so the chip shows the real count
+  // instead of the not-collected marker "—".
+  { id: 'storage-classes', label: 'Storage Classes', tagline: 'Provisioner + reclaim policy presets', hasData: true, Component: StorageClassesListPage, icon: ICON_STORAGE_CLASS, category: 'storage', primary: false },
 
   // Wave-2 Family-E (C11-005/C11-006): Kyverno PolicyReport surfaces.
   // Both render in the `+ More` popover (the Compliance dashboard is the

@@ -1077,48 +1077,142 @@ func loadPeerings(ctx context.Context, in LoaderInput, rs provisioner.RegionSpec
 // on every Sovereign, not just the hcloud mothership. Buckets stay []
 // until an object-storage source is wired (honest empty, not a false
 // count — the Buckets page renders the "not collected" empty-state).
+//
+// #5611 second defect (region fold): both collectors read ONLY
+// in.DynamicClient — the PRIMARY region's cluster — while buildTopology
+// beside them already fans out per region. On the 2-region hw292 that
+// makes the Volumes chip report region-a's 57 PVs while the
+// PersistentVolumes chip (k8scache SSE, which fans out across every
+// registered cluster) reports the true union of 105. Same object kind,
+// two different numbers on the same chip row. storageSources resolves
+// EVERY live cluster of this Sovereign so the storage counts carry the
+// same union semantics the PV chip already has.
 func buildStorage(ctx context.Context, in LoaderInput) StorageData {
+	srcs := storageSources(in)
 	return StorageData{
-		PVCs:    loadPVCs(ctx, in),
+		PVCs:    loadPVCs(ctx, srcs),
 		Buckets: []Bucket{},
-		Volumes: loadVolumes(ctx, in),
+		Volumes: loadVolumes(ctx, srcs),
 	}
 }
 
-func loadPVCs(ctx context.Context, in LoaderInput) (out []PVC) {
+// storageSource — one live cluster the storage collectors read from,
+// plus the region key that cluster belongs to. The region key is the
+// AUTHORITATIVE region attribution for every object read through it:
+// on hw292 both regions' EVS PVs carry the SAME CSI topology zone
+// (`topology.evs.csi.huaweicloud.com/zone = me-east-215a`, verified
+// live 2026-08-06 on both kubeconfigs), so the in-object topology term
+// cannot separate the regions and only the source cluster can.
+type storageSource struct {
+	// clusterID — dedupe key so a cluster resolved twice (e.g. two
+	// declared regions collapsing onto one client via the #5274
+	// token-overlap fallback) is read once.
+	clusterID string
+	// region — declared CloudRegion this client serves. Empty on the
+	// legacy single-client path, where callers fall back to the
+	// object's own topology term.
+	region string
+	dc     dynamic.Interface
+}
+
+// storageSources enumerates every live cluster whose storage belongs to
+// THIS Sovereign. The branch structure deliberately mirrors
+// buildTopology's: the chroot "every registered cluster" fan-out fires
+// only when no regions are declared, because on the mothership the
+// k8sCache holds clusters for EVERY deployment — iterating it there
+// would union other Sovereigns' volumes into this one's Cloud page (a
+// far worse number than the region-a-only undercount it replaces).
+func storageSources(in LoaderInput) []storageSource {
+	seen := map[string]bool{}
+	out := []storageSource{}
+	add := func(id, region string, dc dynamic.Interface) {
+		if dc == nil || seen[id] {
+			return
+		}
+		seen[id] = true
+		out = append(out, storageSource{clusterID: id, region: region, dc: dc})
+	}
+
+	switch {
+	case len(in.Regions) > 0:
+		// Declared-regions path (mothership). Regions[0] is the primary
+		// and IS in.DynamicClient — perRegionDynamicClient returns nil
+		// for it by contract, so it is added once, here.
+		primaryRegion := strings.TrimSpace(in.Region)
+		if primaryRegion == "" {
+			primaryRegion = strings.TrimSpace(in.Regions[0].CloudRegion)
+		}
+		add(in.DeploymentID, primaryRegion, in.DynamicClient)
+		for _, rs := range in.Regions {
+			if dc := perRegionDynamicClient(in, rs); dc != nil {
+				add("region:"+rs.CloudRegion, strings.TrimSpace(rs.CloudRegion), dc)
+			}
+		}
+	case in.K8sCache != nil && len(in.K8sCache.Clusters()) > 0:
+		// Chroot post-cutover path (G14): the on-Sovereign k8sCache
+		// holds only this Sovereign's own clusters.
+		for _, cid := range in.K8sCache.Clusters() {
+			region := ""
+			if strings.HasPrefix(cid, in.DeploymentID+"-") {
+				region = trimMaterialisationIndex(strings.TrimPrefix(cid, in.DeploymentID+"-"))
+			} else if cid == in.DeploymentID {
+				region = strings.TrimSpace(in.Region)
+			}
+			add(cid, region, clientForCluster(in, cid))
+		}
+	default:
+		// Legacy single-client path (tests, pre-multi-region payloads).
+		add(in.DeploymentID, strings.TrimSpace(in.Region), in.DynamicClient)
+	}
+	return out
+}
+
+func loadPVCs(ctx context.Context, srcs []storageSource) (out []PVC) {
 	out = []PVC{}
 	defer func() {
 		if r := recover(); r != nil {
 			out = []PVC{}
 		}
 	}()
-	if in.DynamicClient == nil {
-		return out
-	}
 	gvr := schema.GroupVersionResource{
 		Group:    "",
 		Version:  "v1",
 		Resource: "persistentvolumeclaims",
 	}
-	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	list, err := in.DynamicClient.Resource(gvr).Namespace("").List(cctx, metav1.ListOptions{})
-	if err != nil || list == nil {
-		return out
-	}
-	for _, item := range list.Items {
-		spec, _, _ := nestedMap(item.Object, "spec")
-		status, _, _ := nestedMap(item.Object, "status")
-		capacity := stringField(stringMapField(status, "capacity"), "storage")
-		out = append(out, PVC{
-			ID:           string(item.GetUID()),
-			Name:         item.GetName(),
-			Namespace:    item.GetNamespace(),
-			Capacity:     capacity,
-			Used:         "",
-			StorageClass: stringField(spec, "storageClassName"),
-			Status:       stringField(status, "phase"),
-		})
+	seen := map[string]bool{}
+	for _, src := range srcs {
+		if src.dc == nil {
+			continue
+		}
+		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		list, err := src.dc.Resource(gvr).Namespace("").List(cctx, metav1.ListOptions{})
+		cancel()
+		if err != nil || list == nil {
+			continue
+		}
+		for _, item := range list.Items {
+			// UID dedupe: belt-and-braces against a cluster reachable
+			// through two source keys. Objects without a UID (fake
+			// clients in unit tests) are never deduped away.
+			if uid := string(item.GetUID()); uid != "" {
+				if seen[uid] {
+					continue
+				}
+				seen[uid] = true
+			}
+			spec, _, _ := nestedMap(item.Object, "spec")
+			status, _, _ := nestedMap(item.Object, "status")
+			capacity := stringField(stringMapField(status, "capacity"), "storage")
+			out = append(out, PVC{
+				ID:           string(item.GetUID()),
+				Name:         item.GetName(),
+				Namespace:    item.GetNamespace(),
+				Capacity:     capacity,
+				Used:         "",
+				StorageClass: stringField(spec, "storageClassName"),
+				Status:       stringField(status, "phase"),
+			})
+		}
 	}
 	return out
 }
@@ -1129,38 +1223,60 @@ func loadPVCs(ctx context.Context, in LoaderInput) (out []PVC) {
 // Huawei via evs.csi.huaweicloud.com), so PVs are the provider-agnostic
 // source that is populated on every Sovereign — unlike the hcloud-only
 // Crossplane `volume.hcloud` XRC, which returns nothing on a Huawei
-// Sovereign and produced the false "Volumes 0". Mirrors loadPVCs: reads
-// the same in.DynamicClient (the region this loader is scoped to), so
-// the count matches that region's live PVs and never fabricates a row.
-func loadVolumes(ctx context.Context, in LoaderInput) (out []Volume) {
+// Sovereign and produced the false "Volumes 0". Mirrors loadPVCs.
+//
+// Reads EVERY source in srcs (one per live region — see storageSources)
+// so the count is the union across regions, matching the semantics the
+// PersistentVolumes chip already has via the k8scache SSE fan-out. A
+// single-source srcs is exactly the previous single-region behaviour.
+func loadVolumes(ctx context.Context, srcs []storageSource) (out []Volume) {
 	out = []Volume{}
 	defer func() {
 		if r := recover(); r != nil {
 			out = []Volume{}
 		}
 	}()
-	if in.DynamicClient == nil {
-		return out
-	}
 	// PVs are cluster-scoped — list without a namespace.
 	gvr := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumes"}
-	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	list, err := in.DynamicClient.Resource(gvr).List(cctx, metav1.ListOptions{})
-	if err != nil || list == nil {
-		return out
-	}
-	for _, item := range list.Items {
-		spec, _, _ := nestedMap(item.Object, "spec")
-		status, _, _ := nestedMap(item.Object, "status")
-		out = append(out, Volume{
-			ID:         item.GetName(),
-			Name:       item.GetName(),
-			Capacity:   stringField(stringMapField(spec, "capacity"), "storage"),
-			Region:     pvRegion(spec),
-			AttachedTo: pvClaimRef(spec),
-			Status:     pvPhaseToTopologyStatus(stringField(status, "phase")),
-		})
+	seen := map[string]bool{}
+	for _, src := range srcs {
+		if src.dc == nil {
+			continue
+		}
+		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		list, err := src.dc.Resource(gvr).List(cctx, metav1.ListOptions{})
+		cancel()
+		if err != nil || list == nil {
+			continue
+		}
+		for _, item := range list.Items {
+			if uid := string(item.GetUID()); uid != "" {
+				if seen[uid] {
+					continue
+				}
+				seen[uid] = true
+			}
+			spec, _, _ := nestedMap(item.Object, "spec")
+			status, _, _ := nestedMap(item.Object, "status")
+			// Region attribution: the SOURCE cluster wins over the PV's
+			// own CSI topology term. On hw292 every PV in BOTH regions
+			// reports zone "me-east-215a", so the in-object term folds
+			// the two regions into one filter value; the cluster the PV
+			// was read from is the honest answer. Fall back to the
+			// topology term only when the source carries no region key.
+			region := src.region
+			if region == "" {
+				region = pvRegion(spec)
+			}
+			out = append(out, Volume{
+				ID:         item.GetName(),
+				Name:       item.GetName(),
+				Capacity:   stringField(stringMapField(spec, "capacity"), "storage"),
+				Region:     region,
+				AttachedTo: pvClaimRef(spec),
+				Status:     pvPhaseToTopologyStatus(stringField(status, "phase")),
+			})
+		}
 	}
 	return out
 }

@@ -1,19 +1,13 @@
 /**
- * StorageClassesPage — placeholder list page for
- * /cloud/storage/storage-classes (P3 of #309). Pending the
- * storage-class informer (#321).
+ * StorageClassesPage — /cloud/storage/storage-classes.
+ *
+ * #5611: was a CloudListPlaceholder ("Storage class data is not in the
+ * current informer set. The storage-class informer rollout is tracked
+ * separately."). The `storageclass` GVR is now registered in the
+ * catalyst-api k8scache (api/internal/k8scache/kinds.go), so this route
+ * renders the SAME live list the /cloud?view=list&kind=storage-classes
+ * chip navigates to — one component, one source, so the two routes can
+ * never disagree about how many storage classes exist.
  */
 
-import { CloudListPlaceholder } from '../cloud-list/CloudListPlaceholder'
-
-export function StorageClassesPage() {
-  return (
-    <CloudListPlaceholder
-      testId="cloud-storage-classes"
-      title="Storage Classes"
-      tagline="Cluster-wide storage classes (local-path, longhorn, csi-cinder, etc.)."
-      bodyText="Storage class data is not in the current informer set. The storage-class informer rollout is tracked separately."
-      docsHref="https://github.com/openova-io/openova/issues/321"
-    />
-  )
-}
+export { StorageClassesListPage as StorageClassesPage } from '../cloud-list/kindsPages'

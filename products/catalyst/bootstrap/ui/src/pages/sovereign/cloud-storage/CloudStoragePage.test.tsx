@@ -78,7 +78,13 @@ describe('CloudStoragePage', () => {
     expect(screen.getByTestId('cloud-storage-page-tile-volumes-count').textContent).toBe('1')
   })
 
-  it('Storage Classes shows — placeholder count', async () => {
+  // #5611: "—" here no longer means "storage classes are not collected"
+  // (they are — k8scache registry kind `storageclass`). It now means
+  // "the SSE stream has not delivered initialState yet", which is
+  // exactly this harness (`disableStream`). Rendering 0 before the
+  // stream connects would be a false zero, which is the whole bug class
+  // #5611 is about, so the marker is the correct output here.
+  it('Storage Classes shows — while the k8s stream is not connected', async () => {
     renderLanding(infrastructureTopologyFixture)
     expect((await screen.findByTestId('cloud-storage-page-tile-storage-classes-count')).textContent).toBe('—')
   })

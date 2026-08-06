@@ -60,12 +60,11 @@ import { CloudKindChips } from './cloud-list/CloudKindChips'
 import {
   CLOUD_PAGE_K8S_KINDS,
   DEFAULT_KIND,
-  KIND_IDS,
-  KIND_TO_REGISTRY,
   isValidKind,
   readPersistedKind,
   type CloudListKind,
 } from './cloud-list/kinds'
+import { deriveKindCounts } from './cloud-list/kindCounts'
 import { useK8sCacheStream } from '@/widgets/architecture-graph/useK8sCacheStream'
 import { CloudLensProvider } from '@/widgets/architecture-graph/useCloudLens'
 import type { LensId } from '@/widgets/architecture-graph/presets'
@@ -424,59 +423,13 @@ export function CloudPage({
   // K8s-backed kind (incl. the reconcilers) is overridden from the live
   // SSE snapshot once initialState arrives. `null` = data unavailable
   // (renders "—"); 0 = genuinely empty.
-  const kindCounts = useMemo<Record<CloudListKind, number | null>>(() => {
-    const c = {} as Record<CloudListKind, number | null>
-    for (const id of KIND_IDS) {
-      // K8s-backed kinds start at null (until the stream connects);
-      // topology-projected kinds start at 0 (the snapshot is sync).
-      c[id] = id in KIND_TO_REGISTRY ? null : 0
-    }
-    if (data) {
-      let clusters = 0
-      let vclusters = 0
-      let nodePools = 0
-      let workerNodes = 0
-      let lb = 0
-      for (const region of data.topology.regions ?? []) {
-        for (const cluster of region.clusters ?? []) {
-          clusters += 1
-          vclusters += cluster.vclusters?.length ?? 0
-          nodePools += cluster.nodePools?.length ?? 0
-          workerNodes += cluster.nodes?.length ?? 0
-          lb += cluster.loadBalancers?.length ?? 0
-        }
-      }
-      c['clusters'] = clusters
-      c['vclusters'] = vclusters
-      c['node-pools'] = nodePools
-      c['worker-nodes'] = workerNodes
-      c['load-balancers'] = lb
-      c['pvcs'] = data.storage?.pvcs?.length ?? 0
-      c['buckets'] = data.storage?.buckets?.length ?? 0
-      c['volumes'] = data.storage?.volumes?.length ?? 0
-    }
-    // Override every K8s-backed count from the live snapshot. Counts
-    // stay null until the SSE connection delivers initialState=1.
-    if (k8sStream.snapshot.size > 0) {
-      const liveCounts: Partial<Record<CloudListKind, number>> = {}
-      for (const key of k8sStream.snapshot.keys()) {
-        const kind = key.split(':', 1)[0]
-        for (const [chipId, registryKind] of Object.entries(KIND_TO_REGISTRY)) {
-          if (registryKind === kind) {
-            const id = chipId as CloudListKind
-            liveCounts[id] = (liveCounts[id] ?? 0) + 1
-          }
-        }
-      }
-      // Always set to 0 (not null) for K8s-backed kinds once the stream
-      // has any data — initialState=1 has arrived, so a 0-count kind is
-      // genuinely empty, not unconnected.
-      for (const chipId of Object.keys(KIND_TO_REGISTRY) as CloudListKind[]) {
-        c[chipId] = liveCounts[chipId] ?? 0
-      }
-    }
-    return c
-  }, [data, k8sStream.snapshot, k8sStream.revision])
+  // Body extracted to cloud-list/kindCounts.ts (#5611) so the guard can
+  // assert on the VALUE this produces without hand-feeding the chips a
+  // `counts` prop production never generates.
+  const kindCounts = useMemo<Record<CloudListKind, number | null>>(
+    () => deriveKindCounts(data, k8sStream.snapshot),
+    [data, k8sStream.snapshot, k8sStream.revision],
+  )
 
   const setKind = useCallback(
     (next: CloudListKind) => {
