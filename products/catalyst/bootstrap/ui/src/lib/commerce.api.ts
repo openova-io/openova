@@ -214,6 +214,86 @@ function toStoreColumns(patch: CatalogEntryPatch): Partial<CommerceApp> {
   return columns
 }
 
+/* ── #5610 — the blank-write seatbelt ──────────────────────────────────
+ *
+ * A per-field save that carries `""` for a column the store currently holds
+ * NON-EMPTY is a data-destroying write. `Store.UpdateApp` `$set`s every
+ * column unconditionally (core/services/catalog/store/store.go:301
+ * `{Key: "tagline", Value: app.Tagline}`), so an empty tagline zeroes the
+ * stored one. The catalyst-api read path masks that on the sovereign-admin
+ * catalog page — `overlayCatalogEdits` only overlays a NON-empty tagline
+ * (catalog_overlay.go:112) and the git leg uses `setIfNonEmpty`
+ * (catalog_edit_blueprint_yaml.go:75) — but the raw store column is what the
+ * Organization console and the customer storefront render
+ * (core/console/src/lib/api.ts:239, core/marketplace/src/lib/api.ts:164),
+ * so the loss is real and user-visible; it is simply invisible from the page
+ * the operator wiped it on.
+ *
+ * This guard is deliberately placed HERE and not only in the editor. The
+ * editor's own notion of "the current value" is the very prop that #5610
+ * facet A got wrong — a guard built on it would be blind in exactly the case
+ * it exists for. The authoritative stored row is fetched on the save path
+ * anyway (`listApps()` for the merge base), so comparing against it costs
+ * nothing and holds even if the editor's pre-fill regresses again.
+ *
+ * It is a CONFIRMATION gate, not a ban: clearing a field is legitimate (the
+ * store comments at store.go:307 call out clearing a theme-icon override
+ * explicitly). The caller re-issues the save with the field named in
+ * `allowBlank` once a human has confirmed.
+ *
+ * The refusal is reported on the RETURN verdict (`blanked`) rather than
+ * thrown: the editor reads it across a module boundary that component tests
+ * replace with `vi.mock`, where a thrown class identity would not survive.
+ * Ignoring it fails CLOSED — `stored:false` and nothing reached the wire.
+ */
+
+/** Why a `blanked` verdict carries `stored:false` — shown if a caller
+ *  surfaces `reason` without handling `blanked` explicitly. */
+export const BLANKED_REASON = 'clearing a non-empty stored value needs confirmation'
+
+/** One column an edit would clear, with the value that would be lost. */
+export interface BlankedField {
+  key: keyof CatalogEntryEdit
+  /** The value currently stored — so the UI can name what is at stake. */
+  current: string
+}
+
+/** The columns `patch` would clear on `stored`. Empty when the patch clears
+ *  nothing, clears something already empty, or touches no clearable key. */
+function blankedFields(patch: CatalogEntryPatch, stored: CommerceApp): BlankedField[] {
+  const out: BlankedField[] = []
+  const trimmed = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+  const check = (key: keyof CatalogEntryEdit, next: string | undefined, cur: unknown) => {
+    if (next === undefined) return // untouched key — nothing to lose
+    if (trimmed(next) !== '') return // still carries a value
+    const before = trimmed(cur)
+    if (before === '') return // already empty — clearing loses nothing
+    out.push({ key, current: before })
+  }
+  check('name', patch.name, stored.name)
+  check('tagline', patch.tagline, stored.tagline)
+  check('icon_light', patch.icon_light, stored.icon_light)
+  check('icon_dark', patch.icon_dark, stored.icon_dark)
+  if (
+    patch.supported_topologies !== undefined &&
+    patch.supported_topologies.length === 0 &&
+    (stored.supported_topologies?.length ?? 0) > 0
+  ) {
+    out.push({
+      key: 'supported_topologies',
+      current: (stored.supported_topologies ?? []).join(', '),
+    })
+  }
+  return out
+}
+
+/** Options for {@link saveCatalogEdit}. */
+export interface SaveCatalogEditOptions {
+  /** Columns the operator has EXPLICITLY confirmed clearing (#5610). A
+   *  column not named here is refused rather than blanked. */
+  allowBlank?: readonly string[]
+}
+
 /**
  * CatalogSaveVerdict — the #3668/#5113 dual-write verdict for one catalog
  * card-save. The catalyst-api `apps` create/update proxy wraps the upstream
@@ -231,6 +311,13 @@ export interface CatalogSaveVerdict {
   stored: boolean
   committed: boolean | null
   reason?: string
+  /**
+   * #5610 — present ONLY when the save was REFUSED before reaching the wire
+   * because it would have cleared these non-empty stored columns. Nothing
+   * was written (`stored:false`); re-issue with `allowBlank` naming the keys
+   * once a human has confirmed the clear.
+   */
+  blanked?: BlankedField[]
 }
 
 /** parseCatalogEditEnvelope — fold a commerce `apps` write response body
@@ -288,15 +375,22 @@ export function parseCatalogEditEnvelope(body: unknown, slug: string): CatalogSa
  * surfaces "Saved to IaC ✓" vs "Saved to store — IaC commit failed: …"
  * instead of closing silently.
  *
+ * #5610 — a patch key that would CLEAR a non-empty stored column returns a
+ * `blanked` verdict WITHOUT writing, unless the column is named in
+ * `opts.allowBlank` (the operator confirmed the clear). See the seatbelt
+ * commentary above `BlankedField`.
+ *
  * @param slug       catalog entry id (`bp-`-prefixed or bare).
  * @param patch      ONLY the fields this save edits (#5510).
  * @param createSeed values to seed a brand-new store row with, used ONLY
  *                  when no row exists yet. Never applied over a stored value.
+ * @param opts       #5610 blank-write confirmation.
  */
 export async function saveCatalogEdit(
   slug: string,
   patch: CatalogEntryPatch,
   createSeed: CatalogEntryPatch = {},
+  opts: SaveCatalogEditOptions = {},
 ): Promise<CatalogSaveVerdict> {
   const bare = slug.replace(/^bp-/, '')
   const columns = toStoreColumns(patch)
@@ -304,6 +398,16 @@ export async function saveCatalogEdit(
   const existing = apps.find((a) => (a.slug ?? '').replace(/^bp-/, '') === bare)
 
   if (existing && existing.id) {
+    // #5610 — refuse a write that would clear a non-empty stored column
+    // before it reaches the wire. Checked against `existing` (the
+    // authoritative row we already fetched for the merge base), never
+    // against anything the editor believes the current value to be.
+    const confirmed = opts.allowBlank ?? []
+    const blanked = blankedFields(patch, existing).filter((f) => !confirmed.includes(f.key))
+    if (blanked.length > 0) {
+      return { slug: bare, stored: false, committed: false, blanked, reason: BLANKED_REASON }
+    }
+
     // Overlay the edited keys onto the full runtime row: the untouched
     // columns keep their STORED values through the full-$set UpdateApp.
     const merged: CommerceApp = { ...existing, ...columns }
