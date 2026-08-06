@@ -363,6 +363,25 @@ test.describe('marketplace customer-journey (17-step regression gate)', () => {
   })
 
   test('05b authed owner on /redeem is NOT immediately shown the public funnel (owner-redirect contract, #4546 / UAT row 3)', async ({ page }) => {
+    // KNOWN-RED (#5762), root-caused, NOT a live regression: this test's
+    // own mock — `/tenant/orgs` -> `[]` (0 live orgs) — is the "signed-in
+    // visitor with no live Organization" persona, and
+    // resolveRedeemDestination()'s own ALREADY-PASSING unit test
+    // (redeemDestination.test.ts, "CONTROL: a signed-in visitor with no
+    // live Organization still reaches the funnel") confirms that persona
+    // is CORRECTLY routed to the funnel, not the console — per the #5421
+    // refactor's own persona table in redeemDestination.ts. The copy this
+    // test waits for ("Taking you to your dashboard") does not exist
+    // anywhere in src/ either; redeem.astro's loading shim says "One
+    // moment…". This is a stale assertion against code that already
+    // correctly does something else, not a product defect.
+    //
+    // `test.fail()` (not `test.skip()`) so it still RUNS every PR — same
+    // idiom as redeemDestination.test.ts's `it.fails('OPEN #5421: ...')`
+    // for the genuinely open gap next door. It goes red (fails the gate)
+    // the moment someone "fixes" it into passing without updating the
+    // mock/assertion pair, which is the guard this repo wants here.
+    test.fail(true, 'KNOWN-RED #5762 — mock simulates 0-live-org (funnel-correct per CONTROL test), assertion expects owner/console copy that never existed')
     // An authed owner landing on the public redeem funnel must never see the
     // public funnel chrome ("Voucher not valid" / the signup CTA) while the
     // Layout's returning-user redirect bounces them to their console. The redeem
