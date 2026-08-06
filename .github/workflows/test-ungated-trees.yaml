@@ -116,7 +116,18 @@ jobs:
           set -o pipefail
           go test -count=1 -v ./... 2>&1 | tee /tmp/out.txt
           n=$(grep -c '^--- PASS' /tmp/out.txt || true)
-          echo "::notice::${{ matrix.module }} ran ${n} test functions"
+          s=$(grep -c '^--- SKIP' /tmp/out.txt || true)
+          echo "::notice::${{ matrix.module }} ran ${n} test functions, skipped ${s}"
+          # Skips are reported, never hidden. core/pool-domain-manager declares
+          # 187 tests but executes 180: the 7 covering reserve / conflict /
+          # expiry / commit / token-mismatch / release / sweeper are Postgres
+          # integration tests gated on `PDM_TEST_DSN`, and because this module
+          # had no workflow at all they have never run anywhere. A gate that
+          # printed a clean "180 passed" would be the same lie in a new place.
+          # Wiring a Postgres service container for them is tracked on #5741.
+          if [ "${s:-0}" -gt 0 ]; then
+            grep '^--- SKIP' /tmp/out.txt | sed 's/^/::warning::skipped: /'
+          fi
           if [ "${n:-0}" -eq 0 ]; then
             echo "::error::${{ matrix.module }} reported zero executed tests — the suite vanished or stopped being discovered; go test exits 0 in that case, so this check is what catches it."
             exit 1
