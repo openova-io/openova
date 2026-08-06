@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T17:45:03Z` |
+| Last refreshed | `2026-08-06T18:00:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-06T17:55 | [#5774](https://github.com/openova-io/openova/pull/5774) | #5752 | test(stalwart-params): unchecked assertion panicked the bina |
+| 2026-08-06T17:55 | [#5773](https://github.com/openova-io/openova/pull/5773) | #5750 | test(guacamole-drift): self-test could not see its own fail- |
+| 2026-08-06T17:55 | [#5772](https://github.com/openova-io/openova/pull/5772) | #5690 | fix(§854): LB nodePort:0 guard counted presence, not ports — |
+| 2026-08-06T17:49 | [#5771](https://github.com/openova-io/openova/pull/5771) | #5348 | docs(walk): live cluster-side §854 NodePort census on hw292  |
+| 2026-08-06T17:50 | [#5770](https://github.com/openova-io/openova/pull/5770) | #5496 | test(catalog): lock the catalog-item cache key so the #5496  |
 | 2026-08-06T12:01 | [#5768](https://github.com/openova-io/openova/pull/5768) | #489 | fix(catalyst-api): graceful shutdown — drain HTTP, then join |
 | 2026-08-06T11:42 | [#5766](https://github.com/openova-io/openova/pull/5766) | #5764 | fix(catalyst-api): join the orphan-release goroutine instead |
 | 2026-08-06T10:13 | [#5764](https://github.com/openova-io/openova/pull/5764) | #5759 | fix(self-sovereign-cutover): refuse Day-2 mirror-advance for |
@@ -332,11 +337,6 @@ flowchart LR
 | 2026-08-06T04:01 | [#5737](https://github.com/openova-io/openova/pull/5737) | #5661 | fix(cloud): storage counts read every region + wire the stor |
 | 2026-08-06T03:57 | [#5736](https://github.com/openova-io/openova/pull/5736) | #5515 | fix(placement): the Go derivePattern still fails open into s |
 | 2026-08-06T03:28 | [#5735](https://github.com/openova-io/openova/pull/5735) | #817 | fix(catalyst-api): stop four DR surfaces reporting health, c |
-| 2026-08-06T03:29 | [#5733](https://github.com/openova-io/openova/pull/5733) | #5439 | fix(cutover): pivot the per-Org IMAGE registry host — three  |
-| 2026-08-06T02:49 | [#5732](https://github.com/openova-io/openova/pull/5732) | #5635 | test(catalyst-api): pin the per-Org console listener by rend |
-| 2026-08-06T02:56 | [#5730](https://github.com/openova-io/openova/pull/5730) | #5467 | fix(guard): execute-and-detect guard for credential prefixes |
-| 2026-08-06T02:14 | [#5729](https://github.com/openova-io/openova/pull/5729) | #5253 | docs(uat): re-walk 18 dead-env rows live on hw292 — 8 flip g |
-| 2026-08-06T02:07 | [#5727](https://github.com/openova-io/openova/pull/5727) | #5434 | docs(uat): re-walk 14 rows stranded on dead-env evidence — 2 |
 
 ---
 
