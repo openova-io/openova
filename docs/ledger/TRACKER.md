@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T02:15:02Z` |
+| Last refreshed | `2026-08-06T02:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -309,6 +309,7 @@ flowchart LR
 |---|---|---|---|
 | 2026-08-06T02:14 | [#5729](https://github.com/openova-io/openova/pull/5729) | #5253 | docs(uat): re-walk 18 dead-env rows live on hw292 — 8 flip g |
 | 2026-08-06T02:07 | [#5727](https://github.com/openova-io/openova/pull/5727) | #5434 | docs(uat): re-walk 14 rows stranded on dead-env evidence — 2 |
+| 2026-08-06T02:19 | [#5726](https://github.com/openova-io/openova/pull/5726) | #5612 | test(newapi): bind the #5612 session-secret carrier to the S |
 | 2026-08-06T02:01 | [#5725](https://github.com/openova-io/openova/pull/5725) | #5571 | fix(catalyst-ui): /k8s/stream fold collapsed both regions in |
 | 2026-08-06T01:21 | [#5724](https://github.com/openova-io/openova/pull/5724) | #5616 | fix(api,ui): #5616 refuse a placement vCluster tier this Sov |
 | 2026-08-06T01:13 | [#5723](https://github.com/openova-io/openova/pull/5723) | #5672 | fix(catalyst-api): org-teardown reap keys on BOTH producers' |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-05T19:12 | [#5700](https://github.com/openova-io/openova/pull/5700) | #5389 | docs(mandate): a denied tool call is ONE COMMAND, never a bl |
 | 2026-08-05T19:32 | [#5699](https://github.com/openova-io/openova/pull/5699) | #4 | fix(endpoints): add {OrgDomain} token so per-Org Open resolv |
 | 2026-08-05T19:09 | [#5698](https://github.com/openova-io/openova/pull/5698) | #4325 | docs(uat): live-anchor the 11 superseded placement rows; rec |
-| 2026-08-05T19:09 | [#5697](https://github.com/openova-io/openova/pull/5697) | #5378 | fix(#5358): guacamole blank page — ONE Guacamole per Soverei |
 
 ---
 
