@@ -1,5 +1,26 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# KNOWN-BAD, SUPERSEDED ARTIFACT — 1.4.1325 (Refs #5743). A push race between
+#   two independent deploy-bots (catalyst-build.yaml + services-build.yaml,
+#   see scripts/bump-chart-version.sh's header for the mechanism) put
+#   version=1.4.1325/appVersion=1.4.1325 on origin/main and GHCR at 04:07:56Z
+#   on 2026-08-06, four minutes before a racing bump clobbered `version:`
+#   BACKWARD to 1.4.1324 (appVersion stayed 1.4.1325 — the divergence itself
+#   is the tell). `helm pull` of both published artifacts proved 1.4.1325
+#   does NOT carry #5737's storage fix that 1.4.1324 does, despite being the
+#   numerically higher, earlier-published version.
+#   DISPOSITION: 1.4.1325 is left published but PERMANENTLY UNPINNED — never
+#   reference it from any bootstrap-kit slot, blueprint.yaml, or catalog-seed
+#   entry. It is NOT re-published with corrected content: chart artifacts are
+#   treated as immutable once pushed (cosign attestations + any consumer that
+#   already resolved its digest are bound to the ORIGINAL, bad bytes;
+#   overwriting the tag would silently break that binding). The remedy is
+#   forward-only — burn the number. The fixed atomic bump
+#   (scripts/bump-chart-version.sh) derives every future version from
+#   max(version, appVersion) + 1, so the very next legitimate bump after this
+#   fix lands moves past BOTH 1.4.1325 and the still-live 1.4.1327/1.4.1325
+#   drift this incident left on main, self-healing without a manual
+#   reconciliation commit.
 # 1.4.1322 — #5439: catalog-seed bp-self-sovereign-cutover pin 0.1.173 ->
 #   0.1.174. Step-07 gains Phase 3e, the IMAGE-registry half of the
 #   post-cutover re-tether #5527 closed for CHART bases: the org-controller,

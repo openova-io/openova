@@ -87,12 +87,11 @@ jobs:
       # The manual chart-version field in the PR becomes the floor; the
       # CI auto-bumps from there.
       # ──────────────────────────────────────────────────────────────
-      - name: Update deployment manifests + bump chart patch version
+      - name: Update deployment manifests
         id: rewrite
         run: |
           SHA=$(echo $GITHUB_SHA | head -c 7)
           DEPLOY_DIR="products/catalyst/chart/templates/org-services"
-          CHART_YAML="products/catalyst/chart/Chart.yaml"
           VALUES_YAML="products/catalyst/chart/values.yaml"
 
           # ──────────────────────────────────────────────────────────
@@ -155,23 +154,29 @@ jobs:
           sed -i "s|^  orgTag: \"[A-Za-z0-9_.-]*\"$|  orgTag: \"${SHA}\"|" "${VALUES_YAML}"
           echo "Bumped ${VALUES_YAML} images.orgTag to ${SHA}"
 
-          # Patch-bump Chart.yaml `version:` and `appVersion:` (kept in
-          # lockstep — the chart reflects the bundled appVersion via
-          # convention). Pure-bash semver patch increment to avoid
-          # depending on yq in this job.
-          current=$(awk '/^version:/{print $2; exit}' "${CHART_YAML}" | tr -d '"')
-          if ! echo "$current" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error title=Unparseable chart version::Chart.yaml version='${current}' is not semver MAJOR.MINOR.PATCH; refusing to auto-bump."
-            exit 1
-          fi
-          major=$(echo "$current" | cut -d. -f1)
-          minor=$(echo "$current" | cut -d. -f2)
-          patch=$(echo "$current" | cut -d. -f3)
-          next="${major}.${minor}.$((patch + 1))"
-          sed -i "s|^version: .*$|version: ${next}|" "${CHART_YAML}"
-          sed -i "s|^appVersion: .*$|appVersion: ${next}|" "${CHART_YAML}"
-          echo "Bumped Chart.yaml ${current} -> ${next}"
-          echo "next_version=${next}" >> "$GITHUB_OUTPUT"
+          # #5743: Chart.yaml `version:`/`appVersion:` used to be patch-
+          # bumped right here (and again inside this step's own retry
+          # closure below) with hand-rolled arithmetic that read ONLY
+          # `version:`, never `appVersion:`, into lockstep. catalyst-
+          # build.yaml bumped the SAME file with a SEPARATE hand-rolled
+          # implementation that routed through the generic `deploy-bump`
+          # composite action's last-writer-wins `-X theirs` cherry-pick —
+          # correct for an image tag, wrong for a monotonic counter. The
+          # two independent implementations racing each other on one field
+          # produced the incident: commit b76f3ca7b (catalyst-build.yaml's
+          # bump) landed version=1.4.1324 as a direct child of a23de78d9
+          # (THIS workflow's bump, version=1.4.1325) — a lower, later-
+          # published version number that carried FEWER fixes than the
+          # higher, earlier-published one it clobbered.
+          #
+          # The bump now happens in its own dedicated step below
+          # ("Atomically bump Chart.yaml version"), via the SAME two
+          # shared scripts catalyst-build.yaml now calls
+          # (scripts/bump-chart-version.sh + scripts/push-chart-version-
+          # bump.sh) — one implementation, one guard
+          # (scripts/check-chart-version-forward.sh), so the two
+          # deploy-bots can never diverge on "what is the next version"
+          # again.
 
       - name: Commit and push manifest updates
         id: deploy_commit
@@ -180,17 +185,12 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           SHA=$(echo $GITHUB_SHA | head -c 7)
           DEPLOY_DIR="products/catalyst/chart/templates/org-services"
-          CHART_YAML="products/catalyst/chart/Chart.yaml"
           VALUES_YAML="products/catalyst/chart/values.yaml"
 
           # Idempotent reset-and-rewrite. Parallel/back-to-back CI runs
-          # both try to update the same `image:` lines AND the same
-          # version line — `git pull --rebase` would hit content
-          # conflicts. Idempotent reset-to-origin + re-apply is
-          # conflict-free by construction. On retry we re-read whatever
-          # version origin/main currently holds and bump from THAT, so
-          # two concurrent runs produce strictly increasing patch
-          # versions instead of clobbering each other.
+          # both try to update the same `image:` lines — `git pull
+          # --rebase` would hit content conflicts. Idempotent reset-to-
+          # origin + re-apply is conflict-free by construction.
           #
           # Issue #953: rewrite() must mirror the values.yaml orgTag
           # bump that the rewrite step does — otherwise a retry that
@@ -212,18 +212,6 @@ jobs:
               exit 1
             fi
             sed -i "s|^  orgTag: \"[A-Za-z0-9_.-]*\"$|  orgTag: \"${SHA}\"|" "${VALUES_YAML}"
-            current=$(awk '/^version:/{print $2; exit}' "${CHART_YAML}" | tr -d '"')
-            if ! echo "$current" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-              echo "::error title=Unparseable chart version on retry::Chart.yaml version='${current}' is not semver."
-              exit 1
-            fi
-            major=$(echo "$current" | cut -d. -f1)
-            minor=$(echo "$current" | cut -d. -f2)
-            patch=$(echo "$current" | cut -d. -f3)
-            next="${major}.${minor}.$((patch + 1))"
-            sed -i "s|^version: .*$|version: ${next}|" "${CHART_YAML}"
-            sed -i "s|^appVersion: .*$|appVersion: ${next}|" "${CHART_YAML}"
-            echo "${next}"
           }
 
           git add products/
@@ -232,49 +220,76 @@ jobs:
             echo "pushed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          NEXT="${{ steps.rewrite.outputs.next_version }}"
-          git commit -m "deploy: update org service images to ${SHA} + bump chart to ${NEXT}"
+          git commit -m "deploy: update org service images to ${SHA}"
 
           # TBD-V32 / openova-io/openova#2062 — race-safe push loop.
           # NOTE: this workflow deliberately does NOT use the shared
-          # `./.github/actions/deploy-bump` composite action. The rewrite
-          # closure above bumps the chart semver `patch` segment on every
-          # iteration so a rebased push lands at chart `vN.M.P+2` instead
-          # of `+1` — that re-bump only happens correctly inside this
-          # inline loop because the composite action treats files as
-          # opaque and would replay the SAME staged diff on every retry,
-          # which would lose to the parallel run that bumped the same
-          # patch number first. Bumping the max-attempts ceiling from 3
-          # to 5 matches the composite action default.
+          # `./.github/actions/deploy-bump` composite action — its
+          # `-X theirs` cherry-pick conflict policy is a deliberate
+          # last-writer-wins choice, correct for image tags but WRONG for
+          # the chart version counter this job used to also carry (#5743);
+          # now that Chart.yaml moved to its own step, plain reset-and-
+          # reapply is sufficient here again. Bumping the max-attempts
+          # ceiling from 3 to 5 matches the composite action default.
           for i in 1 2 3 4 5; do
             if git push; then
               echo "pushed=true" >> "$GITHUB_OUTPUT"
-              echo "next_version=${NEXT}" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             echo "push attempt $i failed — resetting to origin/main and re-applying rewrite"
             git fetch origin main
             git reset --hard origin/main
-            NEXT=$(rewrite)
+            rewrite
             git add products/
             if git diff --staged --quiet; then
               echo "no changes after re-fetch — another run already shipped this SHA"
               echo "pushed=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            git commit -m "deploy: update org service images to ${SHA} + bump chart to ${NEXT}"
+            git commit -m "deploy: update org service images to ${SHA}"
             sleep $((i * 2))
           done
           echo "push failed after 5 attempts"
           exit 1
+
+      # ──────────────────────────────────────────────────────────────
+      # ATOMIC CHART VERSION BUMP (Refs #5743)
+      # ──────────────────────────────────────────────────────────────
+      # See the matching step in catalyst-build.yaml for the full
+      # rationale. Runs regardless of whether the image-tag commit above
+      # actually pushed anything (mirrors this workflow's previous
+      # unconditional per-run bump behaviour) — deriving from fresh
+      # origin/main on every attempt via scripts/bump-chart-version.sh
+      # means a no-op image-tag run still safely advances the chart
+      # version by exactly one step, in lockstep, never regressing either
+      # field.
+      - name: "Atomically bump products/catalyst/chart/Chart.yaml version"
+        id: bump_chart_version
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          NEXT="$(scripts/push-chart-version-bump.sh \
+            products/catalyst/chart/Chart.yaml \
+            "deploy(bp-catalyst-platform): bump chart version")"
+          if [ -n "${NEXT}" ]; then
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+            echo "next_version=${NEXT}" >> "$GITHUB_OUTPUT"
+          else
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+          fi
 
       # GITHUB_TOKEN-authored pushes do NOT re-trigger workflows by
       # design, so a `push` path-trigger on blueprint-release.yaml is
       # not enough on its own — we must explicitly dispatch. Same
       # mechanism catalyst-build.yaml uses (PR #720) to publish the
       # bp-catalyst-platform OCI artifact for the bumped chart.
+      #
+      # #5743: gated on the CHART VERSION bump's own push outcome, not the
+      # image-tag commit's — publishing only makes sense once Chart.yaml's
+      # version actually moved.
       - name: Trigger blueprint-release for the chart bump
-        if: steps.deploy_commit.outputs.pushed == 'true'
+        if: steps.bump_chart_version.outputs.pushed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -283,4 +298,4 @@ jobs:
             --ref main \
             -f blueprint=catalyst \
             -f tree=products
-          echo "blueprint-release dispatched for products/catalyst @ main (chart ${{ steps.deploy_commit.outputs.next_version }})"
+          echo "blueprint-release dispatched for products/catalyst @ main (chart ${{ steps.bump_chart_version.outputs.next_version }})"
