@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T07:30:04Z` |
+| Last refreshed | `2026-08-06T07:45:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-06T07:34 | [#5756](https://github.com/openova-io/openova/pull/5756) | #5650 | fix(cutover): step-08 gains a Crossplane Provider PACKAGE ho |
+| 2026-08-06T07:33 | [#5755](https://github.com/openova-io/openova/pull/5755) | #5615 | fix(catalyst-api): stamp domain/keycloak parameters for a pe |
+| 2026-08-06T07:33 | [#5754](https://github.com/openova-io/openova/pull/5754) | #5615 | fix(stalwart-tenant): stop baking chart version into the imm |
+| 2026-08-06T07:33 | [#5753](https://github.com/openova-io/openova/pull/5753) | #5358 | docs(guacamole): root-cause row-35 ERROR page as stale chart |
 | 2026-08-06T07:10 | [#5751](https://github.com/openova-io/openova/pull/5751) | #5612 | fix(newapi): cluster-side guard for the row 37/38 rollout ga |
 | 2026-08-06T06:55 | [#5749](https://github.com/openova-io/openova/pull/5749) | #3668 | docs(uat): screenshot evidence for console/catalog/jobs/clou |
 | 2026-08-06T06:33 | [#5748](https://github.com/openova-io/openova/pull/5748) | #960 | docs(uat): add live screenshot evidence for 19 funnel/orgs g |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-08-06T00:44 | [#5721](https://github.com/openova-io/openova/pull/5721) | #5459 | docs(uat): re-walk the 12 unwalked SSO rows live on hw292 po |
 | 2026-08-06T00:53 | [#5719](https://github.com/openova-io/openova/pull/5719) | #5650 | fix(cutover): pivot the loft chart source in EVERY region, n |
 | 2026-08-06T00:31 | [#5718](https://github.com/openova-io/openova/pull/5718) | #5678 | ci(lockstep): run the release writer and assert all five sit |
-| 2026-08-06T00:34 | [#5717](https://github.com/openova-io/openova/pull/5717) | #5642 | fix(k8scache): sync-watcher aborts on the per-cluster stop c |
-| 2026-08-06T00:01 | [#5716](https://github.com/openova-io/openova/pull/5716) | #5610 | fix(console): guard the catalog per-field save against silen |
-| 2026-08-06T00:06 | [#5715](https://github.com/openova-io/openova/pull/5715) | #5623 | fix(dr): every CNPG DR pair must declare a promotion mechani |
-| 2026-08-05T23:56 | [#5714](https://github.com/openova-io/openova/pull/5714) | #3599 | fix(placement): reject a region-less placement target instea |
 
 ---
 
