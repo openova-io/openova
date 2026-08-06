@@ -425,9 +425,9 @@ type pinIssueResponse struct {
 // HandlePinIssue handles POST /api/v1/auth/pin/issue.
 //
 //  1. Reads {"email"} from the body. Empty email → 400 email-required.
-//  2. Calls EnsureUser in the openova realm so the user record exists
-//     before they ever type the PIN.
-//  3. Per-email rate-limit check (60s) → 429 pin-rate-limited.
+//  2. Per-email rate-limit check (60s) → 429 pin-rate-limited.
+//  3. Verifies the openova-realm Keycloak client is CONFIGURED (a local
+//     env check — no Keycloak call, no realm write) → 503 when absent.
 //  4. Generates a 6-digit PIN with crypto/rand.
 //  5. Persists in pinStore with TTL + new requestId.
 //  6. Sends a plaintext email (no link). The PIN is the body. SMTP
@@ -436,6 +436,32 @@ type pinIssueResponse struct {
 //  7. Returns {ok, requestId, expiresInSec}. The UI uses requestId on
 //     /pin/verify so a stale browser tab cannot replay against a
 //     newer code.
+//
+// # This endpoint performs NO write to the identity store (#5720)
+//
+// Until 2026-08-06 step 2 called `kc.EnsureUser(email, "openova-users")`
+// BEFORE the PIN existed and before anything was verified. Because the
+// endpoint is unauthenticated, that made "type an address into the login
+// form" sufficient to mint a permanent, enabled, emailVerified realm
+// principal for an ARBITRARY address — the caller never had to read the
+// PIN, or even wait for it. The per-email 60s rate limiter did not
+// constrain it either: a caller who varies the address never repeats a
+// key. Found on hw292 (UAT row 41), where the sovereign realm held
+// `emrha.baysal@openova.io` — a transposition typo of the seeded owner
+// that became a permanent principal purely because somebody mistyped it
+// at the login form once.
+//
+// The realm write now lives in HandlePinVerify, gated on a correct PIN
+// (i.e. on proven control of the mailbox). Nothing at issue-time needed
+// the realm user: the pinStore is keyed on the email STRING, and
+// sendPinEmail takes an address, not a principal. The pinSessionAuthority
+// group lookup is the only realm read in the flow and it runs at verify.
+//
+// The `kc == nil` check in step 3 is retained deliberately: it is a local
+// env-configuration check (no network call, no write) that fails fast on
+// a Sovereign whose catalyst-openova-kc-credentials Secret never rendered
+// (the #901 / #3642 chain), rather than mailing a PIN that could never be
+// redeemed.
 func (h *Handler) HandlePinIssue(w http.ResponseWriter, r *http.Request) {
 	if h.handoverSigner == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -493,9 +519,15 @@ func (h *Handler) HandlePinIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ── 2. EnsureUser in openova realm ──────────────────────────────────────
-	kc := h.openovaKCClient()
-	if kc == nil {
+	// ── 2. Keycloak CONFIGURATION check (no call, no write) ─────────────────
+	//
+	// #5720: this used to be `kc.EnsureUser(email, "openova-users")` — an
+	// unauthenticated realm WRITE. It is now only the nil-check: does this
+	// deployment have openova-realm KC credentials at all? That is read
+	// from env/Secret locally; it contacts nothing and creates nothing.
+	// The actual EnsureUser now runs in HandlePinVerify, after the PIN has
+	// been proven.
+	if kc := h.openovaKCClient(); kc == nil {
 		// Rollback the reservation: this gate's failure isn't the
 		// operator's fault and a follow-up retry must not be punished by
 		// the 60s cooldown.
@@ -503,17 +535,6 @@ func (h *Handler) HandlePinIssue(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error":  "auth-unconfigured",
 			"detail": "CATALYST_OPENOVA_KC_SA_CLIENT_SECRET not set",
-		})
-		return
-	}
-	if _, err := kc.EnsureUser(r.Context(), email, "openova-users"); err != nil {
-		// Rollback so a Keycloak transient (502 from KC, etc) doesn't
-		// punish the operator for the next 60 seconds.
-		store.drop(email)
-		h.log.Error("pin/issue: EnsureUser failed", "email", email, "err", err)
-		writeJSON(w, http.StatusBadGateway, map[string]string{
-			"error":  "user-provisioning-failed",
-			"detail": "could not provision user record",
 		})
 		return
 	}
@@ -902,7 +923,50 @@ func (h *Handler) HandlePinVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ── On match: mint session JWT + set cookie ─────────────────────────────
+	// ── On match: provision the realm user (#5720) ──────────────────────────
+	//
+	// THIS is the point at which the caller has proven control of the
+	// mailbox — they read a 6-digit crypto/rand PIN that was delivered
+	// there and nowhere else. Only now may a permanent principal be
+	// written into the identity store.
+	//
+	// Before #5720 this ran in HandlePinIssue, so an unauthenticated POST
+	// with an arbitrary address was enough to create an enabled realm
+	// user. Everything upstream of this line (rate limit, PIN generation,
+	// pinStore, SMTP send) operates on the email STRING and never needed
+	// the principal to exist, so moving the write here costs nothing and
+	// removes the unauthenticated-write surface entirely.
+	//
+	// Ordering is load-bearing: EnsureUser MUST run BEFORE
+	// pinSessionAuthority below, because that resolves the session tier
+	// from live Keycloak group membership and would otherwise race a
+	// first-ever login. EnsureUser only joins `openova-users`; it never
+	// joins /sovereign-admins, so it cannot manufacture admin authority —
+	// a brand-new principal still resolves to viewer.
+	//
+	// Error taxonomy is deliberately identical to the pre-#5720 pin/issue
+	// contract (503 auth-unconfigured / 502 user-provisioning-failed), so
+	// a KC-down Sovereign fails the same way it always did; only the step
+	// at which it fails moved.
+	kcv := h.openovaKCClient()
+	if kcv == nil {
+		h.log.Error("pin/verify: openova KC client unconfigured; cannot provision user")
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "auth-unconfigured",
+			"detail": "CATALYST_OPENOVA_KC_SA_CLIENT_SECRET not set",
+		})
+		return
+	}
+	if _, err := kcv.EnsureUser(r.Context(), email, "openova-users"); err != nil {
+		h.log.Error("pin/verify: EnsureUser failed", "email", email, "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "user-provisioning-failed",
+			"detail": "could not provision user record",
+		})
+		return
+	}
+
+	// ── Mint session JWT + set cookie ───────────────────────────────────────
 	//
 	// The PIN-derived JWT carries BOTH the legacy single-string `role`
 	// claim AND the Keycloak-shaped `tier` + `realm_access.roles` claims
