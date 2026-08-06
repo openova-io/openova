@@ -1331,7 +1331,11 @@ spec:
       #   consistent.) Lockstep w/ slot-06a.
       # 1.4.1320 (#5467): catalog-seed cutover pin 0.1.173 — step-09 no longer
       #   prints the tail of the minted Gitea token. Lockstep w/ slot-06a.
-      version: 1.4.1327
+      # 1.4.1328 (#5759): catalog-seed cutover pin 0.1.176 — Day-2
+      #   mirror-advance force-push refuse-by-default + continuous
+      #   source-host drift lint. Lockstep w/ slot-06a; also self-heals the
+      #   pre-existing 1.4.1327/1.4.1325 version/appVersion drift.
+      version: 1.4.1328
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
