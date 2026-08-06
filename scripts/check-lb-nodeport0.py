@@ -112,11 +112,59 @@ def lb_capable(text: str, chart_dir: pathlib.Path) -> bool:
     return False
 
 
-def guarded(text: str) -> bool:
-    """True if the template carries BOTH §854 LB guard tokens."""
-    has_alloc = "allocateLoadBalancerNodePorts: false" in text
-    has_np0 = re.search(r"(?m)^\s*nodePort:\s*0\s*$", text) is not None
-    return has_alloc and has_np0
+# A port entry in a Service `ports:` list. Helm templates write these as
+# `- port: 25` / `- name: smtp`, one list item per exposed port.
+_PORT_ITEM_RE = re.compile(r"(?m)^\s*-\s+(?:name|port|targetPort)\s*:")
+_NP0_RE = re.compile(r"(?m)^\s*nodePort:\s*0\s*$")
+
+
+def port_items(text: str) -> int:
+    """Count `ports:` list entries. Deliberately counts the FIRST key of each
+    list item only, so a 3-key port block still counts as one port."""
+    n = 0
+    in_ports = False
+    ports_indent = -1
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if re.match(r"^ports\s*:", stripped):
+            in_ports, ports_indent = True, indent
+            continue
+        if in_ports:
+            # a key at or left of `ports:` indentation ends the block
+            if indent <= ports_indent and not stripped.startswith("-"):
+                in_ports = False
+                continue
+            if stripped.startswith("- "):
+                n += 1
+    return n
+
+
+def guarded(text: str) -> tuple[bool, str]:
+    """True if the template carries the §854 LB guards on EVERY port.
+
+    #5690 follow-up: this previously asked only whether `nodePort: 0` appeared
+    ANYWHERE in the file — a boolean presence check. A Service exposing five
+    ports with the sentinel on ONE of them therefore passed, which is the very
+    shape #5690 reported (bp-stalwart-sovereign mail, 5 unguarded ports).
+    Removing four of five sentinels left this check green.
+
+    `allocateLoadBalancerNodePorts: false` alone is not sufficient (#5348): it
+    stops NEW allocations, but an apply that merely OMITS `nodePort` leaves an
+    existing allocation in place. The per-port `nodePort: 0` is the sentinel the
+    apiserver actually clears, so it must be present once per port.
+    """
+    if "allocateLoadBalancerNodePorts: false" not in text:
+        return False, "missing `allocateLoadBalancerNodePorts: false`"
+    ports = port_items(text)
+    np0 = len(_NP0_RE.findall(text))
+    if np0 == 0:
+        return False, "no `nodePort: 0` on any port"
+    if ports and np0 < ports:
+        return False, f"{np0} `nodePort: 0` for {ports} port(s) — {ports - np0} port(s) unguarded"
+    return True, ""
 
 
 def scan():
@@ -134,8 +182,9 @@ def scan():
         if not lb_capable(text, chart_dir):
             continue
         lb.append(f)
-        if not guarded(text):
-            unguarded.append(f)
+        ok, why = guarded(text)
+        if not ok:
+            unguarded.append((f, why))
     return lb, unguarded
 
 
@@ -154,8 +203,8 @@ def main() -> int:
 
     if unguarded:
         print("FAIL: LoadBalancer Service template(s) omit the §854 nodePort:0 guard", file=sys.stderr)
-        for f in unguarded:
-            print(f"  - {rel(f)}", file=sys.stderr)
+        for f, why in unguarded:
+            print(f"  - {rel(f)}: {why}", file=sys.stderr)
         print(
             "\nA LoadBalancer Service without `allocateLoadBalancerNodePorts: false`\n"
             "+ explicit `nodePort: 0` auto-allocates a NodePort per port on apply\n"
@@ -184,10 +233,35 @@ def self_test() -> int:
     tmp = pathlib.Path(os.environ.get("ROOT", "."))  # chart_dir unused for literals
     if not lb_capable(guarded_tpl, tmp):
         fails.append("literal LoadBalancer not detected as LB-capable")
-    if not guarded(guarded_tpl):
+    if not guarded(guarded_tpl)[0]:
         fails.append("guarded template not recognised as guarded")
-    if guarded(unguarded_tpl):
+    if guarded(unguarded_tpl)[0]:
         fails.append("DISCRIMINATION: unguarded LB template passed as guarded")
+
+    # #5690 follow-up — the discrimination case the ORIGINAL guard missed:
+    # a multi-port LB with the sentinel on SOME ports. The old boolean
+    # presence check passed this; it is the exact partial shape of #5690.
+    partial_tpl = (
+        "kind: Service\nspec:\n  type: LoadBalancer\n"
+        "  allocateLoadBalancerNodePorts: false\n  ports:\n"
+        "    - name: a\n      port: 25\n      nodePort: 0\n"
+        "    - name: b\n      port: 587\n"
+        "    - name: c\n      port: 993\n"
+    )
+    ok_partial, why_partial = guarded(partial_tpl)
+    if ok_partial:
+        fails.append("DISCRIMINATION: 1-of-3 guarded ports passed as fully guarded (#5690 partial shape)")
+    elif "unguarded" not in why_partial:
+        fails.append(f"partial-guard reason unhelpful: {why_partial!r}")
+
+    # And the inverse must stay green: a fully-guarded multi-port LB.
+    full_tpl = partial_tpl.replace(
+        "    - name: b\n      port: 587\n", "    - name: b\n      port: 587\n      nodePort: 0\n"
+    ).replace(
+        "    - name: c\n      port: 993\n", "    - name: c\n      port: 993\n      nodePort: 0\n"
+    )
+    if not guarded(full_tpl)[0]:
+        fails.append("fully-guarded 3-port LB wrongly flagged unguarded")
     if not lb_capable(unguarded_tpl, tmp):
         fails.append("unguarded literal LB not detected as LB-capable")
     if lb_capable(clusterip_tpl, tmp):
