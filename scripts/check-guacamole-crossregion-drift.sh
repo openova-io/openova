@@ -72,7 +72,7 @@ while [ $# -gt 0 ]; do
     --kubeconfig)   KUBECONFIGS+=("$2"); shift 2 ;;
     --namespace)    NAMESPACE="$2"; shift 2 ;;
     --min-version)  MIN_SAFE_VERSION="$2"; shift 2 ;;
-    --self-test)    SELF_TEST=1; shift ;;
+    --self-test|--selftest) SELF_TEST=1; shift ;;
     *) echo "Unknown arg: $1" >&2
        echo "Usage: $0 [--kubeconfig <path> ...] [--namespace <ns>] [--min-version <semver>] [--self-test]" >&2
        exit 2 ;;
@@ -142,7 +142,7 @@ verdict_of() { grep '^VERDICT' | cut -f2; }
 
 # ─── Phase 0 — detector self-test (vacuity guard) ───────────────────────────
 #
-# Four fixtures, each isolating one axis a broken detector could get wrong:
+# Seven fixtures, each isolating one axis a broken detector could get wrong:
 #   pre-fix   (hw292-shaped)   -> MUST be KNOWN-DRIFT
 #   post-fix  (delivered)      -> MUST be CLEAN (secondary correctly suppressed)
 #   single-region              -> MUST be CLEAN (nothing to split)
@@ -175,10 +175,33 @@ MIXED=$'0.2.33\t1\n0.2.37\t1'
 V="$(printf '%s\n' "${MIXED}" | classify_drift | verdict_of)"
 [ "${V}" = "UNEXPECTED-NEW" ] || st_fail "mixed-version fixture verdict was '${V}', expected UNEXPECTED-NEW"
 
-echo "OK — detector self-test passed (4 fixtures: hw292-shaped pre-fix caught as"
+# Unreadable version on a SERVING region. classify_drift's own comment claims
+# "unknown must fail closed", but until #5750 nothing exercised it: deleting
+# the `(v is None) or` clause left all five fixtures above green, because none
+# of them ever fed the detector a version it could not parse.
+#
+# This is not a hypothetical input. `kubectl get hr bp-guacamole -n flux-system
+# -o jsonpath='{.spec.chart.spec.version}'` prints an EMPTY string whenever the
+# HelmRelease is absent or the field unset — precisely the state a half-reverted
+# cutover leaves behind (#5759). Fail-open there reports CLEAN on a cluster that
+# is genuinely split, which is the one answer this script exists to prevent.
+UNKNOWN_BOTH=$'\t1\n\t1'
+V="$(printf '%s\n' "${UNKNOWN_BOTH}" | classify_drift | verdict_of)"
+[ "${V}" = "KNOWN-DRIFT" ] || st_fail "unreadable-version fixture (both regions serving, neither version parsable) verdict was '${V}', expected KNOWN-DRIFT — a version that cannot be read cannot be proven >= ${MIN_SAFE_VERSION}, so it must fail closed, never CLEAN"
+
+# One region readably below min, one unreadable. The unknown must not RESCUE
+# the pair out of KNOWN-DRIFT: `all_below_min` is an AND, so treating unknown
+# as safe silently downgrades a real drift to UNEXPECTED-NEW and sends the
+# walker hunting a new defect that does not exist.
+UNKNOWN_MIXED=$'0.2.33\t1\n\t1'
+V="$(printf '%s\n' "${UNKNOWN_MIXED}" | classify_drift | verdict_of)"
+[ "${V}" = "KNOWN-DRIFT" ] || st_fail "one-old-one-unreadable fixture verdict was '${V}', expected KNOWN-DRIFT — an unparsable version must not rescue a known-drifted pair"
+
+echo "OK — detector self-test passed (7 fixtures: hw292-shaped pre-fix caught as"
 echo "   KNOWN-DRIFT, delivered-fix state reads CLEAN, single-region reads CLEAN,"
 echo "   an already-patched-but-still-splitting shape is never mis-blamed on"
-echo "   drift, and a mixed-version snapshot is not folded into either verdict)."
+echo "   drift, a mixed-version snapshot is not folded into either verdict, and"
+echo "   an unreadable chart version fails CLOSED rather than reading CLEAN)."
 
 if [ "${SELF_TEST}" -eq 1 ]; then
   echo "OK: --self-test only; no cluster was contacted."
