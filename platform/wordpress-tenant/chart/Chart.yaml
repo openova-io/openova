@@ -311,7 +311,41 @@ name: bp-wordpress-tenant
 #   Also hardened the step-0 pg4wp `curl` with `--max-time 120` (mirrors the
 #   step-4 OIDC-plugin vendor) so a black-holed GitHub egress can only FAIL
 #   FAST (→ OnFailure retry) instead of hanging the hook indefinitely.
-version: 0.4.22
+# 0.4.23 (#5623): the active-hot-standby pair must DECLARE what promotes its
+#   standby, and the render FAILS CLOSED when it does not.
+#   FOUND — hw292 G12 region-kill (2026-08-03): bp-cnpg-pair's region-B
+#   dr-promoter promoted at T0+2m16s (RPO=0) while the three bp-postgres
+#   shared-pg standbys, which render the identical shape, stayed
+#   `pg_is_in_recovery()=t` for the whole outage because only bp-cnpg-pair
+#   shipped a promoter. bp-postgres 0.2.18 ported it. THIS chart renders the
+#   same cross-region standby (`replica.enabled: true` + pg_basebackup +
+#   externalClusters, templates/cnpg-cluster.yaml) and ships NEITHER a promoter
+#   NOR a `kind: Continuum` CR — and the mechanism its own template comment
+#   names, "Continuum K-Cont-2", is a region-A-ONLY Deployment (verified live
+#   2026-08-06 on hw292: region-B carries neither continuum-controller nor the
+#   Continuum CRD) that orchestrates a PLANNED switchover. It dies with the
+#   region it would fail away from — the #5137 root cause. `replica.enabled` is
+#   additionally hard-coded here with no `topology.promoted` HR-value seam, so
+#   even a hand-patch of the live Cluster CR is reverted by flux
+#   drift-correction mid-outage (#5125-D1). Net: a customer ticking the HA box
+#   got a standby nothing would ever promote, silently.
+#   NOT FIXED BY FABRICATING A PROMOTER — a promoter that fires without a real
+#   quorum/lease signal is the #5178 false-promote flap (hw266 TL2→TL25). The
+#   proven bp-cnpg-pair actor latches durability by suspending a NAMED
+#   HelmRelease, and this chart's HR is minted per-Application by the
+#   application-controller, so there is no stable HR name at render time. That
+#   seam is real design work, tracked on #5623.
+#   SHIPPED — `pg.activeHotStandby.promotion.mechanism`, REQUIRED whenever the
+#   pair renders. `manual` (operator-run promotion, RUNBOOKS §6.1) is the only
+#   mechanism this chart can honour today; `dr-promoter` and `continuum` fail
+#   closed naming exactly what is missing, so declaring an undelivered failover
+#   is impossible. The declared value is stamped on the STANDBY Cluster CR as
+#   `catalyst.openova.io/dr-promotion-mechanism`, so an operator can answer "who
+#   promotes this?" from the live object during an outage instead of from a
+#   values file. Singleton installs render byte-identical (no annotation, no
+#   declaration required). Catalog-wide enforcement:
+#   scripts/check-dr-pairs-declare-promotion.sh.
+version: 0.4.23
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one

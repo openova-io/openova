@@ -52,6 +52,9 @@ bp-wordpress-tenant in EVERY region for HA mode.
 {{- $haEnabled := eq (include "bp-wordpress-tenant.dbMode" .) "active-hot-standby" -}}
 {{- if $haEnabled }}
 {{- include "bp-wordpress-tenant.validateActiveHotStandbyRegions" . }}
+{{- /* #5623 — a DR pair that declares no promotion mechanism is one that
+       silently never promotes on a region kill. Fail closed. */ -}}
+{{- include "bp-wordpress-tenant.validateActiveHotStandbyPromotion" . }}
 {{- end }}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
@@ -272,6 +275,14 @@ metadata:
     catalyst.openova.io/blueprint: bp-wordpress-tenant
     catalyst.openova.io/cnpg-pair-role: replica
     catalyst.openova.io/cnpg-pair-name: {{ .Values.database.cnpgClusterName | quote }}
+    # #5623 — WHAT WILL PROMOTE THIS STANDBY, stamped on the live object.
+    # An operator inspecting a running pair must be able to answer "who promotes
+    # this on a region-A kill?" from the cluster itself, not from a values file
+    # in a git repo. `manual` means NOTHING region-local will act: promotion is
+    # the sovereign-admin's RUNBOOKS §6.1 action and the RTO is however long
+    # that takes. bp-cnpg-pair / bp-postgres stamp their pairs by shipping an
+    # actual dr-promoter Deployment alongside; this chart ships none.
+    catalyst.openova.io/dr-promotion-mechanism: {{ include "bp-wordpress-tenant.drPromotionMechanism" . | quote }}
 spec:
   instances: {{ .Values.database.cluster.instances }}
   imageName: {{ .Values.database.cluster.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql" }}:{{ .Values.database.cluster.pgVersion }}

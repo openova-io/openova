@@ -1193,6 +1193,42 @@ The deterministic failover test for two independent CNPG clusters:
    cluster drift" REVERTS the patch mid-outage and silently re-demotes the
    survivor (hw256 G12, T0+2m07s). (The `Continuum` CR orchestration path is the
    automated equivalent — PR #2072/#2074.)
+3b. **SAMPLE EVERY PAIR, NOT JUST `bp-cnpg-pair` (#5623).** A 2-region Sovereign
+   runs FOUR CNPG DR pairs, and until 2026-08-04 only one of them could promote.
+   On hw292 (2026-08-03) `bp-cnpg-pair` promoted at T0+2m16s with RPO=0 while
+   `shared-pg-replica`, `shared-pg-b-replica` and `shared-pg-c-replica` each
+   stayed `pg_is_in_recovery() = t` for the WHOLE outage — keycloak is a
+   shared-pg consumer, so the auth path could not recover in region-B even in
+   principle, behind a gateway that answered a correct-looking 503. A walk that
+   samples only the cnpg-pair line reports Pillar 3 GREEN on a Sovereign whose
+   platform databases are all read-only. **The falsifiable per-pair assertion:**
+
+   | Pair (region-B object) | Chart | Mechanism | Must promote within | Observe |
+   |---|---|---|---|---|
+   | `cnpg/cnpg-pair-bp-cnpg-pair-replica` | bp-cnpg-pair ≥0.2.14 | `dr-promoter` | ~2–4 min, zero touch | `dr-auto-promoted-at` on the region-B HR |
+   | `shared-data/shared-pg-replica` | bp-postgres ≥0.2.18 | `dr-promoter` | ~2–4 min, zero touch | `dr-auto-promoted-at` on `bp-postgres-shared` |
+   | `shared-data/shared-pg-b-replica` | bp-postgres ≥0.2.18 | `dr-promoter` | ~2–4 min, zero touch | `dr-auto-promoted-at` on `bp-postgres-shared-b` |
+   | `shared-data/shared-pg-c-replica` | bp-postgres ≥0.2.18 | `dr-promoter` | ~2–4 min, zero touch | `dr-auto-promoted-at` on `bp-postgres-shared-c` |
+   | per-Org `wordpress-db-replica` | bp-wordpress-tenant | **`manual`** | never automatically | `catalyst.openova.io/dr-promotion-mechanism` on the standby Cluster CR |
+
+   The count is the assertion. Region-B must hold **four** `*-dr-promoter`
+   Deployments during the outage, not one:
+   ```bash
+   KUBECONFIG=<region-b> kubectl get deploy -A -o name | grep dr-promoter   # want 4
+   KUBECONFIG=<region-b> kubectl get cluster.postgresql.cnpg.io -A \
+     -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,PRIMARY:.status.currentPrimary
+   # then, per standby, the ground truth — a promoted standby answers `f`:
+   #   psql -tAc 'select pg_is_in_recovery()'
+   ```
+   Sample **both** regions and sample **repeatedly** through the outage window: a
+   single post-recovery sample cannot distinguish "promoted at T0+2m" from "never
+   promoted and region-A came back". `bp-wordpress-tenant` is the known
+   exception, declared not inferred — its standby carries
+   `catalyst.openova.io/dr-promotion-mechanism: manual` precisely so a walker
+   reads the gap off the live object instead of discovering it by killing a
+   region. Making that pair automatic is tracked on #5623; the catalog-wide
+   source gate is `scripts/check-dr-pairs-declare-promotion.sh`.
+
 4. Verify the write made it across — zero-tx-loss (RPO=0)
 5. Reverse: `scripts/region-kill-drill.sh recover --arm` os-starts region-a.
    **AUTOMATIC (bp-cnpg-pair ≥ 0.2.18, #5245)** — the failback now converges

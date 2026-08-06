@@ -256,14 +256,22 @@ if [ ! -f platform/wordpress-tenant/chart/charts/common-0.1.3.tgz ]; then
   fi
 fi
 if [ -d platform/wordpress-tenant/chart/charts ]; then
+  # #5623 — chart 0.4.23 additionally REQUIRES a declared promotion mechanism
+  # whenever the active-hot-standby pair renders (an undeclared DR pair is one
+  # that silently never promotes on a region kill). Supply it on BOTH legs so
+  # this gate keeps testing the REGION selector: without it the positive leg
+  # fails for the promotion reason and the negative leg passes for the promotion
+  # reason, which would make the region assertion vacuous in both directions.
   run_case "bp-wordpress-tenant" platform/wordpress-tenant/chart "$A" \
     --api-versions postgresql.cnpg.io/v1 \
     --set pg.activeHotStandby.enabled=true \
+    --set pg.activeHotStandby.promotion.mechanism=manual \
     --set pg.activeHotStandby.primaryRegion="$A" \
     --set pg.activeHotStandby.replicaRegion="$B" \
     --NEG-- \
     --api-versions postgresql.cnpg.io/v1 \
-    --set pg.activeHotStandby.enabled=true
+    --set pg.activeHotStandby.enabled=true \
+    --set pg.activeHotStandby.promotion.mechanism=manual
 fi
 
 # bp-catalyst-platform qa-fixtures — the sibling this sweep found still pinning

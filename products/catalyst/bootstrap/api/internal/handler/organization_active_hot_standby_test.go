@@ -201,3 +201,55 @@ func TestRenderOrganizationOverlay_HotStandby_Degenerate_FallsBackToSingle(t *te
 		})
 	}
 }
+
+// #5623 — the emitted HA block MUST declare what promotes the standby.
+//
+// On the hw292 G12 region-kill (2026-08-03) bp-cnpg-pair's region-B dr-promoter
+// promoted at T0+2m16s with RPO=0, while every DR pair that shipped no
+// region-local promoter stayed pg_is_in_recovery()=t for the entire outage.
+// bp-wordpress-tenant is in the second group: it renders a cross-region standby
+// but ships no promoter, and the per-Application Continuum CR this same writer
+// emits is reconciled by continuum-controller — a SINGLE region-A Deployment
+// that dies with the region it would fail away from (#5137; verified live on
+// hw292 2026-08-06, region-B carries neither the controller nor the Continuum
+// CRD) whose spec.autoFailover defaults to false.
+//
+// bp-wordpress-tenant 0.4.23+ therefore REFUSES to render an active-hot-standby
+// pair with no declared mechanism. This test is the lock on the writer side: if
+// the declaration is ever dropped from the template, every tenant WordPress
+// install on a multi-region Sovereign fails its Helm render instead of silently
+// shipping a standby nothing promotes. Asserting the VALUE, not the key — a key
+// with an empty value is exactly how #5639 survived two months.
+func TestRenderOrganizationOverlay_HotStandby_On_DeclaresPromotionMechanism(t *testing.T) {
+	t.Setenv("SOVEREIGN_ENABLE_HOT_STANDBY", "true")
+	t.Setenv("SOVEREIGN_PRIMARY_REGION", "hz-fsn-rtz-prod")
+	t.Setenv("SOVEREIGN_REPLICA_REGION", "hz-hel-rtz-prod")
+	files, err := renderOrganizationOverlay(d31TestRec(), OrganizationChartVersions{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	wp := files["bp-wordpress-tenant.yaml"]
+	if !strings.Contains(wp, "promotion:") {
+		t.Fatalf("#5623: HA overlay carries no pg.activeHotStandby.promotion block — "+
+			"bp-wordpress-tenant 0.4.23+ fails the render without it:\n%s", wp)
+	}
+	if !strings.Contains(wp, "mechanism: manual") {
+		t.Fatalf("#5623: HA overlay does not declare mechanism: manual. Only declare a "+
+			"mechanism this chart actually ships — \"dr-promoter\" and \"continuum\" fail "+
+			"closed in the chart precisely so an undelivered failover cannot be asserted:\n%s", wp)
+	}
+}
+
+// #5623 companion — a NON-HA overlay must not carry the declaration at all.
+// Single-region tenants render no DR pair, so a promotion mechanism there would
+// be a claim about a standby that does not exist.
+func TestRenderOrganizationOverlay_HotStandby_Off_NoPromotionMechanism(t *testing.T) {
+	t.Setenv("SOVEREIGN_ENABLE_HOT_STANDBY", "false")
+	files, err := renderOrganizationOverlay(d31TestRec(), OrganizationChartVersions{})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if wp := files["bp-wordpress-tenant.yaml"]; strings.Contains(wp, "mechanism:") {
+		t.Fatalf("#5623: non-HA overlay leaked a promotion mechanism declaration:\n%s", wp)
+	}
+}

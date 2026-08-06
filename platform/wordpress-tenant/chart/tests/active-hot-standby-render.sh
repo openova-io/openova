@@ -110,6 +110,7 @@ echo "  PASS"
 echo "[d31-render] Case 2: enabled render emits primary + replica with right shape"
 helm template smoke-wp . "${COMMON_SET[@]}" "${API_VERSIONS[@]}" \
   --set "pg.activeHotStandby.enabled=true" \
+  --set "pg.activeHotStandby.promotion.mechanism=manual" \
   --set "pg.activeHotStandby.primaryRegion=hz-fsn-rtz-prod" \
   --set "pg.activeHotStandby.replicaRegion=hz-hel-rtz-prod" \
   --set "database.cluster.instances=3" \
@@ -327,6 +328,7 @@ echo "  PASS"
 echo "[d31-render] Case 3: enabled with empty primaryRegion triggers fail-fast"
 if helm template smoke-wp . "${COMMON_SET[@]}" "${API_VERSIONS[@]}" \
      --set "pg.activeHotStandby.enabled=true" \
+     --set "pg.activeHotStandby.promotion.mechanism=manual" \
      --set "pg.activeHotStandby.replicaRegion=hz-hel-rtz-prod" \
      > "$TMP/noprimary.yaml" 2> "$TMP/noprimary.err"; then
   echo "FAIL: render succeeded with empty pg.activeHotStandby.primaryRegion — should have failed fast." >&2
@@ -343,6 +345,7 @@ echo "  PASS"
 echo "[d31-render] Case 4: same primary/replica region triggers fail-fast"
 if helm template smoke-wp . "${COMMON_SET[@]}" "${API_VERSIONS[@]}" \
      --set "pg.activeHotStandby.enabled=true" \
+     --set "pg.activeHotStandby.promotion.mechanism=manual" \
      --set "pg.activeHotStandby.primaryRegion=hz-fsn-rtz-prod" \
      --set "pg.activeHotStandby.replicaRegion=hz-fsn-rtz-prod" \
      > "$TMP/sameregion.yaml" 2> "$TMP/sameregion.err"; then
@@ -360,6 +363,7 @@ echo "  PASS"
 echo "[d31-render] Case 5: clusterMesh.enabled=false omits managed.services.additional on primary"
 helm template smoke-wp . "${COMMON_SET[@]}" "${API_VERSIONS[@]}" \
   --set "pg.activeHotStandby.enabled=true" \
+  --set "pg.activeHotStandby.promotion.mechanism=manual" \
   --set "pg.activeHotStandby.primaryRegion=hz-fsn-rtz-prod" \
   --set "pg.activeHotStandby.replicaRegion=hz-hel-rtz-prod" \
   --set "pg.activeHotStandby.clusterMesh.enabled=false" \
@@ -413,6 +417,7 @@ echo "  PASS"
 echo "[d31-render] Case 6: replication.mode=async omits synchronous_* parameters"
 helm template smoke-wp . "${COMMON_SET[@]}" "${API_VERSIONS[@]}" \
   --set "pg.activeHotStandby.enabled=true" \
+  --set "pg.activeHotStandby.promotion.mechanism=manual" \
   --set "pg.activeHotStandby.primaryRegion=hz-fsn-rtz-prod" \
   --set "pg.activeHotStandby.replicaRegion=hz-hel-rtz-prod" \
   --set "pg.activeHotStandby.replication.mode=async" \
@@ -424,6 +429,93 @@ helm template smoke-wp . "${COMMON_SET[@]}" "${API_VERSIONS[@]}" \
 if grep -q "synchronous_commit\|synchronous_standby_names" "$TMP/async.yaml"; then
   echo "FAIL: replication.mode=async leaked synchronous_* parameters into the manifest." >&2
   grep -nE "synchronous_(commit|standby_names)" "$TMP/async.yaml" >&2
+  exit 1
+fi
+echo "  PASS"
+
+# ── Case 7: #5623 — the pair MUST declare what promotes its standby ──
+# hw292 G12 region-kill (2026-08-03): bp-cnpg-pair's region-B dr-promoter
+# promoted at T0+2m16s (RPO=0); every DR pair that shipped no region-local
+# promoter stayed pg_is_in_recovery()=t for the WHOLE outage. This chart is in
+# the second group — it renders a cross-region standby but ships no promoter and
+# no Continuum CR, and continuum-controller is region-A-only (it dies with the
+# region it would fail away from, #5137). So an UNDECLARED pair here is an "HA"
+# database whose standby nothing promotes, and before 0.4.23 it rendered
+# silently. Chart 0.4.23 fails closed instead.
+echo "[d31-render] Case 7a: enabled with NO promotion mechanism triggers fail-fast"
+if helm template smoke-wp . "${COMMON_SET[@]}" "${API_VERSIONS[@]}" \
+     --set "pg.activeHotStandby.enabled=true" \
+     --set "pg.activeHotStandby.primaryRegion=hz-fsn-rtz-prod" \
+     --set "pg.activeHotStandby.replicaRegion=hz-hel-rtz-prod" \
+     > "$TMP/nopromo.yaml" 2> "$TMP/nopromo.err"; then
+  echo "FAIL: render succeeded with no pg.activeHotStandby.promotion.mechanism — a DR pair that declares no promotion mechanism is one that silently never promotes (#5623)." >&2
+  exit 1
+fi
+if ! grep -q "pg.activeHotStandby.promotion.mechanism is REQUIRED" "$TMP/nopromo.err"; then
+  echo "FAIL: expected the #5623 fail-fast naming pg.activeHotStandby.promotion.mechanism:" >&2
+  cat "$TMP/nopromo.err" >&2
+  exit 1
+fi
+echo "  PASS"
+
+# A mechanism this chart does NOT ship must fail closed. Declaring an
+# undelivered failover is worse than declaring none: it reads as a guarantee in
+# every audit that follows.
+for bogus in dr-promoter continuum nonsense; do
+  echo "[d31-render] Case 7b: mechanism=$bogus fails closed"
+  if helm template smoke-wp . "${COMMON_SET[@]}" "${API_VERSIONS[@]}" \
+       --set "pg.activeHotStandby.enabled=true" \
+       --set "pg.activeHotStandby.primaryRegion=hz-fsn-rtz-prod" \
+       --set "pg.activeHotStandby.replicaRegion=hz-hel-rtz-prod" \
+       --set "pg.activeHotStandby.promotion.mechanism=$bogus" \
+       > /dev/null 2> "$TMP/bogus-$bogus.err"; then
+    echo "FAIL: chart accepted mechanism=$bogus, which it does not ship (#5623)." >&2
+    exit 1
+  fi
+  echo "  PASS"
+done
+
+# Case 7c: the declared mechanism is stamped on the STANDBY Cluster CR, so an
+# operator can answer "who promotes this?" from the LIVE object during an
+# outage instead of from a values file in git. Asserted on the VALUE — a key
+# with an empty value is exactly how #5639 survived two months.
+echo "[d31-render] Case 7c: declared mechanism is stamped on the replica Cluster CR"
+helm template smoke-wp . "${COMMON_SET[@]}" "${API_VERSIONS[@]}" \
+  --set "pg.activeHotStandby.enabled=true" \
+  --set "pg.activeHotStandby.primaryRegion=hz-fsn-rtz-prod" \
+  --set "pg.activeHotStandby.replicaRegion=hz-hel-rtz-prod" \
+  --set "pg.activeHotStandby.promotion.mechanism=manual" \
+  > "$TMP/promo.yaml" 2> "$TMP/promo.err" || {
+  echo "FAIL: mechanism=manual render errored:" >&2
+  cat "$TMP/promo.err" >&2
+  exit 1
+}
+stamped="$(python3 - "$TMP/promo.yaml" <<'PYEOF'
+import sys, yaml
+for d in yaml.safe_load_all(open(sys.argv[1])):
+    if d and d.get('kind') == 'Cluster':
+        ann = (d.get('metadata') or {}).get('annotations') or {}
+        if ann.get('catalyst.openova.io/cnpg-pair-role') == 'replica':
+            print(ann.get('catalyst.openova.io/dr-promotion-mechanism', ''))
+PYEOF
+)"
+if [ "$stamped" != "manual" ]; then
+  echo "FAIL: replica Cluster CR dr-promotion-mechanism annotation = '${stamped:-<absent>}', want 'manual' (#5623)." >&2
+  exit 1
+fi
+echo "  PASS"
+
+# Case 7d: a SINGLETON install must stay byte-identical — no DR pair means no
+# declaration is required and none must leak into the render.
+echo "[d31-render] Case 7d: singleton render carries no promotion declaration"
+helm template smoke-wp . "${COMMON_SET[@]}" "${API_VERSIONS[@]}" \
+  > "$TMP/singleton-promo.yaml" 2> "$TMP/singleton-promo.err" || {
+  echo "FAIL: singleton render errored — the #5623 declaration must not affect non-DR installs:" >&2
+  cat "$TMP/singleton-promo.err" >&2
+  exit 1
+}
+if grep -q "dr-promotion-mechanism" "$TMP/singleton-promo.yaml"; then
+  echo "FAIL: singleton render leaked the DR promotion annotation (#5623)." >&2
   exit 1
 fi
 echo "  PASS"

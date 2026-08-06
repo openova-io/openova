@@ -5902,7 +5902,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.4.22",
+    "version": "0.4.23",
     "section": "pts-7-org-tenant",
     "depends": [
       "bp-postgres",

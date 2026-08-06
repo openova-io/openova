@@ -1654,6 +1654,32 @@ spec:
         enabled: true
         primaryRegion: {{ .PrimaryRegion }}
         replicaRegion: {{ .ReplicaRegion }}
+        # #5623 — WHAT PROMOTES THIS STANDBY ON A REGION KILL. Required by
+        # bp-wordpress-tenant 0.4.23+: the chart refuses to render an
+        # active-hot-standby pair that has not stated its promotion mechanism,
+        # because an undeclared pair is one that silently never promotes (hw292
+        # G12: the pairs without a region-local promoter stayed
+        # pg_is_in_recovery()=t for the entire outage while bp-cnpg-pair's
+        # promoted in 2m16s).
+        #
+        # "manual" is the CORRECT value for this path today, and it is not a
+        # placeholder. The orgTenantContinuum CR rendered below is reconciled by
+        # continuum-controller, which is a SINGLE region-A Deployment — it dies
+        # with the region it would fail away from (the #5137 root cause;
+        # verified live on hw292 2026-08-06, region-B carries neither the
+        # controller nor the Continuum CRD) — and its spec.autoFailover defaults
+        # to false. So nothing promotes this standby automatically on an
+        # unplanned region-A loss; the sovereign-admin does, per RUNBOOKS §6.1.
+        # Declaring "continuum" here would assert a failover that cannot happen,
+        # which is why the chart fails closed on that value.
+        #
+        # Making this automatic means porting the proven bp-cnpg-pair /
+        # bp-postgres dr-promoter onto this chart, which needs a stable
+        # per-Application HelmRelease name for the actor's #5218 suspend latch.
+        # Tracked on #5623 — do NOT flip this to "dr-promoter" before that
+        # actor actually renders.
+        promotion:
+          mechanism: manual
 {{- end }}
 `
 

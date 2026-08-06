@@ -267,6 +267,33 @@ pg:
     # HA checkbox. With enabled=true both MUST be set AND differ.
     primaryRegion: ""
     replicaRegion: ""
+    # ── #5623 REQUIRED promotion declaration ───────────────────────────
+    # WHO PROMOTES THE STANDBY WHEN THE PRIMARY REGION DIES?
+    #
+    # On the hw292 G12 region-kill (2026-08-03) the pairs that shipped a
+    # region-local dr-promoter promoted in ~2 minutes; the pairs that shipped
+    # none stayed read-only for the entire outage — and nothing in their render
+    # distinguished the two. This chart is in the second group: it renders a
+    # cross-region standby (`replica.enabled: true` + pg_basebackup, see
+    # templates/cnpg-cluster.yaml) but ships NO dr-promoter and NO Continuum CR,
+    # and continuum-controller is region-A-only (dies with region-A; region-B
+    # carries neither the controller nor the Continuum CRD — verified live
+    # 2026-08-06 on hw292, both regions sampled).
+    #
+    # So the mechanism must be STATED, not assumed. Empty ⇒ the render FAILS.
+    #   manual       — the ONLY value this chart can honour today. Promotion is
+    #                  the sovereign-admin's RUNBOOKS §6.1 action; RTO = human
+    #                  response time, NOT the ~2min a promoter delivers.
+    #   dr-promoter  — fails closed: this chart ships no promoter and no
+    #                  `topology.promoted` HR-value promote seam.
+    #   continuum    — fails closed: no Continuum CR is rendered, and Continuum
+    #                  orchestrates a PLANNED switchover from region A only.
+    #
+    # The declared value is stamped on the standby Cluster CR as
+    # `catalyst.openova.io/dr-promotion-mechanism` so it is answerable from the
+    # live object. Making this automatic is tracked on #5623.
+    promotion:
+      mechanism: ""
     # WAL streaming + promotability threshold — mirrors bp-cnpg-pair
     # walStreaming defaults. Continuum K-Cont-2 reads these back from
     # the Cluster CR status before initiating cross-cluster switchover.
