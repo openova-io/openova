@@ -3499,7 +3499,45 @@ name: bp-self-sovereign-cutover
 # asserts each stamp (FATAL — fail-open here IS the defect), SKIPs an absent
 # Deployment, and FATALs on an un-overlaid sovereign.fqdn. Step count unchanged
 # at 11.
-version: 0.1.174
+#
+# 0.1.175 — #5650: step-08 gains a PROVIDER PACKAGE host lint, closing the
+# same defect class the issue found on vcluster-system/loft one CRD kind
+# wider. #5674/#5719 (chart 0.1.168/0.1.172, already merged) pivoted the loft
+# HelmRepository off charts.loft.sh in every region and are unchanged here —
+# this bump does not touch that fix. A repo-wide, live-corroborated sweep
+# (hw292, both regions, read-only) found ONE remaining actor of the SAME
+# shape: `pkg.crossplane.io/v1.Provider.spec.package`. Crossplane's package
+# manager fetches it with its own remote.Image() call directly from the
+# crossplane-system Pod — never through containerd (so step-04's
+# HOST_PROJECT_MAP redirect cannot cover it), never through Flux
+# source-controller (so FLUX_SOURCE_HOST_LINT's helmrepositories/
+# gitrepositories/ocirepositories enumeration cannot see it either) — on its
+# own reconcile loop, independent of the 600s hold. Step-11
+# (crossplane-provider-pivot) already pivots spec.package durably; nothing
+# previously PROVED the pivot held, the way fluxSourceHostLint proves the
+# loft pivot held.
+#
+# New: run_provider_package_host_lint() in step-08, enumerating
+# providers.pkg.crossplane.io (cluster-scoped) per region exactly like
+# fluxSourceHostLint's per-region driver, fail-closed on an unmeasurable
+# region, PASS on zero rows (CRD absent) or zero rows (CRD installed, no
+# Providers). Unlike run_podspec_refhost_lint, a package ref with NO explicit
+# registry host is NOT skipped as "docker.io, containerd covers it" — step-11's
+# own header states Crossplane never traverses containerd, so an implicit ref
+# is asserted against its real implicit default (docker.io) instead of being
+# silently passed. New values: egressTest.providerPackageHostLint.{enabled,
+# allowHosts} (default enabled:true, allowHosts:[] — fails closed, matching
+# fluxSourceHostLint's default). New env: PROVIDER_PACKAGE_HOST_LINT,
+# PROVIDER_PACKAGE_HOST_ALLOW. New status field per secondary region:
+# step.egress-block-test.region.<key>.providerPackageLint. Step count
+# unchanged at 11 — this is inside step-08, not a new step.
+#
+# Guard: chart/tests/provider-package-host-lint.sh (new), same behavioural
+# discipline as flux-source-host-lint.sh — extracts the real function from the
+# render and drives it against a stub kubectl; RED on main (function absent),
+# GREEN here (16/16 assertions), including a case pinned to the live hw292
+# region-a digest-pinned provider-opentofu pivot verbatim.
+version: 0.1.175
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
