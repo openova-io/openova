@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-06T06:45:04Z` |
+| Last refreshed | `2026-08-06T07:00:13Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-06T06:55 | [#5749](https://github.com/openova-io/openova/pull/5749) | #3668 | docs(uat): screenshot evidence for console/catalog/jobs/clou |
 | 2026-08-06T06:33 | [#5748](https://github.com/openova-io/openova/pull/5748) | #960 | docs(uat): add live screenshot evidence for 19 funnel/orgs g |
 | 2026-08-06T06:36 | [#5747](https://github.com/openova-io/openova/pull/5747) | #2725 | docs(uat): screenshot SSO/meta/robustness evidence + re-walk |
 | 2026-08-06T06:27 | [#5746](https://github.com/openova-io/openova/pull/5746) | #960 | docs(uat): real screenshots for 30 hw292 topology/placement/ |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T00:06 | [#5715](https://github.com/openova-io/openova/pull/5715) | #5623 | fix(dr): every CNPG DR pair must declare a promotion mechani |
 | 2026-08-05T23:56 | [#5714](https://github.com/openova-io/openova/pull/5714) | #3599 | fix(placement): reject a region-less placement target instea |
 | 2026-08-05T23:52 | [#5713](https://github.com/openova-io/openova/pull/5713) | #5635 | fix(catalyst-api): serve per-Org app hosts from every region |
-| 2026-08-05T23:42 | [#5712](https://github.com/openova-io/openova/pull/5712) | #5634 | fix(marketplace,billing): carry the real 429 retry window in |
 
 ---
 
