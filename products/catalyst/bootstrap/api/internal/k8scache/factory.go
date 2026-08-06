@@ -1471,7 +1471,53 @@ func (f *Factory) RedactForKind(k Kind, u *unstructured.Unstructured) *unstructu
 //
 // Per ADR-0001: this is process-internal coordination, not data-plane
 // polling. The informer itself uses the apiserver's watch stream.
+//
+// #5642 (second defect — RETENTION, as distinct from the rebuild DRIVER
+// #5645 removed). The watcher MUST abort on the PER-CLUSTER stop channel,
+// not only on the process context.
+//
+// It did not. `ctx` here is f.runCtx, the process-lifetime context, so a
+// watcher for an informer that has not synced yet blocks in
+// WaitForCacheSync until the process exits. Every path that supersedes or
+// tears a clusterState down — AddCluster's rebuild branch
+// (prev.stopOnce.Do(close(prev.stop))), RemoveCluster on a wipe (#156),
+// QuarantineDeployment on a terminal-FAILED conclusion (#5285), the rescan
+// prune (#3987) — closes cs.stop and drops the map entry, but the watcher
+// goroutines survived it. The closure captures `cs`, so ONE surviving
+// watcher pins the WHOLE superseded clusterState: all its informers, all
+// their Indexers, and therefore a full retained copy of that cluster's
+// object graph. That is the memory that was never reclaimed on hw292 (dep
+// 1c56518035a83e03): live heap +0.6 MB/s, RSS +1.26 MB/s, OOMKilled at
+// the 4Gi limit on a ~60-minute metronome — restartCount 15 at filing, 22
+// on 2026-08-04, 66 by 2026-08-06.
+//
+// #5645 made AddCluster a no-op on a byte-identical kubeconfig, which
+// removes the level-triggered driver that was firing ~2 rebuilds per 5
+// minutes, and explicitly filed this residue as a follow-up. Removing one
+// driver is not the same as making a teardown safe: a CHANGED kubeconfig
+// still rebuilds by design (token rotation #5210, the EIP -> private-SAN
+// heal #3991/#4000), a pre-built-client ClusterRef carries no fingerprint
+// so the #5645 gate cannot fire and it always rebuilds, and every wipe /
+// quarantine / prune tears a set down outright.
+//
+// Measured, 2 kinds, 12 rebuilds of one cluster id (see
+// informer_sync_watcher_release_5642_test.go): parked runSyncWatcher
+// goroutines grew linearly with the rebuild count before this change and
+// stay at one live set after it.
 func (f *Factory) runSyncWatcher(ctx context.Context, cs *clusterState) {
+	// Abort on EITHER the process context OR this cluster's teardown.
+	// cs.stop is closed by RemoveCluster, by AddCluster's rebuild branch,
+	// and by the f.stop fan-out in startClusterInformers — so this single
+	// channel covers process shutdown and every per-cluster teardown path.
+	stop := make(chan struct{})
+	go func() {
+		defer close(stop)
+		select {
+		case <-ctx.Done():
+		case <-cs.stop:
+		}
+	}()
+
 	for kind, inf := range cs.informers {
 		kind := kind
 		inf := inf
@@ -1479,7 +1525,7 @@ func (f *Factory) runSyncWatcher(ctx context.Context, cs *clusterState) {
 			// HasSynced flips true exactly once per cluster lifetime.
 			// We block on cache.WaitForCacheSync which itself is
 			// event-driven against the informer's controller.
-			synced := cache.WaitForCacheSync(ctx.Done(), inf.HasSynced)
+			synced := cache.WaitForCacheSync(stop, inf.HasSynced)
 			f.mu.Lock()
 			cs.synced[kind] = synced
 			f.mu.Unlock()
