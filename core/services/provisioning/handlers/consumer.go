@@ -1867,9 +1867,16 @@ func (h *Handler) completeStepWithMessage(ctx context.Context, provisionID, tena
 // Used by sibling parallel workers so the UI sees which app broke.
 func (h *Handler) failStep(ctx context.Context, provisionID, tenantID string, idx int, name, message string) {
 	step := store.ProvisionStep{
-		Name:    name,
-		Status:  "failed",
-		Message: message,
+		Name:   name,
+		Status: "failed",
+		// #5646 — every caller here passes a RAW Go error (`err.Error()`), and
+		// this field is printed verbatim to a paying customer by
+		// ProvisioningTimeline.svelte. Those errors are assembled at runtime out
+		// of Kubernetes object names (`tenant-<slug>-kubeconfig`), so without
+		// this boundary the banned term reaches the funnel from an OBJECT NAME
+		// rather than from any string literal — the #5435 class, which no source
+		// grep can see. The unabridged error still goes to the log line below.
+		Message: customerFacingMessage(message),
 		DoneAt:  time.Now().UTC(),
 	}
 	if err := h.Store.UpdateStep(ctx, provisionID, idx, step); err != nil {
@@ -1889,7 +1896,11 @@ func (h *Handler) failProvision(ctx context.Context, provisionID, tenantID strin
 
 	if stepIndex < len(p.Steps) && p.Steps[stepIndex].Status != "failed" {
 		p.Steps[stepIndex].Status = "failed"
-		p.Steps[stepIndex].Message = message
+		// #5646 — same customer-facing field as failStep. Several callers wrap a
+		// raw error into this message (`vcluster not ready: %s`,
+		// `mirror kubeconfig to flux-system: %s`), so it carries the same
+		// runtime-object-name exposure and gets the same boundary.
+		p.Steps[stepIndex].Message = customerFacingMessage(message)
 		p.Steps[stepIndex].DoneAt = time.Now().UTC()
 	}
 

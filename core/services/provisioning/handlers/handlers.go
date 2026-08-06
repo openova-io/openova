@@ -988,7 +988,7 @@ func (h *Handler) mirrorVClusterKubeconfig(ctx context.Context, tenantSlug strin
 	// Kustomization (generateAppsSyncKustomization) references.
 	srcNS := tenantSlug
 	srcName := "vc-vcluster"
-	dstName := "tenant-" + tenantSlug + "-kubeconfig"
+	dstName := vclusterKubeconfigSecretName(tenantSlug)
 
 	srcBody, err := h.k8sGet(fmt.Sprintf("/api/v1/namespaces/%s/secrets/%s", srcNS, srcName))
 	if err != nil {
@@ -1063,5 +1063,5 @@ func (h *Handler) mirrorVClusterKubeconfig(ctx context.Context, tenantSlug strin
 // tenant teardown. 404 is treated as success (already gone).
 func (h *Handler) deleteVClusterKubeconfigMirror(ctx context.Context, tenantSlug string) error {
 	return h.k8sDelete(fmt.Sprintf(
-		"/api/v1/namespaces/flux-system/secrets/tenant-%s-kubeconfig", tenantSlug))
+		"/api/v1/namespaces/flux-system/secrets/%s", vclusterKubeconfigSecretName(tenantSlug)))
 }
