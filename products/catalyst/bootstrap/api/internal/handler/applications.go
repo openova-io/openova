@@ -75,6 +75,7 @@ import (
 	bpv1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 	"github.com/openova-io/openova/core/controllers/pkg/validate"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/instances"
 )
 
 // SSE timing knobs — keep responsive without hammering the apiserver.
@@ -155,14 +156,18 @@ type applicationPlacement struct {
 }
 
 // validVClusterTier — accepted spec.placement.vcluster values
-// (#3373). Mirrors bpv1alpha1.IsKnownVCluster; kept as a tiny local
-// set so the wire validation stays dependency-free.
+// (#3373). Delegates to the instances package so this door shares ONE
+// vocabulary AND one availability fact with POST /apps/instances.
+//
+// #5616 — it used to hold its own `{"", host, mgmt, dmz, rtz}` tuple.
+// Two independent copies of a vocabulary is how a fix lands on one door
+// and misses the other: PR #5622 removed the dead tiers from a single
+// front-end dropdown while BOTH API validators kept accepting them, so
+// a direct call, a Git edit or the MCP `create_application` tool still
+// produced a 201 followed by a permanently Degraded Application
+// (`namespaces "rtz" not found`). Availability is now enforced here too.
 func validVClusterTier(v string) bool {
-	switch v {
-	case "", "host", "mgmt", "dmz", "rtz":
-		return true
-	}
-	return false
+	return instances.IsKnownVClusterTier(v) && instances.VClusterTierAvailable(v)
 }
 
 // applicationInstallRequest is the body of POST
@@ -943,8 +948,31 @@ func validateApplicationInstallRequest(req applicationInstallRequest) (string, b
 		}
 	}
 	// #3373 — instance placement WHERE fields.
-	if !validVClusterTier(req.Placement.VCluster) {
-		return "placement.vcluster must be one of host, mgmt, dmz, rtz", false
+	// #5616 — separate "not a tier at all" from "a real tier this
+	// Sovereign does not install": the second one needs a remedy in the
+	// message, because the operator did nothing wrong.
+	if !instances.IsKnownVClusterTier(req.Placement.VCluster) {
+		return "placement.vcluster must be one of " + instances.KnownVClusterTiersCSV(), false
+	}
+	if !instances.VClusterTierAvailable(req.Placement.VCluster) {
+		return instances.UnavailableTierMessage(req.Placement.VCluster), false
+	}
+	// #5616 — the #3969 desired-state form carries the tier PER TARGET
+	// (`placement.targets[].vcluster`), and nothing validated it. That is
+	// the door the shipped PlacementEditor walks through: a freshly added
+	// target defaults to `mgmt` with no operator interaction at all
+	// (widgets/topology/PlacementEditor.tsx DEFAULT_VCLUSTERS[1]), so an
+	// untouched Apply used to commit a tier that resolves to a namespace
+	// no Sovereign creates.
+	for i, t := range req.Placement.Targets {
+		if !instances.IsKnownVClusterTier(t.VCluster) {
+			return fmt.Sprintf("placement.targets[%d].vcluster must be one of %s",
+				i, instances.KnownVClusterTiersCSV()), false
+		}
+		if !instances.VClusterTierAvailable(t.VCluster) {
+			return fmt.Sprintf("placement.targets[%d]: %s", i,
+				instances.UnavailableTierMessage(t.VCluster)), false
+		}
 	}
 	for i, c := range req.Placement.Clusters {
 		if strings.TrimSpace(c) == "" {

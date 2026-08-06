@@ -32,12 +32,132 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 
 	"github.com/openova-io/openova/core/controllers/application/admission"
 	appv1alpha1 "github.com/openova-io/openova/core/controllers/pkg/apis/application/v1alpha1"
 )
+
+// ── #5616 — a placement TIER is only real when the Sovereign installs it ──
+//
+// `placement.vcluster` carries a TIER KEY, not a namespace. The
+// application-controller turns that key into a HOST NAMESPACE through its
+// VClusterPlacements map (`VCLUSTER_PLACEMENT_<TIER>_NS`, defaulting to
+// the tier name) and addresses the per-cluster HelmRelease there. So the
+// key is usable only when a vCluster for that tier actually exists.
+//
+// Until now this validator accepted {host, mgmt, dmz, rtz}
+// UNCONDITIONALLY, while `clusters/_template/bootstrap-kit/` installs NO
+// mgmt / dmz / rtz vCluster and creates no such namespace (verified on
+// hw292 2026-08-04: 53 namespaces, none of mgmt/dmz/rtz). Three of the
+// four accepted values therefore resolved to a namespace that exists on
+// no Sovereign: the API answered 201 and the Application then sat
+// Degraded forever behind a raw Kubernetes error —
+// `upsert per-cluster HelmRelease rtz/uatco-agenity-rtz-a: namespaces
+// "rtz" not found` (#5616). PR #5622 stopped OFFERING those options in
+// ONE of the four front-end trees; every other door into this endpoint
+// (direct API call, Git edit, the MCP `create_application` tool, the
+// catalyst-console tree) still walked straight into the same wall,
+// because the CONTRACT never changed.
+//
+// The accepted set is now DERIVED from what the Sovereign installs
+// rather than hardcoded: "host" (namespace-independent — the controller
+// normalises it to the Organization's own namespace) plus whatever
+// CATALYST_PLACEMENT_VCLUSTER_TIERS names. Default = host only, which
+// matches every Sovereign this repo can provision today. An operator who
+// installs the mgmt vCluster sets CATALYST_PLACEMENT_VCLUSTER_TIERS=mgmt
+// and the tier is selectable again — one knob, no code change, and the
+// knob is the SAME fact the controller's VCLUSTER_PLACEMENT_MGMT_NS
+// already encodes.
+
+// TierEnvVar is the env var an operator sets to declare which non-host
+// vCluster tiers this Sovereign actually installs (comma-separated).
+const TierEnvVar = "CATALYST_PLACEMENT_VCLUSTER_TIERS"
+
+// knownVClusterTiers is the whole `placement.vcluster` VOCABULARY —
+// the values the CRD + the application-controller can parse at all.
+// Mirrors bpv1alpha1.IsKnownVCluster. A value outside this set is a
+// malformed request (400 placement-vcluster-invalid); a value inside it
+// but not installed here is a well-formed request this Sovereign cannot
+// honour (400 placement-vcluster-unavailable).
+var knownVClusterTiers = []string{"host", "mgmt", "dmz", "rtz"}
+
+// availableNonHostTiers holds the non-host tiers this Sovereign can
+// actually place into. Package-level so the handler stays untouched and
+// tests can drive it explicitly; seeded once from the environment.
+var availableNonHostTiers = parseAvailableTiers(os.Getenv(TierEnvVar))
+
+// parseAvailableTiers turns the comma-separated env value into the set
+// of non-host tiers to accept. Unknown or empty entries are dropped —
+// an operator typo must never widen the accepted set. "host" is always
+// accepted and is not stored here.
+func parseAvailableTiers(csv string) map[string]bool {
+	out := map[string]bool{}
+	for _, raw := range strings.Split(csv, ",") {
+		t := strings.ToLower(strings.TrimSpace(raw))
+		if t == "" || t == "host" {
+			continue
+		}
+		for _, known := range knownVClusterTiers {
+			if t == known {
+				out[t] = true
+				break
+			}
+		}
+	}
+	return out
+}
+
+// SetAvailableVClusterTiers re-reads the available-tier set from a
+// comma-separated list. Exported so tests — and any future explicit
+// wiring from the handler's config — can set it without touching the
+// process environment.
+func SetAvailableVClusterTiers(csv string) { availableNonHostTiers = parseAvailableTiers(csv) }
+
+// IsKnownVClusterTier reports whether v is in the vocabulary at all.
+// The empty string ("inherit the Blueprint default") is always known.
+// Exported so every door into the Application-create/update API shares
+// ONE vocabulary instead of re-declaring the tuple (#5616).
+func IsKnownVClusterTier(v string) bool {
+	if v == "" {
+		return true
+	}
+	for _, known := range knownVClusterTiers {
+		if v == known {
+			return true
+		}
+	}
+	return false
+}
+
+// VClusterTierAvailable reports whether this Sovereign can actually
+// place an Application into tier v. "" (inherit) and "host" always can;
+// every other tier needs its vCluster to be installed and declared.
+// Exported so the sovereign-scoped install + placement-update handlers
+// enforce the SAME availability fact as create-instance (#5616).
+func VClusterTierAvailable(v string) bool {
+	if v == "" || v == "host" {
+		return true
+	}
+	return availableNonHostTiers[v]
+}
+
+// KnownVClusterTiersCSV renders the vocabulary for an error message.
+func KnownVClusterTiersCSV() string { return strings.Join(knownVClusterTiers, ", ") }
+
+// UnavailableTierMessage is the ONE operator-facing explanation for a
+// well-formed tier this Sovereign cannot honour. Shared by every door
+// into the Application API so the remedy never diverges (#5616).
+func UnavailableTierMessage(tier string) string {
+	return fmt.Sprintf(
+		"placement.vcluster %q is not available on this Sovereign: no vCluster is installed for that tier, "+
+			"so the Application would be addressed into a namespace that does not exist. "+
+			"Leave placement.vcluster blank to inherit the Blueprint default, or choose %q. "+
+			"(A sovereign-admin who has installed the tier's vCluster enables it with %s.)",
+		tier, "host", TierEnvVar)
+}
 
 // CreateInstanceRequest mirrors the OpenAPI schema
 // `components/schemas/CreateInstanceRequest`. Unexported in the
@@ -124,11 +244,19 @@ func (r CreateInstanceRequest) ValidateShape() *ShapeError {
 	}
 	// #3373 — instance placement WHERE fields.
 	if r.Placement != nil {
-		switch r.Placement.VCluster {
-		case "", "host", "mgmt", "dmz", "rtz":
-		default:
+		if !IsKnownVClusterTier(r.Placement.VCluster) {
 			return &ShapeError{Code: "placement-vcluster-invalid",
-				Message: fmt.Sprintf("placement.vcluster %q not in {host, mgmt, dmz, rtz}", r.Placement.VCluster)}
+				Message: fmt.Sprintf("placement.vcluster %q not in {%s}",
+					r.Placement.VCluster, KnownVClusterTiersCSV())}
+		}
+		// #5616 — well-formed, but is it REAL here? A tier with no
+		// vCluster installed resolves to a host namespace that does not
+		// exist, and the Application would land Degraded on a raw
+		// Kubernetes error minutes after a 201. Refuse it at the point
+		// of choice instead, for every client of this endpoint.
+		if !VClusterTierAvailable(r.Placement.VCluster) {
+			return &ShapeError{Code: "placement-vcluster-unavailable",
+				Message: UnavailableTierMessage(r.Placement.VCluster)}
 		}
 		for i, c := range r.Placement.Clusters {
 			if strings.TrimSpace(c) == "" {

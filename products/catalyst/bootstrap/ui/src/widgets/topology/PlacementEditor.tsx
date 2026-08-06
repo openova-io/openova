@@ -80,7 +80,22 @@ export interface PlacementEditorProps {
   disableNetwork?: boolean
 }
 
-const DEFAULT_VCLUSTERS = ['host', 'mgmt', 'dmz', 'rtz']
+// #5616 — the placement TIER is only real when the Sovereign installs a
+// vCluster for it. `clusters/_template/bootstrap-kit/` installs no mgmt /
+// dmz / rtz vCluster, and the application-controller resolves each tier
+// key to a SAME-NAMED host namespace, so those three keys address the
+// per-cluster HelmRelease into a namespace that does not exist and the
+// install Degrades on `namespaces "mgmt" not found` (hw292 2026-08-04).
+//
+// This editor used to offer all four unconditionally AND default a fresh
+// target to index [1] — `mgmt` — so an operator who never touched the
+// vCluster control still committed a dead tier on Apply. `host` is the
+// one namespace-independent target (the controller normalises it to the
+// Organization's own namespace), so it is the only safe fallback. Real
+// tiers arrive through `availableVClusters`, which the Sovereign
+// supplies from its live topology.
+const DEFAULT_VCLUSTERS = ['host']
+const HOST_VCLUSTER = 'host'
 
 export function PlacementEditor({
   sovereignId,
@@ -108,7 +123,7 @@ export function PlacementEditor({
       {
         region: availableRegions[0] ?? '',
         cluster: availableClusters[0] ?? '',
-        vcluster: (availableVClusters ?? DEFAULT_VCLUSTERS)[1] ?? 'mgmt',
+        vcluster: (availableVClusters ?? DEFAULT_VCLUSTERS)[0] ?? HOST_VCLUSTER,
         role: 'Primary' as DataRole,
       },
     ]
@@ -119,6 +134,11 @@ export function PlacementEditor({
   const [info, setInfo] = useState<string | null>(null)
 
   const vclusters = availableVClusters ?? DEFAULT_VCLUSTERS
+
+  // #5616 — the selectable tiers for one target: the Sovereign's real
+  // placement targets plus whatever this target is currently set to.
+  const optionsForTarget = (current?: string): string[] =>
+    current && !vclusters.includes(current) ? [...vclusters, current] : vclusters
   const pattern = useMemo(() => derivePattern(targets), [targets])
   const validation = useMemo(() => validatePlacement(targets, capability), [targets, capability])
 
@@ -159,7 +179,7 @@ export function PlacementEditor({
       const cluster = availableClusters.find((c) => !usedClusters.has(c)) ?? availableClusters[1] ?? availableClusters[0] ?? ''
       return [
         ...prev,
-        { region, cluster, vcluster: prev[0]?.vcluster ?? 'mgmt', role: 'Standby' as DataRole, standbyType: 'Hot' as StandbyType },
+        { region, cluster, vcluster: prev[0]?.vcluster ?? HOST_VCLUSTER, role: 'Standby' as DataRole, standbyType: 'Hot' as StandbyType },
       ]
     })
   }
@@ -283,11 +303,16 @@ export function PlacementEditor({
                   <span className="text-[var(--color-text-dim)]">vCluster</span>
                   <select
                     className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-1 font-mono"
-                    value={t.vcluster ?? 'mgmt'}
+                    value={t.vcluster ?? HOST_VCLUSTER}
                     onChange={(e) => setTarget(i, { vcluster: e.target.value })}
                     data-testid={`placement-editor-target-${i}-vcluster`}
                   >
-                    {vclusters.map((v) => (
+                    {/* #5616 — offer the REAL targets, but never hide the
+                        tier this Application already carries: an existing
+                        `mgmt` placement must stay visible (and re-selectable)
+                        even on a Sovereign that offers only `host`, or the
+                        editor would silently rewrite it on the next Apply. */}
+                    {optionsForTarget(t.vcluster).map((v) => (
                       <option key={v} value={v}>
                         {v}
                       </option>

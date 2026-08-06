@@ -42,6 +42,7 @@ import (
 	bpv1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 	"github.com/openova-io/openova/core/controllers/pkg/validate"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/instances"
 )
 
 // previewDefaultRegion — placeholder region stamped on a topology
@@ -885,6 +886,29 @@ func validateApplicationUpdateRequest(req applicationUpdateRequest) (string, boo
 		for i, reg := range req.Placement.Regions {
 			if strings.TrimSpace(reg) == "" {
 				return fmt.Sprintf("placement.regions[%d] is empty", i), false
+			}
+		}
+		// #5616 — the placement TIER was never validated on this door at
+		// all, on either the flat field or the #3969 per-target form. It
+		// is the door the shipped Topology-tab PlacementEditor uses, and
+		// an untouched new target defaults to `mgmt` — a tier whose host
+		// namespace no Sovereign creates, so Apply committed a placement
+		// that could only ever reconcile to `namespaces "mgmt" not
+		// found`. Refuse it here, with the remedy in the message.
+		if !instances.IsKnownVClusterTier(req.Placement.VCluster) {
+			return "placement.vcluster must be one of " + instances.KnownVClusterTiersCSV(), false
+		}
+		if !instances.VClusterTierAvailable(req.Placement.VCluster) {
+			return instances.UnavailableTierMessage(req.Placement.VCluster), false
+		}
+		for i, t := range req.Placement.Targets {
+			if !instances.IsKnownVClusterTier(t.VCluster) {
+				return fmt.Sprintf("placement.targets[%d].vcluster must be one of %s",
+					i, instances.KnownVClusterTiersCSV()), false
+			}
+			if !instances.VClusterTierAvailable(t.VCluster) {
+				return fmt.Sprintf("placement.targets[%d]: %s", i,
+					instances.UnavailableTierMessage(t.VCluster)), false
 			}
 		}
 	}
