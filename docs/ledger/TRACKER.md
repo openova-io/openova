@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T12:45:02Z` |
+| Last refreshed | `2026-08-07T13:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5358](https://github.com/openova-io/openova/issues/5358) | SSO: Guacamole intermittently rejects the valid Keycloak id_token (invalid/old n | Other |
 | [#5359](https://github.com/openova-io/openova/issues/5359) | Cutover pivots ONLY the control-plane region — region-B Flux (GitRepository→ | Other |
 | [#5364](https://github.com/openova-io/openova/issues/5364) | Org-CR deletion orphans the org Namespace + host-deployed bp-keycloak when per-O | Other |
 | [#5370](https://github.com/openova-io/openova/issues/5370) | CI red on main: sandbox-mcp-server Go-toolchain latent break + intermittent char | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5796](https://github.com/openova-io/openova/issues/5796) | ESCALATION: uatco-mail-rtz-a annotation directive conflicts with a founder 'No'  | Other |
 | [#5799](https://github.com/openova-io/openova/issues/5799) | Funnel E2E walk is gated on retrieving the emailed sign-in PIN — no mail surfa | Other |
 | [#5814](https://github.com/openova-io/openova/issues/5814) | Sovereign /apps grid carries no Organization attribution — a customer-launched | Other |
+| [#5817](https://github.com/openova-io/openova/issues/5817) | Org detail page title-cases identifiers: slug `uatco` renders `Uatco`, owner `em | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T12:56 | [#5816](https://github.com/openova-io/openova/pull/5816) | #4459 | docs(uat): adjudicate R16/75/216 — refute the single-region  |
+| 2026-08-07T12:51 | [#5815](https://github.com/openova-io/openova/pull/5815) | #5814 | fix(console): attribute sovereign /apps instance cards to th |
 | 2026-08-07T12:18 | [#5813](https://github.com/openova-io/openova/pull/5813) | #4444 | fix(chart): baseline CNP allowed cnpg-system egress but not  |
 | 2026-08-07T11:54 | [#5812](https://github.com/openova-io/openova/pull/5812) | #3687 | docs(uat): rows 67 + 69 share ONE cause with 19/188 — Applic |
 | 2026-08-07T11:38 | [#5811](https://github.com/openova-io/openova/pull/5811) | #3687 | docs(uat): rows 19 + 188 — the apps grid renders the CATALOG |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-06T22:38 | [#5785](https://github.com/openova-io/openova/pull/5785) | #5750 | fix(#5750): the drift script read the DESIRED chart version, |
 | 2026-08-06T21:37 | [#5784](https://github.com/openova-io/openova/pull/5784) | #5598 | docs(uat): record root causes on 5 failing rows from today's |
 | 2026-08-06T21:05 | [#5783](https://github.com/openova-io/openova/pull/5783) | #5573 | feat(guard): assert the Flux GitOps loop is RUNNING, not mer |
-| 2026-08-06T20:37 | [#5782](https://github.com/openova-io/openova/pull/5782) | #5567 | feat(guard): detect admission webhooks whose target Service  |
-| 2026-08-06T20:09 | [#5781](https://github.com/openova-io/openova/pull/5781) | #5598 | test(guacamole): guard the SSO permission-enrollment path (# |
 
 ---
 
