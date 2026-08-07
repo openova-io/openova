@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T13:45:04Z` |
+| Last refreshed | `2026-08-07T14:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5370](https://github.com/openova-io/openova/issues/5370) | CI red on main: sandbox-mcp-server Go-toolchain latent break + intermittent char | Other |
-| [#5373](https://github.com/openova-io/openova/issues/5373) | per-Org realm flag (CATALYST_PER_ORG_REALM_ENABLED) is DELIBERATELY dormant —  | Other |
 | [#5385](https://github.com/openova-io/openova/issues/5385) | Deployment health aggregate is stale-degraded + counts suspended HRs inconsisten | Other |
 | [#5389](https://github.com/openova-io/openova/issues/5389) | P1: per-app Open/launch button does not land the user in the app (rows 110/112/1 | Other |
 | [#5391](https://github.com/openova-io/openova/issues/5391) | Cutover: a Stalled/RetriesExceeded per-Org HelmRelease permanently blocks the So | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#5817](https://github.com/openova-io/openova/issues/5817) | Org detail page title-cases identifiers: slug `uatco` renders `Uatco`, owner `em | Other |
 | [#5819](https://github.com/openova-io/openova/issues/5819) | Showback names the parent Organization `hw292.omani.works` while the directory a | Other |
 | [#5821](https://github.com/openova-io/openova/issues/5821) | /version reports process START time as `buildTime` with no way to tell — hw292 | Other |
+| [#5823](https://github.com/openova-io/openova/issues/5823) | Install wizard never pre-selects the Organization — even on a per-Org console  | Other |
+| [#5825](https://github.com/openova-io/openova/issues/5825) | Two identity readers in one header disagree: the sidebar shows the signed-in own | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T13:55 | [#5824](https://github.com/openova-io/openova/pull/5824) | #5823 | fix(console): pre-select the Organization when the install w |
 | 2026-08-07T13:36 | [#5822](https://github.com/openova-io/openova/pull/5822) | #5821 | fix(api): /version must say whether buildTime is a link time |
 | 2026-08-07T13:24 | [#5820](https://github.com/openova-io/openova/pull/5820) | #5819 | fix(showback): name the parent Organization by its slug, not |
 | 2026-08-07T13:14 | [#5818](https://github.com/openova-io/openova/pull/5818) | #5817 | fix(console): stop title-casing identifiers on the Org detai |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T03:23 | [#5789](https://github.com/openova-io/openova/pull/5789) | #4459 | docs(uat): R17 is env-blocked not code-blocked — cross-regio |
 | 2026-08-07T03:23 | [#5788](https://github.com/openova-io/openova/pull/5788) | #5401 | test(api): pin that an Org-scoped session cannot reach deplo |
 | 2026-08-07T03:10 | [#5787](https://github.com/openova-io/openova/pull/5787) | #5634 | test(marketplace): guard the /redeem markup contract the 429 |
-| 2026-08-06T23:24 | [#5786](https://github.com/openova-io/openova/pull/5786) | #5750 | fix(guard): check-live-newapi-sso-version asserted from DESI |
 
 ---
 
