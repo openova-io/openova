@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T17:30:08Z` |
+| Last refreshed | `2026-08-07T17:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T17:40 | [#5842](https://github.com/openova-io/openova/pull/5842) | #5839 | docs(uat): flag 15 open rows whose BLOCKING CLAIM was measur |
+| 2026-08-07T17:37 | [#5841](https://github.com/openova-io/openova/pull/5841) | #5840 | docs(uat): rows 5 + 6 are not blocked, they are unwalked — t |
 | 2026-08-07T17:21 | [#5840](https://github.com/openova-io/openova/pull/5840) | #3383 | docs(uat): adjudicate row 7 residual (1) — it asserted a tie |
 | 2026-08-07T16:51 | [#5839](https://github.com/openova-io/openova/pull/5839) | #5823 | fix(uat): escape the stray pipe I introduced in row 218 — it |
 | 2026-08-07T16:38 | [#5838](https://github.com/openova-io/openova/pull/5838) | #5813 | docs(session): measure the hw292 deploy gate — 28 UAT rows w |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-07T09:03 | [#5804](https://github.com/openova-io/openova/pull/5804) | #5799 | docs(uat): row 85 LIVE WALK on hw292 with screenshots — pres |
 | 2026-08-07T08:46 | [#5803](https://github.com/openova-io/openova/pull/5803) | #5800 | docs(uat): 18 SSO rows — re-walk AFTER the roll, not now; di |
 | 2026-08-07T08:15 | [#5802](https://github.com/openova-io/openova/pull/5802) | #5801 | docs(uat): row 4 — #5434 fix merged (PR #5801) but not deliv |
-| 2026-08-07T07:58 | [#5801](https://github.com/openova-io/openova/pull/5801) | #5434 | fix(api): App-detail Dependencies is empty for bootstrap app |
-| 2026-08-07T06:44 | [#5800](https://github.com/openova-io/openova/pull/5800) | #5799 | feat(auth): opt-in pre-live PIN echo so the funnel E2E walk  |
 
 ---
 
