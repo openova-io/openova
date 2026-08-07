@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T19:45:03Z` |
+| Last refreshed | `2026-08-07T20:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T19:59 | [#5863](https://github.com/openova-io/openova/pull/5863) | #5831 | docs(uat): zero rows require new code — the three CODE-BLOCK |
 | 2026-08-07T19:29 | [#5862](https://github.com/openova-io/openova/pull/5862) | #5851 | docs(path-to-100): re-measure the delivery gate across all t |
 | 2026-08-07T19:25 | [#5861](https://github.com/openova-io/openova/pull/5861) | #5847 | docs(uat): row 5 carries a second defective clause its sibli |
 | 2026-08-07T19:22 | [#5860](https://github.com/openova-io/openova/pull/5860) | #5846 | fix(uat): recognise non-fix commit prefixes; CODE-BLOCKED no |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T12:56 | [#5816](https://github.com/openova-io/openova/pull/5816) | #4459 | docs(uat): adjudicate R16/75/216 — refute the single-region  |
 | 2026-08-07T12:51 | [#5815](https://github.com/openova-io/openova/pull/5815) | #5814 | fix(console): attribute sovereign /apps instance cards to th |
 | 2026-08-07T12:18 | [#5813](https://github.com/openova-io/openova/pull/5813) | #4444 | fix(chart): baseline CNP allowed cnpg-system egress but not  |
-| 2026-08-07T11:54 | [#5812](https://github.com/openova-io/openova/pull/5812) | #3687 | docs(uat): rows 67 + 69 share ONE cause with 19/188 — Applic |
 
 ---
 
