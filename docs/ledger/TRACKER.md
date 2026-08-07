@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T04:30:06Z` |
+| Last refreshed | `2026-08-07T04:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T04:42 | [#5794](https://github.com/openova-io/openova/pull/5794) | #5513 | fix(scripts): delivery classifier missed fixes that referenc |
 | 2026-08-07T04:10 | [#5793](https://github.com/openova-io/openova/pull/5793) | #5792 | fix(scripts): rename the UAT delivery classifier off a banne |
 | 2026-08-07T04:07 | [#5792](https://github.com/openova-io/openova/pull/5792) | #5615 | docs(ledger): the remaining ❌ set is a DEPLOY, not a fix bac |
 | 2026-08-07T03:47 | [#5791](https://github.com/openova-io/openova/pull/5791) | #5790 | fix(catalog-seed): crossRegion Blueprints must admit the mul |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T09:34 | [#5763](https://github.com/openova-io/openova/pull/5763) | #960 | docs(uat): make all 146 screenshot references clickable on G |
 | 2026-08-06T09:44 | [#5761](https://github.com/openova-io/openova/pull/5761) | #5741 | ci(#5741): wire PDM Postgres integration + widen playwright- |
 | 2026-08-06T08:41 | [#5760](https://github.com/openova-io/openova/pull/5760) | #2879 | feat(ci): umbrella-republish gate for platform/products char |
-| 2026-08-06T08:32 | [#5758](https://github.com/openova-io/openova/pull/5758) | #817 | fix(deploy-bot): make Chart.yaml version bump atomic and for |
 
 ---
 
