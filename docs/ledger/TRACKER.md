@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T15:45:04Z` |
+| Last refreshed | `2026-08-07T16:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5394](https://github.com/openova-io/openova/issues/5394) | MCP endpoint is ~50% dead: bp-openova-mcp is single-region but mcp.<fqdn> fronts | Other |
 | [#5395](https://github.com/openova-io/openova/issues/5395) | gamma-corp is entirely unrouted: all 6 per-Org HTTPRoutes NoMatchingListenerHost | Other |
 | [#5396](https://github.com/openova-io/openova/issues/5396) | bp-velero upgrade-crds pre-upgrade hook is Kyverno-rejected (no harbor-proxy ima | Other |
 | [#5401](https://github.com/openova-io/openova/issues/5401) | SECURITY: per-Org console /settings renders the Sovereign operator panel to an o | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5829](https://github.com/openova-io/openova/issues/5829) | bp-openbao: a failed ACL-policy write is swallowed, then the OIDC role names a p | Other |
 | [#5831](https://github.com/openova-io/openova/issues/5831) | Nine page components are reachable from nothing but their own tests — includin | Other |
 | [#5833](https://github.com/openova-io/openova/issues/5833) | GET /api/v1/organizations double-counts an Organization — the store/CR merge k | Other |
+| [#5835](https://github.com/openova-io/openova/issues/5835) | GET /applications/{name}/status 404s for every bootstrap component while its own | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T15:56 | [#5836](https://github.com/openova-io/openova/pull/5836) | #5835 | fix(api): /applications/{name}/status must answer for a comp |
 | 2026-08-07T15:27 | [#5834](https://github.com/openova-io/openova/pull/5834) | #5833 | fix(api): /organizations double-counted an Org — the store/C |
 | 2026-08-07T15:19 | [#5832](https://github.com/openova-io/openova/pull/5832) | #5829 | fix(ci): my Case 14 blocked the umbrella publish — whole-cha |
 | 2026-08-07T14:45 | [#5830](https://github.com/openova-io/openova/pull/5830) | #5829 | fix(openbao): a failed ACL-policy write must gate the tick,  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T05:40 | [#5797](https://github.com/openova-io/openova/pull/5797) | #5795 | docs(uat): execute the blocked-row challenge — 9 rows ⛔ → ☐, |
 | 2026-08-07T05:17 | [#5795](https://github.com/openova-io/openova/pull/5795) | #4325 | docs(uat): challenge the 45 ⛔ rows — 11 are not blocked, and |
 | 2026-08-07T04:42 | [#5794](https://github.com/openova-io/openova/pull/5794) | #5513 | fix(scripts): delivery classifier missed fixes that referenc |
-| 2026-08-07T04:10 | [#5793](https://github.com/openova-io/openova/pull/5793) | #5792 | fix(scripts): rename the UAT delivery classifier off a banne |
 
 ---
 
