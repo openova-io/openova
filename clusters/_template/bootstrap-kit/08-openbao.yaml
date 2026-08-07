@@ -167,12 +167,20 @@ spec:
       #   region-local admin-token PushSecret can seed every region's vault —
       #   closes the region-B catalyst-newapi-admin-token SecretSyncedError
       #   (path never written in region-B; post-promote DR gap).
+      # 1.2.66 — #5829 (UAT row 183): BOTH sso-configure ACL-policy writes now
+      #   GATE the tick. They were the only writes in that loop whose failure
+      #   was swallowed, so a failed write let the loop proceed to
+      #   auth/oidc/role/operator with token_policies naming a policy that does
+      #   not exist. OpenBao accepts that role; its tokens carry no
+      #   capabilities and 403 on everything incl. sys/internal/ui/mounts, so
+      #   the UI renders "Not authorized" on a session that authenticated
+      #   perfectly. Ordering — policy BEFORE role — is what the gate protects.
       # 1.2.65 — #5763 (UAT row 183 regression): SSO landing re-entry
       #   re-validates a cached token (auth/token/lookup-self) before
       #   trusting it into /ui/vault/secrets, instead of trusting a
       #   client-side-only tokenExpirationEpoch that can't see a server-side
       #   revoke — closes the "no login form but 403 on mounts" gap.
-      version: 1.2.65
+      version: 1.2.66
       sourceRef:
         kind: HelmRepository
         name: bp-openbao
