@@ -72,6 +72,15 @@ UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
 # docs(uat) commit is a walk record, not a delivery (trap 1 above).
 FIX_PREFIXES = ("fix", "feat", "perf", "refactor", "test", "chore")
 DOCS_PREFIXES = ("docs",)
+# Recognised commits that are NOT product fixes (#5859). These must stay OUT of
+# FIX_PREFIXES: a `deploy:` or `ci:` commit does not deliver product behaviour,
+# and counting one as a fix would manufacture a false deploy-gate. But they must
+# also stay out of the empty bucket, whose label asserts an unmerged PR exists.
+#
+# Measured over 400 commits on main: deploy=109, ci=5 — 28.5% of history carried
+# a prefix this tool did not recognise, and `deploy` is the deploy-bot, the
+# second most common committer in the repo.
+OTHER_PREFIXES = ("ci", "build", "style", "deploy", "revert")
 
 
 def sh(cmd):
@@ -115,7 +124,7 @@ def rows_with_status(path, want):
 def classify(evidence, image):
     """Split the PRs an evidence cell cites into delivery buckets."""
     prs = sorted(set(re.findall(r"#(\d{4,5})", evidence)), key=int)
-    pending, delivered, docs, unmerged = [], [], [], []
+    pending, delivered, docs, unmerged, other = [], [], [], [], []
     for pr in prs:
         # Resolve the DELIVERING commit, which is harder than it looks and was
         # wrong in this script's first version.
@@ -139,7 +148,7 @@ def classify(evidence, image):
         # to the unmerged twin of a squashed commit). "Merged" means on main.
         lines = [l for l in sh(
             f"git log {MAIN_REF} --grep='#{pr}' --format='%H\t%s'").split("\n") if l.strip()]
-        fixes, docs_seen = [], False
+        fixes, docs_seen, other_seen = [], False, False
         for line in lines:
             h, _, subject = line.partition("\t")
             kind = subject.split("(")[0].split(":")[0].strip()
@@ -147,15 +156,28 @@ def classify(evidence, image):
                 fixes.append(h)
             elif kind in DOCS_PREFIXES:
                 docs_seen = True
+            elif kind in OTHER_PREFIXES:
+                other_seen = True
         if not fixes:
-            (docs if docs_seen else unmerged).append(pr)
+            # #5859 — a cited number with no fix-type commit is NOT evidence of
+            # an unmerged PR. It may be a tracking ISSUE, an unmerged PR, or a
+            # fix that landed under a non-fix subject: squash-merge replaces the
+            # commit subject with the PR TITLE, so every commit in a multi-change
+            # PR inherits that PR's overall type. Git alone cannot separate these
+            # three, so the bucket is reported, not asserted.
+            if docs_seen:
+                docs.append(pr)
+            elif other_seen:
+                other.append(pr)
+            else:
+                unmerged.append(pr)
             continue
         sha = fixes[0]  # git log is newest-first
         in_image = subprocess.run(
             f"git merge-base --is-ancestor {sha} {image}", shell=True
         ).returncode == 0
         (delivered if in_image else pending).append(pr)
-    return pending, delivered, docs, unmerged
+    return pending, delivered, docs, unmerged, other
 
 
 def main():
@@ -192,7 +214,7 @@ def main():
     print("-" * 96)
     gated, blocked, unresolved = [], [], []
     for rid, ev in rows.items():
-        pending, delivered, docs, unmerged = classify(ev, image)
+        pending, delivered, docs, unmerged, other = classify(ev, image)
         if pending:
             gated.append(rid)
             detail = f"fix PRs merged AFTER the artifact: {', '.join('#' + p for p in pending)}"
@@ -204,12 +226,29 @@ def main():
             if docs:
                 bits.append(f"docs/walk-record only: {', '.join('#' + p for p in docs)}")
             if unmerged:
-                bits.append(f"cited but unmerged: {', '.join('#' + p for p in unmerged)}")
+                bits.append(
+                    "no fix/docs commit on main mentions: "
+                    + ", ".join("#" + p for p in unmerged)
+                    + " (unmerged PR, tracking issue, or a fix squashed under a non-fix PR title)"
+                )
+            if other:
+                bits.append(
+                    "cited only by non-fix commits (ci/deploy/build): "
+                    + ", ".join("#" + p for p in other)
+                )
 
-            if bits:
+            # #5859 — CODE-BLOCKED requires POSITIVE evidence that engineering
+            # remains: a fix present in the artifact that still fails. A citation
+            # resolving only to non-fix commits, or to nothing at all, is absence
+            # of evidence and must not be reported as evidence of absence.
+            if delivered:
                 blocked.append(rid)
                 detail = "; ".join(bits)
                 verdict = "CODE-BLOCKED"
+            elif bits:
+                unresolved.append(rid)
+                detail = "; ".join(bits) + " — resolve before treating as code work"
+                verdict = "UNKNOWN"
             else:
                 # #5849 — absence of a PR reference is NOT evidence that no fix
                 # exists, and calling it CODE-BLOCKED asserts the opposite.
