@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T05:45:05Z` |
+| Last refreshed | `2026-08-07T06:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T05:58 | [#5798](https://github.com/openova-io/openova/pull/5798) | #5797 | docs(uat): verify the 9 reclassified rows are actually walka |
 | 2026-08-07T05:40 | [#5797](https://github.com/openova-io/openova/pull/5797) | #5795 | docs(uat): execute the blocked-row challenge — 9 rows ⛔ → ☐, |
 | 2026-08-07T05:17 | [#5795](https://github.com/openova-io/openova/pull/5795) | #4325 | docs(uat): challenge the 45 ⛔ rows — 11 are not blocked, and |
 | 2026-08-07T04:42 | [#5794](https://github.com/openova-io/openova/pull/5794) | #5513 | fix(scripts): delivery classifier missed fixes that referenc |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T12:01 | [#5768](https://github.com/openova-io/openova/pull/5768) | #489 | fix(catalyst-api): graceful shutdown — drain HTTP, then join |
 | 2026-08-06T11:42 | [#5766](https://github.com/openova-io/openova/pull/5766) | #5764 | fix(catalyst-api): join the orphan-release goroutine instead |
 | 2026-08-06T10:13 | [#5764](https://github.com/openova-io/openova/pull/5764) | #5759 | fix(self-sovereign-cutover): refuse Day-2 mirror-advance for |
-| 2026-08-06T09:34 | [#5763](https://github.com/openova-io/openova/pull/5763) | #960 | docs(uat): make all 146 screenshot references clickable on G |
 
 ---
 
