@@ -19,7 +19,51 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useSession } from '@/shared/lib/useSession'
+import { isTokenExpired, loadTokens, parseJWTClaims } from '@/shared/lib/oidc'
 import { PinSignInModal } from './PinSignInModal'
+
+/**
+ * oidcIdentity — the signed-in email carried by a live OIDC id_token, or null.
+ *
+ * #5825 (UAT rows 1 / 26 / 72). ProfileMenu decided "signed in" from
+ * `useSession` ALONE — a cookie session read off GET /whoami. The sovereign
+ * console can also be authenticated by the legacy OIDC PKCE token set, where
+ * /whoami returns 401 and `session.signedIn` is false. SovereignSidebar already
+ * falls back to the id_token claims for exactly this reason (#4187), so the two
+ * identity readers in the SAME header disagreed: the sidebar rendered
+ * "EB emrah.baysal@openova.io" while the header rendered a [Sign in] button
+ * three inches away. That is what rows 1 and 26 recorded as "a Sign in button
+ * still renders in the banner DOM alongside the authenticated chip", and row 72
+ * saw the same thing on the BSS billing page.
+ *
+ * Offering "Sign in" to someone who is signed in is not a cosmetic defect: the
+ * row's clause is "lands signed-in as the owner, NO PIN/login form", and a
+ * visible sign-in affordance is a login form by the row's own definition.
+ *
+ * EXPIRY IS CHECKED, not just presence. A stale token set survives in
+ * sessionStorage after the session dies; treating it as proof of identity would
+ * paint an avatar for a session that can no longer call the API — trading a
+ * false "signed out" for a false "signed in", which is the worse direction.
+ * isTokenExpired is the same 60s-margin helper the OIDC layer uses everywhere
+ * else, so this cannot drift from the refresh logic's idea of "still valid".
+ */
+function oidcIdentity(): string | null {
+  let tokens
+  try {
+    tokens = loadTokens()
+  } catch {
+    // sessionStorage can throw (privacy mode, disabled storage). No token
+    // means no fallback — never a crash in the header.
+    return null
+  }
+  if (!tokens || isTokenExpired(tokens)) return null
+  const claims = parseJWTClaims(tokens.idToken)
+  const email =
+    (claims.email as string | undefined) ??
+    (claims.preferred_username as string | undefined) ??
+    (claims.name as string | undefined)
+  return email && email.trim() !== '' ? email.trim() : null
+}
 
 export interface ProfileMenuProps {
   /** Optional pre-fill for the PIN modal's email field. */
@@ -53,10 +97,15 @@ export function ProfileMenu({ initialEmail = '', className }: ProfileMenuProps) 
     }
   }, [menuOpen])
 
+  // #5825 — the SECOND identity source. Read on every render (it is a
+  // sessionStorage lookup, not a fetch) so a PKCE login mid-session is picked
+  // up without a remount.
+  const oidcEmail = session.signedIn ? null : oidcIdentity()
+
   // While the session is loading we render the anonymous chrome
   // pre-emptively — flashing a "signed in" state that then swaps to
   // anonymous would be worse UX than the inverse.
-  if (!session.signedIn) {
+  if (!session.signedIn && !oidcEmail) {
     return (
       <>
         <button
@@ -92,7 +141,11 @@ export function ProfileMenu({ initialEmail = '', className }: ProfileMenuProps) 
     )
   }
 
-  const initial = session.email ? session.email[0]!.toUpperCase() : '?'
+  // Same precedence as SovereignSidebar (#4187): the cookie session is
+  // authoritative, the id_token is the fallback — so the two readers in one
+  // header can no longer name different people.
+  const identityEmail = session.email ?? oidcEmail
+  const initial = identityEmail ? identityEmail[0]!.toUpperCase() : '?'
 
   return (
     <div ref={menuRef} className={className} style={{ position: 'relative' }}>
@@ -102,7 +155,7 @@ export function ProfileMenu({ initialEmail = '', className }: ProfileMenuProps) 
         aria-expanded={menuOpen}
         onClick={() => setMenuOpen((v) => !v)}
         data-testid="profile-menu-avatar"
-        title={session.email ?? 'Signed in'}
+        title={identityEmail ?? 'Signed in'}
         style={{
           width: 30,
           height: 30,
@@ -158,7 +211,7 @@ export function ProfileMenu({ initialEmail = '', className }: ProfileMenuProps) 
               }}
               data-testid="profile-menu-email"
             >
-              {session.email}
+              {identityEmail}
             </div>
           </div>
           <button
