@@ -309,15 +309,46 @@ echo "[baseline-cnp] All gates green."
 # This asserts the pair, not just the presence, because the egress half was
 # already correct and it is the ASYMMETRY that is the defect.
 echo "[baseline-cnp] Case 14: cnpg-system allowed in BOTH ingress and egress"
-_r14="$(helm template cat "${CHART_DIR}" 2>/dev/null)"
-_ing14="$(printf '%s' "$_r14" | awk '/name: baseline-default-deny/,/^  egress:/')"
-_egr14="$(printf '%s' "$_r14" | awk '/name: baseline-default-deny/,/^---/' | awk '/^  egress:/,0')"
+# #5813 (UAT row R22). cnpg-system was listed for EGRESS
+# (allowedPlatformNamespaces) and omitted from INGRESS
+# (allowedIngressNamespaces). The CNPG operator does not only receive
+# connections — it REVERSE-PROBES the Pods it manages, and several Clusters
+# are host-rendered into catalyst-system (org-pg, the shared-pg family), so
+# that probe is INGRESS cnpg-system -> catalyst-system and was denied.
+#
+# Silent: the Clusters still ADMIT and RUN. The only symptom is
+# "Cannot extract Pod status ... i/o timeout" in the operator log (90 lines
+# in 600 on hw292). A console-only walk cannot see this class of defect.
+#
+# ASSERTS THE PAIR, not the presence: the egress half was already correct, so
+# a presence-only check would have passed before the fix. The ASYMMETRY is
+# the defect.
+#
+# #5829 — this case originally ran its OWN `helm template` over the WHOLE
+# chart with stderr sent to /dev/null. That passed locally and FAILED in the
+# publish job, blocking bp-catalyst-platform from reaching GHCR: CI runs
+# after `helm dependency build`, so a full-chart render behaves differently
+# there, and the discarded stderr made it undiagnosable — an empty render
+# fails both greps and reports the ingress message, which describes a defect
+# that is not present. It now reads $TMP/cnp.yaml, the targeted --show-only
+# render Case 1 already produced and every other case consumes. One render,
+# one derivation, no swallowed errors.
+_ing14="$(awk '/^  ingress:/,/^  egress:/' "$TMP/cnp.yaml")"
+_egr14="$(awk '/^  egress:/,0' "$TMP/cnp.yaml")"
+
+# Vacuity control: both slices must be non-empty, or the two greps below
+# would "pass" or "fail" on nothing at all.
+if [ -z "$_ing14" ] || [ -z "$_egr14" ]; then
+  echo "FAIL: could not slice ingress/egress out of the rendered CNP — the awk ranges are broken, not the policy" >&2
+  exit 1
+fi
+
 if ! printf '%s' "$_ing14" | grep -q '"cnpg-system"'; then
-  echo "  FAIL (cnpg-system missing from the INGRESS allow-list — the CNPG operator's"
-  echo "        reverse Pod-status probe into catalyst-system will be denied and the"
-  echo "        failure will be invisible except in the operator log)"; exit 1
+  echo "FAIL: cnpg-system missing from the INGRESS allow-list — the CNPG operator's reverse status probe into catalyst-system is denied. Clusters still admit and run; the only symptom is 'Cannot extract Pod status ... i/o timeout' in the operator log (#5813, UAT row R22)." >&2
+  exit 1
 fi
 if ! printf '%s' "$_egr14" | grep -q '"cnpg-system"'; then
-  echo "  FAIL (cnpg-system missing from the EGRESS allow-list)"; exit 1
+  echo "FAIL: cnpg-system missing from the EGRESS allow-list — this half was already correct before #5813; losing it breaks catalyst-system -> cnpg-system calls." >&2
+  exit 1
 fi
 echo "  PASS (cnpg-system present in both ingress and egress)"
