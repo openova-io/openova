@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T11:45:03Z` |
+| Last refreshed | `2026-08-07T12:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T11:54 | [#5812](https://github.com/openova-io/openova/pull/5812) | #3687 | docs(uat): rows 67 + 69 share ONE cause with 19/188 — Applic |
 | 2026-08-07T11:38 | [#5811](https://github.com/openova-io/openova/pull/5811) | #3687 | docs(uat): rows 19 + 188 — the apps grid renders the CATALOG |
 | 2026-08-07T11:23 | [#5810](https://github.com/openova-io/openova/pull/5810) | #960 | docs(uat): row 185 re-measured — 29 stale env stamps, but ZE |
 | 2026-08-07T11:08 | [#5809](https://github.com/openova-io/openova/pull/5809) | #3374 | docs(uat): rows 30 + 31 verified, 33 inconclusive — and *.hw |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T20:37 | [#5782](https://github.com/openova-io/openova/pull/5782) | #5567 | feat(guard): detect admission webhooks whose target Service  |
 | 2026-08-06T20:09 | [#5781](https://github.com/openova-io/openova/pull/5781) | #5598 | test(guacamole): guard the SSO permission-enrollment path (# |
 | 2026-08-06T19:01 | [#5780](https://github.com/openova-io/openova/pull/5780) | #5601 | test(continuum): guard the FailedOver failback phase, which  |
-| 2026-08-06T18:50 | [#5779](https://github.com/openova-io/openova/pull/5779) | #5640 | test(cutover): assert the Day-2 reconciler ships ARMED, not  |
 
 ---
 
