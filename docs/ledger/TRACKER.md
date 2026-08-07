@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T14:45:03Z` |
+| Last refreshed | `2026-08-07T15:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5391](https://github.com/openova-io/openova/issues/5391) | Cutover: a Stalled/RetriesExceeded per-Org HelmRelease permanently blocks the So | Other |
 | [#5393](https://github.com/openova-io/openova/issues/5393) | Per-Org plan quota: vcluster control-plane overhead (1500m) is billed to the cus | Other |
 | [#5394](https://github.com/openova-io/openova/issues/5394) | MCP endpoint is ~50% dead: bp-openova-mcp is single-region but mcp.<fqdn> fronts | Other |
 | [#5395](https://github.com/openova-io/openova/issues/5395) | gamma-corp is entirely unrouted: all 6 per-Org HTTPRoutes NoMatchingListenerHost | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5825](https://github.com/openova-io/openova/issues/5825) | Two identity readers in one header disagree: the sidebar shows the signed-in own | Other |
 | [#5827](https://github.com/openova-io/openova/issues/5827) | GET /applications/catalyst-api 404s while GET /applications/catalyst-api/placeme | Other |
 | [#5829](https://github.com/openova-io/openova/issues/5829) | bp-openbao: a failed ACL-policy write is swallowed, then the OIDC role names a p | Other |
+| [#5831](https://github.com/openova-io/openova/issues/5831) | Nine page components are reachable from nothing but their own tests — includin | Other |
 
 ---
 
