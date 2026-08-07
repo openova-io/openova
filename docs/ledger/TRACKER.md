@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T03:30:08Z` |
+| Last refreshed | `2026-08-07T03:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5341](https://github.com/openova-io/openova/issues/5341) | openova-mcp /mcp endpoint: ~40% envoy edge 404 flake despite healthy replica — | Other |
 | [#5348](https://github.com/openova-io/openova/issues/5348) | 🛑 §854: 3 live NodePort services on the mothership (cinova, iogrid, cert-man | Other |
 | [#5349](https://github.com/openova-io/openova/issues/5349) | 🛑 §-compliance + durability: mothership runs entirely on local-path StorageC | Other |
 | [#5358](https://github.com/openova-io/openova/issues/5358) | SSO: Guacamole intermittently rejects the valid Keycloak id_token (invalid/old n | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5759](https://github.com/openova-io/openova/issues/5759) | sovereign-daytwo-bootstrap --apply REVERTS a completed cutover: 62/69 HelmReposi | Other |
 | [#5762](https://github.com/openova-io/openova/issues/5762) | products/catalyst/bootstrap/ui e2e + marketplace customer-journey: triage the 16 | Other |
 | [#5767](https://github.com/openova-io/openova/issues/5767) | catalyst-api has no graceful shutdown — SIGTERM kills orphan-release mid-persi | Other |
+| [#5790](https://github.com/openova-io/openova/issues/5790) | catalog-seed: bp-guacamole + bp-newapi ship crossRegion but their placementSchem | Other |
 
 ---
 
