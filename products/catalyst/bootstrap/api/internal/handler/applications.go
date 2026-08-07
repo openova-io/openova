@@ -1299,7 +1299,21 @@ type applicationDetailResponse struct {
 	//     + selector `app.kubernetes.io/instance=<releaseName>` (Helm
 	//     chart-helpers standard, set by every upstream chart's
 	//     pod-template and resource labels). Issue #1928 (2026-05-19).
-	TargetNamespace      string `json:"targetNamespace,omitempty"`
+	TargetNamespace string `json:"targetNamespace,omitempty"`
+
+	// RuntimeDerived — this response was synthesised from LIVE PODS because
+	// the component has neither an Application CR nor a same-named
+	// HelmRelease (#5827, UAT row 188). `catalyst-api` is the canonical
+	// case: a Deployment rendered by the bp-catalyst-platform HR.
+	//
+	// It is the honesty marker for the whole answer. A runtime-derived
+	// response carries no uid, blueprint, version or parameters — there is
+	// no declaration to read them from — and a consumer must be able to
+	// tell "this component declares nothing" from "the declaration was not
+	// fetched", without inferring it from which fields happen to be blank.
+	// Absent on every CR- and HR-backed response, so nothing that reads the
+	// existing shape changes.
+	RuntimeDerived       bool   `json:"runtimeDerived,omitempty"`
 	ReleaseName          string `json:"releaseName,omitempty"`
 	InstallLabelSelector string `json:"installLabelSelector,omitempty"`
 
@@ -1428,6 +1442,36 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 			// as installed, in the application page it shows as
 			// provisioning, there is a sync issue".
 			if resp, ok := h.synthesiseAppFromHelmRelease(r.Context(), depID, name); ok {
+				writeJSON(w, http.StatusOK, resp)
+				return
+			}
+			// #5827 (UAT row 188) — THIRD fallback: live runtime.
+			//
+			// Some components have neither an Application CR nor a same-named
+			// HelmRelease. `catalyst-api` is the canonical case: it is a
+			// Deployment rendered BY the bp-catalyst-platform HR, so both
+			// lookups above miss and this endpoint 404s.
+			//
+			// THE INCOHERENCE THIS CLOSES. The sibling endpoint on the very
+			// same path — GET .../applications/catalyst-api/placement — answers
+			// 200 with a correct single Primary target, because it derives from
+			// LIVE PODS (derivePlacementTargets) rather than from a CR. So the
+			// API simultaneously knew the component and denied it existed,
+			// depending on which suffix you asked for, and the console rendered
+			// "App not found — the component catalyst-api is not part of this
+			// deployment" for something plainly running in front of the caller.
+			//
+			// The fallback reuses podBelongsToComponent — the SAME identity
+			// predicate the placement path uses — so the two endpoints cannot
+			// disagree about whether a component exists. Deriving existence a
+			// second way here is exactly what would let them drift apart again.
+			//
+			// It fabricates nothing: no CR means no uid, no blueprint, no
+			// parameters, and every one of those stays empty. What it reports is
+			// what it observed — the namespace the pods run in and a phase read
+			// off their readiness — flagged `runtimeDerived` so the FE and the
+			// operator can tell an observation from a declaration.
+			if resp, ok := h.synthesiseAppFromRuntime(depID, name, ns); ok {
 				writeJSON(w, http.StatusOK, resp)
 				return
 			}
