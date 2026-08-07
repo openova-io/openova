@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T09:15:03Z` |
+| Last refreshed | `2026-08-07T09:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T09:18 | [#5805](https://github.com/openova-io/openova/pull/5805) | #5799 | docs(uat): rows 32 + 34 LIVE WALK — the SSO chain is intact  |
 | 2026-08-07T09:03 | [#5804](https://github.com/openova-io/openova/pull/5804) | #5799 | docs(uat): row 85 LIVE WALK on hw292 with screenshots — pres |
 | 2026-08-07T08:46 | [#5803](https://github.com/openova-io/openova/pull/5803) | #5800 | docs(uat): 18 SSO rows — re-walk AFTER the roll, not now; di |
 | 2026-08-07T08:15 | [#5802](https://github.com/openova-io/openova/pull/5802) | #5801 | docs(uat): row 4 — #5434 fix merged (PR #5801) but not deliv |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T18:00 | [#5775](https://github.com/openova-io/openova/pull/5775) | #5768 | test(catalyst-api): guard that main() actually wires the gra |
 | 2026-08-06T17:55 | [#5774](https://github.com/openova-io/openova/pull/5774) | #5752 | test(stalwart-params): unchecked assertion panicked the bina |
 | 2026-08-06T17:55 | [#5773](https://github.com/openova-io/openova/pull/5773) | #5750 | test(guacamole-drift): self-test could not see its own fail- |
-| 2026-08-06T17:55 | [#5772](https://github.com/openova-io/openova/pull/5772) | #5690 | fix(§854): LB nodePort:0 guard counted presence, not ports — |
 
 ---
 
