@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T11:15:04Z` |
+| Last refreshed | `2026-08-07T11:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T11:23 | [#5810](https://github.com/openova-io/openova/pull/5810) | #960 | docs(uat): row 185 re-measured — 29 stale env stamps, but ZE |
 | 2026-08-07T11:08 | [#5809](https://github.com/openova-io/openova/pull/5809) | #3374 | docs(uat): rows 30 + 31 verified, 33 inconclusive — and *.hw |
 | 2026-08-07T10:21 | [#5808](https://github.com/openova-io/openova/pull/5808) | #5799 | docs(uat): rows 38 + 39 LIVE WALK — both negative clauses di |
 | 2026-08-07T10:05 | [#5807](https://github.com/openova-io/openova/pull/5807) | #5800 | docs(uat): row 40 WALKED GREEN — anonymous storefront verifi |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T19:01 | [#5780](https://github.com/openova-io/openova/pull/5780) | #5601 | test(continuum): guard the FailedOver failback phase, which  |
 | 2026-08-06T18:50 | [#5779](https://github.com/openova-io/openova/pull/5779) | #5640 | test(cutover): assert the Day-2 reconciler ships ARMED, not  |
 | 2026-08-06T18:29 | [#5778](https://github.com/openova-io/openova/pull/5778) | #5752 | docs(uat): retract row 48's refuted producesInstances mechan |
-| 2026-08-06T18:10 | [#5777](https://github.com/openova-io/openova/pull/5777) | #5646 | fix(#5646): the failed-run progress recompute was unguarded  |
 
 ---
 
