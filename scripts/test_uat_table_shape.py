@@ -77,6 +77,43 @@ def main():
             print(f"    line {n}: row {r} split into {c} fields (want {N_COLUMNS + 2})", file=sys.stderr)
         return 1
 
+    # The PHANTOM EIGHTH COLUMN — #5853, and the case this guard originally
+    # missed while claiming to check table shape.
+    #
+    # A well-formed row splits into 9 fields: leading '', the 7 columns, and a
+    # trailing '' produced by the closing pipe. A row that ends with CONTENT in
+    # that 9th slot has 8 content columns, not 7 — one more than the header — and
+    # GitHub renders the surplus as an extra column, exactly the damage the
+    # spill check above exists to prevent.
+    #
+    # It arrives from the ledger's most common edit: appending a stamp to the end
+    # of a row. If the row already closed with `|`, the appended prose lands
+    # AFTER it and becomes a new cell. 67 rows were in that state — most of them
+    # predating this guard, and several added by my own stamps while this file
+    # sat in the tree asserting the table was well-shaped.
+    #
+    # The original check only rejected MORE than 9 fields, so this shape — 9
+    # fields, last one full — sailed through. Counting fields is not the same as
+    # checking shape, and the difference is one `.strip()`.
+    phantom = [
+        (n, r, len(c[8].strip())) for n, r, c in parsed
+        if len(c) == N_COLUMNS + 2 and c[8].strip()
+    ]
+    if phantom:
+        print(
+            f"FAIL: {len(phantom)} row(s) carry a PHANTOM 8th column.\n"
+            "The row closes with `|` and then continues, so the trailing text became\n"
+            "its own cell — one more column than the header declares, rendered as a\n"
+            "surplus column on GitHub. This is what appending a stamp to a row that\n"
+            "already ended in `|` produces.\n"
+            "Fix: merge the trailing text back into the Evidence cell (drop the pipe\n"
+            "that opened it) and close the row with a single `|`.\n",
+            file=sys.stderr,
+        )
+        for n, r, ln in phantom:
+            print(f"    line {n}: row {r} — {ln} chars past the closing pipe", file=sys.stderr)
+        return 1
+
     # The consequence that actually corrupts the score rather than the render.
     # A stray pipe in an early column shifts every later column left, moving the
     # verdict out from under the tally. No row was in that state when the guard
@@ -97,7 +134,7 @@ def main():
             print(f"    line {n}: row {r}", file=sys.stderr)
         return 1
 
-    print(f"ok — {len(parsed)} rows, none spilling past the Evidence column, all Result cells populated")
+    print(f"ok — {len(parsed)} rows: no cell-spill, no phantom 8th column, all Result cells populated")
     return 0
 
 
