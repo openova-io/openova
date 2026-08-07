@@ -113,6 +113,50 @@ wrong-subject failure mode as
 
 ---
 
+## Every non-green row now states its next action (2026-08-08)
+
+With the classifier trustworthy, the 13 UNKNOWN rows were read individually
+rather than left as "the tool cannot tell". **None is code-blocked.** What the
+whole remaining set actually needs:
+
+| what it needs | rows | count |
+|---|---|---|
+| **the roll** (fix merged, artifact predates it) | ❌ 13 · ⚠️ 30 · ☐ 20 | **63** |
+| **a walk** — precondition now satisfied | 6, 10, 11 | 3 |
+| **a funnel mutation** — 2nd voucher + 2nd Org | 93, 94, 95 | 3 |
+| **a funnel mutation** — an Org that BUYS newapi | 225 | 1 |
+| **one click** (a write; scheduling, not permission) | 177 | 1 |
+| **three login attempts** | 235 | 1 |
+| **fault injection** — needs a genuinely failed cutover step | 165 | 1 |
+| **an owner adjudication** | 5, 19, 184, 192 | 4 |
+
+The adjudications, stated so they can be answered without re-deriving them:
+
+- **row 5** — demands `TIER=sme`, which the CRD 422-rejects (`enum: [org,
+  corporate]`), *and* `ISOLATION=vcluster` without the #4292 plan qualifier its
+  siblings 10/11 received. Two clauses, neither satisfiable by a correct
+  platform. #5847.
+- **row 19** — the grid renders 46 blueprint SLOTS; the row asserts one card per
+  **Application**. The feed and the CRs now agree exactly (14 = 14), so this is a
+  model disagreement by design: re-key the grid, or amend the clause.
+- **row 184** — has **no assertion at all**; the cell records that one was never
+  authored. Row 186, the other assertion-less row, is already N/A. This one sits
+  in the denominator as non-green. Changing it alters the denominator, so it is
+  not taken unilaterally.
+- **row 192** — `ConvergenceWizard.tsx` owns the asserted testid and was orphaned
+  from the router by `be5477c43`. Drop the clause or delete the component. The
+  orphan is now loud rather than silent (#5831).
+
+**Nothing in this table is waiting on engineering.** The single largest lever
+remains the roll: 63 rows move on it, and none of the other categories exceeds
+four.
+
+Re-measured after each stamp rather than carried forward — R22 moved UNKNOWN →
+DEPLOY-GATED once it cited its own fix PR (#5813), which is why this figure is 63
+and not the 62 an earlier draft of this section carried.
+
+---
+
 ## Where the ledger actually stands
 
 The ledger was reset for this env — `scripts/reset-uat.py hw292` flushed 135 hw291 evidence cells to ☐/⏳ on 2026-07-31, per the founder's each-new-env-flushes-all-evidence law — and has been re-walked upward from there ever since. It is **no longer** near-zero, so the "a raw tally reads near-zero by design" note that stood here from 2026-07-31 has been retired rather than left to mislead.
