@@ -180,14 +180,14 @@ func orgCRToResponse(obj *unstructured.Unstructured, otechFQDN string) orgTenant
 	// existing record→response mapper for hostname/steps derivation. This
 	// keeps the CR row byte-shaped identically to a store-backed row.
 	rec := store.OrganizationProvisionRecord{
-		OrganizationID:  tenantID,
-		State:           state,
-		Subdomain:       slug,
-		DomainMode:      store.OrganizationDomainFreeSubdomain,
-		ParentDomain:    parentDomain,
-		AdminEmail:      adminEmail,
-		CompanyName:     displayName,
-		OTECHFQDN: strings.TrimSpace(otechFQDN),
+		OrganizationID: tenantID,
+		State:          state,
+		Subdomain:      slug,
+		DomainMode:     store.OrganizationDomainFreeSubdomain,
+		ParentDomain:   parentDomain,
+		AdminEmail:     adminEmail,
+		CompanyName:    displayName,
+		OTECHFQDN:      strings.TrimSpace(otechFQDN),
 		// #5489 — derived from the same isolation the row carries: only a
 		// vcluster-tier Org has a vCluster to name. The old unconditional
 		// `vc-<slug>` shipped `vcluster_name: "vc-…"` right next to
@@ -253,24 +253,49 @@ func orgStateFromCR(obj *unstructured.Unstructured) store.OrganizationProvisionS
 // Order: local rows first (newest-first as the store returns them), then the
 // CR-only remainder.
 func mergeOrgResponses(local, fromCR []orgTenantResponse) []orgTenantResponse {
-	bySlug := make(map[string]struct{}, len(local))
+	seen := make(map[string]struct{}, len(local)*2)
 	out := make([]orgTenantResponse, 0, len(local)+len(fromCR))
-	for _, r := range local {
-		key := strings.ToLower(strings.TrimSpace(r.Subdomain))
-		if key != "" {
-			bySlug[key] = struct{}{}
+
+	add := func(r orgTenantResponse) {
+		keys := orgMergeKeys(r)
+		if len(keys) == 0 {
+			// Unidentifiable on BOTH axes. Keep it — dropping a row the
+			// operator's own store authored would be worse than showing it —
+			// but it cannot participate in dedupe, so say so rather than
+			// pretend it was deduped.
+			out = append(out, r)
+			return
+		}
+		for _, k := range keys {
+			if _, dup := seen[k]; dup {
+				return
+			}
+		}
+		for _, k := range keys {
+			seen[k] = struct{}{}
 		}
 		out = append(out, r)
 	}
+
+	// Local first: it wins on collision. The BSS door authored the in-flight
+	// provisioning detail (7-step timeline, last_error, commit_sha) that the
+	// CR does not carry.
+	for _, r := range local {
+		add(r)
+	}
 	for _, r := range fromCR {
-		key := strings.ToLower(strings.TrimSpace(r.Subdomain))
-		if key != "" {
-			if _, seen := bySlug[key]; seen {
-				continue
-			}
-			bySlug[key] = struct{}{}
-		}
-		out = append(out, r)
+		add(r)
+	}
+	return out
+}
+
+func orgMergeKeys(r orgTenantResponse) []string {
+	out := make([]string, 0, 2)
+	if id := strings.ToLower(strings.TrimSpace(r.OrganizationID)); id != "" {
+		out = append(out, "id:"+id)
+	}
+	if sub := strings.ToLower(strings.TrimSpace(r.Subdomain)); sub != "" {
+		out = append(out, "sub:"+sub)
 	}
 	return out
 }
