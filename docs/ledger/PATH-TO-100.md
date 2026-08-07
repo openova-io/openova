@@ -136,10 +136,10 @@ The adjudications, stated so they can be answered without re-deriving them:
   corporate]`), *and* `ISOLATION=vcluster` without the #4292 plan qualifier its
   siblings 10/11 received. Two clauses, neither satisfiable by a correct
   platform. #5847.
-- **row 19** — the grid renders 46 blueprint SLOTS; the row asserts one card per
+- **row 19** (#5867) — the grid renders 46 blueprint SLOTS; the row asserts one card per
   **Application**. The feed and the CRs now agree exactly (14 = 14), so this is a
   model disagreement by design: re-key the grid, or amend the clause.
-- **row 184** — has **no assertion at all**; the cell records that one was never
+- **row 184** (#5867) — has **no assertion at all**; the cell records that one was never
   authored. Row 186, the other assertion-less row, is already N/A. This one sits
   in the denominator as non-green. Changing it alters the denominator, so it is
   not taken unilaterally.
