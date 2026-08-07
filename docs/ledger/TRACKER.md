@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T20:30:08Z` |
+| Last refreshed | `2026-08-07T20:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5408](https://github.com/openova-io/openova/issues/5408) | Wizard component model: phantom ids in the deployment payload, cnpg+postgres inv | Other |
-| [#5409](https://github.com/openova-io/openova/issues/5409) | PinInput6 maxLength={6} silently truncates a pasted sign-in code before the past | Other |
 | [#5410](https://github.com/openova-io/openova/issues/5410) | uptime-kuma is hard-coded to 128Mi in KnownApps and OOMKills permanently (40 res | Other |
 | [#5414](https://github.com/openova-io/openova/issues/5414) | newapi loses sessions ~60% of loads: each region mints its own SESSION_SECRET/CR | Other |
 | [#5416](https://github.com/openova-io/openova/issues/5416) | oidc-gate mints its cookie secret per region, so each gate rejects the peer's se | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#5848](https://github.com/openova-io/openova/issues/5848) | Org delete leaves an orphaned HTTPRoute: teardown reaps by derived NAME while cr | Other |
 | [#5857](https://github.com/openova-io/openova/issues/5857) | Door A stamps every customer Org isolation=vcluster while the GitOps renderer ba | Other |
 | [#5867](https://github.com/openova-io/openova/issues/5867) | Two UAT rows need an owner decision and have no tracker issue: row 19 (grid keye | Other |
+| [#5871](https://github.com/openova-io/openova/issues/5871) | hw292 live: 11 of 14 Applications are Degraded on a cutoverComplete=true Soverei | Other |
+| [#5872](https://github.com/openova-io/openova/issues/5872) | Applications LIST endpoint omits placement entirely; only the detail endpoint re | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T20:41 | [#5870](https://github.com/openova-io/openova/pull/5870) | #5867 | docs(uat): hw292 authed walk — rows 235 + 6 go green, row 19 |
 | 2026-08-07T20:19 | [#5869](https://github.com/openova-io/openova/pull/5869) | #3969 | docs(uat): G10's evidence ends mid-word and has since it was |
 | 2026-08-07T20:15 | [#5868](https://github.com/openova-io/openova/pull/5868) | #5847 | docs(uat): rows 19 + 184 cite #5867 — the last two adjudicat |
 | 2026-08-07T20:12 | [#5866](https://github.com/openova-io/openova/pull/5866) | #5813 | docs(uat): resolve the UNKNOWN bucket — every non-green row  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T14:23 | [#5828](https://github.com/openova-io/openova/pull/5828) | #5827 | fix(api): /applications/{name} must not 404 for a component  |
 | 2026-08-07T14:09 | [#5826](https://github.com/openova-io/openova/pull/5826) | #5825 | fix(console): ProfileMenu must honour an OIDC session when / |
 | 2026-08-07T13:55 | [#5824](https://github.com/openova-io/openova/pull/5824) | #5823 | fix(console): pre-select the Organization when the install w |
-| 2026-08-07T13:36 | [#5822](https://github.com/openova-io/openova/pull/5822) | #5821 | fix(api): /version must say whether buildTime is a link time |
 
 ---
 
