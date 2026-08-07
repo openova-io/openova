@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T18:15:04Z` |
+| Last refreshed | `2026-08-07T18:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5406](https://github.com/openova-io/openova/issues/5406) | Harbor SSO session never holds: active/active across both regions behind one hos | Other |
 | [#5408](https://github.com/openova-io/openova/issues/5408) | Wizard component model: phantom ids in the deployment payload, cnpg+postgres inv | Other |
 | [#5409](https://github.com/openova-io/openova/issues/5409) | PinInput6 maxLength={6} silently truncates a pasted sign-in code before the past | Other |
 | [#5410](https://github.com/openova-io/openova/issues/5410) | uptime-kuma is hard-coded to 128Mi in KnownApps and OOMKills permanently (40 res | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5844](https://github.com/openova-io/openova/issues/5844) | UAT.md: 29 rows contain an unescaped pipe inside a cell — Evidence spills into | Other |
 | [#5847](https://github.com/openova-io/openova/issues/5847) | UAT row 5 asserts TIER=sme, a value the Organization CRD 422-rejects — the row | Other |
 | [#5848](https://github.com/openova-io/openova/issues/5848) | Org delete leaves an orphaned HTTPRoute: teardown reaps by derived NAME while cr | Other |
+| [#5851](https://github.com/openova-io/openova/issues/5851) | classify-uat-delivery-state.py reports a false CODE-BLOCKED when a row cites the | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T18:28 | [#5852](https://github.com/openova-io/openova/pull/5852) | #5851 | fix(uat): all 13 failing rows are DEPLOY-GATED — prove it by |
+| 2026-08-07T18:19 | [#5850](https://github.com/openova-io/openova/pull/5850) | #5505 | docs(uat): row 92 — verify the server-side limiter from sour |
 | 2026-08-07T18:15 | [#5846](https://github.com/openova-io/openova/pull/5846) | #5845 | ci(uat): run the table-shape guard on ledger PRs, with a con |
 | 2026-08-07T18:05 | [#5845](https://github.com/openova-io/openova/pull/5845) | #5844 | fix(uat): escape stray pipes in 29 ledger rows + add a table |
 | 2026-08-07T17:40 | [#5842](https://github.com/openova-io/openova/pull/5842) | #5839 | docs(uat): flag 15 open rows whose BLOCKING CLAIM was measur |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-07T10:21 | [#5808](https://github.com/openova-io/openova/pull/5808) | #5799 | docs(uat): rows 38 + 39 LIVE WALK — both negative clauses di |
 | 2026-08-07T10:05 | [#5807](https://github.com/openova-io/openova/pull/5807) | #5800 | docs(uat): row 40 WALKED GREEN — anonymous storefront verifi |
 | 2026-08-07T09:50 | [#5806](https://github.com/openova-io/openova/pull/5806) | #5799 | docs(uat): row 36 LIVE WALK — 3 of 4 clauses verified; the h |
-| 2026-08-07T09:18 | [#5805](https://github.com/openova-io/openova/pull/5805) | #5799 | docs(uat): rows 32 + 34 LIVE WALK — the SSO chain is intact  |
-| 2026-08-07T09:03 | [#5804](https://github.com/openova-io/openova/pull/5804) | #5799 | docs(uat): row 85 LIVE WALK on hw292 with screenshots — pres |
 
 ---
 
