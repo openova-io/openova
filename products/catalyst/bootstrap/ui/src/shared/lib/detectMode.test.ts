@@ -116,3 +116,56 @@ describe('VITE_CATALYST_MODE override', () => {
     expect(detectMode()).toEqual({ mode: 'catalyst-zero', sovereignFQDN: null })
   })
 })
+
+/**
+ * #5895 — the per-Org console derives the WRONG Sovereign FQDN.
+ *
+ * `sovereignFQDNFromHostname` strips one leading `console.` segment and treats
+ * whatever remains as the Sovereign. That is correct for the Sovereign console
+ * and WRONG for a per-Organization console, because a per-Org console satisfies
+ * the `console.*` pattern without being a Sovereign:
+ *
+ *   console.hw292.omani.works            -> hw292.omani.works            (Sovereign, correct)
+ *   console.walk-stranger-two.omani.rest -> walk-stranger-two.omani.rest (an ORG, wrong)
+ *
+ * The derived value feeds `buildOIDCEndpoints()` (oidc.ts:56), which builds
+ * `https://auth.${sovereignFQDN}/realms/sovereign`. Measured live on hw292,
+ * same path and query on each host:
+ *
+ *   auth.hw292.omani.works             -> 400  (Keycloak present, rejecting a bogus redirect_uri)
+ *   auth.walk-stranger-two.omani.rest  -> 404  (nothing there; host root and
+ *                                               /.well-known/openid-configuration also 404)
+ *
+ * So the browser is navigated to a host that serves nothing and renders a blank
+ * page. There is no per-Org IdP by design — gitops.go:307 builds the single
+ * shared issuer at `auth.<SovereignFQDN>/realms/<realm>` (#4272, #4399).
+ *
+ * WHY `it.fails` RATHER THAN ASSERTING THE BUG: a test that asserts the wrong
+ * value would lock the defect in and go green forever. `it.fails` passes only
+ * while the expectation below is UNMET — so the day someone makes the per-Org
+ * console resolve its real Sovereign, this test starts failing and tells them to
+ * delete the wrapper. It is a tripwire, not a spec for the broken behaviour.
+ */
+describe('#5895 — per-Org console FQDN derivation', () => {
+  it.fails(
+    'SHOULD NOT treat a per-Org console hostname as a Sovereign FQDN',
+    async () => {
+      const { detectMode } = await loadDetectMode(
+        'console.walk-stranger-two.omani.rest',
+      )
+      // The Org's own domain is NOT a Sovereign, and no IdP is served at
+      // auth.<that>. Anything that makes this pass is a valid fix: injecting
+      // the real FQDN, resolving it from the per-Org API, or declining to
+      // claim sovereign mode for a host that cannot be verified.
+      expect(detectMode().sovereignFQDN).not.toBe('walk-stranger-two.omani.rest')
+    },
+  )
+
+  it('documents the Sovereign console, which is correct and must stay correct', async () => {
+    const { detectMode } = await loadDetectMode('console.hw292.omani.works')
+    expect(detectMode()).toEqual({
+      mode: 'sovereign',
+      sovereignFQDN: 'hw292.omani.works',
+    })
+  })
+})
