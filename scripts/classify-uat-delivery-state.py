@@ -53,6 +53,8 @@ import sys
 from collections import OrderedDict
 
 UAT = "docs/ledger/UAT.md"
+# Delivery is measured against merged history only — see the note in classify().
+MAIN_REF = "origin/main"
 ROW_RE = re.compile(r"^\|\s*(R?\d+|[GWM]\d+)\s*\|")
 # A fix-bearing conventional-commit prefix. `docs:` is deliberately absent — a
 # docs(uat) commit is a walk record, not a delivery (trap 1 above).
@@ -90,18 +92,40 @@ def classify(evidence, image):
     prs = sorted(set(re.findall(r"#(\d{4,5})", evidence)), key=int)
     pending, delivered, docs, unmerged = [], [], [], []
     for pr in prs:
-        sha = sh(f"git log --oneline --all --grep='(#{pr})' -1 --format=%H")
-        if not sha:
-            unmerged.append(pr)
+        # Resolve the DELIVERING commit, which is harder than it looks and was
+        # wrong in this script's first version.
+        #
+        #   `--grep='(#N)'` matches only the squash-merge subject form. A row
+        #   citing an ISSUE number misses its fix entirely, because the fix
+        #   says `Refs #N` in the BODY. That misread #5513 as code-blocked when
+        #   both halves of its fix were merged AND mutation-guarded.
+        #
+        #   Plain `--grep='#N' -1` is worse: it returns the most RECENT mention,
+        #   which is nearly always a docs(uat) walk record — the commit that
+        #   recorded the failure, not the one that fixed it.
+        #
+        # So: enumerate EVERY commit mentioning the issue anywhere in its
+        # message, keep the fix-type subjects, and take the newest of those.
+        # Scope to MAIN, not --all. `--all` walks every ref including stale
+        # pre-squash feature branches, and those commits are not ancestors of
+        # anything — so a lingering branch fakes a deploy-gate. Caught by this
+        # script's own control: pinning --image to main must yield ZERO
+        # deploy-gated rows, and with --all it yielded one (row 37, resolving
+        # to the unmerged twin of a squashed commit). "Merged" means on main.
+        lines = [l for l in sh(
+            f"git log {MAIN_REF} --grep='#{pr}' --format='%H\t%s'").split("\n") if l.strip()]
+        fixes, docs_seen = [], False
+        for line in lines:
+            h, _, subject = line.partition("\t")
+            kind = subject.split("(")[0].split(":")[0].strip()
+            if kind in FIX_PREFIXES:
+                fixes.append(h)
+            elif kind in DOCS_PREFIXES:
+                docs_seen = True
+        if not fixes:
+            (docs if docs_seen else unmerged).append(pr)
             continue
-        subject = sh(f"git log -1 --format=%s {sha}")
-        kind = subject.split("(")[0].split(":")[0].strip()
-        if kind in DOCS_PREFIXES:
-            docs.append(pr)
-            continue
-        if kind not in FIX_PREFIXES:
-            docs.append(pr)
-            continue
+        sha = fixes[0]  # git log is newest-first
         in_image = subprocess.run(
             f"git merge-base --is-ancestor {sha} {image}", shell=True
         ).returncode == 0
