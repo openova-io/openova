@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T14:00:03Z` |
+| Last refreshed | `2026-08-07T14:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T14:09 | [#5826](https://github.com/openova-io/openova/pull/5826) | #5825 | fix(console): ProfileMenu must honour an OIDC session when / |
 | 2026-08-07T13:55 | [#5824](https://github.com/openova-io/openova/pull/5824) | #5823 | fix(console): pre-select the Organization when the install w |
 | 2026-08-07T13:36 | [#5822](https://github.com/openova-io/openova/pull/5822) | #5821 | fix(api): /version must say whether buildTime is a link time |
 | 2026-08-07T13:24 | [#5820](https://github.com/openova-io/openova/pull/5820) | #5819 | fix(showback): name the parent Organization by its slug, not |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T03:47 | [#5791](https://github.com/openova-io/openova/pull/5791) | #5790 | fix(catalog-seed): crossRegion Blueprints must admit the mul |
 | 2026-08-07T03:23 | [#5789](https://github.com/openova-io/openova/pull/5789) | #4459 | docs(uat): R17 is env-blocked not code-blocked — cross-regio |
 | 2026-08-07T03:23 | [#5788](https://github.com/openova-io/openova/pull/5788) | #5401 | test(api): pin that an Org-scoped session cannot reach deplo |
-| 2026-08-07T03:10 | [#5787](https://github.com/openova-io/openova/pull/5787) | #5634 | test(marketplace): guard the /redeem markup contract the 429 |
 
 ---
 
