@@ -23,9 +23,43 @@ Across all three non-green tiers:
 | ☐ | **20** | 0 | 6 | 26 |
 | **total** | **61** | **3** | **13** | **77** |
 
-**Sixty-one non-green rows are waiting on a roll**, and writing further fixes
-moves none of them. Every ❌ row is deploy-gated; there is no failing row left
-that needs code.
+**Sixty-one non-green rows are waiting on a roll**, and for those rows writing
+further fixes moves nothing.
+
+> ⚠️ **THE SENTENCE THAT USED TO FOLLOW HERE IS NOW FALSE, and it was the most
+> decision-relevant line in the file.** It read: *"Every ❌ row is deploy-gated;
+> there is no failing row left that needs code."* That was true of the rows
+> classified on 2026-08-08 **morning**, and it stopped being true the same day.
+> A live walk of hw292 that afternoon surfaced **five defects on the running
+> environment that no roll will fix**, because the code to fix them does not
+> exist yet. Anyone reading the old sentence would conclude "just deploy" and be
+> wrong.
+
+## Live defects found by walking, NOT deploy-gated (2026-08-08 afternoon)
+
+These are new code, not pending deployments. Each was found on hw292 as it runs
+today, and each is recorded with the measurement that produced it.
+
+| issue | what breaks | how it was found |
+|---|---|---|
+| **#5894** | per-Org consoles reset the TLS handshake **~50%** of the time, on both Orgs and both pool TLDs | 12 probes per host across 6 hosts: 4 sovereign-domain hosts **0/48 resets**, 2 pool-TLD hosts **exactly 50%** — isolates it to the pool-TLD cert/listener, one region serving it and one not |
+| **#5895** | first visit to a per-Org console renders a **blank page**; a reload recovers | cold browser stops at the `prompt=none` silent-auth URL with `body_len=0`, unchanged after 25s |
+| **#5882** | OpenBao SSO session lands with no token prompt but its policy **cannot list mounts** — Secrets pane renders `403 permission denied` | authenticated shell renders, content pane errors |
+| **#5883** | a **mistyped email** at the PIN form persists a Keycloak realm user (`emrha.` alongside `emrah.`) | counting the Users list — a presence check matches both strings and reports green |
+| **#5878** | newapi is the only SSO app that does not accept the realm session — bare URL 302s to `/login?expired=true` | 5 apps land signed-in off one session; newapi expires it |
+| **row 95** | a purchased app never becomes an Application — checkout recorded `Apps (1)`, the Org converged, no Application exists | control: the first Org's apps **are** in the same list, so the absence is real |
+
+**Why none of these were visible to the classifier.** It resolves a row's *cited
+PRs* against the running image. A defect with **no PR yet** has nothing to cite,
+so it classifies as deploy-gated-or-unknown and disappears into the "waiting on a
+roll" bucket. The classifier answers "is the fix I know about deployed?" — it
+cannot answer "is there a fix at all?". That gap is what walking found.
+
+**Method note worth carrying, since it produced four of the six.** Every one of
+these needed either **repeated measurement** (a single probe reports the flapping
+console as working) or a **control** (the first Org, the sovereign-domain hosts,
+the other Org's apps). A negative with no control is not a finding — today it was
+wrong eight times out of eight before a control was added.
 
 ### The numbers this section carried until 2026-08-08 were wrong, and understated
 
