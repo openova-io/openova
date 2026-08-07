@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T20:15:02Z` |
+| Last refreshed | `2026-08-07T20:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,11 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#5408](https://github.com/openova-io/openova/issues/5408) | Wizard component model: phantom ids in the deployment payload, cnpg+postgres inv | Other |
+| [#5409](https://github.com/openova-io/openova/issues/5409) | PinInput6 maxLength={6} silently truncates a pasted sign-in code before the past | Other |
+| [#5410](https://github.com/openova-io/openova/issues/5410) | uptime-kuma is hard-coded to 128Mi in KnownApps and OOMKills permanently (40 res | Other |
+| [#5414](https://github.com/openova-io/openova/issues/5414) | newapi loses sessions ~60% of loads: each region mints its own SESSION_SECRET/CR | Other |
+| [#5416](https://github.com/openova-io/openova/issues/5416) | oidc-gate mints its cookie secret per region, so each gate rejects the peer's se | Other |
 | [#5419](https://github.com/openova-io/openova/issues/5419) | postgres chart: wizard instances collapse onto one Cluster/postgres (_helpers.tp | Other |
 | [#5420](https://github.com/openova-io/openova/issues/5420) | Topology tab renders declared placement, not effective perCluster — shows 2 ca | Other |
 | [#5421](https://github.com/openova-io/openova/issues/5421) | Marketplace redeem page misses cookie-borne owner sessions — localStorage prob | Other |
@@ -291,14 +296,9 @@ flowchart LR
 | [#5833](https://github.com/openova-io/openova/issues/5833) | GET /api/v1/organizations double-counts an Organization — the store/CR merge k | Other |
 | [#5835](https://github.com/openova-io/openova/issues/5835) | GET /applications/{name}/status 404s for every bootstrap component while its own | Other |
 | [#5843](https://github.com/openova-io/openova/issues/5843) | bp-openova-mcp supports mode=organization but nothing ever instantiates a per-Or | Other |
-| [#5844](https://github.com/openova-io/openova/issues/5844) | UAT.md: 29 rows contain an unescaped pipe inside a cell — Evidence spills into | Other |
 | [#5847](https://github.com/openova-io/openova/issues/5847) | UAT row 5 asserts TIER=sme, a value the Organization CRD 422-rejects — the row | Other |
 | [#5848](https://github.com/openova-io/openova/issues/5848) | Org delete leaves an orphaned HTTPRoute: teardown reaps by derived NAME while cr | Other |
-| [#5851](https://github.com/openova-io/openova/issues/5851) | classify-uat-delivery-state.py reports a false CODE-BLOCKED when a row cites the | Other |
-| [#5853](https://github.com/openova-io/openova/issues/5853) | UAT.md: 67 rows carry a phantom 8th column — appending a stamp after the row's | Other |
-| [#5855](https://github.com/openova-io/openova/issues/5855) | classify-uat-delivery-state.py splits rows on ESCAPED pipes, truncating Evidence | Other |
 | [#5857](https://github.com/openova-io/openova/issues/5857) | Door A stamps every customer Org isolation=vcluster while the GitOps renderer ba | Other |
-| [#5859](https://github.com/openova-io/openova/issues/5859) | classify-uat-delivery-state.py: unrecognised commit prefixes (deploy, ci) fall i | Other |
 | [#5867](https://github.com/openova-io/openova/issues/5867) | Two UAT rows need an owner decision and have no tracker issue: row 19 (grid keye | Other |
 
 ---
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T20:19 | [#5869](https://github.com/openova-io/openova/pull/5869) | #3969 | docs(uat): G10's evidence ends mid-word and has since it was |
+| 2026-08-07T20:15 | [#5868](https://github.com/openova-io/openova/pull/5868) | #5847 | docs(uat): rows 19 + 184 cite #5867 — the last two adjudicat |
 | 2026-08-07T20:12 | [#5866](https://github.com/openova-io/openova/pull/5866) | #5813 | docs(uat): resolve the UNKNOWN bucket — every non-green row  |
 | 2026-08-07T20:06 | [#5865](https://github.com/openova-io/openova/pull/5865) | #5813 | docs(uat): R22 UNKNOWN → DEPLOY-GATED — its evidence describ |
 | 2026-08-07T20:02 | [#5864](https://github.com/openova-io/openova/pull/5864) | #960 | docs(uat): row 185 ⚠️ → ✅ — its assertion is met; it was gra |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-07T14:09 | [#5826](https://github.com/openova-io/openova/pull/5826) | #5825 | fix(console): ProfileMenu must honour an OIDC session when / |
 | 2026-08-07T13:55 | [#5824](https://github.com/openova-io/openova/pull/5824) | #5823 | fix(console): pre-select the Organization when the install w |
 | 2026-08-07T13:36 | [#5822](https://github.com/openova-io/openova/pull/5822) | #5821 | fix(api): /version must say whether buildTime is a link time |
-| 2026-08-07T13:24 | [#5820](https://github.com/openova-io/openova/pull/5820) | #5819 | fix(showback): name the parent Organization by its slug, not |
-| 2026-08-07T13:14 | [#5818](https://github.com/openova-io/openova/pull/5818) | #5817 | fix(console): stop title-casing identifiers on the Org detai |
 
 ---
 
