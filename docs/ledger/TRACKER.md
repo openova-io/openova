@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T19:00:02Z` |
+| Last refreshed | `2026-08-07T19:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5414](https://github.com/openova-io/openova/issues/5414) | newapi loses sessions ~60% of loads: each region mints its own SESSION_SECRET/CR | Other |
 | [#5416](https://github.com/openova-io/openova/issues/5416) | oidc-gate mints its cookie secret per region, so each gate rejects the peer's se | Other |
 | [#5419](https://github.com/openova-io/openova/issues/5419) | postgres chart: wizard instances collapse onto one Cluster/postgres (_helpers.tp | Other |
 | [#5420](https://github.com/openova-io/openova/issues/5420) | Topology tab renders declared placement, not effective perCluster — shows 2 ca | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5853](https://github.com/openova-io/openova/issues/5853) | UAT.md: 67 rows carry a phantom 8th column — appending a stamp after the row's | Other |
 | [#5855](https://github.com/openova-io/openova/issues/5855) | classify-uat-delivery-state.py splits rows on ESCAPED pipes, truncating Evidence | Other |
 | [#5857](https://github.com/openova-io/openova/issues/5857) | Door A stamps every customer Org isolation=vcluster while the GitOps renderer ba | Other |
+| [#5859](https://github.com/openova-io/openova/issues/5859) | classify-uat-delivery-state.py: unrecognised commit prefixes (deploy, ci) fall i | Other |
 
 ---
 
