@@ -175,7 +175,27 @@ export function CreateOrganizationPage({
         // so the advanced override round-trips.
         kind: orgKind,
         billing_mode: billingMode,
-        isolation,
+        // #5857 (UAT row G7) — send `isolation` ONLY as an explicit operator
+        // override, never as the form's own default.
+        //
+        // This form has no plan input, so the server normalises planSlug to "s"
+        // and the GitOps renderer derives the boundary from planSlug alone
+        // (BoundaryIsVcluster("s") === false → the host `<slug>` namespace). It
+        // never reads the record's Isolation.
+        //
+        // resolveOrgShape lets a valid explicit `isolation` bypass the tier gate
+        // (organization_provisioning.go:373-377). Sending the kind default —
+        // 'vcluster' for every customer — therefore stamped every Door A Org
+        // `vcluster` while it was namespace-backed, re-introducing through the
+        // override branch the exact mislabel isolationForTier was written to
+        // remove: "an S-plan Org that correctly backs a host namespace was
+        // mislabeled vcluster ... The BACKING was always right — only the label
+        // ignored the tier."
+        //
+        // Omitting it lets the server derive from the tier gate, so the label
+        // matches the backing. An operator who opens Advanced and chooses is
+        // still honoured — that is a deliberate override, not a default.
+        ...(advancedOpen ? { isolation } : {}),
       })
       setCreated(result)
     } catch (err) {

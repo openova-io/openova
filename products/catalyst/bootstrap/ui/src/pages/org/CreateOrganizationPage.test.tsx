@@ -157,6 +157,85 @@ describe('CreateOrganizationPage', () => {
     expect(select.textContent).toContain('No pool parents available')
   })
 
+  /* ── #5857 (UAT row G7): isolation is an OVERRIDE, never a default ──
+   *
+   * This form has no plan input, so the server normalises planSlug to "s" and
+   * the GitOps renderer derives the boundary from planSlug ALONE
+   * (BoundaryIsVcluster("s") === false → the host `<slug>` namespace). It never
+   * reads the record's Isolation.
+   *
+   * resolveOrgShape lets a valid explicit `isolation` bypass the tier gate, so
+   * sending the kind default — 'vcluster' for every customer — stamped every
+   * Door A Org `vcluster` while it was namespace-backed. That is precisely the
+   * mislabel isolationForTier was written to remove, re-entering through the
+   * override branch.
+   *
+   * The first assertion is the one that matters: the DEFAULT path must not send
+   * the field at all. The second proves the override still works, so the fix is
+   * not "stop sending isolation ever".
+   */
+  it('does NOT send isolation when the operator has not opened the advanced override', async () => {
+    // mockClear + calls.at(-1): vi mocks ACCUMULATE across tests in this file,
+    // so calls[0] is the first submit ever made, not this test's. Reading it
+    // made the override test assert on the DEFAULT test's payload and fail for
+    // a reason that had nothing to do with the code under test.
+    // Rejecting keeps the component on the error path, which renders cleanly —
+    // a partial success record blows up the created-view.
+    vi.mocked(createOrganization).mockClear()
+    vi.mocked(createOrganization).mockRejectedValueOnce(new Error('stop here'))
+    render(<CreateOrganizationPage initialParentDomains={POOL} disableFetch />)
+
+    // Sanity: the badge still SHOWS the kind default, so this is a
+    // wire-payload fix and not a visible-behaviour change.
+    expect(
+      screen.getByTestId('create-org-isolation').getAttribute('data-isolation'),
+    ).toBe('vcluster')
+
+    fireEvent.change(screen.getByTestId('org-create-subdomain'), {
+      target: { value: 'acme' },
+    })
+    fireEvent.change(screen.getByTestId('org-create-email'), {
+      target: { value: 'admin@acme.com' },
+    })
+    fireEvent.click(screen.getByTestId('org-create-submit'))
+
+    await waitFor(() => expect(createOrganization).toHaveBeenCalled())
+    const body = vi.mocked(createOrganization).mock.calls.at(-1)![0]
+    expect(
+      'isolation' in body,
+      'the form sent isolation as a DEFAULT — that bypasses the server tier gate ' +
+        '(resolveOrgShape) and stamps the Org "vcluster" while the GitOps renderer ' +
+        'backs it with a host namespace, because it derives the boundary from ' +
+        'planSlug alone (#5857, UAT row G7).',
+    ).toBe(false)
+  })
+
+  it('DOES send isolation when the operator explicitly overrides it', async () => {
+    vi.mocked(createOrganization).mockClear()
+    vi.mocked(createOrganization).mockRejectedValueOnce(new Error('stop here'))
+    render(<CreateOrganizationPage initialParentDomains={POOL} disableFetch />)
+
+    fireEvent.click(screen.getByTestId('create-org-advanced-toggle'))
+    fireEvent.change(screen.getByTestId('create-org-isolation-select'), {
+      target: { value: 'namespace' },
+    })
+    fireEvent.change(screen.getByTestId('org-create-subdomain'), {
+      target: { value: 'acme' },
+    })
+    fireEvent.change(screen.getByTestId('org-create-email'), {
+      target: { value: 'admin@acme.com' },
+    })
+    fireEvent.click(screen.getByTestId('org-create-submit'))
+
+    await waitFor(() => expect(createOrganization).toHaveBeenCalled())
+    const body = vi.mocked(createOrganization).mock.calls.at(-1)![0]
+    expect(
+      body.isolation,
+      'a deliberate operator override was dropped — the fix must suppress the ' +
+        'DEFAULT, not the explicit choice',
+    ).toBe('namespace')
+  })
+
   /* ── Row 214 regression guard (issue #5100; supersedes PR #5203) ──
      createOrganization's rejection message is rendered VERBATIM in the
      submit-error panel (`err.message`). Lock the rendered copy so it

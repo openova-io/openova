@@ -175,8 +175,14 @@ export interface OrgCreateRequest {
   company_name?: string
   /** The Organizations internal door (issue #3378 B1). When omitted the
    *  backend defaults to the customer shape (kind=customer, tier=org,
-   *  billingMode=real, isolation=vcluster) so the marketplace funnel is
-   *  unaffected. kind='internal' stamps the department shape (showback +
+   *  billingMode=real) so the marketplace funnel is unaffected.
+   *
+   *  `isolation` is NOT part of that default and must not be sent as one
+   *  (#5857): the server DERIVES it from the #4292 tier gate so the label
+   *  matches the backing, and a valid explicit value bypasses that gate.
+   *  Send it only for a deliberate operator override. This comment
+   *  previously read "isolation=vcluster", which was the pre-tier-gate
+   *  behaviour and is exactly the value that made the label wrong. kind='internal' stamps the department shape (showback +
    *  namespace) and skips the voucher dependency. These map onto the
    *  OrganizationSpec fields (Kind/Tier/BillingMode + Isolation). */
   kind?: 'internal' | 'customer'
