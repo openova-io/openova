@@ -909,7 +909,7 @@ controllers:
       # 0c717f6 (2026-07-02, #4685) — freshness sweep: 8c532a7 had drifted 311
       # commits behind latest GHCR (0c717f6), surfaced the moment #4685 un-masked
       # the blanket false-red. Image published + main-reachable (verified).
-      tag: "5036a66"
+      tag: "150ff73"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
