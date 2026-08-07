@@ -26,6 +26,17 @@ W1/W2 and rows 35/115 individually before the pattern became visible.
 
 TWO TRAPS THIS ENCODES, both hit while deriving it by hand:
 
+ 0. DO NOT read the running artifact off `GET /api/v1/version`'s `buildTime`.
+    That field silently falls back to the PROCESS START time when the build-time
+    ldflag and CATALYST_BUILD_TIME are both unset, and it keeps the same key
+    name either way. Measured on hw292 2026-08-07: buildTime said
+    2026-08-07T12:39:41Z for sha fad88bd, a binary built five days earlier —
+    i.e. it reported a pod restart as a fresh build, which would have flipped
+    every DEPLOY-GATED row to a false CODE-BLOCKED. `buildTimeSource` (#5821)
+    now names the branch, so `"process-start"` is readable as "this is not a
+    build timestamp". This tool takes `--image <commit-ish>` and dates it from
+    GIT for exactly this reason, and refuses (exit 2) to guess.
+
  1. A cited PR is often a `docs(uat)` WALK RECORD, not a fix. #5615 and #5617
     are the walks that recorded rows 219/234 failing. Counting them as fixes
     turns a code-blocked row into a false deploy-gate, so commit SUBJECT is

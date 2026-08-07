@@ -115,6 +115,28 @@ type VersionResponse struct {
 	// Go — runtime version (debug aid; e.g. "go1.26.0"). Useful when
 	// chasing a regression that correlates with a Go upgrade.
 	Go string `json:"go"`
+
+	// BuildTimeSource — where BuildTime actually came from: "ldflag",
+	// "env", or "process-start" (#5821).
+	//
+	// WHY THIS FIELD EXISTS. BuildTime silently falls back to the process
+	// start time when neither the ldflag nor CATALYST_BUILD_TIME is set. The
+	// key is still named `buildTime`, so the response is indistinguishable
+	// from a genuinely fresh build — and the whole point of this endpoint is
+	// answering "what version is live right now".
+	//
+	// Measured on hw292 2026-08-07: /version returned
+	// buildTime 2026-08-07T12:39:41Z on a binary whose SHA (fad88bd) was built
+	// five days earlier. Read at face value that says every fix merged that
+	// morning was already live. It was not — the pod had merely restarted.
+	// The UAT ledger's entire deploy-gated-vs-code-blocked split turns on
+	// exactly this question, so a field that can be off by days without
+	// saying so is worse than one that is absent.
+	//
+	// Reported rather than suppressed: process start is genuinely useful (it
+	// dates the current pod, which is how you spot a restart loop). The defect
+	// was never the fallback — it was the fallback being unlabelled.
+	BuildTimeSource string `json:"buildTimeSource"`
 }
 
 // HandleVersion — GET /api/v1/version
@@ -123,18 +145,26 @@ type VersionResponse struct {
 // JSON. No auth gate (probe-friendly).
 func (h *Handler) HandleVersion(w http.ResponseWriter, r *http.Request) {
 	sha := envOrTrim("CATALYST_BUILD_SHA", buildSHA)
-	bt := envOrTrim("CATALYST_BUILD_TIME", buildTime)
+
+	// Resolve BuildTime and record WHICH source won, so a caller can tell a
+	// real link timestamp from the process-start fallback (#5821).
+	bt := strings.TrimSpace(os.Getenv("CATALYST_BUILD_TIME"))
+	btSource := "env"
 	if bt == "" {
-		bt = processStartTime
+		bt, btSource = strings.TrimSpace(buildTime), "ldflag"
+	}
+	if bt == "" {
+		bt, btSource = processStartTime, "process-start"
 	}
 	resp := VersionResponse{
-		Service:      "catalyst-api",
-		SHA:          sha,
-		GitSha:       sha,
-		Version:      envOrTrim("CATALYST_BUILD_VERSION", buildVersion),
-		ChartVersion: envOrTrim("CATALYST_CHART_VERSION", chartVersion),
-		BuildTime:    bt,
-		Go:           runtime.Version(),
+		Service:         "catalyst-api",
+		SHA:             sha,
+		GitSha:          sha,
+		Version:         envOrTrim("CATALYST_BUILD_VERSION", buildVersion),
+		ChartVersion:    envOrTrim("CATALYST_CHART_VERSION", chartVersion),
+		BuildTime:       bt,
+		BuildTimeSource: btSource,
+		Go:              runtime.Version(),
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
