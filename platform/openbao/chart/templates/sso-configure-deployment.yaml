@@ -246,13 +246,40 @@ data:
       # attached via external identity groups keyed on the `groups` claim, so
       # a viewer never silently inherits admin (and an admin is not gated to
       # read). See the identity-group block below.
+      #
+      # #5829 (UAT row 183) — BOTH policy writes GATE THE TICK.
+      #
+      # These two were the only writes in this loop whose failure was
+      # swallowed: `if bao_write …; then log …; fi` with no else, while the
+      # role write six lines below does `else log WARN; continue`. So a failed
+      # policy write did not stop the tick — the role was then written
+      # referencing `sso-operator-read`, a policy that does not exist. OpenBao
+      # accepts that role happily. The token it mints carries a dangling policy
+      # name and therefore NO capabilities, and every request 403s, including
+      # `sys/internal/ui/mounts` — which is what the UI calls to populate the
+      # Secrets Engines panel. Row 183's symptom exactly: the session is real
+      # (final URL /ui/vault/secrets, no token form) but the panel renders
+      # "Not authorized".
+      #
+      # THE ORDERING IS WHAT MAKES THIS FAIL SILENTLY, and it is why the fix is
+      # `continue` rather than a louder log. A policy must EXIST before a role
+      # names it; writing the role first and the policy "next tick" produces a
+      # window where the operator is authenticated and powerless, with no error
+      # anywhere in the chain — the login itself succeeds. Retrying the whole
+      # tick keeps policy-then-role in that order on every pass.
       ADMIN_POLICY_PAYLOAD='{"policy":"path \"*\" { capabilities = [\"read\",\"create\",\"update\",\"delete\",\"list\",\"sudo\"] }"}'
       if bao_write sys/policies/acl/sso-operator-admin "${ADMIN_POLICY_PAYLOAD}"; then
         log "sso-operator-admin policy written"
+      else
+        log "WARN: sys/policies/acl/sso-operator-admin write failed; retrying next tick (role NOT written — it would reference a policy that does not exist)"
+        continue
       fi
       READ_POLICY_PAYLOAD='{"policy":"path \"*\" { capabilities = [\"read\",\"list\"] }"}'
       if bao_write sys/policies/acl/sso-operator-read "${READ_POLICY_PAYLOAD}"; then
         log "sso-operator-read policy written"
+      else
+        log "WARN: sys/policies/acl/sso-operator-read write failed; retrying next tick (role NOT written — its token_policies would name a missing policy and every request would 403)"
+        continue
       fi
 
       # Build allowed_redirect_uris as a JSON list of comma-separated env var entries.

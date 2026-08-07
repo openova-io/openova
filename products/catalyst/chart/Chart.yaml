@@ -3736,12 +3736,20 @@ name: bp-catalyst-platform
 #   application necessary this time; arithmetic verified against
 #   scripts/check-chart-version-forward.sh before writing).
 # 1.4.1329 — #5459: catalog-seed bp-openbao source.version + spec.version
+# 1.4.1330 (#5829, UAT row 183): catalog-seed bp-openbao pin
+#   1.2.65 -> 1.2.66. Both sso-configure ACL-policy writes now GATE the tick.
+#   They were the only writes in that loop whose failure was swallowed, so a
+#   failed write let the loop proceed to auth/oidc/role/operator with
+#   token_policies naming a policy that does not exist — OpenBao accepts that
+#   role, its tokens carry no capabilities, and every request 403s including
+#   sys/internal/ui/mounts, so the UI renders "Not authorized" on a session
+#   that authenticated perfectly. Lockstep w/ slot-08 + blueprint.yaml.
 #   1.2.64 -> 1.2.65 (SSO landing re-validates a cached token before trusting
 #   it — UAT row 183). check-umbrella-republish-gate.py (#5734) requires this
 #   file's version to move in the SAME PR as any catalog-seed pin move, else
 #   the published bp-catalyst-platform OCI artifact never carries the pin.
 #   Serialized to 1.4.1329 because #5764 took 1.4.1328 on main first.
-version: 1.4.1329
+version: 1.4.1330
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
