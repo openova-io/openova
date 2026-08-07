@@ -374,7 +374,33 @@ func orgForRow(row podRow, infraNamespaces map[string]struct{}) string {
 	return platformOrg
 }
 
-// consumptionParentOrg resolves the parent org name (the Sovereign FQDN).
+// consumptionParentOrg resolves the parent Organization's SLUG — the same
+// identifier the Organization CR, the directory and the treemap use for the
+// Sovereign self-org.
+//
+// #5819 (UAT row 25). This returned the raw Sovereign FQDN, so showback labelled
+// the parent group `hw292.omani.works` while the directory and the CR both said
+// `hw292-omani-works`. Row 25's entire assertion is "one consistent model across
+// surfaces" — two spellings of one Org is exactly the failure it names, and it
+// survived an earlier fix that removed the literal word "sovereign" from this
+// path without addressing the mismatch underneath.
+//
+// Routing through orgNamespace() is not cosmetic normalisation; it is the
+// canonical org→identifier seam (namespace_ensure.go), the SAME one
+// spineOrganizationSlug uses to mint the self-org CR. Deriving the label a
+// second way here is what let the two drift.
+//
+// It also repairs a join that could never match. The parent bucket is selected
+// by `org == parentOrg`, where org comes from the `openova.io/organization`
+// namespace label. Label values written by the org-controller are CR slugs —
+// DNS-1123, no dots — so an FQDN-shaped parentOrg matched NOTHING, and the
+// parent group rendered at 0 cost units on a Sovereign that plainly runs
+// workloads. The walk saw exactly that: showback emitting the parent at zero
+// while the treemap had no parent node at all.
+//
+// The "sovereign" fallback is kept for an unresolvable deployment: it is a
+// visibly synthetic name, and inventing a plausible-looking slug for an Org we
+// cannot identify would be worse than an obviously placeholder one.
 func (h *Handler) consumptionParentOrg(depID string) string {
 	if val, ok := h.deployments.Load(depID); ok {
 		if dep, ok := val.(*Deployment); ok {
@@ -382,7 +408,7 @@ func (h *Handler) consumptionParentOrg(depID string) string {
 			fqdn := dep.Request.SovereignFQDN
 			dep.mu.Unlock()
 			if strings.TrimSpace(fqdn) != "" {
-				return fqdn
+				return orgNamespace(fqdn)
 			}
 		}
 	}
