@@ -689,6 +689,30 @@ func (h *Handler) HandleApplicationStatus(w http.ResponseWriter, r *http.Request
 	obj, getErr := getApplicationCR(r.Context(), client, name, ns)
 	if getErr != nil {
 		if apierrors.IsNotFound(getErr) {
+			// #5835 (UAT rows 67, 69) — the SAME fallback chain
+			// HandleApplicationGet uses, for the same reason.
+			//
+			// This endpoint read the Application CR and nothing else, so a
+			// bootstrap-kit component (a HelmRelease with no companion CR —
+			// bp-grafana, bp-keycloak, every spine slot) got a hard 404 while
+			// its sibling GET /applications/{name} returned a complete
+			// synthesised answer. The console's Topology tab reacted by
+			// disabling the poll entirely and printing "n/a — bootstrap
+			// component (HelmRelease, no Application CR)".
+			//
+			// So one page contradicted itself: rows 67 and 69 both measured the
+			// header and Overview reading STATUS Ready — from the synthesised
+			// detail response — while the Status panel three inches below said
+			// there was no status to report. The data existed the whole time;
+			// only this endpoint refused to project it.
+			//
+			// Reuses the existing synthesisers rather than re-deriving a phase
+			// from the HR here. Two ways to answer "what is this component's
+			// status" is exactly how the detail and status paths drifted apart.
+			if resp, ok := h.statusFromSynthesised(r.Context(), depID, name, ns); ok {
+				writeJSON(w, http.StatusOK, resp)
+				return
+			}
 			writeJSON(w, http.StatusNotFound, map[string]string{
 				"error":  "application-not-found",
 				"detail": fmt.Sprintf("Application %q not found", name),
