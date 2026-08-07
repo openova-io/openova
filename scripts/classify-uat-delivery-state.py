@@ -67,6 +67,7 @@ UAT = "docs/ledger/UAT.md"
 # Delivery is measured against merged history only — see the note in classify().
 MAIN_REF = "origin/main"
 ROW_RE = re.compile(r"^\|\s*(R?\d+|[GWM]\d+)\s*\|")
+UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
 # A fix-bearing conventional-commit prefix. `docs:` is deliberately absent — a
 # docs(uat) commit is a walk record, not a delivery (trap 1 above).
 FIX_PREFIXES = ("fix", "feat", "perf", "refactor", "test", "chore")
@@ -87,7 +88,20 @@ def rows_with_status(path, want):
     for line in open(path, encoding="utf-8"):
         if not ROW_RE.match(line):
             continue
-        f = line.split("|")
+        # Split on UNESCAPED pipes only. `line.split("|")` treats a `\|` inside a
+        # cell as a column separator, which shifts every field after it — #5855.
+        #
+        # Row 20 is the case: one escaped pipe in its Evidence, so the naive
+        # split produced 10 fields and f[7] held only the text BEFORE the escape.
+        # The `#5688` reference that proves the row deploy-gated sits after it, so
+        # the row read as "no PR cited" and classified UNKNOWN.
+        #
+        # The Result column survived there only by luck — the escape happened to
+        # fall after it. An escaped pipe in ANY earlier cell shifts the verdict
+        # out from under f[6], and the tool would then silently classify the
+        # wrong set of rows. This is the same trap #5844 documented in the ledger
+        # guard and it was live in this file the whole time.
+        f = UNESCAPED_PIPE.split(line.rstrip())
         if len(f) <= 6:
             continue
         status = f[6].strip()
