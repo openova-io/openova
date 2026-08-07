@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T09:00:04Z` |
+| Last refreshed | `2026-08-07T09:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T09:03 | [#5804](https://github.com/openova-io/openova/pull/5804) | #5799 | docs(uat): row 85 LIVE WALK on hw292 with screenshots — pres |
 | 2026-08-07T08:46 | [#5803](https://github.com/openova-io/openova/pull/5803) | #5800 | docs(uat): 18 SSO rows — re-walk AFTER the roll, not now; di |
 | 2026-08-07T08:15 | [#5802](https://github.com/openova-io/openova/pull/5802) | #5801 | docs(uat): row 4 — #5434 fix merged (PR #5801) but not deliv |
 | 2026-08-07T07:58 | [#5801](https://github.com/openova-io/openova/pull/5801) | #5434 | fix(api): App-detail Dependencies is empty for bootstrap app |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T17:55 | [#5774](https://github.com/openova-io/openova/pull/5774) | #5752 | test(stalwart-params): unchecked assertion panicked the bina |
 | 2026-08-06T17:55 | [#5773](https://github.com/openova-io/openova/pull/5773) | #5750 | test(guacamole-drift): self-test could not see its own fail- |
 | 2026-08-06T17:55 | [#5772](https://github.com/openova-io/openova/pull/5772) | #5690 | fix(§854): LB nodePort:0 guard counted presence, not ports — |
-| 2026-08-06T17:49 | [#5771](https://github.com/openova-io/openova/pull/5771) | #5348 | docs(walk): live cluster-side §854 NodePort census on hw292  |
 
 ---
 
