@@ -1,42 +1,80 @@
-# PATH TO 100% — **hw292 live, cc=true** (refreshed 2026-08-06)
+# PATH TO 100% — **hw292 live, cc=true** (delivery-state re-measured 2026-08-08)
 
 > **Source of truth:** [`UAT.md`](UAT.md). **Current env = hw292** (`hw292.omani.works`, dep `1c56518035a83e03`, 2-region Huawei me-east-215-a/-b-1) — **fired 2026-08-03T04:04Z, converged, `cutoverComplete=true` 08:12:30Z**, and G12 region-kill re-proven **6/6 zero-touch** on 2026-08-04 (promotion T0+136s, failback with a clean re-clone, no split-brain — `docs/sessions/2026-08-04/hw292-g12-region-kill/`). hw291 was wiped 2026-07-31 08:54Z after banking cc=true.
 > This file maps every non-green row to its gate + owner. A row stays non-green until the hw292 walk verifies it — **merge ≠ green** (founder rule). Nothing below is a walk stamp; this is the *fix map*, and it says exactly which fixes are already inside the image hw292 will boot.
 
 ---
 
-## The remaining ❌ set is a DEPLOY, not a fix backlog (measured 2026-08-07)
+## The remaining ❌ set is a DEPLOY, not a fix backlog (re-measured 2026-08-08)
 
 This is the single most decision-relevant fact in this file, and it was not
 visible until every failing row was classified at once rather than chased one at
 a time.
 
-`scripts/classify-uat-delivery-state.py --image fad88bd` — the catalyst-api actually
-running on hw292, **built 2026-08-02** — resolves each row's cited PRs to their
-merge commits and asks whether each is an ancestor of that artifact:
+`scripts/classify-uat-delivery-state.py --image fad88bd` — the catalyst-api
+actually running on hw292, **built 2026-08-02** — resolves each row's cited PRs
+to their merge commits and asks whether each is an ancestor of that artifact.
+Across all three non-green tiers:
 
-| verdict | count | rows |
-|---|---|---|
-| **DEPLOY-GATED** — fix merged, artifact predates it | **12** | R17, W1, W2, 35, 37, 57, 86, 90, 92, 115, 219, 234 |
-| **CODE-BLOCKED** — no merged fix cited | **1** | 20 |
+| tier | DEPLOY-GATED | CODE-BLOCKED | UNKNOWN | total |
+|---|---|---|---|---|
+| ❌ | **13** | **0** | 0 | 13 |
+| ⚠️ | **28** | 3 | 7 | 38 |
+| ☐ | **20** | 0 | 6 | 26 |
+| **total** | **61** | **3** | **13** | **77** |
 
-Row 20 is the lone exception and is not really engineering either: it needs a
-customer Organization driven through the funnel before its assertion can be
-evaluated at all.
+**Sixty-one non-green rows are waiting on a roll**, and writing further fixes
+moves none of them. Every ❌ row is deploy-gated; there is no failing row left
+that needs code.
 
-Run against the ⚠️ tier the same way, **8 more** rows are deploy-gated (W5, 9,
-33, 53, 55, 62, 71, 87). So **20 rows across both tiers are waiting on a roll**,
-and writing further fixes moves none of them.
+### The numbers this section carried until 2026-08-08 were wrong, and understated
 
-**What this changes.** The next action for the ❌ set is delivering the train —
-not another fix wave. Four separate investigations this session (R17's
+The previous text read *"DEPLOY-GATED 12 / CODE-BLOCKED 1 (row 20) … 8 more in
+⚠️ … so 20 rows across both tiers are waiting on a roll."* The true figures are
+13 / 0 and 61. Three defects in the measuring tool produced that, each fixed and
+each the same underlying error — **stating a conclusion the evidence does not
+support**:
+
+| defect | effect on this file's numbers |
+|---|---|
+| #5851 — a row citing the **issue** rather than the PR that closed it printed `CODE-BLOCKED / "no PR cited"` | Row 20 was the "lone exception". Its fix merged as **PR #5688 on 2026-08-05**, three days after the artifact was built. It was deploy-gated all along. |
+| #5855 — rows were split on **escaped** pipes, truncating Evidence | Every row carrying a `\|` was classified on a **prefix of its own record**. Row 219 was judged on 2 of its 9 cited PRs. This is what understated ⚠️ as 8 rather than 28. |
+| #5859 — `deploy` (109 commits) and `ci` (5) were **unrecognised prefixes**, 28.5% of the last 400 on main | Citations fell into a bucket printed *"cited but unmerged"*, asserting a PR exists that does not. Rows 5/6/10/11 read CODE-BLOCKED purely from this. |
+
+Root cause of the third is structural and worth carrying: **squash-merge replaces
+the commit subject with the PR title**, so every commit in a multi-change PR
+inherits that PR's overall type. Per-commit subject classification therefore
+reflects the PR, not the change.
+
+`CODE-BLOCKED` now requires **positive** evidence — a fix present in the artifact
+that still fails. Absence of a citation reports `UNKNOWN`, because git alone
+cannot separate "unmerged PR" from "tracking issue" from "fix squashed under a
+non-fix title".
+
+### What is genuinely NOT a deploy problem
+
+Three ⚠️ rows (192, 225, 231) carry positive code-blocked evidence. And the ☐
+tier's row 5 is a distinct case the delivery axis cannot express: it reads
+DEPLOY-GATED because one of its clauses cites a merged-but-undelivered fix, while
+a **different** clause (`TIER=sme`) asserts a value the Organization CRD
+422-rejects and never can satisfy. A row can be simultaneously deploy-gated and
+assertion-defective; this tool reports only the delivery dimension. See #5847.
+
+**What this changes.** The next action for the non-green set is delivering the
+train — not another fix wave. Four separate investigations in one session (R17's
 cross-region reaper, W1/W2's wizard defaults, rows 35/115's bp-guacamole
 `crossRegion`, row 92's 429 notice) each independently terminated in "the fix is
 merged and the running artifact predates it". That is the same finding four
-times, which is what the classifier now surfaces in one command.
+times, which the classifier now surfaces in one command.
 
-**Two traps the script encodes**, both of which produced wrong answers by hand
+**Three traps the script encodes**, all of which produced wrong answers by hand
 before being caught:
+
+0. **Do not read the running artifact off `GET /api/v1/version`'s `buildTime`.**
+   That field silently falls back to PROCESS START time when the build-time
+   ldflag and `CATALYST_BUILD_TIME` are both unset, keeping the same key name —
+   so a pod restart reads as a fresh build and flips every DEPLOY-GATED row to a
+   false CODE-BLOCKED. `buildTimeSource` (#5821) now names the branch.
 
 1. A cited PR is often a `docs(uat)` **walk record**, not a fix — #5615 and
    #5617 are the walks that recorded rows 219/234 failing. Counting those as
