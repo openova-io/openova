@@ -498,6 +498,44 @@ export function NewInstanceDialog({
   })
   const orgs = orgsQuery.data ?? []
 
+  /**
+   * #5823 (UAT row 218) — pre-select the Organization when there is exactly
+   * one it could be.
+   *
+   * The row asserts the install wizard "opens with the Org's Environment
+   * pre-selected as the target". It never did: `org` initialised to '' and
+   * nothing ever set it, so the select sat on "Select an organization…" and
+   * the derived `Environment: <org>-prod` line — which only renders once org
+   * is chosen — was absent. On the per-Org console that is a question with one
+   * possible answer being asked anyway.
+   *
+   * THE RULE IS "EXACTLY ONE CANDIDATE", NOT "ORG SESSION". Keying off the
+   * session scope would need scope plumbing this dialog does not have, and
+   * would still be wrong for a sovereign-admin who happens to run a
+   * single-Org Sovereign. Counting the candidates answers both cases from
+   * data already fetched: an Org session's directory returns just that Org, a
+   * multi-Org sovereign console returns several and stays unselected — a
+   * sovereign-admin with a real choice must still make it.
+   *
+   * PARENTS ARE EXCLUDED from the count. The parent row is the Sovereign
+   * self-org (the platform's own control-plane Organization); defaulting a
+   * customer install into it would be worse than asking. So a sovereign
+   * console with only the self-org resolves to ZERO candidates and stays
+   * unselected, which is the honest outcome — there is no customer Org to
+   * install into yet.
+   *
+   * Only ever fills a BLANK selection. Once the operator picks something this
+   * must never move it, including on a background refetch of the directory.
+   */
+  const soleOrgSlug = useMemo<string>(() => {
+    const candidates = orgs.filter((o) => !o.isParent && !!o.slug)
+    return candidates.length === 1 ? candidates[0].slug : ''
+  }, [orgs])
+
+  useEffect(() => {
+    if (!org && soleOrgSlug) setOrg(soleOrgSlug)
+  }, [org, soleOrgSlug])
+
   // #3599 / #3600 — live cluster regions + vclusters from the Sovereign's
   // infrastructure topology (the SAME source the post-create Topology tab
   // reads its available regions from). Regions use the catalyst id
