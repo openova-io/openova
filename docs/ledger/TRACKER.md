@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T10:00:05Z` |
+| Last refreshed | `2026-08-07T10:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T10:05 | [#5807](https://github.com/openova-io/openova/pull/5807) | #5800 | docs(uat): row 40 WALKED GREEN — anonymous storefront verifi |
 | 2026-08-07T09:50 | [#5806](https://github.com/openova-io/openova/pull/5806) | #5799 | docs(uat): row 36 LIVE WALK — 3 of 4 clauses verified; the h |
 | 2026-08-07T09:18 | [#5805](https://github.com/openova-io/openova/pull/5805) | #5799 | docs(uat): rows 32 + 34 LIVE WALK — the SSO chain is intact  |
 | 2026-08-07T09:03 | [#5804](https://github.com/openova-io/openova/pull/5804) | #5799 | docs(uat): row 85 LIVE WALK on hw292 with screenshots — pres |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T18:10 | [#5777](https://github.com/openova-io/openova/pull/5777) | #5646 | fix(#5646): the failed-run progress recompute was unguarded  |
 | 2026-08-06T18:05 | [#5776](https://github.com/openova-io/openova/pull/5776) | #5646 | fix(#5769): the #5646 step-name guard read a transcript, not |
 | 2026-08-06T18:00 | [#5775](https://github.com/openova-io/openova/pull/5775) | #5768 | test(catalyst-api): guard that main() actually wires the gra |
-| 2026-08-06T17:55 | [#5774](https://github.com/openova-io/openova/pull/5774) | #5752 | test(stalwart-params): unchecked assertion panicked the bina |
 
 ---
 
