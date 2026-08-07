@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T21:15:03Z` |
+| Last refreshed | `2026-08-07T21:30:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T21:27 | [#5877](https://github.com/openova-io/openova/pull/5877) | #5871 | docs(uat): real browser walk on hw292 — rows 27/28/45 green  |
+| 2026-08-07T21:21 | [#5876](https://github.com/openova-io/openova/pull/5876) | #5720 | docs(uat): rows 28/41/45 — UserAccess walked live; row 41's  |
+| 2026-08-07T21:17 | [#5875](https://github.com/openova-io/openova/pull/5875) | #5871 | docs(uat): rows 33 + 36 fail as a gateway 404, not a login f |
 | 2026-08-07T21:04 | [#5874](https://github.com/openova-io/openova/pull/5874) | #880 | docs(uat): row 177 — name the exact retry target and the pas |
 | 2026-08-07T20:59 | [#5873](https://github.com/openova-io/openova/pull/5873) | #4292 | docs(uat): hw292 authed walk 2 — row 20 goes green, rows 10/ |
 | 2026-08-07T20:41 | [#5870](https://github.com/openova-io/openova/pull/5870) | #5867 | docs(uat): hw292 authed walk — rows 235 + 6 go green, row 19 |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-07T16:34 | [#5837](https://github.com/openova-io/openova/pull/5837) | #960 | docs(uat): adjudicate row 185 — its assertion is unmeetable  |
 | 2026-08-07T15:56 | [#5836](https://github.com/openova-io/openova/pull/5836) | #5835 | fix(api): /applications/{name}/status must answer for a comp |
 | 2026-08-07T15:27 | [#5834](https://github.com/openova-io/openova/pull/5834) | #5833 | fix(api): /organizations double-counted an Org — the store/C |
-| 2026-08-07T15:19 | [#5832](https://github.com/openova-io/openova/pull/5832) | #5829 | fix(ci): my Case 14 blocked the umbrella publish — whole-cha |
-| 2026-08-07T14:45 | [#5830](https://github.com/openova-io/openova/pull/5830) | #5829 | fix(openbao): a failed ACL-policy write must gate the tick,  |
-| 2026-08-07T14:23 | [#5828](https://github.com/openova-io/openova/pull/5828) | #5827 | fix(api): /applications/{name} must not 404 for a component  |
 
 ---
 
