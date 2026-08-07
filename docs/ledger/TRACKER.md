@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T21:30:10Z` |
+| Last refreshed | `2026-08-07T21:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5410](https://github.com/openova-io/openova/issues/5410) | uptime-kuma is hard-coded to 128Mi in KnownApps and OOMKills permanently (40 res | Other |
-| [#5414](https://github.com/openova-io/openova/issues/5414) | newapi loses sessions ~60% of loads: each region mints its own SESSION_SECRET/CR | Other |
 | [#5416](https://github.com/openova-io/openova/issues/5416) | oidc-gate mints its cookie secret per region, so each gate rejects the peer's se | Other |
 | [#5419](https://github.com/openova-io/openova/issues/5419) | postgres chart: wizard instances collapse onto one Cluster/postgres (_helpers.tp | Other |
 | [#5420](https://github.com/openova-io/openova/issues/5420) | Topology tab renders declared placement, not effective perCluster — shows 2 ca | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#5867](https://github.com/openova-io/openova/issues/5867) | Two UAT rows need an owner decision and have no tracker issue: row 19 (grid keye | Other |
 | [#5871](https://github.com/openova-io/openova/issues/5871) | hw292 live: 11 of 14 Applications are Degraded on a cutoverComplete=true Soverei | Other |
 | [#5872](https://github.com/openova-io/openova/issues/5872) | Applications LIST endpoint omits placement entirely; only the detail endpoint re | Other |
+| [#5878](https://github.com/openova-io/openova/issues/5878) | newapi is the only SSO app that does not accept the realm session — bare URL 3 | Other |
+| [#5880](https://github.com/openova-io/openova/issues/5880) | UAT ledger: the Result column accepts arbitrary prose — 3 rows carry screensho | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T21:40 | [#5881](https://github.com/openova-io/openova/pull/5881) | #5853 | fix(uat): the Result column may hold a verdict and nothing e |
+| 2026-08-07T21:36 | [#5879](https://github.com/openova-io/openova/pull/5879) | #3858 | docs(uat): SSO landing walk on hw292 — 5 rows green incl. ha |
 | 2026-08-07T21:27 | [#5877](https://github.com/openova-io/openova/pull/5877) | #5871 | docs(uat): real browser walk on hw292 — rows 27/28/45 green  |
 | 2026-08-07T21:21 | [#5876](https://github.com/openova-io/openova/pull/5876) | #5720 | docs(uat): rows 28/41/45 — UserAccess walked live; row 41's  |
 | 2026-08-07T21:17 | [#5875](https://github.com/openova-io/openova/pull/5875) | #5871 | docs(uat): rows 33 + 36 fail as a gateway 404, not a login f |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-07T16:51 | [#5839](https://github.com/openova-io/openova/pull/5839) | #5823 | fix(uat): escape the stray pipe I introduced in row 218 — it |
 | 2026-08-07T16:38 | [#5838](https://github.com/openova-io/openova/pull/5838) | #5813 | docs(session): measure the hw292 deploy gate — 28 UAT rows w |
 | 2026-08-07T16:34 | [#5837](https://github.com/openova-io/openova/pull/5837) | #960 | docs(uat): adjudicate row 185 — its assertion is unmeetable  |
-| 2026-08-07T15:56 | [#5836](https://github.com/openova-io/openova/pull/5836) | #5835 | fix(api): /applications/{name}/status must answer for a comp |
-| 2026-08-07T15:27 | [#5834](https://github.com/openova-io/openova/pull/5834) | #5833 | fix(api): /organizations double-counted an Org — the store/C |
 
 ---
 
