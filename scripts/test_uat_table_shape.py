@@ -134,7 +134,61 @@ def main():
             print(f"    line {n}: row {r}", file=sys.stderr)
         return 1
 
-    print(f"ok — {len(parsed)} rows: no cell-spill, no phantom 8th column, all Result cells populated")
+    # WHAT THE RESULT COLUMN MAY CONTAIN — #5880.
+    #
+    # The check above asserts Result is non-empty. Non-empty is satisfied by any
+    # prose at all, so the column's actual contract — one status token, because
+    # that is what the score is read from — was never enforced. Three rows drifted
+    # to `✅  SCREENSHOT: [📷 …](…)`, a verdict with an evidence link welded onto it.
+    #
+    # This was not caught by inspection; it was caught by being FOOLED. A script
+    # grouping non-green rows by epic compared `result == "✅"` and reported all
+    # three as outstanding work. The score was never wrong — test_uat_tally.py
+    # calls classify(), which extracts the glyph rather than comparing the whole
+    # cell — but two readers of one column disagreeing IS the defect. The ledger
+    # is read by people deciding whether a pillar shipped; a column whose contract
+    # is "one token" and whose contents are "token plus whatever" makes every
+    # future reader guess which parsing the author meant.
+    #
+    # Deliberately an ALLOW-LIST, not a "starts with a glyph" test. A prefix test
+    # would still pass on the exact rows that prompted this check.
+    legal = {"✅", "❌", "⚠️", "☐", "⛔", "◑", "N/A"}
+    seen = [c[RESULT_COL].strip() for _, _, c in parsed if len(c) > RESULT_COL]
+
+    # Vacuity control for THIS check specifically. The row-count control at the
+    # top proves rows were parsed; it does not prove this column was read. If a
+    # column shift left every Result cell empty, the loop below would find zero
+    # illegal values and report success while checking nothing.
+    if not any(v in legal for v in seen):
+        print(
+            f"FAIL: not one of {len(seen)} Result cells held a recognised verdict. "
+            "The column index is wrong or the table shifted — this check would "
+            "pass trivially, so it is failing loudly instead.",
+            file=sys.stderr,
+        )
+        return 1
+
+    illegal = [
+        (n, r, c[RESULT_COL].strip()) for n, r, c in parsed
+        if len(c) > RESULT_COL and c[RESULT_COL].strip() not in legal
+    ]
+    if illegal:
+        print(
+            f"FAIL: {len(illegal)} row(s) have a Result cell that is not a bare verdict.\n"
+            f"Legal values are exactly: {' '.join(sorted(legal))}\n"
+            "The Result column is what the score is read from, so it holds the\n"
+            "verdict and nothing else. Screenshot links, notes and citations belong\n"
+            "in Evidence — put them there and leave one token here.\n",
+            file=sys.stderr,
+        )
+        for n, r, v in illegal:
+            print(f"    line {n}: row {r} — {v[:90]!r}", file=sys.stderr)
+        return 1
+
+    print(
+        f"ok — {len(parsed)} rows: no cell-spill, no phantom 8th column, "
+        "all Result cells populated and holding a bare verdict"
+    )
     return 0
 
 
