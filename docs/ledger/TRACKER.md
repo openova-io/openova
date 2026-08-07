@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T14:30:07Z` |
+| Last refreshed | `2026-08-07T14:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T14:45 | [#5830](https://github.com/openova-io/openova/pull/5830) | #5829 | fix(openbao): a failed ACL-policy write must gate the tick,  |
 | 2026-08-07T14:23 | [#5828](https://github.com/openova-io/openova/pull/5828) | #5827 | fix(api): /applications/{name} must not 404 for a component  |
 | 2026-08-07T14:09 | [#5826](https://github.com/openova-io/openova/pull/5826) | #5825 | fix(console): ProfileMenu must honour an OIDC session when / |
 | 2026-08-07T13:55 | [#5824](https://github.com/openova-io/openova/pull/5824) | #5823 | fix(console): pre-select the Organization when the install w |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T04:10 | [#5793](https://github.com/openova-io/openova/pull/5793) | #5792 | fix(scripts): rename the UAT delivery classifier off a banne |
 | 2026-08-07T04:07 | [#5792](https://github.com/openova-io/openova/pull/5792) | #5615 | docs(ledger): the remaining ❌ set is a DEPLOY, not a fix bac |
 | 2026-08-07T03:47 | [#5791](https://github.com/openova-io/openova/pull/5791) | #5790 | fix(catalog-seed): crossRegion Blueprints must admit the mul |
-| 2026-08-07T03:23 | [#5789](https://github.com/openova-io/openova/pull/5789) | #4459 | docs(uat): R17 is env-blocked not code-blocked — cross-regio |
 
 ---
 
