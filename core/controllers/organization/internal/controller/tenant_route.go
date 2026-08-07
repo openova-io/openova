@@ -74,6 +74,19 @@ var httpRouteGVK = schema.GroupVersionKind{
 	Kind:    "HTTPRoute",
 }
 
+// httpRouteListGVK is the List kind for the selector-based teardown reap
+// (#5848). Stated explicitly because that is the documented contract for an
+// UnstructuredList, not because the alternative was observed to break: a
+// mutation setting the ITEM GVK here instead left all four teardown tests green,
+// so controller-runtime normalises the kind on this path. Recorded rather than
+// dropped — the next reader should know this line is convention, and that a
+// guard written against it would not go red.
+var httpRouteListGVK = schema.GroupVersionKind{
+	Group:   "gateway.networking.k8s.io",
+	Version: "v1",
+	Kind:    "HTTPRouteList",
+}
+
 // tenantRouteParentDefaults are the defaults the reconciler applies
 // when the Organization spec doesn't override them.
 //
@@ -276,15 +289,67 @@ func (r *Reconciler) teardownTenantRoute(ctx context.Context, org *orgapi.Organi
 	if !ok {
 		return false, nil
 	}
+	changed := false
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(httpRouteGVK)
 	obj.SetNamespace(ns)
 	obj.SetName(name)
 	if err := r.Delete(ctx, obj); err != nil {
-		if apierrors.IsNotFound(err) {
-			return false, nil
+		if !apierrors.IsNotFound(err) {
+			return false, fmt.Errorf("delete HTTPRoute %s/%s: %w", ns, name, err)
 		}
-		return false, fmt.Errorf("delete HTTPRoute %s/%s: %w", ns, name, err)
+	} else {
+		changed = true
 	}
-	return true, nil
+
+	// #5848 (UAT row R17) — ALSO reap by Org label, not only by the one name
+	// this controller derives.
+	//
+	// The name above is computed from the Org's own hostname, so it finds
+	// exactly the route THIS controller created. Since #5647 made console-route
+	// creation multi-region, a second producer (catalyst-api's emitter) also
+	// writes per-Org routes, and a route it named differently is invisible to a
+	// name-targeted delete — it survives in this very cluster. The R17 walk saw
+	// precisely that: the Org CR, namespace, HelmReleases and Certificates all
+	// reaped cleanly while an HTTPRoute stayed behind, still carrying the
+	// deleted Org's hostname and still DNS-backed.
+	//
+	// The label is the durable identity: every producer stamps
+	// `openova.io/organization: <slug>` (see the create path above), whereas the
+	// NAME is a derivation each producer is free to choose. Reaping on the
+	// selector is therefore both broader and more stable than adding a second
+	// hard-coded name — a third producer would be covered automatically.
+	//
+	// Scope is deliberately narrow: this namespace, this Org's slug. It cannot
+	// touch another Org's routes, and an empty slug short-circuits rather than
+	// selecting `openova.io/organization=""` (which would match nothing useful
+	// and is a shape worth refusing outright).
+	slug := strings.TrimSpace(org.Spec.Slug)
+	if slug == "" {
+		return changed, nil
+	}
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(httpRouteListGVK)
+	if err := r.List(ctx, list,
+		client.InNamespace(ns),
+		client.MatchingLabels{"openova.io/organization": slug},
+	); err != nil {
+		return changed, fmt.Errorf("list HTTPRoutes for org %q in %s: %w", slug, ns, err)
+	}
+	for i := range list.Items {
+		item := &list.Items[i]
+		if item.GetName() == name {
+			continue // already handled above
+		}
+		if err := r.Delete(ctx, item); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return changed, fmt.Errorf("delete orphaned HTTPRoute %s/%s: %w", ns, item.GetName(), err)
+		}
+		r.Log.Info("reaped orphaned per-Org HTTPRoute missed by name-targeted teardown",
+			"organization", org.Name, "namespace", ns, "route", item.GetName())
+		changed = true
+	}
+	return changed, nil
 }
