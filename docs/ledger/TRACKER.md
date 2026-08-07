@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T23:15:03Z` |
+| Last refreshed | `2026-08-07T23:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,8 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#5423](https://github.com/openova-io/openova/issues/5423) | P0: vcluster-tier funnel cart with a HelmRelease-shaped app poisons the whole pe | Other |
+| [#5425](https://github.com/openova-io/openova/issues/5425) | WriteTenantOverlay writes the legacy org-tenants path on EVERY Org create — un | Other |
 | [#5426](https://github.com/openova-io/openova/issues/5426) | Organization delete never runs the finalizer cascade — the complete teardown h | Other |
 | [#5427](https://github.com/openova-io/openova/issues/5427) | bp-velero stalled MissingRollbackTarget after Kyverno denied its upgrade-crds pr | Other |
 | [#5429](https://github.com/openova-io/openova/issues/5429) | Apps grid renders two cards per Application CR when spec.helmRelease.name is uns | Other |
@@ -292,12 +294,10 @@ flowchart LR
 | [#5871](https://github.com/openova-io/openova/issues/5871) | hw292 live: 11 of 14 Applications are Degraded on a cutoverComplete=true Soverei | Other |
 | [#5872](https://github.com/openova-io/openova/issues/5872) | Applications LIST endpoint omits placement entirely; only the detail endpoint re | Other |
 | [#5878](https://github.com/openova-io/openova/issues/5878) | newapi is the only SSO app that does not accept the realm session — bare URL 3 | Other |
-| [#5880](https://github.com/openova-io/openova/issues/5880) | UAT ledger: the Result column accepts arbitrary prose — 3 rows carry screensho | Other |
 | [#5882](https://github.com/openova-io/openova/issues/5882) | OpenBao SSO session lands with no token prompt but its policy cannot list mounts | Other |
 | [#5883](https://github.com/openova-io/openova/issues/5883) | A mistyped email at the PIN form persists a Keycloak user — sovereign realm ho | Other |
 | [#5885](https://github.com/openova-io/openova/issues/5885) | Three UAT rows were parked BLOCKED on 'the customer Org does not exist' — it h | Other |
 | [#5887](https://github.com/openova-io/openova/issues/5887) | Console does not silently re-authenticate from a live Keycloak realm session — | Other |
-| [#5889](https://github.com/openova-io/openova/issues/5889) | Marketplace funnel: selecting an app does not persist it — Review shows 'Your  | Other |
 | [#5894](https://github.com/openova-io/openova/issues/5894) | P1: per-Org consoles flap ~50% on TLS handshake reset — affects BOTH customer  | Other |
 | [#5895](https://github.com/openova-io/openova/issues/5895) | P1: first visit to a per-Org console dead-ends on a BLANK page — prompt=none s | Other |
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T23:25 | [#5898](https://github.com/openova-io/openova/pull/5898) | #5894 | docs(ledger): PATH-TO-100's headline claim went false the sa |
+| 2026-08-07T23:27 | [#5897](https://github.com/openova-io/openova/pull/5897) | #3376 | docs(uat): G7 door B proven by actual creation; door A affor |
 | 2026-08-07T23:13 | [#5896](https://github.com/openova-io/openova/pull/5896) | #5894 | docs(uat): rows 94+95 walked on the real second Org — two li |
 | 2026-08-07T23:06 | [#5893](https://github.com/openova-io/openova/pull/5893) | #3376 | docs(uat): row 93 GREEN — second Org created through the fun |
 | 2026-08-07T23:01 | [#5892](https://github.com/openova-io/openova/pull/5892) | #5889 | docs(uat): row 85 GREEN — voucher credit applied at checkout |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-07T19:17 | [#5858](https://github.com/openova-io/openova/pull/5858) | #5857 | fix(org-create): send isolation as an override, never as a f |
 | 2026-08-07T18:38 | [#5856](https://github.com/openova-io/openova/pull/5856) | #5688 | fix(uat): classifier split rows on escaped pipes, truncating |
 | 2026-08-07T18:34 | [#5854](https://github.com/openova-io/openova/pull/5854) | #5844 | fix(uat): merge the phantom 8th column back into Evidence on |
-| 2026-08-07T18:28 | [#5852](https://github.com/openova-io/openova/pull/5852) | #5851 | fix(uat): all 13 failing rows are DEPLOY-GATED — prove it by |
-| 2026-08-07T18:19 | [#5850](https://github.com/openova-io/openova/pull/5850) | #5505 | docs(uat): row 92 — verify the server-side limiter from sour |
 
 ---
 
