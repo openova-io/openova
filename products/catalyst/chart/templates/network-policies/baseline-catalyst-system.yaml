@@ -90,7 +90,29 @@ when qaFixtures is disabled.
      entry tracks the new home: `mgmt` → `guacamole`. Without it this baseline
      default-deny drops webapp→guacamole-pg:5432 → /guacamole/api/session 403,
      blank page (the live hw171 2026-06-19 shape). */}}
-{{- $allowedIngressNs := .Values.security.baselineCnp.allowedIngressNamespaces | default (list "catalyst" "flux-system" "kube-system" "oidc-gate" "guacamole") }}
+{{- /* #4444 R22: `cnpg-system` must appear in the INGRESS list as well as the
+     egress one. The CNPG operator does not only receive connections — it
+     REVERSE-PROBES the Pods it manages, reading their status directly. Several
+     CNPG Clusters are host-rendered into catalyst-system (org-pg, and the
+     shared-pg family), so that probe travels cnpg-system -> catalyst-system,
+     which is INGRESS from this policy's point of view.
+
+     Listing cnpg-system in $allowedPlatform (egress) alone is therefore
+     one-directional and silently breaks the return path: the Clusters still
+     ADMIT and run — the walk confirmed 8 Clusters healthy and the CNPG
+     validating webhook registered with 5 rules — so nothing looks broken from
+     the console, while the operator log fills with
+
+         "Cannot extract Pod status ... i/o timeout"
+
+     Measured live on hw292 (UAT row R22): 90 such lines in the last 600
+     operator log lines, EXCLUSIVELY for catalyst-system-hosted Clusters. That
+     is the whole residual on that row.
+
+     This is not a new trust grant: cnpg-system is already trusted for egress
+     immediately above, and it already manages these Clusters. It restores the
+     symmetry a managing operator requires. */}}
+{{- $allowedIngressNs := .Values.security.baselineCnp.allowedIngressNamespaces | default (list "catalyst" "flux-system" "kube-system" "oidc-gate" "guacamole" "cnpg-system") }}
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:

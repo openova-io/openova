@@ -295,3 +295,29 @@ fi
 echo "  PASS (allowedIngressNamespaces is operator-tunable)"
 
 echo "[baseline-cnp] All gates green."
+
+# ── Case 14 (#4444 / UAT row R22): cnpg-system must be in BOTH directions ──
+#
+# The CNPG operator reverse-probes the Pods it manages. Several CNPG Clusters
+# are host-rendered into catalyst-system (org-pg, shared-pg family), so that
+# probe is INGRESS cnpg-system -> catalyst-system. Listing the namespace for
+# egress only is one-directional and fails SILENTLY: Clusters still admit and
+# run, the console looks healthy, and the breakage surfaces only as
+# "Cannot extract Pod status ... i/o timeout" in the operator log — 90 lines in
+# 600 on hw292.
+#
+# This asserts the pair, not just the presence, because the egress half was
+# already correct and it is the ASYMMETRY that is the defect.
+echo "[baseline-cnp] Case 14: cnpg-system allowed in BOTH ingress and egress"
+_r14="$(helm template cat "${CHART_DIR}" 2>/dev/null)"
+_ing14="$(printf '%s' "$_r14" | awk '/name: baseline-default-deny/,/^  egress:/')"
+_egr14="$(printf '%s' "$_r14" | awk '/name: baseline-default-deny/,/^---/' | awk '/^  egress:/,0')"
+if ! printf '%s' "$_ing14" | grep -q '"cnpg-system"'; then
+  echo "  FAIL (cnpg-system missing from the INGRESS allow-list — the CNPG operator's"
+  echo "        reverse Pod-status probe into catalyst-system will be denied and the"
+  echo "        failure will be invisible except in the operator log)"; exit 1
+fi
+if ! printf '%s' "$_egr14" | grep -q '"cnpg-system"'; then
+  echo "  FAIL (cnpg-system missing from the EGRESS allow-list)"; exit 1
+fi
+echo "  PASS (cnpg-system present in both ingress and egress)"
