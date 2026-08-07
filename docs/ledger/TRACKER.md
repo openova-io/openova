@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T22:00:08Z` |
+| Last refreshed | `2026-08-07T22:15:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5420](https://github.com/openova-io/openova/issues/5420) | Topology tab renders declared placement, not effective perCluster — shows 2 ca | Other |
-| [#5421](https://github.com/openova-io/openova/issues/5421) | Marketplace redeem page misses cookie-borne owner sessions — localStorage prob | Other |
 | [#5422](https://github.com/openova-io/openova/issues/5422) | Console Overview hardcodes Placement fallback to 'singleton', contradicting the  | Other |
 | [#5423](https://github.com/openova-io/openova/issues/5423) | P0: vcluster-tier funnel cart with a HelmRelease-shaped app poisons the whole pe | Other |
 | [#5425](https://github.com/openova-io/openova/issues/5425) | WriteTenantOverlay writes the legacy org-tenants path on EVERY Org create — un | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#5880](https://github.com/openova-io/openova/issues/5880) | UAT ledger: the Result column accepts arbitrary prose — 3 rows carry screensho | Other |
 | [#5882](https://github.com/openova-io/openova/issues/5882) | OpenBao SSO session lands with no token prompt but its policy cannot list mounts | Other |
 | [#5883](https://github.com/openova-io/openova/issues/5883) | A mistyped email at the PIN form persists a Keycloak user — sovereign realm ho | Other |
+| [#5885](https://github.com/openova-io/openova/issues/5885) | Three UAT rows were parked BLOCKED on 'the customer Org does not exist' — it h | Other |
+| [#5887](https://github.com/openova-io/openova/issues/5887) | Console does not silently re-authenticate from a live Keycloak realm session — | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T22:07 | [#5888](https://github.com/openova-io/openova/pull/5888) | #5887 | docs(uat): row 29 fails on silent re-auth, and the previous  |
+| 2026-08-07T22:04 | [#5886](https://github.com/openova-io/openova/pull/5886) | #5847 | docs(uat): rows 10+11 green — the customer Org existed all a |
 | 2026-08-07T21:55 | [#5884](https://github.com/openova-io/openova/pull/5884) | #5882 | docs(uat): SSO deep walk on hw292 — 4 rows green, openbao an |
 | 2026-08-07T21:40 | [#5881](https://github.com/openova-io/openova/pull/5881) | #5853 | fix(uat): the Result column may hold a verdict and nothing e |
 | 2026-08-07T21:36 | [#5879](https://github.com/openova-io/openova/pull/5879) | #3858 | docs(uat): SSO landing walk on hw292 — 5 rows green incl. ha |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-07T17:40 | [#5842](https://github.com/openova-io/openova/pull/5842) | #5839 | docs(uat): flag 15 open rows whose BLOCKING CLAIM was measur |
 | 2026-08-07T17:37 | [#5841](https://github.com/openova-io/openova/pull/5841) | #5840 | docs(uat): rows 5 + 6 are not blocked, they are unwalked — t |
 | 2026-08-07T17:21 | [#5840](https://github.com/openova-io/openova/pull/5840) | #3383 | docs(uat): adjudicate row 7 residual (1) — it asserted a tie |
-| 2026-08-07T16:51 | [#5839](https://github.com/openova-io/openova/pull/5839) | #5823 | fix(uat): escape the stray pipe I introduced in row 218 — it |
-| 2026-08-07T16:38 | [#5838](https://github.com/openova-io/openova/pull/5838) | #5813 | docs(session): measure the hw292 deploy gate — 28 UAT rows w |
 
 ---
 
