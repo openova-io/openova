@@ -1565,6 +1565,27 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// #5434 (UAT row 4) — bootstrap-synthesised CRs carry no spec.dependsOn,
+	// so the block above yields nothing and the App-detail Dependencies panel
+	// renders no producing instance at all.
+	//
+	// The inverter for this ALREADY EXISTS and is correct: dependsOnFromHRGraph
+	// reads the HelmRelease's Flux dependsOn graph and resolves each target's
+	// declared Context entry. It was simply unreachable from here — it runs
+	// only in synthesiseAppFromHelmRelease, which is gated on the Application
+	// CR being ABSENT. `spine-harbor` HAS a CR (spec: {bootstrap:true,
+	// helmRelease:{name:bp-harbor, namespace:flux-system}}), so it took this
+	// path, found no spec.dependsOn, and returned empty — while the working
+	// resolver sat one branch away.
+	//
+	// Deliberately NOT inverting the producer's parameters.databases[].consumer
+	// map, which was the other candidate fix. That would add a SECOND way to
+	// derive the same edge alongside a correct first one, and two derivations
+	// of one fact is exactly how these paths drifted apart. Reuse instead.
+	if len(resp.DependsOn) == 0 {
+		resp.DependsOn = h.dependsOnForBootstrapCR(r.Context(), depID, obj, resp.Blueprint)
+	}
+
 	// Family B (2026-05-17 t10 founder bug C4-003): HR-Ready overlay.
 	//
 	// Root cause: the catalyst-controller writes status.phase on the
@@ -1865,6 +1886,53 @@ func (h *Handler) synthesiseAppFromHelmRelease(ctx context.Context, depID, name 
 		return resp, true
 	}
 	return applicationDetailResponse{}, false
+}
+
+// dependsOnForBootstrapCR bridges an Application CR that has no
+// spec.dependsOn to the Flux graph its HelmRelease does have (#5434, UAT row 4).
+//
+// Bootstrap-synthesised CRs record only {bootstrap:true, helmRelease:{name,
+// namespace}} — the backing-service edges live on the HelmRelease, not on the
+// CR. dependsOnFromHRGraph already resolves exactly that, so this locates the
+// referenced HR and hands off. No new derivation rule is introduced.
+//
+// Every failure is a silent nil: no k8sCache, no helmRelease ref, an
+// unresolvable chroot cluster, a List error, or an HR that is simply not
+// present. The caller only reaches here when it has nothing to show anyway, so
+// a miss must leave the field empty (and `omitempty` drop it) rather than
+// manufacture an edge. Returning a fabricated dependency here would be worse
+// than the blank panel this fixes.
+func (h *Handler) dependsOnForBootstrapCR(ctx context.Context, depID string, obj *unstructured.Unstructured, blueprint string) []dependsOnDetail {
+	if h.k8sCache == nil {
+		return nil
+	}
+	hrName, _, _ := unstructured.NestedString(obj.Object, "spec", "helmRelease", "name")
+	if hrName == "" {
+		return nil
+	}
+	hrNS, _, _ := unstructured.NestedString(obj.Object, "spec", "helmRelease", "namespace")
+
+	clusterID := h.resolveChrootClusterID(depID)
+	if !h.k8sCacheHasCluster(clusterID) {
+		return nil
+	}
+	hrs, _, err := h.k8sCache.List(clusterID, "helmrelease", labels.Everything())
+	if err != nil {
+		return nil
+	}
+	for _, hr := range hrs {
+		if hr.GetName() != hrName {
+			continue
+		}
+		// The namespace is matched only when the CR states one. Bootstrap CRs
+		// generally do (flux-system), but an older CR that omits it must still
+		// resolve rather than silently miss on an empty-string compare.
+		if hrNS != "" && hr.GetNamespace() != hrNS {
+			continue
+		}
+		return h.dependsOnFromHRGraph(ctx, hrs, hr, blueprint)
+	}
+	return nil
 }
 
 // dependsOnFromHRGraph derives the consumer-side backing edges for an
