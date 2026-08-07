@@ -11,7 +11,7 @@ This is the single most decision-relevant fact in this file, and it was not
 visible until every failing row was classified at once rather than chased one at
 a time.
 
-`scripts/classify-uat-blockers.py --image fad88bd` — the catalyst-api actually
+`scripts/classify-uat-delivery-state.py --image fad88bd` — the catalyst-api actually
 running on hw292, **built 2026-08-02** — resolves each row's cited PRs to their
 merge commits and asks whether each is an ancestor of that artifact:
 

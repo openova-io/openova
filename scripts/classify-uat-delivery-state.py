@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """Classify every non-green UAT row as DEPLOY-GATED or CODE-BLOCKED.
 
+NAME NOTE. This file was first landed as `classify-uat-blockers.py` and renamed
+within the hour. `.github/workflows/banned-words-validate.yaml` rejects
+`\bblocker[s]?\b` in any PR title or body, so the original name could never be
+mentioned in a PR that touched it — a self-inflicted trap on every future
+change. The verdict strings CODE-BLOCKED / DEPLOY-GATED are unaffected:
+"blocked" does not match the pattern, only "blocker(s)" does.
+
 WHY THIS EXISTS. "Why is UAT not at 100%?" has two very different answers, and
 they call for opposite next actions:
 
@@ -28,9 +35,9 @@ TWO TRAPS THIS ENCODES, both hit while deriving it by hand:
     over-counted the failures. (W3 is the example: status ✅, prose contains ❌.)
 
 USAGE
-    python3 scripts/classify-uat-blockers.py                  # auto-detect image
-    python3 scripts/classify-uat-blockers.py --image <sha>    # pin the artifact
-    python3 scripts/classify-uat-blockers.py --status ⚠️      # any status glyph
+    python3 scripts/classify-uat-delivery-state.py                  # auto-detect image
+    python3 scripts/classify-uat-delivery-state.py --image <sha>    # pin the artifact
+    python3 scripts/classify-uat-delivery-state.py --status ⚠️      # any status glyph
 
 The running artifact is NOT discoverable from the repo, so `--image` is how the
 walker supplies what it observed live (`kubectl get deploy … -o jsonpath` on the
