@@ -176,7 +176,7 @@ def main():
     print(f"artifact {image} (built {built}) · {len(rows)} row(s) at status {args.status}\n")
     print(f"{'row':<6} {'verdict':<14} detail")
     print("-" * 96)
-    gated, blocked = [], []
+    gated, blocked, unresolved = [], [], []
     for rid, ev in rows.items():
         pending, delivered, docs, unmerged = classify(ev, image)
         if pending:
@@ -184,7 +184,6 @@ def main():
             detail = f"fix PRs merged AFTER the artifact: {', '.join('#' + p for p in pending)}"
             verdict = "DEPLOY-GATED"
         else:
-            blocked.append(rid)
             bits = []
             if delivered:
                 bits.append(f"fix present in artifact: {', '.join('#' + p for p in delivered)}")
@@ -192,14 +191,41 @@ def main():
                 bits.append(f"docs/walk-record only: {', '.join('#' + p for p in docs)}")
             if unmerged:
                 bits.append(f"cited but unmerged: {', '.join('#' + p for p in unmerged)}")
-            detail = "; ".join(bits) or "no PR cited"
-            verdict = "CODE-BLOCKED"
+
+            if bits:
+                blocked.append(rid)
+                detail = "; ".join(bits)
+                verdict = "CODE-BLOCKED"
+            else:
+                # #5849 — absence of a PR reference is NOT evidence that no fix
+                # exists, and calling it CODE-BLOCKED asserts the opposite.
+                #
+                # Row 20 is the case that exposed this. It cited "#5613, closed"
+                # — an ISSUE, which this classifier's PR-shaped scan does not
+                # recognise — so it printed CODE-BLOCKED, "no PR cited". The fix
+                # had in fact merged as PR #5688 on 2026-08-05, three days after
+                # the artifact was built. The row was DEPLOY-GATED all along.
+                #
+                # The two verdicts route work in opposite directions:
+                # CODE-BLOCKED says "someone must write code"; DEPLOY-GATED says
+                # "the roll flips it, writing code moves nothing". A false
+                # CODE-BLOCKED therefore sends a session off to re-implement a
+                # fix that is already merged — the most expensive way to be
+                # wrong here. UNKNOWN costs one `gh issue view`.
+                unresolved.append(rid)
+                detail = ("no PR reference found — the row may cite the ISSUE rather than "
+                          "the PR that closed it. Resolve before treating as code work.")
+                verdict = "UNKNOWN"
         print(f"{rid:<6} {verdict:<14} {detail}")
 
     print()
     print(f"DEPLOY-GATED : {len(gated):>3}  {', '.join(gated)}")
     print(f"CODE-BLOCKED : {len(blocked):>3}  {', '.join(blocked)}")
-    if gated and not blocked:
+    if unresolved:
+        print(f"UNKNOWN      : {len(unresolved):>3}  {', '.join(unresolved)}")
+        print("             resolve with: gh issue view <cited-issue> --json closedAt,title")
+        print("             then re-run; an issue closed by a PR merged after the artifact is DEPLOY-GATED.")
+    if gated and not blocked and not unresolved:
         print("\nEvery failing row is waiting on a roll. Writing more fixes moves none of them.")
     return 0
 
