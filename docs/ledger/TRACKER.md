@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T20:00:03Z` |
+| Last refreshed | `2026-08-07T20:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5416](https://github.com/openova-io/openova/issues/5416) | oidc-gate mints its cookie secret per region, so each gate rejects the peer's se | Other |
 | [#5419](https://github.com/openova-io/openova/issues/5419) | postgres chart: wizard instances collapse onto one Cluster/postgres (_helpers.tp | Other |
 | [#5420](https://github.com/openova-io/openova/issues/5420) | Topology tab renders declared placement, not effective perCluster — shows 2 ca | Other |
 | [#5421](https://github.com/openova-io/openova/issues/5421) | Marketplace redeem page misses cookie-borne owner sessions — localStorage prob | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5855](https://github.com/openova-io/openova/issues/5855) | classify-uat-delivery-state.py splits rows on ESCAPED pipes, truncating Evidence | Other |
 | [#5857](https://github.com/openova-io/openova/issues/5857) | Door A stamps every customer Org isolation=vcluster while the GitOps renderer ba | Other |
 | [#5859](https://github.com/openova-io/openova/issues/5859) | classify-uat-delivery-state.py: unrecognised commit prefixes (deploy, ci) fall i | Other |
+| [#5867](https://github.com/openova-io/openova/issues/5867) | Two UAT rows need an owner decision and have no tracker issue: row 19 (grid keye | Other |
 
 ---
 
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T20:12 | [#5866](https://github.com/openova-io/openova/pull/5866) | #5813 | docs(uat): resolve the UNKNOWN bucket — every non-green row  |
+| 2026-08-07T20:06 | [#5865](https://github.com/openova-io/openova/pull/5865) | #5813 | docs(uat): R22 UNKNOWN → DEPLOY-GATED — its evidence describ |
+| 2026-08-07T20:02 | [#5864](https://github.com/openova-io/openova/pull/5864) | #960 | docs(uat): row 185 ⚠️ → ✅ — its assertion is met; it was gra |
 | 2026-08-07T19:59 | [#5863](https://github.com/openova-io/openova/pull/5863) | #5831 | docs(uat): zero rows require new code — the three CODE-BLOCK |
 | 2026-08-07T19:29 | [#5862](https://github.com/openova-io/openova/pull/5862) | #5851 | docs(path-to-100): re-measure the delivery gate across all t |
 | 2026-08-07T19:25 | [#5861](https://github.com/openova-io/openova/pull/5861) | #5847 | docs(uat): row 5 carries a second defective clause its sibli |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-07T13:36 | [#5822](https://github.com/openova-io/openova/pull/5822) | #5821 | fix(api): /version must say whether buildTime is a link time |
 | 2026-08-07T13:24 | [#5820](https://github.com/openova-io/openova/pull/5820) | #5819 | fix(showback): name the parent Organization by its slug, not |
 | 2026-08-07T13:14 | [#5818](https://github.com/openova-io/openova/pull/5818) | #5817 | fix(console): stop title-casing identifiers on the Org detai |
-| 2026-08-07T12:56 | [#5816](https://github.com/openova-io/openova/pull/5816) | #4459 | docs(uat): adjudicate R16/75/216 — refute the single-region  |
-| 2026-08-07T12:51 | [#5815](https://github.com/openova-io/openova/pull/5815) | #5814 | fix(console): attribute sovereign /apps instance cards to th |
-| 2026-08-07T12:18 | [#5813](https://github.com/openova-io/openova/pull/5813) | #4444 | fix(chart): baseline CNP allowed cnpg-system egress but not  |
 
 ---
 
