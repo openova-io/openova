@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T12:15:03Z` |
+| Last refreshed | `2026-08-07T12:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T12:18 | [#5813](https://github.com/openova-io/openova/pull/5813) | #4444 | fix(chart): baseline CNP allowed cnpg-system egress but not  |
 | 2026-08-07T11:54 | [#5812](https://github.com/openova-io/openova/pull/5812) | #3687 | docs(uat): rows 67 + 69 share ONE cause with 19/188 — Applic |
 | 2026-08-07T11:38 | [#5811](https://github.com/openova-io/openova/pull/5811) | #3687 | docs(uat): rows 19 + 188 — the apps grid renders the CATALOG |
 | 2026-08-07T11:23 | [#5810](https://github.com/openova-io/openova/pull/5810) | #960 | docs(uat): row 185 re-measured — 29 stale env stamps, but ZE |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T21:05 | [#5783](https://github.com/openova-io/openova/pull/5783) | #5573 | feat(guard): assert the Flux GitOps loop is RUNNING, not mer |
 | 2026-08-06T20:37 | [#5782](https://github.com/openova-io/openova/pull/5782) | #5567 | feat(guard): detect admission webhooks whose target Service  |
 | 2026-08-06T20:09 | [#5781](https://github.com/openova-io/openova/pull/5781) | #5598 | test(guacamole): guard the SSO permission-enrollment path (# |
-| 2026-08-06T19:01 | [#5780](https://github.com/openova-io/openova/pull/5780) | #5601 | test(continuum): guard the FailedOver failback phase, which  |
 
 ---
 
