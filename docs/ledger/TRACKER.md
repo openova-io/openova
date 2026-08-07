@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T04:00:04Z` |
+| Last refreshed | `2026-08-07T04:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T04:10 | [#5793](https://github.com/openova-io/openova/pull/5793) | #5792 | fix(scripts): rename the UAT delivery classifier off a banne |
+| 2026-08-07T04:07 | [#5792](https://github.com/openova-io/openova/pull/5792) | #5615 | docs(ledger): the remaining ❌ set is a DEPLOY, not a fix bac |
 | 2026-08-07T03:47 | [#5791](https://github.com/openova-io/openova/pull/5791) | #5790 | fix(catalog-seed): crossRegion Blueprints must admit the mul |
 | 2026-08-07T03:23 | [#5789](https://github.com/openova-io/openova/pull/5789) | #4459 | docs(uat): R17 is env-blocked not code-blocked — cross-regio |
 | 2026-08-07T03:23 | [#5788](https://github.com/openova-io/openova/pull/5788) | #5401 | test(api): pin that an Org-scoped session cannot reach deplo |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-06T09:44 | [#5761](https://github.com/openova-io/openova/pull/5761) | #5741 | ci(#5741): wire PDM Postgres integration + widen playwright- |
 | 2026-08-06T08:41 | [#5760](https://github.com/openova-io/openova/pull/5760) | #2879 | feat(ci): umbrella-republish gate for platform/products char |
 | 2026-08-06T08:32 | [#5758](https://github.com/openova-io/openova/pull/5758) | #817 | fix(deploy-bot): make Chart.yaml version bump atomic and for |
-| 2026-08-06T11:23 | [#5757](https://github.com/openova-io/openova/pull/5757) | #5459 | fix(bp-openbao): SSO landing re-validates a cached token bef |
-| 2026-08-06T07:34 | [#5756](https://github.com/openova-io/openova/pull/5756) | #5650 | fix(cutover): step-08 gains a Crossplane Provider PACKAGE ho |
 
 ---
 
