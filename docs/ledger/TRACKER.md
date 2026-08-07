@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T13:30:08Z` |
+| Last refreshed | `2026-08-07T13:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T13:36 | [#5822](https://github.com/openova-io/openova/pull/5822) | #5821 | fix(api): /version must say whether buildTime is a link time |
 | 2026-08-07T13:24 | [#5820](https://github.com/openova-io/openova/pull/5820) | #5819 | fix(showback): name the parent Organization by its slug, not |
 | 2026-08-07T13:14 | [#5818](https://github.com/openova-io/openova/pull/5818) | #5817 | fix(console): stop title-casing identifiers on the Org detai |
 | 2026-08-07T12:56 | [#5816](https://github.com/openova-io/openova/pull/5816) | #4459 | docs(uat): adjudicate R16/75/216 — refute the single-region  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T03:23 | [#5788](https://github.com/openova-io/openova/pull/5788) | #5401 | test(api): pin that an Org-scoped session cannot reach deplo |
 | 2026-08-07T03:10 | [#5787](https://github.com/openova-io/openova/pull/5787) | #5634 | test(marketplace): guard the /redeem markup contract the 429 |
 | 2026-08-06T23:24 | [#5786](https://github.com/openova-io/openova/pull/5786) | #5750 | fix(guard): check-live-newapi-sso-version asserted from DESI |
-| 2026-08-06T22:38 | [#5785](https://github.com/openova-io/openova/pull/5785) | #5750 | fix(#5750): the drift script read the DESIRED chart version, |
 
 ---
 
