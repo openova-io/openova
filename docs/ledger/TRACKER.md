@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T20:45:03Z` |
+| Last refreshed | `2026-08-07T21:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T20:59 | [#5873](https://github.com/openova-io/openova/pull/5873) | #4292 | docs(uat): hw292 authed walk 2 — row 20 goes green, rows 10/ |
 | 2026-08-07T20:41 | [#5870](https://github.com/openova-io/openova/pull/5870) | #5867 | docs(uat): hw292 authed walk — rows 235 + 6 go green, row 19 |
 | 2026-08-07T20:19 | [#5869](https://github.com/openova-io/openova/pull/5869) | #3969 | docs(uat): G10's evidence ends mid-word and has since it was |
 | 2026-08-07T20:15 | [#5868](https://github.com/openova-io/openova/pull/5868) | #5847 | docs(uat): rows 19 + 184 cite #5867 — the last two adjudicat |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T14:45 | [#5830](https://github.com/openova-io/openova/pull/5830) | #5829 | fix(openbao): a failed ACL-policy write must gate the tick,  |
 | 2026-08-07T14:23 | [#5828](https://github.com/openova-io/openova/pull/5828) | #5827 | fix(api): /applications/{name} must not 404 for a component  |
 | 2026-08-07T14:09 | [#5826](https://github.com/openova-io/openova/pull/5826) | #5825 | fix(console): ProfileMenu must honour an OIDC session when / |
-| 2026-08-07T13:55 | [#5824](https://github.com/openova-io/openova/pull/5824) | #5823 | fix(console): pre-select the Organization when the install w |
 
 ---
 
