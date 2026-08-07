@@ -53,6 +53,8 @@ import sys
 from collections import OrderedDict
 
 UAT = "docs/ledger/UAT.md"
+# Delivery is measured against merged history only — see the note in classify().
+MAIN_REF = "origin/main"
 ROW_RE = re.compile(r"^\|\s*(R?\d+|[GWM]\d+)\s*\|")
 # A fix-bearing conventional-commit prefix. `docs:` is deliberately absent — a
 # docs(uat) commit is a walk record, not a delivery (trap 1 above).
@@ -104,8 +106,14 @@ def classify(evidence, image):
         #
         # So: enumerate EVERY commit mentioning the issue anywhere in its
         # message, keep the fix-type subjects, and take the newest of those.
+        # Scope to MAIN, not --all. `--all` walks every ref including stale
+        # pre-squash feature branches, and those commits are not ancestors of
+        # anything — so a lingering branch fakes a deploy-gate. Caught by this
+        # script's own control: pinning --image to main must yield ZERO
+        # deploy-gated rows, and with --all it yielded one (row 37, resolving
+        # to the unmerged twin of a squashed commit). "Merged" means on main.
         lines = [l for l in sh(
-            f"git log --all --grep='#{pr}' --format='%H\t%s'").split("\n") if l.strip()]
+            f"git log {MAIN_REF} --grep='#{pr}' --format='%H\t%s'").split("\n") if l.strip()]
         fixes, docs_seen = [], False
         for line in lines:
             h, _, subject = line.partition("\t")
