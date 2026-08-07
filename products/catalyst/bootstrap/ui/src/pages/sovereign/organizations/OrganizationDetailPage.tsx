@@ -91,12 +91,16 @@ export function OrganizationDetailPage({ org, initialOrgsOverride }: Organizatio
                 ) : null}
               </div>
               <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs sm:grid-cols-3">
+                {/* #5817 (UAT row 7) — `enumValue` marks the fields whose value
+                    comes from a fixed vocabulary and may be title-cased for
+                    display. Slug and Owner are IDENTIFIERS and are never
+                    marked, so they render exactly as the model emits them. */}
                 <Field label="Slug" value={target.slug} testid={`org-detail-slug`} />
-                <Field label="Kind" value={target.kind} testid="org-detail-kind" />
-                <Field label="Tier" value={target.tier} testid="org-detail-tier" />
-                <Field label="Billing mode" value={target.billingMode} testid="org-detail-billing" />
-                <Field label="Isolation" value={target.isolation} testid="org-detail-isolation" />
-                <Field label="Status" value={target.status} testid="org-detail-status" />
+                <Field label="Kind" value={target.kind} testid="org-detail-kind" enumValue />
+                <Field label="Tier" value={target.tier} testid="org-detail-tier" enumValue />
+                <Field label="Billing mode" value={target.billingMode} testid="org-detail-billing" enumValue />
+                <Field label="Isolation" value={target.isolation} testid="org-detail-isolation" enumValue />
+                <Field label="Status" value={target.status} testid="org-detail-status" enumValue />
                 {target.ownerEmail ? <Field label="Owner" value={target.ownerEmail} testid="org-detail-owner" /> : null}
                 {target.consoleHost ? (
                   <div className="flex flex-col">
@@ -127,11 +131,44 @@ export function OrganizationDetailPage({ org, initialOrgsOverride }: Organizatio
   )
 }
 
-function Field({ label, value, testid }: { label: string; value: string; testid: string }) {
+/**
+ * Field — one row of the Org canonical-fields <dl>.
+ *
+ * #5817 (UAT row 7). This used to apply `capitalize` to EVERY value, which
+ * mangles identifiers: the Org slug `uatco` rendered as `Uatco` and the owner
+ * `emrah.baysal@openova.io` as `Emrah.baysal@openova.io`. Neither is what the
+ * model emits, and row 7's whole assertion is that the detail page shows the
+ * CANONICAL fields — a value the operator cannot copy is not canonical. The slug
+ * in particular is the join key an operator types into kubectl and the API.
+ *
+ * The opt-in direction is deliberate. Capitalisation is now requested per call
+ * site via `enumValue`, so a field added later renders VERBATIM unless someone
+ * states otherwise. If the default went the other way, the next field added
+ * would silently inherit the mangling — which is exactly how this shipped. An
+ * un-title-cased enum is a cosmetic miss; a mangled identifier is wrong data.
+ */
+function Field({
+  label,
+  value,
+  testid,
+  enumValue,
+}: {
+  label: string
+  value: string
+  testid: string
+  /** Value comes from a fixed vocabulary (kind/tier/billing/isolation/status)
+   *  and may be title-cased for display. Never set this on an identifier. */
+  enumValue?: boolean
+}) {
   return (
     <div className="flex flex-col">
       <dt className="text-[var(--color-text-dim)]">{label}</dt>
-      <dd data-testid={testid} className="capitalize text-[var(--color-text)]">{value}</dd>
+      <dd
+        data-testid={testid}
+        className={enumValue ? 'capitalize text-[var(--color-text)]' : 'text-[var(--color-text)]'}
+      >
+        {value}
+      </dd>
     </div>
   )
 }
