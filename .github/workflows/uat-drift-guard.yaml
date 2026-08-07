@@ -23,6 +23,7 @@ on:
       - "docs/ledger/UAT.md"
       - "docs/ledger/uat-walkthrough/**"
       - "scripts/uat-drift-guard.py"
+      - "scripts/test_uat_table_shape.py"
       - "scripts/reset-uat.py"
       - ".github/workflows/uat-drift-guard.yaml"
   push:
@@ -31,6 +32,7 @@ on:
       - "docs/ledger/UAT.md"
       - "docs/ledger/uat-walkthrough/**"
       - "scripts/uat-drift-guard.py"
+      - "scripts/test_uat_table_shape.py"
       - "scripts/reset-uat.py"
       - ".github/workflows/uat-drift-guard.yaml"
   workflow_dispatch:
@@ -58,3 +60,67 @@ jobs:
         # Current env is auto-derived from the `on \`hwNNN\`` token in the UAT.md
         # H1 header. Override in an ad-hoc run with UAT_CURRENT_ENV=hwNNN.
         run: python3 scripts/uat-drift-guard.py
+
+  table-shape:
+    name: UAT table shape (no unescaped pipes, Result column populated)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # Vacuity control, run BEFORE the real check. Every assertion in the guard
+      # has the form "no row is bad", which is trivially true on an empty parse.
+      # A drifted row regex would therefore make it pass LOUDEST at the moment it
+      # had stopped checking anything. Break the regex on a scratch copy and
+      # require a non-zero exit; only then trust the green below.
+      # Vacuity control, run BEFORE the real check. Every assertion in the guard
+      # has the form "no row is bad", which is trivially true on an empty parse.
+      # A drifted row regex would therefore make it pass LOUDEST at the moment it
+      # had stopped checking anything. Break the regex on a scratch copy and
+      # require it to fail FOR THAT REASON.
+      #
+      # The mutant is written into scripts/ on purpose. The guard resolves the
+      # ledger as parent.parent of its own __file__, so a copy in /tmp looks for
+      # /docs/ledger/UAT.md and dies with FileNotFoundError. The first cut did
+      # exactly that and the control reported success on a crash that had nothing
+      # to do with the regex — a vacuity check that was itself vacuous. Hence
+      # both the sibling-directory placement AND the assertion on the message.
+      - name: Prove the guard can go red (vacuity control)
+        run: |
+          set -u
+          python3 - <<'MUT'
+          import re, pathlib
+          src = pathlib.Path("scripts/test_uat_table_shape.py").read_text()
+          out, n = re.subn(r'^ROW = re\.compile\(.*$',
+                           'ROW = re.compile(r"^NEVERMATCHES")',
+                           src, count=1, flags=re.M)
+          assert n == 1, "mutation did not apply — the control below would prove nothing"
+          pathlib.Path("scripts/.shape_mutant.py").write_text(out)
+          MUT
+
+          set +e
+          OUT="$(python3 scripts/.shape_mutant.py 2>&1)"; RC=$?
+          set -e
+          rm -f scripts/.shape_mutant.py
+
+          echo "$OUT"
+          if [ "$RC" -eq 0 ]; then
+            echo "::error::the guard PASSED with a regex matching no rows — it is not checking the ledger."
+            exit 1
+          fi
+          case "$OUT" in
+            *"rows matched the row regex"*)
+              echo "OK — guard goes red, and for the right reason." ;;
+            *)
+              echo "::error::the mutant failed, but NOT via the row-count assertion."
+              echo "::error::A crash would satisfy a naive exit-code check while proving nothing."
+              exit 1 ;;
+          esac
+
+      - name: Guard the UAT table shape
+        run: python3 scripts/test_uat_table_shape.py
