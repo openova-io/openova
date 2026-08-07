@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T22:45:04Z` |
+| Last refreshed | `2026-08-07T23:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T22:49 | [#5891](https://github.com/openova-io/openova/pull/5891) | #5889 | docs(uat): retract a false claim I put in row 85 — the empty |
 | 2026-08-07T22:36 | [#5890](https://github.com/openova-io/openova/pull/5890) | #5889 | docs(uat): row 85 walked end-to-end to /checkout/ — two funn |
 | 2026-08-07T22:07 | [#5888](https://github.com/openova-io/openova/pull/5888) | #5887 | docs(uat): row 29 fails on silent re-auth, and the previous  |
 | 2026-08-07T22:04 | [#5886](https://github.com/openova-io/openova/pull/5886) | #5847 | docs(uat): rows 10+11 green — the customer Org existed all a |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T18:15 | [#5846](https://github.com/openova-io/openova/pull/5846) | #5845 | ci(uat): run the table-shape guard on ledger PRs, with a con |
 | 2026-08-07T18:05 | [#5845](https://github.com/openova-io/openova/pull/5845) | #5844 | fix(uat): escape stray pipes in 29 ledger rows + add a table |
 | 2026-08-07T17:40 | [#5842](https://github.com/openova-io/openova/pull/5842) | #5839 | docs(uat): flag 15 open rows whose BLOCKING CLAIM was measur |
-| 2026-08-07T17:37 | [#5841](https://github.com/openova-io/openova/pull/5841) | #5840 | docs(uat): rows 5 + 6 are not blocked, they are unwalked — t |
 
 ---
 
