@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T13:00:04Z` |
+| Last refreshed | `2026-08-07T13:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5359](https://github.com/openova-io/openova/issues/5359) | Cutover pivots ONLY the control-plane region — region-B Flux (GitRepository→ | Other |
 | [#5364](https://github.com/openova-io/openova/issues/5364) | Org-CR deletion orphans the org Namespace + host-deployed bp-keycloak when per-O | Other |
 | [#5370](https://github.com/openova-io/openova/issues/5370) | CI red on main: sandbox-mcp-server Go-toolchain latent break + intermittent char | Other |
 | [#5373](https://github.com/openova-io/openova/issues/5373) | per-Org realm flag (CATALYST_PER_ORG_REALM_ENABLED) is DELIBERATELY dormant —  | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5799](https://github.com/openova-io/openova/issues/5799) | Funnel E2E walk is gated on retrieving the emailed sign-in PIN — no mail surfa | Other |
 | [#5814](https://github.com/openova-io/openova/issues/5814) | Sovereign /apps grid carries no Organization attribution — a customer-launched | Other |
 | [#5817](https://github.com/openova-io/openova/issues/5817) | Org detail page title-cases identifiers: slug `uatco` renders `Uatco`, owner `em | Other |
+| [#5819](https://github.com/openova-io/openova/issues/5819) | Showback names the parent Organization `hw292.omani.works` while the directory a | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T13:14 | [#5818](https://github.com/openova-io/openova/pull/5818) | #5817 | fix(console): stop title-casing identifiers on the Org detai |
 | 2026-08-07T12:56 | [#5816](https://github.com/openova-io/openova/pull/5816) | #4459 | docs(uat): adjudicate R16/75/216 — refute the single-region  |
 | 2026-08-07T12:51 | [#5815](https://github.com/openova-io/openova/pull/5815) | #5814 | fix(console): attribute sovereign /apps instance cards to th |
 | 2026-08-07T12:18 | [#5813](https://github.com/openova-io/openova/pull/5813) | #4444 | fix(chart): baseline CNP allowed cnpg-system egress but not  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T23:24 | [#5786](https://github.com/openova-io/openova/pull/5786) | #5750 | fix(guard): check-live-newapi-sso-version asserted from DESI |
 | 2026-08-06T22:38 | [#5785](https://github.com/openova-io/openova/pull/5785) | #5750 | fix(#5750): the drift script read the DESIRED chart version, |
 | 2026-08-06T21:37 | [#5784](https://github.com/openova-io/openova/pull/5784) | #5598 | docs(uat): record root causes on 5 failing rows from today's |
-| 2026-08-06T21:05 | [#5783](https://github.com/openova-io/openova/pull/5783) | #5573 | feat(guard): assert the Flux GitOps loop is RUNNING, not mer |
 
 ---
 
