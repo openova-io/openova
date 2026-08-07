@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T05:15:03Z` |
+| Last refreshed | `2026-08-07T05:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5341](https://github.com/openova-io/openova/issues/5341) | openova-mcp /mcp endpoint: ~40% envoy edge 404 flake despite healthy replica — | Other |
 | [#5348](https://github.com/openova-io/openova/issues/5348) | 🛑 §854: 3 live NodePort services on the mothership (cinova, iogrid, cert-man | Other |
 | [#5349](https://github.com/openova-io/openova/issues/5349) | 🛑 §-compliance + durability: mothership runs entirely on local-path StorageC | Other |
 | [#5358](https://github.com/openova-io/openova/issues/5358) | SSO: Guacamole intermittently rejects the valid Keycloak id_token (invalid/old n | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5759](https://github.com/openova-io/openova/issues/5759) | sovereign-daytwo-bootstrap --apply REVERTS a completed cutover: 62/69 HelmReposi | Other |
 | [#5762](https://github.com/openova-io/openova/issues/5762) | products/catalyst/bootstrap/ui e2e + marketplace customer-journey: triage the 16 | Other |
 | [#5767](https://github.com/openova-io/openova/issues/5767) | catalyst-api has no graceful shutdown — SIGTERM kills orphan-release mid-persi | Other |
+| [#5796](https://github.com/openova-io/openova/issues/5796) | ESCALATION: uatco-mail-rtz-a annotation directive conflicts with a founder 'No'  | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T05:17 | [#5795](https://github.com/openova-io/openova/pull/5795) | #4325 | docs(uat): challenge the 45 ⛔ rows — 11 are not blocked, and |
 | 2026-08-07T04:42 | [#5794](https://github.com/openova-io/openova/pull/5794) | #5513 | fix(scripts): delivery classifier missed fixes that referenc |
 | 2026-08-07T04:10 | [#5793](https://github.com/openova-io/openova/pull/5793) | #5792 | fix(scripts): rename the UAT delivery classifier off a banne |
 | 2026-08-07T04:07 | [#5792](https://github.com/openova-io/openova/pull/5792) | #5615 | docs(ledger): the remaining ❌ set is a DEPLOY, not a fix bac |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T10:13 | [#5764](https://github.com/openova-io/openova/pull/5764) | #5759 | fix(self-sovereign-cutover): refuse Day-2 mirror-advance for |
 | 2026-08-06T09:34 | [#5763](https://github.com/openova-io/openova/pull/5763) | #960 | docs(uat): make all 146 screenshot references clickable on G |
 | 2026-08-06T09:44 | [#5761](https://github.com/openova-io/openova/pull/5761) | #5741 | ci(#5741): wire PDM Postgres integration + widen playwright- |
-| 2026-08-06T08:41 | [#5760](https://github.com/openova-io/openova/pull/5760) | #2879 | feat(ci): umbrella-republish gate for platform/products char |
 
 ---
 
