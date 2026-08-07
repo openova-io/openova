@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T03:00:02Z` |
+| Last refreshed | `2026-08-07T03:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T03:10 | [#5787](https://github.com/openova-io/openova/pull/5787) | #5634 | test(marketplace): guard the /redeem markup contract the 429 |
 | 2026-08-06T23:24 | [#5786](https://github.com/openova-io/openova/pull/5786) | #5750 | fix(guard): check-live-newapi-sso-version asserted from DESI |
 | 2026-08-06T22:38 | [#5785](https://github.com/openova-io/openova/pull/5785) | #5750 | fix(#5750): the drift script read the DESIRED chart version, |
 | 2026-08-06T21:37 | [#5784](https://github.com/openova-io/openova/pull/5784) | #5598 | docs(uat): record root causes on 5 failing rows from today's |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T07:33 | [#5755](https://github.com/openova-io/openova/pull/5755) | #5615 | fix(catalyst-api): stamp domain/keycloak parameters for a pe |
 | 2026-08-06T07:33 | [#5754](https://github.com/openova-io/openova/pull/5754) | #5615 | fix(stalwart-tenant): stop baking chart version into the imm |
 | 2026-08-06T07:33 | [#5753](https://github.com/openova-io/openova/pull/5753) | #5358 | docs(guacamole): root-cause row-35 ERROR page as stale chart |
-| 2026-08-06T07:10 | [#5751](https://github.com/openova-io/openova/pull/5751) | #5612 | fix(newapi): cluster-side guard for the row 37/38 rollout ga |
 
 ---
 
