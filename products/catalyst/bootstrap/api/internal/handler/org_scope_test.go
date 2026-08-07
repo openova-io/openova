@@ -91,6 +91,17 @@ func TestPathIsOrgSafe(t *testing.T) {
 		// mutation, launch-url) are NOT opened to Org sessions by this change.
 		"/catalyst/v1/apps/uid-1/endpoints",
 		"/catalyst/v1/apps/uid-1/launch-url",
+		// #5401 — the DESTRUCTIVE deployment routes, named explicitly.
+		//
+		// These are already denied transitively: the allowlist is prefix-based
+		// and nothing grants "/api/v1/deployments", so every path under it
+		// falls through to the 403. Naming them anyway is deliberate. #5401
+		// asked whether an org-admin can "destroy the Sovereign hosting every
+		// other Organization on it", and the answer should not depend on a
+		// reader reconstructing prefix arithmetic — the wipe path is the one
+		// route on this API whose successful call is unrecoverable.
+		"/api/v1/deployments/4635277cae4ffed9/wipe",
+		"/api/v1/deployments/4635277cae4ffed9/cloudinit-log",
 	}
 	for _, p := range unsafe {
 		if pathIsOrgSafe(p) {
@@ -103,6 +114,75 @@ func TestPathIsOrgSafe(t *testing.T) {
 func orgScopeGuardTestHandler(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(`{"ok":true}`))
+}
+
+// TestOrgScopeGuard_OrgScoped_CannotReachDeploymentWipe answers the question
+// #5401 left open, and answers it about the WIPE specifically.
+//
+// That issue observed the Sovereign operator panel rendering to an org-admin
+// and correctly refused to guess the severity, writing: "The walk observed the
+// page rendering; it did not establish whether the controls function for an
+// org-admin bearer or whether the backend rejects them. Those are very
+// different severities." The Decommission control is a link to a page that
+// POSTs /api/v1/deployments/{id}/wipe, so that route is where the severity is
+// actually decided.
+//
+// This asserts the middleware verdict rather than a status code alone. A 403
+// can be produced by a downstream handler that already ran and did work; what
+// matters for a destructive route is that the target is never ENTERED. So the
+// wrapped handler records whether it was invoked, and the assertion is that it
+// was not.
+//
+// The POST method is deliberate: pathIsOrgSafe is method-blind, and the guard
+// must not become method-sensitive in a way that lets a write through on a path
+// whose reads are denied.
+func TestOrgScopeGuard_OrgScoped_CannotReachDeploymentWipe(t *testing.T) {
+	h := &Handler{log: quietLog()}
+
+	reached := false
+	guard := h.OrgScopeGuard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/deployments/4635277cae4ffed9/wipe", nil)
+	req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey,
+		&auth.Claims{Email: "customer@acme", Tier: orgScopedTier, Org: "acme"}))
+	rec := httptest.NewRecorder()
+	guard.ServeHTTP(rec, req)
+
+	if reached {
+		t.Fatal("an Org-scoped session REACHED the wipe handler — this is the " +
+			"privilege-escalation path #5401 asked about, and it is unrecoverable when it succeeds")
+	}
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("wipe must be 403'd for an Org-scoped session, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestOrgScopeGuard_SovereignAdmin_ReachesDeploymentWipe is the control for the
+// test above. Without it, deleting the wipe route from the router — or breaking
+// the guard closed for everyone — would leave that test green while the
+// operator's own Decommission flow was dead.
+func TestOrgScopeGuard_SovereignAdmin_ReachesDeploymentWipe(t *testing.T) {
+	h := &Handler{log: quietLog()}
+
+	reached := false
+	guard := h.OrgScopeGuard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/deployments/4635277cae4ffed9/wipe", nil)
+	req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey,
+		&auth.Claims{Email: "operator@openova.io", Tier: "admin"}))
+	rec := httptest.NewRecorder()
+	guard.ServeHTTP(rec, req)
+
+	if !reached {
+		t.Fatalf("the Sovereign operator must still reach wipe — guard returned %d, "+
+			"so the deny above proves nothing", rec.Code)
+	}
 }
 
 func TestOrgScopeGuard_SovereignAdmin_Passthrough(t *testing.T) {
