@@ -2689,12 +2689,28 @@ security:
     #     provider halts → /guacamole/api/session 403, blank page (the hw171
     #     2026-06-19 shape). gitea-pg / harbor-pg sit in their own host
     #     namespaces, so this single ingress entry is the complete fix.
+    #   - cnpg-system (#4444 / UAT row R22) — the CNPG operator does not only
+    #     RECEIVE connections, it REVERSE-PROBES the Pods it manages, reading
+    #     their status directly. Several CNPG Clusters are host-rendered into
+    #     catalyst-system (org-pg and the shared-pg family), so that probe
+    #     travels cnpg-system → catalyst-system, which is INGRESS here.
+    #     `cnpg-system` was already listed under allowedPlatformNamespaces
+    #     (egress) but not here, and the one-directional grant fails silently:
+    #     the Clusters still ADMIT and run — the R22 walk confirmed 8 Clusters
+    #     healthy and the validating webhook registered with 5 rules — so
+    #     nothing looks wrong from the console while the operator log fills
+    #     with `Cannot extract Pod status ... i/o timeout`. Measured live on
+    #     hw292: 90 such lines in the last 600 operator log lines, EXCLUSIVELY
+    #     for catalyst-system-hosted Clusters. Not a new trust grant — the
+    #     namespace is already trusted for egress and already manages these
+    #     Clusters; this restores the symmetry a managing operator requires.
     allowedIngressNamespaces:
       - catalyst
       - flux-system
       - kube-system
       - oidc-gate
       - guacamole
+      - cnpg-system
 
 # ── Migrations (post-install / post-upgrade Helm-hook Jobs) ──────────────
 # Per PR #2795 (G117.2 multi-instance Application CRD): backfill spec.instanceId
