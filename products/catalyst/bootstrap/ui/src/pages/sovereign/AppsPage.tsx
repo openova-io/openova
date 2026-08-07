@@ -173,6 +173,12 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
     environment: string
     externalURL: string
     bootstrapKit: boolean
+    /**
+     * #5814 (UAT row 15) — the Organization this instance belongs to,
+     * verbatim from the Application CR's spec.organizationRef. '' when the
+     * CR omits it; rendered as no chip rather than a guess.
+     */
+    org: string
   }
   const liveAppsQuery = useQuery<LiveAppsData>({
     // #4113 — the query key carries the scope so flipping between a sovereign
@@ -215,6 +221,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
           topology?: string | { mode?: string }
           contextCount?: number
           bootstrapKit?: boolean
+          org?: string
         }>
       }
       const statusById: Record<string, ApplicationStatus> = {}
@@ -237,6 +244,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             environment: a.environment ?? 'dev',
             externalURL: a.externalURL ?? '',
             bootstrapKit: a.bootstrapKit === true,
+            org: typeof a.org === 'string' ? a.org : '',
           })
           continue
         }
@@ -788,6 +796,10 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
                   slug={inst.slug}
                   topology={inst.topology}
                   contextCount={inst.contextCount}
+                  // #5814 — bootstrap rows carry the Sovereign self-org, which
+                  // is true but identical across the whole spine; painting it
+                  // would bury the customer attribution this chip exists for.
+                  org={inst.bootstrapKit ? undefined : inst.org}
                 />
               )
             })}
@@ -975,6 +987,20 @@ interface AppCardProps {
   topology?: string
   contextCount?: number
   /**
+   * #5814 (UAT row 15) — Organization this instance belongs to. Rendered as
+   * an `Org · <slug>` chip so a customer-launched app card is visibly
+   * attributed on the sovereign grid instead of sitting anonymously among
+   * the spine.
+   *
+   * Deliberately NOT painted for bootstrap-kit rows even though the wire
+   * carries their org too (the Sovereign self-org). Stamping ~40 spine cards
+   * with a slug that is the same on every one of them adds no information and
+   * would drown the one chip that does — so the caller passes it only for
+   * non-bootstrap instances. The suppression is a RENDER choice; the fact
+   * stays on the wire for the Org filter and any future grouping.
+   */
+  org?: string
+  /**
    * #3603 (EPIC #3597) — admin-editable catalog icons. When set, the card
    * renders the theme-correct override (iconLight in the light theme,
    * iconDark in the dark theme) in place of the build-time logo, falling
@@ -996,7 +1022,7 @@ interface AppCardProps {
 // Exported for the #3374 render test (AppsPage.open-button.test.tsx) — the
 // per-card Open button gate + silent-SSO click routing are leaf behaviour
 // best asserted directly on the card, without the live-apps query plumbing.
-export function AppCard({ app, status, isCatalog, isService, environment, marketplacePublished, slug, onPublishedChange, topology, contextCount, externalURL, hasUserUI, urlPending, iconLight, iconDark, onEdit }: AppCardProps) {
+export function AppCard({ app, status, isCatalog, isService, environment, marketplacePublished, slug, onPublishedChange, topology, contextCount, org, externalURL, hasUserUI, urlPending, iconLight, iconDark, onEdit }: AppCardProps) {
   const stateClass = `state-${status}`
   const navigate = useNavigate()
   // #3603 — render the theme-correct admin icon override when present:
@@ -1080,6 +1106,16 @@ export function AppCard({ app, status, isCatalog, isService, environment, market
           {app.bootstrapKit ? (
             <span className="chip chip-dep" title="Bootstrap-kit component (always installed)">
               BOOTSTRAP
+            </span>
+          ) : null}
+          {org ? (
+            <span
+              className="chip chip-org"
+              title={`Organization: ${org}`}
+              data-testid={`sov-app-org-${app.id}`}
+              data-org={org}
+            >
+              Org · {org}
             </span>
           ) : null}
           {topology ? (
@@ -1479,6 +1515,15 @@ const APPS_PAGE_CSS = `
 }
 .chip-free { background: color-mix(in srgb, var(--color-success) 14%, transparent); color: var(--color-success); }
 .chip-dep { background: color-mix(in srgb, var(--color-accent) 12%, transparent); color: var(--color-accent); font-weight: 500; }
+/*
+ * .chip-org — #5814 (UAT row 15). Organization attribution on a
+ * customer-launched instance card. Given its own hue rather than reusing
+ * .chip-dep: on a converged Sovereign the grid is dominated by spine cards,
+ * and the whole point of this chip is that the handful of customer cards are
+ * findable at a glance. Sharing the accent hue with the topology chip would
+ * defeat that.
+ */
+.chip-org { background: color-mix(in srgb, var(--color-warning, #d98324) 16%, transparent); color: var(--color-warning, #d98324); font-weight: 600; }
 /*
  * .chip-env — per-app environment chip ("dev", "prod", etc.).
  * Distinct hue from FREE/BOOTSTRAP so the operator can scan environment

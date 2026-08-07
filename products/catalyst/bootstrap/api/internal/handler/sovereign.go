@@ -509,6 +509,34 @@ type sovereignAppItem struct {
 	// instance; drives the ⛓ badge that deep-links to the Contexts
 	// tab. 0 renders no badge.
 	ContextCount int `json:"contextCount,omitempty"`
+
+	// Org — the Organization this instance belongs to, read verbatim from
+	// the Application CR's `spec.organizationRef` (#5814, UAT row 15).
+	//
+	// WHY THIS FIELD EXISTS. Row 15 asserts that "a customer-launched app
+	// card would appear UNDER ITS ORG". Before this field the projection
+	// carried no Org attribution at all: every instance row was a flat
+	// (id, slug, blueprint, status) tuple, so even when a customer Org's
+	// Application CRs were listed there was nothing on the wire for the
+	// grid to attribute or group them by. The walker's exact observation on
+	// hw292 was "no Org grouping, no scope filter" — that half of the row
+	// was a projection gap, not a listing gap.
+	//
+	// EMITTED FOR EVERY INSTANCE, spine included. The spine's own CRs carry
+	// organizationRef = the Sovereign self-org (spineOrganizationSlug, e.g.
+	// `hw292-omani-works`, labelled `openova.io/scope: platform`), which is
+	// the truthful answer for them — suppressing it server-side would mean
+	// the wire could not distinguish "belongs to the platform org" from
+	// "attribution unknown". The FE decides what to PAINT: it renders the
+	// chip only on non-bootstrap instance cards, so the 40-odd spine cards
+	// stay clean while a customer app reads `uatco`. Keeping the policy on
+	// the render side and the fact on the wire is what lets the Org filter
+	// and any future grouping reuse this without a second projection.
+	//
+	// Empty when the CR omits organizationRef (a hand-authored or legacy
+	// Application) — an absent chip is the honest rendering of "unknown",
+	// and is never substituted with a guess derived from the namespace.
+	Org string `json:"org,omitempty"`
 }
 
 type sovereignAppsResponse struct {
@@ -828,6 +856,14 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 			// gets its topology badge, same as string-form spine AHS apps. A
 			// raw NestedString read collapsed the object to "" → no badge.
 			topology := readTopology(app)
+			// #5814 (UAT row 15) — Org attribution. Read verbatim; never
+			// synthesised from the namespace or the CR name prefix. A
+			// customer app named `uatco-agenity` in namespace `org-uatco`
+			// LOOKS like it could be attributed either way, and both
+			// guesses are wrong for a spine CR (`spine-openbao` in
+			// `flux-system`), so the only honest source is the field the
+			// producer actually wrote.
+			orgRef, _, _ := unstructured.NestedString(app.Object, "spec", "organizationRef")
 			projectedAppCRs[strings.ToLower(app.GetName())] = true
 			instanceRows = append(instanceRows, sovereignAppItem{
 				ID:           app.GetName(),
@@ -841,6 +877,7 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 				Blueprint:    bpFull,
 				Topology:     topology,
 				ContextCount: contextCount,
+				Org:          orgRef,
 			})
 		}
 
