@@ -5,6 +5,55 @@
 
 ---
 
+## The remaining ❌ set is a DEPLOY, not a fix backlog (measured 2026-08-07)
+
+This is the single most decision-relevant fact in this file, and it was not
+visible until every failing row was classified at once rather than chased one at
+a time.
+
+`scripts/classify-uat-blockers.py --image fad88bd` — the catalyst-api actually
+running on hw292, **built 2026-08-02** — resolves each row's cited PRs to their
+merge commits and asks whether each is an ancestor of that artifact:
+
+| verdict | count | rows |
+|---|---|---|
+| **DEPLOY-GATED** — fix merged, artifact predates it | **12** | R17, W1, W2, 35, 37, 57, 86, 90, 92, 115, 219, 234 |
+| **CODE-BLOCKED** — no merged fix cited | **1** | 20 |
+
+Row 20 is the lone exception and is not really engineering either: it needs a
+customer Organization driven through the funnel before its assertion can be
+evaluated at all.
+
+Run against the ⚠️ tier the same way, **8 more** rows are deploy-gated (W5, 9,
+33, 53, 55, 62, 71, 87). So **20 rows across both tiers are waiting on a roll**,
+and writing further fixes moves none of them.
+
+**What this changes.** The next action for the ❌ set is delivering the train —
+not another fix wave. Four separate investigations this session (R17's
+cross-region reaper, W1/W2's wizard defaults, rows 35/115's bp-guacamole
+`crossRegion`, row 92's 429 notice) each independently terminated in "the fix is
+merged and the running artifact predates it". That is the same finding four
+times, which is what the classifier now surfaces in one command.
+
+**Two traps the script encodes**, both of which produced wrong answers by hand
+before being caught:
+
+1. A cited PR is often a `docs(uat)` **walk record**, not a fix — #5615 and
+   #5617 are the walks that recorded rows 219/234 failing. Counting those as
+   fixes turns a code-blocked row into a false deploy-gate, so the commit
+   *subject* is classified, not merely its presence.
+2. The row's verdict is the **6th pipe-delimited cell**, not "does the line
+   contain ❌". Several ✅ rows cite ❌ in their evidence prose; matching the
+   whole line over-counted failures (W3 is the example — status ✅, prose
+   contains ❌).
+
+The script **refuses to guess the running artifact** and exits non-zero without
+`--image`/`UAT_IMAGE`, because a wrong artifact inverts every verdict — the same
+wrong-subject failure mode as
+`feedback_never_declare_an_env_dead_without_probing_its_own_record_fqdn`.
+
+---
+
 ## Where the ledger actually stands
 
 The ledger was reset for this env — `scripts/reset-uat.py hw292` flushed 135 hw291 evidence cells to ☐/⏳ on 2026-07-31, per the founder's each-new-env-flushes-all-evidence law — and has been re-walked upward from there ever since. It is **no longer** near-zero, so the "a raw tally reads near-zero by design" note that stood here from 2026-07-31 has been retired rather than left to mislead.
