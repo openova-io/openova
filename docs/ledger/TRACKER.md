@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T03:15:05Z` |
+| Last refreshed | `2026-08-07T03:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T03:23 | [#5789](https://github.com/openova-io/openova/pull/5789) | #4459 | docs(uat): R17 is env-blocked not code-blocked — cross-regio |
+| 2026-08-07T03:23 | [#5788](https://github.com/openova-io/openova/pull/5788) | #5401 | test(api): pin that an Org-scoped session cannot reach deplo |
 | 2026-08-07T03:10 | [#5787](https://github.com/openova-io/openova/pull/5787) | #5634 | test(marketplace): guard the /redeem markup contract the 429 |
 | 2026-08-06T23:24 | [#5786](https://github.com/openova-io/openova/pull/5786) | #5750 | fix(guard): check-live-newapi-sso-version asserted from DESI |
 | 2026-08-06T22:38 | [#5785](https://github.com/openova-io/openova/pull/5785) | #5750 | fix(#5750): the drift script read the DESIRED chart version, |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-06T11:23 | [#5757](https://github.com/openova-io/openova/pull/5757) | #5459 | fix(bp-openbao): SSO landing re-validates a cached token bef |
 | 2026-08-06T07:34 | [#5756](https://github.com/openova-io/openova/pull/5756) | #5650 | fix(cutover): step-08 gains a Crossplane Provider PACKAGE ho |
 | 2026-08-06T07:33 | [#5755](https://github.com/openova-io/openova/pull/5755) | #5615 | fix(catalyst-api): stamp domain/keycloak parameters for a pe |
-| 2026-08-06T07:33 | [#5754](https://github.com/openova-io/openova/pull/5754) | #5615 | fix(stalwart-tenant): stop baking chart version into the imm |
-| 2026-08-06T07:33 | [#5753](https://github.com/openova-io/openova/pull/5753) | #5358 | docs(guacamole): root-cause row-35 ERROR page as stale chart |
 
 ---
 
