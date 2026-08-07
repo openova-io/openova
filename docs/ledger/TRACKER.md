@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T19:15:04Z` |
+| Last refreshed | `2026-08-07T19:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T19:29 | [#5862](https://github.com/openova-io/openova/pull/5862) | #5851 | docs(path-to-100): re-measure the delivery gate across all t |
+| 2026-08-07T19:25 | [#5861](https://github.com/openova-io/openova/pull/5861) | #5847 | docs(uat): row 5 carries a second defective clause its sibli |
+| 2026-08-07T19:22 | [#5860](https://github.com/openova-io/openova/pull/5860) | #5846 | fix(uat): recognise non-fix commit prefixes; CODE-BLOCKED no |
+| 2026-08-07T19:17 | [#5858](https://github.com/openova-io/openova/pull/5858) | #5857 | fix(org-create): send isolation as an override, never as a f |
 | 2026-08-07T18:38 | [#5856](https://github.com/openova-io/openova/pull/5856) | #5688 | fix(uat): classifier split rows on escaped pipes, truncating |
 | 2026-08-07T18:34 | [#5854](https://github.com/openova-io/openova/pull/5854) | #5844 | fix(uat): merge the phantom 8th column back into Evidence on |
 | 2026-08-07T18:28 | [#5852](https://github.com/openova-io/openova/pull/5852) | #5851 | fix(uat): all 13 failing rows are DEPLOY-GATED — prove it by |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-08-07T12:51 | [#5815](https://github.com/openova-io/openova/pull/5815) | #5814 | fix(console): attribute sovereign /apps instance cards to th |
 | 2026-08-07T12:18 | [#5813](https://github.com/openova-io/openova/pull/5813) | #4444 | fix(chart): baseline CNP allowed cnpg-system egress but not  |
 | 2026-08-07T11:54 | [#5812](https://github.com/openova-io/openova/pull/5812) | #3687 | docs(uat): rows 67 + 69 share ONE cause with 19/188 — Applic |
-| 2026-08-07T11:38 | [#5811](https://github.com/openova-io/openova/pull/5811) | #3687 | docs(uat): rows 19 + 188 — the apps grid renders the CATALOG |
-| 2026-08-07T11:23 | [#5810](https://github.com/openova-io/openova/pull/5810) | #960 | docs(uat): row 185 re-measured — 29 stale env stamps, but ZE |
-| 2026-08-07T11:08 | [#5809](https://github.com/openova-io/openova/pull/5809) | #3374 | docs(uat): rows 30 + 31 verified, 33 inconclusive — and *.hw |
-| 2026-08-07T10:21 | [#5808](https://github.com/openova-io/openova/pull/5808) | #5799 | docs(uat): rows 38 + 39 LIVE WALK — both negative clauses di |
 
 ---
 
