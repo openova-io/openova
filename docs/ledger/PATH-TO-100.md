@@ -51,14 +51,35 @@ that still fails. Absence of a citation reports `UNKNOWN`, because git alone
 cannot separate "unmerged PR" from "tracking issue" from "fix squashed under a
 non-fix title".
 
-### What is genuinely NOT a deploy problem
+### ZERO rows require new code — the three CODE-BLOCKED entries are not engineering
 
-Three ⚠️ rows (192, 225, 231) carry positive code-blocked evidence. And the ☐
-tier's row 5 is a distinct case the delivery axis cannot express: it reads
-DEPLOY-GATED because one of its clauses cites a merged-but-undelivered fix, while
-a **different** clause (`TIER=sme`) asserts a value the Organization CRD
-422-rejects and never can satisfy. A row can be simultaneously deploy-gated and
-assertion-defective; this tool reports only the delivery dimension. See #5847.
+The classifier flags 192, 225 and 231 as CODE-BLOCKED, which is literally true —
+their cited fixes are inside the running artifact and the rows still fail. But
+**CODE-BLOCKED names a measurement, not a remedy**, and reading each row shows
+none of the three is waiting on engineering:
+
+| row | classifier says | what it actually needs |
+|---|---|---|
+| **192** | fix in artifact, still fails | a **contract decision**. The deep-link half PASSES; the link half is absent because `ConvergenceWizard.tsx` was orphaned from the router by `be5477c43`. Drop the wizard-link clause, or delete the dead component — both change what the row tests. Guarded + named by #5831 rather than left silent. |
+| **225** | fix in artifact, still fails | a **precondition**. The #4278 mechanism is proven green (SA exists, hook Completes 1/1 in 5s, HR Ready on bp-newapi@1.4.146, CNPG 2/2). hw292 simply has no per-Org bp-newapi — uatco bought wordpress + openclaw + stalwart-mail + agenity. Needs an Org that BUYS newapi: a funnel mutation. |
+| **231** | fix in artifact, still fails | **nothing — its reason is stale.** Walk column `repo-render-2026-08-02`; evidence reads "none exists (hw291 wiped, hw292 **unfired**; catalyst ns 0 pods)". hw292 fired 2026-08-03T04:04Z and hit cc=true at 08:12:30Z, ~14h later. Rows 49/50 prove bp-postgres instances exist there with `singleton` as the pre-selected default. Walkable now. |
+
+**So the honest statement is stronger than "61 deploy-gated, 3 code-blocked":
+no row in this 286-row ledger requires code to be written.** Every non-green row
+is waiting on a roll, a walk, a funnel mutation, or an owner's adjudication.
+
+Row 5 is a case the delivery axis cannot express at all: it reads DEPLOY-GATED
+because one clause cites a merged-but-undelivered fix, while a **different**
+clause (`TIER=sme`) asserts a value the Organization CRD 422-rejects and never can
+satisfy. A row can be simultaneously deploy-gated and assertion-defective; this
+tool reports only the delivery dimension. See #5847.
+
+**Correcting this file's own text from earlier the same day.** The paragraph here
+previously read "Three ⚠️ rows (192, 225, 231) carry positive code-blocked
+evidence" and stopped. That was accurate about the measurement and misleading
+about the work — exactly the failure mode the three classifier defects above
+produced, repeated one level up: taking a tool's label as a conclusion instead of
+reading what the rows say.
 
 **What this changes.** The next action for the non-green set is delivering the
 train — not another fix wave. Four separate investigations in one session (R17's
