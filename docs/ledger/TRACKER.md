@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T16:30:03Z` |
+| Last refreshed | `2026-08-07T16:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T16:38 | [#5838](https://github.com/openova-io/openova/pull/5838) | #5813 | docs(session): measure the hw292 deploy gate — 28 UAT rows w |
+| 2026-08-07T16:34 | [#5837](https://github.com/openova-io/openova/pull/5837) | #960 | docs(uat): adjudicate row 185 — its assertion is unmeetable  |
 | 2026-08-07T15:56 | [#5836](https://github.com/openova-io/openova/pull/5836) | #5835 | fix(api): /applications/{name}/status must answer for a comp |
 | 2026-08-07T15:27 | [#5834](https://github.com/openova-io/openova/pull/5834) | #5833 | fix(api): /organizations double-counted an Org — the store/C |
 | 2026-08-07T15:19 | [#5832](https://github.com/openova-io/openova/pull/5832) | #5829 | fix(ci): my Case 14 blocked the umbrella publish — whole-cha |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-07T06:44 | [#5800](https://github.com/openova-io/openova/pull/5800) | #5799 | feat(auth): opt-in pre-live PIN echo so the funnel E2E walk  |
 | 2026-08-07T05:58 | [#5798](https://github.com/openova-io/openova/pull/5798) | #5797 | docs(uat): verify the 9 reclassified rows are actually walka |
 | 2026-08-07T05:40 | [#5797](https://github.com/openova-io/openova/pull/5797) | #5795 | docs(uat): execute the blocked-row challenge — 9 rows ⛔ → ☐, |
-| 2026-08-07T05:17 | [#5795](https://github.com/openova-io/openova/pull/5795) | #4325 | docs(uat): challenge the 45 ⛔ rows — 11 are not blocked, and |
-| 2026-08-07T04:42 | [#5794](https://github.com/openova-io/openova/pull/5794) | #5513 | fix(scripts): delivery classifier missed fixes that referenc |
 
 ---
 
