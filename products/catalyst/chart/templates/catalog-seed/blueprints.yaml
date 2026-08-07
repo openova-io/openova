@@ -1749,7 +1749,17 @@ spec:
     description: "Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO and full session recording to SeaweedFS. One Guacamole per Sovereign per ADR-0001 §11."
     icon: "guacamole.svg"
   placementSchema:
-    modes: [single-region]
+    # #5358 — bp-guacamole 0.2.36 gained `crossRegion` (primary owns the
+    # singleton webapp, secondary renders a zero-backend ClusterMesh stub), the
+    # same idiom bp-harbor 1.2.45 used for its identical session split (#5406).
+    # The topology block below already defaults a multi-region Sovereign to
+    # active-hot-standby, but this list gated it out: AllowedByBlueprint
+    # canonicalises `single-region` to `singleton` ONLY, so
+    # AllowedByBlueprint("active-hot-standby", ["single-region"]) was false and
+    # the Blueprint rejected its own declared multi-region default. Every one of
+    # the four ClusterMesh-singleton peers (harbor, keycloak, gitea, openbao)
+    # lists the multi-region mode here; guacamole was the one that did not.
+    modes: [single-region, active-hot-standby]
     default: single-region
   manifests:
     chart: bp-guacamole
@@ -2375,7 +2385,11 @@ business model is reselling LLM access to its own customers; use
     tags: ["llm", "gateway", "marketplace", "multi-tenant", "credits", "byok", "openai-compatible", "reseller"]
     docs: "https://github.com/Calcium-Ion/new-api"
   placementSchema:
-    modes: [single-region]
+    # Same #5358 lockstep as bp-guacamole: this chart ships `crossRegion`, and
+    # the topology block below defaults a multi-region Sovereign to
+    # active-passive — a mode `[single-region]` alone rejects, because
+    # AllowedByBlueprint canonicalises `single-region` to `singleton` ONLY.
+    modes: [single-region, active-passive]
     default: single-region
   manifests:
     chart: bp-newapi
