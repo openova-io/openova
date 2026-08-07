@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-07T07:45:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-08-07T08:00:12Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-07T07:58 | [#5801](https://github.com/openova-io/openova/pull/5801) | #5434 | fix(api): App-detail Dependencies is empty for bootstrap app |
 | 2026-08-07T06:44 | [#5800](https://github.com/openova-io/openova/pull/5800) | #5799 | feat(auth): opt-in pre-live PIN echo so the funnel E2E walk  |
 | 2026-08-07T05:58 | [#5798](https://github.com/openova-io/openova/pull/5798) | #5797 | docs(uat): verify the 9 reclassified rows are actually walka |
 | 2026-08-07T05:40 | [#5797](https://github.com/openova-io/openova/pull/5797) | #5795 | docs(uat): execute the blocked-row challenge — 9 rows ⛔ → ☐, |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-06T17:49 | [#5771](https://github.com/openova-io/openova/pull/5771) | #5348 | docs(walk): live cluster-side §854 NodePort census on hw292  |
 | 2026-08-06T17:50 | [#5770](https://github.com/openova-io/openova/pull/5770) | #5496 | test(catalog): lock the catalog-item cache key so the #5496  |
 | 2026-08-06T12:01 | [#5768](https://github.com/openova-io/openova/pull/5768) | #489 | fix(catalyst-api): graceful shutdown — drain HTTP, then join |
-| 2026-08-06T11:42 | [#5766](https://github.com/openova-io/openova/pull/5766) | #5764 | fix(catalyst-api): join the orphan-release goroutine instead |
 
 ---
 
