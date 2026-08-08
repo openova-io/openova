@@ -60,6 +60,29 @@ rather than deferred:
 | **41** | ~~needs code~~ → **DEPLOY-GATED** *(corrected 2026-08-08)* | The finding stands: the sovereign realm holds **two** users — the owner and `emrha.baysal@…`, a two-letter transposition, persisted from a typo at the login form. Only a COUNT finds it (`/emrah/` matches both). **But the fix already exists.** `6663dc441` (2026-08-06) — *"defer pin/issue realm write to pin/verify — no unauthenticated principal creation"* (#5720) — moved the realm write out of `HandlePinIssue` into `HandlePinVerify`, gated on a correct PIN, and ships with the guard `auth_pin_issue_no_unverified_realm_write_5720_test.go`. `auth.go:489-499` cites **this exact row and this exact address** as the finding that prompted it. The image `fad88bd` was built **2026-08-02**, four days earlier, so the fix is simply not in it. Tracked #5883 → resolves on the roll. |
 | **95** | ~~needs investigation~~ → **mechanism named, fix merged, awaiting walk** *(2026-08-08, #5910/#5911)* | The purchased app never became an Application. Checkout recorded `Apps (1)`, the Org converged (`state=done`, all six steps, vcluster created), the applications list holds 14 apps and none belongs to the new Org — control: the first Org's apps *are* in that same list. **Traced to the write seam:** `resolveAppSlugs` (`handlers.go:363`) substitutes the raw UUID on a catalog miss, so `len(out) == len(in)` and **the cart count survives by construction** — which is why every count-based check read green. `consumer.go:589` then passes it to `GeneratePerOrgAppsTree` *as a slug*, `GetAppSpec` returns a bare `AppSpec{}`, and the generator emits a Deployment with a **null `image` and `containerPort: 0`**. That is invalid to the apiserver, and per the #4389 note in `helmrelease_apps.go` a rejected manifest fails the **whole** `vcluster/apps` Kustomization — so the blast radius is that app **plus every co-installed app in the same apply**. Fix reports the unresolvable case (the only point where the miss is still observable); pass-through behaviour deliberately unchanged. |
 
+### Every ❌ row walked live on hw292 — 2026-08-08 close-out
+
+All fourteen were probed against the running env, each with a control. The result
+is that they resolve to **three** causes, not fourteen:
+
+| cause | rows | evidence |
+|---|---|---|
+| **#5894 fan-out truncation** (region B has zero per-Org listeners; the catalyst-api OOM cuts `orgConsoleTLSTargets` short) | 37, 86, 90, 94 | 10 fresh connections per host: per-Org hosts exactly **50%** reset, sovereign host **0/10**. Purchased apps return **302** (serving) on every request that completes — the funnel is not broken, half the requests never arrive |
+| **deploy-gated, fix merged after the image** | R17\*, W1, W2, 29, 41, 57, 92, 115, 219, 234 | ancestry-checked individually; e.g. row 234's Kyverno §854 denial is fixed in `bp-stalwart-tenant` **0.1.14** (`935d23842`) while hw292 runs **0.1.13** — one version short |
+| **empty DR CR layer** (#4986 shape) | 57, G3 | `continuums.dr.openova.io` and `cnpgpairs.dr.openova.io` both **installed with zero CRs** while shared-pg/-b/-c are all 3/3 healthy |
+
+\* **R17 is the exception and the one genuinely-live defect found:** Org delete
+leaves two orphans in PLATFORM namespaces, which a namespace-scoped cascade cannot
+reach — `catalyst-system httproute/catalyst-ui-<slug>-omani-homes` and
+`kube-system secret/org-wildcard-tls-<slug>-omani-homes`, both 4d21h after the Org
+was deleted. A future Org re-using that subdomain would collide. Fix sites named.
+
+**The leak is compounding while this sits.** catalyst-api on hw292 measured twice
+in one session: `restarts 125 → 132`, working set `1900Mi → 3714Mi` of a 4Gi limit.
+Seven more OOMKills in ~5 hours, currently at 93% and climbing. That single
+uncorrected leak is the proximate cause of four ❌ rows, and its fix (#5645) has
+been merged and published since 2026-08-04 without ever executing.
+
 ### So the actual shape of the remaining work
 
 - **13 rows** (the 12 + **41**) — one roll, no code.
