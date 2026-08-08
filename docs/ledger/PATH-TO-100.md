@@ -81,9 +81,22 @@ table separates the two by pairing every UNKNOWN with a live walk.
 These are new code, not pending deployments. Each was found on hw292 as it runs
 today, and each is recorded with the measurement that produced it.
 
+> **One of them was not, and the correction is the point.** #5894 sat in this table
+> — and, before that, parked as *needs-design* on the issue — on the strength of a
+> real measurement and a **wrong causal story**: I had concluded the org-controller
+> holds a single `client.Client` and structurally cannot reach region B. It does not
+> build that surface at all; catalyst-api does, and #5511 gave it a per-region seam
+> back on 2026-07-30, *inside* the running image. Following it to ground turned a
+> "needs a topology decision" into "a merged fix (#5645) that has never executed",
+> which is a **completely different kind of work** — nobody has to design anything.
+> A correct measurement with an unverified mechanism attached is still a wrong row,
+> and it points the next reader at the wrong file. The generalisable check: before
+> filing a defect as new code, name the component that actually writes the surface
+> and `git log --grep` it — a fix may already exist and be sitting one deploy away.
+
 | issue | what breaks | how it was found |
 |---|---|---|
-| **#5894** | per-Org consoles reset the TLS handshake **~50%** of the time, on both Orgs and both pool TLDs | 12 probes per host across 6 hosts: 4 sovereign-domain hosts **0/48 resets**, 2 pool-TLD hosts **exactly 50%** — isolates it to the pool-TLD cert/listener, one region serving it and one not |
+| ~~**#5894**~~ **moved out of this table — it IS deploy-gated (2026-08-08)** | per-Org consoles reset the TLS handshake **~50%** of the time, on both Orgs and both pool TLDs | 12 probes per host across 6 hosts: 4 sovereign-domain hosts **0/48 resets**, 2 pool-TLD hosts **exactly 50%** — isolates it to the pool-TLD cert/listener, one region serving it and one not. **Then followed to ground:** region B *has* `cilium-gateway-console` but **zero per-Org listeners**, while region A has both (`uatco`, `walk-stranger-two`) — so #5511's fan-out reached the Gateway and stopped. Neither guard in `orgConsoleTLSTargets` closes on identity (`SOVEREIGN_FQDN=hw292.omani.works`, both regions configured, `isChroot()` true). The truncation is a **catalyst-api OOMKill**: `restarts=125, exit=137, limits=4Gi, requests=96Mi, in-flight 1900Mi`. `orgConsoleTLSTargets` returns the host region as `targets[0]` and appends secondaries after, so a kill during the long per-region admission poll (`org_console_tls.go:266,437`) completes region A and dies before region B — exactly the observed asymmetry. `api-deployment.yaml:1814-1846` already recorded this from **#5642** four days earlier: the leak is `Factory.AddCluster` rebuilding all 42 informers on byte-identical kubeconfigs, ~62 Mi/min, **fixed in #5645 (MERGED) but never executed** because no published image reaches a `cutoverComplete=true` Sovereign — **#5640** |
 | **#5895** | first visit to a per-Org console renders a **blank page**; a reload recovers | cold browser stops at the `prompt=none` silent-auth URL with `body_len=0`, unchanged after 25s |
 | **#5882** | OpenBao SSO session lands with no token prompt but its policy **cannot list mounts** — Secrets pane renders `403 permission denied` | authenticated shell renders, content pane errors |
 | **#5883** | a **mistyped email** at the PIN form persists a Keycloak realm user (`emrha.` alongside `emrah.`) | counting the Users list — a presence check matches both strings and reports green |
