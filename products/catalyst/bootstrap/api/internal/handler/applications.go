@@ -2411,6 +2411,19 @@ type applicationListItem struct {
 	Blueprint string `json:"blueprint,omitempty"`
 	Version   string `json:"version,omitempty"`
 	Phase     string `json:"phase,omitempty"`
+
+	// #5872 — the LIST omitted placement entirely while the DETAIL endpoint
+	// returned it, so a caller reading the list saw no placement for ANY app
+	// and could not tell "single-region" from "not reported". Two endpoints
+	// over one CR disagreed about whether the field exists.
+	//
+	// Populated from placementFromSpec — the SAME helper HandleApplicationGet
+	// uses — so the two answers agree by construction rather than by two
+	// parallel readers that can drift. `omitempty` preserves that path's
+	// honest-absence contract: a genuinely-absent placement stays empty and
+	// drops out of the JSON, rather than being manufactured into a default the
+	// console would render as fact.
+	Placement string `json:"placement,omitempty"`
 }
 
 // applicationListResponse — body of GET /sovereigns/{id}/applications.
@@ -2491,6 +2504,10 @@ func (h *Handler) HandleApplicationList(w http.ResponseWriter, r *http.Request) 
 		if phase, ok, _ := unstructured.NestedString(obj.Object, "status", "phase"); ok {
 			row.Phase = phase
 		}
+		// #5872 — same helper the detail endpoint uses, so list and detail
+		// cannot drift. Empty when placement is genuinely absent; omitempty
+		// then drops it, which is the honest answer rather than a default.
+		row.Placement = placementFromSpec(obj)
 		items = append(items, row)
 	}
 	writeJSON(w, http.StatusOK, applicationListResponse{
