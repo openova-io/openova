@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-08T10:15:03Z` |
+| Last refreshed | `2026-08-08T10:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-08T10:21 | [#5913](https://github.com/openova-io/openova/pull/5913) | #5460 | docs(path-to-100): every failing row now has a named mechani |
+| 2026-08-08T10:19 | [#5912](https://github.com/openova-io/openova/pull/5912) | #4389 | docs(path-to-100): row 95 is no longer an investigation — me |
+| 2026-08-08T10:18 | [#5911](https://github.com/openova-io/openova/pull/5911) | #4389 | test(gitops): pin what an unresolved catalog id renders — UA |
 | 2026-08-08T09:29 | [#5909](https://github.com/openova-io/openova/pull/5909) | #5460 | fix(auth-gate): the cached session marker must be able to go |
 | 2026-08-08T08:45 | [#5908](https://github.com/openova-io/openova/pull/5908) | #5720 | docs(path-to-100): row 41 is deploy-gated, not needs-code —  |
 | 2026-08-08T08:31 | [#5907](https://github.com/openova-io/openova/pull/5907) | #5645 | docs(path-to-100): hw292 cannot close #5640 — the 12 rows ne |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-07T21:21 | [#5876](https://github.com/openova-io/openova/pull/5876) | #5720 | docs(uat): rows 28/41/45 — UserAccess walked live; row 41's  |
 | 2026-08-07T21:17 | [#5875](https://github.com/openova-io/openova/pull/5875) | #5871 | docs(uat): rows 33 + 36 fail as a gateway 404, not a login f |
 | 2026-08-07T21:04 | [#5874](https://github.com/openova-io/openova/pull/5874) | #880 | docs(uat): row 177 — name the exact retry target and the pas |
-| 2026-08-07T20:59 | [#5873](https://github.com/openova-io/openova/pull/5873) | #4292 | docs(uat): hw292 authed walk 2 — row 20 goes green, rows 10/ |
-| 2026-08-07T20:41 | [#5870](https://github.com/openova-io/openova/pull/5870) | #5867 | docs(uat): hw292 authed walk — rows 235 + 6 go green, row 19 |
-| 2026-08-07T20:19 | [#5869](https://github.com/openova-io/openova/pull/5869) | #3969 | docs(uat): G10's evidence ends mid-word and has since it was |
 
 ---
 
