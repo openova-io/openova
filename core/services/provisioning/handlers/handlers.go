@@ -360,9 +360,57 @@ func (h *Handler) resolveAppNames(ctx context.Context) map[string]string {
 }
 
 // resolveAppSlugs resolves app UUIDs to slugs via the catalog.
+//
+// # The pass-through is load-bearing, and so is telling you when it fired (#5910)
+//
+// Callers may legitimately pass values that are ALREADY slugs, so an id absent
+// from the catalog map is returned unchanged rather than dropped. That is
+// correct and must stay.
+//
+// What was wrong is that the pass-through made two very different situations
+// byte-identical downstream:
+//
+//   - a real slug the catalog simply did not enumerate — fine; and
+//   - an id that resolves to NOTHING anywhere — a purchase that is about to
+//     evaporate.
+//
+// Because the returned slice is always len(appIDs), the CART COUNT survives
+// either way. That is why UAT row 95 showed `Apps (1)` at checkout, the
+// Organization reported state=done, and no Application ever existed: every
+// count-based check along the path was satisfied.
+//
+// The unresolvable value is then handed to GeneratePerOrgAppsTree as a slug,
+// GetAppSpec returns a bare AppSpec{}, and the generator emits a Deployment
+// with a null `image` and `containerPort: 0`. That manifest is INVALID to the
+// apiserver, and per the #4389 note in gitops/helmrelease_apps.go a rejected
+// manifest fails the whole `vcluster/apps` Kustomization — so the blast radius
+// is not one app, it is that app plus every co-installed app in the same apply.
+//
+// This does not change the resolution behaviour (dropping the app would trade a
+// silent failure for a different silent failure, and guessing a slug would be
+// worse). It makes the unresolvable case OBSERVABLE, which is the one thing
+// nothing downstream can do — by the time the value leaves this function the
+// evidence that it never resolved is gone. Same shape and same reasoning as
+// resolvePlanSlug's "verify the Org is not being silently downgraded" warning
+// a few lines below.
 func (h *Handler) resolveAppSlugs(ctx context.Context, appIDs []string) []string {
 	apps, ok := h.fetchCatalogApps(ctx)
 	if !ok {
+		// Wholesale pass-through. If any of these are UUIDs rather than slugs,
+		// every one of them is about to render as an unappliable husk.
+		unknown := make([]string, 0, len(appIDs))
+		for _, id := range appIDs {
+			if _, known := gitops.LookupAppSpec(id); !known {
+				unknown = append(unknown, id)
+			}
+		}
+		if len(unknown) > 0 {
+			slog.Error("resolveAppSlugs: catalog unreachable AND these ids match no known app spec — "+
+				"they will render as Deployments with a null image and containerPort 0, which the "+
+				"apiserver rejects and which fails the WHOLE per-Org apply (#5910, UAT row 95). "+
+				"The cart count still matches, so nothing downstream will report this.",
+				"unresolved", unknown, "total", len(appIDs))
+		}
 		return appIDs
 	}
 	idToSlug := make(map[string]string, len(apps))
@@ -370,12 +418,24 @@ func (h *Handler) resolveAppSlugs(ctx context.Context, appIDs []string) []string
 		idToSlug[a.ID] = a.Slug
 	}
 	slugs := make([]string, len(appIDs))
+	unresolved := make([]string, 0)
 	for i, id := range appIDs {
 		if slug, ok := idToSlug[id]; ok {
 			slugs[i] = slug
-		} else {
-			slugs[i] = id // fallback to ID
+			continue
 		}
+		// Not a catalog id. Legitimate ONLY if it is already a known app slug.
+		slugs[i] = id // fallback to ID — see the doc comment
+		if _, known := gitops.LookupAppSpec(id); !known {
+			unresolved = append(unresolved, id)
+		}
+	}
+	if len(unresolved) > 0 {
+		slog.Error("resolveAppSlugs: id resolved to neither a catalog app NOR a known app spec — "+
+			"the purchase will render as an unappliable husk (null image, containerPort 0) and take "+
+			"the rest of the per-Org apply down with it (#5910, UAT row 95). Cart count is unaffected, "+
+			"so no count-based check will catch this.",
+			"unresolved", unresolved, "total", len(appIDs), "catalog_apps", len(apps))
 	}
 	return slugs
 }
