@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-08T02:30:05Z` |
+| Last refreshed | `2026-08-08T02:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,7 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#5421](https://github.com/openova-io/openova/issues/5421) | Marketplace redeem page misses cookie-borne owner sessions — localStorage prob | Other |
 | [#5422](https://github.com/openova-io/openova/issues/5422) | Console Overview hardcodes Placement fallback to 'singleton', contradicting the  | Other |
 | [#5423](https://github.com/openova-io/openova/issues/5423) | P0: vcluster-tier funnel cart with a HelmRelease-shaped app poisons the whole pe | Other |
 | [#5425](https://github.com/openova-io/openova/issues/5425) | WriteTenantOverlay writes the legacy org-tenants path on EVERY Org create — un | Other |
@@ -293,7 +294,6 @@ flowchart LR
 | [#5857](https://github.com/openova-io/openova/issues/5857) | Door A stamps every customer Org isolation=vcluster while the GitOps renderer ba | Other |
 | [#5867](https://github.com/openova-io/openova/issues/5867) | Two UAT rows need an owner decision and have no tracker issue: row 19 (grid keye | Other |
 | [#5871](https://github.com/openova-io/openova/issues/5871) | hw292 live: 11 of 14 Applications are Degraded on a cutoverComplete=true Soverei | Other |
-| [#5872](https://github.com/openova-io/openova/issues/5872) | Applications LIST endpoint omits placement entirely; only the detail endpoint re | Other |
 | [#5878](https://github.com/openova-io/openova/issues/5878) | newapi is the only SSO app that does not accept the realm session — bare URL 3 | Other |
 | [#5882](https://github.com/openova-io/openova/issues/5882) | OpenBao SSO session lands with no token prompt but its policy cannot list mounts | Other |
 | [#5883](https://github.com/openova-io/openova/issues/5883) | A mistyped email at the PIN form persists a Keycloak user — sovereign realm ho | Other |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-08T02:39 | [#5902](https://github.com/openova-io/openova/pull/5902) | #5872 | fix(api): applications LIST returns placement, from the same |
 | 2026-08-08T00:53 | [#5901](https://github.com/openova-io/openova/pull/5901) | #4272 | docs(uat): row 94 carries the #5895 root cause, not just the |
 | 2026-08-08T00:25 | [#5900](https://github.com/openova-io/openova/pull/5900) | #5887 | docs(uat): row 29 correction — silent re-auth works; my firs |
 | 2026-08-08T00:09 | [#5899](https://github.com/openova-io/openova/pull/5899) | #4272 | test(ui): arm a tripwire for #5895 — per-Org console derives |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T19:59 | [#5863](https://github.com/openova-io/openova/pull/5863) | #5831 | docs(uat): zero rows require new code — the three CODE-BLOCK |
 | 2026-08-07T19:29 | [#5862](https://github.com/openova-io/openova/pull/5862) | #5851 | docs(path-to-100): re-measure the delivery gate across all t |
 | 2026-08-07T19:25 | [#5861](https://github.com/openova-io/openova/pull/5861) | #5847 | docs(uat): row 5 carries a second defective clause its sibli |
-| 2026-08-07T19:22 | [#5860](https://github.com/openova-io/openova/pull/5860) | #5846 | fix(uat): recognise non-fix commit prefixes; CODE-BLOCKED no |
 
 ---
 
