@@ -57,15 +57,31 @@ rather than deferred:
 | row | verdict | evidence |
 |---|---|---|
 | **29** | **needs code** | Silent re-auth *works* — proven by dropping `catalyst_session` while keeping the realm session and landing on `/dashboard` with fresh tokens. The real defect is narrower: when `catalyst:authed=1` is stale relative to the cookie, the stale-marker fast path 401s and PIN-walls **instead of falling back to the silent leg that demonstrably works**. Tracked #5887. A genuine TTL expiry produces exactly that state. |
-| **41** | **needs code** | The sovereign realm holds **two** users — the owner and `emrha.baysal@…`, a two-letter transposition. A typed email was persisted as a realm principal. Only a COUNT finds it: `/emrah/` matches both strings. Tracked #5883. |
+| **41** | ~~needs code~~ → **DEPLOY-GATED** *(corrected 2026-08-08)* | The finding stands: the sovereign realm holds **two** users — the owner and `emrha.baysal@…`, a two-letter transposition, persisted from a typo at the login form. Only a COUNT finds it (`/emrah/` matches both). **But the fix already exists.** `6663dc441` (2026-08-06) — *"defer pin/issue realm write to pin/verify — no unauthenticated principal creation"* (#5720) — moved the realm write out of `HandlePinIssue` into `HandlePinVerify`, gated on a correct PIN, and ships with the guard `auth_pin_issue_no_unverified_realm_write_5720_test.go`. `auth.go:489-499` cites **this exact row and this exact address** as the finding that prompted it. The image `fad88bd` was built **2026-08-02**, four days earlier, so the fix is simply not in it. Tracked #5883 → resolves on the roll. |
 | **95** | **needs investigation** | The purchased app never became an Application. Checkout recorded `Apps (1)` and the Org converged (`state=done`, all six steps, vcluster created), but the applications list holds 14 apps and none belongs to the new Org. Control: the first Org's apps *are* in that same list, so the absence is real. |
 
 ### So the actual shape of the remaining work
 
-- **12 rows** — one roll, no code.
-- **2 rows** (29, 41) — small, scoped code fixes with root causes on their issues.
+- **13 rows** (the 12 + **41**) — one roll, no code.
+- **1 row** (29) — a small, scoped code fix; root cause on #5887.
 - **1 row** (95) — needs the app-materialisation leg traced.
 - Everything else non-green is ⚠️/⛔, not ❌.
+
+> **Row 41 moved buckets on 2026-08-08, and the reason generalises.** It was filed
+> "needs code" because the *symptom* was verified first-hand and the *source* never
+> was. One `git log --diff-filter=A` on the guard file found `6663dc441` — a fix that
+> names this row and this address in its own comment, merged four days before the
+> walk that "discovered" the problem. **Ten issues have now resolved this way in one
+> session** (#5750, #5752, #5767, #5817, #5823, #5825, #5833, #5835, #5720, and
+> #5894's #5511/#5645 chain). At that rate the prior should be inverted: on a
+> deploy-gated env, assume a fix exists and prove it does not, rather than the
+> reverse. The check costs one command and has been right ten times out of ten.
+>
+> Method caution from the same hour: `git log --grep="(#5720)"` matched the WRONG
+> commit — the parentheses are regex groups, so it silently returned an unrelated
+> recent commit and produced a confident, wrong ancestry verdict. Anchor on something
+> unforgeable instead — the commit that *added the guard file*
+> (`--diff-filter=A -- <path>`) — then compare. Verify the subject before the value.
 
 ### Why this section supersedes a prior claim in this file
 
