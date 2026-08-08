@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-08T00:45:02Z` |
+| Last refreshed | `2026-08-08T01:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-08T00:53 | [#5901](https://github.com/openova-io/openova/pull/5901) | #4272 | docs(uat): row 94 carries the #5895 root cause, not just the |
 | 2026-08-08T00:25 | [#5900](https://github.com/openova-io/openova/pull/5900) | #5887 | docs(uat): row 29 correction — silent re-auth works; my firs |
 | 2026-08-08T00:09 | [#5899](https://github.com/openova-io/openova/pull/5899) | #4272 | test(ui): arm a tripwire for #5895 — per-Org console derives |
 | 2026-08-07T23:25 | [#5898](https://github.com/openova-io/openova/pull/5898) | #5894 | docs(ledger): PATH-TO-100's headline claim went false the sa |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T19:29 | [#5862](https://github.com/openova-io/openova/pull/5862) | #5851 | docs(path-to-100): re-measure the delivery gate across all t |
 | 2026-08-07T19:25 | [#5861](https://github.com/openova-io/openova/pull/5861) | #5847 | docs(uat): row 5 carries a second defective clause its sibli |
 | 2026-08-07T19:22 | [#5860](https://github.com/openova-io/openova/pull/5860) | #5846 | fix(uat): recognise non-fix commit prefixes; CODE-BLOCKED no |
-| 2026-08-07T19:17 | [#5858](https://github.com/openova-io/openova/pull/5858) | #5857 | fix(org-create): send isolation as an override, never as a f |
 
 ---
 
