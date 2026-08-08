@@ -74,6 +74,7 @@ import (
 	"fmt"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -570,7 +571,56 @@ func (r *Reconciler) teardownTenantConsoleTLS(ctx context.Context, org *orgapi.O
 	if err != nil {
 		return listenerChanged, fmt.Errorf("delete org wildcard cert %q: %w", names.CertName, err)
 	}
-	return listenerChanged || certChanged, nil
+	// The backing TLS Secret does NOT follow the Certificate — measured, R17.
+	//
+	// tenant_networking_teardown.go's header says the Secret is
+	// "cert-manager-GC'd with it". That is only true when cert-manager runs with
+	// `--enable-certificate-owner-ref`, which stamps an ownerRef from the Secret
+	// to its Certificate. That flag is OFF by default and is absent from the
+	// cert-manager Deployment args on hw292, so deleting the Certificate leaves
+	// the Secret behind with no owner and nothing to collect it.
+	//
+	// Measured on hw292 2026-08-08, Org `r17probe` deleted 4d21h earlier:
+	//   Certificate org-wildcard-tls-r17probe-omani-homes   -> 0 (teardown worked)
+	//   Secret      org-wildcard-tls-r17probe-omani-homes   -> 1 (survived)
+	// with a live-Org control still showing both, so this is a real orphan and
+	// not an empty-filter artefact.
+	//
+	// Why it matters more than a dangling object: the Secret is NAME-DERIVED from
+	// the slug+parent, so a future Org taking that subdomain lands on a Secret of
+	// exactly the expected name holding the PREVIOUS Org's certificate — a
+	// cross-Org identity leak, not merely litter. #5848 fixes the sibling
+	// HTTPRoute orphan by label selector scoped to the console-route namespace,
+	// which structurally cannot reach this one: it lives in the cert namespace.
+	//
+	// Name-targeting is adequate HERE (unlike the route, where #5647 introduced a
+	// second producer with a different name): the Secret name is `secretName` on
+	// the Certificate we just deleted, so there is exactly one producer and one
+	// derivation.
+	secretChanged, err := r.deleteOrgWildcardTLSSecret(ctx, names)
+	if err != nil {
+		return listenerChanged || certChanged, fmt.Errorf("delete org wildcard TLS secret %q: %w", names.CertName, err)
+	}
+	return listenerChanged || certChanged || secretChanged, nil
+}
+
+// deleteOrgWildcardTLSSecret removes the TLS Secret backing the per-Org wildcard
+// Certificate. The Secret shares the Certificate's name (it IS the cert's
+// `secretName`), lives in the same namespace, and is absent-as-success so a
+// re-reconcile of an already-clean Org is a no-op — matching every other helper
+// in this teardown chain.
+func (r *Reconciler) deleteOrgWildcardTLSSecret(ctx context.Context, names orgConsoleTLSNames) (bool, error) {
+	ns := r.consoleTLSCertNamespace()
+	sec := &corev1.Secret{}
+	sec.SetNamespace(ns)
+	sec.SetName(names.CertName)
+	if err := r.Delete(ctx, sec); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("delete Secret %s/%s: %w", ns, names.CertName, err)
+	}
+	return true, nil
 }
 
 // removeConsoleOrgListener strips the per-Org `console-https-<slug>` /
