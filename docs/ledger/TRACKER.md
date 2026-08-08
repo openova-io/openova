@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-08T15:45:04Z` |
+| Last refreshed | `2026-08-08T16:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-08T16:00 | [#5915](https://github.com/openova-io/openova/pull/5915) | #4459 | docs(uat): R17 — Org delete-cascade leaks two PLATFORM-names |
 | 2026-08-08T15:30 | [#5914](https://github.com/openova-io/openova/pull/5914) | #5759 | docs(uat): row 231 walked live on hw292 — half (b) proven at |
 | 2026-08-08T10:21 | [#5913](https://github.com/openova-io/openova/pull/5913) | #5460 | docs(path-to-100): every failing row now has a named mechani |
 | 2026-08-08T10:19 | [#5912](https://github.com/openova-io/openova/pull/5912) | #4389 | docs(path-to-100): row 95 is no longer an investigation — me |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T21:36 | [#5879](https://github.com/openova-io/openova/pull/5879) | #3858 | docs(uat): SSO landing walk on hw292 — 5 rows green incl. ha |
 | 2026-08-07T21:27 | [#5877](https://github.com/openova-io/openova/pull/5877) | #5871 | docs(uat): real browser walk on hw292 — rows 27/28/45 green  |
 | 2026-08-07T21:21 | [#5876](https://github.com/openova-io/openova/pull/5876) | #5720 | docs(uat): rows 28/41/45 — UserAccess walked live; row 41's  |
-| 2026-08-07T21:17 | [#5875](https://github.com/openova-io/openova/pull/5875) | #5871 | docs(uat): rows 33 + 36 fail as a gateway 404, not a login f |
 
 ---
 
