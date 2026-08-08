@@ -9,6 +9,9 @@ import {
   sameSovereignHostFamily,
   CANONICAL_SOVEREIGN_SUBDOMAINS,
   PUBLIC_PATH_PREFIXES,
+  markAuthed,
+  clearAuthed,
+  AUTH_MARKER_MAX_AGE_MS,
 } from './auth-gate'
 
 describe('canonicalisePath', () => {
@@ -141,9 +144,58 @@ describe('hasCatalystSession', () => {
     expect(hasCatalystSession()).toBe(true)
   })
 
-  it('returns true when catalyst:authed marker is set (new cookie flow)', () => {
-    sessionStorage.setItem('catalyst:authed', '1')
+  it('returns true when a FRESH catalyst:authed marker is set (new cookie flow)', () => {
+    markAuthed()
     expect(hasCatalystSession()).toBe(true)
+  })
+
+  // #5887 / UAT row 29 — the marker must be able to go stale.
+  //
+  // These are the cases that made rootBeforeLoad's `if (hasCatalystSession())
+  // return` skip the /whoami probe (and the silent-SSO leg) forever once a
+  // marker existed, PIN-walling an operator who still held a live realm
+  // session. Each asserts the gate now declines to short-circuit, which is
+  // what lets the probe run and the #5460 revocation fire.
+  it('returns false once the marker is older than the max age', () => {
+    const t0 = 1_000_000_000_000
+    markAuthed(t0)
+    expect(hasCatalystSession(t0 + AUTH_MARKER_MAX_AGE_MS - 1)).toBe(true)
+    expect(hasCatalystSession(t0 + AUTH_MARKER_MAX_AGE_MS)).toBe(false)
+    expect(hasCatalystSession(t0 + AUTH_MARKER_MAX_AGE_MS + 60_000)).toBe(false)
+  })
+
+  it('treats a marker with NO timestamp as stale (the pre-fix shape)', () => {
+    // Exactly what a pre-fix build left behind, and what a hand-set value
+    // looks like. "I cannot tell how old this is" must confirm, not trust.
+    sessionStorage.setItem('catalyst:authed', '1')
+    expect(hasCatalystSession()).toBe(false)
+  })
+
+  it('treats a non-numeric or future timestamp as stale', () => {
+    const t0 = 1_000_000_000_000
+    sessionStorage.setItem('catalyst:authed', '1')
+    sessionStorage.setItem('catalyst:authed-at', 'not-a-number')
+    expect(hasCatalystSession(t0)).toBe(false)
+    // A future stamp would otherwise grant an unbounded lease — the same
+    // bug reintroduced through the clock.
+    sessionStorage.setItem('catalyst:authed-at', String(t0 + 60_000))
+    expect(hasCatalystSession(t0)).toBe(false)
+  })
+
+  it('clearAuthed removes BOTH the marker and its stamp', () => {
+    markAuthed()
+    clearAuthed()
+    expect(sessionStorage.getItem('catalyst:authed')).toBeNull()
+    expect(sessionStorage.getItem('catalyst:authed-at')).toBeNull()
+  })
+
+  // Vacuity control: without it, every assertion above is satisfied by a
+  // hasCatalystSession() that simply always returns false.
+  it('still short-circuits for a genuinely fresh session (guard is not always-false)', () => {
+    const t0 = 1_000_000_000_000
+    markAuthed(t0)
+    expect(hasCatalystSession(t0)).toBe(true)
+    expect(hasCatalystSession(t0 + 1_000)).toBe(true)
   })
 
   it('returns false when catalyst:authed has a different value', () => {

@@ -19,7 +19,7 @@ import { AuthShell } from '@/app/layouts/AuthLayout'
 import { Button } from '@/shared/ui/button'
 import { PinInput6 } from '@/components/PinInput6'
 import { API_BASE, isCatalystZeroURL } from '@/shared/config/urls'
-import { sanitizeNextParam } from '@/app/auth-gate'
+import { markAuthed, sanitizeNextParam } from '@/app/auth-gate'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 
 type State = 'idle' | 'verifying' | 'error'
@@ -98,7 +98,7 @@ export function VerifyPinPage() {
         // HttpOnly + invisible to JS, so the gate's hasCatalystSession()
         // check would otherwise fail and bounce the operator right back
         // to /login (regression on omantel 2026-05-09).
-        try { sessionStorage.setItem('catalyst:authed', '1') } catch { /* private browsing */ }
+        markAuthed()
         // G113 Step 6 — hard-navigate to the KC identity-broker URL
         // when catalyst-api signalled one. The broker flow does an
         // OIDC roundtrip back to catalyst-api (using the catalyst_session

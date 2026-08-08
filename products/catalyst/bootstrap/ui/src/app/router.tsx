@@ -191,6 +191,7 @@ import {
   sanitizeNextParam,
 } from './auth-gate'
 import { LENSES, type LensId } from '@/widgets/architecture-graph/presets'
+import { markAuthed } from './auth-gate'
 
 // isValidLensId — closed-set guard for the cloud route's `lens` query
 // param (#3996 follow-up: the reconciliation deep-link carries
@@ -543,7 +544,7 @@ const authHandoverRoute = createRoute({
     // the rootRoute auth gate (#1090 cluster A2) as satisfied so the
     // next navigation to /dashboard isn't bounced to /login.
     if (typeof window !== 'undefined') {
-      try { sessionStorage.setItem('catalyst:authed', '1') } catch { /* private */ }
+      markAuthed()
     }
     throw redirect({ to: '/dashboard' as never, replace: true })
   },
