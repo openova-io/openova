@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-08T08:45:03Z` |
+| Last refreshed | `2026-08-08T09:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-08T08:45 | [#5908](https://github.com/openova-io/openova/pull/5908) | #5720 | docs(path-to-100): row 41 is deploy-gated, not needs-code —  |
 | 2026-08-08T08:31 | [#5907](https://github.com/openova-io/openova/pull/5907) | #5645 | docs(path-to-100): hw292 cannot close #5640 — the 12 rows ne |
 | 2026-08-08T08:22 | [#5906](https://github.com/openova-io/openova/pull/5906) | #5894 | docs(path-to-100): #5894 is deploy-gated behind #5640, not n |
 | 2026-08-08T08:18 | [#5905](https://github.com/openova-io/openova/pull/5905) | #5827 | docs(uat): row 41 corroborated through a second path + a sea |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T20:41 | [#5870](https://github.com/openova-io/openova/pull/5870) | #5867 | docs(uat): hw292 authed walk — rows 235 + 6 go green, row 19 |
 | 2026-08-07T20:19 | [#5869](https://github.com/openova-io/openova/pull/5869) | #3969 | docs(uat): G10's evidence ends mid-word and has since it was |
 | 2026-08-07T20:15 | [#5868](https://github.com/openova-io/openova/pull/5868) | #5847 | docs(uat): rows 19 + 184 cite #5867 — the last two adjudicat |
-| 2026-08-07T20:12 | [#5866](https://github.com/openova-io/openova/pull/5866) | #5813 | docs(uat): resolve the UNKNOWN bucket — every non-green row  |
 
 ---
 
