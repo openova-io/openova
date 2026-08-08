@@ -39,7 +39,7 @@ spec:
           # Auto-bumped by .github/workflows/catalyst-build.yaml's deploy
           # step on every push to main, so contabo rolls to the latest
           # catalyst-ui SHA. Sovereigns consume the Helm sibling.
-          image: "ghcr.io/openova-io/openova/catalyst-ui:c3f9ab0"
+          image: "ghcr.io/openova-io/openova/catalyst-ui:a0b073a"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
