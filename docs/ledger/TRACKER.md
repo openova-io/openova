@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-08T08:30:07Z` |
+| Last refreshed | `2026-08-08T08:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,7 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#5420](https://github.com/openova-io/openova/issues/5420) | Topology tab renders declared placement, not effective perCluster — shows 2 ca | Other |
 | [#5421](https://github.com/openova-io/openova/issues/5421) | Marketplace redeem page misses cookie-borne owner sessions — localStorage prob | Other |
 | [#5422](https://github.com/openova-io/openova/issues/5422) | Console Overview hardcodes Placement fallback to 'singleton', contradicting the  | Other |
 | [#5423](https://github.com/openova-io/openova/issues/5423) | P0: vcluster-tier funnel cart with a HelmRelease-shaped app poisons the whole pe | Other |
@@ -267,7 +268,6 @@ flowchart LR
 | [#5623](https://github.com/openova-io/openova/issues/5623) | Region-kill: the three shared-pg DR pairs never promote — only bp-cnpg-pair sh | Other |
 | [#5634](https://github.com/openova-io/openova/issues/5634) | UAT row 92: funnel discards the 429 rate-limit response — a throttled customer | Other |
 | [#5635](https://github.com/openova-io/openova/issues/5635) | Per-Org app FQDN fails ~50% of fresh connections — single-region namespace beh | Other |
-| [#5640](https://github.com/openova-io/openova/issues/5640) | Post-cutover Sovereigns cannot receive newly published images — local Harbor i | Other |
 | [#5642](https://github.com/openova-io/openova/issues/5642) | catalyst-api OOMKilling in a loop on hw292 (15 restarts, requests 96Mi vs limits | Other |
 | [#5650](https://github.com/openova-io/openova/issues/5650) | Post-cutover Sovereign fetches charts.loft.sh every 15m: step-08's deny-egress h | Other |
 | [#5750](https://github.com/openova-io/openova/issues/5750) | Guacamole row-35 ERROR page: diagnostic to distinguish known #5358 chart-drift f | Other |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-08T08:31 | [#5907](https://github.com/openova-io/openova/pull/5907) | #5645 | docs(path-to-100): hw292 cannot close #5640 — the 12 rows ne |
 | 2026-08-08T08:22 | [#5906](https://github.com/openova-io/openova/pull/5906) | #5894 | docs(path-to-100): #5894 is deploy-gated behind #5640, not n |
 | 2026-08-08T08:18 | [#5905](https://github.com/openova-io/openova/pull/5905) | #5827 | docs(uat): row 41 corroborated through a second path + a sea |
 | 2026-08-08T08:18 | [#5904](https://github.com/openova-io/openova/pull/5904) | #5894 | docs(uat): row 95 retracted — the purchased app DID material |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T20:19 | [#5869](https://github.com/openova-io/openova/pull/5869) | #3969 | docs(uat): G10's evidence ends mid-word and has since it was |
 | 2026-08-07T20:15 | [#5868](https://github.com/openova-io/openova/pull/5868) | #5847 | docs(uat): rows 19 + 184 cite #5867 — the last two adjudicat |
 | 2026-08-07T20:12 | [#5866](https://github.com/openova-io/openova/pull/5866) | #5813 | docs(uat): resolve the UNKNOWN bucket — every non-green row  |
-| 2026-08-07T20:06 | [#5865](https://github.com/openova-io/openova/pull/5865) | #5813 | docs(uat): R22 UNKNOWN → DEPLOY-GATED — its evidence describ |
 
 ---
 
