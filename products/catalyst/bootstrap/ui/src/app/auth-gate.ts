@@ -232,12 +232,81 @@ export function sanitizeNextParam(
  * after sessionStorage cleared, or pasting a deep-link URL into a fresh
  * window all leave the cookie intact while losing the JS-side marker.
  */
-export function hasCatalystSession(): boolean {
+export const AUTH_MARKER_KEY = 'catalyst:authed'
+export const AUTH_MARKER_AT_KEY = 'catalyst:authed-at'
+
+/**
+ * How long the cached marker may be trusted without re-confirming against
+ * the authority. #5887 / UAT row 29.
+ *
+ * The marker exists to skip a /whoami on every in-session navigation, and a
+ * 5-minute window keeps that benefit almost entirely: a burst of navigation
+ * costs one probe, not one per route. What it buys is a BOUND on how long a
+ * dead session can masquerade as a live one.
+ */
+export const AUTH_MARKER_MAX_AGE_MS = 5 * 60 * 1000
+
+/**
+ * Record a confirmed session. Writes the marker AND its timestamp together,
+ * so no call site can produce a marker that is exempt from ageing — the
+ * failure this whole mechanism exists to prevent.
+ */
+export function markAuthed(now: number = Date.now()): void {
+  try {
+    sessionStorage.setItem(AUTH_MARKER_KEY, '1')
+    sessionStorage.setItem(AUTH_MARKER_AT_KEY, String(now))
+  } catch {
+    /* private browsing may throw */
+  }
+}
+
+/** Clear the cached session marker and its timestamp. */
+export function clearAuthed(): void {
+  try {
+    sessionStorage.removeItem(AUTH_MARKER_KEY)
+    sessionStorage.removeItem(AUTH_MARKER_AT_KEY)
+  } catch {
+    /* private browsing may throw */
+  }
+}
+
+export function hasCatalystSession(now: number = Date.now()): boolean {
   if (typeof window === 'undefined' || typeof sessionStorage === 'undefined') return true
   try {
     const ssKeys = Object.keys(sessionStorage)
     if (ssKeys.some((k) => k.startsWith('oidc:'))) return true
-    if (sessionStorage.getItem('catalyst:authed') === '1') return true
+    if (sessionStorage.getItem(AUTH_MARKER_KEY) !== '1') return false
+
+    // #5887 / UAT row 29 — THE MARKER MUST BE ABLE TO GO STALE.
+    //
+    // Before this, the marker was trusted forever. That made the #5460
+    // revocation below UNREACHABLE from the one gate that needed it:
+    // rootBeforeLoad reads `if (hasCatalystSession()) return` BEFORE it
+    // calls probeWhoamiAndCacheMarker, so a marker left over from an
+    // expired session skipped the probe that would have cleared it — and
+    // skipped the #3374 Layer-B silent-SSO leg with it. The operator hit
+    // the 6-digit PIN wall while holding a perfectly good Keycloak realm
+    // session, and every surface reading the marker rendered authenticated
+    // chrome over a dead session. The marker was self-perpetuating at the
+    // only site that could clear it.
+    //
+    // Ageing it out is deliberately FAIL-SAFE. The worst case is one extra
+    // /whoami: a 200 re-stamps and the operator never notices, a 401
+    // revokes and hands off to the silent leg, and a 5xx/network error
+    // returns null which rootBeforeLoad already treats as fail-open. No
+    // path here can lock out an operator who has a live session.
+    //
+    // A marker with NO timestamp is treated as stale rather than fresh —
+    // that is the pre-fix shape (or a hand-set value), and the safe reading
+    // of "I cannot tell how old this is" is to confirm it once.
+    const stamp = sessionStorage.getItem(AUTH_MARKER_AT_KEY)
+    if (stamp === null) return false
+    const at = Number(stamp)
+    if (!Number.isFinite(at)) return false
+    // A stamp from the future is corrupt, not fresh — do not let it grant
+    // an unbounded lease (the exact bug, reintroduced through the clock).
+    if (at > now) return false
+    return now - at < AUTH_MARKER_MAX_AGE_MS
   } catch {
     /* private browsing may throw */
   }
@@ -279,11 +348,9 @@ export async function probeWhoamiAndCacheMarker(
       headers: { Accept: 'application/json' },
     })
     if (res.status === 200) {
-      try {
-        sessionStorage.setItem('catalyst:authed', '1')
-      } catch {
-        /* private browsing may throw */
-      }
+      // markAuthed (not a bare setItem) so the freshness stamp is written
+      // with the marker — #5887. A marker without a stamp reads as stale.
+      markAuthed()
       return true
     }
     if (res.status === 401) {
@@ -295,11 +362,9 @@ export async function probeWhoamiAndCacheMarker(
       // lands on the PIN wall even with a live Keycloak session, and
       // every surface consulting the marker renders authenticated chrome
       // against a dead session (hw290 row-29 walk, 2026-07-29).
-      try {
-        sessionStorage.removeItem('catalyst:authed')
-      } catch {
-        /* private browsing may throw */
-      }
+      // clearAuthed drops the stamp too, so a later markAuthed cannot be
+      // mistaken for the revoked session's age (#5887).
+      clearAuthed()
       return false
     }
     return null
