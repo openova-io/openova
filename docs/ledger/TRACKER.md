@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-08T00:00:03Z` |
+| Last refreshed | `2026-08-08T00:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-08T00:09 | [#5899](https://github.com/openova-io/openova/pull/5899) | #4272 | test(ui): arm a tripwire for #5895 — per-Org console derives |
 | 2026-08-07T23:25 | [#5898](https://github.com/openova-io/openova/pull/5898) | #5894 | docs(ledger): PATH-TO-100's headline claim went false the sa |
 | 2026-08-07T23:27 | [#5897](https://github.com/openova-io/openova/pull/5897) | #3376 | docs(uat): G7 door B proven by actual creation; door A affor |
 | 2026-08-07T23:13 | [#5896](https://github.com/openova-io/openova/pull/5896) | #5894 | docs(uat): rows 94+95 walked on the real second Org — two li |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T19:22 | [#5860](https://github.com/openova-io/openova/pull/5860) | #5846 | fix(uat): recognise non-fix commit prefixes; CODE-BLOCKED no |
 | 2026-08-07T19:17 | [#5858](https://github.com/openova-io/openova/pull/5858) | #5857 | fix(org-create): send isolation as an override, never as a f |
 | 2026-08-07T18:38 | [#5856](https://github.com/openova-io/openova/pull/5856) | #5688 | fix(uat): classifier split rows on escaped pipes, truncating |
-| 2026-08-07T18:34 | [#5854](https://github.com/openova-io/openova/pull/5854) | #5844 | fix(uat): merge the phantom 8th column back into Evidence on |
 
 ---
 
