@@ -406,5 +406,28 @@ Fixed in cutover chart **0.1.162** (PR #5652, merged, **published to ghcr and ve
 
 1. **Walk hw292.** It is live, cc=true, and G12-proven; every "delivered" row above becomes a green stamp only by walking it. This is the only thing that legitimately moves the durable number.
 2. **Close the delivery chain (#5640)** — without it, every future fix repeats 5b: correct in source, invisible in production.
+
+> **hw292 cannot be the env that closes it — measured 2026-08-08.** Its
+> `bp-self-sovereign-cutover` HR has read `False — dependency 'flux-system/bp-gitea'
+> is not ready` for **5d4h**, and it sits at cutover chart `0.1.159`. The Day-2
+> reconciler that delivers images ships `enabled: true` only from **`0.1.170`**, and
+> the refuse-by-default hardening at **`0.1.176`** — so the delivery mechanism is not
+> present, and the chart carrying it would have to arrive through the same severed
+> Gitea/Harbor path. The only in-cluster remedy is restoring the stripped `ghcr-pull`
+> credential, i.e. **re-tethering — precisely what cutover exists to prevent.** This
+> is not a repairable env; it is the catch-22 in its terminal form.
+>
+> **Therefore the 12 deploy-gated rows need one fresh prov, not twelve fixes.** Their
+> code is merged. Pre-flight step 1 is done and the train is **verified ready**:
+>
+> | slot | version | carries |
+> |---|---|---|
+> | `bp-self-sovereign-cutover` | `0.1.176` | Day-2 reconciler + refuse-by-default |
+> | `bp-catalyst-platform` | `1.4.1330` | — |
+> | `catalyst-api` image | `c3f9ab0` (built 2026-08-08) | **#5645** — `merge-base --is-ancestor e3342f977 c3f9ab0` ✅ |
+>
+> That last row is the one that matters: the image a fresh prov would run **contains
+> the OOM fix**, so the fan-out truncation behind #5894 and the 12 rows does not
+> reproduce. Firing on this train is worth the walk; firing on anything older is not.
 3. **Remediate #5591 on region-b** (one HR patch) so the NodePort ban is enforcing fleet-wide rather than in half of it.
 4. Merge #5534 + #5535, now unblocked — the env is ready and the merge freeze is thawed.
