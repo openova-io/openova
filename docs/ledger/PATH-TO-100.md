@@ -35,6 +35,47 @@ further fixes moves nothing.
 > exist yet. Anyone reading the old sentence would conclude "just deploy" and be
 > wrong.
 
+## The ❌ set, classified against the RUNNING artifact (2026-08-08 late)
+
+`scripts/classify-uat-delivery-state.py --image fad88bd` over all 15 ❌ rows:
+
+| verdict | count | rows |
+|---|---:|---|
+| **DEPLOY-GATED** | **12** | R17, W1, W2, 37, 57, 86, 90, 92, 94, 115, 219, 234 |
+| **CODE-BLOCKED** | **0** | — |
+| UNKNOWN → resolved below | 3 | 29, 41, 95 |
+
+**No failing row needs code written for it.** Twelve carry fix PRs already merged
+and are waiting on the roll.
+
+### The three UNKNOWNs, resolved from first-hand walks (not left ambiguous)
+
+The classifier reports UNKNOWN when a row cites an ISSUE rather than the PR that
+closed it. All three were walked live on 2026-08-08, so they are resolved here
+rather than deferred:
+
+| row | verdict | evidence |
+|---|---|---|
+| **29** | **needs code** | Silent re-auth *works* — proven by dropping `catalyst_session` while keeping the realm session and landing on `/dashboard` with fresh tokens. The real defect is narrower: when `catalyst:authed=1` is stale relative to the cookie, the stale-marker fast path 401s and PIN-walls **instead of falling back to the silent leg that demonstrably works**. Tracked #5887. A genuine TTL expiry produces exactly that state. |
+| **41** | **needs code** | The sovereign realm holds **two** users — the owner and `emrha.baysal@…`, a two-letter transposition. A typed email was persisted as a realm principal. Only a COUNT finds it: `/emrah/` matches both strings. Tracked #5883. |
+| **95** | **needs investigation** | The purchased app never became an Application. Checkout recorded `Apps (1)` and the Org converged (`state=done`, all six steps, vcluster created), but the applications list holds 14 apps and none belongs to the new Org. Control: the first Org's apps *are* in that same list, so the absence is real. |
+
+### So the actual shape of the remaining work
+
+- **12 rows** — one roll, no code.
+- **2 rows** (29, 41) — small, scoped code fixes with root causes on their issues.
+- **1 row** (95) — needs the app-materialisation leg traced.
+- Everything else non-green is ⚠️/⛔, not ❌.
+
+### Why this section supersedes a prior claim in this file
+
+An earlier revision asserted every ❌ row was deploy-gated and **no failing row
+needed code**. That was true of the morning's classification and stopped being
+true the same afternoon — five live defects surfaced with no PR to cite, so they
+classify as UNKNOWN or deploy-gated by construction. The classifier answers
+*"is the fix I know about deployed?"*, never *"is there a fix at all?"*. This
+table separates the two by pairing every UNKNOWN with a live walk.
+
 ## Live defects found by walking, NOT deploy-gated (2026-08-08 afternoon)
 
 These are new code, not pending deployments. Each was found on hw292 as it runs
