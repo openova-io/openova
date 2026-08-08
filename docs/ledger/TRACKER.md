@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-08T08:15:02Z` |
+| Last refreshed | `2026-08-08T08:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-08T08:22 | [#5906](https://github.com/openova-io/openova/pull/5906) | #5894 | docs(path-to-100): #5894 is deploy-gated behind #5640, not n |
+| 2026-08-08T08:18 | [#5905](https://github.com/openova-io/openova/pull/5905) | #5827 | docs(uat): row 41 corroborated through a second path + a sea |
+| 2026-08-08T08:18 | [#5904](https://github.com/openova-io/openova/pull/5904) | #5894 | docs(uat): row 95 retracted — the purchased app DID material |
+| 2026-08-08T08:18 | [#5903](https://github.com/openova-io/openova/pull/5903) | #5887 | docs(ledger): classify all 15 failing rows — 12 need a roll, |
 | 2026-08-08T02:39 | [#5902](https://github.com/openova-io/openova/pull/5902) | #5872 | fix(api): applications LIST returns placement, from the same |
 | 2026-08-08T00:53 | [#5901](https://github.com/openova-io/openova/pull/5901) | #4272 | docs(uat): row 94 carries the #5895 root cause, not just the |
 | 2026-08-08T00:25 | [#5900](https://github.com/openova-io/openova/pull/5900) | #5887 | docs(uat): row 29 correction — silent re-auth works; my firs |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-08-07T20:15 | [#5868](https://github.com/openova-io/openova/pull/5868) | #5847 | docs(uat): rows 19 + 184 cite #5867 — the last two adjudicat |
 | 2026-08-07T20:12 | [#5866](https://github.com/openova-io/openova/pull/5866) | #5813 | docs(uat): resolve the UNKNOWN bucket — every non-green row  |
 | 2026-08-07T20:06 | [#5865](https://github.com/openova-io/openova/pull/5865) | #5813 | docs(uat): R22 UNKNOWN → DEPLOY-GATED — its evidence describ |
-| 2026-08-07T20:02 | [#5864](https://github.com/openova-io/openova/pull/5864) | #960 | docs(uat): row 185 ⚠️ → ✅ — its assertion is met; it was gra |
-| 2026-08-07T19:59 | [#5863](https://github.com/openova-io/openova/pull/5863) | #5831 | docs(uat): zero rows require new code — the three CODE-BLOCK |
-| 2026-08-07T19:29 | [#5862](https://github.com/openova-io/openova/pull/5862) | #5851 | docs(path-to-100): re-measure the delivery gate across all t |
-| 2026-08-07T19:25 | [#5861](https://github.com/openova-io/openova/pull/5861) | #5847 | docs(uat): row 5 carries a second defective clause its sibli |
 
 ---
 
