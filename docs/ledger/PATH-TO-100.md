@@ -60,6 +60,32 @@ rather than deferred:
 | **41** | ~~needs code~~ → **DEPLOY-GATED** *(corrected 2026-08-08)* | The finding stands: the sovereign realm holds **two** users — the owner and `emrha.baysal@…`, a two-letter transposition, persisted from a typo at the login form. Only a COUNT finds it (`/emrah/` matches both). **But the fix already exists.** `6663dc441` (2026-08-06) — *"defer pin/issue realm write to pin/verify — no unauthenticated principal creation"* (#5720) — moved the realm write out of `HandlePinIssue` into `HandlePinVerify`, gated on a correct PIN, and ships with the guard `auth_pin_issue_no_unverified_realm_write_5720_test.go`. `auth.go:489-499` cites **this exact row and this exact address** as the finding that prompted it. The image `fad88bd` was built **2026-08-02**, four days earlier, so the fix is simply not in it. Tracked #5883 → resolves on the roll. |
 | **95** | ~~needs investigation~~ → **mechanism named, fix merged, awaiting walk** *(2026-08-08, #5910/#5911)* | The purchased app never became an Application. Checkout recorded `Apps (1)`, the Org converged (`state=done`, all six steps, vcluster created), the applications list holds 14 apps and none belongs to the new Org — control: the first Org's apps *are* in that same list. **Traced to the write seam:** `resolveAppSlugs` (`handlers.go:363`) substitutes the raw UUID on a catalog miss, so `len(out) == len(in)` and **the cart count survives by construction** — which is why every count-based check read green. `consumer.go:589` then passes it to `GeneratePerOrgAppsTree` *as a slug*, `GetAppSpec` returns a bare `AppSpec{}`, and the generator emits a Deployment with a **null `image` and `containerPort: 0`**. That is invalid to the apiserver, and per the #4389 note in `helmrelease_apps.go` a rejected manifest fails the **whole** `vcluster/apps` Kustomization — so the blast radius is that app **plus every co-installed app in the same apply**. Fix reports the unresolvable case (the only point where the miss is still observable); pass-through behaviour deliberately unchanged. |
 
+### The ⚠️ tier, classified 2026-08-08 — 30 of 38 are the SAME gate
+
+The 38 unwalked ⚠️ rows were classified against the running artifact. They are not a
+second backlog:
+
+| verdict | count | note |
+|---|---:|---|
+| DEPLOY-GATED | **30** | same #5640 gate as the ❌ set |
+| CODE-BLOCKED | 1 | 225 — adjudicated, `bp-newapi` is `allowedPlacements: [host, mgmt]`, a per-Org newapi is not a supported configuration |
+| UNKNOWN | 7 | all resolved or attributed below |
+
+**The seven UNKNOWNs, closed out:**
+
+- **95** — mechanism named + fix merged (#5910/#5911).
+- **184** — no assertion was ever authored (literal `—`); owner adjudication, tracked **#5867**.
+- **5** — asserts `TIER=sme`, and `organization.yaml:120` declares `enum: [org, corporate]`, so the CRD **422-rejects** it. `sme` is also a banned term (GLOSSARY → `Organization`). The assertion is obsolete, not the console. Tracked **#5847**.
+- **19** — backing data measured: **17 Applications vs 75 HelmReleases**. A 4.4× gap means counting cards settles it; no data-model reasoning needed.
+- **33** — `bao.hw292.omani.works` returns **302** (SSO redirect, not the forbidden token prompt). Rendered-state half needs Playwright.
+- **G7** — door B **proven by real creation** (`walk-stranger-two`, `isolation=vcluster`, `state=done`, vcluster StatefulSet 1/1). Door A is exactly **#5857**'s subject and is linked there.
+- **165, 177** — both require a **genuinely failed** `cutover-step-*` row to exercise the per-row Re-run. A healthy Sovereign cannot produce one, so these are not walkable on a converged env by construction.
+
+**Net:** across ❌ and ⚠️ together, **51 of 52 non-green rows outside ⛔** trace to the
+#5640 delivery gate, an owner adjudication, or an env-lifecycle precondition. The lone
+exception is **R17** — a live defect, fix sites named, and its HTTPRoute half already
+has a PR in flight at **#5848** (whose scope misses the second orphan, flagged there).
+
 ### Every ❌ row walked live on hw292 — 2026-08-08 close-out
 
 All fourteen were probed against the running env, each with a control. The result
