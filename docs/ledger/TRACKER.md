@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-08T16:45:03Z` |
+| Last refreshed | `2026-08-08T17:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-08T16:47 | [#5916](https://github.com/openova-io/openova/pull/5916) | #3687 | docs(uat): rows 19 + 33 — backing data measured, both reduce |
 | 2026-08-08T16:00 | [#5915](https://github.com/openova-io/openova/pull/5915) | #4459 | docs(uat): R17 — Org delete-cascade leaks two PLATFORM-names |
 | 2026-08-08T15:30 | [#5914](https://github.com/openova-io/openova/pull/5914) | #5759 | docs(uat): row 231 walked live on hw292 — half (b) proven at |
 | 2026-08-08T10:21 | [#5913](https://github.com/openova-io/openova/pull/5913) | #5460 | docs(path-to-100): every failing row now has a named mechani |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T21:40 | [#5881](https://github.com/openova-io/openova/pull/5881) | #5853 | fix(uat): the Result column may hold a verdict and nothing e |
 | 2026-08-07T21:36 | [#5879](https://github.com/openova-io/openova/pull/5879) | #3858 | docs(uat): SSO landing walk on hw292 — 5 rows green incl. ha |
 | 2026-08-07T21:27 | [#5877](https://github.com/openova-io/openova/pull/5877) | #5871 | docs(uat): real browser walk on hw292 — rows 27/28/45 green  |
-| 2026-08-07T21:21 | [#5876](https://github.com/openova-io/openova/pull/5876) | #5720 | docs(uat): rows 28/41/45 — UserAccess walked live; row 41's  |
 
 ---
 
