@@ -60,6 +60,96 @@ rather than deferred:
 | **41** | ~~needs code~~ → **DEPLOY-GATED** *(corrected 2026-08-08)* | The finding stands: the sovereign realm holds **two** users — the owner and `emrha.baysal@…`, a two-letter transposition, persisted from a typo at the login form. Only a COUNT finds it (`/emrah/` matches both). **But the fix already exists.** `6663dc441` (2026-08-06) — *"defer pin/issue realm write to pin/verify — no unauthenticated principal creation"* (#5720) — moved the realm write out of `HandlePinIssue` into `HandlePinVerify`, gated on a correct PIN, and ships with the guard `auth_pin_issue_no_unverified_realm_write_5720_test.go`. `auth.go:489-499` cites **this exact row and this exact address** as the finding that prompted it. The image `fad88bd` was built **2026-08-02**, four days earlier, so the fix is simply not in it. Tracked #5883 → resolves on the roll. |
 | **95** | ~~needs investigation~~ → **mechanism named, fix merged, awaiting walk** *(2026-08-08, #5910/#5911)* | The purchased app never became an Application. Checkout recorded `Apps (1)`, the Org converged (`state=done`, all six steps, vcluster created), the applications list holds 14 apps and none belongs to the new Org — control: the first Org's apps *are* in that same list. **Traced to the write seam:** `resolveAppSlugs` (`handlers.go:363`) substitutes the raw UUID on a catalog miss, so `len(out) == len(in)` and **the cart count survives by construction** — which is why every count-based check read green. `consumer.go:589` then passes it to `GeneratePerOrgAppsTree` *as a slug*, `GetAppSpec` returns a bare `AppSpec{}`, and the generator emits a Deployment with a **null `image` and `containerPort: 0`**. That is invalid to the apiserver, and per the #4389 note in `helmrelease_apps.go` a rejected manifest fails the **whole** `vcluster/apps` Kustomization — so the blast radius is that app **plus every co-installed app in the same apply**. Fix reports the unresolvable case (the only point where the miss is still observable); pass-through behaviour deliberately unchanged. |
 
+### Where the score actually stands, and what the ⛔ tier is — 2026-08-08
+
+```
+total rows        286
+  ⛔ excluded       36     STONE denominator excludes these by definition
+  N/A excluded       2
+STONE denominator  248
+STONE green        188  =>  75.8%
+raw                188/286 =  65.7%
+
+non-green INSIDE STONE:  ❌14  ⚠️39  ☐2  ◑5  =  60
+```
+
+**The ⛔ tier is correctly parked, not neglected.** Classifying all 36 by their
+recorded blocker:
+
+| count | theme |
+|---:|---|
+| **23** | SUPERSEDED / obsolete assertion |
+| 7 | other |
+| 4 | cutover-dependent |
+| 1 | env/scope-blocked (G5) |
+| 1 | needs-mutation (G8) |
+
+Since ⛔ is excluded from the STONE denominator, **walking these rows cannot move
+the score** — and 23 of them are superseded assertions, which is precisely what ⛔
+is for. Re-walking the tier would be motion without progress.
+
+### What the 60 non-green STONE rows actually need
+
+Every one has now been walked or classified against the running artifact:
+
+- **14 ❌** — all walked 2026-08-08. 4 are #5894, 9 are inside the 51-HR cascade,
+  **1 (R17) is a live defect and its fix shipped this session (PR #5917)**.
+- **39 ⚠️** — 30 deploy-gated on the same cascade, 1 code-blocked (225,
+  adjudicated), 7 UNKNOWN all resolved or attributed, 1 walked today.
+- **2 ☐ / 5 ◑** — all seven stamped 2026-08-08 with named blockers; none is
+  "untriaged".
+
+So the honest statement of remaining work is not "60 rows to fix". It is: **one
+credential (#5759), one OOM fix awaiting delivery (#5645), a handful of owner
+adjudications, and R17 — which is already fixed.**
+
+### THE NUMBER THAT REFRAMES EVERYTHING — 51 HelmReleases, one credential
+
+Measured read-only on hw292, 2026-08-08, counting every HR whose **Ready**
+condition (by type, not index) reads `DependencyNotReady`:
+
+```
+51  HelmReleases blocked
+     14  flux-system/bp-cert-manager
+     11  flux-system/bp-cilium
+      7  flux-system/bp-cnpg
+      6  flux-system/bp-flux
+      2  flux-system/bp-keycloak
+```
+
+Five dependency names read like five problems. They are **one**:
+
+```
+bp-cilium  Ready=False :: SourceNotReady
+  HelmChart 'flux-system/flux-system-bp-cilium' is not ready:
+  failed to configure login options:
+  no auth config for 'ghcr.io' in the docker-registry Secret 'ghcr-pull'
+```
+
+That is **#5759** — the half-reverted cutover left Harbor-only `ghcr-pull` auth
+against `ghcr.io` chart URLs, so source-controller cannot pull, the HelmChart never
+becomes ready, and everything downstream **fails closed**. The other four
+"dependencies" are the next layers of the same cascade.
+
+**This is one layer EARLIER than #5640 records.** #5640 says post-cutover Sovereigns
+cannot receive newly published *images*. hw292 cannot resolve the *charts* either —
+its GitOps loop is closed at the source. Rows previously attributed to "waiting on a
+roll" are in fact waiting on a credential.
+
+**All 14 ❌ rows are now walked (2026-08-08) and every one is accounted for:**
+
+| rows | attribution |
+|---|---|
+| 37, 86, 90, 94 | #5894 fan-out truncation (catalyst-api OOM, #5645 merged/undeployed) |
+| W1, W2, 29, 41, 57, 92, 115, 219, 234 | inside the 51-HR cascade — each verified against its own delivering HelmRelease |
+| R17 | **the one live defect.** Fix shipped this session (PR #5917, mutation-tested) |
+
+37 additionally collapses into **#5878**: newapi is the only SSO app with zero
+oidc-gate references, so rows 37 and 38 are one defect seen from two directions
+(first hit vs re-entry), not two.
+
+**51 is not a backlog of 51 fixes. It is one credential and a fan-out.**
+
 ### The ⚠️ tier, classified 2026-08-08 — 30 of 38 are the SAME gate
 
 The 38 unwalked ⚠️ rows were classified against the running artifact. They are not a
