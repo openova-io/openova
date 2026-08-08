@@ -56,16 +56,28 @@ rather than deferred:
 
 | row | verdict | evidence |
 |---|---|---|
-| **29** | **needs code** | Silent re-auth *works* — proven by dropping `catalyst_session` while keeping the realm session and landing on `/dashboard` with fresh tokens. The real defect is narrower: when `catalyst:authed=1` is stale relative to the cookie, the stale-marker fast path 401s and PIN-walls **instead of falling back to the silent leg that demonstrably works**. Tracked #5887. A genuine TTL expiry produces exactly that state. |
+| **29** | ~~needs code~~ → **fix written and merged (#5909), awaiting walk** *(2026-08-08)* | Silent re-auth *works* — proven by dropping `catalyst_session` while keeping the realm session and landing on `/dashboard` with fresh tokens. The real defect is narrower: when `catalyst:authed=1` is stale relative to the cookie, the stale-marker fast path 401s and PIN-walls **instead of falling back to the silent leg that demonstrably works**. Tracked #5887. A genuine TTL expiry produces exactly that state. **Root cause established 2026-08-08:** `router.tsx:287` (`if (hasCatalystSession()) return`) short-circuits BEFORE line 290's `probeWhoamiAndCacheMarker`, so #5460's 401-revocation is unreachable from the one gate that needs it — the stale marker is self-perpetuating at the only site that could clear it, and the #3374 Layer-B silent-SSO leg is skipped with it. Fixed in **#5909** (merged): the marker now carries a written-at stamp and ages out after 5 min; missing/non-numeric/future stamps all read stale. Fail-safe — worst case is one extra `/whoami`, and the `null` branch already fails open. Source-correct, not walked. |
 | **41** | ~~needs code~~ → **DEPLOY-GATED** *(corrected 2026-08-08)* | The finding stands: the sovereign realm holds **two** users — the owner and `emrha.baysal@…`, a two-letter transposition, persisted from a typo at the login form. Only a COUNT finds it (`/emrah/` matches both). **But the fix already exists.** `6663dc441` (2026-08-06) — *"defer pin/issue realm write to pin/verify — no unauthenticated principal creation"* (#5720) — moved the realm write out of `HandlePinIssue` into `HandlePinVerify`, gated on a correct PIN, and ships with the guard `auth_pin_issue_no_unverified_realm_write_5720_test.go`. `auth.go:489-499` cites **this exact row and this exact address** as the finding that prompted it. The image `fad88bd` was built **2026-08-02**, four days earlier, so the fix is simply not in it. Tracked #5883 → resolves on the roll. |
 | **95** | ~~needs investigation~~ → **mechanism named, fix merged, awaiting walk** *(2026-08-08, #5910/#5911)* | The purchased app never became an Application. Checkout recorded `Apps (1)`, the Org converged (`state=done`, all six steps, vcluster created), the applications list holds 14 apps and none belongs to the new Org — control: the first Org's apps *are* in that same list. **Traced to the write seam:** `resolveAppSlugs` (`handlers.go:363`) substitutes the raw UUID on a catalog miss, so `len(out) == len(in)` and **the cart count survives by construction** — which is why every count-based check read green. `consumer.go:589` then passes it to `GeneratePerOrgAppsTree` *as a slug*, `GetAppSpec` returns a bare `AppSpec{}`, and the generator emits a Deployment with a **null `image` and `containerPort: 0`**. That is invalid to the apiserver, and per the #4389 note in `helmrelease_apps.go` a rejected manifest fails the **whole** `vcluster/apps` Kustomization — so the blast radius is that app **plus every co-installed app in the same apply**. Fix reports the unresolvable case (the only point where the miss is still observable); pass-through behaviour deliberately unchanged. |
 
 ### So the actual shape of the remaining work
 
 - **13 rows** (the 12 + **41**) — one roll, no code.
-- **1 row** (29) — a small, scoped code fix; root cause on #5887.
-- **1 row** (95) — needs the app-materialisation leg traced.
+- **1 row** (29) — root cause established *and* fix merged (#5909); awaiting walk.
+- **1 row** (95) — mechanism named *and* fix merged (#5910/#5911); awaiting walk.
 - Everything else non-green is ⚠️/⛔, not ❌.
+
+> **As of 2026-08-08 evening, every ❌ row has a named mechanism and either a merged
+> fix or a deploy gate. None is unexplained.** All 15 now resolve to one of three
+> states: waiting on the roll (13), or fix-written-awaiting-walk (29, 95). The one
+> item still genuinely needing code is **#5878 / row 38** — newapi is the only SSO
+> app not fronted by oidc-gate (measured: every other slot carries an oidc-gate
+> reference, newapi carries zero), so its `/login?expired=true` is NewAPI's own
+> application session, which a realm session does not satisfy. That row is ☐, not ❌.
+>
+> **Nothing in this list is closeable from source.** Every "fix merged" above is
+> source-correct and unwalked, and delivery for all of it is gated behind **#5640**.
+> The next state change for this file comes from a fresh prov, not another PR.
 
 > **Row 41 moved buckets on 2026-08-08, and the reason generalises.** It was filed
 > "needs code" because the *symptom* was verified first-hand and the *source* never
