@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-09T20:45:03Z` |
+| Last refreshed | `2026-08-09T21:00:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-09T20:59 | [#5936](https://github.com/openova-io/openova/pull/5936) | #5836 | fix(console): the Status panel must render a bootstrap compo |
+| 2026-08-09T20:59 | [#5935](https://github.com/openova-io/openova/pull/5935) | #5814 | fix(catalyst-api): customer Application CRs must carry spec. |
 | 2026-08-09T20:07 | [#5931](https://github.com/openova-io/openova/pull/5931) | #3925 | fix(jobs): an unterminated run must not bury a failed one (U |
 | 2026-08-09T20:06 | [#5930](https://github.com/openova-io/openova/pull/5930) | #5246 | fix(catalyst-api): per-Org console listeners span every regi |
 | 2026-08-09T20:07 | [#5927](https://github.com/openova-io/openova/pull/5927) | #3376 | fix(marketplace): hide payment chrome when credit covers the |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-08T00:09 | [#5899](https://github.com/openova-io/openova/pull/5899) | #4272 | test(ui): arm a tripwire for #5895 — per-Org console derives |
 | 2026-08-07T23:25 | [#5898](https://github.com/openova-io/openova/pull/5898) | #5894 | docs(ledger): PATH-TO-100's headline claim went false the sa |
 | 2026-08-07T23:27 | [#5897](https://github.com/openova-io/openova/pull/5897) | #3376 | docs(uat): G7 door B proven by actual creation; door A affor |
-| 2026-08-07T23:13 | [#5896](https://github.com/openova-io/openova/pull/5896) | #5894 | docs(uat): rows 94+95 walked on the real second Org — two li |
-| 2026-08-07T23:06 | [#5893](https://github.com/openova-io/openova/pull/5893) | #3376 | docs(uat): row 93 GREEN — second Org created through the fun |
 
 ---
 
