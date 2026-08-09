@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-09T07:00:05Z` |
+| Last refreshed | `2026-08-09T07:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -299,7 +299,7 @@ flowchart LR
 | [#5894](https://github.com/openova-io/openova/issues/5894) | P1: per-Org consoles flap ~50% on TLS handshake reset — affects BOTH customer  | Other |
 | [#5895](https://github.com/openova-io/openova/issues/5895) | P1: first visit to a per-Org console dead-ends on a BLANK page — prompt=none s | Other |
 | [#5910](https://github.com/openova-io/openova/issues/5910) | Row 95: a purchased app silently vanishes — resolveAppSlugs substitutes the ra | Other |
-| [#5919](https://github.com/openova-io/openova/issues/5919) | P0: cutover step-06 live-patches Flux-owned HelmRepositories — bootstrap-kit r | Other |
+| [#5919](https://github.com/openova-io/openova/issues/5919) | hw292 cut over on chart 0.1.159 — twelve versions before the #5710 durable piv | Other |
 
 ---
 
