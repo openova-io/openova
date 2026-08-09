@@ -25,7 +25,8 @@ CANON = ROOT / "docs" / "ledger" / "uat-testcases.csv"
 
 EXPECTED_COLS = ["cycle_ts", "cycle_date", "walk_env", "walk_date", "dep_id",
                  "milestone", "row_id", "epic", "ticket", "test_case",
-                 "walk_raw", "test_case_at_cycle", "same_test_case", "evidence",
+                 "walk_raw", "testcases_at_cycle", "comparable", "test_case_at_cycle",
+                 "same_test_case", "evidence",
                  "evidence_link", "proof_tier", "status", "status_class"]
 VALID_CLASS = {"PASS", "FAIL", "PARTIAL", "NOTRUN", "SUPERSEDED", "ABSENT", "NO_EVIDENCE"}
 VALID_TIER = {"ARTIFACT", "CITATION", "NONE"}
@@ -54,8 +55,21 @@ def main():
           f"got {list(rows[0].keys())}" if list(rows[0].keys()) != EXPECTED_COLS else "")
 
     sizes = {len(v) for v in cycles.values()}
-    check(sizes == {len(canon)}, f"every cycle registers exactly {len(canon)} line items",
+    check(sizes == {len(canon)}, f"every cycle emits exactly {len(canon)} rows",
           f"sizes seen: {sorted(sizes)}")
+
+    # The row COUNT is fixed by construction (canon-sized), but the BASELINE that
+    # existed at each cycle was not: it ran 4 -> 10 -> 186 -> 223 -> 226 -> 277 ->
+    # 281 -> 286. Scoring an old cycle against today's 286 reports a percentage
+    # against a denominator that did not exist. comparable=YES must therefore
+    # require the cycle's own baseline to equal the canon.
+    wrong = [r["row_id"] for r in rows
+             if r["comparable"] == "YES" and r["testcases_at_cycle"] != str(len(canon))]
+    check(not wrong, "comparable=YES only where the cycle's own baseline equals the canon",
+          f"{len(wrong)} rows claim comparability against a different baseline")
+    mism = [r["row_id"] for r in rows
+            if r["comparable"] == "YES" and r["same_test_case"] != "YES"]
+    check(not mism, "comparable=YES only where the test-case text also matches", f"{len(mism)}")
 
     for name, rx in (("cycle_ts", TS), ("cycle_date", DATE)):
         bad = [r[name] for r in rows if not rx.match(r[name])]

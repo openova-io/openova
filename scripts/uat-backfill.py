@@ -201,6 +201,14 @@ def main():
         if not text.strip():
             continue
         state = parse(text)
+        # THE REAL BASELINE AT THIS CYCLE. The test-case set was not fixed: it went
+        # 4 -> 0 -> 10 -> 186 -> 223 -> 226 -> 277 -> 281 -> 286 across this history.
+        # 286 exists only from 2026-08-02. Forcing today's 286 onto every cycle and
+        # dividing by it was fabrication -- it reported percentages against a
+        # denominator that did not exist at the time. Each cycle now carries the
+        # count it actually had, and only cycles whose count equals the frozen canon
+        # can be compared with today.
+        n_at_cycle = len(state)
         counts = collections.Counter()
         for rid, epic, tick, test in canon:
             # Epic and test-case text come from the CANON, not the historical
@@ -208,7 +216,7 @@ def main():
             if rid not in state:
                 cls = "ABSENT"          # the test case did not exist yet
                 rows_out.append([ts, day, "", "", "", "", rid, epic, tick, test, "",
-                                 "", "N/A", "", "", "NONE", "", cls])
+                                 n_at_cycle, "NO", "", "N/A", "", "", "NONE", "", cls])
             else:
                 _hist_epic, glyph, walk, ev, hist_text = state[rid]
                 # THE IDENTITY PROOF. row_id alone does not prove two cycles walked
@@ -218,6 +226,9 @@ def main():
                 # at that cycle matches the frozen canon. Where it does not, the
                 # row is marked and MUST NOT be trended -- it is a different test.
                 same_tc = "YES" if norm(hist_text) == norm(test) else "NO"
+                # comparable only when BOTH hold: same test-case text AND the cycle
+                # was scored against the same size baseline as the frozen canon.
+                cmp_ok = "YES" if (same_tc == "YES" and n_at_cycle == len(canon)) else "NO"
                 wenv, wdate = split_walk(walk)
                 # THE EVIDENCE RULE (founder, 2026-08-09): a result is recorded ONLY
                 # when THIS test case carries evidence at THIS cycle. A verdict glyph
@@ -228,12 +239,12 @@ def main():
                 tier = proof_tier(ev)
                 if has_ev:
                     rows_out.append([ts, day, wenv, wdate, "", "", rid, epic, tick, test,
-                                     walk, hist_text[:300], same_tc, ev[:400],
+                                     walk, n_at_cycle, cmp_ok, hist_text[:300], same_tc, ev[:400],
                                      first_link(ev), tier, glyph,
                                      CLASS.get(glyph, "PARTIAL")])
                 else:
                     rows_out.append([ts, day, wenv, wdate, "", "", rid, epic, tick, test,
-                                     walk, hist_text[:300], same_tc, "", "", "NONE",
+                                     walk, n_at_cycle, cmp_ok, hist_text[:300], same_tc, "", "", "NONE",
                                      "", "NO_EVIDENCE"])
                 cls = CLASS.get(glyph, "PARTIAL") if has_ev else "NO_EVIDENCE"
             counts[cls] += 1
@@ -253,7 +264,8 @@ def main():
         w = csv.writer(fh, quoting=csv.QUOTE_MINIMAL)
         w.writerow(["cycle_ts", "cycle_date", "walk_env", "walk_date", "dep_id", "milestone",
                     "row_id", "epic", "ticket", "test_case", "walk_raw",
-                    "test_case_at_cycle", "same_test_case", "evidence",
+                    "testcases_at_cycle", "comparable", "test_case_at_cycle",
+                    "same_test_case", "evidence",
                     "evidence_link", "proof_tier", "status", "status_class"])
         w.writerows(rows_out)
     print(f"\nwrote {len(rows_out)} rows across {len(trend)} cycles -> {RAW.relative_to(ROOT)}")
