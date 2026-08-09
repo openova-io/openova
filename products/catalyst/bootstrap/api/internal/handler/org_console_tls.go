@@ -99,6 +99,8 @@ package handler
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -112,6 +114,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
@@ -331,40 +334,177 @@ func orgConsoleTLSSecondaryRegions(clusterIDs []string) map[string]string {
 	return out
 }
 
+// orgConsoleTLSSelfDeploymentID resolves THIS chroot's deployment id — the
+// `<depID>` prefix of every `<depID>-<regionKey>.yaml` secondary kubeconfig on
+// the catalyst-api-deployments PVC, and therefore the key that turns the
+// on-disk kubeconfig set into a region set.
+//
+// Env first (CATALYST_SELF_DEPLOYMENT_ID — the orchestrator-stamped var
+// k8scache.buildChrootClusterRef reads for exactly the same purpose). Falls
+// back to deriving it from the k8sCache cluster set: on a chroot that set is
+// one primary plus its `<primary>-<region>` secondaries, so the primary is the
+// single id that is not another id's hyphen-suffixed child. Returns "" when
+// the set is ambiguous (two unrelated ids — a mothership cache), which makes
+// every caller degrade to the pre-#5246 k8sCache-only behaviour rather than
+// guess a prefix and read another deployment's kubeconfigs.
+func orgConsoleTLSSelfDeploymentID(clusterIDs []string) string {
+	if v := strings.TrimSpace(os.Getenv("CATALYST_SELF_DEPLOYMENT_ID")); v != "" {
+		return v
+	}
+	roots := make([]string, 0, 1)
+	for _, id := range clusterIDs {
+		child := false
+		for _, p := range clusterIDs {
+			if p != id && strings.HasPrefix(id, p+"-") {
+				child = true
+				break
+			}
+		}
+		if !child {
+			roots = append(roots, id)
+		}
+	}
+	if len(roots) != 1 {
+		return ""
+	}
+	return roots[0]
+}
+
+// orgConsoleTLSPoolRegions returns `regionKey -> kubeconfig path` for every
+// secondary region that is IN THE CONSOLE ELB BACKEND POOL.
+//
+// 🛑 #5246 — this MUST stay the same enumeration the pool writer uses. The
+// console ELB's member set is built by discoverSecondaryNodeInternalIPs
+// (post_handover_gateway_elb.go:264-269) from the on-disk
+// `<depID>-<regionKey>.yaml` files, whose own godoc calls that set "the
+// authoritative source of which secondary regions exist". Deriving the
+// LISTENER region set from a different source is what produced the defect:
+// PR #5246 spanned the pool across every region (so the shared console EIP
+// round-robins onto region-b's cilium-envoy) while the listener writer stayed
+// on h.k8sCache.Clusters() — a set that DROPS a region whose AddCluster failed
+// (k8scache.NewFactory logs "skipping cluster" and continues) or that has not
+// yet been re-registered after a restart. A region in the pool with no per-Org
+// listener resets the TLS handshake, which is the measured 5/10 on
+// console.<slug>.<parent> against a 10/10 apex control on the same VIP.
+func orgConsoleTLSPoolRegions(depID string) map[string]string {
+	if strings.TrimSpace(depID) == "" {
+		return nil
+	}
+	dir := secondaryKubeconfigsDir()
+	keys := onDiskSecondaryKubeconfigKeys(dir, depID)
+	if len(keys) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(keys))
+	for _, k := range keys {
+		out[k] = filepath.Join(dir, depID+"-"+k+".yaml")
+	}
+	return out
+}
+
+// orgConsoleTLSClientsFromKubeconfig builds the dynamic + core clients for one
+// secondary region straight off its on-disk kubeconfig — the fallback the
+// #5246 fix needs when a pool region is absent from h.k8sCache. A package var
+// so tests inject fakes without a live apiserver.
+var orgConsoleTLSClientsFromKubeconfig = func(path string) (dynamic.Interface, kubernetes.Interface, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	restCfg, err := clientcmd.RESTConfigFromKubeConfig(raw)
+	if err != nil {
+		return nil, nil, err
+	}
+	restCfg.Timeout = 20 * time.Second
+	dyn, err := dynamic.NewForConfig(restCfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	core, err := kubernetes.NewForConfig(restCfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	return dyn, core, nil
+}
+
 // orgConsoleTLSTargets resolves every region cluster the per-Org console
-// gateway surface must be written to. The host region always leads; secondary
-// regions are appended ONLY on a chroot (SOVEREIGN_FQDN set) — on the
-// mothership h.k8sCache holds EVERY managed Sovereign's clusters (#3987) and
-// a blind fan-out would write per-Org listeners onto alien deployments.
-// This is the same per-region client seam the D20 jobs fan-out
-// (chrootSeedSecondaryRegions) and the /cloud page use — no new plumbing.
-func (h *Handler) orgConsoleTLSTargets(deps *sovereignDeps) []orgConsoleTLSTarget {
-	targets := []orgConsoleTLSTarget{{region: orgConsoleTLSHostRegion, dyn: deps.dyn, core: deps.core}}
-	if h.k8sCache == nil || !isChroot() {
-		return targets
+// gateway surface must be written to, plus the region keys it could NOT reach.
+// The host region always leads; secondary regions are appended ONLY on a
+// chroot (SOVEREIGN_FQDN set) — on the mothership h.k8sCache holds EVERY
+// managed Sovereign's clusters (#3987) and a blind fan-out would write per-Org
+// listeners onto alien deployments.
+//
+// #5246 — the region set is the CONSOLE ELB POOL's region set, not
+// h.k8sCache's. h.k8sCache is tried first (it is warm, informer-backed, and
+// the same seam the D20 jobs fan-out and the /cloud page use); every pool
+// region it does not cover is then reached directly through its on-disk
+// kubeconfig. A pool region that neither path can build a client for is
+// returned in `unreached` so the caller reports NOT-ready instead of logging
+// "admitted in every region" over a target list that silently lost a region.
+func (h *Handler) orgConsoleTLSTargets(deps *sovereignDeps) (targets []orgConsoleTLSTarget, unreached []string) {
+	targets = []orgConsoleTLSTarget{{region: orgConsoleTLSHostRegion, dyn: deps.dyn, core: deps.core}}
+	if !isChroot() {
+		return targets, nil
 	}
-	secondaries := orgConsoleTLSSecondaryRegions(h.k8sCache.Clusters())
-	cids := make([]string, 0, len(secondaries))
-	for cid := range secondaries {
-		cids = append(cids, cid)
+
+	covered := map[string]bool{}
+	var clusterIDs []string
+	if h.k8sCache != nil {
+		clusterIDs = h.k8sCache.Clusters()
+		secondaries := orgConsoleTLSSecondaryRegions(clusterIDs)
+		cids := make([]string, 0, len(secondaries))
+		for cid := range secondaries {
+			cids = append(cids, cid)
+		}
+		sort.Strings(cids)
+		for _, cid := range cids {
+			region := secondaries[cid]
+			dyn, err := h.k8sCache.DynamicClientFor(cid)
+			if err != nil || dyn == nil {
+				h.log.Warn("org-console-tls: secondary region dynamic client unavailable in k8sCache — falling back to its on-disk kubeconfig (#5246)",
+					"clusterID", cid, "region", region, "err", err)
+				continue
+			}
+			covered[region] = true
+			targets = append(targets, orgConsoleTLSTarget{
+				region:    region,
+				clusterID: cid,
+				dyn:       dyn,
+				core:      h.k8sCache.CoreClient(cid),
+			})
+		}
 	}
-	sort.Strings(cids)
-	for _, cid := range cids {
-		region := secondaries[cid]
-		dyn, err := h.k8sCache.DynamicClientFor(cid)
-		if err != nil || dyn == nil {
-			h.log.Warn("org-console-tls: secondary region dynamic client unavailable — its per-Org gateway surface is NOT written this pass; the next reconcile retries (#5511)",
-				"clusterID", cid, "region", region, "err", err)
+
+	// #5246 — close the gap between the pool's region set and the listener
+	// writer's. Anything the ELB forwards to must carry the listener.
+	depID := orgConsoleTLSSelfDeploymentID(clusterIDs)
+	pool := orgConsoleTLSPoolRegions(depID)
+	regions := make([]string, 0, len(pool))
+	for region := range pool {
+		regions = append(regions, region)
+	}
+	sort.Strings(regions)
+	for _, region := range regions {
+		if covered[region] {
 			continue
 		}
+		dyn, core, err := orgConsoleTLSClientsFromKubeconfig(pool[region])
+		if err != nil || dyn == nil {
+			unreached = append(unreached, region)
+			h.log.Error("org-console-tls: region is in the console ELB backend pool but NO client could be built for it — its per-Org listeners cannot be written and ~1/N of customer connections will TLS-reset there (#5246)",
+				"region", region, "kubeconfig", pool[region], "err", err)
+			continue
+		}
+		h.log.Info("org-console-tls: pool region absent from k8sCache — writing its per-Org gateway surface through its on-disk kubeconfig (#5246)",
+			"region", region, "deploymentID", depID)
 		targets = append(targets, orgConsoleTLSTarget{
 			region:    region,
-			clusterID: cid,
+			clusterID: depID + "-" + region,
 			dyn:       dyn,
-			core:      h.k8sCache.CoreClient(cid),
+			core:      core,
 		})
 	}
-	return targets
+	return targets, unreached
 }
 
 // provisionOrgConsoleTLS is the best-effort, non-gating finalisation step that
@@ -404,7 +544,7 @@ func (h *Handler) provisionOrgConsoleTLS(ctx context.Context, rec store.Organiza
 		return
 	}
 
-	targets := h.orgConsoleTLSTargets(deps)
+	targets, unreachedPoolRegions := h.orgConsoleTLSTargets(deps)
 	regions := make([]string, 0, len(targets))
 	for _, tgt := range targets {
 		regions = append(regions, tgt.region)
@@ -438,6 +578,18 @@ func (h *Handler) provisionOrgConsoleTLS(ctx context.Context, rec store.Organiza
 	// PRESENT in status.listeners; one deadline bounds the whole pass.
 	admitDeadline := time.Now().Add(orgConsoleListenerAdmitBudget)
 	admitted := true
+	// #5246 — a region the console ELB pool forwards to but which produced no
+	// target was never written and is therefore never read back either. Left
+	// unaccounted it turns the loop below into a guard that cannot fail: it
+	// verifies only the regions we chose to write. Count it as NOT admitted.
+	if len(unreachedPoolRegions) > 0 {
+		admitted = false
+		h.log.Error("org-console-tls: console ELB pool spans regions this Sovereign cannot write listeners into — those regions TLS-reset every per-Org console connection they receive (#5246)",
+			"org_tenant_id", rec.OrganizationID,
+			"console_host", names.ConsoleHost,
+			"unreached_pool_regions", strings.Join(unreachedPoolRegions, ","),
+		)
+	}
 	for _, tgt := range targets {
 		if err := waitOrgConsoleListenersAdmitted(ctx, tgt.dyn, names, admitDeadline); err != nil {
 			admitted = false
