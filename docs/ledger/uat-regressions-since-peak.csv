@@ -1,0 +1,51 @@
+row_id,epic,verdict_now,evidence_0627,evidence_now
+R1,janitor,⛔,dep 91dc0591 survived convergence + steady-state; janitor log shows ZE,"mothership-2026-08-01: REASON CORRECTED — the prior note said ""not obs"
+R11,gitea,⛔,gitea repos intact post-re-home; EVS PVC migrated-not-recreated; catal,hw291-2026-07-30: BLOCKED PERMANENTLY - there is no re-home event to s
+R16,funnel,⚠,console.uatwalk91.omani.homes → HTTP 200 valid per-Org LE cert; both d,hw292-2026-08-06T01:50Z ‖ COLLAPSE-ONTO-ONE-PATH RE-CONFIRMED on a liv
+R17,orgs,❌,Org CR delete → app ns + per-Org DNS + registry entry reaped; no orpha,"hw292-2026-08-04T01:4xZ LIVE RE-WALK, cause now exact rather than 'hal"
+R19,sandbox,⛔,sandbox-controller pod 1/1 Running; the gitea-token env is bridged int,hw288-2026-07-25: SUPERSEDED — live kubectl region-a: 0 sandbox-contro
+R22,plane-isolation,⚠,CNPG operator reaches kube-apiserver (no x509/context-deadline); gatew,hw292-2026-08-06T01:32Z ‖ REPRODUCES hw290 EXACTLY — this is (a) genui
+1,model,⚠,"§G 91dc0591: handover → /dashboard signed-in as owner, no PIN/login. u","hw292-2026-08-03T12:31Z POST-CUTOVER (dep 1c56518035a83e03, cc=true 08"
+4,model,⚠,§G/§H 91dc0591: shared-pg (DB) + harbor (consumer) render identical ta,"hw292-2026-08-06T01:53Z RE-WALK (dep 1c56518035a83e03, cc=true, authed"
+5,model,⚠,2026-06-27 91dc0591: /api/v1/organizations returns uatwalk91 row kind=,"hw292-2026-08-08 LIVE BROWSER + API WALK (dep 1c56518035a83e03, authed"
+15,model,⚠,"§G 91dc0591: /apps renders one card per Application (45 apps), each BO","hw292-2026-08-06T01:47Z RE-WALK (dep 1c56518035a83e03, authed owner, /"
+18,model,⚠,"§E 91dc0591: treemap 28 cells, all long-lived; DOM scan confirms zero ",repo-2026-08-01: CODE HALF VERIFIED (live console half still needs a S
+19,model,⚠,§G 91dc0591: one card per Application (not per HelmRelease/pod); BOOTS,"hw292-2026-08-06T01:47Z RE-WALK (dep 1c56518035a83e03, authed owner, /"
+25,model,⚠,2026-06-27 91dc0591: directory list (2) and detail (uatwalk91 200) agr,"hw292-2026-08-06T01:55Z RE-WALK (dep 1c56518035a83e03, authed owner, f"
+29,sso,❌,2026-06-27 91dc0591 (3-agent batch): bare-URL re-entry → lands /dashbo,hw292-2026-08-08 LIVE BROWSER WALK (Playwright). CORRECTS AN EARLIER S
+33,sso,⚠,2026-06-27 91dc0591 (Refs #909): #4519/#4522 ROLLED LIVE — bp-openbao@,"hw292-2026-08-08 LIVE BROWSER WALK (Playwright, dep 1c56518035a83e03),"
+37,sso,❌,2026-06-27 91dc0591: #4477 `resync_provider_secret()` (chart bp-newapi,hw292-2026-08-03T22:10-22:22Z LIVE BROWSER WALK (Playwright). never re
+38,sso,☐,2026-06-27 91dc0591 (3-agent batch): newapi bare URL → lands /console/,"hw292-2026-08-08 LIVE BROWSER SSO WALK (Playwright, dep 1c56518035a83e"
+41,sso,❌,2026-06-27 91dc0591: KC GET /admin/realms/sovereign/users → owner emra,hw292-2026-08-08 LIVE — CORROBORATED VIA A SECOND INDEPENDENT PATH. Th
+48,topology,⚠,2026-06-27 91dc0591 authed sweep: active-passive is a selectable optio,"hw292-2026-08-03: PARTIAL, split by clause on a LIVE read of the creat"
+53,topology,⚠,2026-06-27 91dc0591 (3-agent batch): per-app Topology tab opens + rend,"hw291-2026-07-30: PARTIAL and a NEW CAUSE, previously green. cilium re"
+59,topology,⚠,write-mutation walk on fresh prov 25aadcfc: provision → 201 + CR `uatw,"hw292-2026-08-06T01:52Z RE-WALK (dep 1c56518035a83e03, read-only kubec"
+62,topology,⚠,2026-06-27 91dc0591 (Refs #909): the DR section's live source is non-s,"hw292-2026-08-06T01:42Z RE-WALK (dep 1c56518035a83e03, authed owner, c"
+67,topology,⚠,2026-06-27 91dc0591 authed sweep: grafana Healthy/Running 3/3 in BOTH ,"hw292-2026-08-06T01:54Z RE-WALK (dep 1c56518035a83e03, authed owner, B"
+69,topology,⚠,2026-06-27 91dc0591 authed sweep: keycloak Healthy/Running in BOTH reg,"hw292-2026-08-06T01:54Z RE-WALK (dep 1c56518035a83e03, authed owner, B"
+71,topology,⚠,2026-06-27 91dc0591: baseline (pre-kill) state proven live — Continuum,"hw292-2026-08-06T01:41Z RE-WALK (dep 1c56518035a83e03, authed owner): "
+75,funnel,⚠,2026-06-27 91dc0591: valid-code redeem validates E2E through the PUBLI,hw292-2026-08-04T00:0xZ LIVE BROWSER WALK. STILL PARTIAL. Clause (b) —
+84,funnel,❌,"§A: magic-link→verify 200 → POST /tenant/orgs 201, Org CR landed (uat-","hw291-2026-07-29: render half verified, completion is a WRITE and out "
+86,funnel,❌,"§A/§C/§I 91dc0591 (C1, supersedes prior ⛔): post-#4471 org-controller ","hw292-2026-08-04T03:0xZ LIVE WALK. RE-CONFIRMED terminal, and the inte"
+87,funnel,⚠,2026-06-27 91dc0591 authed sweep: per-Org console.uatwalk91.omani.home,"hw292-2026-08-04T00:0xZ LIVE BROWSER WALK. STILL PARTIAL, and the spli"
+88,funnel,⛔,"§C/§I 91dc0591 (C1, supersedes prior ⛔): per-Org console.uatwalk91.oma",hw291-2026-07-30: BLOCKED - mutation-gated AND the destination is prov
+90,funnel,❌,"2026-06-24 LIVE (demo Org, dep `4635277cae4ffed9`, [#3785](https://git",hw292-2026-08-04T03:0xZ LIVE WALK. 4/8 fresh-TCP reachable (302 when i
+91,funnel,⛔,2026-06-27 91dc0591 funnel walk (Refs #909): signed-in re-open of the ,hw291-2026-07-30: BLOCKED - same 0/8 dead destination plus it needs a 
+92,funnel,❌,2026-06-27 91dc0591 funnel walk (Refs #909): rapid POST `/api/billing/,hw292-2026-08-04T02:5xZ LIVE PROBE — the walk is INCONCLUSIVE and is r
+96,placement,⛔,"§G 91dc0591: handover URL → /dashboard signed-in as owner (avatar EB),",hw292-2026-08-03: BLOCKED — the signed handover URL cannot be walked b
+115,placement,❌,"§B 91dc0591: signed-in connections list as emrah.baysal@, sso-guacamol","hw292-2026-08-04T03:0xZ LIVE WALK. Same two blockers as row 35, measur"
+121,orgs,⚠,2026-06-27 91dc0591 authed walk (throwaway-mailbox PIN session): billi,hw292-2026-08-06T01:42Z ‖ REPRODUCES hw290's split verdict exactly. SH
+123,catalog,⛔,2026-06-27 91dc0591 authed sweep: authed owner session → catalog detai,hw292-2026-08-03: BLOCKED — the signed handover URL cannot be walked b
+173,jobs,❌,"§E 91dc0591: live state stream re-attaches every 5s (tail), no manual ","hw292-2026-08-08 LIVE WALK — a job badge changes IN PLACE, which is th"
+176,jobs,⛔,2026-06-27 91dc0591 (Refs #909): #4511/#4514 ROLLED LIVE — catalyst-ap,"hw291-2026-07-30: NOT EXECUTED, deliberately - and the non-execution i"
+177,jobs,⚠,2026-06-27 91dc0591 authed sweep: the same Re-run mechanism renders ac,hw292-2026-08-06T01:45Z ‖ PARTIAL — the 'one mechanism / no per-kind U
+178,meta,⛔,"§I 91dc0591: console.omantel.biz/dashboard 200, owner emrah.baysal@/om",hw292-2026-08-03: BLOCKED — the signed handover URL cannot be walked b
+188,topology,⚠,2026-06-27 91dc0591 (Refs #909): catalyst-api runs in region-a ONLY — ,"hw292-2026-08-06T01:39Z RE-WALK (dep 1c56518035a83e03, authed owner): "
+192,recon,⚠,§I 91dc0591: /cloud?view=graph&lens=reconciliation renders; Lens combo,hw292-2026-08-06T01:41Z ‖ REPRODUCES hw290's split verdict; nothing ch
+212,mcp,⛔,§H 91dc0591: minted org-admin JWT for uatwalk91 → GET /api/v1/org/appl,hw291-2026-07-30: BLOCKED - only ONE MCP instance exists (catalyst-sys
+213,mcp,⛔,§H 91dc0591: org token → sovereign-admin /api/v1/fleet/applications = ,hw291-2026-07-30: BLOCKED - same #5206 identity guard fires before han
+218,e2e-journey,⚠,2026-06-27 91dc0591 (SUPERSEDES prior ⛔ CrashLoop verdict): sandbox-co,hw292-2026-08-06T01:52Z ‖ PARTIAL — hw291's FIRST caveat is FIXED (thi
+219,e2e-journey,❌,2026-06-28 fresh North-Star Org `agnstar` on 91dc0591 (E2E acceptance ,hw292-2026-08-04T02:1xZ LIVE RE-WALK — the CONVERGENCE half now passes
+223,e2e-journey,⛔,2026-06-28 agnstar E2E acceptance walk on 91dc0591: minted an agnstar-,hw291-2026-07-30: BLOCKED and the asserted 403 is NOT what happens. Al
+227,delivery,⛔,"§F: bp-wordpress helm-managed, 0/81 resource-policy:keep, spec.version",hw292-2026-08-03T13:18Z ⛔ BLOCKED BY DESIGN on a POST-CUTOVER Sovereig
+233,apps,⚠,"§I 91dc0591 (C1, supersedes prior ⛔): wordpress.uatwalk91.omani.homes ",hw292-2026-08-04T16:40Z RE-WALK on funnel Org `uatco`: **all four name
