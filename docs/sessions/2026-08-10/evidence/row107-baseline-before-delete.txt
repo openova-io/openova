@@ -1,0 +1,20 @@
+ROW 107 BASELINE — captured BEFORE the delete, 2026-08-09T22:15:09Z
+subject: Organization walk-stranger-two (chosen because it DID reach vcluster=done, unlike r17probe)
+
+== Organization CRs ==
+NAME                SLUG                KIND       TIER   PLAN   BILLING    SOVEREIGN           AGE
+hw292-omani-works   hw292-omani-works   internal   org           showback   hw292.omani.works   6d17h
+uatco               uatco               customer   org    m      real       hw292.omani.works   6d7h
+walk-stranger-two   walk-stranger-two   customer   org    m      real       hw292.omani.works   47h
+
+== vcluster StatefulSets (ALL namespaces) ==
+NAMESPACE           NAME                                  READY   AGE
+uatco               vcluster                              1/1     6d7h
+walk-stranger-two   vcluster                              1/1     47h
+
+== walk-stranger-two namespace + workloads ==
+walk-stranger-two Active
+statefulset.apps/vcluster   1/1   47h
+persistentvolumeclaim/data-vcluster-0                             Bound   pvc-6ad6abd3-897d-42c8-941e-5dba080b6ac4   5Gi   RWO   evs-ssd   <unset>   47h
+persistentvolumeclaim/mysql-data-x-walk-stranger-two-x-vcluster   Bound   pvc-9eb371ff-69c6-4122-907c-561349d8e807   5Gi   RWO   evs-ssd   <unset>   47h
+persistentvolumeclaim/postgres-1                                  Bound   pvc-faf336cb-0e72-4314-afce-41b57c187542   5Gi   RWO   evs-ssd   <unset>   34h
