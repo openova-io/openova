@@ -1,19 +1,38 @@
 # Why the 2026-06-27 peak does not survive contact with today's ledger
 
-**26 of the 50 rows that were ✅ on 2026-06-27 and are not ✅ today have been audited
-one by one, against the June source tree and against live hw292.**
+**41 of the 50 rows that were ✅ on 2026-06-27 and are not ✅ today have been audited
+one by one, against the June source tree and against live hw292.** Three agents ran
+in parallel; I re-ran the decisive claims myself before recording any of them.
 
 ## Result
 
 | verdict | rows |
 |---|--:|
 | **PLATFORM-BROKE** | **0** |
-| ASSERTION-TIGHTENED | 16 |
+| ASSERTION-TIGHTENED | 23 |
 | EVIDENCE-WEAKER-ONLY (June graded a lower layer) | 6 |
-| ENV-DIFFERENT | 1 |
+| ENV-DIFFERENT | 6 |
+| SUPERSEDED-BY-DECISION | 3 |
 | CAUSE-NOT-DETERMINED | 3 |
 
-Not one row in 26 was shown to be a platform regression.
+Not one row in 41 was shown to be a platform regression. The remaining 9 (`funnel`)
+are still in audit.
+
+## The handover cluster — one line of code explains three rows
+
+Rows 96, 123 and 178 all fail with `401 {"error":"invalid issuer"}` when the Sovereign
+redeems a token it just minted itself. Verified:
+
+    auth_handover.go:232   const expectedIss = "https://console.openova.io"   (present on 2026-06-27)
+    live hw292             CATALYST_HANDOVER_JWT_ISSUER = https://console.hw292.omani.works
+    written by exactly one thing:
+    platform/self-sovereign-cutover/chart/templates/07-catalyst-api-env-patch-job.yaml:910
+
+The literal is hardcoded to the mothership. Pre-cutover the override is unset and the
+fallback equals it, so the same binary passes. **Cutover pivots the issuer and the
+Sovereign starts rejecting its own tokens.** June's environment was pre-cutover (its
+G11 row reads `☐`, unwalked), so this could not have surfaced then — and rows 123 and
+178 never redeemed a handover URL at all when they were stamped ✅.
 
 ## The three findings that settle it
 
