@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-09T22:00:06Z` |
+| Last refreshed | `2026-08-09T22:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5434](https://github.com/openova-io/openova/issues/5434) | App-detail Dependencies never names the producing instance — backend reads onl | Other |
 | [#5435](https://github.com/openova-io/openova/issues/5435) | Banned term 'tenant' reaches the console from a Deployment literally named tenan | Other |
 | [#5436](https://github.com/openova-io/openova/issues/5436) | Cutover step-06 exits success while 6 HelmRepositories remain on ghcr — its ow | Other |
 | [#5437](https://github.com/openova-io/openova/issues/5437) | P0: cutover re-attempt skips step-01 gitea-mirror on stale success, pivoting Flu | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5932](https://github.com/openova-io/openova/issues/5932) | Dashboard treemap: the vCluster grouping dimension keys on the retired #4325 vcl | Other |
 | [#5933](https://github.com/openova-io/openova/issues/5933) | Customer Application CRs never carry spec.organizationRef — the #5814 Org-attr | Other |
 | [#5934](https://github.com/openova-io/openova/issues/5934) | TopologyTab hard-renders 'n/a — bootstrap component' regardless of the API ans | Other |
+| [#5940](https://github.com/openova-io/openova/issues/5940) | Owner opening a voucher-redeem link is shown a signup form — the marketplace c | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-09T22:11 | [#5941](https://github.com/openova-io/openova/pull/5941) | #5113 | docs(uat): row 156 walked end-to-end — Save's verdict is bac |
+| 2026-08-09T22:07 | [#5939](https://github.com/openova-io/openova/pull/5939) | #4546 | docs(uat): formal disposition of all 13 SUPERSEDED rows — 3  |
 | 2026-08-09T21:48 | [#5938](https://github.com/openova-io/openova/pull/5938) | #3383 | docs(uat): row 5 asserted a schema-forbidden value — correct |
 | 2026-08-09T21:49 | [#5937](https://github.com/openova-io/openova/pull/5937) | #4325 | fix(dashboard): group the vCluster treemap layer on a runtim |
 | 2026-08-09T20:59 | [#5936](https://github.com/openova-io/openova/pull/5936) | #5836 | fix(console): the Status panel must render a bootstrap compo |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-08T08:18 | [#5904](https://github.com/openova-io/openova/pull/5904) | #5894 | docs(uat): row 95 retracted — the purchased app DID material |
 | 2026-08-08T08:18 | [#5903](https://github.com/openova-io/openova/pull/5903) | #5887 | docs(ledger): classify all 15 failing rows — 12 need a roll, |
 | 2026-08-08T02:39 | [#5902](https://github.com/openova-io/openova/pull/5902) | #5872 | fix(api): applications LIST returns placement, from the same |
-| 2026-08-08T00:53 | [#5901](https://github.com/openova-io/openova/pull/5901) | #4272 | docs(uat): row 94 carries the #5895 root cause, not just the |
-| 2026-08-08T00:25 | [#5900](https://github.com/openova-io/openova/pull/5900) | #5887 | docs(uat): row 29 correction — silent re-auth works; my firs |
 
 ---
 
