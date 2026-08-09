@@ -9,7 +9,7 @@ R7,plane-isolation,4444,bp-plane-isolation admits gitea ingress for its declared
 R8,gitea,4447,gitea-flux-auth secrets are seeded — Flux pulls from gitea with valid credentials.
 R9,sso,4446,oidc-gate client_secret is seeded for powerdns-admin — full OIDC round-trip completes.
 R10,orgs,4471,"org-controller RBAC carries update/patch — per-Org provisioning completes (was create-only, never reached Ready)."
-R11,gitea,4354,gitea git-data is PRESERVED across the host-ns re-home (#4325 de-vcluster) — no empty-PVC data loss.
+R11,gitea,4354,gitea git-data survives a POD RESTART — the PVC rebinds and every bare repo retains its HEAD commit; no empty-PVC data loss on reschedule.
 R12,postgres,4460,shared-pg `-mesh-rw` resolves in BOTH regions + CNPG streaming replication is live.
 R13,convergence,4436,region-B keycloak / gitea / harbor reach steady-state with NO CrashLoop.
 R14,model,4479,console Organizations directory reads the live Organization CRs (not an empty in-memory store).
@@ -17,7 +17,7 @@ R15,funnel,4473,funnel plan-slug propagates end-to-end — the chosen plan reach
 R16,funnel,4290,the funnel + BSS Org doors are collapsed onto ONE path — `console.<slug>` lands 200.
 R17,orgs,4459,deleting an Organization CR cascades cleanly — no orphaned ns / app / DNS leak.
 R18,cutover,4450,handover-key self-publish guard — the Sovereign does not re-publish its handover key on reconcile.
-R19,sandbox,4482,sandbox-controller reaches Running (was CrashLoop on unset CATALYST_GITEA_TOKEN).
+R19,agenity,4482,The per-Org **Agenity** workspace StatefulSet reaches Running with its Anthropic credential seeded — the init container validates the token and exits 0.
 R20,delivery,4464,the deploy-bot bumps image pins per-line (not a blanket bump) — stale-render avoided.
 R21,catalog,4432,catalog-seed pins match the published ghcr chart versions — no inert lagging Blueprint CR.
 R22,plane-isolation,4468,bp-plane-isolation admits apiserver-egress + gateway-ingress CNPs — CNPG admission + gateway hop succeed.
@@ -140,16 +140,16 @@ G12,dr,4275,"region-kill (Pillar-3) — kill a region, prove failover + recovery
 96,placement,3642,"Handover URL → lands on `/dashboard` already signed-in as the owner (avatar E), no login form."
 97,placement,3642,Dashboard renders the cluster treemap and the LAYER 1 / LAYER 2 grouping comboboxes are visible.
 98,placement,3642,"Click LAYER 1 combobox → select `vCluster`; the treemap regroups into one labelled block per vCluster (`host` / `mgmt` / `rtz` / `dmz`), mgmt block visible + clickable."
-99,placement,3642,"On the LAYER1=vCluster treemap, the **grafana** tile sits inside the **mgmt** block, not **host**."
-100,placement,3642,"On the LAYER1=vCluster treemap, the **harbor** tile sits inside the **mgmt** block, not **host**."
-101,placement,3642,"On the LAYER1=vCluster treemap, the **keycloak** tile sits inside the **mgmt** block, not **host**."
-102,placement,3642,"On the LAYER1=vCluster treemap, the **gitea** tile sits inside the **mgmt** block, not **host**."
-103,placement,3642,"On the LAYER1=vCluster treemap, the **openbao** tile sits inside the **mgmt** block, not **host**."
-104,placement,3642,"On the LAYER1=vCluster treemap, the **newapi** tile sits inside the **mgmt** block, not **host**."
-105,placement,3642,"On the LAYER1=vCluster treemap, the **guacamole** tile sits inside the **mgmt** block, not **host**."
-106,placement,3642,Drill into the **mgmt** block: its tiles include all 7 named apps (grafana/harbor/key… alongside loki/mimir/nats/tempo.
-107,placement,3642,Read the **host** block on the same treemap: none of the 7 named apps appear under `host`.
-108,placement,3642,"Open the keycloak app card → its placement detail reads `mgmt` (the per-app placement mirrors the treemap block), not `host`."
+99,placement,3642,An Organization on plan **M or above** is backed by a DEDICATED Org vCluster — `kubectl -n <org> get sts vcluster` reports 1/1 Ready.
+100,placement,3642,An Organization on plan **free or S** is backed by a HOST namespace and has NO vCluster — the #4292 tier gate; the null is proven against a control Org that does have one.
+101,placement,3642,"The console Organization detail's `isolation` value is DERIVED from the observed backing, not inferred from `kind` — an Org whose backing is a host namespace must not report `vcluster`."
+102,placement,3642,"LAYER1=vCluster treemap: every per-Org vCluster renders as its own labelled block, one block per vCluster."
+103,placement,3642,A per-Org vCluster block contains ONLY that Organization's workloads — no cross-Org leakage into another Org's block.
+104,placement,3642,The seven bootstrap components (grafana/harbor/keycloak/gitea/openbao/newapi/guacamole) render under **host** — the post-#4325 canonical placement.
+105,placement,3642,A per-app placement detail matches the treemap block the app renders in — the two surfaces cannot disagree.
+106,placement,3642,"Organization namespace count equals the number of Organizations with host-tier backing — no orphan namespace, no missing one."
+107,placement,3642,Deleting an Organization removes its vCluster StatefulSet — no orphaned vCluster survives the delete cascade.
+108,placement,3642,"Placement is read from RUNTIME (the observed pod/namespace), not from the Application CR's declared field — a declared value that disagrees with reality must lose."
 109,placement,688,"The sovereign-realm account console renders for the owner (no second login, no error dialog)."
 110,placement,3642,"Gitea opens already signed in (avatar/menu shows the SSO user), repo list renders — no Gitea login form."
 111,placement,3642,"Harbor opens signed in, the projects list renders — no Harbor login form, no gateway error page."
@@ -227,7 +227,7 @@ G12,dr,4275,"region-kill (Pillar-3) — kill a region, prove failover + recovery
 183,meta,3581,"OpenBao bare UI → final rendered screen is the authenticated Vault session (`/ui/vault/secrets`, Secrets Engines with cubbyhole/ + secret/ kv), NO `/ui/vault/auth` token form."
 184,meta,3581,The rendered `UAT.md` itself is the artifact under test — [UAT.md](https://github.com/openova-io/openova/blob/main/docs/ledger/UAT.md). Assertion never authored (literal `—`); see evidence.
 185,meta,3581,"No ✅ row cites evidence from a wiped env — the ledger never presents a dead env's artifact as current proof. (Non-green rows legitimately retain their predecessor env: reset-uat.py flushes ✅ evidence and deliberately PRESERVES ⛔/❌/⏳/☐, whose env cells record where the failure was last observed.)"
-186,meta,3581,—
+186,mcp,3581,"**bp-openova-mcp** answers a JSON-RPC 2.0 `tools/list` over HTTPS with a NON-EMPTY tool set for an authenticated caller, and an empty set for an unauthenticated one."
 187,topology,4001,Per-app Topology for a multi-region app (grafana) shows **Pattern: active-active** with 2 PRIMARY region cards — NOT singleton.
 188,topology,4001,A genuine single-region app (catalyst-api) correctly shows **singleton** (no false multi-region).
 189,topology,4000,Region-b kubeconfig self-heals EIP→private-IP **zero-touch** on restart (topology survives a fresh prov).
