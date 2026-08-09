@@ -25,6 +25,60 @@ OUT_SURF = ROOT / "docs" / "ledger" / "uat-surfaces.csv"
 OUT_AUD = ROOT / "docs" / "ledger" / "uat-evidence-audit.csv"
 FIELDS = ["row_id", "verdict", "artifact_path", "artifact_exists",
           "layer_match", "surface_path", "reason"]
+OUT_FIELDS = FIELDS + ["artifact_shared_with"]
+
+
+def resolve(p):
+    """Evidence links are written relative to docs/ledger/."""
+    p = (p or "").strip()
+    if not p:
+        return None
+    fp = (ROOT / "docs" / "ledger" / p) if p.startswith("..") else (ROOT / p)
+    try:
+        fp = fp.resolve()
+    except OSError:
+        return None
+    return fp if fp.is_file() else None
+
+
+def mark_shared(rows):
+    """Name every OTHER row backed by the byte-identical artifact.
+
+    Four separate auditors independently reported the same thing: one
+    screenshot doing duty for several rows. Measured across this batch it is
+    51 of 153 rows over 22 groups -- a third of the audited population.
+
+    Reuse is not automatically wrong. A full-page capture can legitimately
+    contain two rows' assertions, and several here do. It becomes wrong when
+    the rows assert DIFFERENT STATES, because one image cannot show a
+    TETHERED badge and a SOVEREIGN badge at once (rows 159/160), or a
+    pre-edit baseline and a post-edit result (rows 131/133). So this is
+    recorded, not failed -- a reviewer can see at a glance which passes lean
+    on a shared file and check whether it really carries both clauses.
+    """
+    import hashlib
+    groups = {}
+    for r in rows:
+        fp = resolve(r["artifact_path"])
+        if not fp:
+            continue
+        h = hashlib.sha256(fp.read_bytes()).hexdigest()[:16]
+        groups.setdefault(h, []).append(r["row_id"])
+    n = 0
+    for r in rows:
+        fp = resolve(r["artifact_path"])
+        r["artifact_shared_with"] = ""
+        if not fp:
+            continue
+        h = hashlib.sha256(fp.read_bytes()).hexdigest()[:16]
+        others = [x for x in groups[h] if x != r["row_id"]]
+        if others:
+            r["artifact_shared_with"] = " ".join(others)
+            n += 1
+    dup_groups = sum(1 for v in groups.values() if len(v) > 1)
+    print(f"\nartifact reuse: {n} rows share a byte-identical file "
+          f"across {dup_groups} groups ({len(groups)} distinct files)")
+    return n
 
 
 def main():
@@ -52,9 +106,10 @@ def main():
         print(f"  {b.name:<24} {n:>3} rows")
 
     rows.sort(key=lambda r: (len(r["row_id"]), r["row_id"]))
+    mark_shared(rows)
 
     with OUT_AUD.open("w", newline="", encoding="utf-8") as fh:
-        w = csv.DictWriter(fh, fieldnames=FIELDS)
+        w = csv.DictWriter(fh, fieldnames=OUT_FIELDS)
         w.writeheader()
         w.writerows(rows)
 
