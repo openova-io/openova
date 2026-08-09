@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-09T22:15:04Z` |
+| Last refreshed | `2026-08-09T22:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5435](https://github.com/openova-io/openova/issues/5435) | Banned term 'tenant' reaches the console from a Deployment literally named tenan | Other |
-| [#5436](https://github.com/openova-io/openova/issues/5436) | Cutover step-06 exits success while 6 HelmRepositories remain on ghcr — its ow | Other |
 | [#5437](https://github.com/openova-io/openova/issues/5437) | P0: cutover re-attempt skips step-01 gitea-mirror on stale success, pivoting Flu | Other |
 | [#5439](https://github.com/openova-io/openova/issues/5439) | catalyst-api re-tethers a cut-over Sovereign: orgTenantSharedHelmRepositories ha | Other |
 | [#5440](https://github.com/openova-io/openova/issues/5440) | ClusterMesh cross-region service import died during cutover — Harbor/Gitea/new | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#5933](https://github.com/openova-io/openova/issues/5933) | Customer Application CRs never carry spec.organizationRef — the #5814 Org-attr | Other |
 | [#5934](https://github.com/openova-io/openova/issues/5934) | TopologyTab hard-renders 'n/a — bootstrap component' regardless of the API ans | Other |
 | [#5940](https://github.com/openova-io/openova/issues/5940) | Owner opening a voucher-redeem link is shown a signup form — the marketplace c | Other |
+| [#5943](https://github.com/openova-io/openova/issues/5943) | Organization DELETE resolves a different identifier than GET — the console's o | Other |
+| [#5945](https://github.com/openova-io/openova/issues/5945) | Placement editor offers retired vCluster names (host/mgmt/dmz/rtz) and preselect | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-09T22:25 | [#5942](https://github.com/openova-io/openova/pull/5942) | #5426 | docs(uat): row 107 walked live — delete cascade removes the  |
 | 2026-08-09T22:11 | [#5941](https://github.com/openova-io/openova/pull/5941) | #5113 | docs(uat): row 156 walked end-to-end — Save's verdict is bac |
 | 2026-08-09T22:07 | [#5939](https://github.com/openova-io/openova/pull/5939) | #4546 | docs(uat): formal disposition of all 13 SUPERSEDED rows — 3  |
 | 2026-08-09T21:48 | [#5938](https://github.com/openova-io/openova/pull/5938) | #3383 | docs(uat): row 5 asserted a schema-forbidden value — correct |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-08T08:18 | [#5905](https://github.com/openova-io/openova/pull/5905) | #5827 | docs(uat): row 41 corroborated through a second path + a sea |
 | 2026-08-08T08:18 | [#5904](https://github.com/openova-io/openova/pull/5904) | #5894 | docs(uat): row 95 retracted — the purchased app DID material |
 | 2026-08-08T08:18 | [#5903](https://github.com/openova-io/openova/pull/5903) | #5887 | docs(ledger): classify all 15 failing rows — 12 need a roll, |
-| 2026-08-08T02:39 | [#5902](https://github.com/openova-io/openova/pull/5902) | #5872 | fix(api): applications LIST returns placement, from the same |
 
 ---
 
