@@ -86,12 +86,45 @@ def current_clauses():
     return out
 
 
-def last_touched(path):
-    """ISO date of the newest commit touching a repo path, or None."""
-    if not (ROOT / path).exists():
-        return None
-    d = sh("git", "-C", str(ROOT), "log", "-1", "--format=%as", "--", path)
-    return d or None
+def surface_parts(spec):
+    """A surface_path may name SEVERAL surfaces and carry annotations:
+
+        core/x.tsx + live:catalyst-api GET /api/v1/orgs
+        clusters/_template/bootstrap-kit/13c-bp-oidc-gate.yaml:205-209 (powerdns)
+
+    The first version of this script called exists() on the whole string, so
+    every compound value failed to resolve and the row silently became
+    unexpirable -- a fail-open gate, which is the pattern this ledger exists to
+    catch. Split on '+', drop line suffixes and parentheticals, and keep the
+    parts that are real repo paths.
+    """
+    out = []
+    for part in str(spec).split("+"):
+        p = part.strip()
+        p = re.sub(r"\s*\(.*", "", p)          # trailing "(powerdns-admin instance)"
+        p = re.sub(r":\d+(-\d+)?$", "", p)     # ":205-209"
+        p = p.split()[0] if p.split() else ""  # "live:catalyst-api GET /x" -> "live:catalyst-api"
+        if p:
+            out.append(p)
+    return out
+
+
+def last_touched(spec):
+    """Newest commit date across every repo path named in a surface spec.
+
+    Returns (date_or_None, resolved_any). `resolved_any` is what keeps this
+    honest: a spec naming only live surfaces, or naming nothing on disk, must
+    not be mistaken for "the code has not moved".
+    """
+    newest, resolved = None, False
+    for p in surface_parts(spec):
+        if p.startswith("live:") or not (ROOT / p).exists():
+            continue
+        resolved = True
+        d = sh("git", "-C", str(ROOT), "log", "-1", "--format=%as", "--", p)
+        if d and (newest is None or d > newest):
+            newest = d
+    return newest, resolved
 
 
 def load_surfaces():
@@ -146,6 +179,7 @@ def main():
                 best[r["row_id"]] = r
 
     surface_dates = {}
+    unresolved = set()          # surface named, but no part of it is on disk
     verdicts, reasons = {}, {}
     for c in canon:
         rid = c["row_id"]
@@ -178,19 +212,22 @@ def main():
             continue
 
         # 3. environment gone -- only bites clauses that depend on live runtime.
-        if surf.startswith("live:") and p["walk_env"] and current_env and p["walk_env"] != current_env:
+        live_dep = any(x.startswith("live:") for x in surface_parts(surf)) if surf else False
+        if live_dep and p["walk_env"] and current_env and p["walk_env"] != current_env:
             verdicts[rid] = "ENV-GONE"
             reasons[rid] = f"live-state clause proven on {p['walk_env']}; current env is {current_env}"
             continue
 
         # 2. surface moved after the pass.
-        if surf and not surf.startswith("live:"):
+        if surf:
             if surf not in surface_dates:
                 surface_dates[surf] = last_touched(surf)
-            sd = surface_dates[surf]
-            if sd and sd > pd:
+            sd, resolved = surface_dates[surf]
+            if not resolved:
+                unresolved.add(rid)
+            elif sd and sd > pd:
                 verdicts[rid] = "SURFACE-CHANGED"
-                reasons[rid] = f"{surf} last changed {sd}, after the {pd} pass"
+                reasons[rid] = f"{surf.split('+')[0].strip()} last changed {sd}, after the {pd} pass"
                 continue
 
         # 4. age cap.
@@ -229,6 +266,27 @@ def main():
 
     unattributed = sum(1 for c in canon if c["row_id"] not in surfaces)
     print(f"\n  surface attributed: {total - unattributed}/{total}")
+
+    # Vacuity control. A trigger that never fires is indistinguishable from a
+    # trigger that CANNOT fire, so say out loud how many rows it could have
+    # bitten and how close the nearest one came.
+    fireable = [c["row_id"] for c in canon
+                if c["row_id"] in surfaces and c["row_id"] not in unresolved
+                and c["row_id"] in best]
+    print(f"  surface-changed trigger could fire on {len(fireable)} rows; "
+          f"{len(unresolved)} name a surface that resolves to nothing on disk")
+    if unresolved:
+        print(f"    unresolved (age cap is their only guard): {sorted(unresolved)[:10]}")
+    margins = []
+    for rid in fireable:
+        sd, ok = surface_dates.get(surfaces[rid], (None, False))
+        if ok and sd:
+            margins.append((sd, best[rid]["cycle_date"], rid))
+    if margins:
+        margins.sort(reverse=True)
+        sd, pd, rid = margins[0]
+        print(f"    newest surface commit among them: {rid} -> {sd} vs pass {pd} "
+              f"({'WOULD FIRE' if sd > pd else 'older than the pass, correctly silent'})")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,120 @@
+row_id,surface_path
+6,products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/OrganizationsDirectoryPage.tsx + live:catalyst-api GET /api/v1/organizations
+8,products/catalyst/bootstrap/ui/src/pages/org/CreateOrganizationPage.tsx
+9,core/controllers/organization + live:hw292 statefulset uatco/vcluster
+13,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
+14,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail + live:shared-data/shared-pg CNPG
+20,products/catalyst/bootstrap/api/internal/handler/org_consumption.go (orgForRow) + products/catalyst/bootstrap/ui/src/pages/sovereign/Dashboard.tsx
+21,products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/ShowbackPanel.tsx
+22,products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/ShowbackPanel.tsx
+23,products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/ShowbackPanel.tsx
+24,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail
+26,products/catalyst/bootstrap/ui/src/pages/sovereign/Dashboard.tsx + catalyst-api PIN auth
+27,products/catalyst/bootstrap/ui/src/widgets/auth/ProfileMenu.tsx
+28,products/catalyst/bootstrap/ui/src/pages/admin/user-access/UserAccessListPage.tsx
+30,clusters/_template/bootstrap-kit/25-grafana.yaml
+31,clusters/_template/bootstrap-kit/10-gitea.yaml
+32,clusters/_template/bootstrap-kit/19-harbor.yaml
+34,clusters/_template/bootstrap-kit/09-keycloak.yaml + live:keycloak-realm
+35,clusters/_template/bootstrap-kit/13c-bp-oidc-gate.yaml (guacamole instance) + 52-bp-guacamole.yaml
+36,clusters/_template/bootstrap-kit/13c-bp-oidc-gate.yaml:205-209 (powerdns-admin instance)
+39,clusters/_template/bootstrap-kit/01-cilium.yaml (catalystOverlay.hubbleUI.auth line 535)
+40,core/marketplace/src/pages/index.astro
+42,platform/keycloak/chart/templates/configmap-sovereign-realm.yaml + live:keycloak-realm
+43,platform/keycloak/chart/templates/configmap-sovereign-realm.yaml + live:keycloak-realm
+44,platform/keycloak/chart/templates/configmap-sovereign-realm.yaml + live:keycloak-realm
+45,products/catalyst/bootstrap/ui/src/pages/admin/user-access/UserAccessListPage.tsx + SovereignSidebar.tsx
+46,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/InstancesSection.tsx
+47,products/catalyst/bootstrap/ui/src/widgets/topology/modes.ts
+49,products/catalyst/bootstrap/ui/src/widgets/topology/modes.ts
+50,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx + live:Application/uat-ahs-pg
+51,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx + live:Continuum/dr-shared-pg
+54,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx
+56,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx + live:Continuum/dr-shared-pg
+58,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx
+60,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx
+61,products/catalyst/bootstrap/ui/src/pages/sovereign/AppsPage.tsx
+64,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx + live:Continuum/dr-shared-pg
+65,products/catalyst/bootstrap/ui/src/pages/sovereign/CloudPage.tsx
+66,products/catalyst/bootstrap/ui/src/pages/sovereign/CloudPage.tsx
+68,live:pod/powerdns-admin-bp-powerdns-admin + platform/powerdns-admin
+70,live:pods guacamole-server/guacd/guacamole-pg both regions
+72,products/catalyst/bootstrap/ui/src/pages/sovereign/bss/VouchersPage.tsx
+73,products/catalyst/bootstrap/ui/src/pages/sovereign/bss/voucherCodePolicy.ts
+74,products/catalyst/bootstrap/ui/src/pages/sovereign/bss/VouchersPage.tsx
+76,core/marketplace/src/pages/redeem.astro
+77,core/marketplace/src/pages/redeem.astro
+78,core/marketplace/src/pages/plans.astro
+79,core/marketplace/src/pages/plans.astro
+80,core/marketplace/src/pages/apps.astro
+81,core/marketplace/src/pages/addons.astro
+82,core/marketplace/src/pages/bcp.astro
+83,core/marketplace/src/pages/review.astro
+85,core/marketplace/src/pages/checkout.astro
+89,products/catalyst/bootstrap/ui/src/pages/sovereign/AppsPage.tsx
+92,core/services/gateway/ratelimit.go
+97,products/catalyst/bootstrap/ui/src/pages/sovereign/Dashboard.tsx
+R3,platform/plane-isolation/chart/values.yaml (allowIngressFrom sso-bridge ~line 131)
+R4,platform/sso-bridge/chart/templates/networkpolicy.yaml (keycloak port 80+8080 allow)
+R5,platform/sso-bridge (reconciler tick) + clusters/_template/bootstrap-kit/25-grafana.yaml
+R6,platform/postgres/chart
+R7,platform/plane-isolation/chart
+R8,live:gitrepository/flux-system
+R9,clusters/_template/bootstrap-kit/13c-bp-oidc-gate.yaml:205-209 + platform/powerdns-admin/chart/templates/deployment.yaml
+110,platform/gitea (OIDC client) + live:gitea.hw292
+111,platform/harbor (OIDC client) + live:registry.hw292
+112,platform/grafana (Generic OAuth) + live:grafana.hw292
+113,platform/openbao (OIDC auth) + live:openbao.hw292
+114,products/... newapi chart (OAuth) + live:newapi.hw292
+116,products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/OrganizationsDirectoryPage.tsx
+117,products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/OrganizationsDirectoryPage.tsx
+118,products/catalyst/bootstrap/ui/src/pages/sovereign/SovereignSidebar.tsx
+119,products/catalyst/bootstrap/ui/src/pages/org/CreateOrganizationPage.tsx
+120,products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/OrganizationDetailPage.tsx
+122,products/catalyst/bootstrap/ui/src/app/router.tsx
+159,products/catalyst/bootstrap/ui/src/pages/sovereign
+160,products/catalyst/bootstrap/ui/src/pages/sovereign
+161,products/catalyst/bootstrap/ui/src/pages/sovereign
+162,platform/self-sovereign-cutover/chart
+163,platform/self-sovereign-cutover/chart
+164,platform/self-sovereign-cutover/chart
+167,products/catalyst/bootstrap/ui/src/pages/sovereign/Dashboard.tsx + live:catalyst-api session
+168,products/catalyst/bootstrap/ui/src/pages/sovereign/JobsPage.tsx
+169,products/catalyst/bootstrap/ui/src/pages/sovereign/JobsTable.tsx
+170,products/catalyst/bootstrap/ui/src/pages/sovereign/JobsTable.tsx
+171,products/catalyst/bootstrap/ui/src/pages/sovereign/jobsAdapter.ts
+172,products/catalyst/bootstrap/ui/src/pages/sovereign/JobsPage.tsx
+174,products/catalyst/bootstrap/ui/src/pages/sovereign/JobsTable.tsx
+175,products/catalyst/bootstrap/ui/src/pages/sovereign/JobsTable.tsx
+179,products/catalyst/bootstrap/ui/src/pages/sovereign
+180,live:grafana-oidc-sso
+181,live:harbor-oidc-sso
+182,live:gitea-oidc-sso
+187,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx
+189,core/services/provisioning/handlers/kubeconfig_reconciler.go + live:secret/catalyst/cutover-secondary-kubeconfigs
+193,products/catalyst/bootstrap/ui/src/pages/sovereign
+194,products/catalyst/bootstrap/ui/src/pages/sovereign
+195,products/catalyst/bootstrap/ui/src/pages/sovereign
+196,products/catalyst/bootstrap/api/internal/handler
+197,products/catalyst/bootstrap/api/internal/handler
+198,products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/K8sListPage.tsx
+204,products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-compute/WorkerNodesPage.tsx
+205,products/catalyst/bootstrap/api/internal/handler/applications.go
+209,live:storageclass/evs-ssd
+210,live:storageclass
+211,products/openova-mcp/internal/tools
+214,products/catalyst/bootstrap/ui
+215,products/catalyst/chart/crds/organization.yaml
+226,core/controllers/organization/internal/controller/per_org_flux.go
+229,products/catalyst/bootstrap/clusters
+230,live:secret/ghcr-pull-reflection
+231,platform/postgres/chart
+235,platform/sso-bridge + live:grafana OIDC client
+236,platform/keycloak + live:region-b bp-keycloak HelmRelease
+R10,products/catalyst/chart/templates/controllers/organization-controller-clusterrole.yaml
+R12,live:svc/shared-pg-mesh-rw
+R13,live:region-b/keycloak+gitea+harbor
+R14,products/catalyst/bootstrap/api/internal/handler/org_list_from_cr.go + products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/OrganizationsDirectoryPage.tsx
+R15,core/services/provisioning/handlers/organization_create.go
+R18,products/catalyst/bootstrap/api/cmd/api/main.go
+R20,.github/workflows
