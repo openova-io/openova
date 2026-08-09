@@ -121,8 +121,9 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    canon = {r["row_id"]: (norm(r["test_case"]), r["epic"], r["ticket"])
-             for r in csv.DictReader(CANON.open(newline="", encoding="utf-8"))}
+    _c = list(csv.DictReader(CANON.open(newline="", encoding="utf-8")))
+    canon = {r["row_id"]: (norm(r["test_case"]), r["epic"], r["ticket"]) for r in _c}
+    human = {r["row_id"]: re.sub(r"\s+", " ", r["test_case"]).strip() for r in _c}
 
     cycles = day_commits()
     snaps = {}
@@ -149,7 +150,10 @@ def main():
             if not glyph or not has_evidence(ev):
                 continue          # no verdict, or no proof -> no record
             wenv, wdate = split_walk(walk)
-            rows.append([ts, day, rid, epic, tick, sha12,
+            # The readable clause travels WITH the row. It was stripped once to
+            # shrink the file; that made the sheet unpivotable -- nobody can group
+            # by a row id. Size is the lesser problem.
+            rows.append([ts, day, rid, epic, tick, sha12, human[rid],
                          window[0], len(window),
                          wenv, wdate, first_link(ev), proof_tier(ev),
                          glyph, CLASS[glyph]])
@@ -168,8 +172,9 @@ def main():
     with RAW.open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(["cycle_ts", "cycle_date", "row_id", "epic", "ticket", "text_sha",
-                    "identity_from", "identity_cycles", "walk_env", "walk_date",
-                    "evidence_link", "proof_tier", "status", "status_class"])
+                    "test_case", "identity_from", "identity_cycles",
+                    "walk_env", "walk_date", "evidence_link", "proof_tier",
+                    "status", "status_class"])
         w.writerows(rows)
     print(f"-> {RAW.relative_to(ROOT)}")
 

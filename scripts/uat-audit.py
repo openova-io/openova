@@ -20,8 +20,8 @@ RAW = ROOT / "docs" / "ledger" / "uat-raw.csv"
 CANON = ROOT / "docs" / "ledger" / "uat-testcases.csv"
 
 EXPECTED = ["cycle_ts", "cycle_date", "row_id", "epic", "ticket", "text_sha",
-            "identity_from", "identity_cycles", "walk_env", "walk_date",
-            "evidence_link", "proof_tier", "status", "status_class"]
+            "test_case", "identity_from", "identity_cycles", "walk_env",
+            "walk_date", "evidence_link", "proof_tier", "status", "status_class"]
 VALID_CLASS = {"PASS", "FAIL", "PARTIAL", "NOTRUN", "SUPERSEDED"}
 VALID_TIER = {"ARTIFACT", "CITATION"}
 TS = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
@@ -69,6 +69,7 @@ def main():
 
     check(all(r["status_class"] in VALID_CLASS for r in rows), "status_class within vocabulary")
     check(all(r["status"].strip() for r in rows), "every row carries a verdict glyph")
+    check(all(r["test_case"].strip() for r in rows), "every row carries its readable test-case text")
 
     junk = collections.Counter(r["walk_env"] for r in rows if r["walk_env"] and not ENV.match(r["walk_env"]))
     check(not junk, "walk_env values are real Sovereign labels", f"{dict(junk)}")
