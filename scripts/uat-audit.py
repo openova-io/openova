@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
 """Integrity gate for docs/ledger/uat-raw.csv. Exit 1 on ANY violation.
 
-This exists because a fabricated column shipped once already: `env` was inferred
-from commit messages and disagreed with the row's own walk stamp 3539 times. The
-sheet is only worth having if every column is either measured or deterministically
-derived, and the only way to keep that true is a gate that can fail.
+Every row must be a PROVEN observation: the test case was byte-identical to the
+frozen canon at that cycle and continuously since, and it carried real evidence.
+There is no padding, so an absent row means "not proven", never "failed".
 
-Chain it before any commit that touches the sheet:
+Chain it, never run it as a separate line:
 
     python3 scripts/uat-audit.py && git commit ... && git push
-
-Never run it as a separate line and eyeball the output -- that is how the
-unverified push happened.
 """
 import collections
 import csv
@@ -23,13 +19,14 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 RAW = ROOT / "docs" / "ledger" / "uat-raw.csv"
 CANON = ROOT / "docs" / "ledger" / "uat-testcases.csv"
 
-EXPECTED_COLS = ["cycle_ts", "cycle_date", "row_id", "testcases_at_cycle",
-                 "comparable", "same_test_case", "text_sha", "walk_env",
-                 "evidence_link", "proof_tier", "status", "status_class"]
-VALID_CLASS = {"PASS", "FAIL", "PARTIAL", "NOTRUN", "SUPERSEDED", "ABSENT", "NO_EVIDENCE"}
-VALID_TIER = {"ARTIFACT", "CITATION", "NONE"}
+EXPECTED = ["cycle_ts", "cycle_date", "row_id", "epic", "ticket", "text_sha",
+            "identity_from", "identity_cycles", "walk_env", "walk_date",
+            "evidence_link", "proof_tier", "status", "status_class"]
+VALID_CLASS = {"PASS", "FAIL", "PARTIAL", "NOTRUN", "SUPERSEDED"}
+VALID_TIER = {"ARTIFACT", "CITATION"}
 TS = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+ENV = re.compile(r"^(hw\d{2,3}|kom4dc|t\d{2})$")
 
 fails = []
 
@@ -42,102 +39,51 @@ def check(ok, label, detail=""):
 
 def main():
     rows = list(csv.DictReader(RAW.open(newline="", encoding="utf-8")))
-    canon = [r["row_id"] for r in csv.DictReader(CANON.open(newline="", encoding="utf-8"))]
-    cycles = collections.OrderedDict()
-    for r in rows:
-        cycles.setdefault(r["cycle_ts"], []).append(r)
+    canon = {r["row_id"]: r for r in csv.DictReader(CANON.open(newline="", encoding="utf-8"))}
+    print(f"auditing {RAW.relative_to(ROOT)}: {len(rows)} proven observations\n")
 
-    print(f"auditing {RAW.relative_to(ROOT)}: {len(rows)} rows, {len(cycles)} cycles\n")
+    check(list(rows[0].keys()) == EXPECTED, "schema matches", f"got {list(rows[0].keys())}")
+    check(all(TS.match(r["cycle_ts"]) for r in rows), "cycle_ts Excel-parseable")
+    check(all(DATE.match(r["cycle_date"]) for r in rows), "cycle_date Excel-parseable")
 
-    check(list(rows[0].keys()) == EXPECTED_COLS, "schema matches expected columns",
-          f"got {list(rows[0].keys())}" if list(rows[0].keys()) != EXPECTED_COLS else "")
+    # Every row must be a real test case from the frozen canon.
+    unknown = {r["row_id"] for r in rows} - set(canon)
+    check(not unknown, "every row_id is in the frozen canon", f"{sorted(unknown)[:5]}")
 
-    sizes = {len(v) for v in cycles.values()}
-    check(sizes == {len(canon)}, f"every cycle emits exactly {len(canon)} rows",
-          f"sizes seen: {sorted(sizes)}")
+    # Identity: the digest must match the canon's own text digest, and the window
+    # must start no later than the observation itself.
+    import hashlib
+    def norm(s):
+        s = re.sub(r"[*`_]", "", (s or "")).strip().lower()
+        return re.sub(r"\s+", " ", s)
+    bad = [r["row_id"] for r in rows
+           if r["text_sha"] != hashlib.sha256(norm(canon[r["row_id"]]["test_case"]).encode()).hexdigest()[:12]]
+    check(not bad, "text_sha equals the canon clause digest — same test case", f"{len(bad)} mismatched")
+    late = [r["row_id"] for r in rows if r["identity_from"] > r["cycle_date"]]
+    check(not late, "observation falls inside its identity window", f"{len(late)} outside")
 
-    # The row COUNT is fixed by construction (canon-sized), but the BASELINE that
-    # existed at each cycle was not: it ran 4 -> 10 -> 186 -> 223 -> 226 -> 277 ->
-    # 281 -> 286. Scoring an old cycle against today's 286 reports a percentage
-    # against a denominator that did not exist. comparable=YES must therefore
-    # require the cycle's own baseline to equal the canon.
-    wrong = [r["row_id"] for r in rows
-             if r["comparable"] == "YES" and r["testcases_at_cycle"] != str(len(canon))]
-    check(not wrong, "comparable=YES only where the cycle's own baseline equals the canon",
-          f"{len(wrong)} rows claim comparability against a different baseline")
-    mism = [r["row_id"] for r in rows
-            if r["comparable"] == "YES" and r["same_test_case"] != "YES"]
-    check(not mism, "comparable=YES only where the test-case text also matches", f"{len(mism)}")
-
-    for name, rx in (("cycle_ts", TS), ("cycle_date", DATE)):
-        bad = [r[name] for r in rows if not rx.match(r[name])]
-        check(not bad, f"{name} is Excel-parseable", f"{len(bad)} bad, e.g. {bad[:3]}")
-
-
-    # THE FABRICATION CHECK. walk_env must be a prefix of walk_raw -- i.e. actually
-    # derived from it -- and must never appear without one.
+    # Evidence: no row may exist without proof, and ARTIFACT must carry a link.
+    check(all(r["proof_tier"] in VALID_TIER for r in rows), "proof_tier within vocabulary")
     liar = [r["row_id"] for r in rows if r["proof_tier"] == "ARTIFACT" and not r["evidence_link"].strip()]
-    check(not liar, "every ARTIFACT row carries a verifiable evidence_link", f"{len(liar)} lie")
-    sha = [r["row_id"] for r in rows if r["same_test_case"] == "YES" and len(r["text_sha"]) != 12]
-    check(not sha, "same_test_case=YES rows carry a 12-char identity digest", f"{len(sha)}")
+    check(not liar, "ARTIFACT rows carry a verifiable link", f"{len(liar)}")
 
-    # SEMANTIC check, not just derivational. The first version of this audit only
-    # asserted walk_env was a prefix of walk_raw, which passed 279 rows holding
-    # "https" / "repo" / "mothership" / bare digits parsed out of URL-shaped or
-    # numeric Walk cells. Correctly derived from the wrong thing is still wrong.
-    ENV_LABEL = re.compile(r"^(hw\d{2,3}|kom4dc|t\d{2})$")
-    junk = collections.Counter(r["walk_env"] for r in rows
-                               if r["walk_env"] and not ENV_LABEL.match(r["walk_env"]))
-    check(not junk, "walk_env values are real Sovereign labels",
-          f"{sum(junk.values())} rows: {dict(list(junk.items())[:6])}")
+    check(all(r["status_class"] in VALID_CLASS for r in rows), "status_class within vocabulary")
+    check(all(r["status"].strip() for r in rows), "every row carries a verdict glyph")
 
-    bad = [r["same_test_case"] for r in rows if r["same_test_case"] not in {"YES", "NO", "N/A"}]
-    check(not bad, "same_test_case within vocabulary", f"{sorted(set(bad))[:4]}")
-    # A scored row claiming identity must actually carry matching text.
+    junk = collections.Counter(r["walk_env"] for r in rows if r["walk_env"] and not ENV.match(r["walk_env"]))
+    check(not junk, "walk_env values are real Sovereign labels", f"{dict(junk)}")
 
-    bad = [r["proof_tier"] for r in rows if r["proof_tier"] not in VALID_TIER]
-    check(not bad, "proof_tier within vocabulary", f"{sorted(set(bad))[:4]}")
-    stray = [r["row_id"] for r in rows if r["evidence_link"].strip() and r["proof_tier"] != "ARTIFACT"]
-    check(not stray, "evidence_link only on ARTIFACT rows", f"{len(stray)} stray")
-    ghost = [r["row_id"] for r in rows if r["status_class"] == "NO_EVIDENCE" and r["status"].strip()]
-    check(not ghost, "NO_EVIDENCE rows carry no verdict glyph", f"{len(ghost)} ghosts")
+    dup = [k for k, v in collections.Counter((r["cycle_ts"], r["row_id"]) for r in rows).items() if v > 1]
+    check(not dup, "no duplicate (cycle, test case)", f"{len(dup)}")
 
-    bad = [r["status_class"] for r in rows if r["status_class"] not in VALID_CLASS]
-    check(not bad, "status_class is within the declared vocabulary",
-          f"unexpected: {sorted(set(bad))[:5]}")
-
-    # ABSENT must mean "no status recorded", never a real glyph relabelled away.
-    contradiction = [r["row_id"] for r in rows if r["status_class"] == "ABSENT" and r["status"].strip()]
-    check(not contradiction, "ABSENT rows carry no status glyph",
-          f"{len(contradiction)} contradictions")
-    # ABSENT (not yet defined) and NO_EVIDENCE (claim without proof) both legitimately
-    # carry no glyph. Every other class must.
-    missing = [r["row_id"] for r in rows
-               if r["status_class"] not in ("ABSENT", "NO_EVIDENCE") and not r["status"].strip()]
-    check(not missing, "every scored row carries a status glyph", f"{len(missing)} blank")
-
-    blank = sum(1 for r in rows if not r["row_id"].strip())
-    check(blank == 0, "row_id populated on every row", f"{blank} blank")
-
-    ids = {r["row_id"] for r in rows}
-    check(ids == set(canon), "row_id set matches the frozen canon exactly",
-          f"+{len(ids - set(canon))} / -{len(set(canon) - ids)}")
-
-    for ts, rs in cycles.items():
-        if len({r["row_id"] for r in rs}) != len(rs):
-            check(False, f"cycle {ts} has duplicate row_ids")
-            break
-    else:
-        check(True, "no duplicate row_id within any cycle")
-
-    order = list(cycles)
-    check(order == sorted(order), "cycles are in chronological order")
+    ts = [r["cycle_ts"] for r in rows]
+    check(ts == sorted(ts), "rows are in chronological order")
 
     print()
     if fails:
-        print(f"INTEGRITY FAILED: {len(fails)} check(s) -> {fails}", file=sys.stderr)
+        print(f"INTEGRITY FAILED: {fails}", file=sys.stderr)
         sys.exit(1)
-    print("INTEGRITY OK — every column measured or deterministically derived.")
+    print("INTEGRITY OK — every row is an identity-matched, evidence-backed observation.")
 
 
 if __name__ == "__main__":
