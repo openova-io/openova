@@ -44,6 +44,39 @@ POS_EVIDENCE = re.compile(rf"^\s*{_EMPH}(✅|PASS\b)")
 # Any hwNNN token (the env label predecessor-detector).
 HW_TOKEN = re.compile(r"\bhw\d+\b", re.IGNORECASE)
 
+# Cell separator that respects markdown-escaped pipes, matching the rest of the
+# UAT tooling. A naive split("|") mis-identifies every cell after an escaped one.
+ESC_PIPE = re.compile(r"(?<!\\)\|")
+
+# A reference that CARRIES an env label: a markdown link target, a path under
+# docs/sessions or evidence/, or an "hwNNN-NN" screenshot id. These are where a
+# stale env actually hides; free prose is where controls are described.
+ARTIFACT_REF = re.compile(
+    r"\]\(([^)\s]+)\)"
+    r"|((?:docs/)?sessions/[^\s)]+)"
+    r"|(evidence/[^\s)]+)"
+    r"|(\bhw\d+-\d+[^\s)]*)",
+    re.IGNORECASE)
+
+# ANONYMISED predecessor references. Matching only `hwNNN` means the guard can be
+# defeated by deleting the env name, and that is not hypothetical: commit
+# 1846d0f67 carries the subject line "drop predecessor-env token so the guard
+# passes on the hw292 stamp". Two ✅ rows (R15, M3) then sat invisible behind the
+# phrase "a predecessor env-2026-08-03T20:3xZ READ-ONLY WALK" — evidence openly
+# declaring it was taken somewhere else, on a row the guard reported as clean.
+#
+# Removing the name does not remove the problem, so an anonymised reference now
+# counts exactly as a named one. Note this catches the HONEST phrasing too; that
+# is intended. A walker who writes "a predecessor env" is telling the truth about
+# a verdict that still must not be stamped ✅ against the current env.
+ANON_PREDECESSOR = re.compile(
+    r"\ba\s+predecessor\s+env\b"
+    r"|\bpredecessor[- ]env\b"
+    r"|\bthe\s+predecessor\s+(?:env|environment|Sovereign)\b"
+    r"|\ba\s+(?:wiped|prior|previous|earlier)\s+(?:env|environment|Sovereign)\b",
+    re.IGNORECASE,
+)
+
 # A concrete proof artifact: a screenshot / sessions-evidence link or a linked
 # proof file. A ✅ row that merely *names* a feature is fine; a ✅ row that LINKS a
 # wiped env's artifact is the fabricated snapshot we reject.
@@ -91,9 +124,58 @@ def scan_text(text, current_env):
         # Does the row carry a concrete proof artifact (a screenshot / evidence link)?
         if not PROOF_ARTIFACT.search(ln):
             continue
-        # Which hwNNN tokens in the row are NOT the current env?
+        # Which hwNNN tokens are NOT the current env?
+        #
+        # Scope this to where a STAMP or an ARTIFACT PATH lives, not to free
+        # prose. Scanning the whole line flags an env named as a CONTROL: the
+        # strongest evidence in this ledger for the janitor's protect branch is
+        # "three identically-shaped keypairs in one sweep -- hw227 would-reap,
+        # hw292 skipped" — naming the other Sovereign is what makes it
+        # discriminating, and a guard that punishes it pushes walkers toward
+        # vaguer evidence or toward deleting the name, which is the evasion this
+        # file already exists to close.
+        #
+        # A ✅ citing a WIPED env's screenshot still fails, because the artifact
+        # path carries the env label (docs/sessions/<date>/hw291-*.png). What no
+        # longer fails is describing another environment in a sentence.
+        # REVERTED to a whole-line scan, deliberately. I tried narrowing this to
+        # the walk cell plus artifact paths, so that naming another Sovereign as
+        # a CONTROL ("hw227 would-reap, hw292 skipped" in one janitor sweep)
+        # would not trip the guard. The self-test immediately failed 3 of its 5
+        # cases: the scoping hardcoded UAT.md's column indices, which do not
+        # exist in the uat-walkthrough table shape, so the scan silently found
+        # nothing and every stale fixture passed.
+        #
+        # The lesson is the guard's, not the fixture's. Its rule — a ✅ row may
+        # not carry ANY foreign env label — is conservative and cheap to satisfy:
+        # a control can be described by what it discriminates ("two other
+        # Sovereigns' keypairs were would-reaped in the same pass") without
+        # embedding the label. Weakening a working guard to accommodate my own
+        # prose is the wrong trade, and the self-test is what stopped me making
+        # it.
         hits = {h.lower() for h in HW_TOKEN.findall(ln)}
         stale = sorted(h for h in hits if h != cur)
+        # An anonymised predecessor reference counts as a named one -- but ONLY
+        # where the env STAMP lives, at the head of the evidence cell.
+        #
+        # Matching anywhere on the line was the first attempt and it was wrong:
+        # it fired on rows whose own walk WAS on the current env and which merely
+        # mention a predecessor while explaining history (R2, 12, 17). A guard
+        # that punishes honest context gets worked around, and a worked-around
+        # guard protects nothing. The defect is narrower and has a fixed
+        # location: "a predecessor env-2026-08-03T20:3xZ READ-ONLY WALK" sits
+        # exactly where "hw292-2026-08-08" would, as the cell's opening stamp.
+        # Split ESCAPE-AWARE. `ln.split("|")` breaks on `\|` inside a cell, so on
+        # any row whose evidence escapes a pipe the "last cell" is a mid-sentence
+        # fragment. That produced both error directions at once here: R2 looked
+        # like a hit because a fragment happened to begin "a predecessor env:",
+        # while R15 and M3 -- whose evidence genuinely OPENS on that phrase --
+        # were invisible because their real opening was never examined. The rest
+        # of the UAT tooling already splits on `(?<!\\)\|`; this guard did not.
+        ecells = ESC_PIPE.split(ln.rstrip())
+        ev = ecells[7].strip() if len(ecells) > 7 else ""
+        if ANON_PREDECESSOR.match(ev[:80]):
+            stale = sorted(set(stale) | {"(unnamed predecessor env)"})
         if stale:
             excerpt = ln.strip()
             if len(excerpt) > 160:

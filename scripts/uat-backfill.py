@@ -44,8 +44,15 @@ CELL = re.compile(r"(?<!\\)\|")
 ROW_ID = re.compile(r"^\|\s*(R?\d+|[GWM]\d+)\s*\|")
 LINK = re.compile(r"\]\(([^)\s]+)\)")
 ENV_LABEL = re.compile(r"^(hw\d{2,3}|kom4dc|t\d{2})$")
-GLYPHS = ["✅", "❌", "⚠️", "⛔", "☐"]
-CLASS = {"✅": "PASS", "❌": "FAIL", "⚠️": "PARTIAL", "☐": "NOTRUN", "⛔": "SUPERSEDED"}
+GLYPHS = ["✅", "❌", "⚠️", "⛔", "☐", "⏳"]
+# ⏳ is what reset-uat.py writes over a ✅ when a fresh prov flushes its evidence
+# (scripts/reset-uat.py:16): the case WAS proven once and now awaits a re-walk on
+# the new env. Distinct from ☐, which means never walked at all. It was missing
+# from this map, so 13 rows carrying it produced no glyph and were dropped from
+# the sheet entirely — the same silent-deletion defect the stray ◑ caused, found
+# the same way: by a guard refusing an unknown symbol instead of skipping it.
+CLASS = {"✅": "PASS", "❌": "FAIL", "⚠️": "PARTIAL", "☐": "NOTRUN",
+         "⛔": "SUPERSEDED", "⏳": "PENDING"}
 PLACEHOLDER = {"", "-", "—", "–", "0", "n/a", "N/A", "tbd", "TBD", "?"}
 
 
