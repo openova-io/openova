@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-09T16:45:03Z` |
+| Last refreshed | `2026-08-09T17:00:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-09T16:59 | [#5918](https://github.com/openova-io/openova/pull/5918) | #3376 | docs(uat): row 92 — the redeem rate-limit fix exists, is pur |
 | 2026-08-08T19:54 | [#5917](https://github.com/openova-io/openova/pull/5917) | #5848 | fix(org-controller): reap the per-Org wildcard TLS Secret on |
 | 2026-08-08T16:47 | [#5916](https://github.com/openova-io/openova/pull/5916) | #3687 | docs(uat): rows 19 + 33 — backing data measured, both reduce |
 | 2026-08-08T16:00 | [#5915](https://github.com/openova-io/openova/pull/5915) | #4459 | docs(uat): R17 — Org delete-cascade leaks two PLATFORM-names |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T22:04 | [#5886](https://github.com/openova-io/openova/pull/5886) | #5847 | docs(uat): rows 10+11 green — the customer Org existed all a |
 | 2026-08-07T21:55 | [#5884](https://github.com/openova-io/openova/pull/5884) | #5882 | docs(uat): SSO deep walk on hw292 — 4 rows green, openbao an |
 | 2026-08-07T21:40 | [#5881](https://github.com/openova-io/openova/pull/5881) | #5853 | fix(uat): the Result column may hold a verdict and nothing e |
-| 2026-08-07T21:36 | [#5879](https://github.com/openova-io/openova/pull/5879) | #3858 | docs(uat): SSO landing walk on hw292 — 5 rows green incl. ha |
 
 ---
 
