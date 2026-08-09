@@ -208,7 +208,7 @@ func TestObservedTargetsFromPlan_PrefersDesiredRoles(t *testing.T) {
 		{Region: "region-a", Cluster: "mgmt-A", Role: bpv1alpha1.DataRolePrimary},
 		{Region: "region-b", Cluster: "mgmt-B", Role: bpv1alpha1.DataRoleStandby, StandbyType: bpv1alpha1.StandbyHot},
 	}
-	ready := readbackByRegion(plan, PhaseReady)
+	ready := readbackByRegion(plan, PhaseReady, len(plan.Regions))
 	obs := observedTargetsFromPlan(plan, targets, ready, false)
 	if len(obs) != 2 {
 		t.Fatalf("observed len = %d, want 2", len(obs))
@@ -244,7 +244,7 @@ func TestObservedTargetsFromPlan_ArmsHotStandbyWhenDRContract(t *testing.T) {
 		{Region: "region-b", Cluster: "mgmt-B", Role: bpv1alpha1.DataRoleStandby, StandbyType: bpv1alpha1.StandbyHot},
 		{Region: "region-c", Cluster: "mgmt-C", Role: bpv1alpha1.DataRoleStandby, StandbyType: bpv1alpha1.StandbyCold},
 	}
-	obs := observedTargetsFromPlan(plan, targets, readbackByRegion(plan, PhaseReady), true)
+	obs := observedTargetsFromPlan(plan, targets, readbackByRegion(plan, PhaseReady, len(plan.Regions)), true)
 	if obs[0].Armed {
 		t.Errorf("Primary must never be Armed, got %+v", obs[0])
 	}
@@ -276,7 +276,7 @@ func TestObservedTargetsFromPlan_LegacyPlanWithoutTargets(t *testing.T) {
 		},
 	}
 	// No desired targets ⇒ map the legacy plan roles.
-	obs := observedTargetsFromPlan(plan, nil, readbackByRegion(plan, PhaseProvisioning), false)
+	obs := observedTargetsFromPlan(plan, nil, readbackByRegion(plan, PhaseProvisioning, len(plan.Regions)), false)
 	if obs[0].Role != bpv1alpha1.DataRolePrimary || obs[1].Role != bpv1alpha1.DataRoleStandby {
 		t.Errorf("legacy plan roles = %q/%q, want Primary/Standby", obs[0].Role, obs[1].Role)
 	}

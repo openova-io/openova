@@ -1698,7 +1698,33 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	// status.targets[].armed; the runtime lease-held state stays on the
 	// Continuum CR (continuum-controller-owned) and only the fresh-multi-region
 	// walk proves which region currently holds it.
-	readyByRegion := readbackByRegion(plan, finalPhase)
+	//
+	// #5137 — the readiness input is CAPPED by what was actually delivered.
+	// The observation work-list above is built from the MATERIALISED
+	// deliveries (perClusterStatus → fanoutHRRefs); the fan-out below runs
+	// over the DECLARED plan. When the topology fan-out collapses to fewer
+	// clusters than the plan declares regions (the #5513 condition, live on
+	// hw292/uat-ahs-pg: ONE HelmRelease `uat-ahs-pg-rtz-a`, TWO declared
+	// regions), the aggregate PhaseReady earned by the deliveries that DO
+	// exist was stamped onto every declared region — so me-east-215-b, which
+	// holds no namespace, no HelmRelease and no workload, published
+	// `status.targets[].ready: true` + `standbyType: Hot` while
+	// `status.regions[]` for the SAME region published `replicas: 0,
+	// ready: 0`, and the ONE recon value read `Reconciled`. One object, two
+	// contradictory facts, with the Topology tab wired to the optimistic
+	// half. The credit is capped at the number of deliveries observed Ready,
+	// read from perClusterStatus — the same source #5513 already made
+	// authoritative for the region count a few lines above.
+	readyDeliveries := len(plan.Regions)
+	if fanoutOwnsInstall {
+		readyDeliveries = 0
+		for _, pcs := range perClusterStatus {
+			if s, _ := pcs["status"].(string); s == PhaseReady {
+				readyDeliveries++
+			}
+		}
+	}
+	readyByRegion := readbackByRegion(plan, finalPhase, readyDeliveries)
 	observed := observedTargetsFromPlan(plan, effectiveTargets, readyByRegion, continuumRef != "")
 	su.PlacementRecon, su.PlacementReason, su.ObservedTargets = reconStatusBlock(observed)
 
@@ -1714,15 +1740,41 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 // observeRegionHelmReleases collapses the per-region HRs to a single
 // worst-of phase; we fan that back out across the plan's regions so the
 // ObservedTarget rollup is consistent with the Application phase the rest
-// of the status already reports. PhaseReady ⇒ every region ready;
-// PhaseDegraded/PhaseFailed ⇒ every region degraded; otherwise ⇒ none
-// ready yet (Reconciling), never degraded.
-func readbackByRegion(plan placement.Plan, phase string) map[string]regionReadback {
+// of the status already reports. PhaseDegraded/PhaseFailed ⇒ every region
+// degraded; anything but Ready/Degraded/Failed ⇒ none ready yet
+// (Reconciling), never degraded.
+//
+// #5137 — PhaseReady is NOT fanned out unconditionally. `readyDeliveries`
+// is how many deliveries the reconcile actually observed reporting
+// Ready=True; at most that many regions may be credited, in plan order
+// (placement.Resolve puts the Primary at index 0, then the standbys). A
+// declared region beyond that count was never observed by ANY HelmRelease
+// GET this pass — no evidence exists for it, so it reports Reconciling.
+//
+// This is the asymmetry the defect demands: `ready` is the OBSERVED half of
+// a status whose region/role/standbyType identity is DECLARED intent, so
+// over-claiming readiness fabricates a hot standby that does not exist
+// (hw292/uat-ahs-pg published `ready: true` for a region with no
+// namespace). Over-claiming DEGRADED is at worst noisy — it never invents a
+// working replica — so the degraded fan-out is deliberately left alone.
+//
+// Not in scope: the legacy single-HR host path aims every planned region at
+// the same bare `<app>` HR, so its per-region evidence is nominal rather
+// than real. Its caller passes len(plan.Regions) — a non-binding cap that
+// keeps that path byte-identical to before.
+func readbackByRegion(plan placement.Plan, phase string, readyDeliveries int) map[string]regionReadback {
 	out := make(map[string]regionReadback, len(plan.Regions))
+	credited := 0
 	for _, rp := range plan.Regions {
 		switch phase {
 		case PhaseReady:
+			if credited >= readyDeliveries {
+				// No delivery left to attribute to this region.
+				out[rp.Name] = regionReadback{}
+				continue
+			}
 			out[rp.Name] = regionReadback{ready: true}
+			credited++
 		case PhaseDegraded, PhaseFailed:
 			out[rp.Name] = regionReadback{degraded: true}
 		default:
