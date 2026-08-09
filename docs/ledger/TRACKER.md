@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-09T21:45:03Z` |
+| Last refreshed | `2026-08-09T22:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-09T21:48 | [#5938](https://github.com/openova-io/openova/pull/5938) | #3383 | docs(uat): row 5 asserted a schema-forbidden value — correct |
+| 2026-08-09T21:49 | [#5937](https://github.com/openova-io/openova/pull/5937) | #4325 | fix(dashboard): group the vCluster treemap layer on a runtim |
 | 2026-08-09T20:59 | [#5936](https://github.com/openova-io/openova/pull/5936) | #5836 | fix(console): the Status panel must render a bootstrap compo |
 | 2026-08-09T20:59 | [#5935](https://github.com/openova-io/openova/pull/5935) | #5814 | fix(catalyst-api): customer Application CRs must carry spec. |
 | 2026-08-09T20:07 | [#5931](https://github.com/openova-io/openova/pull/5931) | #3925 | fix(jobs): an unterminated run must not bury a failed one (U |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-08T02:39 | [#5902](https://github.com/openova-io/openova/pull/5902) | #5872 | fix(api): applications LIST returns placement, from the same |
 | 2026-08-08T00:53 | [#5901](https://github.com/openova-io/openova/pull/5901) | #4272 | docs(uat): row 94 carries the #5895 root cause, not just the |
 | 2026-08-08T00:25 | [#5900](https://github.com/openova-io/openova/pull/5900) | #5887 | docs(uat): row 29 correction — silent re-auth works; my firs |
-| 2026-08-08T00:09 | [#5899](https://github.com/openova-io/openova/pull/5899) | #4272 | test(ui): arm a tripwire for #5895 — per-Org console derives |
-| 2026-08-07T23:25 | [#5898](https://github.com/openova-io/openova/pull/5898) | #5894 | docs(ledger): PATH-TO-100's headline claim went false the sa |
 
 ---
 
