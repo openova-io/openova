@@ -17,6 +17,7 @@ on:
       - 'infra/providers/_shared/cloudinit-control-plane.tftpl'
       - 'scripts/check-bootstrap-deps.sh'
       - 'scripts/check-bootstrap-kit-pin-sync.sh'
+      - 'scripts/check-cutover-version-floor.py'
       - 'scripts/check-umbrella-republish-gate.py'
       - 'scripts/sync-catalog-seed-pin.py'
       - 'scripts/check-cloudinit-kustomization-deps.sh'
@@ -37,6 +38,7 @@ on:
       - 'infra/providers/_shared/cloudinit-control-plane.tftpl'
       - 'scripts/check-bootstrap-deps.sh'
       - 'scripts/check-bootstrap-kit-pin-sync.sh'
+      - 'scripts/check-cutover-version-floor.py'
       - 'scripts/check-umbrella-republish-gate.py'
       - 'scripts/sync-catalog-seed-pin.py'
       - 'scripts/check-cloudinit-kustomization-deps.sh'
@@ -249,6 +251,20 @@ jobs:
             echo "Running full sweep + --check-ghcr (event=${{ github.event_name }})"
             bash scripts/check-bootstrap-kit-pin-sync.sh --check-ghcr
           fi
+
+      - name: Cutover sovereignty version floor (#5919)
+        # Pin-sync above proves Chart.yaml and the bootstrap-kit slot AGREE.
+        # It is satisfied just as happily by 0.1.159/0.1.159 as by
+        # 0.1.176/0.1.176 — agreement is not correctness. This asserts the
+        # number is high enough: below 0.1.171 the cutover pivots the loft
+        # chart source in the primary region ONLY (#5650/#5719), so a
+        # two-region Sovereign reaches cutoverComplete=true with region B
+        # still tethered to charts.loft.sh. Measured on hw292 at 0.1.159:
+        # 62 live ghcr.io HelmRepository tethers behind cc=true.
+        run: |
+          set -euo pipefail
+          python3 scripts/check-cutover-version-floor.py --self-test
+          python3 scripts/check-cutover-version-floor.py
 
       - name: Umbrella-republish gate (#5734)
         # #5734: check-release-lockstep-writer.py's `umbrella` case proves
