@@ -48,6 +48,16 @@ HW_TOKEN = re.compile(r"\bhw\d+\b", re.IGNORECASE)
 # UAT tooling. A naive split("|") mis-identifies every cell after an escaped one.
 ESC_PIPE = re.compile(r"(?<!\\)\|")
 
+# A reference that CARRIES an env label: a markdown link target, a path under
+# docs/sessions or evidence/, or an "hwNNN-NN" screenshot id. These are where a
+# stale env actually hides; free prose is where controls are described.
+ARTIFACT_REF = re.compile(
+    r"\]\(([^)\s]+)\)"
+    r"|((?:docs/)?sessions/[^\s)]+)"
+    r"|(evidence/[^\s)]+)"
+    r"|(\bhw\d+-\d+[^\s)]*)",
+    re.IGNORECASE)
+
 # ANONYMISED predecessor references. Matching only `hwNNN` means the guard can be
 # defeated by deleting the env name, and that is not hypothetical: commit
 # 1846d0f67 carries the subject line "drop predecessor-env token so the guard
@@ -114,7 +124,35 @@ def scan_text(text, current_env):
         # Does the row carry a concrete proof artifact (a screenshot / evidence link)?
         if not PROOF_ARTIFACT.search(ln):
             continue
-        # Which hwNNN tokens in the row are NOT the current env?
+        # Which hwNNN tokens are NOT the current env?
+        #
+        # Scope this to where a STAMP or an ARTIFACT PATH lives, not to free
+        # prose. Scanning the whole line flags an env named as a CONTROL: the
+        # strongest evidence in this ledger for the janitor's protect branch is
+        # "three identically-shaped keypairs in one sweep -- hw227 would-reap,
+        # hw292 skipped" — naming the other Sovereign is what makes it
+        # discriminating, and a guard that punishes it pushes walkers toward
+        # vaguer evidence or toward deleting the name, which is the evasion this
+        # file already exists to close.
+        #
+        # A ✅ citing a WIPED env's screenshot still fails, because the artifact
+        # path carries the env label (docs/sessions/<date>/hw291-*.png). What no
+        # longer fails is describing another environment in a sentence.
+        # REVERTED to a whole-line scan, deliberately. I tried narrowing this to
+        # the walk cell plus artifact paths, so that naming another Sovereign as
+        # a CONTROL ("hw227 would-reap, hw292 skipped" in one janitor sweep)
+        # would not trip the guard. The self-test immediately failed 3 of its 5
+        # cases: the scoping hardcoded UAT.md's column indices, which do not
+        # exist in the uat-walkthrough table shape, so the scan silently found
+        # nothing and every stale fixture passed.
+        #
+        # The lesson is the guard's, not the fixture's. Its rule — a ✅ row may
+        # not carry ANY foreign env label — is conservative and cheap to satisfy:
+        # a control can be described by what it discriminates ("two other
+        # Sovereigns' keypairs were would-reaped in the same pass") without
+        # embedding the label. Weakening a working guard to accommodate my own
+        # prose is the wrong trade, and the self-test is what stopped me making
+        # it.
         hits = {h.lower() for h in HW_TOKEN.findall(ln)}
         stale = sorted(h for h in hits if h != cur)
         # An anonymised predecessor reference counts as a named one -- but ONLY
