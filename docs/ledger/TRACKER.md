@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-09T20:30:07Z` |
+| Last refreshed | `2026-08-09T20:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5429](https://github.com/openova-io/openova/issues/5429) | Apps grid renders two cards per Application CR when spec.helmRelease.name is uns | Other |
-| [#5433](https://github.com/openova-io/openova/issues/5433) | bp-postgres defaults the CNPG Cluster name to a bare 'postgres', so multiple rel | Other |
 | [#5434](https://github.com/openova-io/openova/issues/5434) | App-detail Dependencies never names the producing instance — backend reads onl | Other |
 | [#5435](https://github.com/openova-io/openova/issues/5435) | Banned term 'tenant' reaches the console from a Deployment literally named tenan | Other |
 | [#5436](https://github.com/openova-io/openova/issues/5436) | Cutover step-06 exits success while 6 HelmRepositories remain on ghcr — its ow | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#5926](https://github.com/openova-io/openova/issues/5926) | UAT row 85: checkout renders payment-method tiles + Stripe redirect copy on a fu | Other |
 | [#5929](https://github.com/openova-io/openova/issues/5929) | UAT row 164: a terminal Failed Job produces no failed leaf — an unterminated l | Other |
 | [#5932](https://github.com/openova-io/openova/issues/5932) | Dashboard treemap: the vCluster grouping dimension keys on the retired #4325 vcl | Other |
+| [#5933](https://github.com/openova-io/openova/issues/5933) | Customer Application CRs never carry spec.organizationRef — the #5814 Org-attr | Other |
+| [#5934](https://github.com/openova-io/openova/issues/5934) | TopologyTab hard-renders 'n/a — bootstrap component' regardless of the API ans | Other |
 
 ---
 
