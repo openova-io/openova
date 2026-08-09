@@ -64,11 +64,17 @@ export interface TopologyTabProps {
   /** Caller's tier — reserved (the editor server-side enforces the role). */
   callerTier?: string
   /**
-   * #3656 — true when this app is a bootstrap-kit HelmRelease with NO
-   * companion Application CR. The GET /applications/{name}/status endpoint
-   * 404s for these, so we MUST NOT poll it (calm n/a status instead of a
-   * 404 loop). Generic by construction — keys on "has Application CR", never
-   * a blueprint name.
+   * True when this app is a bootstrap-kit HelmRelease with NO companion
+   * Application CR. Generic by construction — keys on "has Application CR",
+   * never a blueprint name.
+   *
+   * #3656 → #5934: this flag no longer suppresses the status poll. It once
+   * did, because GET /applications/{name}/status 404'd for every such
+   * component; since #5836 that endpoint answers from the same synthesisers
+   * the sibling detail endpoint uses, so the flag now only selects the
+   * ABSTENTION COPY shown if the endpoint turns out to have nothing, plus the
+   * #4000 empty-namespace placement lookup. It must never again decide WHETHER
+   * to ask.
    */
   isBootstrap?: boolean
 }
@@ -136,17 +142,36 @@ export function TopologyTab({
   // panel's "Switch over…" button). Closed by default.
   const [showSwitchover, setShowSwitchover] = useState(false)
 
-  // #3656 — bootstrap-kit HelmReleases have no Application CR; the status
-  // endpoint 404s forever, so don't poll it for them.
+  // #3656 → #5934. #3656 disabled this poll for bootstrap-kit components
+  // because they have no Application CR and the endpoint 404'd forever. The
+  // 404-loop worry was right; "never ask" was too blunt an answer, and it
+  // outlived its cause: since #5836 GET /applications/{name}/status falls
+  // through to the same synthesisers the sibling detail endpoint uses (the
+  // HelmRelease first, then the live runtime), so bp-grafana and bp-keycloak
+  // DO have a status to report — the console simply never asked for it, and
+  // printed "n/a — bootstrap component" on a page whose own header read Ready
+  // (UAT rows 67, 69).
+  //
+  // So: ask for every component, and keep #3656's actual concern by backing
+  // off the moment the endpoint tells us it has nothing (retry:false + the
+  // error-aware interval below). One 404 per mount, never a loop.
+  const statusEnabled = !initialApp && !!sovereignId && !!applicationName
   const statusQ = useQuery({
     queryKey: ['application-status', sovereignId, applicationName, namespace, refreshTick],
     queryFn: () => getApplicationStatus(sovereignId, applicationName, namespace),
-    enabled: !initialApp && !isBootstrap && !!sovereignId && !!applicationName,
-    refetchInterval: isBootstrap ? false : 10_000,
+    enabled: statusEnabled,
+    refetchInterval: (query) => (query.state.status === 'error' ? false : 10_000),
     retry: false,
   })
 
   const app: ApplicationStatus | undefined = initialApp ?? statusQ.data
+
+  // Has the status question been ANSWERED yet? Distinct from "is there an
+  // answer": the Status panel below must not render its abstention prose while
+  // the request is still in flight, or every bootstrap component flashes
+  // "no status" before its real one arrives. A disabled query counts as
+  // settled — nothing is coming.
+  const statusSettled = !statusEnabled || statusQ.isSuccess || statusQ.isError
 
   // #3982 — the REAL placement, derived from where the component's
   // workloads actually run across BOTH region clusters. This is the
@@ -1042,15 +1067,20 @@ export function TopologyTab({
         data-testid="topology-tab-status-panel"
       >
         <h3 className="mb-2 text-sm font-semibold text-[var(--color-text-strong)]">Status</h3>
-        {isBootstrap ? (
-          <p className="text-xs text-[var(--color-text-dim)]" data-testid="topology-tab-status-bootstrap">
-            n/a — bootstrap component (HelmRelease, no Application CR). Live rollout status is tracked via Flux.
-          </p>
-        ) : !app ? (
-          <p className="text-xs text-[var(--color-text-dim)]" data-testid="topology-tab-status-loading">
-            Loading status…
-          </p>
-        ) : (
+        {/* #5934 — the ANSWER decides what renders here, never the component's
+            CLASS. This branch used to lead on `isBootstrap` and hard-render the
+            n/a prose regardless of what the API returned, so the real-status
+            branch was unreachable for the ~40 bootstrap-kit components on a
+            converged Sovereign — including when a caller had already handed us
+            a status via initialApp. That is what made rows 67 and 69 read
+            "n/a — bootstrap component" three inches under a header saying
+            STATUS Ready.
+
+            The abstention survives, narrowed to the one case that earns it: we
+            asked and the endpoint genuinely had nothing (both synthesisers
+            missed → 404). "We did not ask" and "there is no answer" must not
+            render identically. */}
+        {app ? (
           <div className="flex items-center gap-2 text-xs" data-testid="topology-tab-recon-status">
             <span
               className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-semibold ${
@@ -1069,6 +1099,14 @@ export function TopologyTab({
               </span>
             ) : null}
           </div>
+        ) : isBootstrap && statusSettled ? (
+          <p className="text-xs text-[var(--color-text-dim)]" data-testid="topology-tab-status-bootstrap">
+            n/a — bootstrap component (HelmRelease, no Application CR). Live rollout status is tracked via Flux.
+          </p>
+        ) : (
+          <p className="text-xs text-[var(--color-text-dim)]" data-testid="topology-tab-status-loading">
+            Loading status…
+          </p>
         )}
       </section>
     </div>

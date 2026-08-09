@@ -215,9 +215,25 @@ describe('TopologyTab — #3969 { Placement, Status }', () => {
   })
 })
 
-describe('TopologyTab — bootstrap HelmRelease status poll (#3656)', () => {
-  it('does NOT poll the status endpoint for a bootstrap component (no 404 loop)', async () => {
+describe('TopologyTab — bootstrap HelmRelease status poll (#3656 → #5934)', () => {
+  // SUPERSEDED CONTRACT, rewritten rather than deleted. This case used to
+  // assert `getApplicationStatus` was NEVER called for a bootstrap component.
+  // That was correct while the endpoint 404'd forever, and it is wrong now:
+  // #5836 gave /applications/{name}/status the same synthesiser fallback its
+  // sibling detail endpoint has, so bp-alloy et al. DO have a status. Leaving
+  // the old assertion in place would have pinned the very defect rows 67/69
+  // measured — the console printing "n/a — bootstrap component" under a header
+  // reading Ready. The 404-LOOP concern #3656 actually cared about is retained
+  // and asserted in TopologyTab.bootstrapStatus-5934.test.tsx (the poll backs
+  // off the moment the endpoint answers with nothing).
+  it('#5934: DOES poll the status endpoint for a bootstrap component, and renders the answer', async () => {
     getHierarchicalInfrastructure.mockResolvedValue({ topology: { regions: [] } })
+    getApplicationStatus.mockResolvedValue({
+      name: 'bp-alloy',
+      namespace: 'flux-system',
+      phase: 'Ready',
+      status: {},
+    })
 
     render(
       withProviders(
@@ -226,10 +242,10 @@ describe('TopologyTab — bootstrap HelmRelease status poll (#3656)', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-status-bootstrap')).toBeTruthy()
+      expect(screen.getByTestId('topology-tab-recon-status')).toBeTruthy()
     })
-    expect(screen.queryByTestId('topology-tab-status-loading')).toBeNull()
-    expect(getApplicationStatus).not.toHaveBeenCalled()
+    expect(getApplicationStatus).toHaveBeenCalled()
+    expect(screen.queryByTestId('topology-tab-status-bootstrap')).toBeNull()
   })
 
   it('#4000: queries placement with EMPTY namespace for a bootstrap component (workload Pods run in their own ns, not the flux-system HR ns)', async () => {
@@ -656,8 +672,12 @@ describe('TopologyTab — #4886 bootstrap-HR DR off the live Continuum CR', () =
       expect(screen.getByTestId('topology-tab-dr-lag-value').textContent).toContain('0.0 s')
     })
     expect(screen.getByTestId('topology-tab-dr-source').textContent).toContain('live')
-    // The Status panel's honest "n/a — bootstrap component" note is unaffected.
-    expect(screen.getByTestId('topology-tab-status-bootstrap')).toBeTruthy()
+    // The Status panel is unaffected by the DR panel — it still renders. This
+    // used to anchor on the "n/a — bootstrap component" prose; #5934 made that
+    // string the FALLBACK rather than the fixed rendering for a bootstrap
+    // component, so anchoring on the panel itself is what this case actually
+    // means (DR does not displace Status).
+    expect(screen.getByTestId('topology-tab-status-panel')).toBeTruthy()
   })
 
   it('#5514: a DECLARED active-hot-standby with ZERO backing arms NOTHING — no lag, no follower card, switchover DISABLED', async () => {
@@ -1040,8 +1060,15 @@ describe('TopologyTab — #4886 bootstrap-HR DR off the live Continuum CR', () =
       ),
     )
 
+    // Anchor on the SUBJECT of this case — the replication-status answer this
+    // assertion is about — so the two negatives below cannot pass merely
+    // because nothing has rendered yet. (It previously anchored on the
+    // "n/a — bootstrap component" prose, which #5934 turned into a fallback.)
     await waitFor(() => {
-      expect(screen.getByTestId('topology-tab-status-bootstrap')).toBeTruthy()
+      expect(getContinuumReplicationStatus).toHaveBeenCalled()
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('topology-tab-placement-panel')).toBeTruthy()
     })
     expect(screen.queryByTestId('topology-tab-dr-panel')).toBeNull()
     expect(screen.queryByTestId('topology-tab-dr-switchover')).toBeNull()

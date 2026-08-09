@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-08T20:45:02Z` |
+| Last refreshed | `2026-08-09T21:00:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,14 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5421](https://github.com/openova-io/openova/issues/5421) | Marketplace redeem page misses cookie-borne owner sessions — localStorage prob | Other |
-| [#5422](https://github.com/openova-io/openova/issues/5422) | Console Overview hardcodes Placement fallback to 'singleton', contradicting the  | Other |
-| [#5423](https://github.com/openova-io/openova/issues/5423) | P0: vcluster-tier funnel cart with a HelmRelease-shaped app poisons the whole pe | Other |
-| [#5425](https://github.com/openova-io/openova/issues/5425) | WriteTenantOverlay writes the legacy org-tenants path on EVERY Org create — un | Other |
-| [#5426](https://github.com/openova-io/openova/issues/5426) | Organization delete never runs the finalizer cascade — the complete teardown h | Other |
-| [#5427](https://github.com/openova-io/openova/issues/5427) | bp-velero stalled MissingRollbackTarget after Kyverno denied its upgrade-crds pr | Other |
-| [#5429](https://github.com/openova-io/openova/issues/5429) | Apps grid renders two cards per Application CR when spec.helmRelease.name is uns | Other |
-| [#5433](https://github.com/openova-io/openova/issues/5433) | bp-postgres defaults the CNPG Cluster name to a bare 'postgres', so multiple rel | Other |
 | [#5434](https://github.com/openova-io/openova/issues/5434) | App-detail Dependencies never names the producing instance — backend reads onl | Other |
 | [#5435](https://github.com/openova-io/openova/issues/5435) | Banned term 'tenant' reaches the console from a Deployment literally named tenan | Other |
 | [#5436](https://github.com/openova-io/openova/issues/5436) | Cutover step-06 exits success while 6 HelmRepositories remain on ghcr — its ow | Other |
@@ -300,6 +292,14 @@ flowchart LR
 | [#5894](https://github.com/openova-io/openova/issues/5894) | P1: per-Org consoles flap ~50% on TLS handshake reset — affects BOTH customer  | Other |
 | [#5895](https://github.com/openova-io/openova/issues/5895) | P1: first visit to a per-Org console dead-ends on a BLANK page — prompt=none s | Other |
 | [#5910](https://github.com/openova-io/openova/issues/5910) | Row 95: a purchased app silently vanishes — resolveAppSlugs substitutes the ra | Other |
+| [#5919](https://github.com/openova-io/openova/issues/5919) | hw292 cut over on chart 0.1.159 — twelve versions before the #5710 durable piv | Other |
+| [#5920](https://github.com/openova-io/openova/issues/5920) | Marketplace still sells 'Sandbox' — a concept retired 2026-06-30 — and a sou | Other |
+| [#5921](https://github.com/openova-io/openova/issues/5921) | P0 sovereignty: post-cutover Sovereign sends customer sign-in mail via mail.open | Other |
+| [#5926](https://github.com/openova-io/openova/issues/5926) | UAT row 85: checkout renders payment-method tiles + Stripe redirect copy on a fu | Other |
+| [#5929](https://github.com/openova-io/openova/issues/5929) | UAT row 164: a terminal Failed Job produces no failed leaf — an unterminated l | Other |
+| [#5932](https://github.com/openova-io/openova/issues/5932) | Dashboard treemap: the vCluster grouping dimension keys on the retired #4325 vcl | Other |
+| [#5933](https://github.com/openova-io/openova/issues/5933) | Customer Application CRs never carry spec.organizationRef — the #5814 Org-attr | Other |
+| [#5934](https://github.com/openova-io/openova/issues/5934) | TopologyTab hard-renders 'n/a — bootstrap component' regardless of the API ans | Other |
 
 ---
 
@@ -307,6 +307,16 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-09T20:59 | [#5936](https://github.com/openova-io/openova/pull/5936) | #5836 | fix(console): the Status panel must render a bootstrap compo |
+| 2026-08-09T20:59 | [#5935](https://github.com/openova-io/openova/pull/5935) | #5814 | fix(catalyst-api): customer Application CRs must carry spec. |
+| 2026-08-09T20:07 | [#5931](https://github.com/openova-io/openova/pull/5931) | #3925 | fix(jobs): an unterminated run must not bury a failed one (U |
+| 2026-08-09T20:06 | [#5930](https://github.com/openova-io/openova/pull/5930) | #5246 | fix(catalyst-api): per-Org console listeners span every regi |
+| 2026-08-09T20:07 | [#5927](https://github.com/openova-io/openova/pull/5927) | #3376 | fix(marketplace): hide payment chrome when credit covers the |
+| 2026-08-09T19:43 | [#5925](https://github.com/openova-io/openova/pull/5925) | #5513 | fix(application-controller): stop crediting readiness to reg |
+| 2026-08-09T18:24 | [#5924](https://github.com/openova-io/openova/pull/5924) | #5919 | docs(uat): per-case evidence audit of all 224 June-green cas |
+| 2026-08-09T17:08 | [#5923](https://github.com/openova-io/openova/pull/5923) | docs(ledger): the plan to 100% — built on measured causes |  |
+| 2026-08-09T17:03 | [#5922](https://github.com/openova-io/openova/pull/5922) | fix(ledger): restore test-case names in uat-raw.csv |  |
+| 2026-08-09T16:59 | [#5918](https://github.com/openova-io/openova/pull/5918) | #3376 | docs(uat): row 92 — the redeem rate-limit fix exists, is pur |
 | 2026-08-08T19:54 | [#5917](https://github.com/openova-io/openova/pull/5917) | #5848 | fix(org-controller): reap the per-Org wildcard TLS Secret on |
 | 2026-08-08T16:47 | [#5916](https://github.com/openova-io/openova/pull/5916) | #3687 | docs(uat): rows 19 + 33 — backing data measured, both reduce |
 | 2026-08-08T16:00 | [#5915](https://github.com/openova-io/openova/pull/5915) | #4459 | docs(uat): R17 — Org delete-cascade leaks two PLATFORM-names |
@@ -327,16 +337,6 @@ flowchart LR
 | 2026-08-08T00:09 | [#5899](https://github.com/openova-io/openova/pull/5899) | #4272 | test(ui): arm a tripwire for #5895 — per-Org console derives |
 | 2026-08-07T23:25 | [#5898](https://github.com/openova-io/openova/pull/5898) | #5894 | docs(ledger): PATH-TO-100's headline claim went false the sa |
 | 2026-08-07T23:27 | [#5897](https://github.com/openova-io/openova/pull/5897) | #3376 | docs(uat): G7 door B proven by actual creation; door A affor |
-| 2026-08-07T23:13 | [#5896](https://github.com/openova-io/openova/pull/5896) | #5894 | docs(uat): rows 94+95 walked on the real second Org — two li |
-| 2026-08-07T23:06 | [#5893](https://github.com/openova-io/openova/pull/5893) | #3376 | docs(uat): row 93 GREEN — second Org created through the fun |
-| 2026-08-07T23:01 | [#5892](https://github.com/openova-io/openova/pull/5892) | #5889 | docs(uat): row 85 GREEN — voucher credit applied at checkout |
-| 2026-08-07T22:49 | [#5891](https://github.com/openova-io/openova/pull/5891) | #5889 | docs(uat): retract a false claim I put in row 85 — the empty |
-| 2026-08-07T22:36 | [#5890](https://github.com/openova-io/openova/pull/5890) | #5889 | docs(uat): row 85 walked end-to-end to /checkout/ — two funn |
-| 2026-08-07T22:07 | [#5888](https://github.com/openova-io/openova/pull/5888) | #5887 | docs(uat): row 29 fails on silent re-auth, and the previous  |
-| 2026-08-07T22:04 | [#5886](https://github.com/openova-io/openova/pull/5886) | #5847 | docs(uat): rows 10+11 green — the customer Org existed all a |
-| 2026-08-07T21:55 | [#5884](https://github.com/openova-io/openova/pull/5884) | #5882 | docs(uat): SSO deep walk on hw292 — 4 rows green, openbao an |
-| 2026-08-07T21:40 | [#5881](https://github.com/openova-io/openova/pull/5881) | #5853 | fix(uat): the Result column may hold a verdict and nothing e |
-| 2026-08-07T21:36 | [#5879](https://github.com/openova-io/openova/pull/5879) | #3858 | docs(uat): SSO landing walk on hw292 — 5 rows green incl. ha |
 
 ---
 

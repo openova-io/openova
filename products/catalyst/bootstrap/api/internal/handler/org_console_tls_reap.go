@@ -198,8 +198,11 @@ func (h *Handler) reapOrgConsoleTLSOrphans(ctx context.Context, deps *sovereignD
 		return
 	}
 
-	// 1. Scan every region FIRST.
-	targets := h.orgConsoleTLSTargets(deps)
+	// 1. Scan every region FIRST. A pool region with no client (#5246) is
+	// simply not scanned and therefore not reaped from — the reap is
+	// per-region and absent-as-success, so an unreachable region leaves its
+	// orphans for the next pass rather than blocking the reachable ones.
+	targets, _ := h.orgConsoleTLSTargets(deps)
 	scans := make([]*orgConsoleReapScan, 0, len(targets))
 	for _, tgt := range targets {
 		scans = append(scans, h.scanOrgConsoleArtifacts(ctx, tgt, sovereignFQDN))
