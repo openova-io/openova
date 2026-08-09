@@ -3,6 +3,7 @@
   import { readCart, clearCart } from '../lib/cart';
   import { formatOMR } from '../lib/currency';
   import { consoleHandoffHref, consoleLaunchHref } from '../lib/config';
+  import { creditCoversOrder, chargesCustomer } from '../lib/checkoutPaymentGate';
   import PinInput6 from './PinInput6.svelte';
 
   let cart = $state(readCart());
@@ -199,8 +200,14 @@
     ]).then(([ledger, voucher]) => { creditBaisa = ledger + voucher; });
   });
 
-  const creditCovers = $derived(creditBaisa >= totalCost && totalCost > 0);
+  const creditCovers = $derived(creditCoversOrder(totalCost, creditBaisa));
   const creditPartial = $derived(creditBaisa > 0 && creditBaisa < totalCost);
+  // UAT row 85: the payment-method picker + the Stripe redirect line render
+  // ONLY when the customer is actually charged. Gating them on `totalCost > 0`
+  // alone showed card chrome beside "Due now OMR 0.000" on a fully
+  // voucher-covered order. The voucher input below is deliberately NOT gated
+  // on this — it is additive credit, not a payment method.
+  const willCharge = $derived(chargesCustomer(totalCost, creditBaisa));
 
   // Handle return from Stripe checkout — redirect straight to console so the
   // user watches real-time provisioning on the Jobs page.
@@ -759,6 +766,11 @@
         <!-- Payment method picker -->
         {#if totalCost > 0}
           <div class="mb-6">
+            <!-- Payment chrome renders ONLY when the order actually charges the
+                 customer (UAT row 85). On a fully voucher-covered order the
+                 tiles + the Stripe redirect line contradicted "Due now OMR
+                 0.000" and the "Launch my Organization" button beside them. -->
+            {#if willCharge}
             <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-dim)]">Payment method</div>
 
             <!-- Three brand tiles in one row — click a tile to select (radio-group behaviour, no separate dot) -->
@@ -808,8 +820,11 @@
             <p class="mt-3 text-xs text-[var(--color-text-dim)]">
               On <strong class="text-[var(--color-text)]">Purchase</strong>, you'll be redirected to Stripe's PCI-compliant checkout to complete payment securely.
             </p>
+            {/if}
 
-            <!-- Additive voucher — not a payment method, it applies credit against the total -->
+            <!-- Additive voucher — not a payment method, it applies credit
+                 against the total. Stays visible on a fully-covered order so a
+                 mistyped code can still be corrected or cleared. -->
             <div class="mt-4 rounded-xl border border-dashed border-[var(--color-border)] bg-[var(--color-bg)] p-3">
               <label class="flex items-center gap-2 text-xs font-medium text-[var(--color-text-dim)]">
                 <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
