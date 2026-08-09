@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-09T18:15:03Z` |
+| Last refreshed | `2026-08-09T18:30:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-09T18:24 | [#5924](https://github.com/openova-io/openova/pull/5924) | #5919 | docs(uat): per-case evidence audit of all 224 June-green cas |
 | 2026-08-09T17:08 | [#5923](https://github.com/openova-io/openova/pull/5923) | docs(ledger): the plan to 100% — built on measured causes |  |
 | 2026-08-09T17:03 | [#5922](https://github.com/openova-io/openova/pull/5922) | fix(ledger): restore test-case names in uat-raw.csv |  |
 | 2026-08-09T16:59 | [#5918](https://github.com/openova-io/openova/pull/5918) | #3376 | docs(uat): row 92 — the redeem rate-limit fix exists, is pur |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T22:49 | [#5891](https://github.com/openova-io/openova/pull/5891) | #5889 | docs(uat): retract a false claim I put in row 85 — the empty |
 | 2026-08-07T22:36 | [#5890](https://github.com/openova-io/openova/pull/5890) | #5889 | docs(uat): row 85 walked end-to-end to /checkout/ — two funn |
 | 2026-08-07T22:07 | [#5888](https://github.com/openova-io/openova/pull/5888) | #5887 | docs(uat): row 29 fails on silent re-auth, and the previous  |
-| 2026-08-07T22:04 | [#5886](https://github.com/openova-io/openova/pull/5886) | #5847 | docs(uat): rows 10+11 green — the customer Org existed all a |
 
 ---
 
