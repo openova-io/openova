@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-09T20:00:06Z` |
+| Last refreshed | `2026-08-09T20:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-09T20:07 | [#5931](https://github.com/openova-io/openova/pull/5931) | #3925 | fix(jobs): an unterminated run must not bury a failed one (U |
+| 2026-08-09T20:06 | [#5930](https://github.com/openova-io/openova/pull/5930) | #5246 | fix(catalyst-api): per-Org console listeners span every regi |
+| 2026-08-09T20:07 | [#5927](https://github.com/openova-io/openova/pull/5927) | #3376 | fix(marketplace): hide payment chrome when credit covers the |
 | 2026-08-09T19:43 | [#5925](https://github.com/openova-io/openova/pull/5925) | #5513 | fix(application-controller): stop crediting readiness to reg |
 | 2026-08-09T18:24 | [#5924](https://github.com/openova-io/openova/pull/5924) | #5919 | docs(uat): per-case evidence audit of all 224 June-green cas |
 | 2026-08-09T17:08 | [#5923](https://github.com/openova-io/openova/pull/5923) | docs(ledger): the plan to 100% — built on measured causes |  |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-07T23:27 | [#5897](https://github.com/openova-io/openova/pull/5897) | #3376 | docs(uat): G7 door B proven by actual creation; door A affor |
 | 2026-08-07T23:13 | [#5896](https://github.com/openova-io/openova/pull/5896) | #5894 | docs(uat): rows 94+95 walked on the real second Org — two li |
 | 2026-08-07T23:06 | [#5893](https://github.com/openova-io/openova/pull/5893) | #3376 | docs(uat): row 93 GREEN — second Org created through the fun |
-| 2026-08-07T23:01 | [#5892](https://github.com/openova-io/openova/pull/5892) | #5889 | docs(uat): row 85 GREEN — voucher credit applied at checkout |
-| 2026-08-07T22:49 | [#5891](https://github.com/openova-io/openova/pull/5891) | #5889 | docs(uat): retract a false claim I put in row 85 — the empty |
-| 2026-08-07T22:36 | [#5890](https://github.com/openova-io/openova/pull/5890) | #5889 | docs(uat): row 85 walked end-to-end to /checkout/ — two funn |
 
 ---
 
