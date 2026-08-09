@@ -74,6 +74,25 @@ def main():
     junk = collections.Counter(r["walk_env"] for r in rows if r["walk_env"] and not ENV.match(r["walk_env"]))
     check(not junk, "walk_env values are real Sovereign labels", f"{dict(junk)}")
 
+    # An unknown glyph in UAT.md does not raise -- uat-backfill.py simply finds
+    # no match and skips the row, so it never reaches this file at all. That is
+    # worse than a gap: the retest policy then reports the test case as
+    # NEVER-PASSED, turning "unreadable verdict" into "no pass on record".
+    # Four rows carried a stray ◑ this way. Fail loud instead.
+    md = (ROOT / "docs" / "ledger" / "UAT.md").read_text(encoding="utf-8")
+    known = {"✅", "❌", "⚠️", "⛔", "☐"}
+    stray = collections.Counter()
+    for line in md.split("\n"):
+        if not re.match(r"^\|\s*(R?\d+|[GWM]\d+)\s*\|", line):
+            continue
+        cells = re.split(r"(?<!\\)\|", line.rstrip())
+        if len(cells) < 8:
+            continue
+        v = cells[6].strip()
+        if v and v not in known:
+            stray[v] += 1
+    check(not stray, "every UAT.md verdict glyph is in the vocabulary", f"{dict(stray)}")
+
     dup = [k for k, v in collections.Counter((r["cycle_ts"], r["row_id"]) for r in rows).items() if v > 1]
     check(not dup, "no duplicate (cycle, test case)", f"{len(dup)}")
 
