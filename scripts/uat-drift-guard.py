@@ -44,6 +44,29 @@ POS_EVIDENCE = re.compile(rf"^\s*{_EMPH}(✅|PASS\b)")
 # Any hwNNN token (the env label predecessor-detector).
 HW_TOKEN = re.compile(r"\bhw\d+\b", re.IGNORECASE)
 
+# Cell separator that respects markdown-escaped pipes, matching the rest of the
+# UAT tooling. A naive split("|") mis-identifies every cell after an escaped one.
+ESC_PIPE = re.compile(r"(?<!\\)\|")
+
+# ANONYMISED predecessor references. Matching only `hwNNN` means the guard can be
+# defeated by deleting the env name, and that is not hypothetical: commit
+# 1846d0f67 carries the subject line "drop predecessor-env token so the guard
+# passes on the hw292 stamp". Two ✅ rows (R15, M3) then sat invisible behind the
+# phrase "a predecessor env-2026-08-03T20:3xZ READ-ONLY WALK" — evidence openly
+# declaring it was taken somewhere else, on a row the guard reported as clean.
+#
+# Removing the name does not remove the problem, so an anonymised reference now
+# counts exactly as a named one. Note this catches the HONEST phrasing too; that
+# is intended. A walker who writes "a predecessor env" is telling the truth about
+# a verdict that still must not be stamped ✅ against the current env.
+ANON_PREDECESSOR = re.compile(
+    r"\ba\s+predecessor\s+env\b"
+    r"|\bpredecessor[- ]env\b"
+    r"|\bthe\s+predecessor\s+(?:env|environment|Sovereign)\b"
+    r"|\ba\s+(?:wiped|prior|previous|earlier)\s+(?:env|environment|Sovereign)\b",
+    re.IGNORECASE,
+)
+
 # A concrete proof artifact: a screenshot / sessions-evidence link or a linked
 # proof file. A ✅ row that merely *names* a feature is fine; a ✅ row that LINKS a
 # wiped env's artifact is the fabricated snapshot we reject.
@@ -94,6 +117,27 @@ def scan_text(text, current_env):
         # Which hwNNN tokens in the row are NOT the current env?
         hits = {h.lower() for h in HW_TOKEN.findall(ln)}
         stale = sorted(h for h in hits if h != cur)
+        # An anonymised predecessor reference counts as a named one -- but ONLY
+        # where the env STAMP lives, at the head of the evidence cell.
+        #
+        # Matching anywhere on the line was the first attempt and it was wrong:
+        # it fired on rows whose own walk WAS on the current env and which merely
+        # mention a predecessor while explaining history (R2, 12, 17). A guard
+        # that punishes honest context gets worked around, and a worked-around
+        # guard protects nothing. The defect is narrower and has a fixed
+        # location: "a predecessor env-2026-08-03T20:3xZ READ-ONLY WALK" sits
+        # exactly where "hw292-2026-08-08" would, as the cell's opening stamp.
+        # Split ESCAPE-AWARE. `ln.split("|")` breaks on `\|` inside a cell, so on
+        # any row whose evidence escapes a pipe the "last cell" is a mid-sentence
+        # fragment. That produced both error directions at once here: R2 looked
+        # like a hit because a fragment happened to begin "a predecessor env:",
+        # while R15 and M3 -- whose evidence genuinely OPENS on that phrase --
+        # were invisible because their real opening was never examined. The rest
+        # of the UAT tooling already splits on `(?<!\\)\|`; this guard did not.
+        ecells = ESC_PIPE.split(ln.rstrip())
+        ev = ecells[7].strip() if len(ecells) > 7 else ""
+        if ANON_PREDECESSOR.match(ev[:80]):
+            stale = sorted(set(stale) | {"(unnamed predecessor env)"})
         if stale:
             excerpt = ln.strip()
             if len(excerpt) > 160:
