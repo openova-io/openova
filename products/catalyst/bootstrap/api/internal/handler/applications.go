@@ -1151,6 +1151,38 @@ func newApplicationUnstructured(req applicationInstallRequest, sovereignFQDN, or
 		"placement": placementValue,
 		"regions":   regions,
 	}
+	// #5933 (UAT rows 15, 25(i)) — stamp the OWNING Organization on the CR.
+	//
+	// This was the one field the customer-app producer never wrote. The
+	// Org identity reached the CR only as the `catalyst.openova.io/
+	// organization` label and as the slugged metadata.namespace, so
+	// spec.organizationRef — which the spine producer has always written
+	// (post_handover_spine_apps.go renderSpineApplicationCR) — was absent
+	// on every Application a customer ever launched.
+	//
+	// WHY THAT MATTERED. #5814 gave the sovereign /apps grid its Org
+	// attribution chip by reading exactly this field, VERBATIM: it never
+	// synthesises the Org from the namespace or the CR-name prefix,
+	// because both guesses are wrong for a spine CR (spine-openbao sits in
+	// flux-system and belongs to the Sovereign self-org). A verbatim
+	// reader over a field no producer writes returns empty forever, and an
+	// absent chip is indistinguishable from an unowned Application — so
+	// nothing downstream could detect the gap. Measured on hw292:
+	// spine-harbor carried `hw292-omani-works` while uatco-agenity,
+	// uatco-mail and uatco-openclaw carried nothing.
+	//
+	// VERBATIM, matching the label above — never the slugged namespace.
+	// The two must agree, or one Application carries two spellings of its
+	// own Org. Omitted when unset so an unattributed CR stays legible as
+	// "attribution unknown" rather than claiming an empty-named Org; both
+	// HTTP install seams already reject an empty ref in
+	// validateApplicationInstallRequest.
+	//
+	// The CRD preserves it (spec carries x-kubernetes-preserve-unknown-
+	// fields), which is how the spine CRs have been storing it all along.
+	if orgRef := strings.TrimSpace(req.OrganizationRef); orgRef != "" {
+		spec["organizationRef"] = orgRef
+	}
 	// #4283 / #4282 Root-B — ALWAYS stamp a non-null spec.parameters
 	// OBJECT. Caller-supplied parameters are used verbatim; otherwise we
 	// emit at least `{}` (plus a configSchema-valid topology.mode for
