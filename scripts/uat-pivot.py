@@ -45,7 +45,7 @@ def load():
 def pivot(rows):
     d = collections.defaultdict(collections.Counter)
     for r in rows:
-        d[r["epic_name"]][r["status_class"]] += 1
+        d[r["epic"]][r["status_class"]] += 1
     return d
 
 
@@ -102,7 +102,7 @@ def main():
             sys.exit("need at least two cycles to diff")
         a = {r["row_id"]: r for r in cycles[ts[-2]]}
         b = {r["row_id"]: r for r in cycles[ts[-1]]}
-        moved = [(k, a[k]["status"], b[k]["status"], b[k]["epic_name"])
+        moved = [(k, a[k]["status"], b[k]["status"], b[k]["epic"] + " — " + b[k]["test_case"][:70])
                  for k in b if k in a and a[k]["status"] != b[k]["status"]]
         if not moved:
             print("no row changed status between the last two cycles")

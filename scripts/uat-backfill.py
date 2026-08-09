@@ -46,16 +46,6 @@ GLYPHS = ["✅", "❌", "⚠️", "⛔", "☐"]
 CLASS = {"✅": "PASS", "❌": "FAIL", "⚠️": "PARTIAL", "☐": "NOTRUN",
          "⛔": "SUPERSEDED", "◑": "PARTIAL"}
 
-EPIC_NAMES = {
-    "3668": "Catalog / IaC single-source", "3376": "FUNNEL (customer purchase)",
-    "3375": "TOPOLOGY / DR", "3687": "Organization / Application CR model",
-    "3374": "SSO (all surfaces)", "3642": "vCluster placement (NS#1)",
-    "3646": "Jobs canvas", "3379": "SOVEREIGNTY / cutover",
-    "3581": "UAT doc set regen", "3988": "OpenOva MCP",
-    "3383": "Organizations rename", "4002": "Crossplane adoption seam",
-    "3996": "Cloud reconciler mgmt", "3998": "Cloud network+security view",
-    "4706": "Convergence readiness",
-}
 
 
 def sh(*args):
@@ -63,6 +53,7 @@ def sh(*args):
 
 
 def parse(text):
+    """UAT.md cols: 1 #  2 Epic  3 Ticket  4 Test case  5 Walk  6 Result  7 Evidence."""
     out = {}
     for line in text.split("\n"):
         if not ROW_ID.match(line):
@@ -70,9 +61,8 @@ def parse(text):
         cells = CELL.split(line.rstrip())
         if len(cells) < 8:
             continue
-        epic = re.search(r"#(\d+)", cells[3] or "")
         glyph = next((g for g in GLYPHS if g in cells[6]), "◑")
-        out[cells[1].strip()] = (epic.group(1) if epic else "-", glyph)
+        out[cells[1].strip()] = (cells[2].strip() or "(unassigned)", glyph, cells[5].strip())
     return out
 
 
@@ -107,7 +97,7 @@ def main():
     if not CANON.exists():
         sys.exit("canon missing -- run scripts/uat-snapshot.py --freeze first")
     with CANON.open(newline="", encoding="utf-8") as fh:
-        canon = [(r["row_id"], r["epic_issue"], r["epic_name"]) for r in csv.DictReader(fh)]
+        canon = [(r["row_id"], r["epic"], r["ticket"], r["test_case"]) for r in csv.DictReader(fh)]
 
     cycles = day_commits()
     print(f"{len(cycles)} day-cycles from real commits, {cycles[0][2]} -> {cycles[-1][2]}")
@@ -120,16 +110,16 @@ def main():
         state = parse(text)
         env = env_for(sha)
         counts = collections.Counter()
-        for rid, issue, ename in canon:
+        for rid, epic, tick, test in canon:
+            # Epic and test-case text come from the CANON, not the historical
+            # row: a test case relabelled later must not fracture its own trend.
             if rid in state:
-                epic_issue, glyph = state[rid]
+                _hist_epic, glyph, walk = state[rid]
                 cls = CLASS.get(glyph, "PARTIAL")
-                # epic comes from the canon, not the historical row: an epic
-                # relabelled later must not fracture the trend for that test case.
-                rows_out.append([ts, day, env, "", "", rid, issue, ename, glyph, cls])
+                rows_out.append([ts, day, env, "", "", rid, epic, tick, test, walk, glyph, cls])
             else:
                 cls = "ABSENT"
-                rows_out.append([ts, day, env, "", "", rid, issue, ename, "", cls])
+                rows_out.append([ts, day, env, "", "", rid, epic, tick, test, "", "", cls])
             counts[cls] += 1
         trend.append((day, env, counts, len(canon)))
 
@@ -145,8 +135,8 @@ def main():
 
     with RAW.open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh, quoting=csv.QUOTE_MINIMAL)
-        w.writerow(["cycle_ts", "cycle_date", "env", "dep_id", "milestone",
-                    "row_id", "epic_issue", "epic_name", "status", "status_class"])
+        w.writerow(["cycle_ts", "cycle_date", "env", "dep_id", "milestone", "row_id",
+                    "epic", "ticket", "test_case", "walk", "status", "status_class"])
         w.writerows(rows_out)
     print(f"\nwrote {len(rows_out)} rows across {len(trend)} cycles -> {RAW.relative_to(ROOT)}")
 

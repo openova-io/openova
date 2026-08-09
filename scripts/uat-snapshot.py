@@ -50,27 +50,19 @@ CLASS = {
     "◑": "PARTIAL",
 }
 
-EPIC_NAMES = {
-    "3668": "Catalog / IaC single-source",
-    "3376": "FUNNEL (customer purchase)",
-    "3375": "TOPOLOGY / DR",
-    "3687": "Organization / Application CR model",
-    "3374": "SSO (all surfaces)",
-    "3642": "vCluster placement (NS#1)",
-    "3646": "Jobs canvas",
-    "3379": "SOVEREIGNTY / cutover",
-    "3581": "UAT doc set regen",
-    "3988": "OpenOva MCP",
-    "3383": "Organizations rename",
-    "4002": "Crossplane adoption seam",
-    "3996": "Cloud reconciler mgmt",
-    "3998": "Cloud network+security view",
-    "4706": "Convergence readiness",
-}
 
 
 def parse_uat():
-    """Return {row_id: (epic_issue, epic_name, status_glyph)} from UAT.md."""
+    """Return {row_id: (epic, ticket, test_case, walk, glyph)} from UAT.md.
+
+    UAT.md columns, by index after splitting on unescaped pipes:
+        1 #   2 Epic   3 Ticket   4 Test case   5 Walk   6 Result   7 Evidence
+
+    The Epic column is authoritative -- it carries a human name ("funnel",
+    "sso", "cutover"). An earlier version of this script derived the epic from
+    the Ticket issue number instead, which produced machine-ish buckets and
+    silently ignored the column that already said the answer.
+    """
     out = {}
     for line in UAT.read_text(encoding="utf-8").split("\n"):
         if not ROW_ID.match(line):
@@ -79,10 +71,12 @@ def parse_uat():
         if len(cells) < 8:
             continue
         rid = cells[1].strip()
-        epic = re.search(r"#(\d+)", cells[3] or "")
-        issue = epic.group(1) if epic else "-"
+        epic = cells[2].strip() or "(unassigned)"
+        tick = re.search(r"#(\d+)", cells[3] or "")
+        test = re.sub(r"\s+", " ", cells[4].strip())
+        walk = cells[5].strip()
         glyph = next((g for g in GLYPHS if g in cells[6]), "◑")
-        out[rid] = (issue, EPIC_NAMES.get(issue, "Other / single-row epics"), glyph)
+        out[rid] = (epic, tick.group(1) if tick else "", test, walk, glyph)
     return out
 
 
@@ -97,9 +91,9 @@ def load_canon():
 def write_canon(rows):
     with CANON.open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
-        w.writerow(["row_id", "epic_issue", "epic_name"])
-        for rid, (issue, name, _) in rows.items():
-            w.writerow([rid, issue, name])
+        w.writerow(["row_id", "epic", "ticket", "test_case"])
+        for rid, (epic, tick, test, _walk, _g) in rows.items():
+            w.writerow([rid, epic, tick, test])
 
 
 def main():
@@ -146,15 +140,16 @@ def main():
         w = csv.writer(fh)
         if new:
             w.writerow(["cycle_ts", "cycle_date", "env", "dep_id", "milestone", "row_id",
-                        "epic_issue", "epic_name", "status", "status_class"])
+                        "epic", "ticket", "test_case", "walk", "status", "status_class"])
         for rid in canon:
-            issue, name, glyph = rows[rid]
+            epic, tick, test, walk, glyph = rows[rid]
             w.writerow([ts, day, args.env, args.dep, args.milestone, rid,
-                        issue, name, glyph, CLASS.get(glyph, "PARTIAL")])
+                        epic, tick, test, walk, glyph, CLASS.get(glyph, "PARTIAL")])
 
     counts = {}
     for rid in canon:
-        counts[CLASS.get(rows[rid][2], "PARTIAL")] = counts.get(CLASS.get(rows[rid][2], "PARTIAL"), 0) + 1
+        k = CLASS.get(rows[rid][4], "PARTIAL")
+        counts[k] = counts.get(k, 0) + 1
     total = len(canon)
     print(f"cycle {ts} env={args.env} milestone={args.milestone or '(routine)'}")
     print(f"  registered {total} line items (denominator STONE = {total})")
