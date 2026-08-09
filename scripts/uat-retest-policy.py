@@ -206,7 +206,8 @@ def main():
             verdicts[rid] = {"FAIL": "REGRESSED",
                              "PARTIAL": "PARTIAL-NOW",
                              "NOTRUN": "UNWALKED-NOW",
-                             "SUPERSEDED": "ADJUDICATED-OUT"}.get(n["status_class"], "NOT-CURRENT")
+                             "SUPERSEDED": "ADJUDICATED-OUT",
+                             "PENDING": "AWAITING-REWALK"}.get(n["status_class"], "NOT-CURRENT")
             reasons[rid] = (f"passed {pd}, but the {n['cycle_date']} run returned "
                             f"{n['status_class']}; the newest observation wins")
             continue

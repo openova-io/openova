@@ -22,7 +22,7 @@ CANON = ROOT / "docs" / "ledger" / "uat-testcases.csv"
 EXPECTED = ["cycle_ts", "cycle_date", "row_id", "epic", "ticket", "text_sha",
             "test_case", "identity_from", "identity_cycles", "walk_env",
             "walk_date", "evidence_link", "proof_tier", "status", "status_class"]
-VALID_CLASS = {"PASS", "FAIL", "PARTIAL", "NOTRUN", "SUPERSEDED"}
+VALID_CLASS = {"PASS", "FAIL", "PARTIAL", "NOTRUN", "SUPERSEDED", "PENDING"}
 VALID_TIER = {"ARTIFACT", "CITATION"}
 TS = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -80,7 +80,7 @@ def main():
     # NEVER-PASSED, turning "unreadable verdict" into "no pass on record".
     # Four rows carried a stray ◑ this way. Fail loud instead.
     md = (ROOT / "docs" / "ledger" / "UAT.md").read_text(encoding="utf-8")
-    known = {"✅", "❌", "⚠️", "⛔", "☐"}
+    known = {"✅", "❌", "⚠️", "⛔", "☐", "⏳"}
     stray = collections.Counter()
     for line in md.split("\n"):
         if not re.match(r"^\|\s*(R?\d+|[GWM]\d+)\s*\|", line):
