@@ -391,6 +391,53 @@ type podRow struct {
 // HandleTreemap. Used as a region fallback when Pods/Nodes lack the
 // `openova.io/region`/`topology.kubernetes.io/region` label — common
 // on HCS where Huawei CCM doesn't stamp the topology label.
+// vclustersFromRuntime returns namespace -> vCluster name for every
+// namespace that is OBSERVED to host a vCluster, keyed off the syncer's
+// own `vcluster.loft.sh/managed-by` label on the pods it mirrors into
+// the host namespace.
+//
+// #5932: the pre-existing join key was `catalyst.openova.io/vcluster-role`,
+// which only ever existed because bp-{mgmt,dmz,rtz}-vcluster stamped it.
+// #4325 deleted all three of those charts, and the per-Org vClusters that
+// replaced them (written by the org-controller) stamp nothing equivalent.
+// So the label matched zero namespaces on every post-#4325 Sovereign, every
+// pod fell through to the "host" bucket, and the vCluster treemap layer
+// rendered a single block — the data was present the whole time, only the
+// key was dead. A grouping key that silently matches nothing degrades to
+// one bucket instead of failing, which is why this went unnoticed.
+//
+// Keying on the syncer label instead means the answer is derived from what
+// is actually running (#3969: placement is read from runtime, never from a
+// declared field). It also holds for a vCluster created by any chart, since
+// the label is written by vCluster itself rather than by our templates.
+//
+// The BLOCK NAME is the host namespace's `openova.io/organization` label,
+// not the managed-by value: every per-Org vCluster is installed under the
+// same release name (`vcluster`), so naming blocks after it would collapse
+// all Organizations into one cell — the very bug being fixed. Namespaces
+// with no synced pod are absent from the map and keep bucketing to "host",
+// which is correct for a namespace-isolated Organization.
+func vclustersFromRuntime(pods []*unstructured.Unstructured, nsByName map[string]*unstructured.Unstructured) map[string]string {
+	out := map[string]string{}
+	for _, p := range pods {
+		if _, synced := p.GetLabels()["vcluster.loft.sh/managed-by"]; !synced {
+			continue
+		}
+		ns := p.GetNamespace()
+		if _, done := out[ns]; done {
+			continue
+		}
+		name := ns
+		if n, ok := nsByName[ns]; ok {
+			if org := n.GetLabels()["openova.io/organization"]; org != "" {
+				name = org
+			}
+		}
+		out[ns] = name
+	}
+	return out
+}
+
 func buildPodRows(pods, pvcs, podMetrics, namespaces, nodes, replicaSets []*unstructured.Unstructured, clusterID string, clusterCloudRegion string) []podRow {
 	pvcByKey := map[string]*unstructured.Unstructured{}
 	for _, p := range pvcs {
@@ -409,6 +456,7 @@ func buildPodRows(pods, pvcs, podMetrics, namespaces, nodes, replicaSets []*unst
 	for _, ns := range namespaces {
 		nsByName[ns.GetName()] = ns
 	}
+	vclusterByNS := vclustersFromRuntime(pods, nsByName)
 	// Node-label join keys: `openova.io/region` (canonical OpenOva) or
 	// `topology.kubernetes.io/region` (K8s standard, set by hcloud-ccm
 	// on every Hetzner node). Pods inherit via spec.nodeName.
@@ -444,6 +492,13 @@ func buildPodRows(pods, pvcs, podMetrics, namespaces, nodes, replicaSets []*unst
 		vcluster := stringLabel(p, "catalyst.openova.io/vcluster-role", "")
 		if vcluster == "" {
 			vcluster = nsLabels["catalyst.openova.io/vcluster-role"]
+		}
+		// #5932: neither label exists on a per-Org vCluster, so without
+		// this fallback EVERY pod bucketed to "host" and the vCluster
+		// layer rendered one undifferentiated block. See
+		// vclustersFromRuntime for why the runtime signal is the join key.
+		if vcluster == "" {
+			vcluster = vclusterByNS[p.GetNamespace()]
 		}
 		// Derive region: pod-level label wins, then Namespace label,
 		// then the pod's host Node's region labels. Empty falls back
