@@ -93,6 +93,18 @@ def main():
             stray[v] += 1
     check(not stray, "every UAT.md verdict glyph is in the vocabulary", f"{dict(stray)}")
 
+    # A sheet of bare row ids is a key into a document the reader does not have
+    # open -- nobody can group or sanity-check a pivot on "R12". This was fixed
+    # once on uat-raw.csv and recurred on four newer files, because the rule
+    # lived in a commit message instead of in code. Now it fails the build.
+    nameless = []
+    for p in sorted((ROOT / "docs" / "ledger").glob("*.csv")):
+        r = list(csv.DictReader(p.open(newline="", encoding="utf-8")))
+        if r and "row_id" in r[0] and "test_case" not in r[0]:
+            nameless.append(p.name)
+    check(not nameless, "every row_id-keyed CSV carries its readable test-case name",
+          f"{nameless} — run scripts/uat-name-csvs.py")
+
     dup = [k for k, v in collections.Counter((r["cycle_ts"], r["row_id"]) for r in rows).items() if v > 1]
     check(not dup, "no duplicate (cycle, test case)", f"{len(dup)}")
 

@@ -18,6 +18,7 @@ Run:  python3 scripts/uat-consolidate-evidence.py <scratchpad-dir>
 """
 import csv
 import pathlib
+import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -25,7 +26,10 @@ OUT_SURF = ROOT / "docs" / "ledger" / "uat-surfaces.csv"
 OUT_AUD = ROOT / "docs" / "ledger" / "uat-evidence-audit.csv"
 FIELDS = ["row_id", "verdict", "artifact_path", "artifact_exists",
           "layer_match", "surface_path", "reason"]
-OUT_FIELDS = FIELDS + ["artifact_shared_with"]
+# The readable name travels WITH the key, immediately after it. A regeneration
+# must never be able to strip it back out -- that is exactly how four ledger
+# CSVs ended up nameless after the rule had already been applied once.
+OUT_FIELDS = ["row_id", "epic", "test_case"] + FIELDS[1:] + ["artifact_shared_with"]
 
 
 def resolve(p):
@@ -108,6 +112,15 @@ def main():
     rows.sort(key=lambda r: (len(r["row_id"]), r["row_id"]))
     mark_shared(rows)
 
+    canon = {r["row_id"]: r for r in
+             csv.DictReader((ROOT / "docs" / "ledger" / "uat-testcases.csv")
+                            .open(newline="", encoding="utf-8"))}
+    for r in rows:
+        c = canon.get(r["row_id"])
+        r["epic"] = c["epic"] if c else ""
+        r["test_case"] = (re.sub(r"\s+", " ", c["test_case"]).strip() if c
+                          else "(NOT IN FROZEN CANON — investigate)")
+
     with OUT_AUD.open("w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=OUT_FIELDS)
         w.writeheader()
@@ -116,8 +129,8 @@ def main():
     surf = [r for r in rows if r["surface_path"] and r["surface_path"].upper() != "UNKNOWN"]
     with OUT_SURF.open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
-        w.writerow(["row_id", "surface_path"])
-        w.writerows([[r["row_id"], r["surface_path"]] for r in surf])
+        w.writerow(["row_id", "epic", "test_case", "surface_path"])
+        w.writerows([[r["row_id"], r["epic"], r["test_case"], r["surface_path"]] for r in surf])
 
     tally = {}
     for r in rows:

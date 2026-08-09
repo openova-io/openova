@@ -1,225 +1,225 @@
-row_id,surface_path
-1,products/catalyst/bootstrap/ui/src/**/ProfileMenu + live:catalyst-ui image tag
-3,core/marketplace/src/pages/redeem.astro + the UAT clause wording
-4,products/catalyst/bootstrap/api/internal/handler (dependsOn fallback) + live:catalyst-api image tag
-5,products/catalyst/chart/crds/organization.yaml:118-120 or the UAT clause wording (#5847)
-6,products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/OrganizationsDirectoryPage.tsx + live:catalyst-api GET /api/v1/organizations
-8,products/catalyst/bootstrap/ui/src/pages/org/CreateOrganizationPage.tsx
-9,core/controllers/organization + live:hw292 statefulset uatco/vcluster
-13,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
-14,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail + live:shared-data/shared-pg CNPG
-15,products/catalyst/bootstrap/api handler sovereignAppItem.Org + AppsPage.tsx + live:catalyst-ui image tag
-16,live:hw292 customer app page /app/uatco-agenity — needs one browser walk
-18,live:hw292 console treemap — one authed scan of /dashboard
-19,products/catalyst/bootstrap/ui/src/pages/sovereign/AppsPage.tsx + applicationCatalog.ts — or the clause (owner call #5867)
-20,products/catalyst/bootstrap/api/internal/handler/org_consumption.go (orgForRow) + products/catalyst/bootstrap/ui/src/pages/sovereign/Dashboard.tsx
-21,products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/ShowbackPanel.tsx
-22,products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/ShowbackPanel.tsx
-23,products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/ShowbackPanel.tsx
-24,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail
-25,products/catalyst/bootstrap/api consumptionParentOrg + mergeOrgResponses + live:catalyst-api image tag
-26,products/catalyst/bootstrap/ui/src/pages/sovereign/Dashboard.tsx + catalyst-api PIN auth
-27,products/catalyst/bootstrap/ui/src/widgets/auth/ProfileMenu.tsx
-28,products/catalyst/bootstrap/ui/src/pages/admin/user-access/UserAccessListPage.tsx
-29,products/catalyst/bootstrap/ui/src/router.tsx:287 markAuthed staleness + live:catalyst-ui image tag
-30,clusters/_template/bootstrap-kit/25-grafana.yaml
-31,clusters/_template/bootstrap-kit/10-gitea.yaml
-32,clusters/_template/bootstrap-kit/19-harbor.yaml
-33,live:OpenBao policy bound to the OIDC role (sys/internal/ui/mounts read)
-34,clusters/_template/bootstrap-kit/09-keycloak.yaml + live:keycloak-realm
-35,clusters/_template/bootstrap-kit/13c-bp-oidc-gate.yaml (guacamole instance) + 52-bp-guacamole.yaml
-36,clusters/_template/bootstrap-kit/13c-bp-oidc-gate.yaml:205-209 (powerdns-admin instance)
-37,platform/newapi (oidc-gate fronting vs native keycloak client) + live:flux bp-newapi HelmRelease
-38,see row 37
-39,clusters/_template/bootstrap-kit/01-cilium.yaml (catalystOverlay.hubbleUI.auth line 535)
-40,core/marketplace/src/pages/index.astro
-41,live:keycloak sovereign realm user set + core org/useraccess signup path (#5883)
-42,platform/keycloak/chart/templates/configmap-sovereign-realm.yaml + live:keycloak-realm
-43,platform/keycloak/chart/templates/configmap-sovereign-realm.yaml + live:keycloak-realm
-44,platform/keycloak/chart/templates/configmap-sovereign-realm.yaml + live:keycloak-realm
-45,products/catalyst/bootstrap/ui/src/pages/admin/user-access/UserAccessListPage.tsx + SovereignSidebar.tsx
-46,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/InstancesSection.tsx
-47,products/catalyst/bootstrap/ui/src/widgets/topology/modes.ts
-48,live:hw292 catalog create dialog for bp-wordpress-tenant — one browser assertion
-49,products/catalyst/bootstrap/ui/src/widgets/topology/modes.ts
-50,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx + live:Application/uat-ahs-pg
-51,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx + live:Continuum/dr-shared-pg
-53,products/catalyst/bootstrap/api derivePattern (Go) + live:catalyst-api image tag
-54,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx
-56,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx + live:Continuum/dr-shared-pg
-58,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx
-59,platform/postgres/chart/templates/_helpers.tpl:7 + the wizard instance.name pass-through
-60,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx
-61,products/catalyst/bootstrap/ui/src/pages/sovereign/AppsPage.tsx
-62,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx:502/871/901 + live:catalyst-ui image tag
-64,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx + live:Continuum/dr-shared-pg
-65,products/catalyst/bootstrap/ui/src/pages/sovereign/CloudPage.tsx
-66,products/catalyst/bootstrap/ui/src/pages/sovereign/CloudPage.tsx
-67,products/catalyst/bootstrap/api/internal/handler/applications.go + catalyst-api image pin on hw292
-68,live:pod/powerdns-admin-bp-powerdns-admin + platform/powerdns-admin
-69,products/catalyst/bootstrap/api/internal/handler/applications.go + catalyst-api image pin on hw292
-70,live:pods guacamole-server/guacd/guacamole-pg both regions
-71,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx replication-lag panel + catalyst-api image pin
-72,products/catalyst/bootstrap/ui/src/pages/sovereign/bss/VouchersPage.tsx
-73,products/catalyst/bootstrap/ui/src/pages/sovereign/bss/voucherCodePolicy.ts
-74,products/catalyst/bootstrap/ui/src/pages/sovereign/bss/VouchersPage.tsx
-75,console.hw292.omani.works BSS voucher mint then core/marketplace/src/pages/redeem.astro
-76,core/marketplace/src/pages/redeem.astro
-77,core/marketplace/src/pages/redeem.astro
-78,core/marketplace/src/pages/plans.astro
-79,core/marketplace/src/pages/plans.astro
-80,core/marketplace/src/pages/apps.astro
-81,core/marketplace/src/pages/addons.astro
-82,core/marketplace/src/pages/bcp.astro
-83,core/marketplace/src/pages/review.astro
-84,catalyst-system/marketplace-api SMTP path + Secret sovereign-smtp-credentials (#5921)
-85,core/marketplace/src/pages/checkout.astro
-86,marketplace-api provisioning-record writer; a fresh funnel run is itself gated behind #5921
-87,products/catalyst/bootstrap/api/internal/handler/org_console_tls.go (no region term) + infra/providers/huawei/main.tf gateway_lb_members
-88,products/catalyst/bootstrap/api/internal/handler/org_console_tls.go — plus a browser walk; the row is mutation-gated not blocked
-89,products/catalyst/bootstrap/ui/src/pages/sovereign/AppsPage.tsx
-90,products/catalyst/bootstrap/api/internal/handler/org_console_tls.go + infra/providers/huawei/main.tf gateway_lb_members
-91,core/marketplace/src/layouts/Layout.astro returning-user redirect — plus a signed-in-customer walk
-92,core/services/gateway/ratelimit.go
-96,catalyst-api image pin on hw292 (source already fixed at products/catalyst/bootstrap/api/internal/handler/auth_handover.go acceptedHandoverIssuers)
-97,products/catalyst/bootstrap/ui/src/pages/sovereign/Dashboard.tsx
-98,docs/ledger/UAT.md row clause (retire or rewrite) — the mgmt/rtz/dmz planes are gone by design
-99,docs/ledger/UAT.md row clause (retire or rewrite)
-G5,stamp the row from the mothership catalyst-api log; no mutation and no deliberate session are required
-G8,founder places the Anthropic credential in OpenBao catalyst/anthropic/token (#4277)
-R1,stamp from the mothership janitor pass now that a ready Sovereign is in the registry; the vacuity that blocked it is gone
-R3,platform/plane-isolation/chart/values.yaml (allowIngressFrom sso-bridge ~line 131)
-R4,platform/sso-bridge/chart/templates/networkpolicy.yaml (keycloak port 80+8080 allow)
-R5,platform/sso-bridge (reconciler tick) + clusters/_template/bootstrap-kit/25-grafana.yaml
-R6,platform/postgres/chart
-R7,platform/plane-isolation/chart
-R8,live:gitrepository/flux-system
-R9,clusters/_template/bootstrap-kit/13c-bp-oidc-gate.yaml:205-209 + platform/powerdns-admin/chart/templates/deployment.yaml
-100,docs/ledger/UAT.md row clause (retire or rewrite)
-101,docs/ledger/UAT.md row clause (retire or rewrite)
-102,docs/ledger/UAT.md row clause (retire or rewrite)
-103,docs/ledger/UAT.md row clause (retire or rewrite)
-104,docs/ledger/UAT.md row clause (retire or rewrite)
-105,docs/ledger/UAT.md row-105 clause re-spec (#3642)
-106,docs/ledger/UAT.md row-106 clause re-spec (#3642)
-107,docs/ledger/UAT.md row-107 clause re-spec (#3642)
-108,docs/ledger/UAT.md row-108 clause re-spec (#3642)
-109,KC account-console token brokering from a catalyst-pin session (#688) or owner adjudication
-110,platform/gitea (OIDC client) + live:gitea.hw292
-111,platform/harbor (OIDC client) + live:registry.hw292
-112,platform/grafana (Generic OAuth) + live:grafana.hw292
-113,platform/openbao (OIDC auth) + live:openbao.hw292
-114,products/... newapi chart (OAuth) + live:newapi.hw292
-115,guacamole_connection seeding + unblock the bp-cilium HelmChart ghcr-pull auth failure
-116,products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/OrganizationsDirectoryPage.tsx
-117,products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/OrganizationsDirectoryPage.tsx
-118,products/catalyst/bootstrap/ui/src/pages/sovereign/SovereignSidebar.tsx
-119,products/catalyst/bootstrap/ui/src/pages/org/CreateOrganizationPage.tsx
-120,products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/OrganizationDetailPage.tsx
-121,rename the org-services tenant microservice or add a console display-name alias
-122,products/catalyst/bootstrap/ui/src/app/router.tsx
-123,roll catalyst-api to an image built from a commit >= 3eed58270
-124,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogPage.tsx
-125,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
-126,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogInlineField.tsx
-127,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogInlineField.tsx
-128,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogPage.tsx
-129,products/catalyst/bootstrap/api/internal/handler/catalog_iac_edit.go
-130,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
-131,products/catalyst/bootstrap/ui/src/shared/lib/resolveCatalogIcon.ts
-132,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogInlineField.tsx
-133,products/catalyst/bootstrap/ui/src/shared/lib/resolveCatalogIcon.ts
-134,products/catalyst/bootstrap/ui/src/shared/lib/resolveCatalogIcon.ts
-135,products/catalyst/bootstrap/ui/src/shared/lib/resolveCatalogIcon.ts
-136,products/catalyst/bootstrap/ui/src/pages/sovereign/IconPicker.tsx
-137,products/catalyst/bootstrap/ui/src/pages/sovereign/IconPicker.tsx
-138,products/catalyst/bootstrap/ui/src/pages/sovereign/IconPicker.tsx
-139,products/catalyst/bootstrap/ui/src/shared/lib/resolveCatalogIcon.ts
-141,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogInlineField.tsx
-142,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogInlineField.tsx
-143,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogInlineField.tsx
-144,products/catalyst/bootstrap/ui/src/widgets/cloud-list/YamlEditor.tsx
-145,products/catalyst/bootstrap/ui/src/widgets/cloud-list/YamlEditor.tsx
-146,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
-147,products/catalyst/bootstrap/api/internal/handler/catalog_iac_edit.go
-148,products/catalyst/bootstrap/ui/src/widgets/cloud-list/YamlEditor.tsx
-149,products/catalyst/bootstrap/ui/src/shared/lib/resolveCatalogIcon.ts
-150,products/catalyst/bootstrap/ui/src/widgets/cloud-list/YamlEditor.tsx
-151,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
-152,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
-153,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogPage.tsx
-154,products/catalyst/bootstrap/ui/src/widgets/cloud-list/YamlEditor.tsx
-155,products/catalyst/bootstrap/ui/src/shared/lib/resolveCatalogIcon.ts
-157,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
-158,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
-159,products/catalyst/bootstrap/ui/src/pages/sovereign
-160,products/catalyst/bootstrap/ui/src/pages/sovereign
-161,products/catalyst/bootstrap/ui/src/pages/sovereign
-162,platform/self-sovereign-cutover/chart
-163,platform/self-sovereign-cutover/chart
-164,platform/self-sovereign-cutover/chart
-167,products/catalyst/bootstrap/ui/src/pages/sovereign/Dashboard.tsx + live:catalyst-api session
-168,products/catalyst/bootstrap/ui/src/pages/sovereign/JobsPage.tsx
-169,products/catalyst/bootstrap/ui/src/pages/sovereign/JobsTable.tsx
-170,products/catalyst/bootstrap/ui/src/pages/sovereign/JobsTable.tsx
-171,products/catalyst/bootstrap/ui/src/pages/sovereign/jobsAdapter.ts
-172,products/catalyst/bootstrap/ui/src/pages/sovereign/JobsPage.tsx
-173,re-walk /jobs in a browser for ~90s on hw292
-174,products/catalyst/bootstrap/ui/src/pages/sovereign/JobsTable.tsx
-175,products/catalyst/bootstrap/ui/src/pages/sovereign/JobsTable.tsx
-176,one authenticated click on the jobs-retry control for the failed syft-sbom row on hw292
-177,POST the retry for task-syft-sbom and re-read runCount/latestExecutionId
-178,roll catalyst-api to an image built from a commit >= 3eed58270
-179,products/catalyst/bootstrap/ui/src/pages/sovereign
-180,live:grafana-oidc-sso
-181,live:harbor-oidc-sso
-182,live:gitea-oidc-sso
-183,bump bp-openbao HR to >= 1.2.66 (itself held behind the bp-cilium ghcr-pull failure)
-187,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx
-188,roll catalyst-api to an image containing be000b90a/472409679
-189,core/services/provisioning/handlers/kubeconfig_reconciler.go + live:secret/catalyst/cutover-secondary-kubeconfigs
-192,owner decision — drop the wizard-link clause or delete the orphaned component
-193,products/catalyst/bootstrap/ui/src/pages/sovereign
-194,products/catalyst/bootstrap/ui/src/pages/sovereign
-195,products/catalyst/bootstrap/ui/src/pages/sovereign
-196,products/catalyst/bootstrap/api/internal/handler
-197,products/catalyst/bootstrap/api/internal/handler
-198,products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/K8sListPage.tsx
-204,products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-compute/WorkerNodesPage.tsx
-205,products/catalyst/bootstrap/api/internal/handler/applications.go
-209,live:storageclass/evs-ssd
-210,live:storageclass
-211,products/openova-mcp/internal/tools
-212,emit a per-Org bp-openova-mcp instance from the per-Org GitOps renderer (#5843) or adjudicate D32/D33 supersession
-213,emit a per-Org bp-openova-mcp instance (#5843) then re-walk cross-Org get_application
-214,products/catalyst/bootstrap/ui
-215,products/catalyst/chart/crds/organization.yaml
-216,mint one voucher via the BSS menu then walk /redeem/?code=<CODE> to Launch
-217,re-walk the customer PIN flow on hw292 console.uatco.omani.homes (IMAP + browser); the hw291 listener-admission cause is dead
-218,deploy #5823 pre-select to hw292 then re-walk with a MULTI-instance Blueprint; bp-agenity cannot satisfy the wizard clause once installed
-219,roll catalyst-api past fad88bd (#5647/#5713/#5723/#5732) and clear the ghcr-pull auth cascade (#5759)
-220,founder seeds OpenBao catalyst/anthropic/token (#4277); no code change moves this row
-221,founder seeds the Anthropic credential (#4277); the #5516 half is already fixed in main and only needs the image roll
-222,unblocks strictly downstream of row 221; nothing to change here
-223,roll the bp-agenity image past de1cbec54 then call list_applications / cross-Org get_application with the Org bearer; this row does NOT need the Anthropic credential
-226,core/controllers/organization/internal/controller/per_org_flux.go
-227,walk PRE-cutover on a fresh prov OR trigger the local gitea mirror sync and assert the CR advances without kubectl patch
-229,products/catalyst/bootstrap/clusters
-230,live:secret/ghcr-pull-reflection
-231,platform/postgres/chart
-233,fix the per-region per-Org listener write (#5511/#5246) so region-B carries *.<org> listeners
-235,platform/sso-bridge + live:grafana OIDC client
-236,platform/keycloak + live:region-b bp-keycloak HelmRelease
-R10,products/catalyst/chart/templates/controllers/organization-controller-clusterrole.yaml
-R11,none — permanently unwalkable like rows 99-107; re-baseline as a design exemption rather than a live block
-R12,live:svc/shared-pg-mesh-rw
-R13,live:region-b/keycloak+gitea+harbor
-R14,products/catalyst/bootstrap/api/internal/handler/org_list_from_cr.go + products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/OrganizationsDirectoryPage.tsx
-R15,core/services/provisioning/handlers/organization_create.go
-R16,make the per-Org listener write reconcile into EVERY region (#5246/#5511) and reap the r17probe orphan (#5426)
-R17,roll catalyst-api past fad88bd so the merged multi-region prefix-matching reaper (407c00e74/10ab5c70b/#5848) actually runs
-R18,products/catalyst/bootstrap/api/cmd/api/main.go
-R19,none — void row; the clause was never rewritten to the Agenity surface so it should stay a recorded design supersession
-R20,.github/workflows
-R21,products/catalyst/chart/templates/catalog-seed/blueprints.yaml
-R22,deploy the merged #5813 chart (7adf1640b) so allowedIngressNamespaces emits cnpg-system on the live cluster
+row_id,epic,test_case,surface_path
+1,model,Console bare URL → lands `/dashboard` signed-in as the owner (no PIN/login form).,products/catalyst/bootstrap/ui/src/**/ProfileMenu + live:catalyst-ui image tag
+3,model,The voucher-redeem URL on an authed owner session server-redirects to `/dashboard` (no redeem form for the owner).,core/marketplace/src/pages/redeem.astro + the UAT clause wording
+4,model,"App page tab strip generality: open ≥2 archetypes (a DB `shared-pg`, a consumer `harbor`) → identical tab strip; consumer Dependencies shows `Depends on: shared-pg / db:<ctx>`.",products/catalyst/bootstrap/api/internal/handler (dependsOn fallback) + live:catalyst-api image tag
+5,model,"Organizations directory: the customer Org row shows KIND=customer, TIER=sme, BILLING=real, ISOLATION=vcluster, STATUS=active.",products/catalyst/chart/crds/organization.yaml:118-120 or the UAT clause wording (#5847)
+6,model,The customer Org is present as a real Organization in the operator directory (same record dashboard + showback read).,products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/OrganizationsDirectoryPage.tsx + live:catalyst-api GET /api/v1/organizations
+8,model,"The Create-organization form renders fully (kind picker, slug, Company name, Admin email, parent-domain).",products/catalyst/bootstrap/ui/src/pages/org/CreateOrganizationPage.tsx
+9,model,"Org detail Status = active, backed by a real `vcluster` isolation (the create→Provision loop produced a live backing, not a fake-green).",core/controllers/organization + live:hw292 statefulset uatco/vcluster
+13,model,Catalog grid renders the Blueprint cards; `bp-postgres` detail has a **+ New instance** button.,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
+14,model,The shared-PG reuse model is LIVE: the `shared-pg` app **Contexts** tab shows multiple consumers sharing ONE PostgreSQL.,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail + live:shared-data/shared-pg CNPG
+15,model,Apps list renders one card per Application (all Platform/BOOTSTRAP-… a customer-launched app card would appear under its Org.,products/catalyst/bootstrap/api handler sovereignAppItem.Org + AppsPage.tsx + live:catalyst-ui image tag
+16,model,A customer app page (`/app/<name>`) → Settings/Topology → change topology → Save persists; the canonical tab strip includes a Topology tab.,live:hw292 customer app page /app/uatco-agenity — needs one browser walk
+18,model,"Scan every treemap cell: NO ephemeral Job-pod cell appears (no `cutover-*`, scan-vulnerabilityr… `*-snapshot-save-*`).",live:hw292 console treemap — one authed scan of /dashboard
+19,model,Count Application cards: one card per `Application` (NOT one per HelmRelease/pod); bootstrap apps carry a Platform/Bootstrap badge.,products/catalyst/bootstrap/ui/src/pages/sovereign/AppsPage.tsx + applicationCatalog.ts — or the clause (owner call #5867)
+20,model,"With a customer Org present, the customer estate is visually distinct from platform pods on the treemap.",products/catalyst/bootstrap/api/internal/handler/org_consumption.go (orgForRow) + products/catalyst/bootstrap/ui/src/pages/sovereign/Dashboard.tsx
+21,model,Organizations Showback panel: the **Application** column for a selected Org lists only that Org's real apps (no cluster-wide infra/Job pods).,products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/ShowbackPanel.tsx
+22,model,Showback shows a single visually-distinct **Platform overhead** roll-up line holding all control-plane/Job workloads.,products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/ShowbackPanel.tsx
+23,model,"After a 2nd Org runs an app, the showback panel shows a SECOND Org row attributed only to its own app, distinct from Platform overhead.",products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/ShowbackPanel.tsx
+24,model,`shared-pg` renders the canonical tab strip Overview · Contexts · Topology · Dependencies (Contexts tab present only for shareable blueprints).,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail
+25,model,"One consistent model across surfaces: `/organizations` shows the Orgs that `/apps`, the dashboard and showback all agree on.",products/catalyst/bootstrap/api consumptionParentOrg + mergeOrgResponses + live:catalyst-api image tag
+26,sso,"Console bare URL → lands on the dashboard signed-in as the owner; no PIN/login/""Sign in with…"" button.",products/catalyst/bootstrap/ui/src/pages/sovereign/Dashboard.tsx + catalyst-api PIN auth
+27,sso,"Avatar (top-right) menu reads ""Signed in as the owner"" with a Sign-out item.",products/catalyst/bootstrap/ui/src/widgets/auth/ProfileMenu.tsx
+28,sso,"Users page renders the pre-seeded owner row the owner (tier=owner UserAccess CR), signed-in admin.",products/catalyst/bootstrap/ui/src/pages/admin/user-access/UserAccessListPage.tsx
+29,sso,"Re-open the bare console URL after the session TTL → lands signed-in again, no PIN re-prompt.",products/catalyst/bootstrap/ui/src/router.tsx:287 markAuthed staleness + live:catalyst-ui image tag
+30,sso,"Grafana bare URL → lands on Grafana Home, full UI, no login form; left nav shows Administration; user menu = the owner.",clusters/_template/bootstrap-kit/25-grafana.yaml
+31,sso,"Gitea bare URL → lands on the gitea dashboard titled ""emrah.baysal — Dashboard"", no login; profile menu exposes Site Administration; stays on :443.",clusters/_template/bootstrap-kit/10-gitea.yaml
+32,sso,"Harbor bare URL → lands on `/harbor/projects`, no login form; user dropdown the owner with Administration menus.",clusters/_template/bootstrap-kit/19-harbor.yaml
+33,sso,"OpenBao bare UI → lands in an authenticated Vault session (Secrets engines / dashboard), NO token-entry form (an in-transit ""Signing in…"" shim is allowed).",live:OpenBao policy bound to the OIDC role (sys/internal/ui/mounts read)
+34,sso,"Keycloak admin console for the **sovereign** realm → lands inside the admin console (realm overview / Users / Clients), no master-realm login.",clusters/_template/bootstrap-kit/09-keycloak.yaml + live:keycloak-realm
+35,sso,"Guacamole bare URL → lands on the Guacamole connections list, signed-in; no Tomcat 404, no `/guacamole/` login page.",clusters/_template/bootstrap-kit/13c-bp-oidc-gate.yaml (guacamole instance) + 52-bp-guacamole.yaml
+36,sso,"PowerDNS-Admin bare URL → lands on the dashboard signed-in; no redirect loop, no OAuth error, no `Log In` page.",clusters/_template/bootstrap-kit/13c-bp-oidc-gate.yaml:205-209 (powerdns-admin instance)
+37,sso,"newapi bare URL (1st hit) → lands on `/console` signed-in as admin (role 100); no ""Unknown OAuth provider"", no login page.",platform/newapi (oidc-gate fronting vs native keycloak client) + live:flux bp-newapi HelmRelease
+38,sso,"newapi bare URL (2nd hit, re-entry) → lands on `/console` again signed-in; NOT an ""already bound"" / re-link error / `/setup` wizard.",see row 37
+39,sso,"Hubble bare URL → lands on the Hubble UI, authenticated (not an anonymous/unauth view, no login page).",clusters/_template/bootstrap-kit/01-cilium.yaml (catalystOverlay.hubbleUI.auth line 535)
+40,sso,"Marketplace bare URL → renders the anonymous storefront (public, by design); confirm no spurious login UI is forced.",core/marketplace/src/pages/index.astro
+41,sso,Keycloak sovereign realm → Users lists the single owner principal the owner (enabled).,live:keycloak sovereign realm user set + core org/useraccess signup path (#5883)
+42,sso,Owner user → Groups tab shows membership in `/sovereign-admins` (alongside `/openova-users`) — the source of admin authority.,platform/keycloak/chart/templates/configmap-sovereign-realm.yaml + live:keycloak-realm
+43,sso,Owner user → Role mapping tab: effective realm roles include `catalyst-admin` (not only default-roles/uma/o…,platform/keycloak/chart/templates/configmap-sovereign-realm.yaml + live:keycloak-realm
+44,sso,"Groups → `/sovereign-admins` → Role mapping: group confers `catalyst-admin` (console) and realm-management `realm-admin` (KC console) — one source, both grants.",platform/keycloak/chart/templates/configmap-sovereign-realm.yaml + live:keycloak-realm
+45,sso,"Console Users panel: owner row + the ability to view/manage users renders — proving console admin nav is driven by the realm principal, not a self-signed constant.",products/catalyst/bootstrap/ui/src/pages/admin/user-access/UserAccessListPage.tsx + SovereignSidebar.tsx
+46,topology,`bp-postgres` catalog detail renders; click **New instance** → the create dialog opens with a topology `<select>`.,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/InstancesSection.tsx
+47,topology,"Topology `<select>` options read exactly the ONE canonical vocabulary: `singleton`, `active-passive`, `active-hot-standby`, `active-active` (no `single-region`/`act…).",products/catalyst/bootstrap/ui/src/widgets/topology/modes.ts
+48,topology,`active-passive` is a selectable option in the create `<select>` (not folded away).,live:hw292 catalog create dialog for bp-wordpress-tenant — one browser assertion
+49,topology,"`singleton` is a separate selectable option (single-region single-instance), distinct from the multi-region modes.",products/catalyst/bootstrap/ui/src/widgets/topology/modes.ts
+50,topology,"Pick `active-hot-standby`, name the instance, Provision → the create succeeds (toast/redirect to the new app card), NOT a red `topology not in supported [...]` error.",products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx + live:Application/uat-ahs-pg
+51,topology,"`shared-pg` Topology tab renders a per-region placement view listing region-a (active) and region-b (standby) as ONE placement, not two separate instances.",products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx + live:Continuum/dr-shared-pg
+53,topology,Open a per-app Topology tab and read its placement view (singleton apps note no per-region/standby surface).,products/catalyst/bootstrap/api derivePattern (Go) + live:catalyst-api image tag
+54,topology,`shared-pg` Topology tab declared-topology strip renders the canonical mode in ONE vocabulary — header dialect and picker dialect MATCH (no `singleton` header over an `active-hotstandby` chip).,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx
+56,topology,"`shared-pg` Topology tab per-region placement + replication block: region-a primary, region-b replica, and a live replication-lag in seconds (not a hardcoded `—`).",products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx + live:Continuum/dr-shared-pg
+58,topology,"A **singleton** app (cilium) Topology tab: the DR section / Switchover button does NOT render (honestly hidden, not armed against a phantom region).",products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx
+59,topology,"Catalog New instance → pick `singleton` → Provision → that app's Topology tab shows single-region placement (no region-b standby, no Switchover).",platform/postgres/chart/templates/_helpers.tpl:7 + the wizard instance.name pass-through
+60,topology,Catalog New instance → pick `active-hot-standby` → Provision → that app's Topology tab shows a 2-region pair (region-a primary + region-b replica + armed Switchover).,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx
+61,topology,"Apps grid shows newly-provisioned postgres instances as their own cards, each carrying a topology badge matching the mode picked at create time.",products/catalyst/bootstrap/ui/src/pages/sovereign/AppsPage.tsx
+62,topology,"On an app WITH a live pair, the Topology DR section shows the live Continuum status (Ready / lease holder / standby) from the live API, not a static badge.",products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx:502/871/901 + live:catalyst-ui image tag
+64,topology,"`shared-pg` Topology tab replication-lag field shows a live numeric seconds value (or explicit ""no replica""), never a hardcoded `—`.",products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx + live:Continuum/dr-shared-pg
+65,topology,Cloud/regions view shows the true region count — a healthy 2-region prov reads `Cluster 2/2` with no phantom region-B bubble.,products/catalyst/bootstrap/ui/src/pages/sovereign/CloudPage.tsx
+66,topology,"Cloud→Clusters renders 2/2 HEALTHY clusters, one per region (me-east-215-a + me-east-215-b), no phantom region.",products/catalyst/bootstrap/ui/src/pages/sovereign/CloudPage.tsx
+67,topology,"grafana status/overview reports Healthy/Running in both regions — no ""cannot resolve write host"" crashloop in the app health panel.",products/catalyst/bootstrap/api/internal/handler/applications.go + catalyst-api image pin on hw292
+68,topology,"powerdns-admin status reports Healthy/Running — the CNPG-minted DB host resolved (no ""could not translate host"").",live:pod/powerdns-admin-bp-powerdns-admin + platform/powerdns-admin
+69,topology,"keycloak status reports Healthy/Running in both regions — JGroups DB-host resolves, no UnknownHostException in the health panel.",products/catalyst/bootstrap/api/internal/handler/applications.go + catalyst-api image pin on hw292
+70,topology,guacamole status reports Healthy/Running in both regions — no missing-recordings-PVC error surfaced.,live:pods guacamole-server/guacd/guacamole-pg both regions
+71,topology,"Region-kill baseline (before): `shared-pg` Topology tab shows live Continuum Ready, lease held by region-a, region-b standby present, a live replication-lag number.",products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx replication-lag panel + catalyst-api image pin
+72,funnel,"Operator console BSS → Vouchers page renders the voucher issuance form (code, credit OMR, plan tier, description); no login wall.",products/catalyst/bootstrap/ui/src/pages/sovereign/bss/VouchersPage.tsx
+73,funnel,"In the voucher form, type a weak code `1234` → Issue → the form rejects it inline (""voucher code must be at least 12 characters"").",products/catalyst/bootstrap/ui/src/pages/sovereign/bss/voucherCodePolicy.ts
+74,funnel,"Leave the code field empty → Issue → a new voucher row appears with a server-auto-generated high-entropy code, credit, plan tier, `unredeemed 0/1`.",products/catalyst/bootstrap/ui/src/pages/sovereign/bss/VouchersPage.tsx
+75,funnel,"Stranger opens the redeem page with `?code=<CODE>` → sees ""Voucher valid · 5000 OMR"" with THIS Sovereign's brand chrome (no openova.io / mothership logo).",console.hw292.omani.works BSS voucher mint then core/marketplace/src/pages/redeem.astro
+76,funnel,"Open the redeem page with a junk code → a generic ""voucher not valid"" message (no tombstone / no detail leak).",core/marketplace/src/pages/redeem.astro
+77,funnel,Redeem page source (DevTools): the HTML shows THIS Sovereign's brand and no `console.openova.io` / `omantel.openova.io` / bare `openova.io` host literal.,core/marketplace/src/pages/redeem.astro
+78,funnel,"Click ""Sign up to redeem"" → the browser lands on the plan picker grid (`/plans`).",core/marketplace/src/pages/plans.astro
+79,funnel,Plans grid shows the tiers (S/M/L/XL/Flexi) with price/CPU/memory → pick plan M → advances to the app catalog (`/apps`).,core/marketplace/src/pages/plans.astro
+80,funnel,App catalog grid (served from THIS Sovereign's catalog) → pick WordPress → advances to add-ons (`/addons`).,core/marketplace/src/pages/apps.astro
+81,funnel,Add-ons step shows optional add-ons → leave defaults → Continue → advances to the BCP topology step (`/bcp`).,core/marketplace/src/pages/addons.astro
+82,funnel,BCP topology step shows BOTH Single-region and Active-hot-standby radios (the Pillar-2 BCP choice at signup) → select Active-hot-standby → Continue → review.,core/marketplace/src/pages/bcp.astro
+83,funnel,"Review summary shows the chosen plan (M), app (WordPress), topology (Active-hot-standby), the Org slug, and the pool-TLD → Proceed to checkout.",core/marketplace/src/pages/review.astro
+84,funnel,"On checkout, enter the stranger's email → Send code → type the emailed sign-in code (no password) → the page shows the stranger signed in + Org confirmed.",catalyst-system/marketplace-api SMTP path + Secret sovereign-smtp-credentials (#5921)
+85,funnel,"Checkout summary: the voucher credit is applied — ""Credit covers this order — 0 OMR due"" (no Stripe card form) → click Launch / Place order.",core/marketplace/src/pages/checkout.astro
+86,funnel,"Provisioning progress timeline advances to Done (Creating Org → Committing manifests → Provisioning vCluster → Deploying WordPress → TLS → Health), no hang/red step.",marketplace-api provisioning-record writer; a fresh funnel run is itself gated behind #5921
+87,funnel,"After Launch, the marketplace redirects to the per-Org console — URL becomes the per-Org console and loads with publicly-trusted TLS (no cert error / connection-refused).",products/catalyst/bootstrap/api/internal/handler/org_console_tls.go (no region term) + infra/providers/huawei/main.tf gateway_lb_members
+88,funnel,"Per-Org console landing: the stranger is signed in zero-click as the Org owner (their email in the avatar, their Org in the header) — no login/PIN form.",products/catalyst/bootstrap/api/internal/handler/org_console_tls.go — plus a browser walk; the row is mutation-gated not blocked
+89,funnel,Per-Org console → Applications view shows the purchased WordPress app card Running/Healthy → click Open.,products/catalyst/bootstrap/ui/src/pages/sovereign/AppsPage.tsx
+90,funnel,Terminal acceptance: the purchased WordPress app SERVES at its own FQDN the app FQDN — the live rendered WordPress site (not 404/502/cert error).,products/catalyst/bootstrap/api/internal/handler/org_console_tls.go + infra/providers/huawei/main.tf gateway_lb_members
+91,funnel,"While signed in, re-open the marketplace root → the returning-user redirect sends the customer to their own Org console, never to `console.openova.io` / the mothership.",core/marketplace/src/layouts/Layout.astro returning-user redirect — plus a signed-in-customer walk
+92,funnel,"As the signed-in customer, rapidly re-submit checkout/redeem >5× in a few seconds → after ~5 attempts a rate-limit notice appears; a single legitimate redeem is unaffected.",core/services/gateway/ratelimit.go
+96,placement,"Handover URL → lands on `/dashboard` already signed-in as the owner (avatar E), no login form.",catalyst-api image pin on hw292 (source already fixed at products/catalyst/bootstrap/api/internal/handler/auth_handover.go acceptedHandoverIssuers)
+97,placement,Dashboard renders the cluster treemap and the LAYER 1 / LAYER 2 grouping comboboxes are visible.,products/catalyst/bootstrap/ui/src/pages/sovereign/Dashboard.tsx
+98,placement,"Click LAYER 1 combobox → select `vCluster`; the treemap regroups into one labelled block per vCluster (`host` / `mgmt` / `rtz` / `dmz`), mgmt block visible + clickable.",docs/ledger/UAT.md row clause (retire or rewrite) — the mgmt/rtz/dmz planes are gone by design
+99,placement,"On the LAYER1=vCluster treemap, the **grafana** tile sits inside the **mgmt** block, not **host**.",docs/ledger/UAT.md row clause (retire or rewrite)
+G5,janitor,janitor log-only live proof (the dry-run full-cycle observation).,stamp the row from the mothership catalyst-api log; no mutation and no deliberate session are required
+G8,apps,anthropic credential seeded into the agentic runtime — chat works end-to-end.,founder places the Anthropic credential in OpenBao catalyst/anthropic/token (#4277)
+R1,janitor,"catalyst-api orphan-sweep no longer reaps a `ready` Sovereign — denylist inversion (`case ""wiped"": eligible; default: protect`) holds on the live env.",stamp from the mothership janitor pass now that a ready Sovereign is in the registry; the vacuity that blocked it is gone
+R3,sso,bp-plane-isolation openbao default-deny ADMITS sso-bridge ingress → sso-bridge reaches openbao:8200.,platform/plane-isolation/chart/values.yaml (allowIngressFrom sso-bridge ~line 131)
+R4,sso,sso-bridge egress CNP permits openbao + keycloak — the reconciler's own egress is not blocked.,platform/sso-bridge/chart/templates/networkpolicy.yaml (keycloak port 80+8080 allow)
+R5,sso,sso-bridge re-mints the grafana OIDC client secret each tick (KC_ADDR cache refreshed) — no stale-secret 401.,platform/sso-bridge (reconciler tick) + clusters/_template/bootstrap-kit/25-grafana.yaml
+R6,postgres,bp-postgres NetworkPolicy admits the declared consumers (CNPG operator probe + app dials).,platform/postgres/chart
+R7,plane-isolation,bp-plane-isolation admits gitea ingress for its declared consumers (org-services→gitea de-vcluster gap).,platform/plane-isolation/chart
+R8,gitea,gitea-flux-auth secrets are seeded — Flux pulls from gitea with valid credentials.,live:gitrepository/flux-system
+R9,sso,oidc-gate client_secret is seeded for powerdns-admin — full OIDC round-trip completes.,clusters/_template/bootstrap-kit/13c-bp-oidc-gate.yaml:205-209 + platform/powerdns-admin/chart/templates/deployment.yaml
+100,placement,"On the LAYER1=vCluster treemap, the **harbor** tile sits inside the **mgmt** block, not **host**.",docs/ledger/UAT.md row clause (retire or rewrite)
+101,placement,"On the LAYER1=vCluster treemap, the **keycloak** tile sits inside the **mgmt** block, not **host**.",docs/ledger/UAT.md row clause (retire or rewrite)
+102,placement,"On the LAYER1=vCluster treemap, the **gitea** tile sits inside the **mgmt** block, not **host**.",docs/ledger/UAT.md row clause (retire or rewrite)
+103,placement,"On the LAYER1=vCluster treemap, the **openbao** tile sits inside the **mgmt** block, not **host**.",docs/ledger/UAT.md row clause (retire or rewrite)
+104,placement,"On the LAYER1=vCluster treemap, the **newapi** tile sits inside the **mgmt** block, not **host**.",docs/ledger/UAT.md row clause (retire or rewrite)
+105,placement,"On the LAYER1=vCluster treemap, the **guacamole** tile sits inside the **mgmt** block, not **host**.",docs/ledger/UAT.md row-105 clause re-spec (#3642)
+106,placement,Drill into the **mgmt** block: its tiles include all 7 named apps (grafana/harbor/key… alongside loki/mimir/nats/tempo.,docs/ledger/UAT.md row-106 clause re-spec (#3642)
+107,placement,Read the **host** block on the same treemap: none of the 7 named apps appear under `host`.,docs/ledger/UAT.md row-107 clause re-spec (#3642)
+108,placement,"Open the keycloak app card → its placement detail reads `mgmt` (the per-app placement mirrors the treemap block), not `host`.",docs/ledger/UAT.md row-108 clause re-spec (#3642)
+109,placement,"The sovereign-realm account console renders for the owner (no second login, no error dialog).",KC account-console token brokering from a catalyst-pin session (#688) or owner adjudication
+110,placement,"Gitea opens already signed in (avatar/menu shows the SSO user), repo list renders — no Gitea login form.",platform/gitea (OIDC client) + live:gitea.hw292
+111,placement,"Harbor opens signed in, the projects list renders — no Harbor login form, no gateway error page.",platform/harbor (OIDC client) + live:registry.hw292
+112,placement,"Grafana opens signed in (no Grafana login), the home dashboard renders.",platform/grafana (Generic OAuth) + live:grafana.hw292
+113,placement,The OpenBao UI renders signed in via OIDC — no manual token/unseal prompt blocking the landing.,platform/openbao (OIDC auth) + live:openbao.hw292
+114,placement,"newapi opens signed in, its main console renders — no login form, no upstream-connect error.",products/... newapi chart (OAuth) + live:newapi.hw292
+115,placement,"Guacamole opens signed in, the connections list renders — no Guacamole login form.",guacamole_connection seeding + unblock the bp-cilium HelmChart ghcr-pull auth failure
+116,orgs,"Organizations directory: the page title / heading reads ""Organizations"", never ""Tenants""/""SME Tenants"".",products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/OrganizationsDirectoryPage.tsx
+117,orgs,"Directory org cards / list rows: column headers read ""Organization / Kind / Tier / Billing / Isolation / Status""; rows labeled ""Organization"", never ""tenant""/""SME"".",products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/OrganizationsDirectoryPage.tsx
+118,orgs,"Left-nav sidebar label for this section reads ""Organizations"", not ""Tenants""/""SME"".",products/catalyst/bootstrap/ui/src/pages/sovereign/SovereignSidebar.tsx
+119,orgs,"Create-organization flow: the form title, field labels, and submit button all say ""Organization"" (no ""SME tenant slug"" / ""Onboard tenant"" persona words).",products/catalyst/bootstrap/ui/src/pages/org/CreateOrganizationPage.tsx
+120,orgs,"Organization-detail view: heading ""Acme Corp"", breadcrumb ""← Organizations"", field labels Slug/Kind/Tier/Billing mode/Isolation/Stat… — no ""tenant""/""SME"".",products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/OrganizationDetailPage.tsx
+121,orgs,"BSS / billing screen: billing is framed as ""This organization is in showback mode…"", zero ""tenant""/""SME"" leaks.",rename the org-services tenant microservice or add a console display-name alias
+122,orgs,"Legacy `/bss/tenants` URL (PR #3390 alias) resolves and redirects to `/organizations`, rendering the directory (H1 ""Organizations"") — not a 404, not a login redirect.",products/catalyst/bootstrap/ui/src/app/router.tsx
+123,catalog,"Handover URL → lands on `/dashboard` already signed-in as the owner (avatar E), no login form (everything below is admin-gated).",roll catalyst-api to an image built from a commit >= 3eed58270
+124,catalog,"Catalog grid renders Blueprint cards in a tile grid, each with an icon + summary; the Alloy card is visible.",products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogPage.tsx
+125,catalog,"Click the Alloy card → the detail page renders: a hero (icon + name + summary + Edit IaC), an About section, and an Instances list; no login redirect.",products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
+126,catalog,Click the admin Edit affordance in the hero → an edit form drops INLINE into the detail page (no modal overlay); fields appear in-place under the hero.,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogInlineField.tsx
+127,catalog,"In the inline form, change Summary to `RECONCILE-PROOF-<ts>` → Save → the page refreshes in place and the new summary shows in the hero.",products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogInlineField.tsx
+128,catalog,"Back on the grid, the Alloy card summary now reads `RECONCILE-PROOF-<ts>` — the edit propagated to the card, not just the detail page.",products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogPage.tsx
+129,catalog,"Hard-reload the detail page → the summary is still `RECONCILE-PROOF-<ts>` — the edit persisted across a reload, not an in-memory overlay.",products/catalyst/bootstrap/api/internal/handler/catalog_iac_edit.go
+130,catalog,"The non-card `version` field renders as a `v1.0.1` chip in the hero, and Edit IaC exposes the full CR including `version` for editing.",products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
+131,catalog,Note the current hero logo (the Alloy glyph) as the baseline before an icon edit.,products/catalyst/bootstrap/ui/src/shared/lib/resolveCatalogIcon.ts
+132,catalog,"Click Edit → in the Light-theme icon field paste a distinct image → Save → a ""Saved to IaC ✓"" confirmation shows and the page refreshes.",products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogInlineField.tsx
+133,catalog,"Observe the hero — it now shows the new logo; the render reads the edited `card.iconLight` first (IaC-first), not the bundled asset.",products/catalyst/bootstrap/ui/src/shared/lib/resolveCatalogIcon.ts
+134,catalog,Return to the grid — the Alloy card icon is now the new logo (the grid tile resolves the same edited `card.iconLight`).,products/catalyst/bootstrap/ui/src/shared/lib/resolveCatalogIcon.ts
+135,catalog,Reload the detail page — the hero is still the new logo (render reads the persisted IaC icon on every load).,products/catalyst/bootstrap/ui/src/shared/lib/resolveCatalogIcon.ts
+136,catalog,"Click Edit again — the Light-theme icon field shows the current IaC value, falling back to the bundled asset only when IaC carries none.",products/catalyst/bootstrap/ui/src/pages/sovereign/IconPicker.tsx
+137,catalog,Click Edit → click the icon picker (`iconpicker-*`) → a thumbnail grid of vendored `component-logos/*` assets opens (a role=listbox grid of logo tiles).,products/catalyst/bootstrap/ui/src/pages/sovereign/IconPicker.tsx
+138,catalog,Click `cilium.svg` in the picker grid → the icon field + a live preview swatch update to the Cilium logo.,products/catalyst/bootstrap/ui/src/pages/sovereign/IconPicker.tsx
+139,catalog,Save → reload — the hero is now the Cilium logo (the picker selection persisted to IaC and renders on hero + grid card).,products/catalyst/bootstrap/ui/src/shared/lib/resolveCatalogIcon.ts
+141,catalog,"Hover the summary line in the hero → a pencil/edit affordance appears ON the field (`cif-summary-edit` → `cif-summary-input`), inline, without opening the full form.",products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogInlineField.tsx
+142,catalog,Click the summary → type a value → Save → only the summary updates in place; no full-form modal opens.,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogInlineField.tsx
+143,catalog,Repeat the inline edit for the name field (`cif-name-edit` → `cif-name-input`) — it edits in place and saves just that field.,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogInlineField.tsx
+144,catalog,"Click Edit IaC (`catalog-detail-ed… admin only) → the full `blueprint.yaml` opens in the YAML editor (the entire CR, not just 7 card fields).",products/catalyst/bootstrap/ui/src/widgets/cloud-list/YamlEditor.tsx
+145,catalog,Change a field in the editor → Commit → a Show-diff Current/Proposed side-by-side renders the change and the commit succeeds (confirmation appears).,products/catalyst/bootstrap/ui/src/widgets/cloud-list/YamlEditor.tsx
+146,catalog,"The editor subtitle states it directly: ""Commit writes the IaC source of truth; Flux reconciles it… Both this editor and the card form above write the same file.""",products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
+147,catalog,"Open the WordPress detail page → Edit → change Summary → Save → reload → the summary persists, exactly as for Alloy.",products/catalyst/bootstrap/api/internal/handler/catalog_iac_edit.go
+148,catalog,WordPress: Edit IaC → edit `spec.manifests` → Commit → reload — the same YamlEditor edits a structurally-different blueprint's manifests in place.,products/catalyst/bootstrap/ui/src/widgets/cloud-list/YamlEditor.tsx
+149,catalog,WordPress: Edit → Light-theme icon → distinct image → Save → reload — the WordPress hero icon visibly changes.,products/catalyst/bootstrap/ui/src/shared/lib/resolveCatalogIcon.ts
+150,catalog,"PostgreSQL detail renders the SAME edit surface (hero icon, Edit IaC, clickable cards) and Edit IaC exposes `contextSchema` (a blueprint carrying contextSchema`/`sha…",products/catalyst/bootstrap/ui/src/widgets/cloud-list/YamlEditor.tsx
+151,catalog,Alloy + Postgres render the IDENTICAL edit chrome (same cif-icon-edit`/`cif… same Edit-IaC YamlEditor) — no blueprint-specific UI.,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
+152,catalog,The catalog detail page renders (hero · About · Instances) and opens an INLINE Edit form (no modal) — acceptance headline 1.,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
+153,catalog,"A summary edit Saves, updates the page AND the grid card, and persists across a reload — acceptance headline 2.",products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogPage.tsx
+154,catalog,"A non-card field edit (`version`) persists — the whole CR is editable, not a 7-field overlay — acceptance headline 3.",products/catalyst/bootstrap/ui/src/widgets/cloud-list/YamlEditor.tsx
+155,catalog,The edited icon renders on hero + grid + survives reload; the form pre-fills the IaC icon; the picker grid works — acceptance headline 4.,products/catalyst/bootstrap/ui/src/shared/lib/resolveCatalogIcon.ts
+157,catalog,"Per-field inline edit for cards (`cif-*`) + the full-CR YamlEditor (Edit IaC) for the rest, both writing the same IaC source — acceptance headline 6.",products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
+158,catalog,The identical edit mechanism works on a 2nd + 3rd blueprint — no per-blueprint UI (Alloy + Postgres + a third) — acceptance headline 7.,products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
+159,cutover,"Settings → Sovereignty section renders a ""Cluster sovereignty"" panel with a ""TETHERED"" badge + an ""Achieve True Sovereignty"" cutover CTA (runs the 8-step cutover + 10-min egress-block self-test).",products/catalyst/bootstrap/ui/src/pages/sovereign
+160,cutover,"Console nav + Settings sidebar expose a dedicated ""Sovereignty"" anchor (`#sovereignty`) that scrolls to + highlights the Cluster-sovereignty panel — the cutover trigger is a first-class surface.",products/catalyst/bootstrap/ui/src/pages/sovereign
+161,cutover,"Open `/jobs` (zero-login, signed in as owner) → the canvas table renders a populated activity list (not a spinner, empty state, or login redirect).",products/catalyst/bootstrap/ui/src/pages/sovereign
+162,cutover,"Find the `cutover` group row and expand it → it renders the 11 `cutover-step-*` rows (gitea-mirror, harbor-projects, harbor-prewarm, registry-pivot, … vcluster-registry-p… — the 11-step execution tree.",platform/self-sovereign-cutover/chart
+163,cutover,"Each `cutover-step-*` row reads an honest per-step status (Succeeded / Running / Failed / Pending), never a premature green.",platform/self-sovereign-cutover/chart
+164,cutover,"The cutover group status reflects its real children (a group with a failed child reads failed, not a fake Succeeded).",platform/self-sovereign-cutover/chart
+167,jobs,"Open the console root in a fresh tab → land on the operator dashboard signed in as the sovereign-admin (no login form, no password field).",products/catalyst/bootstrap/ui/src/pages/sovereign/Dashboard.tsx + live:catalyst-api session
+168,jobs,"Open `/jobs` → the canvas table renders a populated list of activity rows (not a spinner, empty state, or login redirect).",products/catalyst/bootstrap/ui/src/pages/sovereign/JobsPage.tsx
+169,jobs,The Kind column is present in the header and each row shows its kind; full header = Name·Kind·App·Deps·…,products/catalyst/bootstrap/ui/src/pages/sovereign/JobsTable.tsx
+170,jobs,Scroll/search to the `install-openbao` row → it renders green / Succeeded (the install is honestly green).,products/catalyst/bootstrap/ui/src/pages/sovereign/JobsTable.tsx
+171,jobs,"Every rendered row maps to a real HelmRelease install / terraform stage (no placeholder, no synthetic/fabricated entry).",products/catalyst/bootstrap/ui/src/pages/sovereign/jobsAdapter.ts
+172,jobs,"Set the Status filter to `failed` → the table shows the genuinely-failing rows, each with an honest failed status (the Status filter works).",products/catalyst/bootstrap/ui/src/pages/sovereign/JobsPage.tsx
+173,jobs,Leave the table on screen ~30s → rows update live (tail) as reconciliation progresses; a status badge changes in place without a manual reload.,re-walk /jobs in a browser for ~90s on hw292
+174,jobs,"On a Failed row (Status=failed), a Re-run / Retry-reconcile button is present on the row (visible on the row or on hover).",products/catalyst/bootstrap/ui/src/pages/sovereign/JobsTable.tsx
+175,jobs,"On a Succeeded / healthy / Confirming row, NO Re-run button renders — the control is gated to Failed rows only.",products/catalyst/bootstrap/ui/src/pages/sovereign/JobsTable.tsx
+176,jobs,"Click Re-run on a Failed row → a success toast/feedback appears and the button flips in place (e.g. `Requesting…`) — the browser triggered a re-reconcile, no terminal.",one authenticated click on the jobs-retry control for the failed syft-sbom row on hw292
+177,jobs,"Use the same Re-run button on a Failed row — one remediation mechanism across rows, no per-kind UI (the single-table/single… shape).",POST the retry for task-syft-sbom and re-read runCount/latestExecutionId
+178,meta,"The signed handover URL → lands directly on `/dashboard` signed-in (env switcher shows the live env, avatar E, no login form).",roll catalyst-api to an image built from a commit >= 3eed58270
+179,meta,"Click the avatar (top-right) → menu reads ""Signed in as the owner"" with a Sign-out item — confirms the landed identity is the owner-admin.",products/catalyst/bootstrap/ui/src/pages/sovereign
+180,meta,"Grafana bare URL → lands on Grafana Home (""Welcome to Grafana"", full UI, Profile avatar), `?orgId=1`, no login form (SSO landed signed-in).",live:grafana-oidc-sso
+181,meta,"Harbor (registry) bare URL → lands on `/harbor/projects` (projects, repos, Administration nav), no login form; user dropdown the owner.",live:harbor-oidc-sso
+182,meta,"Gitea bare URL → lands on the gitea dashboard titled ""emrah.baysal - Dashboard - Catalyst Gitea"", logged in; URL stays on :443.",live:gitea-oidc-sso
+183,meta,"OpenBao bare UI → final rendered screen is the authenticated Vault session (`/ui/vault/secrets`, Secrets Engines with cubbyhole/ + secret/ kv), NO `/ui/vault/auth` token form.",bump bp-openbao HR to >= 1.2.66 (itself held behind the bp-cilium ghcr-pull failure)
+187,topology,Per-app Topology for a multi-region app (grafana) shows **Pattern: active-active** with 2 PRIMARY region cards — NOT singleton.,products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/TopologyTab.tsx
+188,topology,A genuine single-region app (catalyst-api) correctly shows **singleton** (no false multi-region).,roll catalyst-api to an image containing be000b90a/472409679
+189,topology,Region-b kubeconfig self-heals EIP→private-IP **zero-touch** on restart (topology survives a fresh prov).,core/services/provisioning/handlers/kubeconfig_reconciler.go + live:secret/catalyst/cutover-secondary-kubeconfigs
+192,recon,"The convergence **Reconciliation** link opens the cloud **RECON lens** (`view=graph&lens=reconciliation`), not the default cloud lens.",owner decision — drop the wizard-link clause or delete the orphaned component
+193,recon,Clicking a reconciler opens the **ArgoCD-like management surface** (drill-in).,products/catalyst/bootstrap/ui/src/pages/sovereign
+194,recon,Recon surface lists Flux reconcilers with live status (Reconciled/Reconciling/Degraded/Suspended).,products/catalyst/bootstrap/ui/src/pages/sovereign
+195,recon,Drill a reconciler → its controller **logs** render.,products/catalyst/bootstrap/ui/src/pages/sovereign
+196,recon,**Reconcile** action → `reconcile.fluxcd.io/requestedAt` lands on the live object.,products/catalyst/bootstrap/api/internal/handler
+197,recon,**Suspend/Resume** → `spec.suspend` flips on the live object.,products/catalyst/bootstrap/api/internal/handler
+198,cloud,"`/cloud` per-kind **helmreleases** page shows the real count (~65), not 0.",products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/K8sListPage.tsx
+204,cloud,"Cloud **Worker Nodes** page shows the real nodes, not 0.",products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-compute/WorkerNodesPage.tsx
+205,fleet,"`/fleet/applications` returns the real app count (non-zero), not 0.",products/catalyst/bootstrap/api/internal/handler/applications.go
+209,storage,PVCs land on a real **CSI storageclass** (not k3s local-path).,live:storageclass/evs-ssd
+210,storage,`local-path` is **FORBIDDEN** (k3s `--disable=local-storage`).,live:storageclass
+211,mcp,MCP **sovereign-admin** token → `list_applications` returns all apps.,products/openova-mcp/internal/tools
+212,mcp,MCP **Org-scoped** token → `list_applications` returns ONLY that Org's apps (RBAC parity).,emit a per-Org bp-openova-mcp instance from the per-Org GitOps renderer (#5843) or adjudicate D32/D33 supersession
+213,mcp,MCP cross-Org `get_application` → **403** (UI-parity).,emit a per-Org bp-openova-mcp instance (#5843) then re-walk cross-Org get_application
+214,orgs,No `SME`/`tenant` banned-term leak in the console bundle (org-rename complete).,products/catalyst/bootstrap/ui
+215,orgs,"CRD `tier` enum is `[org, corporate]` — a `tier: org` Organization is accepted.",products/catalyst/chart/crds/organization.yaml
+216,e2e-journey,A user with a **coupon/voucher code** redeems it → creates **his Organization**. Surface: `https://marketplace.<fqdn>/redeem/?code=<CODE>` (no session) → plan/region → Launch. PASS = the provisioning timeline runs to Done AND `/organizations` shows the Org **ACTIVE** backed by live `vcluster` pods (not a fake-green status).,mint one voucher via the BSS menu then walk /redeem/?code=<CODE> to Launch
+217,e2e-journey,"The user logs in via the **passwordless SSO magic-email PIN** (any domain, e.g. `demo@openova.io`) → 6-digit PIN emailed → lands signed-in, no password. PASS = the PIN actually arrives (verify IMAP `mail.openova.io:993`) AND entering it lands signed-in as the CUSTOMER (their email in the avatar, their Org in the header) with no password field — this is the customer PIN flow, NOT the operator handover.",re-walk the customer PIN flow on hw292 console.uatco.omani.homes (IMAP + browser); the hw291 listener-admission cause is dead
+218,e2e-journey,"**chepherd is installable from the catalog as an Application** (`bp-agenity` **Helm chart**). Surface: per-Org console → Catalog → the `bp-agenity` card renders + the install wizard opens with the Org's Environment pre-selected as the target. PASS = card present + wizard opens (the chart resolves from the catalog, not 404).",deploy #5823 pre-select to hw292 then re-walk with a MULTI-instance Blueprint; bp-agenity cannot satisfy the wizard clause once installed
+219,e2e-journey,"The user **provisions chepherd** as an Application → it converges (Helm deploys, pods Ready, chepherd console reachable in his Org).",roll catalyst-api past fad88bd (#5647/#5713/#5723/#5732) and clear the ghcr-pull auth cascade (#5759)
+220,e2e-journey,chepherd's **solo agent is pre-configured with Claude Opus 4.7** + a working token (the agent is live and chat works).,founder seeds OpenBao catalyst/anthropic/token (#4277); no code change moves this row
+221,e2e-journey,"The user **chats with the chepherd solo agent** (""create a `<blueprint>` app in my org"") → the agent calls the openova-mcp `create_application` tool with the user's **Org-scoped** token → a new Application CR is created in the user's Org. PASS = the agent reports the new app name + an Application appears provisioning in the user's `/apps`, with NO operator-console action.",founder seeds the Anthropic credential (#4277); the #5516 half is already fixed in main and only needs the image roll
+222,e2e-journey,The agent-created application **converges and appears in the user's Org** (chat-driven app creation works end-to-end).,unblocks strictly downstream of row 221; nothing to change here
+223,e2e-journey,"The chepherd agent's actions are **RBAC-scoped to the user's Org** (UI-parity): the openova-mcp `list_applications` returns ONLY this Org's apps (a 2nd Org's are filtered out), a cross-Org `get_application` → **403**, and the agent cannot create/mutate in any other Org — enforced by `openova-mcp/internal/identity` Org-claim, not just the chat prompt.",roll the bp-agenity image past de1cbec54 then call list_applications / cross-Org get_application with the Org bearer; this row does NOT need the Anthropic credential
+226,funnel,"The customer's PURCHASED app actually RUNS — every funnel Org's `tenant-<slug>-apps` Kustomization reconciles into a running pod (the app is reachable, not 404).",core/controllers/organization/internal/controller/per_org_flux.go
+227,delivery,"A catalog/seed version bump reaches the live **Blueprint CR zero-touch** — bumping a `bp-*` pin in the catalog seed lands on the cluster Blueprint CR with NO manual `kubectl patch` and NO `resource-policy: keep` annotation pinning a stale version. PASS = after a seed bump, `kubectl get blueprint bp-<x> -o jsonpath='{.spec.version}'` matches the seeded version within one reconcile, the seeder owns the field (no `helm.sh/resource-policy: keep`), and the rolled chart renders on the cluster.",walk PRE-cutover on a fresh prov OR trigger the local gitea mirror sync and assert the CR advances without kubectl patch
+229,delivery,"**bootstrap-kit Kustomization Ready=True + plane-isolation admits CNPG→kube-apiserver egress** — on the fresh prov `kubectl -n flux-system get kustomization bootstrap-kit` is `Ready=True` (no orphaned `dependsOn` / CRD dry-run rejection), AND the plane-isolation NetworkPolicy permits the CNPG operator's egress to the kube-apiserver so Cluster admission/patch succeeds. PASS = bootstrap-kit `Ready=True`; CNPG operator pod Running; a `Cluster` reconciles (no `context deadline exceeded` / x509 webhook failure caused by blocked apiserver egress).",products/catalyst/bootstrap/clusters
+230,delivery,"**`ghcr-pull` reflects into a bare-slug per-Org namespace** — the emberstack reflector copies the `ghcr-pull` imagePullSecret into a per-Org namespace whose name is a bare slug (e.g. `org-<slug>` / a non-UUID form), so private `ghcr.io/openova-io/*` app images pull (no `ImagePullBackOff` 401-anonymous). PASS = a fresh Org's namespace has the reflected `ghcr-pull` secret; a per-Org app pod pulling a private image reaches Running (no 401/ImagePullBackOff).",live:secret/ghcr-pull-reflection
+231,delivery,"**bp-postgres singleton render carries the operator-probe NetworkPolicy** — a singleton (non-HA) bp-postgres render still ships the NetworkPolicy that admits the CNPG operator's health/readiness probe, so a singleton Postgres reaches Ready (the probe is not blocked). PASS = a singleton bp-postgres Application reaches `Ready=True`; the operator-probe NetworkPolicy is present in the rendered manifest; the CNPG operator can probe the instance.",platform/postgres/chart
+233,apps,"On a fresh funnel Org, **WordPress serves HTTP 200** — the mysql DB pod is Guaranteed-QoS (requests==limits, schedulable under the per-Org LimitRange), the HTTPRoute is present, and the landed host is pool-aligned to the console-ELB EIP. PASS = `curl https://wordpress.<slug>.<pool-tld>/` → 200 (or 302→install then 200), mysql pod QoS=Guaranteed + Running, HTTPRoute parents the console gateway, host resolves to the console-ELB EIP (not the primary ELB).",fix the per-region per-Org listener write (#5511/#5246) so region-B carries *.<org> listeners
+235,apps,"On a fresh prov, **grafana SSO logs in 3/3 → 200** — the bp-sso-bridge per-tick credential refresh keeps the grafana OIDC client secret in lockstep with Keycloak, so the SSO round-trip completes. PASS = grafana `/login/generic_oauth` → Keycloak → back signed-in (200, user in the avatar) across 3 consecutive attempts; bp-sso-bridge refreshes the client cred each tick (no stale-secret 401).",platform/sso-bridge + live:grafana OIDC client
+236,apps,"On a fresh multi-region prov, **region-B keycloak reaches Ready** — the cross-region shared-pg write host is correct so region-B Keycloak connects to the primary Postgres and completes realm import. PASS = `bp-keycloak` HR `Ready=True` in the region-B cluster; keycloak pod Running; realm import succeeds (no DB-connect / wrong-write-host failure); `keycloak.<host>` → 302 SSO.",platform/keycloak + live:region-b bp-keycloak HelmRelease
+R10,orgs,"org-controller RBAC carries update/patch — per-Org provisioning completes (was create-only, never reached Ready).",products/catalyst/chart/templates/controllers/organization-controller-clusterrole.yaml
+R11,gitea,gitea git-data is PRESERVED across the host-ns re-home (#4325 de-vcluster) — no empty-PVC data loss.,none — permanently unwalkable like rows 99-107; re-baseline as a design exemption rather than a live block
+R12,postgres,shared-pg `-mesh-rw` resolves in BOTH regions + CNPG streaming replication is live.,live:svc/shared-pg-mesh-rw
+R13,convergence,region-B keycloak / gitea / harbor reach steady-state with NO CrashLoop.,live:region-b/keycloak+gitea+harbor
+R14,model,console Organizations directory reads the live Organization CRs (not an empty in-memory store).,products/catalyst/bootstrap/api/internal/handler/org_list_from_cr.go + products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/OrganizationsDirectoryPage.tsx
+R15,funnel,funnel plan-slug propagates end-to-end — the chosen plan reaches the provisioned Org.,core/services/provisioning/handlers/organization_create.go
+R16,funnel,the funnel + BSS Org doors are collapsed onto ONE path — `console.<slug>` lands 200.,make the per-Org listener write reconcile into EVERY region (#5246/#5511) and reap the r17probe orphan (#5426)
+R17,orgs,deleting an Organization CR cascades cleanly — no orphaned ns / app / DNS leak.,roll catalyst-api past fad88bd so the merged multi-region prefix-matching reaper (407c00e74/10ab5c70b/#5848) actually runs
+R18,cutover,handover-key self-publish guard — the Sovereign does not re-publish its handover key on reconcile.,products/catalyst/bootstrap/api/cmd/api/main.go
+R19,sandbox,sandbox-controller reaches Running (was CrashLoop on unset CATALYST_GITEA_TOKEN).,none — void row; the clause was never rewritten to the Agenity surface so it should stay a recorded design supersession
+R20,delivery,the deploy-bot bumps image pins per-line (not a blanket bump) — stale-render avoided.,.github/workflows
+R21,catalog,catalog-seed pins match the published ghcr chart versions — no inert lagging Blueprint CR.,products/catalyst/chart/templates/catalog-seed/blueprints.yaml
+R22,plane-isolation,bp-plane-isolation admits apiserver-egress + gateway-ingress CNPs — CNPG admission + gateway hop succeed.,deploy the merged #5813 chart (7adf1640b) so allowedIngressNamespaces emits cnpg-system on the live cluster
