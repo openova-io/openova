@@ -1224,3 +1224,103 @@ func TestDashboardTreemap_ApplicationNamedAfterDeploymentNotReplicaSet(t *testin
 		t.Errorf("coredns cpu_request: got %v want 50m", bySize["coredns"])
 	}
 }
+
+/* ── #5932 per-Org vCluster grouping ─────────────────────────────── */
+
+// mkOrgNamespace is a host Namespace for an Organization: it carries the
+// `openova.io/organization` join key but deliberately NOT
+// `catalyst.openova.io/vcluster-role`, because no post-#4325 Sovereign
+// stamps that label anywhere. Measured on hw292 2026-08-10: the label
+// matched 0 of 45 namespaces.
+func mkOrgNamespace(name, org string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Namespace",
+		"metadata": map[string]any{
+			"name":            name,
+			"resourceVersion": "1",
+			"labels":          map[string]any{"openova.io/organization": org},
+		},
+	}}
+}
+
+// mkSyncedPod is a pod mirrored into the host namespace by the vCluster
+// syncer. The managed-by VALUE is the vCluster's Helm release name, which
+// is `vcluster` for every per-Org install — identical across Organizations
+// on purpose, since keying blocks on it is the collapse this test forbids.
+func mkSyncedPod(ns, name, app string) *unstructured.Unstructured {
+	p := mkDashPod(dashFixturePod{
+		Namespace: ns, Name: name, Application: app, Family: "",
+		CPURequest: "100m", Ready: true,
+	})
+	p.Object["metadata"].(map[string]any)["labels"].(map[string]any)["vcluster.loft.sh/managed-by"] = "vcluster"
+	return p
+}
+
+// TestVclustersFromRuntime_PerOrgBlocksDoNotCollapse pins #5932.
+//
+// Before the fix the only join key was `catalyst.openova.io/vcluster-role`,
+// which #4325 stopped producing. Every pod then fell through to the "host"
+// bucket and LAYER1=vCluster rendered ONE block, so the layer silently
+// degraded instead of failing. Each sub-case below fails on the pre-fix
+// code, which is what makes this a check rather than a description.
+func TestVclustersFromRuntime_PerOrgBlocksDoNotCollapse(t *testing.T) {
+	namespaces := []*unstructured.Unstructured{
+		mkOrgNamespace("uatco", "uatco"),
+		mkOrgNamespace("walk-stranger-two", "walk-stranger-two"),
+		mkDashNamespace("catalyst", "", ""), // host: no Org label, no synced pod
+	}
+	pods := []*unstructured.Unstructured{
+		mkSyncedPod("uatco", "coredns-0", "coredns"),
+		mkSyncedPod("walk-stranger-two", "coredns-0", "coredns"),
+		mkDashPod(dashFixturePod{Namespace: "catalyst", Name: "api-0",
+			Application: "catalyst-api", CPURequest: "100m", Ready: true}),
+	}
+
+	// The pre-fix key must be absent from every fixture, otherwise this
+	// test could pass on the old code and prove nothing.
+	for _, ns := range namespaces {
+		if _, bad := ns.GetLabels()["catalyst.openova.io/vcluster-role"]; bad {
+			t.Fatalf("fixture %s carries the retired label; the test would not exercise the fix", ns.GetName())
+		}
+	}
+
+	rows := buildPodRows(pods, nil, nil, namespaces, nil, nil, "cid", "")
+	got := map[string]string{}
+	for _, r := range rows {
+		id, _ := dimensionKey(r, "vcluster")
+		got[r.namespace] = id
+	}
+
+	if got["uatco"] != "uatco" {
+		t.Errorf("uatco pod must bucket under its own Organization's vCluster; got %q", got["uatco"])
+	}
+	if got["walk-stranger-two"] != "walk-stranger-two" {
+		t.Errorf("walk-stranger-two pod must bucket under its own vCluster; got %q", got["walk-stranger-two"])
+	}
+	// The collapse guard: both vClusters share managed-by="vcluster", so a
+	// fix that named blocks after that value would put them in one bucket.
+	if got["uatco"] == got["walk-stranger-two"] {
+		t.Errorf("two distinct per-Org vClusters collapsed into one block %q", got["uatco"])
+	}
+	// Negative control: a namespace with no synced pod is NOT a vCluster.
+	// Without this, a helper that returned every namespace would pass above.
+	if got["catalyst"] != "host" {
+		t.Errorf("host namespace must stay in the host bucket; got %q", got["catalyst"])
+	}
+}
+
+// TestVclustersFromRuntime_LegacyLabelStillWins keeps the pre-#4325 path
+// working: an env that DOES carry `vcluster-role` must group by it, so
+// this fix adds a fallback rather than replacing the existing behaviour.
+func TestVclustersFromRuntime_LegacyLabelStillWins(t *testing.T) {
+	namespaces := []*unstructured.Unstructured{mkDashNamespace("mgmt-ns", "mgmt", "")}
+	pods := []*unstructured.Unstructured{mkDashPodOnNode("mgmt-ns", "p-0", "grafana", "")}
+	rows := buildPodRows(pods, nil, nil, namespaces, nil, nil, "cid", "")
+	if len(rows) != 1 {
+		t.Fatalf("want 1 row; got %d", len(rows))
+	}
+	if id, _ := dimensionKey(rows[0], "vcluster"); id != "mgmt" {
+		t.Errorf("legacy vcluster-role label must still win; got %q", id)
+	}
+}
