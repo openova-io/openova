@@ -26,8 +26,9 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RAW = ROOT / "docs" / "ledger" / "uat-raw.csv"
 
-ORDER = ["PASS", "FAIL", "PARTIAL", "NOTRUN", "SUPERSEDED"]
-SHORT = {"PASS": "✅", "FAIL": "❌", "PARTIAL": "⚠️", "NOTRUN": "☐", "SUPERSEDED": "⛔"}
+ORDER = ["PASS", "FAIL", "PARTIAL", "NOTRUN", "SUPERSEDED", "ABSENT"]
+SHORT = {"PASS": "✅", "FAIL": "❌", "PARTIAL": "⚠️", "NOTRUN": "☐",
+         "SUPERSEDED": "⛔", "ABSENT": "·"}
 
 
 def load():

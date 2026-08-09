@@ -136,16 +136,20 @@ def main():
               " test-case set genuinely changed and that change is intentional.", file=sys.stderr)
         sys.exit(1)
 
-    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Excel-native: "YYYY-MM-DD HH:MM:SS" types as a datetime on open; an ISO
+    # string with T/Z lands as text and no pivot can group by it.
+    _now = datetime.datetime.now(datetime.timezone.utc)
+    ts = _now.strftime("%Y-%m-%d %H:%M:%S")
+    day = _now.strftime("%Y-%m-%d")
     new = not RAW.exists()
     with RAW.open("a", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         if new:
-            w.writerow(["cycle_ts", "env", "dep_id", "milestone", "row_id",
+            w.writerow(["cycle_ts", "cycle_date", "env", "dep_id", "milestone", "row_id",
                         "epic_issue", "epic_name", "status", "status_class"])
         for rid in canon:
             issue, name, glyph = rows[rid]
-            w.writerow([ts, args.env, args.dep, args.milestone, rid,
+            w.writerow([ts, day, args.env, args.dep, args.milestone, rid,
                         issue, name, glyph, CLASS.get(glyph, "PARTIAL")])
 
     counts = {}
