@@ -38,6 +38,7 @@ CANON = ROOT / "docs" / "ledger" / "uat-testcases.csv"
 CELL = re.compile(r"(?<!\\)\|")
 ROW_ID = re.compile(r"^\|\s*(R?\d+|[GWM]\d+)\s*\|")
 GLYPHS = ["✅", "❌", "⚠️", "⛔", "☐"]
+ENV_LABEL = re.compile(r"^(hw\d{2,3}|kom4dc|t\d{2})$")
 
 # Status vocabulary. Kept small on purpose -- a status set that grows every cycle
 # makes trends unreadable.
@@ -144,7 +145,9 @@ def main():
         for rid in canon:
             epic, tick, test, walk, glyph = rows[rid]
             m = re.match(r"^([A-Za-z0-9]+?)[-_](\d{4}-\d{2}-\d{2})", walk or "")
-            wenv, wdate = (m.group(1), m.group(2)) if m else ((walk or "").split("-")[0], "")
+            wenv, wdate = (m.group(1), m.group(2)) if m else ("", "")
+            if wenv and not ENV_LABEL.match(wenv):
+                wenv = ""   # unrecognised label -> blank, never a guess
             w.writerow([ts, day, wenv, wdate, args.dep, args.milestone, rid,
                         epic, tick, test, walk, glyph, CLASS.get(glyph, "PARTIAL")])
 

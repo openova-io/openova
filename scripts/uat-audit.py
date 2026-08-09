@@ -72,6 +72,16 @@ def main():
     check(not orphan, "no walk_env without a walk_raw to derive it from",
           f"{len(orphan)} orphans")
 
+    # SEMANTIC check, not just derivational. The first version of this audit only
+    # asserted walk_env was a prefix of walk_raw, which passed 279 rows holding
+    # "https" / "repo" / "mothership" / bare digits parsed out of URL-shaped or
+    # numeric Walk cells. Correctly derived from the wrong thing is still wrong.
+    ENV_LABEL = re.compile(r"^(hw\d{2,3}|kom4dc|t\d{2})$")
+    junk = collections.Counter(r["walk_env"] for r in rows
+                               if r["walk_env"] and not ENV_LABEL.match(r["walk_env"]))
+    check(not junk, "walk_env values are real Sovereign labels",
+          f"{sum(junk.values())} rows: {dict(list(junk.items())[:6])}")
+
     bad = [r["status_class"] for r in rows if r["status_class"] not in VALID_CLASS]
     check(not bad, "status_class is within the declared vocabulary",
           f"unexpected: {sorted(set(bad))[:5]}")

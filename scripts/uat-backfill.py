@@ -42,6 +42,7 @@ UAT_PATH = "docs/ledger/UAT.md"
 
 CELL = re.compile(r"(?<!\\)\|")
 ROW_ID = re.compile(r"^\|\s*(R?\d+|[GWM]\d+)\s*\|")
+ENV_LABEL = re.compile(r"^(hw\d{2,3}|kom4dc|t\d{2})$")
 GLYPHS = ["✅", "❌", "⚠️", "⛔", "☐"]
 CLASS = {"✅": "PASS", "❌": "FAIL", "⚠️": "PARTIAL", "☐": "NOTRUN",
          "⛔": "SUPERSEDED", "◑": "PARTIAL"}
@@ -98,10 +99,17 @@ def split_walk(walk):
     if not walk:
         return "", ""
     m = re.match(r"^([A-Za-z0-9]+?)[-_](\d{4}-\d{2}-\d{2})", walk)
-    if m:
-        return m.group(1), m.group(2)
-    m = re.match(r"^([A-Za-z0-9]+)", walk)
-    return (m.group(1) if m else ""), ""
+    env = m.group(1) if m else ""
+    date = m.group(2) if m else ""
+    # Only accept a value that actually looks like a Sovereign label. Earlier this
+    # fell back to "first token of the cell", which turned Walk cells holding a URL
+    # or a bare number into envs named "https", "repo", "mothership", "7" -- 279
+    # rows of nonsense that the derivation audit waved through, because they WERE
+    # prefixes of walk_raw. Deterministically derived is not the same as correct.
+    # Anything unrecognised leaves walk_env blank; walk_raw keeps the original text.
+    if not ENV_LABEL.match(env):
+        return "", date
+    return env, date
 
 
 def main():
