@@ -139,11 +139,13 @@ def main():
     with RAW.open("a", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         if new:
-            w.writerow(["cycle_ts", "cycle_date", "env", "dep_id", "milestone", "row_id",
-                        "epic", "ticket", "test_case", "walk", "status", "status_class"])
+            w.writerow(["cycle_ts", "cycle_date", "walk_env", "walk_date", "dep_id", "milestone",
+                        "row_id", "epic", "ticket", "test_case", "walk_raw", "status", "status_class"])
         for rid in canon:
             epic, tick, test, walk, glyph = rows[rid]
-            w.writerow([ts, day, args.env, args.dep, args.milestone, rid,
+            m = re.match(r"^([A-Za-z0-9]+?)[-_](\d{4}-\d{2}-\d{2})", walk or "")
+            wenv, wdate = (m.group(1), m.group(2)) if m else ((walk or "").split("-")[0], "")
+            w.writerow([ts, day, wenv, wdate, args.dep, args.milestone, rid,
                         epic, tick, test, walk, glyph, CLASS.get(glyph, "PARTIAL")])
 
     counts = {}

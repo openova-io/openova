@@ -93,7 +93,7 @@ def main():
             rows = cycles[t]
             c = collections.Counter(r["status_class"] for r in rows)
             n = len(rows)
-            print(f"| {t} | {rows[0]['env']} | {rows[0]['milestone'] or '—'} | {n} | "
+            print(f"| {t} | {rows[0].get('walk_env','')} | {rows[0]['milestone'] or '—'} | {n} | "
                   + " | ".join(str(c[s]) for s in ORDER) + f" | {100 * c['PASS'] / n:.1f}% |")
         return
 

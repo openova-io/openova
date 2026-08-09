@@ -82,11 +82,26 @@ def day_commits():
     return list(reversed(out))
 
 
-def env_for(sha):
-    """Env label from the commit subject/body, else blank. Never guessed."""
-    msg = sh("git", "log", "-1", "--format=%s%n%b", sha)
-    m = re.search(r"\b(hw\d{2,3}|kom4dc)\b", msg)
-    return m.group(1) if m else ""
+def split_walk(walk):
+    """Split UAT.md's Walk cell into (env, walk_date).
+
+    The Walk cell is the ONLY authoritative record of which Sovereign a row was
+    walked on -- it is written by the walker at stamp time, e.g. "hw292-2026-08-09".
+
+    An earlier version of this script inferred env from a regex over the commit
+    MESSAGE instead. That was a guess dressed as data: it disagreed with this
+    cell 3539 times against 1569 agreements, because a commit like
+    "wipe hw225 + fire hw226" matches the wrong env and then stamps it onto all
+    286 rows of that cycle. Removed. If the Walk cell is empty, env is empty --
+    an unwalked row has no environment, and inventing one is worse than a blank.
+    """
+    if not walk:
+        return "", ""
+    m = re.match(r"^([A-Za-z0-9]+?)[-_](\d{4}-\d{2}-\d{2})", walk)
+    if m:
+        return m.group(1), m.group(2)
+    m = re.match(r"^([A-Za-z0-9]+)", walk)
+    return (m.group(1) if m else ""), ""
 
 
 def main():
@@ -108,7 +123,6 @@ def main():
         if not text.strip():
             continue
         state = parse(text)
-        env = env_for(sha)
         counts = collections.Counter()
         for rid, epic, tick, test in canon:
             # Epic and test-case text come from the CANON, not the historical
@@ -116,12 +130,13 @@ def main():
             if rid in state:
                 _hist_epic, glyph, walk = state[rid]
                 cls = CLASS.get(glyph, "PARTIAL")
-                rows_out.append([ts, day, env, "", "", rid, epic, tick, test, walk, glyph, cls])
+                wenv, wdate = split_walk(walk)
+                rows_out.append([ts, day, wenv, wdate, "", "", rid, epic, tick, test, walk, glyph, cls])
             else:
                 cls = "ABSENT"
-                rows_out.append([ts, day, env, "", "", rid, epic, tick, test, "", "", cls])
+                rows_out.append([ts, day, "", "", "", "", rid, epic, tick, test, "", "", cls])
             counts[cls] += 1
-        trend.append((day, env, counts, len(canon)))
+        trend.append((day, "", counts, len(canon)))
 
     print()
     print(f"{'date':12s} {'env':8s} {'PASS':>5s} {'FAIL':>5s} {'PART':>5s} {'NRUN':>5s} {'SUP':>5s} {'ABSENT':>7s}   score")
@@ -135,8 +150,8 @@ def main():
 
     with RAW.open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh, quoting=csv.QUOTE_MINIMAL)
-        w.writerow(["cycle_ts", "cycle_date", "env", "dep_id", "milestone", "row_id",
-                    "epic", "ticket", "test_case", "walk", "status", "status_class"])
+        w.writerow(["cycle_ts", "cycle_date", "walk_env", "walk_date", "dep_id", "milestone",
+                    "row_id", "epic", "ticket", "test_case", "walk_raw", "status", "status_class"])
         w.writerows(rows_out)
     print(f"\nwrote {len(rows_out)} rows across {len(trend)} cycles -> {RAW.relative_to(ROOT)}")
 
