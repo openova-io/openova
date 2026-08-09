@@ -142,7 +142,7 @@ func (h *Handler) reconcileOrgAppSurfaceAcrossRegions(ctx context.Context, deps 
 		return
 	}
 
-	targets := h.orgConsoleTLSTargets(deps)
+	targets, _ := h.orgConsoleTLSTargets(deps)
 	if len(targets) < 2 {
 		// Single-region Sovereign (or a mothership, where orgConsoleTLSTargets
 		// deliberately refuses to fan out). Nothing to mirror and nothing to
