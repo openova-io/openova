@@ -25,8 +25,8 @@ CANON = ROOT / "docs" / "ledger" / "uat-testcases.csv"
 
 EXPECTED_COLS = ["cycle_ts", "cycle_date", "walk_env", "walk_date", "dep_id",
                  "milestone", "row_id", "epic", "ticket", "test_case",
-                 "walk_raw", "evidence", "evidence_link", "proof_tier",
-                 "status", "status_class"]
+                 "walk_raw", "test_case_at_cycle", "same_test_case", "evidence",
+                 "evidence_link", "proof_tier", "status", "status_class"]
 VALID_CLASS = {"PASS", "FAIL", "PARTIAL", "NOTRUN", "SUPERSEDED", "ABSENT", "NO_EVIDENCE"}
 VALID_TIER = {"ARTIFACT", "CITATION", "NONE"}
 TS = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
@@ -83,6 +83,13 @@ def main():
                                if r["walk_env"] and not ENV_LABEL.match(r["walk_env"]))
     check(not junk, "walk_env values are real Sovereign labels",
           f"{sum(junk.values())} rows: {dict(list(junk.items())[:6])}")
+
+    bad = [r["same_test_case"] for r in rows if r["same_test_case"] not in {"YES", "NO", "N/A"}]
+    check(not bad, "same_test_case within vocabulary", f"{sorted(set(bad))[:4]}")
+    # A scored row claiming identity must actually carry matching text.
+    liar = [r["row_id"] for r in rows
+            if r["same_test_case"] == "YES" and not r["test_case_at_cycle"].strip()]
+    check(not liar, "same_test_case=YES rows carry the historical text", f"{len(liar)}")
 
     bad = [r["proof_tier"] for r in rows if r["proof_tier"] not in VALID_TIER]
     check(not bad, "proof_tier within vocabulary", f"{sorted(set(bad))[:4]}")
