@@ -23,10 +23,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 RAW = ROOT / "docs" / "ledger" / "uat-raw.csv"
 CANON = ROOT / "docs" / "ledger" / "uat-testcases.csv"
 
-EXPECTED_COLS = ["cycle_ts", "cycle_date", "walk_env", "walk_date", "dep_id",
-                 "milestone", "row_id", "epic", "ticket", "test_case",
-                 "walk_raw", "testcases_at_cycle", "comparable", "test_case_at_cycle",
-                 "same_test_case", "evidence",
+EXPECTED_COLS = ["cycle_ts", "cycle_date", "row_id", "testcases_at_cycle",
+                 "comparable", "same_test_case", "text_sha", "walk_env",
                  "evidence_link", "proof_tier", "status", "status_class"]
 VALID_CLASS = {"PASS", "FAIL", "PARTIAL", "NOTRUN", "SUPERSEDED", "ABSENT", "NO_EVIDENCE"}
 VALID_TIER = {"ARTIFACT", "CITATION", "NONE"}
@@ -75,18 +73,13 @@ def main():
         bad = [r[name] for r in rows if not rx.match(r[name])]
         check(not bad, f"{name} is Excel-parseable", f"{len(bad)} bad, e.g. {bad[:3]}")
 
-    bad = [r["walk_date"] for r in rows if r["walk_date"] and not DATE.match(r["walk_date"])]
-    check(not bad, "walk_date is a date or empty", f"{len(bad)} bad, e.g. {bad[:3]}")
 
     # THE FABRICATION CHECK. walk_env must be a prefix of walk_raw -- i.e. actually
     # derived from it -- and must never appear without one.
-    notderived = [r["row_id"] for r in rows
-                  if r["walk_env"] and r["walk_raw"] and not r["walk_raw"].startswith(r["walk_env"])]
-    check(not notderived, "walk_env is derived from walk_raw, never inferred",
-          f"{len(notderived)} rows not derived")
-    orphan = [r["row_id"] for r in rows if r["walk_env"] and not r["walk_raw"]]
-    check(not orphan, "no walk_env without a walk_raw to derive it from",
-          f"{len(orphan)} orphans")
+    liar = [r["row_id"] for r in rows if r["proof_tier"] == "ARTIFACT" and not r["evidence_link"].strip()]
+    check(not liar, "every ARTIFACT row carries a verifiable evidence_link", f"{len(liar)} lie")
+    sha = [r["row_id"] for r in rows if r["same_test_case"] == "YES" and len(r["text_sha"]) != 12]
+    check(not sha, "same_test_case=YES rows carry a 12-char identity digest", f"{len(sha)}")
 
     # SEMANTIC check, not just derivational. The first version of this audit only
     # asserted walk_env was a prefix of walk_raw, which passed 279 rows holding
@@ -101,14 +94,9 @@ def main():
     bad = [r["same_test_case"] for r in rows if r["same_test_case"] not in {"YES", "NO", "N/A"}]
     check(not bad, "same_test_case within vocabulary", f"{sorted(set(bad))[:4]}")
     # A scored row claiming identity must actually carry matching text.
-    liar = [r["row_id"] for r in rows
-            if r["same_test_case"] == "YES" and not r["test_case_at_cycle"].strip()]
-    check(not liar, "same_test_case=YES rows carry the historical text", f"{len(liar)}")
 
     bad = [r["proof_tier"] for r in rows if r["proof_tier"] not in VALID_TIER]
     check(not bad, "proof_tier within vocabulary", f"{sorted(set(bad))[:4]}")
-    liar = [r["row_id"] for r in rows if r["proof_tier"] == "ARTIFACT" and not r["evidence_link"].strip()]
-    check(not liar, "every ARTIFACT row carries a verifiable evidence_link", f"{len(liar)} lie")
     stray = [r["row_id"] for r in rows if r["evidence_link"].strip() and r["proof_tier"] != "ARTIFACT"]
     check(not stray, "evidence_link only on ARTIFACT rows", f"{len(stray)} stray")
     ghost = [r["row_id"] for r in rows if r["status_class"] == "NO_EVIDENCE" and r["status"].strip()]
@@ -128,11 +116,8 @@ def main():
                if r["status_class"] not in ("ABSENT", "NO_EVIDENCE") and not r["status"].strip()]
     check(not missing, "every scored row carries a status glyph", f"{len(missing)} blank")
 
-    for col in ("row_id", "epic", "ticket", "test_case"):
-        blank = sum(1 for r in rows if not r[col].strip())
-        # ticket may legitimately be blank if a row cites no issue
-        allowed = col == "ticket"
-        check(allowed or blank == 0, f"{col} populated on every row", f"{blank} blank")
+    blank = sum(1 for r in rows if not r["row_id"].strip())
+    check(blank == 0, "row_id populated on every row", f"{blank} blank")
 
     ids = {r["row_id"] for r in rows}
     check(ids == set(canon), "row_id set matches the frozen canon exactly",

@@ -32,6 +32,7 @@ import collections
 import csv
 import pathlib
 import re
+import hashlib
 import subprocess
 import sys
 
@@ -215,8 +216,8 @@ def main():
             # row: a test case relabelled later must not fracture its own trend.
             if rid not in state:
                 cls = "ABSENT"          # the test case did not exist yet
-                rows_out.append([ts, day, "", "", "", "", rid, epic, tick, test, "",
-                                 n_at_cycle, "NO", "", "N/A", "", "", "NONE", "", cls])
+                rows_out.append([ts, day, rid, n_at_cycle, "NO", "N/A", "", "", "",
+                                 "NONE", "", cls])
             else:
                 _hist_epic, glyph, walk, ev, hist_text = state[rid]
                 # THE IDENTITY PROOF. row_id alone does not prove two cycles walked
@@ -229,6 +230,12 @@ def main():
                 # comparable only when BOTH hold: same test-case text AND the cycle
                 # was scored against the same size baseline as the frozen canon.
                 cmp_ok = "YES" if (same_tc == "YES" and n_at_cycle == len(canon)) else "NO"
+                # 12-char digest of the historical text instead of the text itself.
+                # Storing the full clause 57 times duplicated 2.27 MB of identical
+                # strings that already live in uat-testcases.csv. The digest still
+                # proves identity -- same hash means same clause -- at 1/20th the
+                # bytes, and the readable text joins from the canon on row_id.
+                text_sha = hashlib.sha256(norm(hist_text).encode()).hexdigest()[:12]
                 wenv, wdate = split_walk(walk)
                 # THE EVIDENCE RULE (founder, 2026-08-09): a result is recorded ONLY
                 # when THIS test case carries evidence at THIS cycle. A verdict glyph
@@ -238,14 +245,12 @@ def main():
                 has_ev = has_real_evidence(ev)
                 tier = proof_tier(ev)
                 if has_ev:
-                    rows_out.append([ts, day, wenv, wdate, "", "", rid, epic, tick, test,
-                                     walk, n_at_cycle, cmp_ok, hist_text[:300], same_tc, ev[:400],
-                                     first_link(ev), tier, glyph,
+                    rows_out.append([ts, day, rid, n_at_cycle, cmp_ok, same_tc,
+                                     text_sha, wenv, first_link(ev), tier, glyph,
                                      CLASS.get(glyph, "PARTIAL")])
                 else:
-                    rows_out.append([ts, day, wenv, wdate, "", "", rid, epic, tick, test,
-                                     walk, n_at_cycle, cmp_ok, hist_text[:300], same_tc, "", "", "NONE",
-                                     "", "NO_EVIDENCE"])
+                    rows_out.append([ts, day, rid, n_at_cycle, cmp_ok, same_tc,
+                                     text_sha, wenv, "", "NONE", "", "NO_EVIDENCE"])
                 cls = CLASS.get(glyph, "PARTIAL") if has_ev else "NO_EVIDENCE"
             counts[cls] += 1
         trend.append((day, "", counts, len(canon)))
@@ -262,10 +267,8 @@ def main():
 
     with RAW.open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh, quoting=csv.QUOTE_MINIMAL)
-        w.writerow(["cycle_ts", "cycle_date", "walk_env", "walk_date", "dep_id", "milestone",
-                    "row_id", "epic", "ticket", "test_case", "walk_raw",
-                    "testcases_at_cycle", "comparable", "test_case_at_cycle",
-                    "same_test_case", "evidence",
+        w.writerow(["cycle_ts", "cycle_date", "row_id", "testcases_at_cycle",
+                    "comparable", "same_test_case", "text_sha", "walk_env",
                     "evidence_link", "proof_tier", "status", "status_class"])
         w.writerows(rows_out)
     print(f"\nwrote {len(rows_out)} rows across {len(trend)} cycles -> {RAW.relative_to(ROOT)}")
