@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-09T19:30:09Z` |
+| Last refreshed | `2026-08-09T19:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5425](https://github.com/openova-io/openova/issues/5425) | WriteTenantOverlay writes the legacy org-tenants path on EVERY Org create — un | Other |
 | [#5426](https://github.com/openova-io/openova/issues/5426) | Organization delete never runs the finalizer cascade — the complete teardown h | Other |
 | [#5427](https://github.com/openova-io/openova/issues/5427) | bp-velero stalled MissingRollbackTarget after Kyverno denied its upgrade-crds pr | Other |
 | [#5429](https://github.com/openova-io/openova/issues/5429) | Apps grid renders two cards per Application CR when spec.helmRelease.name is uns | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#5919](https://github.com/openova-io/openova/issues/5919) | hw292 cut over on chart 0.1.159 — twelve versions before the #5710 durable piv | Other |
 | [#5920](https://github.com/openova-io/openova/issues/5920) | Marketplace still sells 'Sandbox' — a concept retired 2026-06-30 — and a sou | Other |
 | [#5921](https://github.com/openova-io/openova/issues/5921) | P0 sovereignty: post-cutover Sovereign sends customer sign-in mail via mail.open | Other |
+| [#5926](https://github.com/openova-io/openova/issues/5926) | UAT row 85: checkout renders payment-method tiles + Stripe redirect copy on a fu | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-09T19:43 | [#5925](https://github.com/openova-io/openova/pull/5925) | #5513 | fix(application-controller): stop crediting readiness to reg |
 | 2026-08-09T18:24 | [#5924](https://github.com/openova-io/openova/pull/5924) | #5919 | docs(uat): per-case evidence audit of all 224 June-green cas |
 | 2026-08-09T17:08 | [#5923](https://github.com/openova-io/openova/pull/5923) | docs(ledger): the plan to 100% — built on measured causes |  |
 | 2026-08-09T17:03 | [#5922](https://github.com/openova-io/openova/pull/5922) | fix(ledger): restore test-case names in uat-raw.csv |  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-07T23:01 | [#5892](https://github.com/openova-io/openova/pull/5892) | #5889 | docs(uat): row 85 GREEN — voucher credit applied at checkout |
 | 2026-08-07T22:49 | [#5891](https://github.com/openova-io/openova/pull/5891) | #5889 | docs(uat): retract a false claim I put in row 85 — the empty |
 | 2026-08-07T22:36 | [#5890](https://github.com/openova-io/openova/pull/5890) | #5889 | docs(uat): row 85 walked end-to-end to /checkout/ — two funn |
-| 2026-08-07T22:07 | [#5888](https://github.com/openova-io/openova/pull/5888) | #5887 | docs(uat): row 29 fails on silent re-auth, and the previous  |
 
 ---
 
