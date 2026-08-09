@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-09T17:00:09Z` |
+| Last refreshed | `2026-08-09T17:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-09T17:08 | [#5923](https://github.com/openova-io/openova/pull/5923) | docs(ledger): the plan to 100% — built on measured causes |  |
+| 2026-08-09T17:03 | [#5922](https://github.com/openova-io/openova/pull/5922) | fix(ledger): restore test-case names in uat-raw.csv |  |
 | 2026-08-09T16:59 | [#5918](https://github.com/openova-io/openova/pull/5918) | #3376 | docs(uat): row 92 — the redeem rate-limit fix exists, is pur |
 | 2026-08-08T19:54 | [#5917](https://github.com/openova-io/openova/pull/5917) | #5848 | fix(org-controller): reap the per-Org wildcard TLS Secret on |
 | 2026-08-08T16:47 | [#5916](https://github.com/openova-io/openova/pull/5916) | #3687 | docs(uat): rows 19 + 33 — backing data measured, both reduce |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-07T22:36 | [#5890](https://github.com/openova-io/openova/pull/5890) | #5889 | docs(uat): row 85 walked end-to-end to /checkout/ — two funn |
 | 2026-08-07T22:07 | [#5888](https://github.com/openova-io/openova/pull/5888) | #5887 | docs(uat): row 29 fails on silent re-auth, and the previous  |
 | 2026-08-07T22:04 | [#5886](https://github.com/openova-io/openova/pull/5886) | #5847 | docs(uat): rows 10+11 green — the customer Org existed all a |
-| 2026-08-07T21:55 | [#5884](https://github.com/openova-io/openova/pull/5884) | #5882 | docs(uat): SSO deep walk on hw292 — 4 rows green, openbao an |
-| 2026-08-07T21:40 | [#5881](https://github.com/openova-io/openova/pull/5881) | #5853 | fix(uat): the Result column may hold a verdict and nothing e |
 
 ---
 
