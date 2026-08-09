@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-09T22:30:08Z` |
+| Last refreshed | `2026-08-09T22:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-09T22:30 | [#5944](https://github.com/openova-io/openova/pull/5944) | #4325 | docs(uat): row 16 walked live — stale SUPERSEDED premise ref |
 | 2026-08-09T22:25 | [#5942](https://github.com/openova-io/openova/pull/5942) | #5426 | docs(uat): row 107 walked live — delete cascade removes the  |
 | 2026-08-09T22:11 | [#5941](https://github.com/openova-io/openova/pull/5941) | #5113 | docs(uat): row 156 walked end-to-end — Save's verdict is bac |
 | 2026-08-09T22:07 | [#5939](https://github.com/openova-io/openova/pull/5939) | #4546 | docs(uat): formal disposition of all 13 SUPERSEDED rows — 3  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-08T08:22 | [#5906](https://github.com/openova-io/openova/pull/5906) | #5894 | docs(path-to-100): #5894 is deploy-gated behind #5640, not n |
 | 2026-08-08T08:18 | [#5905](https://github.com/openova-io/openova/pull/5905) | #5827 | docs(uat): row 41 corroborated through a second path + a sea |
 | 2026-08-08T08:18 | [#5904](https://github.com/openova-io/openova/pull/5904) | #5894 | docs(uat): row 95 retracted — the purchased app DID material |
-| 2026-08-08T08:18 | [#5903](https://github.com/openova-io/openova/pull/5903) | #5887 | docs(ledger): classify all 15 failing rows — 12 need a roll, |
 
 ---
 
