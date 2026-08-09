@@ -49,6 +49,67 @@ CLASS = {"✅": "PASS", "❌": "FAIL", "⚠️": "PARTIAL", "☐": "NOTRUN",
 
 
 
+PLACEHOLDER = {"", "-", "—", "–", "0", "n/a", "N/A", "tbd", "TBD", "?"}
+
+
+LINK = re.compile(r"\]\(([^)\s]+)\)")
+
+
+def first_link(ev):
+    """First artifact URL/path in the FULL evidence cell, before truncation.
+
+    The evidence column is capped at 400 chars to keep the sheet openable. The
+    tier was computed on the full text while the stored text was cut, so 579 rows
+    claimed ARTIFACT while the visible evidence held no link -- a claim the reader
+    could not check. Storing the link separately makes the tier verifiable from
+    the sheet alone.
+    """
+    m = LINK.search(ev or "")
+    return m.group(1) if m else ""
+
+
+def proof_tier(ev):
+    """Grade the evidence backing a verdict. Reported, never decided for you.
+
+      ARTIFACT  cites a screenshot or walk document -- [shot](...png), [walk](...md)
+      CITATION  >= 40 chars of substantive text (live kubectl, HTTP codes, dated
+                re-walk note) but NO artifact to re-open
+      NONE      placeholder ("0", em dash) or too short to prove anything
+
+    Only ARTIFACT is re-openable by a third party. CITATION is the walker's word.
+    """
+    ev = (ev or "").strip()
+    if ev in PLACEHOLDER:
+        return "NONE"
+    if "](" in ev:
+        return "ARTIFACT"
+    return "CITATION" if len(ev) >= 40 else "NONE"
+
+
+def has_real_evidence(ev):
+    """True only when the cell cites a real artifact for THIS test case.
+
+    Founder, 2026-08-09: record a result ONLY where there is clear evidence for
+    that specific test case. The first cut of this check merely asked whether the
+    cell was non-empty, which passed "0" and an em dash -- placeholders that carry
+    no proof at all. A result backed by a placeholder is an assertion.
+
+    Accepted:
+      - a markdown link to an artifact: [shot](...png) / [walk](...md)
+      - a substantive citation >= 40 chars (live kubectl output, HTTP codes, a
+        dated re-walk note) -- long enough that it cannot be a filler token
+
+    Everything else is NO_EVIDENCE, and the verdict glyph is dropped rather than
+    recorded. An unproven claim is not a test result.
+    """
+    ev = (ev or "").strip()
+    if ev in PLACEHOLDER:
+        return False
+    if "](" in ev:
+        return True
+    return len(ev) >= 40
+
+
 def sh(*args):
     return subprocess.run(args, capture_output=True, text=True, timeout=120).stdout
 
@@ -63,7 +124,8 @@ def parse(text):
         if len(cells) < 8:
             continue
         glyph = next((g for g in GLYPHS if g in cells[6]), "◑")
-        out[cells[1].strip()] = (cells[2].strip() or "(unassigned)", glyph, cells[5].strip())
+        evidence = cells[7].strip() if len(cells) > 7 else ""
+        out[cells[1].strip()] = (cells[2].strip() or "(unassigned)", glyph, cells[5].strip(), evidence)
     return out
 
 
@@ -135,22 +197,35 @@ def main():
         for rid, epic, tick, test in canon:
             # Epic and test-case text come from the CANON, not the historical
             # row: a test case relabelled later must not fracture its own trend.
-            if rid in state:
-                _hist_epic, glyph, walk = state[rid]
-                cls = CLASS.get(glyph, "PARTIAL")
-                wenv, wdate = split_walk(walk)
-                rows_out.append([ts, day, wenv, wdate, "", "", rid, epic, tick, test, walk, glyph, cls])
+            if rid not in state:
+                cls = "ABSENT"          # the test case did not exist yet
+                rows_out.append([ts, day, "", "", "", "", rid, epic, tick, test, "", "", "", "NONE", "", cls])
             else:
-                cls = "ABSENT"
-                rows_out.append([ts, day, "", "", "", "", rid, epic, tick, test, "", "", cls])
+                _hist_epic, glyph, walk, ev = state[rid]
+                wenv, wdate = split_walk(walk)
+                # THE EVIDENCE RULE (founder, 2026-08-09): a result is recorded ONLY
+                # when THIS test case carries evidence at THIS cycle. A verdict glyph
+                # with an empty Evidence cell is an assertion, not a measurement, and
+                # is written as NO_EVIDENCE with the glyph dropped -- not carried
+                # forward, not inferred from a neighbouring cycle, not guessed.
+                has_ev = has_real_evidence(ev)
+                tier = proof_tier(ev)
+                if has_ev:
+                    rows_out.append([ts, day, wenv, wdate, "", "", rid, epic, tick, test,
+                                     walk, ev[:400], first_link(ev), tier, glyph,
+                                     CLASS.get(glyph, "PARTIAL")])
+                else:
+                    rows_out.append([ts, day, wenv, wdate, "", "", rid, epic, tick, test,
+                                     walk, "", "", "NONE", "", "NO_EVIDENCE"])
+                cls = CLASS.get(glyph, "PARTIAL") if has_ev else "NO_EVIDENCE"
             counts[cls] += 1
         trend.append((day, "", counts, len(canon)))
 
     print()
-    print(f"{'date':12s} {'env':8s} {'PASS':>5s} {'FAIL':>5s} {'PART':>5s} {'NRUN':>5s} {'SUP':>5s} {'ABSENT':>7s}   score")
+    print(f"{'date':12s} {'PASS':>5s} {'FAIL':>5s} {'PART':>5s} {'NRUN':>5s} {'SUP':>5s} {'NOEVID':>7s} {'ABSENT':>7s}   proven%")
     for day, env, c, n in trend:
-        print(f"{day:12s} {env:8s} {c['PASS']:5d} {c['FAIL']:5d} {c['PARTIAL']:5d} "
-              f"{c['NOTRUN']:5d} {c['SUPERSEDED']:5d} {c['ABSENT']:7d}   {100*c['PASS']/n:5.1f}%")
+        print(f"{day:12s} {c['PASS']:5d} {c['FAIL']:5d} {c['PARTIAL']:5d} "
+              f"{c['NOTRUN']:5d} {c['SUPERSEDED']:5d} {c['NO_EVIDENCE']:7d} {c['ABSENT']:7d}   {100*c['PASS']/n:5.1f}%")
 
     if args.dry_run:
         print("\n--dry-run: nothing written")
@@ -159,7 +234,8 @@ def main():
     with RAW.open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh, quoting=csv.QUOTE_MINIMAL)
         w.writerow(["cycle_ts", "cycle_date", "walk_env", "walk_date", "dep_id", "milestone",
-                    "row_id", "epic", "ticket", "test_case", "walk_raw", "status", "status_class"])
+                    "row_id", "epic", "ticket", "test_case", "walk_raw", "evidence",
+                    "evidence_link", "proof_tier", "status", "status_class"])
         w.writerows(rows_out)
     print(f"\nwrote {len(rows_out)} rows across {len(trend)} cycles -> {RAW.relative_to(ROOT)}")
 

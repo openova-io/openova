@@ -25,8 +25,10 @@ CANON = ROOT / "docs" / "ledger" / "uat-testcases.csv"
 
 EXPECTED_COLS = ["cycle_ts", "cycle_date", "walk_env", "walk_date", "dep_id",
                  "milestone", "row_id", "epic", "ticket", "test_case",
-                 "walk_raw", "status", "status_class"]
-VALID_CLASS = {"PASS", "FAIL", "PARTIAL", "NOTRUN", "SUPERSEDED", "ABSENT"}
+                 "walk_raw", "evidence", "evidence_link", "proof_tier",
+                 "status", "status_class"]
+VALID_CLASS = {"PASS", "FAIL", "PARTIAL", "NOTRUN", "SUPERSEDED", "ABSENT", "NO_EVIDENCE"}
+VALID_TIER = {"ARTIFACT", "CITATION", "NONE"}
 TS = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -82,6 +84,15 @@ def main():
     check(not junk, "walk_env values are real Sovereign labels",
           f"{sum(junk.values())} rows: {dict(list(junk.items())[:6])}")
 
+    bad = [r["proof_tier"] for r in rows if r["proof_tier"] not in VALID_TIER]
+    check(not bad, "proof_tier within vocabulary", f"{sorted(set(bad))[:4]}")
+    liar = [r["row_id"] for r in rows if r["proof_tier"] == "ARTIFACT" and not r["evidence_link"].strip()]
+    check(not liar, "every ARTIFACT row carries a verifiable evidence_link", f"{len(liar)} lie")
+    stray = [r["row_id"] for r in rows if r["evidence_link"].strip() and r["proof_tier"] != "ARTIFACT"]
+    check(not stray, "evidence_link only on ARTIFACT rows", f"{len(stray)} stray")
+    ghost = [r["row_id"] for r in rows if r["status_class"] == "NO_EVIDENCE" and r["status"].strip()]
+    check(not ghost, "NO_EVIDENCE rows carry no verdict glyph", f"{len(ghost)} ghosts")
+
     bad = [r["status_class"] for r in rows if r["status_class"] not in VALID_CLASS]
     check(not bad, "status_class is within the declared vocabulary",
           f"unexpected: {sorted(set(bad))[:5]}")
@@ -90,8 +101,11 @@ def main():
     contradiction = [r["row_id"] for r in rows if r["status_class"] == "ABSENT" and r["status"].strip()]
     check(not contradiction, "ABSENT rows carry no status glyph",
           f"{len(contradiction)} contradictions")
-    missing = [r["row_id"] for r in rows if r["status_class"] != "ABSENT" and not r["status"].strip()]
-    check(not missing, "non-ABSENT rows all carry a status glyph", f"{len(missing)} blank")
+    # ABSENT (not yet defined) and NO_EVIDENCE (claim without proof) both legitimately
+    # carry no glyph. Every other class must.
+    missing = [r["row_id"] for r in rows
+               if r["status_class"] not in ("ABSENT", "NO_EVIDENCE") and not r["status"].strip()]
+    check(not missing, "every scored row carries a status glyph", f"{len(missing)} blank")
 
     for col in ("row_id", "epic", "ticket", "test_case"):
         blank = sum(1 for r in rows if not r[col].strip())
