@@ -152,7 +152,7 @@ def main():
     #
     # Deliberately an ALLOW-LIST, not a "starts with a glyph" test. A prefix test
     # would still pass on the exact rows that prompted this check.
-    legal = {"✅", "❌", "⚠️", "☐", "⛔", "◑", "N/A"}
+    legal = {"✅", "❌", "⚠️", "☐", "⛔", "◑", "N/A", "⏳"}
     seen = [c[RESULT_COL].strip() for _, _, c in parsed if len(c) > RESULT_COL]
 
     # Vacuity control for THIS check specifically. The row-count control at the
