@@ -135,6 +135,68 @@ const (
 	ObsHealthFailing  = "failing"
 )
 
+// isTerminalRunStatus reports whether a run status carries a VERDICT — the
+// run reached a terminal state and its outcome is known. A pending or
+// still-running run has produced no verdict yet, which is the distinction
+// adoptRunHeadline turns on.
+func isTerminalRunStatus(status string) bool {
+	return status == ObsStatusSucceeded || status == ObsStatusFailed
+}
+
+// adoptRunHeadline resolves ONE run's outcome onto a collapsed leaf's headline
+// (Status / Message / ObservedAt). Every leaf that folds N runs into one row —
+// the cron leaf, the task leaf, and the Day-2 scanner row — shares it, so the
+// rules below cannot drift apart between the three.
+//
+// Two rules, and the second one is the #5926-class fix:
+//
+//  1. RECENCY — the most recent run wins. The apiserver returns collapsed runs
+//     in no guaranteed chronological order, so a stale Succeeded arriving after
+//     a fresh Failed must not overwrite the failure.
+//
+//  2. VERDICT — a run that has not TERMINATED carries no verdict, so it may
+//     never erase a terminal `failed` headline, and a real failure displaces a
+//     no-verdict headline whatever order the runs were listed in.
+//
+// Rule 1 alone was the defect behind UAT row 164. It compared an unterminated
+// run's startedAt against a terminated run's finishedAt — two different clocks —
+// so a newer in-flight run silently downgraded a real failure to "running".
+// Measured on hw292: Job syft-grype-bp-syft-grype-29763030 was
+// Failed/BackoffLimitExceeded (2026-08-03) while its successor
+// syft-grype-bp-syft-grype-29770230 sat two days stale with zero active pods and
+// no conditions at all. Both fold onto `task-syft-sbom`; the failed run was
+// recorded correctly as an Execution, but the LEAF read `installing`. Result:
+// 0 failed leaves out of 183 on a cluster that had a failed Job — precisely the
+// "invisible failing class" the §5a ingestion exists to kill (#3646).
+//
+// The failure therefore stands until a later run actually TERMINATES. A
+// subsequent Succeeded run clears it through rule 1 as normal, so the leaf is
+// not stuck red forever.
+func adoptRunHeadline(c *ReconcilerObservation, status, message string, runAt time.Time) {
+	set := func() {
+		c.Status = status
+		c.Message = message
+		if !runAt.IsZero() {
+			c.ObservedAt = runAt
+		}
+	}
+	switch {
+	case !isTerminalRunStatus(status) && c.Status == ObsStatusFailed:
+		// (2) An in-flight run never clears a recorded failure.
+		return
+	case status == ObsStatusFailed && !isTerminalRunStatus(c.Status):
+		// (2) A real failure always displaces a no-verdict headline, even when
+		// the apiserver listed the in-flight run first.
+		set()
+		return
+	}
+	// (1) Recency, comparing like with like. The first run always wins (the
+	// default ObservedAt is zero); later runs override only when not older.
+	if c.ObservedAt.IsZero() || runAt.IsZero() || !runAt.Before(c.ObservedAt) {
+		set()
+	}
+}
+
 // ReconcilerObservation is one observed reconciler object. The bridge
 // upserts exactly one leaf Job per observation, keyed by Kind+Name.
 type ReconcilerObservation struct {
@@ -321,23 +383,10 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 						FinishedAt: finished,
 						Message:    "run " + u.GetName() + ": " + status,
 					})
-					// The cron leaf's headline status reflects its MOST RECENT
-					// run, not list order (the apiserver returns owned Jobs in
-					// no guaranteed chronological order, so a stale Succeeded
-					// run arriving after a fresh Failed one must not overwrite
-					// the failure — that would re-introduce the silent-green
-					// the §5a ingestion exists to kill). Recency = the run's
-					// finish time, falling back to its start for an in-flight
-					// run. The first owned run always wins (default ObservedAt
-					// is zero); later runs override only when strictly newer.
-					runAt := firstNonZero(finished, started)
-					if c.ObservedAt.IsZero() || runAt.IsZero() || !runAt.Before(c.ObservedAt) {
-						c.Status = status
-						c.Message = "last run " + u.GetName() + ": " + status
-						if !runAt.IsZero() {
-							c.ObservedAt = runAt
-						}
-					}
+					// Headline = the most recent run, and never a no-verdict
+					// state over a recorded failure. See adoptRunHeadline.
+					adoptRunHeadline(c, status, "last run "+u.GetName()+": "+status,
+						firstNonZero(finished, started))
 				}
 				continue
 			}
@@ -381,18 +430,9 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 					FinishedAt: finished,
 					Message:    "run " + u.GetName() + ": " + status,
 				})
-				// Headline status reflects the MOST RECENT run (same recency
-				// rule as the cron leaf): a stale Succeeded run arriving after
-				// a fresh Failed one must not overwrite the failure. Recency =
-				// finish time, falling back to start for an in-flight run.
-				runAt := firstNonZero(finished, started)
-				if c.ObservedAt.IsZero() || runAt.IsZero() || !runAt.Before(c.ObservedAt) {
-					c.Status = status
-					c.Message = "last run " + u.GetName() + ": " + status
-					if !runAt.IsZero() {
-						c.ObservedAt = runAt
-					}
-				}
+				// Same headline resolution as the cron leaf. See adoptRunHeadline.
+				adoptRunHeadline(c, status, "last run "+u.GetName()+": "+status,
+					firstNonZero(finished, started))
 				continue
 			}
 			out = append(out, ReconcilerObservation{
@@ -668,12 +708,11 @@ func scannerIdentity(u *unstructured.Unstructured) (string, bool) {
 // foldScannerRun records ONE scanner run as an Execution on the single
 // identity-keyed scanner row (#3925), creating the row on first sight. This
 // is the collapse: N scan Jobs sharing an identity ⇒ 1 row + N Executions
-// (run-history), never N rows. The headline status is recency-resolved (the
-// MOST RECENT run wins — a stale Succeeded arriving after a fresh Failed must
-// not overwrite the failure), identical to the cron + task leaf recency rule,
-// so the row never flaps on re-ingest. The row is indexed by position in
-// `out` (never a cached pointer) for the same reallocation-safety reason
-// cronIdx/taskIdx are.
+// (run-history), never N rows. The headline is resolved by adoptRunHeadline —
+// the same rules the cron + task leaves use, so the row never flaps on
+// re-ingest and an unterminated run can never bury a failed one. The row is
+// indexed by position in `out` (never a cached pointer) for the same
+// reallocation-safety reason cronIdx/taskIdx are.
 func foldScannerRun(out *[]ReconcilerObservation, scannerIdx map[string]int, identity, ns string, u *unstructured.Unstructured, status string, started, finished time.Time) {
 	run := ReconcilerExecution{
 		Name:       u.GetName(),
@@ -686,15 +725,10 @@ func foldScannerRun(out *[]ReconcilerObservation, scannerIdx map[string]int, ide
 	if idx, ok := scannerIdx[identity]; ok {
 		c := &(*out)[idx]
 		c.Executions = append(c.Executions, run)
-		// Recency-resolve the headline so the collapsed row reflects the
-		// latest run, regardless of apiserver list order.
-		if c.ObservedAt.IsZero() || runAt.IsZero() || !runAt.Before(c.ObservedAt) {
-			c.Status = status
-			c.Message = "last scan run " + u.GetName() + ": " + status
-			if !runAt.IsZero() {
-				c.ObservedAt = runAt
-			}
-		}
+		// Resolve the headline so the collapsed row reflects the latest run
+		// regardless of apiserver list order, and never lets an unterminated
+		// run bury a failed one. See adoptRunHeadline.
+		adoptRunHeadline(c, status, "last scan run "+u.GetName()+": "+status, runAt)
 		return
 	}
 	*out = append(*out, ReconcilerObservation{
