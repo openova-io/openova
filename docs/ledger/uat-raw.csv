@@ -1,0 +1,573 @@
+cycle_ts,env,dep_id,milestone,row_id,epic_issue,epic_name,status,status_class
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R1,4454,Other / single-row epics,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R2,4467,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R3,4448,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R4,4458,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R5,4437,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R6,4442,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R7,4444,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R8,4447,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R9,4446,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R10,4471,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R11,4354,Other / single-row epics,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R12,4460,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R13,4436,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R14,4479,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R15,4473,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R16,4290,Other / single-row epics,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R17,4459,Other / single-row epics,❌,FAIL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R18,4450,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R19,4482,Other / single-row epics,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R20,4464,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R21,4432,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,R22,4468,Other / single-row epics,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,W1,5401,Other / single-row epics,❌,FAIL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,W2,5401,Other / single-row epics,❌,FAIL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,W3,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,W4,5555,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,W5,3969,Other / single-row epics,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,M1,4466,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,M2,4477,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,M3,4475,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,M4,4111,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,G1,4488,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,G2,4477,Other / single-row epics,◑,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,G3,4486,Other / single-row epics,◑,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,G4,4431,Other / single-row epics,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,G5,4466,Other / single-row epics,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,G6,4212,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,G7,4293,Other / single-row epics,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,G8,4277,Other / single-row epics,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,G9,4111,Other / single-row epics,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,G10,3969,Other / single-row epics,◑,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,G11,3379,SOVEREIGNTY / cutover,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,G12,4275,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,1,3687,Organization / Application CR model,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,2,3687,Organization / Application CR model,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,3,3687,Organization / Application CR model,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,4,3687,Organization / Application CR model,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,5,3687,Organization / Application CR model,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,6,3687,Organization / Application CR model,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,7,3687,Organization / Application CR model,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,8,3687,Organization / Application CR model,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,9,3687,Organization / Application CR model,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,10,3687,Organization / Application CR model,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,11,3687,Organization / Application CR model,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,12,3687,Organization / Application CR model,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,13,3687,Organization / Application CR model,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,14,3687,Organization / Application CR model,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,15,3687,Organization / Application CR model,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,16,3687,Organization / Application CR model,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,17,3687,Organization / Application CR model,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,18,3687,Organization / Application CR model,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,19,3687,Organization / Application CR model,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,20,3687,Organization / Application CR model,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,21,3687,Organization / Application CR model,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,22,3687,Organization / Application CR model,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,23,3687,Organization / Application CR model,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,24,3687,Organization / Application CR model,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,25,3687,Organization / Application CR model,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,26,3374,SSO (all surfaces),☐,NOTRUN
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,27,3374,SSO (all surfaces),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,28,3374,SSO (all surfaces),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,29,3374,SSO (all surfaces),❌,FAIL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,30,3374,SSO (all surfaces),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,31,3374,SSO (all surfaces),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,32,3374,SSO (all surfaces),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,33,3374,SSO (all surfaces),⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,34,3374,SSO (all surfaces),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,35,3374,SSO (all surfaces),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,36,3374,SSO (all surfaces),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,37,3374,SSO (all surfaces),❌,FAIL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,38,3374,SSO (all surfaces),☐,NOTRUN
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,39,3374,SSO (all surfaces),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,40,3374,SSO (all surfaces),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,41,3374,SSO (all surfaces),❌,FAIL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,42,3374,SSO (all surfaces),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,43,3374,SSO (all surfaces),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,44,3374,SSO (all surfaces),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,45,3374,SSO (all surfaces),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,46,3375,TOPOLOGY / DR,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,47,3375,TOPOLOGY / DR,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,48,3375,TOPOLOGY / DR,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,49,3375,TOPOLOGY / DR,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,50,3375,TOPOLOGY / DR,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,51,3375,TOPOLOGY / DR,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,52,3375,TOPOLOGY / DR,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,53,3375,TOPOLOGY / DR,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,54,3375,TOPOLOGY / DR,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,55,3375,TOPOLOGY / DR,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,56,3375,TOPOLOGY / DR,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,57,3375,TOPOLOGY / DR,❌,FAIL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,58,3375,TOPOLOGY / DR,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,59,3375,TOPOLOGY / DR,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,60,3375,TOPOLOGY / DR,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,61,3375,TOPOLOGY / DR,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,62,3375,TOPOLOGY / DR,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,63,3375,TOPOLOGY / DR,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,64,3375,TOPOLOGY / DR,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,65,3375,TOPOLOGY / DR,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,66,3375,TOPOLOGY / DR,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,67,3375,TOPOLOGY / DR,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,68,3375,TOPOLOGY / DR,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,69,3375,TOPOLOGY / DR,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,70,3375,TOPOLOGY / DR,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,71,3375,TOPOLOGY / DR,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,72,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,73,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,74,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,75,3376,FUNNEL (customer purchase),⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,76,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,77,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,78,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,79,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,80,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,81,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,82,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,83,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,84,3376,FUNNEL (customer purchase),◑,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,85,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,86,3376,FUNNEL (customer purchase),❌,FAIL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,87,3376,FUNNEL (customer purchase),⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,88,3376,FUNNEL (customer purchase),⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,89,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,90,3376,FUNNEL (customer purchase),❌,FAIL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,91,3376,FUNNEL (customer purchase),⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,92,3376,FUNNEL (customer purchase),❌,FAIL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,93,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,94,3376,FUNNEL (customer purchase),❌,FAIL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,95,3376,FUNNEL (customer purchase),❌,FAIL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,96,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,97,3642,vCluster placement (NS#1),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,98,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,99,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,100,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,101,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,102,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,103,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,104,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,105,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,106,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,107,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,108,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,109,688,Other / single-row epics,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,110,3642,vCluster placement (NS#1),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,111,3642,vCluster placement (NS#1),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,112,3642,vCluster placement (NS#1),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,113,3642,vCluster placement (NS#1),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,114,3642,vCluster placement (NS#1),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,115,3642,vCluster placement (NS#1),❌,FAIL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,116,3383,Organizations rename,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,117,3383,Organizations rename,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,118,3383,Organizations rename,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,119,3383,Organizations rename,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,120,3383,Organizations rename,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,121,3383,Organizations rename,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,122,3383,Organizations rename,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,123,3668,Catalog / IaC single-source,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,124,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,125,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,126,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,127,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,128,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,129,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,130,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,131,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,132,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,133,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,134,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,135,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,136,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,137,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,138,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,139,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,140,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,141,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,142,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,143,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,144,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,145,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,146,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,147,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,148,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,149,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,150,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,151,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,152,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,153,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,154,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,155,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,156,3668,Catalog / IaC single-source,◑,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,157,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,158,3668,Catalog / IaC single-source,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,159,3379,SOVEREIGNTY / cutover,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,160,3379,SOVEREIGNTY / cutover,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,161,3379,SOVEREIGNTY / cutover,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,162,3379,SOVEREIGNTY / cutover,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,163,3379,SOVEREIGNTY / cutover,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,164,3379,SOVEREIGNTY / cutover,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,165,3379,SOVEREIGNTY / cutover,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,166,3379,SOVEREIGNTY / cutover,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,167,3646,Jobs canvas,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,168,3646,Jobs canvas,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,169,3646,Jobs canvas,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,170,3646,Jobs canvas,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,171,3646,Jobs canvas,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,172,3646,Jobs canvas,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,173,3646,Jobs canvas,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,174,3646,Jobs canvas,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,175,3646,Jobs canvas,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,176,3646,Jobs canvas,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,177,3646,Jobs canvas,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,178,3581,UAT doc set regen,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,179,3581,UAT doc set regen,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,180,3581,UAT doc set regen,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,181,3581,UAT doc set regen,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,182,3581,UAT doc set regen,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,183,3581,UAT doc set regen,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,184,3581,UAT doc set regen,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,185,3581,UAT doc set regen,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,186,3581,UAT doc set regen,◑,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,187,4001,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,188,4001,Other / single-row epics,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,189,4000,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,190,3916,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,191,3916,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,192,3925,Other / single-row epics,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,193,3996,Cloud reconciler mgmt,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,194,3996,Cloud reconciler mgmt,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,195,3996,Cloud reconciler mgmt,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,196,3996,Cloud reconciler mgmt,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,197,3996,Cloud reconciler mgmt,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,198,3987,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,199,3998,Cloud network+security view,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,200,3998,Cloud network+security view,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,201,3998,Cloud network+security view,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,202,3998,Cloud network+security view,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,203,4002,Crossplane adoption seam,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,204,4002,Crossplane adoption seam,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,205,4003,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,206,4002,Crossplane adoption seam,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,207,4002,Crossplane adoption seam,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,208,4002,Crossplane adoption seam,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,209,3971,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,210,3971,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,211,3988,OpenOva MCP,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,212,3988,OpenOva MCP,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,213,3988,OpenOva MCP,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,214,3985,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,215,3985,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,216,3376,FUNNEL (customer purchase),⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,217,3374,SSO (all surfaces),⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,218,3988,OpenOva MCP,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,219,3988,OpenOva MCP,❌,FAIL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,220,3988,OpenOva MCP,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,221,3988,OpenOva MCP,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,222,3988,OpenOva MCP,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,223,3988,OpenOva MCP,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,224,4272,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,225,4278,Other / single-row epics,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,226,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,227,4415,Other / single-row epics,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,228,4435,Other / single-row epics,◑,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,229,4409,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,230,4427,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,231,4411,Other / single-row epics,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,232,4272,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,233,4422,Other / single-row epics,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,234,4307,Other / single-row epics,❌,FAIL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,235,4437,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,236,4439,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,237,4416,Other / single-row epics,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,238,4282,Other / single-row epics,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,239,4002,Crossplane adoption seam,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,240,4706,Convergence readiness,✅,PASS
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,241,4706,Convergence readiness,⚠️,PARTIAL
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,242,4706,Convergence readiness,⛔,SUPERSEDED
+2026-08-08T03:25:47Z,hw292,1c56518035a83e03,2026-08-08 pre-walk baseline,243,4706,Convergence readiness,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R1,4454,Other / single-row epics,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R2,4467,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R3,4448,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R4,4458,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R5,4437,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R6,4442,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R7,4444,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R8,4447,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R9,4446,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R10,4471,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R11,4354,Other / single-row epics,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R12,4460,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R13,4436,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R14,4479,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R15,4473,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R16,4290,Other / single-row epics,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R17,4459,Other / single-row epics,❌,FAIL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R18,4450,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R19,4482,Other / single-row epics,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R20,4464,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R21,4432,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,R22,4468,Other / single-row epics,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,W1,5401,Other / single-row epics,❌,FAIL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,W2,5401,Other / single-row epics,❌,FAIL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,W3,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,W4,5555,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,W5,3969,Other / single-row epics,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,M1,4466,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,M2,4477,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,M3,4475,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,M4,4111,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,G1,4488,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,G2,4477,Other / single-row epics,◑,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,G3,4486,Other / single-row epics,◑,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,G4,4431,Other / single-row epics,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,G5,4466,Other / single-row epics,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,G6,4212,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,G7,4293,Other / single-row epics,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,G8,4277,Other / single-row epics,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,G9,4111,Other / single-row epics,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,G10,3969,Other / single-row epics,◑,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,G11,3379,SOVEREIGNTY / cutover,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,G12,4275,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,1,3687,Organization / Application CR model,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,2,3687,Organization / Application CR model,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,3,3687,Organization / Application CR model,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,4,3687,Organization / Application CR model,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,5,3687,Organization / Application CR model,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,6,3687,Organization / Application CR model,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,7,3687,Organization / Application CR model,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,8,3687,Organization / Application CR model,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,9,3687,Organization / Application CR model,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,10,3687,Organization / Application CR model,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,11,3687,Organization / Application CR model,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,12,3687,Organization / Application CR model,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,13,3687,Organization / Application CR model,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,14,3687,Organization / Application CR model,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,15,3687,Organization / Application CR model,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,16,3687,Organization / Application CR model,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,17,3687,Organization / Application CR model,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,18,3687,Organization / Application CR model,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,19,3687,Organization / Application CR model,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,20,3687,Organization / Application CR model,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,21,3687,Organization / Application CR model,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,22,3687,Organization / Application CR model,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,23,3687,Organization / Application CR model,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,24,3687,Organization / Application CR model,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,25,3687,Organization / Application CR model,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,26,3374,SSO (all surfaces),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,27,3374,SSO (all surfaces),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,28,3374,SSO (all surfaces),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,29,3374,SSO (all surfaces),❌,FAIL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,30,3374,SSO (all surfaces),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,31,3374,SSO (all surfaces),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,32,3374,SSO (all surfaces),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,33,3374,SSO (all surfaces),⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,34,3374,SSO (all surfaces),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,35,3374,SSO (all surfaces),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,36,3374,SSO (all surfaces),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,37,3374,SSO (all surfaces),❌,FAIL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,38,3374,SSO (all surfaces),☐,NOTRUN
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,39,3374,SSO (all surfaces),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,40,3374,SSO (all surfaces),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,41,3374,SSO (all surfaces),❌,FAIL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,42,3374,SSO (all surfaces),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,43,3374,SSO (all surfaces),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,44,3374,SSO (all surfaces),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,45,3374,SSO (all surfaces),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,46,3375,TOPOLOGY / DR,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,47,3375,TOPOLOGY / DR,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,48,3375,TOPOLOGY / DR,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,49,3375,TOPOLOGY / DR,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,50,3375,TOPOLOGY / DR,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,51,3375,TOPOLOGY / DR,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,52,3375,TOPOLOGY / DR,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,53,3375,TOPOLOGY / DR,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,54,3375,TOPOLOGY / DR,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,55,3375,TOPOLOGY / DR,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,56,3375,TOPOLOGY / DR,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,57,3375,TOPOLOGY / DR,❌,FAIL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,58,3375,TOPOLOGY / DR,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,59,3375,TOPOLOGY / DR,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,60,3375,TOPOLOGY / DR,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,61,3375,TOPOLOGY / DR,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,62,3375,TOPOLOGY / DR,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,63,3375,TOPOLOGY / DR,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,64,3375,TOPOLOGY / DR,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,65,3375,TOPOLOGY / DR,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,66,3375,TOPOLOGY / DR,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,67,3375,TOPOLOGY / DR,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,68,3375,TOPOLOGY / DR,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,69,3375,TOPOLOGY / DR,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,70,3375,TOPOLOGY / DR,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,71,3375,TOPOLOGY / DR,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,72,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,73,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,74,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,75,3376,FUNNEL (customer purchase),⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,76,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,77,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,78,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,79,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,80,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,81,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,82,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,83,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,84,3376,FUNNEL (customer purchase),❌,FAIL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,85,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,86,3376,FUNNEL (customer purchase),❌,FAIL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,87,3376,FUNNEL (customer purchase),⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,88,3376,FUNNEL (customer purchase),⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,89,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,90,3376,FUNNEL (customer purchase),❌,FAIL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,91,3376,FUNNEL (customer purchase),⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,92,3376,FUNNEL (customer purchase),❌,FAIL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,93,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,94,3376,FUNNEL (customer purchase),❌,FAIL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,95,3376,FUNNEL (customer purchase),⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,96,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,97,3642,vCluster placement (NS#1),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,98,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,99,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,100,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,101,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,102,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,103,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,104,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,105,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,106,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,107,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,108,3642,vCluster placement (NS#1),⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,109,688,Other / single-row epics,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,110,3642,vCluster placement (NS#1),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,111,3642,vCluster placement (NS#1),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,112,3642,vCluster placement (NS#1),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,113,3642,vCluster placement (NS#1),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,114,3642,vCluster placement (NS#1),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,115,3642,vCluster placement (NS#1),❌,FAIL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,116,3383,Organizations rename,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,117,3383,Organizations rename,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,118,3383,Organizations rename,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,119,3383,Organizations rename,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,120,3383,Organizations rename,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,121,3383,Organizations rename,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,122,3383,Organizations rename,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,123,3668,Catalog / IaC single-source,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,124,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,125,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,126,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,127,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,128,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,129,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,130,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,131,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,132,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,133,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,134,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,135,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,136,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,137,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,138,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,139,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,140,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,141,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,142,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,143,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,144,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,145,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,146,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,147,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,148,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,149,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,150,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,151,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,152,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,153,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,154,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,155,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,156,3668,Catalog / IaC single-source,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,157,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,158,3668,Catalog / IaC single-source,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,159,3379,SOVEREIGNTY / cutover,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,160,3379,SOVEREIGNTY / cutover,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,161,3379,SOVEREIGNTY / cutover,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,162,3379,SOVEREIGNTY / cutover,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,163,3379,SOVEREIGNTY / cutover,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,164,3379,SOVEREIGNTY / cutover,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,165,3379,SOVEREIGNTY / cutover,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,166,3379,SOVEREIGNTY / cutover,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,167,3646,Jobs canvas,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,168,3646,Jobs canvas,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,169,3646,Jobs canvas,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,170,3646,Jobs canvas,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,171,3646,Jobs canvas,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,172,3646,Jobs canvas,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,173,3646,Jobs canvas,❌,FAIL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,174,3646,Jobs canvas,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,175,3646,Jobs canvas,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,176,3646,Jobs canvas,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,177,3646,Jobs canvas,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,178,3581,UAT doc set regen,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,179,3581,UAT doc set regen,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,180,3581,UAT doc set regen,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,181,3581,UAT doc set regen,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,182,3581,UAT doc set regen,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,183,3581,UAT doc set regen,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,184,3581,UAT doc set regen,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,185,3581,UAT doc set regen,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,186,3581,UAT doc set regen,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,187,4001,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,188,4001,Other / single-row epics,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,189,4000,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,190,3916,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,191,3916,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,192,3925,Other / single-row epics,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,193,3996,Cloud reconciler mgmt,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,194,3996,Cloud reconciler mgmt,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,195,3996,Cloud reconciler mgmt,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,196,3996,Cloud reconciler mgmt,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,197,3996,Cloud reconciler mgmt,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,198,3987,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,199,3998,Cloud network+security view,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,200,3998,Cloud network+security view,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,201,3998,Cloud network+security view,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,202,3998,Cloud network+security view,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,203,4002,Crossplane adoption seam,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,204,4002,Crossplane adoption seam,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,205,4003,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,206,4002,Crossplane adoption seam,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,207,4002,Crossplane adoption seam,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,208,4002,Crossplane adoption seam,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,209,3971,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,210,3971,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,211,3988,OpenOva MCP,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,212,3988,OpenOva MCP,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,213,3988,OpenOva MCP,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,214,3985,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,215,3985,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,216,3376,FUNNEL (customer purchase),⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,217,3374,SSO (all surfaces),⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,218,3988,OpenOva MCP,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,219,3988,OpenOva MCP,❌,FAIL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,220,3988,OpenOva MCP,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,221,3988,OpenOva MCP,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,222,3988,OpenOva MCP,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,223,3988,OpenOva MCP,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,224,4272,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,225,4278,Other / single-row epics,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,226,3376,FUNNEL (customer purchase),✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,227,4415,Other / single-row epics,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,228,4435,Other / single-row epics,◑,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,229,4409,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,230,4427,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,231,4411,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,232,4272,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,233,4422,Other / single-row epics,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,234,4307,Other / single-row epics,❌,FAIL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,235,4437,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,236,4439,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,237,4416,Other / single-row epics,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,238,4282,Other / single-row epics,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,239,4002,Crossplane adoption seam,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,240,4706,Convergence readiness,✅,PASS
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,241,4706,Convergence readiness,⚠️,PARTIAL
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,242,4706,Convergence readiness,⛔,SUPERSEDED
+2026-08-09T11:04:04Z,hw292,1c56518035a83e03,baseline — denominator frozen,243,4706,Convergence readiness,✅,PASS
