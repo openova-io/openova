@@ -1364,7 +1364,7 @@ spec:
       #   StatefulSet came back 138s later. RBAC ships inside this umbrella, so
       #   the grant only reaches a Sovereign once this pin advances. Lockstep
       #   w/ products/catalyst/chart/Chart.yaml.
-      version: 1.4.1342
+      version: 1.4.1343
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
