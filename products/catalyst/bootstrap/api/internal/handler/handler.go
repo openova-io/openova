@@ -691,6 +691,15 @@ type Handler struct {
 	// shared 5s-timeout http.Client. Tests inject a stub.
 	mimirURL        string
 	mimirHTTPClient *http.Client
+
+	// anthropicHealthHTTPClient / anthropicAPIBaseURL — the #5956
+	// credential-VALIDITY probe seam (anthropic_credential_health.go).
+	// Production leaves both empty and the classifier talks to the real
+	// api.anthropic.com with a bounded-timeout client; tests inject a
+	// stub endpoint via SetAnthropicHealthProbe. Empty client here means
+	// "unverified", never "healthy" — see the file's invariant.
+	anthropicHealthHTTPClient *http.Client
+	anthropicAPIBaseURL       string
 }
 
 // powerdnsZoneClient is the narrow interface the parent-zone handler

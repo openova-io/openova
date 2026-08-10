@@ -87,6 +87,25 @@ anthropic:
   # solo agent can call Claude. Empty = key-only mode (only works for a real
   # sk-ant-api03 API key, which the OAuth journey does not use).
   credentialsKey: credentialsJson
+  # ── credential VALIDITY probe (#5956) ───────────────────────────────────
+  # The seed-claude-creds init container used to decide the credential was
+  # "valid" from claudeAiOauth.expiresAt alone. On hw292 2026-08-10 it printed
+  # `claude-code OAuth token valid (~7h remaining).` over a credential the
+  # Anthropic API was already answering `401 OAuth access token has been
+  # revoked` for — expiry is necessary for a working credential and never
+  # sufficient, because a token can be killed upstream without one local byte
+  # changing. So the pre-flight now issues ONE authenticated GET and speaks the
+  # word "valid" only when the API accepts the token; an unreachable endpoint
+  # reports NOT VERIFIED, never green.
+  #
+  # Default ON: the whole point is that a silent dead credential is worse than
+  # a boot-time HTTPS call. Disable only where the runtime is deliberately
+  # air-gapped from api.anthropic.com and the noise is not wanted — the probe
+  # is diagnostic and never blocks the pod either way.
+  validityProbe:
+    enabled: true
+    baseUrl: https://api.anthropic.com
+    timeoutSeconds: 10
   externalSecret:
     enabled: true
     refreshInterval: 1h

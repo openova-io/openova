@@ -188,7 +188,26 @@ type: application
 # same gateway bp-wordpress-tenant + the org console route attach to, #4054).
 # The old default rendered Accepted=False/InvalidHTTPRoute and the host 404'd
 # until the parentRef was hand-overridden. appVersion (image) unchanged.
-version: 0.5.22
+version: 0.5.23
+# 0.5.23 (#5956): the seed-claude-creds pre-flight stops calling a credential
+# "valid" on the strength of claudeAiOauth.expiresAt alone. On hw292
+# 2026-08-10 it printed, verbatim, `claude-code OAuth token valid (~7h
+# remaining).` over a credential the Anthropic API was already answering
+# `401 OAuth access token has been revoked` for — the token was unexpired,
+# well-formed and correctly delivered, and completely dead. Expiry is a
+# NECESSARY condition for a working credential and never a sufficient one,
+# because a token can be killed upstream without one local byte changing.
+# The pre-flight now issues ONE authenticated GET /v1/models against
+# api.anthropic.com (Bearer + the oauth beta header for an sk-ant-oat access
+# token, x-api-key for a real key) and speaks the word "valid" only when the
+# API accepts it; a 401 carrying the API's own "revoked" wording gets its own
+# LOUD re-seed cue, and an unreachable endpoint reports NOT VERIFIED rather
+# than borrowing the healthy wording. Gated on anthropic.validityProbe.enabled
+# (default true) with baseUrl + timeoutSeconds knobs. Still diagnostic only:
+# it never blocks the pod and never mutates the blob. Guarded by
+# scripts/check-agenity-credential-validity-preflight.sh, which renders the
+# chart AND executes the rendered pre-flight against a stub API. Template +
+# values change; appVersion (image) UNCHANGED.
 # 0.5.22 (#5617): the per-Org oidc-gate companion gains its EGRESS
 # CiliumNetworkPolicy (templates/oidc-gate.yaml `oidc-gate-<cid>-egress`).
 # The gate shipped an ingress-only gateway CNP into a DEFAULT-DENY per-Org
