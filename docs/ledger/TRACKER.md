@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T17:45:06Z` |
+| Last refreshed | `2026-08-10T18:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,8 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T17:58 | [#6048](https://github.com/openova-io/openova/pull/6048) | #5426 | docs(uat): 6 mutation-gated rows walked by driving the produ |
+| 2026-08-10T17:50 | [#6047](https://github.com/openova-io/openova/pull/6047) | #3374 | docs(uat): 14 browser-observable rows walked on hw293 — 6 fl |
 | 2026-08-10T17:43 | [#6046](https://github.com/openova-io/openova/pull/6046) | #6004 | docs(uat): partition the 44 ❌ rows that carried no label at  |
 | 2026-08-10T17:37 | [#6044](https://github.com/openova-io/openova/pull/6044) | #5974 | fix(catalyst): unresolved conflict markers on main froze the |
+| 2026-08-10T17:48 | [#6042](https://github.com/openova-io/openova/pull/6042) | #6004 | fix(catalyst-api): a Phase-1 component census must not decid |
 | 2026-08-10T17:32 | [#6039](https://github.com/openova-io/openova/pull/6039) | #6015 | docs(uat): 16 rows settled by API/CLI on hw293 — 15 pass, 1  |
 | 2026-08-10T17:32 | [#6038](https://github.com/openova-io/openova/pull/6038) | #6029 | fix(uat): a re-tag the partition parser cannot read is silen |
 | 2026-08-10T17:33 | [#6037](https://github.com/openova-io/openova/pull/6037) | #5978 | fix(catalog): the storefront sells Sandbox from a different  |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-10T14:30 | [#6006](https://github.com/openova-io/openova/pull/6006) | #3376 | docs(uat): hw293 funnel walk — 8 of 12 rows pass, 4 failures |
 | 2026-08-10T14:14 | [#6005](https://github.com/openova-io/openova/pull/6005) | #3646 | docs(uat): hw293 walk — 9 rows stamped, 2 pass (242, R22) an |
 | 2026-08-10T12:34 | [#5997](https://github.com/openova-io/openova/pull/5997) | #5987 | fix(funnel): the per-Org bp-newapi HelmRelease could not ins |
-| 2026-08-10T13:58 | [#5996](https://github.com/openova-io/openova/pull/5996) | #5989 | docs(uat): reset the ledger for hw293 — 207 evidence cells f |
-| 2026-08-10T12:25 | [#5995](https://github.com/openova-io/openova/pull/5995) | #5988 | docs(uat): generate the WBS partition from UAT.md instead of |
-| 2026-08-10T12:26 | [#5994](https://github.com/openova-io/openova/pull/5994) | #5646 | fix(provisioning): pod-truth reconciler was blind to the hos |
 
 ---
 
