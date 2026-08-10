@@ -72,6 +72,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -339,11 +340,49 @@ func (r *Reconciler) reconcileTenantConsoleTLS(ctx context.Context, org *orgapi.
 	if err != nil {
 		return false, fmt.Errorf("org wildcard cert for %q: %w", names.WildcardHost, err)
 	}
-	listenerChanged, err := r.ensureConsoleOrgListener(ctx, names)
-	if err != nil {
-		return certChanged, fmt.Errorf("console listener for %q: %w", names.WildcardHost, err)
+
+	// #5246 — the listener pair goes into EVERY region the Sovereign serves.
+	// The organization-controller Deployment exists in region A only, so the
+	// manager's client can structurally only ever reach region A; the console
+	// ELB pool forwards customer TLS to every region's nodes. A region with no
+	// per-Org listener resets the handshake, which is the measured hw292
+	// 5/10-vs-10/10 split. See tenant_console_tls_regions.go.
+	res := r.consoleRegionTargets(ctx)
+	changed := certChanged
+	var errs []string
+	for _, tgt := range res.Targets {
+		if !tgt.Host {
+			// The Certificate is issued once, in the host region; the peer
+			// region gets the ISSUED Secret mirrored so its listener has
+			// material to terminate on (one LE issuance per Org, not N).
+			mirrored, mirrorErr := r.mirrorConsoleOrgCertSecret(ctx, tgt.Client, names)
+			if mirrorErr != nil {
+				errs = append(errs, fmt.Sprintf("region %q cert mirror: %s", tgt.Region, mirrorErr))
+			}
+			changed = changed || mirrored
+		}
+		listenerChanged, listenerErr := r.ensureConsoleOrgListener(ctx, tgt.Client, names)
+		if listenerErr != nil {
+			errs = append(errs, fmt.Sprintf("region %q listener: %s", tgt.Region, listenerErr))
+			continue
+		}
+		changed = changed || listenerChanged
 	}
-	return certChanged || listenerChanged, nil
+	// A region we could not even resolve a client for was never written and
+	// must never be silently absent from the outcome — that is the exact shape
+	// (#5246) in which a "wrote it everywhere" claim is made over a region set
+	// the same step already lost.
+	for _, u := range res.Unwired {
+		errs = append(errs, "unwired secondary region: "+u)
+	}
+	for _, u := range res.Unreachable {
+		errs = append(errs, "unreachable secondary region: "+u)
+	}
+	if len(errs) > 0 {
+		sort.Strings(errs)
+		return changed, fmt.Errorf("console listener for %q: %s", names.WildcardHost, strings.Join(errs, "; "))
+	}
+	return changed, nil
 }
 
 // reconcileOrgWildcardCert create-or-updates the per-Org cert-manager
@@ -425,7 +464,11 @@ func (r *Reconciler) reconcileOrgWildcardCert(ctx context.Context, org *orgapi.O
 // and the `*.<slug>.<parent>` hostname match the catalyst-api BSS-door
 // emitter byte-for-byte (#4241), so whichever door provisions a given Org,
 // the gateway edge converges on one consistent listener.
-func (r *Reconciler) ensureConsoleOrgListener(ctx context.Context, names orgConsoleTLSNames) (bool, error) {
+//
+// #5246 — the target cluster is a PARAMETER, not r.Client. The console ELB
+// pool spans every region's nodes, so the pair must be appended to every
+// region's console Gateway; the caller fans this over consoleRegionTargets.
+func (r *Reconciler) ensureConsoleOrgListener(ctx context.Context, c client.Client, names orgConsoleTLSNames) (bool, error) {
 	gwNS := r.consoleGatewayNamespace()
 	gwName := r.consoleGatewayName()
 	httpsName := names.HTTPSName
@@ -435,7 +478,7 @@ func (r *Reconciler) ensureConsoleOrgListener(ctx context.Context, names orgCons
 
 	gw := unstructured.Unstructured{}
 	gw.SetGroupVersionKind(gatewayGVK)
-	if err := r.Get(ctx, client.ObjectKey{Namespace: gwNS, Name: gwName}, &gw); err != nil {
+	if err := c.Get(ctx, client.ObjectKey{Namespace: gwNS, Name: gwName}, &gw); err != nil {
 		if apierrors.IsNotFound(err) {
 			// Console Gateway not present yet (early bootstrap window).
 			// Skip quietly — a later reconcile re-runs once sovereign-tls
@@ -536,7 +579,7 @@ func (r *Reconciler) ensureConsoleOrgListener(ctx context.Context, names orgCons
 	if err := unstructured.SetNestedSlice(gw.Object, listeners, "spec", "listeners"); err != nil {
 		return false, fmt.Errorf("set Gateway %s/%s listeners: %w", gwNS, gwName, err)
 	}
-	if err := r.Update(ctx, &gw); err != nil {
+	if err := c.Update(ctx, &gw); err != nil {
 		// A conflict means another writer (or our own prior pass) touched
 		// the Gateway — surface it so the caller requeues and re-reads.
 		return false, fmt.Errorf("update Gateway %s/%s: %w", gwNS, gwName, err)
@@ -563,10 +606,40 @@ func (r *Reconciler) teardownTenantConsoleTLS(ctx context.Context, org *orgapi.O
 		return false, nil
 	}
 
-	listenerChanged, err := r.removeConsoleOrgListener(ctx, names)
-	if err != nil {
-		return false, fmt.Errorf("remove console listener for %q: %w", names.WildcardHost, err)
+	// #5246 — strip the pair in EVERY region the up-path may have written it
+	// into. A region-A-only teardown is what leaves a deleted Org's listeners
+	// on a peer region's Gateway forever: measured on hw292, region B's
+	// console Gateway still carried `console-https-r17probe` /
+	// `console-http-r17probe` days after that Org was deleted, while carrying
+	// nothing for either LIVE Org.
+	res := r.consoleRegionTargets(ctx)
+	listenerChanged := false
+	var errs []string
+	for _, tgt := range res.Targets {
+		removed, err := r.removeConsoleOrgListener(ctx, tgt.Client, names)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("region %q listener: %s", tgt.Region, err))
+			continue
+		}
+		listenerChanged = listenerChanged || removed
+		if tgt.Host {
+			continue
+		}
+		mirrorGone, err := r.deleteMirroredConsoleOrgCertSecret(ctx, tgt.Client, names)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("region %q mirrored TLS Secret: %s", tgt.Region, err))
+			continue
+		}
+		listenerChanged = listenerChanged || mirrorGone
 	}
+	for _, u := range res.Unreachable {
+		errs = append(errs, "unreachable secondary region: "+u)
+	}
+	if len(errs) > 0 {
+		sort.Strings(errs)
+		return listenerChanged, fmt.Errorf("remove console listener for %q: %s", names.WildcardHost, strings.Join(errs, "; "))
+	}
+
 	certChanged, err := r.deleteOrgWildcardCert(ctx, names)
 	if err != nil {
 		return listenerChanged, fmt.Errorf("delete org wildcard cert %q: %w", names.CertName, err)
@@ -631,13 +704,15 @@ func (r *Reconciler) deleteOrgWildcardTLSSecret(ctx context.Context, names orgCo
 // err): changed=true iff at least one listener was actually removed.
 // No-op when the Gateway is absent (already gone) or carries neither
 // listener (idempotent on a re-run).
-func (r *Reconciler) removeConsoleOrgListener(ctx context.Context, names orgConsoleTLSNames) (bool, error) {
+// The target cluster is a PARAMETER (#5246) so the caller can strip the pair
+// in every region the up-path fanned it into.
+func (r *Reconciler) removeConsoleOrgListener(ctx context.Context, c client.Client, names orgConsoleTLSNames) (bool, error) {
 	gwNS := r.consoleGatewayNamespace()
 	gwName := r.consoleGatewayName()
 
 	gw := unstructured.Unstructured{}
 	gw.SetGroupVersionKind(gatewayGVK)
-	if err := r.Get(ctx, client.ObjectKey{Namespace: gwNS, Name: gwName}, &gw); err != nil {
+	if err := c.Get(ctx, client.ObjectKey{Namespace: gwNS, Name: gwName}, &gw); err != nil {
 		if apierrors.IsNotFound(err) {
 			// Gateway already gone — nothing to strip.
 			return false, nil
@@ -670,7 +745,7 @@ func (r *Reconciler) removeConsoleOrgListener(ctx context.Context, names orgCons
 	if err := unstructured.SetNestedSlice(gw.Object, kept, "spec", "listeners"); err != nil {
 		return false, fmt.Errorf("set Gateway %s/%s listeners: %w", gwNS, gwName, err)
 	}
-	if err := r.Update(ctx, &gw); err != nil {
+	if err := c.Update(ctx, &gw); err != nil {
 		// A conflict means another writer touched the Gateway concurrently —
 		// surface it so the caller requeues and re-reads.
 		return false, fmt.Errorf("update Gateway %s/%s: %w", gwNS, gwName, err)

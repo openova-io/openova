@@ -185,40 +185,65 @@ func (r *Reconciler) verifyProvisioned(ctx context.Context, org *orgapi.Organiza
 	if !ok {
 		return out
 	}
-	rb, err := r.consoleOrgListenersReadback(ctx, names)
 	gwNS, gwName := r.consoleGatewayNamespace(), r.consoleGatewayName()
-	switch {
-	case err != nil:
-		out.Unverifiable = append(out.Unverifiable, fmt.Sprintf(
-			"console Gateway %s/%s listeners for %q: %s",
-			gwNS, gwName, names.WildcardHost, err))
-	case rb.GatewayAbsent || len(rb.SpecMissing) > 0:
+
+	// 5 — #5246. The read-back runs PER REGION. The console ELB backend pool
+	// spans every region's nodes, so a listener pair that exists only where
+	// this controller happens to run leaves ~1/N of customer TLS connections
+	// answering with a reset. A single-region read-back is a guard that cannot
+	// fail on that defect: it verifies only the region we were always able to
+	// write. Regions the fan-out could not resolve a client for are folded in
+	// below with the same discipline — an UNWIRED region is a proven-absent
+	// artifact (no credential exists, so the listener can never land there),
+	// while an UNREACHABLE one is only a requeue (an apiserver blip must not
+	// red-flag every Organization on the Sovereign at once).
+	res := r.consoleRegionTargets(ctx)
+	for _, u := range res.Unwired {
 		out.Missing = append(out.Missing, fmt.Sprintf(
-			"console Gateway listeners %s/%s on %s/%s for hostname %q (without them every HTTPRoute on that host is Accepted=False NoMatchingListenerHostname — the Org is unreachable)",
-			names.HTTPSName, names.HTTPName, gwNS, gwName, names.WildcardHost))
-	default:
-		// 4 — the listener is in spec. That is NOT the same as serving. Both
-		// checks below close a way for the door to be dead while every status
-		// surface reads green (#5511).
-		if len(rb.PortDrift) > 0 {
-			out.Missing = append(out.Missing, fmt.Sprintf(
-				"console Gateway listeners on %s/%s bind the wrong port — %s (the console LoadBalancer forwards public 443/80 to the apex console-https/console-http ports and nothing else, so a per-Org listener on any other port receives no traffic and %q answers 000 while the workload behind it is healthy)",
-				gwNS, gwName, strings.Join(rb.PortDrift, ", "), names.WildcardHost))
-		}
+			"console Gateway listeners %s/%s in every region — %s (the console ELB pool forwards customer TLS to every region's nodes, so a region with no listener resets the handshake for %q on the share of connections it receives)",
+			names.HTTPSName, names.HTTPName, u, names.WildcardHost))
+	}
+	for _, u := range res.Unreachable {
+		out.Unverifiable = append(out.Unverifiable, fmt.Sprintf(
+			"console Gateway listeners for %q in every region — %s", names.WildcardHost, u))
+	}
+
+	for _, tgt := range res.Targets {
+		region := "region " + tgt.Region
+		rb, err := r.consoleOrgListenersReadback(ctx, tgt.Client, names)
 		switch {
-		case !rb.StatusObserved:
-			// The Gateway controller has not published ANY listener status
-			// yet. Absence of evidence, not evidence of absence — requeue.
-			// This is also the vacuity guard on the check below: without it,
-			// "our listener is in status" would pass trivially on an empty
-			// status and assert nothing at all.
+		case err != nil:
 			out.Unverifiable = append(out.Unverifiable, fmt.Sprintf(
-				"console Gateway %s/%s status.listeners is empty — the Gateway controller has not published listener status yet, so acceptance of %s/%s cannot be decided",
-				gwNS, gwName, names.HTTPSName, names.HTTPName))
-		case len(rb.StatusDropped) > 0:
+				"console Gateway %s/%s listeners for %q in %s: %s",
+				gwNS, gwName, names.WildcardHost, region, err))
+		case rb.GatewayAbsent || len(rb.SpecMissing) > 0:
 			out.Missing = append(out.Missing, fmt.Sprintf(
-				"console Gateway %s/%s ACCEPTED %d listeners into spec but published only %d in status — silently dropped: %s (a listener in spec and absent from status carries no condition and no event: from the operator's side it is indistinguishable from one that was never configured, yet every per-Org customer door depends on it)",
-				gwNS, gwName, rb.SpecCount, rb.StatusCount, strings.Join(rb.StatusDropped, ", ")))
+				"console Gateway listeners %s/%s on %s/%s in %s for hostname %q (without them every HTTPRoute on that host is Accepted=False NoMatchingListenerHostname — the Org is unreachable)",
+				names.HTTPSName, names.HTTPName, gwNS, gwName, region, names.WildcardHost))
+		default:
+			// 4 — the listener is in spec. That is NOT the same as serving. Both
+			// checks below close a way for the door to be dead while every status
+			// surface reads green (#5511).
+			if len(rb.PortDrift) > 0 {
+				out.Missing = append(out.Missing, fmt.Sprintf(
+					"console Gateway listeners on %s/%s in %s bind the wrong port — %s (the console LoadBalancer forwards public 443/80 to the apex console-https/console-http ports and nothing else, so a per-Org listener on any other port receives no traffic and %q answers 000 while the workload behind it is healthy)",
+					gwNS, gwName, region, strings.Join(rb.PortDrift, ", "), names.WildcardHost))
+			}
+			switch {
+			case !rb.StatusObserved:
+				// The Gateway controller has not published ANY listener status
+				// yet. Absence of evidence, not evidence of absence — requeue.
+				// This is also the vacuity guard on the check below: without it,
+				// "our listener is in status" would pass trivially on an empty
+				// status and assert nothing at all.
+				out.Unverifiable = append(out.Unverifiable, fmt.Sprintf(
+					"console Gateway %s/%s status.listeners is empty in %s — the Gateway controller has not published listener status yet, so acceptance of %s/%s cannot be decided",
+					gwNS, gwName, region, names.HTTPSName, names.HTTPName))
+			case len(rb.StatusDropped) > 0:
+				out.Missing = append(out.Missing, fmt.Sprintf(
+					"console Gateway %s/%s in %s ACCEPTED %d listeners into spec but published only %d in status — silently dropped: %s (a listener in spec and absent from status carries no condition and no event: from the operator's side it is indistinguishable from one that was never configured, yet every per-Org customer door depends on it)",
+					gwNS, gwName, region, rb.SpecCount, rb.StatusCount, strings.Join(rb.StatusDropped, ", ")))
+			}
 		}
 	}
 	return out
@@ -263,12 +288,15 @@ type consoleListenerReadback struct {
 // genuinely has no console edge, and saying so honestly is the entire point —
 // `ensureConsoleOrgListener` returning `(false, nil)` for that same case is
 // what let the gap pass as success in the first place.
-func (r *Reconciler) consoleOrgListenersReadback(ctx context.Context, names orgConsoleTLSNames) (consoleListenerReadback, error) {
+//
+// The target cluster is a PARAMETER (#5246): the caller probes every region
+// the console ELB pool forwards to, not just the one this controller runs in.
+func (r *Reconciler) consoleOrgListenersReadback(ctx context.Context, c client.Client, names orgConsoleTLSNames) (consoleListenerReadback, error) {
 	var out consoleListenerReadback
 
 	gw := unstructured.Unstructured{}
 	gw.SetGroupVersionKind(gatewayGVK)
-	if err := r.Get(ctx, client.ObjectKey{
+	if err := c.Get(ctx, client.ObjectKey{
 		Namespace: r.consoleGatewayNamespace(),
 		Name:      r.consoleGatewayName(),
 	}, &gw); err != nil {
