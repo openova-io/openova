@@ -3775,7 +3775,21 @@ name: bp-catalyst-platform
 #   138s later under a new uid. A ClusterRole is delivered only by the
 #   published umbrella, so the grant reaches a Sovereign only once this
 #   version advances. Lockstep w/ slot-13 pin.
-version: 1.4.1352
+# 1.4.1351 (#6027): the organization-controller Deployment gains
+#   CATALYST_CONFIGURED_REGIONS, a configMapKeyRef on sovereign-fqdn key
+#   `configuredRegions` (optional:true) — the SECOND witness the per-Org
+#   console listener fan-out needs to know how many regions this Sovereign
+#   serves. The first witness, the Cilium ClusterMesh Secret, does not exist
+#   until the mesh is ESTABLISHED, so a 2-region Sovereign whose mesh has not
+#   come up read as single-region and every Organization went green over a
+#   region whose Gateway never received the listener. Measured on hw293
+#   2026-08-11: `kube-system/cilium-clustermesh` NotFound in BOTH regions,
+#   region A carrying console-https-hw293walkone/-hw293walktwo and region B
+#   carrying zero per-Org listeners, against a `sovereign-fqdn` that names
+#   both regions. Env injection is the delivery mechanism, so the witness
+#   reaches the controller only once this version advances. Lockstep w/
+#   slot-13 pin.
+version: 1.4.1354
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which

@@ -220,6 +220,28 @@ spec:
                   name: sovereign-fqdn
                   key: consoleLBIP
                   optional: true
+            # CATALYST_CONFIGURED_REGIONS — the comma-separated region keys this
+            # Sovereign was provisioned with (e.g.
+            # `hw-me-east-215-a-rtz-prod,hw-me-east-215-b-rtz-prod`). #6027: the
+            # per-Org console listener fan-out (tenant_console_tls_regions.go)
+            # needs an INDEPENDENT witness of how many regions exist, or "no
+            # secondary kubeconfig wired" silently reads as "no secondary
+            # region" and every Organization goes green over a region whose
+            # Gateway never received the listener — measured on hw293, where the
+            # ClusterMesh witness Secret was absent in BOTH regions.
+            #
+            # Same `sovereign-fqdn` key catalyst-api already consumes under this
+            # exact name, injected the same way: a kubelet-resolved
+            # configMapKeyRef, so the controller SA needs no ConfigMap read
+            # grant. optional=true — Catalyst-Zero and legacy Sovereigns without
+            # the key start with the env empty, which leaves the ClusterMesh
+            # witness deciding alone exactly as before.
+            - name: CATALYST_CONFIGURED_REGIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: sovereign-fqdn
+                  key: configuredRegions
+                  optional: true
             # CATALYST_OTECH_INGRESS_IPV4 — the primary/shared LB IP, used as the
             # pool-DNS target FALLBACK when no dedicated console LB exists (single-LB
             # / pre-#4053 Sovereign) so the record still resolves. Same sovereign-fqdn
