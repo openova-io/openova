@@ -186,7 +186,7 @@ const (
 	// durable fix routes peers to the clustermesh-proxy host-socket on a
 	// dedicated non-2379 port (bp-cilium clustermesh-proxy DaemonSet) via
 	// this override; Hetzner keeps the default 2379 behind hcloud-ccm.
-	clusterMeshAPIServerPort    = 2379
+	clusterMeshAPIServerPort = 2379
 	// clusterMeshProxyDialPort — the bp-cilium clustermesh-proxy DaemonSet
 	// hostPort (#4784). On a no-CCM cloud (Huawei/kom4dc) there is no real
 	// LoadBalancer: the clustermesh-apiserver Service's ingress IP is the
@@ -640,6 +640,145 @@ func sharedPGConsumerCredentialFingerprint(s *corev1.Secret) string {
 // replica) during the brief window before region-A's own slot-16{a,c,d} upgrade
 // lands. Single-region / pre-flip hubs carry `-rw` and are correctly skipped.
 const sharedPGMeshRWHostMarker = "-mesh-rw."
+
+// sharedPGLocalRWHostLabelSuffix / sharedPGMeshRWServiceSuffix / ciliumGlobalServiceAnnotation
+// — the pieces of the #6072 host REWRITE that replaced the string-proxy
+// readiness gate above.
+//
+// WHY THE STRING PROXY WAS NOT A READINESS SIGNAL (hw293, dep a0077ba47e3720e5,
+// measured 2026-08-11):
+//
+// The gate's premise is "a `host` without `-mesh-rw` means region-A has not
+// rendered the mesh alias yet, so the alias cannot resolve on the replica."
+// That premise is FALSE, and the two halves are wired to different signals:
+//
+//   - The mesh alias SERVICE renders on `bp-postgres.meshAliasesActive` —
+//     clusterMesh.enabled AND both `topology.primary.region` and
+//     `topology.replica.region` non-empty. #4460 DELIBERATELY decoupled it from
+//     `activeHotStandby` precisely so the alias exists BEFORE the flip.
+//   - The hub Secret's `host` renders on `bp-postgres.activeHotStandby` —
+//     `topology.crossRegion`, which the bootstrap-kit slots wire to
+//     `${SOVEREIGN_ENABLE_CNPG_PAIR}`, patched ONLY by enableCNPGPairAfterFullMesh.
+//
+// role-secrets.yaml never received #4460's decoupling. So the `host` string
+// turns `-mesh-rw` at the cnpg-pair flip — the very flip #5230 hoisted this
+// sync OUT of. The hoist is therefore INERT: the sync runs early and defers
+// 100% of its Secrets until the flip happens anyway, and if the flip never
+// happens the deferral is PERMANENT. Measured on hw293: all three region-A
+// CNPG clusters healthy at 1 instance, all nine hub Secrets carrying
+// `shared-pg{,-b,-c}-rw.shared-data.svc.cluster.local`, region-B holding 0 of
+// 13 hub Secrets while holding all 12 CNPG-operator-minted ones — and
+// `keycloak-0` in region-B stuck `Init:0/1` on
+// `MountVolume.SetUp failed … secret "keycloak-database-secret" not found`,
+// 232 occurrences over 7h38m. All six `-mesh-rw` Services existed in BOTH
+// regions the whole time.
+//
+// WHAT THE GATE ACTUALLY WANTS is a real property, and it is worth keeping:
+// never hand the replica a write host that does not route there. The
+// region-local `<instance>-rw` Service is exactly that hazard — on hw293
+// region-B's `shared-pg-rw` exists with ZERO endpoints, so a pushed `-rw` host
+// resolves to a black hole. But that question is answerable directly, on the
+// replica, from positive evidence: does the replica publish the mesh-global
+// `<instance>-mesh-rw` alias? On hw293 it does — a zero-backend stub annotated
+// `service.cilium.io/global: "true"`, which Cilium merges with region-A's
+// backed alias so writes cross the mesh to the primary (region-A's carries the
+// only endpoint, 10.42.5.35).
+//
+// So a `-rw` source is no longer DEFERRED — it is REWRITTEN onto the alias the
+// replica provably publishes, and only then propagated. The credential itself
+// (which after #5224/#5228 the replica can never mint for itself) is copied
+// byte-for-byte from region-A; only the host is rewritten, and only to a name
+// the replica already resolves.
+const (
+	// sharedPGLocalRWHostLabelSuffix — the first DNS label of the region-LOCAL
+	// write host role-secrets.yaml renders pre-flip (`<instance>-rw`).
+	sharedPGLocalRWHostLabelSuffix = "-rw"
+	// sharedPGMeshRWServiceSuffix — the ClusterMesh-global write alias
+	// bp-postgres publishes (`<instance>-mesh-rw`, see
+	// `bp-postgres.writeServiceName`).
+	sharedPGMeshRWServiceSuffix = "-mesh-rw"
+	// (The ClusterMesh-global marker itself is ciliumGlobalServiceAnnotation,
+	// already declared in org_app_surface_mesh.go — its presence WITH value
+	// "true" on the replica's alias is the positive evidence that a rewritten
+	// host routes cross-mesh rather than into a region-local black hole.)
+)
+
+// meshRWHostRewrite maps a region-LOCAL shared-pg write host
+// (`<instance>-rw.<ns>.svc.cluster.local`) onto its ClusterMesh-global alias
+// (`<instance>-mesh-rw.<ns>.svc.cluster.local`), returning the rewritten host,
+// the bare alias Service name, and whether the input was in the local-rw shape
+// at all.
+//
+// ok=false for anything that is not that exact shape — an empty host, a host
+// with no domain part, a host whose first label does not end in `-rw`, or a
+// host that is ALREADY a `-mesh-rw` alias (guarded so a caller that skips the
+// marker check can never produce `<instance>-mesh-mesh-rw`). Callers DEFER on
+// ok=false, which keeps every non-shared-pg / unrecognised host on the
+// pre-#6072 behaviour.
+func meshRWHostRewrite(host string) (meshHost string, aliasName string, ok bool) {
+	label, domain, found := strings.Cut(host, ".")
+	if !found || domain == "" {
+		return "", "", false
+	}
+	instance, cut := strings.CutSuffix(label, sharedPGLocalRWHostLabelSuffix)
+	if !cut || instance == "" {
+		return "", "", false
+	}
+	// Already a mesh alias (`<instance>-mesh-rw`) — not a local-rw host, and
+	// rewriting it again would fabricate `<instance>-mesh-mesh-rw`.
+	if strings.HasSuffix(instance, "-mesh") {
+		return "", "", false
+	}
+	alias := instance + sharedPGMeshRWServiceSuffix
+	return alias + "." + domain, alias, true
+}
+
+// rewriteHubSecretHost returns a DEEP COPY of src with every value that embeds
+// oldHost re-pointed at newHost. It rewrites by VALUE, not by key name, so it
+// covers the whole connection contract role-secrets.yaml assembles — `host`,
+// the `uri` that embeds it, and any `reflect.hostKeys` / `hostPortKeys`
+// (`<host>:5432`) a binding declares — without this function needing to know
+// their names. Credential-bearing values (password, username, dbname) never
+// contain the host, so they are copied through untouched and region-A stays
+// the single source of truth for them.
+func rewriteHubSecretHost(src *corev1.Secret, oldHost, newHost string) *corev1.Secret {
+	out := src.DeepCopy()
+	oldB, newB := []byte(oldHost), []byte(newHost)
+	for k, v := range out.Data {
+		if bytes.Contains(v, oldB) {
+			out.Data[k] = bytes.ReplaceAll(v, oldB, newB)
+		}
+	}
+	for k, v := range out.StringData {
+		if strings.Contains(v, oldHost) {
+			out.StringData[k] = strings.ReplaceAll(v, oldHost, newHost)
+		}
+	}
+	return out
+}
+
+// replicaPublishesMeshAlias reports whether the replica cluster publishes
+// `alias` in `namespace` as a ClusterMesh-GLOBAL Service — the positive
+// evidence that a host rewritten onto that alias will resolve and route to the
+// current primary from this replica.
+//
+// A missing Service reads as (false, nil): not ready, defer and let the
+// level-triggered re-run re-check. A Service that exists WITHOUT
+// `service.cilium.io/global: "true"` also reads false — it would be a
+// region-local name, i.e. exactly the black hole the readiness gate exists to
+// prevent. Only a genuine API error is returned as an error.
+func (h *Handler) replicaPublishesMeshAlias(ctx context.Context, cs kubernetes.Interface, namespace, alias string) (bool, error) {
+	getCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
+	defer cancel()
+	svc, err := cs.CoreV1().Services(namespace).Get(getCtx, alias, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return svc.Annotations[ciliumGlobalServiceAnnotation] == "true", nil
+}
 
 // keycloakAdminSecretNamespace / keycloakAdminSecretName / keycloakAdminSecretNames
 // — the HOST-cluster namespace + Secret names of the keycloak master-realm admin
@@ -2028,14 +2167,31 @@ func (h *Handler) syncSharedPGConsumerHubSecrets(ctx context.Context, dep *Deplo
 				"id", dep.ID, "namespace", sharedPGNamespace, "secret", name)
 			continue
 		}
-		// READINESS GATE: only propagate once region-A has rendered the
-		// `-mesh-rw` write host. A `-rw`-only host means region-A hasn't
-		// reconciled crossRegion yet — pushing it would NXDOMAIN on the
-		// replica, so wait for the next level-trigger pass.
-		if host := string(src.Data["host"]); !strings.Contains(host, sharedPGMeshRWHostMarker) {
-			h.log.Info("clustermesh: shared-pg consumer-hub sync: source host not yet topology-aware (-mesh-rw) — deferring (region-A crossRegion upgrade still landing; best-effort, re-run converges)",
-				"id", dep.ID, "secret", name, "host", host)
-			continue
+		// READINESS GATE (#6072 — was a `-mesh-rw` substring test on this
+		// host; see sharedPGLocalRWHostLabelSuffix for why that test could
+		// never answer "yes" pre-flip and deferred hw293 PERMANENTLY).
+		//
+		// The property worth guarding is unchanged: never hand the replica a
+		// write host that does not route there. It is now answered against the
+		// REPLICA's own Service inventory rather than a substring of the
+		// source:
+		//
+		//   - host already carries `-mesh-rw` → propagate as-is. Byte-identical
+		//     to the pre-#6072 path, so the post-flip behaviour never changes.
+		//   - host is the region-local `<instance>-rw` form → propagate ONLY to
+		//     replicas that publish a mesh-global `<instance>-mesh-rw`, with the
+		//     host rewritten onto that alias (per-replica, below).
+		//   - anything else → DEFER, exactly as before.
+		srcHost := string(src.Data["host"])
+		srcHostIsMeshRW := strings.Contains(srcHost, sharedPGMeshRWHostMarker)
+		meshHost, meshAlias, rewritable := "", "", false
+		if !srcHostIsMeshRW {
+			meshHost, meshAlias, rewritable = meshRWHostRewrite(srcHost)
+			if !rewritable {
+				h.log.Info("clustermesh: shared-pg consumer-hub sync: source host is neither the `-mesh-rw` alias nor the region-local `<instance>-rw` form — deferring (unrecognised write host; best-effort, re-run converges)",
+					"id", dep.ID, "secret", name, "host", srcHost)
+				continue
+			}
 		}
 		// #5317 — a Secret name goes into `synced` (the HONEST count) ONLY
 		// when a read-back confirms it present+matching on EVERY replica
@@ -2049,7 +2205,35 @@ func (h *Handler) syncSharedPGConsumerHubSecrets(ctx context.Context, dep *Deplo
 				verifiedOnAllReplicas = false
 				continue
 			}
-			delivered, verified, err := h.copyAndVerifyConsumerHubSecret(ctx, src, replica.clientset, sharedPGNamespace)
+			// #6072 — the per-replica half of the readiness gate. A source
+			// still on the region-local `<instance>-rw` host is delivered ONLY
+			// where the replica itself publishes the mesh-global
+			// `<instance>-mesh-rw` alias, with the host rewritten onto it. No
+			// alias (or a non-global same-named Service) → this replica is NOT
+			// ready, so defer it and leave the Secret uncounted; the
+			// level-triggered re-run re-checks. `effSrc` is what gets copied,
+			// read-back-verified AND handed to the #4878 restart reconcile, so
+			// all three see identical bytes.
+			effSrc := src
+			if !srcHostIsMeshRW {
+				publishes, aliasErr := h.replicaPublishesMeshAlias(ctx, replica.clientset, sharedPGNamespace, meshAlias)
+				if aliasErr != nil {
+					h.log.Warn("clustermesh: shared-pg consumer-hub sync: mesh-alias lookup on replica failed — deferring this Secret/region (best-effort, re-run converges)",
+						"id", dep.ID, "region", replica.key, "namespace", sharedPGNamespace, "secret", name, "alias", meshAlias, "err", aliasErr)
+					verifiedOnAllReplicas = false
+					continue
+				}
+				if !publishes {
+					h.log.Info("clustermesh: shared-pg consumer-hub sync: replica does not publish the ClusterMesh-global write alias yet — deferring (a region-local `-rw` host would not route from the replica; best-effort, re-run converges)",
+						"id", dep.ID, "region", replica.key, "namespace", sharedPGNamespace, "secret", name, "alias", meshAlias, "host", srcHost)
+					verifiedOnAllReplicas = false
+					continue
+				}
+				effSrc = rewriteHubSecretHost(src, srcHost, meshHost)
+				h.log.Info("clustermesh: shared-pg consumer-hub sync: rewrote the region-local write host onto the replica's ClusterMesh-global alias before delivery (#6072 — region-A's crossRegion flip has not landed, but the alias resolves on the replica today)",
+					"id", dep.ID, "region", replica.key, "namespace", sharedPGNamespace, "secret", name, "fromHost", srcHost, "toHost", meshHost)
+			}
+			delivered, verified, err := h.copyAndVerifyConsumerHubSecret(ctx, effSrc, replica.clientset, sharedPGNamespace)
 			if err != nil {
 				h.log.Warn("clustermesh: shared-pg consumer-hub sync: copy to replica failed — skipping this Secret/region (best-effort, re-run converges)",
 					"id", dep.ID, "region", replica.key, "namespace", sharedPGNamespace, "secret", name, "err", err)
@@ -2093,7 +2277,12 @@ func (h *Handler) syncSharedPGConsumerHubSecrets(ctx context.Context, dep *Deplo
 			// #3241/#3583 no-thrash contract). `changed` no longer gates it; the
 			// level-trigger re-run drives it to consistency.
 			if target, ok := sharedPGConsumerRestartTargets[name]; ok {
-				h.reconcileSharedPGConsumerRestart(ctx, dep, replica, name, target, src)
+				// #6072 — effSrc, not src: the consistency gate inside compares
+				// the consumer-namespace copy against these bytes, and what the
+				// reflector re-pushes there is what we DELIVERED (host rewritten
+				// onto the mesh alias). Passing the un-rewritten src would make
+				// that comparison never match and silently disable the restart.
+				h.reconcileSharedPGConsumerRestart(ctx, dep, replica, name, target, effSrc)
 			}
 		}
 		if verifiedOnAllReplicas {
@@ -3562,20 +3751,20 @@ func (h *Handler) rolloutRestartClusterMeshTargets(ctx context.Context, dep *Dep
 // Instead this reconciles the restart against CONSISTENCY on every ~2-min
 // level-trigger pass:
 //
-//	1. CONSISTENCY GATE — read the consumer-namespace copy of the hub Secret on
-//	   the replica. If it is absent, or its effective bytes do NOT yet match
-//	   region-A's authoritative hub Secret (`src`), the reflector has not
-//	   propagated the corrected credential — DEFER (no restart; the re-run
-//	   re-checks). Because region-A mints the hub Secret AND the PG role password
-//	   from the same source, and keycloak/gitea/harbor dial the `-mesh-rw` alias
-//	   that routes writes to region-A's primary, `consumer-ns == src`
-//	   transitively means the mounted password matches the LIVE PG role password
-//	   on the primary — so no in-process DB probe is needed to prove (c).
-//	2. IDEMPOTENCY / RESTART — hand the authoritative credential's fingerprint to
-//	   rolloutRestartConsumerWorkload, which restarts ONLY when the workload's pod
-//	   template was not already rolled onto this exact fingerprint. So a
-//	   steady-state / already-healed pass never restarts (the #3241/#3583
-//	   no-thrash contract) while a genuine future rotation re-fires exactly once.
+//  1. CONSISTENCY GATE — read the consumer-namespace copy of the hub Secret on
+//     the replica. If it is absent, or its effective bytes do NOT yet match
+//     region-A's authoritative hub Secret (`src`), the reflector has not
+//     propagated the corrected credential — DEFER (no restart; the re-run
+//     re-checks). Because region-A mints the hub Secret AND the PG role password
+//     from the same source, and keycloak/gitea/harbor dial the `-mesh-rw` alias
+//     that routes writes to region-A's primary, `consumer-ns == src`
+//     transitively means the mounted password matches the LIVE PG role password
+//     on the primary — so no in-process DB probe is needed to prove (c).
+//  2. IDEMPOTENCY / RESTART — hand the authoritative credential's fingerprint to
+//     rolloutRestartConsumerWorkload, which restarts ONLY when the workload's pod
+//     template was not already rolled onto this exact fingerprint. So a
+//     steady-state / already-healed pass never restarts (the #3241/#3583
+//     no-thrash contract) while a genuine future rotation re-fires exactly once.
 //
 // Net effect: the restart fires ONCE, AFTER the mounted credential is consistent
 // — the single clean restart the #4878 goal wanted — and the level-trigger
