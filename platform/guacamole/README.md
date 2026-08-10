@@ -134,7 +134,35 @@ spec:
 
 ---
 
-## Connection definitions (managed via Catalyst console)
+## Connection definitions — DESIGN, NOT BUILT
+
+> **Status (2026-08-10, UAT row 115).** Nothing in this repository creates a
+> Guacamole connection. `guacamole_connection` is created empty by the Apache
+> schema DDL (`chart/files/postgresql/001-create-schema.sql:109`) and stays at
+> zero rows, so a signed-in sovereign-admin lands on an empty connections list.
+>
+> The `GuacamoleConnection` CRD and the `relay-controller` that this section
+> previously described as reconciling it **do not exist** — no Go type, no CRD
+> manifest, no reconciler, no chart template; the only occurrences of either
+> name in the repo were the two sentences this note replaces. Documenting an
+> absent producer as a shipped one is how a missing component reads as a
+> configuration problem, so the design sketch is kept below explicitly labelled
+> as a sketch.
+>
+> What DOES exist today, in `chart/templates/jdbc-schema-seed-job.yaml`, is the
+> identity + permission half: the `<adminGroup>` USER_GROUP (`:155-164`) and its
+> `ADMINISTER` + five `CREATE_*` system permissions (`:166-181`), plus the
+> per-minute admin-enroll CronJob (`:116-125`). That grants the *right* to
+> create connections; it creates none.
+>
+> A seeded kubectl-shell connection additionally needs a wire fix, not just an
+> INSERT: `bp-k8s-ws-proxy` rejects any WebSocket upgrade without
+> `X-Catalyst-Timestamp` + `X-Catalyst-HMAC`
+> (`core/cmd/k8s-ws-proxy/DESIGN.md:32-37`, 401 at `:79`), and guacd's
+> `kubernetes` protocol handler cannot emit them — so a naively seeded row would
+> fail on click rather than open a shell.
+
+Design sketch (target state — **not** reconciled by anything today):
 
 ```yaml
 apiVersion: catalyst.openova.io/v1alpha1
@@ -157,7 +185,10 @@ spec:
     maxDurationMinutes: 60
 ```
 
-`GuacamoleConnection` is reconciled by Catalyst's `relay-controller` into Guacamole's PostgreSQL backend (managed by CNPG). The Catalyst console exposes a "Connections" tab; sovereign-admin and org-admin grant connection access via Keycloak group membership.
+The intended model is that a controller reconciles `GuacamoleConnection` into
+Guacamole's PostgreSQL backend (managed by CNPG), the Catalyst console exposes a
+"Connections" tab, and sovereign-admin / org-admin grant connection access via
+Keycloak group membership. None of those three parts is built.
 
 ---
 
