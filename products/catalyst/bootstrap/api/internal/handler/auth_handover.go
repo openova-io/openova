@@ -158,6 +158,96 @@ func handoverIssuerAccepted(iss string) bool {
 	return false
 }
 
+// buildHandoverSessionClaims constructs the local session JWT claim set that
+// /auth/handover hands back to the browser after the handover token has been
+// verified. Extracted from AuthHandover step 6 so it is reachable by a test:
+// AuthHandover itself cannot be driven to step 6 without a live Keycloak
+// (EnsureUser is a hard gate on the standard handover path), which is why the
+// issuer defect below survived a well-tested handler for as long as it did.
+//
+// UAT row 96 / #5614 follow-on (2026-08-10) — `iss` was the bare literal
+// "https://console.openova.io" here. That is the SECOND mothership hardcode
+// in this one request path and the one #5614 did not touch: #5614 fixed the
+// INBOUND leg (which issuers this endpoint will ACCEPT on a handover token,
+// see acceptedHandoverIssuers); this is the OUTBOUND leg, the issuer this
+// endpoint STAMPS on the session it mints. A cut-over Sovereign therefore
+// signed the owner's session with its OWN key while labelling it as issued by
+// the mothership — so the handover-authenticated owner held the only session
+// on the pod carrying a foreign `iss`. PIN-verify (auth.go), Org handover
+// (org_handover.go) and the MCP bearer seed (sovereign_mcp_bearer_seed.go)
+// all already resolved pinIssuer().
+//
+// That claim is enforced, not decorative: bp-openova-mcp refuses any bearer
+// whose `iss` is not the instance's expected issuer
+// (products/openova-mcp/internal/identity/identity.go:291-295), so the Pillar-4
+// MCP attach rejected precisely the principal that proves Sovereign ownership.
+//
+// Measured on hw292 (dep 1c56518035a83e03, cc=true, read-only kubectl):
+// CATALYST_PIN_ISSUER and CATALYST_HANDOVER_JWT_ISSUER are BOTH
+// https://console.hw292.omani.works — cutover step-07 pivoted the env and this
+// literal did not move with it. Pre-cutover the env is unset, pinIssuer()
+// returns handoverjwt.MothershipIssuer(), and the stamped value is
+// byte-identical to what it was.
+func buildHandoverSessionClaims(claims *authHandoverClaims, userID string, sessionTTL time.Duration) jwt.MapClaims {
+	out := jwt.MapClaims{
+		"iss":            pinIssuer(),
+		"sub":            claims.Email,
+		"email":          claims.Email,
+		"email_verified": true,
+		"role":           "sovereign-admin",
+		// G117 #2856 Gap 2 (2026-06-03): preserve authz claims so
+		// every catalyst-api handler that checks claims.Tier or
+		// claims.RealmAccess.Roles recognises the handover-derived
+		// session as Sovereign-owner. The auth.Claims struct has no
+		// `Role` field, so the bare "role" claim above is silently
+		// dropped at parse time — every downstream authz gate then
+		// falls back to the OPERATOR_EMAIL short-circuit
+		// (applicationInstallCallerAuthorized → isSovereignOperatorClaim),
+		// which only matches the SINGLE registered operator email.
+		// Multi-owner Sovereigns (2nd sovereign-admin owners) hit 403
+		// on every authed endpoint, caught live by H11 walk on hw86
+		// 2026-06-02 (PILLAR1WALK voucher mint via BSS-menu).
+		//
+		// Mirror the PIN-derived session pattern (auth.go:274) so the
+		// handover session carries the same tier=owner + realm-role
+		// list the rbacAssignPrivilegedRoles loop expects.
+		"tier": "owner",
+		"realm_access": map[string][]string{
+			"roles": {"catalyst-owner", "catalyst-admin", "sovereign-admins"},
+		},
+		"iat":          time.Now().Unix(),
+		"exp":          time.Now().Add(sessionTTL).Unix(),
+		"jti":          uuid.NewString(),
+		"typ":          "session",
+		"keycloak_uid": userID,
+		// Carry Sovereign identity into the session token so downstream
+		// handlers (HandleSovereignSelf, /users, /catalog, /settings)
+		// can resolve the deployment id WITHOUT depending on the
+		// orchestrator overlay write or store-fallback. Caught on
+		// omantel.biz 2026-05-06: every chroot page broke because
+		// /sovereign/self returned 503 (no env populated post-handover).
+		"sovereign_fqdn": claims.SovereignFQDN,
+		"deployment_id":  claims.DeploymentID,
+	}
+	// #4101: propagate the support-session markers into the minted session
+	// JWT so whoami + the in-console support banner can render the support
+	// principal + impersonated org, and the audit trail ties back to the
+	// initiating sovereign-admin.
+	if claims.SupportSession {
+		out["support_session"] = true
+		if claims.SupportPrincipal != "" {
+			out["support_principal"] = claims.SupportPrincipal
+		}
+		if claims.ImpersonatedOrg != "" {
+			out["impersonated_org"] = claims.ImpersonatedOrg
+		}
+		if claims.InitiatedBy != "" {
+			out["initiated_by"] = claims.InitiatedBy
+		}
+	}
+	return out
+}
+
 // AuthHandover handles GET /auth/handover?token=<jwt>.
 func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 	raw := r.URL.Query().Get("token")
@@ -454,62 +544,7 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 	// downstream IdP brokering — we just don't need its token-exchange
 	// endpoint to mint THIS session.
 	const sessionTTL = 8 * time.Hour
-	sessionClaims := jwt.MapClaims{
-		"iss":            "https://console.openova.io",
-		"sub":            claims.Email,
-		"email":          claims.Email,
-		"email_verified": true,
-		"role":           "sovereign-admin",
-		// G117 #2856 Gap 2 (2026-06-03): preserve authz claims so
-		// every catalyst-api handler that checks claims.Tier or
-		// claims.RealmAccess.Roles recognises the handover-derived
-		// session as Sovereign-owner. The auth.Claims struct has no
-		// `Role` field, so the bare "role" claim above is silently
-		// dropped at parse time — every downstream authz gate then
-		// falls back to the OPERATOR_EMAIL short-circuit
-		// (applicationInstallCallerAuthorized → isSovereignOperatorClaim),
-		// which only matches the SINGLE registered operator email.
-		// Multi-owner Sovereigns (2nd sovereign-admin owners) hit 403
-		// on every authed endpoint, caught live by H11 walk on hw86
-		// 2026-06-02 (PILLAR1WALK voucher mint via BSS-menu).
-		//
-		// Mirror the PIN-derived session pattern (auth.go:274) so the
-		// handover session carries the same tier=owner + realm-role
-		// list the rbacAssignPrivilegedRoles loop expects.
-		"tier": "owner",
-		"realm_access": map[string][]string{
-			"roles": {"catalyst-owner", "catalyst-admin", "sovereign-admins"},
-		},
-		"iat":            time.Now().Unix(),
-		"exp":            time.Now().Add(sessionTTL).Unix(),
-		"jti":            uuid.NewString(),
-		"typ":            "session",
-		"keycloak_uid":   userID,
-		// Carry Sovereign identity into the session token so downstream
-		// handlers (HandleSovereignSelf, /users, /catalog, /settings)
-		// can resolve the deployment id WITHOUT depending on the
-		// orchestrator overlay write or store-fallback. Caught on
-		// omantel.biz 2026-05-06: every chroot page broke because
-		// /sovereign/self returned 503 (no env populated post-handover).
-		"sovereign_fqdn": claims.SovereignFQDN,
-		"deployment_id":  claims.DeploymentID,
-	}
-	// #4101: propagate the support-session markers into the minted session
-	// JWT so whoami + the in-console support banner can render the support
-	// principal + impersonated org, and the audit trail ties back to the
-	// initiating sovereign-admin.
-	if claims.SupportSession {
-		sessionClaims["support_session"] = true
-		if claims.SupportPrincipal != "" {
-			sessionClaims["support_principal"] = claims.SupportPrincipal
-		}
-		if claims.ImpersonatedOrg != "" {
-			sessionClaims["impersonated_org"] = claims.ImpersonatedOrg
-		}
-		if claims.InitiatedBy != "" {
-			sessionClaims["initiated_by"] = claims.InitiatedBy
-		}
-	}
+	sessionClaims := buildHandoverSessionClaims(&claims, userID, sessionTTL)
 	accessToken, err := h.handoverSigner.SignCustomClaims(sessionClaims)
 	if err != nil {
 		h.log.Error("auth_handover: SignCustomClaims failed", "err", err)
@@ -520,7 +555,6 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 	// ── 7. Set cookies + redirect ───────────────────────────────────────
 	cookieMaxAge := int(sessionTTL.Seconds())
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-
 	// #3374 (2026-06-13): domain-widen the session cookie EXACTLY like the
 	// PIN-verify path (auth.go G113-followup hw86). Without a Domain the
 	// cookie is host-only on console.<fqdn>, so KC's catalyst-pin broker

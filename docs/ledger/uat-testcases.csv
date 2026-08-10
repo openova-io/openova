@@ -156,7 +156,7 @@ G12,dr,4275,"region-kill (Pillar-3) — kill a region, prove failover + recovery
 112,placement,3642,"Grafana opens signed in (no Grafana login), the home dashboard renders."
 113,placement,3642,The OpenBao UI renders signed in via OIDC — no manual token/unseal prompt blocking the landing.
 114,placement,3642,"newapi opens signed in, its main console renders — no login form, no upstream-connect error."
-115,placement,3642,"Guacamole opens signed in, the connections list renders — no Guacamole login form."
+115,placement,3642,"The Guacamole connections list is NON-EMPTY for a signed-in sovereign-admin — guacamole_connection holds at least one row and the ALL CONNECTIONS list renders it. VACUITY GUARD: the admin group's CREATE_* system permissions are the RIGHT to create a connection, not a connection — a permission-only check is a FAIL."
 116,orgs,3383,"Organizations directory: the page title / heading reads ""Organizations"", never ""Tenants""/""SME Tenants""."
 117,orgs,3383,"Directory org cards / list rows: column headers read ""Organization / Kind / Tier / Billing / Isolation / Status""; rows labeled ""Organization"", never ""tenant""/""SME""."
 118,orgs,3383,"Left-nav sidebar label for this section reads ""Organizations"", not ""Tenants""/""SME""."

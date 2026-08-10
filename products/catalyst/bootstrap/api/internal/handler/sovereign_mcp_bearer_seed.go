@@ -185,7 +185,7 @@ func mintOrgScopedMCPBearer(signer customClaimsSigner, slug, email string) (stri
 	}
 	now := time.Now()
 	claims := jwt.MapClaims{
-		"iss":            pinIssuer,
+		"iss":            pinIssuer(),
 		"sub":            subject,
 		"email":          subject,
 		"email_verified": true,

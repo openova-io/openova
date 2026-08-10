@@ -121,7 +121,7 @@ func Test_mintOrgScopedMCPBearer_ClaimShape(t *testing.T) {
 		"typ":    "session",
 		"org":    "acme",
 		"org_id": "acme",
-		"iss":    pinIssuer,
+		"iss":    pinIssuer(),
 		"sub":    "owner@acme.omani.homes",
 		"email":  "owner@acme.omani.homes",
 	}

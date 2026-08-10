@@ -47,29 +47,45 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/keycloak"
 )
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-// pinIssuer — issuer claim stamped into the self-signed session JWT.
+// pinIssuer — issuer claim stamped into EVERY session JWT this catalyst-api
+// mints locally, whichever way the principal authenticated: PIN-verify
+// (auth.go), Org handover (org_handover.go), the MCP bearer seed
+// (sovereign_mcp_bearer_seed.go) and the mothership→Sovereign handover
+// redeem (auth_handover.go). One process must not stamp two different
+// issuers on the sessions it signs with one key.
 //
 // #2940 (2026-06-03): was `const pinIssuer = "https://console.openova.io"`
 // — a Pillar 5 anti-tether hardcode. A franchised Sovereign post-
 // bp-self-sovereign-cutover (e.g. console.<franchise-fqdn>) still
 // stamped the mothership URL as `iss` claim, so downstream JWT
 // validation rejected the session as foreign-issuer. Now reads from
-// env CATALYST_PIN_ISSUER; falls back to the legacy hardcode for
+// env CATALYST_PIN_ISSUER; falls back to the mothership origin for
 // back-compat with pre-#2940 Sovereigns. Per-Sovereign overlays set
 // the env var via the catalystApi.env additional-env patch in the
 // per-Sovereign HelmRelease overlay (dual-mode contract — see
 // chart/templates/api-deployment.yaml line 1267+ for context).
-var pinIssuer = func() string {
+//
+// UAT row 96 / #5614 follow-on (2026-08-10): this was a package-level
+// `var` initialised ONCE at package load, which is why it could not be
+// covered by a test that flips the env — and the one mint path that was
+// NOT reading it (auth_handover.go's session, which kept the raw
+// mothership literal) went unnoticed for that reason. It is a function
+// now so the resolution is observable, and the fallback comes from
+// handoverjwt.MothershipIssuer() rather than a second copy of the
+// literal — the duplicate-literal shape is what #2940 and #5614 each
+// had to fix in turn.
+func pinIssuer() string {
 	if v := strings.TrimSpace(os.Getenv("CATALYST_PIN_ISSUER")); v != "" {
 		return v
 	}
-	return "https://console.openova.io"
-}()
+	return handoverjwt.MothershipIssuer()
+}
 
 // pinSessionRole — role claim stamped into PIN-derived session JWTs.
 // Same value as the previous magic-link role so downstream RBAC
@@ -1080,7 +1096,7 @@ func (h *Handler) HandlePinVerify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionClaims := jwt.MapClaims{
-		"iss":            pinIssuer,
+		"iss":            pinIssuer(),
 		"sub":            email, // email == subject; downstream reads claims.Email
 		"email":          email,
 		"email_verified": true,
