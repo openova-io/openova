@@ -140,11 +140,18 @@ func TestMarkPhase1DoneConsoleGate(t *testing.T) {
 		if dep.Result.HandoverFiredAt != nil {
 			t.Fatalf("hard failure must NOT fire handover")
 		}
-		// failed + OutcomeFailed is excluded from the #5253 heal arms too —
-		// only the failed+OutcomeReady console-downgrade signature (records
-		// persisted by pre-#5253 builds) is rescuable.
-		if h.clusterMeshReconcileStatusGate(dep) {
-			t.Fatalf("failed+OutcomeFailed must NOT pass the mesh status gate")
+		// #6040 INVERTED. The LIFECYCLE stays failed (asserted above: no
+		// handover, no fire) — but the TOPOLOGY must keep converging. A
+		// component census is a statement about HelmReleases, never about
+		// apiserver reachability, and OutcomeFailed is only reachable when
+		// Phase 1 watched every component to a terminal state on both
+		// regions' live apiservers. hw293 (dep a0077ba47e3720e5) is the
+		// evidence: one DORMANT chart failing the census left both regions
+		// unmeshed, which turned the secondary's by-design endpoint-less
+		// edge-route stubs into "no healthy upstream" for half of every
+		// hostname's fresh TCP connections.
+		if !h.clusterMeshReconcileStatusGate(dep) {
+			t.Fatalf("failed+OutcomeFailed on a 2-region record must still pass the mesh status gate (#6040)")
 		}
 	})
 }

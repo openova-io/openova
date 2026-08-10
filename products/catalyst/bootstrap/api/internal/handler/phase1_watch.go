@@ -1622,7 +1622,7 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		if consoleReachErr != nil {
 			h.spawnPostHandoverHook(func() { h.runConsoleReachabilityReprobe(dep) })
 		}
-	} else if outcome == helmwatch.OutcomeTimeout && len(dep.Request.Regions) >= 2 {
+	} else if (outcome == helmwatch.OutcomeTimeout || outcome == helmwatch.OutcomeFailed) && len(dep.Request.Regions) >= 2 {
 		// #3285/hw130 (2026-06-12): a Phase-1 TIMEOUT is the
 		// recoverable classification ("components observed, none
 		// hard-failed, not all converged") — Flux keeps reconciling
@@ -1637,6 +1637,22 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// it converges exactly when the env does. Handover, the job
 		// sweep, and the policy flip stay ready-only — this rescues
 		// the TOPOLOGY, not the lifecycle.
+		//
+		// #6040 folds OutcomeFailed into the SAME arm. A component-census
+		// failure means Phase 1 ran and WATCHED every component to a terminal
+		// state — only possible while both regions' apiservers answer — so it
+		// is a statement about HelmReleases, not about reachability. On hw293
+		// (dep a0077ba47e3720e5) exactly ONE of 67 components failed: the
+		// DORMANT-by-design self-sovereign-cutover chart, over the #6004 1 MiB
+		// release-Secret ceiling. That single row left BOTH regions reporting
+		// "Found 0 cluster configurations" four hours into a fully-
+		// materialised 2-region prov. The secondary's bp-catalyst-edge-routes
+		// Services select ZERO local Pods by design and reach region-a only
+		// through the mesh, so an unmeshed secondary makes every region-b
+		// gateway ELB member answer "no healthy upstream" — 12 of 24 fresh TCP
+		// connections 503'd on every hostname measured. Identical correction
+		// to #6015's hoist above: a HelmRelease census must not decide whether
+		// a Sovereign may mesh its own peer region.
 		h.spawnPostHandoverHook(func() { h.runAutoEstablishClusterMesh(dep) })
 		// #3277 (founder, 2026-06-12): the secondary-region job rows
 		// freeze at their last-seen state forever on a timeout record
@@ -2068,14 +2084,18 @@ func (h *Handler) runAutoEstablishClusterMesh(dep *Deployment) {
 			)
 		}
 
-		// A deployment that left status=ready mid-loop (wipe, failure
-		// rewrite) must not keep getting establish attempts hurled at
-		// it for the rest of the budget.
+		// A deployment that entered a WIPE mid-loop must not keep getting
+		// establish attempts hurled at it for the rest of the budget — the
+		// kubeconfigs are gone or going. #6040 narrowed this from
+		// `status != "ready"` to the wipe/pre-terminal condition it was
+		// actually protecting: a Phase-1 component-census failure leaves both
+		// clusters standing and must keep meshing (see
+		// clusterMeshLoopMayContinue).
 		dep.mu.Lock()
 		status := dep.Status
 		dep.mu.Unlock()
-		if status != "ready" {
-			h.log.Info("clustermesh: reconcile loop stopped — deployment no longer ready",
+		if !clusterMeshLoopMayContinue(status) {
+			h.log.Info("clustermesh: reconcile loop stopped — deployment left the meshable lifecycle statuses",
 				"id", dep.ID,
 				"status", status,
 				"attempt", attempt,
@@ -2132,7 +2152,8 @@ func (h *Handler) runAutoEstablishClusterMesh(dep *Deployment) {
 // Lifecycle contract (do NOT widen):
 //   - Its own ctx is derived from context.Background(), NOT the retry
 //     budget — the budget bounds only the convergence phase; steady-state
-//     is unbounded in time and ends solely on status != "ready".
+//     is unbounded in time and ends solely when the deployment leaves the
+//     meshable lifecycle statuses (clusterMeshLoopMayContinue — #6040).
 //   - status is re-checked before AND after every pass (a wipe that lands
 //     mid-sleep or mid-pass exits the goroutine promptly — the kubeconfigs
 //     are gone or going, same rationale as the convergence loop's check).
@@ -2169,8 +2190,8 @@ func (h *Handler) runClusterMeshSteadyStateHeal(dep *Deployment) {
 		dep.mu.Lock()
 		status := dep.Status
 		dep.mu.Unlock()
-		if status != "ready" {
-			h.log.Info("clustermesh: steady-state heal phase stopped — deployment no longer ready",
+		if !clusterMeshLoopMayContinue(status) {
+			h.log.Info("clustermesh: steady-state heal phase stopped — deployment left the meshable lifecycle statuses",
 				"id", dep.ID,
 				"status", status,
 			)
@@ -2191,8 +2212,8 @@ func (h *Handler) runClusterMeshSteadyStateHeal(dep *Deployment) {
 		dep.mu.Lock()
 		status = dep.Status
 		dep.mu.Unlock()
-		if status != "ready" {
-			h.log.Info("clustermesh: steady-state heal phase stopped — deployment no longer ready",
+		if !clusterMeshLoopMayContinue(status) {
+			h.log.Info("clustermesh: steady-state heal phase stopped — deployment left the meshable lifecycle statuses",
 				"id", dep.ID,
 				"status", status,
 			)
