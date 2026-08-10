@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"k8s.io/client-go/dynamic"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
@@ -405,6 +406,22 @@ func (h *Handler) chrootSeedJobsStoreIfEmpty(ctx context.Context, dep *Deploymen
 	// a hasBootstrapKit=true chroot.
 	h.chrootSeedSecondaryRegions(ctx, dep, bridge)
 
+	// #6045 — per-Organization Application installs. The bootstrap-kit
+	// seed above lists flux-system and keeps `bp-` names, which is every
+	// PLATFORM component and NO Application: the application-controller
+	// authors an Application's HelmRelease in the Org's own namespace
+	// under the Application's name. So the only installs a User can
+	// actually cause to fail were invisible on /jobs in every filter
+	// state — a real install failed and the page said "No jobs match the
+	// current filters."
+	//
+	// Runs UNCONDITIONALLY relative to hasBootstrapKit, for the same
+	// reason chrootSeedSecondaryRegions does (TBD-A63): Applications are
+	// installed long after bootstrap, so gating this on a missing
+	// bootstrap-kit group would mean a converged Sovereign — the only
+	// kind that HAS Applications — never seeds a single one.
+	h.chrootSeedApplicationInstalls(ctx, dep, bridge)
+
 	// §5a generic reconciler ingestion (issue #3646). The helmwatch seed
 	// above surfaces ONLY HelmRelease installs — so a green install-openbao
 	// leaf masks a Failed openbao-snapshot CronJob, a stuck cnpg-pair join
@@ -525,6 +542,80 @@ func regionFromSecondaryClusterID(clusterID, depID, chrootFallbackID string) str
 //
 // Idempotent — bridge.SeedJobsFromInformerList monotonic-merges so a
 // re-read after a re-attached watch doesn't dup Job rows.
+// chrootSeedApplicationInstalls seeds the per-Organization Application
+// install rows into the per-deployment jobs.Store (#6045), across the
+// primary cluster and every registered secondary region.
+//
+// helmwatch.ListAndSnapshotJobsProjection returns the bootstrap-kit rows
+// UNION the Application rows; the bootstrap-kit half is a monotonic-merge
+// no-op here because the seeds above already wrote it (Bridge.lastState
+// dedupes identical (component, state) pairs), so the net effect of this
+// pass is the Application rows.
+//
+// ERROR CONTRACT — the projection returns rows AND an error when only its
+// Application leg failed, so the bootstrap-kit rows it did obtain still
+// reach the store. That is why this seeds `snap` even when err != nil,
+// and why the error is logged rather than swallowed: an empty Application
+// set must never be reported as "this Sovereign has no Applications" when
+// what actually happened is that the list was refused.
+func (h *Handler) chrootSeedApplicationInstalls(ctx context.Context, dep *Deployment, bridge *jobs.Bridge) {
+	if bridge == nil {
+		return
+	}
+	seedFrom := func(dyn dynamic.Interface, region string) {
+		if dyn == nil {
+			return
+		}
+		snap, err := helmwatch.ListAndSnapshotJobsProjection(ctx, dyn)
+		if err != nil {
+			h.log.Warn("jobs seed: Application-install projection degraded — the page may be "+
+				"missing per-Organization installs (#6045)",
+				"depId", dep.ID, "region", region, "err", err)
+		}
+		if len(snap) == 0 {
+			return
+		}
+		seeds := snapshotsToSeedsForRegion(snap, region)
+		jobsCount, execsSeeded, serr := bridge.SeedJobsFromInformerList(seeds)
+		if serr != nil {
+			h.log.Warn("jobs seed: Application-install bridge seed failed",
+				"depId", dep.ID, "region", region, "err", serr)
+			return
+		}
+		h.log.Info("jobs seed: per-Organization Application installs projected",
+			"depId", dep.ID, "region", region,
+			"helmReleases", len(snap),
+			"jobsWritten", jobsCount,
+			"executionsSeeded", execsSeeded,
+		)
+	}
+
+	if dyn, err := h.sovereignDynamicClient(dep); err != nil {
+		h.log.Debug("jobs seed: sovereignDynamicClient unavailable for Application installs",
+			"depId", dep.ID, "err", err)
+	} else {
+		seedFrom(dyn, "")
+	}
+
+	if h.k8sCache == nil {
+		return
+	}
+	chrootPrimaryID := "sovereign-" + strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN"))
+	for _, cid := range h.k8sCache.Clusters() {
+		region := regionFromSecondaryClusterID(cid, dep.ID, chrootPrimaryID)
+		if region == "" {
+			continue
+		}
+		dyn, err := h.k8sCache.DynamicClientFor(cid)
+		if err != nil || dyn == nil {
+			h.log.Debug("jobs seed: secondary DynamicClientFor unavailable for Application installs",
+				"depId", dep.ID, "clusterID", cid, "err", err)
+			continue
+		}
+		seedFrom(dyn, region)
+	}
+}
+
 func (h *Handler) chrootSeedSecondaryRegions(ctx context.Context, dep *Deployment, bridge *jobs.Bridge) {
 	if h.k8sCache == nil || bridge == nil {
 		return
