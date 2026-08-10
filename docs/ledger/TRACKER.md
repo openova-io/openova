@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T06:00:08Z` |
+| Last refreshed | `2026-08-10T06:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5437](https://github.com/openova-io/openova/issues/5437) | P0: cutover re-attempt skips step-01 gitea-mirror on stale success, pivoting Flu | Other |
-| [#5439](https://github.com/openova-io/openova/issues/5439) | catalyst-api re-tethers a cut-over Sovereign: orgTenantSharedHelmRepositories ha | Other |
 | [#5440](https://github.com/openova-io/openova/issues/5440) | ClusterMesh cross-region service import died during cutover — Harbor/Gitea/new | Other |
 | [#5442](https://github.com/openova-io/openova/issues/5442) | harbor-prewarm warms images from the LIVE CLUSTER but charts from the MIRROR's p | Other |
 | [#5443](https://github.com/openova-io/openova/issues/5443) | Cutover pivots the marketplace resolver to local Harbor but never mirrors the ca | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#5940](https://github.com/openova-io/openova/issues/5940) | Owner opening a voucher-redeem link is shown a signup form — the marketplace c | Other |
 | [#5943](https://github.com/openova-io/openova/issues/5943) | Organization DELETE resolves a different identifier than GET — the console's o | Other |
 | [#5945](https://github.com/openova-io/openova/issues/5945) | Placement editor offers retired vCluster names (host/mgmt/dmz/rtz) and preselect | Other |
+| [#5955](https://github.com/openova-io/openova/issues/5955) | P1: Application reports Ready=True over a database with ZERO ready instances — | Other |
+| [#5956](https://github.com/openova-io/openova/issues/5956) | P0: the Anthropic credential in openbao is REVOKED — every health surface repo | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T06:14 | [#5957](https://github.com/openova-io/openova/pull/5957) | #5246 | fix(org): per-Org console listeners land in EVERY region, an |
 | 2026-08-10T05:54 | [#5954](https://github.com/openova-io/openova/pull/5954) | #5246 | docs(wbs): the structured plan to kill the 78 — partitioned  |
 | 2026-08-10T05:54 | [#5953](https://github.com/openova-io/openova/pull/5953) | #3687 | chore(uat): land the convergence-capture script + record cyc |
 | 2026-08-09T23:36 | [#5950](https://github.com/openova-io/openova/pull/5950) | #4277 | docs(uat): zero pending — 208 PASS + 78 FAIL = 286, every ro |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-08T15:30 | [#5914](https://github.com/openova-io/openova/pull/5914) | #5759 | docs(uat): row 231 walked live on hw292 — half (b) proven at |
 | 2026-08-08T10:21 | [#5913](https://github.com/openova-io/openova/pull/5913) | #5460 | docs(path-to-100): every failing row now has a named mechani |
 | 2026-08-08T10:19 | [#5912](https://github.com/openova-io/openova/pull/5912) | #4389 | docs(path-to-100): row 95 is no longer an investigation — me |
-| 2026-08-08T10:18 | [#5911](https://github.com/openova-io/openova/pull/5911) | #4389 | test(gitops): pin what an unresolved catalog id renders — UA |
 
 ---
 
