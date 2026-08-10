@@ -26,14 +26,43 @@ import (
 // makeCNPGCluster returns a CNPG Cluster CR (postgresql.cnpg.io/v1) carrying
 // the standard app.kubernetes.io/instance label (the Helm release name that
 // installed it) and the given status.phase.
+//
+// #5955 — the status is built to the FULL live shape, not phase-only. Every one
+// of the 11 CNPG Clusters dumped off hw292 publishes
+// status.conditions[type=Ready] alongside the phase, and the readiness gate
+// treats a CR that publishes NO readiness signal as unobservable (correctly —
+// see TestBackingReadiness_NoSignal_IsUnobservable). A phase-only fixture would
+// therefore have exercised the unobservable path while claiming to exercise the
+// healthy one. Ready mirrors CNPG's own coupling: True only in the healthy
+// phase.
 func makeCNPGCluster(namespace, name, instance, phase string) *unstructured.Unstructured {
+	ready := "False"
+	readyInstances := int64(0)
+	if phase == "Cluster in healthy state" {
+		ready = "True"
+		readyInstances = 1
+	}
+	return makeCNPGClusterWithStatus(namespace, name, instance, map[string]interface{}{
+		"phase":          phase,
+		"instances":      int64(1),
+		"readyInstances": readyInstances,
+		"conditions": []interface{}{
+			map[string]interface{}{"type": "Ready", "status": ready},
+		},
+	})
+}
+
+// makeCNPGClusterWithStatus returns a CNPG Cluster CR with a verbatim status
+// map, so a test can reproduce an exact live status key set — including the
+// per-Org shape where status.readyInstances is ABSENT rather than zero.
+func makeCNPGClusterWithStatus(namespace, name, instance string, status map[string]interface{}) *unstructured.Unstructured {
 	u := &unstructured.Unstructured{}
 	u.SetAPIVersion("postgresql.cnpg.io/v1")
 	u.SetKind("Cluster")
 	u.SetNamespace(namespace)
 	u.SetName(name)
 	u.SetLabels(map[string]string{InstanceLabel: instance})
-	u.Object["status"] = map[string]interface{}{"phase": phase}
+	u.Object["status"] = status
 	return u
 }
 
@@ -196,29 +225,31 @@ func TestReconcile_5513_ReadyHR_HealthyCNPG_StaysReady(t *testing.T) {
 	}
 }
 
-// TestCNPGClusterUnrecoverable_BothDirections — the phase classifier in
-// isolation. Terminal `unrecoverable` phrasings trip; transient/healthy phases
-// and an absent status do not.
-func TestCNPGClusterUnrecoverable_BothDirections(t *testing.T) {
-	cases := []struct {
-		phase string
-		want  bool
-	}{
-		{"Cluster is unrecoverable and needs manual intervention", true},
-		{"Cluster in unrecoverable state", true},
-		{"Cluster in healthy state", false},
-		{"Setting up primary", false},
-		{"Waiting for the instances to become active", false},
-		{"", false},
-	}
-	for _, c := range cases {
-		cr := makeCNPGCluster("mgmt", "postgres", "obs-mgmt-a", c.phase)
-		if got := cnpgClusterUnrecoverable(cr); got != c.want {
-			t.Errorf("cnpgClusterUnrecoverable(phase=%q) = %v, want %v", c.phase, got, c.want)
+// TestCNPGClusterUnrecoverable_KeepsItsOwnReason — the terminal `unrecoverable`
+// phase keeps the specific ReasonBackingUnrecoverable that #5513 shipped, even
+// though #5955 generalised the gate to every backing kind. Operator tooling and
+// the #5513 acceptance assert on that exact reason string.
+func TestCNPGClusterUnrecoverable_KeepsItsOwnReason(t *testing.T) {
+	for _, phase := range []string{
+		"Cluster is unrecoverable and needs manual intervention",
+		"Cluster in unrecoverable state",
+	} {
+		cr := makeCNPGCluster("mgmt", "postgres", "obs-mgmt-a", phase)
+		state, detail := cnpgClusterReadiness(cr)
+		if state != backingNotReady {
+			t.Errorf("cnpgClusterReadiness(phase=%q) state = %v, want backingNotReady", phase, state)
+		}
+		if got := backingNotReadyReason(detail); got != ReasonBackingUnrecoverable {
+			t.Errorf("reason for phase=%q = %q, want %q", phase, got, ReasonBackingUnrecoverable)
 		}
 	}
-	if cnpgClusterUnrecoverable(nil) {
-		t.Errorf("cnpgClusterUnrecoverable(nil) = true, want false")
+	// A healthy cluster is not swept up by the unrecoverable branch.
+	state, _ := cnpgClusterReadiness(makeCNPGCluster("mgmt", "postgres", "obs-mgmt-a", "Cluster in healthy state"))
+	if state != backingReady {
+		t.Errorf("healthy cluster state = %v, want backingReady", state)
+	}
+	if state, _ := cnpgClusterReadiness(nil); state != backingUnobservable {
+		t.Errorf("cnpgClusterReadiness(nil) state = %v, want backingUnobservable", state)
 	}
 }
 

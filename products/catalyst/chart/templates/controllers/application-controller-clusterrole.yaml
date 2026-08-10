@@ -103,4 +103,34 @@ rules:
   - apiGroups: ["dr.openova.io"]
     resources: ["continuums"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # #5955 — the Application readiness gate observes the BACKING resources a
+  # chart installs, because a Flux HelmRelease reporting Ready=True only means
+  # Helm applied the manifests and the apiserver accepted them. Anything that
+  # fails AFTER admission leaves the HR legitimately Ready over a dead
+  # workload.
+  #
+  # #5513 shipped that observation for CNPG Clusters WITHOUT this grant, so on
+  # every Sovereign the List returned Forbidden, the code skipped the error,
+  # and the guard could not fail no matter how dead the database was. Measured
+  # on hw292 2026-08-09:
+  #
+  #   kubectl auth can-i list clusters.postgresql.cnpg.io -n hw292-omani-works \
+  #     --as=system:serviceaccount:catalyst-system:catalyst-application-controller
+  #   -> no
+  #   # control, same impersonation, kind the controller DOES observe:
+  #   kubectl auth can-i list helmreleases.helm.toolkit.fluxcd.io -n hw292-omani-works \
+  #     --as=system:serviceaccount:catalyst-system:catalyst-application-controller
+  #   -> yes
+  #
+  # Application hw292-omani-works/uat-ahs-pg was therefore Ready=True over a
+  # CNPG Cluster whose own status.conditions[Ready] was False with
+  # status.readyInstances absent — on 2 of 2 per-Org Postgres clusters.
+  #
+  # READ-ONLY on purpose: the controller observes backing health, it never
+  # mutates backing objects (Flux owns those writes). Without this grant the
+  # #5955 gate can only ever report Ready=Unknown / BackingReadinessUnverifiable
+  # — correct, but useless.
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
+    verbs: ["get", "list", "watch"]
 {{- end }}
