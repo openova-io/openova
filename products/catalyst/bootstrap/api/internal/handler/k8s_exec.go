@@ -616,11 +616,16 @@ func (h *Handler) HandleK8sSessionReplay(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		rep = GuacamoleReplay{
-			EmbedURL:  fmt.Sprintf("https://guacamole.%s/#/replay/%s", sovereignFQDN(sovereignID), sess.SessionID),
+			// No GuacamoleClient means no guacd, so no recording was ever
+			// captured for this session and `Available` is false by
+			// construction. Emit NO EmbedURL — the same UAT row 115
+			// fabrication as synthesizeSession above, one hop later: a replay
+			// URL naming a recording that was never written is a claim the
+			// platform cannot honour.
 			Available: sess.RecordingAvailable || sess.Recording,
 		}
 		if !rep.Available {
-			rep.Reason = "recording disabled (in-memory fallback session)"
+			rep.Reason = "recording disabled (no Guacamole wired — no recording was captured)"
 		}
 	}
 
@@ -689,23 +694,42 @@ const (
 	maxSessionsPageSize     = 100
 )
 
-// synthesizeSession is the in-memory fallback session generator. It
-// constructs the canonical `guacamole.<sov-fqdn>` URL shape so the UI
-// shows a real-looking embed URL even when Guacamole isn't deployed.
-// Recording is disabled in this mode (the bytes go nowhere) — the UI
-// shows the "recording disabled" banner.
-func synthesizeSession(sovereignID string, p GuacamoleSessionParams) GuacamoleSession {
+// synthesizeSession is the in-memory fallback session generator, used when
+// no GuacamoleClient is wired. It issues the AUDIT identity of the session
+// (a real session id, recorded in the Bus and readable back from /sessions)
+// and nothing else.
+//
+// It deliberately emits NO ConnectionID and NO EmbedURL. This function used
+// to build `https://guacamole.<sovereignFQDN(id)>/#/client/<random-hex>` —
+// its own doc-comment said that was "so the UI shows a real-looking embed URL
+// even when Guacamole isn't deployed", which is the whole defect. Nothing in
+// this repository creates a Guacamole connection (UAT row 115): the
+// GuacamoleClient interface above has no production implementation and
+// SetGuacamoleClient has no non-test caller, so `guacamole_connection` is
+// empty in every Sovereign. Against that, the synthesized values were
+// unreachable three ways over — `<id>.sovereign.local` does not resolve from
+// an operator's browser, a random hex is not a Guacamole connection
+// identifier (those are base64 of `<id>\0c\0<datasource>`), and the row it
+// would have to name was never inserted. An HTTP 200 carrying them reported
+// an issued remote-desktop session that could not exist, so an absent
+// producer read as a configuration problem.
+//
+// The console had already worked around it and left the evidence in place —
+// ExecPanel.tsx:100 (G85 #2632): "the Guacamole iframe path pointed at
+// `guacamole.<dep>.sovereign.local` which is a cluster-internal URL the
+// operator's browser cannot resolve. Every 'Open shell' click 100% fell
+// through to fallback after a visible 5s spinner." The iframe branch there
+// is already guarded on a truthy `session.embedURL`, so an empty one simply
+// keeps the WebSocket+xterm path that has been primary since that change.
+//
+// Recording stays false (no guacd, so the bytes go nowhere). When a real
+// GuacamoleClient IS wired, CreateSession supplies all three fields and this
+// function is not reached.
+func synthesizeSession(_ string, p GuacamoleSessionParams) GuacamoleSession {
 	sid := newSessionID()
-	cid := newConnectionID()
 	now := time.Now().UTC()
 	return GuacamoleSession{
-		SessionID: sid,
-		ConnectionID: cid,
-		EmbedURL: fmt.Sprintf(
-			"https://guacamole.%s/#/client/%s",
-			sovereignFQDN(sovereignID),
-			cid,
-		),
+		SessionID:          sid,
 		Recording:          false,
 		RecordingAvailable: false,
 		Started:            now,
@@ -727,24 +751,24 @@ func fallbackExecWebSocketURL(sovereignID, ns, pod, container string, cmd []stri
 	)
 }
 
-// sovereignFQDN returns the canonical hostname suffix for the Sovereign
-// — a real deployment lookup would use the deployment record, but for
-// the in-memory fallback we use a conventional shape that matches the
-// chroot routing rule.
-func sovereignFQDN(sovereignID string) string {
-	if strings.Contains(sovereignID, ".") {
-		return sovereignID
-	}
-	return sovereignID + ".sovereign.local"
-}
+// The package-level `sovereignFQDN(sovereignID)` helper that used to sit here
+// is REMOVED. Its only callers were the two fabricated-URL builders above, and
+// for the deployment ids this API actually receives (hex, no dot) it returned
+// `<id>.sovereign.local` — a host that resolves nowhere, which is precisely
+// why every "Open shell" click fell through to the WebSocket fallback (see
+// ExecPanel.tsx:100, G85 #2632). The Handler METHOD `h.sovereignFQDN()`
+// (auth_handover.go:679) is the real lookup and is untouched; use that.
 
 // newSessionID returns a 16-byte hex session id. Crypto-random for
-// audit-trail uniqueness.
+// audit-trail uniqueness. This one is REAL: it keys the audit row and the
+// /sessions read-back, both of which exist whether or not Guacamole does.
+//
+// There is deliberately no `newConnectionID` counterpart any more. It minted
+// a 12-byte hex "connection id" for sessions where no Guacamole connection
+// had been created, which is the UAT row 115 fabrication; leaving the helper
+// in place is an invitation to mint another one. A connection identifier may
+// only come from a GuacamoleClient that actually inserted the row.
 func newSessionID() string { return randHex(16) }
-
-// newConnectionID returns a 12-byte hex connection id (matches the
-// shape Guacamole uses for short connection identifiers).
-func newConnectionID() string { return randHex(12) }
 
 func randHex(n int) string {
 	b := make([]byte, n)

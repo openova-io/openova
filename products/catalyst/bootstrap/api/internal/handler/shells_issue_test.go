@@ -140,11 +140,20 @@ func TestHandleShellsIssue_FallbackPath_NoGuacWired(t *testing.T) {
 	if got.SessionID == "" {
 		t.Fatalf("synthesized session must populate sessionId")
 	}
-	if !strings.HasPrefix(got.GuacamoleURL, "https://guacamole.") {
-		t.Fatalf("guacamoleUrl must use guacamole.<sov-fqdn> shape: got %q", got.GuacamoleURL)
+	// UAT row 115 — this assertion USED TO READ:
+	//     if !strings.HasPrefix(got.GuacamoleURL, "https://guacamole.") { fail }
+	// on the branch where NO GuacamoleClient is wired, so no
+	// guacamole_connection row exists for the URL to name. Inverted, not
+	// deleted, so the contract's history stays readable. See
+	// guac_no_fabricated_connection_115_test.go for the vacuity control.
+	if got.GuacamoleURL != "" {
+		t.Fatalf("guacamoleUrl must be EMPTY with no Guacamole wired: got %q", got.GuacamoleURL)
 	}
 	if !strings.HasPrefix(got.RecordingPath, "/recordings/") {
 		t.Fatalf("recordingPath must start with /recordings/: got %q", got.RecordingPath)
+	}
+	if got.FallbackWebSocketURL == "" {
+		t.Fatalf("fallbackWebSocketUrl must be populated — it is the working shell path")
 	}
 }
 

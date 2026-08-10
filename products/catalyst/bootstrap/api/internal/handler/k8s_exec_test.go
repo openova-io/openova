@@ -21,7 +21,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -199,14 +198,28 @@ func TestHandleK8sExecSession_FallbackPath_NoGuacWired(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got.EmbedURL == "" {
-		t.Fatalf("synthesized embedURL must not be empty")
+	// UAT row 115 — these two assertions USED TO READ:
+	//     if got.EmbedURL == ""                          { fail }
+	//     if !strings.HasPrefix(got.EmbedURL, "https://guacamole.") { fail }
+	// i.e. they PINNED the fabrication. They demanded a `guacamole.<host>`
+	// embed URL on the branch where no GuacamoleClient exists, so no
+	// guacamole_connection row was ever inserted and the URL could not
+	// resolve to anything. A test that requires the defect is why this
+	// survived; it is inverted here rather than deleted so the history of the
+	// contract stays visible. Full reasoning + the vacuity control live in
+	// guac_no_fabricated_connection_115_test.go.
+	if got.EmbedURL != "" {
+		t.Fatalf("embedURL must be EMPTY with no Guacamole wired (no connection was created): got %q", got.EmbedURL)
 	}
-	if !strings.HasPrefix(got.EmbedURL, "https://guacamole.") {
-		t.Fatalf("embedURL must use guacamole.<sov-fqdn> shape: got %q", got.EmbedURL)
+	if got.ConnectionID != "" {
+		t.Fatalf("connectionId must be EMPTY with no Guacamole wired: got %q", got.ConnectionID)
 	}
 	if got.Recording {
 		t.Fatalf("recording must be false in in-memory fallback")
+	}
+	// The session identity and the WORKING shell path are both still issued.
+	if got.SessionID == "" {
+		t.Fatalf("sessionId must still be issued — the audit row is real")
 	}
 	if got.FallbackWebSocketURL == "" {
 		t.Fatalf("fallback URL must be populated")
