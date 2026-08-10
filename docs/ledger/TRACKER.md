@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T14:15:04Z` |
+| Last refreshed | `2026-08-10T14:30:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5461](https://github.com/openova-io/openova/issues/5461) | Sovereign console intermittent 503 (envoy upstream connect timeout, ~17-25% prob | Other |
-| [#5465](https://github.com/openova-io/openova/issues/5465) | Sovereign catalyst-api OOMKilled AT the post-#5352 4Gi limit, 63min into fresh h | Other |
 | [#5466](https://github.com/openova-io/openova/issues/5466) | newapi SSO dead-ends: /api/oauth/sovereign code exchange returns 403 → no SSO  | Other |
 | [#5467](https://github.com/openova-io/openova/issues/5467) | harbor-prewarm logs the first 8 chars of the GHCR PAT on every cutover — line  | Other |
 | [#5471](https://github.com/openova-io/openova/issues/5471) | Cilium Gateways report Programmed=False / AddressNotAssigned while serving HTTP  | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#5991](https://github.com/openova-io/openova/issues/5991) | Guacamole connections list is empty by construction: no producer exists, and the | Other |
 | [#5993](https://github.com/openova-io/openova/issues/5993) | pod-truth reconciler is vcluster-only: host-tier (plan free/S) pods are invisibl | Other |
 | [#6004](https://github.com/openova-io/openova/issues/6004) | P0: fresh prov fails Phase 1 — bp-self-sovereign-cutover Helm release Secret e | Other |
+| [#6015](https://github.com/openova-io/openova/issues/6015) | catalyst-api is region-b-blind on a 2-region Sovereign — empty kubeconfigs dir | Other |
+| [#6016](https://github.com/openova-io/openova/issues/6016) | region-b wedged at 57/65 — keycloak-database-secret never materialised in regi | Other |
 
 ---
 
@@ -309,6 +309,8 @@ flowchart LR
 |---|---|---|---|
 | 2026-08-10T14:09 | [#6009](https://github.com/openova-io/openova/pull/6009) | #6004 | docs(uat): activate hw293 as the walk env so verdicts can la |
 | 2026-08-10T13:58 | [#6008](https://github.com/openova-io/openova/pull/6008) | #5634 | docs(uat): row 216 — the voucher entry point itself fails ~h |
+| 2026-08-10T14:27 | [#6007](https://github.com/openova-io/openova/pull/6007) | #6004 | docs(uat): hw293 — the cutover chain never ran, so the cutov |
+| 2026-08-10T14:30 | [#6006](https://github.com/openova-io/openova/pull/6006) | #3376 | docs(uat): hw293 funnel walk — 8 of 12 rows pass, 4 failures |
 | 2026-08-10T14:14 | [#6005](https://github.com/openova-io/openova/pull/6005) | #3646 | docs(uat): hw293 walk — 9 rows stamped, 2 pass (242, R22) an |
 | 2026-08-10T12:34 | [#5997](https://github.com/openova-io/openova/pull/5997) | #5987 | fix(funnel): the per-Org bp-newapi HelmRelease could not ins |
 | 2026-08-10T13:58 | [#5996](https://github.com/openova-io/openova/pull/5996) | #5989 | docs(uat): reset the ledger for hw293 — 207 evidence cells f |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-10T07:12 | [#5960](https://github.com/openova-io/openova/pull/5960) | #5508 | fix(dr): make the DR panel report what it measures — UAT row |
 | 2026-08-10T07:01 | [#5958](https://github.com/openova-io/openova/pull/5958) | #4292 | fix(placement backend): the #4292 tier gate keys on planSlug |
 | 2026-08-10T06:14 | [#5957](https://github.com/openova-io/openova/pull/5957) | #5246 | fix(org): per-Org console listeners land in EVERY region, an |
-| 2026-08-10T05:54 | [#5954](https://github.com/openova-io/openova/pull/5954) | #5246 | docs(wbs): the structured plan to kill the 78 — partitioned  |
-| 2026-08-10T05:54 | [#5953](https://github.com/openova-io/openova/pull/5953) | #3687 | chore(uat): land the convergence-capture script + record cyc |
 
 ---
 
