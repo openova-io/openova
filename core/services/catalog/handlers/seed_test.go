@@ -131,8 +131,14 @@ func TestDeployableAppSlugs_StableShape(t *testing.T) {
 		// template.
 		"openclaw", "stalwart-mail",
 		"postgres", "mysql", "redis",
-		// Wave 4 — Sandbox marketplace catalog entry.
-		"sandbox",
+		// `sandbox` was listed here as the Wave 4 marketplace catalog entry
+		// and is deliberately GONE (#5920). The product was retired on
+		// 2026-06-30; deployable=true is one of the two flags
+		// store.ListPublishedApps requires, so leaving it here kept a
+		// withdrawn product purchasable on the storefront. Its absence is now
+		// asserted positively by TestRetiredProductIsNotDeployable in
+		// retired_products_test.go — do not re-add it here without also
+		// removing it from RetiredAppSlugs, which those tests would catch.
 	}
 	if got, want := len(d), len(expected); got != want {
 		t.Errorf("deployable map size = %d, want %d", got, want)
@@ -140,6 +146,22 @@ func TestDeployableAppSlugs_StableShape(t *testing.T) {
 	for _, slug := range expected {
 		if _, ok := d[slug]; !ok {
 			t.Errorf("expected %q in deployable map, missing", slug)
+		}
+	}
+	// The lock must also be exact in the other direction: a slug that is NOT
+	// expected must not be present. Without this, the size check alone could be
+	// satisfied by swapping one slug for another.
+	for slug := range d {
+		found := false
+		for _, e := range expected {
+			if e == slug {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("unexpected %q in deployable map — add it to `expected` "+
+				"deliberately, or it is an accidental re-listing", slug)
 		}
 	}
 }
