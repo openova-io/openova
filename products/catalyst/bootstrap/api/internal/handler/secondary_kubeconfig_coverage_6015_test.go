@@ -593,11 +593,12 @@ func TestSecondaryKubeconfigDelivery_DeclinesSingleRegion_6015(t *testing.T) {
 // in the production loop).
 func withChrootForwardClient(t *testing.T, srv *httptest.Server) {
 	t.Helper()
-	prev := secondaryKubeconfigForwardClient
-	secondaryKubeconfigForwardClient = func() *http.Client {
+	// #6058 — swap through the guarded accessor. A plain assign here raced
+	// the detached runSecondaryKubeconfigDelivery goroutine this suite
+	// spawns, which reads the same var every tick.
+	t.Cleanup(swapSecondaryKubeconfigForwardClient(func() *http.Client {
 		return &http.Client{Timeout: 5 * time.Second, Transport: newRoundTripperToServer(srv)}
-	}
-	t.Cleanup(func() { secondaryKubeconfigForwardClient = prev })
+	}))
 }
 
 func waitForRegionPost(chroot *fakeChrootServer, region string, budget time.Duration) bool {
