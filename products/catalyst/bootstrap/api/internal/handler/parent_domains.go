@@ -324,6 +324,66 @@ func (h *Handler) ListParentDomains(w http.ResponseWriter, r *http.Request) {
 
 	items := listParentDomainsFromActive(dep)
 
+	// Fold in the org-pool the CREATE handler actually accepts.
+	//
+	// sovereign_parent_domains.go's file comment states the contract this
+	// restores: "what the operator sees in the dropdown == what the create
+	// handler accepts." That held while both sides read one in-memory
+	// parentDomainStore. #837 swapped the LIST side to the adopted
+	// Deployment's Request.ParentDomains and left the CREATE side reading
+	// poolDomainsForOrgCreate, whose FIRST rung is the startup seed
+	// OrganizationDeps.ParentDomains (LoadOrganizationParentDomainsFromEnv →
+	// CATALYST_ORG_POOL_DOMAINS, or the four canonical .omani.X entries).
+	// Nothing re-joined them.
+	//
+	// On a post-handover Sovereign the two sources are not merely different,
+	// they are disjoint: no Deployment record is persisted there at all
+	// (handover is JWT-only — the reason lookupPrimaryDomain below carries its
+	// own SOVEREIGN_FQDN fallback), so listParentDomainsFromActive returns
+	// nothing and the endpoint answered with the primary row and ZERO
+	// role=org-pool rows. The console's parent-domain select renders from
+	// exactly those rows, so it came up disabled with one empty option and the
+	// operator could not pick a parent the server would have accepted
+	// (UAT row 8, hw293).
+	//
+	// poolDomainsForOrgCreate IS the acceptance contract — reusing it here,
+	// rather than re-deriving the pool, is what keeps the two sides from
+	// drifting again. It already returns org-pool entries only (epic #825:
+	// primary domains are not bookable by Organizations) and its rung 2 reads
+	// the same adopted deployment, so persisted admin rows dedupe against what
+	// listParentDomainsFromActive just returned instead of doubling.
+	if pool := h.poolDomainsForOrgCreate(h.orgTenantDeps); len(pool) > 0 {
+		seen := make(map[string]struct{}, len(items))
+		for _, it := range items {
+			seen[strings.ToLower(it.Name)] = struct{}{}
+		}
+		extra := make([]ParentDomain, 0, len(pool))
+		for _, p := range pool {
+			key := strings.ToLower(p.Name)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			// FlipStatus is DERIVED from NSFlipReady, never stamped Ready
+			// blindly: the console gates pre-selection on flipStatus
+			// (isParentDomainReady, org.api.ts) and the create handler refuses
+			// to write a free-subdomain into a parent whose NS flip has not
+			// landed. A parent that is not flip-ready must not present as
+			// ready.
+			flip := FlipStatusQueued
+			if p.NSFlipReady {
+				flip = FlipStatusReady
+			}
+			extra = append(extra, ParentDomain{
+				Name:       key,
+				Role:       RoleOrgPool,
+				FlipStatus: flip,
+			})
+		}
+		sort.Slice(extra, func(i, j int) bool { return extra[i].Name < extra[j].Name })
+		items = append(items, extra...)
+	}
+
 	// Synthesise the implicit "primary" row when the active deployment's
 	// slice is empty (legacy single-FQDN record migrated lazily — see
 	// provisioner.Validate's migration path) or no adopted deployment
