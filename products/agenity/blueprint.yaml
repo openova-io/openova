@@ -18,7 +18,12 @@ spec:
   # Keycloak backchannel + upstream) — the per-Org namespace is default-deny
   # and the gate's ingress-only CNP left the OAuth callback 500ing on a DNS
   # timeout. Lockstep with products/agenity/chart + the catalog-seed pin.
-  version: 0.5.22
+  # 0.5.23 (#5435): retired pre-revamp product name eradicated from the chart's
+  # runtime surface — the StatefulSet container is `agenity`, not the retired
+  # name it carried on the cluster (live-verified on hw292 Org uatco). Upstream
+  # daemon contract (CHEPHERD_* env, binary + entrypoint paths, /home/chepherd)
+  # intentionally unchanged. Lockstep with products/agenity/chart + catalog-seed.
+  version: 0.5.23
   card:
     title: Agenity
     summary: |
@@ -123,7 +128,7 @@ spec:
     chart: ./chart
     helmRelease:
       # disableWait — do NOT block the helm install on workload (pod)
-      # readiness. The agenity image (chepherd + claude-code + node runtime,
+      # readiness. The agenity image (agenity + claude-code + node runtime,
       # appVersion 0.9.7) is large and cold-pulls slowly on a fresh Org node;
       # with Flux's default --wait the install burns its timeout waiting for
       # the Pod, then helm-controller UNINSTALLS the release (deleting the

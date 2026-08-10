@@ -3757,7 +3757,12 @@ name: bp-catalyst-platform
 #   Blueprint CR list is the ONLY catalog leg that answers, and those CRs are
 #   whatever the LAST PUBLISHED umbrella rendered — hence this republish, per
 #   check-umbrella-republish-gate.py (#5734). Lockstep w/ slot-13 pin.
-version: 1.4.1331
+#   1.4.1330 -> 1.4.1331 (#5435): catalog-seed bp-agenity pin 0.5.22 -> 0.5.23
+#   (retired pre-revamp product name eradicated from the chart's runtime
+#   surface — the StatefulSet container name reached the cluster as the
+#   retired name). Republished here so the bp-catalyst-platform OCI artifact
+#   actually carries the moved pin.
+version: 1.4.1332
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which

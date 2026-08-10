@@ -1,7 +1,7 @@
 # bp-agenity — Agenity as an OpenOva Application Blueprint (#4010)
 
 **What it is.** **Agenity** is a multi-agent runtime + dashboard, built on the
-upstream [agenity](https://github.com/agenity-org/agenity) (chepherd) daemon. **bp-agenity**
+upstream [agenity](https://github.com/agenity-org/agenity) daemon. **bp-agenity**
 packages it as an installable OpenOva **Application Blueprint**: a User installs
 it into their own **Organization** from the catalog, then chats with its
 built-in **solo agent** (Claude Opus 4.7, token pre-configured). The agent
@@ -20,11 +20,27 @@ See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) for where Blueprints
 sit in the model and [`docs/GLOSSARY.md`](../../docs/GLOSSARY.md) for the
 Organization / Application / Blueprint canon.
 
-> **Brand vs runtime.** *Agenity* is the OpenOva product/catalog brand. It
-> packages the upstream *chepherd* multi-agent runtime daemon; the daemon's
-> own contract — the `chepherd run` CLI, the `CHEPHERD_*` env vars, the
-> `chepherd` MCP-server namespace — is passed through unchanged so the
-> overlaid image keeps working. Only the product identity is rebranded.
+> **Brand vs runtime — why a retired name still appears in this folder.**
+> The product is **Agenity**, everywhere a human reads it: the catalog card,
+> the console, the Kubernetes object names, and every comment in this folder.
+>
+> A short, fixed list of literals keeps the retired `chepherd` spelling
+> because they are the **upstream daemon's own contract**, not names OpenOva
+> chose. Renaming any of them does not rename anything upstream — it just
+> breaks the image:
+>
+> | Retained literal | Why it cannot be renamed |
+> |---|---|
+> | `CHEPHERD_*` env vars | Read by name inside the upstream Go binary (`os.Getenv`). A renamed var is simply never read. |
+> | `/usr/local/bin/chepherd` | The upstream `scripts/chepherd-entrypoint.sh` — copied into the image verbatim — `exec`s this exact path. |
+> | `chepherd-entrypoint` | The upstream script's own filename; it is the image `ENTRYPOINT`. |
+> | `chepherd` OS user + `/home/chepherd` | `useradd`'d in the image, and the upstream entrypoint hardcodes `--state-dir /home/chepherd/.local/state/chepherd`. |
+> | `chepherd run` | The upstream cobra root command (`cmd/root.go`: `Use: "chepherd"`). |
+> | `chepherd-agent`, `ghcr.io/agenity-org/chepherd` | Upstream image names, referenced only to explain history. |
+>
+> `scripts/check-agenity-retired-name.sh` enforces exactly this split: those
+> literals are allowlisted, and **anything else** spelling the retired name —
+> in the source tree or in the rendered Kubernetes manifests — fails CI.
 
 ## The journey this enables (UAT 218–223)
 
@@ -47,10 +63,10 @@ Organization / Application / Blueprint canon.
 
 | Concern | Wiring |
 |---|---|
-| **Model = Claude Opus 4.7** | `agent.model: claude-opus-4-7` → `CHEPHERD_DEFAULT_MODEL` env → the runtime passes `--model claude-opus-4-7` to the spawned `claude-code` (chepherd #4010 default-model fallback). |
+| **Model = Claude Opus 4.7** | `agent.model: claude-opus-4-7` → `CHEPHERD_DEFAULT_MODEL` env → the runtime passes `--model claude-opus-4-7` to the spawned `claude-code` (agenity #4010 default-model fallback). |
 | **Anthropic token (pre-configured)** | `ANTHROPIC_API_KEY` env sourced from the `agenity-anthropic-token` **Secret** (an `ExternalSecret` pulls `sk-ant-…` from the Org's openbao by default — **never hardcoded**, per Inviolable Principle #4). The runtime seeds its vault `anthropic-api` provider from this env; the agent inherits it at spawn. |
 | **Solo (no supervisor)** | `agent.solo: true` → `chepherd run --no-shepherd` — a single worker agent the User chats 1:1 with. |
-| **openova MCP** | `CHEPHERD_EXTRA_MCP_JSON` (set by the chart) merges an `openova` MCP-server stanza into **every** spawned agent's `.mcp.json` (chepherd #4010 merge seam), pointing at the bundled `/usr/local/bin/openova-mcp` binary. The MCP holds **no privileged token** — it forwards the caller's session bearer to the live catalyst-api, so the endpoint's own authz is the final word. |
+| **openova MCP** | `CHEPHERD_EXTRA_MCP_JSON` (set by the chart) merges an `openova` MCP-server stanza into **every** spawned agent's `.mcp.json` (agenity #4010 merge seam), pointing at the bundled `/usr/local/bin/openova-mcp` binary. The MCP holds **no privileged token** — it forwards the caller's session bearer to the live catalyst-api, so the endpoint's own authz is the final word. |
 
 ## openova MCP — RBAC-scoped app creation
 
@@ -81,7 +97,7 @@ write/mutating MCP tool):
 
 ## Image
 
-`ghcr.io/openova-io/bp-agenity` is the **upstream Agenity (chepherd) daemon**
+`ghcr.io/openova-io/bp-agenity` is the **upstream Agenity daemon**
 — built from the PUBLIC [`agenity-org/agenity`](https://github.com/agenity-org/agenity)
 source — with the **`openova-mcp`** binary baked in at `/usr/local/bin/openova-mcp`
 (see [`Containerfile`](Containerfile) + the
@@ -182,7 +198,7 @@ auto-seeds (above); this `bao kv put` is a one-off / hot re-seed.
 
 The `credentialsJson` blob is a **short-lived OAuth pair**: its `accessToken`
 (`sk-ant-oat01-…`) has an `expiresAt` only **hours** out, and the headless
-`claude-code` the chepherd BareExec path forks does **not** reliably refresh it
+`claude-code` the agenity BareExec path forks does **not** reliably refresh it
 from the `refreshToken`. So a credential that worked at seed-time **goes stale
 within hours** and every subsequent `+ spawn agent` then fails with
 `401 Invalid authentication credentials` — surfacing in the dashboard as the

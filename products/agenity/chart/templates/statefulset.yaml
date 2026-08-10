@@ -20,15 +20,15 @@ spec:
       {{- end }}
     spec:
       {{- if .Values.podSecurityContext.runAsNonRoot }}
-      # ── Run the chepherd daemon + forked agents as ONE uid (#4111) ──────────
-      # chepherd's BareExec spawner runs the daemon as the container uid but
+      # ── Run the agenity daemon + forked agents as ONE uid (#4111) ──────────
+      # agenity's BareExec spawner runs the daemon as the container uid but
       # forks each claude-code agent after DROPPING to a non-root uid (it sets a
       # syscall.Credential). When the daemon runs as root it creates the
       # per-session dir (…/sessions/<name>) mode 0700 OWNED BY ROOT, so the
       # non-root agent gets EACCES reading its own --mcp-config .mcp.json and
       # exits code 1 ("Invalid MCP configuration: EACCES"). Pinning the whole
-      # pod to runAsUser:1000 (the chepherd user the agent forks to) makes the
-      # daemon, the session dirs, and the agent all the same uid — the agent can
+      # pod to runAsUser:1000 (the image's uid-1000 user the agent forks to) makes
+      # the daemon, the session dirs, and the agent all the same uid — the agent can
       # read its .mcp.json and stays alive to service chat. fsGroup:1000 makes
       # the CSI state/repo PVCs group-writable so the non-root daemon can still
       # persist runtime state. Verified live on agenity-demo: as root the agent
@@ -39,10 +39,10 @@ spec:
         fsGroup: {{ .Values.podSecurityContext.fsGroup }}
       {{- end }}
       {{- if .Values.agent.forceLocalSpawner }}
-      # chepherd writes each spawned agent's chepherd-MCP server URL as
+      # Agenity writes each spawned agent's runtime-MCP server URL as
       # ws://host.containers.internal:9090 (the podman-pod gateway name). In
-      # BareExec/local-spawner mode the agent forks ON the chepherd host, where
-      # that name is NXDOMAIN — so the chepherd MCP never connects and the agent
+      # BareExec/local-spawner mode the agent forks ON the agenity host, where
+      # that name is NXDOMAIN — so the agenity MCP never connects and the agent
       # reports "/mcp not connected, can't reach peers" (#4111). Pin it to the
       # loopback the daemon's MCP listener actually binds (0.0.0.0:9090).
       hostAliases:
@@ -69,11 +69,11 @@ spec:
       initContainers:
         # ── Seed claude-code OAuth credentials (#4111) ──────────────────────
         # The spawned claude-code (BareExec) reads ~/.claude/.credentials.json
-        # on the chepherd host. Materialize it from the Secret's full
+        # on the agenity host. Materialize it from the Secret's full
         # credentials.json blob into a shared emptyDir mounted at
         # /home/chepherd/.claude (writable so claude-code can rotate the OAuth
         # pair). No-op when the Secret lacks the credentials key (key-only
-        # mode). Runs as uid 1000 to match the chepherd user the agent forks
+        # mode). Runs as uid 1000 to match the image user the agent forks
         # as. The Secret is mounted read-only at /creds.
         - name: seed-claude-creds
           image: {{ include "agenity.image" . }}
@@ -117,7 +117,7 @@ spec:
               # Onboarding stub so claude-code does not re-run the first-run
               # /login flow AND does not block on the two interactive first-run
               # gates that otherwise make every spawned --dangerously-skip-
-              # permissions session exit immediately on chepherd's PTY (#4111):
+              # permissions session exit immediately on agenity's PTY (#4111):
               #   1. "Is this a project you trust?" folder-trust dialog
               #      → suppressed per-project via projects.<cwd>.hasTrustDialogAccepted
               #   2. "WARNING: running in Bypass Permissions mode … 1.No,exit
@@ -126,12 +126,12 @@ spec:
               # Verified live on agenity-demo: without bypassPermissionsModeAccepted
               # the agent prints 113 bytes then exits ("No,exit" is the default);
               # with it the REPL boots to the prompt and stays alive to receive
-              # the operator's chat message. The projects map marks the chepherd
+              # the operator's chat message. The projects map marks the agenity
               # agent/session working dirs trusted so no per-cwd dialog fires.
               #
               # ── openova MCP at USER level (#4604) ────────────────────────────
-              # chepherd's CHEPHERD_EXTRA_MCP_JSON seam (main container, below)
-              # merges the `openova` MCP server into each chepherd-SPAWNED
+              # agenity's CHEPHERD_EXTRA_MCP_JSON seam (main container, below)
+              # merges the `openova` MCP server into each agenity-SPAWNED
               # agent's per-session .mcp.json. But a claude invoked STANDALONE in
               # the pod (`claude -p "…"`, the North-Star verifier path) reads
               # ~/.claude.json's `mcpServers` + a project ./.mcp.json — NEITHER
@@ -142,7 +142,7 @@ spec:
               # EVERY claude in the pod (spawned OR standalone) discover the
               # openova MCP with zero per-session config. The bearer + RS256
               # pubkey are deliberately OMITTED: the openova-mcp child is launched
-              # by claude inside the chepherd container and INHERITS
+              # by claude inside the agenity container and INHERITS
               # OPENOVA_MCP_BEARER / OPENOVA_MCP_RS256_PUBKEY_PEM from the
               # container env (set on the main container) — the same
               # env-inheritance contract CHEPHERD_EXTRA_MCP_JSON relies on. Only
@@ -152,9 +152,9 @@ spec:
               {{- if .Values.openovaMCP.enabled }}
               {{- $apiURL := .Values.openovaMCP.catalystApiUrl }}
               {{- if not $apiURL }}{{ $apiURL = printf "https://console.%s" (.Values.sovereignFqdn | default "openova.io") }}{{- end }}
-              printf '%s' '{"hasCompletedOnboarding":true,"bypassPermissionsModeAccepted":true,"autoPermissionsNotificationCount":99,"mcpServers":{"openova":{"command":{{ .Values.openovaMCP.binaryPath | quote }},"env":{"OPENOVA_MCP_CATALYST_API_URL":{{ $apiURL | quote }},"OPENOVA_MCP_CONTEXT":{{ .Values.openovaMCP.context | quote }},"OPENOVA_MCP_VERIFY":{{ .Values.openovaMCP.verify | quote }}}}},"projects":{"/var/chepherd/repo":{"hasTrustDialogAccepted":true,"hasCompletedProjectOnboarding":true},"/home/chepherd":{"hasTrustDialogAccepted":true,"hasCompletedProjectOnboarding":true}}}' > /claudehome/.claude.json
+              printf '%s' '{"hasCompletedOnboarding":true,"bypassPermissionsModeAccepted":true,"autoPermissionsNotificationCount":99,"mcpServers":{"openova":{"command":{{ .Values.openovaMCP.binaryPath | quote }},"env":{"OPENOVA_MCP_CATALYST_API_URL":{{ $apiURL | quote }},"OPENOVA_MCP_CONTEXT":{{ .Values.openovaMCP.context | quote }},"OPENOVA_MCP_VERIFY":{{ .Values.openovaMCP.verify | quote }}}}},"projects":{"/var/agenity/repo":{"hasTrustDialogAccepted":true,"hasCompletedProjectOnboarding":true},"/home/chepherd":{"hasTrustDialogAccepted":true,"hasCompletedProjectOnboarding":true}}}' > /claudehome/.claude.json
               {{- else }}
-              printf '%s' '{"hasCompletedOnboarding":true,"bypassPermissionsModeAccepted":true,"autoPermissionsNotificationCount":99,"projects":{"/var/chepherd/repo":{"hasTrustDialogAccepted":true,"hasCompletedProjectOnboarding":true},"/home/chepherd":{"hasTrustDialogAccepted":true,"hasCompletedProjectOnboarding":true}}}' > /claudehome/.claude.json
+              printf '%s' '{"hasCompletedOnboarding":true,"bypassPermissionsModeAccepted":true,"autoPermissionsNotificationCount":99,"projects":{"/var/agenity/repo":{"hasTrustDialogAccepted":true,"hasCompletedProjectOnboarding":true},"/home/chepherd":{"hasTrustDialogAccepted":true,"hasCompletedProjectOnboarding":true}}}' > /claudehome/.claude.json
               {{- end }}
               chmod 644 /claudehome/.claude.json
           securityContext:
@@ -168,7 +168,7 @@ spec:
               readOnly: true
       {{- end }}
       containers:
-        - name: chepherd
+        - name: agenity
           image: {{ include "agenity.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
@@ -189,14 +189,14 @@ spec:
           env:
             {{- if .Values.agent.forceLocalSpawner }}
             # ── Force the in-pod (BareExec/podman-sidecar) spawner ──────────
-            # The chepherd daemon auto-detects KUBERNETES_SERVICE_HOST and picks
+            # The agenity daemon auto-detects KUBERNETES_SERVICE_HOST and picks
             # the `operator` spawner (K8s-Job-per-agent), which needs an
             # unshipped bp-chepherd-operator + CHEPHERD_OPERATOR_NAMESPACE
             # (upstream #130) — without it every "+ spawn agent" returns
             # `runtime.Spawn: operator spawner not yet wired`. Blanking the
             # in-cluster service-host env makes the daemon fall through to the
             # podman-sidecar→BareExecRuntime path, which forks the agent on the
-            # chepherd host directly — the intended solo-agent demo runtime
+            # agenity host directly — the intended solo-agent demo runtime
             # (#4111). The spawned agent reaches catalyst-api over the PUBLIC
             # OPENOVA_MCP_CATALYST_API_URL, so it needs no in-cluster apiserver.
             - name: KUBERNETES_SERVICE_HOST
@@ -207,13 +207,13 @@ spec:
               value: ""
             {{- end }}
             # ── Solo-agent model — NORTH STAR: Claude Opus 4.7 ──────────────
-            # chepherd passes this as `--model` to the spawned claude-code so
+            # agenity passes this as `--model` to the spawned claude-code so
             # the User's solo agent runs on Opus 4.7.
             - name: CHEPHERD_DEFAULT_MODEL
               value: {{ .Values.agent.model | quote }}
             {{- if .Values.daemon.authMode }}
             # ── Daemon HTTP auth mode (browser chat-box trust mode, #4122) ──
-            # "none" (or any non-{local,oidc} value) makes chepherd's
+            # "none" (or any non-{local,oidc} value) makes agenity's
             # auth.New() error → rs.AuthToken stays empty → authMiddleware is a
             # no-op → the in-browser dashboard chat box no longer 401s on
             # GET /api/v1/*. Safe here: the Application is per-Org-isolated
@@ -248,22 +248,22 @@ spec:
                   key: {{ .Values.anthropic.secretKey }}
             {{- end }}
             {{- if .Values.openovaMCP.enabled }}
-            # ── openova MCP injection seam (chepherd #4010) ─────────────────
-            # chepherd merges this JSON into every spawned agent's .mcp.json,
+            # ── openova MCP injection seam (agenity #4010) ─────────────────
+            # agenity merges this JSON into every spawned agent's .mcp.json,
             # so the solo agent discovers the `openova` MCP server alongside
-            # chepherd's own. The agent then calls create_application etc. on
+            # agenity's own. The agent then calls create_application etc. on
             # the User's Org, RBAC-scoped (the openova MCP forwards the
             # caller's session bearer to the live catalyst-api).
             {{- $apiURL := .Values.openovaMCP.catalystApiUrl }}
             {{- if not $apiURL }}{{ $apiURL = printf "https://console.%s" (.Values.sovereignFqdn | default "openova.io") }}{{- end }}
             # 🛑 Do NOT embed "$(OPENOVA_MCP_BEARER)" / "$(…PUBKEY_PEM)" here
-            # (#4111): chepherd writes CHEPHERD_EXTRA_MCP_JSON VERBATIM into each
+            # (#4111): agenity writes CHEPHERD_EXTRA_MCP_JSON VERBATIM into each
             # session's .mcp.json — it does NOT shell-`$( )`-expand it — so the
             # openova-mcp child would receive the literal string "$(OPENOVA_MCP_
             # BEARER)" as its bearer and every create_application call would fail
             # RS256 verification at the catalyst-api. Instead we OMIT the bearer +
             # pubkey from the mcp.json env: the openova-mcp process is forked from
-            # the chepherd daemon and INHERITS the container's OPENOVA_MCP_BEARER
+            # the agenity daemon and INHERITS the container's OPENOVA_MCP_BEARER
             # and OPENOVA_MCP_RS256_PUBKEY_PEM env vars (set below), which it reads
             # natively (verified: `openova-mcp` logs `bearer_fallback=true` and
             # reads OPENOVA_MCP_* from its environment). Only the non-secret,
@@ -318,7 +318,7 @@ spec:
             # handover pubkey Secret (`catalyst-handover-jwt-public`, published
             # by catalyst-api #4114) lives in the host catalyst-system namespace,
             # NOT in the per-Org namespace this Application installs into — so a
-            # NON-optional secretKeyRef makes the chepherd container stick
+            # NON-optional secretKeyRef makes the agenity container stick
             # CreateContainerConfigError ("secret not found") and the whole pod —
             # dashboard AND chat — never starts. The dashboard render does not
             # use this key; only the MCP→catalyst-api create_application bearer
@@ -345,12 +345,12 @@ spec:
             {{- end }}
             {{- end }}
             - name: CHEPHERD_STATE_DIR
-              value: /var/chepherd/state
+              value: /var/agenity/state
           volumeMounts:
             - name: state
-              mountPath: /var/chepherd/state
+              mountPath: /var/agenity/state
             - name: repo
-              mountPath: /var/chepherd/repo
+              mountPath: /var/agenity/repo
             {{- if .Values.anthropic.credentialsKey }}
             # claude-code reads ~/.claude/.credentials.json + ~/.claude.json;
             # the init container seeded them into this writable emptyDir (#4111).
