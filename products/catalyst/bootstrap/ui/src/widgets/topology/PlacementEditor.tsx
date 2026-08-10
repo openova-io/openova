@@ -29,6 +29,7 @@ import {
   type OwnedDependencyOverride,
   type PlacementTarget,
   type StandbyType,
+  HOST_VCLUSTER,
   PATTERN_NOT_REPORTED,
   canAddPrimary,
   derivePattern,
@@ -94,8 +95,7 @@ export interface PlacementEditorProps {
 // Organization's own namespace), so it is the only safe fallback. Real
 // tiers arrive through `availableVClusters`, which the Sovereign
 // supplies from its live topology.
-const DEFAULT_VCLUSTERS = ['host']
-const HOST_VCLUSTER = 'host'
+const DEFAULT_VCLUSTERS = [HOST_VCLUSTER]
 
 export function PlacementEditor({
   sovereignId,

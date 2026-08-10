@@ -77,6 +77,18 @@ type continuumReplicationStatus struct {
 	//         verified from live cluster state; reported as unknown, NOT as
 	//         a fabricated healthy.
 	StandbyAvailable *bool                   `json:"standbyAvailable,omitempty"`
+	// Phase / LeaseHolder / LeaseExpiresAt are the CONTINUUM'S OWN reconciled
+	// status, relayed verbatim so the DR panel can render the live Continuum
+	// state instead of a static badge (UAT row 62). The controller writes all
+	// three (continuum_controller.go patchStatus: status.phase,
+	// status.leaseHolder, status.leaseExpiresAt) and this endpoint already READ
+	// leaseHolder — it just consumed it internally (to correct CurrentPrimary)
+	// and then dropped it, so the console had no way to show WHO holds the
+	// witness lease or whether the Continuum reconciled Healthy. Omitted when
+	// the CR does not report them — never defaulted to a green-looking value.
+	Phase             string                  `json:"phase,omitempty"`
+	LeaseHolder       string                  `json:"leaseHolder,omitempty"`
+	LeaseExpiresAt    string                  `json:"leaseExpiresAt,omitempty"`
 	Replicas          []continuumReplicaInfo  `json:"replicas"`
 	HealthGates       []continuumHealthGate   `json:"healthGates"`
 	ObservedAt        string                  `json:"observedAt"`
@@ -403,6 +415,44 @@ func (h *Handler) augmentReplicationStandbyStatus(
 		}
 	}
 	if !determined {
+		// PER-REGION SPLIT (#5511 class), measured on hw292 2026-08-10: this
+		// handler's dynamic client is scoped to the REGION-A cluster, and the
+		// replica half of a 2-region pair is a cnpg Cluster in REGION B. So for
+		// dr-shared-pg — spec.cnpgPair={shared-pg, shared-data}, a genuinely
+		// healthy pair — the region-A list returns only the
+		// `openova.io/cnpg-role=primary` half, no replica is resolvable, and
+		// this branch reported "unverifiable" PERMANENTLY. Since #5508 the
+		// console turns that Warn into "the lag is not a measurement" and prints
+		// "—", which is the clause UAT rows 62 and 71 fail on.
+		//
+		// The continuum-controller does NOT have that blind spot: it probes the
+		// standby directly (pgprobe, #4901/#5311) and publishes the verdict as
+		// `status.standbyAvailable`. When our own cross-check cannot see the
+		// replica, that probe is the best positive evidence available, so relay
+		// it — and SAY SO in the message, because it is a weaker provenance than
+		// reading the replica half ourselves.
+		//
+		// This does NOT reopen #4901 (a stored-green CR masking an outage): the
+		// probe is what GOES FALSE during an outage, and it is only consulted
+		// here when the live cross-check found nothing to contradict it. A CR
+		// that omits the key still reports unverifiable — never a fabricated Pass.
+		if crStandby, found, _ := unstructured.NestedBool(cr.Object, "status", "standbyAvailable"); found {
+			resp.StandbyAvailable = &crStandby
+			if crStandby {
+				upsertHealthGate(resp, continuumHealthGate{
+					Name: "standby-available", Status: "Pass", Severity: "info",
+					Message: "standby leg reported available by the Continuum controller's standby probe (the replica half is not visible from this region's cluster)",
+				})
+				return
+			}
+			resp.ReplicaPromotable = false
+			resp.StreamingState = "interrupted"
+			upsertHealthGate(resp, continuumHealthGate{
+				Name: "standby-available", Status: "Fail", Severity: "critical",
+				Message: "the Continuum controller's standby probe reports the required hot-standby is unreachable; replication has no standby leg and RPO=0 durability is at risk",
+			})
+			return
+		}
 		upsertHealthGate(resp, continuumHealthGate{
 			Name: "standby-available", Status: "Warn", Severity: "warning",
 			Message: "standby leg not verifiable from live cluster state (no cnpg pair resolvable); reporting unknown, not healthy",
@@ -1087,8 +1137,14 @@ func enrichReplicationStatus(cr *unstructured.Unstructured) continuumReplication
 	// hardcoded all-Pass wall (the prior shape reported "streaming-replication
 	// Pass" during a proven standby outage).
 	leaseHolder, _, _ := unstructured.NestedString(cr.Object, "status", "leaseHolder")
+	// Row 62 — relay the Continuum's OWN reconciled status so the DR panel can
+	// render live state (phase + who holds the witness lease + when it expires)
+	// rather than a static badge. Read-only passthrough; empty when unreported.
+	out.Phase = phase
+	out.LeaseHolder = leaseHolder
+	out.LeaseExpiresAt, _, _ = unstructured.NestedString(cr.Object, "status", "leaseExpiresAt")
 	out.HealthGates = []continuumHealthGate{
-		replicationHealthGate(replHealthy, replHealthyFound, phase),
+		replicationHealthGate(replHealthy, replHealthyFound, standbyAvailable, standbyAvailableFound, phase),
 		walLagHealthGate(cr.Object, out.WALLagSeconds),
 		leaseWitnessHealthGate(leaseHolder),
 	}
@@ -1110,11 +1166,30 @@ func enrichReplicationStatus(cr *unstructured.Unstructured) continuumReplication
 }
 
 // replicationHealthGate derives the streaming-replication gate from the
-// observed status. Tri-state honest: Pass only on a positive
-// replicationHealthy=true reading; Fail on an explicit false or a
-// Degraded/FailedOver phase; Warn (unverified) when the CR reports neither —
-// NEVER a default Pass. #4923.
-func replicationHealthGate(healthy, found bool, phase string) continuumHealthGate {
+// observed status. Tri-state honest: Pass only on POSITIVE evidence; Fail on an
+// explicit negative or a Degraded/FailedOver phase; Warn (unverified) when the
+// CR reports neither — NEVER a default Pass. #4923.
+//
+// UAT row 71 — THE GATE COULD NEVER PASS. `status.replicationHealthy` has ZERO
+// producers: grep across core/controllers/continuum and core/pkg/apis returns
+// nothing, and all 8 live Continuums on hw292 omit it. So `found` was false on
+// every real CR and this gate returned Warn "unverified" unconditionally,
+// forever, on a fully healthy pair. Downstream that is not cosmetic: since
+// #5508 the console treats a streaming-replication Warn as "the lag reading is
+// not a measurement" and renders the replication lag as "—", which is exactly
+// the clause row 71 fails on ("a live replication-lag number").
+//
+// The fix is the one #5601 already applied to ReplicaPromotable in this same
+// file and did not carry across to the gate: consume the key the controller
+// ACTUALLY writes. `status.standbyAvailable` is the continuum-controller's own
+// standby-probe verdict (patchStatus line ~1396; the #4901/#5311 probe), so a
+// true reading alongside a reconciled-ready phase IS positive evidence that
+// replication is streaming, and a false reading is a verified fault. A CR
+// carrying neither key still yields Warn — never a Pass without evidence.
+// Degraded/FailedOver are already short-circuited to Fail below, so the only
+// phase that can carry the standby-probe evidence to a Pass is Healthy.
+func replicationHealthGate(healthy, found, standbyAvailable, standbyFound bool, phase string) continuumHealthGate {
+	phaseReady := phase == "Healthy"
 	switch {
 	case found && healthy:
 		return continuumHealthGate{Name: "streaming-replication", Status: "Pass", Severity: "info"}
@@ -1124,6 +1199,12 @@ func replicationHealthGate(healthy, found bool, phase string) continuumHealthGat
 	case phase == "Degraded" || phase == "FailedOver":
 		return continuumHealthGate{Name: "streaming-replication", Status: "Fail", Severity: "critical",
 			Message: fmt.Sprintf("Continuum phase is %s", phase)}
+	case standbyFound && !standbyAvailable:
+		return continuumHealthGate{Name: "streaming-replication", Status: "Fail", Severity: "critical",
+			Message: "the Continuum's standby probe reports no standby leg; replication is not streaming"}
+	case standbyFound && standbyAvailable && phaseReady:
+		return continuumHealthGate{Name: "streaming-replication", Status: "Pass", Severity: "info",
+			Message: fmt.Sprintf("standby probe reports the standby leg available; Continuum phase is %s", phase)}
 	default:
 		return continuumHealthGate{Name: "streaming-replication", Status: "Warn", Severity: "warning",
 			Message: "replication health not reported by the Continuum CR; unverified"}

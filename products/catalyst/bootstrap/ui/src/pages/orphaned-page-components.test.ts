@@ -123,7 +123,7 @@ const isTestFile = (p: string) => /\.(test|spec)\.[tj]sx?$/.test(p)
  * through unnoticed, while a false positive means someone chases a component
  * that is perfectly fine.
  */
-function referencesComponent(src: string, name: string): boolean {
+function componentMatchers(name: string): RegExp[] {
   const n = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return [
     new RegExp(`\\b(?:import|export)\\b[^\\n;]*\\b${n}\\b`),  // import/export specifier
@@ -131,7 +131,33 @@ function referencesComponent(src: string, name: string): boolean {
     new RegExp(`<\\s*${n}[\\s/>]`),                                // JSX usage
     new RegExp(`\\b${n}\\s*\\(`),                                // call
     new RegExp(`[:=]\\s*${n}\\b`),                                 // type / assignment position
-  ].some((re) => re.test(src))
+  ]
+}
+
+/**
+ * referencesComponent — the SAME five shapes, with the compiled matchers passed
+ * in and a literal-substring pre-filter in front.
+ *
+ * WHY THIS SHAPE. The pair space is |pages| x |sources| — 176 x 373 = ~65,600
+ * today — and the previous form rebuilt all five RegExp objects on every single
+ * pair (~328,000 constructions) before testing them against whole file texts.
+ * That put the walk at ~3.2s locally against vitest's 5s per-test timeout, and
+ * it went red on a loaded CI runner: twice on this PR, and identically on main
+ * (run 31335661070, 2026-08-09) BEFORE this PR existed. The file's own comment
+ * above already names the failure mode — "a guard that goes red because it is
+ * slow is indistinguishable, from CI's side, from one that found something" —
+ * so this is that same lesson applied one level further in.
+ *
+ * SEMANTICS ARE UNCHANGED, and the pre-filter is sound rather than a heuristic:
+ * all five patterns embed `name` literally, so a file that does not contain the
+ * raw substring cannot match any of them. `includes` therefore only skips pairs
+ * every regex would have rejected. Nothing is loosened — a component that is
+ * genuinely orphaned still reports as one, which the KNOWN_ORPHANS assertions
+ * below verify in both directions.
+ */
+function referencesComponent(src: string, name: string, matchers: RegExp[]): boolean {
+  if (!src.includes(name)) return false
+  return matchers.some((re) => re.test(src))
 }
 
 describe('#5831 — page components must be reachable from something other than their own test', () => {
@@ -146,8 +172,14 @@ describe('#5831 — page components must be reachable from something other than 
     text: readFileSync(file, 'utf8'),
   }))
 
-  const referencedElsewhere = (page: string, name: string): string[] =>
-    sources.filter((s) => s.file !== page && referencesComponent(s.text, name)).map((s) => s.file)
+  // Compile each component's five matchers ONCE per name, not once per
+  // (page, source) pair — see referencesComponent for why that mattered.
+  const referencedElsewhere = (page: string, name: string): string[] => {
+    const matchers = componentMatchers(name)
+    return sources
+      .filter((s) => s.file !== page && referencesComponent(s.text, name, matchers))
+      .map((s) => s.file)
+  }
 
   // Vacuity control FIRST. Every assertion below is "X is referenced by some
   // file in this set". If the walk returned nothing, every component would look
