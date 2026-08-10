@@ -176,4 +176,54 @@ fi
 assert_env "$TMP/org-stripped.yaml" CATALYST_TENANT_CONSOLE_LB_IPV4 sovereign-fqdn consoleLBIP
 echo "  PASS (stripping the env makes Case 2 go red while the control stays green — the gate can fail)"
 
+echo "[org-region-witness] Case 5: the org-controller can DELETE the per-Org wildcard TLS Secret it tears down (#5426)"
+# teardownTenantNetworking deletes BOTH the per-Org wildcard Certificate and the
+# TLS Secret cert-manager issues from it. The ClusterRole gained
+# `certificates: delete` for exactly this reason (#4471/#4462); the Secret half
+# was missed, so the finalizer 403'd every 30s and the Org CR hung Terminating.
+# Measured on hw293 2026-08-10T23:44Z with the verbatim apiserver refusal.
+helm template smoke-rbac . \
+  --set global.sovereignFQDN=hw293.omantel.biz \
+  --show-only templates/controllers/organization-controller-console-tls-secret-role.yaml > "$TMP/rbac.yaml"
+
+python3 - "$TMP/rbac.yaml" <<'PY'
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+role = next((d for d in docs if d.get("kind") == "Role"), None)
+rb   = next((d for d in docs if d.get("kind") == "RoleBinding"), None)
+if role is None or rb is None:
+    sys.exit(f"FAIL: expected a Role and a RoleBinding, got kinds {[d.get('kind') for d in docs]} (#5426)")
+
+# Assert on the VERB SET, not on the rule existing: a rule granting only
+# get/list/watch renders a `secrets` rule and would pass a resource-only check
+# while the teardown still 403s — which is exactly the live defect.
+verbs = set()
+for r in role.get("rules") or []:
+    if "secrets" in (r.get("resources") or []):
+        verbs |= set(r.get("verbs") or [])
+if "delete" not in verbs:
+    sys.exit(
+        f"FAIL: the Role grants secrets {sorted(verbs)} — no `delete`. "
+        "teardownTenantNetworking cannot remove the per-Org wildcard TLS Secret, "
+        "the tenant-networking finalizer never drops, and the Organization CR "
+        "hangs Terminating forever (#5426)"
+    )
+# Least-privilege control: this must NOT become a write-anything grant.
+forbidden = verbs & {"create", "update", "patch", "*"}
+if forbidden:
+    sys.exit(
+        f"FAIL: the Role grants {sorted(forbidden)} on secrets. The controller never "
+        "writes this Secret — cert-manager issues it from the Certificate — so a write "
+        "verb here is unearned privilege (#5426)"
+    )
+if role["metadata"]["namespace"] != "kube-system":
+    sys.exit(f"FAIL: Role lands in namespace {role['metadata']['namespace']!r}, want kube-system — the Gateway's namespace, where a listener certificateRef must resolve (#5426)")
+if rb["roleRef"]["name"] != role["metadata"]["name"]:
+    sys.exit(f"FAIL: RoleBinding points at {rb['roleRef']['name']!r}, not the Role {role['metadata']['name']!r} — the grant would never reach the SA (#5426)")
+sa = next((s for s in rb.get("subjects") or [] if s.get("kind") == "ServiceAccount"), None)
+if sa is None or "organization" not in sa.get("name", ""):
+    sys.exit(f"FAIL: RoleBinding subject is {sa!r}, not the organization-controller ServiceAccount (#5426)")
+PY
+echo "  PASS (Role grants secrets get+delete in kube-system, bound to the org-controller SA, with no write verbs)"
+
 echo "[org-region-witness] All gates green."

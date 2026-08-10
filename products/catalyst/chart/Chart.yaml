@@ -3787,8 +3787,21 @@ name: bp-catalyst-platform
 #   region A carrying console-https-hw293walkone/-hw293walktwo and region B
 #   carrying zero per-Org listeners, against a `sovereign-fqdn` that names
 #   both regions. Env injection is the delivery mechanism, so the witness
-#   reaches the controller only once this version advances. Lockstep w/
-#   slot-13 pin.
+#   reaches the controller only once this version advances.
+#   ALSO (#5426): templates/controllers/organization-controller-console-tls-secret-role.yaml
+#   grants the organization-controller SA `secrets: get,delete` in the
+#   console-TLS certificate namespace. teardownTenantNetworking deletes BOTH
+#   the per-Org wildcard Certificate and the TLS Secret cert-manager issues
+#   from it; the ClusterRole gained `certificates: delete` for exactly this
+#   reason (#4471/#4462) and the Secret half was missed, so the identical
+#   wedge returned one object over. Measured on hw293 2026-08-10T23:44Z: with
+#   #6051 finally letting the CR delete through, p474del1 became the first Org
+#   on this env to acquire a deletionTimestamp, and the cascade then retried
+#   every 30s against `cannot delete resource "secrets" ... in the namespace
+#   "kube-system"`. Namespace-scoped rather than a cluster-wide ClusterRole
+#   rule: the controller must read Secrets cluster-wide (controller-runtime's
+#   cache is cluster-scoped) but must not be able to DELETE any Secret in the
+#   cluster to clean up its own. Lockstep w/ slot-13 pin.
 version: 1.4.1354
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
