@@ -42,6 +42,7 @@ import {
   type Capability,
   type PlacementTarget,
   type ReconStatus,
+  HOST_VCLUSTER,
   PATTERN_NOT_REPORTED,
   derivePattern,
   describePattern,
@@ -304,7 +305,19 @@ export function TopologyTab({
           return {
             region: cluster,
             cluster,
-            vcluster: 'mgmt',
+            // #5945 — this used to stamp `vcluster: 'mgmt'` on EVERY
+            // per-cluster-derived target. #4325 deleted bp-mgmt-vcluster (and
+            // the dmz/rtz siblings), so no post-#4325 Sovereign has an `mgmt`
+            // namespace — the 45-namespace census on hw292 shows zero, and the
+            // only vClusters are per-Org. The value was pure fabrication:
+            // `status.perCluster` reports a CLUSTER, never a vCluster.
+            // It was also load-bearing downstream, which is how #5945 was
+            // measured: these targets seed the PlacementEditor, whose
+            // `optionsForTarget` re-admits whatever the current target names —
+            // so the fabricated 'mgmt' both PRESELECTED a retired vCluster and
+            // put it back in the select that #5616 had already narrowed to
+            // ['host']. Report no vCluster instead; `host` is the renderer's
+            // honest default and the one tier the controller can always resolve.
             role: isPrimary ? ('Primary' as const) : ('Standby' as const),
             ...(isPrimary ? {} : { standbyType: 'Hot' as const }),
           } as PlacementTarget
@@ -524,7 +537,36 @@ export function TopologyTab({
   // unreachable (region-kill / outage) and MUST render as a fault — never as
   // a calm "hot replica (follows WAL)" card. undefined = unverifiable
   // (unknown), which renders the normal card without a false health claim.
-  const standbyAbsent = drStatus?.standbyAvailable === false
+  //
+  // UAT row 62 — READ WHAT THE BACKEND ACTUALLY EMITS. The tri-state bool is
+  // `omitempty`, so it is ABSENT from the payload whenever the standby leg is
+  // undetermined, and it is not the only place the verdict is published: the
+  // same backend upserts a `standby-available` health gate on EVERY branch
+  // (Pass / Warn / Fail). Keying the red banner on the bool alone meant a
+  // response whose own gate said Fail rendered no banner at all. A Fail gate is
+  // a VERIFIED fault by construction (the backend never emits Fail without
+  // positive evidence of a lost leg), so it must arm the banner too.
+  const standbyGate = useMemo(
+    () => healthGates.find((g) => g.name === 'standby-available'),
+    [healthGates],
+  )
+  const standbyGateStatus = (standbyGate?.status ?? '').toLowerCase()
+  const standbyAbsent = drStatus?.standbyAvailable === false || standbyGateStatus === 'fail'
+
+  // The standby card's health line. Row 62's clause is "not a static badge",
+  // and this line was `drStatus?.streamingState || 'hot replica (follows WAL)'`
+  // against a backend that returns `streamingState: ""` for every
+  // Continuum-CR-derived reading — so in practice it was a HARDCODED green
+  // claim, printed unchanged over a standby the API had just declared
+  // unverifiable. Derive it from the evidence instead, and never assert
+  // "follows WAL" without a reading that says so.
+  const standbyHealthLine = useMemo(() => {
+    if (standbyAbsent) return 'standby unreachable — replication interrupted'
+    if (drStatus?.streamingState) return drStatus.streamingState
+    if (standbyGateStatus === 'pass') return 'standby leg verified reachable'
+    if (standbyGateStatus === 'warn') return 'standby state not verified'
+    return 'standby state not reported'
+  }, [standbyAbsent, drStatus, standbyGateStatus])
 
   // The switchover target — the standby region we would promote. Prefer the
   // placement Standby target, fall back to the live continuum standby region.
@@ -625,6 +667,35 @@ export function TopologyTab({
     return Array.from(set).filter(Boolean).sort()
   }, [targets, infraQ.data])
 
+  // #5945 — the vCluster options the placement editor may offer, derived from
+  // the OBSERVED topology instead of a hardcoded tier vocabulary. Each live
+  // vCluster is identified by its HOST NAMESPACE (`VClusterSpec.namespace`,
+  // the real placement identity per #5616 — the per-Org vCluster is *named*
+  // "vcluster" but *runs* in the Org namespace, so the display name is not
+  // addressable). `host` is always offered: it is the one tier the
+  // application-controller resolves without a dedicated namespace.
+  //
+  // Before this, TopologyTab passed NO vCluster list at all, so the editor fell
+  // back to ['host'] and the only other entry it ever showed was whatever the
+  // current target named — which the perCluster projection above hardcoded to
+  // the #4325-deleted `mgmt`. Net effect measured on hw292: the select offered
+  // retired tiers, preselected one of them, and the per-Org vClusters that DO
+  // exist were not offered at all.
+  const availableVClusters = useMemo(() => {
+    const set = new Set<string>([HOST_VCLUSTER])
+    for (const r of infraQ.data?.topology?.regions ?? []) {
+      const clusters = (r as unknown as { clusters?: Array<{ vclusters?: Array<{ namespace?: string }> }> })
+        .clusters ?? []
+      for (const c of clusters) {
+        for (const vc of c.vclusters ?? []) {
+          const ns = (vc.namespace ?? '').trim()
+          if (ns) set.add(ns)
+        }
+      }
+    }
+    return Array.from(set)
+  }, [infraQ.data])
+
   const availableClusters = useMemo(() => {
     const set = new Set<string>(targets.map((t) => t.cluster))
     for (const r of infraQ.data?.topology?.regions ?? []) {
@@ -708,7 +779,10 @@ export function TopologyTab({
                       data-testid={`topology-tab-target-card-${i}`}
                     >
                       <div className="font-mono text-[11px] text-[var(--color-text-dim)]">
-                        {t.region} · {t.cluster} · {t.vcluster ?? 'mgmt'}
+                        {/* #5945 — the fallback was `mgmt`, a vCluster #4325
+                            deleted, so a target that named no vCluster was
+                            DISPLAYED as living in one that cannot exist. */}
+                        {t.region} · {t.cluster} · {t.vcluster || HOST_VCLUSTER}
                       </div>
                       <div
                         className={`mt-1 text-xs font-semibold ${
@@ -775,6 +849,7 @@ export function TopologyTab({
             capability={capability}
             availableRegions={availableRegions}
             availableClusters={availableClusters}
+            availableVClusters={availableVClusters}
             ownedDependencies={ownedDeps}
             disableNetwork={disableNetwork}
             onCancel={() => setEditing(false)}
@@ -846,9 +921,93 @@ export function TopologyTab({
                   stay unavailable until a real replica reports.
                 </p>
               ) : null}
+              {/* UAT row 63 — the switchover control must render DISABLED here,
+                  not vanish. The clause is "renders an honest no-backing DR
+                  section: 'Switchover unavailable' copy, the control DISABLED,
+                  and NO synthesized lag / standby / target-region values", and
+                  the 2026-08-10 walk could not verify the middle clause because
+                  NO switchover element existed on the page at all — an absent
+                  control and a disabled one are not the same statement, and only
+                  the second one tells the operator that switchover is a thing
+                  this app has and cannot currently do.
+                  It is rendered inside the !drBacked branch precisely so it can
+                  never arm: there is no `onClick`, no target region and no
+                  numeric value anywhere in it — the row's third clause holds by
+                  construction. */}
+              {!drQ.isLoading ? (
+                <div
+                  className="mt-3 flex items-center gap-2"
+                  data-testid="topology-tab-dr-switchover"
+                >
+                  <button
+                    type="button"
+                    className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled
+                    data-testid="topology-tab-dr-switchover-open"
+                  >
+                    Switch over…
+                  </button>
+                  <span
+                    className="text-[10px] text-[var(--color-text-dim)]"
+                    data-testid="topology-tab-dr-switchover-reason"
+                  >
+                    Switchover unavailable — no live Continuum backs this
+                    placement, so there is no standby to promote.
+                  </span>
+                </div>
+              ) : null}
             </div>
           ) : (
             <>
+              {/* UAT row 62 — the LIVE Continuum status: reconciled phase +
+                  which region holds the witness lease + when that lease
+                  expires. The clause is "the live Continuum status (Ready /
+                  lease holder / standby) from the live API, not a static
+                  badge"; the panel previously rendered none of it, because the
+                  replication-status endpoint read `status.leaseHolder`
+                  internally and never put it (or `status.phase`) on the wire.
+                  Each cell renders ONLY when the API reports it — an absent
+                  phase prints nothing rather than a green-looking default. */}
+              {drStatus?.phase || drStatus?.leaseHolder ? (
+                <div
+                  className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"
+                  data-testid="topology-tab-dr-continuum-status"
+                >
+                  {drStatus?.phase ? (
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 font-semibold ${
+                        drStatus.phase === 'Healthy'
+                          ? 'bg-green-500/10 text-green-400'
+                          : drStatus.phase === 'Degraded' || drStatus.phase === 'Failed'
+                            ? 'bg-red-500/10 text-red-400'
+                            : 'bg-yellow-500/10 text-yellow-400'
+                      }`}
+                      data-testid="topology-tab-dr-phase"
+                      title="The Continuum CR's reconciled phase, read live off the DR API."
+                    >
+                      ● {drStatus.phase}
+                    </span>
+                  ) : null}
+                  {drStatus?.leaseHolder ? (
+                    <span className="text-[var(--color-text-dim)]">
+                      lease held by{' '}
+                      <span
+                        className="font-mono text-[var(--color-text)]"
+                        data-testid="topology-tab-dr-lease-holder"
+                      >
+                        {drStatus.leaseHolder}
+                      </span>
+                      {drStatus?.leaseExpiresAt ? (
+                        <span data-testid="topology-tab-dr-lease-expires">
+                          {' '}
+                          · renews {drStatus.leaseExpiresAt}
+                        </span>
+                      ) : null}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+
               <div
                 className="flex flex-wrap items-stretch gap-2"
                 data-testid="topology-tab-dr-regions"
@@ -888,12 +1047,9 @@ export function TopologyTab({
                       </div>
                       <div
                         className={`text-[10px] ${standbyAbsent ? 'text-red-400' : 'text-[var(--color-text-dim)]'}`}
+                        data-testid={`topology-tab-dr-standby-${region}-health`}
                       >
-                        {standbyAbsent
-                          ? 'standby unreachable — replication interrupted'
-                          : drStatus?.streamingState
-                            ? drStatus.streamingState
-                            : 'hot replica (follows WAL)'}
+                        {standbyHealthLine}
                       </div>
                     </div>
                   ))
@@ -920,10 +1076,9 @@ export function TopologyTab({
                     </div>
                     <div
                       className={`text-[10px] ${standbyAbsent ? 'text-red-400' : 'text-[var(--color-text-dim)]'}`}
+                      data-testid="topology-tab-dr-standby-health"
                     >
-                      {standbyAbsent
-                        ? 'standby unreachable — replication interrupted'
-                        : drStatus?.streamingState || 'hot replica (follows WAL)'}
+                      {standbyHealthLine}
                     </div>
                   </div>
                 )}
@@ -1029,7 +1184,10 @@ export function TopologyTab({
                 >
                   Switch over…
                 </button>
-                <span className="text-[10px] text-[var(--color-text-dim)]">
+                <span
+                  className="text-[10px] text-[var(--color-text-dim)]"
+                  data-testid="topology-tab-dr-switchover-reason"
+                >
                   {switchoverArmed
                     ? `promote standby ${switchoverTarget} — runs an RPO/health preflight before you confirm`
                     : switchoverBlockedReason}

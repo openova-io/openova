@@ -745,9 +745,28 @@ describe('TopologyTab — #4886 bootstrap-HR DR off the live Continuum CR', () =
     expect(screen.queryByTestId('topology-tab-dr-standby')).toBeNull()
     expect(screen.queryByTestId('topology-tab-dr-standby-me-east-215-b')).toBeNull()
     expect(document.body.textContent).not.toContain('hot replica (follows WAL)')
-    // 3. NO switchover control armed against a region with no namespace.
-    expect(screen.queryByTestId('topology-tab-dr-switchover-open')).toBeNull()
+    // 3. NO switchover control ARMED against a region with no namespace.
+    //
+    // UAT row 63 tightened this clause. #5514 asserted the control was ABSENT,
+    // which was the cheapest way to guarantee it could not arm — but "absent"
+    // and "disabled" are different statements to an operator, and the row's
+    // own wording is "'Switchover unavailable' copy, the control DISABLED".
+    // The 2026-08-10 walk could not verify that sub-clause at all because no
+    // switchover element existed on the page to inspect. So the control now
+    // RENDERS here, permanently disabled, with honest copy — which is strictly
+    // stronger than absence: it still cannot arm (it has no onClick and no
+    // target region), and it now also tells the operator why.
+    const unbackedSwitchover = screen.getByTestId(
+      'topology-tab-dr-switchover-open',
+    ) as HTMLButtonElement
+    expect(unbackedSwitchover.disabled).toBe(true)
+    expect(screen.getByTestId('topology-tab-dr-switchover-reason').textContent).toContain(
+      'Switchover unavailable',
+    )
+    // The dialog is what "armed" would mean, and it must still be unreachable.
     expect(screen.queryByTestId('continuum-switchover-dialog')).toBeNull()
+    // No target region is named anywhere — the phantom must not be printed.
+    expect(document.body.textContent).not.toContain('promote standby')
   })
 
   it('#5514: an explicit replicaPromotable:false on a LIVE reading DISABLES the switchover (the verdict is consulted)', async () => {

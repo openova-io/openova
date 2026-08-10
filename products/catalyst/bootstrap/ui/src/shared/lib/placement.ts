@@ -28,6 +28,19 @@ export type Pattern = 'singleton' | 'active-passive' | 'active-hot-standby' | 'a
  * The token for "no pattern could be derived" (#5515). NOT a pattern — the
  * explicit absence of one.
  */
+/**
+ * HOST_VCLUSTER — the one vCluster tier that is always addressable.
+ *
+ * #5616 established it as the safe default (the application-controller
+ * normalises `host` to the Organization's own namespace, so it never resolves
+ * to a namespace that does not exist). #5945 showed it needs a SHARED home:
+ * the editor owned the constant while the Topology tab hardcoded `'mgmt'` —
+ * a tier #4325 deleted — as its own display fallback and target seed, so the
+ * two surfaces disagreed about what "no vCluster specified" means. Placement
+ * vocabulary lives here; both consumers now read the same word.
+ */
+export const HOST_VCLUSTER = 'host'
+
 export const PATTERN_NOT_REPORTED = 'not-reported'
 
 /**

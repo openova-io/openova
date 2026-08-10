@@ -257,6 +257,18 @@ export interface ContinuumReplicationStatus {
    * undefined — unverifiable (no cnpg pair resolvable) — unknown, not green.
    */
   standbyAvailable?: boolean
+  /**
+   * The Continuum CR's OWN reconciled status, relayed by the endpoint (UAT
+   * row 62). `phase` is the controller's reconciled verdict (Healthy /
+   * Degraded / FailedOver / …), `leaseHolder` is the region currently holding
+   * the DNS-witness lease and `leaseExpiresAt` its rolling expiry — the three
+   * facts that make the DR panel a live reading rather than a static badge.
+   * All three are `omitempty` server-side: absent means the CR does not report
+   * it, and the panel must render nothing rather than invent a value.
+   */
+  phase?: string
+  leaseHolder?: string
+  leaseExpiresAt?: string
   healthGates?: ContinuumHealthGate[]
   replicas?: ContinuumReplicaInfo[]
   observedAt?: string
