@@ -189,7 +189,13 @@ data:
   # each other directly using these too.
   AUTH_URL: "http://auth.org-services.svc.cluster.local:8081"
   CATALOG_URL: "http://catalog.org-services.svc.cluster.local:8082"
-  TENANT_URL: "http://tenant.org-services.svc.cluster.local:8083"
+  # The env-var KEY stays TENANT_URL (every consumer's main.go reads that
+  # name; renaming it here without renaming them would silently fall back
+  # to each service's own hardcoded default). The VALUE moves to the
+  # canonical `organizations` Service — #5435 / UAT row 121. The old
+  # `tenant` Service is kept one release as an annotated alias, so a pod
+  # that has not rolled yet still resolves.
+  TENANT_URL: "http://organizations.org-services.svc.cluster.local:8083"
   PROVISIONING_URL: "http://provisioning.org-services.svc.cluster.local:8084"
   BILLING_URL: "http://billing.org-services.svc.cluster.local:8085"
   DOMAIN_URL: "http://domain.org-services.svc.cluster.local:8086"

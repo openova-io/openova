@@ -41,6 +41,21 @@ declare -a MACHINERY=(
   'namespace:\s*sme\s*$'
   # Chart template directory named after the persona.
   'templates/sme-services'
+  # A Kubernetes object NAME (or a container name) that IS the persona
+  # word. #5435 / UAT row 121: the org-services Deployment was literally
+  # called `tenant`, and the sovereign console's platform-overhead
+  # showback table keys its rows on the Deployment name (applicationKey →
+  # ReplicaSet → Deployment, dashboard.go:681). So a banned entity-noun
+  # rendered at `/billing/orders` on a Sovereign whose console source
+  # contains the word NOWHERE — every prior banned-term sweep grepped the
+  # source and came back clean, because the string only exists at runtime
+  # as a Kubernetes object name. This pattern is the one shape a source
+  # grep could not otherwise see: an object whose whole name is the word.
+  # `name: tenant-sandbox-orchestrator` and `MONGODB_DB: "tenants"` are
+  # NOT matched — a compound name and a data value are not the defect.
+  # A deliberate compatibility Service keeps its old name behind the
+  # `naming-guard: alias` annotation, same as the route aliases.
+  '^\s*-?\s*name:\s*(tenant|tenants|sme|smes)\s*(#.*)?$'
 )
 
 # Patterns checked ONLY in Go files — exported Go identifiers naming
@@ -248,12 +263,56 @@ func reg(rg Router) {
 	rg.Post("/api/v1/sme/tenants", deprecatedAlias("/api/v1/organizations", h.Create))
 }
 EOF
+  # FIXTURE C (must FAIL): a Kubernetes workload whose NAME is the persona
+  # word — the #5435 / UAT row 121 shape. This is the fixture that would
+  # have caught the org-services `tenant` Deployment before it rendered a
+  # banned entity-noun into the sovereign console's showback table.
+  cat > "$tmp/products/x/bad_workload.yaml" <<'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tenant
+  namespace: org-services
+spec:
+  template:
+    spec:
+      containers:
+        - name: tenant
+EOF
+  # FIXTURE D (must PASS): the three shapes that look like C but are not
+  # the defect — an annotated one-release compatibility alias, a COMPOUND
+  # object name that merely contains the word, and a data VALUE.
+  cat > "$tmp/products/x/good_workload.yaml" <<'EOF'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tenant-sandbox-orchestrator
+  namespace: catalyst-system
+---
+# naming-guard: alias
+apiVersion: v1
+kind: Service
+metadata:
+  name: tenant
+  namespace: org-services
+spec:
+  selector:
+    app: org-organizations
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: org-services-config
+data:
+  MONGODB_DB: "tenants"
+EOF
   git -C "$tmp" add -A >/dev/null 2>&1
 
-  local fail_ok=0 pass_ok=0
+  local fail_ok=0 pass_ok=0 name_fail_ok=0 name_pass_ok=0
 
   # Direction 1: the BAD file alone must trip the guard.
-  git -C "$tmp" rm -q --cached products/x/good_data.go >/dev/null 2>&1
+  git -C "$tmp" reset -q >/dev/null 2>&1
+  git -C "$tmp" add products/x/bad_route.go >/dev/null 2>&1
   if ROOT="$tmp" scan_tree "$tmp" >/dev/null 2>&1; then
     echo "SELF-TEST FAIL: a new /api/v1/sme/ route did NOT trip the guard"
   else
@@ -264,7 +323,6 @@ EOF
   # Direction 2: the GOOD file alone must PASS (Tier value + alias line).
   git -C "$tmp" reset -q >/dev/null 2>&1
   git -C "$tmp" add products/x/good_data.go >/dev/null 2>&1
-  git -C "$tmp" rm -q --cached products/x/bad_route.go >/dev/null 2>&1
   if ROOT="$tmp" scan_tree "$tmp" >/dev/null 2>&1; then
     echo "SELF-TEST OK: Tier \"sme\" data value + annotated alias PASS (data exemption)"
     pass_ok=1
@@ -272,8 +330,30 @@ EOF
     echo "SELF-TEST FAIL: a legitimate Tier \"sme\" value / alias was rejected"
   fi
 
-  if [ "$fail_ok" -eq 1 ] && [ "$pass_ok" -eq 1 ]; then
-    echo "SELF-TEST: BOTH directions proven."
+  # Direction 3 (#5435): a workload NAMED after the persona must trip it.
+  git -C "$tmp" reset -q >/dev/null 2>&1
+  git -C "$tmp" add products/x/bad_workload.yaml >/dev/null 2>&1
+  if ROOT="$tmp" scan_tree "$tmp" >/dev/null 2>&1; then
+    echo "SELF-TEST FAIL: a Deployment named 'tenant' did NOT trip the guard"
+  else
+    echo "SELF-TEST OK: a Kubernetes object named 'tenant' is REJECTED (RED)"
+    name_fail_ok=1
+  fi
+
+  # Direction 4 (#5435): the near-misses must NOT trip it, or the guard is
+  # too broad to live with — a compound name, an annotated alias, a value.
+  git -C "$tmp" reset -q >/dev/null 2>&1
+  git -C "$tmp" add products/x/good_workload.yaml >/dev/null 2>&1
+  if ROOT="$tmp" scan_tree "$tmp" >/dev/null 2>&1; then
+    echo "SELF-TEST OK: compound name + annotated alias + data value PASS"
+    name_pass_ok=1
+  else
+    echo "SELF-TEST FAIL: a compound object name / alias / data value was rejected"
+  fi
+
+  if [ "$fail_ok" -eq 1 ] && [ "$pass_ok" -eq 1 ] &&
+     [ "$name_fail_ok" -eq 1 ] && [ "$name_pass_ok" -eq 1 ]; then
+    echo "SELF-TEST: BOTH directions proven, for routes AND object names."
     return 0
   fi
   return 1
