@@ -847,25 +847,37 @@ func (h *Handler) waitForHelmRelease(ctx context.Context, namespace, name string
 // matched; a host-tier wait that looked for the `-x-apps-x-vcluster` suffix
 // would never match and would always time out.
 // appPodNameMatches is the #4297 TIER-AWARE pod-name matcher. For the VCLUSTER
-// tier the app pod is synced up to the host ns with the
-// `<appSlug>-...-x-apps-x-vcluster` shape; for the HOST tier (no vcluster) the
-// pod runs natively in the host ns as `<appSlug>-...`. Extracted as a pure
-// function so the tier split is unit-testable without a live kube-API.
+// tier the app pod is synced up to the host ns as
+// `<appSlug>-...-x-<inner-namespace>-x-vcluster`; for the HOST tier (no
+// vcluster) the pod runs natively in the host ns as `<appSlug>-...`. Extracted
+// as a pure function so the tier split is unit-testable without a live
+// kube-API.
 //
-// The host-tier match is intentionally STRICT: it requires the slug-prefixed
-// name to NOT carry the vcluster syncer suffix, so a stray synced pod from a
-// sibling vcluster Org sharing the host ns can't satisfy a host-tier wait.
+// The host-tier match is intentionally STRICT: a synced pod from a sibling
+// vcluster Org sharing the host ns must NOT satisfy a host-tier wait.
+//
+// UAT row 86: this used to hardcode the inner namespace as `apps`
+// (`-x-apps-x-vcluster`). Since #4290 the inner namespace is the ORG SLUG, so
+// the literal matched nothing on any real cluster — measured on hw292-a, zero
+// pods cluster-wide carried it while `mysql-...-x-uatco-x-vcluster` was 1/1
+// Running. Every vcluster-tier dependency and app wait therefore ran its full
+// 10-minute budget and failed the provision for an Org that was already
+// healthy. The same literal defeated the host-tier rejection above, which only
+// excluded pods whose inner namespace happened to be `apps`.
+//
+// Delegating to vclusterInnerPodName (backing_services.go) is the point: that
+// helper already handles an arbitrary inner namespace and was written when
+// #5451 caught this exact defect in the sibling code path. There must be one
+// definition of "is this a synced pod", not two.
 func appPodNameMatches(podName, appSlug string, isVcluster bool) bool {
-	prefix := appSlug + "-"
-	if !strings.HasPrefix(podName, prefix) {
-		return false
-	}
-	const vclusterSuffix = "-x-apps-x-vcluster"
+	inner, synced := vclusterInnerPodName(podName)
 	if isVcluster {
-		return strings.HasSuffix(podName, vclusterSuffix)
+		// Vcluster tier — must be a synced pod, and the INNER name (the name
+		// the pod has inside the vcluster) is what carries the app slug.
+		return synced && strings.HasPrefix(inner, appSlug+"-")
 	}
-	// Host tier — native name, MUST NOT be a synced vcluster pod.
-	return !strings.HasSuffix(podName, vclusterSuffix)
+	// Host tier — native name only, never a synced pod from any Org.
+	return !synced && strings.HasPrefix(podName, appSlug+"-")
 }
 
 func (h *Handler) waitForVclusterApp(ctx context.Context, namespace, appSlug string, timeout time.Duration, isVcluster bool) error {

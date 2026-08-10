@@ -4,6 +4,7 @@
   import { formatOMR } from '../lib/currency';
   import { consoleHandoffHref, consoleLaunchHref } from '../lib/config';
   import { creditCoversOrder, chargesCustomer } from '../lib/checkoutPaymentGate';
+  import { codeExpiryNotice, needsFreshCode } from '../lib/checkoutSignIn';
   import PinInput6 from './PinInput6.svelte';
 
   let cart = $state(readCart());
@@ -36,6 +37,10 @@
   let code = $state('');
   let authError = $state('');
   let authLoading = $state(false);
+  // UAT row 84 — how long the server says this code is good for. Rendered
+  // instead of a hardcoded sentence, which had drifted to twice the real TTL.
+  // Null until the send call answers; codeExpiryNotice falls back then.
+  let codeExpiresInSec = $state<number | null>(null);
   let checkoutLoading = $state(false);
   let provision = $state<Provision | null>(null);
   let provisionError = $state('');
@@ -262,12 +267,36 @@
     authLoading = true;
     authError = '';
     try {
-      await sendMagicLink(email);
+      const res = await sendMagicLink(email);
+      // Render the expiry the server actually granted. An older server that
+      // does not report it leaves this null and the notice falls back.
+      codeExpiresInSec = typeof res?.expires_in_sec === 'number' ? res.expires_in_sec : null;
       authMode = 'verify';
     } catch (e: any) {
       authError = e.message || 'Failed to send code';
     }
     authLoading = false;
+  }
+
+  // UAT row 84 — the way OUT of the 6-digit screen.
+  //
+  // `authMode` used to go 'login' -> 'verify' and stop there: nothing in this
+  // component ever set it back. A customer whose code expired (or who mistyped
+  // their address, or who burned the 5-attempt cap) had no resend, no edit, no
+  // back — every further guess returned "invalid or expired code" and the only
+  // escape was reloading the page and losing the funnel state. That is the
+  // last screen before a purchase.
+  //
+  // Returning to the email stage rather than silently re-sending is deliberate:
+  // the most common reason a code never arrives is a typo in the address, and a
+  // blind resend would post a second code to the same wrong mailbox. The field
+  // is pre-filled, so for a genuine expiry it is one extra click.
+  function requestNewCode() {
+    authMode = 'login';
+    code = '';
+    pinResetCounter += 1;
+    authError = '';
+    codeExpiresInSec = null;
   }
 
   async function handleVerify() {
@@ -633,7 +662,26 @@
               {authLoading ? 'Verifying...' : 'Verify & Continue'}
             </button>
             <p class="mt-3 text-center text-xs text-[var(--color-text-dimmer)]">
-              Codes expire after 10 minutes — check your spam folder.
+              {codeExpiryNotice(codeExpiresInSec)}
+            </p>
+            <!-- The exit from this screen. Always present, because a code that
+                 never arrives looks identical to one that arrived late; when
+                 the server says the code is gone we lead with it instead of
+                 leaving the customer retyping something that cannot work. -->
+            <p class="mt-2 text-center text-xs">
+              {#if needsFreshCode(authError)}
+                <span class="text-[var(--color-text-dim)]">That code has expired.</span>
+              {:else}
+                <span class="text-[var(--color-text-dimmer)]">Didn't get it?</span>
+              {/if}
+              <button
+                type="button"
+                onclick={requestNewCode}
+                data-testid="checkout-request-new-code"
+                class="ml-1 font-semibold text-[var(--color-accent)] underline underline-offset-2 hover:text-[var(--color-accent-hover)]"
+              >
+                Send a new code
+              </button>
             </p>
           </form>
         {/if}

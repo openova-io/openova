@@ -132,11 +132,31 @@ func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 // - Per-IP leaky bucket: at most `magicRateMax` verify attempts per
 //   `magicRateWindow` per source IP.
 const (
-	magicCodeTTL     = 5 * time.Minute
+	// magicCodeTTL — how long an issued 6-digit sign-in code stays valid.
+	//
+	// This MUST match what the funnel tells the customer ("Codes expire after
+	// 10 minutes", CheckoutStep.svelte) and what the console PIN path uses
+	// (`pinTTL`, products/catalyst/bootstrap/api/internal/handler/pinstore.go).
+	// It was 5 minutes behind a page that promised 10 — see
+	// magic_code_ttl_test.go for why the constant moved rather than the copy.
+	// Callers must never restate this as a literal; use magicCodeExpiresInSec.
+	magicCodeTTL     = 10 * time.Minute
 	magicMaxAttempts = 5
 	magicRateMax     = 10 // verify requests per IP per window
-	magicRateWindow  = 1 * time.Minute
+	// magicIssueRateMax — send/resend requests per IP per window. The sign-in
+	// page offers a "Send a new code" control (an expired code used to be a
+	// dead end), and every press composes an email to an address the caller
+	// chose, so this path needs its own ceiling. Set above what a real person
+	// clicks and far below anything useful for flooding a mailbox.
+	magicIssueRateMax = 5
+	magicRateWindow   = 1 * time.Minute
 )
+
+// magicCodeExpiresInSec is the code lifetime in whole seconds, as reported to
+// the client so the sign-in page can render the real expiry instead of a
+// hardcoded sentence. Returning it is what keeps the promise and the constant
+// from drifting apart again.
+func magicCodeExpiresInSec() int { return int(magicCodeTTL.Seconds()) }
 
 // SendMagicLink generates a 6-digit code, stores it in Valkey, and emails it.
 func (h *Handler) SendMagicLink(w http.ResponseWriter, r *http.Request) {
@@ -148,6 +168,14 @@ func (h *Handler) SendMagicLink(w http.ResponseWriter, r *http.Request) {
 	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 	if req.Email == "" {
 		respond.Error(w, http.StatusBadRequest, "email is required")
+		return
+	}
+
+	// Cap issuance per source IP before composing any mail — see
+	// magicIssueRateMax. Counted in its own bucket so a resend never consumes
+	// the verify allowance the customer needs immediately afterwards.
+	if err := h.checkMagicRateLimit(r.Context(), "issue", clientIP(r), magicIssueRateMax); err != nil {
+		respond.Error(w, http.StatusTooManyRequests, "too many code requests, please try again in a minute")
 		return
 	}
 
@@ -180,7 +208,13 @@ func (h *Handler) SendMagicLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respond.OK(w, map[string]string{"message": "check your email"})
+	// Report the real expiry so the page renders the truth. The client falls
+	// back to its own constant if this is absent (an older server), so the
+	// field is additive and safe for a rolling deploy.
+	respond.OK(w, map[string]any{
+		"message":        "check your email",
+		"expires_in_sec": magicCodeExpiresInSec(),
+	})
 }
 
 // VerifyMagicLink validates the code and issues tokens.
@@ -203,7 +237,7 @@ func (h *Handler) VerifyMagicLink(w http.ResponseWriter, r *http.Request) {
 	// 10^6 code space regardless of which email it targets. The gateway's
 	// per-IP rate limiter is bypassed when XFF is spoofable, so we enforce
 	// here as well; the direct TCP peer is the fallback.
-	if err := h.checkMagicRateLimit(ctx, ip); err != nil {
+	if err := h.checkMagicRateLimit(ctx, "verify", ip, magicRateMax); err != nil {
 		respond.Error(w, http.StatusTooManyRequests, "too many attempts, please try again later")
 		return
 	}
@@ -505,22 +539,25 @@ func (h *Handler) LogoutAll(w http.ResponseWriter, r *http.Request) {
 // increments, caller decides after N. If Valkey is unreachable we fail OPEN
 // (log + allow) — the alternative is to block legitimate traffic on a cache
 // blip, which is worse than the marginal brute-force risk.
-func (h *Handler) checkMagicRateLimit(ctx context.Context, ip string) error {
+// bucket names the leaky bucket ("verify" or "issue") so the two magic-code
+// paths are counted separately — a customer legitimately re-requesting a code
+// must not eat the allowance they need to then type it in.
+func (h *Handler) checkMagicRateLimit(ctx context.Context, bucket, ip string, max int) error {
 	if ip == "" {
 		return nil
 	}
-	key := "ratelimit:magic-verify:" + ip
+	key := "ratelimit:magic-" + bucket + ":" + ip
 	n, err := h.Valkey.Do(ctx, h.Valkey.B().Incr().Key(key).Build()).ToInt64()
 	if err != nil {
-		slog.Warn("magic rate-limit incr failed, failing open", "error", err)
+		slog.Warn("magic rate-limit incr failed, failing open", "bucket", bucket, "error", err)
 		return nil
 	}
 	if n == 1 {
 		h.Valkey.Do(ctx,
 			h.Valkey.B().Expire().Key(key).Seconds(int64(magicRateWindow.Seconds())).Build())
 	}
-	if n > int64(magicRateMax) {
-		return fmt.Errorf("rate limited: %d > %d", n, magicRateMax)
+	if n > int64(max) {
+		return fmt.Errorf("rate limited: %d > %d", n, max)
 	}
 	return nil
 }
