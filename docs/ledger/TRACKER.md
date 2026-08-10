@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T18:00:05Z` |
+| Last refreshed | `2026-08-10T18:30:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5488](https://github.com/openova-io/openova/issues/5488) | Cutover aborts at secondary-kubeconfigs pre-flight after a catalyst-api restart: | Other |
 | [#5489](https://github.com/openova-io/openova/issues/5489) | Four surfaces report a vCluster that does not exist (parent row hardcodes it, ku | Other |
 | [#5496](https://github.com/openova-io/openova/issues/5496) | Catalog per-field save silently reverts the previous save — query invalidated  | Other |
 | [#5499](https://github.com/openova-io/openova/issues/5499) | harbor-core crashloops on 28P01 blocking the cutover — region-b consumes a rol | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6040](https://github.com/openova-io/openova/issues/6040) | hw293: region-B ClusterMesh never established — a dormant chart's census failu | Other |
 | [#6043](https://github.com/openova-io/openova/issues/6043) | bp-catalyst-platform cannot publish: unresolved merge-conflict markers on main f | Other |
 | [#6045](https://github.com/openova-io/openova/issues/6045) | hw293: four live defects surfaced by the 2026-08-11 UAT partition — an unpubli | Other |
+| [#6049](https://github.com/openova-io/openova/issues/6049) | Build & Deploy Catalyst red for 4 days (54 runs): SIGPIPE in bump-chart-version. | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T18:28 | [#6050](https://github.com/openova-io/openova/pull/6050) | #6049 | fix(deploy-bot): unbreak catalyst + services build — a 64 Ki |
 | 2026-08-10T17:58 | [#6048](https://github.com/openova-io/openova/pull/6048) | #5426 | docs(uat): 6 mutation-gated rows walked by driving the produ |
 | 2026-08-10T17:50 | [#6047](https://github.com/openova-io/openova/pull/6047) | #3374 | docs(uat): 14 browser-observable rows walked on hw293 — 6 fl |
 | 2026-08-10T17:43 | [#6046](https://github.com/openova-io/openova/pull/6046) | #6004 | docs(uat): partition the 44 ❌ rows that carried no label at  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-10T14:27 | [#6007](https://github.com/openova-io/openova/pull/6007) | #6004 | docs(uat): hw293 — the cutover chain never ran, so the cutov |
 | 2026-08-10T14:30 | [#6006](https://github.com/openova-io/openova/pull/6006) | #3376 | docs(uat): hw293 funnel walk — 8 of 12 rows pass, 4 failures |
 | 2026-08-10T14:14 | [#6005](https://github.com/openova-io/openova/pull/6005) | #3646 | docs(uat): hw293 walk — 9 rows stamped, 2 pass (242, R22) an |
-| 2026-08-10T12:34 | [#5997](https://github.com/openova-io/openova/pull/5997) | #5987 | fix(funnel): the per-Org bp-newapi HelmRelease could not ins |
 
 ---
 

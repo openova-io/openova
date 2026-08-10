@@ -224,6 +224,99 @@ fi
 git -C "${CHECK}" log --oneline -5
 echo
 
+echo "=========================================================="
+echo "T6 — bump-chart-version.sh against a PRODUCTION-SIZED Chart.yaml"
+echo "     (>64 KiB of content after the 'version:' line)"
+echo "=========================================================="
+#
+# WHY THIS CASE EXISTS
+# --------------------
+# T5 above already drives bump-chart-version.sh end-to-end — and it passed
+# green on every run while the real `Build & Deploy Catalyst` workflow failed
+# 53 consecutive times on main (2026-08-06 → 2026-08-10) at that exact
+# script. T5 could not see it, because T5's fixture Chart.yaml is four lines
+# (~70 bytes) and the defect is a function of FILE SIZE, not of the version
+# arithmetic T5 asserts on:
+#
+#   BASE_VERSION="$(printf '%s\n' "${BASELINE}" | awk '/^version:/{print $2; exit}' …)"
+#
+# `awk … {exit}` closes the pipe on match. The real Chart.yaml carries 88,958
+# bytes AFTER its `version:` line — past the 64 KiB Linux pipe buffer — so
+# printf was still writing, took EPIPE, and died 141; pipefail + set -e then
+# aborted the bump. Under 64 KiB the write completes before awk exits and
+# nothing fails. T5's fixture made the production failure UNREACHABLE — a
+# guard exercising a surface that cannot fail (docs/PRINCIPLES.md A18).
+#
+# T6 restores the missing property: a chart shaped like the real one.
+BIGWORK="${WORK}/bigchart"
+mkdir -p "${BIGWORK}"
+BIG_UPSTREAM="${BIGWORK}/upstream.git"
+git init -b main --bare "${BIG_UPSTREAM}" >/dev/null
+BIG_CLONE="${BIGWORK}/clone"
+git clone "${BIG_UPSTREAM}" "${BIG_CLONE}" >/dev/null 2>&1
+mkdir -p "${BIG_CLONE}/products/catalyst/chart"
+BIG_CHART="${BIG_CLONE}/products/catalyst/chart/Chart.yaml"
+
+{
+  echo "apiVersion: v2"
+  echo "name: bp-catalyst-platform"
+  echo "version: 1.4.1400"
+  echo "appVersion: 1.4.1400"
+  # Trailing body. products/catalyst/chart/Chart.yaml accumulates a long
+  # KNOWN-BAD/superseded-artifact changelog under its version fields; this
+  # reproduces that shape at production scale.
+  awk 'BEGIN{ for(i=0;i<2200;i++) print "# superseded-artifact changelog padding line " i " — reproduces the real Chart.yaml trailing body" }'
+} > "${BIG_CHART}"
+
+# Vacuity check — if a future edit shrinks this fixture below the pipe
+# buffer, T6 silently stops testing anything. Assert the property FIRST.
+BIG_TOTAL="$(wc -c < "${BIG_CHART}")"
+BIG_BEFORE="$(awk '/^version:/{exit} {n+=length($0)+1} END{print n+0}' "${BIG_CHART}")"
+BIG_AFTER="$(( BIG_TOTAL - BIG_BEFORE ))"
+echo "fixture: total=${BIG_TOTAL} bytes, after-'version:'=${BIG_AFTER} bytes (pipe buffer = 65536)"
+if [ "${BIG_AFTER}" -le 65536 ]; then
+  fail "T6 VACUITY — fixture has only ${BIG_AFTER} bytes after 'version:', at or under the 65536-byte pipe buffer. This case can no longer reproduce the SIGPIPE it exists to catch; enlarge the padding."
+else
+  pass "T6a — fixture carries ${BIG_AFTER} bytes after 'version:', above the 65536-byte pipe buffer (real chart: 88958)."
+fi
+
+( cd "${BIG_CLONE}"
+  git config user.name  "seed"
+  git config user.email "seed@test.local"
+  git add products/catalyst/chart/Chart.yaml
+  git commit -m "seed: production-sized chart 1.4.1400/1.4.1400" >/dev/null
+  git push -u origin main >/dev/null 2>&1
+)
+
+set +e
+T6_OUT="$( cd "${BIG_CLONE}" && "${BUMP}" products/catalyst/chart/Chart.yaml 2>"${WORK}/t6.stderr" )"
+T6_RC=$?
+set -e
+echo "--- T6 bump stderr ---"
+cat "${WORK}/t6.stderr"
+echo "--- T6 exit=${T6_RC} stdout='${T6_OUT}' ---"
+
+if [ "${T6_RC}" -ne 0 ]; then
+  fail "T6 — bump-chart-version.sh exited ${T6_RC} on a production-sized Chart.yaml (141 = SIGPIPE, the 53-red-run defect). It must not care how large the chart is."
+else
+  pass "T6b — bump-chart-version.sh exited 0 on a ${BIG_TOTAL}-byte chart."
+fi
+
+if [ "${T6_OUT}" != "1.4.1401" ]; then
+  fail "T6 — expected next_version 1.4.1401 from baseline 1.4.1400/1.4.1400, got '${T6_OUT}'."
+else
+  pass "T6c — computed the correct next_version (1.4.1401) from the large chart."
+fi
+
+T6_WROTE_V="$(awk '/^version:/{print $2; exit}' "${BIG_CHART}")"
+T6_WROTE_A="$(awk '/^appVersion:/{print $2; exit}' "${BIG_CHART}")"
+if [ "${T6_WROTE_V}" != "1.4.1401" ] || [ "${T6_WROTE_A}" != "1.4.1401" ]; then
+  fail "T6 — working copy not written in lockstep (version=${T6_WROTE_V} appVersion=${T6_WROTE_A})."
+else
+  pass "T6d — wrote version/appVersion in lockstep into the large chart."
+fi
+echo
+
 if [ "${FAILED}" -ne 0 ]; then
   echo "=========================================================="
   echo "OVERALL: FAIL"
@@ -233,6 +326,7 @@ fi
 
 echo "=========================================================="
 echo "OVERALL: PASS — guard rejects the real incident (T1-T3), accepts a"
-echo "correct bump (T4), and the fixed atomic mechanism converges under a"
-echo "real concurrent race instead of repeating it (T5)."
+echo "correct bump (T4), the fixed atomic mechanism converges under a"
+echo "real concurrent race instead of repeating it (T5), and the bump"
+echo "survives a production-sized Chart.yaml (T6 — the 53-red-run SIGPIPE)."
 echo "=========================================================="
