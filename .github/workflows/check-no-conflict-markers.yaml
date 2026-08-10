@@ -1,0 +1,46 @@
+name: check — no unresolved merge-conflict markers
+
+# Permanent guard that no tracked file carries an unresolved git
+# merge-conflict marker, for every future PR and every push to main.
+#
+# 2026-08-10 (ad2d2e9ab): a cherry-pick was committed with its markers
+# still in the file. Nine conflict blocks landed on main across three
+# bp-catalyst-platform templates and froze the umbrella at 1.4.1332 —
+# Blueprint Release died at "Run chart integration tests", so no chart pin
+# could reach any Sovereign (hw293's HelmRelease sat Ready=False
+# `:1.4.1334: not found`). See scripts/check-no-conflict-markers.sh for
+# why every gate that existed at the time was structurally blind to it:
+# the broken template is gated off by default, so the default-values smoke
+# render never touched it, and the error names a line in the RENDERED
+# output that corresponds to nothing in the source.
+#
+# NO path filter, deliberately. A marker in a Go file, a script, a doc or
+# an IaC module is the same defect; scoping this to charts would reproduce
+# exactly the blind spot it exists to close.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  no-conflict-markers:
+    name: Reject unresolved merge-conflict markers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      # The guard runs its own vacuity self-test on every invocation and
+      # exits 2 if the detector has stopped detecting; this step surfaces
+      # that result on its own so a broken detector is never mistaken for
+      # a clean tree (#5512).
+      - name: Detector vacuity self-test
+        run: bash scripts/check-no-conflict-markers.sh --self-test-only
+
+      - name: Scan tracked files
+        run: bash scripts/check-no-conflict-markers.sh

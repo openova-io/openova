@@ -1,0 +1,52 @@
+name: check — no banned entity-noun as a Kubernetes object name
+
+# scripts/check-no-banned-object-names.sh shipped on 2026-08-10 in
+# ad2d2e9ab and was never referenced by any workflow, so it had never run
+# once. It was also red against the very tree it landed in — the
+# one-release `tenant` deprecation-alias Service that #5974 kept on
+# purpose is now carried as a bidirectional TRACKED_EXCEPTIONS entry, so
+# deleting the alias next release fails this guard on the STALE entry and
+# forces the line back out.
+#
+# A guard nobody runs is documentation. This wires it.
+#
+# What it protects (UAT row 121 / #5435): a banned entity-noun used as a
+# Kubernetes OBJECT NAME reaches the sovereign-admin showback table at
+# /billing/orders through dashboard.go applicationKey (pod -> ReplicaSet
+# -> Deployment), which is why a source-side grep of the console tree
+# reported clean for months while the console rendered `tenant` verbatim.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'products/**/templates/**'
+      - 'platform/**/templates/**'
+      - 'core/**/templates/**'
+      - 'scripts/check-no-banned-object-names.sh'
+      - '.github/workflows/check-no-banned-object-names.yaml'
+  pull_request:
+    paths:
+      - 'products/**/templates/**'
+      - 'platform/**/templates/**'
+      - 'core/**/templates/**'
+      - 'scripts/check-no-banned-object-names.sh'
+      - '.github/workflows/check-no-banned-object-names.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  no-banned-object-names:
+    name: Reject banned entity-nouns in object names
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detector vacuity self-test
+        run: bash scripts/check-no-banned-object-names.sh --self-test-only
+
+      - name: Scan chart templates
+        run: bash scripts/check-no-banned-object-names.sh

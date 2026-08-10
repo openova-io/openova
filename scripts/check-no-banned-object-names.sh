@@ -133,9 +133,20 @@ fi
 # cover. It also cannot absorb the class the row is about — a workload
 # `name:`/`serviceAccountName:`/`app:` value is not a Blueprint name and
 # has no entry here.
+#
+# The third entry is the one-release deprecation ALIAS Service that #5974
+# deliberately kept alongside the renamed `organizations` Service. It is a
+# Service, not a workload, so applicationKey never reaches it — the
+# showback table keys on the Deployment. It exists only so a consumer pod
+# that has not rolled yet (its TENANT_URL comes from a ConfigMap, and a
+# ConfigMap edit does not restart a Deployment) still resolves the old
+# host mid-upgrade. The bidirectional half below is what makes this safe
+# to write down: when the alias is deleted one release later, this guard
+# fails on the STALE entry and forces the line out of the list.
 TRACKED_EXCEPTIONS=(
   'products/catalyst/chart/templates/catalog-seed/blueprints.yaml:  name: bp-wordpress-tenant'
   'products/catalyst/chart/templates/catalog-seed/blueprints.yaml:  name: bp-stalwart-tenant'
+  'products/catalyst/chart/templates/org-services/organization.yaml:  name: tenant'
 )
 declare -A EXCEPTION_SEEN=()
 
