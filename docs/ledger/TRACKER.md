@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T18:45:07Z` |
+| Last refreshed | `2026-08-10T19:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -299,7 +299,7 @@ flowchart LR
 | [#6040](https://github.com/openova-io/openova/issues/6040) | hw293: region-B ClusterMesh never established — a dormant chart's census failu | Other |
 | [#6043](https://github.com/openova-io/openova/issues/6043) | bp-catalyst-platform cannot publish: unresolved merge-conflict markers on main f | Other |
 | [#6045](https://github.com/openova-io/openova/issues/6045) | hw293: four live defects surfaced by the 2026-08-11 UAT partition — an unpubli | Other |
-| [#6049](https://github.com/openova-io/openova/issues/6049) | Build & Deploy Catalyst red for 4 days (54 runs): SIGPIPE in bump-chart-version. | Other |
+| [#6058](https://github.com/openova-io/openova/issues/6058) | Flaky required gate: TestSecondaryKubeconfigDelivery_RunsOnFailedDeployment_6015 | Other |
 
 ---
 
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T18:57 | [#6055](https://github.com/openova-io/openova/pull/6055) | #793 | fix(console): the cutover trigger was not on the nav — make  |
+| 2026-08-10T18:50 | [#6054](https://github.com/openova-io/openova/pull/6054) | #3991 | fix(catalyst-api): refuse to persist a credential-less secon |
+| 2026-08-10T18:52 | [#6052](https://github.com/openova-io/openova/pull/6052) | #4292 | fix(ledger): a clause edited in one file only silently delet |
 | 2026-08-10T18:28 | [#6050](https://github.com/openova-io/openova/pull/6050) | #6049 | fix(deploy-bot): unbreak catalyst + services build — a 64 Ki |
 | 2026-08-10T17:58 | [#6048](https://github.com/openova-io/openova/pull/6048) | #5426 | docs(uat): 6 mutation-gated rows walked by driving the produ |
 | 2026-08-10T17:50 | [#6047](https://github.com/openova-io/openova/pull/6047) | #3374 | docs(uat): 14 browser-observable rows walked on hw293 — 6 fl |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-10T14:49 | [#6012](https://github.com/openova-io/openova/pull/6012) | #5711 | docs(uat): hw293 walk of 11 rows — 5 pass, 6 fail, and #5930 |
 | 2026-08-10T14:09 | [#6009](https://github.com/openova-io/openova/pull/6009) | #6004 | docs(uat): activate hw293 as the walk env so verdicts can la |
 | 2026-08-10T13:58 | [#6008](https://github.com/openova-io/openova/pull/6008) | #5634 | docs(uat): row 216 — the voucher entry point itself fails ~h |
-| 2026-08-10T14:27 | [#6007](https://github.com/openova-io/openova/pull/6007) | #6004 | docs(uat): hw293 — the cutover chain never ran, so the cutov |
-| 2026-08-10T14:30 | [#6006](https://github.com/openova-io/openova/pull/6006) | #3376 | docs(uat): hw293 funnel walk — 8 of 12 rows pass, 4 failures |
-| 2026-08-10T14:14 | [#6005](https://github.com/openova-io/openova/pull/6005) | #3646 | docs(uat): hw293 walk — 9 rows stamped, 2 pass (242, R22) an |
 
 ---
 
