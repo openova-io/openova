@@ -1005,8 +1005,14 @@ func (h *Handler) HandleReconcileOrganization(w http.ResponseWriter, r *http.Req
 // (publishTenantDeleted → teardownPerOrgFlux → teardownTenantNetworking
 // → iac-bootstrap → per-org-realm), the ONLY complete teardown (#5426)
 // — unregisters from the host registry, and emits the deletion event.
-// Each step is idempotent + best-effort; partial failure leaves a
-// STSDeleted audit row so the reconciler can finish on the next pass.
+// Every step is idempotent, so the whole DELETE is safe to re-issue.
+//
+// The CR delete is the ONE step that is NOT best-effort (#5426): if the
+// apiserver refuses it the Organization is still live, so the handler
+// answers 502 and stops rather than writing 204 over a failure. The
+// surrounding steps (overlay reap, registry, DNS, event emit) stay
+// best-effort and leave a STSDeleted audit row so the reconciler can
+// finish them on the next pass.
 //
 // Ordering is load-bearing (#4459/R17): the overlay reap commits FIRST
 // so Flux cannot recreate what the cascade tears down, THEN the CR
@@ -1043,7 +1049,38 @@ func (h *Handler) HandleDeleteOrganization(w http.ResponseWriter, r *http.Reques
 	// deletionTimestamp and every one of those surfaces leaked — proven live
 	// on hw292 (r17probe) and hw290 (gamma-corp/delta-corp). Runs strictly
 	// AFTER the overlay reap above per the #4459/R17 recreate-race order.
-	h.deleteOrgOrganizationCR(r.Context(), rec)
+	//
+	// #5426 second half — the apiserver's answer is the RESPONSE, not a log
+	// line. Before this the outcome was discarded and the handler wrote 204
+	// unconditionally: on hw293 a 403 ("cannot delete resource
+	// \"organizations\" at the cluster scope") was reported to the caller as
+	// success while the CR, its finalizer and every downstream surface
+	// survived. Bail out here rather than continuing: the Organization is
+	// still LIVE, so reaping its registry entry and its DNS records would
+	// strip the front door off a running Organization and compound the
+	// damage. Every step of this handler is idempotent, so the correct
+	// operator action is to fix the grant and re-issue the same DELETE.
+	if err := h.deleteOrgOrganizationCR(r.Context(), rec); err != nil {
+		// Persist the reason on the audit row WITHOUT stamping STSDeleted —
+		// a "deleted" row for a live Organization is the same lie one layer
+		// down (the console list would drop an Org whose namespace, vCluster
+		// and Keycloak realm keep running).
+		rec.LastError = "organization_cr_delete:" + truncate(err.Error(), 256)
+		if perr := deps.Store.Put(rec); perr != nil {
+			h.log.Warn("org-tenant: persist delete failure failed", "err", perr)
+		}
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error": "organization-cr-delete-failed",
+			// Verbatim apiserver text — on an RBAC denial this names the
+			// ServiceAccount, the verb and the resource, which is the whole
+			// diagnosis.
+			"detail": truncate(err.Error(), 512),
+			"hint": "the Organization CR survives, so the org-controller finalizer cascade never ran " +
+				"and the namespace / vCluster / Keycloak realm / per-Org Flux sources are still live; " +
+				"this DELETE is idempotent — re-issue it once the apiserver permits the call",
+		})
+		return
+	}
 	if deps.TenantRegistry != nil {
 		host := deriveConsoleHost(rec)
 		if host != "" {

@@ -716,6 +716,50 @@ rules:
     verbs: ["create"]
 
   # ───────────────────────────────────────────────────────────────
+  # Issue #5426 — ORGANIZATION DELETE. The create verb above landed with
+  # #4921; the matching DELETE never did, so the teardown half of the
+  # same lifecycle was 403'd on every call. Measured on hw293
+  # 2026-08-10:
+  #
+  #   kubectl auth can-i delete organizations.orgs.openova.io \
+  #     --as=system:serviceaccount:catalyst:catalyst-api-cutover-driver
+  #   -> no          (create -> yes)
+  #
+  #   DELETE /api/v1/organizations/{id} -> 204 No Content
+  #   catalyst-api log: organizations.orgs.openova.io is forbidden:
+  #     ... cannot delete resource "organizations" at the cluster scope
+  #   Organization CR: deletionTimestamp null, finalizer still attached,
+  #     resourceVersion frozen
+  #   T+138s: namespace + vcluster StatefulSet BACK under a new uid —
+  #     the surviving CR's per-Org Flux sources rebuilt them
+  #
+  # org_tenant_org_cr.go deleteOrgOrganizationCR issues exactly ONE
+  # apiserver call, and it is the ONLY trigger for the org-controller's
+  # `orgs.openova.io/tenant-networking` finalizer cascade
+  # (publishTenantDeleted -> teardownPerOrgFlux -> teardownTenantNetworking
+  # -> iac-bootstrap -> per-org-realm) — the only complete teardown of an
+  # Organization's namespace / vCluster / Keycloak realm / per-Org Flux
+  # sources / gateway listeners.
+  #
+  # SCOPE — `delete` on organizations and NOTHING else. The cascade's own
+  # Flux teardown (per_org_flux.go teardownPerOrgFlux) deletes the per-Org
+  # Kustomizations + GitRepository under the ORGANIZATION-CONTROLLER's SA,
+  # which already carries delete on both kinds
+  # (templates/controllers/organization-controller-clusterrole.yaml
+  # rules for kustomize.toolkit.fluxcd.io/kustomizations +
+  # source.toolkit.fluxcd.io/gitrepositories). catalyst-api never deletes
+  # a Flux object, so widening it to those kinds would be an unearned
+  # grant. tests/cutover-driver-organization-delete-rbac.sh asserts BOTH
+  # halves — the verb that must be present and the ones that must not.
+  #
+  # `delete` needs no resourceNames (the DELETE addresses one named CR,
+  # and pinning names here would break every future Org slug).
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations"]
+    verbs: ["delete"]
+
+  # ───────────────────────────────────────────────────────────────
   # Issues #5364 / #5649 — ORG-CONSOLE ORPHAN REAP, the teardown mirror
   # of the #5635 create-side reconcile. reapOrgConsoleTLSOrphans
   # (org_console_tls_reap.go), run inside the reconcileOrgConsoleTLSOnce
