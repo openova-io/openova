@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T07:00:03Z` |
+| Last refreshed | `2026-08-10T07:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T07:12 | [#5960](https://github.com/openova-io/openova/pull/5960) | #5508 | fix(dr): make the DR panel report what it measures — UAT row |
+| 2026-08-10T07:01 | [#5958](https://github.com/openova-io/openova/pull/5958) | #4292 | fix(placement backend): the #4292 tier gate keys on planSlug |
 | 2026-08-10T06:14 | [#5957](https://github.com/openova-io/openova/pull/5957) | #5246 | fix(org): per-Org console listeners land in EVERY region, an |
 | 2026-08-10T05:54 | [#5954](https://github.com/openova-io/openova/pull/5954) | #5246 | docs(wbs): the structured plan to kill the 78 — partitioned  |
 | 2026-08-10T05:54 | [#5953](https://github.com/openova-io/openova/pull/5953) | #3687 | chore(uat): land the convergence-capture script + record cyc |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-08T16:47 | [#5916](https://github.com/openova-io/openova/pull/5916) | #3687 | docs(uat): rows 19 + 33 — backing data measured, both reduce |
 | 2026-08-08T16:00 | [#5915](https://github.com/openova-io/openova/pull/5915) | #4459 | docs(uat): R17 — Org delete-cascade leaks two PLATFORM-names |
 | 2026-08-08T15:30 | [#5914](https://github.com/openova-io/openova/pull/5914) | #5759 | docs(uat): row 231 walked live on hw292 — half (b) proven at |
-| 2026-08-08T10:21 | [#5913](https://github.com/openova-io/openova/pull/5913) | #5460 | docs(path-to-100): every failing row now has a named mechani |
-| 2026-08-08T10:19 | [#5912](https://github.com/openova-io/openova/pull/5912) | #4389 | docs(path-to-100): row 95 is no longer an investigation — me |
 
 ---
 
