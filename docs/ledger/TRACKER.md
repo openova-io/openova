@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T22:00:05Z` |
+| Last refreshed | `2026-08-10T22:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T22:00 | [#6078](https://github.com/openova-io/openova/pull/6078) | #4292 | fix(console,api): four UAT rows at their producers — purchas |
 | 2026-08-10T21:35 | [#6074](https://github.com/openova-io/openova/pull/6074) | #6071 | fix(org-gitops): the per-Org writer picked a witness that ca |
 | 2026-08-10T21:36 | [#6073](https://github.com/openova-io/openova/pull/6073) | #4460 | fix(clustermesh): re-base the shared-pg hub readiness gate o |
 | 2026-08-10T20:48 | [#6070](https://github.com/openova-io/openova/pull/6070) | #6042 | docs(uat): re-measure the 41 DEPLOY-GATED rows against the s |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-10T17:01 | [#6034](https://github.com/openova-io/openova/pull/6034) | #6029 | fix(uat): a re-tag the partition parser cannot read is silen |
 | 2026-08-10T16:59 | [#6029](https://github.com/openova-io/openova/pull/6029) | #5965 | docs(uat): 14 of the 21 BUILD rows do not need an engineer — |
 | 2026-08-10T16:54 | [#6026](https://github.com/openova-io/openova/pull/6026) | #6024 | docs(uat): 24 DEPLOY-GATED rows are not waiting on a deploy  |
-| 2026-08-10T16:33 | [#6025](https://github.com/openova-io/openova/pull/6025) | #5359 | fix(cutover): the chart outgrew the 1 MiB Helm release Secre |
 
 ---
 
