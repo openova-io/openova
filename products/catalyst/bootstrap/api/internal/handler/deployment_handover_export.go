@@ -500,7 +500,9 @@ func (h *Handler) reforwardSecondaryKubeconfigsToChild(dep *Deployment) {
 		return
 	}
 	url := "https://api." + fqdn + "/api/v1/sovereign/secondary-kubeconfig"
-	client := secondaryKubeconfigForwardClient()
+	// #6058 — resolve the seam through its guarded accessor; a test's
+	// t.Cleanup restore can land while this loop is mid-tick.
+	client := currentSecondaryKubeconfigForwardClient()
 	for _, regionKey := range keys {
 		path := filepath.Join(dir, depID+"-"+regionKey+".yaml")
 		raw, err := os.ReadFile(path)
