@@ -303,6 +303,50 @@ func pathIsOrgSafe(p string) bool {
 	return false
 }
 
+// orgSafeExactReadPaths is the METHOD-AWARE, EXACT-PATH half of the allowlist:
+// collections whose READ is an Org-OWN surface while every WRITE on the same
+// path — and every SUB-path — stays Sovereign-only.
+//
+//   - /api/v1/organizations — the Organization directory. The console's
+//     `listOrganizations()` reads it for the SUB-ORG rows that populate the
+//     install wizard's target-Org select; without it a per-Org console cannot
+//     name the Organization it is scoped to (#6081, UAT row 218).
+//     HandleListOrganizations confines an Org-scoped caller to its own row via
+//     orgScopeForRequest, so this entry cannot span Orgs — the same
+//     server-side-confinement contract the #4937 entries above rely on.
+//
+// WHY A SEPARATE LIST INSTEAD OF A PREFIX ENTRY. orgSafePathPrefixes is
+// prefix-matched and method-blind, and this path's siblings are the most
+// destructive routes on the Organization API: POST /api/v1/organizations
+// (create), DELETE /api/v1/organizations/{id} (delete) and POST
+// .../{id}/reconcile. A prefix entry would hand every customer session all
+// three. org_scope_test.go's wipe test states the rule from the other
+// direction — the guard "must not become method-sensitive in a way that lets a
+// write through on a path whose reads are denied". Admitting a read on a path
+// whose writes stay denied is the inverse of that, and it is deliberately
+// narrow: exact path only (no {id} detail route) and read methods only.
+var orgSafeExactReadPaths = []string{
+	"/api/v1/organizations",
+}
+
+// requestIsOrgSafe is the guard's verdict for one request. The method-blind
+// prefix allowlist is consulted first and unchanged; the exact-path read
+// allowlist applies to GET/HEAD only.
+func requestIsOrgSafe(method, p string) bool {
+	if pathIsOrgSafe(p) {
+		return true
+	}
+	if method != http.MethodGet && method != http.MethodHead {
+		return false
+	}
+	for _, exact := range orgSafeExactReadPaths {
+		if p == exact {
+			return true
+		}
+	}
+	return false
+}
+
 // OrgScopeGuard is a chi-compatible middleware applied to the whole
 // RequireSession group in cmd/api/main.go. For a NON-Org-scoped session
 // (Sovereign-admin / operator) it is a transparent passthrough — zero
@@ -340,7 +384,7 @@ func (h *Handler) OrgScopeGuard(next http.Handler) http.Handler {
 			return
 		}
 		// Org-scoped customer session: deny-by-default outside the allowlist.
-		if pathIsOrgSafe(r.URL.Path) {
+		if requestIsOrgSafe(r.Method, r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}

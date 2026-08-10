@@ -926,7 +926,56 @@ func (h *Handler) HandleListOrganizations(w http.ResponseWriter, r *http.Request
 	}
 
 	out := mergeOrgResponses(local, fromCR)
+
+	// #6081 (UAT row 218) — an Org-scoped session sees its OWN row and nothing
+	// else.
+	//
+	// This directory is the SUB-ORG half of the console's `listOrganizations()`
+	// (ui/src/lib/organizations.api.ts); the parent row comes from
+	// /api/v1/sovereign/self. On a per-Org console the whole endpoint was 403'd
+	// by OrgScopeGuard, `listOrgRecords` swallowed the non-2xx into `[]`
+	// (bss.api.ts:826-828), and the bp-agenity install wizard's org select was
+	// left with exactly one option — the Sovereign self-org — which #5823's
+	// pre-select then correctly discards as a parent. The Organization the
+	// console is scoped to was not a candidate for installing into itself.
+	//
+	// The confinement is what makes opening that route safe, so the two land
+	// together: the guard admits only the GET, and this filter is why the GET
+	// cannot become a cross-Org directory read. orgScopeForRequest is reused
+	// rather than re-deriving the scope because it is the SAME acceptance
+	// function HandleCreateInstance consults to force an Org-scoped install into
+	// the caller's own Org (#4937) — the list the wizard offers is then, by
+	// construction, the set the create seam would accept. Two sides deriving the
+	// caller's Org independently is exactly how #6064's picker came to offer
+	// nothing the create handler honoured.
+	//
+	// A Sovereign-admin / operator session returns ("", false) here and keeps
+	// the full cross-Org directory with zero behaviour change.
+	if slug, scoped := h.orgScopeForRequest(r); scoped {
+		out = confineOrgResponsesToSlug(out, slug)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{"items": out})
+}
+
+// confineOrgResponsesToSlug keeps only the rows belonging to `slug`.
+//
+// It FILTERS rather than synthesising: an Org-scoped caller whose Organization
+// has no record yet gets an empty directory, never an invented row. A fabricated
+// row would make the console render an Organization no CR backs — the
+// #5489/#5501 class of lie this endpoint has already been corrected for twice.
+func confineOrgResponsesToSlug(in []orgTenantResponse, slug string) []orgTenantResponse {
+	want := strings.ToLower(strings.TrimSpace(slug))
+	out := make([]orgTenantResponse, 0, 1)
+	if want == "" {
+		return out
+	}
+	for _, it := range in {
+		if strings.EqualFold(strings.TrimSpace(it.Subdomain), want) {
+			out = append(out, it)
+		}
+	}
+	return out
 }
 
 // HandleGetOrganization — GET /api/v1/org/tenants/{id}.
