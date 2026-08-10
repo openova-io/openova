@@ -273,7 +273,7 @@ func TestEnsureConsoleOrgListener_5511_HealsDeadPortsInPlace(t *testing.T) {
 		t.Fatalf("fixture must start with the pair on the dead ports: %v (%d listeners)", before, count)
 	}
 
-	changed, err := r.ensureConsoleOrgListener(context.Background(), orgConsoleTLSNamesFor("acme", "omani.homes"))
+	changed, err := r.ensureConsoleOrgListener(context.Background(), r.Client, orgConsoleTLSNamesFor("acme", "omani.homes"))
 	if err != nil {
 		t.Fatalf("ensureConsoleOrgListener: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestEnsureConsoleOrgListener_5511_HealsDeadPortsInPlace(t *testing.T) {
 
 	// Idempotent once healed — otherwise the controller rewrites the Gateway on
 	// every pass and hot-loops against the apiserver.
-	changed, err = r.ensureConsoleOrgListener(context.Background(), orgConsoleTLSNamesFor("acme", "omani.homes"))
+	changed, err = r.ensureConsoleOrgListener(context.Background(), r.Client, orgConsoleTLSNamesFor("acme", "omani.homes"))
 	if err != nil {
 		t.Fatalf("ensureConsoleOrgListener pass 2: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestEnsureConsoleOrgListener_5511_ApexAbsentUsesCanonicalFallback(t *testin
 		},
 	})
 
-	if _, err := r.ensureConsoleOrgListener(context.Background(), orgConsoleTLSNamesFor("acme", "omani.homes")); err != nil {
+	if _, err := r.ensureConsoleOrgListener(context.Background(), r.Client, orgConsoleTLSNamesFor("acme", "omani.homes")); err != nil {
 		t.Fatalf("ensureConsoleOrgListener: %v", err)
 	}
 

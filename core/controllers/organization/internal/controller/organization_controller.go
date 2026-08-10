@@ -367,6 +367,35 @@ type Reconciler struct {
 	// the record still resolves. Env: CATALYST_OTECH_INGRESS_IPV4 (the same key
 	// catalyst-api's tenant DNS provisioner reads).
 	TenantPrimaryLBIPv4 string
+
+	// #5246 — per-Org console listeners span EVERY region, not just the one
+	// this controller runs in. See tenant_console_tls_regions.go for the
+	// defect, the seam and the anti-vacuity witness.
+
+	// SecondaryRegionKubeconfigSecretName / …Namespace locate the #5359
+	// bridge Secret whose `<regionKey>.yaml` keys carry each secondary
+	// region's kubeconfig. Defaults: cutover-secondary-kubeconfigs /
+	// catalyst. Env: CATALYST_SECONDARY_REGION_KUBECONFIG_SECRET{,_NAMESPACE}.
+	SecondaryRegionKubeconfigSecretName      string
+	SecondaryRegionKubeconfigSecretNamespace string
+
+	// ClusterMeshSecretName / …Namespace locate the Cilium ClusterMesh config
+	// Secret used as the INDEPENDENT witness of how many other regions this
+	// Sovereign has — without it, "no kubeconfigs wired" would silently mean
+	// "no secondary regions" and the per-region check could never fail.
+	// Defaults: cilium-clustermesh / kube-system.
+	// Env: CATALYST_CLUSTERMESH_SECRET{,_NAMESPACE}.
+	ClusterMeshSecretName      string
+	ClusterMeshSecretNamespace string
+
+	// RegionClientBuilder builds a client from a secondary region's
+	// kubeconfig bytes. Nil in production (a real REST client is built);
+	// tests inject fakes so the fan-out is exercised without an apiserver.
+	RegionClientBuilder func(kubeconfig []byte) (client.Client, error)
+
+	// regionClients memoizes the per-region clients between reconciles,
+	// keyed on the bridge Secret's resourceVersion. Lazily allocated.
+	regionClients *regionClientCache
 }
 
 // httpDoer is the narrow HTTP seam the pool-DNS writer needs — *http.Client

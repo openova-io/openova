@@ -136,6 +136,18 @@ func main() {
 	// catalyst-system; the route + backendRefs share that namespace so they
 	// resolve without a ReferenceGrant. Defaults match the catalyst chart
 	// Service names/ports; env-overridable per Inviolable Principle #4.
+	// #5246 — per-Org console listeners span EVERY region. The secondary
+	// regions' kubeconfigs already exist in-cluster as the #5359 bridge Secret
+	// (`<regionKey>.yaml` per secondary CP); the Cilium ClusterMesh config
+	// Secret is the independent witness of how many other regions this
+	// Sovereign has, so "no kubeconfigs wired" can never silently read as "no
+	// secondary regions". Defaults match the shipping chart; per Inviolable
+	// Principle #4 all four are env-overridable.
+	secondaryKubeconfigSecret := envOr("CATALYST_SECONDARY_REGION_KUBECONFIG_SECRET", "cutover-secondary-kubeconfigs")
+	secondaryKubeconfigSecretNs := envOr("CATALYST_SECONDARY_REGION_KUBECONFIG_SECRET_NAMESPACE", "catalyst")
+	clusterMeshSecret := envOr("CATALYST_CLUSTERMESH_SECRET", "cilium-clustermesh")
+	clusterMeshSecretNs := envOr("CATALYST_CLUSTERMESH_SECRET_NAMESPACE", "kube-system")
+
 	consoleRouteNs := envOr("CATALYST_CONSOLE_ROUTE_NAMESPACE", "catalyst-system")
 	consoleAPISvc := envOr("CATALYST_CONSOLE_API_SERVICE", "catalyst-api")
 	consoleUISvc := envOr("CATALYST_CONSOLE_UI_SERVICE", "catalyst-ui")
@@ -287,6 +299,11 @@ func main() {
 		PoolPowerDNSSourceSecretNamespace: poolPowerDNSSourceSecretNS,
 		TenantConsoleLBIPv4:               tenantConsoleLBIPv4,
 		TenantPrimaryLBIPv4:               tenantPrimaryLBIPv4,
+
+		SecondaryRegionKubeconfigSecretName:      secondaryKubeconfigSecret,
+		SecondaryRegionKubeconfigSecretNamespace: secondaryKubeconfigSecretNs,
+		ClusterMeshSecretName:                    clusterMeshSecret,
+		ClusterMeshSecretNamespace:               clusterMeshSecretNs,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup reconciler")
