@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T19:00:05Z` |
+| Last refreshed | `2026-08-10T19:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,8 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T19:07 | [#6057](https://github.com/openova-io/openova/pull/6057) | #6016 | docs(uat): 13 WALKABLE-NOW rows settled on hw293 — 8 flip gr |
+| 2026-08-10T19:03 | [#6056](https://github.com/openova-io/openova/pull/6056) | #3370 | fix(console): /apps renders two card collections and said wh |
 | 2026-08-10T18:57 | [#6055](https://github.com/openova-io/openova/pull/6055) | #793 | fix(console): the cutover trigger was not on the nav — make  |
 | 2026-08-10T18:50 | [#6054](https://github.com/openova-io/openova/pull/6054) | #3991 | fix(catalyst-api): refuse to persist a credential-less secon |
+| 2026-08-10T19:11 | [#6053](https://github.com/openova-io/openova/pull/6053) | #6045 | fix(jobs): surface per-Organization Application installs on  |
 | 2026-08-10T18:52 | [#6052](https://github.com/openova-io/openova/pull/6052) | #4292 | fix(ledger): a clause edited in one file only silently delet |
 | 2026-08-10T18:28 | [#6050](https://github.com/openova-io/openova/pull/6050) | #6049 | fix(deploy-bot): unbreak catalyst + services build — a 64 Ki |
 | 2026-08-10T17:58 | [#6048](https://github.com/openova-io/openova/pull/6048) | #5426 | docs(uat): 6 mutation-gated rows walked by driving the produ |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-10T16:36 | [#6017](https://github.com/openova-io/openova/pull/6017) | #6004 | docs(uat): hw293 rows 196-243 — 29 walked, 17 pass, 12 fail |
 | 2026-08-10T16:43 | [#6014](https://github.com/openova-io/openova/pull/6014) | #5508 | docs(uat): hw293 topology/DR/placement walk — 2 pass, 6 fail |
 | 2026-08-10T14:59 | [#6013](https://github.com/openova-io/openova/pull/6013) | #5568 | docs(uat): hw293 topology rows — 8 fail, including two I cor |
-| 2026-08-10T14:49 | [#6012](https://github.com/openova-io/openova/pull/6012) | #5711 | docs(uat): hw293 walk of 11 rows — 5 pass, 6 fail, and #5930 |
-| 2026-08-10T14:09 | [#6009](https://github.com/openova-io/openova/pull/6009) | #6004 | docs(uat): activate hw293 as the walk env so verdicts can la |
-| 2026-08-10T13:58 | [#6008](https://github.com/openova-io/openova/pull/6008) | #5634 | docs(uat): row 216 — the voucher entry point itself fails ~h |
 
 ---
 
