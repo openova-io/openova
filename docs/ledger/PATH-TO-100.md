@@ -460,7 +460,11 @@ hw291 reached **`cutoverComplete=true` 2026-07-30T11:03:43Z**, all 11 steps, 600
 
 ## Gate 2 — founder-gated credential (#4277)
 
-Rows 219, 220, 222 and G8/G9 need the Anthropic credential; `seedAnthropicToken` loud-skips without it. **No engineering work clears these.** The one genuinely external dependency in the ledger.
+Rows 219, 220, 222 and G8/G9 need the Anthropic credential; `seedAnthropicToken` loud-skips without it. **No engineering work produces a live credential** — that remains the one genuinely external dependency in the ledger.
+
+**Corrected 2026-08-10 (#5956, PR #5968) — "no engineering work clears these" was true of the credential and false of everything around it.** Read literally, that sentence sent every reader past a real defect for weeks. The credential was seeded and then *revoked upstream*, and four surfaces reported green over it: the ExternalSecret (`SecretSynced`), the #4111 pre-flight (which logged verbatim `claude-code OAuth token valid (~7h remaining).` from `expiresAt` alone, at boot only), `/api/v1/runtime/claude-status` (`logged_in: true`), and — worst, because it is ours and it is the only *periodic* one — the #4877 seed reconciler, whose `openbaoPathHasProperty()` check a revoked token satisfies perfectly, every 10 minutes, forever. All four asked about **delivery**; the row asks about **validity**. That gap was entirely ours to close and needed no credential to close it: `anthropic_credential_health.go` now classifies validity from an authenticated API probe, and `healthy` is reachable only via a live 2xx/429.
+
+**G9 additionally has a cause that has nothing to do with the credential**, and folding it under this gate hid it: the chat surface is unreachable because CNP `uatco/allow-gateway-and-apiserver` grants no `:53` egress, so the gate's Keycloak token exchange cannot resolve. That fix is **already merged** (`7148b21da`, Refs #5617) and merely undeployed — a deploy, not engineering work, and certainly not a founder credential. Before writing "nothing clears this row", check whether the row has a *second* gate.
 
 ## Gate 3 — filed defects with named owners
 
