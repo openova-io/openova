@@ -24,7 +24,7 @@ spec:
   rules:
     {{- if .Values.httpRoute.dashboardRedirect.enabled }}
     # ── Rule 1: bare root → the dashboard SPA (#4122) ──────────────────────
-    # The Agenity (chepherd) daemon serves its Astro static build at
+    # The Agenity daemon serves its Astro static build at
     # `--web-dir`: `/` is the upstream MARKETING landing (dist/index.html),
     # while the actual multi-agent chat-to-provision DASHBOARD is the
     # dist/app/index.html SPA at `/app/`. The User opens the bare Org host

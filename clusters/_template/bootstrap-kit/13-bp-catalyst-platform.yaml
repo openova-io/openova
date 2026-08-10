@@ -1350,6 +1350,11 @@ spec:
       #   renders INSIDE this umbrella, so the entry only reaches a Sovereign
       #   once the umbrella republishes and this pin advances (#5734).
       #   Lockstep w/ products/catalyst/chart/Chart.yaml + slot-13d (0.1.6).
+      # 1.4.1331 (#5435): catalog-seed bp-agenity pin 0.5.23 — the retired
+      #   pre-revamp product name is eradicated from every field the chart
+      #   puts on the cluster. The StatefulSet's main container was named
+      #   with the retired name, so it surfaced in `kubectl logs/exec -c`
+      #   (live on hw292 Org uatco). Lockstep w/ products/agenity.
       version: 1.4.1331
       sourceRef:
         kind: HelmRepository

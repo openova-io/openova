@@ -5,9 +5,14 @@
 # (Claude Opus 4.7) then creates more Applications in the User's own Org
 # via the RBAC-scoped openova MCP server.
 #
-# Agenity packages the upstream chepherd multi-agent runtime daemon; the
-# runtime env-var names (CHEPHERD_*) + CLI (`chepherd run`) below are the
-# daemon's own contract and are passed through unchanged.
+# Agenity packages an upstream multi-agent runtime daemon
+# (github.com/agenity-org/agenity). A few literals below still spell the
+# daemon's RETIRED pre-revamp name — the CHEPHERD_* env-var names and the
+# `chepherd run` CLI. Those are the upstream binary's own contract: it reads
+# them by name, so renaming them here would rename nothing upstream and only
+# break the image. Everything OpenOva names — the container, mount paths,
+# routes, labels — reads `agenity`, and
+# scripts/check-agenity-retired-name.sh enforces that split.
 #
 # Inviolable Principle #4: no hardcoded secrets/config in code — every knob
 # flows through values → env → the runtime daemon; the Anthropic token
@@ -18,7 +23,7 @@
 # is empty (#4111). The provisioning/install path stamps this per-Sovereign.
 sovereignFqdn: ""
 
-# ── Agenity runtime image (upstream chepherd daemon + openova-mcp) ─────────
+# ── Agenity runtime image (upstream daemon + openova-mcp) ─────────────────
 image:
   repository: ghcr.io/openova-io/agenity
   tag: ""                 # defaults to .Chart.AppVersion
@@ -27,7 +32,7 @@ image:
 # ── Private-registry pull secret (#4111) ──────────────────────────────────
 # The agenity image (`ghcr.io/openova-io/agenity`) is a PRIVATE
 # ghcr.io/openova-io/* package, so both the seed-claude-creds init container
-# and the chepherd main container must pull it WITH credentials. The Sovereign
+# and the agenity main container must pull it WITH credentials. The Sovereign
 # emberstack-reflector reflects a `ghcr-pull` dockerconfigjson Secret into
 # every per-Org `org-*` / pool namespace, but a reflected Secret is INERT
 # unless the Pod spec references it — without this default the StatefulSet
@@ -43,23 +48,23 @@ imagePullSecrets:
   - name: ghcr-pull
 
 # ── Solo-agent profile ────────────────────────────────────────────────────
-# chepherd boots with a single solo worker agent the User chats with. The
+# agenity boots with a single solo worker agent the User chats with. The
 # journey requires Claude Opus 4.7: `agent.model` is passed to the spawned
 # claude-code as `--model`, so the agent runs on Opus 4.7.
 agent:
   flavor: claude-code      # the spawned agent CLI flavor
   model: claude-opus-4-7   # NORTH-STAR: the solo agent runs on Claude Opus 4.7
-  # Optional system-prompt the solo agent boots with. Empty = chepherd default.
+  # Optional system-prompt the solo agent boots with. Empty = agenity default.
   systemPrompt: ""
   # When true, NO shepherd/supervisor is spawned — a single solo agent only
   # (matches the catalog/solo recipe). The journey is a 1:1 chat with one agent.
   solo: true
   # When true, blank the in-cluster KUBERNETES_SERVICE_HOST/PORT env so the
-  # chepherd daemon does NOT auto-select the `operator` (K8s-Job) spawner —
+  # agenity daemon does NOT auto-select the `operator` (K8s-Job) spawner —
   # which requires an unshipped bp-chepherd-operator (upstream #130) and makes
   # every "+ spawn agent" fail with "operator spawner not yet wired". With it
   # blanked the daemon falls through to the in-pod podman-sidecar→BareExec
-  # spawner that forks the agent on the chepherd host directly (#4111). The
+  # spawner that forks the agent on the agenity host directly (#4111). The
   # spawned agent talks to catalyst-api over the PUBLIC console URL, so it
   # needs no in-cluster apiserver access.
   forceLocalSpawner: true
@@ -79,9 +84,9 @@ anthropic:
   # The spawned claude-code agent authenticates via a FULL credentials.json
   # ({claudeAiOauth:{accessToken,refreshToken,expiresAt,scopes}}), NOT a bare
   # ANTHROPIC_API_KEY — an OAuth token (sk-ant-oat01-…) in ANTHROPIC_API_KEY
-  # is rejected by claude-code, and the chepherd spawn path strips
-  # ANTHROPIC_API_KEY anyway. chepherd resolves claude-code creds from
-  # ~/.claude/.credentials.json on the chepherd host (BareExec) or the vault
+  # is rejected by claude-code, and the agenity spawn path strips
+  # ANTHROPIC_API_KEY anyway. agenity resolves claude-code creds from
+  # ~/.claude/.credentials.json on the agenity host (BareExec) or the vault
   # claude-oauth provider. When credentialsKey is present in the Secret, the
   # chart's init container seeds ~/.claude/.credentials.json from it so the
   # solo agent can call Claude. Empty = key-only mode (only works for a real
@@ -110,9 +115,9 @@ anthropic:
     remoteCredentialsProperty: credentialsJson
 
 # ── openova MCP integration ───────────────────────────────────────────────
-# The chepherd image bundles the `openova-mcp` binary at /usr/local/bin.
-# chepherd injects this MCP-server stanza into EVERY spawned agent's
-# .mcp.json via the CHEPHERD_EXTRA_MCP_JSON seam (chepherd #4010), so the
+# The agenity image bundles the `openova-mcp` binary at /usr/local/bin.
+# agenity injects this MCP-server stanza into EVERY spawned agent's
+# .mcp.json via the CHEPHERD_EXTRA_MCP_JSON seam (agenity #4010), so the
 # solo agent's app-creation tools == the User's UI rights, RBAC-scoped to
 # the User's Org.
 #
@@ -173,7 +178,7 @@ openovaMCP:
   # The openova MCP needs the User's session bearer per tools/call (via
   # _auth.token or the OPENOVA_MCP_BEARER env). The production seam is the
   # chat UI forwarding the signed-in User's session token into each call;
-  # that chepherd-side injection is tracked separately. As an interim, an
+  # that agenity-side injection is tracked separately. As an interim, an
   # operator may supply a bearer Secret the chart wires as OPENOVA_MCP_BEARER.
   #
   # 🛑 For an ORG-deployed agenity (the customer's own Organization, e.g. the
@@ -241,7 +246,7 @@ openovaMCP:
     pubkeyKey: pubkeyPem
 
 # ── Daemon HTTP auth (browser chat-box trust mode) ────────────────────────
-# The chepherd daemon's default auth mode is "local": it mints a bootstrap
+# The agenity daemon's default auth mode is "local": it mints a bootstrap
 # Bearer token and the authMiddleware enforces it on every /api/v1/* path.
 # The dashboard SPA's fetch() calls do NOT carry that token (only the SSE
 # stream gets it as a ?token= query param), so the browser chat box 401s on
@@ -252,7 +257,7 @@ openovaMCP:
 # Gateway + the Org's own host (agenity.<org>.<sovereign-fqdn>), reachable
 # only by the signed-in User — so the daemon's own per-request Bearer is
 # redundant defense. Setting authMode to a non-{local,oidc} value makes
-# chepherd's auth.New() return an error, the daemon logs "server is
+# agenity's auth.New() return an error, the daemon logs "server is
 # unauthenticated", rs.AuthToken stays empty, and authMiddleware becomes a
 # no-op — the browser chat box works with zero 401s. The openova-mcp →
 # catalyst-api create_application path is UNAFFECTED (it uses the separate
@@ -406,7 +411,7 @@ httpRoute:
   # untouched (immutable, safe to cache forever). Disable only if a CDN in
   # front already manages document caching.
   noCacheHtml: true
-  # Bare-root → dashboard redirect (#4122). The chepherd daemon serves its
+  # Bare-root → dashboard redirect (#4122). The agenity daemon serves its
   # upstream MARKETING landing at `/` and the real chat-to-provision
   # DASHBOARD SPA at `/app/`. The User opens the bare Org host, so the route
   # redirects EXACT `/` to the dashboard; all other paths (assets, /api,
@@ -455,7 +460,7 @@ networkPolicy:
     # External HTTPS port for both the Anthropic + console hops (443).
     httpsPort: 443
 
-# ── Persistence — chepherd runtime state + per-agent repo/cache ───────────
+# ── Persistence — Agenity runtime state + per-agent repo/cache ────────────
 # CSI-backed PVCs. storageClass empty = the cluster's default CSI class.
 # NEVER local-path (#3971): leaving storageClass empty resolves to the
 # per-provider CSI default the platform installs.
@@ -469,7 +474,7 @@ persistence:
     storageClass: ""
 
 # ── Resources ─────────────────────────────────────────────────────────────
-# chepherd itself is a light coordinator; the per-agent claude REPLs are the
+# agenity itself is a light coordinator; the per-agent claude REPLs are the
 # heavy users and run as sidecar/podman children inside the pod.
 #
 # requests == limits (Guaranteed QoS, 1:1 ratio). A per-Org namespace carries
@@ -497,8 +502,8 @@ tolerations: []
 affinity: {}
 
 # Run the daemon + the forked claude-code agents as the SAME non-root uid so the
-# agent can read the per-session .mcp.json the daemon writes (#4111). chepherd
-# forks agents as uid 1000 (the "chepherd" user); pinning the pod there avoids
+# agent can read the per-session .mcp.json the daemon writes (#4111). Agenity
+# forks agents as uid 1000 (the image's non-root user); pinning the pod there avoids
 # the root-owned-0700 session-dir EACCES that otherwise kills every spawn.
 # fsGroup makes the CSI state/repo PVCs group-writable for the non-root daemon.
 podSecurityContext:

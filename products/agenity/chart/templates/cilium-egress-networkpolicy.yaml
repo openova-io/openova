@@ -23,7 +23,7 @@ api.anthropic.com / console.<fqdn> and every outbound call NXDOMAINs. We allow
 `kube-dns` k8s service entity) so name resolution keeps working under the new
 default-deny posture. We additionally allow egress to the in-cluster entities
 (cluster/host/remote-node) so the dashboard's own in-cluster legs (apiserver
-when the local spawner is NOT forced, metrics, the chepherd MCP HTTP listener)
+when the local spawner is NOT forced, metrics, the agenity MCP HTTP listener)
 are not collaterally denied.
 
 Gated on the cilium.io/v2 Capabilities check (the #2988/#3102 idiom) so the

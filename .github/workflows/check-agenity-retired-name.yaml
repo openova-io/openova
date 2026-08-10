@@ -1,0 +1,49 @@
+# check-agenity-retired-name.yaml — the retired pre-revamp product name must
+# not reappear under products/agenity/.
+#
+# #5435 class: a banned term that reaches operator-facing output from a RUNTIME
+# Kubernetes object NAME is invisible to a grep of the console/UI source. The
+# bp-agenity StatefulSet named its main container `chepherd`, so the retired
+# name showed up in `kubectl logs/exec -c` and in every console surface that
+# prints container names — live on hw292 Org `uatco` — while the UI trees were
+# clean. A prose-only guard is exactly the guard that cannot catch this, so
+# scripts/check-agenity-retired-name.sh renders the chart with `helm template`
+# and asserts against the PARSED objects (YAML comments gone, real fields only).
+#
+# The script self-tests before it scans (Phase 0): it must detect a planted
+# container name AND must not flag an allowlisted upstream literal. A guard
+# that can only pass is not a guard (#5512).
+name: check-agenity-retired-name
+
+on:
+  pull_request:
+    paths:
+      - "products/agenity/**"
+      - "scripts/check-agenity-retired-name.sh"
+      - ".github/workflows/check-agenity-retired-name.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "products/agenity/**"
+      - "scripts/check-agenity-retired-name.sh"
+      - ".github/workflows/check-agenity-retired-name.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+      - name: Eradicate the retired product name (source + rendered manifests)
+        run: bash scripts/check-agenity-retired-name.sh

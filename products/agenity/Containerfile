@@ -1,7 +1,7 @@
-# bp-agenity image — Agenity (chepherd) daemon + the bundled openova-mcp binary.
+# bp-agenity image — the Agenity daemon + the bundled openova-mcp binary.
 #
 # The bp-agenity Application image is the upstream Agenity multi-agent
-# *daemon* (the chepherd control-plane that runs in the StatefulSet) with
+# *daemon* (the agenity control-plane that runs in the StatefulSet) with
 # OpenOva's `openova-mcp` server binary baked in at /usr/local/bin/openova-mcp.
 # The daemon injects this MCP server into every spawned agent's .mcp.json
 # (via CHEPHERD_EXTRA_MCP_JSON, set by the bp-agenity Helm chart), so the
@@ -27,7 +27,7 @@
 #     --build-arg AGENITY_REF=v0.9.4 \
 #     -t ghcr.io/openova-io/bp-agenity:dev .
 
-# AGENITY_REF pins the PUBLIC agenity (chepherd daemon) source ref. It is
+# AGENITY_REF pins the PUBLIC Agenity daemon source ref. It is
 # declared HERE — before the first FROM — so it lives in the global build
 # scope and is honoured by the SHA-pinned fetch in the fetch stage. A bare
 # `ARG AGENITY_REF` is re-declared inside each stage that needs it
@@ -40,7 +40,7 @@
 # When agenity cuts a v0.9.5+ tag covering this commit, swap this to the tag.
 ARG AGENITY_REF=bcd38b15816694e82bddbbc9d6385ff3de00e3cf
 
-# ─── Stage 0: fetch the PUBLIC agenity (chepherd daemon) source ────────────
+# ─── Stage 0: fetch the PUBLIC Agenity daemon source ──────────────────────
 # git is the pin mechanism. AGENITY_REF may be a tag, a branch, OR a bare
 # commit SHA — `git clone --branch` rejects a SHA, so we init + fetch the
 # exact ref + checkout FETCH_HEAD, which accepts all three. GitHub allows
@@ -64,7 +64,7 @@ COPY --from=agenity-src /src/web/ ./
 # Build with production API path (no proxy prefix needed — same-origin).
 RUN npm run build
 
-# ─── Stage 2: build the chepherd daemon Go binary (mirrors public S2) ──────
+# ─── Stage 2: build the agenity daemon Go binary (mirrors public S2) ──────
 FROM golang:1.25-alpine AS go-builder
 WORKDIR /build
 COPY --from=agenity-src /src/go.mod /src/go.sum ./
@@ -78,9 +78,9 @@ ARG BUILDDATE=unknown
 RUN VERSION="${VERSION:-${AGENITY_REF}}"; \
     CGO_ENABLED=0 GOOS=linux go build \
       -ldflags "-s -w \
-        -X 'github.com/chepherd/chepherd/cmd.Version=${VERSION}' \
-        -X 'github.com/chepherd/chepherd/cmd.Commit=${COMMIT}' \
-        -X 'github.com/chepherd/chepherd/cmd.BuildDate=${BUILDDATE}'" \
+        -X 'github.com/agenity-org/agenity/cmd.Version=${VERSION}' \
+        -X 'github.com/agenity-org/agenity/cmd.Commit=${COMMIT}' \
+        -X 'github.com/agenity-org/agenity/cmd.BuildDate=${BUILDDATE}'" \
       -o /usr/local/bin/chepherd .
 
 # ─── Stage 3: build the openova-mcp binary (from THIS repo) ────────────────
@@ -96,7 +96,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w" \
     -o /usr/local/bin/openova-mcp ./cmd/openova-mcp
 
 # ─── Stage 4: runtime image (mirrors public Containerfile S3) ──────────────
-# ubuntu 22.04 + podman (rootless-in-pod ContainerRuntime) + the chepherd
+# ubuntu 22.04 + podman (rootless-in-pod ContainerRuntime) + the agenity
 # daemon binary + the Astro web UI + the catalog, then overlay openova-mcp.
 # ENTRYPOINT is chepherd-entrypoint and ports 8080/9090 are EXPOSEd — the
 # bp-agenity chart's StatefulSet (`chepherd run --headless --listen ...`)
@@ -118,9 +118,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip3 install --no-cache-dir graphifyy==0.8.35
 
 # ── Agent runtime: node + claude-code (#4111) ──────────────────────────────
-# The bp-agenity image is the chepherd *daemon*; the separate chepherd-agent
+# The bp-agenity image is the agenity *daemon*; the separate chepherd-agent
 # image (Dockerfile.agent) carries the agent CLIs but is NOT loaded in-pod on
-# a Sovereign (no /agent-image.tar mount, no AGENT_IMAGE_REF), so chepherd
+# a Sovereign (no /agent-image.tar mount, no AGENT_IMAGE_REF), so agenity
 # falls back to BareExecRuntime and forks the agent CLI directly on THIS host.
 # Without claude-code on the host, the solo agent cannot run at all —
 # spawning fails before any model call. Bake node 22 + the claude-code CLI in
@@ -142,7 +142,7 @@ RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-l
  && ln -sf /opt/node/bin/claude /usr/bin/claude \
  && /usr/bin/claude --version
 
-# Non-root user for the chepherd process itself.
+# Non-root user for the agenity process itself.
 RUN useradd -m -u 1000 -s /bin/bash chepherd \
     && mkdir -p /app/web /home/chepherd/.local/state/chepherd /home/chepherd/.local/share \
     && chown -R chepherd:chepherd /home/chepherd/.local \
