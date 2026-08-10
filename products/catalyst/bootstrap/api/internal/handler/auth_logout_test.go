@@ -52,9 +52,15 @@ func TestHandleAuthLogout_ClearCookieWireShape(t *testing.T) {
 		t.Fatalf("status: got %d want 200; body=%s", w.Code, w.Body.String())
 	}
 
+	// #5940: three lines now — catalyst_session, catalyst_refresh, and the
+	// non-HttpOnly catalyst_session_hint, which must be cleared on the same
+	// response or a signed-out visitor keeps getting bounced to a console
+	// that only asks them to sign in again. The hint's own attribute
+	// contract (notably: NOT HttpOnly) is asserted in session_hint_test.go;
+	// this test keeps owning the two HttpOnly lines.
 	cookies := w.Result().Header.Values("Set-Cookie")
-	if len(cookies) != 2 {
-		t.Fatalf("Set-Cookie count: got %d want 2 — %v", len(cookies), cookies)
+	if len(cookies) != 3 {
+		t.Fatalf("Set-Cookie count: got %d want 3 — %v", len(cookies), cookies)
 	}
 
 	// Build a per-cookie checklist so any missing attribute on either
@@ -162,9 +168,11 @@ func TestHandleAuthSessionLogout_PostWireShape(t *testing.T) {
 		t.Errorf("body missing ok:true — got %q", w.Body.String())
 	}
 
+	// #5940: three lines — the two HttpOnly cookies below plus the
+	// non-HttpOnly catalyst_session_hint (asserted in session_hint_test.go).
 	cookies := w.Result().Header.Values("Set-Cookie")
-	if len(cookies) != 2 {
-		t.Fatalf("Set-Cookie count: got %d want 2 — %v", len(cookies), cookies)
+	if len(cookies) != 3 {
+		t.Fatalf("Set-Cookie count: got %d want 3 — %v", len(cookies), cookies)
 	}
 
 	var sessionLine, refreshLine string

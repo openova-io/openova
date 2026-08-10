@@ -251,6 +251,12 @@ func (h *Handler) HandleAuthTestSession(w http.ResponseWriter, r *http.Request) 
 		SameSite: http.SameSiteLaxMode,
 	})
 
+	// #5940: the readable hint rides with EVERY session mint, this one
+	// included. A QA-executor session that carried no hint would make an
+	// acceptance walk of UAT rows 3 / 91 measure a browser state no real
+	// customer is ever in, and report a false failure.
+	setSessionHintCookie(w, "", cookieDomain, cookieMaxAge, secure)
+
 	h.log.Info("auth/test-session: minted",
 		"tier", tier,
 		"role", role,

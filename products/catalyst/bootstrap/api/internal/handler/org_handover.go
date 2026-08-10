@@ -221,6 +221,11 @@ func (h *Handler) AuthOrgHandover(w http.ResponseWriter, r *http.Request) {
 		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
+	// #5940 (UAT rows 3 + 91): the readable "a session exists" companion,
+	// carrying this Org's slug so the marketplace can bounce a returning
+	// customer to THEIR console rather than a generic one. No token, no
+	// claims — see session_hint.go. Emitted after the Del above.
+	setSessionHintCookie(w, scope.Org, cookieDomain, cookieMaxAge, secure)
 
 	h.log.Info("auth_org_handover: org session established",
 		"email", email, "org", scope.Org, "host", scope.Host)

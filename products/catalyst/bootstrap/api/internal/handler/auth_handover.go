@@ -565,6 +565,12 @@ func (h *Handler) AuthHandover(w http.ResponseWriter, r *http.Request) {
 		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
+	// #5940 (UAT rows 3 + 91): the readable "a session exists" companion.
+	// This is the SOVEREIGN-ADMIN handover, so the session is not Org-scoped
+	// and the hint carries no slug — the marketplace then derives the
+	// Sovereign's own console. This is the exact persona measured on hw292
+	// 2026-08-10 (owner session live, redeem page showed the stranger form).
+	setSessionHintCookie(w, "", cookieDomain, cookieMaxAge, secure)
 
 	h.log.Info("auth_handover: operator session established",
 		"email", claims.Email,
