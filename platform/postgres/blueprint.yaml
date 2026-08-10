@@ -30,7 +30,7 @@ spec:
   # auto-promotes the survivor (keycloak et al. writable in region-B) instead of
   # leaving it pg_is_in_recovery()=t for the whole outage (hw292 G12). sync-only
   # data fence; default-OFF preserved for singleton/primary/async.
-  version: 0.2.18
+  version: 0.2.19
   card:
     title: PostgreSQL
     summary: |
