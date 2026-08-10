@@ -74,6 +74,29 @@ func NewWithHTTP(addr, realm, saClientID, saClientSecret string, hc *http.Client
 //
 // Returns the Keycloak user ID (UUID string) on success.
 func (c *Client) EnsureUser(ctx context.Context, email, group string) (string, error) {
+	// Normalise ONCE, here, so the lookup and the create can never disagree
+	// (UAT row 41). The realm's owner principal is minted by the chart seed
+	// already lowercased —
+	// platform/keycloak/chart/templates/configmap-sovereign-realm.yaml:1248,
+	// `{{- $ownerEmail := lower (trim ...) }}` — while this imperative path
+	// (PIN verify + handover) passed the typed address through verbatim into
+	// both `?email=<v>&exact=true` and the create payload. An owner typing
+	// their OWN address in different casing therefore missed the exact-match
+	// lookup and minted a SECOND enabled principal for one human, which the
+	// clause "the realm lists the single owner principal" fails on. Nothing in
+	// this repo can undo that: there is no DELETE against
+	// /admin/realms/{realm}/users/{id} anywhere, so every duplicate is
+	// permanent.
+	//
+	// Case folding only — the local-part is lowercased along with the domain.
+	// RFC 5321 §2.3.11 leaves local-part case-sensitivity to the receiving
+	// host, but Keycloak is the receiving host here and the seed has ALREADY
+	// decided the stored form is lowercase; matching that decision is what
+	// keeps one human to one principal. Genuinely different addresses stay
+	// different — this never folds a near-duplicate like emrha.baysal@ onto
+	// emrah.baysal@.
+	email = strings.ToLower(strings.TrimSpace(email))
+
 	saToken, err := c.serviceAccountToken(ctx)
 	if err != nil {
 		return "", fmt.Errorf("keycloak.EnsureUser: service account token: %w", err)

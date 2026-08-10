@@ -169,17 +169,30 @@ func (b *Bridge) onReconcilerObservationLocked(o ReconcilerObservation) (jobsWri
 	// Upsert the leaf. For the reconciler (health) kind the Job's Status
 	// carries the health value directly — deriveTreeView's rollup treats a
 	// degraded/failing leaf as a surfaced failure on the group.
-	if err := b.store.UpsertJob(Job{
-		DeploymentID: b.deploymentID,
-		JobName:      jobName,
-		DisplayName:  reconcilerDisplay(o.Kind, o.Name),
-		AppID:        o.Name,
-		Type:         JobTypeInstall,
-		Kind:         kind,
-		ParentID:     JobID(b.deploymentID, GroupReconcilers),
-		DependsOn:    []string{},
-		Status:       status,
-	}); err != nil {
+	//
+	// writeLeaf is reused for the post-Execution RE-ASSERT below. Seeding an
+	// Execution calls StartExecution, which stamps Job.Status=running on
+	// allocation, so any branch that seeds Executions MUST re-assert the
+	// producer's recency-resolved status afterwards or the last-processed run
+	// leaves the headline. That re-assert used to be spelled out inline in the
+	// task + reconciler branches and was simply MISSING from the cron branch —
+	// three copies of one rule, one of which was absent (UAT row 164). One
+	// closure, called from every seeding branch, is why that can no longer
+	// drift apart.
+	writeLeaf := func(st string) error {
+		return b.store.UpsertJob(Job{
+			DeploymentID: b.deploymentID,
+			JobName:      jobName,
+			DisplayName:  reconcilerDisplay(o.Kind, o.Name),
+			AppID:        o.Name,
+			Type:         JobTypeInstall,
+			Kind:         kind,
+			ParentID:     JobID(b.deploymentID, GroupReconcilers),
+			DependsOn:    []string{},
+			Status:       st,
+		})
+	}
+	if err := writeLeaf(status); err != nil {
 		return 0, 0, err
 	}
 	jobsWritten++
@@ -191,6 +204,20 @@ func (b *Bridge) onReconcilerObservationLocked(o ReconcilerObservation) (jobsWri
 		execsSeeded += es
 		if e != nil {
 			return jobsWritten, execsSeeded, e
+		}
+		// Re-resolve the headline FROM THE RUNS (UAT row 164). A cron leaf's
+		// status is its latest run — that is this file's stated contract and
+		// what TestReconcilerBridge_FailingCron_RedWhileInstallGreen pins, so
+		// the producer's own o.Status must NOT be re-asserted here: it is
+		// documented as "refined by the run below" and re-asserting it turns a
+		// failed run green. But seeding walks the runs in LIST order and
+		// StartExecution stamps running on each allocation, so whichever run
+		// happens to be processed LAST leaves the headline. resolveRunHeadline
+		// applies the same verdict rules the producer uses, order-independently.
+		if st, ok := resolveRunHeadline(o.Executions); ok {
+			if err := writeLeaf(st); err != nil {
+				return jobsWritten, execsSeeded, err
+			}
 		}
 	case ObsKindTask:
 		// A task leaf is ONE STABLE entry keyed by its base identity
@@ -210,17 +237,7 @@ func (b *Bridge) onReconcilerObservationLocked(o ReconcilerObservation) (jobsWri
 			// LAST-processed run (not necessarily the most recent) would
 			// otherwise leave the headline. Re-assert the producer's
 			// recency-resolved status so the leaf reflects the latest run.
-			if err := b.store.UpsertJob(Job{
-				DeploymentID: b.deploymentID,
-				JobName:      jobName,
-				DisplayName:  reconcilerDisplay(o.Kind, o.Name),
-				AppID:        o.Name,
-				Type:         JobTypeInstall,
-				Kind:         kind,
-				ParentID:     JobID(b.deploymentID, GroupReconcilers),
-				DependsOn:    []string{},
-				Status:       status,
-			}); err != nil {
+			if err := writeLeaf(status); err != nil {
 				return jobsWritten, execsSeeded, err
 			}
 		} else if isTerminalOrRunningObs(status) {
@@ -255,17 +272,7 @@ func (b *Bridge) onReconcilerObservationLocked(o ReconcilerObservation) (jobsWri
 		// a reconciler leaf must carry its HEALTH status (healthy/degraded/
 		// failing), never the one-shot "running". Re-assert it after the
 		// execution write so the wire shows the true health axis.
-		if err := b.store.UpsertJob(Job{
-			DeploymentID: b.deploymentID,
-			JobName:      jobName,
-			DisplayName:  reconcilerDisplay(o.Kind, o.Name),
-			AppID:        o.Name,
-			Type:         JobTypeInstall,
-			Kind:         kind,
-			ParentID:     JobID(b.deploymentID, GroupReconcilers),
-			DependsOn:    []string{},
-			Status:       status,
-		}); err != nil {
+		if err := writeLeaf(status); err != nil {
 			return jobsWritten, execsSeeded, err
 		}
 	}
@@ -296,13 +303,37 @@ func (b *Bridge) attachExecutionToInstallLeafLocked(o ReconcilerObservation) (ex
 }
 
 // seedCronExecutionsLocked writes one Execution per spawned CronJob run,
-// deduped by run name (an already-recorded run's Execution is left
-// untouched). Returns the count of NEW Executions seeded.
+// deduped by run name so a re-read never duplicates a run. Returns the count of
+// NEW Executions seeded.
+//
+// An ALREADY-RECORDED run is not simply skipped. A run first observed in flight
+// is written by StartExecution as running with FinishedAt=nil; when that same
+// run later reaches a terminal verdict, the dedupe must TERMINATE the existing
+// Execution rather than leave it untouched. Skipping it outright is UAT row
+// 164's live symptom: on hw292 the syft-grype run that ended Failed /
+// BackoffLimitExceeded still read "running, finishedAt: null" days later,
+// because the only poll that could have terminated it was deduped away. A
+// terminal Execution, or a run still in flight, is left exactly as it is.
 func (b *Bridge) seedCronExecutionsLocked(cronLeafJobName string, o ReconcilerObservation) (execsSeeded int, err error) {
-	existing, _ := b.runNamesForJobLocked(cronLeafJobName)
+	existing, _ := b.recordedRunsForJobLocked(cronLeafJobName)
 	for _, run := range o.Executions {
 		run.Name = strings.TrimSpace(run.Name)
-		if run.Name == "" || existing[run.Name] {
+		if run.Name == "" {
+			continue
+		}
+		if prev, ok := existing[run.Name]; ok {
+			st := jobStatusFromHelmState(run.Status)
+			// Terminate only on a real transition: the run has a terminal
+			// verdict and the stored Execution has not recorded one yet.
+			if IsTerminal(st) && !IsTerminal(prev.Status) {
+				fin := run.FinishedAt
+				if fin.IsZero() {
+					fin = prev.StartedAt
+				}
+				if e := b.store.FinishExecution(b.deploymentID, prev.ID, st, fin); e != nil {
+					return execsSeeded, e
+				}
+			}
 			continue
 		}
 		st := jobStatusFromHelmState(run.Status)
@@ -338,11 +369,55 @@ func (b *Bridge) seedCronExecutionsLocked(cronLeafJobName string, o ReconcilerOb
 	return execsSeeded, nil
 }
 
-// runNamesForJobLocked returns the set of run names already recorded as
-// Executions for a leaf (read from each Execution's first log line's
-// "[run <name>]" tag). Used to dedupe CronJob runs across re-reads.
-func (b *Bridge) runNamesForJobLocked(jobName string) (map[string]bool, error) {
-	out := map[string]bool{}
+// resolveRunHeadline folds a leaf's runs into ONE headline status, applying the
+// same verdict rules the producer applies at ingestion
+// (helmwatch.adoptRunHeadline, #5931) so the two layers cannot disagree:
+//
+//  1. a real failure always displaces a no-verdict headline, whatever order the
+//     apiserver listed the runs in;
+//  2. an in-flight run never clears a recorded failure;
+//  3. otherwise the most recent run wins, comparing like with like
+//     (FinishedAt when the run terminated, else StartedAt).
+//
+// Returns ok=false when there are no runs, so the caller leaves the leaf's
+// existing status alone rather than blanking it.
+func resolveRunHeadline(runs []ReconcilerExecutionObservation) (string, bool) {
+	headline := ""
+	var at time.Time
+	for _, r := range runs {
+		st := jobStatusFromHelmState(r.Status)
+		runAt := r.FinishedAt
+		if runAt.IsZero() {
+			runAt = r.StartedAt
+		}
+		if headline == "" {
+			headline, at = st, runAt
+			continue
+		}
+		switch {
+		case !IsTerminal(st) && headline == StatusFailed:
+			// (2) an in-flight run never clears a recorded failure.
+			continue
+		case st == StatusFailed && !IsTerminal(headline):
+			// (1) a real failure displaces a no-verdict headline.
+			headline, at = st, runAt
+			continue
+		}
+		// (3) recency.
+		if at.IsZero() || runAt.IsZero() || !runAt.Before(at) {
+			headline, at = st, runAt
+		}
+	}
+	return headline, headline != ""
+}
+
+// recordedRunsForJobLocked returns the Executions already recorded on a leaf,
+// keyed by run name (read from each Execution's first log line's
+// "[run <name>]" tag). Used to dedupe CronJob runs across re-reads — and,
+// because it returns the Execution itself rather than a bare presence flag, to
+// decide whether an already-recorded run still needs terminating.
+func (b *Bridge) recordedRunsForJobLocked(jobName string) (map[string]Execution, error) {
+	out := map[string]Execution{}
 	_, execs, err := b.store.GetJob(b.deploymentID, jobName)
 	if err != nil {
 		return out, err
@@ -353,7 +428,7 @@ func (b *Bridge) runNamesForJobLocked(jobName string) (map[string]bool, error) {
 			continue
 		}
 		if name := runNameFromLogLine(page.Lines[0].Message); name != "" {
-			out[name] = true
+			out[name] = e
 		}
 	}
 	return out, nil
