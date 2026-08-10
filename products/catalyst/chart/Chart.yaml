@@ -3757,7 +3757,16 @@ name: bp-catalyst-platform
 #   Blueprint CR list is the ONLY catalog leg that answers, and those CRs are
 #   whatever the LAST PUBLISHED umbrella rendered — hence this republish, per
 #   check-umbrella-republish-gate.py (#5734). Lockstep w/ slot-13 pin.
-version: 1.4.1331
+version: 1.4.1332
+# 1.4.1332 (#5956): republish so the catalog-seed's bp-agenity pin 0.5.23
+# actually reaches a published bp-catalyst-platform artifact. 0.5.23 makes the
+# seed-claude-creds pre-flight check credential VALIDITY against the Anthropic
+# API instead of trusting claudeAiOauth.expiresAt — on hw292 it printed
+# `claude-code OAuth token valid (~7h remaining).` over a credential the API
+# was already answering `401 OAuth access token has been revoked` for. On a
+# pre-cutover Sovereign this in-cluster seed is the only functioning
+# install-time catalog source, so without this bump the corrected pre-flight
+# would never be installed. Seed-pin-only change.
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
