@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T12:30:10Z` |
+| Last refreshed | `2026-08-10T12:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T12:34 | [#5997](https://github.com/openova-io/openova/pull/5997) | #5987 | fix(funnel): the per-Org bp-newapi HelmRelease could not ins |
 | 2026-08-10T12:25 | [#5995](https://github.com/openova-io/openova/pull/5995) | #5988 | docs(uat): generate the WBS partition from UAT.md instead of |
 | 2026-08-10T12:26 | [#5994](https://github.com/openova-io/openova/pull/5994) | #5646 | fix(provisioning): pod-truth reconciler was blind to the hos |
 | 2026-08-10T12:26 | [#5990](https://github.com/openova-io/openova/pull/5990) | #5253 | docs(uat): adjudicate the six clause-is-wrong candidates — 2 |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-09T23:36 | [#5950](https://github.com/openova-io/openova/pull/5950) | #4277 | docs(uat): zero pending — 208 PASS + 78 FAIL = 286, every ro |
 | 2026-08-09T23:22 | [#5949](https://github.com/openova-io/openova/pull/5949) | #3687 | docs(uat): no partials — every row is now PASS or FAIL, and  |
 | 2026-08-09T22:51 | [#5947](https://github.com/openova-io/openova/pull/5947) | #5614 | docs(uat): final disposition — the SUPERSEDED class is EMPTY |
-| 2026-08-09T22:51 | [#5946](https://github.com/openova-io/openova/pull/5946) | #5650 | fix(cutover): refuse a bp-self-sovereign-cutover pin below t |
 
 ---
 
