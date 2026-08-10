@@ -46,7 +46,7 @@ G12,dr,4275,"region-kill (Pillar-3) — kill a region, prove failover + recovery
 2,model,3687,Full sidebar renders (Dashboard / Cloud / Apps / Catalog / Agenity / Jobs / Compliance / Users / Organizations / Settings).
 3,model,3687,The voucher-redeem URL opened in an AUTHED OWNER browser session bounces to `/dashboard` CLIENT-side and leaves NO redeem form rendered for the owner (the marketplace is a static build with client-side auth — the #4546 contract written for this row).
 4,model,3687,"App page tab strip generality: open ≥2 archetypes (a DB `shared-pg`, a consumer `harbor`) → identical tab strip; consumer Dependencies shows `Depends on: shared-pg / db:<ctx>`."
-5,model,3687,"Organizations directory: the customer Org row shows KIND=customer, TIER=sme, BILLING=real, ISOLATION=vcluster, STATUS=active."
+5,model,3687,"Organizations directory: the customer Org row shows KIND=customer, TIER=org (the #4292 isolation class - the purchased plan is carried separately as planSlug), BILLING=real, ISOLATION=vcluster, STATUS=active."
 6,model,3687,The customer Org is present as a real Organization in the operator directory (same record dashboard + showback read).
 7,model,3687,"Org detail renders canonical fields: slug `acme` (NOT `sme-<uuid>`), kind customer, tier `org` + planSlug `m` (the #4292 split: tier is the isolation class, the purchased plan is a separate field), billing real, isolation vcluster, owner, console URL."
 8,model,3687,"The Create-organization form renders fully (kind picker, slug, Company name, Admin email, parent-domain)."
@@ -147,7 +147,7 @@ G12,dr,4275,"region-kill (Pillar-3) — kill a region, prove failover + recovery
 103,placement,3642,A per-Org vCluster block contains ONLY that Organization's workloads — no cross-Org leakage into another Org's block.
 104,placement,3642,The seven bootstrap components (grafana/harbor/keycloak/gitea/openbao/newapi/guacamole) render under **host** — the post-#4325 canonical placement.
 105,placement,3642,A per-app placement detail matches the treemap block the app renders in — the two surfaces cannot disagree.
-106,placement,3642,"Every Organization owns EXACTLY ONE host namespace labelled openova.io/organization=<slug> — org-labelled namespace count equals the count of Organization CRs, at every tier; no orphan namespace, no missing one."
+106,placement,3642,"Every Organization owns EXACTLY ONE host namespace labelled `openova.io/organization=<slug>` — org-labelled namespace count equals the count of Organization CRs, at every tier; no orphan namespace, no missing one."
 107,placement,3642,Deleting an Organization removes its vCluster StatefulSet — no orphaned vCluster survives the delete cascade.
 108,placement,3642,"Placement is read from RUNTIME (the observed pod/namespace), not from the Application CR's declared field — a declared value that disagrees with reality must lose."
 109,placement,688,"(a) the console `/settings` profile renders the owner with no second login; (b) if the Keycloak account console is reached directly it fails loud and legibly, and NO console navigation links a User to it."
@@ -156,7 +156,7 @@ G12,dr,4275,"region-kill (Pillar-3) — kill a region, prove failover + recovery
 112,placement,3642,"Grafana opens signed in (no Grafana login), the home dashboard renders."
 113,placement,3642,The OpenBao UI renders signed in via OIDC — no manual token/unseal prompt blocking the landing.
 114,placement,3642,"newapi opens signed in, its main console renders — no login form, no upstream-connect error."
-115,placement,3642,"The Guacamole connections list is NON-EMPTY for a signed-in sovereign-admin — guacamole_connection holds at least one row and the ALL CONNECTIONS list renders it. VACUITY GUARD: the admin group's CREATE_* system permissions are the RIGHT to create a connection, not a connection — a permission-only check is a FAIL."
+115,placement,3642,"The Guacamole connections list is NON-EMPTY for a signed-in sovereign-admin — `guacamole_connection` holds at least one row and the ALL CONNECTIONS list renders it. VACUITY GUARD: the admin group's `CREATE_*` system permissions are the RIGHT to create a connection, not a connection — a permission-only check is a FAIL."
 116,orgs,3383,"Organizations directory: the page title / heading reads ""Organizations"", never ""Tenants""/""SME Tenants""."
 117,orgs,3383,"Directory org cards / list rows: column headers read ""Organization / Kind / Tier / Billing / Isolation / Status""; rows labeled ""Organization"", never ""tenant""/""SME""."
 118,orgs,3383,"Left-nav sidebar label for this section reads ""Organizations"", not ""Tenants""/""SME""."
@@ -200,7 +200,7 @@ G12,dr,4275,"region-kill (Pillar-3) — kill a region, prove failover + recovery
 156,catalog,3668,Save's verdict is backed by a REAL commit — resolvable in the Organization's Gitea IaC repo with matching file content within one reconcile.
 157,catalog,3668,"Per-field inline edit for cards (`cif-*`) + the full-CR YamlEditor (Edit IaC) for the rest, both writing the same IaC source — acceptance headline 6."
 158,catalog,3668,The identical edit mechanism works on a 2nd + 3rd blueprint — no per-blueprint UI (Alloy + Postgres + a third) — acceptance headline 7.
-159,cutover,3379,"Settings → Sovereignty section renders a ""Cluster sovereignty"" panel with a ""TETHERED"" badge + an ""Achieve True Sovereignty"" cutover CTA (runs the 8-step cutover + 10-min egress-block self-test)."
+159,cutover,3379,"Settings → Sovereignty section renders a ""Cluster sovereignty"" panel with a ""TETHERED"" badge + an ""Achieve True Sovereignty"" cutover CTA (runs the 11-step cutover + 10-min egress-block self-test)."
 160,cutover,3379,"Console nav + Settings sidebar expose a dedicated ""Sovereignty"" anchor (`#sovereignty`) that scrolls to + highlights the Cluster-sovereignty panel — the cutover trigger is a first-class surface."
 161,cutover,3379,"Open `/jobs` (zero-login, signed in as owner) → the canvas table renders a populated activity list (not a spinner, empty state, or login redirect)."
 162,cutover,3379,"Find the `cutover` group row and expand it → it renders the 11 `cutover-step-*` rows (gitea-mirror, harbor-projects, harbor-prewarm, registry-pivot, … vcluster-registry-p… — the 11-step execution tree."

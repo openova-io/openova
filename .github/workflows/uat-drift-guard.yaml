@@ -22,8 +22,11 @@ on:
     paths:
       - "docs/ledger/UAT.md"
       - "docs/ledger/uat-walkthrough/**"
+      - "docs/ledger/uat-testcases.csv"
+      - "docs/ledger/uat-retirements.csv"
       - "scripts/uat-drift-guard.py"
       - "scripts/test_uat_table_shape.py"
+      - "scripts/test_uat_clause_identity.py"
       - "scripts/reset-uat.py"
       - ".github/workflows/uat-drift-guard.yaml"
   push:
@@ -31,8 +34,11 @@ on:
     paths:
       - "docs/ledger/UAT.md"
       - "docs/ledger/uat-walkthrough/**"
+      - "docs/ledger/uat-testcases.csv"
+      - "docs/ledger/uat-retirements.csv"
       - "scripts/uat-drift-guard.py"
       - "scripts/test_uat_table_shape.py"
+      - "scripts/test_uat_clause_identity.py"
       - "scripts/reset-uat.py"
       - ".github/workflows/uat-drift-guard.yaml"
   workflow_dispatch:
@@ -124,3 +130,30 @@ jobs:
 
       - name: Guard the UAT table shape
         run: python3 scripts/test_uat_table_shape.py
+
+  clause-identity:
+    name: UAT ledger identity (286 frozen, bijective, clause-identical, retirements recorded)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # The self-test IS the vacuity control, and it runs FIRST. Legs B/C/D all
+      # have the shape "no row is bad", which an empty parse satisfies — so a
+      # drifted row regex would make this guard loudest at the moment it stopped
+      # checking anything. The self-test mutates an in-memory copy once per leg
+      # (a stripped backtick, a vanished canon row, a hollowed retirement ground,
+      # an unreadable table) and requires each mutant to fail BY NAME, not merely
+      # to exit non-zero — a crash satisfies a naive exit-code check while proving
+      # nothing. It also prints whether the real ledger is currently clean, so a
+      # red tree cannot hide behind four green mutants.
+      - name: Prove the guard goes red on each leg (self-test)
+        run: python3 scripts/test_uat_clause_identity.py --self-test
+
+      - name: Guard the ledger's ROW-184 identity invariant
+        run: python3 scripts/test_uat_clause_identity.py
