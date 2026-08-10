@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T16:30:12Z` |
+| Last refreshed | `2026-08-10T16:45:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T16:33 | [#6025](https://github.com/openova-io/openova/pull/6025) | #5359 | fix(cutover): the chart outgrew the 1 MiB Helm release Secre |
 | 2026-08-10T16:00 | [#6024](https://github.com/openova-io/openova/pull/6024) | #6015 | fix(catalyst-api): a Sovereign must not report placement fro |
 | 2026-08-10T15:36 | [#6023](https://github.com/openova-io/openova/pull/6023) | #3376 | docs(uat): hw293 walk of the 21 unwalked rows in 55-95 — 16  |
 | 2026-08-10T16:08 | [#6022](https://github.com/openova-io/openova/pull/6022) | #6015 | docs(uat): hw293 walk of rows 164-195 — 17 pass, 4 fail, and |
@@ -314,6 +315,8 @@ flowchart LR
 | 2026-08-10T15:26 | [#6020](https://github.com/openova-io/openova/pull/6020) | #3380 | docs(uat): hw293 walk of the 18 letter-prefixed rows — 9 pas |
 | 2026-08-10T16:22 | [#6019](https://github.com/openova-io/openova/pull/6019) | #6004 | docs(uat): hw293 walk of rows 110-163 — 46 pass, 5 fail |
 | 2026-08-10T15:58 | [#6018](https://github.com/openova-io/openova/pull/6018) | #3370 | docs(uat): hw293 rows 1-54 walk — 39 stamped, 33 pass and 6  |
+| 2026-08-10T16:36 | [#6017](https://github.com/openova-io/openova/pull/6017) | #6004 | docs(uat): hw293 rows 196-243 — 29 walked, 17 pass, 12 fail |
+| 2026-08-10T16:43 | [#6014](https://github.com/openova-io/openova/pull/6014) | #5508 | docs(uat): hw293 topology/DR/placement walk — 2 pass, 6 fail |
 | 2026-08-10T14:59 | [#6013](https://github.com/openova-io/openova/pull/6013) | #5568 | docs(uat): hw293 topology rows — 8 fail, including two I cor |
 | 2026-08-10T14:49 | [#6012](https://github.com/openova-io/openova/pull/6012) | #5711 | docs(uat): hw293 walk of 11 rows — 5 pass, 6 fail, and #5930 |
 | 2026-08-10T14:09 | [#6009](https://github.com/openova-io/openova/pull/6009) | #6004 | docs(uat): activate hw293 as the walk env so verdicts can la |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-10T11:19 | [#5976](https://github.com/openova-io/openova/pull/5976) | #3374 | docs(uat): convergence cycle 2026-08-10 — 67.8% green, and t |
 | 2026-08-10T11:34 | [#5974](https://github.com/openova-io/openova/pull/5974) | #5435 | fix(org-services): the workload named tenant is what put a b |
 | 2026-08-10T15:59 | [#5973](https://github.com/openova-io/openova/pull/5973) | #4539 | fix(uat): rows 121, W5, G7 fixed at source; rows 19 and 184  |
-| 2026-08-10T10:55 | [#5972](https://github.com/openova-io/openova/pull/5972) | #5614 | fix(auth, dashboard): the handover session stamps a foreign  |
-| 2026-08-10T10:32 | [#5971](https://github.com/openova-io/openova/pull/5971) | #3374 | fix(jobs,auth): UAT rows 164 + 41 — a failed run must termin |
-| 2026-08-10T10:32 | [#5970](https://github.com/openova-io/openova/pull/5970) | #4110 | fix(openova-mcp): resolve the Blueprint version an agentic c |
 
 ---
 
