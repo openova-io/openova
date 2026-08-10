@@ -6,7 +6,7 @@ metadata:
     catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 1.2.66  # lockstep with chart/Chart.yaml (#5829: both sso-configure ACL-policy writes now GATE the tick — a swallowed policy failure left auth/oidc/role/operator naming a policy that does not exist, so every token 403'd incl. sys/internal/ui/mounts — UAT row 183)
+  version: 1.2.67  # lockstep with chart/Chart.yaml (#5829: both sso-configure ACL-policy writes now GATE the tick — a swallowed policy failure left auth/oidc/role/operator naming a policy that does not exist, so every token 403'd incl. sys/internal/ui/mounts — UAT row 183)
   card:
     title: openbao
     summary: OpenBao secret backend. 3-node Raft per region (independent quorum, async perf-replication across regions). MPL 2.0 — drop-in Vault replacement.

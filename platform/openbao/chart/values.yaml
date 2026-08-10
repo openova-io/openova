@@ -711,17 +711,39 @@ continuum:
   # one-directional, so it is an operator-confirmed action (DoD-8 step 8.6),
   # not an automatic lag-breach flip.
   autoFailover: false
-  # Lease witness — dns-quorum by default (the same fallback bp-cnpg-pair
-  # uses). Per-Sovereign overlay may switch to cloudflare-kv.
+  # Lease witness — k8s-lease (#3829) is the air-gappable DEFAULT: a
+  # native coordination.k8s.io/v1 Lease in the control-plane cluster,
+  # durable etcd-backed CAS, zero external dependency (so it survives
+  # the Pillar-5 air-gap). The continuum-controller ClusterRole already
+  # grants coordination.k8s.io/leases, so no RBAC change is needed.
+  #
+  # This default used to read `kind: dns-quorum` with resolvers
+  # 10.43.0.10/.11/.12, and every Continuum it rendered was born dead —
+  # the same defect #6074 removed from the per-Org GitOps writer, whose
+  # comment then claimed that writer "was the last producer still
+  # selecting the dead backend". This chart was the counter-example.
+  # Three independent reasons re-pointing the resolvers would not have
+  # helped, all measured rather than assumed:
+  #
+  #  1. dns-quorum's registered factory builds its client with a nil
+  #     TXTWriter unconditionally (internal/witness/dnsquorum/client.go),
+  #     so Acquire can never take the lease whatever resolvers it gets.
+  #  2. kube-dns is not authoritative for the lease zone, so the read
+  #     side finds no TXT record to reach a majority either.
+  #  3. kube-dns is REGION-LOCAL (measured on hw293: region A serves
+  #     10.96.0.10, region B serves 10.97.0.10). A witness exists so two
+  #     regions can arbitrate ONE slot; per-region resolver sets can
+  #     never form the shared quorum that requires.
+  #
+  # 10.43.0.0/16 is k3s's DEFAULT service CIDR and these Sovereigns
+  # allocate from 10.96.0.0/12, so .11 and .12 were never anything at
+  # all. Matches the shipped defaults of bp-cnpg-pair and bp-postgres.
+  # Per-Sovereign overlay may still switch to cloudflare-kv.
   leaseClient:
-    kind: dns-quorum
+    kind: k8s-lease
     config:
       ttlSeconds: 30
       renewSeconds: 10
-      resolvers:
-        - "10.43.0.10"
-        - "10.43.0.11"
-        - "10.43.0.12"
   # PowerDNS zone the lua-record probe target is flipped in (the Sovereign
   # FQDN). Per-Sovereign overlay sets it.
   pdmZone: ""
