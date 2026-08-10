@@ -50,7 +50,7 @@ with the slot-06a overlay, on both sides of the #6004 fix:
 
     chart state          helm's encoder      this model      delta
     0.1.177 (failing)         1233060          1216220      -1.37%
-    0.1.179 (fixed)            743780           732444      -1.52%
+    0.1.179 (fixed)            757264           745988      -1.49%
 
 The residual is Go's flate implementation against zlib's, and it goes the
 UNSAFE way — the model reads slightly low. MODEL_ALLOWANCE below scales the

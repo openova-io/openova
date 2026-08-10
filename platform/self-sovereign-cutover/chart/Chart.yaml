@@ -23,22 +23,32 @@ name: bp-self-sovereign-cutover
 # Chart.yaml and values.yaml are stored PARSED, so their own commentary — the
 # largest files in the tree — never cost a byte and were never the problem.
 #
-# WHAT CHANGED, AND WHAT DID NOT. 5,507 whole-line `#` comments across 22
-# templates became {{/* … */}} block comments: every word still sits at the
-# exact line a source reader is looking at, and none of it reaches the release
-# Secret. Nothing was deleted. Sixteen comment lines stayed `#` on purpose —
-# they are region anchors the chart's own tests navigate the RENDER by
-# (settled-roll-preflight BEGIN/END, Phase A4/Phase B, Phase 2c, Phase 0: ADD
-# harbor, Phase 3 strip, the Day-2 loop truncation point, the #5359 candidate
-# chain, and the #5215 CSI exclusion the tests require to be auditable in the
-# manifest); each now says so inline. tests/ moved to a new .helmignore.
+# WHAT CHANGED, AND WHAT DID NOT. 5,170 whole-line `#` comments across 21
+# templates became 718 Helm block comments: every word still sits at the exact
+# line a source reader is looking at, and none of it reaches the release Secret.
+# Nothing was deleted.
+#
+# Two sets of `#` comments stayed `#` ON PURPOSE, and now say so inline.
+# (a) Sixteen region anchors the chart's own tests navigate the RENDER by —
+#     settled-roll-preflight BEGIN/END, Phase A4 / Phase B, Phase 2c,
+#     "Phase 0: ADD harbor", the Phase 3 strip header whose LINE NUMBER
+#     cutover-contract Case 17b compares against the executable del(.auths[...])
+#     to prove strip-after-pivot, the Day-2 loop truncation point, the #5359
+#     candidate chain, and the #5215 CSI exclusion Case 64 requires to be
+#     auditable in the manifest rather than merely absent.
+# (b) ALL of 04-registry-pivot-daemonset.yaml. cutover_registry_pivot_mirror_
+#     test.go slices shell functions out of that template VERBATIM and runs
+#     them under /bin/sh with no Helm rendering, so a Helm comment inside a
+#     function body is a dash syntax error, not a comment. See that file's
+#     header.
+# chart/tests/*.sh left the package via a new .helmignore.
 #
 # PROOF THE BEHAVIOUR IS UNCHANGED: the rendered manifest, with `#` comment
-# lines and blank lines removed, is BYTE-IDENTICAL to 0.1.177's — 507,299 bytes
-# on both sides, zero differing lines. All 16 chart/tests/*.sh pass, as they do
-# on 0.1.177.
+# lines and blank lines removed and the helm.sh/chart version label normalised,
+# is BYTE-IDENTICAL to 0.1.177's — 507,299 bytes on both sides, zero differing
+# lines. All 16 chart/tests/*.sh pass, as they do on 0.1.177.
 #
-# RESULT: 1,233,060 -> 743,780 bytes, 70.93% of the ceiling, 304,796 bytes of
+# RESULT: 1,233,060 -> 757,264 bytes, 72.22% of the ceiling, 291,312 bytes of
 # headroom. scripts/check-helm-release-payload-size.py is the gate that now
 # measures this before publish, and it fails on 0.1.177's content (119.45%).
 # No step, value, RBAC rule or step-count change; still 11 steps.
