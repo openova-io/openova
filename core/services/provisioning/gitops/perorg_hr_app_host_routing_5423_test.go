@@ -80,11 +80,26 @@ func TestPerOrgAppsTree_5423_VclusterTierKeepsFluxDocsOutOfTheKubeconfigTargeted
 			}
 		}
 
+		// The invariant is that the index equals the file set — so DERIVE the
+		// expectation from the files actually rendered into host-apps instead
+		// of restating a hand-written list. A hardcoded `want` only ever tested
+		// two lists against each other: it went red when the openclaw⇒newapi
+		// dependency closure (UAT row 225) legitimately added a third doc to
+		// BOTH sides, which is the drift this guard exists to permit.
 		hostDocs := PerOrgHostHelmReleaseAppDocs("m", cart)
-		want := []string{"app-openclaw.yaml", "app-stalwart-mail.yaml"}
+		want := []string{}
+		for path := range files {
+			if name, ok := strings.CutPrefix(path, PerOrgHostAppsDir+"/"); ok {
+				want = append(want, name)
+			}
+		}
 		sort.Strings(hostDocs)
+		sort.Strings(want)
+		if len(want) == 0 {
+			t.Fatalf("control failed: no files rendered under %s, so the index comparison below would pass on nothing", PerOrgHostAppsDir)
+		}
 		if strings.Join(hostDocs, ",") != strings.Join(want, ",") {
-			t.Errorf("PerOrgHostHelmReleaseAppDocs = %v, want %v — the file set and the index set must not drift", hostDocs, want)
+			t.Errorf("PerOrgHostHelmReleaseAppDocs = %v, but host-apps holds %v — the file set and the index set must not drift", hostDocs, want)
 		}
 	})
 

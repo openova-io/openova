@@ -63,7 +63,8 @@ import { SBOMTab } from './SBOMTab'
 // #4085 — per-resource compliance findings table.
 import { ResourceComplianceTab } from './ResourceComplianceTab'
 // #3996 — the lightweight ArgoCD/Flux management tab (Flux reconciler kinds).
-import { ReconcileTab, isReconcilerManageable } from './ReconcileTab'
+import { ReconcileTab, isReconcilerManageable, wireKindFor } from './ReconcileTab'
+import { ControllerLogsPane } from './ControllerLogsPane'
 import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
 import {
   RESOURCE_DETAIL_TABS,
@@ -898,19 +899,37 @@ interface LogsTabProps {
 }
 
 function LogsTabContent({ kind, deploymentId, ns, name, obj }: LogsTabProps) {
-  // Logs only meaningful for Pods (per kubelet API). For other kinds we
-  // surface a hint pointing the operator at the owned-Pod tree-view.
-  if (kind !== 'pod') {
+  if (kind === 'pod') {
+    return <LogViewer deploymentId={deploymentId} ns={ns} pod={name} obj={obj} />
+  }
+
+  // UAT row 195 / #3996 — a Flux reconciler HAS logs, they are just not its
+  // own: they belong to the controller that reconciles it. Drilling a
+  // Kustomization and clicking Logs used to land on the per-Pod placeholder
+  // below, which sends the operator to a Tree tab holding no Pod to pick —
+  // a dead end on the one kind whose logs the platform already serves at
+  // /reconcilers/{kind}/{ns}/{name}/logs. Render them here instead.
+  const wireKind = wireKindFor(kind)
+  if (wireKind) {
     return (
-      <PlaceholderTab
-        testId="resource-detail-logs-not-pod"
-        note={
-          'Logs are streamed per-Pod. Drill into the Tree tab and pick a child Pod to see logs.'
-        }
+      <ControllerLogsPane
+        deploymentId={deploymentId}
+        wireKind={wireKind}
+        ns={ns}
+        name={name}
+        testId="resource-detail-logs-controller"
       />
     )
   }
-  return <LogViewer deploymentId={deploymentId} ns={ns} pod={name} obj={obj} />
+
+  // Every other non-Pod kind (Deployment, StatefulSet, …) genuinely streams
+  // per-Pod, so the tree-view hint is the right answer there.
+  return (
+    <PlaceholderTab
+      testId="resource-detail-logs-not-pod"
+      note={'Logs are streamed per-Pod. Drill into the Tree tab and pick a child Pod to see logs.'}
+    />
+  )
 }
 
 interface ExecTabProps {

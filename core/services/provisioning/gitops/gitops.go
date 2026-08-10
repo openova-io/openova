@@ -756,7 +756,7 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 	if isVcluster {
 		hrKubeSecret = fmt.Sprintf("tenant-%s-kubeconfig", slug)
 	}
-	for _, a := range sortedHelmReleaseApps(appSlugs) {
+	for _, a := range helmReleaseAppsFor(appSlugs) {
 		hostFiles[fmt.Sprintf("app-%s.yaml", a)] = generateHelmReleaseApp(a, helmReleaseAppOpts{
 			slug:         slug,
 			parentDomain: g.parentDomain(),

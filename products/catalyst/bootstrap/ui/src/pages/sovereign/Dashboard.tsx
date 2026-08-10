@@ -72,6 +72,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, Link } from '@tanstack/react-router'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
+import { sovereignPathOrDeployments } from '@/shared/lib/sovereignPaths'
 import { useQuery } from '@tanstack/react-query'
 
 import { PortalShell } from './PortalShell'
@@ -526,6 +527,31 @@ export function Dashboard({
           data-testid="dashboard-header-meta"
         >
           <div data-testid="dashboard-total-count">{totalCount} items</div>
+          {/* Reconciliation link — UAT row 192 / #3925 / #5831.
+           *
+           *  The deep-link TARGET has always worked: /cloud?view=graph&
+           *  lens=reconciliation opens the RECON lens on arrival (the cloud
+           *  route's validateSearch carries `lens` through and seeds
+           *  CloudLensProvider). What had no host was the AFFORDANCE.
+           *  ConvergenceWizard.tsx owned it, be5477c43 replaced the 5-phase
+           *  wizard with this treemap Dashboard without re-homing the link,
+           *  and the component has been orphaned from the router ever since
+           *  — so the only ways in were the /cloud Lens dropdown or a
+           *  hand-typed URL, and row 192 sat split across three walks.
+           *
+           *  This Dashboard IS the convergence surface the wizard became, so
+           *  the link belongs here. Mode-aware via sovereignPathOrDeployments
+           *  (#4704 Task B): on the mothership a per-deployment link without
+           *  an id must route to /deployments rather than collapse the literal
+           *  word into the $deploymentId slot. */}
+          <Link
+            to={sovereignPathOrDeployments('cloud', { deploymentId }) as never}
+            search={{ view: 'graph', lens: 'reconciliation' } as never}
+            className="rounded-md border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-text-dim)] no-underline hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+            data-testid="dashboard-link-reconciliation"
+          >
+            Reconciliation
+          </Link>
           {/* Decommission link (issue #319). Routes to the self-
            *  decommission page; gated by typed-FQDN confirmation +
            *  Hetzner-token re-prompt on the destination page. The link

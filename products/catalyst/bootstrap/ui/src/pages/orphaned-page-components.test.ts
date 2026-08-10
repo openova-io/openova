@@ -54,11 +54,16 @@ if (!existsSync(PAGES_DIR)) {
 const KNOWN_ORPHANS: Record<string, string> = {
   'ConvergenceWizard.tsx':
     'UAT row 192 / #5831 — orphaned by be5477c43 (5-phase wizard replaced by the ' +
-    'treemap Dashboard). Still owns wizard-link-reconciliation, the RECON-lens ' +
-    'deep-link row 192 asserts. Awaiting the contract decision: restore the link on ' +
-    'the Dashboard, or retire the assertion. Do NOT resolve this by deleting the ' +
-    'file — the deep-link TARGET still works (/cloud?view=graph&lens=reconciliation ' +
-    'opens the RECON lens on arrival), it is only the affordance that has no host.',
+    'treemap Dashboard). DECISION TAKEN: the first of the two options this entry ' +
+    'listed — restore the link on the Dashboard — is done. Dashboard.tsx now renders ' +
+    'data-testid="dashboard-link-reconciliation" pointing at ' +
+    '/cloud?view=graph&lens=reconciliation, so the affordance row 192 asserts has a ' +
+    'live host and the deep-link TARGET (which always worked) finally has something ' +
+    'that reaches it in-UI. This file is what is LEFT OVER: it still owns the dead ' +
+    'wizard-link-reconciliation testid, and its own suite (ConvergenceWizard.test.tsx) ' +
+    'also covers Dashboard behaviour, so the delete is a separate change that has to ' +
+    're-home those Dashboard assertions first. Kept listed so the leftover stays ' +
+    'counted rather than quietly re-blessed.',
 
   // The Cloud per-kind tree (#3987 / #3981). router.tsx names these paths in a
   // COMMENT at ~line 1944 ("/cloud/architecture, /cloud/compute, etc. resolve")

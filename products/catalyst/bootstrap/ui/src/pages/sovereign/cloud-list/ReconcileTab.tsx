@@ -18,15 +18,10 @@
  */
 
 import { useMemo, useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
-import {
-  fetchReconcilerLogs,
-  triggerReconcilerAction,
-  type ReconcilerActionKind,
-} from '@/lib/reconciler-manage.api'
-
-const LOG_POLL_MS = 5_000
+import { triggerReconcilerAction, type ReconcilerActionKind } from '@/lib/reconciler-manage.api'
+import { ControllerLogsPane } from './ControllerLogsPane'
 
 /** Map the cloud-list lowercase-singular kind id → the PascalCase K8s Kind
  *  the management endpoints address. Returns '' for a non-manageable kind. */
@@ -113,15 +108,6 @@ export function ReconcileTab({ deploymentId, apiKind, ns, name, obj, isTierAdmin
   const revision = revisionOf(obj)
   const message = readyMessageOf(obj)
 
-  const logsQuery = useQuery({
-    queryKey: ['reconciler-logs', deploymentId, wireKind, ns, name],
-    queryFn: () => fetchReconcilerLogs(deploymentId, wireKind, ns || '', name),
-    enabled: !!deploymentId && !!wireKind && !!name,
-    refetchInterval: LOG_POLL_MS,
-    staleTime: LOG_POLL_MS,
-    placeholderData: (prev) => prev,
-  })
-
   const action = useMutation({
     mutationFn: (a: ReconcilerActionKind) =>
       triggerReconcilerAction(deploymentId, wireKind, ns || '', name, a),
@@ -200,43 +186,17 @@ export function ReconcileTab({ deploymentId, apiKind, ns, name, obj, isTierAdmin
         </div>
       </div>
 
-      {/* Logs — the owning controller's output filtered to this object. */}
-      <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)] p-4">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-xs uppercase tracking-wide text-[var(--color-text-dim)]">
-            Controller logs
-            {logsQuery.data ? (
-              <span className="ml-1 normal-case text-[var(--color-accent)]"> · {logsQuery.data.controller}</span>
-            ) : null}
-          </span>
-          {logsQuery.isFetching ? (
-            <span className="text-[10px] uppercase tracking-wide text-emerald-400">live</span>
-          ) : null}
-        </div>
-        <pre
-          data-testid="reconcile-tab-logs"
-          className="max-h-[48vh] min-h-[200px] overflow-auto rounded-md border border-[var(--color-border)] bg-[var(--log-viewer-bg,#0D1117)] p-3 font-mono text-xs text-[#c9d1d9]"
-        >
-          {logsQuery.isLoading ? (
-            <span className="text-[#6e7681]">Loading controller logs…</span>
-          ) : logsQuery.isError ? (
-            <span className="text-[#6e7681]">
-              Could not load logs: {(logsQuery.error as Error)?.message}
-            </span>
-          ) : (logsQuery.data?.lines.length ?? 0) === 0 ? (
-            <span className="text-[#6e7681]">
-              No recent controller lines mention this object.
-            </span>
-          ) : (
-            logsQuery.data!.lines.map((l) => (
-              <div key={l.lineNumber} className="flex gap-3">
-                <span className="w-9 flex-shrink-0 select-none text-right text-[#6e7681]">{l.lineNumber}</span>
-                <span className="whitespace-pre-wrap break-words">{l.message}</span>
-              </div>
-            ))
-          )}
-        </pre>
-      </div>
+      {/* Logs — the owning controller's output filtered to this object. The
+          pane itself lives in ControllerLogsPane so the k9s **Logs** tab
+          renders the identical surface (UAT row 195) rather than a second
+          copy that can drift from this one. */}
+      <ControllerLogsPane
+        deploymentId={deploymentId}
+        wireKind={wireKind}
+        ns={ns}
+        name={name}
+        testId="reconcile-tab-logs"
+      />
     </div>
   )
 }
