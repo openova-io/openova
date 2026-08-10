@@ -5,51 +5,75 @@
 > happen in, what depends on what, and where the critical path actually runs.
 > Built 2026-08-09 from live hw292 measurement, not from the prior narrative.
 
-## 0. The arithmetic, stated once
+## 0. The arithmetic, stated once  (refreshed 2026-08-09T23:10Z)
 
-| tier | rows | in denominator? |
-|---|---|---|
-| ✅ green | 189 | yes |
-| ⚠️ partial | 39 | yes |
-| ❌ failing | 14 | yes |
-| ◑ half (G2, G3, G10, 84, 228) | 5 | yes |
-| ☐ unwalked (row 38) | 1 | yes |
-| N/A (156, 186) | 2 | yes — should be adjudicated out, see WP-6 |
-| ⛔ superseded | 36 | **no** — excluded by definition |
-| **total** | **286** | denominator **250** |
+Every softening class is gone. The ledger is binary, so the count is now unarguable:
 
-**STONE = 189/250 = 75.6%.** Gap to 100% = **61 rows**.
+| tier | rows |
+|---|---|
+| ✅ PASS | 208 |
+| ❌ FAIL | 78 |
+| **total** | **286** |
 
-## 1. The fact that dominates the schedule
+**STONE = 208/286 = 72.7%.** Gap to 100% = **78 rows**, and every one of them is a
+row that was *measured and did not hold* — no partials, no parked, no unwalked.
 
-**The 61-row gap is not the work.** 43 of those 61 are deploy-gated — their fixes
-are already merged and simply are not running on hw292. Firing a fresh prov
-converts them. But `scripts/reset-uat.py` **flushes all 189 banked green rows**,
-because UAT evidence is per-env by law.
+The earlier version of this file quoted `189/250 = 75.6%` by excluding 36 ⛔ rows
+from the denominator. That was flattering and wrong: a row you cannot answer is not
+a row you may drop. Excluding failures raises the score by removing the evidence
+against it, which is the floating-denominator behaviour the frozen 286 exists to
+prevent.
 
-So the real shape is:
+## 1. The 78, partitioned by what actually unblocks them
+
+This is the whole plan. Each row lands in exactly one bucket, assigned from its own
+evidence cell rather than from memory.
+
+| bucket | rows | what it needs | cost |
+|---|--:|---|---|
+| **A — deploy** | 23 | fix is MERGED and simply not running here | zero engineering |
+| **B — env state** | 8 | a specific environment shape (pre-cutover window, 1-region, destructive cycle) | rides the same prov |
+| **C — walk** | 13 | a walk I can perform now: a write, a browser step, a chat, an authed POST | operator time |
+| **D — build** | 34 | real engineering; no fix exists yet | the actual work |
+
+**A + B = 31 rows, 40% of the gap, close on ONE fresh prov with no new code.**
+
+- **A (23)** — 4 7 15 25 33 37 55 57 59 67 69 75 92 94 176 183 188 216 218 219 228 234 R22
+- **B (8)** — 29 41 60 123 178 241 W1 W2
+- **C (13)** — 19 38 84 91 177 213 220 221 222 225 238 242 R17
+- **D (34)** — 3 48 62 63 71 85 86 87 88 90 95 96 98 100 102 103 106 115 121 164 165 184 192 195 212 217 223 233 G2 G7 G8 G9 R16 W5
+
+## 2. The D-34, clustered by root cause
+
+Fixing a cluster closes several rows at once. Ranked by rows-per-fix:
+
+| root | rows closed | what it is |
+|---|--:|---|
+| **#5246** per-region Gateway listeners | 5 — 87 88 90 95 R16 | the per-Org console/app listener is written to one region only |
+| **#4325** dead vCluster vocabulary | 2 — 98 102 (+ #5937 treemap done, #5945 filed) | `mgmt/dmz/rtz` survive in code after the charts were deleted |
+| **#5640 / #5511 / #5930** per-Org delivery | 2 each — 86 90 · 90 233 · 95 233 | overlapping legs of the same funnel→serve chain |
+| **placement epic** | 7 — 96 98 100 102 103 106 115 | one epic, mostly one vocabulary defect + #5614 handover |
+| **topology honesty** | 4 — 48 62 63 71 | UI drops honesty signals the backend emits (#4901/#4923) |
+| **agentic** | 5 — G8 220 221 222 223 | credential now seeded; #5516 claim + an unproven chat round-trip |
+| **MCP per-Org** | 2 — 212 213 | the instance the guard names does not exist |
+
+**The single highest-value fix is #5246** — five rows, and it sits on the purchase
+path, so it also unblocks the customer-facing story. **#5921** (mail tether) gates
+three more (84, 20, 23) and is half-landed: PR #5951 makes it visible to the egress
+proof; pivoting the SMTP path itself is still open.
+
+## 3. Sequencing — why the prov is fired ONCE, and last
+
+Firing a fresh prov converts A+B (31 rows) but `reset-uat.py` flushes all 208 banked
+greens, because UAT evidence is per-env by law. So:
 
 ```
-work to reach 100%  =  61 non-green rows  +  189 re-walks
+real work to 100%  =  78 non-green  +  208 re-walks
 ```
 
-Any plan that quotes "61 rows left" and omits the re-walk is wrong by a factor of
-four. This is the single most important number in this document, and it is why the
-fresh prov is a **once** decision, not a routine one: every premature fire pays the
-189-row re-walk again. Fire it when the train is complete, not before.
-
-## 2. Critical path
-
-```
-WP-0  #5919 cutover pivot        ──┐
-WP-1  complete the train          ─┼──> WP-2 fresh prov ──> WP-3 re-walk 189 ──> 100%
-WP-6  adjudications (parallel)   ──┘                    └──> WP-4 converts 43
-```
-
-Everything upstream of WP-2 must land **before** the fire. Everything in WP-6 runs
-in parallel and needs no environment at all.
-
----
+Any plan quoting "78 rows left" and omitting the re-walk is wrong by a factor of
+three. That is why the prov is a **once** decision: every premature fire pays the
+208-row re-walk again. Land D first, then fire.
 
 ## WP-0 — #5919: cutover step-06 reverts its own pivot  ⟵ CRITICAL PATH HEAD
 
