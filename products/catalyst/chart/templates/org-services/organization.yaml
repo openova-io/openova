@@ -1,3 +1,28 @@
+{{- /*
+UAT row 121 / #3383 — the object NAME is a console string.
+
+This Deployment was named `tenant`, and that name is not internal: the
+showback table on /billing/orders renders one row per WORKLOAD, and the
+workload name is resolved from the pod's ownerRef chain
+(pod → ReplicaSet → Deployment) by
+products/catalyst/bootstrap/api/internal/handler/dashboard.go
+applicationKey. The pod template carries no `app.kubernetes.io/instance`
+or `app.kubernetes.io/name` label, so precedence falls straight through to
+the Deployment name — which is why `tenant / org-services / 25 / 0.03125`
+appeared verbatim in a sovereign-admin surface while every source-side
+grep of the console tree came back clean. docs/GLOSSARY.md bans `tenant`
+as an entity-noun; `Organization` is the term.
+
+This is the #5435 class (a banned term reaching the console from a runtime
+Kubernetes object name), so the fix has to be the object name itself — a
+display alias in the console would leave `kubectl get deploy -n
+org-services` still answering `tenant`. Renamed here in lockstep with the
+ServiceAccount + RBAC in serviceaccounts.yaml and the TENANT_URL value in
+configmap.yaml, which is the only consumer path (every caller reads that
+key rather than hardcoding the DNS name).
+
+scripts/check-no-banned-object-names.sh is the guard that keeps it renamed.
+*/ -}}
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
 # UAT row 121 / #5435 — the workload NAME is an operator-facing string.
 #
@@ -22,20 +47,34 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+<<<<<<< HEAD
   name: organizations
+=======
+  name: organization
+>>>>>>> cf1a2122d (fix(org-services): rename the `tenant` workload — UAT row 121)
   namespace: org-services
 spec:
   replicas: 1
   selector:
     matchLabels:
+<<<<<<< HEAD
       app: org-organizations
+=======
+      app: org-organization
+>>>>>>> cf1a2122d (fix(org-services): rename the `tenant` workload — UAT row 121)
   template:
     metadata:
       labels:
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
+<<<<<<< HEAD
         app: org-organizations
     spec:
       serviceAccountName: organizations
+=======
+        app: org-organization
+    spec:
+      serviceAccountName: organization
+>>>>>>> cf1a2122d (fix(org-services): rename the `tenant` workload — UAT row 121)
       # TBD-D35a — must be true so the SandboxOrchestrator
       # (core/services/tenant/handlers/sandbox_consumer.go) can build an
       # in-cluster dynamic client and materialise Sandbox CRs in
@@ -50,8 +89,13 @@ spec:
       imagePullSecrets:
         - name: ghcr-pull
       containers:
+<<<<<<< HEAD
         - name: organizations
           image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-tenant:{{ .Values.images.orgTag }}"
+=======
+        - name: organization
+          image:"{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-tenant:{{ .Values.images.orgTag }}"
+>>>>>>> cf1a2122d (fix(org-services): rename the `tenant` workload — UAT row 121)
           imagePullPolicy: Always
           ports:
             - containerPort: 8083
@@ -132,6 +176,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+<<<<<<< HEAD
   name: organizations
   namespace: org-services
 spec:
@@ -160,6 +205,13 @@ metadata:
 spec:
   selector:
     app: org-organizations
+=======
+  name: organization
+  namespace: org-services
+spec:
+  selector:
+    app: org-organization
+>>>>>>> cf1a2122d (fix(org-services): rename the `tenant` workload — UAT row 121)
   ports:
     - port: 8083
       targetPort: 8083
