@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T22:15:03Z` |
+| Last refreshed | `2026-08-10T22:30:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5510](https://github.com/openova-io/openova/issues/5510) | Catalog card: a single-field Save silently reverts untouched sibling fields —  | Other |
 | [#5513](https://github.com/openova-io/openova/issues/5513) | active-hot-standby renders a 2-region pair over a singleton: empty openova.io/re | Other |
 | [#5514](https://github.com/openova-io/openova/issues/5514) | P1: Switch over armed against a phantom standby — replication-status 200s with | Other |
 | [#5516](https://github.com/openova-io/openova/issues/5516) | openova-mcp: per-Org bearer carries no deployment_id claim — list/get/create_a | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6075](https://github.com/openova-io/openova/issues/6075) | Org detail never renders the purchased plan: spec.planSlug dropped at four layer | Other |
 | [#6076](https://github.com/openova-io/openova/issues/6076) | Organizations parent row has an unstable identity: link target flips between /or | Other |
 | [#6077](https://github.com/openova-io/openova/issues/6077) | Job re-run on a collapsed scanner identity row 422s and fails invisibly: syft-sb | Other |
+| [#6079](https://github.com/openova-io/openova/issues/6079) | mothership GitOps loop dead: containerd's ghcr pull carries a credential GHCR de | Other |
 
 ---
 
@@ -317,6 +317,7 @@ flowchart LR
 | 2026-08-10T20:36 | [#6064](https://github.com/openova-io/openova/pull/6064) | #837 | fix(catalyst-api): the parent-domain picker offered nothing  |
 | 2026-08-10T20:06 | [#6063](https://github.com/openova-io/openova/pull/6063) | #5909 | docs(uat): audit all 10 ENV-STATE rows on hw293 — 5 were mis |
 | 2026-08-10T20:08 | [#6061](https://github.com/openova-io/openova/pull/6061) | #5420 | fix(console): the Topology tab returned before it ever read  |
+| 2026-08-10T22:16 | [#6059](https://github.com/openova-io/openova/pull/6059) | #6021 | fix(bp-postgres): release 0.2.19 — #6021's fix was merged wi |
 | 2026-08-10T19:07 | [#6057](https://github.com/openova-io/openova/pull/6057) | #6016 | docs(uat): 13 WALKABLE-NOW rows settled on hw293 — 8 flip gr |
 | 2026-08-10T19:03 | [#6056](https://github.com/openova-io/openova/pull/6056) | #3370 | fix(console): /apps renders two card collections and said wh |
 | 2026-08-10T18:57 | [#6055](https://github.com/openova-io/openova/pull/6055) | #793 | fix(console): the cutover trigger was not on the nav — make  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-10T17:32 | [#6035](https://github.com/openova-io/openova/pull/6035) | #5946 | fix(cutover): the sovereignty floor read 2 of the 7 cutover  |
 | 2026-08-10T17:01 | [#6034](https://github.com/openova-io/openova/pull/6034) | #6029 | fix(uat): a re-tag the partition parser cannot read is silen |
 | 2026-08-10T16:59 | [#6029](https://github.com/openova-io/openova/pull/6029) | #5965 | docs(uat): 14 of the 21 BUILD rows do not need an engineer — |
-| 2026-08-10T16:54 | [#6026](https://github.com/openova-io/openova/pull/6026) | #6024 | docs(uat): 24 DEPLOY-GATED rows are not waiting on a deploy  |
 
 ---
 
