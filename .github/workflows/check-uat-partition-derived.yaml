@@ -1,0 +1,59 @@
+# check-uat-partition-derived.yaml — WBS-TO-100.md §1 must agree with UAT.md
+# about which failing rows need an engineer.
+#
+# §1 sorts every ❌ row into DEPLOY-GATED / BUILD / ENV-STATE / WALKABLE NOW.
+# Those four classes route to four different people, so a row in the wrong one
+# gets neither the fix nor the walk. The list was kept by hand and drifted three
+# separate ways inside one day (2026-08-10): it partitioned 78 rows against a
+# 76-❌ ledger, it still listed eleven rows as BUILD hours after they were
+# re-tagged DEPLOY-GATED in UAT.md, and it carried two rows as ❌ after they had
+# stopped being ❌.
+#
+# The drift is guaranteed rather than careless: UAT.md is rewritten by every walk
+# and by a cron, so any hand-transcribed copy is stale by construction. Hence a
+# guard rather than a correction.
+name: check-uat-partition-derived
+
+on:
+  pull_request:
+    paths:
+      - "docs/ledger/UAT.md"
+      - "docs/ledger/WBS-TO-100.md"
+      - "scripts/uat-partition.py"
+      - ".github/workflows/check-uat-partition-derived.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/ledger/UAT.md"
+      - "docs/ledger/WBS-TO-100.md"
+      - "scripts/uat-partition.py"
+      - ".github/workflows/check-uat-partition-derived.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  partition-derived:
+    name: WBS §1 partition is derived from UAT.md
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # Runs FIRST. The real check asserts "the two agree", which is what a
+      # parser that read NOTHING also reports. The self-test proves the
+      # derivation picks the LAST label, treats an untagged ❌ row as walkable,
+      # excludes green rows, goes red on a row left in the wrong bucket, rejects
+      # prose smuggled into an id run instead of mis-parsing it, and refuses to
+      # call an unreadable ledger "agreement".
+      - name: Self-test the derivation and the comparison
+        run: python3 scripts/uat-partition.py --self-test
+
+      - name: WBS §1 must match the derivation
+        run: python3 scripts/uat-partition.py --check

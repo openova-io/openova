@@ -5,63 +5,82 @@
 > happen in, what depends on what, and where the critical path actually runs.
 > Built 2026-08-09 from live hw292 measurement, not from the prior narrative.
 
-## 0. The arithmetic, stated once  (re-counted 2026-08-10 by `scripts/uat-tally.py`)
+## 0. The arithmetic, stated once  (snapshot at `87c994af2`; re-run `scripts/uat-tally.py`)
 
 | tier | rows |
 |---|---|
-| ✅ PASS | 192 |
-| ❌ FAIL | 76 |
-| ☐ NOT RUN | 18 |
+| ✅ PASS | 206 |
+| ❌ FAIL | 77 |
+| ☐ NOT RUN | 3 |
 | **total** | **286** |
 
-**STONE = 192/286 = 67.1%.**
+**STONE = 206/286 = 72.0%** *at that commit.*
 
-This table previously read `208 ✅ / 78 ❌` with the line *"the ledger is binary …
-no partials, no parked, no unwalked"*. Both halves went stale the same day: the
-retire-and-replace swaps reset a clause's verdict to ☐ (a NEW clause inheriting
-the old one's ✅ would be fabrication), and the SSO-chain merge flipped its rows
-back to unverified by design. So there IS a third tier again, and it is 18 rows
-wide. It is stated here rather than folded into ❌ because the two demand
-different work — a ☐ row needs a walk, a ❌ row needs a fix, a deploy or a
-different env — and because a section that silently disagrees with
-`scripts/uat-tally.py` is the thing this file exists to prevent.
+**Treat every number in this section as a snapshot, not a fact.** It moved twice
+within one hour on 2026-08-10 while this file was being edited, because walks and
+a cron write UAT.md continuously. `scripts/uat-tally.py` is the count; this table
+is a reading of it.
+
+The table previously read `208 ✅ / 78 ❌` under the line *"the ledger is binary …
+no partials, no parked, no unwalked"*. That claim is not durable either: a
+retire-and-replace swap resets the replaced clause to ☐ (a NEW clause inheriting
+the old one's ✅ would be fabrication), and an SSO-chain merge flips its rows back
+to unverified by design — so the third tier reappears whenever either happens,
+and it was 18 rows wide a few hours before this snapshot. It is shown separately
+rather than folded into ❌ because the two demand different work: a ☐ row needs a
+walk, a ❌ row needs a fix, a deploy or a different env.
 
 The earlier `189/250 = 75.6%` figure excluded 36 ⛔ rows from the denominator.
 That was flattering and wrong: a row you cannot answer is not a row you may
 drop. Excluding failures raises the score by removing the evidence against it,
 which is the floating-denominator behaviour the frozen 286 exists to prevent.
 
-## 1. The 76 ❌, partitioned by what actually unblocks them  (re-derived 2026-08-10)
+## 1. The ❌ set, partitioned by what actually unblocks them
 
-**These lists are now DERIVED from UAT.md, not transcribed into it.** Each row's
-bucket is the LAST partition label in its own Evidence cell. The previous version
-was transcribed by hand and had drifted three separate ways within a day: it
-partitioned 78 rows when the ledger held 76 ❌, it still listed 87 88 90 95 R16 62
-63 71 100 103 106 as BUILD after those rows had been re-tagged DEPLOY-GATED in
-UAT.md, and it carried 115 and 165 as ❌ after they had stopped being ❌. Two
-documents disagreeing about which rows need an engineer is worse than either one
-being wrong alone, because the reader cannot tell which to believe.
+**These lists are GENERATED, not transcribed.** `python3 scripts/uat-partition.py
+--write` derives them from UAT.md — a row's bucket is the LAST partition label in
+its own Evidence cell, and a ❌ row with no label is WALKABLE NOW because nothing
+has recorded a reason it cannot be walked. `--check` fails CI when this section
+and UAT.md disagree, so the two can no longer drift apart silently.
+
+They already had. The hand-kept version drifted three separate ways inside one
+day: it partitioned 78 rows against a 76-❌ ledger, it still listed 87 88 90 95
+R16 62 63 71 100 103 106 as BUILD hours after those rows were re-tagged
+DEPLOY-GATED in UAT.md, and it carried 115 and 165 as ❌ after they had stopped
+being ❌. Two ledger files disagreeing about which rows need an engineer is worse
+than either being wrong alone, because the reader cannot tell which to believe —
+and the drift was guaranteed rather than careless, since UAT.md is rewritten by
+every walk and by a cron.
 
 | bucket | rows | what it needs |
 |---|--:|---|
 | **DEPLOY-GATED** | 41 | the fix is merged and not running here; closes on a roll/prov |
-| **BUILD** (`NEEDS-CODE`) | 22 | no fix exists yet |
+| **BUILD** | 22 | no fix exists yet (`NEEDS-CODE` in UAT.md) |
 | **ENV-STATE** | 7 | needs a different environment shape entirely |
-| **WALKABLE NOW** | 6 | a walk on THIS env can change the verdict |
-| **total** | **76** | |
+| **WALKABLE NOW** | 7 | a walk on THIS env can change the verdict |
+| **total** | **77** | |
 
 - **DEPLOY-GATED (41)** — 4 7 15 25 33 37 55 57 59 62 63 67 69 71 75 87 88 90 92 94 95 100 103 106 176 183 188 212 213 216 218 219 221 222 228 234 238 W1 W2 R16 R22
-- **BUILD (22)** — 3 19 38 84 85 86 96 98 102 121 164 177 184 192 195 225 233 G2 G7 G8 G9 W5
+- **BUILD (22)** — 3 19 38 84 85 86 96 98 102 121 164 177 184 192 195 225 233 G2 W5 G7 G8 G9
 - **ENV-STATE (7)** — 29 41 60 123 178 241 R17
-- **WALKABLE NOW (6)** — 48 (one screenshot of the create `<select>` on a Blueprint that declares active-passive), 91 (a signed-in customer session), 217 (IMAP plus a browser; the recorded listener cause was refuted live), 220 (a chat round-trip), 223 (the MCP read legs, whose only stated cause was refuted against the deployed build by digest), 242 (one authenticated POST of a 1-region body with bcpTopology omitted, requiring 4xx)
+- **WALKABLE NOW (7)** — 35 48 91 217 220 223 242
+
+What each WALKABLE NOW row needs, since "walk it" is not an instruction:
+
+- **48** — one screenshot of the create `<select>` on a Blueprint that declares `active-passive`
+- **91** — a signed-in customer session
+- **217** — IMAP plus a browser; the recorded listener cause was refuted on live objects
+- **220** — a chat round-trip (currently fails on the revoked credential, #5956)
+- **223** — the MCP read legs, whose only stated cause was refuted against the deployed build by digest
+- **242** — one authenticated POST of a 1-region body with `bcpTopology` omitted, requiring 4xx
 
 **THE NUMBER THAT MATTERS: re-walking still cannot move most of this ledger.** 70
-of the 76 wait on a deploy, an environment, or code that does not exist. Six would
-answer differently if walked today — twice the previous count, and the increase is
-not progress: 48, 217 and 223 were sitting in BUILD carrying the sentence *"no fix
-exists yet"* while their own evidence cells said the opposite three sentences
-earlier. Nobody was going to walk them, and nobody was going to fix them either,
-because each class routes the row to a different person.
+of the 77 wait on a deploy, an environment, or code that does not exist. Seven
+would answer differently if walked today — more than double the previous count,
+and the increase is not progress: 48, 217 and 223 were sitting in BUILD carrying
+the sentence *"no fix exists yet"* while their own evidence cells said the
+opposite a few sentences earlier. Nobody was going to walk them, and nobody was
+going to fix them either, because each class routes the row to a different person.
 
 This is worth stating plainly because "walk the failing rows" is the intuitive next
 move and it is the wrong one for 41 of them. The ledger moves when a fix REACHES a
@@ -97,16 +116,22 @@ makes it visible to the egress proof; pivoting the SMTP path itself is still ope
 
 ## 3. Sequencing — why the prov is fired ONCE, and last
 
-Firing a fresh prov converts A+B (31 rows) but `reset-uat.py` flushes all 208 banked
-greens, because UAT evidence is per-env by law. So:
+Firing a fresh prov converts the DEPLOY-GATED bucket in one move, but
+`reset-uat.py` flushes every banked green, because UAT evidence is per-env by law.
+So:
 
 ```
-real work to 100%  =  78 non-green  +  208 re-walks
+real work to 100%  =  <non-green>  +  <banked greens re-walked>
+                   =  80           +  206                        (at 87c994af2)
 ```
 
-Any plan quoting "78 rows left" and omitting the re-walk is wrong by a factor of
-three. That is why the prov is a **once** decision: every premature fire pays the
-208-row re-walk again. Land D first, then fire.
+The shape is what matters and it does not move: the re-walk term is roughly
+**three times** the non-green term, so any plan quoting only "N rows left" is
+wrong by about a factor of three. Both terms are read from
+`scripts/uat-tally.py`, not from this page — the figures above were 78 + 208 a
+few hours earlier and will be different again by the time the prov is fired. That
+is why the prov is a **once** decision: every premature fire pays the whole
+re-walk again. Land D first, then fire.
 
 ## WP-0 — #5919: cutover step-06 reverts its own pivot  ⟵ CRITICAL PATH HEAD
 
