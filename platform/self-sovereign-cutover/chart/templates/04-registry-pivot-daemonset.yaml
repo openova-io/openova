@@ -99,11 +99,13 @@ spec:
           env:
             - name: HARBOR_PUBLIC_URL
               value: {{ .Values.sovereign.harborPublicURL | quote }}
-            # #4975 (Refs #3379 #3695) — the offline-mirror coverage map + the
-            # local registry host. The pivot writes PER-UPSTREAM-HOST containerd
-            # certs.d entries pointing at registry.<fqdn>/<project> (the exact
-            # path step-03 Phase A3 pushed to), replacing the single _default
-            # dfdaemon catch-all. Same map step-03/step-08 read.
+            {{- /*
+             #4975 (Refs #3379 #3695) — the offline-mirror coverage map + the
+             local registry host. The pivot writes PER-UPSTREAM-HOST containerd
+             certs.d entries pointing at registry.<fqdn>/<project> (the exact
+             path step-03 Phase A3 pushed to), replacing the single _default
+             dfdaemon catch-all. Same map step-03/step-08 read.
+            */}}
             - name: HOST_PROJECT_MAP
               value: {{ include "bp-self-sovereign-cutover.hostProjectMapInline" . | quote }}
             - name: LOCAL_REGISTRY_HOST
@@ -112,13 +114,17 @@ spec:
               value: {{ .Values.status.configMapName | quote }}
             - name: STATUS_CONFIGMAP_NAMESPACE
               value: {{ .Release.Namespace | quote }}
-            # ── Dragonfly coordinates (the #4639 rewrite) ──────────────────
-            # The dfdaemon proxy every node's containerd mirrors through.
+            {{- /*
+             ── Dragonfly coordinates (the #4639 rewrite) ──────────────────
+             The dfdaemon proxy every node's containerd mirrors through.
+            */}}
             - name: DF_PROXY_PORT
               value: {{ .Values.registryPivot.dragonfly.proxyPort | quote }}
-            # The bp-dragonfly mesh namespace + the per-node dfdaemon
-            # DaemonSet + seed-peer + their config ConfigMaps the upstream
-            # flip patch targets.
+            {{- /*
+             The bp-dragonfly mesh namespace + the per-node dfdaemon
+             DaemonSet + seed-peer + their config ConfigMaps the upstream
+             flip patch targets.
+            */}}
             - name: DF_NAMESPACE
               value: {{ .Values.registryPivot.dragonfly.namespace | quote }}
             - name: DF_CLIENT_DAEMONSET
@@ -131,17 +137,21 @@ spec:
               value: {{ .Values.registryPivot.dragonfly.seedConfigMap | quote }}
             - name: DF_RESTART_ON_FLIP
               value: {{ .Values.registryPivot.dragonfly.restartOnFlip | quote }}
-            # The Sovereign FQDN — the wildcard-TLS Secret name is
-            # <prefix><fqdn-dashed>. Sourced from the chart's sovereign.fqdn
-            # (cloud-init substitutes ${SOVEREIGN_FQDN} via the 06a overlay).
+            {{- /*
+             The Sovereign FQDN — the wildcard-TLS Secret name is
+             <prefix><fqdn-dashed>. Sourced from the chart's sovereign.fqdn
+             (cloud-init substitutes ${SOVEREIGN_FQDN} via the 06a overlay).
+            */}}
             - name: SOVEREIGN_FQDN
               value: {{ .Values.sovereign.fqdn | quote }}
-            # ── #4652 dfdaemon registryMirror.cert (the x509 fix) ─────────────
-            # Read the in-cluster Harbor wildcard TLS Secret, create a dragonfly-
-            # namespace Opaque Secret carrying tls.crt (bp-dragonfly 0.1.1 mounts
-            # it OPTIONALLY at HARBOR_CA_MOUNT_PATH), and set
-            # proxy.registryMirror.cert = <mount>/<file> in the dfdaemon ConfigMap
-            # patch that flips registryMirror.addr. Same tls.crt-fallback as #3379.
+            {{- /*
+             ── #4652 dfdaemon registryMirror.cert (the x509 fix) ─────────────
+             Read the in-cluster Harbor wildcard TLS Secret, create a dragonfly-
+             namespace Opaque Secret carrying tls.crt (bp-dragonfly 0.1.1 mounts
+             it OPTIONALLY at HARBOR_CA_MOUNT_PATH), and set
+             proxy.registryMirror.cert = <mount>/<file> in the dfdaemon ConfigMap
+             patch that flips registryMirror.addr. Same tls.crt-fallback as #3379.
+            */}}
             - name: HARBOR_CA_ENABLED
               value: {{ .Values.registryPivot.dragonfly.harborCA.enabled | quote }}
             - name: HARBOR_CA_SRC_NAMESPACE
@@ -158,55 +168,65 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-            # #4637 follow-up: the dfdaemon-serving probe must reach the NODE's
-            # dfdaemon, but this pod is NOT hostNetwork — so its 127.0.0.1 is the
-            # pod loopback, never the node's :DF_PROXY_PORT. The dfdaemon binds
-            # 0.0.0.0:DF_PROXY_PORT (hostNetwork), so HOST_IP:DF_PROXY_PORT is
-            # reachable from this pod. (containerd still pulls via 127.0.0.1 in
-            # the NODE netns — that is correct and unchanged.)
+            {{- /*
+             #4637 follow-up: the dfdaemon-serving probe must reach the NODE's
+             dfdaemon, but this pod is NOT hostNetwork — so its 127.0.0.1 is the
+             pod loopback, never the node's :DF_PROXY_PORT. The dfdaemon binds
+             0.0.0.0:DF_PROXY_PORT (hostNetwork), so HOST_IP:DF_PROXY_PORT is
+             reachable from this pod. (containerd still pulls via 127.0.0.1 in
+             the NODE netns — that is correct and unchanged.)
+            */}}
             - name: HOST_IP
               valueFrom:
                 fieldRef:
                   fieldPath: status.hostIP
-            # ── #5007 (Refs #4682 #3379) — NODE /etc/hosts pin for the local
-            # registry. containerd resolves registry.<fqdn> via the NODE resolver,
-            # which on hw241 returned the DEAD `*.omantel.biz` wildcard IP
-            # (49.12.16.160) instead of the live specific record → post-pivot fresh
-            # pulls ImagePullBackOff. The pivot pins registry.<fqdn> DIRECTLY to the
-            # gateway VIP the platform already knows (derived at runtime, no
-            # hardcoded IP), so the local-registry datapath NEVER depends on public
-            # DNS. GATEWAY_LB_SVC_* is the cilium-gateway LoadBalancer Service whose
-            # ingress IP is the VIP (empty → node-own-IP hostNetwork fallback).
+            {{- /*
+             ── #5007 (Refs #4682 #3379) — NODE /etc/hosts pin for the local
+             registry. containerd resolves registry.<fqdn> via the NODE resolver,
+             which on hw241 returned the DEAD `*.omantel.biz` wildcard IP
+             (49.12.16.160) instead of the live specific record → post-pivot fresh
+             pulls ImagePullBackOff. The pivot pins registry.<fqdn> DIRECTLY to the
+             gateway VIP the platform already knows (derived at runtime, no
+             hardcoded IP), so the local-registry datapath NEVER depends on public
+             DNS. GATEWAY_LB_SVC_* is the cilium-gateway LoadBalancer Service whose
+             ingress IP is the VIP (empty → node-own-IP hostNetwork fallback).
+            */}}
             - name: LOCAL_REGISTRY_PIN_ENABLED
               value: {{ .Values.registryPivot.localRegistryHostPin.enabled | quote }}
             - name: GATEWAY_LB_SVC_NAME
               value: {{ .Values.registryPivot.localRegistryHostPin.gatewayServiceName | quote }}
             - name: GATEWAY_LB_SVC_NAMESPACE
               value: {{ .Values.registryPivot.localRegistryHostPin.gatewayServiceNamespace | quote }}
-          # readinessProbe: the script touches /tmp/ready after its first
-          # successful reconcile pass. catalyst-api's daemonset-wait
-          # then sees numberReady=desired and proceeds.
+          {{- /*
+           readinessProbe: the script touches /tmp/ready after its first
+           successful reconcile pass. catalyst-api's daemonset-wait
+           then sees numberReady=desired and proceeds.
+          */}}
           readinessProbe:
             exec:
               command: ["/bin/sh", "-c", "test -f /tmp/ready"]
             initialDelaySeconds: 5
             periodSeconds: 5
           volumeMounts:
-            # #3647/#4639: the containerd certs.d host-mirror dir. The pivot
-            # loop writes the `_default/hosts.toml` catch-all that points
-            # containerd at the node-local dfdaemon proxy; containerd re-reads
-            # it per-pull so the pivot is effective on the RUNNING node.
+            {{- /*
+             #3647/#4639: the containerd certs.d host-mirror dir. The pivot
+             loop writes the `_default/hosts.toml` catch-all that points
+             containerd at the node-local dfdaemon proxy; containerd re-reads
+             it per-pull so the pivot is effective on the RUNNING node.
+            */}}
             - name: containerd-certs-d
               mountPath: /host/var/lib/rancher/k3s/agent/etc/containerd/certs.d
             - name: pivot-script
               mountPath: /usr/local/bin/pivot.sh
               subPath: pivot.sh
               readOnly: true
-            # #5007 — the node's /etc/hosts (single-file bind mount). The pivot
-            # maintains a managed `<gateway-VIP> registry.<fqdn>` line so
-            # containerd resolves the local registry DIRECTLY to the gateway VIP,
-            # never via the public DNS wildcard-vs-specific race (the hw241 dead
-            # `*.omantel.biz` 49.12.16.160 ImagePullBackOff).
+            {{- /*
+             #5007 — the node's /etc/hosts (single-file bind mount). The pivot
+             maintains a managed `<gateway-VIP> registry.<fqdn>` line so
+             containerd resolves the local registry DIRECTLY to the gateway VIP,
+             never via the public DNS wildcard-vs-specific race (the hw241 dead
+             `*.omantel.biz` 49.12.16.160 ImagePullBackOff).
+            */}}
             - name: node-etc-hosts
               mountPath: /host/etc/hosts
           command: ["/bin/sh", "/usr/local/bin/pivot.sh"]
@@ -214,11 +234,13 @@ spec:
             requests: { cpu: 25m, memory: 32Mi }
             limits:   { memory: 128Mi }
       volumes:
-        # #3647/#4639: containerd host-mirror dir (k3s default data-dir; no
-        # --data-dir override in cloudinit-control-plane.tftpl). containerd
-        # re-reads <ns>/hosts.toml here on every pull, so writing the
-        # `_default/hosts.toml` catch-all makes the dfdaemon mirror effective
-        # on a RUNNING node — no k3s restart, no node reboot.
+        {{- /*
+         #3647/#4639: containerd host-mirror dir (k3s default data-dir; no
+         --data-dir override in cloudinit-control-plane.tftpl). containerd
+         re-reads <ns>/hosts.toml here on every pull, so writing the
+         `_default/hosts.toml` catch-all makes the dfdaemon mirror effective
+         on a RUNNING node — no k3s restart, no node reboot.
+        */}}
         - name: containerd-certs-d
           hostPath:
             path: /var/lib/rancher/k3s/agent/etc/containerd/certs.d
@@ -227,19 +249,23 @@ spec:
           configMap:
             name: registry-pivot-script
             defaultMode: 0755
-        # #5007 — node /etc/hosts (type: File bind mount). The pivot rewrites it
-        # IN PLACE (truncate, never mv — a single-file bind mount keeps the inode)
-        # to pin registry.<fqdn> -> the gateway VIP the platform already knows, so
-        # the local-registry pull never depends on public DNS resolution.
+        {{- /*
+         #5007 — node /etc/hosts (type: File bind mount). The pivot rewrites it
+         IN PLACE (truncate, never mv — a single-file bind mount keeps the inode)
+         to pin registry.<fqdn> -> the gateway VIP the platform already knows, so
+         the local-registry pull never depends on public DNS resolution.
+        */}}
         - name: node-etc-hosts
           hostPath:
             path: /etc/hosts
             type: File
 ---
-# Step ConfigMap for catalyst-api consumer (mode=daemonset-wait).
-# The handler resolves the DaemonSet name from the `bp.openova.io/cutover-daemonset`
-# label; we set it explicitly so the lookup is stable even if the cm
-# name convention changes.
+{{- /*
+ Step ConfigMap for catalyst-api consumer (mode=daemonset-wait).
+ The handler resolves the DaemonSet name from the `bp.openova.io/cutover-daemonset`
+ label; we set it explicitly so the lookup is stable even if the cm
+ name convention changes.
+*/}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -253,8 +279,10 @@ metadata:
     bp.openova.io/cutover-daemonset: "registry-pivot"
 data:
   stepName: registry-pivot
-  # podSpec is intentionally absent — mode=daemonset-wait does NOT use it.
-  # Catalyst-api's parser tolerates absent podSpec when mode!=job.
+  {{- /*
+   podSpec is intentionally absent — mode=daemonset-wait does NOT use it.
+   Catalyst-api's parser tolerates absent podSpec when mode!=job.
+  */}}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -267,43 +295,47 @@ metadata:
 data:
   pivot.sh: |
     #!/bin/sh
-    # shellcheck disable=SC2086  # ${CT} (= "--max-time 20") is word-split ON PURPOSE so the two tokens become separate curl args; quoting it would pass a single bad arg.
-    # registry-pivot reconcile loop (Dragonfly rewrite, #4639 Refs #4637).
-    # Reads registriesYamlActive from the cutover-status ConfigMap; when the
-    # value changes:
-    #   v2 → (a) write the containerd `_default/hosts.toml` catch-all that
-    #            mirrors EVERY registry namespace through the node-local
-    #            dfdaemon proxy http://127.0.0.1:${DF_PROXY_PORT};
-    #        (b) ONCE (cluster-wide, guarded): flip the dfdaemon (+ seed)
-    #            registryMirror.addr ghcr → the local Harbor external host
-    #            https://registry.<fqdn> (:443 via the Gateway LoadBalancer), set
-    #            the registryMirror.cert trust anchor, and bounce dfdaemon.
-    #   v1/rollback → remove the catch-all + revert the dfdaemon upstream.
-    #
-    # NB on `set -u` (NOT `set -eu`): this is a long-running best-effort
-    # RECONCILE LOOP — every apiserver call is already individually guarded
-    # (--max-time + `|| true` / `&& … || …` fallbacks) and a transient miss is
-    # MEANT to be retried on the next 15s sweep, never to abort the loop. Under
-    # `errexit` any guarded sub-command that legitimately exits non-zero (a
-    # best-effort ack that 409s, a `[ test ]` that is false at the tail of an
-    # `&&` chain) would kill the whole DaemonSet pod and the per-node pivot
-    # would silently stall. `set -u` keeps unset-variable protection (the real
-    # footgun) without the errexit fragility. The daemonset-wait + per-node ack
-    # contract is unchanged.
+    {{- /*
+     shellcheck disable=SC2086  # ${CT} (= "--max-time 20") is word-split ON PURPOSE so the two tokens become separate curl args; quoting it would pass a single bad arg.
+     registry-pivot reconcile loop (Dragonfly rewrite, #4639 Refs #4637).
+     Reads registriesYamlActive from the cutover-status ConfigMap; when the
+     value changes:
+       v2 → (a) write the containerd `_default/hosts.toml` catch-all that
+                mirrors EVERY registry namespace through the node-local
+                dfdaemon proxy http://127.0.0.1:${DF_PROXY_PORT};
+            (b) ONCE (cluster-wide, guarded): flip the dfdaemon (+ seed)
+                registryMirror.addr ghcr → the local Harbor external host
+                https://registry.<fqdn> (:443 via the Gateway LoadBalancer), set
+                the registryMirror.cert trust anchor, and bounce dfdaemon.
+       v1/rollback → remove the catch-all + revert the dfdaemon upstream.
+
+     NB on `set -u` (NOT `set -eu`): this is a long-running best-effort
+     RECONCILE LOOP — every apiserver call is already individually guarded
+     (--max-time + `|| true` / `&& … || …` fallbacks) and a transient miss is
+     MEANT to be retried on the next 15s sweep, never to abort the loop. Under
+     `errexit` any guarded sub-command that legitimately exits non-zero (a
+     best-effort ack that 409s, a `[ test ]` that is false at the tail of an
+     `&&` chain) would kill the whole DaemonSet pod and the per-node pivot
+     would silently stall. `set -u` keeps unset-variable protection (the real
+     footgun) without the errexit fragility. The daemonset-wait + per-node ack
+     contract is unchanged.
+    */}}
     set -u
 
-    # #5191 — the pivot toolchain (curl + jq) is load-bearing: Harbor CA
-    # extraction, dragonfly-CA/dfdaemon patch, LB-IP discovery, and the per-node
-    # `registriesYaml` acks (write_node_ack / cm_patch_status) all shell out to
-    # them. The former `apk add ... || true` SILENTLY proceeded tool-less on an
-    # egress miss, so every ack failed (`jq: not found`) and the node never
-    # acked v2 — the step-04 daemonset-wait then wedged the WHOLE cutover with
-    # NO failed-step flag (observed live: hw268 2 rebooted nodes lost the apk
-    # toolchain with no egress to reinstall). Retry, then verify, then FAIL
-    # LOUD: a still-missing tool crashes the Pod (a visible CrashLoopBackOff
-    # that self-heals the moment apk succeeds), never a silent tool-less
-    # proceed. Explicit exit — `set -u` here is deliberate (NOT errexit), so the
-    # guard cannot rely on a non-zero apk killing the shell.
+    {{- /*
+     #5191 — the pivot toolchain (curl + jq) is load-bearing: Harbor CA
+     extraction, dragonfly-CA/dfdaemon patch, LB-IP discovery, and the per-node
+     `registriesYaml` acks (write_node_ack / cm_patch_status) all shell out to
+     them. The former `apk add ... || true` SILENTLY proceeded tool-less on an
+     egress miss, so every ack failed (`jq: not found`) and the node never
+     acked v2 — the step-04 daemonset-wait then wedged the WHOLE cutover with
+     NO failed-step flag (observed live: hw268 2 rebooted nodes lost the apk
+     toolchain with no egress to reinstall). Retry, then verify, then FAIL
+     LOUD: a still-missing tool crashes the Pod (a visible CrashLoopBackOff
+     that self-heals the moment apk succeeds), never a silent tool-less
+     proceed. Explicit exit — `set -u` here is deliberate (NOT errexit), so the
+     guard cannot rely on a non-zero apk killing the shell.
+    */}}
     i=0
     while [ "${i}" -lt 6 ]; do
       apk add --no-cache curl jq >/dev/null 2>&1 && break
@@ -320,72 +352,88 @@ data:
     token=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
     cacert=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
     cm_url="${api}/api/v1/namespaces/${STATUS_CONFIGMAP_NAMESPACE}/configmaps/${STATUS_CONFIGMAP_NAME}"
-    # EVERY apiserver call carries --max-time so a kom4dc network blip FAIL-FASTs
-    # instead of wedging the reconcile loop forever (a stuck-but-alive connection
-    # never trips curl's -f). 20s is generous for an in-cluster apiserver call;
-    # the 15s sweep retries any miss. Word-split intentionally ($CT not quoted).
+    {{- /*
+     EVERY apiserver call carries --max-time so a kom4dc network blip FAIL-FASTs
+     instead of wedging the reconcile loop forever (a stuck-but-alive connection
+     never trips curl's -f). 20s is generous for an in-cluster apiserver call;
+     the 15s sweep retries any miss. Word-split intentionally ($CT not quoted).
+    */}}
     CT="--max-time 20"
 
-    # containerd host-mirror dir, mounted from the host. containerd re-reads
-    # certs.d/<ns>/hosts.toml PER PULL, so writing the `_default` catch-all
-    # here makes new pulls hit the local dfdaemon immediately — no k3s restart.
+    {{- /*
+     containerd host-mirror dir, mounted from the host. containerd re-reads
+     certs.d/<ns>/hosts.toml PER PULL, so writing the `_default` catch-all
+     here makes new pulls hit the local dfdaemon immediately — no k3s restart.
+    */}}
     certs_d=/host/var/lib/rancher/k3s/agent/etc/containerd/certs.d
     df_proxy="http://127.0.0.1:${DF_PROXY_PORT}"
     last_state=""
-    # #5007 — the node's /etc/hosts (bind-mounted from the host) + the marker that
-    # tags the pin line this pivot owns, so it is idempotently re-writeable and
-    # cleanly removable on rollback.
+    {{- /*
+     #5007 — the node's /etc/hosts (bind-mounted from the host) + the marker that
+     tags the pin line this pivot owns, so it is idempotently re-writeable and
+     cleanly removable on rollback.
+    */}}
     etc_hosts=/host/etc/hosts
     pin_marker="# managed by bp-self-sovereign-cutover registry-pivot (#5007) — DO NOT EDIT"
 
-    # ── helpers ────────────────────────────────────────────────────────────
+    {{- /* ── helpers ──────────────────────────────────────────────────────────── */}}
 
-    # The dfdaemon upstream the cutover flips TO: the cluster-LOCAL Harbor's
-    # EXTERNAL routable host on the standard HTTPS port :443 (#4682). The Cilium
-    # Gateway serves `registry.<fqdn>` via a `Service type=LoadBalancer` on :443,
-    # so the dfdaemon dials the host directly over public DNS — no ClusterIP
-    # hostAlias, no NodePort, no CoreDNS rewrite. The token-realm follow-up
-    # Harbor reflects carries the same bare host, so it stays on :443 too.
+    {{- /*
+     The dfdaemon upstream the cutover flips TO: the cluster-LOCAL Harbor's
+     EXTERNAL routable host on the standard HTTPS port :443 (#4682). The Cilium
+     Gateway serves `registry.<fqdn>` via a `Service type=LoadBalancer` on :443,
+     so the dfdaemon dials the host directly over public DNS — no ClusterIP
+     hostAlias, no NodePort, no CoreDNS rewrite. The token-realm follow-up
+     Harbor reflects carries the same bare host, so it stays on :443 too.
+    */}}
     harbor_host=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -E 's,^https?://,,; s,/$,,')
     local_upstream="https://${harbor_host}"
 
-    # #4652 — the PEM path bp-dragonfly (0.1.1) mounts the Harbor wildcard cert
-    # at on the dfdaemon (+ seed); set as proxy.registryMirror.cert so the Rust
-    # resolver trusts the LE-staging in-cluster Harbor on the back-to-source
-    # pull. Empty when HARBOR_CA_ENABLED is off → addr-only flip (no cert line).
+    {{- /*
+     #4652 — the PEM path bp-dragonfly (0.1.1) mounts the Harbor wildcard cert
+     at on the dfdaemon (+ seed); set as proxy.registryMirror.cert so the Rust
+     resolver trusts the LE-staging in-cluster Harbor on the back-to-source
+     pull. Empty when HARBOR_CA_ENABLED is off → addr-only flip (no cert line).
+    */}}
     local_cert_path="${HARBOR_CA_MOUNT_PATH}/${HARBOR_CA_FILE_NAME}"
-    # The wildcard TLS Secret name = <prefix><fqdn with '.'->'-'> (mirrors the
-    # #3379 helmRepositoryTrust source-secret derivation). The registry-pivot
-    # reads it from HARBOR_CA_SRC_NAMESPACE and materialises HARBOR_CA_DEST_SECRET
-    # (carrying tls.crt) in the dragonfly namespace for the optional mount.
+    {{- /*
+     The wildcard TLS Secret name = <prefix><fqdn with '.'->'-'> (mirrors the
+     #3379 helmRepositoryTrust source-secret derivation). The registry-pivot
+     reads it from HARBOR_CA_SRC_NAMESPACE and materialises HARBOR_CA_DEST_SECRET
+     (carrying tls.crt) in the dragonfly namespace for the optional mount.
+    */}}
     fqdn_dashed=$(printf '%s' "${SOVEREIGN_FQDN}" | tr '.' '-')
     wildcard_secret="${HARBOR_CA_SRC_NAME_PREFIX}${fqdn_dashed}"
 
-    # #4975 (Refs #3379 #3695) — PER-UPSTREAM-HOST containerd certs.d rewrite.
-    #
-    # REPLACES the single `_default/hosts.toml` dfdaemon catch-all. Under the
-    # step-08 deny-egress hold a dfdaemon back-to-source to the flipped upstream
-    # only serves images the dfdaemon already fetched; a workload image that was
-    # never node-cached ImagePullBackOffs. The systemic fix is a COMPLETE local
-    # Harbor mirror (step-03 Phase A3 pushes every image) + per-host containerd
-    # entries that resolve each upstream host DIRECTLY to the exact local path:
-    #   • host with project P → mirror https://<local>/v2/<P> + override_path=true
-    #     so a pull of `<host>/<repo>` resolves to `<local>/v2/<P>/<repo>` (the
-    #     Phase-A3 push dest);
-    #   • MOTHERSHIP host (empty project) → mirror https://<local> WITHOUT
-    #     override_path so the path (which already carries the proxy-<x> segment,
-    #     e.g. proxy-ghcr/cloudnative-pg/postgresql) is PRESERVED — a pure host
-    #     swap harbor.openova.io → registry.<fqdn>.
-    # This OVERRIDES the boot-time per-host `harbor.openova.io` mirror k3s wrote.
-    # Every entry skip_verify=true (the local Harbor serves an LE-staging /
-    # node-untrusted wildcard on a fresh prov — same trust-the-cluster-network
-    # rationale as #4529/#4557). The openova-io host-drop pull path is preserved
-    # by the local-registry self-entry (direct pulls of registry.<fqdn>/openova-io/…).
+    {{- /*
+     #4975 (Refs #3379 #3695) — PER-UPSTREAM-HOST containerd certs.d rewrite.
+
+     REPLACES the single `_default/hosts.toml` dfdaemon catch-all. Under the
+     step-08 deny-egress hold a dfdaemon back-to-source to the flipped upstream
+     only serves images the dfdaemon already fetched; a workload image that was
+     never node-cached ImagePullBackOffs. The systemic fix is a COMPLETE local
+     Harbor mirror (step-03 Phase A3 pushes every image) + per-host containerd
+     entries that resolve each upstream host DIRECTLY to the exact local path:
+       • host with project P → mirror https://<local>/v2/<P> + override_path=true
+         so a pull of `<host>/<repo>` resolves to `<local>/v2/<P>/<repo>` (the
+         Phase-A3 push dest);
+       • MOTHERSHIP host (empty project) → mirror https://<local> WITHOUT
+         override_path so the path (which already carries the proxy-<x> segment,
+         e.g. proxy-ghcr/cloudnative-pg/postgresql) is PRESERVED — a pure host
+         swap harbor.openova.io → registry.<fqdn>.
+     This OVERRIDES the boot-time per-host `harbor.openova.io` mirror k3s wrote.
+     Every entry skip_verify=true (the local Harbor serves an LE-staging /
+     node-untrusted wildcard on a fresh prov — same trust-the-cluster-network
+     rationale as #4529/#4557). The openova-io host-drop pull path is preserved
+     by the local-registry self-entry (direct pulls of registry.<fqdn>/openova-io/…).
+    */}}
     write_offline_mirror_hosts() {
-      # Retire the legacy dfdaemon catch-all (superseded by the per-host entries).
+      {{- /* Retire the legacy dfdaemon catch-all (superseded by the per-host entries). */}}
       rm -f "${certs_d}/_default/hosts.toml" 2>/dev/null || true
-      # Self-entry: trust the local Harbor's cert for DIRECT openova-io host-drop
-      # pulls (registry.<fqdn>/openova-io/…), the pivoted-ref path step-06/07 set.
+      {{- /*
+       Self-entry: trust the local Harbor's cert for DIRECT openova-io host-drop
+       pulls (registry.<fqdn>/openova-io/…), the pivoted-ref path step-06/07 set.
+      */}}
       if [ -n "${LOCAL_REGISTRY_HOST:-}" ]; then
         mkdir -p "${certs_d}/${LOCAL_REGISTRY_HOST}"
         {
@@ -398,7 +446,7 @@ data:
         mv "${certs_d}/${LOCAL_REGISTRY_HOST}/hosts.toml.new" "${certs_d}/${LOCAL_REGISTRY_HOST}/hosts.toml"
         echo "[registry-pivot]   wrote ${LOCAL_REGISTRY_HOST}/hosts.toml (local self-trust) on ${NODE_NAME}"
       fi
-      # Per-upstream-host mirror → the local Harbor project path.
+      {{- /* Per-upstream-host mirror → the local Harbor project path. */}}
       for pair in ${HOST_PROJECT_MAP}; do
         h="${pair%%:*}"
         case "${pair}" in *:*) p="${pair#*:}" ;; *) p="" ;; esac
@@ -406,7 +454,7 @@ data:
         [ "${h}" = "${LOCAL_REGISTRY_HOST}" ] && continue
         mkdir -p "${certs_d}/${h}"
         if [ -z "${p}" ]; then
-          # Mothership host-swap: path preserved (no override_path).
+          {{- /* Mothership host-swap: path preserved (no override_path). */}}
           {
             echo "# managed by bp-self-sovereign-cutover registry-pivot (#4975) — DO NOT EDIT"
             echo "server = \"https://${h}\""
@@ -415,8 +463,10 @@ data:
             echo "  skip_verify = true"
           } > "${certs_d}/${h}/hosts.toml.new"
         else
-          # Upstream host → local Harbor project (override_path so containerd
-          # uses the URL path as the API root instead of appending its own /v2).
+          {{- /*
+           Upstream host → local Harbor project (override_path so containerd
+           uses the URL path as the API root instead of appending its own /v2).
+          */}}
           {
             echo "# managed by bp-self-sovereign-cutover registry-pivot (#4975) — DO NOT EDIT"
             echo "server = \"https://${h}\""
@@ -440,40 +490,46 @@ data:
       echo "[registry-pivot]   removed offline-mirror per-host hosts.toml (rollback) on ${NODE_NAME}"
     }
 
-    # #5007 — resolve the Harbor gateway VIP WITHOUT public DNS. The per-host
-    # certs.d entries above use `server = https://registry.<fqdn>`; containerd
-    # resolves that host via the NODE resolver, which on hw241 returned the DEAD
-    # `*.omantel.biz` wildcard IP → ImagePullBackOff. We instead pin registry.<fqdn>
-    # to the gateway VIP the platform already assigned. Priority (K8s-API only, no
-    # DNS): (1) the cilium-gateway `type=LoadBalancer` Service ingress IP (hcloud-ccm
-    # ExternalIP on Hetzner / CiliumLoadBalancerIPPool VIP on no-CCM Huawei); (2) on
-    # the hostNetwork-gateway provider (Huawei #4706 — cilium-envoy binds node:443
-    # directly, so the Service has NO ingress IP / does not exist) the node's OWN IP,
-    # which serves :443 locally. Echoes the VIP or empty (empty ONLY when the Service
-    # EXISTS but its VIP is still pending, or on a transient API miss → caller defers
-    # + retries; a 404 means hostNetwork → HOST_IP). Word-split $CT is intentional.
+    {{- /*
+     #5007 — resolve the Harbor gateway VIP WITHOUT public DNS. The per-host
+     certs.d entries above use `server = https://registry.<fqdn>`; containerd
+     resolves that host via the NODE resolver, which on hw241 returned the DEAD
+     `*.omantel.biz` wildcard IP → ImagePullBackOff. We instead pin registry.<fqdn>
+     to the gateway VIP the platform already assigned. Priority (K8s-API only, no
+     DNS): (1) the cilium-gateway `type=LoadBalancer` Service ingress IP (hcloud-ccm
+     ExternalIP on Hetzner / CiliumLoadBalancerIPPool VIP on no-CCM Huawei); (2) on
+     the hostNetwork-gateway provider (Huawei #4706 — cilium-envoy binds node:443
+     directly, so the Service has NO ingress IP / does not exist) the node's OWN IP,
+     which serves :443 locally. Echoes the VIP or empty (empty ONLY when the Service
+     EXISTS but its VIP is still pending, or on a transient API miss → caller defers
+     + retries; a 404 means hostNetwork → HOST_IP). Word-split $CT is intentional.
+    */}}
     resolve_gateway_vip() {
-      # No LB Service configured → hostNetwork gateway model: node's own IP serves :443.
+      {{- /* No LB Service configured → hostNetwork gateway model: node's own IP serves :443. */}}
       if [ -z "${GATEWAY_LB_SVC_NAME:-}" ]; then printf '%s' "${HOST_IP:-}"; return; fi
       svc_url="${api}/api/v1/namespaces/${GATEWAY_LB_SVC_NAMESPACE}/services/${GATEWAY_LB_SVC_NAME}"
-      # -w appends the HTTP status on its own trailing line (NOT -f, so a 404 body is
-      # readable to distinguish "absent → hostNetwork" from "present but VIP pending").
+      {{- /*
+       -w appends the HTTP status on its own trailing line (NOT -f, so a 404 body is
+       readable to distinguish "absent → hostNetwork" from "present but VIP pending").
+      */}}
       resp=$(curl -sS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
         -w '\n%{http_code}' "${svc_url}" 2>/dev/null || true)
       code=$(printf '%s' "${resp}" | tail -n1)
       json=$(printf '%s' "${resp}" | sed '$d')
       case "${code}" in
         200)
-          # Service present. Split on .spec.type (#5007 round 2, hw250 live):
-          # - LoadBalancer: use its ingress VIP (or spec.loadBalancerIP); empty =
-          #   VIP pending → caller defers (do NOT fall back to HOST_IP: in the LB
-          #   model node:443 is NOT served by envoy).
-          # - ClusterIP (the §854 ELB-direct model keeps the gateway Service but
-          #   cilium assigns NO VIP EVER): hostNetwork envoy serves node:443 —
-          #   identical serving shape to the 404/absent branch — so pin HOST_IP.
-          #   Without this split the pin DEFERRED FOREVER on every ELB-direct
-          #   prov (hw250: 'LB VIP pending / API miss' on all sweeps all night),
-          #   leaving nodes exposed to the #5007 stale-wildcard defect.
+          {{- /*
+           Service present. Split on .spec.type (#5007 round 2, hw250 live):
+           - LoadBalancer: use its ingress VIP (or spec.loadBalancerIP); empty =
+             VIP pending → caller defers (do NOT fall back to HOST_IP: in the LB
+             model node:443 is NOT served by envoy).
+           - ClusterIP (the §854 ELB-direct model keeps the gateway Service but
+             cilium assigns NO VIP EVER): hostNetwork envoy serves node:443 —
+             identical serving shape to the 404/absent branch — so pin HOST_IP.
+             Without this split the pin DEFERRED FOREVER on every ELB-direct
+             prov (hw250: 'LB VIP pending / API miss' on all sweeps all night),
+             leaving nodes exposed to the #5007 stale-wildcard defect.
+          */}}
           svc_type=$(printf '%s' "${json}" | jq -r '.spec.type // empty' 2>/dev/null || true)
           if [ "${svc_type}" = "LoadBalancer" ]; then
             printf '%s' "$(printf '%s' "${json}" | jq -r '.status.loadBalancer.ingress[0].ip // .spec.loadBalancerIP // empty' 2>/dev/null || true)"
@@ -482,21 +538,23 @@ data:
           fi
           ;;
         404)
-          # Service absent → hostNetwork gateway model: cilium-envoy binds node:443.
+          {{- /* Service absent → hostNetwork gateway model: cilium-envoy binds node:443. */}}
           printf '%s' "${HOST_IP:-}"
           ;;
         *)
-          # Transient (000 / 5xx / 401) → empty so the caller defers + retries.
+          {{- /* Transient (000 / 5xx / 401) → empty so the caller defers + retries. */}}
           printf '%s' ""
           ;;
       esac
     }
 
-    # #5007 — write/refresh the managed `<VIP> registry.<fqdn>` line in the node's
-    # /etc/hosts, stripping ANY prior line for that host (a cloud-init r4() boot pin
-    # that may have baked the dead wildcard IP, or a stale managed line). In-place
-    # truncate-rewrite (NOT mv) so the single-file bind mount inode is preserved.
-    # Idempotent (grep -qxF no-op once pinned). Fail-OPEN on any error.
+    {{- /*
+     #5007 — write/refresh the managed `<VIP> registry.<fqdn>` line in the node's
+     /etc/hosts, stripping ANY prior line for that host (a cloud-init r4() boot pin
+     that may have baked the dead wildcard IP, or a stale managed line). In-place
+     truncate-rewrite (NOT mv) so the single-file bind mount inode is preserved.
+     Idempotent (grep -qxF no-op once pinned). Fail-OPEN on any error.
+    */}}
     write_local_registry_pin() {
       case "${LOCAL_REGISTRY_PIN_ENABLED}" in
         true|True|TRUE|1|yes) : ;;
@@ -511,8 +569,10 @@ data:
       fi
       want="${vip} ${LOCAL_REGISTRY_HOST} ${pin_marker}"
       grep -qxF "${want}" "${etc_hosts}" 2>/dev/null && return 0
-      # Strip EVERY existing line whose host field == LOCAL_REGISTRY_HOST (any IP,
-      # managed or the cloud-init boot pin), then append the authoritative pin.
+      {{- /*
+       Strip EVERY existing line whose host field == LOCAL_REGISTRY_HOST (any IP,
+       managed or the cloud-init boot pin), then append the authoritative pin.
+      */}}
       kept=$(awk -v h="${LOCAL_REGISTRY_HOST}" '{
         drop=0
         for (i=2; i<=NF; i++) if ($i==h) { drop=1; break }
@@ -523,8 +583,10 @@ data:
         || echo "[registry-pivot]   WARN failed to write ${etc_hosts} pin on ${NODE_NAME} (will retry next sweep)"
     }
 
-    # #5007 — rollback: drop the managed pin line so registry.<fqdn> reverts to the
-    # node's pre-pivot DNS resolution. In-place truncate-rewrite; idempotent.
+    {{- /*
+     #5007 — rollback: drop the managed pin line so registry.<fqdn> reverts to the
+     node's pre-pivot DNS resolution. In-place truncate-rewrite; idempotent.
+    */}}
     remove_local_registry_pin() {
       [ -f "${etc_hosts}" ] || return 0
       grep -qF "${pin_marker}" "${etc_hosts}" 2>/dev/null || return 0
@@ -533,16 +595,18 @@ data:
         && echo "[registry-pivot]   removed ${LOCAL_REGISTRY_HOST} /etc/hosts pin (rollback) on ${NODE_NAME}"
     }
 
-    # #4652 (the x509 fix) — materialise the in-cluster Harbor trust anchor in
-    # the dragonfly namespace. Reads the wildcard TLS Secret from
-    # HARBOR_CA_SRC_NAMESPACE (kube-system) and creates/updates an Opaque Secret
-    # HARBOR_CA_DEST_SECRET in DF_NAMESPACE carrying `tls.crt`. bp-dragonfly
-    # (0.1.1) mounts that Secret OPTIONALLY at HARBOR_CA_MOUNT_PATH, so once it
-    # exists the dfdaemon (+ seed) carry the PEM the registryMirror.cert line
-    # points at. Same tls.crt-fallback as #3379 (the wildcard Secret carries
-    # tls.crt+tls.key, NO ca.crt → tls.crt is the real trust bundle). Opaque
-    # (NOT kubernetes.io/tls): only tls.crt is copied; the private key is NEVER
-    # carried into dragonfly. Returns 0 when the dest Secret carries the cert.
+    {{- /*
+     #4652 (the x509 fix) — materialise the in-cluster Harbor trust anchor in
+     the dragonfly namespace. Reads the wildcard TLS Secret from
+     HARBOR_CA_SRC_NAMESPACE (kube-system) and creates/updates an Opaque Secret
+     HARBOR_CA_DEST_SECRET in DF_NAMESPACE carrying `tls.crt`. bp-dragonfly
+     (0.1.1) mounts that Secret OPTIONALLY at HARBOR_CA_MOUNT_PATH, so once it
+     exists the dfdaemon (+ seed) carry the PEM the registryMirror.cert line
+     points at. Same tls.crt-fallback as #3379 (the wildcard Secret carries
+     tls.crt+tls.key, NO ca.crt → tls.crt is the real trust bundle). Opaque
+     (NOT kubernetes.io/tls): only tls.crt is copied; the private key is NEVER
+     carried into dragonfly. Returns 0 when the dest Secret carries the cert.
+    */}}
     src_secret_url="${api}/api/v1/namespaces/${HARBOR_CA_SRC_NAMESPACE}/secrets/${wildcard_secret}"
     dst_secret_url="${api}/api/v1/namespaces/${DF_NAMESPACE}/secrets/${HARBOR_CA_DEST_SECRET}"
     harbor_ca_to_dragonfly_ns() {
@@ -550,20 +614,24 @@ data:
         true|True|TRUE|1|yes) : ;;
         *) return 0 ;;
       esac
-      # Prefer the issuing CA (ca.crt); fall back to the served leaf+chain
-      # (tls.crt) — the wildcard Secret typically has NO ca.crt, so tls.crt is
-      # the path that actually fires (the #3379 finding). base64 (.data.*) is
-      # copied verbatim into the dest Secret's .data so no re-encode is needed.
+      {{- /*
+       Prefer the issuing CA (ca.crt); fall back to the served leaf+chain
+       (tls.crt) — the wildcard Secret typically has NO ca.crt, so tls.crt is
+       the path that actually fires (the #3379 finding). base64 (.data.*) is
+       copied verbatim into the dest Secret's .data so no re-encode is needed.
+      */}}
       ca_b64=$(curl -fsS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" "${src_secret_url}" 2>/dev/null \
         | jq -r '.data["ca.crt"] // .data["tls.crt"] // empty' 2>/dev/null || true)
       if [ -z "${ca_b64}" ]; then
         echo "[registry-pivot]   WARN ${HARBOR_CA_SRC_NAMESPACE}/${wildcard_secret} has no ca.crt/tls.crt; deferring dfdaemon cert (registryMirror.cert will be skipped this sweep)"
         return 1
       fi
-      # PUT the cert under the `tls.crt` key (the file bp-dragonfly mounts is
-      # <path>/tls.crt). Idempotent create-or-update: read the dest, if its
-      # tls.crt already matches we skip; else apply via server-side apply
-      # (kubectl-less: a strategic create falls back to a merge-patch on 409).
+      {{- /*
+       PUT the cert under the `tls.crt` key (the file bp-dragonfly mounts is
+       <path>/tls.crt). Idempotent create-or-update: read the dest, if its
+       tls.crt already matches we skip; else apply via server-side apply
+       (kubectl-less: a strategic create falls back to a merge-patch on 409).
+      */}}
       cur_b64=$(curl -fsS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" "${dst_secret_url}" 2>/dev/null \
         | jq -r '.data["tls.crt"] // empty' 2>/dev/null || true)
       if [ "${cur_b64}" = "${ca_b64}" ]; then
@@ -578,7 +646,7 @@ data:
         echo "[registry-pivot]   created ${DF_NAMESPACE}/${HARBOR_CA_DEST_SECRET} (Harbor trust anchor for dfdaemon)"
         return 0
       fi
-      # Already exists → merge-patch the data in place.
+      {{- /* Already exists → merge-patch the data in place. */}}
       patch=$(jq -cn --arg c "${ca_b64}" '{data:{"tls.crt":$c}}')
       if curl -fsS ${CT} -X PATCH --cacert "${cacert}" -H "Authorization: Bearer ${token}" \
           -H "Content-Type: application/merge-patch+json" --data "${patch}" "${dst_secret_url}" >/dev/null 2>&1; then
@@ -592,25 +660,27 @@ data:
       curl -fsS ${CT} -X DELETE --cacert "${cacert}" -H "Authorization: Bearer ${token}" "${dst_secret_url}" >/dev/null 2>&1 || true
     }
 
-    # Patch a dfdaemon-family ConfigMap's dfdaemon.yaml registryMirror.addr to
-    # ${2}, and (when ${3} is non-empty) ensure a sibling registryMirror.cert:
-    # ${3} (the PEM trust anchor for the LE-staging in-cluster Harbor, #4652).
-    # The config is a single YAML string under data."dfdaemon.yaml"; we read it,
-    # rewrite ONLY the registryMirror addr/cert lines, and merge-patch it back.
-    # Idempotent. SCOPING IS LOAD-BEARING: the dfdaemon.yaml carries MULTIPLE
-    # `addr:` keys — `manager.addr: http://dragonfly-manager…:65003` (the gRPC
-    # control-plane the dfdaemon health-checks at boot) AND
-    # `proxy.registryMirror.addr` (the registry upstream we flip). A blanket
-    # `sed s/addr: …/` would ALSO rewrite the manager addr → dfdaemon
-    # ConnectError on startup → CrashLoopBackOff (caught live on the kom4dc
-    # seed-client). So the awk rewrites addr/cert ONLY while inside a
-    # `registryMirror:` block (set the in-block flag on a line ending in
-    # `registryMirror:`; clear it when indentation returns to <= the
-    # registryMirror key's indent). The `cert:` line is emitted at the SAME
-    # indent as `addr` (a sibling under registryMirror) — updated in place if it
-    # already exists in-block, else inserted right after the addr line; cleared
-    # on rollback (want_cert empty). want_addr / want_cert are passed via -v (no
-    # shell interpolation into the awk program → metacharacter-safe).
+    {{- /*
+     Patch a dfdaemon-family ConfigMap's dfdaemon.yaml registryMirror.addr to
+     ${2}, and (when ${3} is non-empty) ensure a sibling registryMirror.cert:
+     ${3} (the PEM trust anchor for the LE-staging in-cluster Harbor, #4652).
+     The config is a single YAML string under data."dfdaemon.yaml"; we read it,
+     rewrite ONLY the registryMirror addr/cert lines, and merge-patch it back.
+     Idempotent. SCOPING IS LOAD-BEARING: the dfdaemon.yaml carries MULTIPLE
+     `addr:` keys — `manager.addr: http://dragonfly-manager…:65003` (the gRPC
+     control-plane the dfdaemon health-checks at boot) AND
+     `proxy.registryMirror.addr` (the registry upstream we flip). A blanket
+     `sed s/addr: …/` would ALSO rewrite the manager addr → dfdaemon
+     ConnectError on startup → CrashLoopBackOff (caught live on the kom4dc
+     seed-client). So the awk rewrites addr/cert ONLY while inside a
+     `registryMirror:` block (set the in-block flag on a line ending in
+     `registryMirror:`; clear it when indentation returns to <= the
+     registryMirror key's indent). The `cert:` line is emitted at the SAME
+     indent as `addr` (a sibling under registryMirror) — updated in place if it
+     already exists in-block, else inserted right after the addr line; cleared
+     on rollback (want_cert empty). want_addr / want_cert are passed via -v (no
+     shell interpolation into the awk program → metacharacter-safe).
+    */}}
     patch_df_configmap_addr() {
       cm_name="$1"; want_addr="$2"; want_cert="${3:-}"
       url="${api}/api/v1/namespaces/${DF_NAMESPACE}/configmaps/${cm_name}"
@@ -618,16 +688,18 @@ data:
         | jq -r '.data["dfdaemon.yaml"] // empty' 2>/dev/null || true)
       [ -z "${cur}" ] && { echo "[registry-pivot]   WARN ${cm_name} dfdaemon.yaml unreadable; deferring upstream flip"; return 1; }
       new=$(printf '%s' "${cur}" | awk -v want="${want_addr}" -v cert="${want_cert}" '
-        # compute leading-space count of a line
+        {{- /* compute leading-space count of a line */}}
         function indent(s,   n){ n=0; while (substr(s,n+1,1)==" ") n++; return n }
         {
           if ($0 ~ /registryMirror:[[:space:]]*$/) { inblk=1; blkind=indent($0); print; next }
           if (inblk) {
             ci=indent($0)
-            # a non-blank line at indent <= the registryMirror key ends the
-            # block. Before leaving, if we owe a cert line and never saw one,
-            # emit it now at the addr indent we recorded (insert before the line
-            # that closes the block).
+            {{- /*
+             a non-blank line at indent <= the registryMirror key ends the
+             block. Before leaving, if we owe a cert line and never saw one,
+             emit it now at the addr indent we recorded (insert before the line
+             that closes the block).
+            */}}
             if ($0 ~ /[^[:space:]]/ && ci <= blkind) {
               if (cert != "" && !cert_done && addrind != "") {
                 printf "%*scert: %s\n", addrind, "", cert
@@ -636,8 +708,10 @@ data:
               inblk=0
             }
           }
-          # In-block existing cert line: update it in place (want set) or drop it
-          # (rollback, want_cert empty) — do NOT print the stale/cleared line.
+          {{- /*
+           In-block existing cert line: update it in place (want set) or drop it
+           (rollback, want_cert empty) — do NOT print the stale/cleared line.
+          */}}
           if (inblk && $0 ~ /^[[:space:]]*cert:[[:space:]]*/) {
             if (cert != "" && !cert_done) {
               printf "%*scert: %s\n", indent($0), "", cert
@@ -649,7 +723,7 @@ data:
             addrind=indent($0)
             sub(/addr:[[:space:]]*https?:\/\/[^[:space:]]+/, "addr: " want)
             print
-            # Insert the cert sibling right after addr if not already emitted.
+            {{- /* Insert the cert sibling right after addr if not already emitted. */}}
             if (cert != "" && !cert_done) {
               printf "%*scert: %s\n", addrind, "", cert
               cert_done=1
@@ -659,8 +733,10 @@ data:
           print
         }
         END {
-          # Block ran to EOF still open and we owe a cert line (registryMirror
-          # was the last block in the doc): emit it at the recorded addr indent.
+          {{- /*
+           Block ran to EOF still open and we owe a cert line (registryMirror
+           was the last block in the doc): emit it at the recorded addr indent.
+          */}}
           if (inblk && cert != "" && !cert_done && addrind != "")
             printf "%*scert: %s\n", addrind, "", cert
         }')
@@ -675,10 +751,12 @@ data:
       return 1
     }
 
-    # Roll dfdaemon (+ seed) so they reload the flipped upstream. This is the
-    # explicit nudge for the addr-only ConfigMap change and is gated by
-    # DF_RESTART_ON_FLIP. Uses the restartedAt annotation (kubectl rollout
-    # restart equivalent) via a strategic-merge patch.
+    {{- /*
+     Roll dfdaemon (+ seed) so they reload the flipped upstream. This is the
+     explicit nudge for the addr-only ConfigMap change and is gated by
+     DF_RESTART_ON_FLIP. Uses the restartedAt annotation (kubectl rollout
+     restart equivalent) via a strategic-merge patch.
+    */}}
     restart_workload() {
       kind="$1"; name="$2"
       [ "${DF_RESTART_ON_FLIP}" = "true" ] || return 0
@@ -692,11 +770,13 @@ data:
         || echo "[registry-pivot]   WARN failed to roll ${kind}/${name}"
     }
 
-    # The cluster-wide dfdaemon upstream flip — performed ONCE.
-    # The status key dragonflyUpstream=local is the cluster-scope guard: the
-    # first node to converge sets it; the rest skip. Returns 0 only when the
-    # full flip (both ConfigMaps) succeeded so the guard is set; a partial
-    # failure leaves the guard unset → a later sweep retries.
+    {{- /*
+     The cluster-wide dfdaemon upstream flip — performed ONCE.
+     The status key dragonflyUpstream=local is the cluster-scope guard: the
+     first node to converge sets it; the rest skip. Returns 0 only when the
+     full flip (both ConfigMaps) succeeded so the guard is set; a partial
+     failure leaves the guard unset → a later sweep retries.
+    */}}
     cm_patch_status() {
       key="$1"; val="$2"
       p=$(jq -cn --arg k "${key}" --arg v "${val}" '{data: {($k): $v}}')
@@ -711,10 +791,12 @@ data:
       fi
       echo "[registry-pivot]   flipping dfdaemon upstream -> ${local_upstream} (external host, :443) on ${NODE_NAME}"
       ok=0
-      # #4652 (x509 fix): materialise the Harbor trust anchor in the dragonfly
-      # namespace; ONLY then set registryMirror.cert (so we never point the
-      # dfdaemon at a non-existent PEM). If the CA cannot be materialised this
-      # sweep, flip addr-only and defer the cert to a later sweep.
+      {{- /*
+       #4652 (x509 fix): materialise the Harbor trust anchor in the dragonfly
+       namespace; ONLY then set registryMirror.cert (so we never point the
+       dfdaemon at a non-existent PEM). If the CA cannot be materialised this
+       sweep, flip addr-only and defer the cert to a later sweep.
+      */}}
       cert_arg=""
       if harbor_ca_to_dragonfly_ns; then
         cert_arg="${local_cert_path}"
@@ -734,7 +816,7 @@ data:
       return 1
     }
     df_revert_to_ghcr() {
-      # Rollback clears the cert (empty 3rd arg) along with the addr.
+      {{- /* Rollback clears the cert (empty 3rd arg) along with the addr. */}}
       patch_df_configmap_addr "${DF_CLIENT_CONFIGMAP}" "https://ghcr.io" "" || true
       if [ -n "${DF_SEED_CONFIGMAP}" ]; then
         patch_df_configmap_addr "${DF_SEED_CONFIGMAP}" "https://ghcr.io" "" || true
@@ -743,39 +825,43 @@ data:
       cm_patch_status dragonflyUpstream ghcr
     }
 
-    # #4637 — the step-07 catalyst-api re-pull GATE. The _default/hosts.toml
-    # catch-all points this node's containerd at the node-local dfdaemon proxy
-    # http://127.0.0.1:${DF_PROXY_PORT}; the dfdaemon is what actually serves
-    # the registry.<fqdn>/openova-io/openova/catalyst-api blob (back-to-source
-    # to its flipped registryMirror.addr). But the dfdaemon DaemonSet
-    # (dragonfly-client) is a SEPARATE workload — if it has 0 Ready pods on this
-    # node (the live #4649 Kyverno-readOnlyRootFilesystem DENY → DESIRED=N
-    # CURRENT=0), the mirror endpoint is dead and a containerd pull through it
-    # gets `dial tcp 127.0.0.1:${DF_PROXY_PORT}: connect: connection refused`.
-    # Writing the v2 node-ack while the proxy is dead lets catalyst-api's
-    # daemonset-wait green PREMATURELY → step-07 fires the catalyst-api HR
-    # image roll → ImagePullBackOff → cutover wedges at 54% (the exact #4637
-    # leg). So probe the LOCAL dfdaemon's registry endpoint BEFORE acking v2:
-    # a reachable proxy answers /v2/ with an HTTP status (200 or a 401/403/404
-    # registry challenge — ANY HTTP response proves the listener is up, no body
-    # parse needed). A connection-refused/timeout returns no status → not yet
-    # serving → defer the ack so the daemonset-wait keeps blocking until the
-    # node mirror is genuinely live (idempotent; retried each 15s sweep).
+    {{- /*
+     #4637 — the step-07 catalyst-api re-pull GATE. The _default/hosts.toml
+     catch-all points this node's containerd at the node-local dfdaemon proxy
+     http://127.0.0.1:${DF_PROXY_PORT}; the dfdaemon is what actually serves
+     the registry.<fqdn>/openova-io/openova/catalyst-api blob (back-to-source
+     to its flipped registryMirror.addr). But the dfdaemon DaemonSet
+     (dragonfly-client) is a SEPARATE workload — if it has 0 Ready pods on this
+     node (the live #4649 Kyverno-readOnlyRootFilesystem DENY → DESIRED=N
+     CURRENT=0), the mirror endpoint is dead and a containerd pull through it
+     gets `dial tcp 127.0.0.1:${DF_PROXY_PORT}: connect: connection refused`.
+     Writing the v2 node-ack while the proxy is dead lets catalyst-api's
+     daemonset-wait green PREMATURELY → step-07 fires the catalyst-api HR
+     image roll → ImagePullBackOff → cutover wedges at 54% (the exact #4637
+     leg). So probe the LOCAL dfdaemon's registry endpoint BEFORE acking v2:
+     a reachable proxy answers /v2/ with an HTTP status (200 or a 401/403/404
+     registry challenge — ANY HTTP response proves the listener is up, no body
+     parse needed). A connection-refused/timeout returns no status → not yet
+     serving → defer the ack so the daemonset-wait keeps blocking until the
+     node mirror is genuinely live (idempotent; retried each 15s sweep).
+    */}}
     dfdaemon_serving() {
-      # curl's -w '%{http_code}' prints the response status, or `000` when the
-      # connection failed (refused/timeout) — and on a dead port curl ALSO exits
-      # non-zero, so do NOT chain `|| echo 000` (that would append a SECOND 000 →
-      # `000000`, which is not the literal `000` we test for → a false "serving"
-      # verdict). `|| true` keeps `set -u`-safe without corrupting the code. A
-      # REAL HTTP response is a 3-digit code whose leading digit is 1-5 (200, or
-      # a 401/403/404 registry challenge — ANY proves the listener is up, no body
-      # parse needed); `000` / empty / anything else = not serving → defer.
-      # Probe the NODE's dfdaemon via HOST_IP, not 127.0.0.1 (#4637 follow-up):
-      # this pod is NOT hostNetwork, so its loopback never reaches the node's
-      # hostNetwork dfdaemon — a 127.0.0.1 probe ALWAYS reads 000 and defers
-      # forever, wedging step-04. The dfdaemon binds 0.0.0.0:${DF_PROXY_PORT} so
-      # HOST_IP is reachable. (containerd still pulls via 127.0.0.1 in the NODE
-      # netns — correct + unchanged.) Fall back to 127.0.0.1 if HOST_IP is unset.
+      {{- /*
+       curl's -w '%{http_code}' prints the response status, or `000` when the
+       connection failed (refused/timeout) — and on a dead port curl ALSO exits
+       non-zero, so do NOT chain `|| echo 000` (that would append a SECOND 000 →
+       `000000`, which is not the literal `000` we test for → a false "serving"
+       verdict). `|| true` keeps `set -u`-safe without corrupting the code. A
+       REAL HTTP response is a 3-digit code whose leading digit is 1-5 (200, or
+       a 401/403/404 registry challenge — ANY proves the listener is up, no body
+       parse needed); `000` / empty / anything else = not serving → defer.
+       Probe the NODE's dfdaemon via HOST_IP, not 127.0.0.1 (#4637 follow-up):
+       this pod is NOT hostNetwork, so its loopback never reaches the node's
+       hostNetwork dfdaemon — a 127.0.0.1 probe ALWAYS reads 000 and defers
+       forever, wedging step-04. The dfdaemon binds 0.0.0.0:${DF_PROXY_PORT} so
+       HOST_IP is reachable. (containerd still pulls via 127.0.0.1 in the NODE
+       netns — correct + unchanged.) Fall back to 127.0.0.1 if HOST_IP is unset.
+      */}}
       probe_host="${HOST_IP:-127.0.0.1}"
       code=$(curl -s -o /dev/null -w '%{http_code}' ${CT} \
         "http://${probe_host}:${DF_PROXY_PORT}/v2/" 2>/dev/null || true)
@@ -785,15 +871,17 @@ data:
       esac
     }
 
-    # #4975 — the step-07 catalyst-api re-pull GATE for the DIRECT path. Post
-    # #4975 containerd resolves each upstream host DIRECTLY to the local Harbor
-    # (registry.<fqdn>), NOT through the node-local dfdaemon, so the ack gate is
-    # "is the LOCAL Harbor serving /v2/" — not "is dfdaemon serving". Probe the
-    # local Harbor external host over :443 (reachable in-cluster via the gateway
-    # LB hairpin, #4682; -k tolerates the LE-staging wildcard). ANY HTTP status
-    # (200 or a 401/403/404 registry challenge) proves the listener is up; a
-    # connection-refused/timeout returns 000 → defer the v2 ack so the
-    # daemonset-wait keeps blocking until the local registry answers.
+    {{- /*
+     #4975 — the step-07 catalyst-api re-pull GATE for the DIRECT path. Post
+     #4975 containerd resolves each upstream host DIRECTLY to the local Harbor
+     (registry.<fqdn>), NOT through the node-local dfdaemon, so the ack gate is
+     "is the LOCAL Harbor serving /v2/" — not "is dfdaemon serving". Probe the
+     local Harbor external host over :443 (reachable in-cluster via the gateway
+     LB hairpin, #4682; -k tolerates the LE-staging wildcard). ANY HTTP status
+     (200 or a 401/403/404 registry challenge) proves the listener is up; a
+     connection-refused/timeout returns 000 → defer the v2 ack so the
+     daemonset-wait keeps blocking until the local registry answers.
+    */}}
     local_registry_serving() {
       code=$(curl -s -o /dev/null -w '%{http_code}' ${CT} -k \
         "https://${LOCAL_REGISTRY_HOST}/v2/" 2>/dev/null || true)
@@ -803,9 +891,11 @@ data:
       esac
     }
 
-    # #3671: per-node ack the daemonset-wait counts (proves EVERY node swapped
-    # its containerd to the dfdaemon mirror, not merely that the DS Pods are
-    # Ready). Key node.<NODE>.registriesYaml. Best-effort; retried each sweep.
+    {{- /*
+     #3671: per-node ack the daemonset-wait counts (proves EVERY node swapped
+     its containerd to the dfdaemon mirror, not merely that the DS Pods are
+     Ready). Key node.<NODE>.registriesYaml. Best-effort; retried each sweep.
+    */}}
     write_node_ack() {
       ack_val="$1"
       ack_key="node.${NODE_NAME}.registriesYaml"
@@ -820,19 +910,25 @@ data:
       desired="$1"
       case "${desired}" in
         v2)
-          # #4975 — per-node: write the PER-UPSTREAM-HOST containerd certs.d
-          # entries that resolve each upstream DIRECTLY to the local Harbor.
+          {{- /*
+           #4975 — per-node: write the PER-UPSTREAM-HOST containerd certs.d
+           entries that resolve each upstream DIRECTLY to the local Harbor.
+          */}}
           write_offline_mirror_hosts
-          # Cluster-wide (guarded): flip the dfdaemon upstream to the local
-          # Harbor too — BEST-EFFORT residual cover for any pull that still
-          # transits dfdaemon (e.g. a host bp-dragonfly dfinit mirrored that
-          # our per-host entries did not override). Not on the critical path.
+          {{- /*
+           Cluster-wide (guarded): flip the dfdaemon upstream to the local
+           Harbor too — BEST-EFFORT residual cover for any pull that still
+           transits dfdaemon (e.g. a host bp-dragonfly dfinit mirrored that
+           our per-host entries did not override). Not on the critical path.
+          */}}
           df_flip_to_local || true
-          # #4975 — ack v2 ONLY once the LOCAL Harbor is actually serving /v2/
-          # (the DIRECT path containerd now uses). Acking while registry.<fqdn>
-          # is unreachable would green the daemonset-wait → step-07 catalyst-api
-          # pull fails. Defer (no ack) so the wait keeps blocking; the reconcile
-          # loop re-probes every sweep (see the v2-ack retry guard).
+          {{- /*
+           #4975 — ack v2 ONLY once the LOCAL Harbor is actually serving /v2/
+           (the DIRECT path containerd now uses). Acking while registry.<fqdn>
+           is unreachable would green the daemonset-wait → step-07 catalyst-api
+           pull fails. Defer (no ack) so the wait keeps blocking; the reconcile
+           loop re-probes every sweep (see the v2-ack retry guard).
+          */}}
           if local_registry_serving; then
             write_node_ack v2
           else
@@ -854,18 +950,22 @@ data:
         || echo "v1")
       desired=${desired:-v1}
 
-      # #5007 — reconcile the local-registry /etc/hosts pin every sweep while v2 is
-      # desired (idempotent; self-heals a node whose /etc/hosts was rewritten, and
-      # completes the pin once the gateway VIP is assigned after the first v2 sweep
-      # — a fast grep no-op once pinned). On v1/rollback apply_state removes it.
+      {{- /*
+       #5007 — reconcile the local-registry /etc/hosts pin every sweep while v2 is
+       desired (idempotent; self-heals a node whose /etc/hosts was rewritten, and
+       completes the pin once the gateway VIP is assigned after the first v2 sweep
+       — a fast grep no-op once pinned). On v1/rollback apply_state removes it.
+      */}}
       [ "${desired}" = "v2" ] && write_local_registry_pin
 
-      # #4639 — re-apply v2 if the cluster-wide dfdaemon flip has not yet been
-      # confirmed (guard dragonflyUpstream != local). apply_state fires only
-      # ONCE per state, so if the upstream flip (e.g. the Harbor CA anchor or a
-      # ConfigMap patch) missed on the first v2 sweep it would be skipped
-      # forever. This retries the flip on a later sweep WITHOUT re-applying every
-      # tick once converged.
+      {{- /*
+       #4639 — re-apply v2 if the cluster-wide dfdaemon flip has not yet been
+       confirmed (guard dragonflyUpstream != local). apply_state fires only
+       ONCE per state, so if the upstream flip (e.g. the Harbor CA anchor or a
+       ConfigMap patch) missed on the first v2 sweep it would be skipped
+       forever. This retries the flip on a later sweep WITHOUT re-applying every
+       tick once converged.
+      */}}
       needs_flip_retry=0
       if [ "${desired}" = "v2" ] && [ "${desired}" = "${last_state}" ]; then
         cur_up=$(curl -fsS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" "${cm_url}" 2>/dev/null \
@@ -873,15 +973,17 @@ data:
         [ "${cur_up}" != "local" ] && needs_flip_retry=1
       fi
 
-      # #4637 — re-apply v2 if THIS node's v2 ack is still missing (its local
-      # dfdaemon was not serving on the first sweep — the live #4649 condition).
-      # The cluster-wide flip (needs_flip_retry) may already be `local`, so that
-      # guard would NOT re-fire apply_state; without this a node whose dfdaemon
-      # came up late never re-probes/re-acks → its node.<NODE>.registriesYaml
-      # stays absent → catalyst-api's per-node-ack wait never reaches
-      # acks==desired → the cutover stalls at step-04 instead of greening once
-      # the mirror is live. Cheap (one CM GET) and self-limiting (stops the
-      # instant the ack lands).
+      {{- /*
+       #4637 — re-apply v2 if THIS node's v2 ack is still missing (its local
+       dfdaemon was not serving on the first sweep — the live #4649 condition).
+       The cluster-wide flip (needs_flip_retry) may already be `local`, so that
+       guard would NOT re-fire apply_state; without this a node whose dfdaemon
+       came up late never re-probes/re-acks → its node.<NODE>.registriesYaml
+       stays absent → catalyst-api's per-node-ack wait never reaches
+       acks==desired → the cutover stalls at step-04 instead of greening once
+       the mirror is live. Cheap (one CM GET) and self-limiting (stops the
+       instant the ack lands).
+      */}}
       needs_ack_retry=0
       if [ "${desired}" = "v2" ] && [ "${desired}" = "${last_state}" ] && [ "${needs_flip_retry}" = "0" ]; then
         my_ack=$(curl -fsS ${CT} --cacert "${cacert}" -H "Authorization: Bearer ${token}" "${cm_url}" 2>/dev/null \
@@ -899,7 +1001,7 @@ data:
         fi
         apply_state "${desired}"
         last_state="${desired}"
-        # Mark Pod ready after the first successful sync.
+        {{- /* Mark Pod ready after the first successful sync. */}}
         touch /tmp/ready
       fi
 

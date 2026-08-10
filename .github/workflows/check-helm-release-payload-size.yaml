@@ -1,0 +1,61 @@
+# check-helm-release-payload-size.yaml — no chart may outgrow the 1 MiB Helm
+# release Secret.
+#
+# #6004: bp-self-sovereign-cutover@0.1.177 could not be installed on ANY
+# Sovereign. Helm stores a release as base64(gzip(json(release))) in a Secret,
+# Kubernetes caps Secret data at 1048576 bytes, and the chart had grown past it
+# — so Phase 1 failed 10 times on hw293 and Pillar 5 became unprovable. Nothing
+# in CI measured that number; the first place it was observable was a fresh
+# Sovereign's install.
+#
+# The sweep can only PACKAGE charts that vendor no upstream subcharts, so charts
+# declaring `dependencies:` are deferred, by name and by count, to the identical
+# check inside blueprint-release.yaml — which runs after `helm dependency build`
+# and BEFORE `helm push`, so nothing reaches GHCR unmeasured. A dependency-free
+# chart that fails to package is reported as an ERROR, never as a pass.
+#
+# --self-test runs first and always: it builds one over-budget and one
+# under-budget chart and asserts the gate returns 1 and 0 respectively. A size
+# check nobody has seen fail is not a check.
+name: check-helm-release-payload-size
+
+on:
+  pull_request:
+    paths:
+      - "platform/*/chart/**"
+      - "products/*/chart/**"
+      - "products/*/charts/*/**"
+      - "scripts/check-helm-release-payload-size.py"
+      - ".github/workflows/check-helm-release-payload-size.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "platform/*/chart/**"
+      - "products/*/chart/**"
+      - "products/*/charts/*/**"
+      - "scripts/check-helm-release-payload-size.py"
+      - ".github/workflows/check-helm-release-payload-size.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          # Same version blueprint-release.yaml publishes with, so the sweep
+          # measures the bytes that workflow would actually push.
+          version: v3.18.4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+      - name: Self-test — the gate must go red over budget and green under it
+        run: python3 scripts/check-helm-release-payload-size.py --self-test
+      - name: Every standalone-packageable chart stays under the 1 MiB ceiling
+        run: python3 scripts/check-helm-release-payload-size.py --all .

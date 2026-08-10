@@ -81,92 +81,101 @@ data:
     {{- range .Values.helmRepositories.names }}
     {{ . }}
     {{- end }}
-  # #5593 — Phase 2c of the step script, mounted and exec (`.`-sourced) FROM
-  # FILE. Step-06 renders within a few hundred bytes of the 110000-byte inline
-  # arg budget, so this block MUST NOT move back into podSpec.args. Its
-  # extraction markers are also what chart/tests/loft-pivot-regions.sh drives.
+  {{- /*
+   #5593 — Phase 2c of the step script, mounted and exec (`.`-sourced) FROM
+   FILE. Step-06 renders within a few hundred bytes of the 110000-byte inline
+   arg budget, so this block MUST NOT move back into podSpec.args. Its
+   extraction markers are also what chart/tests/loft-pivot-regions.sh drives.
+  */}}
   phase2c.sh: |
+    {{- /* The two ---- markers below stay `#` comments ON PURPOSE: they are
+    the region delimiters chart/tests/loft-pivot-regions.sh awk-slices out of
+    the RENDERED manifest. Prose moves into Helm block comments to stay out of
+    the release Secret (#6004); a marker a test navigates by does not. */}}
     # ---- Phase 2c (#5650): vcluster loft chart-source pivot ----
-    #
-    # The one Flux source the Phase-1/2 URL-pivot cannot reach. The
-    # bp-vcluster-helmrepo slot installs HelmRepository
-    # vcluster-system/loft at https://charts.loft.sh — a TRADITIONAL
-    # index.yaml source (spec.type default, NOT oci) in vcluster-system
-    # (NOT flux-system = HELMREPO_NAMESPACE). Phase-1 walks flux-system
-    # and matches only the openova-io OCI UPSTREAM_PREFIX, so it misses
-    # loft on both axes; post-cutover the org-controller's per-Org
-    # vcluster HelmReleases keep re-fetching charts.loft.sh on the HR's
-    # 15m interval — the residual tether #5650 found live on hw292,
-    # invisible to the timed step-08 hold (a 15m interval can straddle
-    # the 600s window). charts.loft.sh is an index.yaml repo no OpenOva
-    # registry mirrors, and the source default must stay upstream for
-    # non-Sovereign / pre-cutover installs, so the pivot is a RUNTIME
-    # cutover step (step-10 philosophy: keep chart defaults, rewrite
-    # POST-handover):
-    #   1. MIRROR — helm pull the upstream vcluster chart (egress still
-    #      open here) + helm push it OCI into local Harbor openova-io.
-    #   2. PIVOT  — patch the loft HR to type=oci +
-    #      url=oci://registry.<fqdn>/openova-io + secretRef=ghcr-pull
-    #      (Phase-0's registry.<fqdn> auth) + certSecretRef (Harbor CA),
-    #      replicating both secrets into vcluster-system where
-    #      source-controller reads them. Tenant HRs resolve chart=
-    #      vcluster version=0.33.* against the mirrored OCI tag unchanged.
-    #   3. DURABLE — suspend the bp-vcluster-helmrepo HelmRelease (live +
-    #      spec.suspend:true in the Gitea slot) so the 15m reconcile does
-    #      not re-render loft back to charts.loft.sh.
-    # FAIL-CLOSED: any sub-step that cannot complete leaves loft on
-    # charts.loft.sh and FATALs — step-08's fluxSourceHostLint (empty
-    # allowHosts) then fails the cutover on it rather than stamping a
-    # false cutoverComplete=true. See .Values.helmRepositories
-    # .vclusterLoftPivot and the fluxSourceHostLint HISTORY note.
-    #
-    # ── #5650 SECONDARY-REGION LEG (measured on hw292 2026-08-06) ──
-    #
-    # 0.1.168 shipped this pivot as a PRIMARY-ONLY block: every kubectl
-    # in it ran against the Job's own in-cluster context. But slot 60
-    # installs the loft HelmRepository in EVERY region, so on a 2-region
-    # Sovereign the tether is TWO objects, not one. Live on hw292 (dep
-    # 1c56518035a83e03), ~63h after cutoverComplete=true was stamped,
-    # source-controller in BOTH regions was still fetching it on the 15m
-    # interval — sampled across 75 minutes, i.e. an interval strictly
-    # longer than the actor's period, because a single sample inside a
-    # window proves nothing about a periodic actor:
-    #   region-a 23:36:44Z  stored fetched index of size 3.893MB from 'https://charts.loft.sh'
-    #   region-b 23:24:43Z  stored fetched index of size 3.893MB from 'https://charts.loft.sh'
-    # Region-b's copy is not even referenced by a HelmRelease there and
-    # it still reconciles: source-controller drives a HelmRepository on
-    # its own interval regardless of consumers, so "nothing uses it" is
-    # not "it does not dial out".
-    #
-    # And the consequence is worse than half a tether. Step-08's
-    # fluxSourceHostLint runs PER REGION (#5359) over the SAME target
-    # list, and its allowHosts is now EMPTY — so a primary-only pivot
-    # makes the region-b lint fail and the cutover can never reach
-    # cutoverComplete=true on the multi-region topology the DoD requires.
-    # The pivot must cover exactly the regions the lint measures; those
-    # two target lists are built the same way on purpose.
-    #
-    # SHARED vs PER-REGION. The Harbor mirror (one registry endpoint for
-    # the Sovereign) and the durable Gitea slot edit (one Gitea, which
-    # the secondaries also reconcile from after step-05) are
-    # SOVEREIGN-WIDE and run ONCE. Only the live patch — secret
-    # replication + HelmRepository patch + HelmRelease suspend + the
-    # read-back — is per-region.
-    #
-    # The `_lp_kubectl` shim is written on ONE line on purpose:
-    # chart/tests/loft-pivot-regions.sh extracts this function out of the
-    # RENDER with an awk range that terminates on the first bare `}`
-    # line, so a nested multi-line function definition would silently
-    # truncate the function under test (the #5646 drift shape).
+    {{- /*
+     The one Flux source the Phase-1/2 URL-pivot cannot reach. The
+     bp-vcluster-helmrepo slot installs HelmRepository
+     vcluster-system/loft at https://charts.loft.sh — a TRADITIONAL
+     index.yaml source (spec.type default, NOT oci) in vcluster-system
+     (NOT flux-system = HELMREPO_NAMESPACE). Phase-1 walks flux-system
+     and matches only the openova-io OCI UPSTREAM_PREFIX, so it misses
+     loft on both axes; post-cutover the org-controller's per-Org
+     vcluster HelmReleases keep re-fetching charts.loft.sh on the HR's
+     15m interval — the residual tether #5650 found live on hw292,
+     invisible to the timed step-08 hold (a 15m interval can straddle
+     the 600s window). charts.loft.sh is an index.yaml repo no OpenOva
+     registry mirrors, and the source default must stay upstream for
+     non-Sovereign / pre-cutover installs, so the pivot is a RUNTIME
+     cutover step (step-10 philosophy: keep chart defaults, rewrite
+     POST-handover):
+       1. MIRROR — helm pull the upstream vcluster chart (egress still
+          open here) + helm push it OCI into local Harbor openova-io.
+       2. PIVOT  — patch the loft HR to type=oci +
+          url=oci://registry.<fqdn>/openova-io + secretRef=ghcr-pull
+          (Phase-0's registry.<fqdn> auth) + certSecretRef (Harbor CA),
+          replicating both secrets into vcluster-system where
+          source-controller reads them. Tenant HRs resolve chart=
+          vcluster version=0.33.* against the mirrored OCI tag unchanged.
+       3. DURABLE — suspend the bp-vcluster-helmrepo HelmRelease (live +
+          spec.suspend:true in the Gitea slot) so the 15m reconcile does
+          not re-render loft back to charts.loft.sh.
+     FAIL-CLOSED: any sub-step that cannot complete leaves loft on
+     charts.loft.sh and FATALs — step-08's fluxSourceHostLint (empty
+     allowHosts) then fails the cutover on it rather than stamping a
+     false cutoverComplete=true. See .Values.helmRepositories
+     .vclusterLoftPivot and the fluxSourceHostLint HISTORY note.
+
+     ── #5650 SECONDARY-REGION LEG (measured on hw292 2026-08-06) ──
+
+     0.1.168 shipped this pivot as a PRIMARY-ONLY block: every kubectl
+     in it ran against the Job's own in-cluster context. But slot 60
+     installs the loft HelmRepository in EVERY region, so on a 2-region
+     Sovereign the tether is TWO objects, not one. Live on hw292 (dep
+     1c56518035a83e03), ~63h after cutoverComplete=true was stamped,
+     source-controller in BOTH regions was still fetching it on the 15m
+     interval — sampled across 75 minutes, i.e. an interval strictly
+     longer than the actor's period, because a single sample inside a
+     window proves nothing about a periodic actor:
+       region-a 23:36:44Z  stored fetched index of size 3.893MB from 'https://charts.loft.sh'
+       region-b 23:24:43Z  stored fetched index of size 3.893MB from 'https://charts.loft.sh'
+     Region-b's copy is not even referenced by a HelmRelease there and
+     it still reconciles: source-controller drives a HelmRepository on
+     its own interval regardless of consumers, so "nothing uses it" is
+     not "it does not dial out".
+
+     And the consequence is worse than half a tether. Step-08's
+     fluxSourceHostLint runs PER REGION (#5359) over the SAME target
+     list, and its allowHosts is now EMPTY — so a primary-only pivot
+     makes the region-b lint fail and the cutover can never reach
+     cutoverComplete=true on the multi-region topology the DoD requires.
+     The pivot must cover exactly the regions the lint measures; those
+     two target lists are built the same way on purpose.
+
+     SHARED vs PER-REGION. The Harbor mirror (one registry endpoint for
+     the Sovereign) and the durable Gitea slot edit (one Gitea, which
+     the secondaries also reconcile from after step-05) are
+     SOVEREIGN-WIDE and run ONCE. Only the live patch — secret
+     replication + HelmRepository patch + HelmRelease suspend + the
+     read-back — is per-region.
+
+     The `_lp_kubectl` shim is written on ONE line on purpose:
+     chart/tests/loft-pivot-regions.sh extracts this function out of the
+     RENDER with an awk range that terminates on the first bare `}`
+     line, so a nested multi-line function definition would silently
+     truncate the function under test (the #5646 drift shape).
+    */}}
     loft_pivot_region() {
       _lp_region="${1:-primary}"
       _LP_KUBECONFIG="${2:-}"
       _lp_kubectl() { if [ -n "${_LP_KUBECONFIG:-}" ]; then kubectl --kubeconfig="${_LP_KUBECONFIG}" "$@"; else kubectl "$@"; fi; }
       _lp_kubectl create namespace "${VCL_LOFT_NAMESPACE}" >/dev/null 2>&1 || true
-      # 1. Pull auth. source-controller reads spec.secretRef from the
-      #    HR's OWN namespace, in the HR's OWN cluster — so the bytes
-      #    captured once from the primary must be applied into every
-      #    region, not just this Job's.
+      {{- /*
+       1. Pull auth. source-controller reads spec.secretRef from the
+          HR's OWN namespace, in the HR's OWN cluster — so the bytes
+          captured once from the primary must be applied into every
+          region, not just this Job's.
+      */}}
       if [ ! -s "${LOFT_GHCR_SECRET_JSON}" ]; then
         echo "[helmrepository-patches] FATAL: Phase-2c [${_lp_region}]: no ${GHCR_PULL_SECRET_NAME} bytes were captured from the primary — the pivoted loft HR would 401 (#5650)" >&2
         return 1
@@ -177,7 +186,7 @@ data:
         echo "[helmrepository-patches] FATAL: Phase-2c [${_lp_region}]: could not replicate ${GHCR_PULL_SECRET_NAME} into ${VCL_LOFT_NAMESPACE} — the pivoted loft HR would 401 (#5650)" >&2
         return 1
       fi
-      # 2. Harbor CA trust (optional — absent on a public-CA Harbor).
+      {{- /* 2. Harbor CA trust (optional — absent on a public-CA Harbor). */}}
       _lp_certref=""
       if [ -n "${LOFT_TRUST_SECRET}" ] && [ -n "${LOFT_CA_B64}" ]; then
         if printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n    app.kubernetes.io/managed-by: self-sovereign-cutover\n    bp.openova.io/cutover-step: helmrepository-patches\ntype: Opaque\ndata:\n  ca.crt: %s\n' "${LOFT_TRUST_SECRET}" "${VCL_LOFT_NAMESPACE}" "${LOFT_CA_B64}" | _lp_kubectl apply -f - >/dev/null 2>&1; then
@@ -187,7 +196,7 @@ data:
           echo "[helmrepository-patches] Phase-2c WARN [${_lp_region}]: could not apply trust CA into ${VCL_LOFT_NAMESPACE} — pivoting WITHOUT certSecretRef (needs a public-CA Harbor cert)"
         fi
       fi
-      # 3. LIVE-PATCH the loft HR in THIS region: index.yaml -> local OCI.
+      {{- /* 3. LIVE-PATCH the loft HR in THIS region: index.yaml -> local OCI. */}}
       if [ -n "${_lp_certref}" ]; then
         _lp_patch=$(printf '{"spec":{"type":"oci","url":"%s","secretRef":{"name":"%s"},"certSecretRef":{"name":"%s"}}}' "${LOFT_LOCAL_URL}" "${GHCR_PULL_SECRET_NAME}" "${_lp_certref}")
       else
@@ -200,10 +209,12 @@ data:
         echo "[helmrepository-patches] FATAL: Phase-2c [${_lp_region}]: kubectl patch of loft HR failed (#5650)" >&2
         return 1
       fi
-      # 4. Suspend the bp-vcluster-helmrepo HelmRelease IN THIS REGION so
-      #    its next reconcile does not re-render loft back to
-      #    charts.loft.sh. Slot 60 lands in every region, so the reverting
-      #    actor exists in every region too.
+      {{- /*
+       4. Suspend the bp-vcluster-helmrepo HelmRelease IN THIS REGION so
+          its next reconcile does not re-render loft back to
+          charts.loft.sh. Slot 60 lands in every region, so the reverting
+          actor exists in every region too.
+      */}}
       if _lp_kubectl get helmrelease "${VCL_LOFT_RELEASE}" -n "${VCL_LOFT_RELEASE_NS}" >/dev/null 2>&1; then
         if _lp_kubectl patch helmrelease "${VCL_LOFT_RELEASE}" -n "${VCL_LOFT_RELEASE_NS}" --type=merge --patch '{"spec":{"suspend":true}}' >/dev/null 2>&1; then
           echo "[helmrepository-patches] Phase-2c OK [${_lp_region}]: suspended ${VCL_LOFT_RELEASE_NS}/${VCL_LOFT_RELEASE} (live) so the loft pivot is not reverted"
@@ -213,12 +224,14 @@ data:
       else
         echo "[helmrepository-patches] Phase-2c [${_lp_region}]: HelmRelease ${VCL_LOFT_RELEASE_NS}/${VCL_LOFT_RELEASE} absent — nothing to suspend (loft HR may be operator-managed)"
       fi
-      # 5. READ-BACK. `kubectl patch` exiting 0 is not the same as the
-      #    object carrying the new URL — an admission webhook or a
-      #    competing controller can revert it inside the same second, and
-      #    a Job that logged OK on an un-pivoted region is precisely the
-      #    single-region-sample failure this leg exists to end. Assert on
-      #    the DECLARATION we just wrote, in the region we wrote it to.
+      {{- /*
+       5. READ-BACK. `kubectl patch` exiting 0 is not the same as the
+          object carrying the new URL — an admission webhook or a
+          competing controller can revert it inside the same second, and
+          a Job that logged OK on an un-pivoted region is precisely the
+          single-region-sample failure this leg exists to end. Assert on
+          the DECLARATION we just wrote, in the region we wrote it to.
+      */}}
       _lp_after=$(_lp_kubectl get helmrepository "${VCL_LOFT_HR_NAME}" -n "${VCL_LOFT_NAMESPACE}" -o jsonpath='{.spec.url}' 2>/dev/null || echo "")
       if [ "${_lp_after}" != "${LOFT_LOCAL_URL}" ]; then
         echo "[helmrepository-patches] FATAL: Phase-2c [${_lp_region}]: read-back shows spec.url='${_lp_after}', expected '${LOFT_LOCAL_URL}' — the pivot did not stick and this region would keep fetching ${VCL_LOFT_UPSTREAM_REPO} on its 15m interval (#5650)" >&2
@@ -232,22 +245,26 @@ data:
       LOFT_GHCR_SECRET_JSON="/tmp/.loft-ghcr-pull.json"
       LOFT_TRUST_SECRET=""
       LOFT_CA_B64=""
-      # ---- Target list: the SAME construction step-08's per-region
-      #      fluxSourceHostLint uses (primary + every mounted secondary
-      #      kubeconfig). If these two lists diverge, the lint measures a
-      #      region the pivot never touched — which IS this defect.
-      # SECONDARY_KUBECONFIG_DIR defaults to the Job's real mount and is
-      # overridable ONLY so chart/tests/loft-pivot-regions.sh can drive
-      # this block with a stub region set — the same seam WORK_DIR gives
-      # the step-08 lints. Nothing in the chart ever sets it.
+      {{- /*
+       ---- Target list: the SAME construction step-08's per-region
+            fluxSourceHostLint uses (primary + every mounted secondary
+            kubeconfig). If these two lists diverge, the lint measures a
+            region the pivot never touched — which IS this defect.
+       SECONDARY_KUBECONFIG_DIR defaults to the Job's real mount and is
+       overridable ONLY so chart/tests/loft-pivot-regions.sh can drive
+       this block with a stub region set — the same seam WORK_DIR gives
+       the step-08 lints. Nothing in the chart ever sets it.
+      */}}
       loft_targets="primary="
       for lt_kc in "${SECONDARY_KUBECONFIG_DIR:-/secondary-kubeconfigs}"/*.yaml; do
         [ -e "${lt_kc}" ] || continue
         loft_targets="${loft_targets} $(basename "${lt_kc}" .yaml)=${lt_kc}"
       done
-      # ---- Classify every region: absent / already-oci / needs-pivot.
-      #      A region that cannot be READ is fail-closed: indistinguishable
-      #      from a pivoted one only in the log (#5359).
+      {{- /*
+       ---- Classify every region: absent / already-oci / needs-pivot.
+            A region that cannot be READ is fail-closed: indistinguishable
+            from a pivoted one only in the log (#5359).
+      */}}
       loft_need=""
       for lt in ${loft_targets}; do
         lt_region="${lt%%=*}"
@@ -264,8 +281,10 @@ data:
         lt_url=$(jq -r '.spec.url // ""' /tmp/.loft-probe.json 2>/dev/null)
         lt_type=$(jq -r '.spec.type // ""' /tmp/.loft-probe.json 2>/dev/null)
         if [ "${lt_type}" = "oci" ]; then
-          # Already OCI (idempotent re-run, or an operator overlay). The
-          # step-08 fluxSourceHostLint judges locality either way; leave it.
+          {{- /*
+           Already OCI (idempotent re-run, or an operator overlay). The
+           step-08 fluxSourceHostLint judges locality either way; leave it.
+          */}}
           echo "[helmrepository-patches] Phase-2c SKIP [${lt_region}]: loft HR is already type=oci (${lt_url}) — idempotent re-run / operator overlay (#5650)"
           continue
         fi
@@ -276,15 +295,17 @@ data:
         echo "[helmrepository-patches] Phase-2c: no region needs the loft pivot (absent or already local) — nothing to do (#5650)"
       else
         echo "[helmrepository-patches] Phase-2c: pivoting loft chart source -> ${LOFT_LOCAL_URL} in region(s):${loft_need} (#5650)"
-        # In-cluster Harbor serves an LE-staging (node-untrusted) cert on
-        # a fresh prov; the Job Pod has no node trust store. Mirror the
-        # same insecure-flag discipline Phase-3a uses (login vs pull take
-        # DIFFERENT flag spellings on helm v3.16.x).
+        {{- /*
+         In-cluster Harbor serves an LE-staging (node-untrusted) cert on
+         a fresh prov; the Job Pod has no node trust store. Mirror the
+         same insecure-flag discipline Phase-3a uses (login vs pull take
+         DIFFERENT flag spellings on helm v3.16.x).
+        */}}
         case "${HELM_IN_CLUSTER_TLS_VERIFY:-false}" in
           true|True|TRUE|1|yes) VCL_LFLAG=""; VCL_PFLAG="" ;;
           *) VCL_LFLAG="--insecure"; VCL_PFLAG="--insecure-skip-tls-verify" ;;
         esac
-        # 1. MIRROR (ONCE — one Harbor endpoint serves every region).
+        {{- /* 1. MIRROR (ONCE — one Harbor endpoint serves every region). */}}
         helm registry login "${harbor_endpoint}" ${VCL_LFLAG} \
           -u "${HARBOR_USERNAME:-admin}" -p "${HARBOR_PASSWORD}" >/dev/null 2>&1 \
           && echo "[helmrepository-patches] Phase-2c: helm registry login ${harbor_endpoint} OK" \
@@ -317,8 +338,10 @@ data:
           exit 1
         fi
         echo "[helmrepository-patches] Phase-2c OK: mirrored ${VCL_LOFT_CHART} ${VCL_LOFT_VERSION} -> ${LOFT_LOCAL_URL}/${VCL_LOFT_CHART}"
-        # 2. Capture the auth + trust material ONCE from the primary, then
-        #    replicate it into every region that needs the pivot.
+        {{- /*
+         2. Capture the auth + trust material ONCE from the primary, then
+            replicate it into every region that needs the pivot.
+        */}}
         gp_src_ns="${GHCR_PULL_SECRET_NAMESPACE}"
         kubectl get secret "${GHCR_PULL_SECRET_NAME}" -n "${gp_src_ns}" >/dev/null 2>&1 || gp_src_ns="flux-system"
         if ! kubectl get secret "${GHCR_PULL_SECRET_NAME}" -n "${gp_src_ns}" -o json >"${LOFT_GHCR_SECRET_JSON}" 2>/dev/null; then
@@ -329,9 +352,11 @@ data:
           LOFT_CA_B64=$(kubectl get secret "${trust_secret}" -n "${HELMREPO_NAMESPACE}" -o json 2>/dev/null | jq -r '.data["ca.crt"] // empty')
           [ -n "${LOFT_CA_B64}" ] && LOFT_TRUST_SECRET="${trust_secret}"
         fi
-        # 3. PIVOT every queued region. One failing region FATALs the
-        #    step: a partially-pivoted Sovereign that reports success is
-        #    the exact shape of the defect (#5359 #5596 #5650).
+        {{- /*
+         3. PIVOT every queued region. One failing region FATALs the
+            step: a partially-pivoted Sovereign that reports success is
+            the exact shape of the defect (#5359 #5596 #5650).
+        */}}
         loft_pivoted=0
         for ln in ${loft_need}; do
           ln_region="${ln%%=*}"
@@ -343,9 +368,11 @@ data:
           loft_pivoted=$((loft_pivoted + 1))
         done
         echo "[helmrepository-patches] Phase-2c OK: ${loft_pivoted} region(s) pivoted off ${VCL_LOFT_UPSTREAM_REPO} onto ${LOFT_LOCAL_URL} (#5650)"
-        # 4. DURABLE (ONCE): set spec.suspend=true on the slot file in the
-        #    Gitea clone so the bootstrap-kit reconcile keeps loft
-        #    suspended. One Gitea serves every region after step-05.
+        {{- /*
+         4. DURABLE (ONCE): set spec.suspend=true on the slot file in the
+            Gitea clone so the bootstrap-kit reconcile keeps loft
+            suspended. One Gitea serves every region after step-05.
+        */}}
         if [ -f "${VCL_LOFT_SLOT_FILE}" ]; then
           vcl_yq=""
           if command -v yq >/dev/null 2>&1; then
@@ -378,19 +405,23 @@ data:
     serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
     restartPolicy: Never
     activeDeadlineSeconds: {{ .Values.stepTimeouts.helmRepositoryPatchesSeconds }}
-    # #5214 — re-assert gitea-admin-secret in the release namespace at step
-    # execution time (durable close of the #4557/#4558/#4661 recurrence class:
-    # the install-time bridge copy was deleted between install and this step on
-    # hw271, wedging the secretKeyRef below). See _helpers.tpl.
+    {{- /*
+     #5214 — re-assert gitea-admin-secret in the release namespace at step
+     execution time (durable close of the #4557/#4558/#4661 recurrence class:
+     the install-time bridge copy was deleted between install and this step on
+     hw271, wedging the secretKeyRef below). See _helpers.tpl.
+    */}}
     initContainers:
       {{- include "bp-self-sovereign-cutover.giteaSecretSelfHealInitContainer" (dict "ctx" . "phase" "post") | nindent 6 }}
     containers:
       - name: helmrepository-patches
-        # alpine/k8s ships kubectl + git so we can both patch the live
-        # K8s object AND push the YAML edit to local Gitea (#970).
-        # Fix #163 (2026-05-11, MIRROR-EVERYTHING): explicit
-        # harbor.openova.io/proxy-dockerhub prefix per CLAUDE.md
-        # inviolable rule.
+        {{- /*
+         alpine/k8s ships kubectl + git so we can both patch the live
+         K8s object AND push the YAML edit to local Gitea (#970).
+         Fix #163 (2026-05-11, MIRROR-EVERYTHING): explicit
+         harbor.openova.io/proxy-dockerhub prefix per CLAUDE.md
+         inviolable rule.
+        */}}
         image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
         imagePullPolicy: IfNotPresent
         env:
@@ -418,14 +449,16 @@ data:
             value: {{ .Values.gitea.org | quote }}
           - name: GITEA_REPO
             value: {{ .Values.gitea.repo | quote }}
-          # #4967 (Refs #3379 #4885) — self-healing re-assert of the Gitea
-          # admin password before the demirror PATCH + git push. The live DB
-          # password can DRIFT from gitea-admin-secret when step-04 rolls the
-          # gitea image and the init container's keepUpdated re-sync races /
-          # no-ops (hw236 wedge: demirror 401 `user's password is invalid
-          # [uid:1 name:gitea_admin]`). The Phase-1.4 block execs
-          # `gitea admin user change-password` in the live gitea Pod to force
-          # the DB row to match the Secret. See .Values.gitea.adminPasswordReassert.
+          {{- /*
+           #4967 (Refs #3379 #4885) — self-healing re-assert of the Gitea
+           admin password before the demirror PATCH + git push. The live DB
+           password can DRIFT from gitea-admin-secret when step-04 rolls the
+           gitea image and the init container's keepUpdated re-sync races /
+           no-ops (hw236 wedge: demirror 401 `user's password is invalid
+           [uid:1 name:gitea_admin]`). The Phase-1.4 block execs
+           `gitea admin user change-password` in the live gitea Pod to force
+           the DB row to match the Secret. See .Values.gitea.adminPasswordReassert.
+          */}}
           - name: GITEA_ADMIN_PASSWORD_REASSERT
             value: {{ .Values.gitea.adminPasswordReassert.enabled | default true | quote }}
           - name: GITEA_NAMESPACE
@@ -434,10 +467,12 @@ data:
             value: {{ .Values.gitea.adminPasswordReassert.podSelector | default "app.kubernetes.io/name=gitea,app.kubernetes.io/instance=gitea" | quote }}
           - name: GITEA_CONTAINER
             value: {{ .Values.gitea.adminPasswordReassert.containerName | default "gitea" | quote }}
-          # Phase 0 (#1184) — harbor.<sov-fqdn> auth merge into ghcr-pull.
-          # HARBOR_PASSWORD comes from the Reflector-mirrored
-          # harbor-admin Secret in this namespace (bp-harbor 1.2.14+
-          # emits it in the harbor ns with allowed-namespaces=catalyst).
+          {{- /*
+           Phase 0 (#1184) — harbor.<sov-fqdn> auth merge into ghcr-pull.
+           HARBOR_PASSWORD comes from the Reflector-mirrored
+           harbor-admin Secret in this namespace (bp-harbor 1.2.14+
+           emits it in the harbor ns with allowed-namespaces=catalyst).
+          */}}
           - name: HARBOR_USERNAME
             valueFrom:
               secretKeyRef:
@@ -455,104 +490,122 @@ data:
             value: {{ .Values.harbor.ghcrSecretRef.namespace | quote }}
           - name: GHCR_PULL_SECRET_KEY
             value: {{ .Values.harbor.ghcrSecretRef.dockerConfigKey | quote }}
-          # Phase-0 strip targets (TBD-V24 MISS-2, chart 0.1.35). Comma-
-          # separated list of mothership-side auth keys to REMOVE from
-          # `.dockerconfigjson` once the local Harbor entry is in place.
-          # See .Values.harbor.mothershipAuthsToStrip for the canonical
-          # source and rationale.
+          {{- /*
+           Phase-0 strip targets (TBD-V24 MISS-2, chart 0.1.35). Comma-
+           separated list of mothership-side auth keys to REMOVE from
+           `.dockerconfigjson` once the local Harbor entry is in place.
+           See .Values.harbor.mothershipAuthsToStrip for the canonical
+           source and rationale.
+          */}}
           - name: MOTHERSHIP_AUTHS_TO_STRIP
             value: {{ join "," .Values.harbor.mothershipAuthsToStrip | quote }}
-          # Phase -1 gateway-wait inputs (issue #1871, chart 0.1.32).
-          # The cutover URL rewrite (Phase 1 below) MUST NOT fire until
-          # the Cilium Gateway in kube-system is Programmed=True; that
-          # condition is the operator-facing proxy for "registry.<sov-
-          # fqdn> serves TLS, source-controller pulls won't EOF". See
-          # the Phase -1 block in args: below for the full wait loop.
+          {{- /*
+           Phase -1 gateway-wait inputs (issue #1871, chart 0.1.32).
+           The cutover URL rewrite (Phase 1 below) MUST NOT fire until
+           the Cilium Gateway in kube-system is Programmed=True; that
+           condition is the operator-facing proxy for "registry.<sov-
+           fqdn> serves TLS, source-controller pulls won't EOF". See
+           the Phase -1 block in args: below for the full wait loop.
+          */}}
           - name: GATEWAY_NAMESPACE
             value: {{ .Values.gateway.namespace | quote }}
           - name: GATEWAY_NAME
             value: {{ .Values.gateway.name | quote }}
           - name: GATEWAY_WAIT_TIMEOUT_SECONDS
             value: {{ .Values.gateway.waitTimeoutSeconds | quote }}
-          # Phase-3 strip-before-pivot fix (Refs #3379 #3526). The
-          # mothership-auth strip (ghcr.io / harbor.openova.io) waits up to
-          # this long for every local-Harbor HelmRepository to reach
-          # Ready=True before removing the ghcr.io fallback. If the pivot
-          # never converges, the strip is SKIPPED (Job exits non-zero with
-          # ghcr.io auth intact → recoverable). See
-          # .Values.stepTimeouts.stripReadinessSeconds.
+          {{- /*
+           Phase-3 strip-before-pivot fix (Refs #3379 #3526). The
+           mothership-auth strip (ghcr.io / harbor.openova.io) waits up to
+           this long for every local-Harbor HelmRepository to reach
+           Ready=True before removing the ghcr.io fallback. If the pivot
+           never converges, the strip is SKIPPED (Job exits non-zero with
+           ghcr.io auth intact → recoverable). See
+           .Values.stepTimeouts.stripReadinessSeconds.
+          */}}
           - name: STRIP_READINESS_TIMEOUT_SECONDS
             value: {{ .Values.stepTimeouts.stripReadinessSeconds | quote }}
-          # Phase-3a pull-probe sample size (Refs #3627). The strip is gated on
-          # a successful authenticated `helm pull` of a representative sample of
-          # the pivoted local-Harbor charts (NOT on a non-existent
-          # HelmRepository .status.Ready). bp-catalyst-platform is always probed
-          # when present; this caps the rest of the sample so the gate stays
-          # fast while still proving Harbor serves charts + auth works.
+          {{- /*
+           Phase-3a pull-probe sample size (Refs #3627). The strip is gated on
+           a successful authenticated `helm pull` of a representative sample of
+           the pivoted local-Harbor charts (NOT on a non-existent
+           HelmRepository .status.Ready). bp-catalyst-platform is always probed
+           when present; this caps the rest of the sample so the gate stays
+           fast while still proving Harbor serves charts + auth works.
+          */}}
           - name: HELM_PROBE_SAMPLE_SIZE
             value: {{ .Values.helmReadinessProbe.sampleSize | quote }}
-          # #5237 (Refs #5007): union-warm-on-drift. Phase-3a samples the LIVE
-          # chart version off each pivoted HelmRelease (deployed
-          # `.status.history[0].chartVersion` // desired `.spec.chart.spec
-          # .version`). If a `bp-catalyst-platform` release is published to
-          # ghcr AFTER step-03 harbor-prewarm finishes (a mid-cutover merge's
-          # deploy-bot bump), flux redeploys the umbrella to the newer
-          # concrete pin BEFORE this step runs — so the sampled version is a
-          # tag prewarm never mirrored (catalog-latest drifted one bump ahead;
-          # neither the deployed NOR the desired tag was warmed). When true
-          # (default), a sampled chart that is absent from local Harbor is
-          # TOP-UP-WARMED from the still-reachable upstream (this step runs
-          # BEFORE the step-08 deny-egress hold) into local Harbor, then
-          # re-probed — self-healing the drift instead of stalling
-          # stripReadinessSeconds and parking the cutover. A genuinely-absent
-          # chart (unpullable from BOTH local Harbor AND upstream) still
-          # FATALs at the deadline (fail-loud preserved). Set false to restore
-          # pure fail-loud (no upstream top-up).
-          # NB: bare `| quote` (NOT `| default true`) — sprig `default` treats a
-          # literal `false` as empty and would flip an explicit disable back to
-          # true (feedback_rbac_create_no_resourcenames.md sprig_default_bool_unsafe).
-          # The values.yaml default (true) supplies the on-state; a nil renders
-          # "" and the script's `: "${UNION_WARM_ON_DRIFT:=true}"` restores true.
+          {{- /*
+           #5237 (Refs #5007): union-warm-on-drift. Phase-3a samples the LIVE
+           chart version off each pivoted HelmRelease (deployed
+           `.status.history[0].chartVersion` // desired `.spec.chart.spec
+           .version`). If a `bp-catalyst-platform` release is published to
+           ghcr AFTER step-03 harbor-prewarm finishes (a mid-cutover merge's
+           deploy-bot bump), flux redeploys the umbrella to the newer
+           concrete pin BEFORE this step runs — so the sampled version is a
+           tag prewarm never mirrored (catalog-latest drifted one bump ahead;
+           neither the deployed NOR the desired tag was warmed). When true
+           (default), a sampled chart that is absent from local Harbor is
+           TOP-UP-WARMED from the still-reachable upstream (this step runs
+           BEFORE the step-08 deny-egress hold) into local Harbor, then
+           re-probed — self-healing the drift instead of stalling
+           stripReadinessSeconds and parking the cutover. A genuinely-absent
+           chart (unpullable from BOTH local Harbor AND upstream) still
+           FATALs at the deadline (fail-loud preserved). Set false to restore
+           pure fail-loud (no upstream top-up).
+           NB: bare `| quote` (NOT `| default true`) — sprig `default` treats a
+           literal `false` as empty and would flip an explicit disable back to
+           true (feedback_rbac_create_no_resourcenames.md sprig_default_bool_unsafe).
+           The values.yaml default (true) supplies the on-state; a nil renders
+           "" and the script's `: "${UNION_WARM_ON_DRIFT:=true}"` restores true.
+          */}}
           - name: UNION_WARM_ON_DRIFT
             value: {{ .Values.helmReadinessProbe.unionWarmOnDrift | quote }}
-          # #5237 round 2 (Refs #5007): Phase 3a-pin — before the sampled
-          # pull-probe (and the irreversible Phase-3b strip), assert EVERY
-          # bootstrap-kit-pinned chart version from the Phase-2 clone of the
-          # local Gitea mirror (the frozen commit flux consumes post-pivot)
-          # is durably present in local Harbor; top-up-warm a missing one
-          # from the still-reachable upstream, and FATAL with the full
-          # missing list otherwise (auth intact — recoverable). Same bare
-          # `| quote` sprig-bool discipline as UNION_WARM_ON_DRIFT above.
+          {{- /*
+           #5237 round 2 (Refs #5007): Phase 3a-pin — before the sampled
+           pull-probe (and the irreversible Phase-3b strip), assert EVERY
+           bootstrap-kit-pinned chart version from the Phase-2 clone of the
+           local Gitea mirror (the frozen commit flux consumes post-pivot)
+           is durably present in local Harbor; top-up-warm a missing one
+           from the still-reachable upstream, and FATAL with the full
+           missing list otherwise (auth intact — recoverable). Same bare
+           `| quote` sprig-bool discipline as UNION_WARM_ON_DRIFT above.
+          */}}
           - name: PIN_PRESENCE_GATE
             value: {{ .Values.helmReadinessProbe.pinPresenceGate | quote }}
-          # #5237 round 2 — the in-cluster Harbor Service URL for the
-          # Phase 3a-pin durable-presence probe (artifact API served by
-          # Harbor CORE against its DB — never pull-through, the #5030
-          # discipline; the SAME endpoint step-03's dest_already_current
-          # dials).
+          {{- /*
+           #5237 round 2 — the in-cluster Harbor Service URL for the
+           Phase 3a-pin durable-presence probe (artifact API served by
+           Harbor CORE against its DB — never pull-through, the #5030
+           discipline; the SAME endpoint step-03's dest_already_current
+           dials).
+          */}}
           - name: HARBOR_INTERNAL_URL
             value: {{ .Values.sovereign.harborInternalURL | quote }}
-          # #4557 (Refs #3379): TLS-verify on the Phase-3a helm-CLI probe
-          # DESTINATION (the in-cluster Harbor `registry.<sov-fqdn>` =
-          # harbor_host). DEFAULT false — the in-cluster Harbor serves an
-          # LE-STAGING (untrusted) wildcard on a fresh prov + the helm binary
-          # in a Job Pod has no node trust store. See
-          # .Values.helmReadinessProbe.inClusterTLSVerify. When false, both
-          # `helm registry login` and `helm pull` (in-cluster target) carry
-          # `--insecure-skip-tls-verify`. The ONLY external (ghcr/upstream)
-          # helm calls this step makes are the #5237 union-warm top-up pulls,
-          # which target the public-CA-signed ghcr.io and keep verify ON — the
-          # in-cluster skip is only ever applied to the cluster's own registry.
+          {{- /*
+           #4557 (Refs #3379): TLS-verify on the Phase-3a helm-CLI probe
+           DESTINATION (the in-cluster Harbor `registry.<sov-fqdn>` =
+           harbor_host). DEFAULT false — the in-cluster Harbor serves an
+           LE-STAGING (untrusted) wildcard on a fresh prov + the helm binary
+           in a Job Pod has no node trust store. See
+           .Values.helmReadinessProbe.inClusterTLSVerify. When false, both
+           `helm registry login` and `helm pull` (in-cluster target) carry
+           `--insecure-skip-tls-verify`. The ONLY external (ghcr/upstream)
+           helm calls this step makes are the #5237 union-warm top-up pulls,
+           which target the public-CA-signed ghcr.io and keep verify ON — the
+           in-cluster skip is only ever applied to the cluster's own registry.
+          */}}
           - name: HELM_IN_CLUSTER_TLS_VERIFY
             value: {{ .Values.helmReadinessProbe.inClusterTLSVerify | default false | quote }}
-          # Refs #3379 — source-controller TLS-trust for the pivoted
-          # HelmRepositories. Phase-0.5 extracts the in-cluster Harbor
-          # serving cert's CA from the wildcard TLS Secret and creates a
-          # ca.crt-only Secret in HELMREPO_NAMESPACE; Phase-1 patches every
-          # pivoted HelmRepository's spec.certSecretRef to it so
-          # source-controller trusts the LE-staging in-cluster registry.
-          # Flux OCI HelmRepository has NO insecureSkipVerify — certSecretRef
-          # is the only mechanism (see .Values.helmRepositoryTrust).
+          {{- /*
+           Refs #3379 — source-controller TLS-trust for the pivoted
+           HelmRepositories. Phase-0.5 extracts the in-cluster Harbor
+           serving cert's CA from the wildcard TLS Secret and creates a
+           ca.crt-only Secret in HELMREPO_NAMESPACE; Phase-1 patches every
+           pivoted HelmRepository's spec.certSecretRef to it so
+           source-controller trusts the LE-staging in-cluster registry.
+           Flux OCI HelmRepository has NO insecureSkipVerify — certSecretRef
+           is the only mechanism (see .Values.helmRepositoryTrust).
+          */}}
           - name: HELMREPO_TRUST_ENABLED
             value: {{ .Values.helmRepositoryTrust.enabled | default false | quote }}
           - name: HELMREPO_TRUST_SRC_NAMESPACE
@@ -561,38 +614,42 @@ data:
             value: {{ .Values.helmRepositoryTrust.sourceSecretNamePrefix | quote }}
           - name: HELMREPO_TRUST_DEST_SECRET
             value: {{ .Values.helmRepositoryTrust.destSecretName | quote }}
-          # #5359 — per-region status tracking for the secondary-region leg.
+          {{- /* #5359 — per-region status tracking for the secondary-region leg. */}}
           - name: STATUS_CONFIGMAP
             value: {{ .Values.status.configMapName | quote }}
           - name: CUTOVER_NAMESPACE
             value: {{ .Release.Namespace | quote }}
-          # #5436 — region-A pivot READ-BACK assert inputs. Until this
-          # landed, region-A's only failure signal was the Phase-1 `fail`
-          # counter, which counts `kubectl patch` invocations that returned
-          # non-zero — NOT the state of the cluster afterwards. See the
-          # assert_region_a_pivot block in args: below.
-          #
-          # readbackExcludeNames MUST stay a superset-tolerant mirror of the
-          # slot-managed self-reference whitelist step-08's own offender scan
-          # applies (08-egress-block-test-job.yaml count_offenders). This
-          # assert must never be STRICTER than the step-08 gate that follows
-          # it, or a cutover step-08 would pass dies here instead.
+          {{- /*
+           #5436 — region-A pivot READ-BACK assert inputs. Until this
+           landed, region-A's only failure signal was the Phase-1 `fail`
+           counter, which counts `kubectl patch` invocations that returned
+           non-zero — NOT the state of the cluster afterwards. See the
+           assert_region_a_pivot block in args: below.
+
+           readbackExcludeNames MUST stay a superset-tolerant mirror of the
+           slot-managed self-reference whitelist step-08's own offender scan
+           applies (08-egress-block-test-job.yaml count_offenders). This
+           assert must never be STRICTER than the step-08 gate that follows
+           it, or a cutover step-08 would pass dies here instead.
+          */}}
           - name: HELMREPO_READBACK_EXCLUDE
             value: {{ join "," .Values.helmRepositories.readbackExcludeNames | quote }}
           - name: HELMREPO_READBACK_KUSTOMIZATIONS
             value: {{ join " " .Values.helmRepositories.readbackReconcileKustomizations | quote }}
           - name: HELMREPO_READBACK_BUDGET_SECONDS
             value: {{ .Values.stepTimeouts.pivotReadbackSeconds | quote }}
-          # #5596 — SECONDARY-region DURABLE pivot assert inputs. The #5359
-          # read-back was single-shot and fired seconds after the patch loop,
-          # so it measured the PATCH and never the PIVOT: region-B's own
-          # kustomize-controller re-applied its (pre-cutover) artifact ~55s
-          # later and put all 64 HelmRepositories back on ghcr.io while the
-          # step had already recorded success. The assert now POKES the
-          # secondary's own GitRepository + HR-owning Kustomizations and will
-          # not certify until one of them has HANDLED that poke — i.e. the
-          # actor that would revert the pivot has already run. See
-          # assert_secondary_pivot_durable in args: below.
+          {{- /*
+           #5596 — SECONDARY-region DURABLE pivot assert inputs. The #5359
+           read-back was single-shot and fired seconds after the patch loop,
+           so it measured the PATCH and never the PIVOT: region-B's own
+           kustomize-controller re-applied its (pre-cutover) artifact ~55s
+           later and put all 64 HelmRepositories back on ghcr.io while the
+           step had already recorded success. The assert now POKES the
+           secondary's own GitRepository + HR-owning Kustomizations and will
+           not certify until one of them has HANDLED that poke — i.e. the
+           actor that would revert the pivot has already run. See
+           assert_secondary_pivot_durable in args: below.
+          */}}
           - name: GITOPS_REPO_NAME
             value: {{ .Values.gitopsRepository.name | quote }}
           - name: GITOPS_REPO_NAMESPACE
@@ -603,11 +660,13 @@ data:
             value: {{ .Values.secondaryRegions.pivotReadbackSettleSamples | quote }}
           - name: SECONDARY_READBACK_INTERVAL_SECONDS
             value: {{ .Values.secondaryRegions.pivotReadbackIntervalSeconds | quote }}
-          # #5650 — vcluster loft chart-source pivot (Phase-2c). Mirrors the
-          # upstream vcluster chart into local Harbor + repoints the
-          # index.yaml loft HelmRepository (vcluster-system) to the local OCI
-          # copy so it is no longer a residual charts.loft.sh tether. See
-          # .Values.helmRepositories.vclusterLoftPivot.
+          {{- /*
+           #5650 — vcluster loft chart-source pivot (Phase-2c). Mirrors the
+           upstream vcluster chart into local Harbor + repoints the
+           index.yaml loft HelmRepository (vcluster-system) to the local OCI
+           copy so it is no longer a residual charts.loft.sh tether. See
+           .Values.helmRepositories.vclusterLoftPivot.
+          */}}
           - name: VCL_LOFT_PIVOT_ENABLED
             value: {{ eq (toString .Values.helmRepositories.vclusterLoftPivot.enabled) "true" | quote }}
           - name: VCL_LOFT_HR_NAME
@@ -637,14 +696,16 @@ data:
           - name: bootstrap-kit-pins
             mountPath: /pin-extractor
             readOnly: true
-          # #5593 — Phase 2c of the step script, `.`-sourced from here.
+          {{- /* #5593 — Phase 2c of the step script, `.`-sourced from here. */}}
           - name: phase2c-script
             mountPath: /phase2c
             readOnly: true
           - name: tmp
             mountPath: /tmp
-          # #5359 — optional secondary-region kubeconfigs (empty on a
-          # single-region Sovereign; the leg no-ops).
+          {{- /*
+           #5359 — optional secondary-region kubeconfigs (empty on a
+           single-region Sovereign; the leg no-ops).
+          */}}
           - name: secondary-kubeconfigs
             mountPath: /secondary-kubeconfigs
             readOnly: true
@@ -654,69 +715,77 @@ data:
             set -eu
             harbor_host=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -E 's,^https?://,,; s,/$,,')
 
-            # #4682 — the registry is reached ONLY via its EXTERNAL routable host
-            # `registry.<fqdn>` on the standard HTTPS port :443, through the
-            # Cilium Gateway `Service type=LoadBalancer`. hostNetwork is OFF so
-            # the gateway serves plain :443 (no NodePort, no high-port append, no
-            # CoreDNS ClusterIP rewrite). The pivoted HelmRepository url is the
-            # bare host `oci://registry.<fqdn>/openova-io` — the same host every
-            # node resolves via public DNS, and the port source-controller + the
-            # Phase-3a probe implicitly use is :443. `harbor_endpoint` is kept as
-            # an alias of the bare host so downstream references (auth key, probe,
-            # strip-host guard) stay uniform.
+            {{- /*
+             #4682 — the registry is reached ONLY via its EXTERNAL routable host
+             `registry.<fqdn>` on the standard HTTPS port :443, through the
+             Cilium Gateway `Service type=LoadBalancer`. hostNetwork is OFF so
+             the gateway serves plain :443 (no NodePort, no high-port append, no
+             CoreDNS ClusterIP rewrite). The pivoted HelmRepository url is the
+             bare host `oci://registry.<fqdn>/openova-io` — the same host every
+             node resolves via public DNS, and the port source-controller + the
+             Phase-3a probe implicitly use is :443. `harbor_endpoint` is kept as
+             an alias of the bare host so downstream references (auth key, probe,
+             strip-host guard) stay uniform.
+            */}}
             harbor_endpoint="${harbor_host}"
             local_prefix="oci://${harbor_endpoint}/openova-io"
 
             echo "[helmrepository-patches] upstream=${UPSTREAM_PREFIX} -> local=${local_prefix} (harbor_host=${harbor_host})"
 
-            # ---- Phase -1: wait for Cilium Gateway Programmed=True (issue #1871) ----
-            #
-            # The URL rewrite in Phase 1 below makes every HelmRepository
-            # OCI pull dependent on `registry.${SOVEREIGN_FQDN}` answering
-            # TLS. That hostname is served by bp-harbor's HTTPRoute
-            # attached to `gateway.networking.k8s.io/v1.Gateway
-            # cilium-gateway` in `kube-system` (installed by
-            # `clusters/_template/sovereign-tls/cilium-gateway.yaml`).
-            # If we rewrite URLs BEFORE the Gateway is Programmed=True
-            # (= listener bound, wildcard cert wired), source-controller
-            # hits TLS handshake EOF on every reconcile, bp-catalyst-
-            # platform flips Ready=False, bootstrap-kit Ks Reconciling,
-            # sovereign-tls Ks DependencyNotReady on bootstrap-kit,
-            # Gateway never installed → infinite deadlock.
-            #
-            # Discovered on t26 zero-touch 2026-05-18 (99bb823cb0513f4b,
-            # A55 diagnostic). The previous attempt (PR #1875) added
-            # `sovereign-tls` to the HR dependsOn but Flux HR.dependsOn
-            # cannot reference Kustomizations — helm-controller logged
-            # `helmreleases.helm.toolkit.fluxcd.io "sovereign-tls" not
-            # found` forever (A84 test on t27). This in-Job wait is the
-            # correct seam: cross-kind ordering enforced by polling, not
-            # by Flux's HR-only dependsOn graph.
-            #
-            # `kubectl wait` would suffice in principle but does not
-            # tolerate the resource being absent at start (only Not-Yet-
-            # Condition). The Gateway CR is itself installed by the
-            # sovereign-tls Kustomization that only fires AFTER
-            # bootstrap-kit reconciles Ready — and bootstrap-kit lists
-            # this chart, so the Gateway CR genuinely does NOT exist
-            # when catalyst-api stamps this Job in the trigger path. We
-            # therefore poll in a shell loop with a get-or-skip prelude
-            # before transitioning to `kubectl wait` once the resource
-            # is materialised.
+            {{- /*
+             ---- Phase -1: wait for Cilium Gateway Programmed=True (issue #1871) ----
+
+             The URL rewrite in Phase 1 below makes every HelmRepository
+             OCI pull dependent on `registry.${SOVEREIGN_FQDN}` answering
+             TLS. That hostname is served by bp-harbor's HTTPRoute
+             attached to `gateway.networking.k8s.io/v1.Gateway
+             cilium-gateway` in `kube-system` (installed by
+             `clusters/_template/sovereign-tls/cilium-gateway.yaml`).
+             If we rewrite URLs BEFORE the Gateway is Programmed=True
+             (= listener bound, wildcard cert wired), source-controller
+             hits TLS handshake EOF on every reconcile, bp-catalyst-
+             platform flips Ready=False, bootstrap-kit Ks Reconciling,
+             sovereign-tls Ks DependencyNotReady on bootstrap-kit,
+             Gateway never installed → infinite deadlock.
+
+             Discovered on t26 zero-touch 2026-05-18 (99bb823cb0513f4b,
+             A55 diagnostic). The previous attempt (PR #1875) added
+             `sovereign-tls` to the HR dependsOn but Flux HR.dependsOn
+             cannot reference Kustomizations — helm-controller logged
+             `helmreleases.helm.toolkit.fluxcd.io "sovereign-tls" not
+             found` forever (A84 test on t27). This in-Job wait is the
+             correct seam: cross-kind ordering enforced by polling, not
+             by Flux's HR-only dependsOn graph.
+
+             `kubectl wait` would suffice in principle but does not
+             tolerate the resource being absent at start (only Not-Yet-
+             Condition). The Gateway CR is itself installed by the
+             sovereign-tls Kustomization that only fires AFTER
+             bootstrap-kit reconciles Ready — and bootstrap-kit lists
+             this chart, so the Gateway CR genuinely does NOT exist
+             when catalyst-api stamps this Job in the trigger path. We
+             therefore poll in a shell loop with a get-or-skip prelude
+             before transitioning to `kubectl wait` once the resource
+             is materialised.
+            */}}
             echo "[helmrepository-patches] Phase -1: waiting for Gateway ${GATEWAY_NAMESPACE}/${GATEWAY_NAME} Programmed=True (timeout ${GATEWAY_WAIT_TIMEOUT_SECONDS}s)"
             gw_deadline=$(( $(date +%s) + GATEWAY_WAIT_TIMEOUT_SECONDS ))
             gw_ready="false"
             while [ "$(date +%s)" -lt "${gw_deadline}" ]; do
-              # Check existence first — `kubectl wait` errors out on
-              # a missing resource rather than waiting for it.
+              {{- /*
+               Check existence first — `kubectl wait` errors out on
+               a missing resource rather than waiting for it.
+              */}}
               if kubectl get gateway.gateway.networking.k8s.io "${GATEWAY_NAME}" \
                    -n "${GATEWAY_NAMESPACE}" >/dev/null 2>&1; then
-                # Resource exists — read the Programmed condition status
-                # directly. Avoid `kubectl wait --for=condition=` because
-                # the gateway.networking.k8s.io API uses condition.type=
-                # `Programmed` (capital P, per Gateway API v1) and some
-                # kubectl builds compare case-insensitively, masking real
-                # status. jsonpath read is unambiguous.
+                {{- /*
+                 Resource exists — read the Programmed condition status
+                 directly. Avoid `kubectl wait --for=condition=` because
+                 the gateway.networking.k8s.io API uses condition.type=
+                 `Programmed` (capital P, per Gateway API v1) and some
+                 kubectl builds compare case-insensitively, masking real
+                 status. jsonpath read is unambiguous.
+                */}}
                 programmed=$(kubectl get gateway.gateway.networking.k8s.io "${GATEWAY_NAME}" \
                   -n "${GATEWAY_NAMESPACE}" \
                   -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}' \
@@ -726,14 +795,16 @@ data:
                   echo "[helmrepository-patches] Phase -1 OK: Gateway ${GATEWAY_NAMESPACE}/${GATEWAY_NAME} Programmed=True"
                   break
                 fi
-                # hostNetwork gateway mode (#4708): cilium assigns NO LB
-                # address, so Programmed stays False FOREVER while envoy
-                # serves node:443 directly (live: hw220 both Gateways
-                # AddressNotAssigned with console answering 200). Probe the
-                # ACTUAL invariant the rewrite depends on instead:
-                # registry.<fqdn> answering TLS. Any HTTP code (401/200/404)
-                # proves TCP+TLS+HTTP through the gateway; only a transport
-                # failure (000) keeps waiting.
+                {{- /*
+                 hostNetwork gateway mode (#4708): cilium assigns NO LB
+                 address, so Programmed stays False FOREVER while envoy
+                 serves node:443 directly (live: hw220 both Gateways
+                 AddressNotAssigned with console answering 200). Probe the
+                 ACTUAL invariant the rewrite depends on instead:
+                 registry.<fqdn> answering TLS. Any HTTP code (401/200/404)
+                 proves TCP+TLS+HTTP through the gateway; only a transport
+                 failure (000) keeps waiting.
+                */}}
                 reg_code=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 "https://registry.${SOVEREIGN_FQDN}/v2/" 2>/dev/null || echo "000")
                 if [ "${reg_code}" != "000" ]; then
                   gw_ready="true"
@@ -753,76 +824,87 @@ data:
               exit 1
             fi
 
+            {{- /* Marker line, deliberately still a `#` comment: cutover-
+            contract.sh Case 17 asserts `Phase 0: ADD harbor` is present in the
+            RENDER, which is how it distinguishes the additive Phase-0 from the
+            destructive Phase-3 strip (#3379 #3526). */}}
             # ---- Phase 0: ADD harbor.<sov-fqdn> auth to ghcr-pull (#1184) ----
-            #
-            # source-controller pulls Helm OCI charts from
-            # oci://harbor.<sov-fqdn>/openova-io using the imagePullSecret
-            # named on each HelmRepository (`secretRef.name: ghcr-pull`,
-            # see clusters/_template/bootstrap-kit/*.yaml). The ghcr-pull
-            # Secret ships from cloud-init carrying ghcr.io +
-            # harbor.openova.io auth only — it has NO entry for
-            # harbor.<sov-fqdn>. Once Phase-1 below pivots HelmRepository
-            # URLs, every reconcile against the local Harbor 401s.
-            #
-            # ── STRIP-BEFORE-PIVOT FIX (Refs #3379 #3526, hw139 half-pivot) ──
-            # Phase-0 is now PURELY ADDITIVE — it merges the local Harbor
-            # auth and NOTHING ELSE. The DESTRUCTIVE removal of the
-            # mothership-side ghcr.io / harbor.openova.io auth entries
-            # (TBD-V24 MISS-2 credential hygiene) was MOVED to the new
-            # Phase 3 at the END of this Job — see that block for the full
-            # rationale. The invariant the move enforces: NEVER strip
-            # ghcr.io creds until every HelmRepository is already pivoted to
-            # local Harbor AND reconciling Ready from it. On hw139 the strip
-            # ran in Phase-0 (BEFORE the Phase-1 URL pivot); a later step
-            # wedged, leaving ghcr.io creds gone while the on-disk Gitea
-            # YAML / live HR sources still pointed at ghcr.io → every
-            # reconcile failed "no auth config for 'ghcr.io' in the
-            # docker-registry Secret 'ghcr-pull'" and the half-pivot was
-            # permanent + unrecoverable zero-touch (8 HRs wedged 10h,
-            # blocking the unrelated bp-newapi #3564 roll). Adding Harbor
-            # auth early is safe (purely additive, idempotent); removing
-            # ghcr.io auth is the irreversible act that MUST come last.
-            #
-            # Manual fix done on omantel 2026-05-10 (session 5c468708):
-            #   HARBOR_AUTH=$(echo -n "admin:${HADMIN_PW}" | base64 -w0)
-            #   NEW=$(jq --arg auth "$HARBOR_AUTH" \
-            #           '.auths["harbor.omantel.biz"] = {
-            #              "username":"admin","auth":$auth }' <existing>)
-            #   kubectl patch secret ghcr-pull -n flux-system \
+            {{- /*
+             source-controller pulls Helm OCI charts from
+             oci://harbor.<sov-fqdn>/openova-io using the imagePullSecret
+             named on each HelmRepository (`secretRef.name: ghcr-pull`,
+             see clusters/_template/bootstrap-kit/*.yaml). The ghcr-pull
+             Secret ships from cloud-init carrying ghcr.io +
+             harbor.openova.io auth only — it has NO entry for
+             harbor.<sov-fqdn>. Once Phase-1 below pivots HelmRepository
+             URLs, every reconcile against the local Harbor 401s.
+
+             ── STRIP-BEFORE-PIVOT FIX (Refs #3379 #3526, hw139 half-pivot) ──
+             Phase-0 is now PURELY ADDITIVE — it merges the local Harbor
+             auth and NOTHING ELSE. The DESTRUCTIVE removal of the
+             mothership-side ghcr.io / harbor.openova.io auth entries
+             (TBD-V24 MISS-2 credential hygiene) was MOVED to the new
+             Phase 3 at the END of this Job — see that block for the full
+             rationale. The invariant the move enforces: NEVER strip
+             ghcr.io creds until every HelmRepository is already pivoted to
+             local Harbor AND reconciling Ready from it. On hw139 the strip
+             ran in Phase-0 (BEFORE the Phase-1 URL pivot); a later step
+             wedged, leaving ghcr.io creds gone while the on-disk Gitea
+             YAML / live HR sources still pointed at ghcr.io → every
+             reconcile failed "no auth config for 'ghcr.io' in the
+             docker-registry Secret 'ghcr-pull'" and the half-pivot was
+             permanent + unrecoverable zero-touch (8 HRs wedged 10h,
+             blocking the unrelated bp-newapi #3564 roll). Adding Harbor
+             auth early is safe (purely additive, idempotent); removing
+             ghcr.io auth is the irreversible act that MUST come last.
+
+             Manual fix done on omantel 2026-05-10 (session 5c468708):
+               HARBOR_AUTH=$(echo -n "admin:${HADMIN_PW}" | base64 -w0)
+               NEW=$(jq --arg auth "$HARBOR_AUTH" \
+                       '.auths["harbor.omantel.biz"] = {
+                          "username":"admin","auth":$auth }' <existing>)
+               kubectl patch secret ghcr-pull -n flux-system \
+            */}}
             #     --type=merge -p "{\"data\":{...}}"
-            #
-            # Phase 0 codifies that patch so the next fresh `tofu apply`
-            # comes up GREEN without operator intervention.
+            {{- /*
+
+             Phase 0 codifies that patch so the next fresh `tofu apply`
+             comes up GREEN without operator intervention.
+            */}}
             : "${HARBOR_USERNAME:=admin}"
             if [ -z "${HARBOR_PASSWORD:-}" ]; then
               echo "[helmrepository-patches] FATAL: HARBOR_PASSWORD env empty — cannot derive harbor.${harbor_host} auth" >&2
               exit 1
             fi
 
-            # Read the dockerconfigjson via `-o json | jq` (NOT kubectl
-            # jsonpath bracket-form). kubectl jsonpath interprets the
-            # leading dot in `.dockerconfigjson` as a child accessor
-            # INSIDE the bracket, returning empty even though the key
-            # exists. Fix #77 (Gap A) — caught live on omantel prov #7
-            # 2026-05-10: Job logged
-            # `FATAL: ghcr-pull Secret has no .dockerconfigjson key`
-            # despite `kubectl get secret ... -o yaml` clearly showing
-            # the key present. Confirmed reproducer:
-            #   kubectl get secret ghcr-pull -n flux-system \
-            #     -o "jsonpath={.data['.dockerconfigjson']}"   → empty
-            #   kubectl get secret ghcr-pull -n flux-system \
-            #     -o "jsonpath={.data['\.dockerconfigjson']}"  → b64
-            # Using `-o json | jq` avoids the escape ambiguity entirely
-            # and works regardless of the literal key name.
-            #
-            # Wait-loop (up to 60s) handles the case where Reflector has
-            # not yet propagated the Secret into ${GHCR_PULL_SECRET_NAMESPACE}
-            # when this Job stamps. Falls back to the source namespace
-            # (flux-system, where cloud-init writes the original) if the
-            # local copy is still missing after the timeout.
+            {{- /*
+             Read the dockerconfigjson via `-o json | jq` (NOT kubectl
+             jsonpath bracket-form). kubectl jsonpath interprets the
+             leading dot in `.dockerconfigjson` as a child accessor
+             INSIDE the bracket, returning empty even though the key
+             exists. Fix #77 (Gap A) — caught live on omantel prov #7
+             2026-05-10: Job logged
+             `FATAL: ghcr-pull Secret has no .dockerconfigjson key`
+             despite `kubectl get secret ... -o yaml` clearly showing
+             the key present. Confirmed reproducer:
+               kubectl get secret ghcr-pull -n flux-system \
+                 -o "jsonpath={.data['.dockerconfigjson']}"   → empty
+               kubectl get secret ghcr-pull -n flux-system \
+                 -o "jsonpath={.data['\.dockerconfigjson']}"  → b64
+             Using `-o json | jq` avoids the escape ambiguity entirely
+             and works regardless of the literal key name.
+
+             Wait-loop (up to 60s) handles the case where Reflector has
+             not yet propagated the Secret into ${GHCR_PULL_SECRET_NAMESPACE}
+             when this Job stamps. Falls back to the source namespace
+             (flux-system, where cloud-init writes the original) if the
+             local copy is still missing after the timeout.
+            */}}
             read_secret_key() {
-              # $1 = namespace
-              # Echoes base64 value of GHCR_PULL_SECRET_KEY or empty.
+              {{- /*
+               $1 = namespace
+               Echoes base64 value of GHCR_PULL_SECRET_KEY or empty.
+              */}}
               kubectl get secret "${GHCR_PULL_SECRET_NAME}" -n "$1" -o json 2>/dev/null \
                 | jq -r --arg k "${GHCR_PULL_SECRET_KEY}" '.data[$k] // empty'
             }
@@ -837,10 +919,12 @@ data:
               sleep 5
             done
             if [ -z "${existing_b64}" ] && [ "${target_ns}" != "flux-system" ]; then
-              # Fallback: read from the source ns (flux-system) where
-              # cloud-init wrote the original. Reflector copies into
-              # ${GHCR_PULL_SECRET_NAMESPACE} but the source is always
-              # readable by the runner ClusterRole.
+              {{- /*
+               Fallback: read from the source ns (flux-system) where
+               cloud-init wrote the original. Reflector copies into
+               ${GHCR_PULL_SECRET_NAMESPACE} but the source is always
+               readable by the runner ClusterRole.
+              */}}
               echo "[helmrepository-patches] Phase-0: falling back to flux-system/${GHCR_PULL_SECRET_NAME} (Reflector lag suspected)"
               target_ns="flux-system"
               existing_b64=$(read_secret_key "${target_ns}")
@@ -852,27 +936,29 @@ data:
 
             existing_json=$(printf '%s' "${existing_b64}" | base64 -d)
 
-            # Idempotency guard: the ADD is a no-op when harbor.<sov-fqdn>
-            # already maps to the expected auth. Re-runs of step-06
-            # (catalyst-api may retry / the engine may re-fire) MUST NOT
-            # churn the Secret resourceVersion when there's nothing to add
-            # — that triggers a noisy reflector cascade.
-            #
-            # NOTE (Refs #3379 #3526): Phase-0 NO LONGER strips the
-            # mothership ghcr.io / harbor.openova.io auth — that is deferred
-            # to Phase 3 (end of Job, gated on the pivot being Ready). So
-            # the idempotency check here is the simple "is the Harbor auth
-            # already present" test; the strip's own idempotency lives in
-            # Phase 3.
-            # #4682: the auth entry is keyed on the bare external host
-            # `registry.<fqdn>` — the SAME host the pivoted HelmRepository urls
-            # carry (oci://registry.<fqdn>/openova-io, implicit :443 via the
-            # Gateway LoadBalancer). Docker/OCI auth lookup is an EXACT host[:port]
-            # string match; since every pivoted url now uses the bare host, a
-            # single bare-host key is exactly what source-controller + the
-            # Phase-3a probe look up (no high-port endpoint key — that NodePort
-            # workaround is gone). source-controller reads THIS ghcr-pull
-            # dockerconfigjson for the pivoted pull.
+            {{- /*
+             Idempotency guard: the ADD is a no-op when harbor.<sov-fqdn>
+             already maps to the expected auth. Re-runs of step-06
+             (catalyst-api may retry / the engine may re-fire) MUST NOT
+             churn the Secret resourceVersion when there's nothing to add
+             — that triggers a noisy reflector cascade.
+
+             NOTE (Refs #3379 #3526): Phase-0 NO LONGER strips the
+             mothership ghcr.io / harbor.openova.io auth — that is deferred
+             to Phase 3 (end of Job, gated on the pivot being Ready). So
+             the idempotency check here is the simple "is the Harbor auth
+             already present" test; the strip's own idempotency lives in
+             Phase 3.
+             #4682: the auth entry is keyed on the bare external host
+             `registry.<fqdn>` — the SAME host the pivoted HelmRepository urls
+             carry (oci://registry.<fqdn>/openova-io, implicit :443 via the
+             Gateway LoadBalancer). Docker/OCI auth lookup is an EXACT host[:port]
+             string match; since every pivoted url now uses the bare host, a
+             single bare-host key is exactly what source-controller + the
+             Phase-3a probe look up (no high-port endpoint key — that NodePort
+             workaround is gone). source-controller reads THIS ghcr-pull
+             dockerconfigjson for the pivoted pull.
+            */}}
             already=$(printf '%s' "${existing_json}" | jq -r --arg h "${harbor_host}" \
               '.auths[$h].auth // empty')
             harbor_auth=$(printf '%s:%s' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}" | base64 -w0)
@@ -880,27 +966,31 @@ data:
             if [ -n "${already}" ] && [ "${already}" = "${harbor_auth}" ]; then
               echo "[helmrepository-patches] Phase-0 skip: ghcr-pull already carries auth for ${harbor_host} (strip deferred to Phase 3)"
             else
-              # Single jq pass: ADD registry.<fqdn> auth under the bare host key.
-              # This is the PURELY ADDITIVE half of the old combined pipeline —
-              # the destructive `del(.auths[...])` arms were moved to Phase 3 (see
-              # the strip-before-pivot fix). Adding Harbor auth early is the
-              # precondition that lets Phase-1's pivoted HelmRepositories pull from
-              # local Harbor; it leaves the ghcr.io fallback intact so a wedge
-              # before Phase 3 is recoverable.
-              #
-              # `--arg` ALWAYS treats its value as a string (no shell
-              # interpolation), so the Harbor password is never re-parsed
-              # by the shell.
+              {{- /*
+               Single jq pass: ADD registry.<fqdn> auth under the bare host key.
+               This is the PURELY ADDITIVE half of the old combined pipeline —
+               the destructive `del(.auths[...])` arms were moved to Phase 3 (see
+               the strip-before-pivot fix). Adding Harbor auth early is the
+               precondition that lets Phase-1's pivoted HelmRepositories pull from
+               local Harbor; it leaves the ghcr.io fallback intact so a wedge
+               before Phase 3 is recoverable.
+
+               `--arg` ALWAYS treats its value as a string (no shell
+               interpolation), so the Harbor password is never re-parsed
+               by the shell.
+              */}}
               new_json=$(printf '%s' "${existing_json}" | jq \
                 --arg h "${harbor_host}" \
                 --arg user "${HARBOR_USERNAME}" \
                 --arg auth "${harbor_auth}" \
                 '.auths[$h] = {"username":$user,"auth":$auth}')
               new_b64=$(printf '%s' "${new_json}" | base64 -w0)
-              # Merge-patch the data field. Quoting note: ${GHCR_PULL_SECRET_KEY}
-              # is `.dockerconfigjson` which is a literal key (the leading
-              # dot is part of the field name); JSON merge-patch treats it
-              # as a single key, no path traversal.
+              {{- /*
+               Merge-patch the data field. Quoting note: ${GHCR_PULL_SECRET_KEY}
+               is `.dockerconfigjson` which is a literal key (the leading
+               dot is part of the field name); JSON merge-patch treats it
+               as a single key, no path traversal.
+              */}}
               patch_payload=$(printf '{"data":{"%s":"%s"}}' "${GHCR_PULL_SECRET_KEY}" "${new_b64}")
               if kubectl patch secret "${GHCR_PULL_SECRET_NAME}" \
                   -n "${GHCR_PULL_SECRET_NAMESPACE}" \
@@ -910,11 +1000,13 @@ data:
                 echo "[helmrepository-patches] FATAL: kubectl patch ${GHCR_PULL_SECRET_NAME} failed" >&2
                 exit 1
               fi
-              # Trigger an immediate refresh of every HelmRepository so
-              # source-controller re-loads the Secret on next pull.
-              # Phase 1 below only annotates HRs in HELMREPO_NAMESPACE
-              # whose URL it pivots — but the auth merge benefits every
-              # HR pulling from harbor.<sov-fqdn>, so kick all of them.
+              {{- /*
+               Trigger an immediate refresh of every HelmRepository so
+               source-controller re-loads the Secret on next pull.
+               Phase 1 below only annotates HRs in HELMREPO_NAMESPACE
+               whose URL it pivots — but the auth merge benefits every
+               HR pulling from harbor.<sov-fqdn>, so kick all of them.
+              */}}
               now_ts=$(date +%s)
               kubectl get helmrepositories -A \
                 -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' \
@@ -925,39 +1017,43 @@ data:
               done || true
             fi
 
-            # ---- Phase 0.5: build the source-controller TLS-trust Secret (Refs #3379) ----
-            #
-            # THE LAST LEG OF THE CUTOVER CERT-TAIL. After Phase-1 pivots each
-            # HelmRepository URL to oci://${harbor_host}/openova-io, the Flux
-            # SOURCE-CONTROLLER pulls those OCI charts from the in-cluster
-            # Harbor — whose wildcard `*.${SOVEREIGN_FQDN}` cert is served by
-            # the bootstrap LE-STAGING issuer on a fresh / qaTestEnabled prov.
-            # source-controller carries only the public CA bundle → every
-            # pivoted pull fails `tls: x509: certificate signed by unknown
-            # authority` → the pivot never reconciles → Phase-3a's strip-
-            # readiness gate never converges → the cutover never reaches the
-            # 600s deny-egress hold → cutoverComplete never set (live dep
-            # 00720a7a). Flux OCI HelmRepository has NO insecureSkipVerify; the
-            # ONLY trust mechanism is spec.certSecretRef → a Secret whose
-            # `ca.crt` verifies the registry cert. This phase materialises that
-            # Secret in ${HELMREPO_NAMESPACE}; Phase-1 wires each pivoted HR's
-            # certSecretRef to it; Phase-2 makes both durable in Gitea.
-            #
-            # Fail-OPEN: if trust is disabled, or the wildcard Secret / CA
-            # cannot be read, we log and continue WITHOUT a certSecretRef
-            # (preserving the prior behaviour for a public-CA-trusted Harbor)
-            # rather than wedging the whole cutover on the trust seam.
+            {{- /*
+             ---- Phase 0.5: build the source-controller TLS-trust Secret (Refs #3379) ----
+
+             THE LAST LEG OF THE CUTOVER CERT-TAIL. After Phase-1 pivots each
+             HelmRepository URL to oci://${harbor_host}/openova-io, the Flux
+             SOURCE-CONTROLLER pulls those OCI charts from the in-cluster
+             Harbor — whose wildcard `*.${SOVEREIGN_FQDN}` cert is served by
+             the bootstrap LE-STAGING issuer on a fresh / qaTestEnabled prov.
+             source-controller carries only the public CA bundle → every
+             pivoted pull fails `tls: x509: certificate signed by unknown
+             authority` → the pivot never reconciles → Phase-3a's strip-
+             readiness gate never converges → the cutover never reaches the
+             600s deny-egress hold → cutoverComplete never set (live dep
+             00720a7a). Flux OCI HelmRepository has NO insecureSkipVerify; the
+             ONLY trust mechanism is spec.certSecretRef → a Secret whose
+             `ca.crt` verifies the registry cert. This phase materialises that
+             Secret in ${HELMREPO_NAMESPACE}; Phase-1 wires each pivoted HR's
+             certSecretRef to it; Phase-2 makes both durable in Gitea.
+
+             Fail-OPEN: if trust is disabled, or the wildcard Secret / CA
+             cannot be read, we log and continue WITHOUT a certSecretRef
+             (preserving the prior behaviour for a public-CA-trusted Harbor)
+             rather than wedging the whole cutover on the trust seam.
+            */}}
             trust_secret=""
             case "${HELMREPO_TRUST_ENABLED:-false}" in
               true|True|TRUE|1|yes)
-                # Wildcard TLS Secret name = <prefix><fqdn with '.'->'-'>.
+                {{- /* Wildcard TLS Secret name = <prefix><fqdn with '.'->'-'>. */}}
                 fqdn_dashed=$(printf '%s' "${SOVEREIGN_FQDN}" | tr '.' '-')
                 wc_secret="${HELMREPO_TRUST_SRC_NAME_PREFIX}${fqdn_dashed}"
                 echo "[helmrepository-patches] Phase-0.5: building source-controller trust Secret from ${HELMREPO_TRUST_SRC_NAMESPACE}/${wc_secret}"
-                # Prefer the issuing CA (`ca.crt`); fall back to the served
-                # leaf+chain (`tls.crt`) used as a self-trust bundle when the
-                # issuer did not populate ca.crt. Read via `-o json | jq` to
-                # dodge the jsonpath dotted-key ambiguity (Fix #77 shape).
+                {{- /*
+                 Prefer the issuing CA (`ca.crt`); fall back to the served
+                 leaf+chain (`tls.crt`) used as a self-trust bundle when the
+                 issuer did not populate ca.crt. Read via `-o json | jq` to
+                 dodge the jsonpath dotted-key ambiguity (Fix #77 shape).
+                */}}
                 ca_b64=$(kubectl get secret "${wc_secret}" -n "${HELMREPO_TRUST_SRC_NAMESPACE}" -o json 2>/dev/null \
                   | jq -r '.data["ca.crt"] // empty')
                 if [ -z "${ca_b64}" ]; then
@@ -968,11 +1064,13 @@ data:
                 if [ -z "${ca_b64}" ]; then
                   echo "[helmrepository-patches] Phase-0.5 WARN: could not read ca.crt or tls.crt from ${HELMREPO_TRUST_SRC_NAMESPACE}/${wc_secret} — pivoting HelmRepository URLs WITHOUT a certSecretRef (source-controller will need a public-CA-trusted Harbor cert)"
                 else
-                  # Create/replace the ca.crt-only Secret in the HelmRepository
-                  # namespace. Opaque (not kubernetes.io/tls): source-controller
-                  # reads only the `ca.crt` key for certSecretRef; the private
-                  # key is deliberately NEVER copied. `kubectl apply` is
-                  # idempotent (re-runs converge; a CA rotation re-applies).
+                  {{- /*
+                   Create/replace the ca.crt-only Secret in the HelmRepository
+                   namespace. Opaque (not kubernetes.io/tls): source-controller
+                   reads only the `ca.crt` key for certSecretRef; the private
+                   key is deliberately NEVER copied. `kubectl apply` is
+                   idempotent (re-runs converge; a CA rotation re-applies).
+                  */}}
                   trust_manifest=$(printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n    app.kubernetes.io/managed-by: self-sovereign-cutover\n    bp.openova.io/cutover-step: helmrepository-patches\ntype: Opaque\ndata:\n  ca.crt: %s\n' \
                     "${HELMREPO_TRUST_DEST_SECRET}" "${HELMREPO_NAMESPACE}" "${ca_b64}")
                   if printf '%s' "${trust_manifest}" | kubectl apply -f - >/dev/null 2>&1; then
@@ -988,34 +1086,36 @@ data:
                 ;;
             esac
 
-            # ---- Phase 0.9 (#4885): union curated names with live upstream HRs ----
-            #
-            # The curated .Values.helmRepositories.names list (materialised into
-            # /work/helmrepository-names.txt) is HAND-MAINTAINED and always drifts
-            # behind the per-Org / marketplace TENANT-blueprint HelmRepositories the
-            # catalyst-api org-tenant pipeline seeds at Org-provisioning time —
-            # bp-agenity / bp-openclaw / bp-stalwart-tenant / bp-wordpress-tenant
-            # (+ the shared bp-keycloak / bp-cnpg / bp-newapi), declared in
-            # products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
-            # (orgTenantSharedHelmRepositories) + core/services/provisioning/gitops/
-            # helmrelease_apps.go (helmRepoBlock), both hardcoded to
-            # oci://ghcr.io/openova-io. Those names are NEVER in the curated list, so
-            # step-06 left them on ghcr.io and step-08's `-A` offender scan
-            # (count_offenders) wedged the deny-egress PRE-CHECK on them → the 600s
-            # hold never ran → cutoverComplete unreachable (PROVEN hw232, #4885 10:36
-            # residual).
-            #
-            # FIX: union the curated list with EVERY live HelmRepository in
-            # HELMREPO_NAMESPACE whose spec.url still points at the upstream OCI
-            # prefix, so the Phase-1 pivot is DRIFT-PROOF and covers tenant/catalog
-            # blueprint repos present at cutover time — the SAME live∪declared
-            # discipline step-03 Phase-A2 (#4573 F4) already applies to the chart-
-            # mirror set. (Phase-2b below rewrites their org-tenants Gitea source so
-            # the live patch is durable. Repos SEEDED AFTER this step — Orgs
-            # provisioned post-cutover — additionally need the org-tenant pipeline to
-            # emit local URLs at source; tracked as the #4885 durable-source
-            # follow-on. This covers everything present when the cutover runs, which
-            # is the proven wedge.)
+            {{- /*
+             ---- Phase 0.9 (#4885): union curated names with live upstream HRs ----
+
+             The curated .Values.helmRepositories.names list (materialised into
+             /work/helmrepository-names.txt) is HAND-MAINTAINED and always drifts
+             behind the per-Org / marketplace TENANT-blueprint HelmRepositories the
+             catalyst-api org-tenant pipeline seeds at Org-provisioning time —
+             bp-agenity / bp-openclaw / bp-stalwart-tenant / bp-wordpress-tenant
+             (+ the shared bp-keycloak / bp-cnpg / bp-newapi), declared in
+             products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
+             (orgTenantSharedHelmRepositories) + core/services/provisioning/gitops/
+             helmrelease_apps.go (helmRepoBlock), both hardcoded to
+             oci://ghcr.io/openova-io. Those names are NEVER in the curated list, so
+             step-06 left them on ghcr.io and step-08's `-A` offender scan
+             (count_offenders) wedged the deny-egress PRE-CHECK on them → the 600s
+             hold never ran → cutoverComplete unreachable (PROVEN hw232, #4885 10:36
+             residual).
+
+             FIX: union the curated list with EVERY live HelmRepository in
+             HELMREPO_NAMESPACE whose spec.url still points at the upstream OCI
+             prefix, so the Phase-1 pivot is DRIFT-PROOF and covers tenant/catalog
+             blueprint repos present at cutover time — the SAME live∪declared
+             discipline step-03 Phase-A2 (#4573 F4) already applies to the chart-
+             mirror set. (Phase-2b below rewrites their org-tenants Gitea source so
+             the live patch is durable. Repos SEEDED AFTER this step — Orgs
+             provisioned post-cutover — additionally need the org-tenant pipeline to
+             emit local URLs at source; tracked as the #4885 durable-source
+             follow-on. This covers everything present when the cutover runs, which
+             is the proven wedge.)
+            */}}
             combined_names=/tmp/hr-names-combined.txt
             sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' /work/helmrepository-names.txt \
               | grep -v '^$' > "${combined_names}" || true
@@ -1023,65 +1123,69 @@ data:
               -o jsonpath='{range .items[*]}{.metadata.name}={.spec.url}{"\n"}{end}' 2>/dev/null \
               | awk -F= -v p="${UPSTREAM_PREFIX}" 'NF>=2 && index($2,p)==1 {print $1}' \
               >> "${combined_names}" || true
-            # De-dup (stable sort) so an HR in both the curated list and the live
-            # upstream set is patched exactly once.
+            {{- /*
+             De-dup (stable sort) so an HR in both the curated list and the live
+             upstream set is patched exactly once.
+            */}}
             sort -u "${combined_names}" -o "${combined_names}"
             echo "[helmrepository-patches] Phase-1 input: $(grep -c . "${combined_names}") HelmRepository name(s) (curated ∪ live-upstream)"
 
-            # ---- #5436: region-A HelmRepository pivot READ-BACK assert ----
-            #
-            # THE DEFECT THIS CLOSES. Before this block, region-A's ONLY
-            # failure signal was Phase-1's `fail` counter — which counts
-            # `kubectl patch` invocations that returned non-zero, NOT the
-            # state of the cluster afterwards. Every HelmRepository that
-            # Phase-0.9's enumeration never saw (seeded by the catalyst-api
-            # org-tenant pipeline AFTER the enumeration ran) or that Flux
-            # reverted from a durable source Phase-2/2b did not rewrite is
-            # therefore INVISIBLE to this step: zero patch calls fail,
-            # `fail` stays 0, the Job exits 0, and catalyst-api records
-            # `step.helmrepository-patches.result=success` on a Sovereign
-            # whose charts still resolve to the mothership. Live on hw290
-            # 2026-07-27: SIX flux-system HelmRepositories still on
-            # oci://ghcr.io/openova-io (bp-agenity / bp-keycloak /
-            # bp-newapi / bp-openclaw / bp-stalwart-tenant /
-            # bp-wordpress-tenant) with the step green and the Job
-            # succeeded=1. That makes `cutoverComplete=true` reachable on a
-            # still-tethered environment — the sovereignty claim would be
-            # false while the evidence trail said otherwise.
-            #
-            # The SECONDARY-region leg has had a read-back of this SHAPE since
-            # #5359 — but a SINGLE-SHOT one, with no convergence budget and no
-            # reconcile re-poke, so it could only ever sample the seconds
-            # between the patch and region-B's next Kustomization re-apply
-            # (#5596; see assert_secondary_pivot_durable below). Region-A never
-            # had one at all. This is that assertion, with a budget, for the
-            # region that matters most.
-            #
-            # Scope: HELMREPO_NAMESPACE (the namespace Phase-1 patches) —
-            # the same scope the #5359 secondary read-back uses, and where
-            # every hw290 offender lived. Step-08's `-A` scan remains the
-            # wider net; this assert deliberately fails EARLIER and closer
-            # to the code that could have fixed it.
-            #
-            # $1 = phase label for the log.
-            # $2 = bounded convergence budget in seconds (0 = single-shot).
-            #      The budget exists for the post-Phase-2 call: a durable
-            #      rewrite has to be pulled by the `openova` GitRepository
-            #      and re-applied by the bootstrap-kit / org-tenants
-            #      Kustomizations before a Flux-reverted URL settles back on
-            #      local Harbor — the same revert-race #3526 documents for
-            #      step-08. Reconciles are re-poked each cycle so a missed
-            #      request cannot strand the poll. The Phase-1.5 call is
-            #      single-shot: Phase-1's patches are synchronous API
-            #      writes, so there is nothing to converge.
-            #
-            # NB: the offender list is written to a FILE and grepped from
-            # the file — never `printf '%s' "$big" | grep -q`. Under
-            # `set -o pipefail` (which a future edit may add) grep closing
-            # the pipe on its first match SIGPIPEs the upstream writer and
-            # fails the whole script; that shape has bitten this repo twice
-            # (#5370, #5406) and once in this chart's own test harness
-            # (#4969, see tests/cutover-contract.sh Case 16c).
+            {{- /*
+             ---- #5436: region-A HelmRepository pivot READ-BACK assert ----
+
+             THE DEFECT THIS CLOSES. Before this block, region-A's ONLY
+             failure signal was Phase-1's `fail` counter — which counts
+             `kubectl patch` invocations that returned non-zero, NOT the
+             state of the cluster afterwards. Every HelmRepository that
+             Phase-0.9's enumeration never saw (seeded by the catalyst-api
+             org-tenant pipeline AFTER the enumeration ran) or that Flux
+             reverted from a durable source Phase-2/2b did not rewrite is
+             therefore INVISIBLE to this step: zero patch calls fail,
+             `fail` stays 0, the Job exits 0, and catalyst-api records
+             `step.helmrepository-patches.result=success` on a Sovereign
+             whose charts still resolve to the mothership. Live on hw290
+             2026-07-27: SIX flux-system HelmRepositories still on
+             oci://ghcr.io/openova-io (bp-agenity / bp-keycloak /
+             bp-newapi / bp-openclaw / bp-stalwart-tenant /
+             bp-wordpress-tenant) with the step green and the Job
+             succeeded=1. That makes `cutoverComplete=true` reachable on a
+             still-tethered environment — the sovereignty claim would be
+             false while the evidence trail said otherwise.
+
+             The SECONDARY-region leg has had a read-back of this SHAPE since
+             #5359 — but a SINGLE-SHOT one, with no convergence budget and no
+             reconcile re-poke, so it could only ever sample the seconds
+             between the patch and region-B's next Kustomization re-apply
+             (#5596; see assert_secondary_pivot_durable below). Region-A never
+             had one at all. This is that assertion, with a budget, for the
+             region that matters most.
+
+             Scope: HELMREPO_NAMESPACE (the namespace Phase-1 patches) —
+             the same scope the #5359 secondary read-back uses, and where
+             every hw290 offender lived. Step-08's `-A` scan remains the
+             wider net; this assert deliberately fails EARLIER and closer
+             to the code that could have fixed it.
+
+             $1 = phase label for the log.
+             $2 = bounded convergence budget in seconds (0 = single-shot).
+                  The budget exists for the post-Phase-2 call: a durable
+                  rewrite has to be pulled by the `openova` GitRepository
+                  and re-applied by the bootstrap-kit / org-tenants
+                  Kustomizations before a Flux-reverted URL settles back on
+                  local Harbor — the same revert-race #3526 documents for
+                  step-08. Reconciles are re-poked each cycle so a missed
+                  request cannot strand the poll. The Phase-1.5 call is
+                  single-shot: Phase-1's patches are synchronous API
+                  writes, so there is nothing to converge.
+
+             NB: the offender list is written to a FILE and grepped from
+             the file — never `printf '%s' "$big" | grep -q`. Under
+             `set -o pipefail` (which a future edit may add) grep closing
+             the pipe on its first match SIGPIPEs the upstream writer and
+             fails the whole script; that shape has bitten this repo twice
+             (#5370, #5406) and once in this chart's own test harness
+             (#4969, see tests/cutover-contract.sh Case 16c).
+            */}}
             assert_region_a_pivot() {
               ra_label="$1"
               ra_budget="${2:-0}"
@@ -1096,9 +1200,11 @@ data:
                   [ -n "${ra_line}" ] || continue
                   ra_name="${ra_line%%=*}"
                   ra_url="${ra_line#*=}"
-                  # Only the upstream prefix counts as an offender — a
-                  # non-default URL (an operator overlay pointing somewhere
-                  # else entirely) is not this step's business.
+                  {{- /*
+                   Only the upstream prefix counts as an offender — a
+                   non-default URL (an operator overlay pointing somewhere
+                   else entirely) is not this step's business.
+                  */}}
                   case "${ra_url}" in
                     "${UPSTREAM_PREFIX}"*) : ;;
                     *) continue ;;
@@ -1130,7 +1236,7 @@ data:
               return 0
             }
 
-            # ---- Phase 1: live K8s patches (immediate) ----
+            {{- /* ---- Phase 1: live K8s patches (immediate) ---- */}}
             ok=0
             skip=0
             fail=0
@@ -1150,12 +1256,14 @@ data:
 
               new_url=$(printf '%s' "${cur_url}" | sed -e "s,${UPSTREAM_PREFIX},${local_prefix},")
               if [ "${new_url}" = "${cur_url}" ]; then
-                # URL is already pivoted (or non-default). On a re-run the URL
-                # may already point at local Harbor while the certSecretRef is
-                # still absent — apply the trust ref so an already-pivoted HR
-                # is not left x509-failing source-controller (Refs #3379). Only
-                # acts when the URL is genuinely the local-Harbor host AND a
-                # trust secret was built AND the ref is not already present.
+                {{- /*
+                 URL is already pivoted (or non-default). On a re-run the URL
+                 may already point at local Harbor while the certSecretRef is
+                 still absent — apply the trust ref so an already-pivoted HR
+                 is not left x509-failing source-controller (Refs #3379). Only
+                 acts when the URL is genuinely the local-Harbor host AND a
+                 trust secret was built AND the ref is not already present.
+                */}}
                 case "${cur_url}" in
                   "${local_prefix}"|"${local_prefix}/"*)
                     if [ -n "${trust_secret}" ]; then
@@ -1184,13 +1292,15 @@ data:
                 continue
               fi
 
-              # Wire the source-controller TLS-trust certSecretRef alongside
-              # the URL pivot (Refs #3379). Without it, source-controller
-              # x509-fails the very first pull against the LE-staging
-              # in-cluster Harbor. The certSecretRef is added in the SAME
-              # merge-patch so the URL never lands trust-less even for a
-              # reconcile tick. When trust_secret is empty (disabled or the CA
-              # was unreadable) we pivot the URL only — prior behaviour.
+              {{- /*
+               Wire the source-controller TLS-trust certSecretRef alongside
+               the URL pivot (Refs #3379). Without it, source-controller
+               x509-fails the very first pull against the LE-staging
+               in-cluster Harbor. The certSecretRef is added in the SAME
+               merge-patch so the URL never lands trust-less even for a
+               reconcile tick. When trust_secret is empty (disabled or the CA
+               was unreadable) we pivot the URL only — prior behaviour.
+              */}}
               if [ -n "${trust_secret}" ]; then
                 patch=$(printf '{"spec":{"url":"%s","certSecretRef":{"name":"%s"}}}' "${new_url}" "${trust_secret}")
               else
@@ -1213,33 +1323,37 @@ data:
             echo "[helmrepository-patches] live-K8s ok=${ok} skip=${skip} fail=${fail}"
             [ "${fail}" -eq 0 ] || exit 1
 
-            # ---- Phase 1.5 (#5436): read back what Phase-1 actually did ----
-            # `fail=0` only means every patch CALL returned zero. Assert the
-            # cluster state directly, single-shot (Phase-1's writes are
-            # synchronous) — an HR seeded between the Phase-0.9 enumeration
-            # and now, or one whose patch silently no-op'd, fails HERE
-            # instead of shipping a green step on a half-pivoted Sovereign.
+            {{- /*
+             ---- Phase 1.5 (#5436): read back what Phase-1 actually did ----
+             `fail=0` only means every patch CALL returned zero. Assert the
+             cluster state directly, single-shot (Phase-1's writes are
+             synchronous) — an HR seeded between the Phase-0.9 enumeration
+             and now, or one whose patch silently no-op'd, fails HERE
+             instead of shipping a green step on a half-pivoted Sovereign.
+            */}}
             assert_region_a_pivot "Phase-1.5 read-back" 0 || exit 1
 
-            # ---- Phase 1.6: parent HelmRelease values override for openova-catalog (TBD-C19) ----
-            #
-            # `openova-catalog` is rendered by the bp-catalyst-platform Helm
-            # chart (products/catalyst/chart/templates/openova-catalog-
-            # helmrepository.yaml) from `.Values.catalog.helmRepository.url`.
-            # Phase-1's live HR patch above is reverted within ~1 min when
-            # helm-controller's next reconcile re-runs `helm upgrade` and
-            # re-emits the HR from the chart's default URL (oci://ghcr.io/
-            # openova-io). Step-08's egress-block-test then catches
-            # `openova-catalog` as the lone OFFENDER and FAILs cutover.
-            #
-            # Fix: patch the parent HelmRelease's `spec.values.catalog.
-            # helmRepository.url` so the NEXT chart reconcile re-renders
-            # the HR with the local Harbor URL — durable across the chart
-            # upgrade cycle. Merge-patch preserves any other
-            # spec.values.catalog.* siblings (e.g. catalog.helmRepository.
-            # interval, .name, .namespace).
-            #
-            # Caught live on t22.omantel.biz 2026-05-18.
+            {{- /*
+             ---- Phase 1.6: parent HelmRelease values override for openova-catalog (TBD-C19) ----
+
+             `openova-catalog` is rendered by the bp-catalyst-platform Helm
+             chart (products/catalyst/chart/templates/openova-catalog-
+             helmrepository.yaml) from `.Values.catalog.helmRepository.url`.
+             Phase-1's live HR patch above is reverted within ~1 min when
+             helm-controller's next reconcile re-runs `helm upgrade` and
+             re-emits the HR from the chart's default URL (oci://ghcr.io/
+             openova-io). Step-08's egress-block-test then catches
+             `openova-catalog` as the lone OFFENDER and FAILs cutover.
+
+             Fix: patch the parent HelmRelease's `spec.values.catalog.
+             helmRepository.url` so the NEXT chart reconcile re-renders
+             the HR with the local Harbor URL — durable across the chart
+             upgrade cycle. Merge-patch preserves any other
+             spec.values.catalog.* siblings (e.g. catalog.helmRepository.
+             interval, .name, .namespace).
+
+             Caught live on t22.omantel.biz 2026-05-18.
+            */}}
             cur_catalog_url=$(kubectl get helmrelease bp-catalyst-platform -n "${HELMREPO_NAMESPACE}" \
               -o jsonpath='{.spec.values.catalog.helmRepository.url}' 2>/dev/null || echo "")
             if [ "${cur_catalog_url}" = "${local_prefix}" ]; then
@@ -1250,9 +1364,11 @@ data:
                   -n "${HELMREPO_NAMESPACE}" \
                   --type=merge --patch "${merge_patch}" >/dev/null 2>&1; then
                 echo "[helmrepository-patches] Phase-1.6 OK: bp-catalyst-platform spec.values.catalog.helmRepository.url -> ${local_prefix}"
-                # Trigger immediate Flux reconcile so the chart re-
-                # renders openova-catalog HR with the new URL before
-                # step-08's window opens.
+                {{- /*
+                 Trigger immediate Flux reconcile so the chart re-
+                 renders openova-catalog HR with the new URL before
+                 step-08's window opens.
+                */}}
                 kubectl annotate --overwrite helmrelease bp-catalyst-platform \
                   -n "${HELMREPO_NAMESPACE}" \
                   "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null 2>&1 || true
@@ -1261,80 +1377,90 @@ data:
               fi
             fi
 
-            # G96 (Refs #2643, 2026-06-01) — Phase 1.9 RETIRED.
-            # G75 (Refs #2622, chart 0.1.48) made Step 01 finalize
-            # delete the gitea-mirror-resync cronjob entirely + patch
-            # the HR enabled=false in the IaC. By the time Step 06
-            # Phase 2 runs, the cronjob no longer exists — the
-            # kubectl-patch-suspend was a no-op that took an unused
-            # code path. Per Principle 9 (no defensive backstop for
-            # scenarios that can't happen) the dead code is removed.
+            {{- /*
+             G96 (Refs #2643, 2026-06-01) — Phase 1.9 RETIRED.
+             G75 (Refs #2622, chart 0.1.48) made Step 01 finalize
+             delete the gitea-mirror-resync cronjob entirely + patch
+             the HR enabled=false in the IaC. By the time Step 06
+             Phase 2 runs, the cronjob no longer exists — the
+             kubectl-patch-suspend was a no-op that took an unused
+             code path. Per Principle 9 (no defensive backstop for
+             scenarios that can't happen) the dead code is removed.
+            */}}
 
-            # ---- Phase 2: push YAML edit to local Gitea (#970) ----
-            #
-            # The kubectl patches above flip the live HelmRepository
-            # objects. But the bootstrap-kit Kustomization reconciles
-            # YAML from the Sovereign's local Gitea every minute, and
-            # those YAML files still declare `url: oci://ghcr.io/openova-io`.
-            # Without this phase, Flux reverts every patch within ~1m,
-            # and Step-08's verify catches the regression as "OFFENDER".
-            #
-            # Fix: clone the local Gitea, sed-rewrite every
-            # clusters/_template/bootstrap-kit/*.yaml that declares the
-            # upstream URL, commit, push. Subsequent reconciles pick up
-            # the local Harbor URL as the steady-state.
+            {{- /*
+             ---- Phase 2: push YAML edit to local Gitea (#970) ----
+
+             The kubectl patches above flip the live HelmRepository
+             objects. But the bootstrap-kit Kustomization reconciles
+             YAML from the Sovereign's local Gitea every minute, and
+             those YAML files still declare `url: oci://ghcr.io/openova-io`.
+             Without this phase, Flux reverts every patch within ~1m,
+             and Step-08's verify catches the regression as "OFFENDER".
+
+             Fix: clone the local Gitea, sed-rewrite every
+             clusters/_template/bootstrap-kit/*.yaml that declares the
+             upstream URL, commit, push. Subsequent reconciles pick up
+             the local Harbor URL as the steady-state.
+            */}}
             export HOME=/tmp
             git config --global user.name "self-sovereign-cutover"
             git config --global user.email "cutover@${SOVEREIGN_FQDN}"
             git config --global advice.detachedHead false
 
-            # gitea-http is headless (#968); wait for DNS just in case.
+            {{- /* gitea-http is headless (#968); wait for DNS just in case. */}}
             gitea_host="$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E 's|^https?://||' | cut -d: -f1 | cut -d/ -f1)"
             for i in $(seq 1 30); do
               if nslookup "${gitea_host}" >/dev/null 2>&1; then break; fi
               sleep 5
             done
 
-            # ---- Phase 1.4 (#4967, Refs #3379 #4885): RE-ASSERT gitea admin ----
-            #                password BEFORE any authenticated Gitea call
-            #
-            # Root cause (hw236 live cutover step-06 demirror 401): the demirror
-            # PATCH and the git clone/push below authenticate to Gitea with
-            # BasicAuth gitea_admin:<gitea-admin-secret.password>. step-04
-            # registry-pivot rolls the gitea image ~minutes earlier; on any gitea
-            # Pod restart the init container is SUPPOSED to re-seed the admin
-            # password from gitea-admin-secret (GITEA_ADMIN_PASSWORD_MODE=
-            # keepUpdated). If that re-sync races / no-ops / is reverted by a CNPG
-            # restore, the LIVE DB password DRIFTS from the Secret and EVERY
-            # admin-API auth 401s `user's password is invalid [uid:1 name:
-            # gitea_admin]` — the exact fault that wedged the hw236 cutover here.
-            # The bp-gitea admin-secret Helm-lookup pin + bp-reloader annotation
-            # (#4885) SHRINK the drift window but do NOT close it (a roll can
-            # complete with the DB row still stale).
-            #
-            # Self-heal: force the DB row to match the Secret by execing
-            # `gitea admin user change-password` in the live gitea Pod. The CLI
-            # writes the users table directly (no admin session needed) so it
-            # works even while the API is 401ing. Idempotent — re-setting to the
-            # same value is harmless. Best-effort: if the gitea Pod cannot be
-            # resolved we log + fall through to the PATCH, which either succeeds
-            # (no drift) or fails with the same clear 401 as before — no
-            # regression. RBAC already grants pods/exec (rbac.yaml #4652 leg).
+            {{- /*
+             ---- Phase 1.4 (#4967, Refs #3379 #4885): RE-ASSERT gitea admin ----
+                            password BEFORE any authenticated Gitea call
+
+             Root cause (hw236 live cutover step-06 demirror 401): the demirror
+             PATCH and the git clone/push below authenticate to Gitea with
+             BasicAuth gitea_admin:<gitea-admin-secret.password>. step-04
+             registry-pivot rolls the gitea image ~minutes earlier; on any gitea
+             Pod restart the init container is SUPPOSED to re-seed the admin
+             password from gitea-admin-secret (GITEA_ADMIN_PASSWORD_MODE=
+             keepUpdated). If that re-sync races / no-ops / is reverted by a CNPG
+             restore, the LIVE DB password DRIFTS from the Secret and EVERY
+             admin-API auth 401s `user's password is invalid [uid:1 name:
+             gitea_admin]` — the exact fault that wedged the hw236 cutover here.
+             The bp-gitea admin-secret Helm-lookup pin + bp-reloader annotation
+             (#4885) SHRINK the drift window but do NOT close it (a roll can
+             complete with the DB row still stale).
+
+             Self-heal: force the DB row to match the Secret by execing
+             `gitea admin user change-password` in the live gitea Pod. The CLI
+             writes the users table directly (no admin session needed) so it
+             works even while the API is 401ing. Idempotent — re-setting to the
+             same value is harmless. Best-effort: if the gitea Pod cannot be
+             resolved we log + fall through to the PATCH, which either succeeds
+             (no drift) or fails with the same clear 401 as before — no
+             regression. RBAC already grants pods/exec (rbac.yaml #4652 leg).
+            */}}
             if [ "${GITEA_ADMIN_PASSWORD_REASSERT:-true}" = "true" ]; then
               echo "[helmrepository-patches] re-asserting gitea admin password (drift-heal, Refs #3379 #4885)"
-              # Upstream gitea 10.5.0 renders a Deployment (pod gitea-<hash>-<id>),
-              # so resolve by label selector, not a StatefulSet index. Take the
-              # first Running+Ready Pod (same idiom as bp-gitea sso-configure #2818).
+              {{- /*
+               Upstream gitea 10.5.0 renders a Deployment (pod gitea-<hash>-<id>),
+               so resolve by label selector, not a StatefulSet index. Take the
+               first Running+Ready Pod (same idiom as bp-gitea sso-configure #2818).
+              */}}
               reassert_pod="$(kubectl get pod -n "${GITEA_NAMESPACE}" \
                 -l "${GITEA_POD_SELECTOR}" \
                 -o jsonpath='{range .items[?(@.status.phase=="Running")]}{.metadata.name}{"\t"}{range .status.conditions[?(@.type=="Ready")]}{.status}{end}{"\n"}{end}' \
                 2>/dev/null \
                 | awk -F '\t' '$2=="True" {print $1; exit}' || true)"
               if [ -n "${reassert_pod}" ]; then
-                # --must-change-password=false so the admin user is NOT forced
-                # into a change-on-next-login flow (this credential is only ever
-                # used non-interactively). The password is passed as an in-Pod CLI
-                # arg and never echoed to this Job's stdout; stderr is redacted.
+                {{- /*
+                 --must-change-password=false so the admin user is NOT forced
+                 into a change-on-next-login flow (this credential is only ever
+                 used non-interactively). The password is passed as an in-Pod CLI
+                 arg and never echoed to this Job's stdout; stderr is redacted.
+                */}}
                 if kubectl exec -n "${GITEA_NAMESPACE}" "${reassert_pod}" -c "${GITEA_CONTAINER}" -- \
                      gitea admin user change-password \
                      --username "${GITEA_USERNAME}" \
@@ -1345,7 +1471,7 @@ data:
                      gitea admin user change-password \
                      --username "${GITEA_USERNAME}" \
                      --password "${GITEA_PASSWORD}" >/tmp/.reassert.log 2>&1; then
-                  # Older gitea builds lack --must-change-password on this subcommand.
+                  {{- /* Older gitea builds lack --must-change-password on this subcommand. */}}
                   echo "[helmrepository-patches] gitea admin password re-asserted on pod ${reassert_pod} (legacy flag set)"
                 else
                   echo "[helmrepository-patches] WARN: gitea admin password re-assert failed; continuing to PATCH (may still 401 if drifted):" >&2
@@ -1356,24 +1482,28 @@ data:
               fi
             fi
 
-            # URL with embedded basic auth — credential goes to git via
-            # URL only, never echoed to stdout.
+            {{- /*
+             URL with embedded basic auth — credential goes to git via
+             URL only, never echoed to stdout.
+            */}}
             push_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
             redacted=$(printf '%s' "${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git")
 
-            # ---- Phase 1.5: convert pull-mirror to standalone (#1028) ----
-            #
-            # Step-01 created openova/openova as a Gitea pull-mirror so the
-            # Sovereign's local Gitea tracks upstream during early
-            # bootstrap. After cutover the Sovereign is self-hosted and
-            # MUST diverge from upstream — but Gitea blocks pushes to a
-            # mirror with HTTP 403 "remote: mirror repository is read-only".
-            # PATCH the repo to flip mirror=false BEFORE git push so
-            # subsequent push commands write to the now-standalone repo.
-            #
-            # Without this conversion, Step-06's git push (added in #970)
-            # always failed on 403, blocking handover. Caught on otech125
-            # 2026-05-05.
+            {{- /*
+             ---- Phase 1.5: convert pull-mirror to standalone (#1028) ----
+
+             Step-01 created openova/openova as a Gitea pull-mirror so the
+             Sovereign's local Gitea tracks upstream during early
+             bootstrap. After cutover the Sovereign is self-hosted and
+             MUST diverge from upstream — but Gitea blocks pushes to a
+             mirror with HTTP 403 "remote: mirror repository is read-only".
+             PATCH the repo to flip mirror=false BEFORE git push so
+             subsequent push commands write to the now-standalone repo.
+
+             Without this conversion, Step-06's git push (added in #970)
+             always failed on 403, blocking handover. Caught on otech125
+             2026-05-05.
+            */}}
             api="${GITEA_INTERNAL_URL%/}/api/v1/repos/${GITEA_ORG}/${GITEA_REPO}"
             demirror_code=$(curl -sS -o /tmp/.demirror.json -w '%{http_code}' \
               -u "${GITEA_USERNAME}:${GITEA_PASSWORD}" \
@@ -1394,9 +1524,11 @@ data:
             git clone --depth 1 --branch main "${push_url}" repo >/dev/null 2>&1
             cd repo
 
-            # Find every HelmRepository YAML that declares the upstream
-            # URL under clusters/_template/bootstrap-kit/. Rewrite to
-            # the local Harbor prefix in-place.
+            {{- /*
+             Find every HelmRepository YAML that declares the upstream
+             URL under clusters/_template/bootstrap-kit/. Rewrite to
+             the local Harbor prefix in-place.
+            */}}
             target_dir="clusters/_template/bootstrap-kit"
             if [ ! -d "${target_dir}" ]; then
               echo "[helmrepository-patches] FATAL: ${target_dir} not present in local mirror" >&2
@@ -1410,22 +1542,24 @@ data:
             done
             echo "[helmrepository-patches] sed edited ${edited} bootstrap-kit file(s)"
 
-            # ---- Phase 2b (#4885): pivot the per-Org TENANT shared HelmRepositories ----
-            #
-            # The catalyst-api org-tenant pipeline writes the shared bp-* tenant
-            # HelmRepositories to clusters/<sov-fqdn>/org-tenants/helmrepositories.yaml
-            # (+ per-tenant overlay files under .../org-tenants/<org-id>/), in THIS
-            # same openova/openova gitops repo, reconciled by the org-tenants PARENT
-            # Flux Kustomization — a DIFFERENT durable source than the bootstrap-kit
-            # slots above. So the Phase-1 live patch of these HRs is REVERTED ~1
-            # reconcile later unless their Gitea source is rewritten here too (the
-            # exact #970/#3526 revert-race, one directory over). Rewrite every
-            # org-tenants YAML that still declares the upstream url
-            # (bp-agenity / bp-openclaw / bp-stalwart-tenant / bp-wordpress-tenant /
-            # bp-keycloak / bp-cnpg / bp-newapi) to the local Harbor prefix so
-            # step-08's `-A` offender scan converges durably. Guarded on the tree
-            # existing (a Sovereign with no customer Orgs has no org-tenants dir →
-            # 0 edits, harmless no-op).
+            {{- /*
+             ---- Phase 2b (#4885): pivot the per-Org TENANT shared HelmRepositories ----
+
+             The catalyst-api org-tenant pipeline writes the shared bp-* tenant
+             HelmRepositories to clusters/<sov-fqdn>/org-tenants/helmrepositories.yaml
+             (+ per-tenant overlay files under .../org-tenants/<org-id>/), in THIS
+             same openova/openova gitops repo, reconciled by the org-tenants PARENT
+             Flux Kustomization — a DIFFERENT durable source than the bootstrap-kit
+             slots above. So the Phase-1 live patch of these HRs is REVERTED ~1
+             reconcile later unless their Gitea source is rewritten here too (the
+             exact #970/#3526 revert-race, one directory over). Rewrite every
+             org-tenants YAML that still declares the upstream url
+             (bp-agenity / bp-openclaw / bp-stalwart-tenant / bp-wordpress-tenant /
+             bp-keycloak / bp-cnpg / bp-newapi) to the local Harbor prefix so
+             step-08's `-A` offender scan converges durably. Guarded on the tree
+             existing (a Sovereign with no customer Orgs has no org-tenants dir →
+             0 edits, harmless no-op).
+            */}}
             tenant_edited=0
             for f in $(grep -rlE "^[[:space:]]*url:[[:space:]]*${UPSTREAM_PREFIX}[[:space:]]*$" clusters 2>/dev/null | grep '/org-tenants/' || true); do
               sed -i -E "s,^([[:space:]]*url:[[:space:]]*)${UPSTREAM_PREFIX}([[:space:]]*)$,\1${local_prefix}\2," "${f}"
@@ -1435,40 +1569,48 @@ data:
             done
             echo "[helmrepository-patches] sed edited ${tenant_edited} org-tenant HelmRepository file(s)"
 
-            # Phase-2 trust durability (Refs #3379): inject `certSecretRef:`
-            # into every HelmRepository spec whose url was just pivoted to the
-            # local Harbor, at the SAME indent as the `url:` line, so the
-            # bootstrap-kit Kustomization reconcile keeps the source-controller
-            # trust ref instead of reverting Phase-1's live certSecretRef patch
-            # (~1 min later) and re-x509-failing every pivoted pull. Idempotent:
-            # if a certSecretRef referencing trust_secret already sits in the
-            # same HelmRepository spec we leave it; awk only injects when the
-            # pivoted url line has no matching certSecretRef immediately after.
-            # Only runs when a trust secret was actually built (Phase-0.5).
+            {{- /*
+             Phase-2 trust durability (Refs #3379): inject `certSecretRef:`
+             into every HelmRepository spec whose url was just pivoted to the
+             local Harbor, at the SAME indent as the `url:` line, so the
+             bootstrap-kit Kustomization reconcile keeps the source-controller
+             trust ref instead of reverting Phase-1's live certSecretRef patch
+             (~1 min later) and re-x509-failing every pivoted pull. Idempotent:
+             if a certSecretRef referencing trust_secret already sits in the
+             same HelmRepository spec we leave it; awk only injects when the
+             pivoted url line has no matching certSecretRef immediately after.
+             Only runs when a trust secret was actually built (Phase-0.5).
+            */}}
             if [ -n "${trust_secret}" ]; then
               trust_edited=0
-              # #4885: union the bootstrap-kit slot files with the org-tenants HR
-              # files (Phase-2b) so the pivoted TENANT HelmRepositories carry the
-              # source-controller trust ref too — else they x509-fail pulling the
-              # LE-staging in-cluster Harbor once the org-tenants Kustomization
-              # reconciles the durable local url. Collect both into a temp file
-              # (avoids an unindented continuation line inside this YAML block scalar).
+              {{- /*
+               #4885: union the bootstrap-kit slot files with the org-tenants HR
+               files (Phase-2b) so the pivoted TENANT HelmRepositories carry the
+               source-controller trust ref too — else they x509-fail pulling the
+               LE-staging in-cluster Harbor once the org-tenants Kustomization
+               reconciles the durable local url. Collect both into a temp file
+               (avoids an unindented continuation line inside this YAML block scalar).
+              */}}
               trust_list=/tmp/cutover-trust-targets.txt
               : > "${trust_list}"
               grep -lE "^[[:space:]]*url:[[:space:]]*${local_prefix}([[:space:]]*|/.*)$" "${target_dir}"/*.yaml 2>/dev/null >> "${trust_list}" || true
               grep -rlE "^[[:space:]]*url:[[:space:]]*${local_prefix}([[:space:]]*|/.*)$" clusters 2>/dev/null | grep '/org-tenants/' >> "${trust_list}" || true
               for f in $(awk 'NF' "${trust_list}" | sort -u); do
                 awk -v ref="${trust_secret}" -v lp="${local_prefix}" '
-                  # Match a pivoted `url:` line (local Harbor prefix). Capture
-                  # its leading whitespace so the injected block aligns with the
-                  # sibling keys (type/interval/url/secretRef) under spec:.
+                  {{- /*
+                   Match a pivoted `url:` line (local Harbor prefix). Capture
+                   its leading whitespace so the injected block aligns with the
+                   sibling keys (type/interval/url/secretRef) under spec:.
+                  */}}
                   {
                     line=$0
                     if (match(line, /^[[:space:]]*url:[[:space:]]*/)) {
                       val=line; sub(/^[[:space:]]*url:[[:space:]]*/, "", val)
-                      # Only the local-Harbor url lines (this file may also
-                      # carry an unrelated url: e.g. a GitRepository) — gate on
-                      # the value starting with the local prefix.
+                      {{- /*
+                       Only the local-Harbor url lines (this file may also
+                       carry an unrelated url: e.g. a GitRepository) — gate on
+                       the value starting with the local prefix.
+                      */}}
                       if (index(val, lp) == 1) {
                         indent=line; sub(/url:.*/, "", indent)
                         print line
@@ -1478,10 +1620,12 @@ data:
                         next
                       }
                     }
-                    # Drop a pre-existing certSecretRef block that immediately
-                    # follows our just-printed url (avoids a duplicate on
-                    # re-run). A line at the url indent starting `certSecretRef:`
-                    # right after an injection is the stale one.
+                    {{- /*
+                     Drop a pre-existing certSecretRef block that immediately
+                     follows our just-printed url (avoids a duplicate on
+                     re-run). A line at the url indent starting `certSecretRef:`
+                     right after an injection is the stale one.
+                    */}}
                     if (injected_here==1 && match(line, /^[[:space:]]*certSecretRef:[[:space:]]*$/)) {
                       injected_here=2   # swallow this line + its `name:` child
                       next
@@ -1503,40 +1647,46 @@ data:
               fi
             fi
 
-            # Phase-2.5 (TBD-C19, 2026-05-18): inject openova-catalog URL
-            # override into 13-bp-catalyst-platform.yaml's
-            # `spec.values.sovereign:` block. Why this seam: the
-            # openova-catalog HelmRepository is rendered by the catalyst-
-            # platform Helm chart (see Phase-1.6 above) so the durable URL
-            # lives in the parent HelmRelease's spec.values rather than as
-            # its own `url:` line in bootstrap-kit. Without this injection
-            # the bootstrap-kit Kustomization reconciles the HelmRelease
-            # YAML from Gitea every minute and reverts Phase-1.6's live
-            # patch — chart re-render then puts openova-catalog HR back
-            # at oci://ghcr.io/openova-io and Step-08 catches it.
-            #
-            # Idempotency: if the file already declares
-            # `catalog.helmRepository.url:` under spec.values, replace
-            # the URL value with the current local prefix (handles
-            # re-runs with a different harbor host). Otherwise inject the
-            # full 3-line block above the existing `sovereign:` key
-            # (every chart >= 1.4.117 ships that key under spec.values
-            # — the catalyst-platform values.yaml `sovereign:` block was
-            # added in PR #1569 for D22 settings identity fields).
+            {{- /*
+             Phase-2.5 (TBD-C19, 2026-05-18): inject openova-catalog URL
+             override into 13-bp-catalyst-platform.yaml's
+             `spec.values.sovereign:` block. Why this seam: the
+             openova-catalog HelmRepository is rendered by the catalyst-
+             platform Helm chart (see Phase-1.6 above) so the durable URL
+             lives in the parent HelmRelease's spec.values rather than as
+             its own `url:` line in bootstrap-kit. Without this injection
+             the bootstrap-kit Kustomization reconciles the HelmRelease
+             YAML from Gitea every minute and reverts Phase-1.6's live
+             patch — chart re-render then puts openova-catalog HR back
+             at oci://ghcr.io/openova-io and Step-08 catches it.
+
+             Idempotency: if the file already declares
+             `catalog.helmRepository.url:` under spec.values, replace
+             the URL value with the current local prefix (handles
+             re-runs with a different harbor host). Otherwise inject the
+             full 3-line block above the existing `sovereign:` key
+             (every chart >= 1.4.117 ships that key under spec.values
+             — the catalyst-platform values.yaml `sovereign:` block was
+             added in PR #1569 for D22 settings identity fields).
+            */}}
             catalyst_yaml="${target_dir}/13-bp-catalyst-platform.yaml"
             if [ -f "${catalyst_yaml}" ]; then
-              # The catalyst-platform HelmRelease has:
-              #   spec:
-              #     values:
-              #       sovereign:   <-- 4 spaces
-              #         orgEmail:  <-- 6 spaces
-              # So a `catalog:` block under spec.values lives at 4
-              # spaces, `helmRepository:` at 6, `url:` at 8.
+              {{- /*
+               The catalyst-platform HelmRelease has:
+                 spec:
+                   values:
+                     sovereign:   <-- 4 spaces
+                       orgEmail:  <-- 6 spaces
+               So a `catalog:` block under spec.values lives at 4
+               spaces, `helmRepository:` at 6, `url:` at 8.
+              */}}
               if grep -qE '^[[:space:]]{4}catalog:[[:space:]]*$' "${catalyst_yaml}" \
                  && grep -A 3 -E '^[[:space:]]{4}catalog:[[:space:]]*$' "${catalyst_yaml}" \
                     | grep -qE '^[[:space:]]{6}helmRepository:[[:space:]]*$'; then
-                # Existing block — rewrite the url: value at 8-space
-                # indent within the catalog: block boundary.
+                {{- /*
+                 Existing block — rewrite the url: value at 8-space
+                 indent within the catalog: block boundary.
+                */}}
                 if sed -i -E "/^[[:space:]]{4}catalog:[[:space:]]*\$/,/^[[:space:]]{0,4}[a-zA-Z]/{s,^([[:space:]]{8}url:[[:space:]]*).*\$,\1${local_prefix}," "${catalyst_yaml}" 2>/dev/null; then
                   echo "[helmrepository-patches] Phase-2.5 OK: rewrote existing catalog.helmRepository.url in ${catalyst_yaml} -> ${local_prefix}"
                   edited=$((edited+1))
@@ -1544,20 +1694,22 @@ data:
                   echo "[helmrepository-patches] Phase-2.5 WARN: sed rewrite of existing block failed; Phase-1.6 K8s patch remains durable for one upgrade cycle"
                 fi
               else
-                # No existing block — inject above the `sovereign:` key
-                # under spec.values. The catalyst-platform HR layout
-                # (PR #1569 +) has:
-                #   spec:
-                #     values:
-                #       global: {...}
-                #       ingress: {...}
-                #       parentZones: ...
-                #       wildcardCert: {...}
-                #       sovereign:        <-- inject before this line
-                # The `sovereign:` key sits at 4-space indent (under
-                # spec.values which is 2-space). Match the 4-space form
-                # specifically to avoid the unrelated
-                # `catalyst.openova.io/sovereign:` label at 4-space.
+                {{- /*
+                 No existing block — inject above the `sovereign:` key
+                 under spec.values. The catalyst-platform HR layout
+                 (PR #1569 +) has:
+                   spec:
+                     values:
+                       global: {...}
+                       ingress: {...}
+                       parentZones: ...
+                       wildcardCert: {...}
+                       sovereign:        <-- inject before this line
+                 The `sovereign:` key sits at 4-space indent (under
+                 spec.values which is 2-space). Match the 4-space form
+                 specifically to avoid the unrelated
+                 `catalyst.openova.io/sovereign:` label at 4-space.
+                */}}
                 if grep -qE '^[[:space:]]{4}sovereign:[[:space:]]*$' "${catalyst_yaml}"; then
                   awk -v prefix="${local_prefix}" '
                     /^[[:space:]]{4}sovereign:[[:space:]]*$/ && !done {
@@ -1586,22 +1738,26 @@ data:
               echo "[helmrepository-patches] Phase-2.5 SKIP: ${catalyst_yaml} not present in local mirror"
             fi
 
-            # Phase 2c (#5650) — the vcluster loft chart-source pivot, sourced
-            # FROM FILE rather than inlined. It is ~10 KiB of shell and step-06
-            # already renders within a few hundred bytes of the 110000-byte
-            # MAX_ARG_STRLEN early-warning budget (#5593): inlining it dies at
-            # exec with "argument list too long" before a single line runs. Same
-            # `.`-source discipline as step-03 run.sh / resolver.sh — it runs in
-            # THIS shell, so ${edited}, ${harbor_endpoint} and ${trust_secret}
-            # are visible to it and its `exit 1` FATALs the whole step.
+            {{- /*
+             Phase 2c (#5650) — the vcluster loft chart-source pivot, sourced
+             FROM FILE rather than inlined. It is ~10 KiB of shell and step-06
+             already renders within a few hundred bytes of the 110000-byte
+             MAX_ARG_STRLEN early-warning budget (#5593): inlining it dies at
+             exec with "argument list too long" before a single line runs. Same
+             `.`-source discipline as step-03 run.sh / resolver.sh — it runs in
+             THIS shell, so ${edited}, ${harbor_endpoint} and ${trust_secret}
+             are visible to it and its `exit 1` FATALs the whole step.
+            */}}
             . /phase2c/phase2c.sh
 
-            # NOTE (Refs #3379 #3526): the two "nothing to push" paths below
-            # must FALL THROUGH to Phase 3 (the readiness-gated strip), NOT
-            # `exit 0` early — even when there is no Gitea edit to commit,
-            # the live HelmRepository pivot (Phase-1) may have happened and
-            # the ghcr.io strip still has to run AFTER the pivot is Ready. So
-            # they only skip the commit/push, then continue.
+            {{- /*
+             NOTE (Refs #3379 #3526): the two "nothing to push" paths below
+             must FALL THROUGH to Phase 3 (the readiness-gated strip), NOT
+             `exit 0` early — even when there is no Gitea edit to commit,
+             the live HelmRepository pivot (Phase-1) may have happened and
+             the ghcr.io strip still has to run AFTER the pivot is Ready. So
+             they only skip the commit/push, then continue.
+            */}}
             if [ "${edited}" -eq 0 ]; then
               echo "[helmrepository-patches] no edits — already pivoted in Gitea or upstream prefix not present (continuing to Phase 3)"
             else
@@ -1612,36 +1768,42 @@ data:
                 git commit -m "cutover: pivot ${edited} HelmRepository URLs to local Harbor" >/dev/null
                 push_err=$(git push origin main 2>&1) || {
                   echo "[helmrepository-patches] FATAL: git push failed" >&2
-                  # Surface the actual git stderr so operators can diagnose
-                  # auth / branch-protection / hook rejections without re-
-                  # running the Job. The output is git's own stderr — does
-                  # NOT contain the embedded credential (those live in the
-                  # remote URL only and git redacts them in error messages).
+                  {{- /*
+                   Surface the actual git stderr so operators can diagnose
+                   auth / branch-protection / hook rejections without re-
+                   running the Job. The output is git's own stderr — does
+                   NOT contain the embedded credential (those live in the
+                   remote URL only and git redacts them in error messages).
+                  */}}
                   printf '%s\n' "$push_err" >&2
                   exit 1
                 }
                 echo "[helmrepository-patches] pushed to ${redacted} (commit will reconcile via bootstrap-kit Kustomization)"
 
-                # Trigger an immediate Flux reconciliation so the new YAML
-                # lands without waiting for the polling interval.
+                {{- /*
+                 Trigger an immediate Flux reconciliation so the new YAML
+                 lands without waiting for the polling interval.
+                */}}
                 kubectl annotate --overwrite gitrepository openova \
                   -n flux-system \
                   "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null || true
               fi
             fi
 
-            # ====================================================================
-            # #5359 — SECONDARY-REGION HelmRepository pivot legs
-            # ====================================================================
-            # Runs BEFORE Phase 3 on purpose: the secondaries get the MERGED
-            # (local-Harbor-added, mothership-retained) ghcr-pull bytes now, so
-            # their pivoted HRs can authenticate while region-A's Phase-3a
-            # proves local Harbor is pullable; the STRIPPED bytes are re-synced
-            # after Phase-3b (sync_secondary_ghcr_pull is called again there) —
-            # strip-before-proof is the hw139 half-pivot lesson, applied
-            # per-region.
+            {{- /*
+             ====================================================================
+             #5359 — SECONDARY-REGION HelmRepository pivot legs
+             ====================================================================
+             Runs BEFORE Phase 3 on purpose: the secondaries get the MERGED
+             (local-Harbor-added, mothership-retained) ghcr-pull bytes now, so
+             their pivoted HRs can authenticate while region-A's Phase-3a
+             proves local Harbor is pullable; the STRIPPED bytes are re-synced
+             after Phase-3b (sync_secondary_ghcr_pull is called again there) —
+             strip-before-proof is the hw139 half-pivot lesson, applied
+             per-region.
+            */}}
             sync_secondary_ghcr_pull() {
-              # No secondaries configured → genuine no-op (single-region).
+              {{- /* No secondaries configured → genuine no-op (single-region). */}}
               sy_have_secondary=0
               for sy_probe in /secondary-kubeconfigs/*.yaml; do
                 [ -e "${sy_probe}" ] || continue
@@ -1651,13 +1813,15 @@ data:
               if [ "${sy_have_secondary}" = "0" ]; then
                 return 0
               fi
-              # Read via read_secret_key (json+jq), NEVER kubectl jsonpath:
+              {{- /* Read via read_secret_key (json+jq), NEVER kubectl jsonpath: */}}
               # jsonpath={.data.${GHCR_PULL_SECRET_KEY}} with the literal key
-              # ".dockerconfigjson" expands to {.data..dockerconfigjson}
-              # (recursive descent) → always empty → the sync silently
-              # no-ops and region-B HRs auth-fail AFTER the read-back
-              # passes — the exact fail-silent hole #5359 exists to close.
-              # (Same Fix-#77 trap Phase-0 documents above.)
+              {{- /*
+               ".dockerconfigjson" expands to {.data..dockerconfigjson}
+               (recursive descent) → always empty → the sync silently
+               no-ops and region-B HRs auth-fail AFTER the read-back
+               passes — the exact fail-silent hole #5359 exists to close.
+               (Same Fix-#77 trap Phase-0 documents above.)
+              */}}
               sy_b64=$(read_secret_key "${GHCR_PULL_SECRET_NAMESPACE}")
               if [ -z "${sy_b64}" ]; then
                 sy_b64=$(read_secret_key "flux-system")
@@ -1693,33 +1857,37 @@ data:
               return 0
             }
 
-            # ---- #5596: secondary-region DURABLE pivot assert ----
-            #
-            # #5359's read-back re-read the secondary's HR set ONCE, right after
-            # the patch loop: it measured the PATCH, never the PIVOT. region-B
-            # re-applies its OWN artifact of the gitops repo, and if that
-            # artifact is the PRE-cutover one every URL goes back upstream
-            # minutes after this step recorded success. hw292: clean read-back
-            # + result=success at 07:41:13Z, region-b kustomize-controller Apply
-            # at 07:42:08Z put all 64 HRs back on ghcr.io, cc=true at 08:12:30Z,
-            # still 64/65 on ghcr 3 days later. 55s is the whole window the old
-            # assert could see. Full forensics in Chart.yaml 0.1.171.
-            #
-            # THE FIX: make the reverting actor run INSIDE the assert — poke the
-            # secondary's GitRepository + HR-owning Kustomizations and refuse to
-            # certify until one of them HANDLED that exact token
-            # (status.lastHandledReconcileAt == token: the re-apply HAPPENED,
-            # not merely that we asked), read-back clean on every sample up to
-            # that point. Offender scope + tolerations are IDENTICAL to
-            # assert_region_a_pivot, so this is never stricter than step-08.
-            #
-            # NB: offenders go to a FILE and are grepped from it — never
-            # `printf | grep -q` (the #5370/#5406/#4969 SIGPIPE shape).
+            {{- /*
+             ---- #5596: secondary-region DURABLE pivot assert ----
+
+             #5359's read-back re-read the secondary's HR set ONCE, right after
+             the patch loop: it measured the PATCH, never the PIVOT. region-B
+             re-applies its OWN artifact of the gitops repo, and if that
+             artifact is the PRE-cutover one every URL goes back upstream
+             minutes after this step recorded success. hw292: clean read-back
+             + result=success at 07:41:13Z, region-b kustomize-controller Apply
+             at 07:42:08Z put all 64 HRs back on ghcr.io, cc=true at 08:12:30Z,
+             still 64/65 on ghcr 3 days later. 55s is the whole window the old
+             assert could see. Full forensics in Chart.yaml 0.1.171.
+
+             THE FIX: make the reverting actor run INSIDE the assert — poke the
+             secondary's GitRepository + HR-owning Kustomizations and refuse to
+             certify until one of them HANDLED that exact token
+             (status.lastHandledReconcileAt == token: the re-apply HAPPENED,
+             not merely that we asked), read-back clean on every sample up to
+             that point. Offender scope + tolerations are IDENTICAL to
+             assert_region_a_pivot, so this is never stricter than step-08.
+
+             NB: offenders go to a FILE and are grepped from it — never
+             `printf | grep -q` (the #5370/#5406/#4969 SIGPIPE shape).
+            */}}
             secondary_offenders() {
-              # $1 = kubeconfig. Writes offenders to /tmp/.sd-offenders.txt.
-              # Returns non-zero when the ENUMERATION ITSELF failed — an
-              # unreadable region is NOT "zero offenders", and conflating the
-              # two is how a leg certifies a region it never saw.
+              {{- /*
+               $1 = kubeconfig. Writes offenders to /tmp/.sd-offenders.txt.
+               Returns non-zero when the ENUMERATION ITSELF failed — an
+               unreadable region is NOT "zero offenders", and conflating the
+               two is how a leg certifies a region it never saw.
+              */}}
               so_kc="$1"
               if ! kubectl --kubeconfig "${so_kc}" get helmrepository -n "${HELMREPO_NAMESPACE}" \
                   -o jsonpath='{range .items[*]}{.metadata.name}={.spec.url}{"\n"}{end}' \
@@ -1744,8 +1912,10 @@ data:
             }
 
             secondary_source_diagnosis() {
-              # Best-effort operator context for a failure message: WHY the
-              # secondary would revert (its gitops source state).
+              {{- /*
+               Best-effort operator context for a failure message: WHY the
+               secondary would revert (its gitops source state).
+              */}}
               sg_kc="$1"
               sg_ready=$(kubectl --kubeconfig "${sg_kc}" get gitrepository "${GITOPS_REPO_NAME}" \
                 -n "${GITOPS_REPO_NAMESPACE}" \
@@ -1770,13 +1940,15 @@ data:
               sd_deadline=$(( $(date +%s) + sd_budget ))
               sd_token=$(date +%s)
 
-              # Which HR-owning Kustomizations actually EXIST in this region —
-              # only those can revert the pivot, and only those can be required
-              # to handle the poke. A region with none of them has nothing that
-              # re-applies HelmRepositories from a durable source, so the plain
-              # read-back is already the whole truth there (single-region-shaped
-              # secondaries, and any topology where the operator moved the slot
-              # Kustomizations, must not fail on an absence).
+              {{- /*
+               Which HR-owning Kustomizations actually EXIST in this region —
+               only those can revert the pivot, and only those can be required
+               to handle the poke. A region with none of them has nothing that
+               re-applies HelmRepositories from a durable source, so the plain
+               read-back is already the whole truth there (single-region-shaped
+               secondaries, and any topology where the operator moved the slot
+               Kustomizations, must not fail on an absence).
+              */}}
               : > /tmp/.sd-ks.txt
               for sd_ks in ${HELMREPO_READBACK_KUSTOMIZATIONS:-}; do
                 if kubectl --kubeconfig "${sd_kc}" get kustomization "${sd_ks}" \
@@ -1786,9 +1958,11 @@ data:
               done
               sd_ks_count=$(grep -c . /tmp/.sd-ks.txt || true)
 
-              # Poke: force the durable source + every HR-owning Kustomization
-              # to re-apply NOW, so a revert lands inside this window instead of
-              # 55 seconds after the Job exits (the hw292 shape).
+              {{- /*
+               Poke: force the durable source + every HR-owning Kustomization
+               to re-apply NOW, so a revert lands inside this window instead of
+               55 seconds after the Job exits (the hw292 shape).
+              */}}
               kubectl --kubeconfig "${sd_kc}" annotate --overwrite gitrepository "${GITOPS_REPO_NAME}" \
                 -n "${GITOPS_REPO_NAMESPACE}" \
                 "reconcile.fluxcd.io/requestedAt=${sd_token}" >/dev/null 2>&1 || true
@@ -1802,8 +1976,10 @@ data:
 
               sd_clean=0
               sd_handled=0
-              # NB: `[ … ] && sd_handled=1` would exit the whole step under the
-              # script's `set -e` whenever the test is false. Use an if.
+              {{- /*
+               NB: `[ … ] && sd_handled=1` would exit the whole step under the
+               script's `set -e` whenever the test is false. Use an if.
+              */}}
               if [ "${sd_ks_count}" -eq 0 ]; then
                 echo "[helmrepository-patches] #5596 secondary ${sd_region}: none of the HR-owning Kustomizations (${HELMREPO_READBACK_KUSTOMIZATIONS:-<none>}) exist here — nothing in this region re-applies HelmRepositories from a durable source, so the read-back alone is the whole truth"
                 sd_handled=1
@@ -1851,11 +2027,13 @@ data:
                 [ -e "${pv_probe}" ] || continue
                 pv_regions=$((pv_regions+1))
               done
-              # #5596 — say WHICH of the two zero-work states this is. "No
-              # secondary regions exist" (single-region Sovereign) is a
-              # legitimate no-op; "secondary regions exist and were not
-              # pivoted" is the false positive this leg exists to prevent, and
-              # every path below now has to record a per-region verdict.
+              {{- /*
+               #5596 — say WHICH of the two zero-work states this is. "No
+               secondary regions exist" (single-region Sovereign) is a
+               legitimate no-op; "secondary regions exist and were not
+               pivoted" is the false positive this leg exists to prevent, and
+               every path below now has to record a per-region verdict.
+              */}}
               if [ "${pv_regions}" -eq 0 ]; then
                 echo "[helmrepository-patches] #5359 no secondary-region kubeconfigs mounted — single-region Sovereign, secondary leg is inert (not a skipped pivot)"
                 return 0
@@ -1866,9 +2044,11 @@ data:
                 pv_region=$(basename "${pv_kc}" .yaml)
                 echo "[helmrepository-patches] #5359 secondary region ${pv_region}: pivoting its HelmRepositories ${UPSTREAM_PREFIX} -> ${local_prefix}"
 
-                # Trust anchor for the LE-staging in-cluster registry — same
-                # certSecretRef mechanism as Phase-1 (Flux OCI HRs have no
-                # insecureSkipVerify).
+                {{- /*
+                 Trust anchor for the LE-staging in-cluster registry — same
+                 certSecretRef mechanism as Phase-1 (Flux OCI HRs have no
+                 insecureSkipVerify).
+                */}}
                 if [ -n "${trust_secret}" ]; then
                   if kubectl -n "${HELMREPO_NAMESPACE}" get secret "${trust_secret}" -o json 2>/dev/null \
                     | jq '{apiVersion, kind, type, metadata: {name: .metadata.name, namespace: .metadata.namespace, labels: {"app.kubernetes.io/managed-by": "self-sovereign-cutover"}}, data: (.data // {})}' \
@@ -1879,16 +2059,18 @@ data:
                   fi
                 fi
 
-                # Enumerate the secondary's LIVE HR set (drift-proof — its own
-                # set is authoritative, exactly the Phase-0.9 union discipline).
-                #
-                # #5596 — the enumeration's EXIT STATUS is load-bearing. It used
-                # to be `2>/dev/null || true`, which made "the API call failed"
-                # (unreachable region, expired credential, CRD absent) produce
-                # the SAME empty file as "this region genuinely has no
-                # HelmRepositories" — and the empty file recorded `skipped` and
-                # moved on. A region we could not read is not a region we
-                # pivoted; only a SUCCESSFUL listing that is empty may skip.
+                {{- /*
+                 Enumerate the secondary's LIVE HR set (drift-proof — its own
+                 set is authoritative, exactly the Phase-0.9 union discipline).
+
+                 #5596 — the enumeration's EXIT STATUS is load-bearing. It used
+                 to be `2>/dev/null || true`, which made "the API call failed"
+                 (unreachable region, expired credential, CRD absent) produce
+                 the SAME empty file as "this region genuinely has no
+                 HelmRepositories" — and the empty file recorded `skipped` and
+                 moved on. A region we could not read is not a region we
+                 pivoted; only a SUCCESSFUL listing that is empty may skip.
+                */}}
                 if kubectl --kubeconfig "${pv_kc}" get helmrepository -n "${HELMREPO_NAMESPACE}" \
                     -o jsonpath='{range .items[*]}{.metadata.name}={.spec.url}{"\n"}{end}' \
                     > /tmp/sec_hrs.txt 2>/tmp/sec_hrs.err; then
@@ -1946,12 +2128,14 @@ data:
                   return 1
                 fi
 
-                # Read-back assert (#5359, made DURABLE by #5596): ZERO
-                # upstream-prefixed HRs may remain — and they must still be zero
-                # after the secondary's own HR-owning Kustomizations have
-                # re-applied, which the assert forces rather than waits for. A
-                # partially-pivoted secondary succeeding anyway IS the #5359
-                # false positive; a fully-pivoted-then-reverted one is #5596.
+                {{- /*
+                 Read-back assert (#5359, made DURABLE by #5596): ZERO
+                 upstream-prefixed HRs may remain — and they must still be zero
+                 after the secondary's own HR-owning Kustomizations have
+                 re-applied, which the assert forces rather than waits for. A
+                 partially-pivoted secondary succeeding anyway IS the #5359
+                 false positive; a fully-pivoted-then-reverted one is #5596.
+                */}}
                 if ! assert_secondary_pivot_durable "${pv_kc}" "${pv_region}"; then
                   kubectl -n "${CUTOVER_NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
                     -p "{\"data\":{\"step.helmrepository-patches.region.${pv_region}.result\":\"failed\",\"step.helmrepository-patches.region.${pv_region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"step.helmrepository-patches.region.${pv_region}.lastError\":\"pivot not durable — see Job log\"}}" || true
@@ -1973,57 +2157,63 @@ data:
               exit 1
             fi
 
+            {{- /* The Phase-3 header below stays a `#` comment: cutover-
+            contract.sh Case 17b compares its LINE NUMBER in the render against
+            the line of the executable `del(.auths[...])` jq filter to prove the
+            destructive strip runs after the pivot, never before it. Convert it
+            and that ordering guard silently loses its anchor. */}}
             # ====================================================================
             # Phase 3 — readiness-gated mothership-auth STRIP (Refs #3379 #3526)
             # ====================================================================
-            #
-            # THE STRIP-BEFORE-PIVOT FIX. This block performs the destructive
-            # credential-hygiene removal (TBD-V24 MISS-2) that USED to live in
-            # Phase-0. It is the LAST thing Step-06 does, and it runs ONLY
-            # after a bounded wait that PROVES every pivoted HelmRepository
-            # actually reconciles Ready from local Harbor.
-            #
-            # WHY THE MOVE (hw139 half-pivot, 8 HRs wedged 10h):
-            #   Phase-0 ran the strip BEFORE the Phase-1 URL pivot. Between
-            #   those two acts — and any time a LATER cutover step wedged
-            #   (step-05/08/10 have all wedged at various points; see Chart.yaml
-            #   changelog) — the cluster was in the lethal intermediate state:
-            #   ghcr.io creds GONE, but the live HR sources + the on-disk Gitea
-            #   YAML still `oci://ghcr.io/openova-io`. Every reconcile then
-            #   failed `no auth config for 'ghcr.io' in the docker-registry
-            #   Secret 'ghcr-pull'`, the half-pivot was permanent, and the
-            #   cutover engine (which strips again on every re-run because the
-            #   ADD+strip were one jq pass) could never recover zero-touch.
-            #
-            # THE INVARIANT THIS ENFORCES:
-            #   ghcr.io / harbor.openova.io auth is removed from ghcr-pull ONLY
-            #   when every HelmRepository this Job pivoted is already Ready=True
-            #   pulling from registry.<sov-fqdn>. If readiness does not converge
-            #   within the budget, this block EXITS NON-ZERO with the mothership
-            #   auth STILL INTACT — so the HRs keep pulling from ghcr.io and the
-            #   step is cleanly recoverable (the engine deletes the timed-out /
-            #   failed Job and re-runs; Phase-0's ADD + Phase-1's pivot are
-            #   idempotent, and this Phase-3 strip is idempotent too).
-            #
-            # Idempotency: if every strip target is already absent, the block
-            # is a pure no-op (no Secret churn). A re-run after a partial strip
-            # (jq del of a missing key is a no-op) re-converges cleanly.
-            #
-            # ── #5436: region-A read-back, second call ──
-            # Placed at the HEAD of Phase 3 so it runs on EVERY path,
-            # including the MOTHERSHIP_AUTHS_TO_STRIP-empty early exit
-            # directly below. Two invariants ride on it:
-            #   (a) the Phase-2/2b durable Gitea rewrite actually held —
-            #       this call runs after the git push AND after the
-            #       secondary-region legs, so a non-durable pivot has had a
-            #       Flux reconcile tick to revert and be caught. Bounded
-            #       convergence budget (HELMREPO_READBACK_BUDGET_SECONDS)
-            #       absorbs the #3526 revert-race rather than fail-fasting
-            #       into it.
-            #   (b) the strip below NEVER removes the ghcr.io fallback while
-            #       a region-A HelmRepository still points at ghcr.io — that
-            #       combination is the hw139 half-pivot that wedged 8 HRs
-            #       for 10h on "no auth config for 'ghcr.io'".
+            {{- /*
+             THE STRIP-BEFORE-PIVOT FIX. This block performs the destructive
+             credential-hygiene removal (TBD-V24 MISS-2) that USED to live in
+             Phase-0. It is the LAST thing Step-06 does, and it runs ONLY
+             after a bounded wait that PROVES every pivoted HelmRepository
+             actually reconciles Ready from local Harbor.
+
+             WHY THE MOVE (hw139 half-pivot, 8 HRs wedged 10h):
+               Phase-0 ran the strip BEFORE the Phase-1 URL pivot. Between
+               those two acts — and any time a LATER cutover step wedged
+               (step-05/08/10 have all wedged at various points; see Chart.yaml
+               changelog) — the cluster was in the lethal intermediate state:
+               ghcr.io creds GONE, but the live HR sources + the on-disk Gitea
+               YAML still `oci://ghcr.io/openova-io`. Every reconcile then
+               failed `no auth config for 'ghcr.io' in the docker-registry
+               Secret 'ghcr-pull'`, the half-pivot was permanent, and the
+               cutover engine (which strips again on every re-run because the
+               ADD+strip were one jq pass) could never recover zero-touch.
+
+             THE INVARIANT THIS ENFORCES:
+               ghcr.io / harbor.openova.io auth is removed from ghcr-pull ONLY
+               when every HelmRepository this Job pivoted is already Ready=True
+               pulling from registry.<sov-fqdn>. If readiness does not converge
+               within the budget, this block EXITS NON-ZERO with the mothership
+               auth STILL INTACT — so the HRs keep pulling from ghcr.io and the
+               step is cleanly recoverable (the engine deletes the timed-out /
+               failed Job and re-runs; Phase-0's ADD + Phase-1's pivot are
+               idempotent, and this Phase-3 strip is idempotent too).
+
+             Idempotency: if every strip target is already absent, the block
+             is a pure no-op (no Secret churn). A re-run after a partial strip
+             (jq del of a missing key is a no-op) re-converges cleanly.
+
+             ── #5436: region-A read-back, second call ──
+             Placed at the HEAD of Phase 3 so it runs on EVERY path,
+             including the MOTHERSHIP_AUTHS_TO_STRIP-empty early exit
+             directly below. Two invariants ride on it:
+               (a) the Phase-2/2b durable Gitea rewrite actually held —
+                   this call runs after the git push AND after the
+                   secondary-region legs, so a non-durable pivot has had a
+                   Flux reconcile tick to revert and be caught. Bounded
+                   convergence budget (HELMREPO_READBACK_BUDGET_SECONDS)
+                   absorbs the #3526 revert-race rather than fail-fasting
+                   into it.
+               (b) the strip below NEVER removes the ghcr.io fallback while
+                   a region-A HelmRepository still points at ghcr.io — that
+                   combination is the hw139 half-pivot that wedged 8 HRs
+                   for 10h on "no auth config for 'ghcr.io'".
+            */}}
             assert_region_a_pivot "Phase-3 pre-strip read-back" "${HELMREPO_READBACK_BUDGET_SECONDS:-300}" || exit 1
 
             if [ -z "${MOTHERSHIP_AUTHS_TO_STRIP:-}" ]; then
@@ -2032,40 +2222,42 @@ data:
               exit 0
             fi
 
-            # ---- Phase 3a: prove pivoted charts are PULLABLE from local Harbor ----
-            #
-            # We gate the strip on the HelmRepositories whose URL now points at
-            # the LOCAL Harbor host (harbor_host) — the ones this cutover
-            # pivoted. The proof that it is SAFE to drop the ghcr.io fallback is
-            # a successful AUTHENTICATED OCI PULL of a representative set of the
-            # pivoted charts from registry.<fqdn>: that proves (a) Harbor serves
-            # the chart artifact (Phase A2 of step-03 mirrored it) and (b) the
-            # Phase-0 Harbor auth works — exactly the precondition for stripping
-            # ghcr.io. If the probe does NOT succeed within the budget, this
-            # block leaves ready_ok=false → the FATAL/REFUSE path below exits
-            # non-zero with mothership auth INTACT (recoverable on re-run).
-            #
-            # WHY NOT read the HelmRepository .status Ready condition (the
-            # PREVIOUS gate, Refs #3568): for spec.type=oci HelmRepositories
-            # Flux source-controller does NOT reconcile them and sets NO
-            # .status.conditions AT ALL — they are static pointers consumed
-            # lazily by the consuming HelmReleases (no HelmChart / OCIRepository
-            # object is ever created for them). On hw146 (source-controller
-            # v1.4.1) all 61 pivoted HelmRepositories were type=oci with EMPTY
-            # .status.conditions (Ready=<none>), so the old gate's Ready could
-            # NEVER become True → it FATAL-refused the strip every run and the
-            # cutover wedged at step-06 forever (also the hw144 "loops at 0/0"
-            # shape, Refs #3588 — the same wrong-object read). The real proof is
-            # an actual authenticated pull, NOT a non-existent status field.
-            #
-            # The probe runs from the writable /tmp emptyDir (the Pod is
-            # readOnlyRootFilesystem:true) by pointing HOME + the HELM_*_HOME
-            # vars there before `helm registry login` / `helm pull`.
+            {{- /*
+             ---- Phase 3a: prove pivoted charts are PULLABLE from local Harbor ----
+
+             We gate the strip on the HelmRepositories whose URL now points at
+             the LOCAL Harbor host (harbor_host) — the ones this cutover
+             pivoted. The proof that it is SAFE to drop the ghcr.io fallback is
+             a successful AUTHENTICATED OCI PULL of a representative set of the
+             pivoted charts from registry.<fqdn>: that proves (a) Harbor serves
+             the chart artifact (Phase A2 of step-03 mirrored it) and (b) the
+             Phase-0 Harbor auth works — exactly the precondition for stripping
+             ghcr.io. If the probe does NOT succeed within the budget, this
+             block leaves ready_ok=false → the FATAL/REFUSE path below exits
+             non-zero with mothership auth INTACT (recoverable on re-run).
+
+             WHY NOT read the HelmRepository .status Ready condition (the
+             PREVIOUS gate, Refs #3568): for spec.type=oci HelmRepositories
+             Flux source-controller does NOT reconcile them and sets NO
+             .status.conditions AT ALL — they are static pointers consumed
+             lazily by the consuming HelmReleases (no HelmChart / OCIRepository
+             object is ever created for them). On hw146 (source-controller
+             v1.4.1) all 61 pivoted HelmRepositories were type=oci with EMPTY
+             .status.conditions (Ready=<none>), so the old gate's Ready could
+             NEVER become True → it FATAL-refused the strip every run and the
+             cutover wedged at step-06 forever (also the hw144 "loops at 0/0"
+             shape, Refs #3588 — the same wrong-object read). The real proof is
+             an actual authenticated pull, NOT a non-existent status field.
+
+             The probe runs from the writable /tmp emptyDir (the Pod is
+             readOnlyRootFilesystem:true) by pointing HOME + the HELM_*_HOME
+             vars there before `helm registry login` / `helm pull`.
+            */}}
             strip_wait_deadline=$(( $(date +%s) + STRIP_READINESS_TIMEOUT_SECONDS ))
             echo "[helmrepository-patches] Phase-3a: proving pivoted charts are pullable from ${harbor_host} (up to ${STRIP_READINESS_TIMEOUT_SECONDS}s) before stripping mothership auth"
             ready_ok="false"
 
-            # Writable helm home (root FS is read-only).
+            {{- /* Writable helm home (root FS is read-only). */}}
             export HOME=/tmp/helm-home
             export HELM_CACHE_HOME=/tmp/helm-home/cache
             export HELM_CONFIG_HOME=/tmp/helm-home/config
@@ -2073,24 +2265,26 @@ data:
             export HELM_REGISTRY_CONFIG=/tmp/helm-home/config/registry.json
             mkdir -p "${HELM_CACHE_HOME}" "${HELM_CONFIG_HOME}" "${HELM_DATA_HOME}" /tmp/helm-pull
 
-            # #4557: the Phase-3a probe targets the cluster's OWN in-cluster
-            # Harbor (registry.<sov-fqdn> = harbor_host), whose wildcard cert
-            # is LE-STAGING (untrusted) on a fresh prov + the helm binary in a
-            # Job Pod carries no node trust store → both `helm registry login`
-            # and `helm pull` x509-fail without a skip. HELM_IN_CLUSTER_TLS_VERIFY
-            # (default "false") gates a deliberate, documented IN-CLUSTER-ONLY
-            # skip — this step makes NO external (ghcr/upstream) helm call, so
-            # the flag only ever relaxes verify for the local registry. Same
-            # seam as step-03 skopeo --dest-tls-verify=false (#4529).
-            #
-            # NOTE the two helm subcommands take DIFFERENT skip flags (verified
-            # against helm v3.16.x): `helm registry login` accepts `--insecure`
-            # ("allow connections to TLS registry without certs"); `helm pull`
-            # accepts `--insecure-skip-tls-verify` ("skip tls certificate
-            # checks for the chart download") — `helm registry login` does NOT
-            # know `--insecure-skip-tls-verify` (it errors unknown-flag, the
-            # login silently no-ops, and the subsequent pull then 401s "no
-            # basic auth credentials"). So gate two distinct flag vars.
+            {{- /*
+             #4557: the Phase-3a probe targets the cluster's OWN in-cluster
+             Harbor (registry.<sov-fqdn> = harbor_host), whose wildcard cert
+             is LE-STAGING (untrusted) on a fresh prov + the helm binary in a
+             Job Pod carries no node trust store → both `helm registry login`
+             and `helm pull` x509-fail without a skip. HELM_IN_CLUSTER_TLS_VERIFY
+             (default "false") gates a deliberate, documented IN-CLUSTER-ONLY
+             skip — this step makes NO external (ghcr/upstream) helm call, so
+             the flag only ever relaxes verify for the local registry. Same
+             seam as step-03 skopeo --dest-tls-verify=false (#4529).
+
+             NOTE the two helm subcommands take DIFFERENT skip flags (verified
+             against helm v3.16.x): `helm registry login` accepts `--insecure`
+             ("allow connections to TLS registry without certs"); `helm pull`
+             accepts `--insecure-skip-tls-verify` ("skip tls certificate
+             checks for the chart download") — `helm registry login` does NOT
+             know `--insecure-skip-tls-verify` (it errors unknown-flag, the
+             login silently no-ops, and the subsequent pull then 401s "no
+             basic auth credentials"). So gate two distinct flag vars.
+            */}}
             HELM_LOGIN_INSECURE_FLAG=""
             HELM_PULL_INSECURE_FLAG=""
             case "${HELM_IN_CLUSTER_TLS_VERIFY:-false}" in
@@ -2106,11 +2300,13 @@ data:
             fi
             echo "[helmrepository-patches] Phase-3a: helm $(helm version --short 2>/dev/null || echo '?')"
 
-            # Build the probe list: (chart, version) for every HelmRelease whose
-            # sourceRef.kind=HelmRepository and whose referenced HelmRepository's
-            # LIVE spec.url host is harbor_host (i.e. already pivoted to local
-            # Harbor). This mirrors step-03 Phase A2's enumeration (the charts it
-            # mirrored) and the old gate's "only local-Harbor HRs" selection.
+            {{- /*
+             Build the probe list: (chart, version) for every HelmRelease whose
+             sourceRef.kind=HelmRepository and whose referenced HelmRepository's
+             LIVE spec.url host is harbor_host (i.e. already pivoted to local
+             Harbor). This mirrors step-03 Phase A2's enumeration (the charts it
+             mirrored) and the old gate's "only local-Harbor HRs" selection.
+            */}}
             local_hr_file=/tmp/.local-harbor-hrs.txt
             kubectl get helmrepositories -A \
               -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.url}{"\n"}{end}' \
@@ -2123,11 +2319,13 @@ data:
               done | sort -u > "${local_hr_file}" || : > "${local_hr_file}"
 
             probe_file=/tmp/.chart-probe.txt
-            # #4870-followup: probe the DEPLOYED chart version
-            # (.status.history[0].chartVersion), matching what step-03
-            # harbor-prewarm mirrors. Reading the mutable desired
-            # .spec.chart.spec.version here races the deploybot catalog bump
-            # and wedges the pivot when prewarm mirrored a different version.
+            {{- /*
+             #4870-followup: probe the DEPLOYED chart version
+             (.status.history[0].chartVersion), matching what step-03
+             harbor-prewarm mirrors. Reading the mutable desired
+             .spec.chart.spec.version here races the deploybot catalog bump
+             and wedges the pivot when prewarm mirrored a different version.
+            */}}
             kubectl get helmreleases -A -o json 2>/dev/null | \
               jq -r '.items[]
                 | .spec.chart.spec as $cs
@@ -2142,10 +2340,12 @@ data:
               done | sort -u > "${probe_file}" || : > "${probe_file}"
 
             probe_total=$(grep -c . "${probe_file}" || true)
-            # Probe a REPRESENTATIVE sample (cap to keep the gate fast) — a
-            # successful pull of any pivoted chart proves Harbor serves charts
-            # + the auth works; always include bp-catalyst-platform (the
-            # keystone HR) when present so the probe is never trivially small.
+            {{- /*
+             Probe a REPRESENTATIVE sample (cap to keep the gate fast) — a
+             successful pull of any pivoted chart proves Harbor serves charts
+             + the auth works; always include bp-catalyst-platform (the
+             keystone HR) when present so the probe is never trivially small.
+            */}}
             sample_file=/tmp/.chart-probe-sample.txt
             : > "${sample_file}"
             grep -E '^bp-catalyst-platform[[:space:]]' "${probe_file}" >> "${sample_file}" 2>/dev/null || true
@@ -2155,40 +2355,48 @@ data:
             sample_total=$(grep -c . "${sample_file}" || true)
             echo "[helmrepository-patches] Phase-3a: ${probe_total} pivoted chart(s) on ${harbor_endpoint}; probing a sample of ${sample_total}"
 
-            # #4682: login to the bare external host `registry.<fqdn>` (:443 via
-            # the Gateway LoadBalancer), the same host the pivoted OCI urls carry
-            # — `helm registry login` keys its stored auth on the registry host
-            # string, so the login host must match the pull host exactly or the
-            # pull is UNAUTHENTICATED (401 "no basic auth credentials").
+            {{- /*
+             #4682: login to the bare external host `registry.<fqdn>` (:443 via
+             the Gateway LoadBalancer), the same host the pivoted OCI urls carry
+             — `helm registry login` keys its stored auth on the registry host
+             string, so the login host must match the pull host exactly or the
+             pull is UNAUTHENTICATED (401 "no basic auth credentials").
+            */}}
             helm registry login "${harbor_endpoint}" ${HELM_LOGIN_INSECURE_FLAG} \
               -u "${HARBOR_USERNAME:-admin}" -p "${HARBOR_PASSWORD}" >/dev/null 2>&1 \
               && echo "[helmrepository-patches] Phase-3a: helm registry login ${harbor_endpoint} OK" \
               || echo "[helmrepository-patches] Phase-3a WARN: helm registry login ${harbor_endpoint} returned non-zero (will retry inside the pull loop)"
 
-            # ---- #5237 union-warm-on-drift setup (Refs #5007) ----
-            # Derive the upstream (ghcr) host/project from the SAME value
-            # Phase-1 pivots FROM (oci://ghcr.io/openova-io). If a sampled chart
-            # drifted ahead of step-03 prewarm (a mid-cutover deploy-bot bump
-            # publishes bp-catalyst-platform:<N+1> AFTER prewarm mirrored :<N>
-            # and flux redeploys the umbrella to :<N+1> before THIS step), the
-            # local pull below 404s. This step runs BEFORE the step-08
-            # deny-egress hold, so the drifted tag is still pullable upstream —
-            # warm it into local Harbor on demand (helm pull upstream + helm
-            # push local), self-healing the catalog-latest-vs-prewarm race.
+            {{- /*
+             ---- #5237 union-warm-on-drift setup (Refs #5007) ----
+             Derive the upstream (ghcr) host/project from the SAME value
+             Phase-1 pivots FROM (oci://ghcr.io/openova-io). If a sampled chart
+             drifted ahead of step-03 prewarm (a mid-cutover deploy-bot bump
+             publishes bp-catalyst-platform:<N+1> AFTER prewarm mirrored :<N>
+             and flux redeploys the umbrella to :<N+1> before THIS step), the
+             local pull below 404s. This step runs BEFORE the step-08
+             deny-egress hold, so the drifted tag is still pullable upstream —
+             warm it into local Harbor on demand (helm pull upstream + helm
+             push local), self-healing the catalog-latest-vs-prewarm race.
+            */}}
             up_ref=$(printf '%s' "${UPSTREAM_PREFIX}" | sed -e 's,^oci://,,' -e 's,/*$,,')
             up_host=${up_ref%%/*}
             up_proj=${up_ref#*/}
             : "${UNION_WARM_ON_DRIFT:=true}"
-            # Cap upstream top-up attempts per distinct chart:ver so a
-            # genuinely-absent tag cannot spin the upstream every 15s until the
-            # deadline (the stripReadinessSeconds deadline is the fail-loud
-            # guard); 3 attempts absorb a transient ghcr blip.
+            {{- /*
+             Cap upstream top-up attempts per distinct chart:ver so a
+             genuinely-absent tag cannot spin the upstream every 15s until the
+             deadline (the stripReadinessSeconds deadline is the fail-loud
+             guard); 3 attempts absorb a transient ghcr blip.
+            */}}
             : "${UNION_WARM_MAX_ATTEMPTS:=3}"
             if [ "${UNION_WARM_ON_DRIFT}" = "true" ]; then
-              # ghcr auth from the SAME ghcr-pull dockerconfig Phase-0 read
-              # (openova-io chart packages are PRIVATE); fall through to
-              # anonymous if absent. Upstream ghcr.io is public-CA-signed →
-              # verify stays ON for the upstream pull (no insecure flag).
+              {{- /*
+               ghcr auth from the SAME ghcr-pull dockerconfig Phase-0 read
+               (openova-io chart packages are PRIVATE); fall through to
+               anonymous if absent. Upstream ghcr.io is public-CA-signed →
+               verify stays ON for the upstream pull (no insecure flag).
+              */}}
               up_auth_b64=$(printf '%s' "${existing_json:-}" | jq -r --arg h "${up_host}" '.auths[$h].auth // empty' 2>/dev/null || true)
               if [ -n "${up_auth_b64}" ]; then
                 up_userpass=$(printf '%s' "${up_auth_b64}" | base64 -d 2>/dev/null || true)
@@ -2206,11 +2414,13 @@ data:
               echo "[helmrepository-patches] Phase-3a: #5237 union-warm-on-drift DISABLED (UNION_WARM_ON_DRIFT=${UNION_WARM_ON_DRIFT}) — pure fail-loud on a drifted catalog-latest"
             fi
 
-            # Top-up-warm ONE sampled chart:ver from the upstream into local
-            # Harbor. Called from the pull loop's fail branch; the next poll
-            # pass re-pulls it locally. Bounded per chart:ver; returns non-zero
-            # (no-op) when disabled, capped, or the warm fails — the deadline
-            # stays the fail-loud guard for a genuinely-absent chart.
+            {{- /*
+             Top-up-warm ONE sampled chart:ver from the upstream into local
+             Harbor. Called from the pull loop's fail branch; the next poll
+             pass re-pulls it locally. Bounded per chart:ver; returns non-zero
+             (no-op) when disabled, capped, or the warm fails — the deadline
+             stays the fail-loud guard for a genuinely-absent chart.
+            */}}
             warm_chart_from_upstream() {
               w_chart="$1"; w_ver="$2"
               [ "${UNION_WARM_ON_DRIFT}" = "true" ] || return 1
@@ -2235,9 +2445,11 @@ data:
                 echo "[helmrepository-patches] Phase-3a union-warm WARN: no chart tarball produced for ${w_chart}:${w_ver}" >&2
                 return 1
               fi
-              # Push to the SAME openova-io path the probe pulls from; local
-              # Harbor is the in-cluster LE-staging target → carry the same
-              # in-cluster skip flag the local pull uses.
+              {{- /*
+               Push to the SAME openova-io path the probe pulls from; local
+               Harbor is the in-cluster LE-staging target → carry the same
+               in-cluster skip flag the local pull uses.
+              */}}
               if helm push "${w_tgz}" "oci://${harbor_endpoint}/openova-io" ${HELM_PULL_INSECURE_FLAG} \
                    >/tmp/.warm-push.log 2>&1; then
                 echo "[helmrepository-patches] Phase-3a union-warm OK (#5237): ${w_chart}:${w_ver} pushed to ${harbor_endpoint}/openova-io — local Harbor now serves the drifted catalog-latest; re-probing"
@@ -2248,29 +2460,31 @@ data:
               return 1
             }
 
-            # ---- Phase 3a-pin (#5237 round 2, Refs #5007): FULL pin-presence gate ----
-            #
-            # The Phase-3a loop below proves a SAMPLE of pivoted charts pulls.
-            # This gate proves the WHOLE frozen pin set exists: every chart
-            # version the bootstrap-kit slots pin in the Phase-2 clone at
-            # /tmp/repo — the EXACT local-Gitea-mirror commit flux consumes
-            # post-step-05, immune to anything a mid-cutover merge published
-            # upstream — must be durably present in local Harbor BEFORE the
-            # irreversible Phase-3b mothership-auth strip. Enumeration is the
-            # shared cutover-bootstrap-kit-pins extractor (03b) — the SAME
-            # parser step-03 Phase A2-pins mirrors from (and the #5265 Day-2
-            # reconciler reuses), so the mirror and this gate can never
-            # disagree about what "the pins" are. Presence is the Harbor
-            # ARTIFACT API on the in-cluster Service (Harbor CORE against its
-            # DB — never pull-through, the #5030 discipline): ~65 cheap GETs,
-            # seconds. A missing version is first top-up-warmed from the
-            # still-reachable upstream (warm_chart_from_upstream above —
-            # egress is open until step-08); anything STILL missing FATALs
-            # with the FULL missing list and the ghcr.io auth intact — a
-            # clear, recoverable step-06 failure (re-run; a step-03 re-run
-            # with Phase A2-pins also heals) instead of HelmReleases wedging
-            # on `does not have an artifact` after the strip (the hw274
-            # class, dep d51a69f885872a81).
+            {{- /*
+             ---- Phase 3a-pin (#5237 round 2, Refs #5007): FULL pin-presence gate ----
+
+             The Phase-3a loop below proves a SAMPLE of pivoted charts pulls.
+             This gate proves the WHOLE frozen pin set exists: every chart
+             version the bootstrap-kit slots pin in the Phase-2 clone at
+             /tmp/repo — the EXACT local-Gitea-mirror commit flux consumes
+             post-step-05, immune to anything a mid-cutover merge published
+             upstream — must be durably present in local Harbor BEFORE the
+             irreversible Phase-3b mothership-auth strip. Enumeration is the
+             shared cutover-bootstrap-kit-pins extractor (03b) — the SAME
+             parser step-03 Phase A2-pins mirrors from (and the #5265 Day-2
+             reconciler reuses), so the mirror and this gate can never
+             disagree about what "the pins" are. Presence is the Harbor
+             ARTIFACT API on the in-cluster Service (Harbor CORE against its
+             DB — never pull-through, the #5030 discipline): ~65 cheap GETs,
+             seconds. A missing version is first top-up-warmed from the
+             still-reachable upstream (warm_chart_from_upstream above —
+             egress is open until step-08); anything STILL missing FATALs
+             with the FULL missing list and the ghcr.io auth intact — a
+             clear, recoverable step-06 failure (re-run; a step-03 re-run
+             with Phase A2-pins also heals) instead of HelmReleases wedging
+             on `does not have an artifact` after the strip (the hw274
+             class, dep d51a69f885872a81).
+            */}}
             : "${PIN_PRESENCE_GATE:=true}"
             if [ "${PIN_PRESENCE_GATE}" = "true" ]; then
               pin_src_dir=/tmp/repo/clusters/_template/bootstrap-kit
@@ -2287,9 +2501,11 @@ data:
                 exit 1
               fi
               echo "[helmrepository-patches] Phase 3a-pin (#5237): asserting all ${pin_total} frozen bootstrap-kit pin(s) are durably present in local Harbor (artifact API, in-cluster) before the strip"
-              # Durable-presence probe: 200 from the artifact API = the chart
-              # OCI artifact is in Harbor's own store. Chart repos are single-
-              # segment under openova-io, so no %2F encoding is needed.
+              {{- /*
+               Durable-presence probe: 200 from the artifact API = the chart
+               OCI artifact is in Harbor's own store. Chart repos are single-
+               segment under openova-io, so no %2F encoding is needed.
+              */}}
               pin_present() {
                 _pp_code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 30 \
                   -u "${HARBOR_USERNAME:-admin}:${HARBOR_PASSWORD}" \
@@ -2307,8 +2523,10 @@ data:
                 fi
                 echo "[helmrepository-patches] Phase 3a-pin: ${pg_chart}:${pg_ver} pinned by the frozen bootstrap-kit but ABSENT from local Harbor — top-up-warming from the still-reachable upstream (#5237)"
                 warm_chart_from_upstream "${pg_chart}" "${pg_ver}" || true
-                # Bounded re-probe: a direct helm push records via the
-                # registry hook near-synchronously; allow a short settle.
+                {{- /*
+                 Bounded re-probe: a direct helm push records via the
+                 registry hook near-synchronously; allow a short settle.
+                */}}
                 pg_found=0
                 for pg_i in $(seq 1 6); do
                   if pin_present "${pg_chart}" "${pg_ver}"; then pg_found=1; break; fi
@@ -2332,14 +2550,18 @@ data:
 
             # Re-arm the sample-probe deadline so a warm-heavy Phase 3a-pin
             # pass cannot eat the pull-probe's stripReadinessSeconds budget.
+            # (Kept as a `#` comment — cutover-contract.sh Case 68 asserts this
+            # re-arm is present in the render, #5237.)
             strip_wait_deadline=$(( $(date +%s) + STRIP_READINESS_TIMEOUT_SECONDS ))
 
             while [ "$(date +%s)" -lt "${strip_wait_deadline}" ]; do
               if [ "${sample_total}" -eq 0 ]; then
-                # No pivoted-chart HelmRelease found yet — Phase-1's URL pivot
-                # may not have rendered onto the consuming HRs. Re-poke the HR
-                # reconciles + re-derive the sample; never strip on an empty
-                # sample (that is the half-pivot guard).
+                {{- /*
+                 No pivoted-chart HelmRelease found yet — Phase-1's URL pivot
+                 may not have rendered onto the consuming HRs. Re-poke the HR
+                 reconciles + re-derive the sample; never strip on an empty
+                 sample (that is the half-pivot guard).
+                */}}
                 echo "[helmrepository-patches] Phase-3a: no pivoted-chart HelmRelease observed yet; re-poking reconciles + retrying in 15s"
                 kubectl get helmrepositories -A \
                   -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null \
@@ -2348,7 +2570,7 @@ data:
                       kubectl annotate --overwrite -n "${rns}" "helmrepository/${rname}" \
                         "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null 2>&1 || true
                     done || true
-                # Re-derive on the next loop (cheap): recompute local HRs + sample.
+                {{- /* Re-derive on the next loop (cheap): recompute local HRs + sample. */}}
                 kubectl get helmrepositories -A \
                   -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.url}{"\n"}{end}' 2>/dev/null \
                   | while read -r hrname hrurl; do
@@ -2384,20 +2606,24 @@ data:
               pull_fail_names=""
               while IFS="$(printf '\t')" read -r p_chart p_ver; do
                 [ -z "${p_chart}" ] && continue
-                # #4682: pull from the bare external host `registry.<fqdn>` on
-                # :443 (the Gateway LoadBalancer) — the same host source-controller
-                # uses for the live pivoted pull.
+                {{- /*
+                 #4682: pull from the bare external host `registry.<fqdn>` on
+                 :443 (the Gateway LoadBalancer) — the same host source-controller
+                 uses for the live pivoted pull.
+                */}}
                 if helm pull "oci://${harbor_endpoint}/openova-io/${p_chart}" ${HELM_PULL_INSECURE_FLAG} \
                      --version "${p_ver}" -d /tmp/helm-pull >/tmp/.helm-pull.log 2>&1; then
                   pull_ok=$((pull_ok+1))
                 else
                   pull_fail=$((pull_fail+1))
                   pull_fail_names="${pull_fail_names}${p_chart}:${p_ver} "
-                  # #5237: the local pull 404'd — if this is a catalog-latest
-                  # drift (tag published AFTER step-03 prewarm), top-up-warm it
-                  # from the still-reachable upstream so the next poll pass finds
-                  # it locally. Bounded per chart:ver; no-op when disabled or at
-                  # the attempt cap. `|| true` keeps `set -e` happy.
+                  {{- /*
+                   #5237: the local pull 404'd — if this is a catalog-latest
+                   drift (tag published AFTER step-03 prewarm), top-up-warm it
+                   from the still-reachable upstream so the next poll pass finds
+                   it locally. Bounded per chart:ver; no-op when disabled or at
+                   the attempt cap. `|| true` keeps `set -e` happy.
+                  */}}
                   warm_chart_from_upstream "${p_chart}" "${p_ver}" || true
                 fi
               done < "${sample_file}"
@@ -2417,13 +2643,15 @@ data:
               exit 1
             fi
 
-            # ---- Phase 3b: strip the mothership auth (now safe) ----
-            #
-            # Re-read the Secret fresh (Phase-0's ADD + reflector may have
-            # bumped its resourceVersion) and del() every strip target. The
-            # local harbor host is NEVER stripped (defence-in-depth, even if an
-            # operator overlay erroneously lists it). `--arg` keeps every host
-            # a verbatim JSON string (no shell interpolation / injection).
+            {{- /*
+             ---- Phase 3b: strip the mothership auth (now safe) ----
+
+             Re-read the Secret fresh (Phase-0's ADD + reflector may have
+             bumped its resourceVersion) and del() every strip target. The
+             local harbor host is NEVER stripped (defence-in-depth, even if an
+             operator overlay erroneously lists it). `--arg` keeps every host
+             a verbatim JSON string (no shell interpolation / injection).
+            */}}
             strip_b64=$(read_secret_key "${target_ns}")
             if [ -z "${strip_b64}" ]; then
               echo "[helmrepository-patches] FATAL: Phase-3b cannot re-read ${target_ns}/${GHCR_PULL_SECRET_NAME} ${GHCR_PULL_SECRET_KEY}" >&2
@@ -2431,7 +2659,7 @@ data:
             fi
             strip_json=$(printf '%s' "${strip_b64}" | base64 -d)
 
-            # Determine which targets are still present (no-op if none).
+            {{- /* Determine which targets are still present (no-op if none). */}}
             strip_remaining=""
             rem="${MOTHERSHIP_AUTHS_TO_STRIP},"
             while [ -n "${rem}" ] && [ "${rem}" != "," ]; do
@@ -2439,9 +2667,11 @@ data:
               rem="${rem#*,}"
               strip_host=$(printf '%s' "${strip_host}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
               [ -z "${strip_host}" ] && continue
-              # #4682: never strip the local Harbor external host — Phase-0 writes
-              # the local-Harbor auth under this bare-host key, so an overlay that
-              # erroneously lists it must never remove it.
+              {{- /*
+               #4682: never strip the local Harbor external host — Phase-0 writes
+               the local-Harbor auth under this bare-host key, so an overlay that
+               erroneously lists it must never remove it.
+              */}}
               if [ "${strip_host}" = "${harbor_host}" ] || [ "${strip_host}" = "${harbor_endpoint}" ]; then
                 echo "[helmrepository-patches] Phase-3b WARN: refusing to strip ${strip_host} (matches local harbor host); check .Values.harbor.mothershipAuthsToStrip overlay"
                 continue
@@ -2452,15 +2682,19 @@ data:
 
             if [ -z "${strip_remaining}" ]; then
               echo "[helmrepository-patches] Phase-3b skip: mothership auth entries already absent from ghcr-pull"
-              # #5359 — region-A's bytes are already stripped; re-sync them so
-              # a re-run also converges every secondary onto the stripped set.
+              {{- /*
+               #5359 — region-A's bytes are already stripped; re-sync them so
+               a re-run also converges every secondary onto the stripped set.
+              */}}
               sync_secondary_ghcr_pull || exit 1
               echo "[helmrepository-patches] step complete"
               exit 0
             fi
 
-            # Build the `del(.auths[$sN])` jq filter + matching --arg list via
-            # POSIX positional params (no bash arrays).
+            {{- /*
+             Build the `del(.auths[$sN])` jq filter + matching --arg list via
+             POSIX positional params (no bash arrays).
+            */}}
             jq_filter='.'
             strip_idx=0
             set --
@@ -2470,7 +2704,7 @@ data:
               rem="${rem#*,}"
               strip_host=$(printf '%s' "${strip_host}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
               [ -z "${strip_host}" ] && continue
-              # #4682: never strip the local Harbor external host.
+              {{- /* #4682: never strip the local Harbor external host. */}}
               if [ "${strip_host}" = "${harbor_host}" ] || [ "${strip_host}" = "${harbor_endpoint}" ]; then
                 continue
               fi
@@ -2491,9 +2725,11 @@ data:
               exit 1
             fi
 
-            # #5359 — propagate the now-STRIPPED auth bytes to every secondary
-            # region so region-B sheds the mothership creds under the same
-            # proven-pullable gate that just cleared region-A.
+            {{- /*
+             #5359 — propagate the now-STRIPPED auth bytes to every secondary
+             region so region-B sheds the mothership creds under the same
+             proven-pullable gate that just cleared region-A.
+            */}}
             sync_secondary_ghcr_pull || exit 1
 
             echo "[helmrepository-patches] step complete"
@@ -2520,7 +2756,7 @@ data:
           items:
             - key: extract-pins.sh
               path: extract-pins.sh
-      # #5593 — the same step-06 ConfigMap, exposing ONLY the phase2c.sh key.
+      {{- /* #5593 — the same step-06 ConfigMap, exposing ONLY the phase2c.sh key. */}}
       - name: phase2c-script
         configMap:
           name: cutover-step-06-helmrepository-patches
@@ -2529,11 +2765,13 @@ data:
               path: phase2c.sh
       - name: tmp
         emptyDir: {}
-      # #5359 — materialised by catalyst-api (cutover.go runCutover) from its
-      # on-PVC secondary kubeconfig store at every run start; optional:true
-      # so a single-region Sovereign (no Secret) schedules unchanged.
+      {{- /*
+       #5359 — materialised by catalyst-api (cutover.go runCutover) from its
+       on-PVC secondary kubeconfig store at every run start; optional:true
+       so a single-region Sovereign (no Secret) schedules unchanged.
+      */}}
       - name: secondary-kubeconfigs
         secret:
           secretName: {{ .Values.secondaryRegions.kubeconfigSecretName }}
           optional: true
-# re-publish 0.1.145 (Blueprint Release for #5238 failed transiently — #5237 union-warm fix)
+{{- /* re-publish 0.1.145 (Blueprint Release for #5238 failed transiently — #5237 union-warm fix) */}}

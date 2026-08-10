@@ -76,9 +76,11 @@ data:
   failedStep: ""
   lastError: ""
   registriesYamlActive: "v1"
-  # Per-step keys are populated lazily by catalyst-api as steps run.
-  # Initial empty placeholders included so a UI rendering this ConfigMap
-  # before /start has been called has something to bind to.
+  {{- /*
+   Per-step keys are populated lazily by catalyst-api as steps run.
+   Initial empty placeholders included so a UI rendering this ConfigMap
+   before /start has been called has something to bind to.
+  */}}
   step.gitea-mirror.startedAt: ""
   step.gitea-mirror.finishedAt: ""
   step.gitea-mirror.result: ""

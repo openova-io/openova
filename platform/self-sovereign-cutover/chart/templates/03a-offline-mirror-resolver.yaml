@@ -22,12 +22,16 @@ metadata:
     app.kubernetes.io/component: cutover-offline-mirror
 data:
   resolver.sh: |
-    # POSIX sh. Requires env: HOST_PROJECT_MAP EXCLUDED_HOSTS
-    # EXCLUDED_SUBSTRINGS LOCAL_REGISTRY_HOST. No side effects — pure functions.
+    {{- /*
+     POSIX sh. Requires env: HOST_PROJECT_MAP EXCLUDED_HOSTS
+     EXCLUDED_SUBSTRINGS LOCAL_REGISTRY_HOST. No side effects — pure functions.
+    */}}
 
-    # offlinemirror_normalize_ref REF -> REF with a tag-and-digest collapsed to
-    # digest-only (skopeo rejects `name:tag@digest`; the digest is authoritative
-    # and is exactly what containerd pulls by).
+    {{- /*
+     offlinemirror_normalize_ref REF -> REF with a tag-and-digest collapsed to
+     digest-only (skopeo rejects `name:tag@digest`; the digest is authoritative
+     and is exactly what containerd pulls by).
+    */}}
     offlinemirror_normalize_ref() {
       _nr="$1"
       case "${_nr}" in
@@ -43,19 +47,23 @@ data:
       esac
     }
 
-    # offlinemirror_local_paths REF -> the local Harbor path(s) this image must
-    # be reachable at (relative to the local registry host), ONE PER LINE:
-    #   excluded host/substring        -> (nothing) SKIP
-    #   already on the local registry  -> the path verbatim
-    #   host in coverage map, proj P   -> "P/<rest>"  (or "<rest>" when P empty = mothership host-swap)
-    #   ghcr.io/openova-io/*           -> ALSO "<rest>" (the host-drop pivoted-ref path)
-    #   host NOT mapped, not excluded  -> "__UNMAPPED__ <host>"  (caller FATALs, naming the offender)
+    {{- /*
+     offlinemirror_local_paths REF -> the local Harbor path(s) this image must
+     be reachable at (relative to the local registry host), ONE PER LINE:
+       excluded host/substring        -> (nothing) SKIP
+       already on the local registry  -> the path verbatim
+       host in coverage map, proj P   -> "P/<rest>"  (or "<rest>" when P empty = mothership host-swap)
+       ghcr.io/openova-io/*           -> ALSO "<rest>" (the host-drop pivoted-ref path)
+       host NOT mapped, not excluded  -> "__UNMAPPED__ <host>"  (caller FATALs, naming the offender)
+    */}}
     offlinemirror_local_paths() {
       _u=$(offlinemirror_normalize_ref "$1")
-      # Split into host + rest. A registry host exists ONLY when the ref has a
-      # `/` AND the first segment looks like a host (contains `.` or `:port` or
-      # is localhost). A bare `name[:tag]` has NO `/` — the colon is the TAG, NOT
-      # a host:port — so it is a Docker Hub official image (docker.io/library/…).
+      {{- /*
+       Split into host + rest. A registry host exists ONLY when the ref has a
+       `/` AND the first segment looks like a host (contains `.` or `:port` or
+       is localhost). A bare `name[:tag]` has NO `/` — the colon is the TAG, NOT
+       a host:port — so it is a Docker Hub official image (docker.io/library/…).
+      */}}
       case "${_u}" in
         */*)
           _host="${_u%%/*}"
@@ -68,7 +76,7 @@ data:
           _host="docker.io"; _rest="${_u}"           # bare official image
           ;;
       esac
-      # Docker Hub official image: bare "name[:tag]" -> "library/name[:tag]".
+      {{- /* Docker Hub official image: bare "name[:tag]" -> "library/name[:tag]". */}}
       case "${_host}" in
         docker.io|registry-1.docker.io|index.docker.io)
           case "${_rest}" in
@@ -77,20 +85,20 @@ data:
           esac
           ;;
       esac
-      # Excluded host.
+      {{- /* Excluded host. */}}
       for _eh in ${EXCLUDED_HOSTS}; do
         [ "${_host}" = "${_eh}" ] && return 0
       done
-      # Excluded image-path substring.
+      {{- /* Excluded image-path substring. */}}
       for _es in ${EXCLUDED_SUBSTRINGS}; do
         case "${_u}" in *"${_es}"*) return 0 ;; esac
       done
-      # Already on the local registry (openova-io host-drop pivoted refs, etc.).
+      {{- /* Already on the local registry (openova-io host-drop pivoted refs, etc.). */}}
       if [ "${_host}" = "${LOCAL_REGISTRY_HOST}" ]; then
         printf '%s\n' "${_rest}"
         return 0
       fi
-      # Coverage-map lookup.
+      {{- /* Coverage-map lookup. */}}
       _proj="__NOMATCH__"
       for _pair in ${HOST_PROJECT_MAP}; do
         _ph="${_pair%%:*}"
@@ -106,9 +114,11 @@ data:
       else
         printf '%s/%s\n' "${_proj}" "${_rest}"
       fi
-      # openova-io host-drop DUAL dest: an un-pivoted ghcr.io/openova-io/* ref
-      # resolves to proxy-ghcr/openova-io/<path> (above) AND the step-06/07
-      # pivoted registry.<fqdn>/openova-io/<path> convention — both must exist.
+      {{- /*
+       openova-io host-drop DUAL dest: an un-pivoted ghcr.io/openova-io/* ref
+       resolves to proxy-ghcr/openova-io/<path> (above) AND the step-06/07
+       pivoted registry.<fqdn>/openova-io/<path> convention — both must exist.
+      */}}
       if [ "${_host}" = "ghcr.io" ]; then
         case "${_rest}" in
           openova-io/*) printf '%s\n' "${_rest}" ;;
@@ -116,30 +126,32 @@ data:
       fi
     }
 
-    # offlinemirror_upstream_ref REF -> the UPSTREAM ref a local-registry ref
-    # came from, or EMPTY (exit 1) when the map cannot name one.
-    #
-    # WHY THIS EXISTS (#5640). step-07's pod-spec sweep rewrites every workload
-    # image to `registry.<fqdn>/<local-path>` (sweep_one_workload ->
-    # podspec_pivot_ref). Post-cutover, therefore, the refs a Day-2 loop reads
-    # off the LIVE cluster no longer carry an upstream host at all. Handing such
-    # a ref to a copy as the SOURCE asks skopeo to copy the local registry to
-    # itself — for an artifact the local registry has just 404'd, which can never
-    # deliver anything. Recovering the upstream is not guesswork: the forward map
-    # is injective on the classes that exist, so it inverts.
-    #
-    #   registry.<fqdn>/openova-io/openova/catalyst-api:e3342f9
-    #       -> ghcr.io/openova-io/openova/catalyst-api:e3342f9   (host-drop inverse)
-    #   registry.<fqdn>/proxy-dockerhub/library/redis:7
-    #       -> docker.io/library/redis:7                         (project inverse)
-    #
-    # A mothership host-swapped path (project "" in the map) already carries its
-    # `proxy-<x>` segment, so the project inverse below resolves it to the ORIGIN
-    # host rather than back to harbor.openova.io — which is both correct and the
-    # source #5095's DIRECT fallback prefers anyway. No separate branch needed.
-    #
-    # A ref that already carries a real registry host is returned unchanged: it
-    # is an upstream ref, and there is nothing to invert.
+    {{- /*
+     offlinemirror_upstream_ref REF -> the UPSTREAM ref a local-registry ref
+     came from, or EMPTY (exit 1) when the map cannot name one.
+
+     WHY THIS EXISTS (#5640). step-07's pod-spec sweep rewrites every workload
+     image to `registry.<fqdn>/<local-path>` (sweep_one_workload ->
+     podspec_pivot_ref). Post-cutover, therefore, the refs a Day-2 loop reads
+     off the LIVE cluster no longer carry an upstream host at all. Handing such
+     a ref to a copy as the SOURCE asks skopeo to copy the local registry to
+     itself — for an artifact the local registry has just 404'd, which can never
+     deliver anything. Recovering the upstream is not guesswork: the forward map
+     is injective on the classes that exist, so it inverts.
+
+       registry.<fqdn>/openova-io/openova/catalyst-api:e3342f9
+           -> ghcr.io/openova-io/openova/catalyst-api:e3342f9   (host-drop inverse)
+       registry.<fqdn>/proxy-dockerhub/library/redis:7
+           -> docker.io/library/redis:7                         (project inverse)
+
+     A mothership host-swapped path (project "" in the map) already carries its
+     `proxy-<x>` segment, so the project inverse below resolves it to the ORIGIN
+     host rather than back to harbor.openova.io — which is both correct and the
+     source #5095's DIRECT fallback prefers anyway. No separate branch needed.
+
+     A ref that already carries a real registry host is returned unchanged: it
+     is an upstream ref, and there is nothing to invert.
+    */}}
     offlinemirror_upstream_ref() {
       _ur=$(offlinemirror_normalize_ref "$1")
       case "${_ur}" in
@@ -156,7 +168,7 @@ data:
         */*) _ur_proj="${_ur_path%%/*}"; _ur_rest="${_ur_path#*/}" ;;
         *) return 1 ;;
       esac
-      # (1) project -> host: the exact inverse of the coverage-map lookup above.
+      {{- /* (1) project -> host: the exact inverse of the coverage-map lookup above. */}}
       for _ur_pair in ${HOST_PROJECT_MAP}; do
         _ur_ph="${_ur_pair%%:*}"
         case "${_ur_pair}" in *:*) _ur_pp="${_ur_pair#*:}" ;; *) _ur_pp="" ;; esac
@@ -165,12 +177,16 @@ data:
           return 0
         fi
       done
-      # (2) the openova-io host-drop DUAL dest, inverted. Same literal the
-      # forward branch above emits, so the two can never drift apart.
+      {{- /*
+       (2) the openova-io host-drop DUAL dest, inverted. Same literal the
+       forward branch above emits, so the two can never drift apart.
+      */}}
       case "${_ur_path}" in
         openova-io/*) printf 'ghcr.io/%s\n' "${_ur_path}"; return 0 ;;
       esac
-      # Undecidable. Return EMPTY and let the caller fail loudly — a caller that
-      # guessed would produce the self-copy this function exists to prevent.
+      {{- /*
+       Undecidable. Return EMPTY and let the caller fail loudly — a caller that
+       guessed would produce the self-copy this function exists to prevent.
+      */}}
       return 1
     }

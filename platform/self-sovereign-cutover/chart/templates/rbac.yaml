@@ -71,9 +71,11 @@ metadata:
   labels:
     {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
 rules:
-  # ───────────────────────────────────────────────────────────────
-  # CREATE verbs — MUST be in their own Rule WITHOUT resourceNames.
-  # ───────────────────────────────────────────────────────────────
+  {{- /*
+   ───────────────────────────────────────────────────────────────
+   CREATE verbs — MUST be in their own Rule WITHOUT resourceNames.
+   ───────────────────────────────────────────────────────────────
+  */}}
   - apiGroups: [""]
     resources: ["configmaps"]   # cutover-status ConfigMap is created+updated by every step
     verbs: ["create"]
@@ -96,9 +98,11 @@ rules:
     resources: ["imageconfigs"]   # step 11 (#5204) creates the ImageConfig that binds the pivoted matchImages prefixes to the local-Harbor package-pull Secret so the Crossplane package manager authenticates post-cutover
     verbs: ["create"]
 
-  # ───────────────────────────────────────────────────────────────
-  # READ verbs — namespace-spanning per the step inventory above.
-  # ───────────────────────────────────────────────────────────────
+  {{- /*
+   ───────────────────────────────────────────────────────────────
+   READ verbs — namespace-spanning per the step inventory above.
+   ───────────────────────────────────────────────────────────────
+  */}}
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list", "watch"]
@@ -157,9 +161,11 @@ rules:
     resources: ["customresourcedefinitions"]   # step 11 probes for providers.pkg.crossplane.io CRD presence before patching
     verbs: ["get", "list", "watch"]
 
-  # ───────────────────────────────────────────────────────────────
-  # UPDATE / PATCH / DELETE — separate from create per RBAC rule.
-  # ───────────────────────────────────────────────────────────────
+  {{- /*
+   ───────────────────────────────────────────────────────────────
+   UPDATE / PATCH / DELETE — separate from create per RBAC rule.
+   ───────────────────────────────────────────────────────────────
+  */}}
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["update", "patch"]

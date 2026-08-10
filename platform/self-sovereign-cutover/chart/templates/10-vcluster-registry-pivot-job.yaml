@@ -135,21 +135,25 @@ data:
     serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
     restartPolicy: Never
     activeDeadlineSeconds: {{ .Values.stepTimeouts.vclusterRegistryPivotSeconds }}
-    # #5262 — the #5214 gitea-admin-secret self-heal initContainer is GONE
-    # from this step: the Phase-2 git clone/push now authenticates with the
-    # step-09 minted `catalyst-gitea-token` PAT (read at runtime below), so
-    # this step no longer consumes gitea-admin-secret at all and must not
-    # keep a wedge-path on its presence (contract Case 63 asserts absence).
+    {{- /*
+     #5262 — the #5214 gitea-admin-secret self-heal initContainer is GONE
+     from this step: the Phase-2 git clone/push now authenticates with the
+     step-09 minted `catalyst-gitea-token` PAT (read at runtime below), so
+     this step no longer consumes gitea-admin-secret at all and must not
+     keep a wedge-path on its presence (contract Case 63 asserts absence).
+    */}}
     containers:
       - name: vcluster-registry-pivot
-        # alpine/k8s ships both kubectl AND git so we can patch live
-        # HelmReleases AND push the YAML edit to local Gitea (same image
-        # Step 06 uses for the same reason).
-        # Fix #163 (2026-05-11, MIRROR-EVERYTHING): explicit
-        # harbor.openova.io/proxy-dockerhub prefix per CLAUDE.md
-        # inviolable rule — pre-cutover containerd already routes this
-        # via the proxy, so the Job can pull its own image during the
-        # cutover sequence.
+        {{- /*
+         alpine/k8s ships both kubectl AND git so we can patch live
+         HelmReleases AND push the YAML edit to local Gitea (same image
+         Step 06 uses for the same reason).
+         Fix #163 (2026-05-11, MIRROR-EVERYTHING): explicit
+         harbor.openova.io/proxy-dockerhub prefix per CLAUDE.md
+         inviolable rule — pre-cutover containerd already routes this
+         via the proxy, so the Job can pull its own image during the
+         cutover sequence.
+        */}}
         image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
         imagePullPolicy: IfNotPresent
         env:
@@ -159,18 +163,20 @@ data:
             value: {{ .Values.sovereign.fqdn | quote }}
           - name: GITEA_INTERNAL_URL
             value: {{ .Values.sovereign.giteaInternalURL | quote }}
-          # #5262 (live hw277) — the Phase-2 git clone/push authenticates
-          # with the step-09 minted `catalyst-gitea-token` PAT, NOT the
-          # gitea admin password. On hw277 a mid-cutover bp-gitea re-render
-          # rotated gitea-admin-secret while Gitea's DB kept the
-          # install-time password → the clone here 401'd (git exit 128,
-          # ~1s) and the step wedged. A Gitea PAT is accepted as the HTTP
-          # git password under any existing username (step-01 #3584 + step-05
-          # #3536 precedent), is fresh-per-cutover by construction (step-09
-          # runs at order 9, directly before this step), and is a direct
-          # local sha1 lookup — immune to admin-password drift AND to the
-          # external openova-sso apiAuth hang. Username stays the admin
-          # login for commit auditability (gitRepositorySecretRef.username).
+          {{- /*
+           #5262 (live hw277) — the Phase-2 git clone/push authenticates
+           with the step-09 minted `catalyst-gitea-token` PAT, NOT the
+           gitea admin password. On hw277 a mid-cutover bp-gitea re-render
+           rotated gitea-admin-secret while Gitea's DB kept the
+           install-time password → the clone here 401'd (git exit 128,
+           ~1s) and the step wedged. A Gitea PAT is accepted as the HTTP
+           git password under any existing username (step-01 #3584 + step-05
+           #3536 precedent), is fresh-per-cutover by construction (step-09
+           runs at order 9, directly before this step), and is a direct
+           local sha1 lookup — immune to admin-password drift AND to the
+           external openova-sso apiAuth hang. Username stays the admin
+           login for commit auditability (gitRepositorySecretRef.username).
+          */}}
           - name: GITEA_USERNAME
             value: {{ .Values.gitRepositorySecretRef.username | quote }}
           - name: PAT_SOURCE_NAMESPACE
@@ -193,11 +199,13 @@ data:
           - |
             set -eu
 
-            # The Sovereign-local Harbor host. bp-*-vcluster charts'
-            # `image.repository` is HOST + PATH ("harbor.openova.io/
-            # proxy-ghcr/loft-sh/vcluster"), but the upstream loft-sh
-            # subchart splits it into `.image.registry` (HOST only) +
-            # `.image.repository` (PATH only). So we compute both.
+            {{- /*
+             The Sovereign-local Harbor host. bp-*-vcluster charts'
+             `image.repository` is HOST + PATH ("harbor.openova.io/
+             proxy-ghcr/loft-sh/vcluster"), but the upstream loft-sh
+             subchart splits it into `.image.registry` (HOST only) +
+             `.image.repository` (PATH only). So we compute both.
+            */}}
             target_host="harbor.${SOVEREIGN_FQDN}"
             wrapper_repo="${target_host}/proxy-ghcr/loft-sh/vcluster"
             sub_registry="${target_host}"
@@ -207,19 +215,21 @@ data:
             echo "[vcluster-registry-pivot] wrapper image.repository: ${wrapper_repo}"
             echo "[vcluster-registry-pivot] subchart image.registry: ${sub_registry} repository: ${sub_repo_path}"
 
-            # #3695 — a real YAML processor for the Phase-2b/2c git-persist
-            # merges (Principle #15). Line-oriented awk/sed on a multi-document
-            # YAML with an EVOLVING schema is the wrong tool: 13b-bp-sso-bridge.yaml
-            # GAINED a `spec.values` block (the #2940 global.registryMirror
-            # overlay), so the old awk injector's "append a fresh values: under
-            # spec:" produced a SECOND values: key → duplicate-mapping-key →
-            # bootstrap-kit BuildFailed → the root GitOps loop died while
-            # cutoverComplete flipped true. yq MERGES into the existing mapping
-            # and is idempotent against a file that already carries the key.
-            # The alpine/k8s image ships yq (mikefarah/Go yq); if a future image
-            # variant drops it we apk-add it (best-effort; proxied alpine repos),
-            # and fall back to a NO-OP-when-values-exists guard so we can NEVER
-            # re-introduce the duplicate-key corruption.
+            {{- /*
+             #3695 — a real YAML processor for the Phase-2b/2c git-persist
+             merges (Principle #15). Line-oriented awk/sed on a multi-document
+             YAML with an EVOLVING schema is the wrong tool: 13b-bp-sso-bridge.yaml
+             GAINED a `spec.values` block (the #2940 global.registryMirror
+             overlay), so the old awk injector's "append a fresh values: under
+             spec:" produced a SECOND values: key → duplicate-mapping-key →
+             bootstrap-kit BuildFailed → the root GitOps loop died while
+             cutoverComplete flipped true. yq MERGES into the existing mapping
+             and is idempotent against a file that already carries the key.
+             The alpine/k8s image ships yq (mikefarah/Go yq); if a future image
+             variant drops it we apk-add it (best-effort; proxied alpine repos),
+             and fall back to a NO-OP-when-values-exists guard so we can NEVER
+             re-introduce the duplicate-key corruption.
+            */}}
             HAVE_YQ=""
             if command -v yq >/dev/null 2>&1; then
               HAVE_YQ="yes"
@@ -233,35 +243,41 @@ data:
               echo "[vcluster-registry-pivot] WARN yq unavailable — Phase-2 image.repository merge will NO-OP when a values: block already exists (never injects a duplicate); the durable registry host pivot still rides global.registryMirror (Phase-2c)"
             fi
 
-            # ---- Phase 1: live K8s patch on each of the 3 bp-*-vcluster HelmReleases ----
-            #
-            # The bp-*-vcluster wrapper charts each expose:
-            #   spec.values.<role>Vcluster.image.repository   (umbrella)
-            #   spec.values.vcluster.controlPlane.statefulSet.image.{registry,repository}   (subchart)
-            # where <role> is one of {mgmt, rtz, dmz}. We merge-patch
-            # both knobs in a single kubectl invocation per HR so a
-            # partial-patch race can't leave one knob pivoted and the
-            # other not.
-            #
-            # Idempotency: kubectl patch --type=merge is a no-op when
-            # the requested value equals the current value, so re-runs
-            # don't churn the HR resourceVersion. We additionally read
-            # the current wrapper image.repository before patching and
-            # log a SKIP when it's already correct.
+            {{- /*
+             ---- Phase 1: live K8s patch on each of the 3 bp-*-vcluster HelmReleases ----
+
+             The bp-*-vcluster wrapper charts each expose:
+               spec.values.<role>Vcluster.image.repository   (umbrella)
+               spec.values.vcluster.controlPlane.statefulSet.image.{registry,repository}   (subchart)
+             where <role> is one of {mgmt, rtz, dmz}. We merge-patch
+             both knobs in a single kubectl invocation per HR so a
+             partial-patch race can't leave one knob pivoted and the
+             other not.
+
+             Idempotency: kubectl patch --type=merge is a no-op when
+             the requested value equals the current value, so re-runs
+             don't churn the HR resourceVersion. We additionally read
+             the current wrapper image.repository before patching and
+             log a SKIP when it's already correct.
+            */}}
             ok=0
             skip=0
             fail=0
 
             patch_hr() {
-              # $1 = HR name (bp-mgmt-vcluster | bp-rtz-vcluster | bp-dmz-vcluster)
-              # $2 = role key (mgmtVcluster | rtzVcluster | dmzVcluster)
+              {{- /*
+               $1 = HR name (bp-mgmt-vcluster | bp-rtz-vcluster | bp-dmz-vcluster)
+               $2 = role key (mgmtVcluster | rtzVcluster | dmzVcluster)
+              */}}
               hr_name="$1"
               role_key="$2"
 
-              # Skip-if-absent guard. On a primary region the MGMT and
-              # DMZ HRs exist; secondaries only have DMZ + RTZ. We
-              # don't want a missing HR to fail the cutover step on
-              # the wrong topology.
+              {{- /*
+               Skip-if-absent guard. On a primary region the MGMT and
+               DMZ HRs exist; secondaries only have DMZ + RTZ. We
+               don't want a missing HR to fail the cutover step on
+               the wrong topology.
+              */}}
               if ! kubectl get helmrelease "${hr_name}" -n "${HELMRELEASE_NAMESPACE}" >/dev/null 2>&1; then
                 echo "[vcluster-registry-pivot] SKIP ${hr_name} (not present in this region — topology-dependent, expected)"
                 skip=$((skip+1))
@@ -279,8 +295,10 @@ data:
                 return 0
               fi
 
-              # Build a single merge-patch that updates BOTH knobs.
-              # Using a heredoc + printf to keep the JSON readable.
+              {{- /*
+               Build a single merge-patch that updates BOTH knobs.
+               Using a heredoc + printf to keep the JSON readable.
+              */}}
               patch_json=$(printf '{
                 "spec": {
                   "values": {
@@ -307,9 +325,11 @@ data:
                   -n "${HELMRELEASE_NAMESPACE}" \
                   --type=merge --patch "${patch_json}" >/dev/null 2>&1; then
                 echo "[vcluster-registry-pivot] OK ${hr_name} -> wrapper=${wrapper_repo} sub-registry=${sub_registry}"
-                # Trigger immediate Flux reconcile so helm-controller
-                # re-renders the chart within seconds rather than
-                # waiting for the 15m HR interval.
+                {{- /*
+                 Trigger immediate Flux reconcile so helm-controller
+                 re-renders the chart within seconds rather than
+                 waiting for the 15m HR interval.
+                */}}
                 kubectl annotate --overwrite helmrelease "${hr_name}" \
                   -n "${HELMRELEASE_NAMESPACE}" \
                   "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null 2>&1 || true
@@ -324,33 +344,37 @@ data:
             patch_hr "bp-rtz-vcluster"  "rtzVcluster"
             patch_hr "bp-dmz-vcluster"  "dmzVcluster"
 
-            # ---- Phase 1b: live K8s patch on the bp-sso-bridge HelmRelease (#2951) ----
-            #
-            # bp-sso-bridge's chart default
-            # `image.repository: harbor.openova.io/proxy-dockerhub/alpine/k8s`
-            # keeps the reconciler Pod pulling from mothership Harbor
-            # post-cutover (UAT Wave-2 ATTACK#9, #2940). The
-            # `13b-bp-sso-bridge.yaml` overlay has NO image override, so the
-            # chart default wins on every reconcile. We pivot only the HOST
-            # segment (`harbor.openova.io` → `harbor.${SOVEREIGN_FQDN}`) and
-            # preserve the rest of the path so the local Harbor proxy-
-            # dockerhub project serves the same upstream alpine/k8s image.
-            #
-            # Idempotency: read the current value first; SKIP when it no
-            # longer references harbor.openova.io (already pivoted, or an
-            # operator overlay set a custom host). We never assume a fixed
-            # suffix — we string-replace the literal mothership host so a
-            # future chart image-tag/path change is preserved automatically.
+            {{- /*
+             ---- Phase 1b: live K8s patch on the bp-sso-bridge HelmRelease (#2951) ----
+
+             bp-sso-bridge's chart default
+             `image.repository: harbor.openova.io/proxy-dockerhub/alpine/k8s`
+             keeps the reconciler Pod pulling from mothership Harbor
+             post-cutover (UAT Wave-2 ATTACK#9, #2940). The
+             `13b-bp-sso-bridge.yaml` overlay has NO image override, so the
+             chart default wins on every reconcile. We pivot only the HOST
+             segment (`harbor.openova.io` → `harbor.${SOVEREIGN_FQDN}`) and
+             preserve the rest of the path so the local Harbor proxy-
+             dockerhub project serves the same upstream alpine/k8s image.
+
+             Idempotency: read the current value first; SKIP when it no
+             longer references harbor.openova.io (already pivoted, or an
+             operator overlay set a custom host). We never assume a fixed
+             suffix — we string-replace the literal mothership host so a
+             future chart image-tag/path change is preserved automatically.
+            */}}
             sso_hr="bp-sso-bridge"
             if kubectl get helmrelease "${sso_hr}" -n "${HELMRELEASE_NAMESPACE}" >/dev/null 2>&1; then
               cur_sso=$(kubectl get helmrelease "${sso_hr}" -n "${HELMRELEASE_NAMESPACE}" \
                 -o jsonpath='{.spec.values.image.repository}' 2>/dev/null || echo "")
               if [ -z "${cur_sso}" ]; then
-                # The overlay carries no spec.values.image.repository
-                # override, so the live HR reflects the chart default. Read
-                # it off the chart default literal we know ships today; if
-                # that ever changes the SKIP-on-no-harbor.openova.io guard
-                # below still keeps this safe.
+                {{- /*
+                 The overlay carries no spec.values.image.repository
+                 override, so the live HR reflects the chart default. Read
+                 it off the chart default literal we know ships today; if
+                 that ever changes the SKIP-on-no-harbor.openova.io guard
+                 below still keeps this safe.
+                */}}
                 cur_sso="harbor.openova.io/proxy-dockerhub/alpine/k8s"
               fi
               case "${cur_sso}" in
@@ -380,32 +404,34 @@ data:
               skip=$((skip+1))
             fi
 
-            # ---- Phase 1d: live K8s patch of spec.values.global.registryMirror (#3379, hw139) ----
-            #
-            # The 3 bp-*-vcluster HRs AND bp-sso-bridge each carry a
-            # `spec.values.global.registryMirror` knob (single source of truth
-            # for the image HOST — see each chart's
-            # templates/_helpers.tpl `global.registryMirror | default
-            # "harbor.openova.io"`). The bootstrap-kit overlays set it to
-            # `${REGISTRY_MIRROR:=harbor.openova.io}`, which on a Sovereign
-            # (REGISTRY_MIRROR unset) envsubst-resolves to the LITERAL
-            # `harbor.openova.io`. The Phase-1/1b image.repository pivots above
-            # do NOT touch global.registryMirror, so it stays at mothership
-            # Harbor — and the Phase-1c residual-tether check below greps the
-            # WHOLE spec.values for `harbor.openova.io`, so a surviving
-            # registryMirror makes the check FATAL ("N HelmRelease(s) still
-            # tethered") → BackoffLimitExceeded → cutover wedged at step-10.
-            # That is exactly the hw139 #3379 catch (4 HRs flagged:
-            # bp-mgmt/rtz/dmz-vcluster + bp-sso-bridge).
-            #
-            # Fix: pivot the registryMirror HOST here too
-            # (harbor.openova.io → harbor.${SOVEREIGN_FQDN}) so the residual
-            # check passes AND the vCluster/sso-bridge image pulls actually
-            # resolve through the Sovereign-local Harbor mirror. Idempotent:
-            # SKIP when the live value no longer equals harbor.openova.io
-            # (already pivoted, or an operator overlay set a custom mirror).
+            {{- /*
+             ---- Phase 1d: live K8s patch of spec.values.global.registryMirror (#3379, hw139) ----
+
+             The 3 bp-*-vcluster HRs AND bp-sso-bridge each carry a
+             `spec.values.global.registryMirror` knob (single source of truth
+             for the image HOST — see each chart's
+             templates/_helpers.tpl `global.registryMirror | default
+             "harbor.openova.io"`). The bootstrap-kit overlays set it to
+             `${REGISTRY_MIRROR:=harbor.openova.io}`, which on a Sovereign
+             (REGISTRY_MIRROR unset) envsubst-resolves to the LITERAL
+             `harbor.openova.io`. The Phase-1/1b image.repository pivots above
+             do NOT touch global.registryMirror, so it stays at mothership
+             Harbor — and the Phase-1c residual-tether check below greps the
+             WHOLE spec.values for `harbor.openova.io`, so a surviving
+             registryMirror makes the check FATAL ("N HelmRelease(s) still
+             tethered") → BackoffLimitExceeded → cutover wedged at step-10.
+             That is exactly the hw139 #3379 catch (4 HRs flagged:
+             bp-mgmt/rtz/dmz-vcluster + bp-sso-bridge).
+
+             Fix: pivot the registryMirror HOST here too
+             (harbor.openova.io → harbor.${SOVEREIGN_FQDN}) so the residual
+             check passes AND the vCluster/sso-bridge image pulls actually
+             resolve through the Sovereign-local Harbor mirror. Idempotent:
+             SKIP when the live value no longer equals harbor.openova.io
+             (already pivoted, or an operator overlay set a custom mirror).
+            */}}
             patch_registry_mirror() {
-              # $1 = HR name
+              {{- /* $1 = HR name */}}
               rm_hr="$1"
               kubectl get helmrelease "${rm_hr}" -n "${HELMRELEASE_NAMESPACE}" >/dev/null 2>&1 || {
                 echo "[vcluster-registry-pivot] SKIP registryMirror ${rm_hr} (HR not present)"
@@ -449,25 +475,27 @@ data:
             echo "[vcluster-registry-pivot] live-K8s ok=${ok} skip=${skip} fail=${fail}"
             [ "${fail}" -eq 0 ] || exit 1
 
-            # ---- Phase 1c: residual-tether self-assertion (#2951 / #2940 ATTACK#9) ----
-            #
-            # The four image.repository pivots above (3 vClusters + sso-bridge)
-            # are the ONLY chart-default `harbor.openova.io` tethers this step
-            # owns. Assert directly against live HR state that none of them
-            # still resolves to mothership Harbor, so the cutover Job itself
-            # FAILS LOUDLY rather than leaving a manual post-hoc
-            # `kubectl get hr -A -o yaml | grep harbor.openova.io` as the only
-            # acceptance gate (the VERIFIED-PARTIAL finding on #2940: "the
-            # cutover automation does not assert the pivots actually landed").
-            #
-            # Scope note (Pillar 5 / ADR-0002): we ONLY assert the four image
-            # tethers. We deliberately do NOT flag:
-            #   * powerdns `api.host` — the `11-powerdns.yaml` overlay already
-            #     templates `pdns.${SOVEREIGN_FQDN}` (no live harbor ref).
-            #   * cert-manager-powerdns-webhook `powerdns.host` — an INTENTIONAL
-            #     out-of-cluster ACME DNS-01 tether to contabo's central
-            #     PowerDNS; rewriting it would break wildcard-cert issuance.
-            #   * ghcr.io/openova-io chart-fetch URLs — ADR-0002 cold-start path.
+            {{- /*
+             ---- Phase 1c: residual-tether self-assertion (#2951 / #2940 ATTACK#9) ----
+
+             The four image.repository pivots above (3 vClusters + sso-bridge)
+             are the ONLY chart-default `harbor.openova.io` tethers this step
+             owns. Assert directly against live HR state that none of them
+             still resolves to mothership Harbor, so the cutover Job itself
+             FAILS LOUDLY rather than leaving a manual post-hoc
+             `kubectl get hr -A -o yaml | grep harbor.openova.io` as the only
+             acceptance gate (the VERIFIED-PARTIAL finding on #2940: "the
+             cutover automation does not assert the pivots actually landed").
+
+             Scope note (Pillar 5 / ADR-0002): we ONLY assert the four image
+             tethers. We deliberately do NOT flag:
+               * powerdns `api.host` — the `11-powerdns.yaml` overlay already
+                 templates `pdns.${SOVEREIGN_FQDN}` (no live harbor ref).
+               * cert-manager-powerdns-webhook `powerdns.host` — an INTENTIONAL
+                 out-of-cluster ACME DNS-01 tether to contabo's central
+                 PowerDNS; rewriting it would break wildcard-cert issuance.
+               * ghcr.io/openova-io chart-fetch URLs — ADR-0002 cold-start path.
+            */}}
             residual=0
             for hr_name in bp-mgmt-vcluster bp-rtz-vcluster bp-dmz-vcluster bp-sso-bridge; do
               kubectl get helmrelease "${hr_name}" -n "${HELMRELEASE_NAMESPACE}" >/dev/null 2>&1 || continue
@@ -489,16 +517,18 @@ data:
             fi
             echo "[vcluster-registry-pivot] residual-tether assertion PASS (0 of 4 image HRs on harbor.openova.io)"
 
-            # ---- Phase 2: push YAML edit to local Gitea ----
-            #
-            # bootstrap-kit Kustomization reconciles HelmRelease YAML
-            # from local Gitea every ~1 min. Without this phase, Phase
-            # 1's live patch is silently reverted on the next reconcile
-            # because the YAML in Gitea still lacks the image.repository
-            # override under spec.values. We inject the override block
-            # (same shape used by other Sovereign-overlay knobs in
-            # those files like `nodeSelector` and the existing
-            # `${SOVEREIGN_REGION_CANONICAL_LABEL}` substitutions).
+            {{- /*
+             ---- Phase 2: push YAML edit to local Gitea ----
+
+             bootstrap-kit Kustomization reconciles HelmRelease YAML
+             from local Gitea every ~1 min. Without this phase, Phase
+             1's live patch is silently reverted on the next reconcile
+             because the YAML in Gitea still lacks the image.repository
+             override under spec.values. We inject the override block
+             (same shape used by other Sovereign-overlay knobs in
+             those files like `nodeSelector` and the existing
+             `${SOVEREIGN_REGION_CANONICAL_LABEL}` substitutions).
+            */}}
             export HOME=/tmp
             git config --global user.name "self-sovereign-cutover"
             git config --global user.email "cutover@${SOVEREIGN_FQDN}"
@@ -510,12 +540,14 @@ data:
               sleep 5
             done
 
-            # #5262 — read the step-09 minted `catalyst-gitea-token` PAT for
-            # the git clone/push. Credential hygiene: the PAT is never
-            # echoed; it flows only into the git remote URL (logged in the
-            # redacted form). Bounded wait: step-09 (gitea-token-mint) runs
-            # directly before this step, so a populated token byte is the
-            # steady state; the retry only covers apiserver flakes.
+            {{- /*
+             #5262 — read the step-09 minted `catalyst-gitea-token` PAT for
+             the git clone/push. Credential hygiene: the PAT is never
+             echoed; it flows only into the git remote URL (logged in the
+             redacted form). Bounded wait: step-09 (gitea-token-mint) runs
+             directly before this step, so a populated token byte is the
+             steady state; the retry only covers apiserver flakes.
+            */}}
             echo "[vcluster-registry-pivot] reading PAT ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}.${PAT_SOURCE_KEY}"
             GITEA_PAT=""
             for i in $(seq 1 30); do
@@ -548,8 +580,10 @@ data:
               exit 1
             fi
 
-            # The three vCluster HR YAMLs and their role keys.
-            # Format: filename:role_key
+            {{- /*
+             The three vCluster HR YAMLs and their role keys.
+             Format: filename:role_key
+            */}}
             edited=0
             for entry in \
               "54-bp-dmz-vcluster.yaml:dmzVcluster" \
@@ -565,15 +599,19 @@ data:
                 continue
               fi
 
-              # Has the override block already been injected (re-run)?
-              # We look for our sentinel comment + the wrapper-repo URL
-              # under the role_key block.
+              {{- /*
+               Has the override block already been injected (re-run)?
+               We look for our sentinel comment + the wrapper-repo URL
+               under the role_key block.
+              */}}
               if grep -q "# ─── vCluster image registry pivot (TBD-V24 MISS-1) ──" "${path}"; then
-                # Idempotency: rewrite the URL value in case the
-                # SOVEREIGN_FQDN changed between runs (rare but
-                # possible when the operator renames the Sovereign).
-                # We replace the line beginning with `        repository:`
-                # under the role_key block.
+                {{- /*
+                 Idempotency: rewrite the URL value in case the
+                 SOVEREIGN_FQDN changed between runs (rare but
+                 possible when the operator renames the Sovereign).
+                 We replace the line beginning with `        repository:`
+                 under the role_key block.
+                */}}
                 if sed -i -E "/^[[:space:]]{4}${role_key}:[[:space:]]*$/,/^[[:space:]]{0,4}[a-zA-Z]/{s,^([[:space:]]{8}repository:[[:space:]]*).*$,\1${wrapper_repo}," "${path}" 2>/dev/null; then
                   edited=$((edited+1))
                   echo "[vcluster-registry-pivot] rewrote existing image override in ${path}"
@@ -583,11 +621,13 @@ data:
                 continue
               fi
 
-              # No existing override — inject the block under the
-              # `values:` key. The role-key block exists at 4-space
-              # indent under spec.values (every chart >= 0.1.0 ships
-              # this shape; the role keys are `mgmtVcluster`,
-              # `rtzVcluster`, `dmzVcluster`).
+              {{- /*
+               No existing override — inject the block under the
+               `values:` key. The role-key block exists at 4-space
+               indent under spec.values (every chart >= 0.1.0 ships
+               this shape; the role keys are `mgmtVcluster`,
+               `rtzVcluster`, `dmzVcluster`).
+              */}}
               if grep -qE "^[[:space:]]{4}${role_key}:[[:space:]]*$" "${path}"; then
                 awk -v role="${role_key}" -v repo="${wrapper_repo}" -v reg="${sub_registry}" -v rpath="${sub_repo_path}" -v tag="${IMAGE_TAG}" '
                   $0 ~ "^[[:space:]]{4}"role":[[:space:]]*$" && !done {
@@ -616,24 +656,30 @@ data:
                 continue
               fi
 
-              # ALSO inject (or replace) the subchart image block —
-              # the loft-sh upstream image. The file already has a
-              # `vcluster:` block at 4-space indent (every HR YAML
-              # has it for nodeSelector pinning). We append the
-              # subchart image under controlPlane.statefulSet, OR if
-              # the block already exists, replace the registry value.
+              {{- /*
+               ALSO inject (or replace) the subchart image block —
+               the loft-sh upstream image. The file already has a
+               `vcluster:` block at 4-space indent (every HR YAML
+               has it for nodeSelector pinning). We append the
+               subchart image under controlPlane.statefulSet, OR if
+               the block already exists, replace the registry value.
+              */}}
               if grep -qE "^[[:space:]]{8}statefulSet:[[:space:]]*$" "${path}"; then
                 if grep -qE "^[[:space:]]{10}image:[[:space:]]*$" "${path}"; then
-                  # Existing image block under statefulSet — replace
-                  # registry + repository lines at 12-space indent
-                  # using a bounded sed range so we don't touch other
-                  # image: blocks in the same file.
+                  {{- /*
+                   Existing image block under statefulSet — replace
+                   registry + repository lines at 12-space indent
+                   using a bounded sed range so we don't touch other
+                   image: blocks in the same file.
+                  */}}
                   sed -i -E "/^[[:space:]]{10}image:[[:space:]]*$/,/^[[:space:]]{0,10}[a-zA-Z]/{s,^([[:space:]]{12}registry:[[:space:]]*).*$,\1${sub_registry},; s,^([[:space:]]{12}repository:[[:space:]]*).*$,\1${sub_repo_path},}" "${path}" 2>/dev/null || true
                   echo "[vcluster-registry-pivot] rewrote subchart image registry/repository in ${path}"
                 else
-                  # Inject a new image block under statefulSet at
-                  # 10-space indent. statefulSet appears once; we add
-                  # `image:` as a sibling of `scheduling:`.
+                  {{- /*
+                   Inject a new image block under statefulSet at
+                   10-space indent. statefulSet appears once; we add
+                   `image:` as a sibling of `scheduling:`.
+                  */}}
                   awk -v reg="${sub_registry}" -v rpath="${sub_repo_path}" -v tag="${IMAGE_TAG}" '
                     /^[[:space:]]{8}statefulSet:[[:space:]]*$/ && !done {
                       print
@@ -650,38 +696,42 @@ data:
               fi
             done
 
-            # ---- Phase 2b: persist sso-bridge image override to Gitea (#2951/#3695) ----
-            #
-            # 13b-bp-sso-bridge.yaml is a MULTI-DOCUMENT YAML: doc 1 is the
-            # HelmRepository (its `spec:` carries type/url/secretRef), doc 2 is
-            # the HelmRelease whose `spec.values` takes image.repository. Since
-            # #2940 the HelmRelease ALSO carries a `spec.values` block
-            # (global.registryMirror + sovereign.fqdn). The old awk injector
-            # appended a SECOND `values:` under the HelmRelease spec → duplicate
-            # mapping key → bootstrap-kit BuildFailed (hw150). We now MERGE
-            # `image.repository` INTO the existing values mapping with yq,
-            # anchored to the HelmRelease document only (select by kind), so the
-            # result always has exactly ONE `values:` key. Idempotent: yq
-            # assignment is a no-op when the value already matches.
-            #
-            # The repository is host-LESS (proxy-dockerhub/alpine/k8s): the
-            # sso-bridge chart's `bp-sso-bridge.image` helper prepends
-            # global.registryMirror (pivoted durably to harbor.<fqdn> by
-            # Phase-2c), so the registry host has exactly ONE source of truth.
-            # Writing a host-qualified repository here would FIGHT that single
-            # source — the helper honours a host-qualified repo verbatim and
-            # would ignore the pivoted mirror.
+            {{- /*
+             ---- Phase 2b: persist sso-bridge image override to Gitea (#2951/#3695) ----
+
+             13b-bp-sso-bridge.yaml is a MULTI-DOCUMENT YAML: doc 1 is the
+             HelmRepository (its `spec:` carries type/url/secretRef), doc 2 is
+             the HelmRelease whose `spec.values` takes image.repository. Since
+             #2940 the HelmRelease ALSO carries a `spec.values` block
+             (global.registryMirror + sovereign.fqdn). The old awk injector
+             appended a SECOND `values:` under the HelmRelease spec → duplicate
+             mapping key → bootstrap-kit BuildFailed (hw150). We now MERGE
+             `image.repository` INTO the existing values mapping with yq,
+             anchored to the HelmRelease document only (select by kind), so the
+             result always has exactly ONE `values:` key. Idempotent: yq
+             assignment is a no-op when the value already matches.
+
+             The repository is host-LESS (proxy-dockerhub/alpine/k8s): the
+             sso-bridge chart's `bp-sso-bridge.image` helper prepends
+             global.registryMirror (pivoted durably to harbor.<fqdn> by
+             Phase-2c), so the registry host has exactly ONE source of truth.
+             Writing a host-qualified repository here would FIGHT that single
+             source — the helper honours a host-qualified repo verbatim and
+             would ignore the pivoted mirror.
+            */}}
             sso_file="${target_dir}/13b-bp-sso-bridge.yaml"
             sso_repo="proxy-dockerhub/alpine/k8s"
             if [ -f "${sso_file}" ]; then
               if [ -n "${HAVE_YQ}" ]; then
-                # MERGE into the HelmRelease document's spec.values.image.repository.
-                # `(select(.kind=="HelmRelease") | .spec.values.image.repository) = $r`
-                # creates the image: child under the EXISTING values: mapping
-                # (or creates values: if somehow absent) WITHOUT ever emitting a
-                # second values: key. Other documents (HelmRepository) are
-                # untouched. yq preserves the ${REGISTRY_MIRROR:=...} envsubst
-                # placeholders verbatim (they are plain scalar strings to yq).
+                {{- /*
+                 MERGE into the HelmRelease document's spec.values.image.repository.
+                 `(select(.kind=="HelmRelease") | .spec.values.image.repository) = $r`
+                 creates the image: child under the EXISTING values: mapping
+                 (or creates values: if somehow absent) WITHOUT ever emitting a
+                 second values: key. Other documents (HelmRepository) are
+                 untouched. yq preserves the ${REGISTRY_MIRROR:=...} envsubst
+                 placeholders verbatim (they are plain scalar strings to yq).
+                */}}
                 if yq eval -i "(select(.kind == \"HelmRelease\") | .spec.values.image.repository) = \"${sso_repo}\"" "${sso_file}" 2>/dev/null; then
                   echo "[vcluster-registry-pivot] merged sso-bridge image.repository=${sso_repo} into existing values (yq, single values: key) — ${sso_file}"
                   edited=$((edited+1))
@@ -689,13 +739,15 @@ data:
                   echo "[vcluster-registry-pivot] WARN: yq merge of sso-bridge image.repository failed on ${sso_file}; the durable registry host still rides global.registryMirror (Phase-2c)"
                 fi
               elif grep -qE "^[[:space:]]+values:[[:space:]]*$" "${sso_file}"; then
-                # No yq AND a values: block already exists → the awk injector
-                # would duplicate the key. NO-OP rather than corrupt the file:
-                # the registry host pivot is fully covered by Phase-2c's
-                # global.registryMirror rewrite (the image host's single source
-                # of truth), so skipping the image.repository merge does NOT
-                # leave a mothership tether. (#3695: never re-introduce the
-                # duplicate-mapping-key BuildFailed.)
+                {{- /*
+                 No yq AND a values: block already exists → the awk injector
+                 would duplicate the key. NO-OP rather than corrupt the file:
+                 the registry host pivot is fully covered by Phase-2c's
+                 global.registryMirror rewrite (the image host's single source
+                 of truth), so skipping the image.repository merge does NOT
+                 leave a mothership tether. (#3695: never re-introduce the
+                 duplicate-mapping-key BuildFailed.)
+                */}}
                 echo "[vcluster-registry-pivot] NO-OP sso-bridge image.repository merge (no yq + existing values: block) — registry host pivot covered by Phase-2c global.registryMirror"
               else
                 echo "[vcluster-registry-pivot] SKIP sso-bridge image.repository merge (no yq + no values: block) — Phase-1b K8s patch remains durable for one upgrade cycle"
@@ -704,21 +756,23 @@ data:
               echo "[vcluster-registry-pivot] SKIP ${sso_file} (not present)"
             fi
 
-            # ---- Phase 2c: persist global.registryMirror pivot to Gitea (#3379, hw139) ----
-            #
-            # Phase-1d live-patched spec.values.global.registryMirror on the
-            # 4 HRs, but the bootstrap-kit Kustomization reconciles those HR
-            # YAMLs from local Gitea every ~1 min and would REVERT the patch
-            # back to the overlay literal `harbor.openova.io` — re-tethering
-            # the Sovereign + re-arming the Phase-1c residual FATAL on the
-            # NEXT cutover. So rewrite the registryMirror host durably in the
-            # 4 overlay files too. The cloud-init-rendered Gitea copy carries
-            # the post-envsubst literal `registryMirror: harbor.openova.io`
-            # (REGISTRY_MIRROR unset on a Sovereign), so a line-anchored sed
-            # off that literal is exact — registryMirror appears once per
-            # overlay (under global:). Idempotent: a re-run finds the value
-            # already at harbor.${SOVEREIGN_FQDN} and the sed is a no-op
-            # (git diff stays empty for that line).
+            {{- /*
+             ---- Phase 2c: persist global.registryMirror pivot to Gitea (#3379, hw139) ----
+
+             Phase-1d live-patched spec.values.global.registryMirror on the
+             4 HRs, but the bootstrap-kit Kustomization reconciles those HR
+             YAMLs from local Gitea every ~1 min and would REVERT the patch
+             back to the overlay literal `harbor.openova.io` — re-tethering
+             the Sovereign + re-arming the Phase-1c residual FATAL on the
+             NEXT cutover. So rewrite the registryMirror host durably in the
+             4 overlay files too. The cloud-init-rendered Gitea copy carries
+             the post-envsubst literal `registryMirror: harbor.openova.io`
+             (REGISTRY_MIRROR unset on a Sovereign), so a line-anchored sed
+             off that literal is exact — registryMirror appears once per
+             overlay (under global:). Idempotent: a re-run finds the value
+             already at harbor.${SOVEREIGN_FQDN} and the sed is a no-op
+             (git diff stays empty for that line).
+            */}}
             for rm_file in \
               "54-bp-dmz-vcluster.yaml" \
               "58-bp-mgmt-vcluster.yaml" \
@@ -730,14 +784,16 @@ data:
                 echo "[vcluster-registry-pivot] SKIP registryMirror persist ${rm_path} (not present)"
                 continue
               fi
-              # #3695: prefer yq for a structural assignment of the HelmRelease
-              # document's spec.values.global.registryMirror. This is robust to
-              # the overlay carrying the value as a ${REGISTRY_MIRROR:=...}
-              # placeholder OR the post-envsubst literal harbor.openova.io, and
-              # never touches a HelmRepository document in the same file. The
-              # sed fallback (value-replacement on the literal line — safe, it
-              # rewrites a scalar in place and never adds a key) covers a
-              # yq-less image. Idempotent either way.
+              {{- /*
+               #3695: prefer yq for a structural assignment of the HelmRelease
+               document's spec.values.global.registryMirror. This is robust to
+               the overlay carrying the value as a ${REGISTRY_MIRROR:=...}
+               placeholder OR the post-envsubst literal harbor.openova.io, and
+               never touches a HelmRepository document in the same file. The
+               sed fallback (value-replacement on the literal line — safe, it
+               rewrites a scalar in place and never adds a key) covers a
+               yq-less image. Idempotent either way.
+              */}}
               if [ -n "${HAVE_YQ}" ]; then
                 cur=$(yq eval 'select(.kind == "HelmRelease") | .spec.values.global.registryMirror' "${rm_path}" 2>/dev/null | head -1 || true)
                 case "${cur}" in
@@ -768,7 +824,7 @@ data:
             echo "[vcluster-registry-pivot] edited ${edited} files (yq merge / sed fallback)"
             if [ "${edited}" -eq 0 ]; then
               echo "[vcluster-registry-pivot] no edits required — already pivoted in Gitea or files absent"
-              # Phase 1 already succeeded; nothing to push.
+              {{- /* Phase 1 already succeeded; nothing to push. */}}
               exit 0
             fi
 
@@ -785,8 +841,10 @@ data:
             }
             echo "[vcluster-registry-pivot] pushed to ${redacted}"
 
-            # Trigger an immediate Flux reconciliation so the new YAML
-            # lands without waiting for the polling interval.
+            {{- /*
+             Trigger an immediate Flux reconciliation so the new YAML
+             lands without waiting for the polling interval.
+            */}}
             kubectl annotate --overwrite gitrepository openova \
               -n flux-system \
               "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null || true

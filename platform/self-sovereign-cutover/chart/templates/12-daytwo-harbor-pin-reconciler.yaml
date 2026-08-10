@@ -177,9 +177,11 @@ metadata:
     catalyst.openova.io/purpose: "post-cutover-daytwo-harbor-pin-reconcile"
 spec:
   replicas: 1
-  # Recreate (never two writers): a single loop pushes to local Harbor + writes
-  # the missing-manifest ConfigMap; a rolling overlap could double-push / race
-  # the CM. The loop is cheap, so no availability cost.
+  {{- /*
+   Recreate (never two writers): a single loop pushes to local Harbor + writes
+   the missing-manifest ConfigMap; a rolling overlap could double-push / race
+   the CM. The loop is cheap, so no availability cost.
+  */}}
   strategy:
     type: Recreate
   selector:
@@ -193,15 +195,17 @@ spec:
         app.kubernetes.io/component: daytwo-harbor-reconciler
     spec:
       serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
-      # Harbor admin secret + the ghcr-pull warm credential resolve via
-      # secretKeyRef in THIS Pod's namespace; the runner SA + release-namespace
-      # bridges (harbor-admin Reflector mirror, #935) already land them here.
+      {{- /*
+       Harbor admin secret + the ghcr-pull warm credential resolve via
+       secretKeyRef in THIS Pod's namespace; the runner SA + release-namespace
+       bridges (harbor-admin Reflector mirror, #935) already land them here.
+      */}}
       containers:
         - name: daytwo-harbor-reconciler
           image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.kubectl.repository "tag" .Values.images.kubectl.tag "cutoverPhase" "pre" "Values" .Values) }}
           imagePullPolicy: IfNotPresent
           env:
-            # ── local Harbor (presence probe + warm push dest) ──
+            {{- /* ── local Harbor (presence probe + warm push dest) ── */}}
             - name: HARBOR_INTERNAL_URL
               value: {{ .Values.sovereign.harborInternalURL | quote }}
             - name: HARBOR_PUBLIC_URL
@@ -217,7 +221,7 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.harbor.adminSecretRef.name }}
                   key: {{ .Values.harbor.adminSecretRef.passwordKey }}
-            # ── local Gitea mirror (frozen bootstrap-kit pins) ──
+            {{- /* ── local Gitea mirror (frozen bootstrap-kit pins) ── */}}
             - name: GITEA_INTERNAL_URL
               value: {{ .Values.sovereign.giteaInternalURL | quote }}
             - name: GITEA_ORG
@@ -228,35 +232,43 @@ spec:
               value: {{ .Values.upstream.branch | quote }}
             - name: UPSTREAM_PREFIX
               value: {{ .Values.helmRepositories.upstreamPrefix | quote }}
-            # #5640 catalog leg — the upstream catalog the ONE-SHOT `CATALOG`
-            # request re-syncs into the local Gitea mirror. Read ONLY inside an
-            # open request that explicitly names CATALOG; never dialled otherwise.
+            {{- /*
+             #5640 catalog leg — the upstream catalog the ONE-SHOT `CATALOG`
+             request re-syncs into the local Gitea mirror. Read ONLY inside an
+             open request that explicitly names CATALOG; never dialled otherwise.
+            */}}
             - name: UPSTREAM_REPO_URL
               value: {{ .Values.upstream.repoURL | quote }}
-            # #3584 — the git-push username the catalog leg embeds alongside the
-            # PAT, exactly as step-01 does.
+            {{- /*
+             #3584 — the git-push username the catalog leg embeds alongside the
+             PAT, exactly as step-01 does.
+            */}}
             - name: GITEA_USERNAME
               value: {{ .Values.gitRepositorySecretRef.username | quote }}
-            # catalyst-gitea-token PAT — the SAME coordinates + auth path steps
-            # 01/05 read (a PAT is a direct local sha1 lookup, immune to the
-            # openova-sso apiAuth hang a BasicAuth password takes mid-converge).
+            {{- /*
+             catalyst-gitea-token PAT — the SAME coordinates + auth path steps
+             01/05 read (a PAT is a direct local sha1 lookup, immune to the
+             openova-sso apiAuth hang a BasicAuth password takes mid-converge).
+            */}}
             - name: PAT_SOURCE_NAMESPACE
               value: {{ .Values.gitRepositorySecretRef.patSourceNamespace | quote }}
             - name: PAT_SOURCE_SECRET_NAME
               value: {{ .Values.gitRepositorySecretRef.patSourceSecretName | quote }}
             - name: PAT_SOURCE_KEY
               value: {{ .Values.gitRepositorySecretRef.patSourceKey | quote }}
-            # ── loop policy ──
+            {{- /* ── loop policy ── */}}
             - name: RECONCILE_INTERVAL_SECONDS
               value: {{ .Values.daytwoReconciler.intervalSeconds | quote }}
-            # detect (zero egress) | request (default; zero egress until the
-            # operator files ONE scoped, audited, one-shot request) | warm
-            # (always-on upstream mirror)
+            {{- /*
+             detect (zero egress) | request (default; zero egress until the
+             operator files ONE scoped, audited, one-shot request) | warm
+             (always-on upstream mirror)
+            */}}
             - name: RECONCILE_MODE
               value: {{ .Values.daytwoReconciler.mode | quote }}
             - name: MISSING_MANIFEST_CM
               value: {{ .Values.daytwoReconciler.missingManifestConfigMapName | quote }}
-            # ── #5640 operator-gated delivery (mode=request) ──
+            {{- /* ── #5640 operator-gated delivery (mode=request) ── */}}
             - name: REQUEST_CM
               value: {{ .Values.daytwoReconciler.request.configMapName | quote }}
             - name: DELIVERY_AUDIT_CM
@@ -267,33 +279,39 @@ spec:
               value: {{ .Values.daytwoReconciler.request.auditMaxLines | quote }}
             - name: RELEASE_NAMESPACE
               value: {{ .Release.Namespace | quote }}
-            # #5759 — cutoverComplete read every cycle (never cached): gates
-            # the catalog leg's refuse-by-default AND the source-host drift
-            # lint below. Same ConfigMap + key step-08's egress-block-test Job
-            # and scripts/sovereign-daytwo-bootstrap.sh already read.
+            {{- /*
+             #5759 — cutoverComplete read every cycle (never cached): gates
+             the catalog leg's refuse-by-default AND the source-host drift
+             lint below. Same ConfigMap + key step-08's egress-block-test Job
+             and scripts/sovereign-daytwo-bootstrap.sh already read.
+            */}}
             - name: STATUS_CONFIGMAP
               value: {{ .Values.status.configMapName | quote }}
-            # #5759 — the source-host drift lint's Sovereign-local allowlist.
-            # SOVEREIGN_FQDN + the host-classification shape are byte-identical
-            # to step-08's egressTest.fluxSourceHostLint (08-egress-block-test-
-            # job.yaml, run_flux_source_host_lint) — single-source discipline:
-            # one allowlist, declared once, consumed by both the one-shot
-            # cutover proof and this standing post-cutover watcher.
+            {{- /*
+             #5759 — the source-host drift lint's Sovereign-local allowlist.
+             SOVEREIGN_FQDN + the host-classification shape are byte-identical
+             to step-08's egressTest.fluxSourceHostLint (08-egress-block-test-
+             job.yaml, run_flux_source_host_lint) — single-source discipline:
+             one allowlist, declared once, consumed by both the one-shot
+             cutover proof and this standing post-cutover watcher.
+            */}}
             - name: SOVEREIGN_FQDN
               value: {{ .Values.sovereign.fqdn | quote }}
             - name: SOURCE_HOST_LINT_ENABLED
               value: {{ eq (toString .Values.daytwoReconciler.sourceHostLint.enabled) "true" | quote }}
             - name: SOURCE_HOST_LINT_ALLOW
               value: {{ .Values.egressTest.fluxSourceHostLint.allowHosts | default (list) | join " " | quote }}
-            # Per-leg switches. Both default true; an operator debugging one
-            # half can silence the other without losing the loop.
+            {{- /*
+             Per-leg switches. Both default true; an operator debugging one
+             half can silence the other without losing the loop.
+            */}}
             - name: CHART_LEG_ENABLED
               value: {{ eq (toString .Values.daytwoReconciler.charts.enabled) "true" | quote }}
             - name: IMAGE_LEG_ENABLED
               value: {{ eq (toString .Values.daytwoReconciler.images.enabled) "true" | quote }}
             - name: CATALOG_LEG_ENABLED
               value: {{ eq (toString .Values.daytwoReconciler.catalog.enabled) "true" | quote }}
-            # ── warm-mode source (operator-supplied; only read when mode=warm) ──
+            {{- /* ── warm-mode source (operator-supplied; only read when mode=warm) ── */}}
             - name: WARM_UPSTREAM_OCI_PREFIX
               value: {{ .Values.daytwoReconciler.warm.upstreamOciPrefix | quote }}
             - name: WARM_REGISTRY_HOST
@@ -306,9 +324,11 @@ spec:
               value: {{ .Values.daytwoReconciler.warm.credentialSecret.usernameKey | quote }}
             - name: WARM_CRED_PASSWORD_KEY
               value: {{ .Values.daytwoReconciler.warm.credentialSecret.passwordKey | quote }}
-            # ── #5640 image leg: the SAME offline-mirror env step-03/04/08 read.
-            # The coverage map is the single declaration of host→local-project;
-            # forking it here would re-open the very drift #4975 closed.
+            {{- /*
+             ── #5640 image leg: the SAME offline-mirror env step-03/04/08 read.
+             The coverage map is the single declaration of host→local-project;
+             forking it here would re-open the very drift #4975 closed.
+            */}}
             - name: HOST_PROJECT_MAP
               value: {{ include "bp-self-sovereign-cutover.hostProjectMapInline" . | quote }}
             - name: EXCLUDED_HOSTS
@@ -319,9 +339,11 @@ spec:
               value: {{ include "bp-self-sovereign-cutover.localRegistryHost" . | quote }}
             - name: MOTHERSHIP_HOST
               value: {{ include "bp-self-sovereign-cutover.mothershipHost" . | quote }}
-            # Optional ghcr/mothership dockerconfigjson — present pre-cutover,
-            # stripped by step-06 post-cutover (by design). Absent => the warm
-            # leg is anonymous-only and private refs stay in the manifest.
+            {{- /*
+             Optional ghcr/mothership dockerconfigjson — present pre-cutover,
+             stripped by step-06 post-cutover (by design). Absent => the warm
+             leg is anonymous-only and private refs stay in the manifest.
+            */}}
             - name: GHCR_DOCKERCONFIG
               valueFrom:
                 secretKeyRef:
@@ -371,30 +393,36 @@ spec:
               : "${SOURCE_HOST_LINT_ALLOW:=}"
               WORK=/tmp/daytwo-work
               mkdir -p "${WORK}"
-              # #5640 FAIL-CLOSED readiness surface. The reconciler is READY iff
-              # its last completed cycle proved every pinned artifact is
-              # servable by the registry this Sovereign is allowed to use.
-              # Anything else — a missing pin, a leg that could not run, no
-              # cycle yet — is NOT-READY, which shows up as 0/1 on
-              # `kubectl get deploy` and in every dashboard already watching
-              # workload readiness. Before #5640 the identical condition was a
-              # log line and a ConfigMap nobody was watching: a SILENT freeze.
-              # Seeded NOT-READY so the pre-first-cycle state can never read as
-              # an all-clear.
+              {{- /*
+               #5640 FAIL-CLOSED readiness surface. The reconciler is READY iff
+               its last completed cycle proved every pinned artifact is
+               servable by the registry this Sovereign is allowed to use.
+               Anything else — a missing pin, a leg that could not run, no
+               cycle yet — is NOT-READY, which shows up as 0/1 on
+               `kubectl get deploy` and in every dashboard already watching
+               workload readiness. Before #5640 the identical condition was a
+               log line and a ConfigMap nobody was watching: a SILENT freeze.
+               Seeded NOT-READY so the pre-first-cycle state can never read as
+               an all-clear.
+              */}}
               HEALTH_FILE="${WORK}/health"
               echo "NOTREADY no-cycle-completed-yet" > "${HEALTH_FILE}"
 
-              # Bare host of the local Harbor (registry.<fqdn>) — the helm
-              # registry login + push target in warm mode. Post-cutover its
-              # wildcard cert is production LE (in the base ca-certificates),
-              # so the helm push over :443 is trusted with no extra trust store.
+              {{- /*
+               Bare host of the local Harbor (registry.<fqdn>) — the helm
+               registry login + push target in warm mode. Post-cutover its
+               wildcard cert is production LE (in the base ca-certificates),
+               so the helm push over :443 is trusted with no extra trust store.
+              */}}
               HARBOR_HOST=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -e 's,^https\?://,,' -e 's,/$,,')
               gitea_host="$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E 's|^https?://||' | cut -d: -f1 | cut -d/ -f1)"
 
-              # Shared 03a resolver — the SAME image→local-path mapping
-              # function step-03 (push dest) and step-08 (completeness HEAD)
-              # source. Fail-LOUD if absent: silently skipping the image leg is
-              # exactly the invisible-strand shape #5640 is about.
+              {{- /*
+               Shared 03a resolver — the SAME image→local-path mapping
+               function step-03 (push dest) and step-08 (completeness HEAD)
+               source. Fail-LOUD if absent: silently skipping the image leg is
+               exactly the invisible-strand shape #5640 is about.
+              */}}
               RESOLVER_OK=0
               if [ -f /offline-mirror/resolver.sh ]; then
                 . /offline-mirror/resolver.sh
@@ -411,21 +439,25 @@ spec:
                 *)       echo "[daytwo] mode=detect — reaching ONLY the local Gitea mirror + local Harbor (zero external egress; skopeo is never downloaded); missing artifacts are reported to ConfigMap ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM} as the offline-media manifest" ;;
               esac
 
-              # ── #5640 OPERATOR-GATED DELIVERY ────────────────────────────────
-              # The whole point: an explicitly operator-initiated, scope-bounded,
-              # credential-scoped, audited, ONE-SHOT pull is a different object
-              # from an always-on mirror. `warm` is the latter and re-tethers the
-              # Sovereign for as long as it is set. `request` opens the window
-              # only for the refs one named request lists, then closes it.
+              {{- /*
+               ── #5640 OPERATOR-GATED DELIVERY ────────────────────────────────
+               The whole point: an explicitly operator-initiated, scope-bounded,
+               credential-scoped, audited, ONE-SHOT pull is a different object
+               from an always-on mirror. `warm` is the latter and re-tethers the
+               Sovereign for as long as it is set. `request` opens the window
+               only for the refs one named request lists, then closes it.
+              */}}
               REQ_ID=""; REQ_BY=""; REQ_SCOPE_FILE="${WORK}/request-scope.txt"
               REQ_ACTIVE=0; REQ_DELIVERED=0; REQ_FAILED=0
               AUDIT_FILE="${WORK}/audit.log"
               : > "${AUDIT_FILE}"
 
-              # daytwo_audit LINE — append to the durable delivery audit trail
-              # AND the Pod log. Read-modify-write so history is preserved
-              # across cycles and Pod restarts; capped so the ConfigMap cannot
-              # grow past the apiserver's 1 MiB object limit.
+              {{- /*
+               daytwo_audit LINE — append to the durable delivery audit trail
+               AND the Pod log. Read-modify-write so history is preserved
+               across cycles and Pod restarts; capped so the ConfigMap cannot
+               grow past the apiserver's 1 MiB object limit.
+              */}}
               daytwo_audit() {
                 _au_line="$(date -u +%Y-%m-%dT%H:%M:%SZ)\t$*"
                 printf '%b\n' "${_au_line}" >> "${AUDIT_FILE}"
@@ -448,9 +480,11 @@ spec:
                 : > "${AUDIT_FILE}"
               }
 
-              # daytwo_load_request — read the operator's request, if any, and
-              # decide whether THIS cycle may deliver. Sets REQ_ACTIVE=1 only for
-              # a request whose requestId has never been consumed.
+              {{- /*
+               daytwo_load_request — read the operator's request, if any, and
+               decide whether THIS cycle may deliver. Sets REQ_ACTIVE=1 only for
+               a request whose requestId has never been consumed.
+              */}}
               LAST_CONSUMED_ID=""
               daytwo_load_request() {
                 REQ_ACTIVE=0; REQ_ID=""; REQ_BY=""; : > "${REQ_SCOPE_FILE}"
@@ -489,11 +523,13 @@ spec:
                 echo "[daytwo] mode=request: delivery window OPEN for requestId '${REQ_ID}' (requestedBy=${REQ_BY}, ${_lr_n} scope line(s)); it will be consumed at the end of this cycle"
               }
 
-              # daytwo_in_scope REF UPSTREAM_REF LOCAL_PATH -> 0 iff this artifact
-              # is inside the OPEN request's scope. Matches the enumerated ref,
-              # the inverse-mapped upstream, the bare local path AND the fully
-              # qualified local ref, so an operator can paste back whichever form
-              # the missing manifest showed them.
+              {{- /*
+               daytwo_in_scope REF UPSTREAM_REF LOCAL_PATH -> 0 iff this artifact
+               is inside the OPEN request's scope. Matches the enumerated ref,
+               the inverse-mapped upstream, the bare local path AND the fully
+               qualified local ref, so an operator can paste back whichever form
+               the missing manifest showed them.
+              */}}
               daytwo_in_scope() {
                 [ "${REQ_ACTIVE}" = "1" ] || return 1
                 grep -qx 'ALL_MISSING' "${REQ_SCOPE_FILE}" 2>/dev/null && return 0
@@ -504,12 +540,14 @@ spec:
                 return 1
               }
 
-              # daytwo_delivery_allowed REF UPSTREAM_REF LOCAL_PATH -> 0 iff this
-              # cycle may reach upstream for THIS artifact. THE single gate every
-              # egress-bearing call sits behind; detect can never pass it, and
-              # request passes it only inside an open, in-scope, unconsumed
-              # window. Every mode other than warm/request falls through to the
-              # closed default, so an unrecognised mode value fails CLOSED.
+              {{- /*
+               daytwo_delivery_allowed REF UPSTREAM_REF LOCAL_PATH -> 0 iff this
+               cycle may reach upstream for THIS artifact. THE single gate every
+               egress-bearing call sits behind; detect can never pass it, and
+               request passes it only inside an open, in-scope, unconsumed
+               window. Every mode other than warm/request falls through to the
+               closed default, so an unrecognised mode value fails CLOSED.
+              */}}
               daytwo_delivery_allowed() {
                 case "${RECONCILE_MODE}" in
                   warm) return 0 ;;
@@ -518,10 +556,12 @@ spec:
                 esac
               }
 
-              # daytwo_consume_request — close the window. Recording consumption
-              # in the AUDIT ConfigMap (not the request ConfigMap) means it
-              # survives a Pod restart and cannot be undone by re-applying the
-              # request unchanged; a new window needs a NEW requestId.
+              {{- /*
+               daytwo_consume_request — close the window. Recording consumption
+               in the AUDIT ConfigMap (not the request ConfigMap) means it
+               survives a Pod restart and cannot be undone by re-applying the
+               request unchanged; a new window needs a NEW requestId.
+              */}}
               daytwo_consume_request() {
                 [ "${REQ_ACTIVE}" = "1" ] || return 0
                 LAST_CONSUMED_ID="${REQ_ID}"
@@ -530,8 +570,10 @@ spec:
                 REQ_ACTIVE=0
               }
 
-              # Read the catalyst-gitea-token PAT (never echoed; sent only via
-              # the Authorization header). Bounded per-call so a rotation heals.
+              {{- /*
+               Read the catalyst-gitea-token PAT (never echoed; sent only via
+               the Authorization header). Bounded per-call so a rotation heals.
+              */}}
               read_pat() {
                 _rp=""
                 for _i in $(seq 1 6); do
@@ -543,9 +585,11 @@ spec:
                 printf '%s' "${_rp}"
               }
 
-              # Harbor artifact API (Harbor CORE against its DB — NEVER a
-              # pull-through; the #5030 durable-presence probe step-03/08 use).
-              # 200 => the chart OCI artifact is DURABLY present locally.
+              {{- /*
+               Harbor artifact API (Harbor CORE against its DB — NEVER a
+               pull-through; the #5030 durable-presence probe step-03/08 use).
+               200 => the chart OCI artifact is DURABLY present locally.
+              */}}
               harbor_has() {
                 _hc=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 30 \
                   -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
@@ -553,14 +597,16 @@ spec:
                 [ "${_hc}" = "200" ]
               }
 
-              # warm ONE missing chart: helm pull upstream (operator cred if
-              # supplied) -> helm push local. Fail-SOFT (returns non-zero, the
-              # caller keeps it in the missing manifest; never crashes the loop).
-              # #5640 — the upstream `helm registry login` is itself an EGRESS
-              # call, so it is LAZY: performed on the first allowed chart
-              # delivery, never at startup. detect (and request with no open
-              # window) therefore dials nothing at all, which is the property the
-              # zero-egress contract actually needs.
+              {{- /*
+               warm ONE missing chart: helm pull upstream (operator cred if
+               supplied) -> helm push local. Fail-SOFT (returns non-zero, the
+               caller keeps it in the missing manifest; never crashes the loop).
+               #5640 — the upstream `helm registry login` is itself an EGRESS
+               call, so it is LAZY: performed on the first allowed chart
+               delivery, never at startup. detect (and request with no open
+               window) therefore dials nothing at all, which is the property the
+               zero-egress contract actually needs.
+              */}}
               WARM_LOGIN_DONE=0
               daytwo_helm_login_once() {
                 [ "${WARM_LOGIN_DONE}" = "1" ] && return 0
@@ -603,11 +649,13 @@ spec:
                 return 0
               }
 
-              # ── #5640 IMAGE LEG ─────────────────────────────────────────────
-              # skopeo acquisition — the SAME pinned static build step-03
-              # harbor-prewarm and step-08's #5194 self-heal use. Downloaded
-              # LAZILY and ONLY in warm mode, so detect mode keeps its
-              # zero-external-egress contract literally (no github.com dial).
+              {{- /*
+               ── #5640 IMAGE LEG ─────────────────────────────────────────────
+               skopeo acquisition — the SAME pinned static build step-03
+               harbor-prewarm and step-08's #5194 self-heal use. Downloaded
+               LAZILY and ONLY in warm mode, so detect mode keeps its
+               zero-external-egress contract literally (no github.com dial).
+              */}}
               _skopeo_ready=0
               daytwo_ensure_skopeo() {
                 [ "${_skopeo_ready}" = "1" ] && return 0
@@ -635,8 +683,10 @@ spec:
                 return 1
               }
 
-              # Parses the SAME flux-system/ghcr-pull dockerconfigjson step-03
-              # and step-08 read. Absent/empty => anonymous-only warm.
+              {{- /*
+               Parses the SAME flux-system/ghcr-pull dockerconfigjson step-03
+               and step-08 read. Absent/empty => anonymous-only warm.
+              */}}
               _creds_loaded=0
               _ghcr_user=""; _ghcr_pat=""
               _moth_user=""; _moth_pat=""
@@ -662,14 +712,16 @@ spec:
                   _moth_user=$(printf '%s' "${_ma}" | base64 -d | awk -F: '{print $1}')
                   _moth_pat=$(printf '%s' "${_ma}" | base64 -d | cut -d: -f2-)
                 fi
-                # An operator-supplied credential OVERRIDES the (possibly
-                # stripped) cutover one for the upstream registry host.
-                # #5640: bound to WARM_REGISTRY_HOST, NOT hard-wired to ghcr.io.
-                # The previous `&& [ "${WARM_REGISTRY_HOST}" = "ghcr.io" ]` meant
-                # an operator who mirrors the catalog into their own registry —
-                # the posture values.yaml explicitly documents — had their
-                # credential silently ignored and every private ref fell back to
-                # anonymous, which reads as "the image is missing".
+                {{- /*
+                 An operator-supplied credential OVERRIDES the (possibly
+                 stripped) cutover one for the upstream registry host.
+                 #5640: bound to WARM_REGISTRY_HOST, NOT hard-wired to ghcr.io.
+                 The previous `&& [ "${WARM_REGISTRY_HOST}" = "ghcr.io" ]` meant
+                 an operator who mirrors the catalog into their own registry —
+                 the posture values.yaml explicitly documents — had their
+                 credential silently ignored and every private ref fell back to
+                 anonymous, which reads as "the image is missing".
+                */}}
                 if [ -n "${WARM_CRED_SECRET_NAME}" ]; then
                   _wu=$(kubectl -n "${WARM_CRED_SECRET_NAMESPACE}" get secret "${WARM_CRED_SECRET_NAME}" -o "jsonpath={.data.${WARM_CRED_USERNAME_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
                   _wp=$(kubectl -n "${WARM_CRED_SECRET_NAMESPACE}" get secret "${WARM_CRED_SECRET_NAME}" -o "jsonpath={.data.${WARM_CRED_PASSWORD_KEY}}" 2>/dev/null | base64 -d 2>/dev/null || true)
@@ -692,10 +744,12 @@ spec:
                 esac
               }
 
-              # daytwo_manifest_present LOCAL_PATH -> 0 present, 1 absent.
-              # The SAME local-Harbor /v2 manifest HEAD step-08's completeness
-              # gate performs (3 attempts absorb a Harbor blip; a genuine 404
-              # is the signal).
+              {{- /*
+               daytwo_manifest_present LOCAL_PATH -> 0 present, 1 absent.
+               The SAME local-Harbor /v2 manifest HEAD step-08's completeness
+               gate performs (3 attempts absorb a Harbor blip; a genuine 404
+               is the signal).
+              */}}
               daytwo_manifest_present() {
                 _mp_lp="$1"
                 _mp_repo="${_mp_lp}"; _mp_ref="latest"
@@ -717,28 +771,32 @@ spec:
                 return 1
               }
 
-              # daytwo_warm_image UPSTREAM_REF LOCAL_PATH -> 0 warmed, 1 not.
-              # Byte-for-byte the step-08 #5194 self-heal copy: the same skopeo
-              # flags, the same #5095 mothership-proxy -> DIRECT inverse-map
-              # fallback, plus the #5525 scarf.sh -> mothership-proxy forward-map
-              # fallback step-03 copy_one carries. Source selection ONLY — the
-              # DEST is the resolver-derived local path, never re-derived here.
+              {{- /*
+               daytwo_warm_image UPSTREAM_REF LOCAL_PATH -> 0 warmed, 1 not.
+               Byte-for-byte the step-08 #5194 self-heal copy: the same skopeo
+               flags, the same #5095 mothership-proxy -> DIRECT inverse-map
+               fallback, plus the #5525 scarf.sh -> mothership-proxy forward-map
+               fallback step-03 copy_one carries. Source selection ONLY — the
+               DEST is the resolver-derived local path, never re-derived here.
+              */}}
               daytwo_warm_image() {
                 _wi_up=$(offlinemirror_normalize_ref "$1")
                 _wi_lp="$2"
                 _wi_lref="${LOCAL_REGISTRY_HOST}/${_wi_lp}"
-                # ── #5640 SOURCE INVERSION ────────────────────────────────────
-                # Post-cutover, step-07's pod-spec sweep has ALREADY rewritten
-                # this workload's image to registry.<fqdn>/<local-path>, so the
-                # ref enumerated off the live cluster carries NO upstream host.
-                # Copying it as the SOURCE asks skopeo to copy the local registry
-                # to itself, for an artifact the local registry just 404'd — it
-                # can never deliver anything, and it would report "copy failed"
-                # rather than "I do not know where this came from". That is the
-                # hw292 class exactly: catalyst-ui was pinned to a tag published
-                # after cutover, and its live ref was the pivoted one. Invert the
-                # SHARED 03a map (offlinemirror_upstream_ref) to recover the true
-                # upstream before copying.
+                {{- /*
+                 ── #5640 SOURCE INVERSION ────────────────────────────────────
+                 Post-cutover, step-07's pod-spec sweep has ALREADY rewritten
+                 this workload's image to registry.<fqdn>/<local-path>, so the
+                 ref enumerated off the live cluster carries NO upstream host.
+                 Copying it as the SOURCE asks skopeo to copy the local registry
+                 to itself, for an artifact the local registry just 404'd — it
+                 can never deliver anything, and it would report "copy failed"
+                 rather than "I do not know where this came from". That is the
+                 hw292 class exactly: catalyst-ui was pinned to a tag published
+                 after cutover, and its live ref was the pivoted one. Invert the
+                 SHARED 03a map (offlinemirror_upstream_ref) to recover the true
+                 upstream before copying.
+                */}}
                 case "${_wi_up}" in
                   "${LOCAL_REGISTRY_HOST}"/*)
                     _wi_inv=$(offlinemirror_upstream_ref "${_wi_up}" 2>/dev/null || true)
@@ -750,8 +808,10 @@ spec:
                     _wi_up="${_wi_inv}"
                     ;;
                 esac
-                # FAIL-CLOSED belt-and-braces: whatever the inversion produced,
-                # never let source and destination be the same registry.
+                {{- /*
+                 FAIL-CLOSED belt-and-braces: whatever the inversion produced,
+                 never let source and destination be the same registry.
+                */}}
                 if [ "${_wi_up%%/*}" = "${LOCAL_REGISTRY_HOST}" ]; then
                   echo "[daytwo] image delivery REFUSED ${_wi_up} -> ${_wi_lref}: source and destination are the SAME registry — a self-copy can only ever fail, and reporting it as a copy failure would hide the real defect (#5640)"
                   return 1
@@ -763,8 +823,10 @@ spec:
                 _wi_sc=$(daytwo_src_creds_for "${_wi_srchost}")
                 _wi_fb_up=""; _wi_fb_sc=""
                 if [ -n "${MOTHERSHIP_HOST:-}" ] && [ "${_wi_srchost}" = "${MOTHERSHIP_HOST}" ]; then
-                  # #5095 — INVERSE coverage-map walk: harbor.openova.io/proxy-<x>/<path>
-                  # -> the FIRST mapped host whose project is <x>. No second hand-list.
+                  {{- /*
+                   #5095 — INVERSE coverage-map walk: harbor.openova.io/proxy-<x>/<path>
+                   -> the FIRST mapped host whose project is <x>. No second hand-list.
+                  */}}
                   _wi_rest="${_wi_up#*/}"
                   case "${_wi_rest}" in
                     */*)
@@ -781,9 +843,11 @@ spec:
                       ;;
                   esac
                 elif [ -n "${MOTHERSHIP_HOST:-}" ]; then
-                  # #5525 — a *.docker.scarf.sh redirector shares Docker Hub's
-                  # ANONYMOUS per-IP quota, so its secondary source is the
-                  # mothership proxy, derived by the FORWARD map lookup.
+                  {{- /*
+                   #5525 — a *.docker.scarf.sh redirector shares Docker Hub's
+                   ANONYMOUS per-IP quota, so its secondary source is the
+                   mothership proxy, derived by the FORWARD map lookup.
+                  */}}
                   case "${_wi_srchost}" in
                     *.docker.scarf.sh)
                       _wi_sp=""
@@ -836,9 +900,11 @@ spec:
                 return 1
               }
 
-              # reconcile_images_once — the #5640 leg. Enumerate what the
-              # Sovereign's OWN GitOps declares, map each ref through the shared
-              # resolver, and assert the local Harbor can serve it.
+              {{- /*
+               reconcile_images_once — the #5640 leg. Enumerate what the
+               Sovereign's OWN GitOps declares, map each ref through the shared
+               resolver, and assert the local Harbor can serve it.
+              */}}
               CHART_PINS=0; CHART_PRESENT=0; CHART_WARMED=0; CHART_MISS=0; CHART_STATUS="skipped"
               IMAGE_REFS=0; IMAGE_PRESENT=0; IMAGE_WARMED=0; IMAGE_MISS=0; IMAGE_STATUS="skipped"
               MISSING_CHARTS_FILE="${WORK}/missing-charts.tsv"
@@ -856,10 +922,12 @@ spec:
                   IMAGE_STATUS="no-coverage-map"
                   return 1
                 fi
-                # running Pods ∪ declared workload templates — the #3944
-                # completeness union. The declared half is load-bearing HERE:
-                # the hw292 offender was in ImagePullBackOff, i.e. it had NO
-                # running container to enumerate.
+                {{- /*
+                 running Pods ∪ declared workload templates — the #3944
+                 completeness union. The declared half is load-bearing HERE:
+                 the hw292 offender was in ImagePullBackOff, i.e. it had NO
+                 running container to enumerate.
+                */}}
                 _running=$(kubectl get pods -A -o json 2>/dev/null | \
                   jq -r '.items[].spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null || true)
                 _declared=$(kubectl get deployments,statefulsets,daemonsets -A -o json 2>/dev/null | \
@@ -871,10 +939,12 @@ spec:
                 _imgs=$(printf '%s\n%s\n%s\n%s\n' "${_running}" "${_declared}" "${_cron}" "${_jobs}" | \
                   grep -E '^[^[:space:]]+$' | grep -v '^null$' | sort -u || true)
                 _n=$(printf '%s\n' "${_imgs}" | grep -c . || true)
-                # VACUITY GUARD. A zero-ref parse is NEVER "all clear" — it is a
-                # broken enumeration (RBAC lost, jq missing, API unreachable).
-                # Reporting it as green is precisely the failure mode that let
-                # #5640 stay invisible, so it is a loud, distinct outcome.
+                {{- /*
+                 VACUITY GUARD. A zero-ref parse is NEVER "all clear" — it is a
+                 broken enumeration (RBAC lost, jq missing, API unreachable).
+                 Reporting it as green is precisely the failure mode that let
+                 #5640 stay invisible, so it is a loud, distinct outcome.
+                */}}
                 if [ "${_n}" -eq 0 ]; then
                   echo "[daytwo] image leg: enumeration returned ZERO image refs — that is a broken read (RBAC/jq/apiserver), NOT an all-clear; skipping this cycle"
                   IMAGE_STATUS="enumeration-empty"
@@ -903,9 +973,11 @@ spec:
                       continue
                     fi
                     _code="${DAYTWO_LAST_CODE:-000}"
-                    # The upstream this local path came from — needed BOTH for
-                    # scope matching (so an operator can name the artifact in
-                    # upstream form) and for the copy itself.
+                    {{- /*
+                     The upstream this local path came from — needed BOTH for
+                     scope matching (so an operator can name the artifact in
+                     upstream form) and for the copy itself.
+                    */}}
                     _upref=$(offlinemirror_upstream_ref "${_img}" 2>/dev/null || true)
                     if daytwo_delivery_allowed "${_img}" "${_upref}" "${_lp}"; then
                       if daytwo_warm_image "${_img}" "${_lp}" && daytwo_manifest_present "${_lp}"; then
@@ -928,52 +1000,58 @@ spec:
                 return 0
               }
 
-              # ── #5640 leg 0: the CATALOG (git) pin ────────────────────────
-              # THE HEAD OF THE CHAIN. The chart leg below enumerates its pin set
-              # from the LOCAL GITEA MIRROR (`bootstrapkit_pins` over
-              # clusters/_template/bootstrap-kit at ${UPSTREAM_BRANCH}). Post
-              # cutover that mirror is FROZEN: `mirrorResync.enabled: false` is
-              # the deliberate Principle-14 severance (#2622/#3606 — an
+              {{- /*
+               ── #5640 leg 0: the CATALOG (git) pin ────────────────────────
+               THE HEAD OF THE CHAIN. The chart leg below enumerates its pin set
+               from the LOCAL GITEA MIRROR (`bootstrapkit_pins` over
+               clusters/_template/bootstrap-kit at ${UPSTREAM_BRANCH}). Post
+               cutover that mirror is FROZEN: `mirrorResync.enabled: false` is
+               the deliberate Principle-14 severance (#2622/#3606 — an
+              */}}
               # unattended */5 CronJob is a standing tether AND breaches the
-              # step-08 600s deny-egress hold), and nothing else re-runs step-01.
-              #
-              # So on a steady-state cut-over Sovereign the chart+image legs are
-              # STRUCTURALLY a no-op: they can only ever deliver artifacts for
-              # pins that already exist in the frozen mirror, and the frozen
-              # mirror by definition never names a version published after
-              # cutover. Measured on hw292 (dep 1c56518035a83e03, cc=true,
-              # 2026-08-06): local Gitea main@7bcd1d59, bootstrap-kit slot 06a
-              # still pinning bp-self-sovereign-cutover 0.1.159 while upstream
-              # main had moved to 0.1.169 — ten chart versions, zero arrived,
-              # and the chart leg correctly reported ALL_PINS_PRESENT the whole
-              # time because every FROZEN pin genuinely was present. That is the
-              # exact shape of "#5640 is invisible from the repo side".
-              #
-              # This leg closes it inside the SAME operator-gated window the
-              # artifact legs already use: one-shot, scope-bounded, audited,
-              # zero-egress-by-default. It writes INTO the local Gitea mirror; it
-              # does NOT repoint any Flux source. After the window closes Flux
-              # still reconciles EXCLUSIVELY from local Gitea + local Harbor, so
-              # Principle #11 / ADR-0002 hold literally — what P11 forbids is
-              # "reconciling Flux from github.com/openova-io/openova", not the
-              # operator refreshing their own mirror on their own schedule
-              # (CLAUDE.md §Customer-Sync makes that refresh canon).
-              #
-              # Ordering is load-bearing: this runs FIRST in the cycle so the
-              # freshly-synced pins are what the chart leg enumerates in the SAME
-              # open window. Running it last would sync the pins and then consume
-              # the request, leaving the new chart undeliverable until someone
-              # filed a SECOND request — the bootstrapping trap all over again,
-              # one layer up.
+              {{- /*
+               step-08 600s deny-egress hold), and nothing else re-runs step-01.
+
+               So on a steady-state cut-over Sovereign the chart+image legs are
+               STRUCTURALLY a no-op: they can only ever deliver artifacts for
+               pins that already exist in the frozen mirror, and the frozen
+               mirror by definition never names a version published after
+               cutover. Measured on hw292 (dep 1c56518035a83e03, cc=true,
+               2026-08-06): local Gitea main@7bcd1d59, bootstrap-kit slot 06a
+               still pinning bp-self-sovereign-cutover 0.1.159 while upstream
+               main had moved to 0.1.169 — ten chart versions, zero arrived,
+               and the chart leg correctly reported ALL_PINS_PRESENT the whole
+               time because every FROZEN pin genuinely was present. That is the
+               exact shape of "#5640 is invisible from the repo side".
+
+               This leg closes it inside the SAME operator-gated window the
+               artifact legs already use: one-shot, scope-bounded, audited,
+               zero-egress-by-default. It writes INTO the local Gitea mirror; it
+               does NOT repoint any Flux source. After the window closes Flux
+               still reconciles EXCLUSIVELY from local Gitea + local Harbor, so
+               Principle #11 / ADR-0002 hold literally — what P11 forbids is
+               "reconciling Flux from github.com/openova-io/openova", not the
+               operator refreshing their own mirror on their own schedule
+               (CLAUDE.md §Customer-Sync makes that refresh canon).
+
+               Ordering is load-bearing: this runs FIRST in the cycle so the
+               freshly-synced pins are what the chart leg enumerates in the SAME
+               open window. Running it last would sync the pins and then consume
+               the request, leaving the new chart undeliverable until someone
+               filed a SECOND request — the bootstrapping trap all over again,
+               one layer up.
+              */}}
               CATALOG_STATUS="disabled"
               CATALOG_SYNCED=0
-              # `CATALOG` must be named EXPLICITLY: ALL_MISSING deliberately does
-              # NOT imply it. ALL_MISSING means "fetch the artifacts I am already
-              # missing" — a bounded, known set. A catalog re-sync MOVES THE PINS
-              # THEMSELVES and can therefore trigger chart upgrades across the
-              # whole Sovereign. Folding that into a wildcard would let an
-              # operator who wanted two images get an unrequested platform-wide
-              # upgrade. Different blast radius ⇒ different opt-in.
+              {{- /*
+               `CATALOG` must be named EXPLICITLY: ALL_MISSING deliberately does
+               NOT imply it. ALL_MISSING means "fetch the artifacts I am already
+               missing" — a bounded, known set. A catalog re-sync MOVES THE PINS
+               THEMSELVES and can therefore trigger chart upgrades across the
+               whole Sovereign. Folding that into a wildcard would let an
+               operator who wanted two images get an unrequested platform-wide
+               upgrade. Different blast radius ⇒ different opt-in.
+              */}}
               catalog_in_scope() {
                 [ "${REQ_ACTIVE}" = "1" ] || return 1
                 grep -qx 'CATALOG' "${REQ_SCOPE_FILE}" 2>/dev/null && return 0
@@ -982,10 +1060,12 @@ spec:
 
               reconcile_catalog_once() {
                 CATALOG_SYNCED=0
-                # Audit identity. In warm mode there is no request, so REQ_ID /
-                # REQ_BY are empty — and warm is precisely the mode whose syncs
-                # most need an attributable record (it is the standing tether).
-                # Label them rather than emitting blank audit fields.
+                {{- /*
+                 Audit identity. In warm mode there is no request, so REQ_ID /
+                 REQ_BY are empty — and warm is precisely the mode whose syncs
+                 most need an attributable record (it is the standing tether).
+                 Label them rather than emitting blank audit fields.
+                */}}
                 _cat_id="${REQ_ID:-warm-mode}"
                 _cat_by="${REQ_BY:-standing-warm-posture}"
                 case "${RECONCILE_MODE}" in
@@ -1000,33 +1080,35 @@ spec:
                         return 0 ;;
                 esac
 
-                # #5759 — REFUSE-BY-DEFAULT. Measured live on hw292 (dep
-                # 1c56518035a83e03, cutoverComplete=true) 2026-08-06: this exact
-                # push reverted 62 of 69 region-a HelmRepositories from the
-                # local Harbor back to oci://ghcr.io/openova-io, with the
-                # ghcr-pull credential already stripped by step-06 (severance
-                # working as designed) — 44/72 HelmReleases went not-Ready and
-                # the Sovereign could not self-heal in-cluster (the only
-                # in-cluster remedy would be restoring the stripped upstream
-                # credential, i.e. re-tethering — exactly what cutover exists
-                # to prevent). Root cause, read off the push two lines below:
-                # `git push --force` against a bare clone of UPSTREAM, using
-                # the same explicit-refspec shape template 01 (gitea-mirror)
-                # uses, is a raw ref overwrite, not a merge.
-                # Step-06's durable "cutover: pivot N HelmRepository URLs to
-                # local Harbor" commit lives ONLY on this Sovereign's local
-                # `${UPSTREAM_BRANCH}` and is never reachable from a fresh
-                # upstream clone, so the force-push does not mask that commit,
-                # it DISCARDS it. There is today no merge-preserving
-                # alternative shipped, so this leg cannot guarantee the
-                # re-render preserves the cutover pivot — the exact guarantee
-                # #5759 requires before it may run. Refuse rather than revert
-                # silently. Gated on the LITERAL string 'false' (not merely
-                # "not true"): an unreadable/empty status ConfigMap is treated
-                # as cutover-complete for this check, fail-closed, the same
-                # posture step-08's per-region lint takes on an unmeasurable
-                # region (#5359) — "could not confirm this is safe" is never
-                # "safe".
+                {{- /*
+                 #5759 — REFUSE-BY-DEFAULT. Measured live on hw292 (dep
+                 1c56518035a83e03, cutoverComplete=true) 2026-08-06: this exact
+                 push reverted 62 of 69 region-a HelmRepositories from the
+                 local Harbor back to oci://ghcr.io/openova-io, with the
+                 ghcr-pull credential already stripped by step-06 (severance
+                 working as designed) — 44/72 HelmReleases went not-Ready and
+                 the Sovereign could not self-heal in-cluster (the only
+                 in-cluster remedy would be restoring the stripped upstream
+                 credential, i.e. re-tethering — exactly what cutover exists
+                 to prevent). Root cause, read off the push two lines below:
+                 `git push --force` against a bare clone of UPSTREAM, using
+                 the same explicit-refspec shape template 01 (gitea-mirror)
+                 uses, is a raw ref overwrite, not a merge.
+                 Step-06's durable "cutover: pivot N HelmRepository URLs to
+                 local Harbor" commit lives ONLY on this Sovereign's local
+                 `${UPSTREAM_BRANCH}` and is never reachable from a fresh
+                 upstream clone, so the force-push does not mask that commit,
+                 it DISCARDS it. There is today no merge-preserving
+                 alternative shipped, so this leg cannot guarantee the
+                 re-render preserves the cutover pivot — the exact guarantee
+                 #5759 requires before it may run. Refuse rather than revert
+                 silently. Gated on the LITERAL string 'false' (not merely
+                 "not true"): an unreadable/empty status ConfigMap is treated
+                 as cutover-complete for this check, fail-closed, the same
+                 posture step-08's per-region lint takes on an unmeasurable
+                 region (#5359) — "could not confirm this is safe" is never
+                 "safe".
+                */}}
                 if [ "${CUTOVER_COMPLETE:-}" != "false" ]; then
                   CATALOG_STATUS="blocked-post-cutover"
                   echo "[daytwo] catalog leg: REFUSING (#5759) — cutoverComplete='${CUTOVER_COMPLETE:-unreadable}' (expected the literal 'false' to proceed). Force-pushing ${UPSTREAM_REPO_URL} onto this Sovereign's local Gitea mirror would overwrite ${UPSTREAM_BRANCH} wholesale and silently discard step-06's durable HelmRepository-pivot commit, re-tethering every chart Flux re-renders to ghcr.io with no credential left to reach it (step-06 already stripped ghcr-pull auth by design). The mirror is UNCHANGED and the Sovereign keeps running on its current pins. No override exists for this refusal — a real fix needs a merge-preserving mirror mechanism, not a flag."
@@ -1052,15 +1134,17 @@ spec:
                   "${_cat_api}/branches/${UPSTREAM_BRANCH}" 2>/dev/null \
                   | jq -r '.commit.id // ""' 2>/dev/null || true)
 
-                # The push shape is step-01's, deliberately and exactly:
-                # bare clone + EXPLICIT refspecs. NEVER `git push --mirror` and
-                # never Gitea pull-mirror mode — both PRUNE refs the upstream
-                # does not have, which would clobber the sovereign-local refs
-                # step-06 (HelmRepository pivots) and step-07 (catalyst-api env)
-                # pushed into this very repo. That clobber is the G62/#3606
-                # regression; re-introducing it here would silently un-pivot the
-                # Sovereign back onto ghcr — a Principle-11 violation delivered
-                # by the very mechanism meant to preserve it.
+                {{- /*
+                 The push shape is step-01's, deliberately and exactly:
+                 bare clone + EXPLICIT refspecs. NEVER `git push --mirror` and
+                 never Gitea pull-mirror mode — both PRUNE refs the upstream
+                 does not have, which would clobber the sovereign-local refs
+                 step-06 (HelmRepository pivots) and step-07 (catalyst-api env)
+                 pushed into this very repo. That clobber is the G62/#3606
+                 regression; re-introducing it here would silently un-pivot the
+                 Sovereign back onto ghcr — a Principle-11 violation delivered
+                 by the very mechanism meant to preserve it.
+                */}}
                 _cat_work="${WORK}/catalog-sync"
                 rm -rf "${_cat_work}"; mkdir -p "${_cat_work}"
                 _cat_local="${GITEA_INTERNAL_URL%/}/${GITEA_ORG}/${GITEA_REPO}.git"
@@ -1103,8 +1187,10 @@ spec:
               reconcile_charts_once() {
                 : > "${MISSING_CHARTS_FILE}"
                 CHART_PINS=0; CHART_PRESENT=0; CHART_WARMED=0; CHART_MISS=0
-                # Idempotent pre-flight: pre-cutover (or before step-01 mirrored)
-                # the local Gitea repo isn't present — skip this iteration.
+                {{- /*
+                 Idempotent pre-flight: pre-cutover (or before step-01 mirrored)
+                 the local Gitea repo isn't present — skip this iteration.
+                */}}
                 if [ -n "${gitea_host}" ] && ! nslookup "${gitea_host}" >/dev/null 2>&1; then
                   echo "[daytwo] ${gitea_host} not resolvable yet — local Gitea not up (pre-cutover?); skipping the chart leg this cycle"
                   CHART_STATUS="gitea-absent"
@@ -1117,16 +1203,18 @@ spec:
                   return 1
                 fi
                 _api="${GITEA_INTERNAL_URL%/}/api/v1/repos/${GITEA_ORG}/${GITEA_REPO}"
-                # Repo present? (Not yet mirrored => nothing to reconcile.)
+                {{- /* Repo present? (Not yet mirrored => nothing to reconcile.) */}}
                 if ! curl -fsS --max-time 30 -H "Authorization: token ${_pat}" "${_api}" 2>/dev/null | grep -q '"full_name"'; then
                   echo "[daytwo] local repo ${GITEA_ORG}/${GITEA_REPO} not present yet — step-01 gitea-mirror has not completed; skipping the chart leg this cycle"
                   CHART_STATUS="repo-absent"
                   return 0
                 fi
 
-                # Fetch the freshly-synced bootstrap-kit slot files (contents+raw
-                # API, ~70 small text fetches — far lighter than a full clone),
-                # exactly as step-03 Phase A2-pins does.
+                {{- /*
+                 Fetch the freshly-synced bootstrap-kit slot files (contents+raw
+                 API, ~70 small text fetches — far lighter than a full clone),
+                 exactly as step-03 Phase A2-pins does.
+                */}}
                 _dir=/tmp/daytwo-bk; rm -rf "${_dir}"; mkdir -p "${_dir}"
                 _bkpath="clusters/_template/bootstrap-kit"
                 _list=$(curl -fsS --retry 3 --retry-delay 5 -H "Authorization: token ${_pat}" \
@@ -1145,7 +1233,7 @@ spec:
                 done
                 [ "${_ff}" -gt 0 ] && echo "[daytwo] WARN: ${_ff} slot file(s) failed to fetch this cycle — the pin set may be partial; retrying next interval will re-fetch"
 
-                # Shared 03b extractor — the SAME parser step-03 + step-06 use.
+                {{- /* Shared 03b extractor — the SAME parser step-03 + step-06 use. */}}
                 . /pin-extractor/extract-pins.sh
                 _pins=/tmp/daytwo-pins.tsv
                 bootstrapkit_pins "${_dir}" "${UPSTREAM_PREFIX}" "oci://${HARBOR_HOST}/openova-io" > "${_pins}" 2>/dev/null || true
@@ -1156,15 +1244,17 @@ spec:
                   return 1
                 fi
 
-                # Diff every frozen chart pin against local Harbor.
+                {{- /* Diff every frozen chart pin against local Harbor. */}}
                 while IFS="$(printf '\t')" read -r _c _v; do
                   [ -z "${_c}" ] && continue
                   if harbor_has "${_c}" "${_v}"; then
                     CHART_PRESENT=$((CHART_PRESENT+1)); continue
                   fi
-                  # Missing. Only an ALLOWED delivery may reach upstream — warm
-                  # always, request only for a chart this open window names as
-                  # `<chart>:<version>`. Re-check after.
+                  {{- /*
+                   Missing. Only an ALLOWED delivery may reach upstream — warm
+                   always, request only for a chart this open window names as
+                   `<chart>:<version>`. Re-check after.
+                  */}}
                   if daytwo_delivery_allowed "${_c}:${_v}" "" "${_c}:${_v}"; then
                     if warm_chart "${_c}" "${_v}" && harbor_has "${_c}" "${_v}"; then
                       CHART_WARMED=$((CHART_WARMED+1))
@@ -1184,11 +1274,13 @@ spec:
                 return 0
               }
 
-              # Publish the missing set to a durable ConfigMap (the offline-media
-              # manifest for air-gapped Sovereigns; the actionable signal for
-              # everyone). ALWAYS written — an empty manifest is the all-clear,
-              # and a leg that could not run says so EXPLICITLY rather than
-              # silently contributing zero misses.
+              {{- /*
+               Publish the missing set to a durable ConfigMap (the offline-media
+               manifest for air-gapped Sovereigns; the actionable signal for
+               everyone). ALWAYS written — an empty manifest is the all-clear,
+               and a leg that could not run says so EXPLICITLY rather than
+               silently contributing zero misses.
+              */}}
               publish_manifest() {
                 _mf="${WORK}/manifest.txt"
                 _total=$((CHART_MISS + IMAGE_MISS))
@@ -1214,37 +1306,41 @@ spec:
                   || echo "[daytwo] WARN: could not update ConfigMap ${RELEASE_NAMESPACE}/${MISSING_MANIFEST_CM} (logs still carry the manifest)"
               }
 
-              # ── #5759 CONTINUOUS SOURCE-HOST DRIFT LINT ──────────────────────
-              # Same host-classification shape as step-08's egressTest.
-              # fluxSourceHostLint (08-egress-block-test-job.yaml,
-              # run_flux_source_host_lint) — reused, not forked (single-source
-              # discipline: one allowlist, egressTest.fluxSourceHostLint.
-              # allowHosts, feeds both). The difference is WHEN it runs. That
-              # lint fires ONCE, inside the 600s deny-egress hold, at the
-              # ORIGINAL cutover, and is torn down with the hold — proving
-              # nothing about a re-render minutes, days or months later. This
-              # reconciler is a standing Deployment (#5157: a CronJob's
-              # scheduler dies with its region on a region-kill, so this is a
-              # Deployment on purpose), so its own copy keeps watching for the
-              # Sovereign's entire post-cutover life — INTERVAL-INDEPENDENT,
-              # per #5759 item 2 — and catches a revert from ANY cause: this
-              # reconciler's own (now-refused) CATALOG leg, a sovereign-admin
-              # re-stamping an unfixed step-01 PodSpec ConfigMap by hand via
-              # scripts/sovereign-daytwo-bootstrap.sh (chart-embedded fixes
-              # only protect a Sovereign already upgraded past this release),
-              # or a cause nobody has written yet. Measured live on hw292 (dep
-              # 1c56518035a83e03) 2026-08-06: 69/69 local HelmRepositories fell
-              # to 7/69 (62 reverted to ghcr.io) with nothing standing watch.
+              {{- /*
+               ── #5759 CONTINUOUS SOURCE-HOST DRIFT LINT ──────────────────────
+               Same host-classification shape as step-08's egressTest.
+               fluxSourceHostLint (08-egress-block-test-job.yaml,
+               run_flux_source_host_lint) — reused, not forked (single-source
+               discipline: one allowlist, egressTest.fluxSourceHostLint.
+               allowHosts, feeds both). The difference is WHEN it runs. That
+               lint fires ONCE, inside the 600s deny-egress hold, at the
+               ORIGINAL cutover, and is torn down with the hold — proving
+               nothing about a re-render minutes, days or months later. This
+               reconciler is a standing Deployment (#5157: a CronJob's
+               scheduler dies with its region on a region-kill, so this is a
+               Deployment on purpose), so its own copy keeps watching for the
+               Sovereign's entire post-cutover life — INTERVAL-INDEPENDENT,
+               per #5759 item 2 — and catches a revert from ANY cause: this
+               reconciler's own (now-refused) CATALOG leg, a sovereign-admin
+               re-stamping an unfixed step-01 PodSpec ConfigMap by hand via
+               scripts/sovereign-daytwo-bootstrap.sh (chart-embedded fixes
+               only protect a Sovereign already upgraded past this release),
+               or a cause nobody has written yet. Measured live on hw292 (dep
+               1c56518035a83e03) 2026-08-06: 69/69 local HelmRepositories fell
+               to 7/69 (62 reverted to ghcr.io) with nothing standing watch.
+              */}}
               run_daytwo_source_host_lint() {
                 DRIFT_STATUS="skipped"; DRIFT_COUNT=0
                 [ "${SOURCE_HOST_LINT_ENABLED}" = "true" ] || return 0
-                # Pre-cutover, external hosts are the NORMAL, correct state
-                # (nothing has been pivoted yet) — only assert once this
-                # Sovereign claims cutoverComplete=true. Fail-closed the other
-                # way from the catalog-leg refuse above: an unreadable status
-                # here must NOT manufacture a false drift report on a Sovereign
-                # that may still be mid-cutover, so this leg requires the
-                # LITERAL 'true' rather than "not 'false'".
+                {{- /*
+                 Pre-cutover, external hosts are the NORMAL, correct state
+                 (nothing has been pivoted yet) — only assert once this
+                 Sovereign claims cutoverComplete=true. Fail-closed the other
+                 way from the catalog-leg refuse above: an unreadable status
+                 here must NOT manufacture a false drift report on a Sovereign
+                 that may still be mid-cutover, so this leg requires the
+                 LITERAL 'true' rather than "not 'false'".
+                */}}
                 if [ "${CUTOVER_COMPLETE:-}" != "true" ]; then
                   DRIFT_STATUS="not-cutover"
                   return 0
@@ -1300,23 +1396,27 @@ spec:
                 return 0
               }
 
-              # #5640 FAIL-CLOSED readiness verdict. Written from the MEASURED
-              # cycle outcome, never from a knob: READY requires every enabled
-              # leg to have completed (status=ok) AND zero missing artifacts. A
-              # leg that could not run is NOT-READY — "I could not check" must
-              # never present as "all clear", which is the exact laundering that
-              # kept #5640 invisible.
+              {{- /*
+               #5640 FAIL-CLOSED readiness verdict. Written from the MEASURED
+               cycle outcome, never from a knob: READY requires every enabled
+               leg to have completed (status=ok) AND zero missing artifacts. A
+               leg that could not run is NOT-READY — "I could not check" must
+               never present as "all clear", which is the exact laundering that
+               kept #5640 invisible.
+              */}}
               publish_health() {
-                # CATALOG_STATUS is deliberately NOT a readiness input. Readiness
-                # here means a durable STATE — "this Sovereign holds a pin its
-                # registry cannot serve". `not-requested` is the normal, correct,
-                # sovereign steady state (no operator has opened a window), and a
-                # failed one-shot catalog sync is an EVENT, not a state: the
-                # Sovereign keeps running correctly on its current pins. Folding
-                # either into readiness would make every healthy cut-over
-                # Sovereign report 0/1 forever, which is how a real signal gets
-                # muted. The catalog outcome is carried by the audit ConfigMap,
-                # the cycle log line, and REQ_FAILED instead.
+                {{- /*
+                 CATALOG_STATUS is deliberately NOT a readiness input. Readiness
+                 here means a durable STATE — "this Sovereign holds a pin its
+                 registry cannot serve". `not-requested` is the normal, correct,
+                 sovereign steady state (no operator has opened a window), and a
+                 failed one-shot catalog sync is an EVENT, not a state: the
+                 Sovereign keeps running correctly on its current pins. Folding
+                 either into readiness would make every healthy cut-over
+                 Sovereign report 0/1 forever, which is how a real signal gets
+                 muted. The catalog outcome is carried by the audit ConfigMap,
+                 the cycle log line, and REQ_FAILED instead.
+                */}}
                 _ph_reason=""
                 if [ "${CHART_LEG_ENABLED}" = "true" ] && [ "${CHART_STATUS}" != "ok" ]; then
                   _ph_reason="chart-leg-${CHART_STATUS}"
@@ -1327,12 +1427,14 @@ spec:
                 if [ "$((CHART_MISS + IMAGE_MISS))" -gt 0 ]; then
                   _ph_reason="${_ph_reason:+${_ph_reason},}unpullable-pins=$((CHART_MISS + IMAGE_MISS))"
                 fi
-                # #5759 — UNLIKE CATALOG_STATUS above, source-host drift IS a
-                # readiness input: it is a durable STATE ("this cluster's Flux
-                # sources have reverted to a registry we deliberately no longer
-                # hold credentials for"), not a one-off event, and it stays
-                # true every cycle until a human fixes it. That is exactly the
-                # shape publish_health() exists to surface.
+                {{- /*
+                 #5759 — UNLIKE CATALOG_STATUS above, source-host drift IS a
+                 readiness input: it is a durable STATE ("this cluster's Flux
+                 sources have reverted to a registry we deliberately no longer
+                 hold credentials for"), not a one-off event, and it stays
+                 true every cycle until a human fixes it. That is exactly the
+                 shape publish_health() exists to surface.
+                */}}
                 if [ "${DRIFT_STATUS:-}" = "drifted" ]; then
                   _ph_reason="${_ph_reason:+${_ph_reason},}source-host-drift=${DRIFT_COUNT}"
                 elif [ "${DRIFT_STATUS:-}" = "unmeasurable" ] || [ "${DRIFT_STATUS:-}" = "scratch-unwritable" ]; then
@@ -1354,18 +1456,22 @@ spec:
                 IMAGE_REFS=0; IMAGE_PRESENT=0; IMAGE_WARMED=0; IMAGE_MISS=0
                 CATALOG_SYNCED=0
                 REQ_DELIVERED=0; REQ_FAILED=0
-                # #5759 — read fresh every cycle (never cached across cycles):
-                # gates the catalog leg's refuse-by-default AND the
-                # source-host drift lint below. Same ConfigMap+key
-                # scripts/sovereign-daytwo-bootstrap.sh and step-08 read.
+                {{- /*
+                 #5759 — read fresh every cycle (never cached across cycles):
+                 gates the catalog leg's refuse-by-default AND the
+                 source-host drift lint below. Same ConfigMap+key
+                 scripts/sovereign-daytwo-bootstrap.sh and step-08 read.
+                */}}
                 CUTOVER_COMPLETE=$(kubectl -n "${RELEASE_NAMESPACE}" get configmap "${STATUS_CONFIGMAP}" \
                   -o jsonpath='{.data.cutoverComplete}' 2>/dev/null || true)
                 daytwo_load_request
-                # Leg 0 FIRST — see reconcile_catalog_once's header. A catalog
-                # sync that landed AFTER the chart leg would move the pins and
-                # then have the window consumed under it, so the newly-pinned
-                # chart would need a SECOND request to be delivered. Running it
-                # first means one request moves the whole chain.
+                {{- /*
+                 Leg 0 FIRST — see reconcile_catalog_once's header. A catalog
+                 sync that landed AFTER the chart leg would move the pins and
+                 then have the window consumed under it, so the newly-pinned
+                 chart would need a SECOND request to be delivered. Running it
+                 first means one request moves the whole chain.
+                */}}
                 if [ "${CATALOG_LEG_ENABLED}" = "true" ]; then
                   reconcile_catalog_once || _rc=1
                 fi
@@ -1375,10 +1481,12 @@ spec:
                 if [ "${IMAGE_LEG_ENABLED}" = "true" ]; then
                   reconcile_images_once || _rc=1
                 fi
-                # #5759 — runs every cycle regardless of which legs are
-                # enabled: it watches the CLUSTER's Flux sources, not this
-                # reconciler's own actions, so it must not go blind just
-                # because an operator silenced CHART_LEG_ENABLED/etc.
+                {{- /*
+                 #5759 — runs every cycle regardless of which legs are
+                 enabled: it watches the CLUSTER's Flux sources, not this
+                 reconciler's own actions, so it must not go blind just
+                 because an operator silenced CHART_LEG_ENABLED/etc.
+                */}}
                 run_daytwo_source_host_lint || _rc=1
                 daytwo_consume_request
                 daytwo_audit_flush
@@ -1388,22 +1496,31 @@ spec:
                 return "${_rc}"
               }
 
+              {{- /* The next line stays a `#` comment: it is the truncation
+              point chart/tests/{daytwo-catalog-leg,daytwo-image-leg}.sh awk on
+              to strip the endless loop before sourcing the script under test
+              (`/^[[:space:]]*# The Day-2 loop\./{exit}`). Removing it from the
+              render hangs both tests rather than failing them. */}}
               # The Day-2 loop. Never exit on a transient cycle failure — a wedge
-              # in one cycle must not stop the reconciler (region-kill canon: the
-              # loop is the durable surface).
+              {{- /*
+               in one cycle must not stop the reconciler (region-kill canon: the
+               loop is the durable surface).
+              */}}
               while : ; do
                 reconcile_once || echo "[daytwo] this cycle could not complete fully (transient); retrying next interval"
                 echo "[daytwo] sleeping ${RECONCILE_INTERVAL_SECONDS}s"
                 sleep "${RECONCILE_INTERVAL_SECONDS}"
               done
-          # #5640 FAIL-CLOSED SURFACE. The loop writes READY into the health file
-          # only when its last cycle MEASURED every pinned chart + image as
-          # servable by the registry this Sovereign is permitted to use. So
-          # `kubectl get deploy cutover-daytwo-harbor-reconciler` reading 0/1 IS
-          # the statement "this Sovereign holds a pin it cannot pull" — a normal,
-          # alertable, non-silent condition instead of a log line and a ConfigMap
-          # nobody was watching. There is deliberately NO livenessProbe: a
-          # Sovereign that is missing an image must go NOT-READY, not restart.
+          {{- /*
+           #5640 FAIL-CLOSED SURFACE. The loop writes READY into the health file
+           only when its last cycle MEASURED every pinned chart + image as
+           servable by the registry this Sovereign is permitted to use. So
+           `kubectl get deploy cutover-daytwo-harbor-reconciler` reading 0/1 IS
+           the statement "this Sovereign holds a pin it cannot pull" — a normal,
+           alertable, non-silent condition instead of a log line and a ConfigMap
+           nobody was watching. There is deliberately NO livenessProbe: a
+           Sovereign that is missing an image must go NOT-READY, not restart.
+          */}}
           readinessProbe:
             exec:
               command: ["/bin/sh", "-c", "grep -qx READY /tmp/daytwo-work/health"]

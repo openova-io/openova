@@ -1,0 +1,17 @@
+# Files that must NOT ship inside the packaged chart (#6004).
+#
+# Everything a chart packages is stored, base64-encoded, inside every Helm
+# release Secret — and Kubernetes caps a Secret's data at 1048576 bytes. At
+# 0.1.177 this chart's tests/ directory alone was 527,883 of those bytes and
+# the install failed on hw293 with
+#
+#   Secret "sh.helm.release.v1.self-sovereign-cutover.v1" is invalid:
+#   data: Too long: must have at most 1048576 bytes
+#
+# tests/*.sh are CI-side chart tests. blueprint-release.yaml runs them with
+# `bash "$s" "$chart_dir"` against the WORKING TREE, never against the
+# package, so ignoring them here costs the gate nothing and removes ~300 KB
+# from the compressed payload of every release of this chart.
+#
+# scripts/check-helm-release-payload-size.py is the gate that measures this.
+tests/

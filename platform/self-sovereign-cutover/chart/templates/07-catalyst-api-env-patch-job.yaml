@@ -88,9 +88,11 @@ data:
     serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
     restartPolicy: Never
     activeDeadlineSeconds: {{ .Values.stepTimeouts.catalystAPIEnvPatchSeconds }}
-    # #5214 — re-assert gitea-admin-secret in the release namespace at step
-    # execution time (durable close of the #4557/#4558/#4661 recurrence class).
-    # See _helpers.tpl.
+    {{- /*
+     #5214 — re-assert gitea-admin-secret in the release namespace at step
+     execution time (durable close of the #4557/#4558/#4661 recurrence class).
+     See _helpers.tpl.
+    */}}
     initContainers:
       {{- include "bp-self-sovereign-cutover.giteaSecretSelfHealInitContainer" (dict "ctx" . "phase" "post") | nindent 6 }}
     containers:
@@ -106,34 +108,42 @@ data:
             value: {{ .Values.catalystAPI.envVar | quote }}
           - name: ENV_VAR_VALUE
             value: {{ printf "%s/%s/%s" .Values.sovereign.giteaInternalURL .Values.gitea.org .Values.gitea.repo | quote }}
-          # G61 (#2612): HR patch inputs.
+          {{- /* G61 (#2612): HR patch inputs. */}}
           - name: HR_NAME
             value: "bp-catalyst-platform"
           - name: HR_NAMESPACE
             value: "flux-system"
           - name: HARBOR_PUBLIC_URL
             value: {{ .Values.sovereign.harborPublicURL | quote }}
-          # #5527 Phase 3d: the org-services provisioning Deployment (per-Org
-          # GitOps tree generator) to stamp with the local OCI base.
+          {{- /*
+           #5527 Phase 3d: the org-services provisioning Deployment (per-Org
+           GitOps tree generator) to stamp with the local OCI base.
+          */}}
           - name: ORG_PROVISIONING_DEPLOYMENT
             value: {{ .Values.orgProvisioning.deploymentName | quote }}
           - name: ORG_PROVISIONING_NAMESPACE
             value: {{ .Values.orgProvisioning.namespace | quote }}
-          # #5439 Phase 3e: the Sovereign FQDN the local IMAGE registry host is
-          # derived from — harbor.<fqdn>, byte-identical to step-10's
-          # `target_host="harbor.${SOVEREIGN_FQDN}"`.
+          {{- /*
+           #5439 Phase 3e: the Sovereign FQDN the local IMAGE registry host is
+           derived from — harbor.<fqdn>, byte-identical to step-10's
+           `target_host="harbor.${SOVEREIGN_FQDN}"`.
+          */}}
           - name: SOVEREIGN_FQDN
             value: {{ .Values.sovereign.fqdn | quote }}
-          # #5439 Phase 3e: the org-controller Deployment — the generator that
-          # writes per-Org `vcluster/vcluster.yaml`. It is the writer that still
-          # held harbor.openova.io in HelmRelease uatco/vcluster on hw292 AFTER
-          # cutoverComplete=true, because no cutover step ever stamped it.
+          {{- /*
+           #5439 Phase 3e: the org-controller Deployment — the generator that
+           writes per-Org `vcluster/vcluster.yaml`. It is the writer that still
+           held harbor.openova.io in HelmRelease uatco/vcluster on hw292 AFTER
+           cutoverComplete=true, because no cutover step ever stamped it.
+          */}}
           - name: ORG_CONTROLLER_DEPLOYMENT
             value: {{ .Values.orgController.deploymentName | quote }}
           - name: ORG_CONTROLLER_NAMESPACE
             value: {{ .Values.orgController.namespace | quote }}
-          # G62 (#2613): Gitea persistence inputs — durable source-of-truth
-          # edit so Flux Kustomization doesn't revert the HR patch.
+          {{- /*
+           G62 (#2613): Gitea persistence inputs — durable source-of-truth
+           edit so Flux Kustomization doesn't revert the HR patch.
+          */}}
           - name: GITEA_INTERNAL_URL
             value: {{ .Values.sovereign.giteaInternalURL | quote }}
           - name: GITEA_USERNAME
@@ -150,18 +160,22 @@ data:
             value: {{ .Values.gitea.org | quote }}
           - name: GITEA_REPO
             value: {{ .Values.gitea.repo | quote }}
-          # #2940 Phase 3 (2026-06-03): the Sovereign's own public
-          # console URL — the pivot target for the catalyst-api env
-          # seams (pin/handover-JWT issuers + runtime-config console +
-          # api-public URLs). Overlay supplies
-          # https://console.${SOVEREIGN_FQDN} (same convention as
-          # sovereign.harborPublicURL / giteaPublicURL above).
+          {{- /*
+           #2940 Phase 3 (2026-06-03): the Sovereign's own public
+           console URL — the pivot target for the catalyst-api env
+           seams (pin/handover-JWT issuers + runtime-config console +
+           api-public URLs). Overlay supplies
+           https://console.${SOVEREIGN_FQDN} (same convention as
+           sovereign.harborPublicURL / giteaPublicURL above).
+          */}}
           - name: CONSOLE_PUBLIC_URL
             value: {{ .Values.sovereign.consolePublicURL | quote }}
-          # #4996 (Refs #4972 #4885) — pre-roll safety gate inputs.
-          # Harbor admin creds so the image-warmed gate can HEAD the PRIVATE
-          # openova-io project manifest before pivoting catalyst-api's registry
-          # (same Reflector-mirrored harbor-admin Secret steps 02/03 already use).
+          {{- /*
+           #4996 (Refs #4972 #4885) — pre-roll safety gate inputs.
+           Harbor admin creds so the image-warmed gate can HEAD the PRIVATE
+           openova-io project manifest before pivoting catalyst-api's registry
+           (same Reflector-mirrored harbor-admin Secret steps 02/03 already use).
+          */}}
           - name: HARBOR_USERNAME
             valueFrom:
               secretKeyRef:
@@ -185,25 +199,29 @@ data:
             value: {{ .Values.catalystAPI.rollSafety.evsGate.enabled | quote }}
           - name: EVS_CSI_ZONE_LABEL
             value: {{ .Values.catalystAPI.rollSafety.evsGate.zoneLabel | quote }}
-          # #4973 #4975 #4961 — pod-spec image sweep (COMPREHENSIVE registry pivot).
-          # The G61/#4563/#4885 HR patches above only reach images a chart routes
-          # THROUGH global.imageRegistry. Sidecar images pinned by full ref
-          # (evs-csi CSI sidecars #4973), controller/init images set OUTSIDE
-          # global.imageRegistry (continuum's prerequisite-check initContainer
-          # #4975), and emitter images (#4961) keep a NON-local pod-spec ref, which
-          # step-08's roll-set then rolls under deny-egress → ImagePullBackOff →
-          # cutoverComplete never sets. This sweep is the SUSPENDERS to the HR-pivot
-          # BELT: after the HR pivots, rewrite the registry host of EVERY container +
-          # initContainer of every external-registry workload to registry.<fqdn>
-          # using the SAME offline-mirror resolver step-03/04/08 share (no per-image
-          # / per-workload allowlist to drift). Same env the resolver needs.
+          {{- /*
+           #4973 #4975 #4961 — pod-spec image sweep (COMPREHENSIVE registry pivot).
+           The G61/#4563/#4885 HR patches above only reach images a chart routes
+           THROUGH global.imageRegistry. Sidecar images pinned by full ref
+           (evs-csi CSI sidecars #4973), controller/init images set OUTSIDE
+           global.imageRegistry (continuum's prerequisite-check initContainer
+           #4975), and emitter images (#4961) keep a NON-local pod-spec ref, which
+           step-08's roll-set then rolls under deny-egress → ImagePullBackOff →
+           cutoverComplete never sets. This sweep is the SUSPENDERS to the HR-pivot
+           BELT: after the HR pivots, rewrite the registry host of EVERY container +
+           initContainer of every external-registry workload to registry.<fqdn>
+           using the SAME offline-mirror resolver step-03/04/08 share (no per-image
+           / per-workload allowlist to drift). Same env the resolver needs.
+          */}}
           - name: PODSPEC_SWEEP
             value: {{ eq (toString .Values.imageRegistryPivot.podSpecSweep.enabled) "true" | quote }}
           - name: PODSPEC_SWEEP_EXCLUDE
             value: {{ .Values.imageRegistryPivot.podSpecSweep.excludeWorkloadSubstring | default "catalyst-api" | quote }}
-          # #5215 — "<ns>/<name>" storage/CSI-driver workloads the sweep MUST NOT
-          # roll (rolling csi-evs-node drops NodeStage globalmount for in-use EVS
-          # PVCs → catalyst-api wedges; step-04 containerd rewrite covers the pull).
+          {{- /*
+           #5215 — "<ns>/<name>" storage/CSI-driver workloads the sweep MUST NOT
+           roll (rolling csi-evs-node drops NodeStage globalmount for in-use EVS
+           PVCs → catalyst-api wedges; step-04 containerd rewrite covers the pull).
+          */}}
           - name: PODSPEC_SWEEP_EXCLUDE_WORKLOADS
             value: {{ .Values.imageRegistryPivot.podSpecSweep.excludeWorkloads | default (list) | join " " | quote }}
           - name: PODSPEC_SWEEP_PRESENCE_GATE
@@ -222,12 +240,14 @@ data:
             set -eu
             echo "[catalyst-api-env-patch] target=${DEPLOYMENT_NAMESPACE}/${DEPLOYMENT_NAME}"
 
-            # #4973 #4975 #4961 — the offline-mirror image→local-path resolver
-            # (shared with step-03/step-08). Defines offlinemirror_local_paths over
-            # the SAME HOST_PROJECT_MAP / EXCLUDED_* / LOCAL_REGISTRY_HOST env, so the
-            # pod-spec sweep (Phase 4 below) rewrites each container image to the EXACT
-            # local Harbor path step-03 pushed it to. Guard the source so a missing
-            # mount degrades to "sweep disabled" (fail-open), never a wedged step.
+            {{- /*
+             #4973 #4975 #4961 — the offline-mirror image→local-path resolver
+             (shared with step-03/step-08). Defines offlinemirror_local_paths over
+             the SAME HOST_PROJECT_MAP / EXCLUDED_* / LOCAL_REGISTRY_HOST env, so the
+             pod-spec sweep (Phase 4 below) rewrites each container image to the EXACT
+             local Harbor path step-03 pushed it to. Guard the source so a missing
+             mount degrades to "sweep disabled" (fail-open), never a wedged step.
+            */}}
             if [ -r /resolver/resolver.sh ]; then
               . /resolver/resolver.sh
             else
@@ -235,35 +255,41 @@ data:
               PODSPEC_SWEEP="false"
             fi
 
-            # ═══ #4973 #4975 #4961 pod-spec image sweep helpers ═══════════════
-            # The COMPREHENSIVE registry pivot. The HR global.imageRegistry patches
-            # below only reach images a chart routes through that value; these
-            # helpers rewrite the registry host of EVERY container + initContainer
-            # of every external-registry workload directly in its live pod-spec, so
-            # the fix does not depend on each chart helper being registry-aware
-            # (the recurring whack-a-mole: evs-csi CSI sidecars #4973, continuum's
-            # prerequisite-check initContainer #4975, flow-emitter #4961). Defined
-            # here; CALLED as Phase 4 after the HR pivots below.
+            {{- /*
+             ═══ #4973 #4975 #4961 pod-spec image sweep helpers ═══════════════
+             The COMPREHENSIVE registry pivot. The HR global.imageRegistry patches
+             below only reach images a chart routes through that value; these
+             helpers rewrite the registry host of EVERY container + initContainer
+             of every external-registry workload directly in its live pod-spec, so
+             the fix does not depend on each chart helper being registry-aware
+             (the recurring whack-a-mole: evs-csi CSI sidecars #4973, continuum's
+             prerequisite-check initContainer #4975, flow-emitter #4961). Defined
+             here; CALLED as Phase 4 after the HR pivots below.
+            */}}
 
-            # podspec_pivot_ref IMAGE -> the local-Harbor ref this image pivots to,
-            # or EMPTY to leave it alone (already local / excluded / unmapped). Reuses
-            # offlinemirror_local_paths so the target path is byte-identical to what
-            # step-03 pushed + step-08's completeness gate HEADs. For an openova-io
-            # ghcr ref the resolver returns BOTH the proxy-ghcr path AND the host-drop
-            # openova-io/<path>; we prefer the host-drop convention (what step-06/07
-            # produce, registry.<fqdn>/openova-io/…), else the single mapped path.
+            {{- /*
+             podspec_pivot_ref IMAGE -> the local-Harbor ref this image pivots to,
+             or EMPTY to leave it alone (already local / excluded / unmapped). Reuses
+             offlinemirror_local_paths so the target path is byte-identical to what
+             step-03 pushed + step-08's completeness gate HEADs. For an openova-io
+             ghcr ref the resolver returns BOTH the proxy-ghcr path AND the host-drop
+             openova-io/<path>; we prefer the host-drop convention (what step-06/07
+             produce, registry.<fqdn>/openova-io/…), else the single mapped path.
+            */}}
             podspec_pivot_ref() {
               _pi_img="$1"
               [ -n "${_pi_img}" ] || { printf ''; return 0; }
-              # Already on the local registry → nothing to do (idempotent).
+              {{- /* Already on the local registry → nothing to do (idempotent). */}}
               case "${_pi_img}" in
                 "${LOCAL_REGISTRY_HOST}"/*) printf ''; return 0 ;;
               esac
-              # Only pivot images with an EXPLICIT external registry host (dotted /
-              # :port / localhost) — mirrors step-08's roll-set exactly. A bare
-              # `name[:tag]` or an implicit-docker.io `ns/name` (first segment has no
-              # dot) is NOT in step-08's roll-set and is already handled by the
-              # containerd mirror, so pivoting it would add needless rollout churn.
+              {{- /*
+               Only pivot images with an EXPLICIT external registry host (dotted /
+               :port / localhost) — mirrors step-08's roll-set exactly. A bare
+               `name[:tag]` or an implicit-docker.io `ns/name` (first segment has no
+               dot) is NOT in step-08's roll-set and is already handled by the
+               containerd mirror, so pivoting it would add needless rollout churn.
+              */}}
               case "${_pi_img}" in
                 */*)
                   _pi_host="${_pi_img%%/*}"
@@ -289,11 +315,13 @@ data:
               printf '%s/%s' "${LOCAL_REGISTRY_HOST}" "${_pi_chosen}"
             }
 
-            # podspec_local_present LOCAL_REF -> 0 iff the local Harbor already serves
-            # this manifest. Never pivot a pod-spec onto an image the mirror cannot
-            # serve — leave it for step-08's completeness gate to name as the real
-            # offender rather than introducing a sweep-induced ImagePullBackOff.
-            # Handles both :tag and @digest refs (same split step-08 uses).
+            {{- /*
+             podspec_local_present LOCAL_REF -> 0 iff the local Harbor already serves
+             this manifest. Never pivot a pod-spec onto an image the mirror cannot
+             serve — leave it for step-08's completeness gate to name as the real
+             offender rather than introducing a sweep-induced ImagePullBackOff.
+             Handles both :tag and @digest refs (same split step-08 uses).
+            */}}
             podspec_local_present() {
               _pl_hp="${1#*/}"                       # drop the local host
               case "${_pl_hp}" in
@@ -307,18 +335,20 @@ data:
               case "${_pl_code}" in 200|301|302) return 0 ;; *) return 1 ;; esac
             }
 
-            # sweep_one_workload KIND NS NAME — rewrite every container + initContainer
-            # image of ONE workload to its local-Harbor ref via a strategic-merge patch
-            # (merge key = container name → only .image changes). Records the pre-sweep
-            # images in the bp.openova.io/cutover-podspec-preimage annotation so the
-            # pivot is auditable + reversible on rollback. Best-effort/idempotent.
+            {{- /*
+             sweep_one_workload KIND NS NAME — rewrite every container + initContainer
+             image of ONE workload to its local-Harbor ref via a strategic-merge patch
+             (merge key = container name → only .image changes). Records the pre-sweep
+             images in the bp.openova.io/cutover-podspec-preimage annotation so the
+             pivot is auditable + reversible on rollback. Best-effort/idempotent.
+            */}}
             sweep_one_workload() {
               _sw_kind="$1"; _sw_ns="$2"; _sw_name="$3"
               _sw_json=$(kubectl get "${_sw_kind}" "${_sw_name}" -n "${_sw_ns}" -o json 2>/dev/null || true)
               [ -n "${_sw_json}" ] || return 0
               _sw_changes="/tmp/podspec-sweep-${_sw_kind}-${_sw_ns}-${_sw_name}.$$"
               : > "${_sw_changes}"
-              # Rows: "<containers|initContainers>\t<name>\t<image>"
+              {{- /* Rows: "<containers|initContainers>\t<name>\t<image>" */}}
               printf '%s' "${_sw_json}" | jq -r '
                 (.spec.template.spec.containers // [])[]     | "containers\t\(.name)\t\(.image)",
                 (.spec.template.spec.initContainers // [])[] | "initContainers\t\(.name)\t\(.image)"
@@ -334,7 +364,7 @@ data:
                 printf '%s\t%s\t%s\t%s\n' "${_sw_ctype}" "${_sw_cname}" "${_sw_cimg}" "${_sw_new}" >> "${_sw_changes}"
               done
               if [ ! -s "${_sw_changes}" ]; then rm -f "${_sw_changes}"; return 0; fi
-              # Build the strategic-merge patch + pre-image annotation from the changes.
+              {{- /* Build the strategic-merge patch + pre-image annotation from the changes. */}}
               _sw_patch=$(jq -Rn '
                 [inputs | split("\t") | {ctype: .[0], name: .[1], old: .[2], new: .[3]}]
                 | {
@@ -361,12 +391,14 @@ data:
               rm -f "${_sw_changes}"
             }
 
-            # sweep_workload_podspec_images — discover every external-registry workload
-            # (Deployment/DaemonSet/StatefulSet, any ns) EXACTLY as step-08's roll-set
-            # does, and pivot each one's pod-spec images to local. After this, step-08
-            # finds no external-registry workload left to roll (or every remaining one
-            # is a real un-mirrored offender its completeness gate already named). Not
-            # an allowlist — the discovery is generic; the exclusions mirror step-08's.
+            {{- /*
+             sweep_workload_podspec_images — discover every external-registry workload
+             (Deployment/DaemonSet/StatefulSet, any ns) EXACTLY as step-08's roll-set
+             does, and pivot each one's pod-spec images to local. After this, step-08
+             finds no external-registry workload left to roll (or every remaining one
+             is a real un-mirrored offender its completeness gate already named). Not
+             an allowlist — the discovery is generic; the exclusions mirror step-08's.
+            */}}
             sweep_workload_podspec_images() {
               [ "${PODSPEC_SWEEP:-true}" = "true" ] || { echo "[catalyst-api-env-patch] #4973/#4975/#4961 pod-spec image sweep DISABLED (PODSPEC_SWEEP=${PODSPEC_SWEEP:-})"; return 0; }
               command -v offlinemirror_local_paths >/dev/null 2>&1 || { echo "[catalyst-api-env-patch] WARN resolver not sourced — pod-spec sweep skipped"; return 0; }
@@ -378,20 +410,24 @@ data:
                   -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null \
                 | while IFS=' ' read -r _sw_ns _sw_name; do
                     [ -n "${_sw_ns}" ] && [ -n "${_sw_name}" ] || continue
-                    # Never sweep the cutover engine's own catalyst-api (pivoted via
-                    # the bp-catalyst-platform HR + env roll below).
+                    {{- /*
+                     Never sweep the cutover engine's own catalyst-api (pivoted via
+                     the bp-catalyst-platform HR + env roll below).
+                    */}}
                     if [ -n "${PODSPEC_SWEEP_EXCLUDE:-}" ]; then
                       case "${_sw_name}" in *"${PODSPEC_SWEEP_EXCLUDE}"*) continue ;; esac
                     fi
-                    # #5215 — never sweep a storage/CSI-driver workload. Rewriting
-                    # its pod-spec image rolls the driver Pod (csi-evs-node
-                    # DaemonSet), which drops the node-side NodeStage globalmount for
-                    # already-attached EVS volumes → every EVS-backed pod that
-                    # remounts on that node fails `globalmount does not exist` (exit
-                    # 32) and catalyst-api (RWO-EVS, also rolling in step-07) wedges.
-                    # step-04's containerd certs.d rewrite already resolves the CSI
-                    # images to local WITHOUT a roll; step-08 excludes the same
-                    # drivers (#5074). Exact "<ns>/<name>" match.
+                    {{- /*
+                     #5215 — never sweep a storage/CSI-driver workload. Rewriting
+                     its pod-spec image rolls the driver Pod (csi-evs-node
+                     DaemonSet), which drops the node-side NodeStage globalmount for
+                     already-attached EVS volumes → every EVS-backed pod that
+                     remounts on that node fails `globalmount does not exist` (exit
+                     32) and catalyst-api (RWO-EVS, also rolling in step-07) wedges.
+                     step-04's containerd certs.d rewrite already resolves the CSI
+                     images to local WITHOUT a roll; step-08 excludes the same
+                     drivers (#5074). Exact "<ns>/<name>" match.
+                    */}}
                     _sw_skip=0
                     for _sw_x in ${PODSPEC_SWEEP_EXCLUDE_WORKLOADS:-}; do
                       if [ "${_sw_ns}/${_sw_name}" = "${_sw_x}" ]; then _sw_skip=1; break; fi
@@ -406,28 +442,34 @@ data:
               echo "[catalyst-api-env-patch] #4973/#4975/#4961 pod-spec image sweep complete"
             }
 
-            # ═══ #4996 (Refs #4972 #4885) pre-roll safety gates ═══════════════
-            # Step-07 pivots catalyst-api's imageRegistry → local Harbor then rolls
-            # the Deployment (Recreate). On kom4dc that wedged TWO ways (hw240):
-            #   (a) the pivoted image wasn't cleanly pullable from local Harbor
-            #       during a transient gateway blip → ImagePullBackOff cascade;
-            #   (b) the old Recreate pod's RWO-EVS PVCs didn't detach (worse on a
-            #       broken-CSI node with no topology.evs.csi.huaweicloud.com/zone),
-            #       so the new pod hit Multi-Attach and never scheduled (#4972).
-            # These gates make the roll bounded + self-healing + idempotent. ALL
-            # are toggle-able + FAIL-OPEN: a tooling gap never wedges the cutover
-            # worse than the prior blind roll. They are DEFINED here and CALLED
-            # just before the imageRegistry pivot / around each rollout wait below.
+            {{- /*
+             ═══ #4996 (Refs #4972 #4885) pre-roll safety gates ═══════════════
+             Step-07 pivots catalyst-api's imageRegistry → local Harbor then rolls
+             the Deployment (Recreate). On kom4dc that wedged TWO ways (hw240):
+               (a) the pivoted image wasn't cleanly pullable from local Harbor
+                   during a transient gateway blip → ImagePullBackOff cascade;
+               (b) the old Recreate pod's RWO-EVS PVCs didn't detach (worse on a
+                   broken-CSI node with no topology.evs.csi.huaweicloud.com/zone),
+                   so the new pod hit Multi-Attach and never scheduled (#4972).
+             These gates make the roll bounded + self-healing + idempotent. ALL
+             are toggle-able + FAIL-OPEN: a tooling gap never wedges the cutover
+             worse than the prior blind roll. They are DEFINED here and CALLED
+             just before the imageRegistry pivot / around each rollout wait below.
+            */}}
 
-            # Newest live image the catalyst-api Deployment declares (chart-pinned;
-            # the pivot keeps the SAME tag, only the registry host changes).
+            {{- /*
+             Newest live image the catalyst-api Deployment declares (chart-pinned;
+             the pivot keeps the SAME tag, only the registry host changes).
+            */}}
             ca_current_image() {
               kubectl get deploy "${DEPLOYMENT_NAME}" -n "${DEPLOYMENT_NAMESPACE}" \
                 -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true
             }
-            # HEAD a manifest against local Harbor (authenticated — the openova-io
-            # project is PRIVATE). ANY 200/redirect = present. -k tolerates the
-            # LE-staging wildcard on a fresh prov.
+            {{- /*
+             HEAD a manifest against local Harbor (authenticated — the openova-io
+             project is PRIVATE). ANY 200/redirect = present. -k tolerates the
+             LE-staging wildcard on a fresh prov.
+            */}}
             harbor_manifest_present() {
               _hm_ref="$1"; _hm_hp="${_hm_ref#*/}"; _hm_path="${_hm_hp%:*}"; _hm_tag="${_hm_hp##*:}"
               _hm_code=$(curl -sk -o /dev/null -w '%{http_code}' \
@@ -436,16 +478,20 @@ data:
                 -I "${HARBOR_PUBLIC_URL}/v2/${_hm_path}/manifests/${_hm_tag}" 2>/dev/null || true)
               case "${_hm_code}" in 200|301|302) return 0 ;; *) return 1 ;; esac
             }
-            # (a) image-warmed gate: refuse to pivot catalyst-api onto an image the
-            # local Harbor cannot yet serve. Bounded poll (step-03 pushes it, so it
-            # is normally already present); FATAL loudly on a genuine miss so the
-            # cutover stays PRE-PIVOT/recoverable instead of half-pivoted+wedged.
+            {{- /*
+             (a) image-warmed gate: refuse to pivot catalyst-api onto an image the
+             local Harbor cannot yet serve. Bounded poll (step-03 pushes it, so it
+             is normally already present); FATAL loudly on a genuine miss so the
+             cutover stays PRE-PIVOT/recoverable instead of half-pivoted+wedged.
+            */}}
             image_warmed_gate() {
               [ "${IMAGE_WARMED_GATE:-true}" = "true" ] || { echo "[catalyst-api-env-patch] #4996 image-warmed gate DISABLED"; return 0; }
               _iw_img=$(ca_current_image)
               [ -z "${_iw_img}" ] && { echo "[catalyst-api-env-patch] #4996 image-warmed gate: cannot read catalyst-api image — skipping (fail-open)"; return 0; }
-              # host-drop the registry prefix (the openova-io host-drop convention
-              # step-03 Phase A pushed to + the chart re-renders post-pivot).
+              {{- /*
+               host-drop the registry prefix (the openova-io host-drop convention
+               step-03 Phase A pushed to + the chart re-renders post-pivot).
+              */}}
               _iw_rest="${_iw_img}"
               case "${_iw_img%%/*}" in *.*|*:*|localhost) _iw_rest="${_iw_img#*/}" ;; esac
               _iw_local="${HARBOR_HOST}/${_iw_rest}"
@@ -465,8 +511,10 @@ data:
               done
             }
 
-            # catalyst-api's PVC-backed volumes → the PV names a Recreate roll must
-            # re-attach (the RWO-EVS Multi-Attach surface).
+            {{- /*
+             catalyst-api's PVC-backed volumes → the PV names a Recreate roll must
+             re-attach (the RWO-EVS Multi-Attach surface).
+            */}}
             ca_pv_names() {
               for _c in $(kubectl get deploy "${DEPLOYMENT_NAME}" -n "${DEPLOYMENT_NAMESPACE}" \
                   -o jsonpath='{range .spec.template.spec.volumes[*]}{.persistentVolumeClaim.claimName}{"\n"}{end}' 2>/dev/null); do
@@ -475,12 +523,14 @@ data:
                 echo
               done | grep -v '^$' | sort -u || true
             }
-            # (b) EVS detach-gate: force-delete VolumeAttachments that bind
-            # catalyst-api's OWN PVs to a node that NO LONGER runs a catalyst-api
-            # pod. Such an attachment is unambiguously STALE (the pod that needed it
-            # is gone) and is the Multi-Attach deadlock source (#4972). SAFE by
-            # construction — it never touches an attachment on a node with a live
-            # catalyst-api pod, nor any non-catalyst-api PV.
+            {{- /*
+             (b) EVS detach-gate: force-delete VolumeAttachments that bind
+             catalyst-api's OWN PVs to a node that NO LONGER runs a catalyst-api
+             pod. Such an attachment is unambiguously STALE (the pod that needed it
+             is gone) and is the Multi-Attach deadlock source (#4972). SAFE by
+             construction — it never touches an attachment on a node with a live
+             catalyst-api pod, nor any non-catalyst-api PV.
+            */}}
             evs_detach_gate() {
               [ "${EVS_GATE:-true}" = "true" ] || return 0
               _dg_pvs=$(ca_pv_names)
@@ -500,12 +550,14 @@ data:
                   done
             }
 
-            # (c) broken-CSI node gate: on a Huawei-EVS cluster a node missing the
-            # EVS zone label cannot attach EVS volumes — a Recreate roll landing
-            # catalyst-api there Multi-Attach-deadlocks (#4972 wd2ab90). Cordon
-            # every such node BEFORE the roll so the scheduler places the new pod on
-            # a healthy node, and drain catalyst-api off a broken node first. No-op
-            # off Huawei (no node carries the zone label → Hetzner hcloud-csi path).
+            {{- /*
+             (c) broken-CSI node gate: on a Huawei-EVS cluster a node missing the
+             EVS zone label cannot attach EVS volumes — a Recreate roll landing
+             catalyst-api there Multi-Attach-deadlocks (#4972 wd2ab90). Cordon
+             every such node BEFORE the roll so the scheduler places the new pod on
+             a healthy node, and drain catalyst-api off a broken node first. No-op
+             off Huawei (no node carries the zone label → Hetzner hcloud-csi path).
+            */}}
             preroll_node_prep() {
               [ "${EVS_GATE:-true}" = "true" ] || return 0
               [ -n "${EVS_CSI_ZONE_LABEL:-}" ] || return 0
@@ -528,10 +580,12 @@ data:
                 echo "[catalyst-api-env-patch] #4996 EVS gate: cordoning broken-CSI node ${_n} (missing ${EVS_CSI_ZONE_LABEL}; RWO-EVS attach would Multi-Attach deadlock the roll — #4972)"
                 kubectl cordon "${_n}" >/dev/null 2>&1 || echo "[catalyst-api-env-patch] #4996 WARN cordon ${_n} failed (best-effort)"
               done
-              # drain-old-pod-first: if the current catalyst-api pod is on a broken
-              # node, delete it now so its EVS detaches + it reschedules onto a
-              # healthy node BEFORE the Recreate roll (so its stale attachment can't
-              # then linger to Multi-Attach the new pod).
+              {{- /*
+               drain-old-pod-first: if the current catalyst-api pod is on a broken
+               node, delete it now so its EVS detaches + it reschedules onto a
+               healthy node BEFORE the Recreate roll (so its stale attachment can't
+               then linger to Multi-Attach the new pod).
+              */}}
               kubectl get pods -n "${DEPLOYMENT_NAMESPACE}" \
                 -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.nodeName}{"\n"}{end}' 2>/dev/null \
                 | grep -E "^${DEPLOYMENT_NAME}-" \
@@ -545,16 +599,18 @@ data:
                       fi
                     done
                   done
-              # a freshly-drained pod leaves a stale attachment for a beat — clear it.
+              {{- /* a freshly-drained pod leaves a stale attachment for a beat — clear it. */}}
               evs_detach_gate
             }
 
-            # Deadlock-aware replacement for the blind `kubectl rollout status
-            # --timeout=300s`. Distinguishes ImagePullBackOff (image is confirmed in
-            # local Harbor by the warmed gate → self-heals, keep waiting) from a
-            # volume-attach deadlock (run the safe detach-gate after a grace period).
-            # Bounded by ROLL_BUDGET_SECONDS; a final blocking status check drives
-            # the step's pass/fail so a genuine failure is a clean recoverable exit.
+            {{- /*
+             Deadlock-aware replacement for the blind `kubectl rollout status
+             --timeout=300s`. Distinguishes ImagePullBackOff (image is confirmed in
+             local Harbor by the warmed gate → self-heals, keep waiting) from a
+             volume-attach deadlock (run the safe detach-gate after a grace period).
+             Bounded by ROLL_BUDGET_SECONDS; a final blocking status check drives
+             the step's pass/fail so a genuine failure is a clean recoverable exit.
+            */}}
             roll_and_wait_catalyst_api() {
               _rw_why="$1"
               if [ "${ROLL_SAFETY:-true}" != "true" ]; then
@@ -569,7 +625,7 @@ data:
                   echo "[catalyst-api-env-patch] #4996 rollout complete (${_rw_why})"
                   return 0
                 fi
-                # newest catalyst-api pod (ISO8601 creationTimestamp sorts chrono).
+                {{- /* newest catalyst-api pod (ISO8601 creationTimestamp sorts chrono). */}}
                 _rw_pod=$(kubectl get pods -n "${DEPLOYMENT_NAMESPACE}" \
                   -o jsonpath='{range .items[*]}{.metadata.creationTimestamp}{"\t"}{.metadata.name}{"\n"}{end}' 2>/dev/null \
                   | grep -E "${DEPLOYMENT_NAME}-" | sort | tail -1 | awk -F'\t' '{print $2}')
@@ -580,10 +636,12 @@ data:
                     *ImagePullBackOff*|*ErrImagePull*)
                       echo "[catalyst-api-env-patch] #4996 rollout wait: ${_rw_pod} pulling image (${_rw_wait% }); image confirmed in local Harbor by the warmed gate — pull self-heals, keep waiting" ;;
                     *)
-                      # Not an image-pull stall. After a grace period (so a HEALTHY
-                      # roll that completes in <grace is never touched), run the
-                      # safe detach-gate — it only deletes provably-stale
-                      # catalyst-api attachments (the #4972 Multi-Attach un-stick).
+                      {{- /*
+                       Not an image-pull stall. After a grace period (so a HEALTHY
+                       roll that completes in <grace is never touched), run the
+                       safe detach-gate — it only deletes provably-stale
+                       catalyst-api attachments (the #4972 Multi-Attach un-stick).
+                      */}}
                       if [ $(( $(date +%s) - _rw_start )) -gt "${ROLL_DETACH_GRACE:-60}" ]; then
                         evs_detach_gate
                       fi ;;
@@ -598,38 +656,44 @@ data:
               done
             }
 
-            # ─── #4996 gates fire BEFORE the imageRegistry pivot (which rolls
-            # catalyst-api via Flux) so nothing pivots onto an unpullable image or
-            # onto a broken-CSI node. image_warmed_gate FATALs pre-pivot on a
-            # genuine miss; preroll_node_prep is best-effort.
+            {{- /*
+             ─── #4996 gates fire BEFORE the imageRegistry pivot (which rolls
+             catalyst-api via Flux) so nothing pivots onto an unpullable image or
+             onto a broken-CSI node. image_warmed_gate FATALs pre-pivot on a
+             genuine miss; preroll_node_prep is best-effort.
+            */}}
             HARBOR_HOST=$(echo "${HARBOR_PUBLIC_URL}" | sed -e 's|^https\?://||' -e 's|/.*$||')
             image_warmed_gate || exit 1
             preroll_node_prep || true
 
-            # G61 Phase 1: patch HR.spec.values.global.imageRegistry
-            # so Flux helm-controller upgrades catalyst-api Deployment
-            # to the Sovereign-local Harbor proxy image. Without this,
-            # the chart's templated images would render with the
-            # default ghcr.io registry and post-cutover Pod CREATE
-            # would be denied by harbor-proxy-pull policy (verified
-            # live hw68 v17 G60 admission test).
+            {{- /*
+             G61 Phase 1: patch HR.spec.values.global.imageRegistry
+             so Flux helm-controller upgrades catalyst-api Deployment
+             to the Sovereign-local Harbor proxy image. Without this,
+             the chart's templated images would render with the
+             default ghcr.io registry and post-cutover Pod CREATE
+             would be denied by harbor-proxy-pull policy (verified
+             live hw68 v17 G60 admission test).
+            */}}
             HARBOR_HOST=$(echo "${HARBOR_PUBLIC_URL}" | sed -e 's|^https\?://||' -e 's|/.*$||')
-            # G66 #2615 (2026-05-31): REGISTRY is `${HARBOR_HOST}` BARE —
-            # NO `/proxy-ghcr/` suffix. Step 03 Phase A skopeo-pushes
-            # openova-io images NATIVELY into local Harbor at path
-            # ${HARBOR_HOST}/openova-io/openova/<svc>:<tag>. Chart
-            # templates render image as
-            # ${global.imageRegistry}/${images.organization}/<comp>:<tag>
-            # — with REGISTRY=${HARBOR_HOST} and images.organization=
-            # openova-io/openova, the final path matches Phase A's
-            # pushed path exactly. The previous `/proxy-ghcr/` suffix
-            # required Harbor proxy-cache adapter to auth ghcr.io —
-            # which doesn't work (Harbor github-ghcr adapter cannot do
-            # the 2-step token-endpoint flow ghcr.io requires for
-            # private packages; 45min validation hw73 2026-05-30).
-            # Phase A native push eliminates the dependency entirely;
-            # Sovereign carries IMMUTABLE pushed images post-cutover
-            # (docs/DOD.md Pillar 5 sovereignty target-state).
+            {{- /*
+             G66 #2615 (2026-05-31): REGISTRY is `${HARBOR_HOST}` BARE —
+             NO `/proxy-ghcr/` suffix. Step 03 Phase A skopeo-pushes
+             openova-io images NATIVELY into local Harbor at path
+             ${HARBOR_HOST}/openova-io/openova/<svc>:<tag>. Chart
+             templates render image as
+             ${global.imageRegistry}/${images.organization}/<comp>:<tag>
+             — with REGISTRY=${HARBOR_HOST} and images.organization=
+             openova-io/openova, the final path matches Phase A's
+             pushed path exactly. The previous `/proxy-ghcr/` suffix
+             required Harbor proxy-cache adapter to auth ghcr.io —
+             which doesn't work (Harbor github-ghcr adapter cannot do
+             the 2-step token-endpoint flow ghcr.io requires for
+             private packages; 45min validation hw73 2026-05-30).
+             Phase A native push eliminates the dependency entirely;
+             Sovereign carries IMMUTABLE pushed images post-cutover
+             (docs/DOD.md Pillar 5 sovereignty target-state).
+            */}}
             REGISTRY="${HARBOR_HOST}"
             echo "[catalyst-api-env-patch] G61 HR patch ${HR_NAMESPACE}/${HR_NAME} spec.values.global.imageRegistry=${REGISTRY}"
             PATCH=$(printf '{"spec":{"values":{"global":{"imageRegistry":"%s"}}}}' "${REGISTRY}")
@@ -638,18 +702,20 @@ data:
               --type=merge \
               -p "${PATCH}" || echo "[catalyst-api-env-patch] HR patch failed (non-fatal; will retry on next cutover)"
 
-            # G62 (#2613) DURABLE PASS: edit local Gitea source-of-truth
-            # so Flux Kustomization doesn't revert the live HR patch.
-            # Architectural rule per #2613: every cutover live-patch MUST
-            # persist to local Gitea source-of-truth, not just to live
-            # cluster API. Mirrors Step-06 Phase 2.5's Gitea-edit pattern.
-            #
-            # bootstrap-kit `13-bp-catalyst-platform.yaml` ships
-            # `imageRegistry: ''` (empty literal) at spec.values.global
-            # so Phase 1 (pre-cutover) renders empty → chart falls back
-            # to images.registry (ghcr.io). Post-cutover sed-replaces
-            # the empty string with REGISTRY so Flux Kustomization
-            # reconciles see the harbor URL on every cycle.
+            {{- /*
+             G62 (#2613) DURABLE PASS: edit local Gitea source-of-truth
+             so Flux Kustomization doesn't revert the live HR patch.
+             Architectural rule per #2613: every cutover live-patch MUST
+             persist to local Gitea source-of-truth, not just to live
+             cluster API. Mirrors Step-06 Phase 2.5's Gitea-edit pattern.
+
+             bootstrap-kit `13-bp-catalyst-platform.yaml` ships
+             `imageRegistry: ''` (empty literal) at spec.values.global
+             so Phase 1 (pre-cutover) renders empty → chart falls back
+             to images.registry (ghcr.io). Post-cutover sed-replaces
+             the empty string with REGISTRY so Flux Kustomization
+             reconciles see the harbor URL on every cycle.
+            */}}
             cd /tmp
             rm -rf repo
             push_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
@@ -659,10 +725,12 @@ data:
               git config user.name  "self-sovereign-cutover (G62 imageRegistry patch)"
               target="clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml"
               if [ -f "${target}" ]; then
-                # Match `imageRegistry: ''` at 6-space indent under
-                # global: block. Replace with the harbor URL.
-                # Idempotent: re-runs against an already-edited file
-                # rewrite the URL value (handles harbor host changes).
+                {{- /*
+                 Match `imageRegistry: ''` at 6-space indent under
+                 global: block. Replace with the harbor URL.
+                 Idempotent: re-runs against an already-edited file
+                 rewrite the URL value (handles harbor host changes).
+                */}}
                 if sed -i -E "s|^([[:space:]]{6}imageRegistry:[[:space:]]*)['\"]?[^'\"]*['\"]?[[:space:]]*\$|\1'${REGISTRY}'|" "${target}" 2>/dev/null; then
                   if ! git diff --quiet "${target}"; then
                     git add "${target}"
@@ -687,15 +755,19 @@ data:
               echo "[catalyst-api-env-patch] G62 WARN: git clone of local Gitea failed (URL=${GITEA_INTERNAL_URL}); live HR-patch durability not guaranteed" >&2
             fi
 
-            # Force-reconcile so Flux picks up the change immediately
-            # (HR default interval is 15m, too slow for cutover SLA).
+            {{- /*
+             Force-reconcile so Flux picks up the change immediately
+             (HR default interval is 15m, too slow for cutover SLA).
+            */}}
             kubectl annotate hr "${HR_NAME}" \
               -n "${HR_NAMESPACE}" \
               "reconcile.fluxcd.io/requestedAt=$(date +%s)" \
               --overwrite || true
 
-            # Wait for Helm upgrade to start (HR Reconciling reason
-            # transitions). Up to 30s for Flux to observe the patch.
+            {{- /*
+             Wait for Helm upgrade to start (HR Reconciling reason
+             transitions). Up to 30s for Flux to observe the patch.
+            */}}
             for i in $(seq 1 15); do
               READY=$(kubectl get hr "${HR_NAME}" -n "${HR_NAMESPACE}" \
                 -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "?")
@@ -711,17 +783,19 @@ data:
               sleep 2
             done
 
-            # ---- #4563 (Refs #3379): pivot bp-openova-flow-server ----
-            # openova-flow-server is a SEPARATE HelmRelease (slot 56)
-            # whose chart helper honours global.imageRegistry the same
-            # way bp-catalyst-platform does, but step-07 above only
-            # patches the catalyst-platform HR. Without this block the
-            # flow-server Deployment keeps its literal ghcr.io image →
-            # under the 600s deny-egress hold the anonymous-token fetch
-            # to ghcr.io is blocked → 401 ImagePullBackOff → step-08
-            # fresh-pull proof FATALs. Mirror the catalyst-platform
-            # live-HR-patch + durable-Gitea-edit pattern above so the
-            # pivot survives Flux reconciles.
+            {{- /*
+             ---- #4563 (Refs #3379): pivot bp-openova-flow-server ----
+             openova-flow-server is a SEPARATE HelmRelease (slot 56)
+             whose chart helper honours global.imageRegistry the same
+             way bp-catalyst-platform does, but step-07 above only
+             patches the catalyst-platform HR. Without this block the
+             flow-server Deployment keeps its literal ghcr.io image →
+             under the 600s deny-egress hold the anonymous-token fetch
+             to ghcr.io is blocked → 401 ImagePullBackOff → step-08
+             fresh-pull proof FATALs. Mirror the catalyst-platform
+             live-HR-patch + durable-Gitea-edit pattern above so the
+             pivot survives Flux reconciles.
+            */}}
             FLOW_HR_NAME="bp-openova-flow-server"
             FLOW_HR_NAMESPACE="flux-system"
             if kubectl get hr "${FLOW_HR_NAME}" -n "${FLOW_HR_NAMESPACE}" >/dev/null 2>&1; then
@@ -732,8 +806,10 @@ data:
                 --type=merge \
                 -p "${FLOW_PATCH}" || echo "[catalyst-api-env-patch] #4563 flow-server HR patch failed (non-fatal; will retry on next cutover)"
 
-              # Durable Gitea edit on the slot-56 source-of-truth so Flux
-              # Kustomization doesn't revert the live patch (same #2613 rule).
+              {{- /*
+               Durable Gitea edit on the slot-56 source-of-truth so Flux
+               Kustomization doesn't revert the live patch (same #2613 rule).
+              */}}
               cd /tmp
               rm -rf flowrepo
               flow_push_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
@@ -743,8 +819,10 @@ data:
                 git config user.name  "self-sovereign-cutover (#4563 flow-server imageRegistry patch)"
                 flow_target="clusters/_template/bootstrap-kit/56-bp-openova-flow-server.yaml"
                 if [ -f "${flow_target}" ]; then
-                  # Match `imageRegistry: ''` at 6-space indent under the
-                  # global: block. Replace with the harbor host. Idempotent.
+                  {{- /*
+                   Match `imageRegistry: ''` at 6-space indent under the
+                   global: block. Replace with the harbor host. Idempotent.
+                  */}}
                   if sed -i -E "s|^([[:space:]]{6}imageRegistry:[[:space:]]*)['\"]?[^'\"]*['\"]?[[:space:]]*\$|\1'${REGISTRY}'|" "${flow_target}" 2>/dev/null; then
                     if ! git diff --quiet "${flow_target}"; then
                       git add "${flow_target}"
@@ -777,24 +855,26 @@ data:
               echo "[catalyst-api-env-patch] #4563 SKIP: HR ${FLOW_HR_NAMESPACE}/${FLOW_HR_NAME} not present (flow-server not installed on this Sovereign)"
             fi
 
-            # ---- #4885 (Refs #3379): pivot the REMAINING openova-io HRs ----
-            # whose chart honours global.imageRegistry. bp-catalyst-platform
-            # (above) + bp-openova-flow-server (above) were the ONLY two HRs
-            # step-07 pivoted; every OTHER openova-io-image HR that honours
-            # global.imageRegistry stayed on ghcr.io and 401'd under the
-            # step-08 deny-egress hold → the hold never went green →
-            # cutoverComplete never set (live wedge hw232, dep d71ca7ee89fd4451).
-            # The curated set (.Values.imageRegistryPivot.additionalHRs) is
-            # pivoted here with the SAME live-HR-patch + durable-Gitea-edit
-            # pattern as the two blocks above. ONLY charts VERIFIED to template
-            # their images through global.imageRegistry are listed (values.yaml
-            # carries the set + rationale) — patching an HR whose chart ignores
-            # the value is a SILENT NO-OP. bp-guacamole / bp-huawei-evs-csi /
-            # bp-newapi / bp-sandbox were made registry-aware in #4892;
-            # org-services marketplace/auth in #4899; and the last two offenders
-            # bp-openova-flow-emitter (slot 57) + bp-k8s-ws-proxy (slot 51) in
-            # #4961 — so the default additionalHRs set now covers every
-            # openova-io-image HR and NO residual remains (was the #4885 wedge).
+            {{- /*
+             ---- #4885 (Refs #3379): pivot the REMAINING openova-io HRs ----
+             whose chart honours global.imageRegistry. bp-catalyst-platform
+             (above) + bp-openova-flow-server (above) were the ONLY two HRs
+             step-07 pivoted; every OTHER openova-io-image HR that honours
+             global.imageRegistry stayed on ghcr.io and 401'd under the
+             step-08 deny-egress hold → the hold never went green →
+             cutoverComplete never set (live wedge hw232, dep d71ca7ee89fd4451).
+             The curated set (.Values.imageRegistryPivot.additionalHRs) is
+             pivoted here with the SAME live-HR-patch + durable-Gitea-edit
+             pattern as the two blocks above. ONLY charts VERIFIED to template
+             their images through global.imageRegistry are listed (values.yaml
+             carries the set + rationale) — patching an HR whose chart ignores
+             the value is a SILENT NO-OP. bp-guacamole / bp-huawei-evs-csi /
+             bp-newapi / bp-sandbox were made registry-aware in #4892;
+             org-services marketplace/auth in #4899; and the last two offenders
+             bp-openova-flow-emitter (slot 57) + bp-k8s-ws-proxy (slot 51) in
+             #4961 — so the default additionalHRs set now covers every
+             openova-io-image HR and NO residual remains (was the #4885 wedge).
+            */}}
             pivot_extra_hr() {
               _hr_name="$1"; _hr_ns="$2"; _slot="$3"
               if ! kubectl get hr "${_hr_name}" -n "${_hr_ns}" >/dev/null 2>&1; then
@@ -808,10 +888,12 @@ data:
                 --type=merge \
                 -p "${_patch}" || echo "[catalyst-api-env-patch] #4885 ${_hr_name} HR patch failed (non-fatal; will retry on next cutover)"
 
-              # Durable Gitea edit of the slot file so Flux Kustomization
-              # doesn't revert the live patch (same #2613 rule as the two
-              # blocks above). The slot MUST carry `imageRegistry: ''` at
-              # 6-space indent under its values.global block.
+              {{- /*
+               Durable Gitea edit of the slot file so Flux Kustomization
+               doesn't revert the live patch (same #2613 rule as the two
+               blocks above). The slot MUST carry `imageRegistry: ''` at
+               6-space indent under its values.global block.
+              */}}
               cd /tmp
               rm -rf xhrrepo
               _push_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
@@ -849,6 +931,10 @@ data:
                 "reconcile.fluxcd.io/requestedAt=$(date +%s)" \
                 --overwrite || true
             }
+            {{- /* These four lines stay `#` comments: cutover-contract.sh Case 64
+            requires the CSI exclusion to be AUDITABLE IN THE RENDERED MANIFEST
+            ("not just absent") — it greps `NEVER pivoted here` and then the
+            excluded names within the next three lines (#5215). */}}
             # #5215 — storage/CSI-driver HelmReleases NEVER pivoted here (rolling a
             # CSI driver rolls its csi-evs-node DaemonSet → drops NodeStage globalmount
             # for in-use EVS PVCs → catalyst-api wedges; step-04 containerd rewrite
@@ -862,59 +948,69 @@ data:
 {{- end }}
 {{- end }}
 
-            # G61 Phase 2 (was Step 07 pre-G61): set env on the
-            # catalyst-api Deployment so it routes GitOps queries to
-            # the local Gitea mirror.
+            {{- /*
+             G61 Phase 2 (was Step 07 pre-G61): set env on the
+             catalyst-api Deployment so it routes GitOps queries to
+             the local Gitea mirror.
+            */}}
             echo "[catalyst-api-env-patch] ${ENV_VAR_NAME}=${ENV_VAR_VALUE}"
             kubectl set env "deploy/${DEPLOYMENT_NAME}" \
               -n "${DEPLOYMENT_NAMESPACE}" \
               "${ENV_VAR_NAME}=${ENV_VAR_VALUE}"
-            # #4996: deadlock-aware wait (image-pull tolerant + EVS detach-gate)
-            # replaces the blind 300s rollout status that wedged hw240.
+            {{- /*
+             #4996: deadlock-aware wait (image-pull tolerant + EVS detach-gate)
+             replaces the blind 300s rollout status that wedged hw240.
+            */}}
             if ! roll_and_wait_catalyst_api "gitops-repo-url + image pivot"; then
               echo "[catalyst-api-env-patch] #4996 FATAL: catalyst-api rollout did not converge (gitops-repo-url + image pivot) — see the EVS/image-pull diagnostics above; step exits for a clean recoverable re-run" >&2
               exit 1
             fi
 
-            # ---- Phase 3 (#2940, 2026-06-03): pivot the remaining ----
-            # catalyst-api mothership env seams. The VERIFIED-PARTIAL
-            # review found that Phases 1-2 only flip the image registry
-            # + the GitOps repo URL: the PIN/handover-JWT issuers and
-            # the runtime-config console/api-public URLs kept their
-            # mothership back-compat defaults, so the 10-min
-            # deny-egress hold could pass while tokens still carried a
-            # mothership `iss` and CORS/public-URL pointed home. Each
-            # pivot below ends in a read-back assert (Step-10-Phase-1c
-            # pattern): any openova.io residue is FATAL — Pillar 5
-            # independence not met.
+            {{- /*
+             ---- Phase 3 (#2940, 2026-06-03): pivot the remaining ----
+             catalyst-api mothership env seams. The VERIFIED-PARTIAL
+             review found that Phases 1-2 only flip the image registry
+             + the GitOps repo URL: the PIN/handover-JWT issuers and
+             the runtime-config console/api-public URLs kept their
+             mothership back-compat defaults, so the 10-min
+             deny-egress hold could pass while tokens still carried a
+             mothership `iss` and CORS/public-URL pointed home. Each
+             pivot below ends in a read-back assert (Step-10-Phase-1c
+             pattern): any openova.io residue is FATAL — Pillar 5
+             independence not met.
+            */}}
             if [ -z "${CONSOLE_PUBLIC_URL}" ] || echo "${CONSOLE_PUBLIC_URL}" | grep -q "example.local"; then
               echo "[catalyst-api-env-patch] FATAL Phase 3: sovereign.consolePublicURL not overlaid (got '${CONSOLE_PUBLIC_URL}') — supply https://console.<sovereign-fqdn>" >&2
               exit 1
             fi
 
-            # 3a. runtime-config ConfigMap keys (CORS_ORIGIN +
-            # CATALYST_SOVEREIGN_URL read sovereign-console-url;
-            # CATALYST_API_PUBLIC_URL reads sovereign-api-public-url —
-            # all via configMapKeyRef, so the CM is the single seam).
+            {{- /*
+             3a. runtime-config ConfigMap keys (CORS_ORIGIN +
+             CATALYST_SOVEREIGN_URL read sovereign-console-url;
+             CATALYST_API_PUBLIC_URL reads sovereign-api-public-url —
+             all via configMapKeyRef, so the CM is the single seam).
+            */}}
             kubectl patch configmap catalyst-runtime-config \
               -n "${DEPLOYMENT_NAMESPACE}" \
               --type merge \
               -p "{\"data\":{\"sovereign-console-url\":\"${CONSOLE_PUBLIC_URL}\",\"sovereign-api-public-url\":\"${CONSOLE_PUBLIC_URL}/sovereign\"}}"
 
-            # 3b. issuer envs (auth.go pinIssuer + main.go handover-JWT
-            # issuer read these; the in-code openova.io constants are
-            # fallbacks ONLY when the env is unset).
+            {{- /*
+             3b. issuer envs (auth.go pinIssuer + main.go handover-JWT
+             issuer read these; the in-code openova.io constants are
+             fallbacks ONLY when the env is unset).
+            */}}
             kubectl set env "deploy/${DEPLOYMENT_NAME}" \
               -n "${DEPLOYMENT_NAMESPACE}" \
               "CATALYST_PIN_ISSUER=${CONSOLE_PUBLIC_URL}" \
               "CATALYST_HANDOVER_JWT_ISSUER=${CONSOLE_PUBLIC_URL}"
-            # #4996: deadlock-aware wait for the issuer-env roll too.
+            {{- /* #4996: deadlock-aware wait for the issuer-env roll too. */}}
             if ! roll_and_wait_catalyst_api "issuer envs"; then
               echo "[catalyst-api-env-patch] #4996 FATAL: catalyst-api rollout did not converge (issuer envs) — see the EVS/image-pull diagnostics above; step exits for a clean recoverable re-run" >&2
               exit 1
             fi
 
-            # 3c. Read-back asserts — live values, not intentions.
+            {{- /* 3c. Read-back asserts — live values, not intentions. */}}
             for KEY in sovereign-console-url sovereign-api-public-url; do
               LIVE=$(kubectl get configmap catalyst-runtime-config \
                 -n "${DEPLOYMENT_NAMESPACE}" \
@@ -938,34 +1034,36 @@ data:
               echo "[catalyst-api-env-patch] Phase 3 OK: ${VAR}=${LIVE}"
             done
 
-            # ---- Phase 3d (#5527): pivot the per-Org GitOps tree generator ----
-            # The org-services provisioning Deployment regenerates the per-Org
-            # trees (HelmRepository blocks included) on EVERY org mutation. Its
-            # emitters are cutover-aware (core/services/provisioning/gitops/
-            # cutover_aware_5527.go) but the fact must be stamped HERE: without
-            # it, the next org mutation after cutover re-emits
-            # oci://ghcr.io/openova-io and Flux drift-corrects the step-06
-            # object pivot straight back (the hw291 step-08 OFFENDER wedge,
-            # recurring silently post-cutover — Pillar 5). The stamped value is
-            # the SAME base step-06 patches the live objects to:
-            # oci://<harbor-host>/openova-io. The set-env rolls the Deployment
-            # (tiny, prewarmed image — step-03 mirrors every workload image),
-            # so the regenerating process always carries the fact.
-            #
-            # Deployment-absent is a SKIP (a Sovereign without the marketplace
-            # tier has no per-Org generator to re-tether); present-but-unstamped
-            # is FATAL (fail-open here IS the #5527 defect). The rollout wait is
-            # best-effort: the fact lives in the pod TEMPLATE (durable across
-            # restarts + helm 3-way merges), and step-08's roll-set re-rolls
-            # this workload under deny-egress anyway — a slow roll here must
-            # not add a new cutover wedge-class.
+            {{- /*
+             ---- Phase 3d (#5527): pivot the per-Org GitOps tree generator ----
+             The org-services provisioning Deployment regenerates the per-Org
+             trees (HelmRepository blocks included) on EVERY org mutation. Its
+             emitters are cutover-aware (core/services/provisioning/gitops/
+             cutover_aware_5527.go) but the fact must be stamped HERE: without
+             it, the next org mutation after cutover re-emits
+             oci://ghcr.io/openova-io and Flux drift-corrects the step-06
+             object pivot straight back (the hw291 step-08 OFFENDER wedge,
+             recurring silently post-cutover — Pillar 5). The stamped value is
+             the SAME base step-06 patches the live objects to:
+             oci://<harbor-host>/openova-io. The set-env rolls the Deployment
+             (tiny, prewarmed image — step-03 mirrors every workload image),
+             so the regenerating process always carries the fact.
+
+             Deployment-absent is a SKIP (a Sovereign without the marketplace
+             tier has no per-Org generator to re-tether); present-but-unstamped
+             is FATAL (fail-open here IS the #5527 defect). The rollout wait is
+             best-effort: the fact lives in the pod TEMPLATE (durable across
+             restarts + helm 3-way merges), and step-08's roll-set re-rolls
+             this workload under deny-egress anyway — a slow roll here must
+             not add a new cutover wedge-class.
+            */}}
             LOCAL_OCI_BASE="oci://$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -e 's,^https\?://,,' -e 's,/*$,,')/openova-io"
             if kubectl get deploy "${ORG_PROVISIONING_DEPLOYMENT}" -n "${ORG_PROVISIONING_NAMESPACE}" >/dev/null 2>&1; then
               echo "[catalyst-api-env-patch] #5527 Phase 3d: CATALYST_LOCAL_REGISTRY_URL=${LOCAL_OCI_BASE} -> deploy/${ORG_PROVISIONING_DEPLOYMENT} -n ${ORG_PROVISIONING_NAMESPACE}"
               kubectl set env "deploy/${ORG_PROVISIONING_DEPLOYMENT}" \
                 -n "${ORG_PROVISIONING_NAMESPACE}" \
                 "CATALYST_LOCAL_REGISTRY_URL=${LOCAL_OCI_BASE}"
-              # Read-back assert — live template value, not intention.
+              {{- /* Read-back assert — live template value, not intention. */}}
               LIVE=$(kubectl get deploy "${ORG_PROVISIONING_DEPLOYMENT}" \
                 -n "${ORG_PROVISIONING_NAMESPACE}" \
                 -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name=='CATALYST_LOCAL_REGISTRY_URL')].value}" 2>/dev/null || echo "")
@@ -981,38 +1079,40 @@ data:
               echo "[catalyst-api-env-patch] #5527 Phase 3d SKIP: deploy/${ORG_PROVISIONING_DEPLOYMENT} not found in ${ORG_PROVISIONING_NAMESPACE} (no marketplace tier — no per-Org generator to pivot)"
             fi
 
-            # ---- Phase 3e (#5439): pivot the per-Org IMAGE registry host ----
-            # Phase 3d pivots the CHART base the per-Org generators emit. The
-            # IMAGE registry host they emit is a SECOND field and was never
-            # pivoted by any step: the three generators (org-controller,
-            # provisioning, catalyst-api) all default to `harbor.openova.io`
-            # — the MOTHERSHIP Harbor — and the bp-catalyst-platform chart
-            # ALWAYS stamps that literal onto the first two Deployments, so it
-            # is the live value on every Sovereign from birth.
-            #
-            # Live on hw292, cutoverComplete=true since 2026-08-03T08:12:04Z:
-            #   kubectl -n uatco get hr vcluster -o json | jq -r .spec.values
-            #     "image":{"registry":"harbor.openova.io"
-            #     "statefulSet":{"image":{"registry":"harbor.openova.io"
-            #     "coredns":{...:"harbor.openova.io/proxy-dockerhub/coredns/..."}
-            # Every Organization reconcile re-wrote that into the Flux-owned
-            # per-Org tree AFTER the cutover had reported success — the #5439
-            # re-tether, one field over from the #5527 one.
-            #
-            # WHY A NEW ENV NAME rather than `kubectl set env
-            # CATALYST_VCLUSTER_IMAGE_REGISTRY`: that var IS templated by
-            # products/catalyst/chart/templates/{controllers/organization-
-            # controller-deployment,org-services/provisioning}.yaml, so the
-            # next Flux-driven helm upgrade reverts a set-env on it within
-            # minutes. CATALYST_LOCAL_IMAGE_REGISTRY_HOST appears in NO chart
-            # manifest, so a strategic-merge preserves it — the same durability
-            # argument Phase 3d stakes on CATALYST_LOCAL_REGISTRY_URL.
-            #
-            # The value is byte-identical to step-10's target_host
-            # (harbor.${SOVEREIGN_FQDN}), so the generated source and the
-            # objects step-10 pivots agree and Flux has nothing to
-            # drift-correct. Deployment-absent is a SKIP; present-but-unstamped
-            # is FATAL (fail-open here IS the defect).
+            {{- /*
+             ---- Phase 3e (#5439): pivot the per-Org IMAGE registry host ----
+             Phase 3d pivots the CHART base the per-Org generators emit. The
+             IMAGE registry host they emit is a SECOND field and was never
+             pivoted by any step: the three generators (org-controller,
+             provisioning, catalyst-api) all default to `harbor.openova.io`
+             — the MOTHERSHIP Harbor — and the bp-catalyst-platform chart
+             ALWAYS stamps that literal onto the first two Deployments, so it
+             is the live value on every Sovereign from birth.
+
+             Live on hw292, cutoverComplete=true since 2026-08-03T08:12:04Z:
+               kubectl -n uatco get hr vcluster -o json | jq -r .spec.values
+                 "image":{"registry":"harbor.openova.io"
+                 "statefulSet":{"image":{"registry":"harbor.openova.io"
+                 "coredns":{...:"harbor.openova.io/proxy-dockerhub/coredns/..."}
+             Every Organization reconcile re-wrote that into the Flux-owned
+             per-Org tree AFTER the cutover had reported success — the #5439
+             re-tether, one field over from the #5527 one.
+
+             WHY A NEW ENV NAME rather than `kubectl set env
+             CATALYST_VCLUSTER_IMAGE_REGISTRY`: that var IS templated by
+             products/catalyst/chart/templates/{controllers/organization-
+             controller-deployment,org-services/provisioning}.yaml, so the
+             next Flux-driven helm upgrade reverts a set-env on it within
+             minutes. CATALYST_LOCAL_IMAGE_REGISTRY_HOST appears in NO chart
+             manifest, so a strategic-merge preserves it — the same durability
+             argument Phase 3d stakes on CATALYST_LOCAL_REGISTRY_URL.
+
+             The value is byte-identical to step-10's target_host
+             (harbor.${SOVEREIGN_FQDN}), so the generated source and the
+             objects step-10 pivots agree and Flux has nothing to
+             drift-correct. Deployment-absent is a SKIP; present-but-unstamped
+             is FATAL (fail-open here IS the defect).
+            */}}
             if [ -z "${SOVEREIGN_FQDN}" ] || [ "${SOVEREIGN_FQDN}" = "example.local" ]; then
               echo "[catalyst-api-env-patch] #5439 FATAL Phase 3e: sovereign.fqdn not overlaid (got '${SOVEREIGN_FQDN}') — cannot derive the local image-registry host" >&2
               exit 1
@@ -1031,7 +1131,7 @@ data:
               echo "[catalyst-api-env-patch] #5439 Phase 3e: CATALYST_LOCAL_IMAGE_REGISTRY_HOST=${LOCAL_IMAGE_HOST} -> deploy/${_d} -n ${_n}"
               kubectl set env "deploy/${_d}" -n "${_n}" \
                 "CATALYST_LOCAL_IMAGE_REGISTRY_HOST=${LOCAL_IMAGE_HOST}"
-              # Read-back assert — live template value, not intention.
+              {{- /* Read-back assert — live template value, not intention. */}}
               _live=$(kubectl get deploy "${_d}" -n "${_n}" \
                 -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name=='CATALYST_LOCAL_IMAGE_REGISTRY_HOST')].value}" 2>/dev/null || echo "")
               if [ "${_live}" != "${LOCAL_IMAGE_HOST}" ]; then
@@ -1043,17 +1143,19 @@ data:
                 || echo "[catalyst-api-env-patch] #5439 WARN Phase 3e: deploy/${_d} rollout slow (best-effort — the fact is in the pod template; step-08's roll-set covers the live roll)"
             done
 
-            # ---- Phase 4 (#4973 #4975 #4961): comprehensive pod-spec image sweep ----
-            # The HR global.imageRegistry pivots above (Phases 1-2 + the additionalHRs
-            # loop) only reach images a chart renders THROUGH global.imageRegistry.
-            # Images pinned by full ref OUTSIDE that value stay tethered to a non-local
-            # host and would wedge step-08's roll-set: evs-csi CSI sidecars (#4973),
-            # continuum's prerequisite-check initContainer (#4975), flow-emitter (#4961).
-            # This sweep normalises EVERY container + initContainer of every
-            # external-registry workload to registry.<fqdn> so no pod-spec carries a
-            # non-local ref into the deny-egress hold. Fail-open (a tooling gap never
-            # wedges the cutover worse than the pre-sweep state; step-04's containerd
-            # rewrite is the durable steady-state safety net).
+            {{- /*
+             ---- Phase 4 (#4973 #4975 #4961): comprehensive pod-spec image sweep ----
+             The HR global.imageRegistry pivots above (Phases 1-2 + the additionalHRs
+             loop) only reach images a chart renders THROUGH global.imageRegistry.
+             Images pinned by full ref OUTSIDE that value stay tethered to a non-local
+             host and would wedge step-08's roll-set: evs-csi CSI sidecars (#4973),
+             continuum's prerequisite-check initContainer (#4975), flow-emitter (#4961).
+             This sweep normalises EVERY container + initContainer of every
+             external-registry workload to registry.<fqdn> so no pod-spec carries a
+             non-local ref into the deny-egress hold. Fail-open (a tooling gap never
+             wedges the cutover worse than the pre-sweep state; step-04's containerd
+             rewrite is the durable steady-state safety net).
+            */}}
             sweep_workload_podspec_images || echo "[catalyst-api-env-patch] #4973/#4975/#4961 WARN pod-spec image sweep incomplete (best-effort; step-04 containerd rewrite still covers pulls)"
 
             echo "[catalyst-api-env-patch] done (Phases 1-4 complete)"
@@ -1067,19 +1169,23 @@ data:
           readOnlyRootFilesystem: true
           capabilities:
             drop: ["ALL"]
-        # G63 (#2613, 2026-05-30): writable /tmp for G62 git clone +
-        # working dir. readOnlyRootFilesystem: true blocks any write
-        # to /tmp unless explicitly mounted emptyDir. Without this
-        # mount, G62's git clone fails with "Read-only file system"
-        # (verified live hw70 14:38Z). Same emptyDir pattern as
-        # Step 06's tmp mount.
+        {{- /*
+         G63 (#2613, 2026-05-30): writable /tmp for G62 git clone +
+         working dir. readOnlyRootFilesystem: true blocks any write
+         to /tmp unless explicitly mounted emptyDir. Without this
+         mount, G62's git clone fails with "Read-only file system"
+         (verified live hw70 14:38Z). Same emptyDir pattern as
+         Step 06's tmp mount.
+        */}}
         volumeMounts:
           - name: tmp
             mountPath: /tmp
-          # #4973 #4975 #4961 — the shared offline-mirror resolver (same file
-          # step-03/step-08 source), so the pod-spec sweep maps each image to the
-          # EXACT local Harbor path step-03 Phase A3 pushed it to (never a forked
-          # mapping that could target a path the mirror never held).
+          {{- /*
+           #4973 #4975 #4961 — the shared offline-mirror resolver (same file
+           step-03/step-08 source), so the pod-spec sweep maps each image to the
+           EXACT local Harbor path step-03 Phase A3 pushed it to (never a forked
+           mapping that could target a path the mirror never held).
+          */}}
           - name: offline-mirror-resolver
             mountPath: /resolver
             readOnly: true

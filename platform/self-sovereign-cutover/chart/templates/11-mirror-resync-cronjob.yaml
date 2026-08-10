@@ -105,15 +105,19 @@ metadata:
 spec:
   schedule: {{ .Values.mirrorResync.schedule | quote }}
   suspend: {{ .Values.mirrorResync.suspended }}
-  # Concurrency = Forbid: a long-running clone (slow GitHub day) must
-  # NOT pile up parallel pushes against local Gitea. Skip-if-busy.
+  {{- /*
+   Concurrency = Forbid: a long-running clone (slow GitHub day) must
+   NOT pile up parallel pushes against local Gitea. Skip-if-busy.
+  */}}
   concurrencyPolicy: Forbid
-  # Keep a small audit trail: 3 completed + 1 failed.
+  {{- /* Keep a small audit trail: 3 completed + 1 failed. */}}
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 1
-  # If a Sovereign was suspended for hours and the kube-controller-
-  # manager comes back up, do NOT replay every missed slot — fire at
-  # most one. The next scheduled fire will pick up any drift.
+  {{- /*
+   If a Sovereign was suspended for hours and the kube-controller-
+   manager comes back up, do NOT replay every missed slot — fire at
+   most one. The next scheduled fire will pick up any drift.
+  */}}
   startingDeadlineSeconds: 60
   jobTemplate:
     metadata:
@@ -121,7 +125,7 @@ spec:
         {{- include "bp-self-sovereign-cutover.labels" . | nindent 8 }}
         app.kubernetes.io/component: mirror-resync
     spec:
-      # TTL after finished — 1 hour audit window then GC.
+      {{- /* TTL after finished — 1 hour audit window then GC. */}}
       ttlSecondsAfterFinished: 3600
       backoffLimit: 1
       activeDeadlineSeconds: {{ .Values.mirrorResync.jobTimeoutSeconds }}
@@ -133,10 +137,12 @@ spec:
         spec:
           serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
           restartPolicy: Never
-          # #5214 — re-assert gitea-admin-secret in the release namespace before
-          # each resync fire (durable close of the #4557/#4558/#4661 recurrence
-          # class; the secretKeyRef below resolves only in this Pod's namespace).
-          # See _helpers.tpl.
+          {{- /*
+           #5214 — re-assert gitea-admin-secret in the release namespace before
+           each resync fire (durable close of the #4557/#4558/#4661 recurrence
+           class; the secretKeyRef below resolves only in this Pod's namespace).
+           See _helpers.tpl.
+          */}}
           initContainers:
             {{- include "bp-self-sovereign-cutover.giteaSecretSelfHealInitContainer" (dict "ctx" . "phase" "pre") | nindent 12 }}
           containers:
@@ -168,20 +174,24 @@ spec:
               args:
                 - |
                   set -eu
-                  # Credential hygiene mirrors 01-gitea-mirror-job.yaml:
-                  # never echo $GITEA_PASSWORD on stdout. The BasicAuth
-                  # header is base64-encoded into a single env-local
-                  # variable; git push uses URL embedding only.
+                  {{- /*
+                   Credential hygiene mirrors 01-gitea-mirror-job.yaml:
+                   never echo $GITEA_PASSWORD on stdout. The BasicAuth
+                   header is base64-encoded into a single env-local
+                   variable; git push uses URL embedding only.
+                  */}}
                   redacted_url="${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git"
                   echo "[mirror-resync] upstream=${UPSTREAM_REPO_URL} branch=${UPSTREAM_BRANCH}"
                   echo "[mirror-resync] target=${redacted_url}"
 
-                  # Idempotent pre-flight: the CronJob is created at
-                  # chart-install time, BEFORE Step-01 (gitea-mirror)
-                  # has run. If the local repo doesn't exist yet, exit
-                  # 0 (no-op) so we don't conflict with the in-flight
-                  # cutover. The very next fire after Step-01 finishes
-                  # will pick up the work.
+                  {{- /*
+                   Idempotent pre-flight: the CronJob is created at
+                   chart-install time, BEFORE Step-01 (gitea-mirror)
+                   has run. If the local repo doesn't exist yet, exit
+                   0 (no-op) so we don't conflict with the in-flight
+                   cutover. The very next fire after Step-01 finishes
+                   will pick up the work.
+                  */}}
                   gitea_host="$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E 's|^https?://||' | cut -d: -f1 | cut -d/ -f1)"
                   if [ -n "${gitea_host}" ]; then
                     if ! nslookup "${gitea_host}" >/dev/null 2>&1; then
@@ -193,9 +203,11 @@ spec:
                   basic_auth=$(printf '%s' "${GITEA_USERNAME}:${GITEA_PASSWORD}" | base64 -w0 2>/dev/null || printf '%s' "${GITEA_USERNAME}:${GITEA_PASSWORD}" | base64 | tr -d '\n')
                   api_url="${GITEA_INTERNAL_URL}/api/v1"
 
-                  # Confirm the local repo exists. If it doesn't, Step-
-                  # 01 hasn't run yet (or the operator hasn't triggered
-                  # cutover) — exit 0 (no-op).
+                  {{- /*
+                   Confirm the local repo exists. If it doesn't, Step-
+                   01 hasn't run yet (or the operator hasn't triggered
+                   cutover) — exit 0 (no-op).
+                  */}}
                   repo_check=$(wget -q -O - \
                     --header="Authorization: Basic ${basic_auth}" \
                     --header="Content-Type: application/json" \
@@ -205,9 +217,11 @@ spec:
                     exit 0
                   fi
 
-                  # Bare-clone upstream and push --mirror --force to the
-                  # local Gitea. Same semantics as Step-01 step (3),
-                  # without the create-org + create-repo phases.
+                  {{- /*
+                   Bare-clone upstream and push --mirror --force to the
+                   local Gitea. Same semantics as Step-01 step (3),
+                   without the create-org + create-repo phases.
+                  */}}
                   export HOME=/tmp
                   git config --global user.name "gitea-mirror-resync"
                   git config --global user.email "mirror-resync@${gitea_host}"

@@ -97,18 +97,22 @@ data:
             value: {{ printf "%s/%s/%s" .Values.sovereign.giteaInternalURL .Values.gitea.org .Values.gitea.repo | quote }}
           - name: BRANCH
             value: {{ .Values.upstream.branch | quote }}
-          # Issue #891 — the GitRepository ignore filter must be widened to
-          # include the Sovereign's own clusters/<sov-fqdn>/ subtree, or
-          # source-controller filters out every Sovereign-specific manifest
-          # (incl. Organization tenant overlays at clusters/<sov-fqdn>/org-tenants/
-          # <tenant-id>/) and Flux Kustomizations downstream all hit
-          # "kustomization path not found".
+          {{- /*
+           Issue #891 — the GitRepository ignore filter must be widened to
+           include the Sovereign's own clusters/<sov-fqdn>/ subtree, or
+           source-controller filters out every Sovereign-specific manifest
+           (incl. Organization tenant overlays at clusters/<sov-fqdn>/org-tenants/
+           <tenant-id>/) and Flux Kustomizations downstream all hit
+           "kustomization path not found".
+          */}}
           - name: SOVEREIGN_FQDN
             value: {{ .Values.sovereign.fqdn | quote }}
-          # #3536 — secretRef wiring inputs. The destination basic-auth
-          # Secret is created in the GitRepository's namespace; the source
-          # PAT (`catalyst-gitea-token`) is read from catalyst-system where
-          # bp-catalyst-platform's pre-install hook minted it at bootstrap.
+          {{- /*
+           #3536 — secretRef wiring inputs. The destination basic-auth
+           Secret is created in the GitRepository's namespace; the source
+           PAT (`catalyst-gitea-token`) is read from catalyst-system where
+           bp-catalyst-platform's pre-install hook minted it at bootstrap.
+          */}}
           - name: GIT_AUTH_SECRET_NAME
             value: {{ .Values.gitRepositorySecretRef.destSecretName | quote }}
           - name: PAT_SOURCE_NAMESPACE
@@ -119,24 +123,28 @@ data:
             value: {{ .Values.gitRepositorySecretRef.patSourceKey | quote }}
           - name: GIT_AUTH_USERNAME
             value: {{ .Values.gitRepositorySecretRef.username | quote }}
-          # #5359 — secondary-region leg inputs. SECONDARY_GITEA_URL non-empty
-          # pins the candidate chain to exactly that URL (explicit operator
-          # intent, e.g. the qaTestEnabled LE-staging case where the public
-          # door is x509-hostile). Empty (default) = the chain is the door
-          # below. STATUS_CONFIGMAP receives the per-region
-          # step.<step>.region.<key>.* tracking keys.
+          {{- /*
+           #5359 — secondary-region leg inputs. SECONDARY_GITEA_URL non-empty
+           pins the candidate chain to exactly that URL (explicit operator
+           intent, e.g. the qaTestEnabled LE-staging case where the public
+           door is x509-hostile). Empty (default) = the chain is the door
+           below. STATUS_CONFIGMAP receives the per-region
+           step.<step>.region.<key>.* tracking keys.
+          */}}
           - name: SECONDARY_GITEA_URL
             value: {{ if .Values.secondaryRegions.giteaURL }}{{ printf "%s/%s/%s" (.Values.secondaryRegions.giteaURL | trimSuffix "/") .Values.gitea.org .Values.gitea.repo | quote }}{{ else }}""{{ end }}
-          # #5359 — the DEFAULT pivot target for secondaries: the Sovereign's
-          # OWN external Gitea door. On-Sovereign (its own gateway VIP — it
-          # satisfies the step-08 source-host lint's *.<fqdn> exemption, and
-          # the step-08 secondary hold carves out that gateway's public IPs)
-          # and the only path live-proven to serve region-A's pivoted repo
-          # from region-B (hw292: HEAD 7bcd1d59..., byte-identical to
-          # region-A's in-cluster Gitea). The in-cluster mesh URL is retired
-          # from the default chain — see the leg header. The env name keeps
-          # its historical FALLBACK spelling so pinned values files and the
-          # contract tests stay stable across the 0.1.166 default flip.
+          {{- /*
+           #5359 — the DEFAULT pivot target for secondaries: the Sovereign's
+           OWN external Gitea door. On-Sovereign (its own gateway VIP — it
+           satisfies the step-08 source-host lint's *.<fqdn> exemption, and
+           the step-08 secondary hold carves out that gateway's public IPs)
+           and the only path live-proven to serve region-A's pivoted repo
+           from region-B (hw292: HEAD 7bcd1d59..., byte-identical to
+           region-A's in-cluster Gitea). The in-cluster mesh URL is retired
+           from the default chain — see the leg header. The env name keeps
+           its historical FALLBACK spelling so pinned values files and the
+           contract tests stay stable across the 0.1.166 default flip.
+          */}}
           - name: SECONDARY_GITEA_FALLBACK_URL
             value: {{ if .Values.secondaryRegions.giteaFallbackURL }}{{ printf "%s/%s/%s" (.Values.secondaryRegions.giteaFallbackURL | trimSuffix "/") .Values.gitea.org .Values.gitea.repo | quote }}{{ else if .Values.secondaryRegions.giteaFallbackToPublicDoor }}{{ printf "https://gitea.%s/%s/%s" .Values.sovereign.fqdn .Values.gitea.org .Values.gitea.repo | quote }}{{ else }}""{{ end }}
           - name: SECONDARY_GITREPO_READY_SECONDS
@@ -151,26 +159,28 @@ data:
             set -eu
             echo "[flux-gitrepository-patch] target=${GITREPO_NAMESPACE}/${GITREPO_NAME} -> ${LOCAL_GITEA_URL} (branch=${BRANCH})"
 
-            # ── #3536: wire a basic-auth secretRef BEFORE flipping the URL ──
-            #
-            # bp-gitea sets REQUIRE_SIGNIN_VIEW=true → an anonymous clone of
-            # the local Gitea 401s even for a public repo. The cloud-init
-            # bootstrap GitRepository has NO secretRef (it cloned public
-            # github.com anonymously). So we must give source-controller a
-            # credential, or every reconcile after the URL flip fails
-            # "authentication required" and step 08 can never converge.
-            #
-            # Credential = the `catalyst-gitea-token` PAT minted at BOOTSTRAP
-            # by bp-catalyst-platform (in ${PAT_SOURCE_NAMESPACE}). A Gitea
-            # PAT is accepted as the HTTP git password. Flux secretRef takes
-            # only a name resolved in the GitRepository's own namespace, so
-            # we read the cross-namespace PAT and write a basic-auth Secret
-            # (keys username/password) into ${GITREPO_NAMESPACE}.
-            #
-            # The PAT Secret exists from bootstrap, but its `token` byte may
-            # be momentarily empty if the minter Job is mid-flight; wait
-            # (bounded) for a non-empty value before proceeding — a cutover
-            # that wired an empty password would re-introduce the 401.
+            {{- /*
+             ── #3536: wire a basic-auth secretRef BEFORE flipping the URL ──
+
+             bp-gitea sets REQUIRE_SIGNIN_VIEW=true → an anonymous clone of
+             the local Gitea 401s even for a public repo. The cloud-init
+             bootstrap GitRepository has NO secretRef (it cloned public
+             github.com anonymously). So we must give source-controller a
+             credential, or every reconcile after the URL flip fails
+             "authentication required" and step 08 can never converge.
+
+             Credential = the `catalyst-gitea-token` PAT minted at BOOTSTRAP
+             by bp-catalyst-platform (in ${PAT_SOURCE_NAMESPACE}). A Gitea
+             PAT is accepted as the HTTP git password. Flux secretRef takes
+             only a name resolved in the GitRepository's own namespace, so
+             we read the cross-namespace PAT and write a basic-auth Secret
+             (keys username/password) into ${GITREPO_NAMESPACE}.
+
+             The PAT Secret exists from bootstrap, but its `token` byte may
+             be momentarily empty if the minter Job is mid-flight; wait
+             (bounded) for a non-empty value before proceeding — a cutover
+             that wired an empty password would re-introduce the 401.
+            */}}
             echo "[flux-gitrepository-patch] reading PAT ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}.${PAT_SOURCE_KEY}"
             pat=""
             for i in $(seq 1 30); do
@@ -188,10 +198,12 @@ data:
               exit 1
             fi
 
-            # Create/update the basic-auth Secret in the GitRepository's
-            # namespace. Apply via stdin manifest so the PAT never lands in
-            # argv (visible to other namespaces' process listings). stringData
-            # lets the apiserver base64-encode for us.
+            {{- /*
+             Create/update the basic-auth Secret in the GitRepository's
+             namespace. Apply via stdin manifest so the PAT never lands in
+             argv (visible to other namespaces' process listings). stringData
+             lets the apiserver base64-encode for us.
+            */}}
             echo "[flux-gitrepository-patch] materialising basic-auth Secret ${GITREPO_NAMESPACE}/${GIT_AUTH_SECRET_NAME}"
             cat >/tmp/git-auth-secret.yaml <<EOF
             apiVersion: v1
@@ -212,12 +224,14 @@ data:
             kubectl apply -f /tmp/git-auth-secret.yaml
             echo "[flux-gitrepository-patch] basic-auth Secret applied"
 
-            # Issue #891 — apply the patch via a YAML strategic-merge file
-            # so the multi-line ignore filter is shipped verbatim. JSON-
-            # patching a multi-line string from sh is a rabbit-hole of
-            # quoting; YAML lets us write it as a literal block.
-            # #3536 — the patch ALSO sets spec.secretRef.name so the
-            # post-flip GitRepository authenticates to the local Gitea.
+            {{- /*
+             Issue #891 — apply the patch via a YAML strategic-merge file
+             so the multi-line ignore filter is shipped verbatim. JSON-
+             patching a multi-line string from sh is a rabbit-hole of
+             quoting; YAML lets us write it as a literal block.
+             #3536 — the patch ALSO sets spec.secretRef.name so the
+             post-flip GitRepository authenticates to the local Gitea.
+            */}}
             cat >/tmp/patch.yaml <<EOF
             spec:
               url: ${LOCAL_GITEA_URL}
@@ -241,40 +255,48 @@ data:
               "reconcile.fluxcd.io/requestedAt=$(date +%s)"
             echo "[flux-gitrepository-patch] control-plane region done"
 
-            # ── #5359: SECONDARY-REGION legs ─────────────────────────────
-            # /secondary-kubeconfigs is the optional:true mount of the
-            # cutover-secondary-kubeconfigs Secret (one <regionKey>.yaml per
-            # secondary region, materialised by catalyst-api at run start).
-            # Empty/absent = single-region Sovereign = this whole block
-            # no-ops (pre-#5359 behavior byte-identical).
-            #
-            # #5359 CANDIDATE URL CHAIN (hw292, dep 1c56518035a83e03). The
-            # DEFAULT chain for a secondary is the Sovereign's OWN external
-            # Gitea door (SECONDARY_GITEA_FALLBACK_URL,
-            # https://gitea.<fqdn>/...): on-Sovereign, world-reachable through
-            # the Sovereign's own gateway VIP with no cross-region Service-DNS
-            # assumption, and the only target live-proven to serve region-A's
-            # pivoted repo from a secondary — hw292 region-b fetched HEAD
-            # 7bcd1d59... through it, byte-identical to region-A's in-cluster
-            # Gitea, while the in-cluster name served zero refs.
-            #
-            # LOCAL_GITEA_URL (gitea-http.gitea.svc) is region-A's OWN patch
-            # target only — it is NOT in the default secondary chain any more.
-            # From a secondary that name resolves to the secondary's own empty
-            # bp-gitea (both Services headless, so the ClusterMesh
-            # global-Service annotation is inert — see the leg header), proven
-            # on hw292 as "pkt-line 3: EOF" on every fetch, generation=2 /
-            # observedGeneration=1 for 22h behind a result=success stamp.
-            # Keeping it as a leading candidate would burn
-            # gitRepositoryReadySeconds per region on a target that
-            # structurally cannot converge there.
-            #
-            # The only honest prober is the secondary's OWN source-controller:
-            # it dials the exact URL, from the right cluster, with the right
-            # credential. Each candidate is patched in and given a bounded
-            # window to CONVERGE (below); the first that converges wins, and
-            # exhausting the chain — or having NO candidate configured — is
-            # fatal, never a soft skip.
+            {{- /*
+             ── #5359: SECONDARY-REGION legs ─────────────────────────────
+             /secondary-kubeconfigs is the optional:true mount of the
+             cutover-secondary-kubeconfigs Secret (one <regionKey>.yaml per
+             secondary region, materialised by catalyst-api at run start).
+             Empty/absent = single-region Sovereign = this whole block
+             no-ops (pre-#5359 behavior byte-identical).
+
+             CANDIDATE URL CHAIN — see the `#5359 CANDIDATE URL CHAIN` marker
+             emitted below, which chart/tests/step05-secondary-chain.sh awk-slices
+             the secondary leg out of the render by.
+             The DEFAULT chain for a secondary is the Sovereign's OWN external
+             Gitea door (SECONDARY_GITEA_FALLBACK_URL,
+             https://gitea.<fqdn>/...): on-Sovereign, world-reachable through
+             the Sovereign's own gateway VIP with no cross-region Service-DNS
+             assumption, and the only target live-proven to serve region-A's
+             pivoted repo from a secondary — hw292 region-b fetched HEAD
+             7bcd1d59... through it, byte-identical to region-A's in-cluster
+             Gitea, while the in-cluster name served zero refs.
+
+             LOCAL_GITEA_URL (gitea-http.gitea.svc) is region-A's OWN patch
+             target only — it is NOT in the default secondary chain any more.
+             From a secondary that name resolves to the secondary's own empty
+             bp-gitea (both Services headless, so the ClusterMesh
+             global-Service annotation is inert — see the leg header), proven
+             on hw292 as "pkt-line 3: EOF" on every fetch, generation=2 /
+             observedGeneration=1 for 22h behind a result=success stamp.
+             Keeping it as a leading candidate would burn
+             gitRepositoryReadySeconds per region on a target that
+             structurally cannot converge there.
+
+             The only honest prober is the secondary's OWN source-controller:
+             it dials the exact URL, from the right cluster, with the right
+             credential. Each candidate is patched in and given a bounded
+             window to CONVERGE (below); the first that converges wins, and
+             exhausting the chain — or having NO candidate configured — is
+             fatal, never a soft skip.
+            */}}
+            # #5359 CANDIDATE URL CHAIN — region-start marker. Kept as a `#`
+            # comment because chart/tests/step05-secondary-chain.sh awk-slices
+            # the secondary leg out of the RENDER from here to the closing
+            # `[flux-gitrepository-patch] done`.
             sec_url_chain="${SECONDARY_GITEA_URL:-}"
             if [ -z "${sec_url_chain}" ]; then
               sec_url_chain="${SECONDARY_GITEA_FALLBACK_URL:-}"
@@ -289,22 +311,28 @@ data:
                   -p "{\"data\":{\"step.flux-gitrepository-patch.region.${region}.result\":\"failed\",\"step.flux-gitrepository-patch.region.${region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"step.flux-gitrepository-patch.region.${region}.lastError\":\"no candidate pivot URL configured\"}}" || true
                 exit 1
               fi
-              # ${sec_url_chain}, NOT ${sec_url}: the single-URL variable
-              # exists only inside the candidate loop below, and this line runs
-              # before it. Under the Job's `set -u` a stale reference here is
-              # not a cosmetic log bug — it aborts the leg on the FIRST
-              # secondary region, before any pivot, for every 2-region
-              # Sovereign.
+              {{- /*
+               ${sec_url_chain}, NOT ${sec_url}: the single-URL variable
+               exists only inside the candidate loop below, and this line runs
+               before it. Under the Job's `set -u` a stale reference here is
+               not a cosmetic log bug — it aborts the leg on the FIRST
+               secondary region, before any pivot, for every 2-region
+               Sovereign.
+              */}}
               echo "[flux-gitrepository-patch] #5359 secondary region ${region}: pivoting its GitRepository, candidates -> ${sec_url_chain}"
 
-              # 1. Basic-auth Secret in the secondary's flux-system (same PAT
-              # bytes written to /tmp/git-auth-secret.yaml above). The door
-              # terminates on the same Gitea behind the same
-              # REQUIRE_SIGNIN_VIEW=true, so the same PAT authenticates it.
+              {{- /*
+               1. Basic-auth Secret in the secondary's flux-system (same PAT
+               bytes written to /tmp/git-auth-secret.yaml above). The door
+               terminates on the same Gitea behind the same
+               REQUIRE_SIGNIN_VIEW=true, so the same PAT authenticates it.
+              */}}
               kubectl --kubeconfig "${skc}" apply -f /tmp/git-auth-secret.yaml
 
-              # 2. Same patch shape as region-A (URL from the candidate
-              # chain; secondaryRegions.giteaURL pins it).
+              {{- /*
+               2. Same patch shape as region-A (URL from the candidate
+               chain; secondaryRegions.giteaURL pins it).
+              */}}
               if ! kubectl --kubeconfig "${skc}" get gitrepository "${GITREPO_NAME}" -n "${GITREPO_NAMESPACE}" >/dev/null 2>&1; then
                 echo "[flux-gitrepository-patch] #5359 secondary ${region}: GitRepository ${GITREPO_NAMESPACE}/${GITREPO_NAME} absent — no flux git tether to pivot in this region; recording skipped"
                 kubectl -n "${CUTOVER_NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
@@ -337,29 +365,31 @@ data:
                   -n "${GITREPO_NAMESPACE}" \
                   "reconcile.fluxcd.io/requestedAt=$(date +%s)"
 
-                # 3. FAIL-LOUD readiness. #5359 (hw292): the predicate here USED
-                # to be `Ready == True && spec.url == sec_url`, and both halves
-                # were unsound.
-                #
-                #   * `spec.url` is the value this leg had just WRITTEN one line
-                #     earlier, so that half is a tautology — it can never be
-                #     false and it proves nothing about the fetch.
-                #   * `Ready` is a STATUS field, and immediately after a patch it
-                #     still describes the PREVIOUS spec. On hw292 the object went
-                #     into the loop carrying Ready=True from its last successful
-                #     clone of PUBLIC github.com, so the very first iteration
-                #     matched and the leg recorded result=success at 07:39:48Z —
-                #     the same second the Ready condition actually flipped to
-                #     False. The controller then never advanced past
-                #     observedGeneration=1 while metadata.generation stayed 2,
-                #     and 22h later it was still serving that pre-pivot GitHub
-                #     artifact.
-                #
-                # The sound predicate is CONVERGENCE: source-controller has
-                # processed THIS generation (observedGeneration == generation)
-                # and the outcome was success (Ready=True). Nothing else can
-                # distinguish "fetched from the new URL" from "still holding what
-                # it fetched from the old one".
+                {{- /*
+                 3. FAIL-LOUD readiness. #5359 (hw292): the predicate here USED
+                 to be `Ready == True && spec.url == sec_url`, and both halves
+                 were unsound.
+
+                   * `spec.url` is the value this leg had just WRITTEN one line
+                     earlier, so that half is a tautology — it can never be
+                     false and it proves nothing about the fetch.
+                   * `Ready` is a STATUS field, and immediately after a patch it
+                     still describes the PREVIOUS spec. On hw292 the object went
+                     into the loop carrying Ready=True from its last successful
+                     clone of PUBLIC github.com, so the very first iteration
+                     matched and the leg recorded result=success at 07:39:48Z —
+                     the same second the Ready condition actually flipped to
+                     False. The controller then never advanced past
+                     observedGeneration=1 while metadata.generation stayed 2,
+                     and 22h later it was still serving that pre-pivot GitHub
+                     artifact.
+
+                 The sound predicate is CONVERGENCE: source-controller has
+                 processed THIS generation (observedGeneration == generation)
+                 and the outcome was success (Ready=True). Nothing else can
+                 distinguish "fetched from the new URL" from "still holding what
+                 it fetched from the old one".
+                */}}
                 sg_deadline=$(( $(date +%s) + ${SECONDARY_GITREPO_READY_SECONDS} ))
                 while [ "$(date +%s)" -lt "${sg_deadline}" ]; do
                   sg_json=$(kubectl --kubeconfig "${skc}" get gitrepository "${GITREPO_NAME}" -n "${GITREPO_NAMESPACE}" \
@@ -388,10 +418,12 @@ data:
                 exit 1
               fi
 
-              # 4. Per-region durable tracking (#5359). giteaURL records WHICH
-              # candidate converged, so an operator can see from the status
-              # ConfigMap alone whether the secondary took the in-cluster mesh
-              # path or the Sovereign's external Gitea door.
+              {{- /*
+               4. Per-region durable tracking (#5359). giteaURL records WHICH
+               candidate converged, so an operator can see from the status
+               ConfigMap alone whether the secondary took the in-cluster mesh
+               path or the Sovereign's external Gitea door.
+              */}}
               kubectl -n "${CUTOVER_NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
                 -p "{\"data\":{\"step.flux-gitrepository-patch.region.${region}.result\":\"success\",\"step.flux-gitrepository-patch.region.${region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"step.flux-gitrepository-patch.region.${region}.giteaURL\":\"${sg_chosen}\"}}" || true
               echo "[flux-gitrepository-patch] #5359 secondary region ${region}: GitRepository CONVERGED on ${sg_chosen} (observedGeneration==generation, Ready=True)"
@@ -407,22 +439,28 @@ data:
           readOnlyRootFilesystem: true
           capabilities:
             drop: ["ALL"]
-        # Issue #891 — /tmp emptyDir for the kubectl patch-file
-        # (readOnlyRootFilesystem blocks writes to /tmp without it).
+        {{- /*
+         Issue #891 — /tmp emptyDir for the kubectl patch-file
+         (readOnlyRootFilesystem blocks writes to /tmp without it).
+        */}}
         volumeMounts:
           - name: tmp
             mountPath: /tmp
-          # #5359 — optional secondary-region kubeconfigs (empty on a
-          # single-region Sovereign; the leg no-ops).
+          {{- /*
+           #5359 — optional secondary-region kubeconfigs (empty on a
+           single-region Sovereign; the leg no-ops).
+          */}}
           - name: secondary-kubeconfigs
             mountPath: /secondary-kubeconfigs
             readOnly: true
     volumes:
       - name: tmp
         emptyDir: {}
-      # #5359 — materialised by catalyst-api (cutover.go runCutover) from its
-      # on-PVC secondary kubeconfig store at every run start; optional:true
-      # so a single-region Sovereign (no Secret) schedules unchanged.
+      {{- /*
+       #5359 — materialised by catalyst-api (cutover.go runCutover) from its
+       on-PVC secondary kubeconfig store at every run start; optional:true
+       so a single-region Sovereign (no Secret) schedules unchanged.
+      */}}
       - name: secondary-kubeconfigs
         secret:
           secretName: {{ .Values.secondaryRegions.kubeconfigSecretName }}

@@ -72,37 +72,43 @@ metadata:
     app.kubernetes.io/component: cutover-catalog-chart-set
 data:
   catalog-set.sh: |
-    # POSIX sh. `catalog_chart_set` needs jq (step-03 installs/verifies it);
-    # `chart_declared_images` needs helm (present in alpine/k8s, the canonical
-    # cutover-step image — step-06 already relies on it). Pure functions: no
-    # side effects beyond a scratch render file under ${CATALOG_SET_TMPDIR}.
+    {{- /*
+     POSIX sh. `catalog_chart_set` needs jq (step-03 installs/verifies it);
+     `chart_declared_images` needs helm (present in alpine/k8s, the canonical
+     cutover-step image — step-06 already relies on it). Pure functions: no
+     side effects beyond a scratch render file under ${CATALOG_SET_TMPDIR}.
+    */}}
 
-    # catalog_chart_set JSON_FILE UPSTREAM_PREFIX [HARD_VISIBILITY]
-    #
-    #   JSON_FILE       `kubectl get blueprints.catalyst.openova.io -o json` output.
-    #   UPSTREAM_PREFIX the openova-io chart-OCI prefix the cutover pivots FROM
-    #                   (oci://ghcr.io/openova-io). A Blueprint whose
-    #                   spec.source.url names a DIFFERENT registry is outside
-    #                   this mirror's contract and is skipped with a named WARN.
-    #   HARD_VISIBILITY the spec.visibility whose entries are CONTRACTUAL
-    #                   (default `listed` — the customer-visible marketplace
-    #                   grid). Only `spec.version` of a HARD entry is marked
-    #                   hard; every other row is best-effort.
-    #
-    #   stdout: "<chart>\t<version>\t<hard 1|0>\t<blueprint>\t<visibility>"
-    #           sorted + deduped on (chart, version); when the same pair is
-    #           reached both hard and soft, HARD wins.
-    #   stderr: skip/WARN diagnostics (never mixed into stdout).
-    #   exit  : always 0 — the CALLER owns the fail-loud policy.
+    {{- /*
+     catalog_chart_set JSON_FILE UPSTREAM_PREFIX [HARD_VISIBILITY]
+
+       JSON_FILE       `kubectl get blueprints.catalyst.openova.io -o json` output.
+       UPSTREAM_PREFIX the openova-io chart-OCI prefix the cutover pivots FROM
+                       (oci://ghcr.io/openova-io). A Blueprint whose
+                       spec.source.url names a DIFFERENT registry is outside
+                       this mirror's contract and is skipped with a named WARN.
+       HARD_VISIBILITY the spec.visibility whose entries are CONTRACTUAL
+                       (default `listed` — the customer-visible marketplace
+                       grid). Only `spec.version` of a HARD entry is marked
+                       hard; every other row is best-effort.
+
+       stdout: "<chart>\t<version>\t<hard 1|0>\t<blueprint>\t<visibility>"
+               sorted + deduped on (chart, version); when the same pair is
+               reached both hard and soft, HARD wins.
+       stderr: skip/WARN diagnostics (never mixed into stdout).
+       exit  : always 0 — the CALLER owns the fail-loud policy.
+    */}}
     catalog_chart_set() {
       _cs_json="$1"
       _cs_up=$(printf '%s' "${2:-}" | sed -e 's,/$,,')
       _cs_hardvis="${3:-listed}"
       [ -f "${_cs_json}" ] || { echo "[catalog-set] WARN: ${_cs_json} is not a file — catalog set empty" >&2; return 0; }
       command -v jq >/dev/null 2>&1 || { echo "[catalog-set] WARN: jq missing — cannot enumerate the catalog chart set" >&2; return 0; }
-      # Row expansion. spec.manifests.chart is the coordinate the application
-      # controller installs by; spec.source.chart / metadata.name are the
-      # documented fallbacks for a CR that omits the manifests block.
+      {{- /*
+       Row expansion. spec.manifests.chart is the coordinate the application
+       controller installs by; spec.source.chart / metadata.name are the
+       documented fallbacks for a CR that omits the manifests block.
+      */}}
       _cs_rows=$(jq -r --arg hardvis "${_cs_hardvis}" '
         (.items // [])[]
         | . as $i
@@ -127,10 +133,12 @@ data:
       printf '%s\n' "${_cs_rows}" | while IFS="$(printf '\t')" read -r _cs_c _cs_v _cs_h _cs_n _cs_vis _cs_url; do
         [ -z "${_cs_c}" ] && continue
         [ -z "${_cs_v}" ] && continue
-        # Foreign registry: the local Harbor `openova-io` project mirrors the
-        # openova-io upstream only. Naming the offender is the point — a LISTED
-        # entry sourced elsewhere is a real catalog gap, not something to
-        # silently drop into a passing guard.
+        {{- /*
+         Foreign registry: the local Harbor `openova-io` project mirrors the
+         openova-io upstream only. Naming the offender is the point — a LISTED
+         entry sourced elsewhere is a real catalog gap, not something to
+         silently drop into a passing guard.
+        */}}
         if [ -n "${_cs_url}" ] && [ -n "${_cs_up}" ]; then
           case "${_cs_url}" in
             "${_cs_up}"|"${_cs_up}"/*) : ;;
@@ -139,8 +147,10 @@ data:
               continue ;;
           esac
         fi
-        # A semver RANGE is not a concrete OCI tag — same guard as step-03
-        # Phase A2 (#5007 round 3) and 03b (#5237).
+        {{- /*
+         A semver RANGE is not a concrete OCI tag — same guard as step-03
+         Phase A2 (#5007 round 3) and 03b (#5237).
+        */}}
         case "${_cs_v}" in
           *[\<\>~^\|\ ]*|*'*'*)
             echo "[catalog-set] WARN: ${_cs_n} version '${_cs_v}' is a semver range, not a concrete tag — skipping (cannot mirror deterministically)" >&2
@@ -156,14 +166,16 @@ data:
       return 0
     }
 
-    # catalog_guard_missing HARD_TSV PRESENT_FILE
-    #
-    #   HARD_TSV      "<chart>\t<version>[\t…]" rows that MUST be pullable.
-    #   PRESENT_FILE  "<chart>:<version>" per artifact proven present in the
-    #                 local registry (the caller supplies the probe).
-    #
-    #   stdout: "<chart>:<version>" per HARD row NOT present.
-    #   exit  : always 0 — the caller decides that a non-empty stdout is fatal.
+    {{- /*
+     catalog_guard_missing HARD_TSV PRESENT_FILE
+
+       HARD_TSV      "<chart>\t<version>[\t…]" rows that MUST be pullable.
+       PRESENT_FILE  "<chart>:<version>" per artifact proven present in the
+                     local registry (the caller supplies the probe).
+
+       stdout: "<chart>:<version>" per HARD row NOT present.
+       exit  : always 0 — the caller decides that a non-empty stdout is fatal.
+    */}}
     catalog_guard_missing() {
       _cg_hard="$1"; _cg_present="$2"
       [ -f "${_cg_hard}" ] || return 0
@@ -177,24 +189,26 @@ data:
       return 0
     }
 
-    # chart_declared_images CHART_TGZ
-    #
-    #   Renders the packaged chart at DEFAULT values and emits every image
-    #   reference the render pins, one per line, sorted + deduped. This is the
-    #   ONLY enumeration available for a chart nobody has installed (#5442:
-    #   prewarm's live-cluster Pod walk cannot see it), and it is faithful
-    #   rather than heuristic because blueprint-release.yaml refuses to publish
-    #   a chart that does not render at default values.
-    #
-    #   Refs without a tag or digest are skipped: an implicit `:latest` is not
-    #   a deterministic mirror target. Refs still carrying template/shell
-    #   syntax are skipped as un-renderable placeholders.
-    #
-    #   stdout: one image ref per line (verbatim as authored — the caller maps
-    #           it through the offline-mirror resolver).
-    #   stderr: render failures + per-ref skips.
-    #   exit  : always 0 — a chart that cannot be rendered yields no images and
-    #           says so loudly; the caller owns the policy.
+    {{- /*
+     chart_declared_images CHART_TGZ
+
+       Renders the packaged chart at DEFAULT values and emits every image
+       reference the render pins, one per line, sorted + deduped. This is the
+       ONLY enumeration available for a chart nobody has installed (#5442:
+       prewarm's live-cluster Pod walk cannot see it), and it is faithful
+       rather than heuristic because blueprint-release.yaml refuses to publish
+       a chart that does not render at default values.
+
+       Refs without a tag or digest are skipped: an implicit `:latest` is not
+       a deterministic mirror target. Refs still carrying template/shell
+       syntax are skipped as un-renderable placeholders.
+
+       stdout: one image ref per line (verbatim as authored — the caller maps
+               it through the offline-mirror resolver).
+       stderr: render failures + per-ref skips.
+       exit  : always 0 — a chart that cannot be rendered yields no images and
+               says so loudly; the caller owns the policy.
+    */}}
     chart_declared_images() {
       _ci_tgz="$1"
       [ -f "${_ci_tgz}" ] || { echo "[catalog-set] WARN: chart archive ${_ci_tgz} not found — no images enumerated" >&2; return 0; }
@@ -202,8 +216,10 @@ data:
       _ci_dir="${CATALOG_SET_TMPDIR:-/tmp}"
       _ci_out="${_ci_dir}/.catalog-render.$$.yaml"
       _ci_err="${_ci_dir}/.catalog-render.$$.err"
-      # Explicit status capture (never a pipeline) so a render failure is seen
-      # rather than masked by the exit status of a downstream filter.
+      {{- /*
+       Explicit status capture (never a pipeline) so a render failure is seen
+       rather than masked by the exit status of a downstream filter.
+      */}}
       if helm template catalog-prewarm "${_ci_tgz}" --namespace catalog-prewarm >"${_ci_out}" 2>"${_ci_err}"; then
         :
       else
@@ -212,43 +228,49 @@ data:
         rm -f "${_ci_out}" "${_ci_err}"
         return 0
       fi
-      # Every `image:` scalar in the render — containers, initContainers, and
-      # any CR field named `image` (an operator's workload pin counts too).
-      # `helm template` emits template text VERBATIM, so a chart authored in
-      # FLOW style (`- {name: c, image: <repo>:<tag>}`) never puts `image:` at
-      # the start of a line: the match must admit `{` and `,` as leading
-      # context, not just indentation and `- `. The leading-context class is
-      # also what keeps `someImage:`-style keys from matching.
-      #
-      # #5468 — strip COMMENT lines before the grep. `helm template` emits the
-      # shell/awk comments inside these ConfigMaps' block scalars verbatim into
-      # the render, so without this the enumerator greps its OWN documentation:
-      # the prose above used to say `image: repo:tag`, which survived every
-      # downstream filter (real-looking name, non-empty tag, no `<`/placeholder
-      # marker) and reached the A3 guard as a FATAL durable-miss on hw291
-      # (`MISSING repo:tag -> proxy-dockerhub/library/repo:tag`), blocking a
-      # cutover over a sentence. A line whose first non-space character is `#`
-      # is a YAML or in-block-scalar comment and can never declare a workload
-      # image. This also drops the WARN noise from `bare`, `.new`, `blocks`,
-      # and `child` — same class, harmless only because they parse as untagged.
+      {{- /*
+       Every `image:` scalar in the render — containers, initContainers, and
+       any CR field named `image` (an operator's workload pin counts too).
+       `helm template` emits template text VERBATIM, so a chart authored in
+       FLOW style (`- {name: c, image: <repo>:<tag>}`) never puts `image:` at
+       the start of a line: the match must admit `{` and `,` as leading
+       context, not just indentation and `- `. The leading-context class is
+       also what keeps `someImage:`-style keys from matching.
+
+       #5468 — strip COMMENT lines before the grep. `helm template` emits the
+       shell/awk comments inside these ConfigMaps' block scalars verbatim into
+       the render, so without this the enumerator greps its OWN documentation:
+       the prose above used to say `image: repo:tag`, which survived every
+       downstream filter (real-looking name, non-empty tag, no `<`/placeholder
+       marker) and reached the A3 guard as a FATAL durable-miss on hw291
+       (`MISSING repo:tag -> proxy-dockerhub/library/repo:tag`), blocking a
+       cutover over a sentence. A line whose first non-space character is `#`
+       is a YAML or in-block-scalar comment and can never declare a workload
+       image. This also drops the WARN noise from `bare`, `.new`, `blocks`,
+       and `child` — same class, harmless only because they parse as untagged.
+      */}}
       grep -v '^[[:space:]]*#' "${_ci_out}" \
         | grep -oE '(^|[[:space:],{])image:[[:space:]]*[^[:space:],}]+' \
         | sed -e 's/^.*image:[[:space:]]*//' -e 's/[[:space:]]*#.*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//" -e 's/[[:space:]]*$//' \
         | while IFS= read -r _ci_ref; do
             [ -z "${_ci_ref}" ] && continue
-            # A YAML block-scalar header (`image: |`) or any ref still carrying
-            # whitespace / shell / un-rendered Go-template syntax is not an
-            # addressable reference.
+            {{- /*
+             A YAML block-scalar header (`image: |`) or any ref still carrying
+             whitespace / shell / un-rendered Go-template syntax is not an
+             addressable reference.
+            */}}
             case "${_ci_ref}" in
               '|'|'>'|'|-'|'>-'|'|+'|'>+') continue ;;
               *' '*|*'	'*|*'$'*|*'{'*) continue ;;
             esac
-            # Tag/digest sanity. An untagged ref means an implicit `:latest`,
-            # which is not a deterministic mirror target. An EMPTY tag
-            # (`repo:`) and a placeholder tag are what a chart renders for a
-            # component whose image is supplied by an overlay — mirroring
-            # either would fail the copy and, under chartImages.fatal, fail the
-            # cutover on a ref nothing will ever pull.
+            {{- /*
+             Tag/digest sanity. An untagged ref means an implicit `:latest`,
+             which is not a deterministic mirror target. An EMPTY tag
+             (`repo:`) and a placeholder tag are what a chart renders for a
+             component whose image is supplied by an overlay — mirroring
+             either would fail the copy and, under chartImages.fatal, fail the
+             cutover on a ref nothing will ever pull.
+            */}}
             _ci_last="${_ci_ref##*/}"
             case "${_ci_last}" in
               *@*) : ;;
