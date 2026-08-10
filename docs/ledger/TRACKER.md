@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T20:00:03Z` |
+| Last refreshed | `2026-08-10T20:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5499](https://github.com/openova-io/openova/issues/5499) | harbor-core crashloops on 28P01 blocking the cutover — region-b consumes a rol | Other |
 | [#5501](https://github.com/openova-io/openova/issues/5501) | POST /api/v1/organizations reports state:done with all six steps done in 0s whil | Other |
 | [#5502](https://github.com/openova-io/openova/issues/5502) | org-controller reports reason=VClusterProvisioning for host-tier Orgs that never | Other |
 | [#5504](https://github.com/openova-io/openova/issues/5504) | bp-postgres: initdb owner and managed.roles mint the same role with different cr | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6058](https://github.com/openova-io/openova/issues/6058) | Flaky required gate: TestSecondaryKubeconfigDelivery_RunsOnFailedDeployment_6015 | Other |
 | [#6060](https://github.com/openova-io/openova/issues/6060) | UAT row 63: TopologyTab returns on the status.perCluster rung and never reads st | Other |
 | [#6062](https://github.com/openova-io/openova/issues/6062) | UAT row 8: GET /sovereign/parent-domains offers no org-pool parents — the list | Other |
+| [#6067](https://github.com/openova-io/openova/issues/6067) | UAT rows 212/213: bp-openova-mcp verifies one pinned RS256 key, but no catalyst- | Other |
 
 ---
 
@@ -307,6 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T20:02 | [#6066](https://github.com/openova-io/openova/pull/6066) | #5933 | docs(uat): flush 14 rows still graded on a wiped env, and re |
+| 2026-08-10T20:12 | [#6065](https://github.com/openova-io/openova/pull/6065) | #6058 | fix(handover): make the secondary-kubeconfig forward-client  |
+| 2026-08-10T20:06 | [#6063](https://github.com/openova-io/openova/pull/6063) | #5909 | docs(uat): audit all 10 ENV-STATE rows on hw293 — 5 were mis |
+| 2026-08-10T20:08 | [#6061](https://github.com/openova-io/openova/pull/6061) | #5420 | fix(console): the Topology tab returned before it ever read  |
 | 2026-08-10T19:07 | [#6057](https://github.com/openova-io/openova/pull/6057) | #6016 | docs(uat): 13 WALKABLE-NOW rows settled on hw293 — 8 flip gr |
 | 2026-08-10T19:03 | [#6056](https://github.com/openova-io/openova/pull/6056) | #3370 | fix(console): /apps renders two card collections and said wh |
 | 2026-08-10T18:57 | [#6055](https://github.com/openova-io/openova/pull/6055) | #793 | fix(console): the cutover trigger was not on the nav — make  |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-08-10T15:36 | [#6021](https://github.com/openova-io/openova/pull/6021) | #5507 | fix(bp-postgres): the replica side must not name a role Secr |
 | 2026-08-10T15:26 | [#6020](https://github.com/openova-io/openova/pull/6020) | #3380 | docs(uat): hw293 walk of the 18 letter-prefixed rows — 9 pas |
 | 2026-08-10T16:22 | [#6019](https://github.com/openova-io/openova/pull/6019) | #6004 | docs(uat): hw293 walk of rows 110-163 — 46 pass, 5 fail |
-| 2026-08-10T15:58 | [#6018](https://github.com/openova-io/openova/pull/6018) | #3370 | docs(uat): hw293 rows 1-54 walk — 39 stamped, 33 pass and 6  |
-| 2026-08-10T16:36 | [#6017](https://github.com/openova-io/openova/pull/6017) | #6004 | docs(uat): hw293 rows 196-243 — 29 walked, 17 pass, 12 fail |
-| 2026-08-10T16:43 | [#6014](https://github.com/openova-io/openova/pull/6014) | #5508 | docs(uat): hw293 topology/DR/placement walk — 2 pass, 6 fail |
-| 2026-08-10T14:59 | [#6013](https://github.com/openova-io/openova/pull/6013) | #5568 | docs(uat): hw293 topology rows — 8 fail, including two I cor |
 
 ---
 
