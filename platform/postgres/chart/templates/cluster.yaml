@@ -88,7 +88,44 @@ spec:
       {{- $first := first .Values.databases }}
       database: {{ (default (dict) $first).name | default "app" | quote }}
       owner: {{ (default (dict) $first).owner | default "app" | quote }}
-      {{- if $first }}
+      {{- /*
+      #6016 SIDE GATE — this reference may only render where the Secret it
+      names is ALSO rendered. `secret.name` below resolves to
+      bp-postgres.roleSecretName, and role-secrets.yaml (which is the ONLY
+      producer of that object) is gated `not isReplicaSide`. Naming it on the
+      replica side therefore points CNPG at an object this chart deliberately
+      never creates there — and unlike managed.roles (a controller-level
+      reconcile that merely reports pending), bootstrap.initdb.secret is
+      POD-FATAL: CNPG projects it into the initdb Job as
+      `APP_USERNAME <- secretKeyRef{name: <roleSecret>, key: username}` with
+      `optional: false`, so the container cannot be configured at all.
+
+      Live proof (hw293, dep a0077ba47e3720e5, region me-east-215-b):
+      all three shared instances' initdb Pods sat in CreateContainerConfigError
+      for 139m — shared-pg-1-initdb, shared-pg-b-1-initdb, shared-pg-c-1-initdb
+      — on `APP_USERNAME: <set to the key 'username' in secret
+      'shared-pg-harbor'> Optional: false`, while region-B's shared-data held
+      ZERO basic-auth role Secrets (14 Secrets vs region-A's 36). The wedge
+      surfaced four hops downstream as keycloak-0 Init:0/1 and 8 non-Ready
+      HelmReleases (65-8=57), which is why it took three walkers to trace back
+      to a dangling name in this file.
+
+      The pre-flip window is what makes this reachable: renderReplicaHalf is
+      `activeHotStandby AND side=replica`, so BEFORE the crossRegion flip the
+      secondary still renders THIS singleton placeholder Cluster (deliberate,
+      #4460) — with `side` already stamped `secondary` from cloud-init. That
+      combination (side=secondary AND activeHotStandby=false) is precisely the
+      one the existing Case 4b fixture does not cover, because 4b sets
+      activeHotStandby=true and so skips this template entirely.
+
+      Dropping the reference on the replica side restores CNPG's own
+      auto-generated `<cluster>-app` credential for the THROWAWAY placeholder
+      (the pre-#5507 behaviour), which is discarded at the flip when
+      replica-cluster.yaml takes over. #5507's guarantee is untouched exactly
+      where it matters — primary and singleton, the sides that mint the role
+      Secret and hand it to real consumers.
+      */}}
+      {{- if and $first (not (include "bp-postgres.isReplicaSide" $)) }}
       {{- /*
       #5504: the initdb OWNER must be born holding the SAME Secret the
       managed.roles entry below declares for it.

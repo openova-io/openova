@@ -368,6 +368,83 @@ if grep -qE '^kind: Secret$' "$TMP/preflip-replica-alias.yaml"; then
   fail "#5224: pre-flip side=replica minted a Secret (alias must match side=secondary)"
 fi
 
+# ── Case 4h: #6016 — the render must not REFERENCE a role Secret it does not MINT ─
+#
+# Case 4g above pins the MINT half of the #5224 side-gate ("the secondary
+# renders ZERO Secrets") and passes. The defect lived in the other half: a
+# DIFFERENT template referencing, by name, the object 4g just proved absent.
+# Asserting only the absence is the "guard tested a surface that cannot fail"
+# shape — 4g can never go red on a dangling reference, because it never looks
+# at references at all.
+#
+# THE CONTRADICTION (#6016, chart 0.2.18): cluster.yaml's
+# `bootstrap.initdb.secret.name` resolves to bp-postgres.roleSecretName, whose
+# ONLY producer is role-secrets.yaml — gated `not isReplicaSide`. On the
+# pre-flip secondary (side=secondary AND activeHotStandby=false, the window in
+# which renderReplicaHalf is still false so this template DOES render) the
+# reference was emitted and the Secret was not. CNPG projects that name into
+# the initdb Job as `APP_USERNAME <- secretKeyRef{key: username}` with
+# `optional: false`, so the Pod cannot be configured — a POD-FATAL dangle,
+# unlike managed.roles[].passwordSecret which is a controller-level reconcile
+# that merely reports pending (deliberate, documented in role-secrets.yaml).
+#
+# Live (hw293 dep a0077ba47e3720e5, region me-east-215-b): all three shared
+# instances' initdb Pods in CreateContainerConfigError for 139m, region-B
+# shared-data holding 14 Secrets to region-A's 36, surfacing four hops later as
+# keycloak-0 Init:0/1 and 8 non-Ready HelmReleases (65-8=57).
+#
+# The check is STRUCTURAL, not a token grep: it parses the rendered stream,
+# collects the Secret names the render DEFINES, collects the names it
+# REFERENCES from a pod-fatal position, and reports the difference.
+echo "[render] Case 4h: #6016 pre-flip SECONDARY → no pod-fatal reference to an unrendered role Secret"
+
+# Emits "<clusters> <initdb_refs> <dangling>"; names the dangling pairs on stderr.
+sharedpg_dangle_report() {
+  python3 - "$1" <<'PY'
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if isinstance(d, dict)]
+defined = {d.get("metadata", {}).get("name")
+           for d in docs if d.get("kind") == "Secret"}
+clusters = [d for d in docs if d.get("kind") == "Cluster"]
+refs, dangling = 0, []
+for c in clusters:
+    spec = c.get("spec") or {}
+    initdb = ((spec.get("bootstrap") or {}).get("initdb") or {})
+    name = ((initdb.get("secret") or {}).get("name"))
+    if not name:
+        continue
+    refs += 1
+    if name not in defined:
+        dangling.append("%s -> %s" % (c.get("metadata", {}).get("name"), name))
+for d in dangling:
+    sys.stderr.write("  DANGLING bootstrap.initdb.secret: %s\n" % d)
+print(len(clusters), refs, len(dangling))
+PY
+}
+
+read -r pf_clusters pf_refs pf_dangling < <(sharedpg_dangle_report "$TMP/preflip-secondary.yaml") \
+  || fail "#6016: dangle report failed on the pre-flip secondary render"
+# Non-vacuity: the fixture must actually contain the placeholder Cluster. If the
+# render ever stops emitting one here, this case would pass on nothing.
+[ "${pf_clusters:-0}" -ge 1 ] \
+  || fail "#6016 VACUOUS: pre-flip secondary rendered ZERO Clusters — the fixture no longer exercises this template"
+[ "${pf_dangling:-0}" -eq 0 ] \
+  || fail "#6016: pre-flip SECONDARY references $pf_dangling role Secret(s) it never renders — CNPG projects these into the initdb Job with optional:false, so the Pod wedges in CreateContainerConfigError (hw293 region-B, 139m, 8 HelmReleases behind it)"
+
+# ── The vacuity CONTROL for the check above ───────────────────────────────
+# A dangle report that always returned 0 would satisfy the secondary assertion
+# no matter what the chart did. The pre-flip PRIMARY is the same code path with
+# the OPPOSITE expectation: it MUST both reference the role Secret (#5507 — the
+# initdb owner is born holding its managed-role credential) AND define it. So a
+# reference count of >= 1 here proves the extractor genuinely finds references,
+# and 0 dangling proves it distinguishes a satisfied one from a dangling one.
+read -r pp_clusters pp_refs pp_dangling < <(sharedpg_dangle_report "$TMP/preflip-primary.yaml") \
+  || fail "#6016: dangle report failed on the pre-flip primary render"
+[ "${pp_refs:-0}" -ge 1 ] \
+  || fail "#6016 CONTROL FAILED: the pre-flip PRIMARY carries NO bootstrap.initdb.secret reference — either #5507 regressed or the extractor is blind (in which case the secondary assertion above proves nothing)"
+[ "${pp_dangling:-0}" -eq 0 ] \
+  || fail "#5507/#6016: the pre-flip PRIMARY references a role Secret it does not mint — the side-gate has been over-applied to the minting side"
+
 # ── Case 4e: #4846 — crossRegionPeerClusters → identity-based CNP, NO ipBlock ─
 # The cross-region DR admission is an identity-based CiliumNetworkPolicy that
 # selects the peer cluster(s) by io.cilium.k8s.policy.cluster. A k8s-netpol
