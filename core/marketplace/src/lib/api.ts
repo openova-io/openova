@@ -252,8 +252,11 @@ export const getAddons = async (): Promise<AddOn[]> => {
 };
 
 // Auth
+// `expires_in_sec` is the code's real TTL, reported so the sign-in page can
+// state it instead of hardcoding a number that drifts (UAT row 84). Optional:
+// a server predating the field simply omits it and the client falls back.
 export const sendMagicLink = (email: string) =>
-  request<{ message: string }>('/auth/magic-link', {
+  request<{ message: string; expires_in_sec?: number }>('/auth/magic-link', {
     method: 'POST',
     body: JSON.stringify({ email }),
   });
