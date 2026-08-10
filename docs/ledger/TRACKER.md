@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T22:45:04Z` |
+| Last refreshed | `2026-08-10T23:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5516](https://github.com/openova-io/openova/issues/5516) | openova-mcp: per-Org bearer carries no deployment_id claim — list/get/create_a | Other |
-| [#5527](https://github.com/openova-io/openova/issues/5527) | Cutover: per-Org tenant HelmRepositories outside the pivot's authority — org-t | Other |
 | [#5558](https://github.com/openova-io/openova/issues/5558) | Mothership catalyst-api stuck at replicas=0 — Flux does not own spec.replicas, | Other |
 | [#5559](https://github.com/openova-io/openova/issues/5559) | catalog-seed ships 6 INERT Blueprint CRs — seeded against charts that were nev | Other |
 | [#5561](https://github.com/openova-io/openova/issues/5561) | §854 solver carve-out assumes HTTP-01 solvers 'GC automatically' — 5 have per | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#6079](https://github.com/openova-io/openova/issues/6079) | mothership GitOps loop dead: containerd's ghcr pull carries a credential GHCR de | Other |
 | [#6081](https://github.com/openova-io/openova/issues/6081) | Per-Org console: the install wizard's Organization list is empty because the dir | Other |
 | [#6082](https://github.com/openova-io/openova/issues/6082) | Cutover can never start on hw293: a repaired defect latched the record failed, a | Other |
+| [#6084](https://github.com/openova-io/openova/issues/6084) | Silent re-auth on a per-Org console targets auth.<orgslug>.<parent>, which the g | Other |
+| [#6085](https://github.com/openova-io/openova/issues/6085) | Reconciliation tab never offers Resume: suspended read is stale after its own ac | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T22:59 | [#6083](https://github.com/openova-io/openova/pull/6083) | #6004 | fix(catalyst-api): let a repaired Phase-1 failure leave the  |
 | 2026-08-10T22:34 | [#6080](https://github.com/openova-io/openova/pull/6080) | #5573 | fix(guard): flux loop liveness read spec.replicas, a surface |
 | 2026-08-10T22:00 | [#6078](https://github.com/openova-io/openova/pull/6078) | #4292 | fix(console,api): four UAT rows at their producers — purchas |
 | 2026-08-10T21:35 | [#6074](https://github.com/openova-io/openova/pull/6074) | #6071 | fix(org-gitops): the per-Org writer picked a witness that ca |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-10T17:32 | [#6038](https://github.com/openova-io/openova/pull/6038) | #6029 | fix(uat): a re-tag the partition parser cannot read is silen |
 | 2026-08-10T17:33 | [#6037](https://github.com/openova-io/openova/pull/6037) | #5978 | fix(catalog): the storefront sells Sandbox from a different  |
 | 2026-08-10T17:32 | [#6035](https://github.com/openova-io/openova/pull/6035) | #5946 | fix(cutover): the sovereignty floor read 2 of the 7 cutover  |
-| 2026-08-10T17:01 | [#6034](https://github.com/openova-io/openova/pull/6034) | #6029 | fix(uat): a re-tag the partition parser cannot read is silen |
 
 ---
 
