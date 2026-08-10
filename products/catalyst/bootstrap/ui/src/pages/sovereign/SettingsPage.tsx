@@ -51,8 +51,8 @@
  * never read into the DOM.
  */
 
-import { useMemo } from 'react'
-import { Link, useParams } from '@tanstack/react-router'
+import { useEffect, useMemo } from 'react'
+import { Link, useParams, useRouterState } from '@tanstack/react-router'
 
 import { PortalShell } from './PortalShell'
 import { useDeploymentEvents } from './useDeploymentEvents'
@@ -129,6 +129,48 @@ function desc(id: string): string {
   return SECTIONS.find((s) => s.id === id)?.description ?? ''
 }
 
+/* ── Anchor arrival — row 160 / #3379 ───────────────────────────────
+ *
+ * This page stacks twelve sections, so an anchor that only scrolls leaves the
+ * operator looking at an unannotated card with no confirmation they landed on
+ * the thing they asked for. The hw293-2026-08-10 walk recorded exactly that
+ * for `#sovereignty`: the panel scrolled (bounding-box top 3055px -> 896px)
+ * and "the target's class stays 'scroll-mt-20' before and after the click".
+ *
+ * Two distinct jobs, and only the first is browser-native:
+ *
+ *   SCROLL   a full page load with a fragment scrolls by itself. A CLIENT-side
+ *            navigation — which is what the new Sovereignty nav entry performs
+ *            — does not, because the document never reloads. So the effect
+ *            below scrolls explicitly rather than trusting the browser.
+ *   HIGHLIGHT nothing in the platform did this. The addressed section now
+ *            carries `data-anchor-highlighted="true"` plus a visible ring.
+ *
+ * It follows the ANCHOR, not one privileged section: `#dns` lights DNS and
+ * leaves the cutover panel dark. Highlighting the sovereignty panel
+ * unconditionally would satisfy the row while being a different behaviour.
+ */
+function useAnchorArrival(): string {
+  const hash = useRouterState({ select: (s) => s.location.hash })
+  const anchor = (hash ?? '').replace(/^#/, '')
+  useEffect(() => {
+    if (!anchor) return
+    // The section is rendered by this same commit, so the element exists by
+    // the time effects run; the null-check is for a fragment that names no
+    // section (a stale bookmark), where the honest behaviour is to do nothing
+    // rather than to throw.
+    const el = document.getElementById(anchor)
+    if (!el || typeof el.scrollIntoView !== 'function') return
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [anchor])
+  return anchor
+}
+
+/** Ring applied to the section a fragment addresses. Shared by SectionCard and
+ *  the SovereigntyCard mount, which is not a SectionCard. */
+const ANCHOR_RING = 'ring-2 ring-[var(--color-accent)] ring-offset-2 ring-offset-[var(--color-bg)]'
+
+
 /* ── Page ───────────────────────────────────────────────────────── */
 
 export interface SettingsPageProps {
@@ -154,6 +196,9 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
   const scopedToProvisionRoute = Boolean(params.deploymentId)
 
   const store = useWizardStore()
+
+  // Row 160 — scroll to AND mark the section the fragment addresses.
+  const anchor = useAnchorArrival()
 
   const { snapshot } = useDeploymentEvents({
     deploymentId,
@@ -247,7 +292,7 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
           {/* ── Right pane — sections stacked ─────────────────── */}
           <main className="flex min-w-0 flex-1 flex-col gap-6">
             {/* 1. Organization */}
-            <SectionCard id="organization" title="Organization" description={desc('organization')}>
+            <SectionCard id="organization" anchored={anchor === 'organization'} title="Organization" description={desc('organization')}>
               <FieldGrid>
                 <Field label="Name" value={orgName} testId="settings-org-name" />
                 <Field label="Billing email" value={orgEmail} testId="settings-org-email" />
@@ -257,7 +302,7 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
             </SectionCard>
 
             {/* 2. Sovereign */}
-            <SectionCard id="sovereign" title="Sovereign" description={desc('sovereign')}>
+            <SectionCard id="sovereign" anchored={anchor === 'sovereign'} title="Sovereign" description={desc('sovereign')}>
               <FieldGrid>
                 <Field label="Sovereign FQDN" value={sovereignFQDN} mono testId="settings-sov-fqdn" />
                 <Field label="Region" value={region} mono testId="settings-sov-region" />
@@ -286,6 +331,7 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
             {/* 3. API tokens */}
             <SectionCard
               id="api-tokens"
+              anchored={anchor === 'api-tokens'}
               title="API tokens"
               description={desc('api-tokens')}
               actionLabel="Create token"
@@ -325,6 +371,7 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
             {/* 4. Cloud credentials */}
             <SectionCard
               id="cloud-credentials"
+              anchored={anchor === 'cloud-credentials'}
               title="Cloud credentials"
               description={desc('cloud-credentials')}
               pendingApi
@@ -337,7 +384,7 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
             </SectionCard>
 
             {/* 5. DNS */}
-            <SectionCard id="dns" title="DNS" description={desc('dns')}>
+            <SectionCard id="dns" anchored={anchor === 'dns'} title="DNS" description={desc('dns')}>
               <FieldGrid>
                 <Field label="Pool domain" value={poolDomain} mono testId="settings-dns-pool-domain" />
                 <Field
@@ -356,7 +403,7 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
             </SectionCard>
 
             {/* 6. Domain mode */}
-            <SectionCard id="domain-mode" title="Domain mode" description={desc('domain-mode')}>
+            <SectionCard id="domain-mode" anchored={anchor === 'domain-mode'} title="Domain mode" description={desc('domain-mode')}>
               <FieldGrid>
                 <Field label="Mode" value={domainMode} testId="settings-domain-mode-value" />
                 <Field
@@ -372,20 +419,21 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
                 route into this anchor section, consistent with #dns +
                 the move Marketplace already got. Same ParentDomainsSection
                 the standalone /organizations/domains page renders. */}
-            <SectionCard id="parent-domains" title="Parent domains" description={desc('parent-domains')}>
+            <SectionCard id="parent-domains" anchored={anchor === 'parent-domains'} title="Parent domains" description={desc('parent-domains')}>
               <ParentDomainsSection />
             </SectionCard>
 
             {/* 8. Marketplace — Wave 5 (2026-05-17): moved here from
                 the retired /settings/marketplace standalone page +
                 Settings sub-nav child. */}
-            <SectionCard id="marketplace" title="Marketplace" description={desc('marketplace')}>
+            <SectionCard id="marketplace" anchored={anchor === 'marketplace'} title="Marketplace" description={desc('marketplace')}>
               <MarketplaceSection />
             </SectionCard>
 
             {/* 9. Notifications */}
             <SectionCard
               id="notifications"
+              anchored={anchor === 'notifications'}
               title="Notifications"
               description={desc('notifications')}
               pendingApi
@@ -397,7 +445,7 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
             </SectionCard>
 
             {/* 10. Members — link to existing User Access page */}
-            <SectionCard id="members" title="Members" description={desc('members')}>
+            <SectionCard id="members" anchored={anchor === 'members'} title="Members" description={desc('members')}>
               <p className="text-sm text-[var(--color-text-dim)]">
                 Operators are managed on the dedicated User Access page so role bindings, app
                 grants, and namespace scopes share one editor.
@@ -436,6 +484,7 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
             {/* 11. Danger zone */}
             <SectionCard
               id="danger-zone"
+              anchored={anchor === 'danger-zone'}
               title="Danger zone"
               description={desc('danger-zone')}
               tone="danger"
@@ -476,7 +525,12 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
                 Self-contained widget: renders its own header/badge/CTA and
                 self-fetches cutover status, so it is not wrapped in a
                 SectionCard. */}
-            <div id="sovereignty" className="scroll-mt-20" data-testid="settings-sovereignty">
+            <div
+              id="sovereignty"
+              className={`scroll-mt-20 rounded-xl${anchor === 'sovereignty' ? ` ${ANCHOR_RING}` : ''}`}
+              data-testid="settings-sovereignty"
+              data-anchor-highlighted={anchor === 'sovereignty' ? 'true' : undefined}
+            >
               <SovereigntyCard />
             </div>
           </main>
@@ -502,6 +556,8 @@ interface SectionCardProps {
   pendingApi?: boolean
   /** Tone — danger sections render with a rose border. */
   tone?: 'default' | 'danger'
+  /** True when the page fragment addresses THIS section (row 160). */
+  anchored?: boolean
 }
 
 function SectionCard({
@@ -513,6 +569,7 @@ function SectionCard({
   actionTestId,
   pendingApi,
   tone = 'default',
+  anchored = false,
 }: SectionCardProps) {
   const borderClass =
     tone === 'danger'
@@ -523,7 +580,8 @@ function SectionCard({
       id={id}
       data-testid={`settings-section-${id}`}
       data-pending-api={pendingApi ? 'true' : undefined}
-      className={`scroll-mt-20 rounded-xl border ${borderClass} p-5`}
+      data-anchor-highlighted={anchored ? 'true' : undefined}
+      className={`scroll-mt-20 rounded-xl border ${borderClass} p-5${anchored ? ` ${ANCHOR_RING}` : ''}`}
     >
       <header className="mb-4 flex items-start justify-between gap-3">
         <div>
