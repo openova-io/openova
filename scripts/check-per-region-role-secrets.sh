@@ -92,6 +92,84 @@ B="$(short_sha 'pw-beta')"
 [ "$A" != "$B" ]                                          || { echo "SELF-TEST FAIL: hasher is degenerate — distinct inputs hashed alike" >&2; exit 2; }
 echo "OK — decision self-test passed (AGREE / MINT-ABSENT / DIVERGE / NOT-CONSUMED all distinguished)."
 
+# ─── Cross-region COVERAGE decision (#6016) ──────────────────────────────
+#
+# WHY THIS EXISTS: every check above is scoped to ONE region. The loop below
+# visits each context independently and asks "is what this region CONSUMES
+# backed by what this region MINTS". A region that mints nothing and consumes
+# nothing answers that question perfectly — so the sweep printed
+# "(no *-database-secret consumers found — nothing to check here)" followed by
+# "OK: every consumed role credential is backed by a minted one" and exited 0.
+#
+# Measured on hw293 (dep a0077ba47e3720e5) region me-east-215-b, which at that
+# moment held ZERO role Secrets, ZERO consumer hub Secrets, three CNPG initdb
+# Pods in CreateContainerConfigError and 8 non-Ready HelmReleases. The guard
+# called it clean. A per-region check that never compares regions cannot see a
+# per-region split — the absence is only meaningful RELATIVE to the peer.
+#
+# So: assert coverage across regions, do not assume it. Every name any region
+# holds must be held by every region. bp-postgres renders the role + hub
+# Secrets primary-side only (#5224 isReplicaSide) precisely because the
+# catalyst-api cross-mesh sync (#3629/#5230/#4158) is supposed to deliver
+# region-A's authoritative copies onward; "region B has none" is that delivery
+# not having happened, which is the fault this phase names.
+#
+# coverage_verdict <dir> <region>...
+#   reads  <dir>/<region>.names  (sorted, one Secret name per line)
+#   writes <dir>/missing         ("<region> <name>" per gap)
+#   echoes one of:
+#     NO-PEER   fewer than 2 regions — a split is not expressible here
+#     COVERED   every name held by ANY region is held by EVERY region
+#     SPLIT     some name is held by one region and missing from another
+coverage_verdict() {
+  local dir="$1"; shift
+  local regions=("$@")
+  : > "${dir}/missing"
+  if [ "${#regions[@]}" -lt 2 ]; then echo "NO-PEER"; return; fi
+  cat "${dir}"/*.names 2>/dev/null | sort -u > "${dir}/union"
+  local r n
+  for r in "${regions[@]}"; do
+    while read -r n; do
+      [ -n "${n}" ] && echo "${r} ${n}" >> "${dir}/missing"
+    done < <(comm -23 "${dir}/union" "${dir}/${r}.names")
+  done
+  if [ -s "${dir}/missing" ]; then echo "SPLIT"; else echo "COVERED"; fi
+}
+
+# ─── Phase 0b — coverage self-test (the negative FIRST) ──────────────────
+#
+# THE TRAP THIS PINS: a one-region fixture satisfies a "per-region coverage"
+# check identically to a correct two-region one, because with nothing to
+# compare against there is no gap to find. If NO-PEER and COVERED were the same
+# verdict, every assertion below would be provable with a single region and the
+# check would be decorative. They are deliberately DISTINCT tokens, and the
+# two-region-with-a-one-region-secret case is pinned RED before anything else.
+COV_T="$(mktemp -d)"
+trap 'rm -rf "${COV_T}"' EXIT
+
+printf 'shared-pg-harbor\nshared-pg-keycloak\n' | sort > "${COV_T}/a.names"
+printf 'shared-pg-harbor\nshared-pg-keycloak\n' | sort > "${COV_T}/b.names"
+[ "$(coverage_verdict "${COV_T}" a b)" = "COVERED" ] \
+  || { echo "SELF-TEST FAIL: two regions with identical coverage not COVERED" >&2; exit 2; }
+
+# THE REQUIRED NEGATIVE — two regions, the secret in only one. MUST go red.
+printf 'shared-pg-harbor\n' | sort > "${COV_T}/b.names"
+[ "$(coverage_verdict "${COV_T}" a b)" = "SPLIT" ] \
+  || { echo "SELF-TEST FAIL: a two-region deployment with a ONE-region secret was not SPLIT — this is the #6016 shape and the whole point of this phase" >&2; exit 2; }
+grep -q '^b shared-pg-keycloak$' "${COV_T}/missing" \
+  || { echo "SELF-TEST FAIL: SPLIT did not NAME the missing region/secret pair" >&2; exit 2; }
+
+# The hw293 shape specifically: the peer region holds NOTHING at all. The old
+# per-region loop reported this as clean.
+: > "${COV_T}/b.names"
+[ "$(coverage_verdict "${COV_T}" a b)" = "SPLIT" ] \
+  || { echo "SELF-TEST FAIL: a region holding ZERO secrets alongside a populated peer was not SPLIT — that is exactly the state the per-region loop called OK on hw293" >&2; exit 2; }
+
+# And the trap itself: ONE region can never manufacture a COVERED pass.
+[ "$(coverage_verdict "${COV_T}" a)" = "NO-PEER" ] \
+  || { echo "SELF-TEST FAIL: a single-region fixture produced a coverage verdict — one region must be inert, never 'clean'" >&2; exit 2; }
+echo "OK — coverage self-test passed (COVERED / SPLIT / NO-PEER distinguished; the one-region fixture cannot pass as covered)."
+
 if [ "${SELF_TEST_ONLY}" -eq 1 ]; then
   echo "OK: --self-test only; no cluster was contacted."
   exit 0
@@ -155,6 +233,67 @@ for ctx in "${CONTEXTS[@]}"; do
     esac
   done <<< "${consumers}"
 done
+
+# ─── Phase 2 — cross-region COVERAGE sweep (#6016) ───────────────────────
+#
+# Phase 1 asked each region about ITSELF. This asks the regions about EACH
+# OTHER, which is the only way a per-region split is visible. Runs even when a
+# region has no consumers at all — that is the case Phase 1 skips past, and the
+# case that wedged hw293.
+echo ""
+echo "== cross-region coverage =="
+
+COV_LIVE="$(mktemp -d)"
+trap 'rm -rf "${COV_T}" "${COV_LIVE}"' EXIT
+
+cov_regions=()
+cov_readable=1
+for ctx in "${CONTEXTS[@]}"; do
+  safe="$(printf '%s' "${ctx}" | tr -c 'A-Za-z0-9_.-' '_')"
+  # The tracked set = what bp-postgres renders primary-side and the cross-mesh
+  # sync is meant to carry onward: the per-owner role Secrets (basic-auth,
+  # MINUS `-superuser`, which CNPG mints locally per cluster and is legitimately
+  # region-local) plus the consumer hub Secrets. The CNPG-generated TLS material
+  # (`-replication` / `-ca` / `-server`) is likewise region-local and excluded.
+  if ! timeout 30 kubectl --context "${ctx}" -n "${MINT_NS}" get secret \
+        -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.type}{"\n"}{end}' \
+        2>/dev/null > "${COV_LIVE}/${safe}.raw"; then
+    echo "  WARN: could not read ${MINT_NS} secrets in ${ctx} — coverage NOT evaluated (reporting nothing rather than a false split)" >&2
+    cov_readable=0
+    break
+  fi
+  awk '$2=="kubernetes.io/basic-auth" && $1 !~ /-superuser$/ { print $1; next }
+       $1 ~ /-database-secret/ || $1 ~ /-database-env/       { print $1 }' \
+    "${COV_LIVE}/${safe}.raw" | sort -u > "${COV_LIVE}/${safe}.names"
+  printf '  %-28s holds %s tracked Secret(s)\n' "${ctx}" "$(wc -l < "${COV_LIVE}/${safe}.names")"
+  cov_regions+=("${safe}")
+done
+
+if [ "${cov_readable}" -eq 1 ]; then
+  cov_verdict="$(coverage_verdict "${COV_LIVE}" "${cov_regions[@]}")"
+  case "${cov_verdict}" in
+    NO-PEER)
+      echo "  skip  single region — a per-region split is not expressible with one context." ;;
+    COVERED)
+      echo "  OK    every tracked Secret is present in EVERY region." ;;
+    SPLIT)
+      EXIT=1
+      echo "  FAIL  per-region SPLIT — a Secret exists in one region and not another:" >&2
+      while IFS=' ' read -r r n; do
+        [ -z "${n}" ] && continue
+        printf '        MISSING in %-24s %s\n' "${r}" "${n}" >&2
+      done < "${COV_LIVE}/missing"
+      echo "" >&2
+      echo "        A consumer scheduled in the region that lacks the Secret cannot" >&2
+      echo "        start: CNPG projects the role Secret into its initdb Job with" >&2
+      echo "        optional:false (CreateContainerConfigError), and every workload" >&2
+      echo "        gated behind that instance stalls with it. On hw293 this" >&2
+      echo "        surfaced four hops downstream as keycloak-0 Init:0/1 and 8" >&2
+      echo "        non-Ready HelmReleases, which is why it took three walkers to" >&2
+      echo "        trace. Fix the PRODUCER (the primary-side render + the" >&2
+      echo "        cross-mesh hub-secret sync) — do NOT hand-copy the Secret." >&2 ;;
+  esac
+fi
 
 echo ""
 if [ "${EXIT}" -ne 0 ]; then
