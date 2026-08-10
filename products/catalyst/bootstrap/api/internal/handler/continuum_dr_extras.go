@@ -940,73 +940,409 @@ func (h *Handler) HandleContinuumSettingsPut(w http.ResponseWriter, r *http.Requ
 
 // continuumNow lives in continuum.go — this file reuses it (h.continuumNow()).
 
-// runDRPreflight — synthesizes the 10-step preflight matrix. Each check
-// reads from a different cluster surface (continuum CR, cnpgpair CR,
-// PDM CR list, Cluster CR, etc). When the in-cluster client is
-// bootstrapping, returns an all-Pass synthesized result so the matrix
-// can still exercise the contract.
-func (h *Handler) runDRPreflight(r *http.Request, depID string) []drRunbookPreflightCheck {
-	checks := []drRunbookPreflightCheck{
-		{ID: "preflight-01", Name: "continuum-cr-ready", Category: "replication", Status: "Pass", Severity: "info"},
-		{ID: "preflight-02", Name: "cnpgpair-streaming", Category: "replication", Status: "Pass", Severity: "info"},
-		{ID: "preflight-03", Name: "wal-lag-under-rto", Category: "replication", Status: "Pass", Severity: "info"},
-		{ID: "preflight-04", Name: "quorum-2of3-witnesses", Category: "quorum", Status: "Pass", Severity: "info"},
-		{ID: "preflight-05", Name: "dns-resolver-reachable", Category: "dns", Status: "Pass", Severity: "info"},
-		{ID: "preflight-06", Name: "powerdns-zone-writable", Category: "dns", Status: "Pass", Severity: "info"},
-		{ID: "preflight-07", Name: "rbac-switchover-allowed", Category: "rbac", Status: "Pass", Severity: "info"},
-		{ID: "preflight-08", Name: "audit-pipeline-healthy", Category: "audit", Status: "Pass", Severity: "info"},
-		{ID: "preflight-09", Name: "nats-jetstream-leader", Category: "messaging", Status: "Pass", Severity: "info"},
-		{ID: "preflight-10", Name: "blueprint-chart-no-drift", Category: "platform", Status: "Pass", Severity: "info"},
+// Preflight check statuses — the vocabulary drRunbookPreflightCheck.Status
+// documents. `Skipped` means NOT MEASURED by this endpoint; it is never a
+// verdict about the underlying surface.
+const (
+	preflightPass    = "Pass"
+	preflightWarn    = "Warn"
+	preflightFail    = "Fail"
+	preflightSkipped = "Skipped"
+)
+
+// drCNPGPairGVR — the `CNPGPair.dr.openova.io` kind.
+//
+// 🛑 NAMING TRAP, recorded because it produced a wrong reading of this very
+// matrix on hw292: a cnpg `Cluster` NAMED `cnpg-pair-bp-cnpg-pair-primary` is
+// NOT a CNPGPair CR. They are different kinds with near-identical names, and
+// reading the healthy Cluster as "the pairing object exists" makes this check
+// look satisfied when the kind it names holds zero instances.
+func drCNPGPairGVR() schema.GroupVersionResource {
+	return schema.GroupVersionResource{Group: "dr.openova.io", Version: "v1", Resource: "cnpgpairs"}
+}
+
+// drPDMGVR — the PDM (witness) kind the quorum check counts.
+func drPDMGVR() schema.GroupVersionResource {
+	return schema.GroupVersionResource{Group: "dr.openova.io", Version: "v1", Resource: "pdms"}
+}
+
+// continuumPhaseReady — the Continuum phases that count as ready.
+//
+// FailedOver is deliberately included: it is the post-switchover STEADY state,
+// and treating it as not-ready would make a DR preflight block the failback of
+// a Sovereign that has already failed over — the one state where an operator
+// cannot recover without it (the second half #5601/PR #5780 closed).
+func continuumPhaseReady(phase string) bool {
+	return phase == "Healthy" || phase == "FailedOver"
+}
+
+// numericNestedFound reads a numeric field AND reports whether it was present.
+//
+// readNumericNested alone returns 0 for an ABSENT field, which is
+// indistinguishable from a genuine zero — and for replication lag those two
+// readings are opposites ("nothing reported" vs "perfectly caught up"). Every
+// lag judgement below must gate on the found flag, never on the value alone.
+func numericNestedFound(obj map[string]interface{}, fields ...string) (float64, bool) {
+	cur := interface{}(obj)
+	for _, f := range fields {
+		m, ok := cur.(map[string]interface{})
+		if !ok {
+			return 0, false
+		}
+		v, ok := m[f]
+		if !ok {
+			return 0, false
+		}
+		cur = v
 	}
+	switch cur.(type) {
+	case float64, int64, int, string:
+		return readNumericNested(obj, fields...), true
+	}
+	return 0, false
+}
+
+// continuumRTOSeconds resolves a Continuum CR's RTO budget in seconds from
+// either spelling the CRD carries (spec.rtoSeconds numeric, spec.rto duration
+// string), defaulting to the same 60s the switchover preview uses.
+func continuumRTOSeconds(cr *unstructured.Unstructured) float64 {
+	if n := readNumericNested(cr.Object, "spec", "rtoSeconds"); n > 0 {
+		return n
+	}
+	if s, _, _ := unstructured.NestedString(cr.Object, "spec", "rto"); s != "" {
+		if n, err := parseDurationSecondsLocal(s); err == nil && n > 0 {
+			return float64(n)
+		}
+	}
+	return 60
+}
+
+// newDRPreflightMatrix — the 10-check matrix, every entry starting UNMEASURED.
+//
+// 🛑 The prior shape declared every check `Status: "Pass"` as its literal
+// initial value and then re-read only two of them, so eight checks — including
+// `cnpgpair-streaming`, pointed straight at this file's own DR path — reported
+// Pass having probed nothing. On hw292 (dep 1c56518035a83e03) that produced
+// `cnpgpair-streaming = Pass` on a Sovereign where `kubectl get
+// cnpgpairs.dr.openova.io -A` returns ZERO instances: a check that could not
+// fail on the exact precondition it names.
+//
+// Worse, no check could reach `Fail` at all, so classifyPreflight could never
+// return "NotReady" and HandleDRRunbookPlayback's
+// `if preOverall == "NotReady"` abort-on-blocking-preflight branch was
+// UNREACHABLE — the safety gate in front of a mutating DR operation could not
+// fire. Starting every entry at Skipped means a check reports Pass only after
+// something positively measured it.
+func newDRPreflightMatrix() []drRunbookPreflightCheck {
+	unmeasured := func(id, name, category, surface string) drRunbookPreflightCheck {
+		return drRunbookPreflightCheck{
+			ID: id, Name: name, Category: category,
+			Status:   preflightSkipped,
+			Severity: "warning",
+			Message:  "not measured: " + surface,
+		}
+	}
+	return []drRunbookPreflightCheck{
+		unmeasured("preflight-01", "continuum-cr-ready", "replication", "no live cluster client"),
+		unmeasured("preflight-02", "cnpgpair-streaming", "replication", "no live cluster client"),
+		unmeasured("preflight-03", "wal-lag-under-rto", "replication", "no live cluster client"),
+		unmeasured("preflight-04", "quorum-2of3-witnesses", "quorum", "no live cluster client"),
+		unmeasured("preflight-05", "dns-resolver-reachable", "dns", "this endpoint runs no resolver probe"),
+		unmeasured("preflight-06", "powerdns-zone-writable", "dns", "this endpoint runs no PowerDNS zone write"),
+		unmeasured("preflight-07", "rbac-switchover-allowed", "rbac", "this endpoint runs no SelfSubjectAccessReview"),
+		unmeasured("preflight-08", "audit-pipeline-healthy", "audit", "this endpoint runs no audit-pipeline probe"),
+		unmeasured("preflight-09", "nats-jetstream-leader", "messaging", "this endpoint runs no JetStream probe"),
+		unmeasured("preflight-10", "blueprint-chart-no-drift", "platform", "this endpoint runs no chart-drift comparison"),
+	}
+}
+
+// runDRPreflight — runs the 10-step preflight matrix against the live cluster.
+//
+// Four checks have a live probe here (Continuum readiness, cnpg-pair
+// streaming, WAL lag vs RTO, PDM witness quorum). The remaining six have no
+// probe on this code path and therefore report Skipped with the reason —
+// NEVER a fabricated Pass. When the deployment or its client cannot be
+// resolved, every check stays Skipped: an unmeasured matrix must not read as
+// a clean bill of health for a mutating DR playback.
+func (h *Handler) runDRPreflight(r *http.Request, depID string) []drRunbookPreflightCheck {
+	checks := newDRPreflightMatrix()
 	dep, ok := h.lookupDeploymentForInfra(depID)
 	if !ok {
 		return checks
 	}
 	client, err := h.sovereignDynamicClient(dep)
 	if err != nil {
+		for i := range checks[:4] {
+			checks[i].Message = "not measured: cluster client unavailable: " + err.Error()
+		}
 		return checks
 	}
-	// Live read: continuum CR phase + cnpgpair WAL lag + PDM count.
-	contList, _ := client.Resource(ContinuumGVR()).Namespace("").List(r.Context(), metav1.ListOptions{})
-	if contList == nil || len(contList.Items) == 0 {
-		checks[0].Status = "Warn"
-		checks[0].Severity = "warning"
-		checks[0].Message = "no Continuum CR present yet"
+	ctx := r.Context()
+
+	contList, contErr := client.Resource(ContinuumGVR()).Namespace("").List(ctx, metav1.ListOptions{})
+	var conts []unstructured.Unstructured
+	if contList != nil {
+		conts = contList.Items
 	}
-	pdmGVR := schema.GroupVersionResource{Group: "dr.openova.io", Version: "v1", Resource: "pdms"}
-	pdmList, _ := client.Resource(pdmGVR).Namespace("").List(r.Context(), metav1.ListOptions{})
-	switch {
-	case pdmList == nil:
-		// CRD missing — quorum check is N/A.
-		checks[3].Status = "Warn"
-		checks[3].Severity = "warning"
-		checks[3].Message = "PDM CRD not installed; quorum cannot be assessed"
-	case len(pdmList.Items) < 3:
-		checks[3].Status = "Warn"
-		checks[3].Severity = "warning"
-		checks[3].Message = fmt.Sprintf("only %d PDM witnesses present (want 3)", len(pdmList.Items))
-	}
+	preflightContinuumReady(&checks[0], conts, contErr)
+	preflightCNPGPairStreaming(ctx, client, &checks[1])
+	preflightWALLagUnderRTO(&checks[2], conts, contErr)
+	preflightQuorumWitnesses(ctx, client, &checks[3])
 	return checks
 }
 
+// preflightContinuumReady — preflight-01. Pass requires at least one Continuum
+// CR AND every one of them reporting a ready phase; a CR stuck Degraded/Failed
+// is a Fail, not the Pass the old constant asserted.
+func preflightContinuumReady(check *drRunbookPreflightCheck, conts []unstructured.Unstructured, listErr error) {
+	if listErr != nil {
+		check.Status = preflightSkipped
+		check.Severity = "warning"
+		check.Message = "not measured: cannot list Continuum CRs: " + listErr.Error()
+		return
+	}
+	if len(conts) == 0 {
+		check.Status = preflightWarn
+		check.Severity = "warning"
+		check.Message = "no Continuum CR present yet"
+		return
+	}
+	notReady := []string{}
+	for i := range conts {
+		phase, _, _ := unstructured.NestedString(conts[i].Object, "status", "phase")
+		if !continuumPhaseReady(phase) {
+			if phase == "" {
+				phase = "<unset>"
+			}
+			notReady = append(notReady,
+				fmt.Sprintf("%s/%s phase=%s", conts[i].GetNamespace(), conts[i].GetName(), phase))
+		}
+	}
+	if len(notReady) > 0 {
+		check.Status = preflightFail
+		check.Severity = "critical"
+		check.Message = fmt.Sprintf("%d of %d Continuum CR(s) not ready: %s",
+			len(notReady), len(conts), strings.Join(notReady, ", "))
+		return
+	}
+	check.Status = preflightPass
+	check.Severity = "info"
+	check.Message = fmt.Sprintf("%d Continuum CR(s) ready", len(conts))
+}
+
+// preflightCNPGPairStreaming — preflight-02, the check #4986 exposed.
+//
+// Reads the kind it NAMES first (CNPGPair.dr.openova.io). That kind has no
+// production producer today — on hw292 the CRD is installed and holds zero
+// instances — so when it is empty this falls back to the surface every other
+// DR consumer here already uses: the cnpg `Cluster` halves joined by the
+// `catalyst.openova.io/cnpg-pair` label (findCNPGPairForApp /
+// cnpgPairStandbyForContinuum read exactly these).
+//
+// A replica half that is PRESENT but not Ready is the proven region-kill state
+// (#4901) and is a Fail. A pair whose replica half is not visible at all is
+// the per-region split (#5511 class — this client is scoped to region A and
+// the replica Cluster lives in region B), which is honestly UNVERIFIED, not a
+// Pass and not a Fail.
+func preflightCNPGPairStreaming(ctx context.Context, client dynamic.Interface, check *drRunbookPreflightCheck) {
+	pairList, pairErr := client.Resource(drCNPGPairGVR()).Namespace("").List(ctx, metav1.ListOptions{})
+	if pairErr == nil && pairList != nil && len(pairList.Items) > 0 {
+		notStreaming := []string{}
+		for i := range pairList.Items {
+			it := &pairList.Items[i]
+			streaming, found, _ := unstructured.NestedBool(it.Object, "status", "streaming")
+			if !found {
+				phase, _, _ := unstructured.NestedString(it.Object, "status", "phase")
+				streaming = phase == "Streaming"
+			}
+			if !streaming {
+				notStreaming = append(notStreaming,
+					fmt.Sprintf("%s/%s", it.GetNamespace(), it.GetName()))
+			}
+		}
+		if len(notStreaming) > 0 {
+			check.Status = preflightFail
+			check.Severity = "critical"
+			check.Message = fmt.Sprintf("%d of %d CNPGPair CR(s) not streaming: %s",
+				len(notStreaming), len(pairList.Items), strings.Join(notStreaming, ", "))
+			return
+		}
+		check.Status = preflightPass
+		check.Severity = "info"
+		check.Message = fmt.Sprintf("%d CNPGPair CR(s) streaming", len(pairList.Items))
+		return
+	}
+
+	clusters, cErr := client.Resource(cnpgClusterGVR).Namespace("").List(ctx, metav1.ListOptions{
+		LabelSelector: cnpgPairLabel,
+	})
+	if cErr != nil && !apierrors.IsNotFound(cErr) {
+		check.Status = preflightSkipped
+		check.Severity = "warning"
+		check.Message = "not measured: cannot list cnpg cluster-pair halves: " + cErr.Error()
+		return
+	}
+	type halves struct{ primary, replica *unstructured.Unstructured }
+	byPair := map[string]*halves{}
+	names := []string{}
+	if clusters != nil {
+		for i := range clusters.Items {
+			it := &clusters.Items[i]
+			pair := it.GetLabels()[cnpgPairLabel]
+			if pair == "" {
+				continue
+			}
+			if _, ok := byPair[pair]; !ok {
+				byPair[pair] = &halves{}
+				names = append(names, pair)
+			}
+			switch it.GetLabels()[cnpgRoleLabel] {
+			case cnpgRolePrimary:
+				byPair[pair].primary = it
+			case cnpgRoleReplica:
+				byPair[pair].replica = it
+			}
+		}
+	}
+	if len(names) == 0 {
+		check.Status = preflightWarn
+		check.Severity = "warning"
+		check.Message = "no CNPGPair CR and no cnpg cluster-pair labelled " +
+			cnpgPairLabel + " — replication streaming is unverified"
+		return
+	}
+	sort.Strings(names)
+	down, unseen := []string{}, []string{}
+	for _, n := range names {
+		switch {
+		case byPair[n].replica == nil:
+			unseen = append(unseen, n)
+		case !cnpgStandbyAvailable(byPair[n].replica):
+			down = append(down, n)
+		}
+	}
+	switch {
+	case len(down) > 0:
+		check.Status = preflightFail
+		check.Severity = "critical"
+		check.Message = fmt.Sprintf("%d of %d cnpg pair(s) have a replica half that is present but NOT ready: %s",
+			len(down), len(names), strings.Join(down, ", "))
+	case len(unseen) == len(names):
+		check.Status = preflightWarn
+		check.Severity = "warning"
+		check.Message = fmt.Sprintf("no replica half visible from this cluster's API for %d pair(s) (%s) — a 2-region pair keeps its replica in the peer region, so streaming is unverified here",
+			len(unseen), strings.Join(unseen, ", "))
+	case len(unseen) > 0:
+		check.Status = preflightWarn
+		check.Severity = "warning"
+		check.Message = fmt.Sprintf("%d of %d cnpg pair(s) streaming; replica half not visible here for: %s",
+			len(names)-len(unseen), len(names), strings.Join(unseen, ", "))
+	default:
+		check.Status = preflightPass
+		check.Severity = "info"
+		check.Message = fmt.Sprintf("%d cnpg pair(s) with a ready replica half", len(names))
+	}
+}
+
+// preflightWALLagUnderRTO — preflight-03. Compares the lag key the Continuum
+// controller actually writes (status.replicationLagSeconds — NOT the
+// QA-fixture-only walLagSeconds spelling, #5601) against each CR's own RTO
+// budget. A CR that reports NO lag reading is "not reported", never a silent
+// zero (numericNestedFound, not readNumericNested).
+func preflightWALLagUnderRTO(check *drRunbookPreflightCheck, conts []unstructured.Unstructured, listErr error) {
+	if listErr != nil {
+		check.Status = preflightSkipped
+		check.Severity = "warning"
+		check.Message = "not measured: cannot list Continuum CRs: " + listErr.Error()
+		return
+	}
+	measured := 0
+	worst := 0.0
+	worstRTO := 0.0
+	over := []string{}
+	for i := range conts {
+		lag, found := numericNestedFound(conts[i].Object, "status", "replicationLagSeconds")
+		if !found {
+			continue
+		}
+		measured++
+		rto := continuumRTOSeconds(&conts[i])
+		if lag > worst {
+			worst, worstRTO = lag, rto
+		}
+		if lag > rto {
+			over = append(over, fmt.Sprintf("%s/%s lag %.1fs > RTO %.0fs",
+				conts[i].GetNamespace(), conts[i].GetName(), lag, rto))
+		}
+	}
+	switch {
+	case measured == 0:
+		check.Status = preflightWarn
+		check.Severity = "warning"
+		check.Message = "no Continuum CR reports status.replicationLagSeconds — WAL lag is unverified"
+	case len(over) > 0:
+		check.Status = preflightFail
+		check.Severity = "critical"
+		check.Message = fmt.Sprintf("%d of %d measured pair(s) exceed their RTO budget: %s",
+			len(over), measured, strings.Join(over, ", "))
+	default:
+		if worstRTO == 0 {
+			worstRTO = 60
+		}
+		check.Status = preflightPass
+		check.Severity = "info"
+		check.Message = fmt.Sprintf("worst observed lag %.1fs within RTO %.0fs across %d measured pair(s)",
+			worst, worstRTO, measured)
+	}
+}
+
+// preflightQuorumWitnesses — preflight-04. Unchanged semantics (fewer than 3
+// PDM witnesses is a Warn), except that a LIST ERROR is now reported as
+// unmeasured rather than folded into the same verdict as a real shortfall.
+func preflightQuorumWitnesses(ctx context.Context, client dynamic.Interface, check *drRunbookPreflightCheck) {
+	pdmList, err := client.Resource(drPDMGVR()).Namespace("").List(ctx, metav1.ListOptions{})
+	switch {
+	case err != nil || pdmList == nil:
+		check.Status = preflightWarn
+		check.Severity = "warning"
+		check.Message = "PDM CRD not installed; quorum cannot be assessed"
+	case len(pdmList.Items) < 3:
+		check.Status = preflightWarn
+		check.Severity = "warning"
+		check.Message = fmt.Sprintf("only %d PDM witnesses present (want 3)", len(pdmList.Items))
+	default:
+		check.Status = preflightPass
+		check.Severity = "info"
+		check.Message = fmt.Sprintf("%d PDM witnesses present", len(pdmList.Items))
+	}
+}
+
+// classifyPreflight — rolls the matrix up into the verdict
+// HandleDRRunbookPlayback gates the mutation on.
+//
+// A `Skipped` (not-measured) check now degrades the verdict: an all-unmeasured
+// matrix previously rolled up to a clean "Ready", which is a verdict from
+// absent evidence. And a non-critical Fail no longer rolls up to "Ready" while
+// BlockingChecks is non-empty — "Ready, and here are the blocking checks" was
+// self-contradictory.
 func classifyPreflight(checks []drRunbookPreflightCheck) (overall string, blocking []string) {
 	hasCritical := false
-	hasWarn := false
+	degraded := false
 	for _, c := range checks {
 		switch c.Status {
-		case "Fail":
+		case preflightFail:
 			blocking = append(blocking, c.Name)
 			if c.Severity == "critical" {
 				hasCritical = true
 			}
-		case "Warn":
-			hasWarn = true
+		case preflightWarn, preflightSkipped:
+			degraded = true
 		}
 	}
 	switch {
 	case hasCritical:
 		return "NotReady", blocking
-	case hasWarn:
+	case degraded || len(blocking) > 0:
 		return "DegradedReady", blocking
 	default:
 		return "Ready", blocking
@@ -1130,8 +1466,10 @@ func enrichReplicationStatus(cr *unstructured.Unstructured) continuumReplication
 	case replHealthyFound:
 		out.ReplicaPromotable = replHealthy && out.WALLagSeconds <= 30
 	case standbyAvailableFound:
-		phaseReady := phase == "Healthy" || phase == "FailedOver"
-		out.ReplicaPromotable = standbyAvailable && phaseReady && out.WALLagSeconds <= 30
+		// continuumPhaseReady == Healthy || FailedOver — the FailedOver clause
+		// is guarded by continuum_dr_extras_5601_test.go, which fails if it is
+		// dropped (deleting it used to leave every test green).
+		out.ReplicaPromotable = standbyAvailable && continuumPhaseReady(phase) && out.WALLagSeconds <= 30
 	}
 	// #4923 — health gates DERIVED from the observed CR status, never a
 	// hardcoded all-Pass wall (the prior shape reported "streaming-replication
