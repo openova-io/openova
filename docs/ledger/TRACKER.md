@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T20:15:03Z` |
+| Last refreshed | `2026-08-10T20:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T20:25 | [#6069](https://github.com/openova-io/openova/pull/6069) | #5496 | docs(uat): hw293 WALKABLE NOW walk — 15 rows measured live,  |
 | 2026-08-10T20:02 | [#6066](https://github.com/openova-io/openova/pull/6066) | #5933 | docs(uat): flush 14 rows still graded on a wiped env, and re |
 | 2026-08-10T20:12 | [#6065](https://github.com/openova-io/openova/pull/6065) | #6058 | fix(handover): make the secondary-kubeconfig forward-client  |
 | 2026-08-10T20:06 | [#6063](https://github.com/openova-io/openova/pull/6063) | #5909 | docs(uat): audit all 10 ENV-STATE rows on hw293 — 5 were mis |
@@ -317,6 +318,7 @@ flowchart LR
 | 2026-08-10T18:50 | [#6054](https://github.com/openova-io/openova/pull/6054) | #3991 | fix(catalyst-api): refuse to persist a credential-less secon |
 | 2026-08-10T19:11 | [#6053](https://github.com/openova-io/openova/pull/6053) | #6045 | fix(jobs): surface per-Organization Application installs on  |
 | 2026-08-10T18:52 | [#6052](https://github.com/openova-io/openova/pull/6052) | #4292 | fix(ledger): a clause edited in one file only silently delet |
+| 2026-08-10T20:19 | [#6051](https://github.com/openova-io/openova/pull/6051) | #5426 | fix(org-delete): grant the missing delete verb and stop repo |
 | 2026-08-10T18:28 | [#6050](https://github.com/openova-io/openova/pull/6050) | #6049 | fix(deploy-bot): unbreak catalyst + services build — a 64 Ki |
 | 2026-08-10T17:58 | [#6048](https://github.com/openova-io/openova/pull/6048) | #5426 | docs(uat): 6 mutation-gated rows walked by driving the produ |
 | 2026-08-10T17:50 | [#6047](https://github.com/openova-io/openova/pull/6047) | #3374 | docs(uat): 14 browser-observable rows walked on hw293 — 6 fl |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-10T15:36 | [#6023](https://github.com/openova-io/openova/pull/6023) | #3376 | docs(uat): hw293 walk of the 21 unwalked rows in 55-95 — 16  |
 | 2026-08-10T16:08 | [#6022](https://github.com/openova-io/openova/pull/6022) | #6015 | docs(uat): hw293 walk of rows 164-195 — 17 pass, 4 fail, and |
 | 2026-08-10T15:36 | [#6021](https://github.com/openova-io/openova/pull/6021) | #5507 | fix(bp-postgres): the replica side must not name a role Secr |
-| 2026-08-10T15:26 | [#6020](https://github.com/openova-io/openova/pull/6020) | #3380 | docs(uat): hw293 walk of the 18 letter-prefixed rows — 9 pas |
-| 2026-08-10T16:22 | [#6019](https://github.com/openova-io/openova/pull/6019) | #6004 | docs(uat): hw293 walk of rows 110-163 — 46 pass, 5 fail |
 
 ---
 
