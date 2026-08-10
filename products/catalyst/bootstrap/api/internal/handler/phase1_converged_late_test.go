@@ -35,8 +35,28 @@ func TestShouldConvergedLateRescue(t *testing.T) {
 	if !h.shouldConvergedLateRescue(mk("failed", helmwatch.OutcomeTimeout, false)) {
 		t.Errorf("failed+timeout+unfired must qualify (the hw130 shape)")
 	}
-	if h.shouldConvergedLateRescue(mk("failed", helmwatch.OutcomeFailed, false)) {
-		t.Errorf("hard failure must never rescue")
+	// #6082 — OutcomeFailed is now a rescue CANDIDATE (the hw293 latch: a
+	// component that failed and has since self-healed on Flux's infinite
+	// retry). The live census + the per-component recovery proof in
+	// runConvergedLateRescue decide; this gate no longer rules on the frozen
+	// classification alone. See phase1_converged_late_failed_recovered_6082_test.go.
+	if !h.shouldConvergedLateRescue(mk("failed", helmwatch.OutcomeFailed, false)) {
+		t.Errorf("failed+OutcomeFailed+unfired must qualify as a candidate (#6082, the hw293 latch)")
+	}
+	if h.shouldConvergedLateRescue(mk("failed", helmwatch.OutcomeFailed, true)) {
+		t.Errorf("already-fired handover must not re-fire for the #6082 shape")
+	}
+	// Outcomes that describe a cluster the census cannot speak for stay
+	// excluded — no Flux, no CRDs, no kubeconfig, nothing observed.
+	for _, o := range []string{
+		helmwatch.OutcomeFluxNotReconciling,
+		helmwatch.OutcomeKubeconfigMissing,
+		helmwatch.OutcomeWatcherStartFailed,
+		helmwatch.OutcomeFluxCRDsAbsent,
+	} {
+		if h.shouldConvergedLateRescue(mk("failed", o, false)) {
+			t.Errorf("outcome %q must never rescue — the census has nothing to observe", o)
+		}
 	}
 	if h.shouldConvergedLateRescue(mk("failed", helmwatch.OutcomeTimeout, true)) {
 		t.Errorf("already-fired handover must not re-fire")
@@ -70,7 +90,9 @@ func TestRunConvergedLateRescue_ConsoleDowngradeRecord(t *testing.T) {
 		t.Fatalf("write kubeconfig: %v", err)
 	}
 	origCensus := censusHelmReleases
-	censusHelmReleases = func(kubeconfigPath string) (int, int, error) { return 66, 66, nil }
+	censusHelmReleases = func(kubeconfigPath string) (int, int, map[string]bool, error) {
+		return 66, 66, map[string]bool{}, nil
+	}
 	defer func() { censusHelmReleases = origCensus }()
 
 	consoleErr := "Phase 1 converged (all HelmReleases installed) but the console is NOT externally reachable: HTTP 404"
