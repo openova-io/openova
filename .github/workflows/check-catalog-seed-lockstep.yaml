@@ -14,7 +14,14 @@ name: catalog-seed lockstep guard
 # delivery pin resolves to a real published tag on ghcr.io — the one seed
 # property no in-repo guard can see. See the script header for why.
 #
-# Refs G117 #2744, #5559.
+# The third job (`source-coverage`, #5843) runs the OPPOSITE direction. Both
+# jobs above — and every other seed guard in the repo — iterate the SEED and
+# look outward, so a Blueprint that ships a chart with NO seed entry is not
+# failing any of them, it is invisible to all of them. bp-openova-mcp sat in
+# that blind spot for six chart releases and was uninstallable the whole time.
+# See scripts/check-catalog-seed-source-coverage.py.
+#
+# Refs G117 #2744, #5559, #5843.
 
 on:
   push:
@@ -22,17 +29,29 @@ on:
     paths:
       - 'products/catalyst/chart/templates/catalog-seed/blueprints.yaml'
       - 'platform/**/blueprint.yaml'
+      - 'products/**/blueprint.yaml'
+      - 'platform/*/chart/Chart.yaml'
+      - 'products/*/chart/Chart.yaml'
       - 'scripts/check-catalog-seed-lockstep.sh'
+      - 'scripts/check-catalog-seed-source-coverage.py'
       - 'scripts/expected-unpublished-catalog-seed-pins.yaml'
+      - 'scripts/expected-unseeded-blueprints.yaml'
       - 'scripts/lib/parse-catalog-seed-pins.awk'
+      - 'scripts/sync-catalog-seed-pin.py'
       - '.github/workflows/check-catalog-seed-lockstep.yaml'
   pull_request:
     paths:
       - 'products/catalyst/chart/templates/catalog-seed/blueprints.yaml'
       - 'platform/**/blueprint.yaml'
+      - 'products/**/blueprint.yaml'
+      - 'platform/*/chart/Chart.yaml'
+      - 'products/*/chart/Chart.yaml'
       - 'scripts/check-catalog-seed-lockstep.sh'
+      - 'scripts/check-catalog-seed-source-coverage.py'
       - 'scripts/expected-unpublished-catalog-seed-pins.yaml'
+      - 'scripts/expected-unseeded-blueprints.yaml'
       - 'scripts/lib/parse-catalog-seed-pins.awk'
+      - 'scripts/sync-catalog-seed-pin.py'
       - '.github/workflows/check-catalog-seed-lockstep.yaml'
   workflow_dispatch:
   # #5559 — publish-lag safety net, same cadence rationale as the #4409 cron on
@@ -96,3 +115,25 @@ jobs:
           # package-listing call picks up the `packages: read` scope above.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash scripts/check-catalog-seed-lockstep.sh --check-ghcr
+
+  source-coverage:
+    # #5843 — the SOURCE→SEED direction. Every charted Blueprint under
+    # platform/ + products/ must be carried by the catalog seed, or declared
+    # in scripts/expected-unseeded-blueprints.yaml with a reason.
+    #
+    # Blocking on every event including `schedule`: unlike the GHCR phase there
+    # is no publish race to tolerate here — both sides of this comparison are
+    # files in this very commit.
+    name: source→seed coverage (#5843)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+      - name: Prove the guard can fail before trusting that it passed
+        run: python3 scripts/check-catalog-seed-source-coverage.py --self-test
+      - name: Assert every charted Blueprint is seeded or declared
+        run: python3 scripts/check-catalog-seed-source-coverage.py
