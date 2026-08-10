@@ -42,7 +42,7 @@ func main() {
 	// Service URLs (all in same K8s namespace).
 	authURL := getEnv("AUTH_URL", "http://auth:8081")
 	catalogURL := getEnv("CATALOG_URL", "http://catalog:8082")
-	tenantURL := getEnv("TENANT_URL", "http://tenant:8083")
+	tenantURL := getEnv("TENANT_URL", "http://organization:8083")
 	provisioningURL := getEnv("PROVISIONING_URL", "http://provisioning:8084")
 	billingURL := getEnv("BILLING_URL", "http://billing:8085")
 	domainURL := getEnv("DOMAIN_URL", "http://domain:8086")

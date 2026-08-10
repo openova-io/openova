@@ -35,7 +35,7 @@ func main() {
 	// NATS_URL — canonical JetStream bus per ADR-0001 §6. On Sovereigns
 	// wired to nats-jetstream.nats-system.svc.cluster.local:4222.
 	natsURL := getEnv("NATS_URL", "")
-	tenantURL := getEnv("TENANT_URL", "http://tenant.org-services.svc.cluster.local:8083")
+	tenantURL := getEnv("TENANT_URL", "http://organization.org-services.svc.cluster.local:8083")
 	authURL := getEnv("AUTH_URL", "http://auth.org-services.svc.cluster.local:8081")
 	// TBD-A67 issue #1990: the per-Sovereign parent zone (e.g.
 	// "omani.homes") drives WorkspaceURL rendering. Same env name the
