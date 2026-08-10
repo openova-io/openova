@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T10:30:07Z` |
+| Last refreshed | `2026-08-10T10:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T10:32 | [#5971](https://github.com/openova-io/openova/pull/5971) | #3374 | fix(jobs,auth): UAT rows 164 + 41 — a failed run must termin |
+| 2026-08-10T10:32 | [#5970](https://github.com/openova-io/openova/pull/5970) | #4110 | fix(openova-mcp): resolve the Blueprint version an agentic c |
 | 2026-08-10T09:47 | [#5967](https://github.com/openova-io/openova/pull/5967) | #5921 | fix(funnel): the checkout sign-in dead end, and an app-readi |
 | 2026-08-10T09:00 | [#5966](https://github.com/openova-io/openova/pull/5966) | #5957 | docs(uat): 14 rows move NEEDS-CODE to DEPLOY-GATED — their f |
 | 2026-08-10T09:32 | [#5965](https://github.com/openova-io/openova/pull/5965) | #5940 | fix(marketplace): give the storefront a readable session sig |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-09T21:18 | [#5928](https://github.com/openova-io/openova/pull/5928) | #5924 | docs(uat): 170 → 184 green on live re-walks; retire 13 dead  |
 | 2026-08-09T20:07 | [#5927](https://github.com/openova-io/openova/pull/5927) | #3376 | fix(marketplace): hide payment chrome when credit covers the |
 | 2026-08-09T19:43 | [#5925](https://github.com/openova-io/openova/pull/5925) | #5513 | fix(application-controller): stop crediting readiness to reg |
-| 2026-08-09T18:24 | [#5924](https://github.com/openova-io/openova/pull/5924) | #5919 | docs(uat): per-case evidence audit of all 224 June-green cas |
-| 2026-08-09T17:08 | [#5923](https://github.com/openova-io/openova/pull/5923) | docs(ledger): the plan to 100% — built on measured causes |  |
 
 ---
 
