@@ -24,24 +24,31 @@ a row you may drop. Excluding failures raises the score by removing the evidence
 against it, which is the floating-denominator behaviour the frozen 286 exists to
 prevent.
 
-## 1. The 78, partitioned by what actually unblocks them
+## 1. The 78, partitioned by what actually unblocks them  (re-measured 2026-08-10T07:1xZ)
 
-This is the whole plan. Each row lands in exactly one bucket, assigned from its own
-evidence cell rather than from memory.
+Assigned from each row's own evidence cell, re-run after the #5957/#5958/#5960 merges.
 
-| bucket | rows | what it needs | cost |
-|---|--:|---|---|
-| **A — deploy** | 23 | fix is MERGED and simply not running here | zero engineering |
-| **B — env state** | 8 | a specific environment shape (pre-cutover window, 1-region, destructive cycle) | rides the same prov |
-| **C — walk** | 13 | a walk I can perform now: a write, a browser step, a chat, an authed POST | operator time |
-| **D — build** | 34 | real engineering; no fix exists yet | the actual work |
+| bucket | rows | what it needs |
+|---|--:|---|
+| **WALKABLE NOW** | **3** | a walk on THIS env can change the verdict — 91, 220, 242 |
+| **DEPLOY-GATED** | 25 | fix is merged and not running here; closes on a roll/prov |
+| **ENV-STATE** | 8 | needs a different environment shape entirely |
+| **BUILD** | 42 | no fix exists yet |
 
-**A + B = 31 rows, 40% of the gap, close on ONE fresh prov with no new code.**
+- **WALKABLE NOW (3)** — 91 (needs a signed-in customer session), 220 (needs a chat round-trip; already FAILS on the revoked credential, #5956), 242 (needs one authenticated POST of a 1-region body with bcpTopology omitted, requiring 4xx)
+- **DEPLOY-GATED (25)** — 4 7 15 25 33 37 55 57 59 67 69 75 92 94 176 183 188 216 218 219 228 234 W1 W2 R22
+- **ENV-STATE (8)** — 29 41 60 123 178 241 R16 R17
+- **BUILD (42)** — 3 19 38 48 62 63 71 84 85 86 87 88 90 95 96 98 100 102 103 106 115 121 164 165 177 184 192 195 212 213 217 221 222 223 225 233 238 G2 G7 G8 G9 W5
 
-- **A (23)** — 4 7 15 25 33 37 55 57 59 67 69 75 92 94 176 183 188 216 218 219 228 234 R22
-- **B (8)** — 29 41 60 123 178 241 W1 W2
-- **C (13)** — 19 38 84 91 177 213 220 221 222 225 238 242 R17
-- **D (34)** — 3 48 62 63 71 85 86 87 88 90 95 96 98 100 102 103 106 115 121 164 165 184 192 195 212 217 223 233 G2 G7 G8 G9 R16 W5
+**THE NUMBER THAT MATTERS: re-walking cannot move this ledger.** 75 of the 78 are
+waiting on a deploy, an environment, or code that does not exist. Only three rows
+would answer differently if walked again today, and one of those (220) was walked
+today and failed for a cause now filed as #5956.
+
+This is worth stating plainly because "walk the failing rows" is the intuitive next
+move and it is the wrong one. The ledger moves when a fix REACHES a Sovereign — the
+walk is how you find out, not how you make it true. Spending a session re-walking
+deploy-gated rows produces 25 identical FAIL stamps and zero delivery.
 
 ## 2. The D-34, clustered by root cause
 
