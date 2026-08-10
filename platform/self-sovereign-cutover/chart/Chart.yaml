@@ -1,5 +1,58 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.179 (#6004) — THIS CHART COULD NO LONGER BE INSTALLED ON ANY SOVEREIGN.
+# Helm stores a release as base64(gzip(json(release))) in Secret
+# sh.helm.release.v1.<release>.v<n>, and Kubernetes caps a Secret's data at
+# 1048576 bytes. Measured with helm's own storage encoder, 0.1.177 produced
+# 1,233,060 bytes — 117.6% of the ceiling. hw293's Phase 1 finished 66/67 with
+# this one failure, repeated 10 times between 13:04:38Z and 13:17:56Z:
+#
+#   create: failed to create: Secret "sh.helm.release.v1.self-sovereign-
+#   cutover.v1" is invalid: data: Too long: must have at most 1048576 bytes
+#
+# Deterministic, not a race. Pillar 5 was unprovable on every future prov until
+# this landed, and no gate in the repo measured that number — the chart
+# rendered, packaged and round-tripped green all the way to a Sovereign.
+#
+# WHERE THE BYTES WERE. Helm stores the chart's TEMPLATES (base64) and the
+# RENDERED manifest, so a `#` comment in a template is paid for TWICE, while a
+# {{/* … */}} comment is stripped at render and paid for once. 43% of the
+# rendered manifest — 384,279 bytes — was `#` prose. Separately, chart/tests/
+# *.sh (527,883 bytes of CI-side test scripts, which blueprint-release.yaml runs
+# from the WORKING TREE, never from the package) shipped inside every release.
+# Chart.yaml and values.yaml are stored PARSED, so their own commentary — the
+# largest files in the tree — never cost a byte and were never the problem.
+#
+# WHAT CHANGED, AND WHAT DID NOT. 5,170 whole-line `#` comments across 21
+# templates became 718 Helm block comments: every word still sits at the exact
+# line a source reader is looking at, and none of it reaches the release Secret.
+# Nothing was deleted.
+#
+# Two sets of `#` comments stayed `#` ON PURPOSE, and now say so inline.
+# (a) Sixteen region anchors the chart's own tests navigate the RENDER by —
+#     settled-roll-preflight BEGIN/END, Phase A4 / Phase B, Phase 2c,
+#     "Phase 0: ADD harbor", the Phase 3 strip header whose LINE NUMBER
+#     cutover-contract Case 17b compares against the executable del(.auths[...])
+#     to prove strip-after-pivot, the Day-2 loop truncation point, the #5359
+#     candidate chain, and the #5215 CSI exclusion Case 64 requires to be
+#     auditable in the manifest rather than merely absent.
+# (b) ALL of 04-registry-pivot-daemonset.yaml. cutover_registry_pivot_mirror_
+#     test.go slices shell functions out of that template VERBATIM and runs
+#     them under /bin/sh with no Helm rendering, so a Helm comment inside a
+#     function body is a dash syntax error, not a comment. See that file's
+#     header.
+# chart/tests/*.sh left the package via a new .helmignore.
+#
+# PROOF THE BEHAVIOUR IS UNCHANGED: the rendered manifest, with `#` comment
+# lines and blank lines removed and the helm.sh/chart version label normalised,
+# is BYTE-IDENTICAL to 0.1.177's — 507,299 bytes on both sides, zero differing
+# lines. All 16 chart/tests/*.sh pass, as they do on 0.1.177.
+#
+# RESULT: 1,233,060 -> 757,264 bytes, 72.22% of the ceiling, 291,312 bytes of
+# headroom. scripts/check-helm-release-payload-size.py is the gate that now
+# measures this before publish, and it fails on 0.1.177's content (119.45%).
+# No step, value, RBAC rule or step-count change; still 11 steps.
+#
 # 0.1.173 (#5467) — STEP-09 STOPS PRINTING THE TAIL OF THE MINTED GITEA TOKEN.
 # #5467 was filed and fixed against step-03, which printed `pat=${ghcr_pat:0:8}`
 # — the first 8 characters of the GHCR PAT. The fix landed in 0.1.169. What the
@@ -3652,7 +3705,7 @@ name: bp-self-sovereign-cutover
 # pin + blueprint.yaml + catalog-seed source.version + spec.version + the API
 # blueprints.json + the generated UI catalog move to 0.1.176 in lockstep
 # (Inviolable Principle #13).
-version: 0.1.177
+version: 0.1.179
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

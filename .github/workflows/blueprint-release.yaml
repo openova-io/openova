@@ -455,6 +455,34 @@ jobs:
           done
           echo "All chart-test scripts passed."
 
+      # ──────────────────────────────────────────────────────────────
+      # GATE — the Helm release Secret must fit in a Kubernetes Secret
+      # ──────────────────────────────────────────────────────────────
+      # #6004: helm stores a release as base64(gzip(json(release))) in
+      # Secret sh.helm.release.v1.<name>.v<n>, and Kubernetes caps a
+      # Secret's data at 1048576 bytes. bp-self-sovereign-cutover grew
+      # past that ceiling over ~7 releases and 0.1.177 could not be
+      # installed on ANY Sovereign — Phase 1 failed 10 times on hw293
+      # with `data: Too long: must have at most 1048576 bytes`, and
+      # Pillar 5 became unprovable. Every earlier gate in this job was
+      # green: the chart rendered, packaged, and round-tripped fine. The
+      # ceiling is only reached at INSTALL time, which is why it has to
+      # be measured here, before the artifact exists on GHCR.
+      #
+      # This runs after `helm dependency build`, so it measures the real
+      # payload including upstream subcharts — the number the sweep in
+      # check-helm-release-payload-size.yaml cannot compute for a chart
+      # that declares dependencies.
+      - name: "Release-Secret payload under the 1 MiB ceiling (#6004)"
+        if: steps.chart.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          pip install --quiet pyyaml
+          python3 scripts/check-helm-release-payload-size.py --self-test
+          python3 scripts/check-helm-release-payload-size.py "${{ matrix.path }}/chart" \
+            --release-name "${{ steps.chart.outputs.name }}" \
+            --namespace catalyst
+
       - name: Helm push to GHCR
         if: steps.chart.outputs.skip != 'true'
         id: push

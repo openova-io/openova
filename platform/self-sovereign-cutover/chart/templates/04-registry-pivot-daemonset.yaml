@@ -1,6 +1,18 @@
 {{- /*
 Step 04 — registry-pivot (Dragonfly rewrite, #4639 Refs #4637).
 
+THIS FILE KEEPS ITS `#` COMMENTS. #6004 converted whole-line `#` comments to
+Helm block comments across the chart's templates, because a `#` comment is
+stored twice in the Helm release Secret (template bytes + rendered manifest)
+while a Helm comment is stored once. This template is the exception:
+products/catalyst/bootstrap/api/internal/handler/cutover_registry_pivot_mirror_
+test.go slices shell FUNCTIONS out of this file VERBATIM — from
+`    <name>() {` to the matching `    }` — and executes them under /bin/sh with
+no Helm rendering at all. A Helm comment inside a function body is not a comment
+to dash; it is `/bin/sh: Syntax error: "(" unexpected`, and both registry-pivot
+regression tests die on it (proven on PR #6025's first CI run). Comments here
+stay `#` until that test slices the RENDER instead of the template.
+
 This step is a DaemonSet, not a Job. The consumer (catalyst-api,
 issue #792) handles this via mode=daemonset-wait: when the cutover
 hits this step, it waits for the DaemonSet's

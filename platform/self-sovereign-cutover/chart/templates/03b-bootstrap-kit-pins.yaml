@@ -55,31 +55,37 @@ metadata:
     app.kubernetes.io/component: cutover-bootstrap-kit-pins
 data:
   extract-pins.sh: |
-    # POSIX sh + awk. No runtime deps. Pure function — no side effects.
-    #
-    # bootstrapkit_pins DIR UPSTREAM_PREFIX LOCAL_PREFIX
-    #   Emits one "<chart>\t<version>" line (sorted, deduped) per HelmRelease
-    #   in DIR/[0-9]*.yaml whose chart.spec pins a CONCRETE version AND whose
-    #   sourceRef names a HelmRepository (declared anywhere in DIR) whose url
-    #   starts with UPSTREAM_PREFIX (pre-pivot: oci://ghcr.io/openova-io) or
-    #   LOCAL_PREFIX (a post-step-06 re-run reads the already-pivoted mirror:
-    #   oci://registry.<fqdn>/openova-io). Non-openova sources (e.g. the loft
-    #   charts.loft.sh HelmRepository, slot 60) and semver-range pins are
-    #   skipped with a stderr WARN. Exit 0 always — the caller owns the
-    #   fail-loud policy via a count check on stdout.
+    {{- /*
+     POSIX sh + awk. No runtime deps. Pure function — no side effects.
+
+     bootstrapkit_pins DIR UPSTREAM_PREFIX LOCAL_PREFIX
+       Emits one "<chart>\t<version>" line (sorted, deduped) per HelmRelease
+       in DIR/[0-9]*.yaml whose chart.spec pins a CONCRETE version AND whose
+       sourceRef names a HelmRepository (declared anywhere in DIR) whose url
+       starts with UPSTREAM_PREFIX (pre-pivot: oci://ghcr.io/openova-io) or
+       LOCAL_PREFIX (a post-step-06 re-run reads the already-pivoted mirror:
+       oci://registry.<fqdn>/openova-io). Non-openova sources (e.g. the loft
+       charts.loft.sh HelmRepository, slot 60) and semver-range pins are
+       skipped with a stderr WARN. Exit 0 always — the caller owns the
+       fail-loud policy via a count check on stdout.
+    */}}
     bootstrapkit_pins() {
       _bk_dir="$1"; _bk_up="$2"; _bk_lp="${3:-}"
       [ -d "${_bk_dir}" ] || { echo "[bootstrapkit-pins] WARN: ${_bk_dir} is not a directory" >&2; return 0; }
-      # Slot files are the numbered bootstrap-kit entries; kustomization.yaml
-      # + placement.yaml are not slot manifests.
+      {{- /*
+       Slot files are the numbered bootstrap-kit entries; kustomization.yaml
+       + placement.yaml are not slot manifests.
+      */}}
       _bk_files=$(ls "${_bk_dir}"/[0-9]*.yaml 2>/dev/null || true)
       [ -n "${_bk_files}" ] || { echo "[bootstrapkit-pins] WARN: no [0-9]*.yaml slot files in ${_bk_dir}" >&2; return 0; }
 
-      # Pass A — the openova-io pivot set: HelmRepository metadata.name for
-      # every repo whose spec.url starts with the upstream OR the already-
-      # pivoted local prefix. Slot docs order apiVersion/kind/metadata/spec
-      # with metadata.name at 2-space and spec.url at 2-space; secretRef.name
-      # sits at 4-space, so the exact-indent anchors cannot cross-match.
+      {{- /*
+       Pass A — the openova-io pivot set: HelmRepository metadata.name for
+       every repo whose spec.url starts with the upstream OR the already-
+       pivoted local prefix. Slot docs order apiVersion/kind/metadata/spec
+       with metadata.name at 2-space and spec.url at 2-space; secretRef.name
+       sits at 4-space, so the exact-indent anchors cannot cross-match.
+      */}}
       _bk_pivot=$(awk -v up="${_bk_up}" -v lp="${_bk_lp}" '
         FNR==1 { kind=""; rname="" }
         /^---/ { kind=""; rname=""; next }
@@ -94,13 +100,15 @@ data:
         }
       ' ${_bk_files} | sort -u)
 
-      # Pass B — (chart, version, sourceRef.name) off every HelmRelease
-      # chart.spec: the 6-space `chart:` scalar, the FIRST following 6-space
-      # `version:`, and the 8-space `name:` under the 6-space `sourceRef:`.
-      # Comments are stripped first, so the multi-hundred-line version-history
-      # comment blocks between `chart:` and `version:` (slot 13 carries >1000)
-      # never confuse the pairing; the c!=""/v=="" guards keep any 6-space
-      # key inside a spec.values block from being mis-captured.
+      {{- /*
+       Pass B — (chart, version, sourceRef.name) off every HelmRelease
+       chart.spec: the 6-space `chart:` scalar, the FIRST following 6-space
+       `version:`, and the 8-space `name:` under the 6-space `sourceRef:`.
+       Comments are stripped first, so the multi-hundred-line version-history
+       comment blocks between `chart:` and `version:` (slot 13 carries >1000)
+       never confuse the pairing; the c!=""/v=="" guards keep any 6-space
+       key inside a spec.values block from being mis-captured.
+      */}}
       awk '
         FNR==1 { kind=""; c=""; v=""; insrc=0 }
         /^---/ { kind=""; c=""; v=""; insrc=0; next }
@@ -124,8 +132,10 @@ data:
           echo "[bootstrapkit-pins] WARN: ${_bk_c} (source ${_bk_s}) has no pinned version — skipping (cannot mirror a floating tag deterministically)" >&2
           continue
         fi
-        # Same range guard as step-03 Phase A2 (#5007 round 3): a semver
-        # range is not a concrete OCI tag.
+        {{- /*
+         Same range guard as step-03 Phase A2 (#5007 round 3): a semver
+         range is not a concrete OCI tag.
+        */}}
         case "${_bk_v}" in
           *[\<\>~^\|\ ]*|*'*'*)
             echo "[bootstrapkit-pins] WARN: ${_bk_c} version '${_bk_v}' is a semver range — skipping (cannot mirror deterministically)" >&2

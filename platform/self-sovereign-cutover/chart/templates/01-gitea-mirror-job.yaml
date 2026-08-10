@@ -36,12 +36,14 @@ data:
     activeDeadlineSeconds: {{ .Values.stepTimeouts.giteaMirrorSeconds }}
     containers:
       - name: gitea-mirror
-        # #3584 — image is now the alpine/k8s (images.kubectl) image, NOT
-        # alpine/git. We need `kubectl` to read the cross-namespace
-        # `catalyst-gitea-token` PAT from catalyst-system (same as step-05
-        # #3536) + `curl` for token-auth API calls; alpine/k8s bundles
-        # kubectl + curl + git (steps 05/06/07/09/10 already git clone/push
-        # from this image). The git clone/push below is unchanged.
+        {{- /*
+         #3584 — image is now the alpine/k8s (images.kubectl) image, NOT
+         alpine/git. We need `kubectl` to read the cross-namespace
+         `catalyst-gitea-token` PAT from catalyst-system (same as step-05
+         #3536) + `curl` for token-auth API calls; alpine/k8s bundles
+         kubectl + curl + git (steps 05/06/07/09/10 already git clone/push
+         from this image). The git clone/push below is unchanged.
+        */}}
         image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.kubectl.repository "tag" .Values.images.kubectl.tag "cutoverPhase" "pre" "Values" .Values) }}
         imagePullPolicy: IfNotPresent
         env:
@@ -57,22 +59,26 @@ data:
             value: {{ .Values.gitea.repo | quote }}
           - name: MIRROR_INTERVAL
             value: {{ .Values.upstream.mirrorInterval | quote }}
-          # #3584 — Gitea git-push username. A Gitea PAT is accepted as the
-          # HTTP git password under ANY existing username; we use the admin
-          # login (`gitea_admin`) for auditability. The git push embeds
-          # ${GITEA_USERNAME}:${GITEA_PAT}@ in the URL.
+          {{- /*
+           #3584 — Gitea git-push username. A Gitea PAT is accepted as the
+           HTTP git password under ANY existing username; we use the admin
+           login (`gitea_admin`) for auditability. The git push embeds
+           ${GITEA_USERNAME}:${GITEA_PAT}@ in the URL.
+          */}}
           - name: GITEA_USERNAME
             value: {{ .Values.gitRepositorySecretRef.username | quote }}
-          # #3584 — PAT source coordinates (reuses the step-05 #3536 values
-          # block). The `catalyst-gitea-token` PAT is minted at BOOTSTRAP by
-          # bp-catalyst-platform's pre-install hook in catalyst-system. We
-          # read it cross-namespace here. WHY token auth (not the admin
-          # password): bp-gitea configures an `openova-sso` OAuth2 login
-          # source; Gitea's apiAuth consults that EXTERNAL source when
-          # validating a BasicAuth PASSWORD, so during the cutover window
-          # (Keycloak still converging) every BasicAuth API call hangs
-          # ~130s then 401s (v1/api.go:748). A PAT is a direct local sha1
-          # lookup that never touches the external source → fast + immune.
+          {{- /*
+           #3584 — PAT source coordinates (reuses the step-05 #3536 values
+           block). The `catalyst-gitea-token` PAT is minted at BOOTSTRAP by
+           bp-catalyst-platform's pre-install hook in catalyst-system. We
+           read it cross-namespace here. WHY token auth (not the admin
+           password): bp-gitea configures an `openova-sso` OAuth2 login
+           source; Gitea's apiAuth consults that EXTERNAL source when
+           validating a BasicAuth PASSWORD, so during the cutover window
+           (Keycloak still converging) every BasicAuth API call hangs
+           ~130s then 401s (v1/api.go:748). A PAT is a direct local sha1
+           lookup that never touches the external source → fast + immune.
+          */}}
           - name: PAT_SOURCE_NAMESPACE
             value: {{ .Values.gitRepositorySecretRef.patSourceNamespace | quote }}
           - name: PAT_SOURCE_SECRET_NAME
@@ -83,33 +89,37 @@ data:
         args:
           - |
             set -eu
-            # Credential hygiene: never echo $GITEA_PAT. We feed it to git
-            # via URL embedding only inside the redirected http call below;
-            # stdout shows just the redacted form. The HTTP API calls use
-            # an `Authorization: token <PAT>` header (#3584 — was BasicAuth,
-            # which hangs ~130s then 401s because Gitea's apiAuth consults
-            # the external openova-sso OAuth2 source for password creds).
+            {{- /*
+             Credential hygiene: never echo $GITEA_PAT. We feed it to git
+             via URL embedding only inside the redirected http call below;
+             stdout shows just the redacted form. The HTTP API calls use
+             an `Authorization: token <PAT>` header (#3584 — was BasicAuth,
+             which hangs ~130s then 401s because Gitea's apiAuth consults
+             the external openova-sso OAuth2 source for password creds).
+            */}}
             redacted_url="${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git"
             echo "[gitea-mirror] upstream=${UPSTREAM_REPO_URL} branch=${UPSTREAM_BRANCH}"
             echo "[gitea-mirror] target=${redacted_url}"
             echo "[gitea-mirror] mirror_interval=${MIRROR_INTERVAL}"
 
-            # #968 — DNS-readiness probe for gitea-http.
-            #
-            # The cutover auto-trigger fires within seconds of bp-self-
-            # sovereign-cutover Helm-install completing. On a fresh
-            # Sovereign the gitea Pod can still be moving from Running
-            # to Ready, in which case the headless service `gitea-http`
-            # has no DNS record published yet. Without this probe the
-            # very first wget call returns `bad address` and the Job
-            # exits non-zero. catalyst-api's cutover engine treats that
-            # as a hard failure (per cutover.go #968 backoffLimit was
-            # raised to 3, but local resolve here is cheaper and faster
-            # than burning Pod-restart budget). On otech115 2026-05-05
-            # this race fired Step-01 at +8s after gitea reached Ready
-            # and DNS hadn't propagated; one nslookup wait of ~10s would
-            # have been sufficient. Loop budget = 30 × 5s = 150s, well
-            # under the step's activeDeadlineSeconds.
+            {{- /*
+             #968 — DNS-readiness probe for gitea-http.
+
+             The cutover auto-trigger fires within seconds of bp-self-
+             sovereign-cutover Helm-install completing. On a fresh
+             Sovereign the gitea Pod can still be moving from Running
+             to Ready, in which case the headless service `gitea-http`
+             has no DNS record published yet. Without this probe the
+             very first wget call returns `bad address` and the Job
+             exits non-zero. catalyst-api's cutover engine treats that
+             as a hard failure (per cutover.go #968 backoffLimit was
+             raised to 3, but local resolve here is cheaper and faster
+             than burning Pod-restart budget). On otech115 2026-05-05
+             this race fired Step-01 at +8s after gitea reached Ready
+             and DNS hadn't propagated; one nslookup wait of ~10s would
+             have been sufficient. Loop budget = 30 × 5s = 150s, well
+             under the step's activeDeadlineSeconds.
+            */}}
             gitea_host="$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E 's|^https?://||' | cut -d: -f1 | cut -d/ -f1)"
             if [ -n "${gitea_host}" ]; then
               echo "[gitea-mirror] waiting for DNS resolution of ${gitea_host}"
@@ -128,16 +138,18 @@ data:
               fi
             fi
 
-            # #3584 — read the `catalyst-gitea-token` PAT (minted at BOOTSTRAP
-            # by bp-catalyst-platform in ${PAT_SOURCE_NAMESPACE}). All Gitea
-            # API calls below send `Authorization: token ${GITEA_PAT}`; the
-            # git push embeds ${GITEA_USERNAME}:${GITEA_PAT}@ in the URL. This
-            # replaces the admin-password BasicAuth that hung ~130s then 401s
-            # during the cutover window (Keycloak still converging — apiAuth
-            # consults the external openova-sso OAuth2 source for password
-            # creds; token auth is a direct local sha1 lookup, immune).
-            # Bounded wait: the PAT Secret exists from bootstrap but its
-            # `token` byte may be momentarily empty if the minter is mid-flight.
+            {{- /*
+             #3584 — read the `catalyst-gitea-token` PAT (minted at BOOTSTRAP
+             by bp-catalyst-platform in ${PAT_SOURCE_NAMESPACE}). All Gitea
+             API calls below send `Authorization: token ${GITEA_PAT}`; the
+             git push embeds ${GITEA_USERNAME}:${GITEA_PAT}@ in the URL. This
+             replaces the admin-password BasicAuth that hung ~130s then 401s
+             during the cutover window (Keycloak still converging — apiAuth
+             consults the external openova-sso OAuth2 source for password
+             creds; token auth is a direct local sha1 lookup, immune).
+             Bounded wait: the PAT Secret exists from bootstrap but its
+             `token` byte may be momentarily empty if the minter is mid-flight.
+            */}}
             echo "[gitea-mirror] reading PAT ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}.${PAT_SOURCE_KEY}"
             GITEA_PAT=""
             for i in $(seq 1 30); do
@@ -155,12 +167,14 @@ data:
               exit 1
             fi
 
-            # 1. Ensure the org exists in Gitea (idempotent — POST /orgs
-            #    returns 422 if a same-named user exists, 422 if org
-            #    exists, 201 on create). We swallow non-201 because the
-            #    "already exists" surface is the steady-state path. curl -f
-            #    makes the existence GET return non-zero on any 4xx so the
-            #    "missing" branch fires only when the org truly absent.
+            {{- /*
+             1. Ensure the org exists in Gitea (idempotent — POST /orgs
+                returns 422 if a same-named user exists, 422 if org
+                exists, 201 on create). We swallow non-201 because the
+                "already exists" surface is the steady-state path. curl -f
+                makes the existence GET return non-zero on any 4xx so the
+                "missing" branch fires only when the org truly absent.
+            */}}
             api_url="${GITEA_INTERNAL_URL}/api/v1"
             if curl -fsS -o /dev/null \
               -H "Authorization: token ${GITEA_PAT}" \
@@ -177,22 +191,24 @@ data:
                 "${api_url}/orgs" 2>/dev/null || true
             fi
 
-            # 2. Ensure the repo exists in Gitea as a REGULAR (non-mirror)
-            #    repository, then bare-clone upstream and push so the
-            #    local Gitea has the same content. This replaces the
-            #    earlier `/repos/migrate {mirror:true}` approach (PR
-            #    #970) — Gitea pull-mirrors are read-only and block the
-            #    cutover step-06 push that pivots HelmRepository URLs
-            #    to local Harbor (see PR #1029, otech125 incident).
-            #    Gitea 1.22 does not support converting a pull-mirror
-            #    to standalone via API (only `mirror_interval: "0s"`
-            #    silently no-ops, leaving `mirror: true` set, which
-            #    keeps the repo read-only). The architecturally correct
-            #    behaviour at cutover IS to stop tracking upstream — the
-            #    Sovereign is going self-hosted from this point on. If
-            #    operator wants a chart rollout post-cutover they
-            #    re-run this Job (idempotent: rebases local main on
-            #    upstream main and force-pushes any new commits).
+            {{- /*
+             2. Ensure the repo exists in Gitea as a REGULAR (non-mirror)
+                repository, then bare-clone upstream and push so the
+                local Gitea has the same content. This replaces the
+                earlier `/repos/migrate {mirror:true}` approach (PR
+                #970) — Gitea pull-mirrors are read-only and block the
+                cutover step-06 push that pivots HelmRepository URLs
+                to local Harbor (see PR #1029, otech125 incident).
+                Gitea 1.22 does not support converting a pull-mirror
+                to standalone via API (only `mirror_interval: "0s"`
+                silently no-ops, leaving `mirror: true` set, which
+                keeps the repo read-only). The architecturally correct
+                behaviour at cutover IS to stop tracking upstream — the
+                Sovereign is going self-hosted from this point on. If
+                operator wants a chart rollout post-cutover they
+                re-run this Job (idempotent: rebases local main on
+                upstream main and force-pushes any new commits).
+            */}}
             if curl -fsS -o /dev/null \
               -H "Authorization: token ${GITEA_PAT}" \
               -H "Accept: application/json" \
@@ -218,19 +234,21 @@ data:
               echo "[gitea-mirror] empty repo created"
             fi
 
-            # 3. Bare-clone upstream and push to local Gitea via EXPLICIT
-            #    refspecs — refs/heads/* + refs/tags/* — NEVER mirror mode
-            #    (#5011). Mirror mode makes the remote EXACTLY match the
-            #    clone, DELETING refs absent upstream; on hw242 (2026-07-12,
-            #    dep f05b0718dac62fe9) it pruned the sovereign-LOCAL branches
-            #    `catalog-sovereign` (catalyst-api catalog seed) and
-            #    `org-tenants` (org-controller per-Org GitOps tree) — both
-            #    exist ONLY in the local Gitea, never on GitHub — breaking
-            #    the flux GitRepositories openova-catalog-sovereign +
-            #    openova-org-tenants mid-cutover. The explicit refspecs
-            #    force-update/create every GitHub-derived branch + tag
-            #    (--force keeps re-runs idempotent even after an upstream
-            #    history rewrite) but never touch remote-only refs.
+            {{- /*
+             3. Bare-clone upstream and push to local Gitea via EXPLICIT
+                refspecs — refs/heads/* + refs/tags/* — NEVER mirror mode
+                (#5011). Mirror mode makes the remote EXACTLY match the
+                clone, DELETING refs absent upstream; on hw242 (2026-07-12,
+                dep f05b0718dac62fe9) it pruned the sovereign-LOCAL branches
+                `catalog-sovereign` (catalyst-api catalog seed) and
+                `org-tenants` (org-controller per-Org GitOps tree) — both
+                exist ONLY in the local Gitea, never on GitHub — breaking
+                the flux GitRepositories openova-catalog-sovereign +
+                openova-org-tenants mid-cutover. The explicit refspecs
+                force-update/create every GitHub-derived branch + tag
+                (--force keeps re-runs idempotent even after an upstream
+                history rewrite) but never touch remote-only refs.
+            */}}
             export HOME=/tmp
             git config --global user.name "self-sovereign-cutover"
             git config --global user.email "cutover@${gitea_host}"
@@ -245,16 +263,20 @@ data:
             echo "[gitea-mirror] pushing upstream branches + tags (explicit refspecs, never prunes sovereign-local refs) to ${redacted_url}"
             push_err=$(git push --force "${local_url}" 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*' 2>&1) || {
               echo "[gitea-mirror] FATAL: git push to local Gitea failed" >&2
-              # Surface git stderr WITHOUT the embedded credential — git
-              # redacts URLs in error messages by default but be defensive.
+              {{- /*
+               Surface git stderr WITHOUT the embedded credential — git
+               redacts URLs in error messages by default but be defensive.
+              */}}
               printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PAT}+,REDACTED,g" >&2
               exit 1
             }
             echo "[gitea-mirror] pushed all upstream branches + tags successfully (sovereign-local refs untouched)"
 
-            # 4. Verify by reading back the default branch SHA and
-            #    confirming non-empty (auto_init=false means a missing
-            #    push leaves the repo "empty: true").
+            {{- /*
+             4. Verify by reading back the default branch SHA and
+                confirming non-empty (auto_init=false means a missing
+                push leaves the repo "empty: true").
+            */}}
             repo_meta=$(curl -fsS \
               -H "Authorization: token ${GITEA_PAT}" \
               -H "Accept: application/json" \
@@ -268,36 +290,38 @@ data:
               echo "[gitea-mirror] verified: mirror=false on ${GITEA_ORG}/${GITEA_REPO} (writable for cutover step-06)"
             fi
 
-            # G75 #2622 (2026-05-31): SEVER UPSTREAM GIT TETHER (ADR-0002
-            # Pillar 5 contract). gitea-mirror-resync CronJob runs every
-            # 5min doing a mirror-mode force-push from upstream → local
-            # Gitea, which CLOBBERS cutover Step 06+07 pushes. G62
-            # "Gitea persist" pattern has been a no-op architecturally
-            # because of this tether — Step 06+07 pushes survive ~5min
-            # then get force-overwritten. Verified live hw86
-            # afc8800bc03751c6 2026-05-31: Step 06 pushed HelmRepository
-            # URL pivot 11:34, mirror-resync fired 11:45 wiped it, Step
-            # 08 fired 12:00 saw HRs still at ghcr.io → FAILED.
-            #
-            # B' shape (per lead): IaC removal (HR values flag) + live
-            # DELETE + post-verify wait window. Suspend would be a
-            # workaround per Principle 14 — severance must be irreversible.
-            #
-            # Order: HR patch FIRST (so Flux re-reconcile doesn't recreate
-            # after live delete), THEN live delete, THEN post-verify
-            # waits ≥1 mirror-resync interval to confirm the tether stays
-            # severed.
-            # G75 #3606 fast-path: with mirrorResync.enabled defaulting to
-            # false (values.yaml), template 11-mirror-resync-cronjob.yaml
-            # renders NOTHING — the gitea-mirror-resync CronJob never exists
-            # on a default Sovereign, so the tether is already severed at the
-            # IaC (git) layer. The old imperative `kubectl patch hr ...
-            # mirrorResync.enabled=false` was the #3606 bug: Flux owns this
-            # HR from git and REVERTED the patch every reconcile, re-rendering
-            # the CronJob → this 6-min post-verify FATAL'd → step-01 looped.
-            # We no longer patch the HR. We only DELETE + post-verify a
-            # rendered remnant when one actually exists (an operator overlay
-            # may have opted IN to mirrorResync pre-cutover).
+            {{- /*
+             G75 #2622 (2026-05-31): SEVER UPSTREAM GIT TETHER (ADR-0002
+             Pillar 5 contract). gitea-mirror-resync CronJob runs every
+             5min doing a mirror-mode force-push from upstream → local
+             Gitea, which CLOBBERS cutover Step 06+07 pushes. G62
+             "Gitea persist" pattern has been a no-op architecturally
+             because of this tether — Step 06+07 pushes survive ~5min
+             then get force-overwritten. Verified live hw86
+             afc8800bc03751c6 2026-05-31: Step 06 pushed HelmRepository
+             URL pivot 11:34, mirror-resync fired 11:45 wiped it, Step
+             08 fired 12:00 saw HRs still at ghcr.io → FAILED.
+
+             B' shape (per lead): IaC removal (HR values flag) + live
+             DELETE + post-verify wait window. Suspend would be a
+             workaround per Principle 14 — severance must be irreversible.
+
+             Order: HR patch FIRST (so Flux re-reconcile doesn't recreate
+             after live delete), THEN live delete, THEN post-verify
+             waits ≥1 mirror-resync interval to confirm the tether stays
+             severed.
+             G75 #3606 fast-path: with mirrorResync.enabled defaulting to
+             false (values.yaml), template 11-mirror-resync-cronjob.yaml
+             renders NOTHING — the gitea-mirror-resync CronJob never exists
+             on a default Sovereign, so the tether is already severed at the
+             IaC (git) layer. The old imperative `kubectl patch hr ...
+             mirrorResync.enabled=false` was the #3606 bug: Flux owns this
+             HR from git and REVERTED the patch every reconcile, re-rendering
+             the CronJob → this 6-min post-verify FATAL'd → step-01 looped.
+             We no longer patch the HR. We only DELETE + post-verify a
+             rendered remnant when one actually exists (an operator overlay
+             may have opted IN to mirrorResync pre-cutover).
+            */}}
             if ! kubectl get cronjob -n {{ .Release.Namespace }} gitea-mirror-resync >/dev/null 2>&1; then
               echo "[gitea-mirror] G75 OK: mirror-resync already severed at IaC layer (mirrorResync.enabled=false default) — skipping live-delete + post-verify hold"
             else
@@ -310,8 +334,10 @@ data:
               kubectl delete cronjob -n {{ .Release.Namespace }} gitea-mirror-resync --ignore-not-found=true 2>&1 || \
                 echo "[gitea-mirror] G75 WARN: cronjob delete failed (RBAC?)"
 
-              # Post-verify: wait 6min (>1 mirror-resync interval) + confirm
-              # CronJob still absent + confirm local Gitea HEAD unchanged.
+              {{- /*
+               Post-verify: wait 6min (>1 mirror-resync interval) + confirm
+               CronJob still absent + confirm local Gitea HEAD unchanged.
+              */}}
               CRONJOB_NS={{ .Release.Namespace }}
               for i in $(seq 1 6); do
                 sleep 60

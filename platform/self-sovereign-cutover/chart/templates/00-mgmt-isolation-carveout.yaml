@@ -70,18 +70,22 @@ metadata:
   labels:
     {{- include "bp-self-sovereign-cutover.labels" $ | nindent 4 }}
 spec:
-  # podSelector {} = all pods in the plane namespace (the same scope the
-  # plane's own default-deny policy selects). This policy ONLY adds an
-  # ingress allow; it declares no Egress policyType, so it never constrains
-  # plane egress.
+  {{- /*
+   podSelector {} = all pods in the plane namespace (the same scope the
+   plane's own default-deny policy selects). This policy ONLY adds an
+   ingress allow; it declares no Egress policyType, so it never constrains
+   plane egress.
+  */}}
   podSelector: {}
   policyTypes:
     - Ingress
   ingress:
-    # Allow ingress from the cutover Job namespace (this chart's release
-    # namespace — the `catalyst` ns where catalyst-api stamps the step
-    # Jobs). Matches the kubernetes.io/metadata.name label the control
-    # plane auto-stamps on every namespace (since K8s 1.21).
+    {{- /*
+     Allow ingress from the cutover Job namespace (this chart's release
+     namespace — the `catalyst` ns where catalyst-api stamps the step
+     Jobs). Matches the kubernetes.io/metadata.name label the control
+     plane auto-stamps on every namespace (since K8s 1.21).
+    */}}
     - from:
         - namespaceSelector:
             matchLabels:

@@ -38,23 +38,27 @@ metadata:
     bp.openova.io/cutover-mode: "job"
 data:
   stepName: egress-block-test
-  # Cilium 1.16 doesn't support FQDN matching in `egressDeny` (only in
-  # `egress`/allow). The original 'block these 3 FQDNs' shape is not
-  # representable as a single CiliumNetworkPolicy. Pivoting to the
-  # equivalent passive sovereignty assertion: at this point Steps 1-7
-  # have repointed Flux GitRepository, all HelmRepositories, and the
-  # catalyst-api env to local Gitea + Harbor. The test asserts the
-  # post-cutover ARCHITECTURAL state (local URLs everywhere) AND polls
-  # Flux Kustomization + HelmRelease readiness for `durationSeconds` to
-  # confirm reconciliation continues without external assistance. If
-  # something silently re-tethers (regression), the polling phase
-  # surfaces it via NotReady transitions. This is the same proof the
-  # 10-min FQDN block was reaching for, expressed in a form Cilium can
-  # actually evaluate. Caught live on otech103 2026-05-04.
+  {{- /*
+   Cilium 1.16 doesn't support FQDN matching in `egressDeny` (only in
+   `egress`/allow). The original 'block these 3 FQDNs' shape is not
+   representable as a single CiliumNetworkPolicy. Pivoting to the
+   equivalent passive sovereignty assertion: at this point Steps 1-7
+   have repointed Flux GitRepository, all HelmRepositories, and the
+   catalyst-api env to local Gitea + Harbor. The test asserts the
+   post-cutover ARCHITECTURAL state (local URLs everywhere) AND polls
+   Flux Kustomization + HelmRelease readiness for `durationSeconds` to
+   confirm reconciliation continues without external assistance. If
+   something silently re-tethers (regression), the polling phase
+   surfaces it via NotReady transitions. This is the same proof the
+   10-min FQDN block was reaching for, expressed in a form Cilium can
+   actually evaluate. Caught live on otech103 2026-05-04.
+  */}}
   cilium-policy.yaml: |
-    # No-op placeholder — kept as a ConfigMap entry so the volume mount
-    # in the podSpec still resolves. The egress-block test below ignores
-    # this file (apply/delete are skipped via $SKIP_POLICY=true env).
+    {{- /*
+     No-op placeholder — kept as a ConfigMap entry so the volume mount
+     in the podSpec still resolves. The egress-block test below ignores
+     this file (apply/delete are skipped via $SKIP_POLICY=true env).
+    */}}
     apiVersion: v1
     kind: ConfigMap
     metadata:
@@ -73,97 +77,117 @@ data:
             value: {{ .Values.egressTest.durationSeconds | quote }}
           - name: NAMESPACE
             value: {{ .Release.Namespace | quote }}
-          # #2940 — real egress-block enforcement. OFF by default: a
-          # false-positive (a mis-resolved upstream CIDR that overlaps a
-          # dependency) would FAIL Step-08 → cutover engine aborts →
-          # half-pivoted unrecoverable prov. So this stays opt-in until
-          # validated on a cutover walk, after which the default flips.
-          # When ON, the script resolves UPSTREAM_HOSTS → IPs and applies
-          # a scoped CiliumNetworkPolicy egressDeny toCIDR for the
-          # survival window, so ANY hidden runtime tether (not just the
-          # declarative HelmRepository/GitRepository surfaces) fails the
-          # proof. eq-toString guards the Sprig-bool pitfall.
+          {{- /*
+           #2940 — real egress-block enforcement. OFF by default: a
+           false-positive (a mis-resolved upstream CIDR that overlaps a
+           dependency) would FAIL Step-08 → cutover engine aborts →
+           half-pivoted unrecoverable prov. So this stays opt-in until
+           validated on a cutover walk, after which the default flips.
+           When ON, the script resolves UPSTREAM_HOSTS → IPs and applies
+           a scoped CiliumNetworkPolicy egressDeny toCIDR for the
+           survival window, so ANY hidden runtime tether (not just the
+           declarative HelmRepository/GitRepository surfaces) fails the
+           proof. eq-toString guards the Sprig-bool pitfall.
+          */}}
           - name: ENFORCE_CIDR_BLOCK
             value: {{ eq (toString .Values.egressTest.enforceCIDRBlock) "true" | quote }}
           - name: UPSTREAM_HOSTS
             value: {{ .Values.egressTest.blockedDomains | default (list "github.com" "ghcr.io" "harbor.openova.io") | join " " | quote }}
-          # #3678 — TRUE deny-egress. DEFAULT_DENY_EGRESS=true emits a
-          # default-deny CCNP with an explicit intra-cluster allow-list
-          # (ALLOW_CIDRS) so EVERYTHING public is denied, not just the 4
-          # enumerated tether CIDRs. The apiserver-strand (#3640) is avoided
-          # by the allow-list (10.96/12 covers 10.96.0.1), not by
-          # enableDefaultDeny.egress:false.
+          {{- /*
+           #3678 — TRUE deny-egress. DEFAULT_DENY_EGRESS=true emits a
+           default-deny CCNP with an explicit intra-cluster allow-list
+           (ALLOW_CIDRS) so EVERYTHING public is denied, not just the 4
+           enumerated tether CIDRs. The apiserver-strand (#3640) is avoided
+           by the allow-list (10.96/12 covers 10.96.0.1), not by
+           enableDefaultDeny.egress:false.
+          */}}
           - name: DEFAULT_DENY_EGRESS
             value: {{ eq (toString .Values.egressTest.defaultDenyEgress) "true" | quote }}
           - name: ALLOW_CIDRS
             value: {{ .Values.egressTest.allowIntraClusterCIDRs | default (list "10.42.0.0/16" "10.43.0.0/16" "10.96.0.0/12") | join " " | quote }}
-          # #4596 — IaaS PROVIDER control-plane API CIDR allow-list. The deny-egress
-          # hold must black-hole the MOTHERSHIP but NOT the cloud the Sovereign runs
-          # ON: the CSI driver needs the provider API (Huawei ECS/EVS, Hetzner API)
-          # to attach volumes for any pod that (re)schedules DURING the hold (the
-          # catalyst-api-env-patch restart). Empty by default (no-op on providers
-          # whose CSI/control-plane is reachable via the cluster/host paths);
-          # cloud-init sets it per region (Huawei kom4dc: "212.72.2.0/24" — the API
-          # /24, which EXCLUDES the bastion .24.x + the GitHub/mothership ranges).
+          {{- /*
+           #4596 — IaaS PROVIDER control-plane API CIDR allow-list. The deny-egress
+           hold must black-hole the MOTHERSHIP but NOT the cloud the Sovereign runs
+           ON: the CSI driver needs the provider API (Huawei ECS/EVS, Hetzner API)
+           to attach volumes for any pod that (re)schedules DURING the hold (the
+           catalyst-api-env-patch restart). Empty by default (no-op on providers
+           whose CSI/control-plane is reachable via the cluster/host paths);
+           cloud-init sets it per region (Huawei kom4dc: "212.72.2.0/24" — the API
+           /24, which EXCLUDES the bastion .24.x + the GitHub/mothership ranges).
+          */}}
           - name: PROVIDER_API_CIDRS
             value: {{ .Values.egressTest.allowProviderCIDRs | default (list) | join " " | quote }}
-          # #5359 — SECONDARY-REGION deny-egress legs. The sovereignty hold is
-          # applied to EVERY region's cluster (kubeconfigs from the optional
-          # /secondary-kubeconfigs mount) and every region must stay green
-          # through the window — a region-A-only hold proved nothing about
-          # region-B (hw288 false-positive cc=true). The secondary manifest
-          # is the region-A manifest (ALLOW_CIDRS + PROVIDER_API_CIDRS
-          # carve-outs inherited verbatim — the #4596/#5020-5025 CSI-freeze
-          # trap catalog applies per-region) PLUS: a mesh-wide toEndpoints
-          # allow (cross-cluster pod dials carry a ClusterMesh identity that
-          # toCIDR NEVER matches — the ipBlock/remote-identity lesson), the
-          # auto-resolved public IPs of the Sovereign's OWN
-          # registry.<fqdn>/gitea.<fqdn> gateway door, and these extra CIDRs.
+          {{- /*
+           #5359 — SECONDARY-REGION deny-egress legs. The sovereignty hold is
+           applied to EVERY region's cluster (kubeconfigs from the optional
+           /secondary-kubeconfigs mount) and every region must stay green
+           through the window — a region-A-only hold proved nothing about
+           region-B (hw288 false-positive cc=true). The secondary manifest
+           is the region-A manifest (ALLOW_CIDRS + PROVIDER_API_CIDRS
+           carve-outs inherited verbatim — the #4596/#5020-5025 CSI-freeze
+           trap catalog applies per-region) PLUS: a mesh-wide toEndpoints
+           allow (cross-cluster pod dials carry a ClusterMesh identity that
+           toCIDR NEVER matches — the ipBlock/remote-identity lesson), the
+           auto-resolved public IPs of the Sovereign's OWN
+           registry.<fqdn>/gitea.<fqdn> gateway door, and these extra CIDRs.
+          */}}
           - name: SECONDARY_EXTRA_ALLOW_CIDRS
             value: {{ .Values.secondaryRegions.extraEgressAllowCIDRs | default (list) | join " " | quote }}
           - name: SOVEREIGN_FQDN
             value: {{ .Values.sovereign.fqdn | quote }}
           - name: STATUS_CONFIGMAP
             value: {{ .Values.status.configMapName | quote }}
-          # #5359 — the per-region lint driver stamps
-          # step.egress-block-test.region.<key>.fluxSourceLint on the status
-          # ConfigMap, which lives in the cutover release namespace.
+          {{- /*
+           #5359 — the per-region lint driver stamps
+           step.egress-block-test.region.<key>.fluxSourceLint on the status
+           ConfigMap, which lives in the cutover release namespace.
+          */}}
           - name: CUTOVER_NAMESPACE
             value: {{ .Release.Namespace | quote }}
-          # #3678 — active call-home assertion knobs. During the hold, curl
-          # each CALL_HOME_HOSTS entry FROM this pod (under the policy); any
-          # that connects fails the proof.
+          {{- /*
+           #3678 — active call-home assertion knobs. During the hold, curl
+           each CALL_HOME_HOSTS entry FROM this pod (under the policy); any
+           that connects fails the proof.
+          */}}
           - name: CALL_HOME_ENABLED
             value: {{ eq (toString .Values.egressTest.callHomeAssertion.enabled) "true" | quote }}
           - name: CALL_HOME_TIMEOUT
             value: {{ .Values.egressTest.callHomeAssertion.timeoutSeconds | default 5 | quote }}
           - name: CALL_HOME_HOSTS
             value: {{ .Values.egressTest.callHomeAssertion.hosts | default (list "https://console.openova.io/healthz") | join " " | quote }}
-          # #3695 — host GitOps loop gate. The root bootstrap-kit Kustomization
-          # (+ sovereign-tls + org-tenants) MUST be Ready=True at the
-          # post-cutover revision or the proof fails BEFORE the window.
+          {{- /*
+           #3695 — host GitOps loop gate. The root bootstrap-kit Kustomization
+           (+ sovereign-tls + org-tenants) MUST be Ready=True at the
+           post-cutover revision or the proof fails BEFORE the window.
+          */}}
           - name: HOST_KS_GATE_ENABLED
             value: {{ eq (toString .Values.egressTest.hostKustomizationGate.enabled) "true" | quote }}
           - name: HOST_KS_NAMESPACE
             value: {{ .Values.egressTest.hostKustomizationGate.namespace | default "flux-system" | quote }}
           - name: HOST_KS_NAMES
             value: {{ .Values.egressTest.hostKustomizationGate.names | default (list "bootstrap-kit") | join " " | quote }}
-          # #3695 — roll EVERY external-registry workload under deny-egress,
-          # not one hand-picked openova-io Deployment.
+          {{- /*
+           #3695 — roll EVERY external-registry workload under deny-egress,
+           not one hand-picked openova-io Deployment.
+          */}}
           - name: ROLL_ALL_EXTERNAL
             value: {{ eq (toString .Values.egressTest.rollAllExternalRegistryWorkloads) "true" | quote }}
-          # #4975 (Refs #3379 #3695) — the local registry substr that
-          # classifies the roll-set. DERIVED from sovereign.harborPublicURL's
-          # host (registry.<fqdn>) unless the operator overrides
-          # egressTest.localRegistryHostSubstr. The FULL host is used (not
-          # "harbor." nor a bare "registry.") so it excludes ONLY the local
-          # registry — not the mothership harbor.openova.io tether (which MUST
-          # be rolled) and not registry.k8s.io (an external upstream).
+          {{- /*
+           #4975 (Refs #3379 #3695) — the local registry substr that
+           classifies the roll-set. DERIVED from sovereign.harborPublicURL's
+           host (registry.<fqdn>) unless the operator overrides
+           egressTest.localRegistryHostSubstr. The FULL host is used (not
+           "harbor." nor a bare "registry.") so it excludes ONLY the local
+           registry — not the mothership harbor.openova.io tether (which MUST
+           be rolled) and not registry.k8s.io (an external upstream).
+          */}}
           - name: LOCAL_REGISTRY_SUBSTR
             value: {{ .Values.egressTest.localRegistryHostSubstr | default (include "bp-self-sovereign-cutover.localRegistryHost" .) | quote }}
-          # #4975 — the offline-mirror coverage map + hosts, for the pre-hold
-          # completeness gate (HEAD every workload image against local Harbor)
-          # and the roll-set exclusions. Same env step-03/step-04 read.
+          {{- /*
+           #4975 — the offline-mirror coverage map + hosts, for the pre-hold
+           completeness gate (HEAD every workload image against local Harbor)
+           and the roll-set exclusions. Same env step-03/step-04 read.
+          */}}
           - name: HOST_PROJECT_MAP
             value: {{ include "bp-self-sovereign-cutover.hostProjectMapInline" . | quote }}
           - name: EXCLUDED_HOSTS
@@ -174,15 +198,17 @@ data:
             value: {{ include "bp-self-sovereign-cutover.localRegistryHost" . | quote }}
           - name: MIRROR_COMPLETENESS_GATE
             value: {{ eq (toString .Values.offlineMirror.enabled) "true" | quote }}
-          # #5194 (Refs #4975 #5191) — PRE-HOLD completeness SELF-HEAL. On a
-          # missing-manifest MISS the gate below auto-warms the image into
-          # local Harbor (reusing step-03 harbor-prewarm's exact skopeo
-          # proxy-copy mechanism) instead of failing immediately — closes the
-          # gap where a funnel Org provisioned MID-CUTOVER (after step-03
-          # already enumerated the workload set) is never mirrored. The
-          # remaining env below mirrors step-03's skopeo-copy env VERBATIM
-          # (same Secret refs, same prewarm.* knobs) so both consumers derive
-          # identical credentials + retry/backoff behavior from one source.
+          {{- /*
+           #5194 (Refs #4975 #5191) — PRE-HOLD completeness SELF-HEAL. On a
+           missing-manifest MISS the gate below auto-warms the image into
+           local Harbor (reusing step-03 harbor-prewarm's exact skopeo
+           proxy-copy mechanism) instead of failing immediately — closes the
+           gap where a funnel Org provisioned MID-CUTOVER (after step-03
+           already enumerated the workload set) is never mirrored. The
+           remaining env below mirrors step-03's skopeo-copy env VERBATIM
+           (same Secret refs, same prewarm.* knobs) so both consumers derive
+           identical credentials + retry/backoff behavior from one source.
+          */}}
           - name: MIRROR_SELF_HEAL_ENABLED
             value: {{ eq (toString .Values.offlineMirror.selfHeal.enabled) "true" | quote }}
           - name: MOTHERSHIP_HOST
@@ -203,40 +229,46 @@ data:
             value: {{ .Values.prewarm.proxyCopyAttempts | default 6 | quote }}
           - name: PREWARM_PROXY_BACKOFF_BASE_SECONDS
             value: {{ .Values.prewarm.proxyBackoffBaseSeconds | default 30 | quote }}
-          # #5026 — pre-hold ref-host lint toggle (treadmill-breaker).
+          {{- /* #5026 — pre-hold ref-host lint toggle (treadmill-breaker). */}}
           - name: PODSPEC_REFHOST_LINT
             value: {{ eq (toString .Values.egressTest.podspecRefHostLint.enabled) "true" | quote }}
-          # #5650 — pre-hold Flux SOURCE host lint. The deny-egress hold below
-          # proves nothing external is REACHABLE for 600s; it cannot prove
-          # nothing external is DEPENDED UPON, because the policy is torn down
-          # when the hold ends and a source whose reconcile interval straddles
-          # the window never dials during it. Live hw292: vcluster-system/loft
-          # (charts.loft.sh, interval 15m) sat Ready through a passing hold and
-          # re-fetched from the public internet ~10h after cutoverComplete=true.
-          # This lint is the timing-independent half of the proof.
+          {{- /*
+           #5650 — pre-hold Flux SOURCE host lint. The deny-egress hold below
+           proves nothing external is REACHABLE for 600s; it cannot prove
+           nothing external is DEPENDED UPON, because the policy is torn down
+           when the hold ends and a source whose reconcile interval straddles
+           the window never dials during it. Live hw292: vcluster-system/loft
+           (charts.loft.sh, interval 15m) sat Ready through a passing hold and
+           re-fetched from the public internet ~10h after cutoverComplete=true.
+           This lint is the timing-independent half of the proof.
+          */}}
           - name: FLUX_SOURCE_HOST_LINT
             value: {{ eq (toString .Values.egressTest.fluxSourceHostLint.enabled) "true" | quote }}
           - name: FLUX_SOURCE_HOST_ALLOW
             value: {{ .Values.egressTest.fluxSourceHostLint.allowHosts | default (list) | join " " | quote }}
-          # #5359 — pre-hold Flux SOURCE HEALTH lint. The host lint reads
-          # spec.url; this reads whether the controller ever converged on it.
-          # hw292 region-b carried a Sovereign-local GitRepository URL that
-          # source-controller had never once fetched (generation=2,
-          # observedGeneration=1, Ready=False), so it kept serving the
-          # pre-cutover github.com artifact and reverted all 64 pivoted
-          # HelmRepositories every 5m. A host-only lint passes over that.
+          {{- /*
+           #5359 — pre-hold Flux SOURCE HEALTH lint. The host lint reads
+           spec.url; this reads whether the controller ever converged on it.
+           hw292 region-b carried a Sovereign-local GitRepository URL that
+           source-controller had never once fetched (generation=2,
+           observedGeneration=1, Ready=False), so it kept serving the
+           pre-cutover github.com artifact and reverted all 64 pivoted
+           HelmRepositories every 5m. A host-only lint passes over that.
+          */}}
           - name: FLUX_SOURCE_HEALTH_LINT
             value: {{ eq (toString .Values.egressTest.fluxSourceHealthLint.enabled) "true" | quote }}
-          # #5650 — pre-hold Crossplane Provider PACKAGE host lint. Same class
-          # as FLUX_SOURCE_HOST_LINT, different controller: Crossplane's
-          # package manager fetches `Provider.spec.package` directly from the
-          # crossplane-system Pod (never through containerd, never through
-          # Flux source-controller), on its own reconcile loop, so it is
-          # invisible to BOTH the podspec ref-host lint (#5026, which only
-          # walks Deployment/DaemonSet/StatefulSet pod specs) and the Flux
-          # source lint above (which only walks HelmRepository/GitRepository/
-          # OCIRepository). Step-11 (crossplane-provider-pivot) durably
-          # rewrites spec.package; this proves the rewrite HELD.
+          {{- /*
+           #5650 — pre-hold Crossplane Provider PACKAGE host lint. Same class
+           as FLUX_SOURCE_HOST_LINT, different controller: Crossplane's
+           package manager fetches `Provider.spec.package` directly from the
+           crossplane-system Pod (never through containerd, never through
+           Flux source-controller), on its own reconcile loop, so it is
+           invisible to BOTH the podspec ref-host lint (#5026, which only
+           walks Deployment/DaemonSet/StatefulSet pod specs) and the Flux
+           source lint above (which only walks HelmRepository/GitRepository/
+           OCIRepository). Step-11 (crossplane-provider-pivot) durably
+           rewrites spec.package; this proves the rewrite HELD.
+          */}}
           - name: PROVIDER_PACKAGE_HOST_LINT
             value: {{ eq (toString .Values.egressTest.providerPackageHostLint.enabled) "true" | quote }}
           - name: PROVIDER_PACKAGE_HOST_ALLOW
@@ -255,9 +287,11 @@ data:
                 name: {{ .Values.harbor.adminSecretRef.name }}
                 key: {{ .Values.harbor.adminSecretRef.passwordKey }}
                 optional: true
-          # #3647 — fresh-pull-under-deny-egress proof knobs. See the
-          # FRESH-PULL phase in the script below + values.yaml egressTest.
-          # freshPullProof for the full rationale.
+          {{- /*
+           #3647 — fresh-pull-under-deny-egress proof knobs. See the
+           FRESH-PULL phase in the script below + values.yaml egressTest.
+           freshPullProof for the full rationale.
+          */}}
           - name: FRESH_PULL_PROOF
             value: {{ eq (toString .Values.egressTest.freshPullProof.enabled) "true" | quote }}
           - name: FRESH_PULL_NAMESPACE
@@ -268,19 +302,25 @@ data:
             value: {{ .Values.egressTest.freshPullProof.excludeDeploymentSubstring | quote }}
           - name: FRESH_PULL_TIMEOUT
             value: {{ .Values.egressTest.freshPullProof.timeoutSeconds | quote }}
-          # #5022 — DaemonSet rollouts are per-node sequential under
-          # RollingUpdate(maxUnavailable:1); budget scales with node count.
+          {{- /*
+           #5022 — DaemonSet rollouts are per-node sequential under
+           RollingUpdate(maxUnavailable:1); budget scales with node count.
+          */}}
           - name: FRESH_PULL_DS_PER_NODE
             value: {{ .Values.egressTest.freshPullProof.dsPerNodeSeconds | default 120 | quote }}
-          # #5022 — "<ns>/<name>" pairs never rolled by the sweep (the
-          # registry-pivot DS is the pivot mechanism itself — recursive).
+          {{- /*
+           #5022 — "<ns>/<name>" pairs never rolled by the sweep (the
+           registry-pivot DS is the pivot mechanism itself — recursive).
+          */}}
           - name: FRESH_PULL_EXCLUDE_WORKLOADS
             value: {{ .Values.egressTest.freshPullProof.excludeWorkloads | default (list "catalyst/registry-pivot") | join " " | quote }}
-          # #5074/#5065/#5059 — principled roll-set. "minimal" (default) rolls
-          # a representative sample of ORDINARY APP workloads and excludes
-          # infra by RULE (namespaces + DaemonSets-in-infra-ns) instead of the
-          # name-by-name whack-a-mole; "full" keeps the legacy roll-everything
-          # sweep. See values.yaml egressTest.freshPullProof.rollSetMode.
+          {{- /*
+           #5074/#5065/#5059 — principled roll-set. "minimal" (default) rolls
+           a representative sample of ORDINARY APP workloads and excludes
+           infra by RULE (namespaces + DaemonSets-in-infra-ns) instead of the
+           name-by-name whack-a-mole; "full" keeps the legacy roll-everything
+           sweep. See values.yaml egressTest.freshPullProof.rollSetMode.
+          */}}
           - name: FRESH_PULL_ROLL_SET_MODE
             value: {{ .Values.egressTest.freshPullProof.rollSetMode | default "minimal" | quote }}
           - name: FRESH_PULL_INFRA_NAMESPACES
@@ -291,22 +331,24 @@ data:
             value: {{ .Values.egressTest.freshPullProof.minRepresentativesPerRegion | default 12 | quote }}
           - name: FRESH_PULL_REPRESENTATIVE_NAMESPACES
             value: {{ .Values.egressTest.freshPullProof.representativeNamespaces | default (list "flux-system" "gitea" "harbor" "keycloak" "grafana") | join " " | quote }}
-          # #5091 — MINIMAL-mode rule c: NEVER force-roll a stateful RWO-EVS
-          # singleton (gitea, keycloak-postgresql, harbor-database/redis, cnpg,
-          # …). Its image locality is ALREADY proven by the #4975 pre-hold
-          # completeness HEAD gate + the #5026 ref-host lint (both prove locality
-          # WITHOUT rolling); the synthetic roll adds NO image-proof value and
-          # triggers the UNRECOVERABLE CSI NodeStage/VolumeAttachment desync — a
-          # Recreate roll's NodeUnstage removes the CSI globalmount, the
-          # VolumeAttachment persists unchanged, so NodeStage never re-fires and
-          # NodePublish then fails on the missing globalmount → the replacement
-          # pod hangs Init:0/3 past the roll budget → ROLL_FAIL → step-08 fails
-          # forever (proven live hw253 gitea, #5091). Detection = an RWO PVC whose
-          # storageClass is in rwoEvsExclusion.storageClasses OR whose bound-PV
-          # CSI driver is in rwoEvsExclusion.csiDrivers. This ONLY narrows the
-          # ROLL set — rule a/b, the #4975 completeness gate, the #5026 ref-host
-          # lint, the 600s deny-egress hold + the curl call-home proof are all
-          # untouched.
+          {{- /*
+           #5091 — MINIMAL-mode rule c: NEVER force-roll a stateful RWO-EVS
+           singleton (gitea, keycloak-postgresql, harbor-database/redis, cnpg,
+           …). Its image locality is ALREADY proven by the #4975 pre-hold
+           completeness HEAD gate + the #5026 ref-host lint (both prove locality
+           WITHOUT rolling); the synthetic roll adds NO image-proof value and
+           triggers the UNRECOVERABLE CSI NodeStage/VolumeAttachment desync — a
+           Recreate roll's NodeUnstage removes the CSI globalmount, the
+           VolumeAttachment persists unchanged, so NodeStage never re-fires and
+           NodePublish then fails on the missing globalmount → the replacement
+           pod hangs Init:0/3 past the roll budget → ROLL_FAIL → step-08 fails
+           forever (proven live hw253 gitea, #5091). Detection = an RWO PVC whose
+           storageClass is in rwoEvsExclusion.storageClasses OR whose bound-PV
+           CSI driver is in rwoEvsExclusion.csiDrivers. This ONLY narrows the
+           ROLL set — rule a/b, the #4975 completeness gate, the #5026 ref-host
+           lint, the 600s deny-egress hold + the curl call-home proof are all
+           untouched.
+          */}}
           - name: FRESH_PULL_RWO_EVS_EXCLUDE
             value: {{ eq (toString .Values.egressTest.freshPullProof.rwoEvsExclusion.enabled) "true" | quote }}
           - name: FRESH_PULL_RWO_EVS_STORAGECLASSES
@@ -314,25 +356,31 @@ data:
           - name: FRESH_PULL_RWO_EVS_CSIDRIVERS
             value: {{ .Values.egressTest.freshPullProof.rwoEvsExclusion.csiDrivers | default (list "evs.csi.huaweicloud.com") | join " " | quote }}
         volumeMounts:
-          # #3379 (hw139, 2026-06-15): WRITABLE emptyDir at /work. The
-          # container runs readOnlyRootFilesystem:true (securityContext
-          # below), so the egressDeny CCNP manifest the enforce path emits
-          # can NOT be written to /tmp (root FS) — the prior `>/tmp/egress-
-          # deny.yaml` redirect failed with "Read-only file system", the
-          # `kubectl apply` never ran, the cutover-egress-block CCNP was
-          # never created, and the 600s window passed as an assertion-only
-          # hold (NOT the witnessed deny-egress proof ADR-0002 demands).
-          # /work is the one writable path; the manifest is written there.
+          {{- /*
+           #3379 (hw139, 2026-06-15): WRITABLE emptyDir at /work. The
+           container runs readOnlyRootFilesystem:true (securityContext
+           below), so the egressDeny CCNP manifest the enforce path emits
+           can NOT be written to /tmp (root FS) — the prior `>/tmp/egress-
+           deny.yaml` redirect failed with "Read-only file system", the
+           `kubectl apply` never ran, the cutover-egress-block CCNP was
+           never created, and the 600s window passed as an assertion-only
+           hold (NOT the witnessed deny-egress proof ADR-0002 demands).
+           /work is the one writable path; the manifest is written there.
+          */}}
           - name: work
             mountPath: /work
-          # #4975 — the shared offline-mirror resolver (same file step-03
-          # sources), so the pre-hold completeness gate maps each workload
-          # image to the local Harbor path step-03 pushed it to.
+          {{- /*
+           #4975 — the shared offline-mirror resolver (same file step-03
+           sources), so the pre-hold completeness gate maps each workload
+           image to the local Harbor path step-03 pushed it to.
+          */}}
           - name: offline-mirror-resolver
             mountPath: /resolver
             readOnly: true
-          # #5359 — optional secondary-region kubeconfigs (empty on a
-          # single-region Sovereign; the secondary hold legs no-op).
+          {{- /*
+           #5359 — optional secondary-region kubeconfigs (empty on a
+           single-region Sovereign; the secondary hold legs no-op).
+          */}}
           - name: secondary-kubeconfigs
             mountPath: /secondary-kubeconfigs
             readOnly: true
@@ -342,13 +390,15 @@ data:
             set -eu
             : "${HARBOR_USERNAME:=admin}"
 
-            # #4975 — the offline-mirror image→local-path resolver (shared with
-            # step-03). Defines offlinemirror_local_paths over the SAME
-            # HOST_PROJECT_MAP / EXCLUDED_* / LOCAL_REGISTRY_HOST env, so the
-            # pre-hold completeness gate below HEADs the EXACT path step-03
-            # pushed each image to. Guard the source in case the resolver
-            # ConfigMap ever fails to mount (degrade to survival-poll, never
-            # wedge the cutover on a tooling gap).
+            {{- /*
+             #4975 — the offline-mirror image→local-path resolver (shared with
+             step-03). Defines offlinemirror_local_paths over the SAME
+             HOST_PROJECT_MAP / EXCLUDED_* / LOCAL_REGISTRY_HOST env, so the
+             pre-hold completeness gate below HEADs the EXACT path step-03
+             pushed each image to. Guard the source in case the resolver
+             ConfigMap ever fails to mount (degrade to survival-poll, never
+             wedge the cutover on a tooling gap).
+            */}}
             if [ -r /resolver/resolver.sh ]; then
               . /resolver/resolver.sh
             else
@@ -356,9 +406,11 @@ data:
               MIRROR_COMPLETENESS_GATE="false"
             fi
 
-            # Architectural assertion phase — verifies the data-plane
-            # pivots from Steps 5/6/7 are actually live BEFORE we begin
-            # the survival window.
+            {{- /*
+             Architectural assertion phase — verifies the data-plane
+             pivots from Steps 5/6/7 are actually live BEFORE we begin
+             the survival window.
+            */}}
             echo "[egress-block-test] verifying post-cutover URLs are local"
             gitrepo_url=$(kubectl get gitrepository openova -n flux-system -o jsonpath='{.spec.url}')
             echo "  gitrepository.openova.url=${gitrepo_url}"
@@ -366,45 +418,49 @@ data:
               *gitea-http*|*gitea.*) : ;;
               *) echo "  FAIL — GitRepository still upstream"; exit 1 ;;
             esac
-            # Slot-managed self-reference HelmRepositories (declared in
-            # clusters/_template/bootstrap-kit/) are re-applied by Flux
-            # Kustomization on every reconcile, so Step-6's patch is
-            # transient for them. They're whitelisted here because the
-            # data-plane impact is null — the chart they point at is
-            # already installed and isn't pulled again until next
-            # cutover cycle, which would re-apply the patch first. The
-            # bulk of HelmRepositories ARE patched durably because
-            # Step-06 also git-pushes the rewritten bootstrap-kit YAML.
-            #
-            # #3526 — the pivot assertion MUST tolerate the async-git-push
-            # window. Step-06 (cutover-order 6) does TWO things to pivot
-            # the HelmRepository URLs:
-            #   (a) live `kubectl patch` of the listed HRs (immediate,
-            #       in-memory) — but Flux's bootstrap-kit Kustomization
-            #       re-applies the ORIGINAL ghcr.io manifests from Gitea
-            #       on its next 5-min reconcile, REVERTING those patches;
-            #   (b) a git-push of the sed-rewritten
-            #       clusters/_template/bootstrap-kit/*.yaml to local Gitea
-            #       — the DURABLE rewrite, which only takes effect once
-            #       the `openova` GitRepository pulls the new commit AND
-            #       the bootstrap-kit Kustomization re-applies it.
-            # Step-08 (cutover-order 8) runs ~3 min after Step-06, which
-            # on hw136 (#3379 walk) landed inside the revert window of (a)
-            # BEFORE (b) had reconciled — so a single-shot assertion saw
-            # 59 HRs back at ghcr.io and FAIL-FAST'd (exit 1, ~74s) before
-            # the 600s deny-egress hold ever ran (cutover-egress-block CCNP
-            # never applied, cutoverComplete stayed false).
-            #
-            # Fix: FORCE-RECONCILE the GitRepository + bootstrap-kit
-            # Kustomization so Step-06's durable git commit is pulled and
-            # re-applied NOW, then POLL the pivot to convergence with a
-            # bounded timeout. Only FAIL if the offenders persist after
-            # the full wait — by then the revert window has closed and a
-            # surviving ghcr.io URL is a real un-pivoted HelmRepository,
-            # not the transient Flux-revert race.
+            {{- /*
+             Slot-managed self-reference HelmRepositories (declared in
+             clusters/_template/bootstrap-kit/) are re-applied by Flux
+             Kustomization on every reconcile, so Step-6's patch is
+             transient for them. They're whitelisted here because the
+             data-plane impact is null — the chart they point at is
+             already installed and isn't pulled again until next
+             cutover cycle, which would re-apply the patch first. The
+             bulk of HelmRepositories ARE patched durably because
+             Step-06 also git-pushes the rewritten bootstrap-kit YAML.
+
+             #3526 — the pivot assertion MUST tolerate the async-git-push
+             window. Step-06 (cutover-order 6) does TWO things to pivot
+             the HelmRepository URLs:
+               (a) live `kubectl patch` of the listed HRs (immediate,
+                   in-memory) — but Flux's bootstrap-kit Kustomization
+                   re-applies the ORIGINAL ghcr.io manifests from Gitea
+                   on its next 5-min reconcile, REVERTING those patches;
+               (b) a git-push of the sed-rewritten
+                   clusters/_template/bootstrap-kit/*.yaml to local Gitea
+                   — the DURABLE rewrite, which only takes effect once
+                   the `openova` GitRepository pulls the new commit AND
+                   the bootstrap-kit Kustomization re-applies it.
+             Step-08 (cutover-order 8) runs ~3 min after Step-06, which
+             on hw136 (#3379 walk) landed inside the revert window of (a)
+             BEFORE (b) had reconciled — so a single-shot assertion saw
+             59 HRs back at ghcr.io and FAIL-FAST'd (exit 1, ~74s) before
+             the 600s deny-egress hold ever ran (cutover-egress-block CCNP
+             never applied, cutoverComplete stayed false).
+
+             Fix: FORCE-RECONCILE the GitRepository + bootstrap-kit
+             Kustomization so Step-06's durable git commit is pulled and
+             re-applied NOW, then POLL the pivot to convergence with a
+             bounded timeout. Only FAIL if the offenders persist after
+             the full wait — by then the revert window has closed and a
+             surviving ghcr.io URL is a real un-pivoted HelmRepository,
+             not the transient Flux-revert race.
+            */}}
             count_offenders() {
-              # Echoes the current external (non-slot-self-ref) ghcr.io
-              # HelmRepositories, one per line; caller derives the count.
+              {{- /*
+               Echoes the current external (non-slot-self-ref) ghcr.io
+               HelmRepositories, one per line; caller derives the count.
+              */}}
               kubectl get helmrepositories.source.toolkit.fluxcd.io -A \
                 -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.spec.url}{"\n"}{end}' \
                 | grep -E '=oci://ghcr\.io/openova-io' \
@@ -413,29 +469,35 @@ data:
 
             echo "[egress-block-test] #3526: force-reconciling Step-06's durable git-push before asserting HelmRepository pivot"
             now_ts=$(date +%s)
-            # GitRepository pull (SA has gitrepositories patch). This pulls
-            # Step-06 phase-2's local-Gitea commit immediately rather than
-            # waiting for the 1-min GitRepository interval.
+            {{- /*
+             GitRepository pull (SA has gitrepositories patch). This pulls
+             Step-06 phase-2's local-Gitea commit immediately rather than
+             waiting for the 1-min GitRepository interval.
+            */}}
             kubectl annotate --overwrite gitrepository openova -n flux-system \
               "reconcile.fluxcd.io/requestedAt=${now_ts}" >/dev/null 2>&1 \
               && echo "  reconcile requested: gitrepository/openova" \
               || echo "  WARN — could not annotate gitrepository/openova (continuing; the 1-min interval still converges)"
-            # bootstrap-kit Kustomization re-apply (SA has kustomizations
-            # patch as of chart 0.1.58 #3526). This re-applies the pulled
-            # commit's rewritten HelmRepository manifests immediately
-            # rather than waiting for the 5-min Kustomization interval —
-            # the long interval is exactly what made the revert window wide
-            # enough to catch Step-08 on hw136.
+            {{- /*
+             bootstrap-kit Kustomization re-apply (SA has kustomizations
+             patch as of chart 0.1.58 #3526). This re-applies the pulled
+             commit's rewritten HelmRepository manifests immediately
+             rather than waiting for the 5-min Kustomization interval —
+             the long interval is exactly what made the revert window wide
+             enough to catch Step-08 on hw136.
+            */}}
             kubectl annotate --overwrite kustomization bootstrap-kit -n flux-system \
               "reconcile.fluxcd.io/requestedAt=${now_ts}" >/dev/null 2>&1 \
               && echo "  reconcile requested: kustomization/bootstrap-kit" \
               || echo "  WARN — could not annotate kustomization/bootstrap-kit (continuing; the 5-min interval still converges)"
 
-            # Bounded poll to convergence. Up to ~5 min, re-checking every
-            # 15s, so a slow source-controller pull + helm/kustomize
-            # re-apply has time to land the durable local URLs before we
-            # judge. Re-annotate the GitRepository + Kustomization each
-            # cycle so a missed reconcile-request doesn't strand the poll.
+            {{- /*
+             Bounded poll to convergence. Up to ~5 min, re-checking every
+             15s, so a slow source-controller pull + helm/kustomize
+             re-apply has time to land the durable local URLs before we
+             judge. Re-annotate the GitRepository + Kustomization each
+             cycle so a missed reconcile-request doesn't strand the poll.
+            */}}
             pivot_deadline=$(( $(date +%s) + 300 ))
             ext_offenders="$(count_offenders)"
             ext_count=$(printf '%s' "${ext_offenders}" | grep -c '=' || true)
@@ -465,33 +527,35 @@ data:
               *gitea-http*|*gitea.*) : ;;
               *) echo "  FAIL — catalyst-api env still upstream"; exit 1 ;;
             esac
-            # #2940 — real egress-block enforcement (opt-in). Resolve the
-            # upstream hosts to public IPs and deny egress to those /32s
-            # for the survival window so a HIDDEN runtime tether (a Go
-            # constant hitting harbor.openova.io, an image pull not via a
-            # HelmRepository) surfaces as NotReady — the declarative-only
-            # assertion above can't catch those. Private/loopback IPs are
-            # skipped so intra-cluster traffic is never blocked. Fail-safe:
-            # any resolve/apply error falls back to assertion-only and
-            # NEVER wedges the cutover on a tooling failure.
-            # ── #5194 (Refs #4975 #5191) PRE-HOLD COMPLETENESS SELF-HEAL ──
-            # A funnel Org provisioned MID-CUTOVER (after step-03 harbor-
-            # prewarm already enumerated the workload set) is never mirrored
-            # — its pods are Running (they pulled fine pre-hold) but the
-            # completeness gate below 404s on the missing NATIVE local
-            # manifest (live hw269: harbor.openova.io/proxy-dockerhub/
-            # mariadb:11 + wordpress:6-apache, org `hw269uatwalk`). Egress is
-            # still OPEN at this point (the deny-egress hold hasn't started),
-            # so the gap is recoverable: reuse the EXACT step-03 skopeo
-            # proxy-copy mechanism (HOST_PROJECT_MAP host->project mapping,
-            # the ghcr.io PAT + mothership-proxy direct-source fallback,
-            # PREWARM_PROXY_COPY_ATTEMPTS/backoff) to push the missing
-            # manifest into local Harbor, then re-HEAD. Only a warm that
-            # itself fails (or a still-missing manifest afterward) fails the
-            # gate — every app provisioned at ANY time now survives the
-            # sovereignty proof. Lazy: skopeo is installed + creds parsed
-            # ONLY on the first actual miss, so a complete mirror (the common
-            # case) pays zero extra cost.
+            {{- /*
+             #2940 — real egress-block enforcement (opt-in). Resolve the
+             upstream hosts to public IPs and deny egress to those /32s
+             for the survival window so a HIDDEN runtime tether (a Go
+             constant hitting harbor.openova.io, an image pull not via a
+             HelmRepository) surfaces as NotReady — the declarative-only
+             assertion above can't catch those. Private/loopback IPs are
+             skipped so intra-cluster traffic is never blocked. Fail-safe:
+             any resolve/apply error falls back to assertion-only and
+             NEVER wedges the cutover on a tooling failure.
+             ── #5194 (Refs #4975 #5191) PRE-HOLD COMPLETENESS SELF-HEAL ──
+             A funnel Org provisioned MID-CUTOVER (after step-03 harbor-
+             prewarm already enumerated the workload set) is never mirrored
+             — its pods are Running (they pulled fine pre-hold) but the
+             completeness gate below 404s on the missing NATIVE local
+             manifest (live hw269: harbor.openova.io/proxy-dockerhub/
+             mariadb:11 + wordpress:6-apache, org `hw269uatwalk`). Egress is
+             still OPEN at this point (the deny-egress hold hasn't started),
+             so the gap is recoverable: reuse the EXACT step-03 skopeo
+             proxy-copy mechanism (HOST_PROJECT_MAP host->project mapping,
+             the ghcr.io PAT + mothership-proxy direct-source fallback,
+             PREWARM_PROXY_COPY_ATTEMPTS/backoff) to push the missing
+             manifest into local Harbor, then re-HEAD. Only a warm that
+             itself fails (or a still-missing manifest afterward) fails the
+             gate — every app provisioned at ANY time now survives the
+             sovereignty proof. Lazy: skopeo is installed + creds parsed
+             ONLY on the first actual miss, so a complete mirror (the common
+             case) pays zero extra cost.
+            */}}
             _selfheal_skopeo_ready=0
             _selfheal_creds_loaded=0
             _selfheal_ghcr_user=""; _selfheal_ghcr_pat=""
@@ -524,12 +588,14 @@ data:
               return 1
             }
 
-            # Parses the SAME flux-system/ghcr-pull dockerconfigjson step-03
-            # reads, extracting the ghcr.io PAT + any mothership-Harbor auth
-            # entry. Optional: an absent/empty GHCR_DOCKERCONFIG degrades to
-            # anonymous-only warm (public proxy-* upstreams still warm fine;
-            # a private ghcr.io/openova-io image would still fail the warm —
-            # falling through to the pre-#5194 FAIL, never a regression).
+            {{- /*
+             Parses the SAME flux-system/ghcr-pull dockerconfigjson step-03
+             reads, extracting the ghcr.io PAT + any mothership-Harbor auth
+             entry. Optional: an absent/empty GHCR_DOCKERCONFIG degrades to
+             anonymous-only warm (public proxy-* upstreams still warm fine;
+             a private ghcr.io/openova-io image would still fail the warm —
+             falling through to the pre-#5194 FAIL, never a regression).
+            */}}
             self_heal_load_creds() {
               [ "${_selfheal_creds_loaded}" = "1" ] && return 0
               _selfheal_creds_loaded=1
@@ -562,10 +628,12 @@ data:
               esac
             }
 
-            # self_heal_warm_image UPSTREAM_REF LOCAL_PATH -> 0 warmed, 1 not.
-            # UPSTREAM_REF is the ORIGINAL pod-spec image (the enumerated
-            # ${_img}); LOCAL_PATH is the exact resolver-derived destination
-            # (${_lp} — the SAME path the completeness HEAD just missed on).
+            {{- /*
+             self_heal_warm_image UPSTREAM_REF LOCAL_PATH -> 0 warmed, 1 not.
+             UPSTREAM_REF is the ORIGINAL pod-spec image (the enumerated
+             ${_img}); LOCAL_PATH is the exact resolver-derived destination
+             (${_lp} — the SAME path the completeness HEAD just missed on).
+            */}}
             self_heal_warm_image() {
               _wi_up=$(offlinemirror_normalize_ref "$1")
               _wi_lp="$2"
@@ -577,9 +645,11 @@ data:
               _wi_srchost="${_wi_up%%/*}"
               case "${_wi_srchost}" in *.*|*:*|localhost) : ;; *) _wi_srchost="docker.io" ;; esac
               _wi_sc=$(self_heal_src_creds_for "${_wi_srchost}")
-              # Mothership-proxy direct-source fallback — the SAME inverse
-              # HOST_PROJECT_MAP derivation step-03's copy_one uses (#5095):
-              # harbor.openova.io/proxy-dockerhub/<path> -> docker.io/<path>.
+              {{- /*
+               Mothership-proxy direct-source fallback — the SAME inverse
+               HOST_PROJECT_MAP derivation step-03's copy_one uses (#5095):
+               harbor.openova.io/proxy-dockerhub/<path> -> docker.io/<path>.
+              */}}
               _wi_fb_up=""; _wi_fb_sc=""
               if [ -n "${MOTHERSHIP_HOST:-}" ] && [ "${_wi_srchost}" = "${MOTHERSHIP_HOST}" ]; then
                 _wi_rest="${_wi_up#*/}"
@@ -635,17 +705,19 @@ data:
               return 1
             }
 
-            # ── #4975 PRE-HOLD OFFLINE-MIRROR COMPLETENESS GATE ───────────
-            # BEFORE the deny-egress hold (egress still OPEN), HEAD every
-            # workload image against the LOCAL Harbor at the exact path the
-            # shared resolver maps it to. A missing manifest = an image that
-            # would ImagePullBackOff the moment its pod is rolled under the
-            # hold. #5194: a miss is no longer immediately FATAL — it is
-            # first auto-warmed (see self_heal_warm_image above) and
-            # re-HEADed; only a still-missing manifest after the warm NAMES
-            # the offender(s) — the systemic end of the per-prov
-            # whack-a-mole (an opaque mid-hold ImagePullBackOff becomes a
-            # clear "step-03 Phase A3 did not mirror <image>").
+            {{- /*
+             ── #4975 PRE-HOLD OFFLINE-MIRROR COMPLETENESS GATE ───────────
+             BEFORE the deny-egress hold (egress still OPEN), HEAD every
+             workload image against the LOCAL Harbor at the exact path the
+             shared resolver maps it to. A missing manifest = an image that
+             would ImagePullBackOff the moment its pod is rolled under the
+             hold. #5194: a miss is no longer immediately FATAL — it is
+             first auto-warmed (see self_heal_warm_image above) and
+             re-HEADed; only a still-missing manifest after the warm NAMES
+             the offender(s) — the systemic end of the per-prov
+             whack-a-mole (an opaque mid-hold ImagePullBackOff becomes a
+             clear "step-03 Phase A3 did not mirror <image>").
+            */}}
             run_offline_mirror_completeness() {
               echo "[egress-block-test] #4975: PRE-HOLD completeness — HEAD every workload image against local Harbor ${HARBOR_PUBLIC_URL}"
               _base="${HARBOR_PUBLIC_URL}/v2"
@@ -667,14 +739,16 @@ data:
                   "") continue ;;   # excluded by design — not mirrored
                 esac
                 for _lp in ${_paths}; do
-                  # Split "<repo>[:tag|@digest]" into repo + manifest ref.
+                  {{- /* Split "<repo>[:tag|@digest]" into repo + manifest ref. */}}
                   _repo="${_lp}"; _ref="latest"
                   case "${_lp}" in
                     *@*) _ref="${_lp##*@}"; _repo="${_lp%@*}"; case "${_repo##*/}" in *:*) _repo="${_repo%:*}" ;; esac ;;
                     *) case "${_lp##*/}" in *:*) _ref="${_lp##*:}"; _repo="${_lp%:*}" ;; esac ;;
                   esac
-                  # 3 attempts to absorb a transient Harbor blip (a genuine
-                  # 404/absent still FATALs — that is the whole point).
+                  {{- /*
+                   3 attempts to absorb a transient Harbor blip (a genuine
+                   404/absent still FATALs — that is the whole point).
+                  */}}
                   _code=000
                   _try=1
                   while [ "${_try}" -le 3 ]; do
@@ -689,10 +763,12 @@ data:
                   case "${_code}" in
                     200|301|302) : ;;
                     *)
-                      # #5194 — self-heal BEFORE recording a miss: egress is
-                      # still open here, so warm the exact missing manifest
-                      # into local Harbor and re-HEAD once. Only a warm
-                      # failure or a still-missing manifest afterward counts.
+                      {{- /*
+                       #5194 — self-heal BEFORE recording a miss: egress is
+                       still open here, so warm the exact missing manifest
+                       into local Harbor and re-HEAD once. Only a warm
+                       failure or a still-missing manifest afterward counts.
+                      */}}
                       if [ "${MIRROR_SELF_HEAL_ENABLED:-true}" = "true" ] && self_heal_warm_image "${_img}" "${_lp}"; then
                         _code=$(curl -sk -o /dev/null -w '%{http_code}' \
                           -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
@@ -726,35 +802,37 @@ data:
               fi
             fi
 
-            # #5026 — PRE-HOLD REF-HOST LINT (treadmill-breaker). Complements the
-            # content-completeness gate above: that proves the IMAGE is in local
-            # Harbor; this proves the pod-spec REF RESOLVES to local Harbor. A ref
-            # on a host that is NEITHER the local registry NOR a step-04 redirect-
-            # covered host is a genuine deny-egress tether (a raw github.com/… ref
-            # with NO containerd redirect) → latent ImagePullBackOff under the hold.
-            # This lists EVERY such offender at once and fails BEFORE the hold so
-            # the whole un-covered set surfaces in a single prov.
-            #
-            # #5036 (Refs #5026 #5027 #4975 — hw246) — REDIRECT-AWARE. The premise
-            # is NOT "the ref host must be registry.<fqdn>". Step-04 (04-registry-
-            # pivot-daemonset.yaml, which PASSED before this step) writes a
-            # containerd certs.d/<host>/hosts.toml redirect to registry.<fqdn> for
-            # EVERY host in HOST_PROJECT_MAP — the mothership harbor.openova.io
-            # host-swap AND ghcr.io/docker.io/quay.io/registry.k8s.io/… (proxy-cache
-            # pull-through). So a pod-spec ref like harbor.openova.io/proxy-<x>/PATH
-            # pulls from the LOCAL Harbor via that redirect and NEVER dials the
-            # mothership — it is already sovereign (verified live hw246:
-            # certs.d/harbor.openova.io/hosts.toml → server="https://harbor.openova.io",
-            # host."https://registry.<fqdn>"). Requiring step-07 to TEXTUALLY rewrite
-            # those ~40 chart-default refs (Option B, deferred backlog) is
-            # belt-and-suspenders, not a sovereignty requirement. This lint therefore
-            # exempts a host if it is the local registry OR appears in HOST_PROJECT_MAP
-            # (the SAME single-source env step-04 reads — no fresh hardcoded literal).
-            # SOUNDNESS: the deny-egress hold below is the authoritative proof; a
-            # redirect-covered ref that could NOT actually pull locally would still
-            # ImagePullBackOff during the hold and fail the proof, so exempting it
-            # here removes only a false positive on an already-local ref, never a
-            # real tether. The completeness gate above independently proves content.
+            {{- /*
+             #5026 — PRE-HOLD REF-HOST LINT (treadmill-breaker). Complements the
+             content-completeness gate above: that proves the IMAGE is in local
+             Harbor; this proves the pod-spec REF RESOLVES to local Harbor. A ref
+             on a host that is NEITHER the local registry NOR a step-04 redirect-
+             covered host is a genuine deny-egress tether (a raw github.com/… ref
+             with NO containerd redirect) → latent ImagePullBackOff under the hold.
+             This lists EVERY such offender at once and fails BEFORE the hold so
+             the whole un-covered set surfaces in a single prov.
+
+             #5036 (Refs #5026 #5027 #4975 — hw246) — REDIRECT-AWARE. The premise
+             is NOT "the ref host must be registry.<fqdn>". Step-04 (04-registry-
+             pivot-daemonset.yaml, which PASSED before this step) writes a
+             containerd certs.d/<host>/hosts.toml redirect to registry.<fqdn> for
+             EVERY host in HOST_PROJECT_MAP — the mothership harbor.openova.io
+             host-swap AND ghcr.io/docker.io/quay.io/registry.k8s.io/… (proxy-cache
+             pull-through). So a pod-spec ref like harbor.openova.io/proxy-<x>/PATH
+             pulls from the LOCAL Harbor via that redirect and NEVER dials the
+             mothership — it is already sovereign (verified live hw246:
+             certs.d/harbor.openova.io/hosts.toml → server="https://harbor.openova.io",
+             host."https://registry.<fqdn>"). Requiring step-07 to TEXTUALLY rewrite
+             those ~40 chart-default refs (Option B, deferred backlog) is
+             belt-and-suspenders, not a sovereignty requirement. This lint therefore
+             exempts a host if it is the local registry OR appears in HOST_PROJECT_MAP
+             (the SAME single-source env step-04 reads — no fresh hardcoded literal).
+             SOUNDNESS: the deny-egress hold below is the authoritative proof; a
+             redirect-covered ref that could NOT actually pull locally would still
+             ImagePullBackOff during the hold and fail the proof, so exempting it
+             here removes only a false positive on an already-local ref, never a
+             real tether. The completeness gate above independently proves content.
+            */}}
             run_podspec_refhost_lint() {
               echo "[egress-block-test] #5026/#5036: PRE-HOLD ref-host lint — every rolled workload pod-spec image host must be ${LOCAL_REGISTRY_HOST} OR a step-04 redirect-covered host (HOST_PROJECT_MAP: harbor.openova.io/ghcr.io/…); genuine offenders are hosts with NO containerd redirect that deny-egress would block"
               _lint_off="/work/refhost-offenders.$$"; : > "${_lint_off}"
@@ -763,7 +841,7 @@ data:
                   -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null \
                 | while IFS=' ' read -r _lns _lname; do
                     [ -n "${_lns}" ] && [ -n "${_lname}" ] || continue
-                    # roll-set workload exclusions (registry-pivot etc.) — never linted.
+                    {{- /* roll-set workload exclusions (registry-pivot etc.) — never linted. */}}
                     _lex=0
                     for _lw in ${FRESH_PULL_EXCLUDE_WORKLOADS}; do
                       [ "${_lns}/${_lname}" = "${_lw}" ] && { _lex=1; break; }
@@ -773,16 +851,18 @@ data:
                       -o jsonpath='{range .spec.template.spec.containers[*]}{.name}{"="}{.image}{"\n"}{end}{range .spec.template.spec.initContainers[*]}{.name}{"="}{.image}{"\n"}{end}' 2>/dev/null \
                     | while IFS='=' read -r _lcn _limg; do
                         [ -n "${_limg}" ] || continue
-                        # Excluded image substrings (rancher/k3s, loft-sh/vcluster) → not an offender.
+                        {{- /* Excluded image substrings (rancher/k3s, loft-sh/vcluster) → not an offender. */}}
                         _sk=0
                         for _es in ${EXCLUDED_SUBSTRINGS}; do
                           case "${_limg}" in *"${_es}"*) _sk=1; break ;; esac
                         done
                         [ "${_sk}" = "1" ] && continue
-                        # Host classification — mirrors step-08's roll-set + the sweep's
-                        # podspec_pivot_ref EXACTLY: a bare `name[:tag]` or an implicit
-                        # docker.io `ns/name` (first segment has NO dot/:port) is NOT a
-                        # tether (containerd default mirror covers it) → skip.
+                        {{- /*
+                         Host classification — mirrors step-08's roll-set + the sweep's
+                         podspec_pivot_ref EXACTLY: a bare `name[:tag]` or an implicit
+                         docker.io `ns/name` (first segment has NO dot/:port) is NOT a
+                         tether (containerd default mirror covers it) → skip.
+                        */}}
                         case "${_limg}" in
                           */*)
                             _lh="${_limg%%/*}"
@@ -792,20 +872,22 @@ data:
                             esac ;;
                           *) continue ;;
                         esac
-                        # Excluded hosts (xpkg.upbound.io — step-11 owns it) → skip.
+                        {{- /* Excluded hosts (xpkg.upbound.io — step-11 owns it) → skip. */}}
                         for _eh in ${EXCLUDED_HOSTS}; do
                           [ "${_lh}" = "${_eh}" ] && { _sk=1; break; }
                         done
                         [ "${_sk}" = "1" ] && continue
-                        # The local registry host is sovereign.
+                        {{- /* The local registry host is sovereign. */}}
                         [ "${_lh}" = "${LOCAL_REGISTRY_HOST}" ] && continue
-                        # #5036 — a host that step-04's containerd registries redirect
-                        # maps to the local registry is ALSO sovereign. HOST_PROJECT_MAP
-                        # is the SAME space-separated `host:project` env step-04 loops
-                        # over to write each certs.d/<host>/hosts.toml redirect to
-                        # registry.<fqdn> (harbor.openova.io host-swap + ghcr.io/docker.io/
-                        # … proxy-cache), so a ref on any of those hosts pulls locally via
-                        # the redirect and never dials the mothership → not an offender.
+                        {{- /*
+                         #5036 — a host that step-04's containerd registries redirect
+                         maps to the local registry is ALSO sovereign. HOST_PROJECT_MAP
+                         is the SAME space-separated `host:project` env step-04 loops
+                         over to write each certs.d/<host>/hosts.toml redirect to
+                         registry.<fqdn> (harbor.openova.io host-swap + ghcr.io/docker.io/
+                         … proxy-cache), so a ref on any of those hosts pulls locally via
+                         the redirect and never dials the mothership → not an offender.
+                        */}}
                         _redir=0
                         for _rp in ${HOST_PROJECT_MAP:-}; do
                           [ "${_lh}" = "${_rp%%:*}" ] && { _redir=1; break; }
@@ -832,59 +914,63 @@ data:
               fi
             fi
 
-            # ── #5650 FLUX SOURCE HOST LINT ────────────────────────────────
-            # WHY this exists as a SEPARATE assertion from the hold. The hold
-            # applies a cluster-wide default-deny egress CCNP, runs for
-            # ${DURATION}s, and is then TORN DOWN. It therefore proves exactly
-            # one thing: nothing external was REACHABLE during that window. It
-            # cannot prove the Sovereign has no external DEPENDENCY, and those
-            # are different claims — Pillar 5 / ADR-0002 assert the second.
-            #
-            # The concrete miss (hw292, dep 1c56518035a83e03): HelmRepository
-            # vcluster-system/loft -> https://charts.loft.sh, spec.interval 15m,
-            # not suspended, referenced by a live HelmRelease. A 15m interval can
-            # straddle a 600s hold entirely, so the tether need never fire while
-            # the policy is up; its artifact was then re-fetched from the public
-            # internet at 18:36:28Z, ~10h AFTER cutoverComplete=true was set.
-            # The hold passed and was correct to pass. The gap is that nothing
-            # asserted over the object graph.
-            #
-            # SCOPE NOTE — why the step-04 redirect exemption does NOT apply
-            # here. run_podspec_refhost_lint exempts HOST_PROJECT_MAP hosts
-            # because containerd rewrites IMAGE pulls via certs.d/<host>/
-            # hosts.toml. Flux's source-controller fetches HelmRepository /
-            # GitRepository / OCIRepository URLs itself over HTTPS and never
-            # traverses containerd, so a certs.d redirect cannot cover it. The
-            # exemption set here is therefore strictly the Sovereign's OWN
-            # hosts plus in-cluster DNS — anything else is a live tether.
-            # #5359 (hw292, dep 1c56518035a83e03) — the lint MUST run PER REGION.
-            # It shipped in 0.1.162 measuring ONE cluster, which is the same
-            # shape as the defect it exists to catch: on hw292 region-a held 69
-            # HelmRepositories on the local Harbor and 0 on ghcr, while region-b
-            # held 0 local and 64 on ghcr, and cutoverComplete=true was set from
-            # the region-a measurement alone. A fleet property asserted from a
-            # single-region sample is not asserted at all.
-            #
-            # ARGS: $1 = region label (for the operator-facing message), $2 =
-            # kubeconfig path ("" = this Job's own in-cluster context = the
-            # primary). The `_fs_kubectl` shim is written on ONE line on purpose:
-            # chart/tests/flux-source-host-lint.sh extracts this function out of
-            # the RENDER with an awk range that terminates on the first bare `}`
-            # line, so a nested multi-line function definition would silently
-            # truncate the function under test and leave the suite validating a
-            # fragment (the #5646 drift shape).
+            {{- /*
+             ── #5650 FLUX SOURCE HOST LINT ────────────────────────────────
+             WHY this exists as a SEPARATE assertion from the hold. The hold
+             applies a cluster-wide default-deny egress CCNP, runs for
+             ${DURATION}s, and is then TORN DOWN. It therefore proves exactly
+             one thing: nothing external was REACHABLE during that window. It
+             cannot prove the Sovereign has no external DEPENDENCY, and those
+             are different claims — Pillar 5 / ADR-0002 assert the second.
+
+             The concrete miss (hw292, dep 1c56518035a83e03): HelmRepository
+             vcluster-system/loft -> https://charts.loft.sh, spec.interval 15m,
+             not suspended, referenced by a live HelmRelease. A 15m interval can
+             straddle a 600s hold entirely, so the tether need never fire while
+             the policy is up; its artifact was then re-fetched from the public
+             internet at 18:36:28Z, ~10h AFTER cutoverComplete=true was set.
+             The hold passed and was correct to pass. The gap is that nothing
+             asserted over the object graph.
+
+             SCOPE NOTE — why the step-04 redirect exemption does NOT apply
+             here. run_podspec_refhost_lint exempts HOST_PROJECT_MAP hosts
+             because containerd rewrites IMAGE pulls via certs.d/<host>/
+             hosts.toml. Flux's source-controller fetches HelmRepository /
+             GitRepository / OCIRepository URLs itself over HTTPS and never
+             traverses containerd, so a certs.d redirect cannot cover it. The
+             exemption set here is therefore strictly the Sovereign's OWN
+             hosts plus in-cluster DNS — anything else is a live tether.
+             #5359 (hw292, dep 1c56518035a83e03) — the lint MUST run PER REGION.
+             It shipped in 0.1.162 measuring ONE cluster, which is the same
+             shape as the defect it exists to catch: on hw292 region-a held 69
+             HelmRepositories on the local Harbor and 0 on ghcr, while region-b
+             held 0 local and 64 on ghcr, and cutoverComplete=true was set from
+             the region-a measurement alone. A fleet property asserted from a
+             single-region sample is not asserted at all.
+
+             ARGS: $1 = region label (for the operator-facing message), $2 =
+             kubeconfig path ("" = this Job's own in-cluster context = the
+             primary). The `_fs_kubectl` shim is written on ONE line on purpose:
+             chart/tests/flux-source-host-lint.sh extracts this function out of
+             the RENDER with an awk range that terminates on the first bare `}`
+             line, so a nested multi-line function definition would silently
+             truncate the function under test and leave the suite validating a
+             fragment (the #5646 drift shape).
+            */}}
             run_flux_source_host_lint() {
               _fs_region="${1:-primary}"
               _FS_KUBECONFIG="${2:-}"
               _fs_kubectl() { if [ -n "${_FS_KUBECONFIG:-}" ]; then kubectl --kubeconfig="${_FS_KUBECONFIG}" "$@"; else kubectl "$@"; fi; }
               echo "[egress-block-test] #5650/#5359: PRE-HOLD Flux source-host lint [region=${_fs_region}] — every HelmRepository/GitRepository/OCIRepository URL must resolve to a Sovereign-local host (registry./gitea./harbor.${SOVEREIGN_FQDN}, in-cluster DNS, or an explicit FLUX_SOURCE_HOST_ALLOW entry). containerd redirects do NOT cover these: source-controller dials them directly."
-              # WORK_DIR defaults to the Job's /work emptyDir; overridable so the
-              # function is drivable from chart/tests/flux-source-host-lint.sh.
-              # The `: >` MUST be checked: if the scratch file cannot be created
-              # (missing or read-only mount) every later append silently no-ops,
-              # `-s` is false, and the lint returns PASS having examined nothing.
-              # That is a fail-OPEN guard — the exact shape this lint exists to
-              # eliminate — and the test suite caught it here before it shipped.
+              {{- /*
+               WORK_DIR defaults to the Job's /work emptyDir; overridable so the
+               function is drivable from chart/tests/flux-source-host-lint.sh.
+               The `: >` MUST be checked: if the scratch file cannot be created
+               (missing or read-only mount) every later append silently no-ops,
+               `-s` is false, and the lint returns PASS having examined nothing.
+               That is a fail-OPEN guard — the exact shape this lint exists to
+               eliminate — and the test suite caught it here before it shipped.
+              */}}
               _fs_off="${WORK_DIR:-/work}/fluxsrc-offenders.$$"
               if ! : > "${_fs_off}" 2>/dev/null; then
                 echo "  FAIL — cannot create ${_fs_off}; refusing to report PASS from a lint that cannot record an offender (fail-closed)"
@@ -893,20 +979,24 @@ data:
               _fs_raw="${WORK_DIR:-/work}/fluxsrc-raw.$$"
               _fs_err="${WORK_DIR:-/work}/fluxsrc-err.$$"
               for _fk in helmrepositories gitrepositories ocirepositories; do
-                # #5359 FAIL-CLOSED ENUMERATION. This used to be a bare
-                # `kubectl … 2>/dev/null` piped into the reader: when the get
-                # FAILED (unreadable secondary kubeconfig, unreachable API,
-                # expired cert) the pipe carried zero rows, no offender was
-                # recorded, and the lint returned PASS for a region it had never
-                # measured. Against a secondary cluster that is not a hypothetical
-                # — it is the single most likely failure mode, and it would
-                # re-mint exactly the false positive this issue is about.
+                {{- /*
+                 #5359 FAIL-CLOSED ENUMERATION. This used to be a bare
+                 `kubectl … 2>/dev/null` piped into the reader: when the get
+                 FAILED (unreadable secondary kubeconfig, unreachable API,
+                 expired cert) the pipe carried zero rows, no offender was
+                 recorded, and the lint returned PASS for a region it had never
+                 measured. Against a secondary cluster that is not a hypothetical
+                 — it is the single most likely failure mode, and it would
+                 re-mint exactly the false positive this issue is about.
+                */}}
                 if ! _fs_kubectl get "${_fk}" -A \
                   -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{" "}{.spec.url}{" "}{.spec.suspend}{"\n"}{end}' >"${_fs_raw}" 2>"${_fs_err}"; then
-                  # A kind that is not INSTALLED is zero rows, not a tether: a
-                  # Sovereign with no OCIRepository CRD legitimately has none.
-                  # Anything else (auth, TLS, connection) means the region could
-                  # not be measured and the verdict must be FAIL.
+                  {{- /*
+                   A kind that is not INSTALLED is zero rows, not a tether: a
+                   Sovereign with no OCIRepository CRD legitimately has none.
+                   Anything else (auth, TLS, connection) means the region could
+                   not be measured and the verdict must be FAIL.
+                  */}}
                   if grep -qiE "server doesn't have a resource type|could not find the requested resource|no matches for kind|the server could not find the requested resource" "${_fs_err}" 2>/dev/null; then
                     : > "${_fs_raw}"
                   else
@@ -917,27 +1007,33 @@ data:
                 fi
                 while IFS=' ' read -r _fns _fname _furl _fsusp; do
                     [ -n "${_fns}" ] && [ -n "${_furl}" ] || continue
-                    # Strip scheme, then any path/port, leaving the bare host.
+                    {{- /* Strip scheme, then any path/port, leaving the bare host. */}}
                     _fh="${_furl#*://}"; _fh="${_fh%%/*}"; _fh="${_fh%%:*}"
                     [ -n "${_fh}" ] || continue
-                    # Sovereign-local: the local registry, the local Gitea, the
-                    # local Harbor, any *.<SOVEREIGN_FQDN>, in-cluster service
-                    # DNS, and loopback.
+                    {{- /*
+                     Sovereign-local: the local registry, the local Gitea, the
+                     local Harbor, any *.<SOVEREIGN_FQDN>, in-cluster service
+                     DNS, and loopback.
+                    */}}
                     case "${_fh}" in
                       "${LOCAL_REGISTRY_HOST}"|"gitea.${SOVEREIGN_FQDN}"|"harbor.${SOVEREIGN_FQDN}"|*".${SOVEREIGN_FQDN}") continue ;;
                       *.svc|*.svc.cluster.local|localhost|127.0.0.1) continue ;;
                     esac
-                    # Explicit operator-declared exceptions (default EMPTY, so
-                    # this lint fails closed: a host is a tether until someone
-                    # states otherwise in values, in Git, under review).
+                    {{- /*
+                     Explicit operator-declared exceptions (default EMPTY, so
+                     this lint fails closed: a host is a tether until someone
+                     states otherwise in values, in Git, under review).
+                    */}}
                     _fex=0
                     for _fa in ${FLUX_SOURCE_HOST_ALLOW:-}; do
                       [ "${_fh}" = "${_fa}" ] && { _fex=1; break; }
                     done
                     [ "${_fex}" = "1" ] && continue
-                    # A suspended source cannot reconcile, so it is reported
-                    # distinctly — still a declared dependency worth seeing, but
-                    # not a live fetch. It does NOT fail the lint.
+                    {{- /*
+                     A suspended source cannot reconcile, so it is reported
+                     distinctly — still a declared dependency worth seeing, but
+                     not a live fetch. It does NOT fail the lint.
+                    */}}
                     if [ "${_fsusp}" = "true" ]; then
                       echo "    SUSPENDED (not failing) ${_fns}/${_fname} [${_fk}] ${_furl} (host:${_fh})"
                       continue
@@ -956,34 +1052,36 @@ data:
               echo "  PASS — region ${_fs_region}: every non-suspended Flux source resolves to a Sovereign-local host; no external dependency remains in the object graph (#5650)"
               return 0
             }
-            # ── #5359 FLUX SOURCE HEALTH LINT ──────────────────────────────
-            # The host lint above reads spec.url. A URL is a DECLARATION, and
-            # hw292 proved a declaration can be cosmetic: step-05's secondary leg
-            # patched region-b's GitRepository url to the local Gitea and reported
-            # success, but source-controller never once fetched from it —
-            # generation=2, observedGeneration=1, Ready=False
-            # ("pkt-line 3: EOF") from 07:39:48Z onward. source-controller
-            # therefore kept SERVING the last artifact it had, which was
-            # main@sha1:4cc85ad9…, fetched from PUBLIC github.com at 07:31:11Z
-            # before the pivot. region-b's kustomize-controller then re-applied
-            # that pre-cutover GitHub content every 5m, reverting all 64
-            # HelmRepositories the step-06 leg had just patched.
-            #
-            # So a host-only lint can pass over a region whose real source of
-            # truth is still the public internet. What discriminates the two is
-            # not the URL but whether the controller has CONVERGED on it:
-            # observedGeneration == generation AND Ready=True.
-            #
-            # SCOPE — why `type: oci` HelmRepositories are exempt, measured not
-            # assumed. source-controller does not reconcile them (they are static
-            # config consumed by helm-controller), so they carry `status: {}` with
-            # no conditions and no observedGeneration at all. Live on hw292 that
-            # is 70/70 HelmRepositories in region-a and 65/65 in region-b —
-            # asserting health over them would fail every region of every
-            # Sovereign and wedge the flow this guard protects (#5505 shape).
-            # Restricted to the kinds a controller actually drives, the live
-            # blast radius on hw292 is exactly ONE object: region-b's
-            # flux-system/openova GitRepository — the defect itself.
+            {{- /*
+             ── #5359 FLUX SOURCE HEALTH LINT ──────────────────────────────
+             The host lint above reads spec.url. A URL is a DECLARATION, and
+             hw292 proved a declaration can be cosmetic: step-05's secondary leg
+             patched region-b's GitRepository url to the local Gitea and reported
+             success, but source-controller never once fetched from it —
+             generation=2, observedGeneration=1, Ready=False
+             ("pkt-line 3: EOF") from 07:39:48Z onward. source-controller
+             therefore kept SERVING the last artifact it had, which was
+             main@sha1:4cc85ad9…, fetched from PUBLIC github.com at 07:31:11Z
+             before the pivot. region-b's kustomize-controller then re-applied
+             that pre-cutover GitHub content every 5m, reverting all 64
+             HelmRepositories the step-06 leg had just patched.
+
+             So a host-only lint can pass over a region whose real source of
+             truth is still the public internet. What discriminates the two is
+             not the URL but whether the controller has CONVERGED on it:
+             observedGeneration == generation AND Ready=True.
+
+             SCOPE — why `type: oci` HelmRepositories are exempt, measured not
+             assumed. source-controller does not reconcile them (they are static
+             config consumed by helm-controller), so they carry `status: {}` with
+             no conditions and no observedGeneration at all. Live on hw292 that
+             is 70/70 HelmRepositories in region-a and 65/65 in region-b —
+             asserting health over them would fail every region of every
+             Sovereign and wedge the flow this guard protects (#5505 shape).
+             Restricted to the kinds a controller actually drives, the live
+             blast radius on hw292 is exactly ONE object: region-b's
+             flux-system/openova GitRepository — the defect itself.
+            */}}
             run_flux_source_health_lint() {
               _fh_region="${1:-primary}"
               _FS_KUBECONFIG="${2:-}"
@@ -1007,11 +1105,13 @@ data:
                     return 1
                   fi
                 fi
-                # `|`-separated on purpose: observedGeneration and the Ready
-                # condition are ABSENT on an unreconciled object, and with a
-                # space separator an empty middle field collapses and every later
-                # field shifts left — the reader would then compare the wrong two
-                # values and pass. The separator is load-bearing.
+                {{- /*
+                 `|`-separated on purpose: observedGeneration and the Ready
+                 condition are ABSENT on an unreconciled object, and with a
+                 space separator an empty middle field collapses and every later
+                 field shifts left — the reader would then compare the wrong two
+                 values and pass. The separator is load-bearing.
+                */}}
                 while IFS='|' read -r _hns _hname _hsusp _hgen _hobs _hready _hmsg; do
                   [ -n "${_hns}" ] && [ -n "${_hname}" ] || continue
                   [ "${_hsusp}" = "true" ] && continue
@@ -1033,26 +1133,28 @@ data:
               echo "  PASS — region ${_fh_region}: every non-suspended reconciled Flux source has converged on its declared Sovereign-local URL (#5359)"
               return 0
             }
-            # ── #5650 PROVIDER PACKAGE HOST LINT ────────────────────────────
-            # WHY this is a SEPARATE object graph from the Flux source lint
-            # above, and not something FLUX_SOURCE_HOST_LINT already covers.
-            # `pkg.crossplane.io/v1.Provider.spec.package` is the SAME shape
-            # of defect this issue is about, on a DIFFERENT controller:
-            # Crossplane's package manager fetches spec.package with its own
-            # `remote.Image()` call straight from the crossplane-system
-            # controller Pod (see step-11's header) — never through containerd
-            # (so a step-04 HOST_PROJECT_MAP redirect cannot cover it, exactly
-            # like a Flux source), and never through source-controller (so
-            # FLUX_SOURCE_HOST_LINT's `helmrepositories`/`gitrepositories`/
-            # `ocirepositories` enumeration cannot see it either — a Provider
-            # is not any of those three kinds). Step-11 pivots spec.package
-            # AND git-pushes the durable overlay rewrite, but nothing short of
-            # this lint proves the pivot HELD: a Provider installed after
-            # step-11 ran (an operator's own `kubectl apply`, or a bootstrap-
-            # kit change that lands a new Provider CR) reverts to
-            # xpkg.upbound.io silently, on the package manager's own
-            # reconcile loop, invisible to a torn-down 600s hold in exactly
-            # the way vcluster-system/loft was.
+            {{- /*
+             ── #5650 PROVIDER PACKAGE HOST LINT ────────────────────────────
+             WHY this is a SEPARATE object graph from the Flux source lint
+             above, and not something FLUX_SOURCE_HOST_LINT already covers.
+             `pkg.crossplane.io/v1.Provider.spec.package` is the SAME shape
+             of defect this issue is about, on a DIFFERENT controller:
+             Crossplane's package manager fetches spec.package with its own
+             `remote.Image()` call straight from the crossplane-system
+             controller Pod (see step-11's header) — never through containerd
+             (so a step-04 HOST_PROJECT_MAP redirect cannot cover it, exactly
+             like a Flux source), and never through source-controller (so
+             FLUX_SOURCE_HOST_LINT's `helmrepositories`/`gitrepositories`/
+             `ocirepositories` enumeration cannot see it either — a Provider
+             is not any of those three kinds). Step-11 pivots spec.package
+             AND git-pushes the durable overlay rewrite, but nothing short of
+             this lint proves the pivot HELD: a Provider installed after
+             step-11 ran (an operator's own `kubectl apply`, or a bootstrap-
+             kit change that lands a new Provider CR) reverts to
+             xpkg.upbound.io silently, on the package manager's own
+             reconcile loop, invisible to a torn-down 600s hold in exactly
+             the way vcluster-system/loft was.
+            */}}
             run_provider_package_host_lint() {
               _pp_region="${1:-primary}"
               _PP_KUBECONFIG="${2:-}"
@@ -1065,12 +1167,16 @@ data:
               fi
               _pp_raw="${WORK_DIR:-/work}/pkgsrc-raw.$$"
               _pp_err="${WORK_DIR:-/work}/pkgsrc-err.$$"
-              # Provider is CLUSTER-SCOPED (no `-A`, no namespace column) —
-              # unlike the three Flux source kinds above.
+              {{- /*
+               Provider is CLUSTER-SCOPED (no `-A`, no namespace column) —
+               unlike the three Flux source kinds above.
+              */}}
               if ! _pp_kubectl get providers.pkg.crossplane.io \
                 -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.package}{"\n"}{end}' >"${_pp_raw}" 2>"${_pp_err}"; then
-                # A CRD that is not INSTALLED is zero rows, not a tether: a
-                # Sovereign without Crossplane installed legitimately has none.
+                {{- /*
+                 A CRD that is not INSTALLED is zero rows, not a tether: a
+                 Sovereign without Crossplane installed legitimately has none.
+                */}}
                 if grep -qiE "server doesn't have a resource type|could not find the requested resource|no matches for kind|the server could not find the requested resource" "${_pp_err}" 2>/dev/null; then
                   : > "${_pp_raw}"
                 else
@@ -1081,18 +1187,20 @@ data:
               fi
               while IFS=' ' read -r _pname _ppkg; do
                   [ -n "${_pname}" ] && [ -n "${_ppkg}" ] || continue
-                  # spec.package is an IMAGE ref (host[:port]/path[:tag|@digest]),
-                  # never a URL with a scheme. UNLIKE run_podspec_refhost_lint,
-                  # a ref with NO explicit host segment is NOT skipped here: the
-                  # podspec lint may treat an implicit "docker.io" ref as covered
-                  # because the kubelet's containerd default-registry mirror
-                  # redirects it, but step-11's own header states Crossplane's
-                  # package manager pulls with its own remote.Image() call that
-                  # NEVER traverses containerd — so there is no redirect to save
-                  # a bare "org/name:tag" ref, and it resolves to the real
-                  # implicit default (docker.io) exactly as dialled. Reporting
-                  # it as an offender (rather than silently passing it, the way
-                  # an allowlist-shaped check would) is the point of this lint.
+                  {{- /*
+                   spec.package is an IMAGE ref (host[:port]/path[:tag|@digest]),
+                   never a URL with a scheme. UNLIKE run_podspec_refhost_lint,
+                   a ref with NO explicit host segment is NOT skipped here: the
+                   podspec lint may treat an implicit "docker.io" ref as covered
+                   because the kubelet's containerd default-registry mirror
+                   redirects it, but step-11's own header states Crossplane's
+                   package manager pulls with its own remote.Image() call that
+                   NEVER traverses containerd — so there is no redirect to save
+                   a bare "org/name:tag" ref, and it resolves to the real
+                   implicit default (docker.io) exactly as dialled. Reporting
+                   it as an offender (rather than silently passing it, the way
+                   an allowlist-shaped check would) is the point of this lint.
+                  */}}
                   case "${_ppkg}" in
                     */*)
                       _ph="${_ppkg%%/*}"
@@ -1124,13 +1232,15 @@ data:
               echo "  PASS — region ${_pp_region}: every Crossplane Provider.spec.package resolves to a Sovereign-local host; no external package dependency remains in the object graph (#5650)"
               return 0
             }
-            # ── #5359 PER-REGION DRIVER ────────────────────────────────────
-            # Every region is evaluated — no short-circuit — so one run names
-            # every offender in the fleet instead of stopping at the first. The
-            # verdict is an AND across regions, and an unreadable region is a
-            # FAIL, not a skip: `cutoverComplete=true` must be structurally
-            # unable to be set while ANY region has an off-Sovereign or
-            # unconverged Flux source.
+            {{- /*
+             ── #5359 PER-REGION DRIVER ────────────────────────────────────
+             Every region is evaluated — no short-circuit — so one run names
+             every offender in the fleet instead of stopping at the first. The
+             verdict is an AND across regions, and an unreadable region is a
+             FAIL, not a skip: `cutoverComplete=true` must be structurally
+             unable to be set while ANY region has an off-Sovereign or
+             unconverged Flux source.
+            */}}
             if [ "${FLUX_SOURCE_HOST_LINT}" = "true" ] || [ "${FLUX_SOURCE_HEALTH_LINT}" = "true" ] || [ "${PROVIDER_PACKAGE_HOST_LINT}" = "true" ]; then
               _fs_verdict=0
               for _fs_target in "primary=" $(for _k in /secondary-kubeconfigs/*.yaml; do [ -e "${_k}" ] && printf '%s=%s ' "$(basename "${_k}" .yaml)" "${_k}"; done); do
@@ -1174,24 +1284,26 @@ data:
               if [ -z "${block_ips}" ] && [ "${DEFAULT_DENY_EGRESS}" != "true" ]; then
                 echo "  WARN — zero public upstream IPs resolved; assertion-only fallback (fail-safe)"
               elif [ "${DEFAULT_DENY_EGRESS}" = "true" ]; then
-                # ── #3678 TRUE DEFAULT-DENY EGRESS ────────────────────────
-                # The PROOF the founder demands: block EVERY mothership
-                # tether, not 4 hand-picked CIDRs. We emit a cluster-wide
-                # default-deny egress policy (enableDefaultDeny.egress:true —
-                # NOT the #3640 retreat to false) with an explicit allow-list
-                # of the Sovereign's OWN intra-cluster ranges. Result: pods
-                # can reach the apiserver (10.96.0.1, inside 10.96/12), CoreDNS,
-                # each other (10.42/16) and node-local services, but EVERY
-                # public destination — console.openova.io, ghcr.io,
-                # harbor.openova.io, and any host nobody enumerated — is
-                # black-holed. The #3640 apiserver-strand is avoided by the
-                # allow-list, not by making the policy subtractive.
-                #
-                # Cilium semantics: a CCNP with endpointSelector:{} and ANY
-                # egress: rule sets enableDefaultDeny.egress=true implicitly,
-                # so listing only the allow `egress:` toCIDR/toEntities rules
-                # denies everything else. We set it explicitly for clarity and
-                # to be robust against future Cilium default changes.
+                {{- /*
+                 ── #3678 TRUE DEFAULT-DENY EGRESS ────────────────────────
+                 The PROOF the founder demands: block EVERY mothership
+                 tether, not 4 hand-picked CIDRs. We emit a cluster-wide
+                 default-deny egress policy (enableDefaultDeny.egress:true —
+                 NOT the #3640 retreat to false) with an explicit allow-list
+                 of the Sovereign's OWN intra-cluster ranges. Result: pods
+                 can reach the apiserver (10.96.0.1, inside 10.96/12), CoreDNS,
+                 each other (10.42/16) and node-local services, but EVERY
+                 public destination — console.openova.io, ghcr.io,
+                 harbor.openova.io, and any host nobody enumerated — is
+                 black-holed. The #3640 apiserver-strand is avoided by the
+                 allow-list, not by making the policy subtractive.
+
+                 Cilium semantics: a CCNP with endpointSelector:{} and ANY
+                 egress: rule sets enableDefaultDeny.egress=true implicitly,
+                 so listing only the allow `egress:` toCIDR/toEntities rules
+                 denies everything else. We set it explicitly for clarity and
+                 to be robust against future Cilium default changes.
+                */}}
                 {
                   echo "apiVersion: cilium.io/v2"
                   echo "kind: CiliumClusterwideNetworkPolicy"
@@ -1202,42 +1314,50 @@ data:
                   echo "  enableDefaultDeny:"
                   echo "    egress: true"
                   echo "  egress:"
-                  # Allow the Sovereign's own intra-cluster CIDRs (pods,
-                  # services incl. apiserver ClusterIP, node ranges).
+                  {{- /*
+                   Allow the Sovereign's own intra-cluster CIDRs (pods,
+                   services incl. apiserver ClusterIP, node ranges).
+                  */}}
                   echo "    - toCIDR:"
                   for cidr in ${ALLOW_CIDRS}; do
                     echo "        - ${cidr}"
                   done
-                  # #4596 — allow the IaaS PROVIDER control-plane API (Huawei
-                  # ECS/EVS, Hetzner API, …) so the CSI driver can attach volumes
-                  # for any pod that (re)schedules DURING the hold — notably the
-                  # catalyst-api-env-patch restart that runs just before this step.
-                  # The hold must black-hole the MOTHERSHIP (github.com / ghcr.io /
-                  # harbor.openova.io), NOT the underlying IaaS the Sovereign runs
-                  # ON. Denying the cloud CSI API wedged the cutover engine's own
-                  # catalyst-api (live on 5150f96: FailedAttachVolume x5000 →
-                  # ContainerCreating → engine down → cutoverComplete never set).
-                  # These are the provider API ranges ONLY; the mothership + bastion
-                  # live in DIFFERENT ranges and stay denied. Provider sets them via
-                  # .Values.egressTest.allowProviderCIDRs (cloud-init populates per
-                  # region, e.g. Huawei kom4dc "212.72.2.0/24").
+                  {{- /*
+                   #4596 — allow the IaaS PROVIDER control-plane API (Huawei
+                   ECS/EVS, Hetzner API, …) so the CSI driver can attach volumes
+                   for any pod that (re)schedules DURING the hold — notably the
+                   catalyst-api-env-patch restart that runs just before this step.
+                   The hold must black-hole the MOTHERSHIP (github.com / ghcr.io /
+                   harbor.openova.io), NOT the underlying IaaS the Sovereign runs
+                   ON. Denying the cloud CSI API wedged the cutover engine's own
+                   catalyst-api (live on 5150f96: FailedAttachVolume x5000 →
+                   ContainerCreating → engine down → cutoverComplete never set).
+                   These are the provider API ranges ONLY; the mothership + bastion
+                   live in DIFFERENT ranges and stay denied. Provider sets them via
+                   .Values.egressTest.allowProviderCIDRs (cloud-init populates per
+                   region, e.g. Huawei kom4dc "212.72.2.0/24").
+                  */}}
                   for cidr in ${PROVIDER_API_CIDRS}; do
                     echo "        - ${cidr}"
                   done
-                  # Allow control-plane + DNS + node entities so the apiserver
-                  # (also reachable as the `kube-apiserver` entity when it has a
-                  # non-ClusterIP address), CoreDNS, host and remote-node paths
-                  # stay up. `cluster` covers all in-cluster endpoints; `host`
-                  # + `remote-node` cover node-local + other-node kubelet/proxy.
+                  {{- /*
+                   Allow control-plane + DNS + node entities so the apiserver
+                   (also reachable as the `kube-apiserver` entity when it has a
+                   non-ClusterIP address), CoreDNS, host and remote-node paths
+                   stay up. `cluster` covers all in-cluster endpoints; `host`
+                   + `remote-node` cover node-local + other-node kubelet/proxy.
+                  */}}
                   echo "    - toEntities:"
                   echo "        - kube-apiserver"
                   echo "        - host"
                   echo "        - remote-node"
                   echo "        - cluster"
-                  # Allow DNS explicitly (CoreDNS ClusterIP is inside 10.96/12,
-                  # but make the intent first-class and tolerate non-default
-                  # DNS service CIDRs): UDP/TCP 53 to world, rules-restricted to
-                  # the DNS ports so this is not a general egress hole.
+                  {{- /*
+                   Allow DNS explicitly (CoreDNS ClusterIP is inside 10.96/12,
+                   but make the intent first-class and tolerate non-default
+                   DNS service CIDRs): UDP/TCP 53 to world, rules-restricted to
+                   the DNS ports so this is not a general egress hole.
+                  */}}
                   echo "    - toPorts:"
                   echo "        - ports:"
                   echo "            - port: \"53\""
@@ -1247,12 +1367,14 @@ data:
                 } >/work/egress-deny.yaml
               else
                 {
-                  # Legacy SUBTRACTIVE fallback (DEFAULT_DENY_EGRESS=false) —
-                  # kept only for environments that explicitly opt out of the
-                  # true default-deny. Deny ONLY the resolved tether CIDRs.
-                  # NOTE: this shape leaves console.openova.io + any
-                  # un-enumerated mothership host reachable — it is NOT the
-                  # ADR-0002 proof; #3678 makes default-deny the default.
+                  {{- /*
+                   Legacy SUBTRACTIVE fallback (DEFAULT_DENY_EGRESS=false) —
+                   kept only for environments that explicitly opt out of the
+                   true default-deny. Deny ONLY the resolved tether CIDRs.
+                   NOTE: this shape leaves console.openova.io + any
+                   un-enumerated mothership host reachable — it is NOT the
+                   ADR-0002 proof; #3678 makes default-deny the default.
+                  */}}
                   echo "apiVersion: cilium.io/v2"
                   echo "kind: CiliumClusterwideNetworkPolicy"
                   echo "metadata:"
@@ -1267,30 +1389,36 @@ data:
                     echo "        - cidr: ${ip}/32"
                   done
                 } >/work/egress-deny.yaml
-                # /work is a writable emptyDir (readOnlyRootFilesystem:true
-                # makes /tmp unwritable). The subtractive manifest is written
-                # here; the SHARED apply below (outside this if/elif/else)
-                # applies whichever branch emitted it.
+                {{- /*
+                 /work is a writable emptyDir (readOnlyRootFilesystem:true
+                 makes /tmp unwritable). The subtractive manifest is written
+                 here; the SHARED apply below (outside this if/elif/else)
+                 applies whichever branch emitted it.
+                */}}
               fi
-              # ── #3379 (omantel.biz, 2026-06-24): SHARED apply path. The
-              # `kubectl apply` + POLICY_APPLIED + teardown trap PREVIOUSLY
-              # lived ONLY in the legacy subtractive `else` branch above, so
-              # under the shipped `defaultDenyEgress: true` (#3678) the
-              # default-deny CCNP was WRITTEN to /work/egress-deny.yaml but
-              # NEVER applied: POLICY_APPLIED stayed empty, the #3678 call-home
-              # and #3647 fresh-pull proofs (both gated on POLICY_APPLIED=yes)
-              # were skipped, and the 600s survival window degenerated to an
-              # assertion-only hold. cutoverComplete=true could then be earned
-              # WITHOUT a witnessed deny-egress — the exact opposite of the
-              # ADR-0002 proof. Applying whichever manifest the branch above
-              # emitted (default-deny OR legacy subtractive), once, fixes both.
+              {{- /*
+               ── #3379 (omantel.biz, 2026-06-24): SHARED apply path. The
+               `kubectl apply` + POLICY_APPLIED + teardown trap PREVIOUSLY
+               lived ONLY in the legacy subtractive `else` branch above, so
+               under the shipped `defaultDenyEgress: true` (#3678) the
+               default-deny CCNP was WRITTEN to /work/egress-deny.yaml but
+               NEVER applied: POLICY_APPLIED stayed empty, the #3678 call-home
+               and #3647 fresh-pull proofs (both gated on POLICY_APPLIED=yes)
+               were skipped, and the 600s survival window degenerated to an
+               assertion-only hold. cutoverComplete=true could then be earned
+               WITHOUT a witnessed deny-egress — the exact opposite of the
+               ADR-0002 proof. Applying whichever manifest the branch above
+               emitted (default-deny OR legacy subtractive), once, fixes both.
+              */}}
               if [ -f /work/egress-deny.yaml ]; then
                 if kubectl apply -f /work/egress-deny.yaml; then
                   POLICY_APPLIED="yes"
-                  # Trap teardown so an abnormal exit (activeDeadline SIGTERM,
-                  # eviction) can't strand a cluster-wide egressDeny on the
-                  # Sovereign (reviewer PR #3072 — SIGKILL/OOM is the only
-                  # uncovered path).
+                  {{- /*
+                   Trap teardown so an abnormal exit (activeDeadline SIGTERM,
+                   eviction) can't strand a cluster-wide egressDeny on the
+                   Sovereign (reviewer PR #3072 — SIGKILL/OOM is the only
+                   uncovered path).
+                  */}}
                   trap 'kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true 2>/dev/null || true' TERM EXIT
                   echo "[egress-block-test] egressDeny applied (default-deny=${DEFAULT_DENY_EGRESS}) — hidden runtime tethers will now surface as NotReady"
                 else
@@ -1301,30 +1429,32 @@ data:
               echo "[egress-block-test] enforce mode OFF (default) — assertion + survival-poll only (#2940: flip egressTest.enforceCIDRBlock=true after a validated cutover walk)"
             fi
 
-            # ── #3647 FRESH-PULL-UNDER-DENY-EGRESS PROOF ──────────────────
-            # The legacy survival-window below only proves ALREADY-RUNNING
-            # pods stay green — it never exercises a NEW image pull, the one
-            # path that breaks post-cutover (hw149: a rolled pod went
-            # Init:ImagePullBackOff on ghcr.io because the registry-pivot
-            # mirror was inert for new pulls). Here, WHILE the egressDeny
-            # CCNP is applied (external tethers blocked, apiserver/DNS/
-            # intra-cluster reachable), we force-roll ONE openova-io-imaged
-            # Pod and require its replacement to reach Running by pulling
-            # from local Harbor. A fresh pull that succeeds with egress
-            # denied is the actual ADR-0002 sovereignty proof.
-            #
-            # Fail-safe: only runs when the egressDeny policy is actually up
-            # (POLICY_APPLIED=yes) — with no deny there's nothing to prove,
-            # so we skip rather than bounce a pod for nothing. If no suitable
-            # Deployment is found we log and continue (never wedge on a
-            # tooling gap). A NEW Pod that lands in ImagePull{BackOff,Err} or
-            # never reaches Running within FRESH_PULL_TIMEOUT FAILS the proof
-            # → the policy is torn down → exit 1 → cutoverComplete stays false.
+            {{- /*
+             ── #3647 FRESH-PULL-UNDER-DENY-EGRESS PROOF ──────────────────
+             The legacy survival-window below only proves ALREADY-RUNNING
+             pods stay green — it never exercises a NEW image pull, the one
+             path that breaks post-cutover (hw149: a rolled pod went
+             Init:ImagePullBackOff on ghcr.io because the registry-pivot
+             mirror was inert for new pulls). Here, WHILE the egressDeny
+             CCNP is applied (external tethers blocked, apiserver/DNS/
+             intra-cluster reachable), we force-roll ONE openova-io-imaged
+             Pod and require its replacement to reach Running by pulling
+             from local Harbor. A fresh pull that succeeds with egress
+             denied is the actual ADR-0002 sovereignty proof.
+
+             Fail-safe: only runs when the egressDeny policy is actually up
+             (POLICY_APPLIED=yes) — with no deny there's nothing to prove,
+             so we skip rather than bounce a pod for nothing. If no suitable
+             Deployment is found we log and continue (never wedge on a
+             tooling gap). A NEW Pod that lands in ImagePull{BackOff,Err} or
+             never reaches Running within FRESH_PULL_TIMEOUT FAILS the proof
+             → the policy is torn down → exit 1 → cutoverComplete stays false.
+            */}}
             run_fresh_pull_proof() {
               echo "[egress-block-test] #3647: FRESH-PULL proof — rolling one openova-io workload under deny-egress"
               ns="${FRESH_PULL_NAMESPACE}"
               dep="${FRESH_PULL_DEPLOYMENT}"
-              # Auto-discover an openova-io-imaged Deployment when not pinned.
+              {{- /* Auto-discover an openova-io-imaged Deployment when not pinned. */}}
               if [ -z "${dep}" ]; then
                 discovered=$(kubectl get deployments -A \
                   -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.spec.template.spec.containers[*].image}{"\n"}{end}' 2>/dev/null \
@@ -1340,10 +1470,12 @@ data:
               fi
               echo "  target Deployment: ${ns}/${dep}"
 
-              # Build a label selector "k1=v1,k2=v2" from the Deployment's
-              # spec.selector.matchLabels so we can enumerate its Pods (the
-              # alpine/k8s image ships jq). Record the pre-delete Pod set so
-              # we can detect the brand-new replacement.
+              {{- /*
+               Build a label selector "k1=v1,k2=v2" from the Deployment's
+               spec.selector.matchLabels so we can enumerate its Pods (the
+               alpine/k8s image ships jq). Record the pre-delete Pod set so
+               we can detect the brand-new replacement.
+              */}}
               label_sel=$(kubectl get deployment "${dep}" -n "${ns}" -o json 2>/dev/null \
                 | jq -r '.spec.selector.matchLabels | to_entries | map("\(.key)=\(.value)") | join(",")' 2>/dev/null || true)
               if [ -z "${label_sel}" ]; then
@@ -1360,26 +1492,30 @@ data:
               echo "  deleting Pod ${ns}/${victim} (ReplicaSet will recreate it → forces a fresh image pull)"
               kubectl delete pod "${victim}" -n "${ns}" --wait=false >/dev/null 2>&1 || true
 
-              # Wait for a NEW Pod (name not in before_pods) of this
-              # Deployment to reach Running with all containers ready. Treat
-              # ImagePullBackOff / ErrImagePull on the new Pod as a hard
-              # FAIL — that is exactly the mirror-inert failure mode.
+              {{- /*
+               Wait for a NEW Pod (name not in before_pods) of this
+               Deployment to reach Running with all containers ready. Treat
+               ImagePullBackOff / ErrImagePull on the new Pod as a hard
+               FAIL — that is exactly the mirror-inert failure mode.
+              */}}
               fp_start=$(date +%s)
               fp_deadline=$(( fp_start + ${FRESH_PULL_TIMEOUT} ))
               while [ "$(date +%s)" -lt "${fp_deadline}" ]; do
                 now_pods=$(kubectl get pods -n "${ns}" -l "${label_sel}" \
                   -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | sort -u || true)
-                # New = current Pod names absent from the pre-delete set.
-                # POSIX `grep -vxF -f` (no bash process substitution — this
-                # container's /bin/sh is busybox ash, which parse-errors on
-                # `<(...)`; the #3634 lesson applies here too). before_pods is
-                # written to a file so grep can use it as the pattern set.
+                {{- /*
+                 New = current Pod names absent from the pre-delete set.
+                 POSIX `grep -vxF -f` (no bash process substitution — this
+                 container's /bin/sh is busybox ash, which parse-errors on
+                 `<(...)`; the #3634 lesson applies here too). before_pods is
+                 written to a file so grep can use it as the pattern set.
+                */}}
                 printf '%s\n' "${before_pods}" > /work/fp_before.txt
                 printf '%s\n' "${now_pods}" > /work/fp_now.txt
                 new_pod=$(grep -vxF -f /work/fp_before.txt /work/fp_now.txt 2>/dev/null | head -1 || true)
                 if [ -n "${new_pod}" ]; then
                   phase=$(kubectl get pod "${new_pod}" -n "${ns}" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-                  # Any container waiting with an image-pull error = inert mirror = FAIL.
+                  {{- /* Any container waiting with an image-pull error = inert mirror = FAIL. */}}
                   waiting_reasons=$(kubectl get pod "${new_pod}" -n "${ns}" \
                     -o jsonpath='{range .status.containerStatuses[*]}{.state.waiting.reason}{" "}{end}{range .status.initContainerStatuses[*]}{.state.waiting.reason}{" "}{end}' 2>/dev/null || echo "")
                   case "${waiting_reasons}" in
@@ -1403,22 +1539,26 @@ data:
               return 1
             }
 
-            # ── #3695/#3379 §7 GENERALIZED FRESH-PULL ─────────────────────
-            # Roll EVERY workload (Deployment/DaemonSet/StatefulSet, any ns)
-            # whose image host is NOT the local registry, under deny-egress —
-            # not one hand-picked openova-io Deployment. Any that ImagePull-
-            # BackOffs FAILS the proof. This is the cross-cutting guarantee:
-            # the gate is generic across ALL workloads/HRs, so leaving ANY one
-            # on harbor.openova.io / ghcr.io/openova-io fails the proof. We
-            # roll via `kubectl rollout restart` then `rollout status` with a
-            # bounded timeout, and explicitly scan the new Pods for image-pull
-            # errors (rollout status alone would just time out on a BackOff).
+            {{- /*
+             ── #3695/#3379 §7 GENERALIZED FRESH-PULL ─────────────────────
+             Roll EVERY workload (Deployment/DaemonSet/StatefulSet, any ns)
+             whose image host is NOT the local registry, under deny-egress —
+             not one hand-picked openova-io Deployment. Any that ImagePull-
+             BackOffs FAILS the proof. This is the cross-cutting guarantee:
+             the gate is generic across ALL workloads/HRs, so leaving ANY one
+             on harbor.openova.io / ghcr.io/openova-io fails the proof. We
+             roll via `kubectl rollout restart` then `rollout status` with a
+             bounded timeout, and explicitly scan the new Pods for image-pull
+             errors (rollout status alone would just time out on a BackOff).
+            */}}
             roll_and_check_workload() {
               kind="$1"; ns="$2"; name="$3"
-              # #5022 — a multi-node DaemonSet rolls per-node SEQUENTIALLY
-              # under RollingUpdate(maxUnavailable:1): scale the budget with
-              # the node count (hw242 run 3: 6-node registry-pivot + falco
-              # blew the flat budget spuriously).
+              {{- /*
+               #5022 — a multi-node DaemonSet rolls per-node SEQUENTIALLY
+               under RollingUpdate(maxUnavailable:1): scale the budget with
+               the node count (hw242 run 3: 6-node registry-pivot + falco
+               blew the flat budget spuriously).
+              */}}
               roll_timeout="${FRESH_PULL_TIMEOUT}"
               if [ "${kind}" = "daemonset" ]; then
                 ds_nodes=$(kubectl get daemonset "${name}" -n "${ns}" -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo 1)
@@ -1427,13 +1567,15 @@ data:
               fi
               echo "  rolling ${kind}/${name} -n ${ns} (forces fresh pull from local registry; budget ${roll_timeout}s)"
               kubectl rollout restart "${kind}/${name}" -n "${ns}" >/dev/null 2>&1 || true
-              # Bounded wait; rollout status returns non-zero on timeout.
+              {{- /* Bounded wait; rollout status returns non-zero on timeout. */}}
               if kubectl rollout status "${kind}/${name}" -n "${ns}" --timeout="${roll_timeout}s" >/dev/null 2>&1; then
                 echo "    PASS — ${kind}/${name} rolled out (images pulled from local registry under deny-egress)"
                 return 0
               fi
-              # Timed out — surface WHY. An image-pull error on any Pod of this
-              # workload is the inert-mirror / residual-tether failure (#3695).
+              {{- /*
+               Timed out — surface WHY. An image-pull error on any Pod of this
+               workload is the inert-mirror / residual-tether failure (#3695).
+              */}}
               sel=$(kubectl get "${kind}" "${name}" -n "${ns}" -o json 2>/dev/null \
                 | jq -r '.spec.selector.matchLabels | to_entries | map("\(.key)=\(.value)") | join(",")' 2>/dev/null || true)
               reasons=""
@@ -1446,48 +1588,52 @@ data:
                   echo "    FAIL — ${kind}/${name} has a Pod in image-pull error under deny-egress (${reasons}); residual external-registry tether or inert mirror (#3695)"
                   return 1 ;;
               esac
-              # #4674 — rollout status timed out but NO image-pull error (checked
-              # above). The ACTUAL sovereignty proof is "pulled a fresh image from
-              # the LOCAL registry under deny-egress", NOT "rollout fully completed".
-              # A LEADER-ELECTED SINGLETON (Flux source-controller) whose readiness
-              # probe is gated on acquiring the leader lease, under maxUnavailable=0,
-              # DEADLOCKS a rollout-restart: the new Pod pulls its image from the
-              # local registry (no tether) but can't pass readiness until the old
-              # Pod releases the lease, and the old Pod won't terminate until the new
-              # one is Ready. That is a rollout artifact, NOT an egress failure. If
-              # the new-template Pod exists (updatedReplicas>=1) and the workload is
-              # still serving (readyReplicas>=1) with no pull error, the fresh-pull
-              # proof PASSED. (updatedReplicas/readyReplicas are empty on a DaemonSet
-              # → falls through to the strict FAIL, unchanged for those.)
+              {{- /*
+               #4674 — rollout status timed out but NO image-pull error (checked
+               above). The ACTUAL sovereignty proof is "pulled a fresh image from
+               the LOCAL registry under deny-egress", NOT "rollout fully completed".
+               A LEADER-ELECTED SINGLETON (Flux source-controller) whose readiness
+               probe is gated on acquiring the leader lease, under maxUnavailable=0,
+               DEADLOCKS a rollout-restart: the new Pod pulls its image from the
+               local registry (no tether) but can't pass readiness until the old
+               Pod releases the lease, and the old Pod won't terminate until the new
+               one is Ready. That is a rollout artifact, NOT an egress failure. If
+               the new-template Pod exists (updatedReplicas>=1) and the workload is
+               still serving (readyReplicas>=1) with no pull error, the fresh-pull
+               proof PASSED. (updatedReplicas/readyReplicas are empty on a DaemonSet
+               → falls through to the strict FAIL, unchanged for those.)
+              */}}
               updated=$(kubectl get "${kind}" "${name}" -n "${ns}" -o jsonpath='{.status.updatedReplicas}' 2>/dev/null || echo 0)
               ready=$(kubectl get "${kind}" "${name}" -n "${ns}" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
               if [ "${updated:-0}" -ge 1 ] && [ "${ready:-0}" -ge 1 ]; then
                 echo "    PASS — ${kind}/${name} pulled a fresh image from the local registry under deny-egress (rollout status incomplete = leader-election readiness artifact under maxUnavailable=0; workload still serving) (#4674)"
                 return 0
               fi
-              # #4975 (Refs #3379 #3695) — a Recreate-strategy single-replica
-              # stateful workload (bp-gitea sets strategy.type=Recreate for
-              # RWO-PVC/LevelDB-lock safety, #3188) tears its OLD Pod down FIRST,
-              # so during a roll readyReplicas is transiently 0 — the #4674
-              # serving-check above CANNOT fire (no old Pod is left serving) — and
-              # the new Pod sits PodInitializing while its embedded init /
-              # DB-migration runs (live hw238: `gitea did not roll out within 240s
-              # (PodInitializing x4)`). That is NOT a mothership tether: the image
-              # ALREADY pulled from the local registry — any pull failure would
-              # have surfaced as ImagePullBackOff/ErrImagePull and been caught by
-              # the strict-FAIL image-pull check ABOVE (untouched, still the hard
-              # security gate). The fresh-pull proof's job is narrowly "did this
-              # workload pull its image from the LOCAL registry under deny-egress";
-              # a slow readiness (init/migration) is judged by the survival-window
-              # HR-readiness poll below, not this roll. So when a NEW-revision Pod
-              # (updatedReplicas>=1) has POSITIVELY pulled + STARTED at least one
-              # container (an init or main container in running/terminated state),
-              # the local-registry pull is PROVEN and the proof PASSES. A Pod that
-              # is stuck Pending / never started a container (nothing pulled) has
-              # NO started-container evidence and still falls through to the strict
-              # FAIL below. DaemonSets expose numberReady/updatedNumberScheduled
-              # (not updatedReplicas) so `updated` is empty → this carve-out never
-              # fires for them; they keep the strict FAIL, unchanged.
+              {{- /*
+               #4975 (Refs #3379 #3695) — a Recreate-strategy single-replica
+               stateful workload (bp-gitea sets strategy.type=Recreate for
+               RWO-PVC/LevelDB-lock safety, #3188) tears its OLD Pod down FIRST,
+               so during a roll readyReplicas is transiently 0 — the #4674
+               serving-check above CANNOT fire (no old Pod is left serving) — and
+               the new Pod sits PodInitializing while its embedded init /
+               DB-migration runs (live hw238: `gitea did not roll out within 240s
+               (PodInitializing x4)`). That is NOT a mothership tether: the image
+               ALREADY pulled from the local registry — any pull failure would
+               have surfaced as ImagePullBackOff/ErrImagePull and been caught by
+               the strict-FAIL image-pull check ABOVE (untouched, still the hard
+               security gate). The fresh-pull proof's job is narrowly "did this
+               workload pull its image from the LOCAL registry under deny-egress";
+               a slow readiness (init/migration) is judged by the survival-window
+               HR-readiness poll below, not this roll. So when a NEW-revision Pod
+               (updatedReplicas>=1) has POSITIVELY pulled + STARTED at least one
+               container (an init or main container in running/terminated state),
+               the local-registry pull is PROVEN and the proof PASSES. A Pod that
+               is stuck Pending / never started a container (nothing pulled) has
+               NO started-container evidence and still falls through to the strict
+               FAIL below. DaemonSets expose numberReady/updatedNumberScheduled
+               (not updatedReplicas) so `updated` is empty → this carve-out never
+               fires for them; they keep the strict FAIL, unchanged.
+              */}}
               started_evidence=""
               if [ -n "${sel}" ]; then
                 started_evidence=$(kubectl get pods -n "${ns}" -l "${sel}" \
@@ -1501,19 +1647,21 @@ data:
               return 1
             }
 
-            # ── #5091 rule-c detection: is a workload a stateful RWO-EVS singleton? ─
-            # Echoes a human reason "<claim> sc=<sc> driver=<driver> modes=<modes>"
-            # for the FIRST pod-template volume whose PVC is ReadWriteOnce AND
-            # backed by EVS (storageClass in FRESH_PULL_RWO_EVS_STORAGECLASSES OR
-            # the BOUND-PV CSI driver in FRESH_PULL_RWO_EVS_CSIDRIVERS); empty
-            # output = NOT an RWO-EVS stateful singleton → safe to roll. Only
-            # single-writer (RWO) volumes hit the NodeStage/VolumeAttachment desync
-            # (#5091) — a RWX shared-fs volume has no per-node globalmount hand-off
-            # to lose, so it is never matched. FAIL-OPEN: any kubectl/jq gap yields
-            # empty (the workload STAYS a roll candidate — its image locality is
-            # still HARD-proven by the #4975 completeness HEAD gate either way, so a
-            # missing RBAC/tooling read can never silently weaken the sovereignty
-            # proof, only over-roll).
+            {{- /*
+             ── #5091 rule-c detection: is a workload a stateful RWO-EVS singleton? ─
+             Echoes a human reason "<claim> sc=<sc> driver=<driver> modes=<modes>"
+             for the FIRST pod-template volume whose PVC is ReadWriteOnce AND
+             backed by EVS (storageClass in FRESH_PULL_RWO_EVS_STORAGECLASSES OR
+             the BOUND-PV CSI driver in FRESH_PULL_RWO_EVS_CSIDRIVERS); empty
+             output = NOT an RWO-EVS stateful singleton → safe to roll. Only
+             single-writer (RWO) volumes hit the NodeStage/VolumeAttachment desync
+             (#5091) — a RWX shared-fs volume has no per-node globalmount hand-off
+             to lose, so it is never matched. FAIL-OPEN: any kubectl/jq gap yields
+             empty (the workload STAYS a roll candidate — its image locality is
+             still HARD-proven by the #4975 completeness HEAD gate either way, so a
+             missing RBAC/tooling read can never silently weaken the sovereignty
+             proof, only over-roll).
+            */}}
             workload_rwo_evs_reason() {
               _wek="$1"; _wens="$2"; _wenm="$3"
               _we_scs="${FRESH_PULL_RWO_EVS_STORAGECLASSES:-evs-ssd}"
@@ -1553,11 +1701,13 @@ data:
 
             run_fresh_pull_all() {
               echo "[egress-block-test] #3695: fresh-pull roll under deny-egress (roll-set mode: ${FRESH_PULL_ROLL_SET_MODE:-minimal})"
-              # Enumerate Deployments/DaemonSets/StatefulSets whose container
-              # images reference a dotted registry host. We also exclude the
-              # cutover runner's own catalyst-api (FRESH_PULL_EXCLUDE) so the
-              # engine is never bounced mid-hold. Rows look like
-              # "kind ns name=img1,img2".
+              {{- /*
+               Enumerate Deployments/DaemonSets/StatefulSets whose container
+               images reference a dotted registry host. We also exclude the
+               cutover runner's own catalyst-api (FRESH_PULL_EXCLUDE) so the
+               engine is never bounced mid-hold. Rows look like
+               "kind ns name=img1,img2".
+              */}}
               workloads=$(
                 for kind in deployments daemonsets statefulsets; do
                   kubectl get "${kind}" -A \
@@ -1565,70 +1715,80 @@ data:
                 done
               )
               if [ "${FRESH_PULL_ROLL_SET_MODE:-minimal}" = "full" ]; then
-                # LEGACY full mode — unchanged behaviour: keep rows whose image
-                # list contains a NON-local registry host. A bare image
-                # (docker-library short form) or a localhost/local Harbor ref is
-                # NOT a tether. We treat any image containing a dotted host
-                # (registry) that does NOT include LOCAL_REGISTRY_SUBSTR as
-                # external, and roll ALL of them.
+                {{- /*
+                 LEGACY full mode — unchanged behaviour: keep rows whose image
+                 list contains a NON-local registry host. A bare image
+                 (docker-library short form) or a localhost/local Harbor ref is
+                 NOT a tether. We treat any image containing a dotted host
+                 (registry) that does NOT include LOCAL_REGISTRY_SUBSTR as
+                 external, and roll ALL of them.
+                */}}
                 targets=$(printf '%s\n' "${workloads}" \
                   | grep -E '=[^ ]*[a-z0-9.-]+\.[a-z]+/' \
                   | grep -vE "[=, ]${LOCAL_REGISTRY_SUBSTR}" \
                   | { [ -n "${FRESH_PULL_EXCLUDE}" ] && grep -vE " ${FRESH_PULL_EXCLUDE}[^ ]*=" || cat; } \
                   || true)
               else
-                # #5074/#5065/#5059 MINIMAL mode (default) — candidates are ALL
-                # image-registry-dependent workloads (dotted-host refs), local-
-                # registry refs INCLUDED: post-step-07 the ordinary-app refs are
-                # pivoted to registry.<fqdn> and rolling THOSE is exactly the
-                # fresh-pull-from-local-Harbor witness; redirect-covered external
-                # refs stay candidates too (they pull locally via the step-04
-                # containerd redirect). Rule-based infra exclusion + the
-                # representative sampling below then cut this to the minimal set.
+                {{- /*
+                 #5074/#5065/#5059 MINIMAL mode (default) — candidates are ALL
+                 image-registry-dependent workloads (dotted-host refs), local-
+                 registry refs INCLUDED: post-step-07 the ordinary-app refs are
+                 pivoted to registry.<fqdn> and rolling THOSE is exactly the
+                 fresh-pull-from-local-Harbor witness; redirect-covered external
+                 refs stay candidates too (they pull locally via the step-04
+                 containerd redirect). Rule-based infra exclusion + the
+                 representative sampling below then cut this to the minimal set.
+                */}}
                 targets=$(printf '%s\n' "${workloads}" \
                   | grep -E '=[^ ]*[a-z0-9.-]+\.[a-z]+/' \
                   | { [ -n "${FRESH_PULL_EXCLUDE}" ] && grep -vE " ${FRESH_PULL_EXCLUDE}[^ ]*=" || cat; } \
                   || true)
               fi
-              # #4975 — never roll a workload the offline mirror deliberately
-              # does NOT cover: xpkg.upbound.io (step-11 crossplane), rancher/k3s
-              # (per-Org vcluster distro), loft-sh/vcluster (step-10). Rolling
-              # them under deny-egress would ImagePullBackOff on an image the
-              # mirror was never meant to hold and FAIL the proof spuriously.
+              {{- /*
+               #4975 — never roll a workload the offline mirror deliberately
+               does NOT cover: xpkg.upbound.io (step-11 crossplane), rancher/k3s
+               (per-Org vcluster distro), loft-sh/vcluster (step-10). Rolling
+               them under deny-egress would ImagePullBackOff on an image the
+               mirror was never meant to hold and FAIL the proof spuriously.
+              */}}
               for _x in ${EXCLUDED_HOSTS} ${EXCLUDED_SUBSTRINGS}; do
                 [ -z "${_x}" ] && continue
                 targets=$(printf '%s\n' "${targets}" | grep -vF "${_x}" || true)
               done
-              # #5022 — name-scoped exclusions ("<ns>/<name>"): the registry-
-              # pivot DS is the certs.d/hosts pivot mechanism every OTHER
-              # fresh pull depends on; rolling it mid-hold is recursive and
-              # its health is already asserted by the step-04 daemonset-wait
-              # + per-node v2 ACKs. Rows are "kind ns name=imgs".
+              {{- /*
+               #5022 — name-scoped exclusions ("<ns>/<name>"): the registry-
+               pivot DS is the certs.d/hosts pivot mechanism every OTHER
+               fresh pull depends on; rolling it mid-hold is recursive and
+               its health is already asserted by the step-04 daemonset-wait
+               + per-node v2 ACKs. Rows are "kind ns name=imgs".
+              */}}
               for _w in ${FRESH_PULL_EXCLUDE_WORKLOADS}; do
                 [ -z "${_w}" ] && continue
                 _wns="${_w%%/*}"; _wname="${_w##*/}"
                 targets=$(printf '%s\n' "${targets}" | grep -vE "^[a-z]+ ${_wns} ${_wname}=" || true)
               done
-              # ── #5074/#5065/#5059 MINIMAL ROLL-SET SELECTION ────────────
-              # Excludes infra by RULE instead of the per-workload
-              # excludeWorkloads whack-a-mole (each prov surfaced ONE more
-              # infra workload broken by the forced roll: oauth2-proxy #5059,
-              # falco #5065, the EVS CSI driver #5074):
-              #   (a) any workload in FRESH_PULL_INFRA_NAMESPACES is skipped
-              #       unless "<ns>/<name>" is in FRESH_PULL_INFRA_ALLOWLIST;
-              #   (b) a DaemonSet in an infra namespace is NEVER rolled —
-              #       even an allowlist entry cannot re-include one (its
-              #       restart risks the hold's own machinery: CSI mounts,
-              #       CNI, the registry pivot).
-              # Then a REPRESENTATIVE SAMPLE rolls instead of all ~130
-              # workloads: every candidate in the representative namespaces
-              # (stateful-PVC/gitops/auth/registry/observability classes) plus
-              # a top-up of other candidate Deployments to at least
-              # FRESH_PULL_MIN_REPS_PER_REGION x <node-region-count>. Image
-              # locality for everything NOT rolled remains HARD-gated by the
-              # #4975 pre-hold completeness HEAD gate + the #5026 ref-host
-              # lint (both ran above, both prove locality without rolling);
-              # the deny-egress call-home proof is untouched.
+              {{- /*
+               ── #5074/#5065/#5059 MINIMAL ROLL-SET SELECTION ────────────
+               Excludes infra by RULE instead of the per-workload
+               excludeWorkloads whack-a-mole (each prov surfaced ONE more
+               infra workload broken by the forced roll: oauth2-proxy #5059,
+               falco #5065, the EVS CSI driver #5074):
+                 (a) any workload in FRESH_PULL_INFRA_NAMESPACES is skipped
+                     unless "<ns>/<name>" is in FRESH_PULL_INFRA_ALLOWLIST;
+                 (b) a DaemonSet in an infra namespace is NEVER rolled —
+                     even an allowlist entry cannot re-include one (its
+                     restart risks the hold's own machinery: CSI mounts,
+                     CNI, the registry pivot).
+               Then a REPRESENTATIVE SAMPLE rolls instead of all ~130
+               workloads: every candidate in the representative namespaces
+               (stateful-PVC/gitops/auth/registry/observability classes) plus
+               a top-up of other candidate Deployments to at least
+               FRESH_PULL_MIN_REPS_PER_REGION x <node-region-count>. Image
+               locality for everything NOT rolled remains HARD-gated by the
+               #4975 pre-hold completeness HEAD gate + the #5026 ref-host
+               lint (both ran above, both prove locality without rolling);
+               the deny-egress call-home proof is untouched.
+              */}}
               if [ "${FRESH_PULL_ROLL_SET_MODE:-minimal}" != "full" ]; then
                 : > /work/rollset_candidates.txt
                 printf '%s\n' "${targets}" | while IFS= read -r _row; do
@@ -1654,20 +1814,22 @@ data:
                       continue
                     fi
                   fi
-                  # ── #5091 rule c: skip stateful RWO-EVS singletons ──────────
-                  # A Deployment/StatefulSet whose pod template mounts an RWO PVC
-                  # backed by EVS is a stateful singleton whose forced roll under
-                  # the deny-egress hold triggers the UNRECOVERABLE NodeStage/
-                  # VolumeAttachment desync (globalmount removed on NodeUnstage,
-                  # the VA persists, NodeStage never re-fires → NodePublish fails
-                  # on the missing globalmount → the replacement pod hangs
-                  # Init:0/3 → ROLL_FAIL → step-08 fails forever; live hw253
-                  # gitea, #5091). Its image locality is ALREADY HEAD-proven by
-                  # the #4975 pre-hold completeness gate, so the synthetic roll
-                  # adds NO image-proof value — the fresh-pull ROLL proof rolls
-                  # STATELESS representative workloads only. Applied to
-                  # deployment/statefulset (a DaemonSet cannot mount an RWO PVC
-                  # across nodes; rule b already covers infra-ns DaemonSets).
+                  {{- /*
+                   ── #5091 rule c: skip stateful RWO-EVS singletons ──────────
+                   A Deployment/StatefulSet whose pod template mounts an RWO PVC
+                   backed by EVS is a stateful singleton whose forced roll under
+                   the deny-egress hold triggers the UNRECOVERABLE NodeStage/
+                   VolumeAttachment desync (globalmount removed on NodeUnstage,
+                   the VA persists, NodeStage never re-fires → NodePublish fails
+                   on the missing globalmount → the replacement pod hangs
+                   Init:0/3 → ROLL_FAIL → step-08 fails forever; live hw253
+                   gitea, #5091). Its image locality is ALREADY HEAD-proven by
+                   the #4975 pre-hold completeness gate, so the synthetic roll
+                   adds NO image-proof value — the fresh-pull ROLL proof rolls
+                   STATELESS representative workloads only. Applied to
+                   deployment/statefulset (a DaemonSet cannot mount an RWO PVC
+                   across nodes; rule b already covers infra-ns DaemonSets).
+                  */}}
                   if [ "${FRESH_PULL_RWO_EVS_EXCLUDE:-true}" = "true" ] \
                      && { [ "${_rkind}" = "deployment" ] || [ "${_rkind}" = "statefulset" ]; }; then
                     _rwo_reason=$(workload_rwo_evs_reason "${_rkind}" "${_rns}" "${_rname}")
@@ -1678,25 +1840,29 @@ data:
                   fi
                   printf '%s\n' "${_row}" >> /work/rollset_candidates.txt
                 done
-                # Region-aware sample floor: N per region (node
-                # topology.kubernetes.io/region labels; 1 when unlabeled).
+                {{- /*
+                 Region-aware sample floor: N per region (node
+                 topology.kubernetes.io/region labels; 1 when unlabeled).
+                */}}
                 _regions=$(kubectl get nodes \
                   -o jsonpath='{range .items[*]}{.metadata.labels.topology\.kubernetes\.io/region}{"\n"}{end}' 2>/dev/null \
                   | sort -u | grep -c . || true)
                 [ "${_regions:-0}" -ge 1 ] || _regions=1
                 _min_total=$(( ${FRESH_PULL_MIN_REPS_PER_REGION:-12} * _regions ))
-                # Every candidate in the representative namespaces rolls.
+                {{- /* Every candidate in the representative namespaces rolls. */}}
                 : > /work/rollset.txt
                 for _rns in ${FRESH_PULL_REPRESENTATIVE_NAMESPACES}; do
                   awk -v ns="${_rns}" '$2 == ns' /work/rollset_candidates.txt >> /work/rollset.txt
                 done
                 _picked=$(grep -c . /work/rollset.txt || true)
                 if [ "${_picked}" -lt "${_min_total}" ]; then
-                  # Top up with other (non-representative-ns) candidate
-                  # Deployments, stable-sorted, to the floor. An empty
-                  # rollset.txt pattern file makes grep -v pass ALL candidate
-                  # rows (documented busybox/GNU behaviour used by the #3634
-                  # baseline diff above).
+                  {{- /*
+                   Top up with other (non-representative-ns) candidate
+                   Deployments, stable-sorted, to the floor. An empty
+                   rollset.txt pattern file makes grep -v pass ALL candidate
+                   rows (documented busybox/GNU behaviour used by the #3634
+                   baseline diff above).
+                  */}}
                   grep -vxF -f /work/rollset.txt /work/rollset_candidates.txt 2>/dev/null \
                     | awk '$1 == "deployment"' | sort \
                     | head -n $(( _min_total - _picked )) >> /work/rollset.txt || true
@@ -1715,8 +1881,10 @@ data:
               echo "  workloads to roll:"
               printf '%s\n' "${targets}" | sed 's/^/    /'
               rc=0
-              # Roll each; collect the first failure but attempt all so the log
-              # lists every offender.
+              {{- /*
+               Roll each; collect the first failure but attempt all so the log
+               lists every offender.
+              */}}
               printf '%s\n' "${targets}" | while IFS= read -r row; do
                 [ -z "${row}" ] && continue
                 kind=$(printf '%s' "${row}" | awk '{print $1}')
@@ -1734,37 +1902,41 @@ data:
               return "${rc}"
             }
 
-            # ── #3678 ACTIVE CALL-HOME ASSERTION ──────────────────────────
-            # The survival poll only proves ALREADY-RUNNING HRs stay Ready —
-            # it never makes an outbound call, so a catalyst-api still issuing
-            # tokens with iss=console.openova.io kept every HR green and the
-            # 4-CIDR block left console.openova.io wide open. Here we ACTIVELY
-            # curl each mothership host FROM this pod (which is under the
-            # default-deny CCNP). Under a TRUE default-deny, EVERY one must
-            # FAIL to connect; if ANY connects, the deny-egress is leaky and
-            # the sovereignty proof FAILS. This is what makes the proof catch
-            # an ARBITRARY mothership tether, not the 4 enumerated hosts.
+            {{- /*
+             ── #3678 ACTIVE CALL-HOME ASSERTION ──────────────────────────
+             The survival poll only proves ALREADY-RUNNING HRs stay Ready —
+             it never makes an outbound call, so a catalyst-api still issuing
+             tokens with iss=console.openova.io kept every HR green and the
+             4-CIDR block left console.openova.io wide open. Here we ACTIVELY
+             curl each mothership host FROM this pod (which is under the
+             default-deny CCNP). Under a TRUE default-deny, EVERY one must
+             FAIL to connect; if ANY connects, the deny-egress is leaky and
+             the sovereignty proof FAILS. This is what makes the proof catch
+             an ARBITRARY mothership tether, not the 4 enumerated hosts.
+            */}}
             run_call_home_assertion() {
               echo "[egress-block-test] #3678: active call-home — asserting every mothership host is UNREACHABLE under the hold"
               leaked=""
               for url in ${CALL_HOME_HOSTS}; do
-                # --max-time bounds each probe; -o /dev/null -s -w "%{http_code}"
-                # yields the HTTP status (000 on connect failure/timeout, which
-                # is the EXPECTED, PASSING outcome under deny-egress). A genuine
-                # 2xx/3xx/4xx/5xx means the TCP+TLS handshake SUCCEEDED → the
-                # host is reachable → LEAK.
-                #
-                # #4557: when curl FAILS to connect (the desired deny-egress
-                # outcome) `curl -w '%{http_code}'` ALREADY prints `000` to
-                # stdout AND exits non-zero — so the `|| echo "000"` fallback
-                # DOUBLE-appends → code="000000" (or "000" repeated per probe),
-                # and the old exact `[ "${code}" = "000" ]` test then mis-flagged
-                # a correctly-blocked host as a LEAK → the sovereignty proof
-                # failed on a PASSING egress block (live c39f0cd4455b7a46:
-                # http_code=000000 reported LEAK while every host was in fact
-                # black-holed). Drop the double-echo and treat ANY all-zeros /
-                # empty code (000, 000000, "") as unreachable; only a code with
-                # a non-zero digit is a real HTTP response = a genuine LEAK.
+                {{- /*
+                 --max-time bounds each probe; -o /dev/null -s -w "%{http_code}"
+                 yields the HTTP status (000 on connect failure/timeout, which
+                 is the EXPECTED, PASSING outcome under deny-egress). A genuine
+                 2xx/3xx/4xx/5xx means the TCP+TLS handshake SUCCEEDED → the
+                 host is reachable → LEAK.
+
+                 #4557: when curl FAILS to connect (the desired deny-egress
+                 outcome) `curl -w '%{http_code}'` ALREADY prints `000` to
+                 stdout AND exits non-zero — so the `|| echo "000"` fallback
+                 DOUBLE-appends → code="000000" (or "000" repeated per probe),
+                 and the old exact `[ "${code}" = "000" ]` test then mis-flagged
+                 a correctly-blocked host as a LEAK → the sovereignty proof
+                 failed on a PASSING egress block (live c39f0cd4455b7a46:
+                 http_code=000000 reported LEAK while every host was in fact
+                 black-holed). Drop the double-echo and treat ANY all-zeros /
+                 empty code (000, 000000, "") as unreachable; only a code with
+                 a non-zero digit is a real HTTP response = a genuine LEAK.
+                */}}
                 code=$(curl -ksS -o /dev/null -w '%{http_code}' --max-time "${CALL_HOME_TIMEOUT}" "${url}" 2>/dev/null)
                 case "${code}" in
                   *[1-9]*)
@@ -1772,7 +1944,7 @@ data:
                     leaked="${leaked} ${url}"
                     ;;
                   *)
-                    # "", "000", "000000" … — no successful handshake.
+                    {{- /* "", "000", "000000" … — no successful handshake. */}}
                     echo "  OK — ${url} unreachable (curl exit/timeout, http_code=${code:-000}) — denied as required"
                     ;;
                 esac
@@ -1803,8 +1975,10 @@ data:
                 fresh_pull_fn=run_fresh_pull_proof
               fi
               if ! ${fresh_pull_fn}; then
-                # Tear the deny policy down before failing so we never leave
-                # a cluster-wide egressDeny lingering on the Sovereign.
+                {{- /*
+                 Tear the deny policy down before failing so we never leave
+                 a cluster-wide egressDeny lingering on the Sovereign.
+                */}}
                 kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true || true
                 echo "[egress-block-test] FRESH-PULL proof FAILED — sovereignty proof FAILED (cutoverComplete stays false)"
                 exit 1
@@ -1813,21 +1987,23 @@ data:
               echo "[egress-block-test] #3647: FRESH-PULL proof requested but egressDeny not applied (enforce off / fail-safe fallback) — skipping the fresh pull, survival-poll only"
             fi
 
-            # ── #3376 (Refs #3689): org-tenants MUST be Ready BEFORE the hold ─
-            # The customer-onboarding Flux Kustomization `flux-system/
-            # org-tenants` reconciles the per-tenant overlay tree. On hw150 it
-            # was NotReady ("kustomization path not found") and the baseline
-            # capture below silently EXCLUDED it from the regression check —
-            # declaring sovereignty GREEN while the customer journey was dead
-            # (PRINCIPLES A1/A2: a green gate that excludes a broken component
-            # is theater at journey scale). The chart now seeds an empty parent
-            # index so the path exists from first convergence
-            # (gitea-tenants-repo-bootstrap-job.yaml Step 5); here we ASSERT it
-            # is actually Ready, loudly, before the proof — never as "baseline
-            # noise". Bounded poll (the GitRepository may still be pulling the
-            # freshly-seeded index when step-08 starts). Operator-gated so a
-            # non-marketplace Sovereign (no org-tenants Kustomization) is not
-            # forced to grow one: SKIP when the Kustomization is absent.
+            {{- /*
+             ── #3376 (Refs #3689): org-tenants MUST be Ready BEFORE the hold ─
+             The customer-onboarding Flux Kustomization `flux-system/
+             org-tenants` reconciles the per-tenant overlay tree. On hw150 it
+             was NotReady ("kustomization path not found") and the baseline
+             capture below silently EXCLUDED it from the regression check —
+             declaring sovereignty GREEN while the customer journey was dead
+             (PRINCIPLES A1/A2: a green gate that excludes a broken component
+             is theater at journey scale). The chart now seeds an empty parent
+             index so the path exists from first convergence
+             (gitea-tenants-repo-bootstrap-job.yaml Step 5); here we ASSERT it
+             is actually Ready, loudly, before the proof — never as "baseline
+             noise". Bounded poll (the GitRepository may still be pulling the
+             freshly-seeded index when step-08 starts). Operator-gated so a
+             non-marketplace Sovereign (no org-tenants Kustomization) is not
+             forced to grow one: SKIP when the Kustomization is absent.
+            */}}
             org_tenants_ks="${ORG_TENANTS_KUSTOMIZATION:-org-tenants}"
             org_tenants_ns="${ORG_TENANTS_KUSTOMIZATION_NAMESPACE:-flux-system}"
             if kubectl -n "${org_tenants_ns}" get kustomization "${org_tenants_ks}" >/dev/null 2>&1; then
@@ -1859,15 +2035,17 @@ data:
               echo "[egress-block-test] #3376: ${org_tenants_ns}/${org_tenants_ks} absent (non-marketplace Sovereign) — skipping the customer-path readiness assertion"
             fi
 
-            # ── #3695 HOST GITOPS LOOP GATE ───────────────────────────────
-            # HARD gate, NOT subject to the baseline-exclude below. The root
-            # bootstrap-kit Kustomization owns all 63 bp-* HRs with prune=true
-            # — if it cannot build (e.g. step-10's awk injector duplicated a
-            # `values:` key on 13b-bp-sso-bridge.yaml, hw150), the Sovereign
-            # can no longer apply ANY git change and is not operable as a
-            # GitOps cluster, even though every already-running pod stays up
-            # and the survival poll would pass. Assert each host Kustomization
-            # is Ready=True NOW; any NotReady fails the proof before the window.
+            {{- /*
+             ── #3695 HOST GITOPS LOOP GATE ───────────────────────────────
+             HARD gate, NOT subject to the baseline-exclude below. The root
+             bootstrap-kit Kustomization owns all 63 bp-* HRs with prune=true
+             — if it cannot build (e.g. step-10's awk injector duplicated a
+             `values:` key on 13b-bp-sso-bridge.yaml, hw150), the Sovereign
+             can no longer apply ANY git change and is not operable as a
+             GitOps cluster, even though every already-running pod stays up
+             and the survival poll would pass. Assert each host Kustomization
+             is Ready=True NOW; any NotReady fails the proof before the window.
+            */}}
             if [ "${HOST_KS_GATE_ENABLED}" = "true" ]; then
               echo "[egress-block-test] #3695: asserting host GitOps Kustomizations are Ready (the loop that reconciles local git)"
               host_ks_bad=""
@@ -1886,7 +2064,7 @@ data:
                 fi
               done
               if [ -n "${host_ks_bad}" ]; then
-                # Tear down any applied policy before failing.
+                {{- /* Tear down any applied policy before failing. */}}
                 [ -n "${POLICY_APPLIED}" ] && kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true || true
                 echo "[egress-block-test] #3695 FAIL — host GitOps loop not reconciling (NotReady:${host_ks_bad}); the cutover corrupted its own git loop — sovereignty proof FAILED"
                 exit 1
@@ -1894,13 +2072,15 @@ data:
               echo "[egress-block-test] #3695: host GitOps loop healthy — bootstrap-kit reconciles local git"
             fi
 
-            # ── #5359: SECONDARY-REGION deny-egress legs ─────────────────
-            # Applied HERE — after every pre-hold gate cleared on region-A
-            # and immediately before the baseline capture — so the
-            # secondaries are denied for exactly the survival window (the
-            # long region-A pre-hold roll sweep never runs with region-B
-            # blind-folded). Empty /secondary-kubeconfigs (single-region)
-            # renders this whole block inert.
+            {{- /*
+             ── #5359: SECONDARY-REGION deny-egress legs ─────────────────
+             Applied HERE — after every pre-hold gate cleared on region-A
+             and immediately before the baseline capture — so the
+             secondaries are denied for exactly the survival window (the
+             long region-A pre-hold roll sweep never runs with region-B
+             blind-folded). Empty /secondary-kubeconfigs (single-region)
+             renders this whole block inert.
+            */}}
             secondary_policy_teardown() {
               for td_kc in /secondary-kubeconfigs/*.yaml; do
                 [ -e "${td_kc}" ] || continue
@@ -1918,21 +2098,25 @@ data:
               cp /work/egress-deny.yaml /work/egress-deny-secondary.yaml
               if [ "${DEFAULT_DENY_EGRESS}" = "true" ]; then
                 {
-                  # Cross-cluster (intra-Sovereign) pod dials: a ClusterMesh
-                  # remote endpoint carries a mesh identity that toCIDR NEVER
-                  # matches (reference_k8s_netpol_ipblock_never_matches_
-                  # clustermesh_remote_identity) — region-B's flux clones the
-                  # local Gitea over the mesh alias, so allow mesh endpoints
-                  # explicitly. Both clusters belong to THIS Sovereign; no
-                  # public destination is opened.
+                  {{- /*
+                   Cross-cluster (intra-Sovereign) pod dials: a ClusterMesh
+                   remote endpoint carries a mesh identity that toCIDR NEVER
+                   matches (reference_k8s_netpol_ipblock_never_matches_
+                   clustermesh_remote_identity) — region-B's flux clones the
+                   local Gitea over the mesh alias, so allow mesh endpoints
+                   explicitly. Both clusters belong to THIS Sovereign; no
+                   public destination is opened.
+                  */}}
                   echo "    - toEndpoints:"
                   echo "        - {}"
-                  # The Sovereign's OWN gateway door (registry.<fqdn> +
-                  # gitea.<fqdn>): region-B's helm-controller pulls pivoted
-                  # charts through it. Its EIP is the Sovereign's own
-                  # infrastructure — allowing it proves nothing less about
-                  # github/ghcr/mothership independence. Resolved here (same
-                  # getent discipline as the UPSTREAM_HOSTS block-list).
+                  {{- /*
+                   The Sovereign's OWN gateway door (registry.<fqdn> +
+                   gitea.<fqdn>): region-B's helm-controller pulls pivoted
+                   charts through it. Its EIP is the Sovereign's own
+                   infrastructure — allowing it proves nothing less about
+                   github/ghcr/mothership independence. Resolved here (same
+                   getent discipline as the UPSTREAM_HOSTS block-list).
+                  */}}
                   for sov_host in "${LOCAL_REGISTRY_HOST}" "gitea.${SOVEREIGN_FQDN}"; do
                     for sov_ip in $(getent ahostsv4 "${sov_host}" 2>/dev/null | awk '{print $1}' | sort -u); do
                       case "${sov_ip}" in
@@ -1952,8 +2136,10 @@ data:
               for sc_kc in /secondary-kubeconfigs/*.yaml; do
                 [ -e "${sc_kc}" ] || continue
                 sc_region=$(basename "${sc_kc}" .yaml)
-                # Delete-before-apply: clears a stale hold policy leaked by a
-                # SIGKILLed prior run (idempotent re-run self-heal).
+                {{- /*
+                 Delete-before-apply: clears a stale hold policy leaked by a
+                 SIGKILLed prior run (idempotent re-run self-heal).
+                */}}
                 kubectl --kubeconfig "${sc_kc}" delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true 2>/dev/null || true
                 if kubectl --kubeconfig "${sc_kc}" apply -f /work/egress-deny-secondary.yaml; then
                   SECONDARY_POLICY_APPLIED="${SECONDARY_POLICY_APPLIED} ${sc_region}"
@@ -1964,8 +2150,10 @@ data:
                   exit 1
                 fi
               done
-              # Re-arm the teardown trap to cover the secondaries too (the
-              # region-A-only trap was set at the region-A apply above).
+              {{- /*
+               Re-arm the teardown trap to cover the secondaries too (the
+               region-A-only trap was set at the region-A apply above).
+              */}}
               trap 'kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true 2>/dev/null || true; secondary_policy_teardown' TERM EXIT
             elif [ "${secondary_kubeconfig_count}" -gt 0 ]; then
               echo "[egress-block-test] #5359: ${secondary_kubeconfig_count} secondary region(s) present but no region-A egressDeny was applied (enforce off / fail-safe fallback) — secondary legs run assertion-only like region-A"
@@ -1985,24 +2173,28 @@ data:
             else
               echo "[egress-block-test] baseline clean — no pre-existing NotReady items"
             fi
-            # #3634 — persist the baseline sets to files on the writable /work
-            # emptyDir for the POSIX regression diff in the survival loop below.
-            # The previous diff used `comm -13 <(echo "${baseline_hr}") <(echo
-            # "${hr_not_ready}")` — bash PROCESS SUBSTITUTION. This container
-            # runs `command: ["/bin/sh", ...]` and on the alpine/k8s image
-            # `/bin/sh` is busybox ash, which does NOT support `<(...)`: it is a
-            # PARSE-time syntax error (`syntax error: unexpected "("`) that
-            # aborted the WHOLE step-08 Job before it ran anything — no egress
-            # CCNP applied, no survival window, no PASS, so cutoverComplete
-            # never flipped true. `comm -13 A B` (lines in B not in A) is
-            # exactly `grep -vxF -f A B`, which is POSIX (passes dash -n AND
-            # busybox ash -n) and needs the baseline as a file.
+            {{- /*
+             #3634 — persist the baseline sets to files on the writable /work
+             emptyDir for the POSIX regression diff in the survival loop below.
+             The previous diff used `comm -13 <(echo "${baseline_hr}") <(echo
+             "${hr_not_ready}")` — bash PROCESS SUBSTITUTION. This container
+             runs `command: ["/bin/sh", ...]` and on the alpine/k8s image
+             `/bin/sh` is busybox ash, which does NOT support `<(...)`: it is a
+             PARSE-time syntax error (`syntax error: unexpected "("`) that
+             aborted the WHOLE step-08 Job before it ran anything — no egress
+             CCNP applied, no survival window, no PASS, so cutoverComplete
+             never flipped true. `comm -13 A B` (lines in B not in A) is
+             exactly `grep -vxF -f A B`, which is POSIX (passes dash -n AND
+             busybox ash -n) and needs the baseline as a file.
+            */}}
             printf '%s\n' "${baseline_hr}" > /work/baseline_hr.txt
             printf '%s\n' "${baseline_ks}" > /work/baseline_ks.txt
 
-            # #5359 — per-secondary baselines (same only-NEW-regressions
-            # criterion as region-A; a secondary's pre-existing NotReady set
-            # is excluded, a NEW NotReady during the hold fails the proof).
+            {{- /*
+             #5359 — per-secondary baselines (same only-NEW-regressions
+             criterion as region-A; a secondary's pre-existing NotReady set
+             is excluded, a NEW NotReady during the hold fails the proof).
+            */}}
             for sb_kc in /secondary-kubeconfigs/*.yaml; do
               [ -e "${sb_kc}" ] || continue
               sb_region=$(basename "${sb_kc}" .yaml)
@@ -2017,9 +2209,11 @@ data:
                 sed "s/^/  baseline[${sb_region}] HR /" "/work/baseline_hr_${sb_region}.txt" || true
                 sed "s/^/  baseline[${sb_region}] KS /" "/work/baseline_ks_${sb_region}.txt" || true
               fi
-              # Normalize a 0-byte baseline to the single-newline shape the
-              # region-A files carry (printf '%s\n' "") so `grep -vxF -f`
-              # behaves identically across grep flavors.
+              {{- /*
+               Normalize a 0-byte baseline to the single-newline shape the
+               region-A files carry (printf '%s\n' "") so `grep -vxF -f`
+               behaves identically across grep flavors.
+              */}}
               [ -s "/work/baseline_hr_${sb_region}.txt" ] || printf '\n' > "/work/baseline_hr_${sb_region}.txt"
               [ -s "/work/baseline_ks_${sb_region}.txt" ] || printf '\n' > "/work/baseline_ks_${sb_region}.txt"
             done
@@ -2040,15 +2234,17 @@ data:
                 -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' \
                 | grep -E '=False$' | sort -u || true)
 
-              # Diff against baseline — only new entries count as a regression.
-              # POSIX-safe (#3634): `grep -vxF -f BASELINE CURRENT` emits the
-              # CURRENT lines absent from BASELINE — byte-identical to the old
-              # `comm -13 <(echo BASELINE) <(echo CURRENT)` but with no bash
-              # process substitution (busybox ash /bin/sh rejects `<(...)`).
-              # `-x` whole-line, `-F` fixed-string so `/` and `=` in the
-              # ns/name=False rows are literal. An empty baseline file makes
-              # grep match no patterns → `-v` returns ALL current lines (every
-              # not-ready item is new) — same as `comm -13` with an empty A.
+              {{- /*
+               Diff against baseline — only new entries count as a regression.
+               POSIX-safe (#3634): `grep -vxF -f BASELINE CURRENT` emits the
+               CURRENT lines absent from BASELINE — byte-identical to the old
+               `comm -13 <(echo BASELINE) <(echo CURRENT)` but with no bash
+               process substitution (busybox ash /bin/sh rejects `<(...)`).
+               `-x` whole-line, `-F` fixed-string so `/` and `=` in the
+               ns/name=False rows are literal. An empty baseline file makes
+               grep match no patterns → `-v` returns ALL current lines (every
+               not-ready item is new) — same as `comm -13` with an empty A.
+              */}}
               printf '%s\n' "${hr_not_ready}" > /work/hr_not_ready.txt
               printf '%s\n' "${ks_not_ready}" > /work/ks_not_ready.txt
               new_hr=$(grep -vxF -f /work/baseline_hr.txt /work/hr_not_ready.txt || true)
@@ -2061,10 +2257,12 @@ data:
                 new_failures=$((new_failures+1))
               fi
 
-              # #5359 — the same regression diff against every SECONDARY
-              # region: a NEW NotReady on region-B during the hold means
-              # region-B still NEEDS an external tether — the proof must
-              # fail for the whole Sovereign, not just region-A.
+              {{- /*
+               #5359 — the same regression diff against every SECONDARY
+               region: a NEW NotReady on region-B during the hold means
+               region-B still NEEDS an external tether — the proof must
+               fail for the whole Sovereign, not just region-A.
+              */}}
               for sp_kc in /secondary-kubeconfigs/*.yaml; do
                 [ -e "${sp_kc}" ] || continue
                 sp_region=$(basename "${sp_kc}" .yaml)
@@ -2089,19 +2287,21 @@ data:
             done
 
             echo "[egress-block-test] window complete; new-regression-cycles=${new_failures}"
-            # Remove the egress-block policy (if applied) BEFORE the verdict
-            # so it's torn down on both pass and fail paths — never leave a
-            # deny policy lingering on the sovereign cluster.
+            {{- /*
+             Remove the egress-block policy (if applied) BEFORE the verdict
+             so it's torn down on both pass and fail paths — never leave a
+             deny policy lingering on the sovereign cluster.
+            */}}
             if [ -n "${POLICY_APPLIED}" ]; then
               kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true || true
               echo "[egress-block-test] egressDeny removed"
             fi
-            # #5359 — remove the secondary holds on the same pass/fail paths.
+            {{- /* #5359 — remove the secondary holds on the same pass/fail paths. */}}
             if [ -n "${SECONDARY_POLICY_APPLIED}" ]; then
               secondary_policy_teardown
               echo "[egress-block-test] #5359 secondary egressDeny removed (${SECONDARY_POLICY_APPLIED} )"
             fi
-            # #5359 — per-region durable verdict on the status ConfigMap.
+            {{- /* #5359 — per-region durable verdict on the status ConfigMap. */}}
             for sv_kc in /secondary-kubeconfigs/*.yaml; do
               [ -e "${sv_kc}" ] || continue
               sv_region=$(basename "${sv_kc}" .yaml)
@@ -2129,12 +2329,14 @@ data:
           capabilities:
             drop: ["ALL"]
     volumes:
-      # #3379 (hw139): writable scratch for the egressDeny CCNP manifest the
-      # enforce path emits + applies. readOnlyRootFilesystem:true blocks
-      # writing it under /tmp, so a dedicated emptyDir is the only writable
-      # path. (The former read-only `cilium-policy` configMap mount carried
-      # only a no-op placeholder — the script never consumed it — so it is
-      # dropped: the actual CCNP is generated inline + written here.)
+      {{- /*
+       #3379 (hw139): writable scratch for the egressDeny CCNP manifest the
+       enforce path emits + applies. readOnlyRootFilesystem:true blocks
+       writing it under /tmp, so a dedicated emptyDir is the only writable
+       path. (The former read-only `cilium-policy` configMap mount carried
+       only a no-op placeholder — the script never consumed it — so it is
+       dropped: the actual CCNP is generated inline + written here.)
+      */}}
       - name: work
         emptyDir: {}
       - name: offline-mirror-resolver
@@ -2143,9 +2345,11 @@ data:
           items:
             - key: resolver.sh
               path: resolver.sh
-      # #5359 — materialised by catalyst-api (cutover.go runCutover) from its
-      # on-PVC secondary kubeconfig store at every run start; optional:true
-      # so a single-region Sovereign (no Secret) schedules unchanged.
+      {{- /*
+       #5359 — materialised by catalyst-api (cutover.go runCutover) from its
+       on-PVC secondary kubeconfig store at every run start; optional:true
+       so a single-region Sovereign (no Secret) schedules unchanged.
+      */}}
       - name: secondary-kubeconfigs
         secret:
           secretName: {{ .Values.secondaryRegions.kubeconfigSecretName }}

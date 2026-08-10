@@ -1066,7 +1066,15 @@ spec:
       # Sovereign (the git overwrite cannot preserve step-06's durable
       # HelmRepository-pivot commit); the reconciler also gains a CONTINUOUS
       # source-host drift lint (daytwoReconciler.sourceHostLint).
-      version: 0.1.177
+      # 0.1.179 (#6004): the chart could not be INSTALLED at all. Its Helm
+      # release Secret had grown to 1,233,060 bytes against Kubernetes' 1048576
+      # cap, so slot 06a failed 10 times on hw293 Phase 1 with `data: Too long`
+      # and Pillar 5 was unprovable. 5,170 `#` template comments became Helm
+      # block comments (stored once instead of twice, no prose lost) and
+      # chart/tests/ left the package via .helmignore: 757,264 bytes, 72.2%.
+      # The rendered manifest is byte-identical modulo comments — no step,
+      # value or RBAC change, still 11 steps.
+      version: 0.1.179
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
