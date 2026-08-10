@@ -91,7 +91,7 @@ spec:
       # dr-promoter + failover-readiness + topology.promoted HR-value seam on the
       # active-hot-standby replica half (autoPromote.hr.name above targets THIS HR,
       # bp-postgres-shared-c). sync-only fence. Lockstep 16a/16c/16d.
-      version: 0.2.18
+      version: 0.2.19
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

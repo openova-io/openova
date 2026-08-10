@@ -167,7 +167,7 @@ spec:
       # instance's region-B replica stayed read-only for the whole outage (keycloak
       # unrecoverable in region-B) because ONLY bp-cnpg-pair shipped a promoter. sync-
       # only fence; autoPromote.hr.name above targets THIS HR. Lockstep 16a/16c/16d.
-      version: 0.2.18
+      version: 0.2.19
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
