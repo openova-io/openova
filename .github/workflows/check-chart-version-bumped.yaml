@@ -1,0 +1,62 @@
+name: Chart-version-bumped guard (pre-merge hollow-pin check)
+
+# Refs #6040. A Blueprint chart reaches a Sovereign by VERSION: the
+# bootstrap-kit slots pin `spec.chart.spec.version` and Flux resolves that pin
+# against the published OCI artifact. A merged edit to templates/ or values that
+# does NOT move `version:` in the chart's own Chart.yaml is therefore a HOLLOW
+# PIN — the code is on main, the cluster keeps pulling the old artifact, and
+# every reader who greps main concludes the defect is fixed.
+#
+# Motivating case: #6021 fixed platform/postgres/chart/templates/cluster.yaml
+# and left version at 0.2.18 — a version already published to ghcr and already
+# pinned by slots 16a/16c/16d. On hw293 (dep a0077ba47e3720e5) all three shared
+# CNPG instances stayed in CreateContainerConfigError under a live release
+# stamped bp-postgres-0.2.18, which is the very version carrying the fix.
+#
+# scripts/check-bootstrap-kit-pin-sync.sh cannot catch this: it asserts the pin
+# EQUALS the chart version, and 0.2.18 == 0.2.18 passed.
+#
+# Diff-scoped, so pre-existing debt in charts a PR does not touch never turns
+# this red. Event-driven only — no `schedule:` trigger.
+
+on:
+  pull_request:
+    paths:
+      - 'platform/*/chart/**'
+      - 'products/*/chart/**'
+      - 'products/*/charts/*/**'
+      - 'scripts/check-chart-version-bumped.sh'
+      - '.github/workflows/check-chart-version-bumped.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Chart-version-bumped guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history: the guard diffs against the PR merge base and the
+          # --self-test replays a specific historical commit.
+          fetch-depth: 0
+
+      - name: Self-test — prove the guard can FAIL
+        # A guard that has never been observed rejecting the real defect is
+        # decorative. This replays #6021 (cc011ba1e) and requires rejection.
+        run: bash scripts/check-chart-version-bumped.sh --self-test
+
+      - name: Every touched chart must bump its version
+        run: |
+          set -euo pipefail
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
+          if [ -z "${base_sha}" ]; then
+            base_sha="origin/main"
+            head_sha="HEAD"
+          fi
+          bash scripts/check-chart-version-bumped.sh "$base_sha" "$head_sha"

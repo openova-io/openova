@@ -3822,8 +3822,32 @@ func (h *Handler) shouldStartupClusterMeshReconcile(dep *Deployment) bool {
 //
 // ready, OR failed-by-TIMEOUT (#3285/hw130): a timeout record's cluster keeps
 // converging under Flux — abandoning its mesh forever contradicted the
-// never-wipe-a-timeout doctrine. Hard failures (OutcomeFailed /
-// flux-not-reconciling) stay excluded.
+// never-wipe-a-timeout doctrine.
+//
+// #6040 also accepts failed+OutcomeFailed on a MULTI-REGION record — the
+// component-census signature (hw293, dep a0077ba47e3720e5). OutcomeFailed means
+// Phase 1 RAN and WATCHED components to a terminal census, which is only
+// possible when both regions' apiservers answered throughout; it is a statement
+// about HelmReleases, not about reachability. On hw293 exactly ONE of 67
+// components failed — self-sovereign-cutover, DORMANT by design, failed solely
+// because its Helm release Secret exceeded the 1 MiB object ceiling (#6004) —
+// and that single row excluded the deployment from every mesh path, so
+// `cilium-dbg troubleshoot clustermesh` reported "Found 0 cluster
+// configurations" in BOTH regions 4h after a fully-materialised 2-region prov.
+// The secondary's bp-catalyst-edge-routes Services select zero local Pods BY
+// DESIGN and reach region-a only through the mesh, so an unmeshed secondary
+// turns every gateway ELB member in region-b into a "no healthy upstream" 503:
+// 12 of 24 fresh TCP connections failed on every hostname measured. This is the
+// same correction #6015 made one branch up in markPhase1Done for the
+// secondary-kubeconfig producer — a HelmRelease census must not decide whether
+// a Sovereign is allowed to mesh its own peer region. The establish loop is
+// idempotent, so an already-meshed record's first attempt confirms + exits.
+//
+// Outcomes that genuinely mean the cluster is NOT usable stay excluded and are
+// pinned by the vacuity arms of TestClusterMeshReconcileStatusGate_
+// ComponentCensusFailure6040: OutcomeFluxNotReconciling, the kubeconfig-missing
+// and #3971 storage-downgrade reasons, and the EMPTY outcome of a record that
+// never reached Phase 1 at all (a tofu-stage failure has no clusters to mesh).
 //
 // #5253 also accepts failed+OutcomeReady — the pre-#5253 console-downgrade
 // signature (hw276): the PRIMARY fully converged (OutcomeReady is granted only
@@ -3850,10 +3874,42 @@ func (h *Handler) clusterMeshReconcileStatusGate(dep *Deployment) bool {
 	dep.mu.Unlock()
 	rescuableTimeout := status == "failed" && outcome == helmwatch.OutcomeTimeout
 	rescuableConsoleDowngrade := status == "failed" && outcome == helmwatch.OutcomeReady
-	if (status != "ready" && !rescuableTimeout && !rescuableConsoleDowngrade) || regionCount < 2 {
+	// #6040 — the component-census arm. See the doc comment above.
+	rescuableComponentCensus := status == "failed" && outcome == helmwatch.OutcomeFailed
+	if (status != "ready" && !rescuableTimeout && !rescuableConsoleDowngrade && !rescuableComponentCensus) || regionCount < 2 {
 		return false
 	}
 	return true
+}
+
+// clusterMeshLoopMayContinue reports whether the establish/heal goroutines may
+// keep running for a deployment in this lifecycle status (#6040).
+//
+// Widening clusterMeshReconcileStatusGate alone would have been a HALF-LANDED
+// fix. Three separate places re-read dep.Status and stop the work, and two of
+// them live INSIDE the loops rather than at the entry:
+//
+//	runAutoEstablishClusterMesh    stops the bounded retry loop  (phase1_watch.go)
+//	runClusterMeshSteadyStateHeal  stops the unbounded heal loop (phase1_watch.go)
+//
+// Both previously tested `status != "ready"`, so a record admitted by the
+// widened entry gate would still have abandoned the mesh after a single
+// attempt — converging zero times on the hw293 shape.
+//
+// What those checks EXIST for is the wipe: once a deployment is wiping/wiped
+// the kubeconfigs are gone or going, and hurling establish attempts at a
+// tearing-down cluster is pointless and noisy. That invariant is preserved
+// exactly — only the terminal Phase-1 statuses whose clusters are still
+// standing are admitted. Everything pre-terminal (queued / provisioning /
+// tofu-applying / phase1-watching) stays out too: the establish is a
+// post-Phase-1 producer and its own entry gates own that ordering.
+func clusterMeshLoopMayContinue(status string) bool {
+	switch status {
+	case "ready", "failed", "partial-failure":
+		return true
+	default:
+		return false
+	}
 }
 
 // retryStartupClusterMeshReconcile is the #4811 bounded self-heal for the

@@ -2381,8 +2381,16 @@ func TestShouldStartupClusterMeshReconcile_RescuesTimeoutRecords(t *testing.T) {
 	if !h.shouldStartupClusterMeshReconcile(mk("failed", helmwatch.OutcomeTimeout)) {
 		t.Errorf("failed+timeout record must be rescued (the hw130 abandonment)")
 	}
-	if h.shouldStartupClusterMeshReconcile(mk("failed", helmwatch.OutcomeFailed)) {
-		t.Errorf("failed+hard-failure record must stay excluded")
+	// #6040 INVERTED (was "must stay excluded"). OutcomeFailed means Phase 1
+	// ran and WATCHED components to a terminal census — only possible while
+	// both regions' apiservers answer — so it is a HelmRelease statement, not
+	// a reachability statement. hw293 proved the cost of treating it as the
+	// latter: one dormant chart over the #6004 1 MiB ceiling left BOTH regions
+	// at "Found 0 cluster configurations" and 503'd half of every fresh TCP
+	// connection through the gateway ELB. flux-not-reconciling stays excluded
+	// below — that one IS a reachability statement.
+	if !h.shouldStartupClusterMeshReconcile(mk("failed", helmwatch.OutcomeFailed)) {
+		t.Errorf("failed+component-census record must be rescued (the hw293 abandonment, #6040)")
 	}
 	if h.shouldStartupClusterMeshReconcile(mk("failed", "flux-not-reconciling")) {
 		t.Errorf("flux-not-reconciling record must stay excluded")
@@ -3978,7 +3986,10 @@ func TestClusterMeshReconcileStatusGate_ConsoleDowngradedRecord(t *testing.T) {
 		{"failed+timeout multi-region (#3317 arm intact)", "failed", helmwatch.OutcomeTimeout, 2, true},
 		{"failed+OutcomeReady multi-region (#5253 hw276 pre-fix shape)", "failed", helmwatch.OutcomeReady, 2, true},
 		{"failed+OutcomeReady single-region", "failed", helmwatch.OutcomeReady, 1, false},
-		{"failed+OutcomeFailed (genuine hard failure)", "failed", helmwatch.OutcomeFailed, 2, false},
+		// #6040: a component census is not a reachability statement — see
+		// clusterMeshReconcileStatusGate's doc comment and the hw293 evidence.
+		{"failed+OutcomeFailed multi-region (#6040 hw293 component-census shape)", "failed", helmwatch.OutcomeFailed, 2, true},
+		{"failed+OutcomeFailed single-region (#6040 vacuity)", "failed", helmwatch.OutcomeFailed, 1, false},
 		{"failed+flux-not-reconciling (genuine hard failure)", "failed", helmwatch.OutcomeFluxNotReconciling, 2, false},
 		{"failed+storage-downgrade (#3971 replaces the outcome)", "failed", provisioner.ReasonDefaultStorageClassEphemeral, 2, false},
 	}
