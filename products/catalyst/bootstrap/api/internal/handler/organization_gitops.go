@@ -1527,23 +1527,48 @@ spec:
           # render until both are non-empty).
           accountId: ""
           contractRef: ""
-    # ── Catalyst integration — admin token for per-user key minting ──
-    # ADR-0003 §3.2: Catalyst's signup hook reads this Secret and POSTs
-    # against NewAPI's admin API with Authorization: Bearer header to
-    # issue per-user customer-API keys. The token is rotated per the
-    # convention in docs/CATALYST-CLI-AGENT.md.
+    # ── Catalyst integration — DELIBERATELY OFF for a per-Org release ──
+    # ADR-0003 §3.2's admin-token integration is SOVEREIGN-scoped, not
+    # per-Organization, and enabling it here is what broke UAT row G2
+    # (#5987).
+    #
+    # The consumer is a single catalyst-api Pod in catalyst-system, which
+    # reads ADMIN_API_TOKEN via secretKeyRef on ONE Secret named
+    # catalyst-newapi-admin-token, reflector-mirrored into catalyst-system
+    # (see the comment at platform/newapi/chart/templates/
+    # external-secret.yaml:55-70). There is exactly one such consumer and
+    # one such mirror for the whole Sovereign. Every per-Org release that
+    # switches this on therefore renders a SECOND ExternalSecret whose
+    # target carries reflection-allowed, so per-Org copies contend for the
+    # one catalyst-system mirror — and the paired PushSecret
+    # (templates/admin-token-pushsecret.yaml, driven off the SAME
+    # remoteRef.key) tries to overwrite the shared OpenBao path with THIS
+    # Org's own random token-signing-key ADMIN_SECRET, which would 401
+    # per-user key issuance for the entire Sovereign. That reasoning is
+    # already written out for the funnel path at
+    # core/services/provisioning/gitops/helmrelease_apps.go:512-527, which
+    # sets enabled:false for exactly these reasons; this per-Org GitOps
+    # writer was simply never brought into line with it.
+    #
+    # What row G2 actually measured on hw293 (dep a0077ba47e3720e5): the
+    # per-Org copy could not even get that far. Its remoteRef.key was
+    # sovereign/<fqdn>/newapi/<tenant>/admin-token, and ESO's OpenBao role
+    # is asymmetric — external-secrets-read covers secret/{data,metadata}/*
+    # (everything) while external-secrets-push grants create/update on the
+    # newapi admin-token path ONLY. So the PushSecret 403'd:
+    #   g7doora/catalyst-newapi-admin-token-push   Errored
+    #     PUT .../v1/secret/metadata/sovereign/... Code: 403 permission denied
+    #   newapi/catalyst-newapi-admin-token-push    Synced   (Sovereign-level, catalyst/ path)
+    # leaving the paired ExternalSecret in SecretSyncedError forever while
+    # the HelmRelease still reported Ready — a silent failure. Re-pointing
+    # the path would have made the write SUCCEED and turned a visible error
+    # into the destructive cross-Org clobber described above, which is why
+    # the fix is to turn the seam off rather than to move it.
+    #
+    # Nothing inside the per-Org release consumes the Secret, so off is
+    # both safe and complete.
     catalystIntegration:
-      enabled: true
-      existingSecret: catalyst-newapi-admin-token
-      externalSecret:
-        enabled: true
-        refreshInterval: 1h
-        secretStoreRef:
-          kind: ClusterSecretStore
-          name: vault-region1
-        remoteRef:
-          key: sovereign/{{.OTECHFQDN}}/newapi/{{.TenantID}}/admin-token
-          property: ADMIN_API_TOKEN
+      enabled: false
 `
 
 const orgTenantBPWordPress = `# bp-wordpress-tenant (#800, #915) — SSO-pre-wired WordPress per Organization.
@@ -1699,13 +1724,43 @@ spec:
 // HelmRelease (the per-Application unit in the Organization tenant model).
 // CRD shape per products/catalyst/chart/crds/continuum.yaml.
 //
-// Lease backend defaults to dns-quorum because the Sovereign-internal
-// PowerDNS already runs 3 resolver Pods and we don't want to pin
-// tenants to Cloudflare KV; operators that want cloudflare-kv can
-// follow up post-handover via a Continuum CR edit (the controller
-// supports both kinds — see core/controllers/continuum/internal/
-// witness/{cloudflarekv,dnsquorum}). Health-check URL points at the
-// tenant's WordPress public host.
+// Lease backend is k8s-lease (#3829). It is NOT dns-quorum, and the
+// difference is the whole reason a hot-standby tenant reaches Ready.
+//
+// This template used to emit `kind: dns-quorum` with resolvers
+// 10.43.0.10/.11/.12, on the belief that those were the Sovereign's
+// three in-cluster PowerDNS resolver Pods. They are not: 10.43.0.0/16
+// is k3s's DEFAULT service CIDR, and these Sovereigns allocate from
+// 10.96.0.0/12, so .11 and .12 were never anything at all and .10 was
+// at best kube-dns. Re-pointing them does NOT fix the row, for three
+// independent reasons:
+//
+//  1. dns-quorum's registered factory builds its client with a nil
+//     TXTWriter unconditionally
+//     (core/controllers/continuum/internal/witness/dnsquorum/client.go:213),
+//     so writeQuorum (same file:435) returns "Writer not configured
+//     (Phase-1 POC needs PDM /v1/txt — K-Cont-{4|5})" and Acquire can
+//     never take the lease no matter which resolvers it is given.
+//  2. kube-dns is not authoritative for the lease zone, so the read
+//     side finds no TXT record to reach a 2-of-3 majority either.
+//  3. kube-dns is REGION-LOCAL (measured on hw293: region A serves
+//     10.96.0.10, region B serves 10.97.0.10). A witness exists to let
+//     two regions arbitrate ONE slot; per-region resolver sets can
+//     never form the shared quorum that requires.
+//
+// k8s-lease stores the lease in a native coordination.k8s.io/v1 Lease
+// in the control-plane cluster — durable etcd CAS via resourceVersion,
+// zero external dependency (so it survives the Pillar-5 air-gap), and
+// the continuum-controller's ClusterRole already grants the verbs. It
+// is already the shipped default for bp-cnpg-pair
+// (platform/cnpg-pair/chart/values.yaml:613) and bp-postgres
+// (platform/postgres/chart/values.yaml:351); this per-Org writer was
+// the last producer still selecting the dead backend.
+//
+// No `config` block is needed: the reconciler stamps the Lease
+// namespace from CATALYST_LEASE_NS (already set to catalyst-system on
+// the deployed controller). Health-check URL points at the tenant's
+// WordPress public host.
 //
 // RTO 30s / RPO 5s match CLAUDE.md §0 deterministic step 10's
 // "≤30s failover" claim. autoFailover defaults to false so the first
@@ -1742,18 +1797,16 @@ spec:
   # Operator-driven for the first fresh-prov walk; flip to true on
   # the CR post-handover once the path is proven.
   autoFailover: false
-  # dns-quorum is the canonical Sovereign-internal lease backend
-  # (3 in-cluster PowerDNS resolvers). cloudflare-kv is the
-  # alternative when a public CF KV namespace is available.
+  # k8s-lease (#3829) — a native coordination.k8s.io/v1 Lease in the
+  # control-plane cluster. Air-gappable, durable etcd CAS, no resolvers
+  # to misconfigure. dns-quorum is NOT usable: its client is built with
+  # a nil TXTWriter, so Acquire always fails and the CR sits Degraded
+  # with no leaseHolder and no standby. See the Go comment above.
   leaseClient:
-    kind: dns-quorum
+    kind: k8s-lease
     config:
       ttlSeconds: 30
       renewSeconds: 10
-      resolvers:
-        - "10.43.0.10"
-        - "10.43.0.11"
-        - "10.43.0.12"
   luaRecord:
     selector: ifurlup
     healthCheck:

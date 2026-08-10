@@ -112,12 +112,38 @@ func TestRenderOrganizationOverlay_HotStandby_On_EmitsContinuumCR(t *testing.T) 
 		"- hz-hel-rtz-prod",
 		"rto: 30s",
 		"rpo: 5s",
-		"kind: dns-quorum",
+		"kind: k8s-lease",
 		"selector: ifurlup",
 		"url: https://wordpress.acme.otech.example/healthz",
 	} {
 		if !strings.Contains(cr, want) {
 			t.Errorf("continuum.yaml missing %q\n%s", want, cr)
+		}
+	}
+	// #3829 — the emitted witness kind must be one the controller can
+	// actually ACQUIRE a lease with. dns-quorum cannot: its registered
+	// factory builds the client with a nil TXTWriter, so Acquire always
+	// fails and the Continuum sits Degraded with no leaseHolder and no
+	// standby (measured live on hw293, g7doora/bp-wordpress-tenant).
+	// The behavioural proof — including that CORRECT resolvers do not
+	// rescue it — lives in
+	// core/controllers/continuum/internal/witness/witness_backend_functional_test.go.
+	for _, banned := range []string{
+		// assert on the VALUE of the selector field, not on the bare
+		// word — the template legitimately explains in a comment why
+		// dns-quorum is not used, and a substring match on the name
+		// would flag that explanation instead of a real selection.
+		"kind: dns-quorum",
+		// The placeholder resolver set. 10.43.0.0/16 is k3s's default
+		// service CIDR; these Sovereigns allocate from 10.96.0.0/12 and
+		// kube-dns is region-local (region A 10.96.0.10, region B
+		// 10.97.0.10), so no hardcoded resolver list can be correct for
+		// both regions of one DR pair.
+		"10.43.0.",
+		"resolvers:",
+	} {
+		if strings.Contains(cr, banned) {
+			t.Errorf("continuum.yaml must not contain %q (dead dns-quorum witness config)\n%s", banned, cr)
 		}
 	}
 	// kustomization.yaml MUST also list it under resources so Flux
