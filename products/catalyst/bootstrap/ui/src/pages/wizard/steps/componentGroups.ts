@@ -214,10 +214,19 @@ export const GROUPS: GroupDef[] = [
       // square card tile — render the letter-mark fallback instead (#173).
       { id: 'powerdns',     name: 'PowerDNS',     desc: 'Authoritative DNS with DNSSEC signing and geographic failover', tier: 'mandatory',   dependencies: ['cnpg'], logoUrl: null },
       { id: 'external-dns', name: 'External DNS', desc: 'Reconciles Service, Ingress, Gateway into authoritative DNS',   tier: 'mandatory',   dependencies: ['powerdns'], logoUrl: basePath('component-logos/external-dns.png') },
-      { id: 'envoy',        name: 'Envoy',        desc: 'Programmable L7 proxy for routing, TLS, and gRPC',              tier: 'mandatory',   dependencies: [] },
-      { id: 'frpc',         name: 'frpc',         desc: 'Reverse tunnel client for Sovereigns behind NAT or firewalls',   tier: 'recommended', dependencies: [] },
+      // UAT row W5 / #5575 — `envoy`, `frpc` and `strongswan` were removed
+      // from this family. None of the three resolved to ANY Blueprint
+      // source: no platform/<id>, no products/<id>, no bootstrap-kit slot,
+      // no bp-<id> reference anywhere in the monorepo. Selecting them
+      // deployed nothing, silently.
+      //
+      // `envoy` was the sharp one: `tier: 'mandatory'`, so the operator
+      // could not deselect it and EVERY deployment emitted a component id
+      // that nothing could install. Envoy does ship on every Sovereign —
+      // as `cilium-envoy`, inside bp-cilium, which is already a mandatory
+      // card here. A second card for the proxy Cilium embeds was never a
+      // separate installable unit, only a duplicate of one.
       { id: 'netbird',      name: 'NetBird',      desc: 'Identity-bound mesh VPN over WireGuard for operators and sites', tier: 'mandatory',   dependencies: [], logoUrl: basePath('component-logos/netbird.png') },
-      { id: 'strongswan',   name: 'strongSwan',   desc: 'Standards-compliant IPsec gateway for partner site-to-site links', tier: 'optional', dependencies: [], logoUrl: basePath('component-logos/strongswan.png') },
     ],
   },
   {
@@ -329,7 +338,9 @@ export const GROUPS: GroupDef[] = [
       { id: 'clickhouse', name: 'ClickHouse',     desc: 'Columnar analytics database for sub-second OLAP queries',      tier: 'optional',    dependencies: [] },
       { id: 'ferretdb',   name: 'FerretDB',       desc: 'MongoDB wire protocol on PostgreSQL-backed storage',           tier: 'optional',    dependencies: ['cnpg'], logoUrl: basePath('component-logos/ferretdb.png') },
       { id: 'iceberg',    name: 'Iceberg',        desc: 'ACID lakehouse format with time travel over object storage',   tier: 'optional',    dependencies: ['seaweedfs'] },
-      { id: 'superset',   name: 'Superset',       desc: 'BI dashboards and SQL Lab for analytical exploration',         tier: 'optional',    dependencies: ['cnpg'] },
+      // `superset` removed — UAT row W5 / #5575: no Blueprint source of any
+      // kind resolved for it, so the card offered a BI stack that could not
+      // be installed.
     ],
   },
   {
@@ -390,7 +401,7 @@ export const GROUPS: GroupDef[] = [
       { id: 'livekit',  name: 'LiveKit',  desc: 'WebRTC SFU for Organization video and audio with encryption', tier: 'recommended', dependencies: [] },
       { id: 'stunner',  name: 'STUNner',  desc: 'Kubernetes-native TURN and STUN gateway for WebRTC media',  tier: 'recommended', dependencies: [] },
       { id: 'matrix',   name: 'Matrix',   desc: 'Federated end-to-end encrypted messaging with protocol bridges', tier: 'optional', dependencies: ['cnpg'] },
-      { id: 'ntfy',     name: 'Ntfy',     desc: 'Topic-based push notifications over HTTP with mobile subscribers', tier: 'optional', dependencies: [] },
+      // `ntfy` removed — UAT row W5 / #5575: no Blueprint source resolved.
     ],
   },
 ]
@@ -422,7 +433,7 @@ export const PRODUCTS: Product[] = [
     subtitle: 'Networking & Service Mesh',
     description: 'CNI, service mesh, load balancing, WAF, and encrypted VPN connectivity',
     tier: 'mandatory',
-    components: ['cilium', 'coraza', 'powerdns', 'external-dns', 'envoy', 'frpc', 'netbird', 'strongswan'],
+    components: ['cilium', 'coraza', 'powerdns', 'external-dns', 'netbird'],
     cascadeOnMemberSelection: false,
     familyDependencies: [],
   },
@@ -477,7 +488,7 @@ export const PRODUCTS: Product[] = [
     subtitle: 'Data & Integration',
     description: 'Event streaming, CDC, workflow orchestration, and analytics databases',
     tier: 'recommended',
-    components: ['cnpg', 'postgres', 'valkey', 'strimzi', 'debezium', 'flink', 'temporal', 'clickhouse', 'ferretdb', 'iceberg', 'superset'],
+    components: ['cnpg', 'postgres', 'valkey', 'strimzi', 'debezium', 'flink', 'temporal', 'clickhouse', 'ferretdb', 'iceberg'],
     // FABRIC is à-la-carte — Strimzi, Temporal, ClickHouse, Superset are
     // independent stacks operators pick individually. Selecting one
     // doesn't imply the others.
@@ -515,7 +526,7 @@ export const PRODUCTS: Product[] = [
     subtitle: 'Communication',
     description: 'Self-hosted email, WebRTC video conferencing, federated messaging, and push notifications',
     tier: 'optional',
-    components: ['stalwart', 'livekit', 'stunner', 'matrix', 'ntfy'],
+    components: ['stalwart', 'livekit', 'stunner', 'matrix'],
     // RELAY is à-la-carte — Stalwart (mail) and LiveKit (video) are
     // distinct workloads with their own decision criteria.
     cascadeOnMemberSelection: false,

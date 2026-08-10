@@ -86,10 +86,11 @@ export const COMPONENT_FOOTPRINTS: Record<string, ComponentFootprint> = {
   coraza:         { ramMb: 256,  cpuMilli: 100 },
   powerdns:       { ramMb: 512,  cpuMilli: 200 }, // pdns-auth + cnpg-pg side
   'external-dns': { ramMb: 64,   cpuMilli: 50  },
-  envoy:          { ramMb: 256,  cpuMilli: 200 },
-  frpc:           { ramMb: 64,   cpuMilli: 50  },
+  // envoy / frpc / strongswan removed with their catalog cards — UAT row
+  // W5 / #5575, no Blueprint source resolved for any of the three. Leaving
+  // the footprints behind would keep inflating the sizing estimate for
+  // workloads that can never be installed.
   netbird:        { ramMb: 256,  cpuMilli: 100 },
-  strongswan:     { ramMb: 128,  cpuMilli: 50  },
 
   /* ── SURGE — Scaling & Resilience ─────────────────────────────── */
   vpa:            { ramMb: 512,  cpuMilli: 150 }, // recommender + updater + admission-controller
@@ -135,7 +136,7 @@ export const COMPONENT_FOOTPRINTS: Record<string, ComponentFootprint> = {
   clickhouse:     { ramMb: 1024, cpuMilli: 500 },
   ferretdb:       { ramMb: 256,  cpuMilli: 100 },
   iceberg:        { ramMb: 256,  cpuMilli: 100 },
-  superset:       { ramMb: 768,  cpuMilli: 300 },
+  // superset removed with its catalog card — UAT row W5 / #5575.
 
   /* ── CORTEX — AI & Machine Learning ───────────────────────────── */
   kserve:         { ramMb: 384,  cpuMilli: 200 },
@@ -153,7 +154,7 @@ export const COMPONENT_FOOTPRINTS: Record<string, ComponentFootprint> = {
   livekit:        { ramMb: 768,  cpuMilli: 300 },
   stunner:        { ramMb: 256,  cpuMilli: 100 },
   matrix:         { ramMb: 1024, cpuMilli: 400 },
-  ntfy:           { ramMb: 128,  cpuMilli: 50  },
+  // ntfy removed with its catalog card — UAT row W5 / #5575.
 }
 
 /** Empty-footprint sentinel used for components missing from the catalog. */

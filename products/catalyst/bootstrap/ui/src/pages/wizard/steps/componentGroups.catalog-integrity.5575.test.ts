@@ -25,6 +25,7 @@ import { resolve, join } from 'node:path'
 import { describe, it, expect } from 'vitest'
 
 import { ALL_COMPONENTS } from './componentGroups'
+import { DEFAULT_COMPONENT_GROUPS, getProfileDefaults } from '../../../entities/deployment/model'
 
 // ── locate the monorepo root (contains platform/ + products/ + clusters/) ────
 function repoRoot(): string {
@@ -46,17 +47,33 @@ function repoRoot(): string {
 
 const ROOT = repoRoot()
 
-// The 6 components #5575 found to resolve to no Blueprint. Tracked here as
-// EXPLICIT debt (Refs #5575) so they are visible, not hidden — the disposition
-// (remove vs. mark coming-soon vs. build the blueprint) is a product decision;
-// this list keeps the fail-closed gate green until then and blocks any NEW one.
-const KNOWN_UNBUILT: ReadonlySet<string> = new Set([
-  'envoy', // tier: mandatory, but the real envoy ships inside bp-cilium (cilium-envoy)
-  'frpc',
-  'strongswan',
-  'superset',
-  'ntfy',
-  'specter', // componentGroups.ts already comments "there is no bp-specter HelmRelease"
+// Tracked, non-mandatory debt: an offered component whose Blueprint is not
+// built YET. The map value is the reason, so the list can be argued with
+// rather than grown by reflex.
+//
+// UAT row W5 promoted this row to a determinate FAIL on 2026-08-10 with a
+// precise complaint about this very list: it held SIX ids, one of them
+// (`envoy`) at `tier: 'mandatory'`, and the first test below is written as
+// `unresolved === [...KNOWN_UNBUILT]`. A debt list that can absorb a
+// MANDATORY entry makes that test unable to fail for the case that matters
+// most — the operator cannot deselect a mandatory card, so every single
+// deployment emitted an id nothing could install, and the suite stayed
+// green. Five of the six are now REMOVED from the catalog outright
+// (componentGroups.ts carries the reasoning per family). `specter` stays
+// because it is not a phantom third-party card: it is an OpenOva product
+// with copy in the marketplace, an entry in the deployment store and a
+// documented `familyRequires: ['cortex']` cascade. Deleting it would be a
+// product decision; declaring it as bounded, non-mandatory debt is not.
+//
+// The bound is enforced, not merely written down — see the mandatory-tier
+// test below. That is the rule this row was actually failing on.
+const KNOWN_UNBUILT: ReadonlyMap<string, string> = new Map([
+  [
+    'specter',
+    'OpenOva AIOps component; componentGroups.ts already records "there is ' +
+      'no bp-specter HelmRelease". Optional tier, so an operator can decline ' +
+      'it. Refs #5575.',
+  ],
 ])
 
 // dependsOn targets that are legitimate infra edges but not selectable
@@ -112,10 +129,30 @@ describe('#5575 wizard component catalog integrity (fail-closed)', () => {
 
   it('every offered component resolves to a Blueprint, except tracked KNOWN_UNBUILT debt', () => {
     const unresolved = ids.filter(id => !resolvesToBlueprint(id)).sort()
-    const expected = [...KNOWN_UNBUILT].sort()
+    const expected = [...KNOWN_UNBUILT.keys()].sort()
     // Bidirectional: no NEW phantom (unresolved ⊆ KNOWN_UNBUILT) AND no stale
     // debt entry (KNOWN_UNBUILT ⊆ unresolved — a built one must leave the list).
     expect(unresolved).toEqual(expected)
+  })
+
+  it('no MANDATORY component may be tracked as unbuilt debt (UAT row W5)', () => {
+    // The rule the row was failing on, now enforced rather than described.
+    // `mandatory` means the operator cannot deselect the card, so a mandatory
+    // id with no Blueprint behind it is emitted by EVERY deployment this
+    // wizard produces. There is no tier of debt that makes that acceptable,
+    // and allowing it is what let the suite stay green while `envoy` shipped
+    // as an uninstallable mandatory card.
+    const byId = new Map(ALL_COMPONENTS.map(c => [c.id, c]))
+    const mandatoryDebt = [...KNOWN_UNBUILT.keys()]
+      .filter(id => byId.get(id)?.tier === 'mandatory')
+      .sort()
+    expect(mandatoryDebt).toEqual([])
+  })
+
+  it('every debt entry states a reason (the list is argued with, not grown)', () => {
+    for (const [id, reason] of KNOWN_UNBUILT) {
+      expect(reason.trim().length, `${id} carries no reason`).toBeGreaterThan(20)
+    }
   })
 
   it('every component dependency references a real component or tracked infra dep', () => {
@@ -129,12 +166,54 @@ describe('#5575 wizard component catalog integrity (fail-closed)', () => {
     expect([...dangling].sort()).toEqual([])
   })
 
-  it('the debt allowlist is non-empty and every entry is a real offered component (no typos)', () => {
-    // Vacuity: if the resolver silently broke and marked everything resolved,
-    // the first test would demand an EMPTY KNOWN_UNBUILT — this guards the other
-    // direction (the allowlist must reference ids that actually exist).
-    expect(KNOWN_UNBUILT.size).toBeGreaterThan(0)
+  it('every debt entry is a real offered component (no typos)', () => {
     const idSet = new Set(ids)
-    for (const id of KNOWN_UNBUILT) expect(idSet.has(id)).toBe(true)
+    for (const id of KNOWN_UNBUILT.keys()) expect(idSet.has(id)).toBe(true)
+  })
+
+  it('the DEFAULT/profile selection tables only name real components', () => {
+    // The second catalog. `DEFAULT_COMPONENT_GROUPS` (entities/deployment/
+    // model.ts) seeds INITIAL_WIZARD_STATE.componentGroups, and
+    // getProfileDefaults() adds to it per industry/compliance — neither was
+    // ever cross-checked against componentGroups.ts. That is how `envoy`,
+    // `frpc` and `strongswan` stayed PRE-SELECTED on a fresh wizard run
+    // even though they resolved to no Blueprint: removing their cards would
+    // not have removed them from the default selection. An id here that has
+    // no ComponentDef is invisible in the UI and still shipped in the
+    // payload, which is strictly worse than a visible phantom card.
+    const idSet = new Set(ids)
+    const profiles: Array<[string, string[], string]> = [
+      ['finance', ['PCI DSS'], '50,000'],
+      ['healthcare', ['HIPAA'], '500'],
+      ['software', ['SOC 2'], '100,000'],
+      ['retail', [], '200'],
+      ['', [], ''],
+    ]
+    const seen = new Set<string>()
+    for (const list of Object.values(DEFAULT_COMPONENT_GROUPS)) for (const id of list) seen.add(id)
+    for (const [ind, comp, size] of profiles) {
+      for (const list of Object.values(getProfileDefaults(ind, comp, size))) {
+        for (const id of list) seen.add(id)
+      }
+    }
+    const unknown = [...seen].filter(id => !idSet.has(id)).sort()
+    expect(unknown).toEqual([])
+    // Vacuity: the sweep must actually have collected ids.
+    expect(seen.size).toBeGreaterThan(20)
+  })
+
+  it('the resolver discriminates — it is not answering "yes" to everything', () => {
+    // The vacuity guard, and it had to be rewritten. It used to be
+    // `KNOWN_UNBUILT.size > 0`: a proxy that only works while debt exists,
+    // and therefore an argument FOR keeping phantoms in the catalog. It also
+    // never tested the resolver at all — a resolver that returned `true`
+    // unconditionally would still have passed it.
+    //
+    // This asks the resolver directly, both ways: a control id that certainly
+    // has Blueprint sources must resolve, and an id that certainly has none
+    // must not. If either direction breaks, the whole file is measuring
+    // nothing, and it says so here rather than reporting a clean catalog.
+    expect(resolvesToBlueprint('keycloak')).toBe(true)
+    expect(resolvesToBlueprint('definitely-not-a-blueprint-xyzzy')).toBe(false)
   })
 })
