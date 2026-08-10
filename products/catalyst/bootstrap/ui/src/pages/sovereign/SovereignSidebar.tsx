@@ -56,9 +56,15 @@ const CLOUD_ICON =
   'M6.657 18c-2.572 0 -4.657 -2.007 -4.657 -4.483c0 -2.475 2.085 -4.482 4.657 -4.482c.393 -1.762 1.794 -3.2 3.675 -3.773c1.88 -.572 3.956 -.193 5.444 1c1.488 1.19 2.162 3.007 1.77 4.769h.99c1.913 0 3.464 1.56 3.464 3.486c0 1.927 -1.551 3.487 -3.465 3.487h-11.878'
 
 interface FlatNavItem {
-  id: 'apps' | 'catalog' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'billing' | 'settings'
+  id: 'apps' | 'catalog' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'billing' | 'sovereignty' | 'settings'
   label: string
   to: string
+  /** Optional fragment appended to `to`. An entry that targets an anchor
+   *  SECTION of a page rather than a page carries it here so the rendered
+   *  href is `/page#anchor` and the operator lands ON the panel — landing at
+   *  the top of an eleven-section page is the state row 160 recorded as
+   *  failing, so the anchor is the substance of the entry, not decoration. */
+  hash?: string
   icon: string
 }
 
@@ -188,6 +194,34 @@ const FLAT_NAV: FlatNavItem[] = [
     to: '/billing',
     icon: 'M3 10h18M5 6h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2zm2 10h4',
   },
+  // Sovereignty (UAT row 160, #3379). The cutover is Pillar 5 — the single
+  // act that severs the eight mothership tethers — and until now its only
+  // reachable trigger was the LAST section of an eleven-section /settings
+  // page. The hw293-2026-08-10 walk enumerated this nav and got exactly
+  // eleven entries, none of them Sovereignty, while /sovereignty rendered
+  // "Not Found": the trigger existed but was not a surface.
+  //
+  // It is an ANCHOR entry, not a page. #793 deliberately mounted the cutover
+  // card as `<div id="sovereignty">` inside SettingsPage rather than giving it
+  // a route, so that the operator sees it in the context of the Sovereign's
+  // own configuration; duplicating it behind /sovereignty would give the
+  // cutover two front doors and two places for its state to disagree. The
+  // `hash` field carries the anchor so the rendered href is
+  // /settings#sovereignty and the entry lands ON the panel.
+  //
+  // RBAC: NOT in ORG_SCOPED_NAV_IDS. The cutover severs the whole Sovereign;
+  // exposing its trigger to an Org-scoped customer session would be a worse
+  // defect than the one this entry fixes.
+  //
+  // Icon: a shield-with-severed-link glyph in the single-stroke family — the
+  // same shield the Compliance entry uses, with the tether broken.
+  {
+    id: 'sovereignty',
+    label: 'Sovereignty',
+    to: '/settings',
+    hash: 'sovereignty',
+    icon: 'M12 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016A11.955 11.955 0 0112 2.944zM10 9.5l-1 1a2.121 2.121 0 003 3l1-1m1-1.5l1-1a2.121 2.121 0 00-3-3l-1 1',
+  },
 ]
 
 const SETTINGS_ITEM: FlatNavItem = {
@@ -223,11 +257,23 @@ const SETTINGS_ITEM: FlatNavItem = {
 
 // ── Active-state derivation ───────────────────────────────────────────────────
 
-type ActiveSection = 'apps' | 'catalog' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'billing' | 'settings'
+type ActiveSection = 'apps' | 'catalog' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'billing' | 'sovereignty' | 'settings'
 
 const CLOUD_PATH_RE = /^\/(cloud|infrastructure)(\/|$)/
 
-function deriveActiveSection(pathname: string): ActiveSection {
+/**
+ * @param pathname router location pathname
+ * @param hash     router location hash, with or without its leading `#`.
+ *   Two nav entries now share `/settings` — Settings and Sovereignty — so the
+ *   pathname alone can no longer decide which is active, and an entry that can
+ *   never light is not a first-class surface. The hash is the discriminator,
+ *   and it is normalised here because TanStack Router reports it without the
+ *   `#` while `location.hash` in the DOM includes it.
+ */
+function deriveActiveSection(pathname: string, hash = ''): ActiveSection {
+  const fragment = hash.replace(/^#/, '')
+  // Checked BEFORE the /settings rule below, which would otherwise swallow it.
+  if (/^\/settings(\/|$)/.test(pathname) && fragment === 'sovereignty') return 'sovereignty'
   if (CLOUD_PATH_RE.test(pathname)) return 'cloud'
   if (/^\/dashboard(\/|$)/.test(pathname)) return 'dashboard'
   // /catalog(/*) → 'catalog' (#3601) so the Catalog nav item highlights
@@ -266,7 +312,8 @@ function deriveActiveSection(pathname: string): ActiveSection {
 
 export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const activeSection = deriveActiveSection(pathname)
+  const hash = useRouterState({ select: (s) => s.location.hash })
+  const activeSection = deriveActiveSection(pathname, hash)
 
   // #4110 — Org-console scoping. When the backend reports an Org-scoped
   // session (whoami.orgScoped), filter the nav to the Org-safe items only.
@@ -460,6 +507,17 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
             <Link
               key={item.id}
               to={item.to as never}
+              hash={item.hash as never}
+              // Two entries now share the `/settings` pathname, and TanStack's
+              // Link owns `aria-current` — it sets `page` from its OWN match,
+              // which by default ignores the fragment. Without this, Sovereignty
+              // reads as the current page while the operator is on plain
+              // /settings, and Settings reads as current while they are on the
+              // cutover panel: both entries announce themselves as the location
+              // at once. Scoped to entries that carry a hash (plus the pinned
+              // Settings entry below) rather than applied blanket, so no other
+              // nav entry changes its match semantics.
+              activeOptions={item.hash ? { includeHash: true } : undefined}
               className={`mx-2 flex items-center gap-3 rounded-lg px-3 py-2 text-sm no-underline transition-colors ${cls}`}
               data-testid={`sov-console-nav-${item.id}`}
               aria-current={isActive ? 'page' : undefined}
@@ -503,6 +561,9 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
           return (
             <Link
               to={SETTINGS_ITEM.to as never}
+              // The other half of the pair above: on /settings#sovereignty this
+              // entry must NOT claim to be the current page.
+              activeOptions={{ includeHash: true }}
               className={`mx-2 mt-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm no-underline transition-colors ${cls}`}
               data-testid={`sov-console-nav-${SETTINGS_ITEM.id}`}
               aria-current={isActive ? 'page' : undefined}
