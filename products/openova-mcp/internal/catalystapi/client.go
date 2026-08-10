@@ -33,6 +33,7 @@ package catalystapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -375,6 +376,100 @@ func (c *Client) ListApplicationsOrg(ctx context.Context, bearer string) (*Appli
 	return out, nil
 }
 
+// ── Blueprint catalog (GET /api/v1/catalog) ──────────────────────────────
+
+// CatalogBlueprintVersion mirrors one entry of `versions[]` on a catalog
+// row (handler.CatalogBlueprintVersion). Only the fields the MCP needs to
+// pin an install are decoded.
+type CatalogBlueprintVersion struct {
+	Version  string `json:"version"`
+	ChartRef string `json:"chartRef,omitempty"`
+}
+
+// CatalogBlueprintCard mirrors the presentational half of a catalog row —
+// what the console renders on the card, and what an agent needs to tell a
+// user WHICH Blueprint it is about to install.
+type CatalogBlueprintCard struct {
+	Title   string `json:"title,omitempty"`
+	Summary string `json:"summary,omitempty"`
+}
+
+// CatalogBlueprint mirrors handler.CatalogBlueprint, decoded down to the
+// fields the MCP surfaces: the Blueprint name, its HEADLINE version (the
+// one the console's InstallPage pins) and the full version index.
+type CatalogBlueprint struct {
+	Name     string                    `json:"name"`
+	Version  string                    `json:"version"`
+	Card     CatalogBlueprintCard      `json:"card"`
+	Versions []CatalogBlueprintVersion `json:"versions,omitempty"`
+}
+
+// CatalogListResponse mirrors handler.CatalogListResponseEnvelope.
+type CatalogListResponse struct {
+	Items     []CatalogBlueprint `json:"items"`
+	Origins   []string           `json:"origins,omitempty"`
+	EmptyHint string             `json:"emptyHint,omitempty"`
+}
+
+// ListCatalog calls GET /api/v1/catalog — the read-only Blueprint catalog.
+//
+// This path IS on the catalyst-api's orgSafePathPrefixes allowlist
+// ("/api/v1/catalog", org_scope.go), so an Org-scoped session reaches it;
+// it is the SAME feed the console's InstallPage reads to compose an install
+// body. It is the only source of a valid `blueprintRef.version`, which the
+// install validator requires and does not default.
+func (c *Client) ListCatalog(ctx context.Context, bearer string) (*CatalogListResponse, error) {
+	var out CatalogListResponse
+	if err := c.get(ctx, "/api/v1/catalog", bearer, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ErrBlueprintNotInCatalog is returned by ResolveBlueprintVersion when the
+// catalog carries no row for the requested Blueprint. It is a DISTINCT
+// sentinel from a transport failure on purpose: "the catalog answered and
+// your Blueprint is not in it" and "the catalog could not be reached" must
+// never collapse into the same message, or a wiring fault reads to the
+// agent as a typo in the Blueprint name.
+var ErrBlueprintNotInCatalog = errors.New("blueprint not in catalog")
+
+// ResolveBlueprintVersion returns the version the catalog publishes for
+// blueprint, mirroring exactly what the console's InstallPage pins
+// (`selectedCard.version`, falling back to the first `versions[]` entry when
+// the row carries no headline version).
+//
+// It NEVER guesses: an unknown Blueprint, or a known Blueprint whose catalog
+// row publishes no version at all, returns an error rather than an empty
+// string. An empty version silently forwarded upstream is precisely the
+// failure this exists to prevent — it becomes an opaque
+// `blueprintRef.version is required` 400 several hops away from its cause.
+func (c *Client) ResolveBlueprintVersion(ctx context.Context, blueprint, bearer string) (string, error) {
+	want := strings.ToLower(strings.TrimSpace(blueprint))
+	if want == "" {
+		return "", fmt.Errorf("%w: empty blueprint name", ErrBlueprintNotInCatalog)
+	}
+	resp, err := c.ListCatalog(ctx, bearer)
+	if err != nil {
+		return "", err
+	}
+	for _, it := range resp.Items {
+		if strings.ToLower(strings.TrimSpace(it.Name)) != want {
+			continue
+		}
+		if v := strings.TrimSpace(it.Version); v != "" {
+			return v, nil
+		}
+		for _, ver := range it.Versions {
+			if v := strings.TrimSpace(ver.Version); v != "" {
+				return v, nil
+			}
+		}
+		return "", fmt.Errorf("%w: catalog row for %q publishes no version", ErrBlueprintNotInCatalog, blueprint)
+	}
+	return "", fmt.Errorf("%w: %q", ErrBlueprintNotInCatalog, blueprint)
+}
+
 // ListOrganizations calls GET /api/v1/organizations.
 func (c *Client) ListOrganizations(ctx context.Context, bearer string) (*OrganizationListResponse, error) {
 	var out OrganizationListResponse
@@ -441,11 +536,25 @@ type ApplicationPlacement struct {
 // CreateApplicationRequest is the body POSTed to the install endpoint. It
 // is the EXACT long-form `applicationInstallRequest` shape the console
 // Install button posts — the MCP reuses the same wire contract rather than
-// inventing a parallel one. Fields the caller omits are filled by the
-// catalyst-api's applicationInstallRequestNormalize (EnvironmentRef
-// defaults to "<org>-prod"; Placement defaults to a single-region
-// "primary"), so a minimal {blueprintRef, name, organizationRef} body is
-// a valid create.
+// inventing a parallel one.
+//
+// Which fields the server fills, and which it does NOT (verified against
+// applicationInstallRequestNormalize + validateApplicationInstallRequest in
+// products/catalyst/bootstrap/api/internal/handler/applications.go):
+//
+//   - EnvironmentRef — DEFAULTED server-side to "<organizationRef>-prod".
+//   - Placement.Mode — DEFAULTED server-side to "singleton".
+//   - Placement.Regions — DEFAULTED server-side to ["primary"].
+//   - BlueprintRef.Version — **NOT defaulted**. The validator rejects an
+//     empty version with `blueprintRef.version is required` (400). The
+//     console never hits this because InstallPage.tsx composes the body from
+//     the selected CATALOG card (`selectedCard.version`); the MCP must do the
+//     same, which is what ResolveBlueprintVersion + the `list_blueprints`
+//     tool are for. Do NOT re-document a version-less body as valid — it is
+//     the shape that 400s the whole agentic create chain (UAT 221/222).
+//
+// So the minimal VALID body is {blueprintRef{name,version}, name,
+// organizationRef}.
 type CreateApplicationRequest struct {
 	BlueprintRef    ApplicationBlueprintRef `json:"blueprintRef"`
 	Name            string                  `json:"name"`

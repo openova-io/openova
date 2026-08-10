@@ -1,9 +1,14 @@
 // catalogue.go — the OpenOva MCP tool catalogue.
 //
 // The READ tools (whoami, list_organizations, list_environments,
-// list_applications, get_application) are Org-scoped (RequiredContext is
-// empty so they are offered in both Org + Sovereign contexts, since a
-// sovereign-admin can read any Org).
+// list_applications, get_application, list_blueprints) are Org-scoped
+// (RequiredContext is empty so they are offered in both Org + Sovereign
+// contexts, since a sovereign-admin can read any Org).
+//
+// list_blueprints is the DISCOVERY half of the write path (#5516): the
+// install validator requires `blueprintRef.version` and does not default it,
+// so an agent that cannot read the catalog cannot compose a create the
+// catalyst-api will accept. See resolveBlueprintVersion.
 //
 // The FIRST WRITE tool — create_application (#3988, UAT rows 221-223) —
 // ships alongside them: it reuses the SAME UI create seam
@@ -32,6 +37,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -87,15 +93,22 @@ func catalogue() []Tool {
 			Handler: handleGetApplication,
 		},
 		{
+			Name:        "list_blueprints",
+			Description: "List the Blueprints installable on this Sovereign, each with the exact VERSION to pin. Thin facade over GET /api/v1/catalog — the same feed the console's Install page reads. Call this before create_application to learn a Blueprint's name and version.",
+			InputSchema: emptyObj,
+			MinTier:     identity.TierViewer,
+			Handler:     handleListBlueprints,
+		},
+		{
 			Name:        "create_application",
-			Description: "Install (create) an Application in the caller's Organization from a Blueprint — the SAME action as the console's Install button. Reuses POST /api/v1/sovereigns/{id}/applications (the shared create seam), so the Org namespace is ensured and the Application CR is written by the catalyst-api exactly once. RBAC-scoped: an Org-scoped caller may create ONLY in their own Organization (a cross-Org organizationRef is forbidden); a sovereign-admin may create in any Organization. Requires tier-admin or higher (mirrors the console Install gate).",
+			Description: "Install (create) an Application in the caller's Organization from a Blueprint — the SAME action as the console's Install button. Reuses the shared create seam, so the Org namespace is ensured and the Application CR is written by the catalyst-api exactly once. Omitted `version` is resolved from the Blueprint's catalog entry, so \"install bp-wordpress in my org\" is a complete request. RBAC-scoped: an Org-scoped caller may create ONLY in their own Organization (a cross-Org organizationRef is forbidden); a sovereign-admin may create in any Organization. Requires tier-admin or higher (mirrors the console Install gate).",
 			InputSchema: map[string]any{
 				"type":                 "object",
 				"additionalProperties": false,
 				"required":             []string{"blueprint", "name"},
 				"properties": map[string]any{
-					"blueprint":      map[string]any{"type": "string", "description": "Blueprint to install, e.g. bp-wordpress (must start with bp-)."},
-					"version":        map[string]any{"type": "string", "description": "Blueprint version to pin, e.g. 1.2.3. Required by the catalyst-api install validator."},
+					"blueprint":      map[string]any{"type": "string", "description": "Blueprint to install, e.g. bp-wordpress (must start with bp-). Use list_blueprints to see what this Sovereign publishes."},
+					"version":        map[string]any{"type": "string", "description": "Blueprint version to pin, e.g. 1.2.3. Optional — when omitted it is resolved from the Blueprint's catalog entry (the same version the console's Install page pins). A Blueprint absent from the catalog is an error, never a guess."},
 					"name":           map[string]any{"type": "string", "description": "Application name (metadata.name): RFC-1123 lowercase alphanumeric + hyphens, 1-63 chars. Doubles as the app's purpose."},
 					"organization":   map[string]any{"type": "string", "description": "Target Organization (slug or FQDN, e.g. acme or hw178.omani.works). OPTIONAL in Org context — defaults to the caller's own Org; a value naming a DIFFERENT Org is forbidden for an Org-scoped caller. REQUIRED for a sovereign-admin (no implicit Org)."},
 					"environment":    map[string]any{"type": "string", "description": "Target Environment ref, e.g. acme-prod. Optional — defaults to <organization>-prod."},
@@ -277,8 +290,14 @@ func handleCreateApplication(ctx context.Context, id *identity.Identity, api *ca
 		return nil, err
 	}
 
+	blueprint := strings.TrimSpace(in.Blueprint)
+	version, err := resolveBlueprintVersion(ctx, api, blueprint, strings.TrimSpace(in.Version), bearerOf(id))
+	if err != nil {
+		return nil, err
+	}
+
 	req := catalystapi.CreateApplicationRequest{
-		BlueprintRef:    catalystapi.ApplicationBlueprintRef{Name: strings.TrimSpace(in.Blueprint), Version: strings.TrimSpace(in.Version)},
+		BlueprintRef:    catalystapi.ApplicationBlueprintRef{Name: blueprint, Version: version},
 		Name:            strings.TrimSpace(in.Name),
 		OrganizationRef: targetOrg,
 		EnvironmentRef:  strings.TrimSpace(in.Environment),
@@ -309,6 +328,85 @@ func handleCreateApplication(ctx context.Context, id *identity.Identity, api *ca
 		return nil, err
 	}
 	return api.CreateApplication(ctx, depID, req, bearerOf(id))
+}
+
+// handleListBlueprints lists the installable Blueprints with the exact
+// version to pin — the discovery half of the agentic create chain
+// (UAT 221/222). Without it an agent asked to "install wordpress" has no way
+// to learn either the `bp-` name or a version the install validator accepts,
+// so its only possible outcome is a 400 from several hops away.
+//
+// Thin facade over GET /api/v1/catalog, which IS on the catalyst-api's
+// Org-safe allowlist, so an Org-scoped session reaches it with no
+// deployment binding and no Sovereign reach.
+func handleListBlueprints(ctx context.Context, id *identity.Identity, api *catalystapi.Client, _ json.RawMessage) (any, error) {
+	if api == nil {
+		return nil, fmt.Errorf("catalyst-api client not configured")
+	}
+	resp, err := api.ListCatalog(ctx, bearerOf(id))
+	if err != nil {
+		return nil, err
+	}
+	items := make([]map[string]any, 0, len(resp.Items))
+	for _, bp := range resp.Items {
+		name := strings.TrimSpace(bp.Name)
+		if name == "" {
+			continue
+		}
+		versions := make([]string, 0, len(bp.Versions))
+		for _, v := range bp.Versions {
+			if s := strings.TrimSpace(v.Version); s != "" {
+				versions = append(versions, s)
+			}
+		}
+		row := map[string]any{"name": name, "version": strings.TrimSpace(bp.Version)}
+		if len(versions) > 0 {
+			row["versions"] = versions
+		}
+		if t := strings.TrimSpace(bp.Card.Title); t != "" {
+			row["title"] = t
+		}
+		if s := strings.TrimSpace(bp.Card.Summary); s != "" {
+			row["summary"] = s
+		}
+		items = append(items, row)
+	}
+	return map[string]any{"items": items, "total": len(items)}, nil
+}
+
+// resolveBlueprintVersion returns the version to stamp on the install body.
+//
+// An explicitly supplied version is ALWAYS honoured verbatim — pinning is
+// the caller's prerogative and the catalog never overrides it. Only an
+// OMITTED version is resolved, from the Blueprint's catalog entry, which is
+// exactly what the console does (InstallPage.tsx composes blueprintRef from
+// the selected catalog card, so the console can never post an empty
+// version).
+//
+// The failure posture is deliberate. `blueprintRef.version` is REQUIRED by
+// the catalyst-api install validator
+// (handler/applications.go — "blueprintRef.version is required") and is NOT
+// one of the fields applicationInstallRequestNormalize defaults, unlike
+// environmentRef / placement.mode / placement.regions. So an unresolved
+// version must NOT be forwarded as "": that turns a knowable, local,
+// nameable condition into an opaque upstream 400 attributed to the create
+// itself. We fail here instead, naming the Blueprint and the tool that
+// answers the question.
+func resolveBlueprintVersion(ctx context.Context, api *catalystapi.Client, blueprint, requested, bearer string) (string, error) {
+	if requested != "" {
+		return requested, nil
+	}
+	if api == nil {
+		return "", fmt.Errorf("catalyst-api client not configured")
+	}
+	version, err := api.ResolveBlueprintVersion(ctx, blueprint, bearer)
+	if err != nil {
+		if errors.Is(err, catalystapi.ErrBlueprintNotInCatalog) {
+			return "", fmt.Errorf("cannot resolve a version for blueprint %q: %w — call list_blueprints for the Blueprints this Sovereign publishes, or pass an explicit version", blueprint, err)
+		}
+		return "", fmt.Errorf("cannot resolve a version for blueprint %q from the catalog: %w — pass an explicit version to install without the catalog", blueprint, err)
+	}
+	return version, nil
 }
 
 // resolveCreateTargetOrg resolves + Org-scope-checks the target
