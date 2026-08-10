@@ -42,13 +42,13 @@ which is the floating-denominator behaviour the frozen 286 exists to prevent.
 | **DEPLOY-GATED** | 26 | the fix is merged and not running here; closes on a roll/prov |
 | **BUILD** | 18 | no fix exists yet (`NEEDS-CODE` in UAT.md) |
 | **ENV-STATE** | 6 | needs a different environment shape entirely |
-| **WALKABLE NOW** | 26 | a walk on THIS env can change the verdict |
-| **total** | **76** | |
+| **WALKABLE NOW** | 32 | a walk on THIS env can change the verdict |
+| **total** | **82** | |
 
 - **DEPLOY-GATED (26)** — 4 7 15 25 33 37 59 87 90 95 100 176 183 212 213 216 218 219 221 222 228 234 238 W1 W2 R16
 - **BUILD (18)** — 3 19 38 115 121 164 166 177 192 195 225 233 G2 W5 G7 G8 G9 G11
 - **ENV-STATE (6)** — 29 41 60 123 178 R17
-- **WALKABLE NOW (26)** — 35 48 55 56 57 62 63 64 65 66 67 69 70 71 188 217 220 223 241 G1 G3 G6 G10 R12 R13 R19
+- **WALKABLE NOW (32)** — 8 30 32 35 36 48 51 52 55 56 57 62 63 64 65 66 67 69 70 71 188 217 220 223 241 G1 G3 G6 G10 R12 R13 R19
 
 ## 2. The D-34, clustered by root cause
 
