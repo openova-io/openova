@@ -1185,11 +1185,40 @@ data:
             */ -}}
             "clientSecret": {{ include "bp-keycloak.pinBrokerClientSecret" . | quote }},
             "clientAuthMethod": "client_secret_post",
-            "authorizationUrl": "https://api.{{ .Values.sovereignFQDN }}/oidc/auth",
-            "tokenUrl": "https://api.{{ .Values.sovereignFQDN }}/oidc/token",
-            "userInfoUrl": "https://api.{{ .Values.sovereignFQDN }}/oidc/userinfo",
-            "jwksUrl": "https://api.{{ .Values.sovereignFQDN }}/oidc/certs",
-            "issuer": "https://api.{{ .Values.sovereignFQDN }}",
+            {{- /*
+            #6087 (UAT row 219) — FRONTCHANNEL PUBLIC, BACKCHANNEL INTERNAL.
+
+            The three URLs below the authorizationUrl are dialed SERVER-SIDE by
+            Keycloak, as this block's own flow comment states: "KC server calls
+            .../oidc/token to exchange" and "KC validates id_token signature via
+            .../oidc/certs". Rendering them against the PUBLIC api.<sov-fqdn>
+            asks the Keycloak Pod to hairpin out to the Sovereign's own EIP and
+            back in through the gateway. On Huawei that does not work — the
+            #3241/#3844 class, stated verbatim in
+            platform/oidc-gate/chart/Chart.yaml 0.1.5: "on Huawei a Pod cannot
+            dial the Sovereign's own public EIP (ELB-DNAT'd, no hairpin)".
+
+            Measured on hw293: the browser follows the gate's redirect to
+            /realms/sovereign/broker/catalyst-pin/endpoint?code=... and Keycloak
+            renders its own error page with HTTP 502 — the response
+            AbstractOAuth2IdentityProvider produces when the server-side leg
+            fails, while authorizationUrl (a browser redirect) works fine.
+
+            authorizationUrl stays PUBLIC because a browser resolves it.
+            issuer stays PUBLIC because it is compared against the `iss` claim
+            catalyst-api mints from its own SOVEREIGN_FQDN — pointing it inward
+            would trade a connectivity failure for a validation failure.
+            */ -}}
+            {{- $apiPublic := printf "https://api.%s" .Values.sovereignFQDN }}
+            {{- $apiBackchannel := $apiPublic }}
+            {{- with trim (.Values.catalystAPIInternalURL | default "") }}
+            {{- $apiBackchannel = trimSuffix "/" . }}
+            {{- end }}
+            "authorizationUrl": "{{ $apiPublic }}/oidc/auth",
+            "tokenUrl": "{{ $apiBackchannel }}/oidc/token",
+            "userInfoUrl": "{{ $apiBackchannel }}/oidc/userinfo",
+            "jwksUrl": "{{ $apiBackchannel }}/oidc/certs",
+            "issuer": "{{ $apiPublic }}",
             "defaultScope": "openid email profile groups",
             "syncMode": "FORCE",
             "validateSignature": "true",

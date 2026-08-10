@@ -388,7 +388,16 @@ export const SILENT_SSO_NAV_GRACE_MS = 8000
 // before falling back to the PIN wall.
 export async function attemptSilentSovereignSSO(): Promise<boolean> {
   if (typeof window === 'undefined') return false
-  const fqdn = DETECTED_MODE.sovereignFQDN
+  // #5895 / UAT row 29 — ASK for the Sovereign FQDN, never derive it from this
+  // host. `DETECTED_MODE.sovereignFQDN` strips one `console.` label, which on a
+  // per-Org console yields the ORG apex; the authorize URL then targets
+  // `auth.<orgslug>.<parent>`, where a walker measured 404 on 10/10 probes
+  // (valid wildcard cert, cookies intact — the per-Org Gateway has a
+  // `*.<slug>.<parent>` listener but no HTTPRoute for that name). The silent leg
+  // then never commits, SILENT_SSO_NAV_GRACE_MS below expires, and the visitor
+  // lands on the PIN wall this row exists to forbid.
+  const { resolveSovereignFQDN } = await import('@/shared/lib/resolveSovereignFQDN')
+  const fqdn = await resolveSovereignFQDN()
   if (!fqdn) return false
   try {
     if (sessionStorage.getItem(SILENT_SSO_GUARD_KEY) === '1') {
