@@ -3762,7 +3762,7 @@ name: bp-catalyst-platform
 #   surface — the StatefulSet container name reached the cluster as the
 #   retired name). Republished here so the bp-catalyst-platform OCI artifact
 #   actually carries the moved pin.
-version: 1.4.1331
+version: 1.4.1332
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which

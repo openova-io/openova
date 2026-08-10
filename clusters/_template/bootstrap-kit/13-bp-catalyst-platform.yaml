@@ -1355,7 +1355,7 @@ spec:
       #   puts on the cluster. The StatefulSet's main container was named
       #   with the retired name, so it surfaced in `kubectl logs/exec -c`
       #   (live on hw292 Org uatco). Lockstep w/ products/agenity.
-      version: 1.4.1331
+      version: 1.4.1332
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
