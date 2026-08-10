@@ -45,6 +45,26 @@ LABEL = re.compile(
     r"\s*([A-Z][A-Z\- ]*[A-Z])"
 )
 
+# A reclassification written in wording LABEL cannot read. LABEL is deliberately
+# strict, and strictness here fails OPEN: an unreadable re-tag is not an error,
+# it simply leaves the row in whatever bucket the previous label put it. That is
+# how rows 38 and 98 kept routing to an engineer after their own Evidence cells
+# had retired that verdict — 98 said "RE-CLASSIFIED NEEDS-CODE -> DEPLOY-GATED"
+# and cited the merged shas; 38 said "RE-PARTITIONED: NEEDS-CODE to
+# UNDELIVERED-FIX ... No source change closes this row". Both read as BUILD, so
+# both were dispatched as new engineering that was already merged.
+#
+# The failure is silent by construction: a parser that cannot see a sentence
+# cannot report that it disagrees with it. So look for the sentence SHAPE
+# independently, and speak up only when the newest such sentence contradicts the
+# bucket actually derived — a near-miss that agrees with the derived bucket
+# changes no routing and is not worth a red gate.
+RELABEL_SHAPE = re.compile(
+    r"RE-?(?:CLASSIFIED|PARTITIONED|TAGGED|BUCKETED|LABELLED|LABELED)"
+    r"[^‖|]{0,80}?(?:->|→|\bto\b)\s*"
+    r"(NEEDS-CODE|BUILD|DEPLOY-GATED|ENV-STATE|WALKABLE NOW|UNDELIVERED-FIX)"
+)
+
 # The ledger writes NEEDS-CODE; the WBS calls the same class BUILD. One name has
 # to win at the seam or the comparison is decided by spelling.
 CANON = {"NEEDS-CODE": "BUILD", "UNTAGGED": "WALKABLE NOW"}
@@ -81,6 +101,42 @@ def derive(text):
     for v in buckets.values():
         v.sort(key=sort_key)
     return dict(buckets)
+
+
+def unreadable_relabels(text):
+    """[(row_id, said, derived)] for rows whose NEWEST re-tag LABEL cannot read.
+
+    Only reported when the unreadable sentence disagrees with the bucket the row
+    actually landed in, because that is the case where a row is dispatched to
+    the wrong people. A near-miss that names the same bucket routes correctly by
+    accident and is left alone.
+    """
+    out = []
+    for line in text.split("\n"):
+        m = ROW_ID.match(line)
+        if not m:
+            continue
+        cells = [c.strip() for c in CELL.split(line.strip()) if c.strip() != ""]
+        if len(cells) < 6 or not cells[5].startswith("❌"):
+            continue
+        # A cell that QUOTES an old wording in order to discuss it is not
+        # re-tagging anything, and a guard that fires on quotation is a guard
+        # people learn to route around. Backticked spans are excluded.
+        quoted = [(m.start(), m.end()) for m in re.finditer(r"`[^`]*`", line)]
+        shapes = [m for m in RELABEL_SHAPE.finditer(line)
+                  if not any(a < m.start() < b for a, b in quoted)]
+        if not shapes:
+            continue
+        labels = list(LABEL.finditer(line))
+        # Later in the cell means later in time: the ledger appends.
+        if labels and labels[-1].end() > shapes[-1].end():
+            continue
+        said = CANON.get(shapes[-1].group(1), shapes[-1].group(1))
+        derived = CANON.get(labels[-1].group(1).strip(), labels[-1].group(1).strip()) \
+            if labels else CANON["UNTAGGED"]
+        if said != derived:
+            out.append((m.group(1), said, derived))
+    return out
 
 
 def parse_wbs(text):
@@ -187,6 +243,47 @@ def self_test():
     ok &= good
     print(f"  [{'ok' if good else 'FAIL'}] an unparsed ledger is red, not green")
 
+    # The row-38/98 defect: a re-tag LABEL cannot read leaves the row in its old
+    # bucket, silently. Row 5 is the real hw293 wording; row 6 is row 98's.
+    unreadable = (
+        "| 5 | x | y | z | hw | ❌ | ‖ PARTITION 2026-08-10: NEEDS-CODE — m "
+        "‖ RE-PARTITIONED: NEEDS-CODE to UNDELIVERED-FIX. No source change "
+        "closes this row. |\n"
+        "| 6 | x | y | z | hw | ❌ | ‖ PARTITION 2026-08-10: NEEDS-CODE — m "
+        "‖ 2026-08-10 RE-CLASSIFIED NEEDS-CODE -> DEPLOY-GATED, the fix is on "
+        "main. |\n"
+    )
+    good = derive(unreadable) == {"BUILD": ["5", "6"]}
+    ok &= good
+    print(f"  [{'ok' if good else 'FAIL'}] an unreadable re-tag really does "
+          f"leave the row in BUILD — the defect exists (got {derive(unreadable)})")
+
+    found = unreadable_relabels(unreadable)
+    good = ([r[0] for r in found] == ["5", "6"]
+            and found[0][1:] == ("UNDELIVERED-FIX", "BUILD")
+            and found[1][1:] == ("DEPLOY-GATED", "BUILD"))
+    ok &= good
+    print(f"  [{'ok' if good else 'FAIL'}] and the guard names both rows with "
+          f"what they meant and how they were routed ({found})")
+
+    # Non-vacuity, both directions. A canonical re-tag AFTER the near-miss is
+    # the ledger settling the question — silent. And a near-miss agreeing with
+    # the derived bucket routes correctly, so it must not cry wolf.
+    settled = (
+        "| 7 | x | y | z | hw | ❌ | ‖ RE-PARTITIONED: NEEDS-CODE to DEPLOY-GATED "
+        "‖ RE-TAGGED 2026-08-11: NEEDS-CODE -> DEPLOY-GATED — settled. |\n"
+        "| 8 | x | y | z | hw | ❌ | ‖ PARTITION 2026-08-10: DEPLOY-GATED — m "
+        "‖ RE-CLASSIFIED to DEPLOY-GATED anyway. |\n"
+        "| 9 | x | y | z | hw | ✅ | ‖ RE-PARTITIONED: NEEDS-CODE to ENV-STATE |\n"
+        "| 10 | x | y | z | hw | ❌ | ‖ RE-TAGGED 2026-08-11: NEEDS-CODE -> "
+        "DEPLOY-GATED — the cell previously read `RE-PARTITIONED: NEEDS-CODE to "
+        "UNDELIVERED-FIX`, quoted here to explain the change. |\n"
+    )
+    good = unreadable_relabels(settled) == []
+    ok &= good
+    print(f"  [{'ok' if good else 'FAIL'}] a settled, an agreeing, a green and a "
+          f"quoting row are all silent (got {unreadable_relabels(settled)})")
+
     print("self-test:", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 
@@ -245,10 +342,26 @@ def main():
         problems = compare(derived, parse_wbs(WBS.read_text(encoding="utf-8")))
         for p in problems:
             print("FAIL: " + p)
+        stale = unreadable_relabels(UAT.read_text(encoding="utf-8"))
+        for rid, said, got in stale:
+            print(f"FAIL: row {rid} — its newest re-tag says {said}, but that "
+                  f"sentence is written in wording this parser cannot read, so "
+                  f"the row is routed as {got}. Re-state it as "
+                  f"'RE-TAGGED <YYYY-MM-DD>: {got} -> {said} — <reason>'.")
         if problems:
             print("\nWBS-TO-100.md §1 disagrees with UAT.md about which rows need "
                   "an engineer. UAT.md wins — re-derive with --write.",
                   file=sys.stderr)
+        if stale:
+            # Deliberately NOT a --write fix: --write would faithfully copy the
+            # wrong bucket into WBS §1 and go green. The Evidence cell is the
+            # source of truth and only a human editing it can settle this.
+            print("\nA re-tag this parser cannot read does not fail — it leaves "
+                  "the row in its old bucket. That is how a fix that is already "
+                  "merged keeps getting dispatched as new engineering. Fix the "
+                  "Evidence cell wording; --write cannot help here.",
+                  file=sys.stderr)
+        if problems or stale:
             return 1
         total = sum(len(v) for v in derived.values())
         print(f"ok — WBS §1 matches UAT.md across {len(derived)} buckets, "
