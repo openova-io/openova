@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T12:00:07Z` |
+| Last refreshed | `2026-08-10T12:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,10 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5450](https://github.com/openova-io/openova/issues/5450) | Sovereign's own Kyverno image-tag-pinned policy rejects its own catalog app mani | Other |
-| [#5451](https://github.com/openova-io/openova/issues/5451) | Per-Org console badges dead apps as INSTALLED with live Open buttons — 4/4 ret | Other |
-| [#5459](https://github.com/openova-io/openova/issues/5459) | OpenBao SSO lands an authenticated-but-unauthorized session — /sys/internal/ui | Other |
-| [#5460](https://github.com/openova-io/openova/issues/5460) | Console does not silently re-establish after session TTL — operator is re-prom | Other |
 | [#5461](https://github.com/openova-io/openova/issues/5461) | Sovereign console intermittent 503 (envoy upstream connect timeout, ~17-25% prob | Other |
 | [#5465](https://github.com/openova-io/openova/issues/5465) | Sovereign catalyst-api OOMKilled AT the post-#5352 4Gi limit, 63min into fresh h | Other |
 | [#5466](https://github.com/openova-io/openova/issues/5466) | newapi SSO dead-ends: /api/oauth/sovereign code exchange returns 403 → no SSO  | Other |
@@ -300,6 +296,10 @@ flowchart LR
 | [#5982](https://github.com/openova-io/openova/issues/5982) | DR runbook preflight reports Pass for surfaces it never probes — cnpgpair-stre | Other |
 | [#5984](https://github.com/openova-io/openova/issues/5984) | guacamole.properties renders the DB password in plaintext — fine on our own in | Other |
 | [#5986](https://github.com/openova-io/openova/issues/5986) | sso-uat-flip destroyed 13 correct verdicts on a commit that cannot affect an SSO | Other |
+| [#5987](https://github.com/openova-io/openova/issues/5987) | Per-Org bp-newapi cannot install: the funnel HR supplies no catalystIntegration. | Other |
+| [#5988](https://github.com/openova-io/openova/issues/5988) | UAT ledger: eleven DEPLOY-GATED rows cite the docs-only ledger commit as their f | Other |
+| [#5991](https://github.com/openova-io/openova/issues/5991) | Guacamole connections list is empty by construction: no producer exists, and the | Other |
+| [#5993](https://github.com/openova-io/openova/issues/5993) | pod-truth reconciler is vcluster-only: host-tier (plan free/S) pods are invisibl | Other |
 
 ---
 
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T12:07 | [#5983](https://github.com/openova-io/openova/pull/5983) | #5697 | docs(uat): row 35 — the 403 is an unknown-token 403, not a p |
+| 2026-08-10T12:07 | [#5980](https://github.com/openova-io/openova/pull/5980) | #5964 | feat(ci): fail a PR that claims a chart version another open |
+| 2026-08-10T12:07 | [#5977](https://github.com/openova-io/openova/pull/5977) | #5972 | docs(uat): re-walk the 14 silent-SSO rows the f25c4d7d flip  |
 | 2026-08-10T11:19 | [#5976](https://github.com/openova-io/openova/pull/5976) | #3374 | docs(uat): convergence cycle 2026-08-10 — 67.8% green, and t |
 | 2026-08-10T11:34 | [#5974](https://github.com/openova-io/openova/pull/5974) | #5435 | fix(org-services): the workload named tenant is what put a b |
 | 2026-08-10T10:55 | [#5972](https://github.com/openova-io/openova/pull/5972) | #5614 | fix(auth, dashboard): the handover session stamps a foreign  |
@@ -324,6 +327,7 @@ flowchart LR
 | 2026-08-10T06:14 | [#5957](https://github.com/openova-io/openova/pull/5957) | #5246 | fix(org): per-Org console listeners land in EVERY region, an |
 | 2026-08-10T05:54 | [#5954](https://github.com/openova-io/openova/pull/5954) | #5246 | docs(wbs): the structured plan to kill the 78 — partitioned  |
 | 2026-08-10T05:54 | [#5953](https://github.com/openova-io/openova/pull/5953) | #3687 | chore(uat): land the convergence-capture script + record cyc |
+| 2026-08-10T12:07 | [#5951](https://github.com/openova-io/openova/pull/5951) | #5919 | fix(cutover): add mail.openova.io to the step-08 deny set —  |
 | 2026-08-09T23:36 | [#5950](https://github.com/openova-io/openova/pull/5950) | #4277 | docs(uat): zero pending — 208 PASS + 78 FAIL = 286, every ro |
 | 2026-08-09T23:22 | [#5949](https://github.com/openova-io/openova/pull/5949) | #3687 | docs(uat): no partials — every row is now PASS or FAIL, and  |
 | 2026-08-09T22:51 | [#5947](https://github.com/openova-io/openova/pull/5947) | #5614 | docs(uat): final disposition — the SUPERSEDED class is EMPTY |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-08-09T22:11 | [#5941](https://github.com/openova-io/openova/pull/5941) | #5113 | docs(uat): row 156 walked end-to-end — Save's verdict is bac |
 | 2026-08-09T22:07 | [#5939](https://github.com/openova-io/openova/pull/5939) | #4546 | docs(uat): formal disposition of all 13 SUPERSEDED rows — 3  |
 | 2026-08-09T21:48 | [#5938](https://github.com/openova-io/openova/pull/5938) | #3383 | docs(uat): row 5 asserted a schema-forbidden value — correct |
-| 2026-08-09T21:49 | [#5937](https://github.com/openova-io/openova/pull/5937) | #4325 | fix(dashboard): group the vCluster treemap layer on a runtim |
-| 2026-08-09T20:59 | [#5936](https://github.com/openova-io/openova/pull/5936) | #5836 | fix(console): the Status panel must render a bootstrap compo |
-| 2026-08-09T20:59 | [#5935](https://github.com/openova-io/openova/pull/5935) | #5814 | fix(catalyst-api): customer Application CRs must carry spec. |
-| 2026-08-09T20:07 | [#5931](https://github.com/openova-io/openova/pull/5931) | #3925 | fix(jobs): an unterminated run must not bury a failed one (U |
 
 ---
 
