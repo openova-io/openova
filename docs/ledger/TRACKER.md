@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T11:15:04Z` |
+| Last refreshed | `2026-08-10T11:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5442](https://github.com/openova-io/openova/issues/5442) | harbor-prewarm warms images from the LIVE CLUSTER but charts from the MIRROR's p | Other |
-| [#5443](https://github.com/openova-io/openova/issues/5443) | Cutover pivots the marketplace resolver to local Harbor but never mirrors the ca | Other |
 | [#5444](https://github.com/openova-io/openova/issues/5444) | Console Blueprint version editor accepts a version that exists in no registry an | Other |
 | [#5445](https://github.com/openova-io/openova/issues/5445) | Per-Org postgres mounts its PVC directly at PGDATA — lost+found on ext4 EVS ma | Other |
 | [#5450](https://github.com/openova-io/openova/issues/5450) | Sovereign's own Kyverno image-tag-pinned policy rejects its own catalog app mani | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#5955](https://github.com/openova-io/openova/issues/5955) | P1: Application reports Ready=True over a database with ZERO ready instances — | Other |
 | [#5956](https://github.com/openova-io/openova/issues/5956) | P0: the Anthropic credential in openbao is REVOKED — every health surface repo | Other |
 | [#5975](https://github.com/openova-io/openova/issues/5975) | check-release-lockstep-writer.py leaks multi-GB scratch clones, then reports the | Other |
+| [#5981](https://github.com/openova-io/openova/issues/5981) | harbor host answers 301 on half of fresh connections and envoy 404 on the other  | Other |
+| [#5982](https://github.com/openova-io/openova/issues/5982) | DR runbook preflight reports Pass for surfaces it never probes — cnpgpair-stre | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T11:19 | [#5976](https://github.com/openova-io/openova/pull/5976) | #3374 | docs(uat): convergence cycle 2026-08-10 — 67.8% green, and t |
 | 2026-08-10T10:55 | [#5972](https://github.com/openova-io/openova/pull/5972) | #5614 | fix(auth, dashboard): the handover session stamps a foreign  |
 | 2026-08-10T10:32 | [#5971](https://github.com/openova-io/openova/pull/5971) | #3374 | fix(jobs,auth): UAT rows 164 + 41 — a failed run must termin |
 | 2026-08-10T10:32 | [#5970](https://github.com/openova-io/openova/pull/5970) | #4110 | fix(openova-mcp): resolve the Blueprint version an agentic c |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-09T20:07 | [#5931](https://github.com/openova-io/openova/pull/5931) | #3925 | fix(jobs): an unterminated run must not bury a failed one (U |
 | 2026-08-09T20:06 | [#5930](https://github.com/openova-io/openova/pull/5930) | #5246 | fix(catalyst-api): per-Org console listeners span every regi |
 | 2026-08-09T21:18 | [#5928](https://github.com/openova-io/openova/pull/5928) | #5924 | docs(uat): 170 → 184 green on live re-walks; retire 13 dead  |
-| 2026-08-09T20:07 | [#5927](https://github.com/openova-io/openova/pull/5927) | #3376 | fix(marketplace): hide payment chrome when credit covers the |
 
 ---
 
