@@ -34,6 +34,13 @@ ships:
    - `list_environments` — derived from the caller's Applications (Catalyst
      has no standalone list-environments REST endpoint; the console derives
      env partitions the same way, so the facade does too).
+   - `list_blueprints` — `GET /api/v1/catalog`, the installable Blueprints
+     with the exact **version** to pin. This is the discovery half of the
+     agentic create chain: `blueprintRef.version` is mandatory upstream and
+     is *not* server-defaulted, so without a catalog tool an agent asked to
+     "install wordpress" has no way to compose a body the install validator
+     accepts. The console never hits this because its Install page composes
+     the body from the selected catalog card.
 5. **The first WRITE tool** — `create_application` (UAT rows 221-223):
    - `create_application` — installs (creates) an Application in the caller's
      Org from a Blueprint by forwarding the canonical install-request body to
@@ -49,6 +56,19 @@ ships:
      tool is **admin-tier-gated** in `tools/list` (a viewer never sees it),
      mirroring the console Install gate, and a hand-crafted viewer call is
      re-denied at layer-2.
+   - **Version resolution.** `version` is optional on the tool; when omitted
+     it is resolved from the Blueprint's catalog entry — the same value the
+     console's Install page pins. An explicitly supplied version is honoured
+     verbatim and costs no catalog round-trip. A Blueprint the catalog does
+     not publish is refused **here**, naming the Blueprint and pointing at
+     `list_blueprints`; an empty version is never forwarded, because upstream
+     it becomes an opaque `blueprintRef.version is required` 400 attributed to
+     the create rather than to the unknown Blueprint. The defaulting contract
+     this relies on (environmentRef / placement.mode / placement.regions ARE
+     server-defaulted, `blueprintRef.version` is NOT) is pinned from the
+     catalyst-api side by
+     `handler.Test_ApplicationInstall_VersionIsRequiredAndNeverDefaulted`, so
+     the two sides cannot drift apart silently.
 
 ## How the thin-facade + RBAC parity holds
 

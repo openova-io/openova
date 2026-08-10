@@ -167,10 +167,33 @@ func (h *Handler) resolveOrganization(w http.ResponseWriter, r *http.Request) (s
 	// session's `org` claim (stamped from the request host at PIN-verify,
 	// which the customer cannot forge). A Sovereign-admin session has no
 	// org claim and is unaffected (it may legitimately operate any Org).
+	//
+	// FAIL CLOSED (#5516). This check used to read
+	// `sessionOrg != "" && resolvedSlug != "" && sessionOrg != resolvedSlug`,
+	// so BOTH empty cases fell through as "no mismatch" — an absent value
+	// silently read as an absent constraint, which is the identical defect
+	// class that cost this chain a week under a different name (a missing
+	// `deployment_id` claim reading as "no deployment"). The two holes were
+	// real, not theoretical: `orgSlugFromHost` returns "" for any registered
+	// tenant host that is not `<service>.<slug>.<zone>`, and an Org-scoped
+	// session (tier=org-admin) with an empty `org` claim skipped the binding
+	// entirely. Either one let an Org session resolve — and, via
+	// HandleOrgApplicationInstall, WRITE an Application CR into — a sibling
+	// Organization's namespace.
+	//
+	// The bound identity is now computed EXACTLY as resolveOrgScope computes
+	// the claim it is compared against (slug-from-host, falling back to the
+	// tenant id), so the producer of the claim and this consumer of it can
+	// never disagree about what the Org is called.
 	if claims := auth.ClaimsFromContext(r.Context()); claimsAreOrgScoped(claims) {
 		sessionOrg := strings.ToLower(strings.TrimSpace(claims.Org))
-		resolvedSlug := strings.ToLower(strings.TrimSpace(orgSlugFromHost(host)))
-		if sessionOrg != "" && resolvedSlug != "" && sessionOrg != resolvedSlug {
+		boundOrg := strings.ToLower(strings.TrimSpace(orgSlugFromHost(host)))
+		if boundOrg == "" {
+			// Same fallback resolveOrgScope uses when the host shape carries
+			// no slug — that IS the value stamped into the session's claim.
+			boundOrg = strings.ToLower(strings.TrimSpace(t.TenantID))
+		}
+		if sessionOrg == "" || boundOrg == "" || sessionOrg != boundOrg {
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error":  "org-scope-mismatch",
 				"detail": "this Organization session may only access its own Organization",
