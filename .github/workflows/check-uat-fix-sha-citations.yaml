@@ -1,0 +1,63 @@
+# check-uat-fix-sha-citations.yaml — a UAT row that says "the fix is MERGED on
+# main as <sha>" must be pointing at the fix.
+#
+# THE INCIDENT (2026-08-10). Fourteen FAIL rows were moved NEEDS-CODE ->
+# DEPLOY-GATED. That re-tag tells the next session NOT to write code, and its
+# entire warrant is the sentence "The merge SHA is the on-disk artifact."
+# Eleven of the fourteen cited `83f2a5521`, which is the LEDGER commit itself
+# (#5962, docs-only), pasted under three different PR numbers. The real fixes
+# existed; only the pointer was wrong — but a reader who checked it would have
+# found a prose diff and been forced to conclude the re-tag was invented, and a
+# reader who did not check it would have taken "engineering is done" on faith.
+#
+# No existing guard could see it: uat-drift-guard reads env labels, the
+# table-shape guard reads column counts, and neither has ever opened a commit.
+#
+# fetch-depth: 0 is REQUIRED. The guard resolves each cited SHA, checks it is an
+# ancestor of origin/main, and reads its changed paths — a shallow clone makes
+# every one of those unresolvable, which would turn the guard into a machine for
+# failing on truthful citations.
+name: check-uat-fix-sha-citations
+
+on:
+  pull_request:
+    paths:
+      - "docs/ledger/UAT.md"
+      - "scripts/check-uat-fix-sha-citations.py"
+      - ".github/workflows/check-uat-fix-sha-citations.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/ledger/UAT.md"
+      - "scripts/check-uat-fix-sha-citations.py"
+      - ".github/workflows/check-uat-fix-sha-citations.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fix-sha-citations:
+    name: UAT fix-SHA citations resolve to the fix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # Runs FIRST. Every assertion in the guard has the form "no citation is
+      # bad", so it passes trivially on a ledger it failed to parse. The
+      # self-test proves it goes red for each of the four reasons and green on a
+      # clean fixture, using commits resolved from this checkout's own history
+      # rather than hardcoded SHAs that could leave it.
+      - name: Self-test the guard (red for each reason, green when clean)
+        run: python3 scripts/check-uat-fix-sha-citations.py --self-test
+
+      - name: Guard every fix-SHA citation in the UAT ledger
+        run: python3 scripts/check-uat-fix-sha-citations.py

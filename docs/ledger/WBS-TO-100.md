@@ -5,50 +5,69 @@
 > happen in, what depends on what, and where the critical path actually runs.
 > Built 2026-08-09 from live hw292 measurement, not from the prior narrative.
 
-## 0. The arithmetic, stated once  (refreshed 2026-08-09T23:10Z)
-
-Every softening class is gone. The ledger is binary, so the count is now unarguable:
+## 0. The arithmetic, stated once  (re-counted 2026-08-10 by `scripts/uat-tally.py`)
 
 | tier | rows |
 |---|---|
-| ✅ PASS | 208 |
-| ❌ FAIL | 78 |
+| ✅ PASS | 192 |
+| ❌ FAIL | 76 |
+| ☐ NOT RUN | 18 |
 | **total** | **286** |
 
-**STONE = 208/286 = 72.7%.** Gap to 100% = **78 rows**, and every one of them is a
-row that was *measured and did not hold* — no partials, no parked, no unwalked.
+**STONE = 192/286 = 67.1%.**
 
-The earlier version of this file quoted `189/250 = 75.6%` by excluding 36 ⛔ rows
-from the denominator. That was flattering and wrong: a row you cannot answer is not
-a row you may drop. Excluding failures raises the score by removing the evidence
-against it, which is the floating-denominator behaviour the frozen 286 exists to
-prevent.
+This table previously read `208 ✅ / 78 ❌` with the line *"the ledger is binary …
+no partials, no parked, no unwalked"*. Both halves went stale the same day: the
+retire-and-replace swaps reset a clause's verdict to ☐ (a NEW clause inheriting
+the old one's ✅ would be fabrication), and the SSO-chain merge flipped its rows
+back to unverified by design. So there IS a third tier again, and it is 18 rows
+wide. It is stated here rather than folded into ❌ because the two demand
+different work — a ☐ row needs a walk, a ❌ row needs a fix, a deploy or a
+different env — and because a section that silently disagrees with
+`scripts/uat-tally.py` is the thing this file exists to prevent.
 
-## 1. The 78, partitioned by what actually unblocks them  (re-measured 2026-08-10T07:1xZ)
+The earlier `189/250 = 75.6%` figure excluded 36 ⛔ rows from the denominator.
+That was flattering and wrong: a row you cannot answer is not a row you may
+drop. Excluding failures raises the score by removing the evidence against it,
+which is the floating-denominator behaviour the frozen 286 exists to prevent.
 
-Assigned from each row's own evidence cell, re-run after the #5957/#5958/#5960 merges.
+## 1. The 76 ❌, partitioned by what actually unblocks them  (re-derived 2026-08-10)
+
+**These lists are now DERIVED from UAT.md, not transcribed into it.** Each row's
+bucket is the LAST partition label in its own Evidence cell. The previous version
+was transcribed by hand and had drifted three separate ways within a day: it
+partitioned 78 rows when the ledger held 76 ❌, it still listed 87 88 90 95 R16 62
+63 71 100 103 106 as BUILD after those rows had been re-tagged DEPLOY-GATED in
+UAT.md, and it carried 115 and 165 as ❌ after they had stopped being ❌. Two
+documents disagreeing about which rows need an engineer is worse than either one
+being wrong alone, because the reader cannot tell which to believe.
 
 | bucket | rows | what it needs |
 |---|--:|---|
-| **WALKABLE NOW** | **3** | a walk on THIS env can change the verdict — 91, 220, 242 |
-| **DEPLOY-GATED** | 25 | fix is merged and not running here; closes on a roll/prov |
-| **ENV-STATE** | 8 | needs a different environment shape entirely |
-| **BUILD** | 42 | no fix exists yet |
+| **DEPLOY-GATED** | 41 | the fix is merged and not running here; closes on a roll/prov |
+| **BUILD** (`NEEDS-CODE`) | 22 | no fix exists yet |
+| **ENV-STATE** | 7 | needs a different environment shape entirely |
+| **WALKABLE NOW** | 6 | a walk on THIS env can change the verdict |
+| **total** | **76** | |
 
-- **WALKABLE NOW (3)** — 91 (needs a signed-in customer session), 220 (needs a chat round-trip; already FAILS on the revoked credential, #5956), 242 (needs one authenticated POST of a 1-region body with bcpTopology omitted, requiring 4xx)
-- **DEPLOY-GATED (25)** — 4 7 15 25 33 37 55 57 59 67 69 75 92 94 176 183 188 216 218 219 228 234 W1 W2 R22
-- **ENV-STATE (8)** — 29 41 60 123 178 241 R16 R17
-- **BUILD (42)** — 3 19 38 48 62 63 71 84 85 86 87 88 90 95 96 98 100 102 103 106 115 121 164 165 177 184 192 195 212 213 217 221 222 223 225 233 238 G2 G7 G8 G9 W5
+- **DEPLOY-GATED (41)** — 4 7 15 25 33 37 55 57 59 62 63 67 69 71 75 87 88 90 92 94 95 100 103 106 176 183 188 212 213 216 218 219 221 222 228 234 238 W1 W2 R16 R22
+- **BUILD (22)** — 3 19 38 84 85 86 96 98 102 121 164 177 184 192 195 225 233 G2 G7 G8 G9 W5
+- **ENV-STATE (7)** — 29 41 60 123 178 241 R17
+- **WALKABLE NOW (6)** — 48 (one screenshot of the create `<select>` on a Blueprint that declares active-passive), 91 (a signed-in customer session), 217 (IMAP plus a browser; the recorded listener cause was refuted live), 220 (a chat round-trip), 223 (the MCP read legs, whose only stated cause was refuted against the deployed build by digest), 242 (one authenticated POST of a 1-region body with bcpTopology omitted, requiring 4xx)
 
-**THE NUMBER THAT MATTERS: re-walking cannot move this ledger.** 75 of the 78 are
-waiting on a deploy, an environment, or code that does not exist. Only three rows
-would answer differently if walked again today, and one of those (220) was walked
-today and failed for a cause now filed as #5956.
+**THE NUMBER THAT MATTERS: re-walking still cannot move most of this ledger.** 70
+of the 76 wait on a deploy, an environment, or code that does not exist. Six would
+answer differently if walked today — twice the previous count, and the increase is
+not progress: 48, 217 and 223 were sitting in BUILD carrying the sentence *"no fix
+exists yet"* while their own evidence cells said the opposite three sentences
+earlier. Nobody was going to walk them, and nobody was going to fix them either,
+because each class routes the row to a different person.
 
 This is worth stating plainly because "walk the failing rows" is the intuitive next
-move and it is the wrong one. The ledger moves when a fix REACHES a Sovereign — the
-walk is how you find out, not how you make it true. Spending a session re-walking
-deploy-gated rows produces 25 identical FAIL stamps and zero delivery.
+move and it is the wrong one for 41 of them. The ledger moves when a fix REACHES a
+Sovereign — the walk is how you find out, not how you make it true. Spending a
+session re-walking deploy-gated rows produces 41 identical FAIL stamps and zero
+delivery.
 
 ## 2. The D-34, clustered by root cause
 
@@ -64,10 +83,17 @@ Fixing a cluster closes several rows at once. Ranked by rows-per-fix:
 | **agentic** | 5 — G8 220 221 222 223 | credential now seeded; #5516 claim + an unproven chat round-trip |
 | **MCP per-Org** | 2 — 212 213 | the instance the guard names does not exist |
 
-**The single highest-value fix is #5246** — five rows, and it sits on the purchase
-path, so it also unblocks the customer-facing story. **#5921** (mail tether) gates
-three more (84, 20, 23) and is half-landed: PR #5951 makes it visible to the egress
-proof; pivoting the SMTP path itself is still open.
+**Four of those seven clusters are now WRITTEN, and the table above describes what
+each cluster IS, not what is left to do in it.** Re-read it with §1: #5246's five
+rows (87 88 90 95 R16) landed as `0439fbea8` PR #5957, topology-honesty's 62/63/71
+as `cd7b02973` PR #5960, the placement legs 100/103/106 as `4d1da6322` PR #5958,
+and MCP-per-Org's 212/213 as `1790e52e9` PR #5963 — every one an ancestor of
+`origin/main`, none of them running on hw292. Their remaining cost is a roll, not
+an engineer. What is genuinely unwritten in this table is #4325's vocabulary rows
+(98, 102), the rest of the placement epic (96), and the agentic cluster's G8.
+
+**#5921** (mail tether) gates three more (84, 20, 23) and is half-landed: PR #5951
+makes it visible to the egress proof; pivoting the SMTP path itself is still open.
 
 ## 3. Sequencing — why the prov is fired ONCE, and last
 
