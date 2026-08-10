@@ -37,21 +37,6 @@ which is the floating-denominator behaviour the frozen 286 exists to prevent.
 
 ## 1. The ❌ set, partitioned by what actually unblocks them
 
-**These lists are GENERATED, not transcribed.** `python3 scripts/uat-partition.py
---write` derives them from UAT.md — a row's bucket is the LAST partition label in
-its own Evidence cell, and a ❌ row with no label is WALKABLE NOW because nothing
-has recorded a reason it cannot be walked. `--check` fails CI when this section
-and UAT.md disagree, so the two can no longer drift apart silently.
-
-They already had. The hand-kept version drifted three separate ways inside one
-day: it partitioned 78 rows against a 76-❌ ledger, it still listed 87 88 90 95
-R16 62 63 71 100 103 106 as BUILD hours after those rows were re-tagged
-DEPLOY-GATED in UAT.md, and it carried 115 and 165 as ❌ after they had stopped
-being ❌. Two ledger files disagreeing about which rows need an engineer is worse
-than either being wrong alone, because the reader cannot tell which to believe —
-and the drift was guaranteed rather than careless, since UAT.md is rewritten by
-every walk and by a cron.
-
 | bucket | rows | what it needs |
 |---|--:|---|
 | **DEPLOY-GATED** | 41 | the fix is merged and not running here; closes on a roll/prov |
@@ -64,29 +49,6 @@ every walk and by a cron.
 - **BUILD (23)** — 3 19 38 84 85 86 96 98 102 121 164 166 177 192 195 225 233 G2 W5 G7 G8 G9 G11
 - **ENV-STATE (6)** — 29 41 60 123 178 R17
 - **WALKABLE NOW (7)** — 35 48 91 217 220 223 242
-
-What each WALKABLE NOW row needs, since "walk it" is not an instruction:
-
-- **48** — one screenshot of the create `<select>` on a Blueprint that declares `active-passive`
-- **91** — a signed-in customer session
-- **217** — IMAP plus a browser; the recorded listener cause was refuted on live objects
-- **220** — a chat round-trip (currently fails on the revoked credential, #5956)
-- **223** — the MCP read legs, whose only stated cause was refuted against the deployed build by digest
-- **242** — one authenticated POST of a 1-region body with `bcpTopology` omitted, requiring 4xx
-
-**THE NUMBER THAT MATTERS: re-walking still cannot move most of this ledger.** 70
-of the 77 wait on a deploy, an environment, or code that does not exist. Seven
-would answer differently if walked today — more than double the previous count,
-and the increase is not progress: 48, 217 and 223 were sitting in BUILD carrying
-the sentence *"no fix exists yet"* while their own evidence cells said the
-opposite a few sentences earlier. Nobody was going to walk them, and nobody was
-going to fix them either, because each class routes the row to a different person.
-
-This is worth stating plainly because "walk the failing rows" is the intuitive next
-move and it is the wrong one for 41 of them. The ledger moves when a fix REACHES a
-Sovereign — the walk is how you find out, not how you make it true. Spending a
-session re-walking deploy-gated rows produces 41 identical FAIL stamps and zero
-delivery.
 
 ## 2. The D-34, clustered by root cause
 
