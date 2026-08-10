@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T16:00:05Z` |
+| Last refreshed | `2026-08-10T16:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T16:00 | [#6024](https://github.com/openova-io/openova/pull/6024) | #6015 | fix(catalyst-api): a Sovereign must not report placement fro |
 | 2026-08-10T15:36 | [#6023](https://github.com/openova-io/openova/pull/6023) | #3376 | docs(uat): hw293 walk of the 21 unwalked rows in 55-95 — 16  |
+| 2026-08-10T16:08 | [#6022](https://github.com/openova-io/openova/pull/6022) | #6015 | docs(uat): hw293 walk of rows 164-195 — 17 pass, 4 fail, and |
 | 2026-08-10T15:36 | [#6021](https://github.com/openova-io/openova/pull/6021) | #5507 | fix(bp-postgres): the replica side must not name a role Secr |
 | 2026-08-10T15:26 | [#6020](https://github.com/openova-io/openova/pull/6020) | #3380 | docs(uat): hw293 walk of the 18 letter-prefixed rows — 9 pas |
 | 2026-08-10T15:58 | [#6018](https://github.com/openova-io/openova/pull/6018) | #3370 | docs(uat): hw293 rows 1-54 walk — 39 stamped, 33 pass and 6  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-10T10:32 | [#5971](https://github.com/openova-io/openova/pull/5971) | #3374 | fix(jobs,auth): UAT rows 164 + 41 — a failed run must termin |
 | 2026-08-10T10:32 | [#5970](https://github.com/openova-io/openova/pull/5970) | #4110 | fix(openova-mcp): resolve the Blueprint version an agentic c |
 | 2026-08-10T11:34 | [#5969](https://github.com/openova-io/openova/pull/5969) | #3925 | fix(uat): four rows — recon link host, reconciler Logs tab,  |
-| 2026-08-10T09:47 | [#5967](https://github.com/openova-io/openova/pull/5967) | #5921 | fix(funnel): the checkout sign-in dead end, and an app-readi |
-| 2026-08-10T09:00 | [#5966](https://github.com/openova-io/openova/pull/5966) | #5957 | docs(uat): 14 rows move NEEDS-CODE to DEPLOY-GATED — their f |
 
 ---
 
