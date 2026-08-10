@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T20:30:06Z` |
+| Last refreshed | `2026-08-10T20:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5501](https://github.com/openova-io/openova/issues/5501) | POST /api/v1/organizations reports state:done with all six steps done in 0s whil | Other |
 | [#5502](https://github.com/openova-io/openova/issues/5502) | org-controller reports reason=VClusterProvisioning for host-tier Orgs that never | Other |
 | [#5504](https://github.com/openova-io/openova/issues/5504) | bp-postgres: initdb owner and managed.roles mint the same role with different cr | Other |
 | [#5505](https://github.com/openova-io/openova/issues/5505) | P0: all Namespace creates denied — #5494 flipped 10 policies to Enforce, expos | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6060](https://github.com/openova-io/openova/issues/6060) | UAT row 63: TopologyTab returns on the status.perCluster rung and never reads st | Other |
 | [#6062](https://github.com/openova-io/openova/issues/6062) | UAT row 8: GET /sovereign/parent-domains offers no org-pool parents — the list | Other |
 | [#6067](https://github.com/openova-io/openova/issues/6067) | UAT rows 212/213: bp-openova-mcp verifies one pinned RS256 key, but no catalyst- | Other |
+| [#6071](https://github.com/openova-io/openova/issues/6071) | Continuum never reports a standby: leaseClient resolvers are hardcoded to 10.43. | Other |
 
 ---
 
@@ -310,6 +310,7 @@ flowchart LR
 | 2026-08-10T20:25 | [#6069](https://github.com/openova-io/openova/pull/6069) | #5496 | docs(uat): hw293 WALKABLE NOW walk — 15 rows measured live,  |
 | 2026-08-10T20:02 | [#6066](https://github.com/openova-io/openova/pull/6066) | #5933 | docs(uat): flush 14 rows still graded on a wiped env, and re |
 | 2026-08-10T20:12 | [#6065](https://github.com/openova-io/openova/pull/6065) | #6058 | fix(handover): make the secondary-kubeconfig forward-client  |
+| 2026-08-10T20:36 | [#6064](https://github.com/openova-io/openova/pull/6064) | #837 | fix(catalyst-api): the parent-domain picker offered nothing  |
 | 2026-08-10T20:06 | [#6063](https://github.com/openova-io/openova/pull/6063) | #5909 | docs(uat): audit all 10 ENV-STATE rows on hw293 — 5 were mis |
 | 2026-08-10T20:08 | [#6061](https://github.com/openova-io/openova/pull/6061) | #5420 | fix(console): the Topology tab returned before it ever read  |
 | 2026-08-10T19:07 | [#6057](https://github.com/openova-io/openova/pull/6057) | #6016 | docs(uat): 13 WALKABLE-NOW rows settled on hw293 — 8 flip gr |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-10T16:00 | [#6024](https://github.com/openova-io/openova/pull/6024) | #6015 | fix(catalyst-api): a Sovereign must not report placement fro |
 | 2026-08-10T15:36 | [#6023](https://github.com/openova-io/openova/pull/6023) | #3376 | docs(uat): hw293 walk of the 21 unwalked rows in 55-95 — 16  |
 | 2026-08-10T16:08 | [#6022](https://github.com/openova-io/openova/pull/6022) | #6015 | docs(uat): hw293 walk of rows 164-195 — 17 pass, 4 fail, and |
-| 2026-08-10T15:36 | [#6021](https://github.com/openova-io/openova/pull/6021) | #5507 | fix(bp-postgres): the replica side must not name a role Secr |
 
 ---
 
