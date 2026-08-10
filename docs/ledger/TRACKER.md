@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T21:30:05Z` |
+| Last refreshed | `2026-08-10T21:45:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T21:35 | [#6074](https://github.com/openova-io/openova/pull/6074) | #6071 | fix(org-gitops): the per-Org writer picked a witness that ca |
+| 2026-08-10T21:36 | [#6073](https://github.com/openova-io/openova/pull/6073) | #4460 | fix(clustermesh): re-base the shared-pg hub readiness gate o |
 | 2026-08-10T20:48 | [#6070](https://github.com/openova-io/openova/pull/6070) | #6042 | docs(uat): re-measure the 41 DEPLOY-GATED rows against the s |
 | 2026-08-10T20:25 | [#6069](https://github.com/openova-io/openova/pull/6069) | #5496 | docs(uat): hw293 WALKABLE NOW walk — 15 rows measured live,  |
 | 2026-08-10T20:02 | [#6066](https://github.com/openova-io/openova/pull/6066) | #5933 | docs(uat): flush 14 rows still graded on a wiped env, and re |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-10T16:59 | [#6029](https://github.com/openova-io/openova/pull/6029) | #5965 | docs(uat): 14 of the 21 BUILD rows do not need an engineer — |
 | 2026-08-10T16:54 | [#6026](https://github.com/openova-io/openova/pull/6026) | #6024 | docs(uat): 24 DEPLOY-GATED rows are not waiting on a deploy  |
 | 2026-08-10T16:33 | [#6025](https://github.com/openova-io/openova/pull/6025) | #5359 | fix(cutover): the chart outgrew the 1 MiB Helm release Secre |
-| 2026-08-10T16:00 | [#6024](https://github.com/openova-io/openova/pull/6024) | #6015 | fix(catalyst-api): a Sovereign must not report placement fro |
-| 2026-08-10T15:36 | [#6023](https://github.com/openova-io/openova/pull/6023) | #3376 | docs(uat): hw293 walk of the 21 unwalked rows in 55-95 — 16  |
 
 ---
 
