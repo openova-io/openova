@@ -393,6 +393,31 @@ spec:
 // default) + PATCHes the DSN via its own post-install hook, so disableWait:true
 // lets the release reach hook execution (the #4246 deadlock fix). Tier-aware
 // kubeConfig like the other HR apps (vcluster tier installs INTO the vcluster).
+//
+// #5987 — THE VALUES BLOCK WAS NOT SPEAKING THE CHART'S LANGUAGE. Three of the
+// four keys below are corrections; each was proven by `helm template` against
+// platform/newapi/chart (identical chart, command and --api-versions across
+// every run, only the values file differing):
+//
+//   - No `catalystIntegration` at all → the chart defaults it ON with an empty
+//     `externalSecret.remoteRef.key`, and templates/external-secret.yaml makes
+//     that combination an explicit `{{- fail }}`. Render exited 1. This became
+//     urgent when #5969 added `openclaw ⇒ newapi` to impliedHelmReleaseApps:
+//     the broken HR stopped being opt-in and now reaches EVERY openclaw Org.
+//   - A top-level `oidc.issuerURL` → not a bp-newapi value (the chart reads
+//     `auth.adminUI.keycloak.*`). Helm drops unknown values silently, so
+//     deployment.yaml's $kcConfigured gate never held: fixing only the `fail`
+//     produced a release with NO Deployment.
+//   - A top-level `httpRoute:` → not a bp-newapi value either (the chart reads
+//     `ingress.httpRoute.*`, and `host:` is a scalar, not `hostnames:`), so no
+//     HTTPRoute rendered and `api.<slug>.<parent>` — the exact host
+//     generateOpenClawHR stamps into openclaw's llm.baseURL — was served by
+//     nothing. That is UAT row 225's dangling-host shape.
+//
+// bp-openclaw's values.yaml DOES define top-level `oidc`/`llm`/`keycloak`/
+// `newapi`/`tenant`/`httpRoute`, so generateOpenClawHR does not share this
+// gap — verified by rendering its funnel values against platform/openclaw/chart
+// (exit 0, Deployment + HTTPRoute on openclaw.<slug>.<parent>).
 func generateNewAPIHR(opt helmReleaseAppOpts) string {
 	host := fmt.Sprintf("api.%s.%s", opt.slug, opt.parentDomain)
 	primaryDomain := fmt.Sprintf("%s.%s", opt.slug, opt.parentDomain)
@@ -400,11 +425,12 @@ func generateNewAPIHR(opt helmReleaseAppOpts) string {
 	if keycloakRealm == "" {
 		keycloakRealm = fmt.Sprintf("https://keycloak.%s.%s/realms/org-%s", opt.slug, opt.parentDomain, opt.slug)
 	}
-	return fmt.Sprintf(`# bp-newapi (#4739) — per-Org NewAPI LLM gateway rendered by the generic funnel
-# generator. openclaw's llm.baseURL (api.<slug>.<parent>/v1) routes here. Mirrors
-# the BSS-door orgTenantBPNewAPI (#945) but DROPS the dependsOn: bp-keycloak the
-# generic funnel never renders (a dependsOn on a never-rendered HR wedges the
-# release forever — the same divergence as bp-openclaw). Chart owns its CNPG.
+	return fmt.Sprintf(`# bp-newapi (#4739, #5987) — per-Org NewAPI LLM gateway rendered by the generic
+# funnel generator. openclaw's llm.baseURL (api.<slug>.<parent>/v1) routes here.
+# Mirrors the BSS-door orgTenantBPNewAPI (#945) but DROPS the dependsOn:
+# bp-keycloak the generic funnel never renders (a dependsOn on a never-rendered
+# HR wedges the release forever — the same divergence as bp-openclaw). Chart
+# owns its CNPG.
 %s
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -450,17 +476,71 @@ spec:
     # own per-Org CNPG Cluster + syncs the canonical DSN via its post-install
     # hook. Do NOT set database.existingSecret (deployment.yaml auto-resolves
     # bp-newapi-newapi-db-dsn).
-    oidc:
-      issuerURL: %s
-    ingress:
+    #
+    # ── Ops-staff admin UI OIDC (#5987) ──────────────────────────────────
+    # The chart key is auth.adminUI.keycloak.* — NOT a top-level oidc.issuerURL
+    # (that key does not exist in bp-newapi's values.yaml, so Helm dropped it
+    # and deployment.yaml's $kcConfigured gate — mode==keycloak AND issuer AND
+    # existingSecret — left the release with no Deployment at all).
+    # existingSecret is materialised BY THE CHART
+    # (templates/keycloak-client-secret.yaml: lookup-or-randAlphaNum, policy
+    # keep), so naming it here is self-provisioning, not a dangling reference.
+    # ssoBridgeSync stays OFF, exactly as the BSS door does it (#4169): a
+    # per-Org AppRegistration for clientId newapi-admin PUT-overwrites the
+    # Sovereign-level newapi-admin client's redirectUris, breaking SSO on
+    # newapi.<sovereign-fqdn>.
+    auth:
+      adminUI:
+        mode: keycloak
+        keycloak:
+          issuer: %s
+          clientId: newapi-admin
+          callbackPath: /oauth/callback
+          existingSecret: newapi-oidc-client-secret
+          ssoBridgeSync:
+            enabled: false
+      customerAPI:
+        keyIssuer: catalyst
+    # Valkey OFF (#3858 root cause #3, same as the BSS door): the chart default
+    # valkey.url is the host-placed valkey synced from the rtz vCluster, which a
+    # per-Org install (vcluster tier especially) cannot reach. NewAPI treats
+    # REDIS_CONN_STRING as required once set and CrashLoops on the Redis ping;
+    # with valkey off it falls back to an in-process cache and Postgres still
+    # holds every piece of durable state.
+    valkey:
       enabled: false
-    httpRoute:
-      enabled: true
-      hostnames:
-        - %s
-      parentRef:
-        name: cilium-gateway-console
-        namespace: kube-system
+    # ── catalystIntegration OFF — deliberate, do NOT copy the BSS door here ──
+    # #5987/#4477/#5375. This block exists to hand catalyst-api a bearer for the
+    # SOVEREIGN's NewAPI (unified-rbac POSTs to newapi.newapi.svc), and it is
+    # singular by construction: catalyst-api's seedNewapiAdminToken seam writes
+    # ONE cluster-shared OpenBao path, the external-secrets-push policy grants
+    # create/update on exactly that one key, and the rendered Secret carries
+    # reflector annotations that auto-mirror it into catalyst-system, where the
+    # Sovereign's own copy already lives.
+    #
+    # Enabling it on a per-Org install would therefore be actively destructive,
+    # not merely redundant: the chart's companion PushSecret (default enabled,
+    # updatePolicy Replace) would overwrite that shared path with THIS Org's own
+    # random token-signing-key ADMIN_SECRET, 401-ing per-user key issuance for
+    # the whole Sovereign, while two ExternalSecrets fought over one mirrored
+    # Secret name in catalyst-system. Nothing inside the per-Org release
+    # consumes the Secret, so off is both safe and complete.
+    catalystIntegration:
+      enabled: false
+    ingress:
+      # The traefik Ingress the BSS door renders is inert on a Sovereign; public
+      # exposure rides the dedicated console Gateway, same as bp-openclaw.
+      enabled: false
+      # #5987 — the chart key is ingress.httpRoute.* with a SCALAR host; a
+      # top-level httpRoute: block with hostnames: [] is not a bp-newapi value
+      # and rendered no route, leaving openclaw's llm.baseURL pointing at a
+      # hostname this Org served from nowhere (UAT row 225).
+      httpRoute:
+        enabled: true
+        host: %s
+        parentRef:
+          name: cilium-gateway-console
+          namespace: kube-system
 `, helmRepoBlock("bp-newapi"), opt.slug, opt.slug, opt.kubeConfigBlock(),
 		primaryDomain, keycloakRealm, host)
 }
