@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T15:30:08Z` |
+| Last refreshed | `2026-08-10T15:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T15:36 | [#6023](https://github.com/openova-io/openova/pull/6023) | #3376 | docs(uat): hw293 walk of the 21 unwalked rows in 55-95 — 16  |
+| 2026-08-10T15:36 | [#6021](https://github.com/openova-io/openova/pull/6021) | #5507 | fix(bp-postgres): the replica side must not name a role Secr |
 | 2026-08-10T15:26 | [#6020](https://github.com/openova-io/openova/pull/6020) | #3380 | docs(uat): hw293 walk of the 18 letter-prefixed rows — 9 pas |
 | 2026-08-10T14:59 | [#6013](https://github.com/openova-io/openova/pull/6013) | #5568 | docs(uat): hw293 topology rows — 8 fail, including two I cor |
 | 2026-08-10T14:49 | [#6012](https://github.com/openova-io/openova/pull/6012) | #5711 | docs(uat): hw293 walk of 11 rows — 5 pass, 6 fail, and #5930 |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-10T09:00 | [#5966](https://github.com/openova-io/openova/pull/5966) | #5957 | docs(uat): 14 rows move NEEDS-CODE to DEPLOY-GATED — their f |
 | 2026-08-10T09:32 | [#5965](https://github.com/openova-io/openova/pull/5965) | #5940 | fix(marketplace): give the storefront a readable session sig |
 | 2026-08-10T08:43 | [#5963](https://github.com/openova-io/openova/pull/5963) | #4415 | fix(catalog): seed bp-openova-mcp so the per-Org MCP is inst |
-| 2026-08-10T08:29 | [#5962](https://github.com/openova-io/openova/pull/5962) | #5940 | docs(uat): walk 91/220/242 live, tag all 75 remaining FAILs  |
-| 2026-08-10T08:50 | [#5961](https://github.com/openova-io/openova/pull/5961) | #5513 | fix(application-controller): derive Application readiness fr |
 
 ---
 
