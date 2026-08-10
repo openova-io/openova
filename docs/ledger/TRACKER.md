@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T08:45:04Z` |
+| Last refreshed | `2026-08-10T09:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,8 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T09:00 | [#5966](https://github.com/openova-io/openova/pull/5966) | #5957 | docs(uat): 14 rows move NEEDS-CODE to DEPLOY-GATED — their f |
 | 2026-08-10T08:43 | [#5963](https://github.com/openova-io/openova/pull/5963) | #4415 | fix(catalog): seed bp-openova-mcp so the per-Org MCP is inst |
 | 2026-08-10T08:29 | [#5962](https://github.com/openova-io/openova/pull/5962) | #5940 | docs(uat): walk 91/220/242 live, tag all 75 remaining FAILs  |
+| 2026-08-10T08:50 | [#5961](https://github.com/openova-io/openova/pull/5961) | #5513 | fix(application-controller): derive Application readiness fr |
 | 2026-08-10T07:12 | [#5960](https://github.com/openova-io/openova/pull/5960) | #5508 | fix(dr): make the DR panel report what it measures — UAT row |
 | 2026-08-10T07:01 | [#5958](https://github.com/openova-io/openova/pull/5958) | #4292 | fix(placement backend): the #4292 tier gate keys on planSlug |
 | 2026-08-10T06:14 | [#5957](https://github.com/openova-io/openova/pull/5957) | #5246 | fix(org): per-Org console listeners land in EVERY region, an |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-09T17:08 | [#5923](https://github.com/openova-io/openova/pull/5923) | docs(ledger): the plan to 100% — built on measured causes |  |
 | 2026-08-09T17:03 | [#5922](https://github.com/openova-io/openova/pull/5922) | fix(ledger): restore test-case names in uat-raw.csv |  |
 | 2026-08-09T16:59 | [#5918](https://github.com/openova-io/openova/pull/5918) | #3376 | docs(uat): row 92 — the redeem rate-limit fix exists, is pur |
-| 2026-08-08T19:54 | [#5917](https://github.com/openova-io/openova/pull/5917) | #5848 | fix(org-controller): reap the per-Org wildcard TLS Secret on |
-| 2026-08-08T16:47 | [#5916](https://github.com/openova-io/openova/pull/5916) | #3687 | docs(uat): rows 19 + 33 — backing data measured, both reduce |
 
 ---
 
