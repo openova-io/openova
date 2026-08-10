@@ -419,7 +419,13 @@ export const TOPOLOGY_REGION_LABELS: Record<TopologyTemplate, string[]> = {
 /** Base defaults: all M + all R in required blocks; optional blocks empty */
 export const DEFAULT_COMPONENT_GROUPS: Record<string, string[]> = {
   pilot:    ['flux', 'crossplane', 'gitea', 'opentofu', 'vcluster'],
-  spine:    ['cilium', 'coraza', 'powerdns', 'external-dns', 'envoy', 'frpc', 'netbird'],
+  // UAT row W5 / #5575: `envoy` and `frpc` dropped. This table is a SECOND
+  // component catalog — it seeds INITIAL_WIZARD_STATE.componentGroups — and
+  // nothing validated it against componentGroups.ts, so removing the cards
+  // alone would still have left both ids pre-selected on every fresh wizard
+  // run. componentGroups.catalog-integrity.5575.test.ts now cross-checks
+  // this table too.
+  spine:    ['cilium', 'coraza', 'powerdns', 'external-dns', 'netbird'],
   surge:    ['vpa', 'keda', 'reloader', 'continuum'],
   silo:     ['seaweedfs', 'velero', 'harbor'],
   guardian: ['kyverno', 'openbao', 'external-secrets', 'cert-manager', 'falco', 'trivy', 'syft-grype', 'sigstore', 'keycloak'],
@@ -467,10 +473,12 @@ export function getProfileDefaults(
     defaults.insights = [...defaults.insights, 'openmeter']
   }
 
-  // strongSwan IPsec: compliance-heavy or financial
-  if (isFinancial || isHealthcare || hasAuditComp) {
-    defaults.spine = [...defaults.spine, 'strongswan']
-  }
+  // The strongSwan IPsec profile rule is REMOVED, not re-pointed — UAT row
+  // W5 / #5575. `strongswan` resolved to no Blueprint, so for a financial /
+  // healthcare / audit-bound org this rule silently pre-selected an IPsec
+  // gateway that could never be installed: the profile most likely to
+  // actually need site-to-site VPN was the one handed a card that deploys
+  // nothing. Re-add the rule when a bp-strongswan exists.
 
   return defaults
 }

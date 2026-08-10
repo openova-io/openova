@@ -152,8 +152,28 @@ const MANDATORY = ALL_COMPONENTS.filter((c) => c.tier === 'mandatory')
 /* ── Catalog sanity ───────────────────────────────────────────────── */
 
 describe('component catalog', () => {
-  it('renders 60+ components from componentGroups.ts', () => {
-    expect(ALL_COMPONENTS.length).toBeGreaterThanOrEqual(60)
+  /**
+   * UAT row W5 / #5575 — this used to read
+   * `expect(ALL_COMPONENTS.length).toBeGreaterThanOrEqual(60)`.
+   *
+   * 60 was chosen when the catalog held 64 entries, six of which resolved
+   * to no Blueprint at all. So the number encoded the phantoms: removing an
+   * uninstallable card made the suite RED, and keeping one made it green.
+   * A floor that rewards padding is worse than no floor — it is an argument
+   * against ever cleaning the catalog up.
+   *
+   * What actually matters is the invariant, not the magnitude: every entry
+   * in ALL_COMPONENTS is a member of exactly one PRODUCTS family and every
+   * PRODUCTS member has a ComponentDef — the "counts are self-consistent"
+   * half of row W5. The floor is kept only as a truncation smoke test (a
+   * bad merge that empties a family), set well below the real size so it
+   * can never again be the thing that blocks a removal.
+   */
+  it('catalog size is self-consistent with the PRODUCTS families', () => {
+    const memberIds = PRODUCTS.flatMap((p) => p.components)
+    expect(new Set(memberIds).size).toBe(memberIds.length) // no id in two families
+    expect([...ALL_COMPONENTS.map((c) => c.id)].sort()).toEqual([...memberIds].sort())
+    expect(ALL_COMPONENTS.length).toBeGreaterThanOrEqual(40) // truncation smoke test
   })
 
   it('every component has a tier', () => {
@@ -1108,8 +1128,12 @@ describe('store: addProduct cascade', () => {
     useWizardStore.getState().addProduct('cortex')
     const sel = useWizardStore.getState().selectedComponents
     for (const id of [
+      // 'superset' left this list with its catalog card (UAT row W5 /
+      // #5575). A not.toContain on an id that no longer exists can never
+      // fail, so keeping it would have turned a real exclusion assertion
+      // into decoration.
       'strimzi', 'debezium', 'flink', 'temporal',
-      'clickhouse', 'iceberg', 'superset',
+      'clickhouse', 'iceberg',
     ]) {
       expect(sel).not.toContain(id)
     }
@@ -1226,8 +1250,12 @@ describe('addComponent → product family cascade (CORTEX)', () => {
     useWizardStore.getState().addComponent('specter')
     const sel = useWizardStore.getState().selectedComponents
     for (const id of [
+      // 'superset' left this list with its catalog card (UAT row W5 /
+      // #5575). A not.toContain on an id that no longer exists can never
+      // fail, so keeping it would have turned a real exclusion assertion
+      // into decoration.
       'strimzi', 'debezium', 'flink', 'temporal',
-      'clickhouse', 'iceberg', 'superset',
+      'clickhouse', 'iceberg',
     ]) {
       expect(sel).not.toContain(id)
     }
