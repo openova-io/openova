@@ -189,6 +189,42 @@ func TestPinVerify_HintCarriesOrgSlugForOrgScopedSession(t *testing.T) {
 	}
 }
 
+// ─── the QA test-session mint ─────────────────────────────────────────────
+
+// TestAuthTestSession_EmitsReadableSessionHint. The acceptance walk for rows
+// 3 and 91 gets its session from this endpoint. If it minted a session with
+// no hint, the walk would measure a browser state no real customer is ever
+// in — and report a false failure against a working fix.
+func TestAuthTestSession_EmitsReadableSessionHint(t *testing.T) {
+	t.Setenv(testSessionEnvVar, "true")
+	t.Setenv("CATALYST_SESSION_COOKIE_DOMAIN", ".omantel.biz")
+
+	h := testPinSetup(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/test-session?tier=owner", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	w := httptest.NewRecorder()
+	h.HandleAuthTestSession(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", w.Code, w.Body.String())
+	}
+	session := findCookie(w.Result().Cookies(), "catalyst_session")
+	if session == nil {
+		t.Fatal("control failed: catalyst_session was not set, so this test proves nothing about the hint")
+	}
+	hint := findCookie(w.Result().Cookies(), SessionHintCookieName)
+	if hint == nil {
+		t.Fatalf("%s not set — a walk driven by this endpoint would see no session signal on the marketplace", SessionHintCookieName)
+	}
+	if hint.HttpOnly {
+		t.Errorf("%s must NOT be HttpOnly", SessionHintCookieName)
+	}
+	if hint.Domain != session.Domain {
+		t.Errorf("hint Domain %q != session Domain %q", hint.Domain, session.Domain)
+	}
+	assertHintCarriesNoToken(t, hint.Value, session.Value)
+}
+
 // ─── logout: the hint dies with the session ───────────────────────────────
 
 // TestHandleAuthLogout_ClearsSessionHint. A hint that survives sign-out is
