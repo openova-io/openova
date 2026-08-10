@@ -5115,7 +5115,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.176"
+  version: "0.1.177"
   visibility: unlisted
   card:
     title: "Self-Sovereignty Cutover"
