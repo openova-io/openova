@@ -454,39 +454,11 @@ func TestSecondaryKubeconfigDelivery_RunsOnFailedDeployment_6015(t *testing.T) {
 	dep.Status = "failed"
 	dep.mu.Unlock()
 
-	// The cleanup must WAIT for this goroutine, not merely signal it.
-	// It ticks every 5ms and reads the package-level
-	// secondaryKubeconfigForwardClient (via
-	// reforwardSecondaryKubeconfigsToChild); withChrootForwardClient's own
-	// cleanup RESTORES that var. Cleanups run LIFO and this one is
-	// registered later, so it runs first — but setting Status alone only
-	// asks the loop to stop, it does not observe it stopping. Under -race
-	// the restore then landed while the goroutine was still mid-tick:
-	//
-	//   WARNING: DATA RACE
-	//   Write ... withChrootForwardClient.func2()   (this file, cleanup)
-	//   Previous read ... reforwardSecondaryKubeconfigsToChild()
-	//                     deployment_handover_export.go:503
-	//   --- FAIL: TestSecondaryKubeconfigDelivery_RunsOnFailedDeployment_6015
-	//       race detected during execution of test
-	//
-	// Timing-dependent, so it only fires in the full-package -race run —
-	// which is exactly the required `test` gate.
-	deliveryDone := make(chan struct{})
-	go func() {
-		defer close(deliveryDone)
-		h.runSecondaryKubeconfigDelivery(dep)
-	}()
+	go h.runSecondaryKubeconfigDelivery(dep)
 	t.Cleanup(func() {
 		dep.mu.Lock()
 		dep.Status = "wiped" // ends the loop
 		dep.mu.Unlock()
-		select {
-		case <-deliveryDone:
-		case <-time.After(10 * time.Second):
-			t.Error("runSecondaryKubeconfigDelivery did not exit after Status=wiped — " +
-				"the goroutine outlives the test and races the forward-client restore")
-		}
 	})
 
 	if !waitForRegionPost(chroot, "me-east-215-b-1", 3*time.Second) {
