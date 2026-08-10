@@ -343,7 +343,7 @@ type podRow struct {
 	family      string  // catalyst.openova.io/family (default "other")
 	cluster     string  // cluster id (single-Sovereign per page today)
 	region      string  // openova.io/region label value (e.g. hz-hel-rtz-prod); empty on single-region
-	vcluster    string  // catalyst.openova.io/vcluster-role label value on the pod's host namespace (mgmt/dmz/rtz); empty for host pods
+	vcluster    string  // the vCluster block this pod belongs to: the host namespace's openova.io/organization value when that namespace hosts a vCluster (per-Org, #5932), else the legacy catalyst.openova.io/vcluster-role value; empty for host pods
 	// org is the owning Organization, resolved from the pod's namespace
 	// `openova.io/organization` (or `catalyst.openova.io/organization`)
 	// label — the single join key across compliance/RBAC/billing
@@ -489,7 +489,38 @@ func buildPodRows(pods, pvcs, podMetrics, namespaces, nodes, replicaSets []*unst
 		if family == "" {
 			family = "other"
 		}
-		vcluster := stringLabel(p, "catalyst.openova.io/vcluster-role", "")
+		// UAT row 103 — "a per-Org vCluster block contains ONLY that
+		// Organization's workloads". When the namespace HAS an Organization
+		// identity, the runtime-derived per-Org block (vclustersFromRuntime,
+		// which resolves to that Org's slug) WINS over the legacy
+		// `catalyst.openova.io/vcluster-role` label.
+		//
+		// Precedence is the whole bug. That legacy label's value space is a
+		// ROLE — mgmt / dmz / rtz — which is shared BY CONSTRUCTION across
+		// every namespace that carries it, so reading it first files two
+		// different Organizations' synced pods into ONE block named after the
+		// role. That is cross-Org leakage into another Org's block, i.e. the
+		// exact clause row 103 asserts, and it is silent: the layer renders a
+		// plausible block instead of failing. #5932 added the per-Org signal
+		// but only as a LAST resort, so any namespace still carrying the role
+		// label kept the collapsing behaviour.
+		//
+		// This is not dead code being tidied: platform/bp-{mgmt,dmz,rtz}-
+		// vcluster/chart/templates/namespace.yaml still stamp the label (:28,
+		// :27, :23) and clusters/omantel.omani.works/bootstrap-kit/
+		// kustomization.yaml:53 still lists slot 54, so a live estate can hold
+		// both labels at once.
+		//
+		// The role label is KEPT as the fallback for a namespace with no
+		// Organization identity, so a pre-#4325 estate that legitimately groups
+		// by role is unchanged.
+		vcluster := ""
+		if labelOr(nsLabels, "openova.io/organization", "catalyst.openova.io/organization") != "" {
+			vcluster = vclusterByNS[p.GetNamespace()]
+		}
+		if vcluster == "" {
+			vcluster = stringLabel(p, "catalyst.openova.io/vcluster-role", "")
+		}
 		if vcluster == "" {
 			vcluster = nsLabels["catalyst.openova.io/vcluster-role"]
 		}
@@ -835,10 +866,13 @@ func dimensionKey(r podRow, dim string) (string, string) {
 		}
 		return r.cluster, r.cluster
 	case "vcluster":
-		// vCluster name derives from the pod's host-namespace
-		// `catalyst.openova.io/vcluster-role` label. Pods OUTSIDE
-		// any vCluster (the bootstrap-kit host workloads) bucket
-		// under "host" so they're visible, not silently dropped.
+		// vCluster name is resolved in buildPodRows: an Org-identified
+		// namespace that hosts a vCluster names its block after the
+		// Organization (so two Orgs never share a block — UAT row 103);
+		// a namespace with no Org identity falls back to the legacy
+		// `catalyst.openova.io/vcluster-role` label. Pods OUTSIDE any
+		// vCluster (the bootstrap-kit host workloads) bucket under
+		// "host" so they're visible, not silently dropped.
 		if r.vcluster != "" {
 			return r.vcluster, r.vcluster
 		}

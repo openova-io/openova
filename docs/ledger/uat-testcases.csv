@@ -147,7 +147,7 @@ G12,dr,4275,"region-kill (Pillar-3) — kill a region, prove failover + recovery
 103,placement,3642,A per-Org vCluster block contains ONLY that Organization's workloads — no cross-Org leakage into another Org's block.
 104,placement,3642,The seven bootstrap components (grafana/harbor/keycloak/gitea/openbao/newapi/guacamole) render under **host** — the post-#4325 canonical placement.
 105,placement,3642,A per-app placement detail matches the treemap block the app renders in — the two surfaces cannot disagree.
-106,placement,3642,"Organization namespace count equals the number of Organizations with host-tier backing — no orphan namespace, no missing one."
+106,placement,3642,"Every Organization owns EXACTLY ONE host namespace labelled openova.io/organization=<slug> — org-labelled namespace count equals the count of Organization CRs, at every tier; no orphan namespace, no missing one."
 107,placement,3642,Deleting an Organization removes its vCluster StatefulSet — no orphaned vCluster survives the delete cascade.
 108,placement,3642,"Placement is read from RUNTIME (the observed pod/namespace), not from the Application CR's declared field — a declared value that disagrees with reality must lose."
 109,placement,688,"The sovereign-realm account console renders for the owner (no second login, no error dialog)."
