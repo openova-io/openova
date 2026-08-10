@@ -103,6 +103,27 @@ sys.exit(0 if a >= b else 1)
 ' "$1" "$2"
 }
 
+# extract_login_routes reads an HTTPRoute list (kubectl -o json) on stdin and
+# prints one "<routeName> -> <backendRefs>" line per rule carrying an Exact
+# `/login` path match — the #5612 recovery rule. Empty output = the rule is
+# absent. Kept as a function so Phase 0 can prove it against fixtures before
+# Phase 2 trusts it against a cluster.
+extract_login_routes() {
+  python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+hits = []
+for it in d.get("items", []):
+    name = it.get("metadata", {}).get("name", "")
+    for rule in it.get("spec", {}).get("rules", []):
+        for m in rule.get("matches", []):
+            p = m.get("path", {})
+            if p.get("type") == "Exact" and p.get("value") == "/login":
+                backs = [b.get("name", "") for b in rule.get("backendRefs", [])]
+                hits.append("%s -> %s" % (name, ",".join(backs)))
+print("\n".join(hits))'
+}
+
 # ─── Phase 0 — detector self-test (vacuity guard) ────────────────────────
 # An absence-assertion ("no stale bp-newapi") reports clean both when the
 # fleet is genuinely upgraded AND when the comparison logic is broken. Prove
@@ -120,6 +141,34 @@ semver_ge "1.4.9" "1.4.10" && FAIL_ST "lexicographic comparison bug: '1.4.9' sor
 semver_ge "1.4.10" "1.4.9" || FAIL_ST "lexicographic comparison bug: '1.4.10' sorted < '1.4.9'"
 semver_ge "1.5.0" "1.4.151" || FAIL_ST "a later minor (1.5.0) must satisfy a 1.4.151 floor"
 echo "  ok: equal/above/below boundaries + numeric (not lexicographic) component compare"
+
+# Phase 0b — the SAME vacuity discipline for the route detector. A
+# "no Exact /login rule" assertion reports clean both when the rule is genuinely
+# missing AND when the extractor is broken, so prove it can answer BOTH ways
+# before Phase 2 believes a clean answer. The negative fixture is the shape
+# measured live on hw292 2026-08-10 (read-only) — Exact `/` to the bridge plus
+# PathPrefix `/` to newapi, and no /login rule at all, on chart 1.4.146.
+echo "[newapi-sso-version] self-test: Exact /login route detector"
+ROUTES_WITHOUT_LOGIN='{"items":[{"metadata":{"name":"newapi-bp-newapi-public"},"spec":{
+  "hostnames":["newapi.hw292.omani.works"],"rules":[
+  {"matches":[{"path":{"type":"Exact","value":"/"}}],"backendRefs":[{"name":"newapi-bp-newapi-bridge"}]},
+  {"matches":[{"path":{"type":"PathPrefix","value":"/"}}],"backendRefs":[{"name":"newapi-bp-newapi"}]}]}}]}'
+ROUTES_WITH_LOGIN='{"items":[{"metadata":{"name":"newapi-bp-newapi-public"},"spec":{
+  "hostnames":["newapi.t00.omani.works"],"rules":[
+  {"matches":[{"path":{"type":"Exact","value":"/"}}],"backendRefs":[{"name":"newapi-bp-newapi-bridge"}]},
+  {"matches":[{"path":{"type":"Exact","value":"/login"}}],"backendRefs":[{"name":"newapi-bp-newapi-bridge"}]},
+  {"matches":[{"path":{"type":"PathPrefix","value":"/"}}],"backendRefs":[{"name":"newapi-bp-newapi"}]}]}}]}'
+
+[ -z "$(printf '%s' "${ROUTES_WITHOUT_LOGIN}" | extract_login_routes)" ] \
+  || FAIL_ST "detector found an Exact /login rule in the hw292 fixture, which has none — a false PASS on a known-broken cluster"
+[ -n "$(printf '%s' "${ROUTES_WITH_LOGIN}" | extract_login_routes)" ] \
+  || FAIL_ST "detector found NO Exact /login rule in the FIXED fixture — the check can never pass, i.e. it is vacuous"
+# A PathPrefix /login must NOT satisfy the rule: the chart renders type Exact,
+# and a prefix match would also swallow /login-callback style paths.
+ROUTES_PREFIX_ONLY="${ROUTES_WITHOUT_LOGIN//\"PathPrefix\",\"value\":\"\/\"/\"PathPrefix\",\"value\":\"\/login\"}"
+[ -z "$(printf '%s' "${ROUTES_PREFIX_ONLY}" | extract_login_routes)" ] \
+  || FAIL_ST "a PathPrefix /login was accepted as the Exact /login rule"
+echo "  ok: detector answers BOTH ways (absent on the live hw292 shape, present on the fixed shape) and rejects PathPrefix"
 
 if [ "${SELF_TEST_ONLY}" -eq 1 ]; then
   echo "OK: --self-test only; no cluster was contacted."
@@ -196,6 +245,46 @@ if semver_ge "${LIVE_VERSION}" "${MIN_FIXED_VERSION}"; then
   echo "OK: ${LIVE_VERSION} >= ${MIN_FIXED_VERSION} — this cluster carries the #5612 (Exact"
   echo "    /login route) and #5599 (cross-region singleton) fixes for newapi's"
   echo "    zero-click bare-URL SSO landing."
+  echo ""
+  # ─── Phase 2 — assert the SURFACE, not the proxy ───────────────────────
+  # A chart version is a PROXY for the fix; the thing UAT rows 37/38 actually
+  # depend on is one live HTTPRoute rule. The implication only holds one way:
+  # below the floor the rule cannot exist, but AT or above the floor it still
+  # may not, because httproute.yaml gates the Exact `/login` match on
+  # `{{- if .Values.sovereignFQDN }}` inside the `ingress.httpRoute.enabled`
+  # block. An overlay that blanks sovereignFQDN, disables the HTTPRoute, or
+  # re-points gateway.bridgeBackendService clears the version floor and still
+  # ships no recovery route — the version check would print OK about a cluster
+  # where the row fails. Read the rule itself so a green line means the
+  # surface is there, not that a number is large enough.
+  ROUTES="$("${KCTL[@]}" -n newapi get httproute -o json 2>/dev/null || true)"
+  if [ -z "${ROUTES}" ]; then
+    echo "WARN: no HTTPRoute readable in namespace newapi — version cleared the floor," >&2
+    echo "      but the /login recovery route could not be verified on this cluster." >&2
+    exit 0
+  fi
+  ROUTE_VERDICT="$(printf '%s' "${ROUTES}" | extract_login_routes)"
+
+  if [ -z "${ROUTE_VERDICT}" ]; then
+    echo "───────────────────────────────────────────────────────────────" >&2
+    echo "FAIL: chart ${LIVE_VERSION} clears the ${MIN_FIXED_VERSION} floor, but NO live HTTPRoute in" >&2
+    echo "namespace newapi carries an Exact \`/login\` match. That rule IS the #5612" >&2
+    echo "fix — it routes the expired-session page to the sandbox-bridge" >&2
+    echo "(platform/newapi/internal/handler/sso_init.go, ssoInitAllowedPaths =" >&2
+    echo "{\"/\", \"/login\"}) instead of NewAPI's own SPA, whose \"Continue with" >&2
+    echo "OpenOva SSO\" button is permanently inert. Without it UAT rows 37/38 fail" >&2
+    echo "on this cluster despite a version that looks fixed." >&2
+    echo "" >&2
+    echo "Most likely cause — an overlay that satisfies the version but suppresses" >&2
+    echo "the rule: \`sovereignFQDN\` blank (the gate on the rule), or" >&2
+    echo "\`ingress.httpRoute.enabled: false\`. Check the bp-newapi HelmRelease" >&2
+    echo "values against clusters/_template/bootstrap-kit/80-newapi.yaml." >&2
+    echo "───────────────────────────────────────────────────────────────" >&2
+    exit 1
+  fi
+
+  echo "OK: live HTTPRoute carries the Exact /login recovery rule:"
+  printf '    %s\n' "${ROUTE_VERDICT}"
   exit 0
 fi
 
