@@ -11,29 +11,40 @@
  *   - CONFIGURE_TOTP      — TOTP 2FA must be configured
  *
  * This modal is shown as a blocking interstitial — the user cannot
- * dismiss it; they must complete the required action in Keycloak's
- * account-management UI (opened in a new tab) and then click
- * "I've completed the setup" to refresh their tokens. If the refresh
- * still shows required actions, the modal re-appears.
+ * dismiss it; they complete the required action from their account
+ * settings and then click "I've completed the setup" to refresh their
+ * tokens. If the refresh still shows required actions, the modal
+ * re-appears.
  *
  * Design rationale:
  *   - We do NOT embed a Keycloak account-management iframe because
  *     Keycloak's CSP and X-Frame-Options headers prevent framing in
- *     modern browsers without explicit configuration. A new-tab link to
- *     the Keycloak account console is the standard approach.
+ *     modern browsers without explicit configuration.
+ *   - #6090 (UAT row 109): the link is NOT to Keycloak's account console.
+ *     That was the standard approach and it is wrong on a Sovereign — a
+ *     Keycloak-native account console cannot mint a REST token from a
+ *     PIN-brokered session (#688), so reaching it does not refuse: it
+ *     authenticates silently and then hangs forever on "Loading the
+ *     Account Console" with no error text and no way out (measured hw293).
+ *     Row 109 requires that NO console navigation link a User there, and
+ *     sending someone into an infinite spinner to satisfy a required
+ *     action is worse than sending them nowhere. The affordance now points
+ *     at this console's own /settings — the surface that actually renders
+ *     the signed-in owner's profile, and the same destination the gateway
+ *     intercept redirects the account console to.
  *   - The "I've completed the setup" button triggers a silent token
  *     refresh; if required actions are gone, the modal closes.
  *   - If Keycloak's refresh returns new required actions, the modal
  *     re-renders with the updated list.
  *
- * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the Keycloak
- * account URL is derived from the Sovereign FQDN at runtime.
+ * sovereignFQDN is still a prop: silentRefresh() needs it to reach the
+ * Sovereign's token endpoint. It no longer builds any account-console URL.
  *
  * Related: GitHub issue #607
  */
 
 import { useState } from 'react'
-import { ShieldCheck, Key, Lock, RefreshCw, ExternalLink } from 'lucide-react'
+import { ShieldCheck, Key, Lock, RefreshCw } from 'lucide-react'
 import { Button } from '@/shared/ui/button'
 import { silentRefresh, getRequiredActions, saveTokens } from '@/shared/lib/oidc'
 import type { TokenSet } from '@/shared/lib/oidc'
@@ -44,7 +55,7 @@ import {
 } from '@/shared/lib/oidc'
 
 interface RequiredActionsModalProps {
-  /** Sovereign FQDN — used to derive the Keycloak account URL. */
+  /** Sovereign FQDN — used by silentRefresh to reach the token endpoint. */
   sovereignFQDN: string
   /** Required actions from the current id_token. */
   requiredActions: string[]
@@ -88,7 +99,7 @@ function describeAction(code: string): ActionDescriptor {
     ACTION_DESCRIPTORS.find((a) => a.code === code) ?? {
       code,
       label: code,
-      description: 'Complete this required action in the Keycloak account console.',
+      description: 'Complete this required action from your account settings.',
       icon: <ShieldCheck className="h-5 w-5 text-[var(--color-accent)]" />,
     }
   )
@@ -103,7 +114,11 @@ export function RequiredActionsModal({
   const [error, setError] = useState<string | null>(null)
   const [currentActions, setCurrentActions] = useState<string[]>(requiredActions)
 
-  const accountUrl = `https://auth.${sovereignFQDN}/realms/sovereign/account`
+  // #6090 (UAT row 109) — this console's OWN profile surface, never
+  // `https://auth.${sovereignFQDN}/realms/sovereign/account`. That URL
+  // authenticates silently and then hangs forever on "Loading the Account
+  // Console"; the row forbids any console navigation from linking a User to it.
+  const accountUrl = '/settings'
 
   async function handleDone() {
     setRefreshing(true)
@@ -152,7 +167,7 @@ export function RequiredActionsModal({
               Account setup required
             </h2>
             <p className="mt-1 text-sm text-[var(--color-text-dim)]">
-              Complete the following steps in the Keycloak account console before accessing the Sovereign Console.
+              Complete the following steps in your account settings before accessing the Sovereign Console.
             </p>
           </div>
         </div>
@@ -181,16 +196,13 @@ export function RequiredActionsModal({
           })}
         </ul>
 
-        {/* Open Keycloak account console */}
+        {/* Open this console's own account settings (#6090) */}
         <a
           href={accountUrl}
-          target="_blank"
-          rel="noopener noreferrer"
           className="mb-4 flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-4 py-2.5 text-sm font-medium text-[var(--color-text)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-strong)]"
           data-testid="ra-open-account-link"
         >
-          Open Keycloak account console
-          <ExternalLink className="h-3.5 w-3.5" />
+          Open account settings
         </a>
 
         {/* Error */}

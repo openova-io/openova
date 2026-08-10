@@ -723,6 +723,28 @@ gateway:
   bareURLAdminRedirect:
     enabled: true
     realm: sovereign
+  # accountConsoleRedirect (#6090, UAT row 109) — intercept Keycloak's built-in
+  # account console and send the User to the console surface that actually
+  # serves their profile.
+  #
+  # The account console cannot work on a Sovereign: a Keycloak-native account
+  # console cannot mint a REST token from a PIN-brokered session (#688), which
+  # is definitional and permanent. Left alone it does not refuse — it renders
+  # the branded sign-in, completes catalyst-pin SILENTLY, and then hangs
+  # forever on the literal string "Loading the Account Console" with no error
+  # text and no way out (measured hw293, held 20+ seconds against a healthy
+  # backend). Row 109 asks that reaching it directly fail loud and legibly; a
+  # silent infinite spinner is the one outcome a User cannot act on.
+  #
+  # Only the two SPA ENTRY paths are matched, and only as Exact — the account
+  # REST surface (/realms/<realm>/account/config and friends) must keep
+  # answering, so a PathPrefix here would turn a UI problem into an API outage.
+  #
+  # Requires sovereignFQDN to be set (the redirect target is
+  # console.<sovereignFQDN>). Set enabled:false to serve the stock console.
+  accountConsoleRedirect:
+    enabled: true
+    path: /settings
   # Backend Service — defaults to <release>-keycloak (bitnami subchart fullname)
   backendService: ""
   backendPort: 80

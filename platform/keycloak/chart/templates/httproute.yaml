@@ -66,6 +66,60 @@ console stays reachable at its full path (break-glass untouched, law
               replaceFullPath: {{ printf "/admin/%s/console/" (.Values.gateway.bareURLAdminRedirect.realm | default "sovereign") | quote }}
             statusCode: 302
 {{- end }}
+{{- if and .Values.gateway.accountConsoleRedirect .Values.gateway.accountConsoleRedirect.enabled .Values.sovereignFQDN }}
+{{- /*
+ACCOUNT-CONSOLE INTERCEPT (#6090, UAT row 109 clause b).
+
+Keycloak's built-in account console CANNOT work on this Sovereign, and that
+is definitional rather than a defect: a Keycloak-native account console
+cannot mint a REST token from a PIN-brokered session (#688). What it did
+instead was worse than refusing. Measured on hw293: the User reaches
+/realms/<realm>/account/, the catalyst-pin IdP completes SILENTLY, and the
+browser lands on a page whose entire body text is "Loading the Account
+Console" — held 20+ seconds, document.title "Account Management", zero
+h1/h2, NO error text, no diagnosis, no way out. The backend was healthy
+(/account/config answered 200), so this is the stock keycloak.v2 SPA
+swallowing its own failed bootstrap behind the placeholder.
+
+Row 109 requires that reaching it directly "fails loud and legibly". An
+infinite silent spinner is the exact opposite, and it is the one outcome a
+User cannot act on.
+
+Gateway API v1 has no direct-response filter — RequestRedirect is the only
+mechanism here — so the intercept sends the User to the console surface that
+DOES serve their profile, which is the same surface clause (a) already passes
+on (/settings renders the owner with no second login). A visible one-hop
+bounce to a working page is legible; a spinner that never resolves is not.
+
+SCOPED TO THE TWO SPA ENTRY PATHS, deliberately Exact and never PathPrefix.
+`/realms/<realm>/account/config` and the rest of the account REST surface
+must keep answering — a PathPrefix here would capture them and turn a UI
+problem into an API outage. Catching only the document entry means the SPA
+never boots, so it never reaches the bootstrap it cannot complete.
+
+Loop-safety: the redirect leaves this host entirely (auth.<fqdn> →
+console.<fqdn>), so it cannot re-enter itself. Port is explicit 443 — the
+#3310 class the bare-URL rule above already records, where Gateway API
+otherwise copies the cilium listener port into Location.
+*/}}
+    - matches:
+        - path:
+            type: Exact
+            value: {{ printf "/realms/%s/account" (.Values.sovereignRealm.name | default "sovereign") | quote }}
+        - path:
+            type: Exact
+            value: {{ printf "/realms/%s/account/" (.Values.sovereignRealm.name | default "sovereign") | quote }}
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            hostname: {{ printf "console.%s" .Values.sovereignFQDN | quote }}
+            port: 443
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: {{ .Values.gateway.accountConsoleRedirect.path | default "/settings" | quote }}
+            statusCode: 302
+{{- end }}
     - matches:
         - path:
             type: PathPrefix
