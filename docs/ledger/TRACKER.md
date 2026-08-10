@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T17:30:06Z` |
+| Last refreshed | `2026-08-10T17:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5485](https://github.com/openova-io/openova/issues/5485) | Observability surfaces inherit the wrong object: reconciler logs match by prefix | Other |
 | [#5488](https://github.com/openova-io/openova/issues/5488) | Cutover aborts at secondary-kubeconfigs pre-flight after a catalyst-api restart: | Other |
 | [#5489](https://github.com/openova-io/openova/issues/5489) | Four surfaces report a vCluster that does not exist (parent row hardcodes it, ku | Other |
 | [#5496](https://github.com/openova-io/openova/issues/5496) | Catalog per-field save silently reverts the previous save — query invalidated  | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6033](https://github.com/openova-io/openova/issues/6033) | active-hot-standby Application reports phase=Ready across 1 region with perClust | Other |
 | [#6040](https://github.com/openova-io/openova/issues/6040) | hw293: region-B ClusterMesh never established — a dormant chart's census failu | Other |
 | [#6043](https://github.com/openova-io/openova/issues/6043) | bp-catalyst-platform cannot publish: unresolved merge-conflict markers on main f | Other |
+| [#6045](https://github.com/openova-io/openova/issues/6045) | hw293: four live defects surfaced by the 2026-08-11 UAT partition — an unpubli | Other |
 
 ---
 
@@ -307,6 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T17:43 | [#6046](https://github.com/openova-io/openova/pull/6046) | #6004 | docs(uat): partition the 44 ❌ rows that carried no label at  |
+| 2026-08-10T17:37 | [#6044](https://github.com/openova-io/openova/pull/6044) | #5974 | fix(catalyst): unresolved conflict markers on main froze the |
+| 2026-08-10T17:32 | [#6039](https://github.com/openova-io/openova/pull/6039) | #6015 | docs(uat): 16 rows settled by API/CLI on hw293 — 15 pass, 1  |
+| 2026-08-10T17:32 | [#6038](https://github.com/openova-io/openova/pull/6038) | #6029 | fix(uat): a re-tag the partition parser cannot read is silen |
+| 2026-08-10T17:33 | [#6037](https://github.com/openova-io/openova/pull/6037) | #5978 | fix(catalog): the storefront sells Sandbox from a different  |
+| 2026-08-10T17:32 | [#6035](https://github.com/openova-io/openova/pull/6035) | #5946 | fix(cutover): the sovereignty floor read 2 of the 7 cutover  |
 | 2026-08-10T17:01 | [#6034](https://github.com/openova-io/openova/pull/6034) | #6029 | fix(uat): a re-tag the partition parser cannot read is silen |
 | 2026-08-10T16:59 | [#6029](https://github.com/openova-io/openova/pull/6029) | #5965 | docs(uat): 14 of the 21 BUILD rows do not need an engineer — |
 | 2026-08-10T16:54 | [#6026](https://github.com/openova-io/openova/pull/6026) | #6024 | docs(uat): 24 DEPLOY-GATED rows are not waiting on a deploy  |
@@ -331,12 +337,6 @@ flowchart LR
 | 2026-08-10T13:58 | [#5996](https://github.com/openova-io/openova/pull/5996) | #5989 | docs(uat): reset the ledger for hw293 — 207 evidence cells f |
 | 2026-08-10T12:25 | [#5995](https://github.com/openova-io/openova/pull/5995) | #5988 | docs(uat): generate the WBS partition from UAT.md instead of |
 | 2026-08-10T12:26 | [#5994](https://github.com/openova-io/openova/pull/5994) | #5646 | fix(provisioning): pod-truth reconciler was blind to the hos |
-| 2026-08-10T12:26 | [#5990](https://github.com/openova-io/openova/pull/5990) | #5253 | docs(uat): adjudicate the six clause-is-wrong candidates — 2 |
-| 2026-08-10T12:18 | [#5989](https://github.com/openova-io/openova/pull/5989) | #5988 | fix(uat): eleven DEPLOY-GATED rows cited the ledger commit a |
-| 2026-08-10T12:07 | [#5983](https://github.com/openova-io/openova/pull/5983) | #5697 | docs(uat): row 35 — the 403 is an unknown-token 403, not a p |
-| 2026-08-10T12:07 | [#5980](https://github.com/openova-io/openova/pull/5980) | #5964 | feat(ci): fail a PR that claims a chart version another open |
-| 2026-08-10T12:26 | [#5979](https://github.com/openova-io/openova/pull/5979) | #5575 | fix(wizard): stop offering components that resolve to no Blu |
-| 2026-08-10T12:07 | [#5977](https://github.com/openova-io/openova/pull/5977) | #5972 | docs(uat): re-walk the 14 silent-SSO rows the f25c4d7d flip  |
 
 ---
 
