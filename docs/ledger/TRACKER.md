@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T17:00:07Z` |
+| Last refreshed | `2026-08-10T17:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5480](https://github.com/openova-io/openova/issues/5480) | A16: per-region secret generation on a shared VIP — newapi SESSION_SECRET conf | Other |
 | [#5484](https://github.com/openova-io/openova/issues/5484) | Marketplace: redeem rate limiter fires at ~5x budget and penalises bystanders (t | Other |
 | [#5485](https://github.com/openova-io/openova/issues/5485) | Observability surfaces inherit the wrong object: reconciler logs match by prefix | Other |
 | [#5488](https://github.com/openova-io/openova/issues/5488) | Cutover aborts at secondary-kubeconfigs pre-flight after a catalyst-api restart: | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6031](https://github.com/openova-io/openova/issues/6031) | UAT row 57 has no fix anywhere — bp-cnpg-pair ships cnpgPair.enabled=false, so | Other |
 | [#6032](https://github.com/openova-io/openova/issues/6032) | Application reports Ready over ANOTHER release's datastore — a second bp-postg | Other |
 | [#6033](https://github.com/openova-io/openova/issues/6033) | active-hot-standby Application reports phase=Ready across 1 region with perClust | Other |
+| [#6040](https://github.com/openova-io/openova/issues/6040) | hw293: region-B ClusterMesh never established — a dormant chart's census failu | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T17:01 | [#6034](https://github.com/openova-io/openova/pull/6034) | #6029 | fix(uat): a re-tag the partition parser cannot read is silen |
 | 2026-08-10T16:59 | [#6029](https://github.com/openova-io/openova/pull/6029) | #5965 | docs(uat): 14 of the 21 BUILD rows do not need an engineer — |
 | 2026-08-10T16:54 | [#6026](https://github.com/openova-io/openova/pull/6026) | #6024 | docs(uat): 24 DEPLOY-GATED rows are not waiting on a deploy  |
 | 2026-08-10T16:33 | [#6025](https://github.com/openova-io/openova/pull/6025) | #5359 | fix(cutover): the chart outgrew the 1 MiB Helm release Secre |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-10T12:07 | [#5980](https://github.com/openova-io/openova/pull/5980) | #5964 | feat(ci): fail a PR that claims a chart version another open |
 | 2026-08-10T12:26 | [#5979](https://github.com/openova-io/openova/pull/5979) | #5575 | fix(wizard): stop offering components that resolve to no Blu |
 | 2026-08-10T12:07 | [#5977](https://github.com/openova-io/openova/pull/5977) | #5972 | docs(uat): re-walk the 14 silent-SSO rows the f25c4d7d flip  |
-| 2026-08-10T11:19 | [#5976](https://github.com/openova-io/openova/pull/5976) | #3374 | docs(uat): convergence cycle 2026-08-10 — 67.8% green, and t |
 
 ---
 
