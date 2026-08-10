@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T23:15:04Z` |
+| Last refreshed | `2026-08-10T23:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5561](https://github.com/openova-io/openova/issues/5561) | §854 solver carve-out assumes HTTP-01 solvers 'GC automatically' — 5 have per | Other |
-| [#5567](https://github.com/openova-io/openova/issues/5567) | Mothership has NO Kyverno but 7 orphaned webhooks remain — 5 fail-closed, bloc | Other |
-| [#5573](https://github.com/openova-io/openova/issues/5573) | Mothership GitOps loop is DEAD — all 4 Flux controllers at replicas=0 + flux-s | Other |
 | [#5575](https://github.com/openova-io/openova/issues/5575) | Wizard component catalog is unvalidated: 6 components have no Blueprint, 8 carry | Other |
 | [#5591](https://github.com/openova-io/openova/issues/5591) | phase2b bootstrapMode->false flip is primary-region-only: secondary regions keep | Other |
 | [#5596](https://github.com/openova-io/openova/issues/5596) | cutoverComplete=true certifies sovereignty while region-B keeps 64/65 HelmReposi | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#6085](https://github.com/openova-io/openova/issues/6085) | Reconciliation tab never offers Resume: suspended read is stale after its own ac | Other |
 | [#6087](https://github.com/openova-io/openova/issues/6087) | catalyst-pin IdP dials catalyst-api over the Sovereign's own public EIP, so the  | Other |
 | [#6090](https://github.com/openova-io/openova/issues/6090) | The Keycloak account console hangs forever on 'Loading the Account Console' inst | Other |
+| [#6091](https://github.com/openova-io/openova/issues/6091) | converged-late census counts tenant HelmReleases: a customer app install can vet | Other |
+| [#6092](https://github.com/openova-io/openova/issues/6092) | Org delete cascade stalls on the finalizer: organization-controller cannot delet | Other |
+| [#6093](https://github.com/openova-io/openova/issues/6093) | Jobs cutover projection orders the 11 sovereignty steps ALPHABETICALLY — every | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T23:20 | [#6088](https://github.com/openova-io/openova/pull/6088) | #6078 | docs(uat): rows 7 8 15 25 are DEPLOY-GATED, not NEEDS-CODE — |
 | 2026-08-10T23:09 | [#6086](https://github.com/openova-io/openova/pull/6086) | #6085 | docs(uat): settle 7 never-walked rows on hw293 — create 50,  |
 | 2026-08-10T22:59 | [#6083](https://github.com/openova-io/openova/pull/6083) | #6004 | fix(catalyst-api): let a repaired Phase-1 failure leave the  |
 | 2026-08-10T22:34 | [#6080](https://github.com/openova-io/openova/pull/6080) | #5573 | fix(guard): flux loop liveness read spec.replicas, a surface |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-10T17:48 | [#6042](https://github.com/openova-io/openova/pull/6042) | #6004 | fix(catalyst-api): a Phase-1 component census must not decid |
 | 2026-08-10T17:32 | [#6039](https://github.com/openova-io/openova/pull/6039) | #6015 | docs(uat): 16 rows settled by API/CLI on hw293 — 15 pass, 1  |
 | 2026-08-10T17:32 | [#6038](https://github.com/openova-io/openova/pull/6038) | #6029 | fix(uat): a re-tag the partition parser cannot read is silen |
-| 2026-08-10T17:33 | [#6037](https://github.com/openova-io/openova/pull/6037) | #5978 | fix(catalog): the storefront sells Sandbox from a different  |
 
 ---
 
