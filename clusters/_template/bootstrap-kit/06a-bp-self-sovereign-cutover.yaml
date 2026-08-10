@@ -1066,7 +1066,7 @@ spec:
       # Sovereign (the git overwrite cannot preserve step-06's durable
       # HelmRepository-pivot commit); the reconciler also gains a CONTINUOUS
       # source-host drift lint (daytwoReconciler.sourceHostLint).
-      version: 0.1.176
+      version: 0.1.177
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

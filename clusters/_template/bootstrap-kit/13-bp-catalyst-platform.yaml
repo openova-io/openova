@@ -1350,7 +1350,13 @@ spec:
       #   renders INSIDE this umbrella, so the entry only reaches a Sovereign
       #   once the umbrella republishes and this pin advances (#5734).
       #   Lockstep w/ products/catalyst/chart/Chart.yaml + slot-13d (0.1.6).
-      version: 1.4.1331
+      # 1.4.1332 (#5921, Refs #5919): the catalog-seed card + delivery pin for
+      #   bp-self-sovereign-cutover move 0.1.176 -> 0.1.177 (mail.openova.io
+      #   added to the step-08 deny set). The seed renders INSIDE this
+      #   umbrella, so the new pin only reaches a Sovereign once the umbrella
+      #   republishes and this pin advances (#5734). Lockstep w/
+      #   products/catalyst/chart/Chart.yaml + slot-06a (0.1.177).
+      version: 1.4.1332
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

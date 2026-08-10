@@ -3757,7 +3757,14 @@ name: bp-catalyst-platform
 #   Blueprint CR list is the ONLY catalog leg that answers, and those CRs are
 #   whatever the LAST PUBLISHED umbrella rendered — hence this republish, per
 #   check-umbrella-republish-gate.py (#5734). Lockstep w/ slot-13 pin.
-version: 1.4.1331
+# 1.4.1332 (#5921, Refs #5919): the catalog-seed card + delivery pin for
+#   bp-self-sovereign-cutover move 0.1.176 -> 0.1.177 (mail.openova.io added
+#   to the step-08 deny set). A seed pin that moves without this file's
+#   version moving is never carried by the published OCI artifact, so the
+#   Sovereign would keep installing cutover 0.1.176 while the seed in git
+#   claimed 0.1.177 — check-umbrella-republish-gate.py (#5734). Lockstep w/
+#   slot-13 pin.
+version: 1.4.1332
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
@@ -3912,7 +3919,7 @@ version: 1.4.1331
 # scripts/check-chart-version-forward.sh (#5743) fails unless the two match —
 # main was carrying a pre-existing 1.4.1330/1.4.1329 split, so this bump heals
 # it in the same commit, exactly as the documented self-heal contract does.
-appVersion: 1.4.1331
+appVersion: 1.4.1332
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +

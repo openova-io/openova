@@ -2087,6 +2087,21 @@ egressTest:
     # blocked by omission from the allow-list; this entry drives the active
     # call-home assertion that PROVES it is unreachable.
     - "console.openova.io"
+    # mail.openova.io (#5921): the NINTH tether, and the only one on the
+    # PURCHASE path. catalyst-system/marketplace-api sends every customer
+    # sign-in code through the mothership SMTP host, so on a post-cutover
+    # Sovereign a paying customer cannot complete checkout unless OUR mail
+    # server answers. ADR-0002 enumerates EIGHT tethers and outbound
+    # customer-auth SMTP is not among them, so no cutover step pivots it and
+    # nothing looked for it.
+    #
+    # It was absent from this list, which is exactly why the 600s hold passed
+    # with the tether fully live: this proof examines ONLY the hosts named
+    # here and infers sovereignty from their absence. Same shape as the 62
+    # ghcr.io HelmRepositories that survived the same hold (#5919). A host
+    # missing from this list is not merely untested — it is actively
+    # certified independent, which is worse.
+    - "mail.openova.io"
     # TBD-V24 MISS-3 (chart 0.1.37): xpkg.upbound.io is the Crossplane
     # Provider package upstream. Step 11 pivots every Provider's
     # spec.package literal off this host, so the deny-egress hold proof
