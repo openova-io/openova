@@ -115,11 +115,27 @@ def reset_legacy_row(cells):
     return False
 
 
+# A cell boundary is a pipe that is NOT backslash-escaped. Evidence prose
+# legitimately contains `\|` — it arrives whenever someone pastes Go or shell,
+# where `|` and `||` are ordinary operators, and scripts/test_uat_table_shape.py
+# REQUIRES the escape so GitHub does not end the cell mid-sentence.
+#
+# This used to be a bare `ln.split("|")`, which is a DIFFERENT parser from the
+# one the shape guard uses. On any row carrying an escaped pipe the bare split
+# saw extra fields, so the reset wrote its `☐`/`—` at an offset that was not a
+# cell boundary at all — turning an escaped pipe into real extra columns. The
+# hw293 reset corrupted 16 rows that way (2026-08-10) and the shape guard caught
+# it immediately, because the two parsers finally disagreed out loud.
+#
+# Two readers of the same bytes must not disagree. Keep this identical to the
+# guard's expression.
+CELL_SPLIT = re.compile(r"(?<!\\)\|")
+
 # Column index of the "Test case" (assertion) cell on the canonical
 # 7-column prose table: | # | Epic | Ticket | Test case | Walk | Result | Evidence |
-# After a bare "|"-split the leading empty field is index 0, so the
-# assertion lands at index 4. It is the ONE cell a reset must never
-# touch — it is the row's identity, not its proof.
+# After the split the leading empty field is index 0, so the assertion lands at
+# index 4. It is the ONE cell a reset must never touch — it is the row's
+# identity, not its proof.
 ASSERTION_IDX = 4
 
 
@@ -190,7 +206,7 @@ def process(path, is_master):
         if "|" not in ln:
             out.append(ln)
             continue
-        cells = ln.split("|")
+        cells = CELL_SPLIT.split(ln)
         if is_separator(cells) or is_header_row(cells):
             out.append(ln)
             continue

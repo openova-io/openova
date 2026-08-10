@@ -208,8 +208,37 @@ def main():
         return 1
 
     if args.write:
-        print(render(derived))
-        print("\n(paste into WBS-TO-100.md §1, then re-run --check)")
+        # This used to print the block and say "paste into WBS-TO-100.md §1",
+        # while --help promised it would "rewrite WBS-TO-100.md §1 from UAT.md"
+        # and --check's own failure text told the reader to "re-derive with
+        # --write". Following that instruction changed nothing, so --check kept
+        # failing: run --write, read output, re-run --check, fail, forever. A
+        # flag that advertises a write and performs a print is the same defect
+        # class as a guard that reports a verdict it never measured.
+        text = WBS.read_text(encoding="utf-8")
+        block = render(derived)
+        # §1 runs from its heading to the next top-level heading.
+        m = re.search(r"^## 1\..*?$", text, re.M)
+        if not m:
+            print("could not find the '## 1.' heading in "
+                  f"{WBS.name} — refusing to guess where §1 begins",
+                  file=sys.stderr)
+            return 2
+        nxt = re.search(r"^## (?!1\.)", text[m.end():], re.M)
+        end = m.end() + (nxt.start() if nxt else len(text) - m.end())
+        new = text[:m.end()] + "\n\n" + block.rstrip() + "\n\n" + text[end:]
+        if new == text:
+            print(f"ok — {WBS.name} §1 already matches UAT.md")
+            return 0
+        WBS.write_text(new, encoding="utf-8")
+        print(f"rewrote {WBS.name} §1 from UAT.md "
+              f"({sum(len(v) for v in derived.values())} ❌ rows across "
+              f"{len(derived)} buckets)")
+        # Prove the write actually satisfied the checker rather than trusting it.
+        if compare(derived, parse_wbs(WBS.read_text(encoding="utf-8"))):
+            print("wrote §1 but --check still disagrees — the writer and the "
+                  "checker are reading different shapes", file=sys.stderr)
+            return 1
         return 0
 
     if args.check:
