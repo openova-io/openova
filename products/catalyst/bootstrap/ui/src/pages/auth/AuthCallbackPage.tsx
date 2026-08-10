@@ -63,9 +63,14 @@ function SovereignCallbackPage() {
       try {
         // Lazy-import oidc so Catalyst-Zero builds don't pay for unused code.
         const { handleCallback, parseSilentAuthError } = await import('@/shared/lib/oidc')
-        const { DETECTED_MODE } = await import('@/shared/lib/detectMode')
+        // #5895 / UAT row 29 — the token exchange MUST target the same host the
+        // authorize leg used (attemptSilentSovereignSSO, router.tsx). Resolving
+        // through the shared cache is what guarantees that: deriving it here
+        // from the hostname would send the exchange to `auth.<orgslug>` on a
+        // per-Org console while the code was issued by the Sovereign realm.
+        const { resolveSovereignFQDN } = await import('@/shared/lib/resolveSovereignFQDN')
 
-        const sovereignFQDN = DETECTED_MODE.sovereignFQDN
+        const sovereignFQDN = await resolveSovereignFQDN()
         if (!sovereignFQDN) {
           setState({
             status: 'error',
