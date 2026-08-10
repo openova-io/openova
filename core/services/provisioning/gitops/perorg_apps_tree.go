@@ -337,12 +337,14 @@ func PerOrgHostHelmReleaseAppDocs(planSlug string, appSlugs []string) []string {
 	if !BoundaryIsVcluster(planSlug) {
 		return nil
 	}
-	docs := make([]string, 0, len(appSlugs))
+	// helmReleaseAppsFor — NOT a raw isHelmReleaseApp walk over appSlugs — so
+	// this index sees the SAME set GenerateAllWithAppConfigs writes files for,
+	// including the impliedHelmReleaseApps closure (openclaw ⇒ newapi, row 225).
+	// A file written here but not indexed is never applied.
+	hrApps := helmReleaseAppsFor(appSlugs)
+	docs := make([]string, 0, len(hrApps))
 	seen := map[string]struct{}{}
-	for _, a := range appSlugs {
-		if !isHelmReleaseApp(a) {
-			continue
-		}
+	for _, a := range hrApps {
 		name := fmt.Sprintf("app-%s.yaml", a)
 		if _, dup := seen[name]; dup {
 			continue

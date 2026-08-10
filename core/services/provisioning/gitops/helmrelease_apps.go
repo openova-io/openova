@@ -83,6 +83,75 @@ func hasHelmReleaseApp(appSlugs []string) bool {
 	return false
 }
 
+// impliedHelmReleaseApps maps a cart slug → the HR-shaped slugs whose ABSENCE
+// leaves the bought app pointing at a host nothing serves (UAT row 225).
+//
+// openclaw → newapi is the case that motivated this, and it is not a taste
+// call: generateOpenClawHR STAMPS `llm.baseURL` and `newapi.baseURL` as
+// `https://api.<slug>.<parent>/v1`, and that host is EXACTLY the HTTPRoute
+// hostname generateNewAPIHR gives bp-newapi (`api.<slug>.<parent>`). So a cart
+// holding openclaw but not newapi renders an openclaw whose only LLM backend
+// is a hostname this Org never provisions. That is the shape observed on
+// hw292: the one customer Org bought wordpress + openclaw + stalwart-mail +
+// agenity, a cluster-wide sweep found exactly ONE bp-newapi (the host-level
+// flux-system/bp-newapi in ns `newapi`, which openclaw does NOT point at), and
+// row 225 had no per-Org bp-newapi to walk at all.
+//
+// #4739 added `newapi` to helmReleaseAppSlugs FOR "row225 funnel parity with
+// the BSS-door orgTenantBPNewAPI". It did not achieve that parity: the BSS
+// door emits bp-newapi.yaml for EVERY tenant Org unconditionally (it is a
+// fixed entry in orgTenantTemplates and in orgTenantKustomization's resources
+// list — products/catalyst/bootstrap/api/internal/handler/organization_gitops.go),
+// while the funnel renders it only when the customer separately puts `newapi`
+// in the cart. This map closes that divergence at the one place both the file
+// set and the index set read from, so the two paths agree on what an openclaw
+// Org contains.
+//
+// Deliberately NOT a blanket "install everything": only a slug whose own
+// rendered values name another slug's host belongs here. Adding an entry means
+// asserting that dangling-host claim about the templates.
+var impliedHelmReleaseApps = map[string][]string{
+	"openclaw": {"newapi"},
+}
+
+// helmReleaseAppsFor returns the HelmRelease-shaped slugs a cart renders, in a
+// stable order (Go map/slice iteration order would otherwise churn the gitops
+// diff), with the impliedHelmReleaseApps closure applied.
+//
+// This is the SINGLE enumeration both the file set (GenerateAllWithAppConfigs)
+// and the index set (PerOrgHostHelmReleaseAppDocs) call. Keeping them on one
+// function is the point: an implied app rendered into the tree but missing
+// from the kustomization index is an unapplied file, and an index entry with
+// no file breaks the whole kustomize build (the #4567 failure mode).
+func helmReleaseAppsFor(appSlugs []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(appSlugs)+1)
+	add := func(slug string) {
+		if !isHelmReleaseApp(slug) {
+			return
+		}
+		if _, dup := seen[slug]; dup {
+			return
+		}
+		seen[slug] = struct{}{}
+		out = append(out, slug)
+	}
+	// Two passes read as "what was bought, then what that implies"; the dedupe
+	// in add() plus the sort below are what actually make the result
+	// independent of cart order and of pass order, so an Org that buys BOTH
+	// openclaw and newapi yields one entry either way.
+	for _, a := range appSlugs {
+		add(a)
+	}
+	for _, a := range appSlugs {
+		for _, implied := range impliedHelmReleaseApps[a] {
+			add(implied)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // helmReleaseAppOpts carries the per-Org context the openclaw/stalwart HR
 // templates interpolate. slug is the Organization subdomain (== host ns).
 type helmReleaseAppOpts struct {
@@ -485,20 +554,6 @@ spec:
         enabled: true
 `, helmRepoBlock("bp-stalwart-tenant"), opt.slug, opt.slug, opt.kubeConfigBlock(),
 		primaryDomain, mailHost, adminEmail, keycloakRealm)
-}
-
-// sortedHelmReleaseApps returns the HelmRelease-shaped slugs from appSlugs in a
-// stable order so the generated file set is deterministic across regenerate
-// (Go map/slice iteration order would otherwise churn the gitops diff).
-func sortedHelmReleaseApps(appSlugs []string) []string {
-	out := make([]string, 0, len(appSlugs))
-	for _, a := range appSlugs {
-		if isHelmReleaseApp(a) {
-			out = append(out, a)
-		}
-	}
-	sort.Strings(out)
-	return out
 }
 
 
