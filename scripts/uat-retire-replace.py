@@ -24,6 +24,13 @@ migration -- the #4292 tier gate (free/S Organizations back onto a host
 namespace, M+ get a dedicated Org vCluster) has been shipping untested this
 whole time.
 
+SWAPS HOLDS THE BATCH BEING APPLIED, NOT THE HISTORY. Re-running a previous
+batch would reset rows that have since been WALKED on their replacement clause
+back to an unwalked ☐ and overwrite their evidence -- destroying real proof to
+re-apply a swap that already happened. So each batch replaces the map, and the
+cumulative record lives in docs/ledger/uat-retirements.csv, which is the file to
+read (and to argue with) for what was ever retired and why.
+
     python3 scripts/uat-retire-replace.py --dry-run
     python3 scripts/uat-retire-replace.py
 """
@@ -41,45 +48,12 @@ STAMP = "2026-08-10"
 
 # row -> (new epic, new clause, ground for retirement)
 SWAPS = {
- "99": ("placement",
-   "An Organization on plan **M or above** is backed by a DEDICATED Org vCluster — `kubectl -n <org> get sts vcluster` reports 1/1 Ready.",
-   "asserted the grafana tile inside a `mgmt` vCluster block; #4325 moved every bootstrap app host-side permanently, so no fresh prov has a mgmt block"),
- "100": ("placement",
-   "An Organization on plan **free or S** is backed by a HOST namespace and has NO vCluster — the #4292 tier gate; the null is proven against a control Org that does have one.",
-   "asserted the harbor tile inside the `mgmt` block — same dead migration"),
- "101": ("placement",
-   "The console Organization detail's `isolation` value is DERIVED from the observed backing, not inferred from `kind` — an Org whose backing is a host namespace must not report `vcluster`.",
-   "asserted the keycloak tile inside the `mgmt` block — same dead migration"),
- "102": ("placement",
-   "LAYER1=vCluster treemap: every per-Org vCluster renders as its own labelled block, one block per vCluster.",
-   "asserted the gitea tile inside the `mgmt` block — same dead migration"),
- "103": ("placement",
-   "A per-Org vCluster block contains ONLY that Organization's workloads — no cross-Org leakage into another Org's block.",
-   "asserted the openbao tile inside the `mgmt` block — same dead migration"),
- "104": ("placement",
-   "The seven bootstrap components (grafana/harbor/keycloak/gitea/openbao/newapi/guacamole) render under **host** — the post-#4325 canonical placement.",
-   "asserted the newapi tile inside the `mgmt` block; this replacement asserts the INVERSE, which is what is true now"),
- "105": ("placement",
-   "A per-app placement detail matches the treemap block the app renders in — the two surfaces cannot disagree.",
-   "asserted the guacamole tile inside the `mgmt` block — same dead migration"),
- "106": ("placement",
-   "Organization namespace count equals the number of Organizations with host-tier backing — no orphan namespace, no missing one.",
-   "asserted the `mgmt` block contains all 7 named apps — same dead migration"),
- "107": ("placement",
-   "Deleting an Organization removes its vCluster StatefulSet — no orphaned vCluster survives the delete cascade.",
-   "asserted none of the 7 apps appear under `host`; that is now the CORRECT home, so the clause is inverted and unpassable"),
- "108": ("placement",
-   "Placement is read from RUNTIME (the observed pod/namespace), not from the Application CR's declared field — a declared value that disagrees with reality must lose.",
-   "asserted the keycloak card reads `mgmt` — same dead migration"),
- "R11": ("gitea",
-   "gitea git-data survives a POD RESTART — the PVC rebinds and every bare repo retains its HEAD commit; no empty-PVC data loss on reschedule.",
-   "asserted survival of the #4325 host-ns re-home; gitea is host-side from t=0 on every fresh prov, so the event being survived can never occur again"),
- "R19": ("agenity",
-   "The per-Org **Agenity** workspace StatefulSet reaches Running with its Anthropic credential seeded — the init container validates the token and exits 0.",
-   "asserted sandbox-controller reaches Running; the Sandbox concept was removed 2026-06-30 and superseded by products/agenity + products/openova-mcp"),
- "186": ("mcp",
-   "**bp-openova-mcp** answers a JSON-RPC 2.0 `tools/list` over HTTPS with a NON-EMPTY tool set for an authenticated caller, and an empty set for an unauthenticated one.",
-   "the clause's predicate is literally an em dash — it asserts nothing and can neither pass nor fail"),
+ "241": ("gateway-4706",
+   "A `ready` deployment record's console health MATCHES the live front door: `GET /sovereign/api/v1/deployments/{id}` reports `status: ready` with `consoleDegraded` false/absent exactly while `https://console.<fqdn>/` answers from the public internet, and `consoleDegraded: true` with a non-empty `consoleDegradedDetail` whenever it does not — the #4706 probe SURFACES, it never gates (#5253). FAILS in EITHER direction: a ready record claiming a healthy console behind a dead door (the original false-green), or a stale degraded flag behind a live one.",
+   'the clause asserted a GATE — `ready` written ONLY after an external HTTP answer — and that gate was deliberately REMOVED by #5253 after it latched `failed` on hw276 for a FALSE NEGATIVE (the console SPA root answered 404 while the front door served fine one redirect later) and left the ENTIRE cross-region topology permanently inert, because finalStatus==failed makes the OutcomeReady block skip fireHandover and both heal paths structurally exclude the failed+OutcomeReady shape. What ships instead, re-read in main this session: products/catalyst/bootstrap/api/internal/handler/phase1_watch.go:1111-1112 runs the probe BEFORE the Phase-1 termination write; :1270-1275 records a probe failure as the NON-FATAL ConsoleDegraded + ConsoleDegradedDetail surface (the #3611 surface-not-gate idiom); :1277 then writes dep.Status = ready UNCONDITIONALLY, outside that if-block; and :1035-1068 re-probes in the background, clearing the flag once the door serves and warning terminally when attempts are exhausted, noting in the log line that the producer chain is NOT gated on it. So the mechanism this clause names no longer exists. The honesty requirement behind it does, and the replacement asserts it the way the platform can actually be held to: as an AGREEMENT between the record and the door, falsifiable in both directions on any converged prov, rather than as a latch that cost a topology'),
+ "184": ("meta",
+   "The frozen denominator is INTACT and no clause changes silently: `docs/ledger/UAT.md` holds exactly 286 rows whose row-ID set is in BIJECTION with `docs/ledger/uat-testcases.csv`, every row's clause text MATCHES its canon entry so a clause cannot be edited in one file only, and every row whose Evidence says RETIRED AND REPLACED has a `docs/ledger/uat-retirements.csv` entry carrying its old clause, its new clause and the ground. VACUITY GUARD: a scan that parses fewer than 250 rows is a FAIL, not a pass.",
+   'no assertion was ever authored for this slot — the original predicate was a literal em dash, and the cell was later overwritten with a NOTE ABOUT the missing assertion, which is exactly why a naive scan for a bare em dash stopped flagging it and why row 186 was retired on this ground in the 5e528e243 batch while 184 was not. A clause that asserts nothing can neither pass nor fail, so this was a permanently non-green row occupying a slot in a STONE denominator. #5867 asked the owner to author it or mark it N/A; N/A moves the effective denominator, so it is AUTHORED instead. The replacement is deliberately about the artifact this row already names — the rendered ledger — and deliberately NOT about table shape, which scripts/test_uat_table_shape.py already enforces in CI (.github/workflows/uat-drift-guard.yaml), nor about evidence freshness, which row 185 already asserts. It tests the one ledger invariant nothing currently checks: that the 286 slots and the one-for-one retirement discipline actually hold. Recorded honestly: this is a RECLASSIFICATION of an unpassable slot into a TESTABLE one, not a pass, and it is stamped by nobody here — and the clause was strengthened after measuring, so one of its legs is already failing (see the known-failing note that follows)'),
 }
 
 CELL = re.compile(r"(?<!\\)\|")
@@ -103,7 +77,11 @@ def main():
         rid = m.group(1)
         epic, clause, ground = SWAPS[rid]
         old = re.sub(r"\s+", " ", c[4]).strip()
-        audit.append([rid, STAMP, c[2].strip(), old, epic, clause, ground])
+        # NINE fields, matching the header this file actually carries. Earlier
+        # ad-hoc batches appended SEVEN (no epic/test_case), so csv.DictReader
+        # handed back None for the two missing keys and any reader that touched
+        # them crashed. An audit trail nobody can parse is not an audit trail.
+        audit.append([rid, epic, clause, STAMP, c[2].strip(), old, epic, clause, ground])
         c[2] = f" {epic} "
         c[4] = f" {clause} "
         c[5] = " — "
@@ -142,8 +120,9 @@ def main():
     with AUDIT.open("a", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         if new:
-            w.writerow(["row_id", "retired_on", "old_epic", "old_clause",
-                        "new_epic", "new_clause", "ground_for_retirement"])
+            w.writerow(["row_id", "epic", "test_case", "retired_on",
+                        "old_epic", "old_clause", "new_epic", "new_clause",
+                        "ground_for_retirement"])
         w.writerows(audit)
 
     print(f"-> {UAT.relative_to(ROOT)}\n-> {CANON.relative_to(ROOT)}\n-> {AUDIT.relative_to(ROOT)}")

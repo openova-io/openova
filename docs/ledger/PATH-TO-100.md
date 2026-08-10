@@ -379,11 +379,12 @@ whole remaining set actually needs:
 | **the roll** (fix merged, artifact predates it) | ❌ 13 · ⚠️ 30 · ☐ 20 | **63** |
 | **a walk** — precondition now satisfied | 6, 10, 11 | 3 |
 | **a funnel mutation** — 2nd voucher + 2nd Org | 93, 94, 95 | 3 |
-| **a funnel mutation** — an Org that BUYS newapi | 225 | 1 |
+| **engineering** — the per-Org bp-newapi HR cannot render (#5987) | 225, G2 | 2 |
 | **one click** (a write; scheduling, not permission) | 177 | 1 |
 | **three login attempts** | 235 | 1 |
 | **fault injection** — needs a genuinely failed cutover step | 165 | 1 |
-| **an owner adjudication** | 5, 19, 184, 192 | 4 |
+| **an owner adjudication** | 5, 19, 192 | 3 |
+| **a walk** — clause authored 2026-08-10, never walked | 184, 241 | 2 |
 
 The adjudications, stated so they can be answered without re-deriving them:
 
@@ -394,17 +395,37 @@ The adjudications, stated so they can be answered without re-deriving them:
 - **row 19** (#5867) — the grid renders 46 blueprint SLOTS; the row asserts one card per
   **Application**. The feed and the CRs now agree exactly (14 = 14), so this is a
   model disagreement by design: re-key the grid, or amend the clause.
-- **row 184** (#5867) — has **no assertion at all**; the cell records that one was never
-  authored. Row 186, the other assertion-less row, is already N/A. This one sits
-  in the denominator as non-green. Changing it alters the denominator, so it is
-  not taken unilaterally.
+- **row 184** — ANSWERED 2026-08-10, no longer an adjudication. It had no
+  assertion at all; the slot was retired and replaced one-for-one, so the
+  denominator never moved, and the swap is in `uat-retirements.csv`. It now
+  asserts the ledger invariant nothing checks: 286 slots, row-ID bijection with
+  the canon, clause text identical in both files, every retirement recorded.
+  Reset to ☐ — a new clause has never been walked. (The earlier note here said
+  "row 186 is already N/A"; that was stale — 186 was itself retired, re-authored
+  and then walked green on the replacement.)
+- **row 241** — ANSWERED 2026-08-10, same treatment. Its clause asserted a gate
+  that #5253 deliberately removed; `phase1_watch.go:1277` writes `ready`
+  unconditionally and a probe failure rides the non-fatal `ConsoleDegraded`
+  surface instead. Re-authored to assert that the record and the live front door
+  AGREE, falsifiable in both directions. Reset to ☐, unwalked.
+- **row 225 and G2** — NOT a funnel mutation, which was the previous reading
+  here. A per-Org `bp-newapi` IS supported: the funnel path emits the HR with
+  `namespace`/`targetNamespace` set to the Org slug and never consults the
+  blueprint's `mgmt` placement. What stops it is #5987 — the funnel HR passes no
+  `catalystIntegration` values, so `external-secret.yaml:42` fails the render on
+  an empty `remoteRef.key`. Proven by `helm template` (exit 1) against a control
+  that differs only in that block (exit 0). Both rows stay red until it lands.
 - **row 192** — `ConvergenceWizard.tsx` owns the asserted testid and was orphaned
   from the router by `be5477c43`. Drop the clause or delete the component. The
   orphan is now loud rather than silent (#5831).
 
-**Nothing in this table is waiting on engineering.** The single largest lever
-remains the roll: 63 rows move on it, and none of the other categories exceeds
-four.
+**Two rows in this table now wait on engineering** — 225 and G2, via #5987,
+found by rendering the chart rather than by re-reading the ledger. The line here
+previously read "nothing in this table is waiting on engineering", and that was
+true only because the defect underneath those two rows had been recorded as a
+missing precondition ("an Org that BUYS newapi") instead of measured. The single
+largest lever remains the roll: 63 rows move on it, and none of the other
+categories exceeds four.
 
 Re-measured after each stamp rather than carried forward — R22 moved UNKNOWN →
 DEPLOY-GATED once it cited its own fix PR (#5813), which is why this figure is 63
