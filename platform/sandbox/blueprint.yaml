@@ -23,13 +23,18 @@ spec:
     tags: [sandbox, ide, devtools, mcp, claude-code, qwen-code, agents, openova]
     documentation: products/sandbox/docs/architecture.md
     license: AGPL-3.0-or-later
-  # `marketplace` — surfaces the card in the Organization catalogue so a
-  # User can land on /app?slug=sandbox and provision a personal Sandbox
-  # session. The controller itself is auto-installed by bootstrap-kit
-  # slot 19a on every Sovereign; the marketplace card represents the
-  # per-User instantiation flow (Sandbox CR creation), not a fresh
-  # Helm install.
-  visibility: listed
+  # DELISTED 2026-08-10 (#5920). The Sandbox concept was retired by founder
+  # decision on 2026-06-30 and superseded by products/agenity +
+  # products/openova-mcp, but this card kept rendering in the storefront for
+  # six weeks with an active "Add to stack" button — a customer could put a
+  # withdrawn product in the cart and carry it into checkout.
+  #
+  # `unlisted` rather than deleting the Blueprint: bootstrap-kit slot 19a
+  # still auto-installs the controller on every Sovereign, and existing
+  # Sandbox CRs must keep reconciling. What changes is only that the card
+  # stops being offered for sale. Deleting the entry outright would strand
+  # those CRs with no Blueprint to resolve against.
+  visibility: unlisted
   owner:
     team: platform
     contact: catalyst@openova.io

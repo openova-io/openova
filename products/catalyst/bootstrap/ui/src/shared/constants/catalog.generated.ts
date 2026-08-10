@@ -4599,7 +4599,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "category": "devtools",
     "tagline": null,
     "tags": [],
-    "visibility": "listed",
+    "visibility": "unlisted",
     "version": "0.3.12",
     "section": "pts-4-sandbox",
     "depends": [
