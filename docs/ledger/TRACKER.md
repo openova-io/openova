@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T09:45:05Z` |
+| Last refreshed | `2026-08-10T10:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T09:47 | [#5967](https://github.com/openova-io/openova/pull/5967) | #5921 | fix(funnel): the checkout sign-in dead end, and an app-readi |
 | 2026-08-10T09:00 | [#5966](https://github.com/openova-io/openova/pull/5966) | #5957 | docs(uat): 14 rows move NEEDS-CODE to DEPLOY-GATED — their f |
 | 2026-08-10T09:32 | [#5965](https://github.com/openova-io/openova/pull/5965) | #5940 | fix(marketplace): give the storefront a readable session sig |
 | 2026-08-10T08:43 | [#5963](https://github.com/openova-io/openova/pull/5963) | #4415 | fix(catalog): seed bp-openova-mcp so the per-Org MCP is inst |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-09T19:43 | [#5925](https://github.com/openova-io/openova/pull/5925) | #5513 | fix(application-controller): stop crediting readiness to reg |
 | 2026-08-09T18:24 | [#5924](https://github.com/openova-io/openova/pull/5924) | #5919 | docs(uat): per-case evidence audit of all 224 June-green cas |
 | 2026-08-09T17:08 | [#5923](https://github.com/openova-io/openova/pull/5923) | docs(ledger): the plan to 100% — built on measured causes |  |
-| 2026-08-09T17:03 | [#5922](https://github.com/openova-io/openova/pull/5922) | fix(ledger): restore test-case names in uat-raw.csv |  |
 
 ---
 
