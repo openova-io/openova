@@ -1350,7 +1350,10 @@ spec:
       #   renders INSIDE this umbrella, so the entry only reaches a Sovereign
       #   once the umbrella republishes and this pin advances (#5734).
       #   Lockstep w/ products/catalyst/chart/Chart.yaml + slot-13d (0.1.6).
-      version: 1.4.1331
+      # 1.4.1332 (#5956): republish so the catalog-seed's bp-agenity 0.5.23 pin
+      # reaches a published umbrella artifact — that chart version makes the
+      # agenity pre-flight check credential VALIDITY, not just expiry.
+      version: 1.4.1332
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

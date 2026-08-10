@@ -127,6 +127,11 @@ func Test_runSeedReconcilePass_NoChurnWhenAllPresent(t *testing.T) {
 
 	h := &Handler{log: silentLogger()}
 	h.openbao = srv.client()
+	// #5956: the anthropic leg now probes the Anthropic API for VALIDITY, so
+	// the probe seam must be pinned or this unit test would dial the real
+	// api.anthropic.com. A 200 makes the stored credential healthy, which is
+	// what "all present" is supposed to mean here.
+	stubAnthropicProbe(t, h, http.StatusOK, modelsEnvelope)
 
 	h.runSeedReconcilePass(context.Background())
 
@@ -147,6 +152,7 @@ func Test_runSeedReconcilePass_SelfHealsAbsentGlobalSeed(t *testing.T) {
 
 	h := &Handler{log: silentLogger()}
 	h.openbao = srv.client()
+	stubAnthropicProbe(t, h, http.StatusOK, modelsEnvelope) // #5956 — keep the pass hermetic
 	t.Setenv(anthropicSeedAPIKeyEnv, "sk-ant-selfheal")
 	t.Setenv(anthropicSeedCredentialsJSONEnv, "")
 
@@ -183,6 +189,7 @@ func Test_runSeedReconcilePass_PerOrgMCPBearerSelfHeal(t *testing.T) {
 	// Make the two GLOBAL paths present so this test isolates the per-Org leg.
 	srv.seedPresent("catalyst/newapi/admin-token", map[string]any{"ADMIN_API_TOKEN": "bridge-secret"})
 	srv.seedPresent("catalyst/anthropic/token", map[string]any{"apiKey": "sk-ant-x"})
+	stubAnthropicProbe(t, h, http.StatusOK, modelsEnvelope) // #5956 — keep the pass hermetic
 	// globex ALREADY has a healthy bearer → must NOT be re-written; acme is absent.
 	srv.seedPresent("catalyst/agenity/globex/mcp-bearer", map[string]any{"bearer": "existing-bearer"})
 

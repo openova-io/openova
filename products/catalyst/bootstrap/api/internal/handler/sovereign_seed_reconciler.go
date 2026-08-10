@@ -172,16 +172,17 @@ func (h *Handler) runSeedReconcilePass(ctx context.Context) {
 		func() { _ = h.seedNewapiAdminToken(ctx) },
 	)
 
-	// (2) anthropic token — Sovereign-GLOBAL. Seed only when the path lacks a
-	// non-empty apiKey AND credentialsJson. seedAnthropicToken loud-skips when
-	// the founder cred env is unset, so on a credless Sovereign the path stays
-	// absent and the loop keeps (usefully) surfacing that gap.
-	h.reconcileGlobalSeed(ctx,
-		"anthropic",
-		anthropicSeedMountPath, anthropicSeedSecretPath,
-		[]string{"apiKey", "credentialsJson"},
-		func() { _ = h.seedAnthropicToken(ctx) },
-	)
+	// (2) anthropic token — Sovereign-GLOBAL, and checked on VALIDITY rather
+	// than presence (#5956).
+	//
+	// This leg used to call reconcileGlobalSeed with props
+	// []string{"apiKey","credentialsJson"}, i.e. openbaoPathHasProperty's
+	// "exists AND some property is a non-empty string". A credential revoked
+	// upstream is still a non-empty string, so that check reported
+	// "healthy — no churn" every pass while every inference in the Sovereign
+	// 401'd `OAuth access token has been revoked`. Presence was never the
+	// question worth asking about a credential.
+	h.reconcileAnthropicCredentialHealth(ctx)
 
 	// (3) per-Org mcp-bearer. Enumerate every Organization CR (the single
 	// source of truth both the BSS door and the marketplace funnel write) and
@@ -248,6 +249,95 @@ func (h *Handler) reconcileGlobalSeed(ctx context.Context, label, mount, path st
 			"seed", label, "openbaoPath", mount+"/"+path)
 	}
 	seed()
+}
+
+// reconcileAnthropicCredentialHealth is the anthropic leg of one self-heal
+// pass, and the ONE periodic surface that asks whether the Sovereign's
+// Anthropic credential actually WORKS (#5956) rather than whether some bytes
+// were delivered.
+//
+// Why this is not reconcileGlobalSeed with a smarter predicate: every other
+// seed's health question genuinely IS presence (a bearer either was minted or
+// was not). The Anthropic credential is the only one whose validity is owned
+// by a third party and can be withdrawn at any instant with no local change —
+// so it is the only one whose "is it fine?" cannot be answered from the bytes.
+//
+// Outcomes, in order:
+//
+//	absent/hollow path  → seed (the original #4877 gap) — unchanged behaviour.
+//	stored is healthy   → silent no-op. No write, no log, no churn.
+//	stored is NOT healthy → LOUD error naming the class, then re-seed ONLY if
+//	                        the env credential is DIFFERENT from the stored one.
+//
+// That last condition is the anti-churn guard. When the founder's env
+// credential is the very credential that was revoked — today's case — a blind
+// re-seed would PutKVv2 the same dead bytes every tick, growing KV version
+// history forever and re-notifying every ExternalSecret for nothing. Comparing
+// fingerprints means the loop writes exactly once, when the founder actually
+// rotates the credential, and otherwise just keeps saying the true thing.
+//
+// Returns the class so the test can assert on it; callers ignore it.
+func (h *Handler) reconcileAnthropicCredentialHealth(ctx context.Context) AnthropicCredentialHealth {
+	if h == nil || h.openbao == nil {
+		return AnthropicCredentialUnverified
+	}
+
+	stored, err := h.openbao.GetKVv2(ctx, anthropicSeedMountPath, anthropicSeedSecretPath)
+	if err != nil && !errors.Is(err, openbao.ErrSecretNotFound) {
+		if h.log != nil {
+			h.log.Warn("[SEED-RECONCILE] anthropic read failed; skipping this pass — retry next tick",
+				"seed", "anthropic", "err", err)
+		}
+		return AnthropicCredentialUnverified
+	}
+	storedKey, _ := stored["apiKey"].(string)
+	storedCreds, _ := stored["credentialsJson"].(string)
+
+	// Absent / hollow path — the original #4877 gap. Seed and stop: the
+	// freshly written value is classified on the next pass rather than
+	// re-probing the API inside the same tick.
+	if strings.TrimSpace(storedKey) == "" && strings.TrimSpace(storedCreds) == "" {
+		if h.log != nil {
+			h.log.Info("[SEED-RECONCILE] OpenBao path absent — self-healing (#4877)",
+				"seed", "anthropic",
+				"openbaoPath", anthropicSeedMountPath+"/"+anthropicSeedSecretPath)
+		}
+		_ = h.seedAnthropicToken(ctx)
+		return AnthropicCredentialAbsent
+	}
+
+	health, detail := classifyAnthropicCredential(ctx,
+		h.anthropicHealthClient(), h.anthropicAPIBase(), storedKey, storedCreds)
+	if health.OK() {
+		return health // healthy — no churn, no noise.
+	}
+
+	envKey := strings.TrimSpace(os.Getenv(anthropicSeedAPIKeyEnv))
+	envCreds := strings.TrimSpace(os.Getenv(anthropicSeedCredentialsJSONEnv))
+	rotated := (envKey != "" || envCreds != "") &&
+		anthropicCredentialFingerprint(envKey, envCreds) != anthropicCredentialFingerprint(storedKey, storedCreds)
+
+	if h.log != nil {
+		// LOUD by construction: this is the line whose ABSENCE let a dead
+		// credential look green for as long as it did. Per Principle #10 it
+		// carries the class + byte lengths and no credential material.
+		h.log.Error("[SEED-RECONCILE] 🛑 Anthropic credential is NOT usable — the agentic runtime will 401 on every inference (#5956)",
+			"health", string(health),
+			"detail", detail,
+			"openbaoPath", anthropicSeedMountPath+"/"+anthropicSeedSecretPath,
+			"storedApiKeyBytes", len(storedKey),
+			"storedCredentialsJsonBytes", len(storedCreds),
+			"envCredentialRotated", rotated,
+			"action", map[bool]string{
+				true:  "re-seeding from the rotated platform credential",
+				false: "no re-seed: the platform env holds the SAME credential — the founder must supply a fresh one (CATALYST_ANTHROPIC_CREDENTIALS_JSON)",
+			}[rotated],
+		)
+	}
+	if rotated {
+		_ = h.seedAnthropicToken(ctx)
+	}
+	return health
 }
 
 // openbaoPathHasProperty reports whether the KV-v2 path exists AND at least one

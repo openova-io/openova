@@ -18,7 +18,11 @@ spec:
   # Keycloak backchannel + upstream) — the per-Org namespace is default-deny
   # and the gate's ingress-only CNP left the OAuth callback 500ing on a DNS
   # timeout. Lockstep with products/agenity/chart + the catalog-seed pin.
-  version: 0.5.22
+  # 0.5.23 (#5956): the seed-claude-creds pre-flight checks credential VALIDITY
+  # (one authenticated GET against api.anthropic.com), not just expiry — it
+  # reported `token valid (~7h remaining)` over a REVOKED credential on hw292.
+  # Lockstep with products/agenity/chart + the catalog-seed pin.
+  version: 0.5.23
   card:
     title: Agenity
     summary: |

@@ -88,7 +88,7 @@ spec:
                 cp /creds/{{ .Values.anthropic.credentialsKey }} /claudehome/.claude/.credentials.json
                 chmod 600 /claudehome/.claude/.credentials.json
                 echo "seeded ~/.claude/.credentials.json ($(wc -c < /claudehome/.claude/.credentials.json) bytes)"
-                # ── OAuth-expiry pre-flight (#4111) ──────────────────────────
+                # ── OAuth VALIDITY pre-flight (#4111, corrected by #5956) ────
                 # The seeded blob is a claudeAiOauth pair whose accessToken has
                 # a SHORT lifetime (hours). claude-code's headless BareExec
                 # spawn path does NOT reliably refresh it from the refreshToken
@@ -96,21 +96,66 @@ spec:
                 # ~45h prior left every spawn failing "401 Invalid
                 # authentication credentials" while the dashboard still served,
                 # i.e. the exact "runtime offline · 0 workers" symptom with no
-                # other signal. So we parse expiresAt HERE and emit a LOUD,
-                # greppable line when the seeded token is ALREADY expired — the
-                # operator's cue to re-seed openbao catalyst/anthropic/token with a fresh
-                # credentialsJson (see README §Seeding). This is diagnostic
-                # ONLY: we never block the pod (the dashboard must still serve)
-                # and never mutate the blob (claude-code owns rotation). The
-                # parser is a single-line python3 -c (no heredoc) so the YAML
-                # block scalar stays whitespace-robust across Helm renders.
-                EXP=$(python3 -c 'import json,time;o=json.load(open("/claudehome/.claude/.credentials.json")).get("claudeAiOauth",{});e=int(o.get("expiresAt",0) or 0);n=int(time.time()*1000);print(("EXPIRED %d"%((n-e)//3600000)) if e and e<n else ("OK %d"%((e-n)//3600000)) if e else "NOEXP")' 2>/dev/null || echo "")
+                # other signal.
+                #
+                # 🛑 WHY THIS IS NO LONGER AN expiresAt COMPARISON (#5956):
+                # this check used to parse expiresAt and print
+                #   "claude-code OAuth token valid (~7h remaining)."
+                # That line was emitted VERBATIM on hw292 2026-08-10 over a
+                # credential the API was already answering
+                #   401 "OAuth access token has been revoked"
+                # for. Expiry is a NECESSARY condition for a working
+                # credential and never a sufficient one — a token can be
+                # killed upstream at any instant without one local byte
+                # changing. So the word "valid" is now spoken ONLY after the
+                # Anthropic API accepts the token, and the unprobed case says
+                # NOT VERIFIED rather than borrowing the healthy wording.
+                #
+                # Still diagnostic ONLY: we never block the pod (the dashboard
+                # must still serve) and never mutate the blob (claude-code owns
+                # rotation). Both parsers are single-line python3 -c (no
+                # heredoc) so the YAML block scalar stays whitespace-robust
+                # across Helm renders.
+                EXP=$(python3 -c 'import json,time;o=json.load(open("/claudehome/.claude/.credentials.json")).get("claudeAiOauth",{});e=int(o.get("expiresAt",0) or 0);n=int(time.time()*1000);print(("EXPIRED %d"%((n-e)//3600000)) if e and e<n else ("UNEXPIRED %d"%((e-n)//3600000)) if e else "NOEXP")' 2>/dev/null || echo "")
                 case "$EXP" in
                   EXPIRED*) echo "🛑 WARNING (#4111): seeded claude-code OAuth token is EXPIRED (~${EXP#EXPIRED }h ago) — the spawned agent will fail '401 Invalid authentication credentials' and the dashboard will show 'runtime offline / 0 workers'. RE-SEED openbao catalyst/anthropic/token with a FRESH credentialsJson and force-sync the ExternalSecret (see README: Seeding the catalyst/anthropic/token openbao path)." ;;
-                  OK*)      echo "claude-code OAuth token valid (~${EXP#OK }h remaining)." ;;
-                  NOEXP)    echo "claude-code credentials.json has no expiresAt — assuming a non-expiring credential." ;;
+                  NOEXP)    echo "claude-code credentials.json has no expiresAt — expiry unknown." ;;
                   *)        echo "could not parse claude-code OAuth expiry from credentials.json (non-fatal)." ;;
                 esac
+                {{- if .Values.anthropic.validityProbe.enabled }}
+                # VALIDITY PROBE — one authenticated GET against the Anthropic
+                # API. This is the only thing in the pod that can distinguish a
+                # live credential from a revoked one. It is bounded, best-effort
+                # and never fatal; if the per-Org egress policy denies the call
+                # (the default-deny namespace class, #5617) the outcome is
+                # NOT VERIFIED — an honest "we do not know", never a green.
+                # `revoked` vs `invalid` is the API's own wording and drives a
+                # different operator cue: re-seed vs fix the credential.
+                # The opener below installs a no-op HTTPErrorProcessor so a 401
+                # comes back as a RESPONSE instead of an exception — that is
+                # what keeps the whole probe on ONE physical line (a try/except
+                # would need continuation lines, and a de-indented continuation
+                # silently terminates this YAML block scalar). It prints
+                # "<status> <True|False revoked>" on success and NOTHING when
+                # the endpoint is unreachable; the shell classifies below, so
+                # an empty result can only ever become NOT VERIFIED.
+                PROBE=$(python3 -c 'import json,urllib.request;o=json.load(open("/claudehome/.claude/.credentials.json")).get("claudeAiOauth",{});t=(o.get("accessToken") or "").strip();h={"anthropic-version":"2023-06-01"};h.update({"Authorization":"Bearer "+t,"anthropic-beta":"oauth-2025-04-20"} if t.startswith("sk-ant-oat") else {"x-api-key":t});N=type("N",(urllib.request.HTTPErrorProcessor,),{"http_response":lambda s,q,r:r,"https_response":lambda s,q,r:r});p=urllib.request.build_opener(N).open(urllib.request.Request("{{ .Values.anthropic.validityProbe.baseUrl }}/v1/models?limit=1",headers=h),timeout={{ .Values.anthropic.validityProbe.timeoutSeconds }});print(p.getcode(),"revoked" in p.read(4096).decode("utf-8","replace").lower())' 2>/dev/null || true)
+                set -- $PROBE
+                CODE="${1:-0}"
+                WASREVOKED="${2:-False}"
+                case "$CODE" in
+                  2*|429)
+                    echo "claude-code OAuth token VERIFIED VALID by the Anthropic API (HTTP $CODE)." ;;
+                  401|403)
+                    if [ "$WASREVOKED" = "True" ]; then
+                      echo "🛑 WARNING (#5956): the seeded claude-code OAuth token is REVOKED upstream — it is unexpired and correctly delivered, and every inference will still fail 401. RE-SEED openbao catalyst/anthropic/token with a FRESH credentialsJson and force-sync the ExternalSecret (see README: Seeding the catalyst/anthropic/token openbao path)."
+                    else
+                      echo "🛑 WARNING (#5956): the Anthropic API REJECTED the seeded credential (HTTP $CODE, not reported as revoked) — the agent will fail every inference. Check the credential kind (an sk-ant-oat OAuth access token is NOT a bare API key) and re-seed."
+                    fi ;;
+                  *)
+                    echo "claude-code OAuth token NOT VERIFIED (probe result: HTTP $CODE) — expiry looked fine, but an unexpired token can still be REVOKED (#5956). Treat the runtime as unproven until an inference succeeds." ;;
+                esac
+                {{- end }}
               else
                 echo "no credentials.json key in Secret — key-only mode"
               fi
