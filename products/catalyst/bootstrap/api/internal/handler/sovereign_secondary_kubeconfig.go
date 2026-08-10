@@ -198,6 +198,36 @@ func (h *Handler) HandleSovereignSecondaryKubeconfig(w http.ResponseWriter, r *h
 		return
 	}
 
+	// Completeness gate — validate BEFORE anything touches the disk.
+	//
+	// Pre-fix, non-empty was the whole contract: a 95-byte credential-less
+	// shell (no contexts, no users, no current-context) was persisted over
+	// region B's slot on hw293 and only THEN failed to parse at AddCluster,
+	// leaving a 500 response and the unusable file both. See
+	// secondary_kubeconfig_completeness.go for the measured record.
+	//
+	// Refusing here has two effects the post-write parse could not have.
+	// First, a good kubeconfig a previous delivery already landed survives
+	// — a later malformed POST can no longer displace it, so the region
+	// stays reachable through whatever bad delivery follows. Second, the
+	// #3991 rewrite and the #4000 self-heal below are skipped for a
+	// document that can never register, which is where the two live
+	// requests each burned 6002ms/6001ms of dial timeouts.
+	if defects := secondaryKubeconfigDefects(raw); len(defects) > 0 {
+		h.log.Warn("secondary-kubeconfig: REFUSED — document cannot produce a client; not persisted (region keeps any previously-delivered kubeconfig)",
+			"depId", body.DeploymentID,
+			"region", body.RegionKey,
+			"bytes", len(raw),
+			"missing", strings.Join(defects, ","),
+		)
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+			"error":   "kubeconfig-incomplete",
+			"detail":  "kubeconfigYaml does not describe a usable cluster; nothing was written",
+			"missing": strings.Join(defects, ","),
+		})
+		return
+	}
+
 	// #3991 — cross-region datapath fix. The IaC stamps the secondary
 	// region's `server:` URL to its PUBLIC EIP so the external mothership
 	// (outside the per-region VPCs) can reach it. But the IN-CLUSTER
