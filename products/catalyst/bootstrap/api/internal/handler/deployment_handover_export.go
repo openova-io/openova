@@ -13,6 +13,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"net/http"
@@ -464,6 +465,21 @@ func containsStr(xs []string, s string) bool {
 // zero-touch even when the handover-window export missed. No file-wait here:
 // we forward only what is already on disk and let the next pass pick up any
 // region whose kubeconfig lands later.
+// secondaryKubeconfigForwardClient builds the HTTP client the level-triggered
+// re-forward POSTs through. A package var so a test can drive the REAL
+// reforwardSecondaryKubeconfigsToChild / runSecondaryKubeconfigDelivery against
+// an httptest server. A test that re-implements the production loop locally
+// cannot fail on a defect in the production loop — this seam is what lets the
+// #6015 assertions bind to the shipped code path.
+var secondaryKubeconfigForwardClient = func() *http.Client {
+	return &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // chroot cert may rotate; same rationale as exportDeploymentToChild
+		},
+	}
+}
+
 func (h *Handler) reforwardSecondaryKubeconfigsToChild(dep *Deployment) {
 	if dep == nil {
 		return
@@ -484,12 +500,7 @@ func (h *Handler) reforwardSecondaryKubeconfigsToChild(dep *Deployment) {
 		return
 	}
 	url := "https://api." + fqdn + "/api/v1/sovereign/secondary-kubeconfig"
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // chroot cert may rotate; same rationale as exportDeploymentToChild
-		},
-	}
+	client := secondaryKubeconfigForwardClient()
 	for _, regionKey := range keys {
 		path := filepath.Join(dir, depID+"-"+regionKey+".yaml")
 		raw, err := os.ReadFile(path)
@@ -509,5 +520,113 @@ func (h *Handler) reforwardSecondaryKubeconfigsToChild(dep *Deployment) {
 		}
 		body, _ := json.Marshal(payload)
 		h.postSecondaryKubeconfigWithRetry(client, url, body, depID, regionKey)
+	}
+}
+
+// secondaryKubeconfigDeliveryIntervalDefault — cadence of the #6015
+// level-triggered delivery loop. Matches clusterMeshSteadyStateIntervalDefault
+// so the two level-triggered reconcilers converge on the same rhythm.
+const secondaryKubeconfigDeliveryIntervalDefault = 5 * time.Minute
+
+// secondaryKubeconfigDeliveryStopped reports whether a deployment status means
+// the Sovereign is GONE (or going) and there is nothing left to deliver to.
+// Every other status — including "failed" — keeps the loop running: a failed
+// Phase-1 outcome describes a HelmRelease census, NOT the reachability of the
+// regions' apiservers, and the chroot still needs its peer's kubeconfig to see
+// region B at all.
+func secondaryKubeconfigDeliveryStopped(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "wiping", "wiped", "aborted":
+		return true
+	}
+	return false
+}
+
+// runSecondaryKubeconfigDelivery is the level-triggered home of the durable
+// secondary-kubeconfig delivery (#6015). It re-forwards every on-disk secondary
+// kubeconfig to the chroot on an interval for as long as the Sovereign exists.
+//
+// 🛑 Why this is NOT inside runClusterMeshSteadyStateHeal any more —
+// the hw293 (dep a0077ba47e3720e5) root cause, measured live:
+//
+//	reforwardSecondaryKubeconfigsToChild had exactly ONE caller,
+//	runClusterMeshSteadyStateHeal, which runAutoEstablishClusterMesh reaches
+//	ONLY after `err == nil && meshConverged && cnpgPairConverged`, and which
+//	markPhase1Done spawns ONLY under `outcome == OutcomeReady && finalStatus
+//	== "ready"`. The one-shot exportSecondaryKubeconfigsToChild sits behind
+//	the same fireHandover gate. So BOTH producers of the chroot's
+//	`/var/lib/catalyst/kubeconfigs` were gated on the deployment reaching
+//	status=ready.
+//
+//	On hw293 exactly ONE HelmRelease out of 65 failed in the primary region:
+//	`self-sovereign-cutover` — the chart that installs DORMANT at
+//	bootstrap-kit slot 06a and is operator-gated by design. That flipped
+//	Phase-1 to `finalStatus=failed`, which (a) skipped fireHandover, (b)
+//	skipped runAutoEstablishClusterMesh, and (c) quarantined both of the
+//	deployment's clusters out of the mother's own k8scache. The chroot's
+//	kubeconfigs dir therefore stayed EMPTY FOREVER while region B's apiserver
+//	was healthy the whole time — the Sovereign simply held no credential for
+//	it. Downstream: the placement resolver fanned out over the single
+//	self-registered region-a cluster and reported a false `singleton` with
+//	`derivedFromRuntime: true`, and orgConsoleTLSPoolRegions read an empty
+//	pool so the #5246 "unreached" list stayed empty and the per-Org listener
+//	guard could not fail.
+//
+// Delivery is a DATA-PLANE concern. Coupling it to a HelmRelease census, to
+// ClusterMesh convergence, or to the CNPG-pair flip means any one of those
+// unrelated conditions can permanently blind the Sovereign to its own peer
+// region. This loop owns delivery on its own terms and stops only when the
+// Sovereign is being torn down.
+//
+// Idempotent + self-deduplicating: the chroot handler overwrites the file and
+// AddCluster on a duplicate ID is a no-op, and secondaryKubeconfigDeliveryActive
+// makes a second concurrent trigger a cheap no-op. Each pass forwards only what
+// is already on the mother's disk (no file-wait) — a region whose kubeconfig
+// lands later is picked up by the next pass.
+func (h *Handler) runSecondaryKubeconfigDelivery(dep *Deployment) {
+	if dep == nil {
+		return
+	}
+	dep.mu.Lock()
+	depID := strings.TrimSpace(dep.ID)
+	fqdn := strings.TrimSpace(dep.Request.SovereignFQDN)
+	regionCount := len(dep.Request.Regions)
+	dep.mu.Unlock()
+	// A single-region Sovereign has no peer kubeconfig to deliver, and without
+	// an FQDN there is no chroot endpoint to POST to.
+	if depID == "" || fqdn == "" || regionCount < 2 {
+		return
+	}
+	if _, loaded := h.secondaryKubeconfigDeliveryActive.LoadOrStore(depID, struct{}{}); loaded {
+		return
+	}
+	defer h.secondaryKubeconfigDeliveryActive.Delete(depID)
+
+	interval := h.secondaryKubeconfigDeliveryInterval
+	if interval <= 0 {
+		interval = secondaryKubeconfigDeliveryIntervalDefault
+	}
+	h.log.Info("secondary-kubeconfig-delivery: level-triggered loop started — delivery is independent of the Phase-1 outcome, ClusterMesh convergence and the cnpg-pair flip (#6015)",
+		"id", depID,
+		"fqdn", fqdn,
+		"declaredRegions", regionCount,
+		"interval", interval.String(),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for {
+		dep.mu.Lock()
+		status := dep.Status
+		dep.mu.Unlock()
+		if secondaryKubeconfigDeliveryStopped(status) {
+			h.log.Info("secondary-kubeconfig-delivery: loop stopped — the Sovereign is being torn down",
+				"id", depID, "status", status)
+			return
+		}
+		h.reforwardSecondaryKubeconfigsToChild(dep)
+		if err := sleepCtx(ctx, interval); err != nil {
+			return
+		}
 	}
 }

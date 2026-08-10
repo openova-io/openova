@@ -66,6 +66,21 @@ type Handler struct {
 	// runs. map[string]struct{}.
 	clusterMeshLoopActive sync.Map
 
+	// secondaryKubeconfigDeliveryActive guards against double-starting the
+	// #6015 secondary-kubeconfig delivery loop for the same deployment.
+	// runSecondaryKubeconfigDelivery LoadOrStores the dep ID on entry and
+	// Deletes it on return, exactly like clusterMeshLoopActive above, so the
+	// Phase-1 terminate trigger and the startup-restore trigger cannot run two
+	// competing loops against the same chroot. map[string]struct{}.
+	secondaryKubeconfigDeliveryActive sync.Map
+
+	// secondaryKubeconfigDeliveryInterval (#6015) — cadence of the
+	// level-triggered secondary-kubeconfig delivery loop. Zero falls back to
+	// secondaryKubeconfigDeliveryIntervalDefault. Tests inject a sub-second
+	// value so a pass is observable in milliseconds; production leaves it at
+	// zero.
+	secondaryKubeconfigDeliveryInterval time.Duration
+
 	// orphanReleaseWG tracks the releaseOrphanedReservation goroutines that
 	// restoreFromStore fires (#489). Those goroutines outlive the call that
 	// spawned them: after pdm.Release returns they clear the dep's PDM
