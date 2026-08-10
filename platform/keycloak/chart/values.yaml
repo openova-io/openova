@@ -40,6 +40,40 @@ catalystBlueprint:
 # Per-Sovereign bootstrap-kit HelmRelease overlay supplies this.
 sovereignFQDN: ""
 
+# catalystAPIInternalURL — the in-cluster base URL for the catalyst-pin
+# identity provider's BACKCHANNEL legs (#6087, UAT row 219).
+#
+# The catalyst-pin IdP federates Keycloak to catalyst-api's OIDC provider. Its
+# frontchannel leg is a BROWSER redirect (authorizationUrl) and must stay
+# public. Its backchannel legs — tokenUrl, userInfoUrl, jwksUrl — are dialed
+# SERVER-SIDE from inside the Keycloak pod, and configmap-sovereign-realm.yaml's
+# own flow comment names them: "KC server calls https://api.<sov-fqdn>/oidc/token
+# to exchange" and "KC validates id_token signature via
+# https://api.<sov-fqdn>/oidc/certs".
+#
+# Pointing those at the PUBLIC api.<sov-fqdn> asks the pod to hairpin out to the
+# Sovereign's own EIP and back in through the gateway. On Huawei that does not
+# work, and it is the exact defect class #3844 fixed everywhere else — see
+# platform/oidc-gate/chart/Chart.yaml 0.1.5: "on Huawei a Pod cannot dial the
+# Sovereign's own public EIP (ELB-DNAT'd, no hairpin — same class as #3241)".
+# oidc-gate, hubble-ui, gitea and the bp-agenity gate all took the
+# frontchannel-public / backchannel-internal split via a *InternalURL value.
+# The catalyst-pin IdP is the one federation seam that never got it, and the
+# result is UAT row 219: the browser reaches
+# /realms/sovereign/broker/catalyst-pin/endpoint and Keycloak answers HTTP 502
+# ("Unexpected error when authenticating with identity provider"), which is what
+# AbstractOAuth2IdentityProvider returns when the server-side token exchange
+# fails.
+#
+# `issuer` deliberately stays PUBLIC even when this is set: the id_token's `iss`
+# claim is minted from catalyst-api's own SOVEREIGN_FQDN-derived issuer, so a
+# private issuer here would turn a connectivity failure into a validation
+# failure. Same split bp-keycloak already applies by pinning KC_HOSTNAME public.
+#
+# Set to "" to restore the all-public behaviour on clusters whose EIP does
+# hairpin.
+catalystAPIInternalURL: "http://catalyst-api.catalyst-system.svc.cluster.local:8080"
+
 # G117.5b #2789 — SSO client-secret rotation knob.
 #
 # All Tier-1 / Tier-2 / Tier-3 client secrets are derived via the

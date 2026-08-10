@@ -436,7 +436,26 @@ name: bp-keycloak
 # retained (Tier-2 convention, guarded by g117-5-tier2-sso-clients.sh). Kept in
 # lockstep with bp-oidc-gate 0.1.7 instances.yaml. ONLY the powerdns-admin client
 # block changed — no other client's scopes touched.
-version: 1.5.7
+# 1.5.8 (#6087, UAT row 219): the catalyst-pin IdP's BACKCHANNEL legs move to the
+# in-cluster catalyst-api Service. tokenUrl/userInfoUrl/jwksUrl are dialed
+# SERVER-SIDE from inside the Keycloak Pod -- the realm template's own flow
+# comment says so ("KC server calls .../oidc/token to exchange", "KC validates
+# id_token signature via .../oidc/certs") -- but they named the PUBLIC
+# api.<sov-fqdn>, asking the Pod to hairpin out to the Sovereign's own EIP and
+# back through the gateway. On Huawei that does not work (#3241/#3844: "a Pod
+# cannot dial the Sovereign's own public EIP (ELB-DNAT'd, no hairpin)"), so the
+# broker's token exchange failed and Keycloak answered the browser HTTP 502 at
+# /realms/sovereign/broker/catalyst-pin/endpoint -- measured on hw293, blocking
+# every per-Org app behind catalyst-pin SSO. oidc-gate, hubble-ui, gitea and the
+# bp-agenity gate all took this frontchannel-public/backchannel-internal split
+# via a *InternalURL value in the #3844 wave; the catalyst-pin IdP was the one
+# federation seam that never did. New value `catalystAPIInternalURL` (default
+# the in-cluster catalyst-api Service; set "" to restore the all-public legs).
+# authorizationUrl stays PUBLIC (a browser resolves it) and issuer stays PUBLIC
+# (matched against the `iss` catalyst-api mints from SOVEREIGN_FQDN), so this
+# cannot trade a connectivity failure for a validation failure. Signature
+# validation is untouched and guarded.
+version: 1.5.8
 description: |
   1.5.2 (#4246): the per-tenant `openclaw-oidc-client-secret` Secret now
   emits BOTH `client-secret` AND `OIDC_CLIENT_SECRET` keys (it previously
