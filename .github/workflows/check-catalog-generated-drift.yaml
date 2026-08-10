@@ -29,6 +29,7 @@ on:
       - 'products/catalyst/bootstrap/ui/scripts/build-catalog.mjs'
       - 'products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts'
       - 'products/catalyst/bootstrap/api/internal/catalog/blueprints.json'
+      - 'scripts/check-retired-products-not-for-sale.py'
       - '.github/workflows/check-catalog-generated-drift.yaml'
   push:
     branches: [main]
@@ -39,6 +40,7 @@ on:
       - 'products/catalyst/bootstrap/ui/scripts/build-catalog.mjs'
       - 'products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts'
       - 'products/catalyst/bootstrap/api/internal/catalog/blueprints.json'
+      - 'scripts/check-retired-products-not-for-sale.py'
   workflow_dispatch:
 
 jobs:
@@ -68,6 +70,18 @@ jobs:
             exit 1
           fi
           echo "deterministic: two consecutive runs are byte-identical"
+
+      # #5920 — the storefront grid is built from this catalog, not from any
+      # literal in core/marketplace/, so a retired product can keep rendering a
+      # FREE card with a live "Add to stack" button while every grep of the
+      # front-end tree comes back clean. Sandbox sat that way for six weeks
+      # after being retired. Asserted here, against the regenerated catalog,
+      # because this is the only job that has the rendered artifact in hand.
+      - name: Prove the retired-product detector can fail
+        run: python3 scripts/check-retired-products-not-for-sale.py --self-test
+
+      - name: No retired product is offered for sale
+        run: python3 scripts/check-retired-products-not-for-sale.py
 
       - name: Fail if the committed generated files drifted
         run: |
