@@ -80,6 +80,19 @@ rules:
     resources: ["continuums"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 
+  # #5955 — backing-resource readiness observation. A Flux HelmRelease
+  # reporting Ready=True only means Helm applied the manifests and the
+  # apiserver accepted them; anything that fails AFTER admission leaves the HR
+  # legitimately Ready over a dead workload. The readiness gate reads each
+  # backing object's own status.conditions[type=Ready]. #5513 shipped that read
+  # without the grant, so it 403'd on every Sovereign and the guard could not
+  # fail (measured on hw292: `auth can-i list clusters.postgresql.cnpg.io` ->
+  # no, while the HelmRelease control -> yes). READ-ONLY: Flux owns the writes.
+  # Mirrors products/catalyst/chart/templates/controllers/application-controller-clusterrole.yaml.
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
+    verbs: ["get", "list", "watch"]
+
   # Events for audit trail on every reconcile error / status flip.
   - apiGroups: [""]
     resources: ["events"]

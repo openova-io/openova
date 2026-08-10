@@ -183,6 +183,25 @@ const (
 	// database that has zero pods and needs manual intervention.
 	ReasonBackingUnrecoverable = "BackingClusterUnrecoverable"
 
+	// ReasonBackingNotReady — #5955. Stamped on
+	// Application.status.conditions[type=Ready,status=False] when a downstream
+	// HelmRelease is Ready (manifests applied, apiserver accepted them) but a
+	// backing resource the chart installed REPORTS ITSELF not ready — e.g. a
+	// CNPG Cluster whose own status.conditions[type=Ready] is False over zero
+	// ready instances. A read verdict, not an inference.
+	ReasonBackingNotReady = "BackingNotReady"
+
+	// ReasonBackingUnverifiable — #5955. Stamped on
+	// Application.status.conditions[type=Ready,status=Unknown] when the
+	// controller COULD NOT OBSERVE a backing resource: the list was Forbidden
+	// / timed out / errored, or the object exists but has published no
+	// readiness signal at all. Distinct from ReasonBackingNotReady on purpose
+	// — "it says it is broken" and "I could not look" are different facts, and
+	// neither may be reported as Ready. The predecessor gate swallowed the
+	// second case as healthy, which is how an Application reported Ready over
+	// a database with zero ready instances on hw292.
+	ReasonBackingUnverifiable = "BackingReadinessUnverifiable"
+
 	// ReasonInvalidTopology — G117.6 (W2.C1, Refs #2745). Stamped on
 	// `Application.status.conditions[type=Ready,status=False]` when the
 	// resolved BCP topology (from Application.spec.topology override
@@ -1556,26 +1575,51 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			app.GetNamespace(), app.GetName(), effectiveRegions)
 	}
 
-	// #5513 — a downstream HelmRelease Ready=True means "Helm applied the
-	// manifests", NOT "the workload came up". A CNPG-backed Application can
-	// carry a Ready HelmRelease while its backing CNPG Cluster sits in the
-	// terminal `unrecoverable` state (0 pods, ConsistentSystemID=False,
-	// "needs manual intervention"). Reporting the Application Ready over that
-	// is the fabricated DR posture #5513 walked live. Observe the backing
-	// CNPG Cluster CR(s) — matched by the chart-stamped
-	// app.kubernetes.io/instance label (= each per-cluster HR name) — and
-	// downgrade to Degraded when any is unrecoverable, so the reported Ready
-	// condition matches the workload reality. Read-only + failure-tolerant:
-	// a missing CNPG CRD (no Postgres in this Sovereign) or a transient list
-	// error NEVER fabricates a downgrade — the HR-derived phase stands.
+	// #5955 (generalises #5513) — a downstream HelmRelease Ready=True means
+	// "Helm applied the manifests and the apiserver ACCEPTED them", NOT "the
+	// workload came up". Anything that fails AFTER admission leaves the HR
+	// legitimately Ready over a dead workload, so readiness derived solely
+	// from HelmRelease readiness paints a green badge over nothing. Walked
+	// live on hw292: uat-ahs-pg reported "installed across 2 region(s);
+	// Ready=True from downstream HelmRelease(s)" while its backing CNPG
+	// Cluster carried status.conditions[Ready]=False with status.readyInstances
+	// absent entirely — on 2 of 2 per-Org Postgres clusters.
+	//
+	// observeBackingReadiness consults the BACKING RESOURCE'S OWN readiness
+	// signal (the standard status.conditions[type=Ready]) across a registry of
+	// backing kinds, and returns three states, never two:
+	//
+	//   backingReady        → nothing to do (also the answer when the
+	//                         Application has no backing of a registered kind,
+	//                         so the common case reaches Ready unchanged).
+	//   backingNotReady     → the backing was READ and says it is not ready →
+	//                         Degraded / Ready=False. A verdict.
+	//   backingUnobservable → the backing could not be read (Forbidden,
+	//                         timeout, API error) or published no readiness →
+	//                         Ready="Unknown". Explicitly unverifiable, NEVER
+	//                         a silent pass. #5513's gate collapsed this state
+	//                         into "healthy", which is why it could not fail
+	//                         on a Sovereign whose controller SA has no grant
+	//                         on the backing kind — the live hw292 shape.
 	if finalReady == "True" {
-		if cnpgNs, cnpgName, unrecoverable := r.backingCNPGUnrecoverable(ctx, app, perClusterStatus); unrecoverable {
+		switch v := r.observeBackingReadiness(ctx, app, perClusterStatus); v.state {
+		case backingNotReady:
 			finalPhase = PhaseDegraded
 			finalReady = "False"
-			finalReason = ReasonBackingUnrecoverable
+			finalReason = v.reason
 			finalMessage = fmt.Sprintf(
-				"Application %s/%s: backing CNPG cluster %s/%s is in an unrecoverable state and needs manual intervention; not reporting Ready",
-				app.GetNamespace(), app.GetName(), cnpgNs, cnpgName)
+				"Application %s/%s: %s; not reporting Ready",
+				app.GetNamespace(), app.GetName(), v.detail)
+		case backingUnobservable:
+			// Not Degraded — we have no evidence of failure, only an absence
+			// of evidence of health. Provisioning + Ready=Unknown is the
+			// honest pairing: the Application has not been shown to be up.
+			finalPhase = PhaseProvisioning
+			finalReady = "Unknown"
+			finalReason = ReasonBackingUnverifiable
+			finalMessage = fmt.Sprintf(
+				"Application %s/%s: backing-resource readiness could not be verified — %s; reporting Ready=Unknown rather than assuming healthy",
+				app.GetNamespace(), app.GetName(), v.detail)
 		}
 	}
 	su := statusUpdate{
