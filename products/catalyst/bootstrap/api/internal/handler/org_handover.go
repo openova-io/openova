@@ -175,7 +175,7 @@ func (h *Handler) AuthOrgHandover(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	sessionClaims := jwt.MapClaims{
-		"iss":            pinIssuer,
+		"iss":            pinIssuer(),
 		"sub":            email,
 		"email":          email,
 		"email_verified": true,

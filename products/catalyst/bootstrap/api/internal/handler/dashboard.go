@@ -414,13 +414,43 @@ type podRow struct {
 // The BLOCK NAME is the host namespace's `openova.io/organization` label,
 // not the managed-by value: every per-Org vCluster is installed under the
 // same release name (`vcluster`), so naming blocks after it would collapse
-// all Organizations into one cell — the very bug being fixed. Namespaces
-// with no synced pod are absent from the map and keep bucketing to "host",
-// which is correct for a namespace-isolated Organization.
+// all Organizations into one cell — the very bug being fixed.
+//
+// UAT row 98 (2026-08-10) — TWO runtime signals, not one.
+//
+// #5932/#5937 keyed only on the SYNCER label `vcluster.loft.sh/managed-by`,
+// which vCluster writes on the workload pods it mirrors down into the host
+// namespace. That signal is present only once an Organization has actually
+// installed something. A per-Org vCluster whose control plane is Running with
+// ZERO workloads inside it therefore produced no map entry at all, so its
+// pods — including its own `vcluster-0` control-plane pod, which sits in that
+// Org's host namespace — bucketed to "host" and the Organization rendered NO
+// vCluster block. Row 98's clause is "a `host` block PLUS one block per per-Org
+// vCluster", with an explicit vacuity guard that a lone `host` block is a FAIL,
+// so the freshest state an Organization can be in — vCluster up, nothing
+// deployed yet — was exactly the state that failed the clause. An empty
+// vCluster is still a vCluster.
+//
+// The second signal is the control-plane pod itself: the loft-sh chart labels
+// it `app=vcluster` (verified live on hw292 region A, read-only: the ONLY
+// `app=vcluster` pod cluster-wide is `uatco/vcluster-0` — no false positive in
+// vcluster-system or any platform namespace). This is the same third-source
+// signal topology_loader.go:995-1010 already uses to stop reporting
+// "vCluster 0/0" for a per-Org vCluster (#4739); the treemap simply never
+// picked it up. Deriving from what is RUNNING keeps #3969 intact.
+//
+// A namespace with neither signal is absent from the map and keeps bucketing
+// to "host", which stays correct for a namespace-isolated Organization.
 func vclustersFromRuntime(pods []*unstructured.Unstructured, nsByName map[string]*unstructured.Unstructured) map[string]string {
 	out := map[string]string{}
 	for _, p := range pods {
-		if _, synced := p.GetLabels()["vcluster.loft.sh/managed-by"]; !synced {
+		labels := p.GetLabels()
+		_, synced := labels["vcluster.loft.sh/managed-by"]
+		// The vCluster control plane itself. Checked as an exact value, not
+		// a prefix or a substring: `app=vcluster-something-else` is a
+		// different workload and must not mint a block.
+		isControlPlane := labels["app"] == "vcluster"
+		if !synced && !isControlPlane {
 			continue
 		}
 		ns := p.GetNamespace()

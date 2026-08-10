@@ -970,15 +970,25 @@ func decodeJtiIat(t *testing.T, rawJWT string) (string, int64) {
 // claim. Post-#2940 reads CATALYST_PIN_ISSUER env with the legacy
 // hardcode as back-compat fallback for pre-#2940 Sovereigns.
 //
-// pinIssuer is a package-level var initialised at package load time, so
-// this test verifies the fallback path (env unset). Override paths are
-// exercised by the per-Sovereign HelmRelease overlay's catalystApi.env
-// additional-env patch documented in chart/templates/api-deployment.yaml.
+// pinIssuer WAS a package-level var initialised at package load time, so
+// this test could only ever observe whichever value the test process
+// happened to start with — it logged instead of asserting on the override
+// path. UAT row 96 (2026-08-10) turned it into a function, so both paths
+// are now asserted here rather than one being logged away.
 func TestPinIssuer_FallbackToHardcode_2940(t *testing.T) {
-	if pinIssuer == "" {
-		t.Fatalf("pinIssuer must never be empty (would mint un-issuer'd JWTs)")
+	t.Setenv("CATALYST_PIN_ISSUER", "")
+	if err := os.Unsetenv("CATALYST_PIN_ISSUER"); err != nil {
+		t.Fatalf("unset CATALYST_PIN_ISSUER: %v", err)
 	}
-	if pinIssuer != "https://console.openova.io" {
-		t.Logf("pinIssuer overridden via CATALYST_PIN_ISSUER env (value=%q); fallback path not exercised in this test process", pinIssuer)
+	if got := pinIssuer(); got != "https://console.openova.io" {
+		t.Errorf("env-unset: pinIssuer()=%q, want the mothership origin", got)
+	}
+
+	// Override path — the whole point of #2940, and untestable while this
+	// was a load-time var.
+	const sov = "https://console.hw292.omani.works"
+	t.Setenv("CATALYST_PIN_ISSUER", sov)
+	if got := pinIssuer(); got != sov {
+		t.Errorf("env-set: pinIssuer()=%q, want %q", got, sov)
 	}
 }

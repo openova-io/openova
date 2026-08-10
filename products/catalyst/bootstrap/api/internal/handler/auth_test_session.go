@@ -195,7 +195,7 @@ func (h *Handler) HandleAuthTestSession(w http.ResponseWriter, r *http.Request) 
 	// gates that check `Claims.Tier` OR `Claims.HasRealmRole(...)`.
 	now := time.Now()
 	sessionClaims := jwt.MapClaims{
-		"iss":            pinIssuer,
+		"iss":            pinIssuer(),
 		"sub":            subject,
 		"email":          email,
 		"email_verified": true,
