@@ -2690,39 +2690,78 @@ func ListAndSnapshotHelmReleases(ctx context.Context, dyn dynamic.Interface) ([]
 		if !strings.HasPrefix(name, "bp-") {
 			continue
 		}
-		conds, _ := extractConditions(u)
-		state := DeriveState(conds)
-		// Wave 5.103 (#2447): suspended HRs report as StateInstalled to
-		// avoid blocking Phase 1 readiness. See SetEventHandler comment.
-		// #5485 defect 4: the suspension is ALSO carried as its own flag
-		// so the Reconciliation DAG can render Suspended distinctly.
-		suspended, okSusp, _ := unstructured.NestedBool(u.Object, "spec", "suspend")
-		suspended = okSusp && suspended
-		if suspended {
-			state = StateInstalled
-		}
-		message := messageFromConditions(conds, state)
-		var lastTransitionAt time.Time
-		if ready := findCondition(conds, "Ready"); ready != nil {
-			lastTransitionAt = ready.LastTransitionTime.Time
-		}
-		ns := u.GetNamespace()
-		if ns == "" {
-			ns = FluxNamespace
-		}
-		out = append(out, ComponentSnapshot{
-			AppID:            ComponentIDFromHelmRelease(name),
-			Status:           state,
-			HelmReleaseName:  name,
-			Namespace:        ns,
-			LastTransitionAt: lastTransitionAt.UTC(),
-			Message:          message,
-			DependsOn:        extractDependsOn(u),
-			Stalled:          state == StateFailed && IsStalledHelmRelease(u),
-			Suspended:        suspended,
-		})
+		out = append(out, snapshotFromHelmRelease(u, ComponentIDFromHelmRelease(name)))
 	}
 	return out, nil
+}
+
+// snapshotFromHelmRelease projects ONE HelmRelease into a
+// ComponentSnapshot under the supplied AppID. Extracted from
+// ListAndSnapshotHelmReleases so the #6045 per-Organization Application
+// leg (jobs_projection.go) derives status, staleness and suspension by
+// exactly the same rules as the bootstrap-kit leg — the AppID is the only
+// thing the two callers decide differently. Without this seam the two
+// projections would drift, and a per-Org install would render its status
+// by subtly different logic from a platform component's.
+func snapshotFromHelmRelease(u *unstructured.Unstructured, appID string) ComponentSnapshot {
+	conds, _ := extractConditions(u)
+	state := DeriveState(conds)
+	// Wave 5.103 (#2447): suspended HRs report as StateInstalled to
+	// avoid blocking Phase 1 readiness. See SetEventHandler comment.
+	// #5485 defect 4: the suspension is ALSO carried as its own flag
+	// so the Reconciliation DAG can render Suspended distinctly.
+	suspended, okSusp, _ := unstructured.NestedBool(u.Object, "spec", "suspend")
+	suspended = okSusp && suspended
+	if suspended {
+		state = StateInstalled
+	}
+	// #6045 defect 2 — READ-SIDE terminal reclassification. DeriveState
+	// recognises only the InstallFailed / UpgradeFailed / ChartPullError /
+	// ChartLoadError / ArtifactFailed reason family as StateFailed
+	// (:2384); a Ready=False whose reason is anything else falls through
+	// to StateDegraded on the "flux flips it back to True once the
+	// deployment recovers" assumption (:2394).
+	//
+	// That assumption is FALSE for RetriesExceeded. IsStalledHelmRelease
+	// (:2417) treats exactly that reason as stably failed — Flux has
+	// exhausted remediation.retries and will not reconcile again without
+	// a spec change or a manual reconcile. So a HelmRelease whose Ready
+	// reason IS RetriesExceeded was classified `degraded`, and because
+	// the Stalled flag was gated on `state == StateFailed` it ALSO lost
+	// its Stalled marker — the read-side anti-flap rule in
+	// snapshotsToSeedsForRegion (#3916) then had nothing to distinguish
+	// it from a transient wobble. A terminally failed install rendered as
+	// a degraded, still-working one and never reached the `failed` filter.
+	//
+	// Scoped to this read-side projection ONLY. DeriveState itself is
+	// untouched, so the live Phase-1 Watcher's processEvent path keeps
+	// its existing eager-StateFailed semantics and Phase-1 termination
+	// behaviour is unchanged.
+	stalled := IsStalledHelmRelease(u)
+	if stalled && state == StateDegraded {
+		state = StateFailed
+	}
+
+	message := messageFromConditions(conds, state)
+	var lastTransitionAt time.Time
+	if ready := findCondition(conds, "Ready"); ready != nil {
+		lastTransitionAt = ready.LastTransitionTime.Time
+	}
+	ns := u.GetNamespace()
+	if ns == "" {
+		ns = FluxNamespace
+	}
+	return ComponentSnapshot{
+		AppID:            appID,
+		Status:           state,
+		HelmReleaseName:  u.GetName(),
+		Namespace:        ns,
+		LastTransitionAt: lastTransitionAt.UTC(),
+		Message:          message,
+		DependsOn:        extractDependsOn(u),
+		Stalled:          state == StateFailed && stalled,
+		Suspended:        suspended,
+	}
 }
 
 // Subscribe registers a callback the Watcher invokes for EVERY event
