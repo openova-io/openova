@@ -49,6 +49,7 @@ import { authedFetch } from '@/shared/lib/authedFetch'
 import { API_BASE } from '@/shared/config/urls'
 import type { JobKind } from '@/lib/jobs.types'
 import { retryLabel, errorMessageFor } from './retryJobFeedback'
+import { useOptionalNotifications } from '@/shared/ui/notifications'
 
 interface RetryJobButtonProps {
   deploymentId: string
@@ -61,6 +62,7 @@ type RetryPhase = 'idle' | 'requesting' | 'done' | 'error'
 export function RetryJobButton({ deploymentId, jobId, kind }: RetryJobButtonProps) {
   const [phase, setPhase] = useState<RetryPhase>('idle')
   const [message, setMessage] = useState<string>('')
+  const notifications = useOptionalNotifications()
 
   async function onClick() {
     setPhase('requesting')
@@ -80,7 +82,9 @@ export function RetryJobButton({ deploymentId, jobId, kind }: RetryJobButtonProp
         // Honest failure — surface the server's own reason. Never a
         // green confirmation for a call that did not succeed.
         setPhase('error')
-        setMessage(await errorMessageFor(res))
+        const detail = await errorMessageFor(res)
+        setMessage(detail)
+        raise(detail, res.status)
         return
       }
       setPhase('done')
@@ -88,7 +92,38 @@ export function RetryJobButton({ deploymentId, jobId, kind }: RetryJobButtonProp
     } catch {
       setPhase('error')
       setMessage('Network error')
+      raise('Network error', 0)
     }
+  }
+
+  // UAT row 176 — the inline span below is necessary but not sufficient.
+  //
+  // It is the right IN-CONTEXT signal, and it stays. But it is clamped by
+  // `.jobs-retry-error` to 28ch with an ellipsis inside the Jobs table's
+  // Actions cell, so a ~110-character server detail arrives as a fragment;
+  // it lives in component-local state, so the 5-second poll can take it away;
+  // and the button reverts to its idle label, leaving no trace that anything
+  // was attempted. Rendered-but-unreadable is how a 422 came to look like
+  // nothing happening at all.
+  //
+  // The notification centre is the console's existing durable channel for
+  // exactly this (AppsPage, CatalogDetail and the RBAC pages all use it), it
+  // survives the poll, and it is reachable from the bell on any page.
+  //
+  // Optional by design: the hook returns null outside a provider instead of
+  // throwing. The Jobs table is mounted under one, but a throwing hook would
+  // turn a recoverable retry failure into an unmounted row.
+  function raise(detail: string, status: number) {
+    notifications?.notify({
+      // Stable per row: a second failed attempt REPLACES the first rather
+      // than stacking duplicates for one stuck job.
+      id: `retry-failed-${jobId}`,
+      level: 'error',
+      title: `Re-run failed — ${retryLabel(kind)} on ${jobId}`,
+      body: status ? `The catalyst-api answered ${status}.` : 'The request never reached the catalyst-api.',
+      // The server's own words, verbatim and unclamped.
+      raw: detail,
+    })
   }
 
   const label = retryLabel(kind)

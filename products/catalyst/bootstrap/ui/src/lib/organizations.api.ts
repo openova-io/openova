@@ -59,6 +59,13 @@ export interface OrgRow {
   displayName: string
   kind: OrgKind
   tier: OrgTier
+  /** The PURCHASED plan (s|m|l|xl|flexi) off the Organization CR's
+   *  spec.planSlug (#4292, UAT row 7). Distinct from `tier`, which is the
+   *  isolation class — `isolation` below is DERIVED from this value, so the
+   *  directory used to render a consequence of the plan while never naming
+   *  the plan itself. Empty for the sovereign-root row and for records that
+   *  declare none. */
+  plan: string
   billingMode: OrgBillingMode
   /** A real Organization is namespace- or vcluster-isolated. The
    *  sovereign-root row is the CLUSTER itself — isolated within nothing —
@@ -97,6 +104,14 @@ interface SovereignSelf {
   deploymentId: string
   sovereignFQDN: string
 }
+
+/**
+ * SOVEREIGN_PARENT_SLUG — the stable route identity of the sovereign-root row
+ * (UAT row 25). Exported so the directory, the detail route and their tests
+ * all name the same constant instead of re-deriving it; a key that is
+ * recomputed in two places is how it came to differ between two renders.
+ */
+export const SOVEREIGN_PARENT_SLUG = 'sovereign'
 
 /**
  * getSovereignSelf — resolve the parent org's identity (the sovereign
@@ -145,10 +160,33 @@ export function parentRowFromSelf(self: SovereignSelf | null): OrgRow {
   const fqdn = self?.sovereignFQDN ?? ''
   return {
     id: self?.deploymentId || '__parent__',
-    slug: fqdn || 'sovereign',
+    // UAT row 25 — a CONSTANT, never the FQDN.
+    //
+    // This slug is simultaneously the directory's link target
+    // (OrganizationsDirectoryPage passes params={{ org: org.slug }}) and the
+    // detail page's resolution key (rows.find(o => o.slug === org)). It used
+    // to be `fqdn || 'sovereign'`, and getSovereignSelf() collapses EVERY
+    // failure — network throw, non-2xx, unparseable body — to null. So a
+    // single 503 changed the row's IDENTITY: the link built on one render
+    // pointed at /organizations/<fqdn> while the detail page resolving it on
+    // the next render only knew 'sovereign', and one of the two always 404'd
+    // into org-detail-not-found. The value was never wrong so much as
+    // NON-DETERMINISTIC, which is why it read as an intermittent bug.
+    //
+    // The FQDN is display data and stays on displayName/consoleHost below.
+    // It is a poor key regardless: it is absent exactly when the enrichment
+    // call fails, and its dots make it an awkward URL path segment.
+    //
+    // Resolution stays deterministic even if a sub-org were ever named
+    // `sovereign`: listOrganizations always emits the parent FIRST and
+    // `find` takes the first match.
+    slug: SOVEREIGN_PARENT_SLUG,
     displayName: fqdn || 'Sovereign',
     kind: 'internal',
     tier: 'corporate',
+    // The sovereign root is not a purchased Organization — it has no plan
+    // and must not borrow one from a customer record.
+    plan: '',
     billingMode: 'showback',
     // #5489 — the sovereign root IS the cluster; it is not isolated inside
     // one. `GET /api/v1/sovereign/self` returns only {deploymentId,
@@ -220,6 +258,10 @@ export function subOrgRowFromRecord(t: OrgRecord): OrgRow {
     displayName: t.orgName || t.subdomain || t.id,
     kind,
     tier: normalizeTier(t.tier),
+    // #4292 / UAT row 7 — the purchased plan, verbatim. Deliberately NOT
+    // defaulted: an Org that declares no plan reads as empty, and the
+    // detail page omits the field rather than naming a plan nobody bought.
+    plan: String(t.planSlug ?? '').trim(),
     billingMode: normalizeBillingMode(t.billingMode, kind),
     isolation: normalizeIsolation(t.isolation, kind),
     status: t.status,

@@ -278,7 +278,20 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
       }
       return { statusById, publishedBySlug, environmentById, externalURLById, instances }
     },
-    retry: false,
+    // A single transient 5xx must not read as "this Sovereign runs no
+    // Applications". With no retry and no previous data — i.e. a COLD load,
+    // which is every fresh page open — one failed request left
+    // `instances: []`, so /apps rendered the ~46 bootstrap catalog cards and
+    // not one instance card. That is pixel-identical to the estate genuinely
+    // being empty, and it fabricated a failure for UAT row 15 (the per-App
+    // Org chip) on a Sovereign whose Applications were all present and
+    // healthy. A measurement surface that turns one 503 into a plausible-
+    // looking defect costs more than the retry does.
+    //
+    // Bounded on purpose: the poll below already re-fetches every 5s, so this
+    // only has to cover the cold load, and a genuinely-down API must still
+    // surface promptly rather than being masked by a long retry ladder.
+    retry: 2,
     placeholderData: (prev) => prev,
   })
   const liveAppStatus = liveAppsQuery.data?.statusById ?? {}

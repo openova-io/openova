@@ -18,6 +18,7 @@ const SUB = subOrgRowFromRecord({
   subdomain: 'acme',
   parentDomain: 'omani.homes',
   plan: 'pro',
+  planSlug: 's',
   kind: 'customer',
   tier: 'org',
   billingMode: 'real',

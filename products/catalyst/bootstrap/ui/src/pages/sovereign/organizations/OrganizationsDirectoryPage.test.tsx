@@ -126,6 +126,7 @@ describe('OrganizationsDirectoryPage — §5 empty-state law', () => {
       subdomain: 'acme',
       parentDomain: 'omani.homes',
       plan: 'pro',
+      planSlug: 's',
       kind: 'customer',
       tier: 'org',
       billingMode: 'real',

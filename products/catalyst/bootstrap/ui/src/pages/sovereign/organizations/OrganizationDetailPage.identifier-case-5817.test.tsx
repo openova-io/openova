@@ -43,7 +43,7 @@ const PARENT = parentRowFromSelf({ deploymentId: 'd1', sovereignFQDN: 'hw292.oma
 // and an email owner.
 const UATCO = subOrgRowFromRecord({
   id: 'tnt-uatco', orgName: 'UAT Co', consoleHost: 'console.uatco.omani.homes',
-  subdomain: 'uatco', parentDomain: 'omani.homes', plan: 'm', kind: 'customer',
+  subdomain: 'uatco', parentDomain: 'omani.homes', plan: 'm', planSlug: 'm', kind: 'customer',
   tier: 'org', billingMode: 'real', isolation: 'vcluster', status: 'active',
   region: 'r', ownerEmail: 'emrah.baysal@openova.io',
   createdAt: '2026-08-06T00:00:00Z', updatedAt: '2026-08-06T00:00:00Z', lastError: '',

@@ -107,7 +107,7 @@ export function useNotifications(): NotificationsContextValue {
  * layout) to mount its own NotificationProvider. Production never
  * hits the `null` branch — the bell is a no-op stub in that case.
  */
-function useOptionalNotifications(): NotificationsContextValue | null {
+export function useOptionalNotifications(): NotificationsContextValue | null {
   return useContext(NotificationsContext)
 }
 

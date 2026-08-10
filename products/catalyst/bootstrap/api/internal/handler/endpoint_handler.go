@@ -2317,7 +2317,13 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 	// #3830 — seed.Namespace carries the Org ref (often a dotted FQDN).
 	// metadata.namespace must be the slugged RFC-1123 form; the verbatim
 	// Org identity is preserved on the catalyst.openova.io/organization
-	// label (set in instances.Build) and on environmentRef below.
+	// label (set in instances.Build) and on spec.organizationRef below.
+	//
+	// This comment used to point at environmentRef as the second verbatim
+	// carrier. It is not one — environmentRefForOrg slugs it for the same
+	// CRD-pattern reason metadata.namespace is slugged, so BOTH of the
+	// places it named were derived forms and the CR had no verbatim
+	// carrier in its spec at all (UAT row 15).
 	obj.SetNamespace(orgNamespace(seed.Namespace))
 	obj.SetLabels(seed.Labels)
 	// One vocabulary (#3375 DoD-1): both the string AND object forms
@@ -2373,6 +2379,31 @@ func newApplicationCRFromSeed(seed instances.ApplicationSeed) *unstructured.Unst
 		"instanceId":     seed.InstanceID,
 		"isolationLevel": string(seed.IsolationLevel),
 		"namingTemplate": seed.NamingTemplate,
+	}
+	// UAT row 15 — stamp the OWNING Organization, verbatim.
+	//
+	// #5933 added this to newApplicationUnstructured (the REST install path)
+	// and guarded it with the spine producer as a control, but this third
+	// producer — the multi-instance seed path, which also backs
+	// wireBackingServices — was never enrolled. sovereign.go:866 reads
+	// spec.organizationRef VERBATIM to render the /apps Org chip, so every
+	// Application born here rendered with no attribution at all: row 15
+	// measured 4 of 7 cards missing the chip, and the 3 that passed were the
+	// ones the other two producers made.
+	//
+	// seed.Namespace is the Org ref UNSLUGGED (instances/create.go:368 sets
+	// it from r.Org, and mirrors the same string onto the organization
+	// label). Neither derived spelling on this CR is a substitute: both
+	// metadata.namespace and spec.environmentRef are deliberately slugged
+	// because the CRD pattern forbids dots, and the chip prints what it
+	// reads — a slugged value would paint `hw293-omantel-biz` where the
+	// operator expects `hw293.omantel.biz`.
+	//
+	// Omitted when empty, matching producer 1: an empty ref claims an
+	// Org with no name, while an absent one honestly reads as
+	// attribution-unknown.
+	if orgRef := strings.TrimSpace(seed.Namespace); orgRef != "" {
+		spec["organizationRef"] = orgRef
 	}
 	// #4283 / #4282 Root-B — ALWAYS stamp a non-null spec.parameters
 	// OBJECT. The auto-created backing-service path (wireBackingServices)

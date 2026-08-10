@@ -98,6 +98,18 @@ export function OrganizationDetailPage({ org, initialOrgsOverride }: Organizatio
                 <Field label="Slug" value={target.slug} testid={`org-detail-slug`} />
                 <Field label="Kind" value={target.kind} testid="org-detail-kind" enumValue />
                 <Field label="Tier" value={target.tier} testid="org-detail-tier" enumValue />
+                {/* #4292 (UAT row 7) — the PURCHASED plan, beside the tier it
+                    is so easily confused with. Tier is the isolation class;
+                    this is what the customer bought, and it is what
+                    `Isolation` below is derived from — so the page used to
+                    show a consequence of the plan without ever naming it.
+                    Rendered only when the Org declares one: the sovereign-root
+                    row buys nothing, and a blank "Plan —" would invite the
+                    same fabricated default the mapper refuses. `s`/`m`/`xl`
+                    are a fixed vocabulary, hence enumValue. */}
+                {target.plan ? (
+                  <Field label="Plan" value={target.plan} testid="org-detail-plan" enumValue />
+                ) : null}
                 <Field label="Billing mode" value={target.billingMode} testid="org-detail-billing" enumValue />
                 <Field label="Isolation" value={target.isolation} testid="org-detail-isolation" enumValue />
                 <Field label="Status" value={target.status} testid="org-detail-status" enumValue />

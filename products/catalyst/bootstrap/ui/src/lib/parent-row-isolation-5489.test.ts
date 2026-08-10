@@ -32,7 +32,15 @@ describe('#5489 parent row must not claim a vCluster', () => {
   it('still renders a usable parent row', () => {
     const row = parentRowFromSelf(self)
     expect(row.isParent).toBe(true)
-    expect(row.slug).toBe('hw291.omantel.biz')
+    // UAT row 25 — this assertion used to demand the FQDN here while the
+    // sibling case below demanded 'sovereign'. Those two lines together
+    // PINNED the divergence as if it were intent: the same row got a
+    // different identity depending on whether GET /v1/sovereign/self had
+    // succeeded, and that slug is both the directory's link target and the
+    // detail page's lookup key, so one of the two always 404'd. The identity
+    // is now a constant; the FQDN remains pinned on displayName and
+    // consoleHost below, which is what "usable" actually means for this row.
+    expect(row.slug).toBe('sovereign')
     expect(row.displayName).toBe('hw291.omantel.biz')
     expect(row.id).toBe('2c2d746b578c636b')
     expect(row.consoleHost).toBe('console.hw291.omantel.biz')
@@ -43,5 +51,11 @@ describe('#5489 parent row must not claim a vCluster', () => {
     expect(row.isolation).toBe('cluster')
     expect(row.id).toBe('__parent__')
     expect(row.slug).toBe('sovereign')
+  })
+
+  // The identity is the SAME in both states — the property the two cases
+  // above only imply by each naming the same literal.
+  it('carries one identity regardless of self-discovery (UAT row 25)', () => {
+    expect(parentRowFromSelf(self).slug).toBe(parentRowFromSelf(null).slug)
   })
 })
