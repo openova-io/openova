@@ -142,6 +142,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ──────────────────────────────────────────────────────────────
+      # GATE — no unresolved merge-conflict markers (2026-08-10)
+      # ──────────────────────────────────────────────────────────────
+      # ad2d2e9ab committed a cherry-pick with its markers intact. Nine
+      # conflict blocks landed in three org-services templates and this
+      # job failed 12 steps later at "Run chart integration tests" with
+      #
+      #   YAML parse error on .../org-services/configmap.yaml:
+      #   yaml: line 22: could not find expected ':'
+      #
+      # — a line number in the RENDERED output, which points at a Helm
+      # comment in the source and names neither the cause nor the commit.
+      # bp-catalyst-platform then could not publish for a day, and because
+      # the umbrella carries the catalog-seed, no chart pin could reach any
+      # Sovereign. This runs first so the same defect costs one clear line
+      # instead of a day.
+      - name: "No unresolved merge-conflict markers"
+        run: bash scripts/check-no-conflict-markers.sh
+
       - name: Set up Helm
         uses: azure/setup-helm@v4
         with:

@@ -54,6 +54,22 @@ spec:
                 configMapKeyRef:
                   name: org-services-config
                   key: NATS_URL
+            # TENANT_URL — the Organization service host the notification
+            # enricher (handlers/enrich.go) calls to resolve an org before
+            # it renders an email. notification was the ONLY consumer of
+            # this key that never wired it, so it fell through to the
+            # compiled-in default in core/services/notification/main.go.
+            # That default is not a safe fallback: UAT row 121 renamed the
+            # workload, and a compiled-in host cannot track a chart rename
+            # — it went stale the moment the object name moved and the
+            # enricher dialled NXDOMAIN. Read it from the ConfigMap like
+            # billing / domain / gateway already do, so the chart is the
+            # single source of truth for the host (Principle #4).
+            - name: TENANT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: org-services-config
+                  key: TENANT_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:

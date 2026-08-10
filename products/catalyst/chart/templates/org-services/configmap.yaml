@@ -189,7 +189,6 @@ data:
   # each other directly using these too.
   AUTH_URL: "http://auth.org-services.svc.cluster.local:8081"
   CATALOG_URL: "http://catalog.org-services.svc.cluster.local:8082"
-<<<<<<< HEAD
   # The env-var KEY stays TENANT_URL (every consumer's main.go reads that
   # name; renaming it here without renaming them would silently fall back
   # to each service's own hardcoded default). The VALUE moves to the
@@ -197,16 +196,6 @@ data:
   # `tenant` Service is kept one release as an annotated alias, so a pod
   # that has not rolled yet still resolves.
   TENANT_URL: "http://organizations.org-services.svc.cluster.local:8083"
-=======
-  # UAT row 121 / #3383 — the Service this points at is now named
-  # `organization` (organization.yaml). The KEY stays TENANT_URL because it
-  # is the env-var contract every consumer already reads
-  # (gateway/billing/domain/notification main.go); renaming the key without
-  # renaming those readers in the same commit would silently fall back to
-  # their compiled-in defaults, which is a worse failure than an unlovely
-  # key name. The VALUE is the part that has to track the object name.
-  TENANT_URL: "http://organization.org-services.svc.cluster.local:8083"
->>>>>>> cf1a2122d (fix(org-services): rename the `tenant` workload — UAT row 121)
   PROVISIONING_URL: "http://provisioning.org-services.svc.cluster.local:8084"
   BILLING_URL: "http://billing.org-services.svc.cluster.local:8085"
   DOMAIN_URL: "http://domain.org-services.svc.cluster.local:8086"
