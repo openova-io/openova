@@ -1,21 +1,41 @@
 {{- if and .Values.ingress .Values.ingress.marketplace .Values.ingress.marketplace.enabled -}}
+# UAT row 121 / #5435 — the workload NAME is an operator-facing string.
+#
+# This Deployment was called `tenant`, and the sovereign console's
+# platform-overhead showback table keys its rows on the Deployment name
+# (applicationKey → ReplicaSet → Deployment, dashboard.go:681, feeding
+# GET /api/v1/org/consumption). So `tenant` — banned as an entity-noun by
+# docs/GLOSSARY.md — rendered verbatim at `/billing/orders` as a row
+# labelled `tenant` with `data-testid=showback-app-tenant`, on a Sovereign
+# whose console source contains the word nowhere. No source grep could see
+# it: the term arrived from a live Kubernetes object name.
+#
+# The rename is therefore the fix, not a cosmetic. `core/services/tenant/
+# handlers/routes.go` had already canonicalised the ROUTES to
+# `/organizations` and left the workload behind; this finishes that.
+#
+# The old `tenant` Service is KEPT below as an annotated one-release alias
+# on purpose: consumers read `TENANT_URL` from the `org-services-config`
+# ConfigMap, and a ConfigMap change does NOT roll a Deployment, so pods
+# that have not yet restarted still dial the old host. Removing the
+# Service in the same release would break them mid-upgrade.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: tenant
+  name: organizations
   namespace: org-services
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: org-tenant
+      app: org-organizations
   template:
     metadata:
       labels:
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466
-        app: org-tenant
+        app: org-organizations
     spec:
-      serviceAccountName: tenant
+      serviceAccountName: organizations
       # TBD-D35a — must be true so the SandboxOrchestrator
       # (core/services/tenant/handlers/sandbox_consumer.go) can build an
       # in-cluster dynamic client and materialise Sandbox CRs in
@@ -30,7 +50,7 @@ spec:
       imagePullSecrets:
         - name: ghcr-pull
       containers:
-        - name: tenant
+        - name: organizations
           image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}{{ else }}{{ .Values.images.registry }}{{ end }}/{{ .Values.images.organization }}/services-tenant:{{ .Values.images.orgTag }}"
           imagePullPolicy: Always
           ports:
@@ -112,11 +132,34 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: tenant
+  name: organizations
   namespace: org-services
 spec:
   selector:
-    app: org-tenant
+    app: org-organizations
+  ports:
+    - port: 8083
+      targetPort: 8083
+---
+# One-release deprecation alias for the pre-#5435 `tenant` Service. Every
+# consumer (billing, domain, gateway, notification) resolves this host
+# from `org-services-config`'s TENANT_URL, and a ConfigMap edit does not
+# restart a Deployment, so a pod that has not rolled yet still dials
+# `tenant.org-services.svc`. Keeping the alias makes the rename a
+# non-event for them; it goes away one release after every consumer has
+# rolled onto the canonical name. It is a Service, not a workload, so it
+# never reaches the showback table — that keys on the Deployment (row 121).
+# naming-guard: alias
+apiVersion: v1
+kind: Service
+metadata:
+  name: tenant
+  namespace: org-services
+  annotations:
+    catalyst.openova.io/deprecated-alias-for: organizations
+spec:
+  selector:
+    app: org-organizations
   ports:
     - port: 8083
       targetPort: 8083
