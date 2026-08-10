@@ -76,9 +76,35 @@ fi
 
 git fetch --quiet origin main
 
-BASELINE="$(git show "origin/main:${CHART_YAML}")"
-BASE_VERSION="$(printf '%s\n' "${BASELINE}" | awk '/^version:/{print $2; exit}' | tr -d '"')"
-BASE_APPVERSION="$(printf '%s\n' "${BASELINE}" | awk '/^appVersion:/{print $2; exit}' | tr -d '"')"
+# Read the baseline through a TEMP FILE, never through a pipe.
+#
+# This line used to be:
+#   BASELINE="$(git show "origin/main:${CHART_YAML}")"
+#   BASE_VERSION="$(printf '%s\n' "${BASELINE}" | awk '/^version:/{print $2; exit}' | ...)"
+#
+# and it failed on 100% of its invocations from the moment it landed
+# (77a47f167, 2026-08-06) until this fix — 53 consecutive red runs of
+# `Build & Deploy Catalyst`, every one of them at this exact line.
+#
+# Mechanism: `awk … {exit}` stops reading as soon as it matches, which
+# CLOSES the pipe. products/catalyst/chart/Chart.yaml carries 88,958 bytes
+# AFTER its `version:` line — more than the 64 KiB (65,536 B) Linux pipe
+# buffer — so `printf` is still writing when the reader goes away, takes
+# EPIPE/SIGPIPE, and dies 141. `set -o pipefail` then fails the whole
+# pipeline and `set -e` aborts the script. The bug is invisible on a small
+# chart (everything fits in the buffer, printf finishes before awk exits),
+# which is why it survived review: it is a function of how many bytes
+# follow the matched line, not of anything about the version arithmetic.
+#
+# Reading from a file removes the pipe, so `exit` costs nothing and the
+# byte-size of the chart stops being load-bearing. Regression coverage:
+# scripts/tests/test-bump-chart-version.sh builds a chart with >64 KiB
+# after `version:` and asserts this script still exits 0.
+BASELINE_FILE="$(mktemp)"
+trap 'rm -f "${BASELINE_FILE}"' EXIT
+git show "origin/main:${CHART_YAML}" > "${BASELINE_FILE}"
+BASE_VERSION="$(awk '/^version:/{print $2; exit}' "${BASELINE_FILE}" | tr -d '"')"
+BASE_APPVERSION="$(awk '/^appVersion:/{print $2; exit}' "${BASELINE_FILE}" | tr -d '"')"
 
 if [ -z "${BASE_VERSION}" ]; then
   echo "::error title=bump-chart-version::No '^version:' line in origin/main's ${CHART_YAML}." >&2

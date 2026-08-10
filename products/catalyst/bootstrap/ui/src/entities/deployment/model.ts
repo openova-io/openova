@@ -452,7 +452,12 @@ export function getProfileDefaults(
   const isTech       = /tech|software|saas|cloud|it services/.test(ind)
   const isRetail     = /retail|commerce|ecomm/.test(ind)
   const isLarge      = /10[,.]?000|50[,.]?000|100[,.]?000/.test(orgSize)
-  const hasAuditComp = comp.some(c => ['pci dss','hipaa','soc 2','iso 27001','gdpr'].some(r => c.includes(r)))
+  // NOTE: `hasAuditComp` (comp matches pci dss / hipaa / soc 2 / iso 27001 /
+  // gdpr) lived here until #5979 removed the strongSwan rule below — its only
+  // consumer. It was left behind unread, which is a `tsc` TS6133 error under
+  // this project's `noUnusedLocals`, and it broke `npm run build` (and so the
+  // catalyst-ui image) on every main push from 05d3f639c onward. Re-introduce
+  // it together with the rule that reads it, not before.
 
   const defaults: Record<string, string[]> = { ...DEFAULT_COMPONENT_GROUPS }
 
