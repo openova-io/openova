@@ -1356,7 +1356,7 @@ spec:
       #   umbrella, so the new pin only reaches a Sovereign once the umbrella
       #   republishes and this pin advances (#5734). Lockstep w/
       #   products/catalyst/chart/Chart.yaml + slot-06a (0.1.177).
-      version: 1.4.1338
+      version: 1.4.1339
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
