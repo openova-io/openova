@@ -3755,7 +3755,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.66",
+    "version": "1.2.67",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [],
     "shareable": false,
