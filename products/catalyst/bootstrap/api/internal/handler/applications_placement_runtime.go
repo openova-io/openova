@@ -70,9 +70,33 @@ import (
 // `derivedFromRuntime: true` there falsely asserts the empty list was
 // runtime-observed, when the branch is taken precisely because it was not —
 // the exact fabrication UAT row 55 leans on this flag to rule out.
+//
+// #6015 — `true` additionally requires that the runtime we consulted COVERS
+// the deployment. A cache holding fewer of this deployment's region clusters
+// than the deployment DECLARES cannot answer "where does this component run":
+// every region it is blind to reads as absent, and the collapse is invisible
+// because the same fan-out that lost the region also decides what "observed"
+// means. Measured on hw293 (dep a0077ba47e3720e5): the chroot's k8scache held
+// only its self-registered region-a cluster because its secondary kubeconfig
+// was never delivered, and `bp-alloy` — 6 pods in region A and 6 in region B,
+// counted on each region's own apiserver — came back as ONE region-A Primary
+// under `derivedFromRuntime: true`. RegionsDeclared / RegionsObserved carry the
+// shortfall to the FE so it can keep its spec/status fallback instead of
+// rendering a fabricated singleton.
 type runtimePlacementResponse struct {
 	Targets            []bpv1.PlacementTarget `json:"targets"`
 	DerivedFromRuntime bool                   `json:"derivedFromRuntime"`
+
+	// RegionsDeclared — how many regions this Sovereign was provisioned with
+	// (deployment record's Regions[], else the chart-baked
+	// CATALYST_CONFIGURED_REGIONS the chroot always carries). 0 = unknown.
+	RegionsDeclared int `json:"regionsDeclared,omitempty"`
+	// RegionsObserved — how many of THIS deployment's region clusters the fan
+	// out actually listed successfully.
+	RegionsObserved int `json:"regionsObserved,omitempty"`
+	// UnobservedClusters — this deployment's registered cluster ids whose List
+	// failed (unregistered in the cache, or apiserver unreachable).
+	UnobservedClusters []string `json:"unobservedClusters,omitempty"`
 }
 
 // HandleApplicationPlacement — GET
@@ -109,7 +133,12 @@ func (h *Handler) HandleApplicationPlacement(w http.ResponseWriter, r *http.Requ
 
 	clusterRegion := h.clusterRegionMap(urlID)
 
-	targets := h.derivePlacementTargets(name, ns, primaryID, clusterRegion)
+	// #6015 — who this deployment IS, and how many regions it declares. Both
+	// are needed to tell an honest "the component runs in one region" from a
+	// "the cache can only see one region" that looks identical downstream.
+	depID, fqdn, declaredRegions := h.placementDeploymentIdentity(urlID)
+
+	targets, cov := h.derivePlacementTargets(name, ns, primaryID, clusterRegion, depID, fqdn)
 
 	// #4551 — Standby discovery for cross-region CNPG-backed components.
 	//
@@ -131,7 +160,112 @@ func (h *Handler) HandleApplicationPlacement(w http.ResponseWriter, r *http.Requ
 	// pair exists, the runtime targets are returned unchanged.
 	targets = h.augmentWithCNPGStandby(r, urlID, name, ns, targets)
 
-	writeJSON(w, http.StatusOK, runtimePlacementResponse{Targets: targets, DerivedFromRuntime: true})
+	// #6015 — the coverage gate. `derivedFromRuntime` may only claim a genuine
+	// runtime observation when (a) at least one of this deployment's clusters
+	// was actually listed, AND (b) the clusters we listed are not fewer than
+	// the regions the deployment declares. Both halves are load-bearing:
+	//
+	//   (a) closes the #5568 sibling the k8sCache==nil check cannot see — an
+	//       UNREGISTERED cluster id. derivePlacementTargets swallows that
+	//       List error with `continue`, so the mother could answer
+	//       `derivedFromRuntime: true` while its own cache said the cluster is
+	//       not registered (exactly what QuarantineDeployment leaves behind).
+	//   (b) closes the false-singleton: declared 2, observed 1.
+	//
+	// declaredRegions == 0 means we genuinely cannot tell (no record, no
+	// chart-baked env), so (b) is skipped rather than inventing a failure —
+	// the surface-not-gate discipline. It never DOWNGRADES a full observation.
+	derived := len(cov.observed) > 0 && (declaredRegions == 0 || len(cov.observed) >= declaredRegions)
+	if !derived {
+		h.log.Error("placement: runtime coverage is NARROWER than the deployment declares — refusing to assert derivedFromRuntime, every unobserved region would read as absent and collapse this component to a false singleton (#6015)",
+			"id", urlID,
+			"deploymentID", depID,
+			"component", name,
+			"regionsDeclared", declaredRegions,
+			"regionsObserved", len(cov.observed),
+			"observedClusters", strings.Join(cov.observed, ","),
+			"unobservedClusters", strings.Join(cov.unobserved, ","),
+		)
+	}
+
+	writeJSON(w, http.StatusOK, runtimePlacementResponse{
+		Targets:            targets,
+		DerivedFromRuntime: derived,
+		RegionsDeclared:    declaredRegions,
+		RegionsObserved:    len(cov.observed),
+		UnobservedClusters: cov.unobserved,
+	})
+}
+
+// placementRuntimeCoverage records which of THIS deployment's region clusters
+// the placement fan-out could actually read (#6015). `observed` are the ones
+// whose Pod List succeeded; `unobserved` are the ones registered for this
+// deployment whose List failed — unregistered id, quarantined reflectors, or an
+// unreachable apiserver. Clusters belonging to OTHER deployments (the mother's
+// cache holds every managed Sovereign, #3987) are counted in neither: they say
+// nothing about this deployment's coverage.
+type placementRuntimeCoverage struct {
+	observed   []string
+	unobserved []string
+}
+
+// clusterOwnedByDeployment reports whether a k8scache cluster id belongs to the
+// deployment being asked about. The id shapes are the ones the registration
+// paths mint: the deployment id itself (mother-side primary + the chroot's
+// CATALYST_SELF_DEPLOYMENT_ID self-registration), `<depID>-<regionKey>` for a
+// secondary posted to /api/v1/sovereign/secondary-kubeconfig, and
+// `sovereign-<fqdn>` for the FQDN-derived chroot fallback.
+func clusterOwnedByDeployment(cid, primaryID, depID, fqdn string) bool {
+	if cid == "" {
+		return false
+	}
+	if cid == primaryID {
+		return true
+	}
+	if depID != "" && (cid == depID || strings.HasPrefix(cid, depID+"-")) {
+		return true
+	}
+	if fqdn != "" && cid == "sovereign-"+fqdn {
+		return true
+	}
+	return false
+}
+
+// placementDeploymentIdentity resolves the deployment behind a placement URL id
+// and how many regions it DECLARES (#6015).
+//
+// The declared count is the MAX of the record's own region list and the
+// chart-baked CATALYST_CONFIGURED_REGIONS, never just the record's. On a chroot
+// whose mother-side record was never imported — the hw293 state, where handover
+// never fired — chrootEnsureDeployment synthesizes a record that can carry a
+// single region; taking that as "declared" would hand the coverage gate a
+// denominator derived from the same blindness it is meant to detect, i.e. a
+// guard that cannot fail. The `sovereign-fqdn` ConfigMap key `configuredRegions`
+// is written by the IaC at provision time and is independent of both the
+// k8scache and the deployment store — verified live on hw293:
+// `configuredRegions=hw-me-east-215-a-rtz-prod,hw-me-east-215-b-rtz-prod` while
+// the cache held one cluster.
+func (h *Handler) placementDeploymentIdentity(urlID string) (depID, fqdn string, declaredRegions int) {
+	envRegions := len(regionsFromEnv())
+	var dep *Deployment
+	if val, ok := h.deployments.Load(urlID); ok {
+		dep = val.(*Deployment)
+	} else {
+		dep = h.chrootEnsureDeployment(urlID)
+	}
+	if dep == nil {
+		return "", "", envRegions
+	}
+	dep.mu.Lock()
+	depID = dep.ID
+	fqdn = strings.TrimSpace(dep.Request.SovereignFQDN)
+	recRegions := len(configuredRegionsForDeployment(dep))
+	dep.mu.Unlock()
+	declaredRegions = recRegions
+	if envRegions > declaredRegions {
+		declaredRegions = envRegions
+	}
+	return depID, fqdn, declaredRegions
 }
 
 // augmentWithCNPGStandby appends a Standby·Hot target for the region-b
@@ -402,7 +536,13 @@ type placementOccupancy struct {
 // cluster, list its Pods + Namespaces + Nodes, keep the Pods that belong to
 // `name`, and collapse them into one PlacementTarget per (region × cluster
 // × vcluster) the component actually occupies, with an HONEST role.
-func (h *Handler) derivePlacementTargets(name, ns, primaryID string, clusterRegion map[string]string) []bpv1.PlacementTarget {
+// #6015: it additionally REPORTS which of this deployment's clusters it could
+// read. The `continue` on a List error below is still the right rendering
+// behaviour (show N-1 regions rather than nothing), but silently degrading the
+// DATA while the caller keeps asserting `derivedFromRuntime: true` is what
+// turned a blind cache into a fabricated singleton. The coverage report is how
+// the caller can tell the two apart.
+func (h *Handler) derivePlacementTargets(name, ns, primaryID string, clusterRegion map[string]string, depID, fqdn string) ([]bpv1.PlacementTarget, placementRuntimeCoverage) {
 	// Fan out across primary + every secondary region cluster.
 	clusterIDs := []string{primaryID}
 	seen := map[string]struct{}{primaryID: {}}
@@ -414,15 +554,25 @@ func (h *Handler) derivePlacementTargets(name, ns, primaryID string, clusterRegi
 		clusterIDs = append(clusterIDs, cid)
 	}
 
+	cov := placementRuntimeCoverage{}
 	// key = region|cluster|vcluster → occupancy.
 	occ := map[string]*placementOccupancy{}
 	for _, cid := range clusterIDs {
+		owned := clusterOwnedByDeployment(cid, primaryID, depID, fqdn)
 		pods, _, err := h.k8sCache.List(cid, "pod", labels.Everything())
 		if err != nil {
 			// A secondary that can't be listed degrades silently — render
 			// N-1 regions rather than nothing. The primary's pods are the
 			// floor; a missing primary just yields no targets (honest).
+			// #6015 — but RECORD it, so the caller cannot claim the resulting
+			// target list is a complete runtime observation.
+			if owned {
+				cov.unobserved = append(cov.unobserved, cid)
+			}
 			continue
+		}
+		if owned {
+			cov.observed = append(cov.observed, cid)
 		}
 		nsList, _, _ := h.k8sCache.List(cid, "namespace", labels.Everything())
 		nodes, _, _ := h.k8sCache.List(cid, "node", labels.Everything())
@@ -454,7 +604,7 @@ func (h *Handler) derivePlacementTargets(name, ns, primaryID string, clusterRegi
 	}
 
 	if len(occ) == 0 {
-		return []bpv1.PlacementTarget{}
+		return []bpv1.PlacementTarget{}, cov
 	}
 
 	// Collapse occupancies → targets with honest roles.
@@ -513,7 +663,7 @@ func (h *Handler) derivePlacementTargets(name, ns, primaryID string, clusterRegi
 		}
 		return a.VCluster < b.VCluster
 	})
-	return targets
+	return targets, cov
 }
 
 // componentNameCandidates returns the identity strings a Pod may carry for

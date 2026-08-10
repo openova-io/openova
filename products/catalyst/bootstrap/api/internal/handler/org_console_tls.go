@@ -590,6 +590,47 @@ func (h *Handler) provisionOrgConsoleTLS(ctx context.Context, rec store.Organiza
 			"unreached_pool_regions", strings.Join(unreachedPoolRegions, ","),
 		)
 	}
+	// #6015 — a pool SHORTER than the declared region set is a FAILURE, not a
+	// satisfied precondition.
+	//
+	// The #5246 accounting above can only report regions the pool NAMED. Both
+	// the pool and the target list are derived from the same on-disk
+	// `<depID>-<regionKey>.yaml` set, so when a region is missing from that set
+	// it is missing from the pool, missing from `unreached`, and missing from
+	// the read-back loop below — which then emits `listener pair admitted in
+	// every region` over the regions we chose to write. The guard's own scope
+	// was decided by the step that lost the region, so it cannot fail on this
+	// defect.
+	//
+	// 🛑 The comparison is `declared > written`, NOT `pool is empty`. Measured
+	// on hw293 (dep a0077ba47e3720e5) the chroot's kubeconfigs dir is NOT
+	// empty — it holds exactly one file, `a0077ba47e3720e5.yaml`, the REGION-A
+	// config; only the `-me-east-215-b-1.yaml` secondary is absent. A presence
+	// check would find the directory populated and pass while region A's
+	// console Gateway declared 10 listeners against region B's 6 and per-Org
+	// hosts TLS-reset ~6 of 12 fresh connections. It must also fire on a
+	// short-but-non-empty pool (3 declared, 1 delivered).
+	//
+	// CATALYST_CONFIGURED_REGIONS is the independent declaration: written into
+	// the `sovereign-fqdn` ConfigMap by the IaC at provision time, it does not
+	// come from the kubeconfig set or from h.k8sCache, so it can contradict
+	// them. `targets` always carries the host region, so this compares the
+	// declaration against host + every pool region we could actually write.
+	// Chroot-only — on the mother isChroot() is false and per-Org listeners are
+	// never fanned out here at all.
+	if isChroot() {
+		if declared := len(regionsFromEnv()); declared > len(targets) {
+			admitted = false
+			h.log.Error("org-console-tls: this Sovereign DECLARES more regions than carry a per-Org console listener — the undelivered region(s) hold no `console-https-<slug>` listener, so every customer connection the shared console EIP round-robins onto them resets at the TLS handshake (#6015)",
+				"org_tenant_id", rec.OrganizationID,
+				"console_host", names.ConsoleHost,
+				"regions_declared", declared,
+				"regions_written", len(targets),
+				"regions", strings.Join(regions, ","),
+				"remedy", "the mother must deliver `<depID>-<regionKey>.yaml` to this Sovereign's CATALYST_K8SCACHE_KUBECONFIGS_DIR (POST /api/v1/sovereign/secondary-kubeconfig)",
+			)
+		}
+	}
 	for _, tgt := range targets {
 		if err := waitOrgConsoleListenersAdmitted(ctx, tgt.dyn, names, admitDeadline); err != nil {
 			admitted = false

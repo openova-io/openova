@@ -679,6 +679,14 @@ func (h *Handler) restoreFromStore() {
 			meshRetries++
 			go h.retryStartupClusterMeshReconcile(dep)
 		}
+		// #6015 — secondary-kubeconfig delivery resumes on EVERY restore of a
+		// multi-region deployment, independent of the three mesh branches
+		// above. Those branches all decline a deployment whose Phase-1
+		// concluded `failed`, which is precisely the hw293 state that left the
+		// chroot's kubeconfigs dir empty forever. The loop self-guards on
+		// region count, FQDN and a torn-down status, and de-duplicates against
+		// the markPhase1Done trigger.
+		go h.runSecondaryKubeconfigDelivery(dep)
 		// #3319 (founder, 2026-06-12) — converged-late handover. MUST be
 		// an INDEPENDENT hook, not the else-arm above: #3317 made the
 		// mesh branch accept failed+TIMEOUT records too, so as an

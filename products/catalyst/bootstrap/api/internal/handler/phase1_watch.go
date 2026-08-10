@@ -1458,6 +1458,23 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		h.k8sCache.QuarantineDeployment(dep.ID)
 	}
 
+	// #6015 — start the durable secondary-kubeconfig delivery loop for EVERY
+	// multi-region deployment, whatever Phase-1 concluded. This deliberately
+	// sits OUTSIDE the `finalStatus == "ready"` branch below.
+	//
+	// Before this line, both producers of the chroot's
+	// `/var/lib/catalyst/kubeconfigs` hung off that branch: the one-shot export
+	// inside fireHandover, and the level-triggered re-forward buried in
+	// runClusterMeshSteadyStateHeal (itself only reachable after full mesh +
+	// cnpg-pair convergence). On hw293 a single failed HelmRelease — the
+	// DORMANT-by-design `self-sovereign-cutover` chart — latched
+	// finalStatus=failed, so neither producer ever ran and the Sovereign never
+	// received region B's kubeconfig even though region B's apiserver was
+	// healthy throughout. A HelmRelease census is not a statement about
+	// apiserver reachability, and it must not decide whether a Sovereign is
+	// allowed to see its own peer region.
+	h.spawnPostHandoverHook(func() { h.runSecondaryKubeconfigDelivery(dep) })
+
 	// Issues #764 + #768 — auto-fire the handover JWT mint immediately
 	// after Phase-1 reaches OutcomeReady. Until this landed, the
 	// operator was stranded on the wizard's provision page after a
