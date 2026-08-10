@@ -108,9 +108,35 @@ rules:
   # client cache is cluster-scoped). Plaintext secret values stay in
   # memory only long enough to be PUT/POSTed onto Keycloak — never
   # logged, never written to disk (Inviolable Principle #5).
+  #
+  # #6092 adds `delete` — and ONLY delete — to this same rule. The read verbs
+  # above landed with #1098 for the federation clientSecretRef and were never
+  # revisited when the teardown gained a Secret Delete. deleteOrgWildcardTLSSecret
+  # (tenant_console_tls.go:685) removes the per-Org wildcard TLS Secret that
+  # cert-manager leaves in the cert namespace after the Certificate is gone;
+  # the Secret name is DERIVED from slug+parentDomain, so leaving it means the
+  # next Org taking that subdomain lands on a Secret of exactly the expected
+  # name holding the PREVIOUS Org's certificate — a cross-Org identity leak.
+  #
+  # Withholding the verb did more than skip a cleanup: the Delete's error is
+  # returned up through teardownTenantConsoleTLS into teardownTenantNetworking's
+  # firstErr, so organization_controller.go never reaches the finalizer strip.
+  # Measured on hw293 (dep a0077ba47e3720e5) 2026-08-10, after #6051 finally let
+  # the apiserver Delete land: Organization `p474del1` held
+  # deletionTimestamp=23:17:42Z with finalizer `orgs.openova.io/tenant-networking`
+  # attached, its namespace already gone, while the reconciler reprinted
+  #   delete Secret kube-system/org-wildcard-tls-p474del1-omani-rest: ... is
+  #   forbidden: User "system:serviceaccount:catalyst-system:catalyst-organization-controller"
+  #   cannot delete resource "secrets" in API group "" in the namespace "kube-system"
+  # every 30s. A CR wedged in Terminating for as long as the loop runs.
+  #
+  # NO write verbs: the whole organization package performs exactly one Secret
+  # mutation and it is this Delete — cert-manager is the only producer. Asserted
+  # both ways by tests/organization-controller-secret-delete-rbac.sh, which
+  # fails on a missing `delete` AND on an added create/update/patch/*.
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "delete"]
   # #3687 (fold #3669): the controller reads back the vCluster
   # HelmRelease it wrote into the per-Org Gitea repo + the per-Org
   # Namespace so status.vcluster.phase and the Ready condition derive
