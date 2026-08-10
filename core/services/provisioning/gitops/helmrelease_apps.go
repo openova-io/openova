@@ -136,11 +136,13 @@ func helmReleaseAppsFor(appSlugs []string) []string {
 		seen[slug] = struct{}{}
 		out = append(out, slug)
 	}
+	// Two passes read as "what was bought, then what that implies"; the dedupe
+	// in add() plus the sort below are what actually make the result
+	// independent of cart order and of pass order, so an Org that buys BOTH
+	// openclaw and newapi yields one entry either way.
 	for _, a := range appSlugs {
 		add(a)
 	}
-	// Second pass so an explicitly-bought slug is never shadowed by the
-	// implied one and the closure sees the whole cart, not a prefix of it.
 	for _, a := range appSlugs {
 		for _, implied := range impliedHelmReleaseApps[a] {
 			add(implied)
