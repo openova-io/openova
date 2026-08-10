@@ -6091,4 +6091,114 @@ spec:
     silentLogin: true
   multiInstance:
     enabled: false
+---
+# bp-openova-mcp (#5843, Refs #3988 / UAT rows 212-213) — the per-Org MCP
+# instance's ONLY install door.
+#
+# Why this entry has to exist, stated as the mechanism rather than as a
+# convention: `POST /applications` resolves a requested blueprint through
+# chainedCatalogClient, whose LAST leg is the in-cluster Blueprint CR LIST
+# (catalog_client_cluster_fallback.go). On a pre-cutover Sovereign the two
+# earlier legs — the gitea `catalog` / `catalog-sovereign` Orgs — are EMPTY
+# (they are populated by bp-self-sovereign-cutover step 1, dormant until
+# post-handover), so that fallback is the ONLY leg that ever answers. The CRs
+# it lists are exactly what THIS template renders. bp-openova-mcp was absent
+# from it, so no Blueprint CR named bp-openova-mcp has ever existed on any
+# Sovereign (measured on hw292: 80 CRs labelled managed-by=catalog-seed, zero
+# matching *mcp*), and the per-Org install door could not resolve its own
+# blueprint — while the door itself is BUILT and on by default:
+# products/catalyst/bootstrap/api/internal/handler/application_parameters.go
+# stampOpenovaMCPOrgParameters (:144 dispatch, :515-521 body) stamps
+# mode="organization", the per-Org httpRoute.hostnames and the RS256 pubkey
+# Secret ref, wired at applications.go:1196 + endpoint_handler.go:2387.
+# That is the whole of UAT rows 212/213's "undelivered surface": not a missing
+# chart, not a missing door — a missing catalog row.
+#
+# The sovereign-mode instance is UNAFFECTED by this entry: it installs from
+# bootstrap-kit slot 13d (clusters/_template/bootstrap-kit/13d-bp-openova-mcp.yaml)
+# and reconcileBootstrapOwned never reads the Blueprint CR's version.
+#
+# visibility: unlisted — VERBATIM from products/openova-mcp/blueprint.yaml:53.
+# This is infrastructure: the per-Org instance installs through the
+# Application-CR door, never as a marketplace card. The USER-facing Pillar-4
+# card is bp-agenity (above), which CONSUMES this MCP.
+#
+# Lockstep with products/openova-mcp/chart/Chart.yaml 0.1.6 + the published
+# chart ghcr.io/openova-io/bp-openova-mcp:0.1.6 + products/openova-mcp/
+# blueprint.yaml spec.version 0.1.6 + bootstrap-kit slot 13d pin 0.1.6. The
+# earlier Chart.yaml notes read "not in catalog-seed, matching the 0.1.3/0.1.4
+# precedent" — that precedent WAS the defect, and it was invisible because
+# scripts/check-catalog-seed-lockstep.sh iterates seed→source, so a blueprint
+# with no seed entry is structurally unreachable by it. The opposite direction
+# is now enforced by scripts/check-catalog-seed-source-coverage.py.
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-openova-mcp
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: ai-runtime
+    catalyst.openova.io/section: pts-4-7-agentic-workspace
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  # 0.1.6 — lockstep with products/openova-mcp/chart/Chart.yaml (appVersion
+  # 0.2.5). 0.1.5 (#5206) added the per-Org install door + made an Org-scoped
+  # caller reaching a Sovereign-pinned instance a clear identity error instead
+  # of a silent context relabel; 0.1.4 (#5175) added the fail-closed
+  # whoami-delegated verify so post-handover SESSION tokens are accepted;
+  # 0.1.3 (#5167) made verify=rs256 parse the JWK mirror a Sovereign actually
+  # seeds. All three are why a per-Org instance is worth installing at all.
+  version: "0.1.6"
+  visibility: unlisted
+  card:
+    title: "OpenOva MCP"
+    category: ai-runtime
+    family: agent-runtime
+    summary: "The RBAC-scoped OpenOva MCP server — exposes Applications, Environments and Organizations as MCP tools whose surface is exactly what the calling User can do in the console."
+    description: "A thin facade over the live catalyst-api: every data tool forwards the caller's own bearer, so the platform's authz is the final word and the server holds no privileged token. mode=organization pins the instance to a single Organization's scope and tool subset."
+    icon: openova-mcp.svg
+    license: "MIT"
+    tags: [mcp, agent, rbac, thin-facade, pillar-4]
+    docs: "https://github.com/openova-io/openova"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-openova-mcp
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-openova-mcp
+    version: 0.1.6
+  topology:
+    supported:
+      - singleton
+    defaults:
+      # A stateless per-context facade — region-pinned singleton; both BCP
+      # defaults resolve to the single in-region instance. VERBATIM from
+      # products/openova-mcp/blueprint.yaml.
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          # tier MUST be '' (host-native): a per-Org install lands in the
+          # Org's own namespace on the HOST. #4325 de-vclustered mgmt/rtz/dmz
+          # into native host namespaces, so a non-empty tier resolves through
+          # VClusterPlacements to the removed `rtz` namespace → Degraded
+          # `namespaces "rtz" not found` (the bp-agenity 0.5.10 lesson above).
+          # `rtz-A` is the region designator, NOT a vCluster.
+          tier: ''
+          clusters: [rtz-A]
+          roles:
+            rtz-A: singleton
+  # No endpoints[] and no sso block — the MCP is an agent-facing JSON-RPC API,
+  # not a browser UI, so there is nothing for the console's Launch button to
+  # open. Matches products/openova-mcp/blueprint.yaml, which declares neither.
+  multiInstance:
+    enabled: false
 {{- end }}

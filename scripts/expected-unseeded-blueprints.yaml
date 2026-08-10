@@ -1,0 +1,172 @@
+# scripts/expected-unseeded-blueprints.yaml
+#
+# The declared-exclusion register for scripts/check-catalog-seed-source-coverage.py
+# (issue #5843). Every `platform/<x>/` and `products/<x>/` directory that ships
+# BOTH a blueprint.yaml AND a chart/Chart.yaml must appear in the catalog seed
+# (products/catalyst/chart/templates/catalog-seed/blueprints.yaml) — or be
+# declared here, with a reason.
+#
+# Why the register exists at all
+# ──────────────────────────────
+# Every other catalog-seed guard iterates the SEED and looks outward, so a
+# Blueprint with no seed entry is invisible to all of them rather than failing
+# any of them. bp-openova-mcp lived in that blind spot for six chart releases
+# with a published chart, a bootstrap-kit slot and a purpose-built per-Org
+# install door in catalyst-api — and was uninstallable the whole time, because
+# on a pre-cutover Sovereign the in-cluster Blueprint CR list is the only
+# catalog leg that answers and the seed is what renders those CRs. The coverage
+# guard asserts the opposite direction; this file is where a genuine exclusion
+# is stated OUT LOUD instead of being a silence.
+#
+# Invariants the guard holds this file to (they make it self-retiring — it
+# cannot rot into a blanket silencer):
+#   1. A declared chart that IS seeded            → FAIL, delete the row.
+#   2. A declared chart with no source directory  → FAIL, delete the dead row.
+#   3. A row with no `reason:` or no `source:`    → FAIL.
+#
+# Adding a row is NOT the preferred fix for a new Blueprint. Seeding it is.
+# A row here is a statement that the chart is intentionally absent from the
+# catalog, and it should name what installs it instead.
+#
+# Fields:
+#   chart   — the `name:` in <source>/chart/Chart.yaml (what the seed would
+#             reference as source.chart)
+#   source  — the directory the chart lives at, e.g. platform/oidc-gate
+#   reason  — WHY it is not seeded, and what installs it instead
+#
+# Refs #5843 #3988.
+
+unseeded:
+  # ── Group A — bootstrap-kit-owned. These install from their OWN kit slot
+  # (clusters/_template/bootstrap-kit/<NN>-<name>.yaml), which Flux reconciles
+  # directly. core/controllers/application's reconcileBootstrapOwned is
+  # status-only for them and never reads a Blueprint CR's version, so the
+  # absence of a seed entry does not affect what runs. They are infrastructure,
+  # not catalog items.
+  - chart: bp-catalyst-edge-routes
+    source: platform/catalyst-edge-routes
+    reason: >-
+      Bootstrap-kit-owned — installs from slot 13e
+      (13e-bp-catalyst-secondary-edge-routes.yaml). Secondary-region edge
+      routing for the Catalyst control plane; never installed from the catalog.
+
+  - chart: bp-dragonfly
+    source: platform/dragonfly
+    reason: >-
+      Bootstrap-kit-owned — installs from slot 06 (06-bp-dragonfly.yaml). The
+      node-level image-distribution layer the cutover's registry pivot depends
+      on; never installed from the catalog.
+
+  - chart: bp-hcloud-csi
+    source: platform/hcloud-csi
+    reason: >-
+      Bootstrap-kit-owned — installs from slot 55a (55a-bp-hcloud-csi.yaml).
+      Provider storage driver, selected by the deployment's cloud provider at
+      provision time; never installed from the catalog.
+
+  - chart: bp-huawei-evs-csi
+    source: platform/huawei-evs-csi
+    reason: >-
+      Bootstrap-kit-owned — installs from slot 55b (55b-bp-huawei-evs-csi.yaml).
+      Provider storage driver, selected by the deployment's cloud provider at
+      provision time; never installed from the catalog.
+
+  - chart: bp-network-policies
+    source: platform/network-policies
+    reason: >-
+      Bootstrap-kit-owned — installs from slot 26 (26-network-policies.yaml).
+      Cluster-wide default-deny posture; an Organization must not be able to
+      install or re-install it from the catalog.
+
+  - chart: bp-oidc-gate
+    source: platform/oidc-gate
+    reason: >-
+      Bootstrap-kit-owned — installs from slot 13c (13c-bp-oidc-gate.yaml), and
+      per-Org as a companion rendered by the bp-agenity chart rather than as a
+      standalone catalog item.
+
+  - chart: bp-plane-isolation
+    source: platform/plane-isolation
+    reason: >-
+      Bootstrap-kit-owned — installs from slot 26b (26b-bp-plane-isolation.yaml).
+      Cross-plane isolation policy; same reasoning as bp-network-policies.
+
+  - chart: bp-sovereign-tls-vars
+    source: platform/sovereign-tls-vars
+    reason: >-
+      Bootstrap-kit-owned — installs from slot 12a
+      (12a-bp-sovereign-tls-vars.yaml). Carries the Sovereign's own TLS/domain
+      substitution vars for the GitOps loop; not a catalog item.
+
+  # ── Group B — no bootstrap-kit slot AND no seed entry. These are NOT
+  # "deliberately excluded" in the same sense as Group A: nothing installs them
+  # today through either door. They are recorded here so the set is ENUMERATED
+  # rather than invisible, which is the whole point of this register — the
+  # bp-openova-mcp defect was exactly this shape and went unseen for six
+  # releases. Closing each one is its own call (some may want a seed entry,
+  # some may want retiring); the guard will retire the row automatically the
+  # moment one gets seeded.
+  - chart: bp-anthropic-adapter
+    source: platform/anthropic-adapter
+    reason: >-
+      No kit slot and no seed entry — not installable from either door today.
+      Enumerated here, not silenced; needs an owner call on seed-or-retire.
+
+  - chart: bp-cert-manager-dynadot-webhook
+    source: platform/cert-manager-dynadot-webhook
+    reason: >-
+      No kit slot and no seed entry. The DNS-01 solver webhook is wired by
+      cert-manager's own issuer config on the provisioning path rather than as
+      a catalog install; recorded so the absence is visible.
+
+  - chart: bp-cilium-policies
+    source: platform/cilium-policies
+    reason: >-
+      No kit slot and no seed entry. Cilium network policy bundle — cluster
+      posture, never an Organization-installable catalog item; recorded so the
+      absence is visible.
+
+  - chart: bp-knative
+    source: platform/knative
+    reason: >-
+      No kit slot and no seed entry — not installable from either door today.
+      Enumerated here, not silenced; needs an owner call on seed-or-retire.
+
+  - chart: bp-librechat
+    source: platform/librechat
+    reason: >-
+      No kit slot and no seed entry — not installable from either door today.
+      Enumerated here, not silenced; needs an owner call on seed-or-retire.
+
+  - chart: bp-netbird
+    source: platform/netbird
+    reason: >-
+      No kit slot and no seed entry — not installable from either door today.
+      Enumerated here, not silenced; needs an owner call on seed-or-retire.
+
+  - chart: bp-qa-app
+    source: platform/qa-app
+    reason: >-
+      QA fixture Blueprint, default-OFF on production Sovereigns
+      (qaTestEnabled). Deliberately kept out of the production catalog seed so
+      a customer-reachable Sovereign never carries a test fixture card.
+
+  - chart: sandbox
+    source: platform/sandbox
+    reason: >-
+      LEGACY — the Sandbox concept was removed on 2026-06-30 and superseded by
+      products/agenity + products/openova-mcp. Deliberately unseeded; the
+      directory is retained for history only.
+
+  - chart: bp-spire
+    source: platform/spire
+    reason: >-
+      No kit slot and no seed entry — not installable from either door today.
+      Enumerated here, not silenced; needs an owner call on seed-or-retire.
+
+  - chart: bp-stalwart-sovereign
+    source: platform/stalwart-sovereign
+    reason: >-
+      No kit slot and no seed entry. The per-Organization mail Blueprint that
+      IS seeded is bp-stalwart-tenant; this Sovereign-scoped sibling has no
+      install door today. Enumerated here, not silenced.

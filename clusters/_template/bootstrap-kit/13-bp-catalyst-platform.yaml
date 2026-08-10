@@ -1343,7 +1343,14 @@ spec:
       #   land (every such token 403s incl. sys/internal/ui/mounts, and the UI
       #   reads "Not authorized" on a session that authenticated fine).
       #   Lockstep w/ slot-08 + platform/openbao/blueprint.yaml.
-      version: 1.4.1330
+      # 1.4.1331 (#5843, Refs #3988 / UAT rows 212-213): the catalog-seed gains
+      #   its first bp-openova-mcp entry (0.1.6). Without it no Blueprint CR
+      #   named bp-openova-mcp exists on any Sovereign, so the per-Org install
+      #   door cannot resolve the blueprint it is built to stamp. The seed
+      #   renders INSIDE this umbrella, so the entry only reaches a Sovereign
+      #   once the umbrella republishes and this pin advances (#5734).
+      #   Lockstep w/ products/catalyst/chart/Chart.yaml + slot-13d (0.1.6).
+      version: 1.4.1331
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
