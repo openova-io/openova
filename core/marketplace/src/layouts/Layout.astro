@@ -87,7 +87,19 @@ const { title, step = 0 } = Astro.props;
         if (qs.get('order_id')) return;
         if (qs.get('new') === '1') return;
         var token = localStorage.getItem('org-token');
-        if (!token) return;
+        if (!token) {
+          // #5940 (UAT rows 3 + 91): a customer who authenticated on the
+          // CONSOLE origin has no marketplace-origin `org-token`, so every
+          // line below this used to be unreachable for them — measured on
+          // hw292 2026-08-10 as `redirectCount 0` with an empty
+          // `document.cookie`. catalyst_session is HttpOnly and always will
+          // be; the readable companion `catalyst_session_hint` is what makes
+          // this branch possible. Spec + parity guard:
+          // src/lib/returningVisitor.ts + src/lib/layoutReturningVisitor.test.ts.
+          var hinted = hintedConsoleTarget();
+          if (hinted) window.location.replace(hinted);
+          return;
+        }
         var CACHE_KEY = 'org-has-workspace-v1';
         var TTL_MS = 60 * 1000;
         var cached = null;
@@ -146,6 +158,63 @@ const { title, step = 0 } = Astro.props;
           })
           .catch(function () {});
       } catch (e) {}
+      // #5940 — read the NON-HttpOnly `catalyst_session_hint` cookie and
+      // return the console URL for its owner, or '' when there is no usable
+      // hint. Mirrors src/lib/sessionHint.ts + src/lib/returningVisitor.ts,
+      // which are the tested spec; this copy exists only because an
+      // `is:inline` script cannot import (it must run before the bundle so a
+      // returning customer never sees the storefront flash).
+      //
+      // The hint carries a version and, at most, an Org slug. It is a
+      // ROUTING signal and never a credential: the console it points at
+      // still authenticates the visitor against the HttpOnly session. The
+      // slug is spliced into a hostname, so it is accepted only as a legal
+      // DNS label — that check is the security boundary here.
+      //
+      // There is deliberately NO mothership fallback. Row 91's forbidden
+      // half — that a returning customer is never sent to the mothership
+      // console — passes today and must keep passing, so an unrecognised
+      // host returns '' rather than a guess. (This comment is served
+      // VERBATIM in every franchised bundle, so it must not name the
+      // mothership apex either; check-served-domain-hygiene.mjs enforces
+      // that on the build output and caught an earlier draft of it.)
+      function hintedConsoleTarget() {
+        try {
+          var tenant = window.__ORG_TENANT__;
+          if (tenant && tenant.skipConsoleRedirect) return '';
+          var raw = '';
+          var parts = (document.cookie || '').split(';');
+          for (var i = 0; i < parts.length; i++) {
+            var eq = parts[i].indexOf('=');
+            if (eq < 0) continue;
+            if (parts[i].slice(0, eq).trim() !== 'catalyst_session_hint') continue;
+            raw = decodeURIComponent(parts[i].slice(eq + 1).trim());
+            break;
+          }
+          if (!raw || raw.length > 128) return '';
+          if (raw.split('.').length >= 3) return ''; // JWT-shaped: refuse
+          var params = new URLSearchParams(raw);
+          if (params.get('v') !== '1') return '';
+          var org = (params.get('org') || '').trim().toLowerCase();
+          if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(org)) org = '';
+
+          var stamped = '';
+          try { stamped = (localStorage.getItem('org-active-console-host') || '').trim().toLowerCase(); } catch (_) {}
+          if (stamped.indexOf('console.') === 0) {
+            if (!org || stamped.indexOf('console.' + org + '.') === 0) {
+              return 'https://' + stamped + '/dashboard';
+            }
+          }
+          var host = (window.location.hostname || '').toLowerCase();
+          if (host.indexOf('marketplace.') === 0) {
+            var sovFqdn = host.slice('marketplace.'.length);
+            if (sovFqdn) {
+              return 'https://console.' + (org ? org + '.' : '') + sovFqdn + '/dashboard';
+            }
+          }
+          return '';
+        } catch (e) { return ''; }
+      }
       function redirect(slug) {
         var token = localStorage.getItem('org-token') || '';
         var refresh = localStorage.getItem('org-refresh-token') || '';

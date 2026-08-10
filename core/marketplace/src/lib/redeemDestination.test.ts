@@ -13,6 +13,8 @@
 // is written down here as executable, citable fact.
 
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import {
   ownerProbeIsAuthenticable,
@@ -102,39 +104,124 @@ describe('resolveRedeemDestination — which page the visitor lands on', () => {
     expect(out.reason).toBe('no-live-org');
   });
 
-  // ── THE #5421 GAP ────────────────────────────────────────────────────
-  // `it.fails` PASSES while the assertion inside fails, and goes RED the
-  // moment the assertion starts succeeding. So this is a live tripwire,
-  // not a disabled test: it records the exact acceptance criterion for
-  // #5421 and forces whoever closes the gap to promote it to `it()`.
+  // ── THE #5421 GAP, CLOSED BY #5940 ───────────────────────────────────
+  // This was an `it.fails` tripwire whose comment said it would go RED the
+  // moment the assertion started succeeding, and that whoever closed the
+  // gap must promote it to `it()`. That is what #5940 does — so it is
+  // promoted here, and it asserts the DESTINATION URL rather than merely
+  // that a bounce occurred.
   //
-  // Persona: an owner authenticated on the CONSOLE origin via the
-  // passwordless-PIN flow. The `catalyst_session` cookie is scoped
-  // `.<sov>` path `/`, so the browser DOES attach it to the same-origin
-  // `/api/tenant/orgs` probe — but the Organization mesh never reads it.
-  it.fails(
-    'OPEN #5421: an owner carrying ONLY the console session cookie is handed to the console',
-    async () => {
-      const out = await resolveRedeemDestination({
-        skipConsoleRedirect: false,
-        token: '', // no marketplace-origin token — the owner authed on console.<sov>
-        fetchOrgs: orgMesh({ token: '', consoleSessionCookie: true }),
-      });
-      expect(out.destination).toBe('console');
-    },
-  );
+  // Persona: an owner authenticated on the CONSOLE origin. There is still
+  // no marketplace-origin token and the Organization mesh still cannot
+  // authenticate the probe — nothing about that changed. What changed is
+  // that catalyst-api now sets a readable `catalyst_session_hint` next to
+  // the HttpOnly session, so the page never has to reach the probe.
+  it('an owner carrying ONLY the console session is handed to the console (#5940)', async () => {
+    const out = await resolveRedeemDestination({
+      skipConsoleRedirect: false,
+      token: '', // no marketplace-origin token — the owner authed on console.<sov>
+      fetchOrgs: orgMesh({ token: '', consoleSessionCookie: true }),
+      hint: { org: 'uatco' },
+      host: 'marketplace.t92.omani.works',
+    });
+    expect(out.destination).toBe('console');
+    expect(out.reason).toBe('owner-session-hint');
+    // The row asserts the owner reaches /dashboard. Asserting only
+    // `destination === 'console'` would pass on a bounce to anywhere.
+    expect(out.url).toBe('https://console.uatco.t92.omani.works/dashboard');
+  });
 
-  // The characterisation of the same persona TODAY. This is what the
-  // walk sees: the owner is funnelled, and the reason is NOT "anonymous"
-  // — the probe simply could not be authenticated.
-  it('records the current (defective) cookie-only-owner outcome as probe-unauthenticated', async () => {
+  it('a Sovereign-admin session (no Org slug) reaches the Sovereign console', async () => {
+    // The exact hw292 2026-08-10 persona: tier `owner`, no Org scope.
     const out = await resolveRedeemDestination({
       skipConsoleRedirect: false,
       token: '',
       fetchOrgs: orgMesh({ token: '', consoleSessionCookie: true }),
+      hint: { org: '' },
+      host: 'marketplace.t92.omani.works',
+    });
+    expect(out.url).toBe('https://console.t92.omani.works/dashboard');
+  });
+
+  it('the hint path never emits a token-bearing URL', () => {
+    // A hint-borne visitor already holds the session cookie for the target
+    // console, so there is nothing to hand off. Threading the (empty)
+    // marketplace token through /launching would produce a handover with
+    // no token to redeem.
+    return resolveRedeemDestination({
+      skipConsoleRedirect: false,
+      token: '',
+      fetchOrgs: orgMesh({ token: '', consoleSessionCookie: true }),
+      hint: { org: 'uatco' },
+      host: 'marketplace.t92.omani.works',
+    }).then((out) => {
+      expect(typeof out.url).toBe('string');
+      expect(out.url ?? '').not.toContain('token=');
+      expect(out.url ?? '').not.toContain('/launching');
+    });
+  });
+
+  // ── CONTROL 5: the check answers the other way ───────────────────────
+  // Without a hint the SAME persona must still be funnelled, and for the
+  // same recorded reason. This is what proves the assertions above are
+  // driven by the hint and not by a gate that now always says 'console'.
+  it('CONTROL: with NO hint, the cookie-only visitor is still funnelled as probe-unauthenticated', async () => {
+    const out = await resolveRedeemDestination({
+      skipConsoleRedirect: false,
+      token: '',
+      fetchOrgs: orgMesh({ token: '', consoleSessionCookie: true }),
+      hint: null,
+      host: 'marketplace.t92.omani.works',
     });
     expect(out.destination).toBe('funnel');
     expect(out.reason).toBe('probe-unauthenticated');
+    expect(out.url).toBeUndefined();
+  });
+
+  it('CONTROL: an opt-out Organization is not bounced even WITH a hint', async () => {
+    const out = await resolveRedeemDestination({
+      skipConsoleRedirect: true,
+      token: '',
+      fetchOrgs: orgMesh({ token: '' }),
+      hint: { org: 'uatco' },
+      host: 'marketplace.t92.omani.works',
+    });
+    expect(out.destination).toBe('funnel');
+    expect(out.reason).toBe('opt-out');
+  });
+});
+
+// ── PAGE WIRING ────────────────────────────────────────────────────────
+//
+// The module above can be perfect while `redeem.astro` never passes it a
+// hint — the shape that let #5686 ship green. These assertions read the
+// REAL page source, so deleting the wiring fails here.
+
+describe('redeem.astro actually consumes the hint (#5940)', () => {
+  const pageSrc = readFileSync(
+    join(__dirname, '..', 'pages', 'redeem.astro'),
+    'utf8',
+  );
+
+  it('imports the hint reader and passes it into the resolver', () => {
+    expect(pageSrc).toContain('currentSessionHint');
+    expect(pageSrc).toMatch(/hint:\s*currentSessionHint\(\)/);
+  });
+
+  it('passes the host and the stamped console host, which the destination needs', () => {
+    expect(pageSrc).toMatch(/host:\s*window\.location\.hostname/);
+    expect(pageSrc).toContain('org-active-console-host');
+  });
+
+  it('navigates to the resolved URL rather than re-deriving one', () => {
+    expect(pageSrc).toMatch(/window\.location\.replace\(outcome\.url\)/);
+  });
+
+  // CONTROL — proves these greps can report absence. If this ever passes as
+  // present, the matcher is over-matching and the assertions above are
+  // vacuous.
+  it('CONTROL: a token that is NOT in the page is reported absent', () => {
+    expect(pageSrc).not.toContain('currentSessionHint_RENAMED');
   });
 });
 

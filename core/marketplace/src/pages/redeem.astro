@@ -151,6 +151,12 @@ import Layout from '../layouts/Layout.astro';
     // 'consult-server' still funnels a cookie-borne owner, because the
     // Organization mesh cannot authenticate that probe (see the module doc).
     import { resolveRedeemDestination } from '../lib/redeemDestination';
+    // #5940 (UAT row 3): the readable signal that makes the owner bounce
+    // possible at all. `catalyst_session` is HttpOnly and stays that way, so
+    // this page reads the non-HttpOnly `catalyst_session_hint` companion
+    // catalyst-api sets alongside it. No token, no claims — see
+    // ../lib/sessionHint.ts.
+    import { currentSessionHint } from '../lib/sessionHint';
     // #5634 (UAT row 92): the response-to-panel decision lives in a plain module
     // so it can be unit-tested; this page keeps only the DOM writes that need the
     // response body.
@@ -277,25 +283,44 @@ import Layout from '../layouts/Layout.astro';
       var loadingCopy = document.querySelector('#redeem-loading p');
       if (loadingCopy) loadingCopy.textContent = 'One moment…';
 
+      var stampedConsoleHost = '';
+      try { stampedConsoleHost = localStorage.getItem('org-active-console-host') || ''; } catch (_) {}
+
       // #5421 — the gate + the server consult + the pick, in one tested unit.
+      // #5940 — plus the readable hint, which is checked BEFORE the probe.
       const outcome = await resolveRedeemDestination({
         skipConsoleRedirect: skipConsoleRedirect,
         token: token,
         activeOrgId: activeId,
         fetchOrgs: getMyOrgs,
+        hint: currentSessionHint(),
+        host: window.location.hostname,
+        stampedConsoleHost: stampedConsoleHost,
       });
 
       if (outcome.destination === 'funnel') {
         // Every non-owner path lands here: the demo/partner opt-out, a visitor
-        // with no live Organization, and — until #5421 closes — a cookie-borne
-        // owner whose probe the Organization mesh could not authenticate
-        // (`reason === 'probe-unauthenticated'`). Funnelling rather than
-        // trapping is deliberate: nobody is ever stuck on a dead shim.
+        // with no live Organization, and a visitor whose probe the Organization
+        // mesh could not authenticate AND who carried no session hint
+        // (`reason === 'probe-unauthenticated'` — a genuinely anonymous
+        // visitor, now that #5940 gives a signed-in one a readable signal).
+        // Funnelling rather than trapping is deliberate: nobody is ever stuck
+        // on a dead shim.
         runFunnel();
         return;
       }
 
-      // OWNER — hand off to the console dashboard.
+      // #5940 — the hint path already carries the exact destination, and the
+      // visitor already holds a `catalyst_session` cookie for that console, so
+      // there is nothing to hand off: navigate straight there. Threading the
+      // (empty) marketplace-origin token through /launching would produce a
+      // handover with no token to redeem.
+      if (outcome.url) {
+        window.location.replace(outcome.url);
+        return;
+      }
+
+      // OWNER via the server probe — hand off to the console dashboard.
       const pick = outcome.org;
       const slug = (pick && pick.slug) ? String(pick.slug) : '';
       // #4176 — stamp the SERVER-AUTHORITATIVE console host so the derivation

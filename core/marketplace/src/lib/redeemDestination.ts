@@ -43,12 +43,33 @@
 //
 // That is why the outcome did not move: the gate says "ask the server",
 // and the server says 401, and 401 lands in the same `runFunnel()` branch
-// the old token short-circuit used. #5421 is therefore still OPEN, and the
-// remaining work is a cross-service decision (teach the Organization mesh
-// to accept the console session, or narrow the row's contract to the
-// marketplace-origin persona) — not another client-side edit.
+// the old token short-circuit used.
+//
+// ── How #5940 closes it ──────────────────────────────────────────────
+//
+// Not by teaching the Organization mesh to read a cookie, and not by
+// weakening `catalyst_session`. catalyst-api now sets a second,
+// NON-HttpOnly cookie next to every session carrying a version and, at
+// most, an Org slug (`products/catalyst/bootstrap/api/internal/handler/
+// session_hint.go`). The redeem page reads THAT — synchronously, before
+// any probe — and hands the owner to their console.
+//
+// The probe below is unchanged and still runs for everyone else, so the
+// marketplace-origin (`org-token`) owner keeps the path they had. The
+// hint only adds an answer where the probe had none:
+//
+//   hint present            -> console       (the #5940 persona)
+//   no hint, token present  -> probe, as before
+//   no hint, no token       -> funnel        (anonymous — unchanged)
+//
+// `ownerProbeIsAuthenticable` stays exactly as it was, and still returns
+// false for a cookie-only visitor. That fact did not change and is not
+// being papered over: the fix routes AROUND the probe rather than
+// pretending the probe can now authenticate.
 
 import { redeemOwnerGate } from './redeemOwnerGate';
+import type { SessionHint } from './sessionHint';
+import { resolveReturningVisitor } from './returningVisitor';
 
 /** Where the redeem page sends the visitor. */
 export type RedeemDestination = 'funnel' | 'console';
@@ -62,6 +83,13 @@ export type RedeemDestination = 'funnel' | 'console';
 export type RedeemReason =
   /** Demo/partner Organization that opts out of the console hand-off. */
   | 'opt-out'
+  /**
+   * #5940: the readable `catalyst_session_hint` cookie identified a
+   * signed-in visitor before any probe was needed. This is the persona
+   * UAT row 3 walks — authed on the console origin, no marketplace-origin
+   * token, previously shown the "Sign up to redeem" stranger form.
+   */
+  | 'owner-session-hint'
   /** Server confirmed >=1 live Organization — the owner path. */
   | 'owner'
   /** Server answered, but the visitor owns no live Organization yet. */
@@ -88,6 +116,15 @@ export interface RedeemOutcome {
   reason: RedeemReason;
   /** Set only when destination === 'console'. */
   org?: RedeemOrgSummary;
+  /**
+   * The exact address to navigate to. Set only on the hint path, where
+   * the visitor already holds a `catalyst_session` cookie for the target
+   * console and therefore needs NO token hand-off — the browser presents
+   * the session on the navigation itself. The probe path keeps using
+   * `consoleLaunchHref`, which threads the marketplace-origin token
+   * through the readiness interstitial.
+   */
+  url?: string;
 }
 
 /**
@@ -125,6 +162,15 @@ export interface RedeemDestinationDeps {
    * `.status` on an HTTP error, mirroring `request()` in `./api.ts`.
    */
   fetchOrgs: () => Promise<RedeemOrgSummary[] | null | undefined>;
+  /**
+   * #5940 — the parsed `catalyst_session_hint` cookie, or null when the
+   * visitor has none. Null keeps the pre-#5940 behaviour exactly.
+   */
+  hint?: SessionHint | null;
+  /** `window.location.hostname`, used to compose the console host. */
+  host?: string;
+  /** `localStorage['org-active-console-host']` (#4176), when stamped. */
+  stampedConsoleHost?: string;
 }
 
 /**
@@ -141,6 +187,28 @@ export async function resolveRedeemDestination(
     }) === 'funnel'
   ) {
     return { destination: 'funnel', reason: 'opt-out' };
+  }
+
+  // #5940 — the readable signal, checked BEFORE the probe. This is the
+  // whole fix for UAT row 3: the owner measured on hw292 had a live
+  // session and no marketplace-origin token, so every path below this
+  // ended at the funnel for them no matter what it returned.
+  //
+  // `resolveReturningVisitor` owns the host derivation so the redeem page
+  // and the Layout redirect cannot disagree about where "the console" is.
+  const hinted = resolveReturningVisitor({
+    host: deps.host || '',
+    skipConsoleRedirect: deps.skipConsoleRedirect,
+    hint: deps.hint ?? null,
+    stampedConsoleHost: deps.stampedConsoleHost,
+  });
+  if (hinted.redirect) {
+    return {
+      destination: 'console',
+      reason: 'owner-session-hint',
+      url: hinted.url,
+      org: deps.hint?.org ? { slug: deps.hint.org } : undefined,
+    };
   }
 
   let orgs: RedeemOrgSummary[] | null | undefined;

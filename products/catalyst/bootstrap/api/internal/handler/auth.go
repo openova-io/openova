@@ -1167,6 +1167,13 @@ func (h *Handler) HandlePinVerify(w http.ResponseWriter, r *http.Request) {
 		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
+	// #5940 (UAT rows 3 + 91): the readable companion. The marketplace is a
+	// static build on a sibling host and cannot see the HttpOnly session
+	// above, so an authed owner opening a voucher-redeem link was shown the
+	// stranger signup form. This carries "a session exists" + the Org slug
+	// and nothing else — see session_hint.go. Emitted AFTER the Del above so
+	// the replay defence does not drop it.
+	setSessionHintCookie(w, orgClaim, cookieDomain, cookieMaxAge, secure)
 
 	h.log.Info("pin/verify: session established",
 		"email", email,
@@ -1291,6 +1298,10 @@ func (h *Handler) HandleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	w.Header().Add("Set-Cookie", buildClearSessionCookie(auth.SessionCookieName, cookieDomain, secure))
 	w.Header().Add("Set-Cookie", buildClearSessionCookie("catalyst_refresh", cookieDomain, secure))
+	// #5940: the hint must die with the session. A hint that outlives
+	// sign-out bounces a signed-OUT visitor to a console that immediately
+	// asks them to sign in, with no way back to the storefront.
+	w.Header().Add("Set-Cookie", buildClearSessionHintCookie(cookieDomain, secure, "Max-Age=-1"))
 
 	// Build the Keycloak end_session_endpoint URL. Returns "" when KC
 	// is not wired (CATALYST_KC_ADDR unset, e.g. CI / contabo bring-up).
@@ -1678,6 +1689,12 @@ func (h *Handler) HandleAuthSessionLogout(w http.ResponseWriter, r *http.Request
 		}
 		w.Header().Add("Set-Cookie", b.String())
 	}
+	// #5940: clear the readable hint on this logout path too. Missing it
+	// here would leave a signed-out visitor bouncing from the storefront to
+	// a console that only asks them to sign in again. Non-HttpOnly (it must
+	// match the attribute the cookie was set with) and Max-Age=-1 as on the
+	// DELETE path.
+	w.Header().Add("Set-Cookie", buildClearSessionHintCookie(domain, secure, "Max-Age=0"))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.WriteString(w, `{"ok":true,"loggedOut":true}`+"\n")
