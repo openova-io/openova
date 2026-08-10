@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T11:30:07Z` |
+| Last refreshed | `2026-08-10T11:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5444](https://github.com/openova-io/openova/issues/5444) | Console Blueprint version editor accepts a version that exists in no registry an | Other |
-| [#5445](https://github.com/openova-io/openova/issues/5445) | Per-Org postgres mounts its PVC directly at PGDATA — lost+found on ext4 EVS ma | Other |
 | [#5450](https://github.com/openova-io/openova/issues/5450) | Sovereign's own Kyverno image-tag-pinned policy rejects its own catalog app mani | Other |
 | [#5451](https://github.com/openova-io/openova/issues/5451) | Per-Org console badges dead apps as INSTALLED with live Open buttons — 4/4 ret | Other |
 | [#5459](https://github.com/openova-io/openova/issues/5459) | OpenBao SSO lands an authenticated-but-unauthorized session — /sys/internal/ui | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#5975](https://github.com/openova-io/openova/issues/5975) | check-release-lockstep-writer.py leaks multi-GB scratch clones, then reports the | Other |
 | [#5981](https://github.com/openova-io/openova/issues/5981) | harbor host answers 301 on half of fresh connections and envoy 404 on the other  | Other |
 | [#5982](https://github.com/openova-io/openova/issues/5982) | DR runbook preflight reports Pass for surfaces it never probes — cnpgpair-stre | Other |
+| [#5984](https://github.com/openova-io/openova/issues/5984) | guacamole.properties renders the DB password in plaintext — fine on our own in | Other |
+| [#5986](https://github.com/openova-io/openova/issues/5986) | sso-uat-flip destroyed 13 correct verdicts on a commit that cannot affect an SSO | Other |
 
 ---
 
@@ -308,9 +308,11 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-08-10T11:19 | [#5976](https://github.com/openova-io/openova/pull/5976) | #3374 | docs(uat): convergence cycle 2026-08-10 — 67.8% green, and t |
+| 2026-08-10T11:34 | [#5974](https://github.com/openova-io/openova/pull/5974) | #5435 | fix(org-services): the workload named tenant is what put a b |
 | 2026-08-10T10:55 | [#5972](https://github.com/openova-io/openova/pull/5972) | #5614 | fix(auth, dashboard): the handover session stamps a foreign  |
 | 2026-08-10T10:32 | [#5971](https://github.com/openova-io/openova/pull/5971) | #3374 | fix(jobs,auth): UAT rows 164 + 41 — a failed run must termin |
 | 2026-08-10T10:32 | [#5970](https://github.com/openova-io/openova/pull/5970) | #4110 | fix(openova-mcp): resolve the Blueprint version an agentic c |
+| 2026-08-10T11:34 | [#5969](https://github.com/openova-io/openova/pull/5969) | #3925 | fix(uat): four rows — recon link host, reconciler Logs tab,  |
 | 2026-08-10T09:47 | [#5967](https://github.com/openova-io/openova/pull/5967) | #5921 | fix(funnel): the checkout sign-in dead end, and an app-readi |
 | 2026-08-10T09:00 | [#5966](https://github.com/openova-io/openova/pull/5966) | #5957 | docs(uat): 14 rows move NEEDS-CODE to DEPLOY-GATED — their f |
 | 2026-08-10T09:32 | [#5965](https://github.com/openova-io/openova/pull/5965) | #5940 | fix(marketplace): give the storefront a readable session sig |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-09T20:59 | [#5936](https://github.com/openova-io/openova/pull/5936) | #5836 | fix(console): the Status panel must render a bootstrap compo |
 | 2026-08-09T20:59 | [#5935](https://github.com/openova-io/openova/pull/5935) | #5814 | fix(catalyst-api): customer Application CRs must carry spec. |
 | 2026-08-09T20:07 | [#5931](https://github.com/openova-io/openova/pull/5931) | #3925 | fix(jobs): an unterminated run must not bury a failed one (U |
-| 2026-08-09T20:06 | [#5930](https://github.com/openova-io/openova/pull/5930) | #5246 | fix(catalyst-api): per-Org console listeners span every regi |
-| 2026-08-09T21:18 | [#5928](https://github.com/openova-io/openova/pull/5928) | #5924 | docs(uat): 170 → 184 green on live re-walks; retire 13 dead  |
 
 ---
 
