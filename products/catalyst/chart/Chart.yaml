@@ -3775,7 +3775,7 @@ name: bp-catalyst-platform
 #   138s later under a new uid. A ClusterRole is delivered only by the
 #   published umbrella, so the grant reaches a Sovereign only once this
 #   version advances. Lockstep w/ slot-13 pin.
-# 1.4.1351 (#6027): the organization-controller Deployment gains
+# 1.4.1354 (#6027): the organization-controller Deployment gains
 #   CATALYST_CONFIGURED_REGIONS, a configMapKeyRef on sovereign-fqdn key
 #   `configuredRegions` (optional:true) — the SECOND witness the per-Org
 #   console listener fan-out needs to know how many regions this Sovereign
