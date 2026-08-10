@@ -113,16 +113,27 @@ func (h *Handler) reconcileOneProvision(ctx context.Context, p *store.Provision)
 		return
 	}
 
-	// The slugs this provision actually asked for: its declared apps plus
-	// every app/dependency named by a step. podOwnerSlug compares against
-	// this set rather than reconstructing a slug out of the pod name, so a
-	// pod belonging to something nobody ordered is never claimed.
-	wanted := map[string]bool{}
-	for _, a := range p.Apps {
-		if a != "" {
-			wanted[a] = true
-		}
+	// The slug universe podOwnerSlug matches against, instead of
+	// reconstructing a slug out of the pod name.
+	//
+	// It is the CATALOG's slugs, not just this provision's steps, and that
+	// breadth is deliberate: the day-2 loop at the bottom of this function
+	// exists to emit app_ready for apps that have NO provision step (a User
+	// installed them after provisioning finished, and their goroutine was
+	// orphaned). Narrowing `wanted` to step-derived slugs would make that
+	// loop dead code, since every ready slug would then have a step by
+	// construction. slugToID is already the catalog slug set, fetched above.
+	//
+	// p.Apps is deliberately NOT folded in: it carries catalog IDs, not
+	// slugs (startProvisioning stores the raw `apps` argument and resolves
+	// slugs separately via resolveAppSlugs), so it would contribute entries
+	// that can never match a pod name.
+	wanted := make(map[string]bool, len(slugToID)+len(p.Steps))
+	for slug := range slugToID {
+		wanted[slug] = true
 	}
+	// Step-named dependencies (mysql/postgres/redis) are backing services and
+	// need not appear in the app catalog, so add them explicitly.
 	for _, step := range p.Steps {
 		if s := slugFromStepName(step.Name); s != "" {
 			wanted[s] = true
