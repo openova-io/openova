@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T14:45:04Z` |
+| Last refreshed | `2026-08-10T15:00:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T14:59 | [#6013](https://github.com/openova-io/openova/pull/6013) | #5568 | docs(uat): hw293 topology rows — 8 fail, including two I cor |
+| 2026-08-10T14:49 | [#6012](https://github.com/openova-io/openova/pull/6012) | #5711 | docs(uat): hw293 walk of 11 rows — 5 pass, 6 fail, and #5930 |
 | 2026-08-10T14:09 | [#6009](https://github.com/openova-io/openova/pull/6009) | #6004 | docs(uat): activate hw293 as the walk env so verdicts can la |
 | 2026-08-10T13:58 | [#6008](https://github.com/openova-io/openova/pull/6008) | #5634 | docs(uat): row 216 — the voucher entry point itself fails ~h |
 | 2026-08-10T14:27 | [#6007](https://github.com/openova-io/openova/pull/6007) | #6004 | docs(uat): hw293 — the cutover chain never ran, so the cutov |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-10T08:29 | [#5962](https://github.com/openova-io/openova/pull/5962) | #5940 | docs(uat): walk 91/220/242 live, tag all 75 remaining FAILs  |
 | 2026-08-10T08:50 | [#5961](https://github.com/openova-io/openova/pull/5961) | #5513 | fix(application-controller): derive Application readiness fr |
 | 2026-08-10T07:12 | [#5960](https://github.com/openova-io/openova/pull/5960) | #5508 | fix(dr): make the DR panel report what it measures — UAT row |
-| 2026-08-10T07:01 | [#5958](https://github.com/openova-io/openova/pull/5958) | #4292 | fix(placement backend): the #4292 tier gate keys on planSlug |
-| 2026-08-10T06:14 | [#5957](https://github.com/openova-io/openova/pull/5957) | #5246 | fix(org): per-Org console listeners land in EVERY region, an |
 
 ---
 
