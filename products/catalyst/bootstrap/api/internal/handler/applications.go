@@ -1435,6 +1435,54 @@ type dependsOnDetail struct {
 // Application CR named `name` across every namespace on the Sovereign.
 //
 // qa-loop iter-11 Fix #45 Cluster-C.
+
+// backingVerdictReasons — #5955. The Ready-condition reasons the
+// application-controller stamps when it OBSERVED the backing resource a chart
+// installed and is reporting what it measured, rather than lagging behind Flux:
+//
+//	BackingNotReady               the backing was read and reports not-ready.
+//	BackingClusterUnrecoverable   the backing is in its terminal state (#5513).
+//	BackingReadinessUnverifiable  the backing could not be read at all, so
+//	                              readiness is explicitly unknown.
+//
+// A HelmRelease can be legitimately Ready under every one of these — Helm
+// applied the manifests and the apiserver accepted them; the workload died
+// afterwards. Promoting the response to Ready on the strength of that HR would
+// discard the only signal that measured the workload.
+var backingVerdictReasons = map[string]struct{}{
+	"BackingNotReady":              {},
+	"BackingClusterUnrecoverable":  {},
+	"BackingReadinessUnverifiable": {},
+}
+
+// applicationHoldsBackingVerdict reports whether the Application CR's Ready
+// condition carries a measured backing verdict, in which case the HR-Ready
+// overlay must not fire. Returns false for every other not-ready shape
+// (BootstrapAdopted, plain stale Provisioning, …) so the overlay keeps serving
+// the lag cases it was built for.
+func applicationHoldsBackingVerdict(obj *unstructured.Unstructured) bool {
+	if obj == nil {
+		return false
+	}
+	conds, ok, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
+	if err != nil || !ok {
+		return false
+	}
+	for _, c := range conds {
+		cm, isMap := c.(map[string]interface{})
+		if !isMap {
+			continue
+		}
+		if t, _ := cm["type"].(string); t != "Ready" {
+			continue
+		}
+		reason, _ := cm["reason"].(string)
+		_, held := backingVerdictReasons[reason]
+		return held
+	}
+	return false
+}
+
 // applicationPrimaryRegion resolves an Application's primary region from its
 // CR status.
 //
@@ -1720,11 +1768,30 @@ func (h *Handler) HandleApplicationGet(w http.ResponseWriter, r *http.Request) {
 	// these apps and the operator saw FAILED/Provisioning (source:
 	// Application CR) while the HelmRelease was Ready. Fallback chain:
 	// spec.helmRelease.name → resp.ReleaseName.
+	//
+	// #5955 — the safety argument in (a) above is NO LONGER TRUE, and this is
+	// the whole reason the guard below exists. The controller no longer
+	// aggregates purely on HR-Ready: it also observes the BACKING resource the
+	// chart installed and deliberately holds the Application at
+	// Degraded / Ready=Unknown WHILE the HelmRelease is legitimately Ready,
+	// because a HelmRelease reporting Ready only means Helm applied the
+	// manifests and the apiserver accepted them. That is the controller's
+	// FINAL state, not a lag — so "racing it forward" would race it BACKWARD,
+	// past a measured verdict, and repaint the exact green badge over a dead
+	// database that #5955 fixed one layer down (Application
+	// hw292-omani-works/uat-ahs-pg, Ready=True over a CNPG Cluster whose own
+	// Ready condition was False with zero ready instances).
+	//
+	// The overlay therefore stays for the LAG shapes it was built for
+	// (#4889 spine/bootstrap adoption, C4-003 stale Provisioning) and is
+	// suppressed only when the CR's own Ready-condition reason says the
+	// controller MEASURED the workload and is reporting what it found.
 	hrLookupName := resp.ReleaseName
 	if hrn, ok, _ := unstructured.NestedString(obj.Object, "spec", "helmRelease", "name"); ok && hrn != "" {
 		hrLookupName = hrn
 	}
-	if isHRReady := h.helmReleaseReadyByName(r.Context(), depID, hrLookupName); isHRReady && resp.Phase != "Ready" {
+	if isHRReady := h.helmReleaseReadyByName(r.Context(), depID, hrLookupName); isHRReady &&
+		resp.Phase != "Ready" && !applicationHoldsBackingVerdict(obj) {
 		resp.HRReady = true
 		resp.PhaseFromCR = resp.Phase
 		resp.Phase = "Ready"
