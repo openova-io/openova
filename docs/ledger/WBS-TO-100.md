@@ -39,16 +39,16 @@ which is the floating-denominator behaviour the frozen 286 exists to prevent.
 
 | bucket | rows | what it needs |
 |---|--:|---|
-| **DEPLOY-GATED** | 41 | the fix is merged and not running here; closes on a roll/prov |
-| **BUILD** | 13 | no fix exists yet (`NEEDS-CODE` in UAT.md) |
-| **ENV-STATE** | 10 | needs a different environment shape entirely |
-| **WALKABLE NOW** | 27 | a walk on THIS env can change the verdict |
-| **total** | **91** | |
+| **DEPLOY-GATED** | 39 | the fix is merged and not running here; closes on a roll/prov |
+| **BUILD** | 15 | no fix exists yet (`NEEDS-CODE` in UAT.md) |
+| **ENV-STATE** | 11 | needs a different environment shape entirely |
+| **WALKABLE NOW** | 25 | a walk on THIS env can change the verdict |
+| **total** | **90** | |
 
-- **DEPLOY-GATED (41)** — 38 51 52 55 56 62 64 65 66 67 69 70 111 162 163 164 187 188 189 206 207 208 225 227 233 234 235 236 237 239 241 G1 W1 G2 W2 G3 W5 G6 R12 R13 R21
-- **BUILD (13)** — 19 57 71 87 90 95 115 160 166 216 229 G11 R16
-- **ENV-STATE (10)** — 29 32 36 100 220 228 238 G8 G9 R19
-- **WALKABLE NOW (27)** — 3 4 7 8 15 16 25 59 60 63 107 109 172 176 177 184 212 213 217 218 219 221 222 223 232 G7 R17
+- **DEPLOY-GATED (39)** — 51 52 55 56 62 64 65 66 67 69 70 111 162 163 164 187 188 189 206 207 208 225 227 233 234 235 236 237 239 241 G1 W1 G2 W2 G3 G6 R12 R13 R21
+- **BUILD (15)** — 15 19 57 71 87 90 95 115 160 166 216 229 W5 G11 R16
+- **ENV-STATE (11)** — 32 36 100 220 221 222 228 238 G8 G9 R19
+- **WALKABLE NOW (25)** — 3 4 7 8 16 25 29 38 59 60 63 107 109 172 176 177 184 212 213 217 218 223 232 G7 R17
 
 ## 2. The D-34, clustered by root cause
 
