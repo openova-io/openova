@@ -258,6 +258,27 @@ jobs:
         working-directory: products/catalyst/bootstrap/ui
         run: npm ci
 
+      # TYPECHECK — the PR-time half of `npm run build` (= `tsc -b && vite
+      # build`). vitest below does NOT typecheck: vitest strips types via
+      # esbuild and never runs `tsc`, so a file can be fully green under
+      # vitest and still refuse to compile.
+      #
+      # That gap is not theoretical. 05d3f639c (#5979) removed the strongSwan
+      # profile rule from src/entities/deployment/model.ts and left its only
+      # input, `const hasAuditComp`, behind unread. Under this project's
+      # `noUnusedLocals` that is `error TS6133`, which fails `tsc -b` — so
+      # `npm run build` failed, so the catalyst-ui image stopped building, and
+      # catalyst-ui froze at tag b2294fd while catalyst-api kept advancing.
+      # Every PR-time check was green, because none of them ran `tsc`.
+      #
+      # `npm run typecheck` (= `tsc -b --noEmit`) is already defined in
+      # package.json and was already the right command; nothing was calling
+      # it. Verified red-then-green on the real defect: exit 2 with
+      # `model.ts(455,9): error TS6133` before the fix, exit 0 after.
+      - name: typecheck (tsc)
+        working-directory: products/catalyst/bootstrap/ui
+        run: npm run typecheck
+
       # Plain `npm test` (= `vitest run`). No `|| true`, no `|| echo WARN` —
       # the 2026-06-02 emergency unblock in catalyst-build.yaml used exactly
       # that shape and swallowed every failure for two months, which is how

@@ -1,0 +1,85 @@
+name: Check — delivery workflow health
+
+# WHY THIS EXISTS (Refs #6049)
+#
+# `Build & Deploy Catalyst` failed on every push to main from 2026-08-06
+# 08:32Z onward — 54 consecutive red runs across four days — and nothing
+# anywhere went red about it. `services-build.yaml` was down the same four
+# days, on the identical line, for the identical reason. Neither is a required
+# check, so pull requests kept merging green while artifact publication had
+# stopped: catalyst-ui froze at tag b2294fd and the bp-catalyst-platform chart
+# version stopped advancing, which silently falsified every "merged, closes on
+# a roll" row in docs/ledger/.
+#
+# Every other check-*.yaml in this repo answers "is THIS commit good?".
+# None of them answered "is the pipeline still shipping?" — so a break that
+# lands AFTER merge, in a non-required workflow, was invisible by
+# construction. That is the gap this file closes.
+#
+# WHY A SCHEDULE HERE, when catalyst-build.yaml's own header says cron is
+# forbidden: that rule is about how the platform REACTS to change — Flux
+# dependsOn, NATS, SSE, push triggers — and catalyst-build.yaml correctly
+# stays event-driven. This workflow is not part of that datapath. It measures
+# the health of the build system itself, and "nobody pushed for 12 hours, so
+# nobody noticed the pipeline was dead" is precisely the condition it has to
+# detect. A push-triggered health check cannot observe its own absence. Ten
+# other workflows in this repo already carry `schedule:` for the same reason.
+
+on:
+  schedule:
+    # Every 6 hours. The budget in the script is 12h red, so two consecutive
+    # scheduled runs must agree something is wrong before it fires.
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+  # Runs at PR time too, but ONLY to exercise the guard's own test suite when
+  # the guard itself changes — see the `self-test` job.
+  pull_request:
+    paths:
+      - 'scripts/check-delivery-workflow-health.sh'
+      - 'scripts/tests/test-delivery-workflow-health.sh'
+      - '.github/workflows/check-delivery-workflow-health.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/check-delivery-workflow-health.sh'
+      - 'scripts/tests/test-delivery-workflow-health.sh'
+      - '.github/workflows/check-delivery-workflow-health.yaml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: delivery-workflow-health-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The guard's own non-vacuity proof, driven by fixtures built from the real
+  # 2026-08-06 outage. Runs on every event including pull_request, needs no
+  # token and no network, and is what stops this canary quietly decaying into
+  # something that can only report "healthy".
+  self-test:
+    name: self-test (real-outage fixtures)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: test-delivery-workflow-health.sh
+        run: bash scripts/tests/test-delivery-workflow-health.sh
+
+  # The live check. Deliberately NOT run on pull_request: a PR from a fork has
+  # no useful token, and a PR author is not the right person to be told the
+  # main-branch pipeline is broken.
+  health:
+    name: live — are the delivery workflows still publishing?
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: self-test
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: check-delivery-workflow-health.sh
+        run: bash scripts/check-delivery-workflow-health.sh
