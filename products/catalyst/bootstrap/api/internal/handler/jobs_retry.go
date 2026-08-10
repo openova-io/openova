@@ -289,6 +289,31 @@ func (h *Handler) dispatchRetry(ctx context.Context, dyn dynamic.Interface, job 
 		// immutable fields stripped. A Job OWNED by a CronJob is re-driven
 		// through its CronJob ("Run now") instead — recreating a
 		// CronJob-managed Job standalone would orphan it from its owner.
+		//
+		// UAT row 176 — a COLLAPSED scanner identity row is handled first.
+		// The Jobs view folds every scanner run onto one stable identity
+		// (#3925), and those identities are synthetic: nothing is named
+		// `syft-sbom`, so the lookup below can never find it and the row
+		// 422'd on every click. #5496's `<name>-<digits>` fallback does not
+		// reach it either — the real object is `syft-grype-bp-syft-grype-<n>`
+		// and the row name is not a prefix of that.
+		//
+		// The identity's backing CronJob IS known (it is what seeds the row),
+		// so "Run now" on that CronJob is the truthful re-run — the same
+		// mechanism case jobs.KindCron and the owned-Job branch below use. A
+		// missing CronJob still degrades to the honest 422 rather than
+		// reporting a re-run of an object that is not there.
+		if scanNS, cron, isScanIdentity := helmwatch.SyftScanCronTarget(name); isScanIdentity {
+			runName, cerr := createJobFromCronJob(ctx, dyn, scanNS, cron, now)
+			if cerr != nil {
+				if apierrors.IsNotFound(cerr) || apierrors.IsNotFound(errors.Unwrap(cerr)) {
+					return "", fmt.Errorf("CronJob %s/%s backing the %q row is not installed: %w",
+						scanNS, cron, name, errNotDirectlyRetryable)
+				}
+				return "", cerr
+			}
+			return "created one-off Job " + runName + " from CronJob " + cron, nil
+		}
 		ns, jobName, err := resolveObjectNamespace(ctx, dyn, helmwatch.JobGVR, name)
 		if err != nil {
 			return "", err

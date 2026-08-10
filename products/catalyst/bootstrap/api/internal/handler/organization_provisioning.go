@@ -427,7 +427,15 @@ type orgTenantResponse struct {
 	Tier        string         `json:"tier,omitempty"`
 	BillingMode string         `json:"billing_mode,omitempty"`
 	Isolation   string         `json:"isolation,omitempty"`
-	CommitSHA   string         `json:"commit_sha,omitempty"`
+	// PlanSlug — the PURCHASED plan (s|m|l|xl|flexi), #4292 + UAT row 7.
+	// Distinct from Tier: `tier` is the isolation class the Org was created
+	// under, `plan_slug` is what the customer bought, and it is the field the
+	// org-controller reads to size the ResourceQuota/LimitRange. Both the
+	// Organization CR (spec.planSlug) and the store record (`plan_slug`)
+	// have always carried it; this response struct simply never declared it,
+	// so the console could not render a Plan at all.
+	PlanSlug  string `json:"plan_slug,omitempty"`
+	CommitSHA string `json:"commit_sha,omitempty"`
 	LastError   string         `json:"last_error,omitempty"`
 	Steps       orgTenantSteps `json:"steps"`
 	// BoundaryPhase — the observed phase of the Org's boundary (#5501),
@@ -626,7 +634,13 @@ func orgTenantRecordToResponse(rec store.OrganizationProvisionRecord) orgTenantR
 		Tier:            rec.Tier,
 		BillingMode:     rec.BillingMode,
 		Isolation:       rec.Isolation,
-		CommitSHA:       rec.CommitSHA,
+		// UAT row 7 — the record has carried the purchased plan since #4292
+		// (org_list_from_cr.go reads spec.planSlug straight off the CR); this
+		// mapper was where it was dropped. Isolation is DERIVED from this same
+		// value, so the payload was already reporting a consequence of the
+		// plan while withholding the plan itself.
+		PlanSlug:  rec.PlanSlug,
+		CommitSHA: rec.CommitSHA,
 		LastError:       rec.LastError,
 		Steps:           steps,
 		BoundaryPhase:   rec.BoundaryPhase,

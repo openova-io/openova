@@ -669,8 +669,23 @@ export interface OrgRecord {
   subdomain: string
   /** Parent zone (e.g. omani.homes) used to compose the subdomain. */
   parentDomain: string
-  /** Plan tier (free|pro|enterprise|...) — null until BE wires it. */
+  /** Plan tier (free|pro|enterprise|...) — null until BE wires it. This is a
+   *  LEGACY member on the `plan` wire key that no producer has ever written;
+   *  the purchased plan lives on planSlug below. Kept so existing readers
+   *  keep compiling, but nothing should bind it. */
   plan: string | null
+  /**
+   * PlanSlug — the PURCHASED plan (s|m|l|xl|flexi), off the Organization CR's
+   * spec.planSlug via the `plan_slug` wire key (#4292, UAT row 7).
+   *
+   * Distinct from `tier`: tier is the isolation CLASS the Org was created
+   * under, planSlug is what the customer bought, and the org-controller sizes
+   * the ResourceQuota/LimitRange from this field alone. Empty string when the
+   * record declares none — never a fabricated default, because row 7 asserts
+   * the CANONICAL value and an invented "s" would be wrong data rather than a
+   * safe fallback.
+   */
+  planSlug: string
   /**
    * Organizations-model spec fields (issue #3378 B1). The orchestrator
    * stamps these on the OrganizationProvisionRecord and the roster feed
@@ -746,6 +761,11 @@ interface OrgRecordWire {
   tenant_namespace?: string
   console_host?: string
   plan?: string
+  // #4292 / UAT row 7 — the purchased plan. The BE emits `plan_slug` (it is
+  // the store record's key and mirrors the CR's spec.planSlug). The `plan`
+  // key above is a different, never-populated name; reading that one is why
+  // the plan stayed null even once the API began emitting the field.
+  plan_slug?: string
   region?: string
   // Organizations-model spec fields (issue #3378 B1) — already emitted by
   // the BE row (products/catalyst/bootstrap/api/internal/handler/
@@ -771,6 +791,7 @@ function mapOrgRecord(raw: OrgRecordWire): OrgRecord {
     subdomain,
     parentDomain,
     plan: raw.plan && raw.plan !== '' ? String(raw.plan) : null,
+    planSlug: String(raw.plan_slug ?? '').trim(),
     kind: String(raw.kind ?? '').trim(),
     tier: String(raw.tier ?? '').trim(),
     billingMode: String(raw.billing_mode ?? '').trim(),

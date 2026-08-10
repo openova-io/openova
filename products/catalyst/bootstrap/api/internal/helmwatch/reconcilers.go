@@ -705,6 +705,31 @@ func scannerIdentity(u *unstructured.Unstructured) (string, bool) {
 	return "", false
 }
 
+// SyftScanCronTarget maps the collapsed Syft SBOM identity row back to the
+// object that actually backs it: the bp-syft-grype CronJob (UAT row 176).
+//
+// The collapse (#3925) is what makes this seam necessary. `syft-sbom` is a
+// SYNTHETIC identity — no Kubernetes object carries that name — so anything
+// trying to act on the row by name finds nothing. The retry path did exactly
+// that and returned a 422 for a row that is genuinely re-runnable: pass 2 of
+// buildReconcilerRows seeds this very row FROM the CronJob named here, so the
+// backing object is known, not guessed.
+//
+// It is deliberately syft-ONLY and returns ok=false for anything else,
+// including trivyScanIdentity. Trivy's row aggregates one scan Job per
+// workload spawned by the trivy-operator; there is no single object whose
+// re-run means "redo the scan", so that row has nothing to offer here and
+// must keep reporting that honestly.
+//
+// The caller still has to handle an ABSENT CronJob — this reports the
+// identity mapping, not the object's existence.
+func SyftScanCronTarget(identity string) (namespace, cronName string, ok bool) {
+	if strings.TrimSpace(identity) != syftScanIdentity {
+		return "", "", false
+	}
+	return syftGrypeNamespace, syftGrypeCronName, true
+}
+
 // foldScannerRun records ONE scanner run as an Execution on the single
 // identity-keyed scanner row (#3925), creating the row on first sight. This
 // is the collapse: N scan Jobs sharing an identity ⇒ 1 row + N Executions

@@ -22,7 +22,7 @@ import { parentRowFromSelf, subOrgRowFromRecord, type OrgRow } from '@/lib/organ
 const PARENT = parentRowFromSelf({ deploymentId: 'd1', sovereignFQDN: 'hw130.omantel.biz' })
 const SUB = subOrgRowFromRecord({
   id: 'tnt-1', orgName: 'ACME Corp', consoleHost: 'console.acme.omani.homes', subdomain: 'acme',
-  parentDomain: 'omani.homes', plan: 'pro', kind: 'customer', tier: 'org', billingMode: 'real',
+  parentDomain: 'omani.homes', plan: 'pro', planSlug: 's', kind: 'customer', tier: 'org', billingMode: 'real',
   isolation: 'vcluster', status: 'active', region: 'r', ownerEmail: 'o@acme.example',
   createdAt: '2026-06-13T00:00:00Z', updatedAt: '2026-06-13T00:00:00Z', lastError: '',
 })
