@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T23:30:06Z` |
+| Last refreshed | `2026-08-10T23:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T23:34 | [#6095](https://github.com/openova-io/openova/pull/6095) | #6051 | docs(uat): row 107 passes on a real delete; R17's cause move |
+| 2026-08-10T23:41 | [#6089](https://github.com/openova-io/openova/pull/6089) | #6081 | fix(auth/session): four UAT rows at their producers — the Or |
 | 2026-08-10T23:20 | [#6088](https://github.com/openova-io/openova/pull/6088) | #6078 | docs(uat): rows 7 8 15 25 are DEPLOY-GATED, not NEEDS-CODE — |
 | 2026-08-10T23:09 | [#6086](https://github.com/openova-io/openova/pull/6086) | #6085 | docs(uat): settle 7 never-walked rows on hw293 — create 50,  |
 | 2026-08-10T22:59 | [#6083](https://github.com/openova-io/openova/pull/6083) | #6004 | fix(catalyst-api): let a repaired Phase-1 failure leave the  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-10T17:43 | [#6046](https://github.com/openova-io/openova/pull/6046) | #6004 | docs(uat): partition the 44 ❌ rows that carried no label at  |
 | 2026-08-10T17:37 | [#6044](https://github.com/openova-io/openova/pull/6044) | #5974 | fix(catalyst): unresolved conflict markers on main froze the |
 | 2026-08-10T17:48 | [#6042](https://github.com/openova-io/openova/pull/6042) | #6004 | fix(catalyst-api): a Phase-1 component census must not decid |
-| 2026-08-10T17:32 | [#6039](https://github.com/openova-io/openova/pull/6039) | #6015 | docs(uat): 16 rows settled by API/CLI on hw293 — 15 pass, 1  |
-| 2026-08-10T17:32 | [#6038](https://github.com/openova-io/openova/pull/6038) | #6029 | fix(uat): a re-tag the partition parser cannot read is silen |
 
 ---
 
