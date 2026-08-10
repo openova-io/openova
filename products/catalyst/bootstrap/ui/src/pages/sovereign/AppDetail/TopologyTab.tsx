@@ -279,7 +279,38 @@ export function TopologyTab({
     // Legacy fallback: project from status.targets (recon rollup), else
     // from the legacy mode + regions.
     const status = (app?.status ?? {}) as Record<string, unknown>
-    // 2b. #5420 — EFFECTIVE per-cluster state, ahead of any projection from
+    // 2b. status.targets — the controller's own placement TARGET LIST.
+    //
+    //     #5420 put the `status.perCluster` projection ahead of the LEGACY
+    //     `mode + regions` fabrication, and that ordering is still right (see
+    //     2c below). But the rung it was placed ahead of was not the only one
+    //     underneath it: `status.targets` sat below the perCluster rung too,
+    //     and the perCluster rung RETURNS. So a perCluster observation that
+    //     saw one cluster shadowed a status.targets that named two — and the
+    //     panel printed `singleton` over data on the SAME object that said
+    //     active-hot-standby (UAT row 63, hw293: one region-A card, no DR
+    //     block, while the Status panel beside it read "Standby·Hot is
+    //     reconciling").
+    //
+    //     These two fields are not the same kind of thing:
+    //       • status.targets   — the placement, per target, with role AND
+    //         standbyType. Written by the controller from the desired
+    //         placement.
+    //       • status.perCluster — an OBSERVATION of clusters where workloads
+    //         were seen. Its role vocabulary is primary/active/singleton only;
+    //         it carries no standbyType and no vCluster, and a Standby whose
+    //         Pods have not landed yet is simply ABSENT from it.
+    //
+    //     An incomplete observation must not overwrite the placement it is an
+    //     observation OF. So targets is read first, and perCluster remains the
+    //     answer whenever targets is absent or empty. Both rungs are labelled
+    //     `declared` either way, so this changes WHICH declared source is
+    //     rendered, never whether a declared source is passed off as observed.
+    const statusTargetsFirst = status.targets
+    if (Array.isArray(statusTargetsFirst) && statusTargetsFirst.length > 0) {
+      return declared(statusTargetsFirst as PlacementTarget[])
+    }
+    // 2c. #5420 — EFFECTIVE per-cluster state, ahead of any projection from
     //     the DECLARED posture. `status.perCluster` says where this app's
     //     workloads were actually observed; the legacy `mode + regions`
     //     projection below maps over every DECLARED region and therefore
@@ -324,10 +355,6 @@ export function TopologyTab({
         })
         .filter((t): t is PlacementTarget => t !== null)
       if (effective.length > 0) return declared(effective)
-    }
-    const statusTargets = status.targets
-    if (Array.isArray(statusTargets) && statusTargets.length > 0) {
-      return declared(statusTargets as PlacementTarget[])
     }
     const statusRegions = (status.regions ?? []) as RegionStatus[]
     // status.placement is an OBJECT on a real (#3373/#3969) controller; only
