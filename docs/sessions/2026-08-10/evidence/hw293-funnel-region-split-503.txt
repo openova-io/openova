@@ -1,0 +1,90 @@
+hw293 (dep a0077ba47e3720e5) 2026-08-10 — funnel-host reachability + root cause
+
+== fresh-TCP sample (curl --no-keepalive --http1.1; no HTTP/2 backend pinning) ==
+-- console.hw293.omantel.biz/login x12 --
+      6 503
+      6 200
+-- marketplace.hw293.omantel.biz/ x12 --
+      6 503
+      6 200
+
+== REGION A (me-east-215-a) — has the routes AND the pods ==
+admin-865b6dd6c7-dtbqj 1/1 Running
+auth-849f99484f-s7v59 1/1 Running
+billing-84bdd95475-lr9gm 1/1 Running
+catalog-6f869579db-v5sfw 1/1 Running
+console-656585b5f9-wftn9 1/1 Running
+domain-5d7dc4bc8c-2gmp5 1/1 Running
+ferretdb-66cf57dd69-qw74n 1/1 Running
+gateway-5b857d8b6f-92t8d 1/1 Running
+marketplace-5cc85f97d5-bpjfc 1/1 Running
+notification-6c54d7df4d-ww4xb 1/1 Running
+org-pg-1 1/1 Running
+org-pg-2 1/1 Running
+organizations-5d74d7b96-fn52g 1/1 Running
+provisioning-7b84fb8b88-xnwhc 1/1 Running
+
+== REGION B (me-east-215-b-1) — advertises the SAME hostnames, has NO backends ==
+-- pods in org-services / catalyst --
+No resources found in org-services namespace.
+No resources found in catalyst namespace.
+-- region-B HTTPRoutes carrying the funnel hostnames --
+NAME          HOSTS                             BACKENDS
+catalyst-ui   [console.hw293.omantel.biz]       catalyst-api,catalyst-api,catalyst-api,catalyst-api,catalyst-ui
+marketplace   [marketplace.hw293.omantel.biz]   gateway,admin,marketplace
+-- region-B EndpointSlices for those backends (ENDPOINTS unset == zero) --
+NAME                               ADDRESSTYPE   PORTS     ENDPOINTS                                       AGE
+catalyst-api-h4zs8                 IPv4          <unset>   <unset>                                         49m
+catalyst-catalog-5vtj9             IPv4          <unset>   <unset>                                         49m
+catalyst-ui-qfbph                  IPv4          <unset>   <unset>                                         49m
+k8s-ws-proxy-jckh8                 IPv4          8080      10.43.2.122,10.43.1.83,10.43.3.66 + 3 more...   35m
+openova-flow-pg-r-cnkvd            IPv4          5432      10.43.5.164,10.43.4.169                         28m
+openova-flow-pg-ro-kmvr4           IPv4          5432      10.43.4.169                                     28m
+openova-flow-pg-rw-zplqt           IPv4          5432      10.43.5.164                                     28m
+openova-flow-server-8fjzq          IPv4          8080      10.43.1.44                                      28m
+openova-mcp-bp-openova-mcp-7jf4n   IPv4          <unset>   <unset>                                         49m
+
+MECHANISM: the Huawei ELB round-robins :443 across BOTH regions' hostNetwork cilium-envoy.
+Region B matches the SNI and the HTTPRoute, resolves zero healthy endpoints, and returns 503.
+Region A serves 200. Hence the ~50/50 split above on EVERY funnel hostname.
+
+==========================================================================
+== PER-ORG HOSTS created by the funnel this session (two Orgs, two TLDs) ==
+==========================================================================
+Org1 = hw293walkone.omani.homes (tenant 4e647780) provisioned 13:33->13:37:43Z status=completed
+Org2 = hw293walktwo.omani.trade (tenant 336f891a) provisioned 13:42->13:45:13Z status=completed
+
+-- fresh-TCP samples, curl --no-keepalive --http1.1, ssl_verify=0 means publicly-trusted --
+console.hw293walkone.omani.homes/apps      : 6/12 x 200 ssl_verify=0 , 6/12 x curl(35) reset
+wordpress.hw293walkone.omani.homes/        : 8/12 x 200 ssl_verify=0 , 4/12 x curl(35) reset
+console.hw293walktwo.omani.trade/apps      : 6/12 x 200 ssl_verify=0 , 6/12 x curl(35) reset
+wordpress.hw293walktwo.omani.trade/        : 5/12 x 200 ssl_verify=0 , 7/12 x curl(35) reset
+
+-- SECOND failure mode: per-Org hostnames RESET rather than 503 --
+region B kube-system/cilium-gateway-console listeners (hostname per listener):
+  console-https console.hw293.omantel.biz
+  console-http console.hw293.omantel.biz
+  api-https api.hw293.omantel.biz
+  api-http api.hw293.omantel.biz
+  marketplace-https marketplace.hw293.omantel.biz
+  marketplace-http marketplace.hw293.omantel.biz
+region B HTTPRoutes matching walkone/walktwo:
+  NONE — region B holds zero per-Org routes
+
+region A per-Org routes (present, which is why half the connections work):
+catalyst-system   catalyst-ui-console-hw293walkone-omani-homes   ["console.hw293walkone.omani.homes"]     14m
+catalyst-system   catalyst-ui-console-hw293walktwo-omani-trade   ["console.hw293walktwo.omani.trade"]     5m42s
+hw293walkone      app-wordpress-hostroute                        ["wordpress.hw293walkone.omani.homes"]   13m
+hw293walktwo      app-wordpress-hostroute                        ["wordpress.hw293walktwo.omani.trade"]   5m35s
+
+SUMMARY OF THE TWO MODES:
+  Sovereign hostnames  -> region B HAS listener+route, backends have ZERO endpoints -> 503
+  Per-Org hostnames    -> region B has NO listener for the SNI at all              -> TCP reset
+  Both are the same underlying gap: region B never received the workloads or the
+  per-Org routing, yet the Huawei ELB round-robins :443 across both regions.
+
+PHASE-1 COMPONENT FAILURE (orthogonal to the funnel, recorded for the record):
+  self-sovereign-cutover install failed — Helm release Secret
+  sh.helm.release.v1.self-sovereign-cutover.v1 is invalid: data: Too long:
+  must have at most 1048576 bytes  (chart bp-self-sovereign-cutover@0.1.177).
+  All other 66 components report installed.
