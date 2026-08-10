@@ -20,6 +20,22 @@
 # works. This script asserts LIVENESS instead of status: controllers scheduled,
 # and each Kustomization's Ready transition recent relative to its own interval.
 #
+# WHY, second instance (#6079). Scaling the controllers back up did NOT restore
+# the loop, and the first cut of this file could not tell. Measured on the
+# mothership 2026-08-10T22:2xZ:
+#
+#     source-controller       spec.replicas=1  readyReplicas=0  Available=False
+#     kustomize-controller    spec.replicas=1  readyReplicas=0  Available=False
+#     both pods ImagePullBackOff on ghcr.io/fluxcd/*-controller
+#
+# Fed to the classifier, that pair read `VERDICT LIVE` — because the check
+# consulted `spec.replicas`, which records what an operator ASKED FOR, not what
+# is running. spec.replicas is a field that cannot fail: a human types 1 into it
+# and it stays 1 whether or not a single pod ever starts. `status.readyReplicas`
+# is the only field the cluster writes from observation, so it is the only one
+# that carries evidence. The check now reads it, and prints the pod's waiting
+# reason so the report names the cause instead of restating the symptom.
+#
 # READ-ONLY. Reports; never scales, never unsuspends. Restoring a deliberately
 # stopped GitOps loop replays every accumulated commit in one step and is an
 # operator decision.
@@ -52,8 +68,12 @@ done
 # ─── classifier, shared by --self-test and the live sweep ───────────────────
 #
 # stdin, TAB-separated, one record per line:
-#   CTRL\t<name>\t<spec.replicas>\t<availableCondition>
+#   CTRL\t<name>\t<spec.replicas>\t<availableCondition>\t<status.readyReplicas>\t<podReason>
 #   KUST\t<ns/name>\t<suspend>\t<readyStatus>\t<intervalSeconds>\t<ageSeconds>
+#
+# The last two CTRL fields are optional so a 4-field record still parses, but a
+# record that omits readyReplicas is treated as UNKNOWN-and-not-ready, never as
+# ready. Absent evidence must not read as a pass.
 classify_loop() {
   python3 -c "$(cat <<'PY'
 import sys, os
@@ -66,10 +86,18 @@ for line in sys.stdin:
         continue
     f = line.split("\t")
     if f[0] == "CTRL":
-        _, name, replicas, avail = f
+        f = (f + ["", ""])[:6]
+        _, name, replicas, avail, ready, reason = f
         if replicas in ("0", ""):
             # The vacuous-Available case: report it EVEN THOUGH avail says True.
-            dead_ctrls.append((name, replicas, avail))
+            dead_ctrls.append((name, "replicas=%s (scaled to zero) available=%s"
+                                     % (replicas or "<unset>", avail)))
+        elif ready in ("0", ""):
+            # Scaled up, nothing running. spec.replicas is an operator's INTENT;
+            # only status.readyReplicas says a controller process exists.
+            dead_ctrls.append((name, "replicas=%s readyReplicas=%s available=%s%s"
+                                     % (replicas, ready or "<unset>", avail,
+                                        (" — " + reason) if reason else "")))
         else:
             live_ctrls += 1
     elif f[0] == "KUST":
@@ -86,8 +114,8 @@ print("CTRL_LIVE\t%d" % live_ctrls)
 print("CTRL_DEAD\t%d" % len(dead_ctrls))
 print("KUST_OK\t%d" % ok_kusts)
 print("KUST_STALE\t%d" % len(stale_kusts))
-for n, r, a in dead_ctrls:
-    print("DEAD\t%s\treplicas=%s\tavailable=%s" % (n, r, a))
+for n, detail in dead_ctrls:
+    print("DEAD\t%s\t%s" % (n, detail))
 for n, ready, iv, ag in stale_kusts:
     print("STALE\t%s\tReady=%s\tinterval=%ds\tage=%ds" % (n, ready, iv, ag))
 print("VERDICT\t%s" % ("DEAD" if dead_ctrls else ("STALE" if stale_kusts else "LIVE")))
@@ -104,26 +132,47 @@ if [ "${SELF_TEST}" -eq 1 ]; then
   # 1. The live #5573 shape: replicas 0 AND Available=True. Must be DEAD.
   #    This is the assertion the whole file exists for — a naive check reading
   #    the Available condition would call this healthy.
-  V="$(printf 'CTRL\tsource-controller\t0\tTrue\n' | classify_loop | verdict_of)"
+  V="$(printf 'CTRL\tsource-controller\t0\tTrue\t0\t\n' | classify_loop | verdict_of)"
   [ "${V}" = "DEAD" ] || st_fail "replicas=0 with Available=True read '${V}', expected DEAD — vacuous availability is the #5573 false-green"
 
   # 2. CONTROL: a running controller must read LIVE, so the check is not
   #    "any controller is dead".
+  V="$(printf 'CTRL\tsource-controller\t1\tTrue\t1\t\n' | classify_loop | verdict_of)"
+  [ "${V}" = "LIVE" ] || st_fail "replicas=1 readyReplicas=1 read '${V}', expected LIVE"
+
+  # 2a. THE SECOND FALSE-GREEN this file now also guards (#6079). Measured on
+  #     the mothership 2026-08-10T22:2xZ: source-controller and
+  #     kustomize-controller at spec.replicas=1, status.readyReplicas=0, both
+  #     pods ImagePullBackOff on ghcr.io. Reading spec.replicas alone — an
+  #     operator's INTENT — called that pair LIVE while the GitOps loop had
+  #     delivered nothing for 9.5 days. Only status.readyReplicas is evidence
+  #     that a controller process exists.
+  V="$(printf 'CTRL\tsource-controller\t1\tFalse\t0\tImagePullBackOff: ghcr.io/fluxcd/source-controller:v1.8.0\n' | classify_loop | verdict_of)"
+  [ "${V}" = "DEAD" ] || st_fail "replicas=1 readyReplicas=0 read '${V}', expected DEAD — scaled up is not running"
+
+  # 2b. The reason string must reach the operator, or the report says
+  #     'not ready' and buries WHY.
+  printf 'CTRL\tsource-controller\t1\tFalse\t0\tImagePullBackOff: ghcr.io/fluxcd/source-controller:v1.8.0\n' \
+    | classify_loop | grep -q 'ImagePullBackOff: ghcr.io/fluxcd/source-controller:v1.8.0' \
+    || st_fail "the pod waiting reason was dropped from the DEAD line"
+
+  # 2c. A CTRL record with readyReplicas MISSING must not read LIVE. Absent
+  #     evidence is not evidence of readiness.
   V="$(printf 'CTRL\tsource-controller\t1\tTrue\n' | classify_loop | verdict_of)"
-  [ "${V}" = "LIVE" ] || st_fail "replicas=1 read '${V}', expected LIVE"
+  [ "${V}" = "DEAD" ] || st_fail "a CTRL record with no readyReplicas read '${V}', expected DEAD — absent evidence must not pass"
 
   # 3. The frozen-Kustomization shape: Ready=True, 10m interval, 6.4 days old.
   #    Exactly flux-system/openova-dns as measured.
-  V="$(printf 'CTRL\tsource-controller\t1\tTrue\nKUST\tflux-system/openova-dns\tfalse\tTrue\t600\t552960\n' | classify_loop | verdict_of)"
+  V="$(printf 'CTRL\tsource-controller\t1\tTrue\t1\t\nKUST\tflux-system/openova-dns\tfalse\tTrue\t600\t552960\n' | classify_loop | verdict_of)"
   [ "${V}" = "STALE" ] || st_fail "Ready=True frozen 6.4d on a 10m interval read '${V}', expected STALE"
 
   # 4. CONTROL: a Kustomization inside its interval must NOT be flagged.
-  V="$(printf 'CTRL\tsource-controller\t1\tTrue\nKUST\tflux-system/openova-dns\tfalse\tTrue\t600\t900\n' | classify_loop | verdict_of)"
+  V="$(printf 'CTRL\tsource-controller\t1\tTrue\t1\t\nKUST\tflux-system/openova-dns\tfalse\tTrue\t600\t900\n' | classify_loop | verdict_of)"
   [ "${V}" = "LIVE" ] || st_fail "Ready=True 15m old on a 10m interval read '${V}', expected LIVE"
 
   # 5. CONTROL: a SUSPENDED Kustomization is a declared state, not staleness.
   #    Without this the check would flag every deliberately-paused overlay.
-  V="$(printf 'CTRL\tsource-controller\t1\tTrue\nKUST\tflux-system/cinova\ttrue\tTrue\t600\t9944640\n' | classify_loop | verdict_of)"
+  V="$(printf 'CTRL\tsource-controller\t1\tTrue\t1\t\nKUST\tflux-system/cinova\ttrue\tTrue\t600\t9944640\n' | classify_loop | verdict_of)"
   [ "${V}" = "LIVE" ] || st_fail "a SUSPENDED 115d-old Kustomization read '${V}', expected LIVE — suspend is declared, not stale"
 
   # 6. Dead controllers OUTRANK stale Kustomizations in the verdict, because the
@@ -139,10 +188,12 @@ if [ "${SELF_TEST}" -eq 1 ]; then
   echo "   (note: empty input reads LIVE with CTRL_LIVE=0 — the live sweep below"
   echo "    treats a zero-controller read as a precondition failure, not a pass.)"
 
-  echo "OK — loop-liveness self-test passed (7 assertions: the #5573 vacuous-Available"
-  echo "   shape is DEAD, a running controller is LIVE, a 6.4d-frozen Ready=True is"
-  echo "   STALE, an in-interval one is not, a SUSPENDED overlay is not, dead"
-  echo "   controllers outrank stale overlays, and an empty read is visibly empty)."
+  echo "OK — loop-liveness self-test passed (11 assertions: the #5573 vacuous-Available"
+  echo "   shape is DEAD, the #6079 scaled-up-but-zero-ready shape is DEAD and keeps"
+  echo "   its waiting reason, a CTRL record with no readyReplicas does not pass, a"
+  echo "   genuinely running controller is LIVE, a 6.4d-frozen Ready=True is STALE, an"
+  echo "   in-interval one is not, a SUSPENDED overlay is not, dead controllers outrank"
+  echo "   stale overlays, and an empty read is visibly empty)."
   echo "OK: --self-test only; no cluster was contacted."
   exit 0
 fi
@@ -156,19 +207,52 @@ NOW_EPOCH="$(date -u +%s)"
 # KeyError while the controller half still (correctly) reported DEAD.
 export FGL_NOW="${NOW_EPOCH}"
 
-CTRLS="$(kubectl ${KUBECONFIG_ARG} -n flux-system get deploy -o json 2>/dev/null | python3 -c "$(cat <<'PY'
+# Pod-level waiting reasons, keyed by the controller name their pod belongs to.
+# Purely enrichment: the verdict never depends on this read succeeding, but when
+# it does the report says "ImagePullBackOff: ghcr.io/fluxcd/…" instead of the
+# useless "not ready".
+PODREASONS="$(kubectl ${KUBECONFIG_ARG} -n flux-system get pods -o json 2>/dev/null | python3 -c "$(cat <<'PY'
 import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for p in d.get("items", []):
+    owner = (p["metadata"].get("labels") or {}).get("app", "")
+    if not owner:
+        continue
+    for cs in (p.get("status", {}).get("containerStatuses") or []):
+        w = (cs.get("state") or {}).get("waiting")
+        if w:
+            msg = "%s: %s" % (w.get("reason", "Waiting"), cs.get("image", ""))
+            print("%s\t%s" % (owner, msg.replace("\t", " ").strip()))
+            break
+PY
+)" || true)"
+
+CTRLS="$(FGL_PODREASONS="${PODREASONS}" kubectl ${KUBECONFIG_ARG} -n flux-system get deploy -o json 2>/dev/null | FGL_PODREASONS="${PODREASONS}" python3 -c "$(cat <<'PY'
+import json, os, sys
+reasons = {}
+for line in (os.environ.get("FGL_PODREASONS") or "").splitlines():
+    if "\t" in line:
+        k, v = line.split("\t", 1)
+        reasons.setdefault(k, v)
 d = json.load(sys.stdin)
 for i in d.get("items", []):
     n = i["metadata"]["name"]
     if not n.endswith("-controller"):
         continue
     rep = i.get("spec", {}).get("replicas")
+    st = i.get("status", {}) or {}
+    # readyReplicas is OMITTED (not 0) when nothing is ready, so `.get` must
+    # default to 0 rather than "" — an absent key is zero ready, not unknown.
+    ready = st.get("readyReplicas", 0)
     avail = ""
-    for c in (i.get("status", {}).get("conditions") or []):
+    for c in (st.get("conditions") or []):
         if c.get("type") == "Available":
             avail = c.get("status", "")
-    print("CTRL\t%s\t%s\t%s" % (n, "" if rep is None else rep, avail))
+    print("CTRL\t%s\t%s\t%s\t%s\t%s" % (
+        n, "" if rep is None else rep, avail, ready, reasons.get(n, "")))
 PY
 )")" || { echo "could not read flux-system Deployments" >&2; exit 2; }
 
@@ -214,8 +298,8 @@ if [ "${VERDICT}" = "LIVE" ]; then
 fi
 
 echo "GITOPS LOOP ${VERDICT} — status conditions on this cluster are NOT trustworthy:"
-printf '%s\n' "${RESULT}" | grep '^DEAD' | while IFS=$'\t' read -r _ n r a; do
-  printf '  controller %-28s %s %s\n' "${n}" "${r}" "${a}"
+printf '%s\n' "${RESULT}" | grep '^DEAD' | while IFS=$'\t' read -r _ n detail; do
+  printf '  controller %-28s %s\n' "${n}" "${detail}"
 done
 printf '%s\n' "${RESULT}" | grep '^STALE' | while IFS=$'\t' read -r _ n ready iv ag; do
   printf '  kustomization %-34s %s %s %s\n' "${n}" "${ready}" "${iv}" "${ag}"
@@ -223,7 +307,9 @@ done
 echo
 echo "  A controller at replicas:0 reports Available=True vacuously, and every"
 echo "  Kustomization keeps its LAST Ready value forever. Ready=True here means"
-echo "  'last known good', not 'reconciling' (#5573)."
+echo "  'last known good', not 'reconciling' (#5573). A controller at replicas:1"
+echo "  with readyReplicas:0 is the same loop failure wearing a healthy-looking"
+echo "  spec — scaling up is a request, not a running process (#6079)."
 echo
 echo "  Read-only: nothing was scaled or unsuspended. Restoring a stopped loop"
 echo "  replays all accumulated commits at once — an operator decision."
