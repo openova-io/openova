@@ -113,33 +113,38 @@ func (h *Handler) reconcileOneProvision(ctx context.Context, p *store.Provision)
 		return
 	}
 
-	// Map app-slug → ready. vCluster syncer names synced pods
-	// "<pod-name>-x-<inner-ns>-x-<vcluster-name>". For our tenants
-	// the inner-ns happens to be the tenant host ns itself and the
-	// vcluster-name is "vcluster", so the observed pattern is:
-	//   wordpress-abcdef-xyz-x-tenant-<slug>-x-vcluster
-	// We don't care what the inner-ns is — the only thing that matters
-	// is extracting the leading "<app-slug>-<deployHash>-<podHash>"
-	// portion, then stripping the two trailing hash segments to get
-	// the slug. App slugs may contain hyphens (uptime-kuma, cal-com).
-	const vcSuffix = "-x-vcluster"
+	// The slug universe podOwnerSlug matches against, instead of
+	// reconstructing a slug out of the pod name.
+	//
+	// It is the CATALOG's slugs, not just this provision's steps, and that
+	// breadth is deliberate: the day-2 loop at the bottom of this function
+	// exists to emit app_ready for apps that have NO provision step (a User
+	// installed them after provisioning finished, and their goroutine was
+	// orphaned). Narrowing `wanted` to step-derived slugs would make that
+	// loop dead code, since every ready slug would then have a step by
+	// construction. slugToID is already the catalog slug set, fetched above.
+	//
+	// p.Apps is deliberately NOT folded in: it carries catalog IDs, not
+	// slugs (startProvisioning stores the raw `apps` argument and resolves
+	// slugs separately via resolveAppSlugs), so it would contribute entries
+	// that can never match a pod name.
+	wanted := make(map[string]bool, len(slugToID)+len(p.Steps))
+	for slug := range slugToID {
+		wanted[slug] = true
+	}
+	// Step-named dependencies (mysql/postgres/redis) are backing services and
+	// need not appear in the app catalog, so add them explicitly.
+	for _, step := range p.Steps {
+		if s := slugFromStepName(step.Name); s != "" {
+			wanted[s] = true
+		}
+	}
+
+	// Map app-slug → ready.
 	ready := map[string]bool{}
 	for _, pod := range list.Items {
-		name := pod.Metadata.Name
-		if !strings.HasSuffix(name, vcSuffix) {
-			continue
-		}
-		// Strip trailing "-x-<inner-ns>-x-vcluster": find the last
-		// "-x-" inside the pod name (minus the vcluster suffix).
-		core := strings.TrimSuffix(name, vcSuffix)
-		idx := strings.LastIndex(core, "-x-")
-		if idx < 0 {
-			continue
-		}
-		podPart := core[:idx] // "<slug>-<deployHash>-<podHash>"
-		// Skip infra pods (coredns, vcluster-0 — don't have the
-		// <deployHash>-<podHash> shape).
-		if strings.HasPrefix(podPart, "coredns") || strings.HasPrefix(podPart, "vcluster") {
+		slug := podOwnerSlug(pod.Metadata.Name, wanted)
+		if slug == "" {
 			continue
 		}
 		if pod.Status.Phase != "Running" {
@@ -155,11 +160,6 @@ func (h *Handler) reconcileOneProvision(ctx context.Context, p *store.Provision)
 		if !isReady {
 			continue
 		}
-		parts := strings.Split(podPart, "-")
-		if len(parts) < 3 {
-			continue
-		}
-		slug := strings.Join(parts[:len(parts)-2], "-")
 		ready[slug] = true
 	}
 	if len(ready) == 0 {
@@ -393,6 +393,48 @@ func (h *Handler) reconcileOneProvision(ctx context.Context, p *store.Provision)
 			})
 		}
 	}
+}
+
+// podOwnerSlug returns the requested app slug that owns this pod in the Org's
+// host namespace, or "" if none does.
+//
+// TIER-BLIND BY DESIGN. Both pod shapes belong to the Org, because the host
+// `<slug>` namespace IS the Org boundary (#4290) and no sibling Org shares it:
+//
+//   - VCLUSTER tier (plan m/l/xl/flexi) — the syncer names the pod
+//     `<inner>-x-<inner-ns>-x-vcluster`, and the INNER name carries the slug.
+//   - HOST tier (plan free/S/"" — isolationForTier, allTiersVcluster=false) —
+//     the apps-sync Kustomization applies the Deployment straight into the host
+//     ns, so the pod keeps its NATIVE name with no syncer suffix.
+//
+// This used to be an inline `HasSuffix(name, "-x-vcluster") || continue`, which
+// made the ENTIRE host tier invisible to the reconciler: `ready` came back
+// empty and reconcileOneProvision returned before it could advance or supersede
+// anything. That silently voided #5646's whole point for those Orgs — the
+// record stayed permanently `failed` for a workload that had recovered.
+//
+// It also reconstructed the slug by dropping the last two dashed segments,
+// which assumes a Deployment-shaped `<slug>-<rsHash>-<podHash>` name. A
+// StatefulSet pod is `<slug>-<ordinal>` (`postgres-1`) and was dropped by the
+// `< 3 segments` guard, and an app nobody ordered could be claimed because the
+// reconstruction never consulted the requested set.
+//
+// Both halves now delegate rather than re-derive, per the rule handlers.go:868
+// already states — "There must be one definition of 'is this a synced pod',
+// not two." vclusterInnerPodName (backing_services.go) owns the synced shape
+// for any inner namespace; matchWantedSlug owns the slug comparison, including
+// longest-match so "uptime" cannot shadow "uptime-kuma".
+func podOwnerSlug(podName string, wanted map[string]bool) string {
+	name := podName
+	if inner, synced := vclusterInnerPodName(podName); synced {
+		name = inner
+	}
+	// Infra pods are never an app: coredns and the vcluster control plane
+	// both live in this namespace.
+	if strings.HasPrefix(name, "coredns") || strings.HasPrefix(name, "vcluster") {
+		return ""
+	}
+	return matchWantedSlug(name, wanted)
 }
 
 // priorStepsComplete reports whether every step BEFORE index i is in the
