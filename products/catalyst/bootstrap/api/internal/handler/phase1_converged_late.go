@@ -242,9 +242,43 @@ func notRecoveredFailedComponents(dep *Deployment, readyIDs map[string]bool) []s
 	return stillFailed
 }
 
-// censusHelmReleases counts Ready=True vs total HelmReleases on the
+// censusHelmReleases counts Ready=True vs total PLATFORM HelmReleases on the
 // cluster behind the given kubeconfig file, and returns the SET of
 // component ids observed Ready=True. Pure helper, test-seamed.
+//
+// SCOPED TO helmwatch.FluxNamespace (#6091), because that is the population
+// Phase-1 itself watched — helmwatch.go:1396 and :2682 both list
+// `Namespace(FluxNamespace)` — and therefore the only population
+// Result.ComponentStates was ever derived from. This read `Namespace("")` and
+// censused every namespace on the cluster, which asks a different question of
+// a different set of objects and breaks the census two ways.
+//
+// 1. The ratio gate in runConvergedLateRescue is `ready*10 < total*9`, so every
+// per-Org TENANT application HelmRelease landed in the denominator. Measured
+// read-only on hw293 (dep a0077ba47e3720e5, region A), minutes apart, with no
+// platform change in between: cluster-wide read 76/84 = 0.9048, then 72/78 =
+// 0.9231 — the ratio moved 0.018 on tenant churn alone (an Org namespace being
+// torn down). At 0.9048 the rescue was ONE non-Ready tenant release from
+// declining: 75/84 = 0.8929, 750 < 756, "cluster not (yet) converged; record
+// stays failed" — forever, for a platform that had fully converged. The
+// flux-system population read 63/67 = 0.9403 throughout. Customer installs fail
+// for reasons that are not the platform's: an Org whose plan-quota limits.cpu is
+// exhausted gets `Helm install failed ... context deadline exceeded`, and a
+// customer exhausting their own quota must not be able to freeze the Sovereign's
+// handover.
+//
+// 2. readyIDs is keyed by NAME alone, so a tenant release could forge the
+// per-component recovery proof for a platform component that happens to share
+// its id. On hw293 `newapi` is both a platform ComponentStates key and a
+// tenant-installable Blueprint, and a `bp-newapi` HelmRelease existed in an Org
+// namespace while `flux-system/bp-newapi` existed too. The comment below is
+// exactly right that absence never reads as recovery — but that contract was
+// only ever proof against a MISSING object, never against a same-named object
+// somewhere else. Scoping the list restores it.
+//
+// The 45-entry floor and the 0.90 ratio were calibrated against the
+// bootstrap-kit population, not against the kit plus whatever Organizations
+// have bought since.
 //
 // readyIDs is keyed by the Sovereign-Admin component id
 // (helmwatch.ComponentIDFromHelmRelease — "bp-cilium" → "cilium"), which is
@@ -254,22 +288,33 @@ func notRecoveredFailedComponents(dep *Deployment, readyIDs map[string]bool) []s
 // set, so "not recovered" is the default and a missing observation can never
 // be mistaken for a recovery.
 var censusHelmReleases = func(kubeconfigPath string) (ready, total int, readyIDs map[string]bool, err error) {
-	readyIDs = map[string]bool{}
 	raw, err := os.ReadFile(kubeconfigPath)
 	if err != nil {
-		return 0, 0, readyIDs, err
+		return 0, 0, map[string]bool{}, err
 	}
 	cfg, err := clientcmd.RESTConfigFromKubeConfig(raw)
 	if err != nil {
-		return 0, 0, readyIDs, err
+		return 0, 0, map[string]bool{}, err
 	}
 	dyn, err := dynamic.NewForConfig(cfg)
 	if err != nil {
-		return 0, 0, readyIDs, err
+		return 0, 0, map[string]bool{}, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	list, err := dyn.Resource(helmReleaseGVR).Namespace("").List(ctx, metav1.ListOptions{})
+	return censusHelmReleasesWithClient(ctx, dyn)
+}
+
+// censusHelmReleasesWithClient is the client-taking half of the census, split
+// out so a test can drive it with a seeded fake dynamic client and OBSERVE the
+// namespace scope rather than assert a constant. Every existing test of the
+// rescue seams `censusHelmReleases` out wholesale
+// (phase1_converged_late_test.go, phase1_converged_late_failed_recovered_6082_test.go),
+// which left the real lister's namespace — the thing #6091 was about — the one
+// part of it nothing exercised.
+func censusHelmReleasesWithClient(ctx context.Context, dyn dynamic.Interface) (ready, total int, readyIDs map[string]bool, err error) {
+	readyIDs = map[string]bool{}
+	list, err := dyn.Resource(helmReleaseGVR).Namespace(helmwatch.FluxNamespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return 0, 0, readyIDs, err
 	}
