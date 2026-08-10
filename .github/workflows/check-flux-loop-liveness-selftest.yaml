@@ -1,0 +1,71 @@
+name: check — flux GitOps loop liveness classifier (#6079)
+
+# scripts/check-flux-gitops-loop-live.sh answers "is the GitOps loop actually
+# running", and it is only ever run by a human against a live cluster — so
+# nothing until now noticed when its classifier decayed.
+#
+# It decayed. The first cut asserted on `spec.replicas`, which records what an
+# operator ASKED FOR. On 2026-08-10 the mothership's source-controller and
+# kustomize-controller sat at spec.replicas=1 / status.readyReplicas=0, both
+# pods ImagePullBackOff on ghcr.io, the loop stone dead for 9.5 days — and the
+# classifier returned `VERDICT LIVE`. A field a human types into cannot fail;
+# only `status.readyReplicas`, which the cluster writes from observation, is
+# evidence.
+#
+# This job runs the script's own --self-test, whose 11 assertions each pin a
+# measured shape against a control. It contacts no cluster. It exists so the
+# next decay is caught at PR time instead of during an outage.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/check-flux-gitops-loop-live.sh'
+      - '.github/workflows/check-flux-loop-liveness-selftest.yaml'
+  pull_request:
+    paths:
+      - 'scripts/check-flux-gitops-loop-live.sh'
+      - '.github/workflows/check-flux-loop-liveness-selftest.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  self-test:
+    name: classifier self-test (no cluster contacted)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash syntax
+        run: bash -n scripts/check-flux-gitops-loop-live.sh
+
+      - name: self-test
+        run: bash scripts/check-flux-gitops-loop-live.sh --self-test
+
+      # Vacuity check on the self-test itself. Break the readyReplicas
+      # assertion in a copy and require the suite to go RED. A self-test that
+      # passes no matter what the classifier does is decoration, and this step
+      # is what stops this workflow from becoming that.
+      - name: self-test must be able to fail
+        run: |
+          cp scripts/check-flux-gitops-loop-live.sh /tmp/mutant.sh
+          # Regress the classifier to the pre-#6079 behaviour: ignore
+          # readyReplicas and trust spec.replicas alone.
+          python3 - <<'PY'
+          p = "/tmp/mutant.sh"
+          s = open(p).read()
+          old = '        elif ready in ("0", ""):'
+          new = '        elif False:'
+          assert old in s, "mutation anchor not found — update this step"
+          open(p, "w").write(s.replace(old, new, 1))
+          PY
+          if bash /tmp/mutant.sh --self-test >/tmp/mutant.out 2>&1; then
+            echo "VACUITY FAIL: the self-test passed against a classifier that"
+            echo "ignores readyReplicas. It is not testing what it claims to."
+            cat /tmp/mutant.out
+            exit 1
+          fi
+          echo "OK: the mutated classifier is caught. Failing assertion:"
+          grep -m1 'SELF-TEST FAIL' /tmp/mutant.out || cat /tmp/mutant.out
