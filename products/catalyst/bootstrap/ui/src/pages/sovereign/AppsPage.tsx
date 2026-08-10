@@ -781,6 +781,8 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
                 <AppCard
                   key={`instance-${inst.id}`}
                   app={descriptor}
+                  // Row 19 — this card IS an Application CR. See cardKind.
+                  cardKind="instance"
                   isCatalog={false}
                   environment={inst.environment}
                   externalURL={inst.externalURL}
@@ -822,6 +824,11 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
               <AppCard
                 key={app.id}
                 app={app}
+                // Row 19 — a blueprint SLOT with no instance of its own. The
+                // filter above has already dropped any slot whose blueprint
+                // does have one, so instance and catalog cards never double-
+                // count the same thing.
+                cardKind="catalog"
                 isCatalog={false}
                 environment={environment}
                 externalURL={externalURL}
@@ -1017,12 +1024,33 @@ interface AppCardProps {
    * Deployments grid).
    */
   onEdit?: () => void
+  /**
+   * UAT row 19 / #3687 — which of the TWO collections this card belongs to.
+   *
+   * /apps deliberately renders both: one `instance` card per Application CR
+   * (AppsPage:759, projected by sovereign.go from the CR list), plus the
+   * `catalog` remainder — the blueprint slots that have no instance yet, with
+   * any slot whose blueprint already has an instance suppressed.
+   *
+   * Nothing on the rendered card said which set it was in, and that is why the
+   * row went four walks without being settled: a walker counting tiles on
+   * hw292 read 46 and could not tell whether that was one-per-Application
+   * (~15) or one-per-HelmRelease (~75), because both collections were on
+   * screen as one undifferentiated grid. Two agents then read the same source
+   * file and reached opposite conclusions, one of them having stopped at the
+   * catalog half.
+   *
+   * So the distinction is published where the measurement happens, on the card
+   * itself, rather than left to be re-derived from the data model by every
+   * future reader.
+   */
+  cardKind?: 'instance' | 'catalog'
 }
 
 // Exported for the #3374 render test (AppsPage.open-button.test.tsx) — the
 // per-card Open button gate + silent-SSO click routing are leaf behaviour
 // best asserted directly on the card, without the live-apps query plumbing.
-export function AppCard({ app, status, isCatalog, isService, environment, marketplacePublished, slug, onPublishedChange, topology, contextCount, org, externalURL, hasUserUI, urlPending, iconLight, iconDark, onEdit }: AppCardProps) {
+export function AppCard({ app, status, isCatalog, isService, environment, marketplacePublished, slug, onPublishedChange, topology, contextCount, org, externalURL, hasUserUI, urlPending, iconLight, iconDark, onEdit, cardKind }: AppCardProps) {
   const stateClass = `state-${status}`
   const navigate = useNavigate()
   // #3603 — render the theme-correct admin icon override when present:
@@ -1072,6 +1100,7 @@ export function AppCard({ app, status, isCatalog, isService, environment, market
       className={`app-card ${stateClass}${isService ? ' is-service' : ''}`}
       data-testid={`sov-app-card-${app.id}`}
       data-status={status}
+      data-card-kind={cardKind}
     >
       {resolvedIcon ? (
         <img
