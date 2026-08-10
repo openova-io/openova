@@ -39,14 +39,14 @@ which is the floating-denominator behaviour the frozen 286 exists to prevent.
 
 | bucket | rows | what it needs |
 |---|--:|---|
-| **DEPLOY-GATED** | 14 | the fix is merged and not running here; closes on a roll/prov |
-| **BUILD** | 9 | no fix exists yet (`NEEDS-CODE` in UAT.md) |
+| **DEPLOY-GATED** | 12 | the fix is merged and not running here; closes on a roll/prov |
+| **BUILD** | 11 | no fix exists yet (`NEEDS-CODE` in UAT.md) |
 | **ENV-STATE** | 12 | needs a different environment shape entirely |
 | **WALKABLE NOW** | 67 | a walk on THIS env can change the verdict |
 | **total** | **102** | |
 
-- **DEPLOY-GATED (14)** — 38 55 57 67 69 71 164 188 225 233 W1 G2 W2 W5
-- **BUILD (9)** — 19 87 90 95 115 166 216 G11 R16
+- **DEPLOY-GATED (12)** — 38 55 67 69 164 188 225 233 W1 G2 W2 W5
+- **BUILD (11)** — 19 57 71 87 90 95 115 166 216 G11 R16
 - **ENV-STATE (12)** — 29 41 60 100 123 178 228 234 238 G8 G9 R17
 - **WALKABLE NOW (67)** — 3 4 7 8 15 25 30 32 33 35 36 37 48 51 52 56 59 62 63 64 65 66 70 111 121 160 162 163 172 176 177 183 184 187 189 192 195 206 207 208 211 212 213 217 218 219 220 221 222 223 224 227 229 232 235 236 237 239 241 G1 G3 G6 G7 G10 R12 R13 R19
 
