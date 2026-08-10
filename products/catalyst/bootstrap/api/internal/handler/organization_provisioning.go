@@ -305,22 +305,36 @@ const allTiersVcluster = false
 // for a host-ns Org, "vcluster" for a dedicated Org-vCluster), derived from the
 // SAME #4292 TIER GATE the org-controller uses to author the backing. Keeping
 // this in lockstep with that gate is what makes the displayed `isolation` value
-// ACCURATE rather than a static kind-derived guess:
+// ACCURATE rather than a static guess:
 //
-//   - internal kind → always "namespace" (a department shares the host ns; no
-//     dedicated vCluster regardless of plan).
-//   - customer kind → the plan tier gate decides: free/S (or empty) share the
-//     host `<slug>` namespace → "namespace"; m/l/xl/flexi get a dedicated
-//     Org-vCluster → "vcluster".
+//   - free/S (or empty) → the host `<slug>` namespace IS the boundary →
+//     "namespace".
+//   - m/l/xl/flexi → a dedicated Org-vCluster → "vcluster".
 //
-// Before this fix the label was hardcoded customer→vcluster, so an S-plan Org
-// that correctly backs a host namespace was mislabeled "vcluster" (UAT rows
-// 9-12, dep 91dc05917e44d1c1). The BACKING was always right — only the label
-// ignored the tier.
-func isolationForTier(kind, planSlug string) string {
-	if strings.ToLower(strings.TrimSpace(kind)) == "internal" {
-		return "namespace"
-	}
+// Before #4539 the label was hardcoded customer→vcluster, so an S-plan Org that
+// correctly backs a host namespace was mislabeled "vcluster" (UAT rows 9-12,
+// dep 91dc05917e44d1c1). The BACKING was always right — only the label ignored
+// the tier.
+//
+// #4539 then added a `kind == "internal" → namespace` short-circuit, and THAT
+// re-opened the same class of lie from the other side (UAT row 100). The gate
+// that AUTHORS the backing —
+// core/controllers/organization/internal/gitops/manifests.go
+// boundaryIsVcluster — takes ONE argument, planSlug; it never reads spec.kind.
+// So an internal Org on plan m/l/xl/flexi had a real vCluster HelmRelease
+// rendered for it while every console surface that calls this helper (the BSS
+// create response and the Organization directory via org_list_from_cr.go)
+// labelled it "namespace". The CRD is explicit that this must not happen —
+// products/catalyst/chart/crds/organization.yaml describes kind as "Customer
+// Orgs (kind=customer) and internal-team Orgs (kind=internal) share the SAME
+// shape and the SAME code path. Difference is the billingMode dimension only."
+//
+// The short-circuit is therefore removed rather than mirrored into the
+// controller: `kind` selects the billing dimension, `planSlug` selects the
+// isolation class, and this helper answers only the second question. It takes
+// exactly the argument the authoritative gate takes, which is what makes the
+// lockstep checkable instead of merely asserted.
+func isolationForTier(planSlug string) string {
 	if allTiersVcluster {
 		return "vcluster"
 	}
@@ -368,13 +382,16 @@ func resolveOrgShape(req orgTenantCreateRequest) orgShape {
 	}
 
 	// Isolation is DERIVED from the #4292 tier gate (host-ns for free/S,
-	// vcluster for M+; internal is always host-ns) so the label reflects the
-	// real backing. An explicit valid request override still wins.
+	// vcluster for M+) so the label reflects the real backing. It keys off
+	// planSlug ALONE, exactly like the org-controller gate that authors that
+	// backing — `kind` selects the billing dimension above, never the boundary
+	// primitive (#4292 / UAT row 100). An explicit valid request override still
+	// wins.
 	isolation := strings.ToLower(strings.TrimSpace(req.Isolation))
 	switch isolation {
 	case "namespace", "vcluster":
 	default:
-		isolation = isolationForTier(kind, planSlug)
+		isolation = isolationForTier(planSlug)
 	}
 
 	tier := strings.ToLower(strings.TrimSpace(req.Tier))

@@ -454,7 +454,25 @@ func (g *ManifestGenerator) GenerateAllWithPassword(slug, planSlug string, appSl
 // kubeConfig, the org-controller's `<slug>` ns IS the boundary). Exported so
 // the provisioning consumer can gate its vcluster-only waits (vcluster-HR
 // Ready / kubeconfig-mirror / synced-pod-name match) on the same predicate.
+// allTiersVcluster is the funnel-side half of the Sovereign-level switch the
+// doc-comment above promises. It MUST hold the same value as the identically
+// named const in core/controllers/organization/internal/gitops/manifests.go
+// and in products/catalyst/bootstrap/api/internal/handler/
+// organization_provisioning.go.
+//
+// It was documented as part of this gate's contract from the start but never
+// actually declared here, so the "flip them together" instruction had nothing
+// to flip in this module: setting the controller-side const to true would have
+// put every free/S Org on a real vCluster while this funnel kept routing the
+// apps tree at the host `<slug>` namespace with no kubeConfig — apps landing
+// outside the boundary the org-controller just authored. The divergence was
+// invisible because at the shipped value (false) all three copies agree.
+const allTiersVcluster = false
+
 func BoundaryIsVcluster(planSlug string) bool {
+	if allTiersVcluster {
+		return true
+	}
 	switch strings.ToLower(strings.TrimSpace(planSlug)) {
 	case "", "s", "free":
 		// free/S → the host `<slug>` ns IS the boundary; apps reconcile there

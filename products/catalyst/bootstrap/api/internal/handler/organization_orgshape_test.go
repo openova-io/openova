@@ -123,28 +123,31 @@ func TestResolveOrgShape(t *testing.T) {
 // single helper both the BSS create path (resolveOrgShape) and the CR read path
 // (orgCRToResponse) call so the displayed isolation label always matches the
 // actual backing the org-controller authors (gitops.boundaryIsVcluster).
+//
+// The `internal M → host-ns` case that used to sit in this table is GONE, and
+// its removal is the point: see TestIsolationForTier_IgnoresKind in
+// tier_gate_lockstep_4292_test.go for why an internal Org on a paid plan is
+// vcluster-backed like any other.
 func TestIsolationForTier(t *testing.T) {
 	tests := []struct {
 		name     string
-		kind     string
 		planSlug string
 		want     string
 	}{
-		{"customer empty plan → host-ns", "customer", "", "namespace"},
-		{"customer S → host-ns", "customer", "s", "namespace"},
-		{"customer free → host-ns", "customer", "free", "namespace"},
-		{"customer M → vcluster", "customer", "m", "vcluster"},
-		{"customer L → vcluster", "customer", "l", "vcluster"},
-		{"customer XL → vcluster", "customer", "xl", "vcluster"},
-		{"customer flexi → vcluster", "customer", "flexi", "vcluster"},
-		{"internal S → host-ns", "internal", "s", "namespace"},
-		{"internal M → host-ns (department never gets a vcluster)", "internal", "m", "namespace"},
-		{"case-insensitive customer M → vcluster", "Customer", "M", "vcluster"},
+		{"empty plan → host-ns", "", "namespace"},
+		{"S → host-ns", "s", "namespace"},
+		{"free → host-ns", "free", "namespace"},
+		{"M → vcluster", "m", "vcluster"},
+		{"L → vcluster", "l", "vcluster"},
+		{"XL → vcluster", "xl", "vcluster"},
+		{"flexi → vcluster", "flexi", "vcluster"},
+		{"case-insensitive M → vcluster", "M", "vcluster"},
+		{"whitespace tolerated", "  m  ", "vcluster"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := isolationForTier(tc.kind, tc.planSlug); got != tc.want {
-				t.Fatalf("isolationForTier(%q, %q) = %q, want %q", tc.kind, tc.planSlug, got, tc.want)
+			if got := isolationForTier(tc.planSlug); got != tc.want {
+				t.Fatalf("isolationForTier(%q) = %q, want %q", tc.planSlug, got, tc.want)
 			}
 		})
 	}
