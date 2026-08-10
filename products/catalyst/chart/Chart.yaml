@@ -3764,7 +3764,7 @@ name: bp-catalyst-platform
 #   Sovereign would keep installing cutover 0.1.176 while the seed in git
 #   claimed 0.1.177 — check-umbrella-republish-gate.py (#5734). Lockstep w/
 #   slot-13 pin.
-version: 1.4.1338
+version: 1.4.1339
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
@@ -3919,7 +3919,7 @@ version: 1.4.1338
 # scripts/check-chart-version-forward.sh (#5743) fails unless the two match —
 # main was carrying a pre-existing 1.4.1330/1.4.1329 split, so this bump heals
 # it in the same commit, exactly as the documented self-heal contract does.
-appVersion: 1.4.1338
+appVersion: 1.4.1339
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
