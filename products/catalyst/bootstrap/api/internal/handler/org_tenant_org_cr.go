@@ -133,13 +133,32 @@ func (h *Handler) createOrgOrganizationCR(ctx context.Context, rec store.Organiz
 // stale artifact transiently re-applies is pruned on the next source fetch,
 // and the cascade itself removes the per-Org Flux sources.
 //
-// Best-effort like the sibling teardown steps, but a failure is logged at
-// Error level (a silent skip IS the #5426 bug): the CR survives, so
-// re-running the DELETE — every step of which is idempotent — retries the
-// cascade trigger. NotFound is success (kubectl-side delete or a prior
-// DELETE already triggered / completed the cascade). Nil-tolerant on the
-// dynamic client for CI / out-of-cluster, matching createOrgOrganizationCR.
-func (h *Handler) deleteOrgOrganizationCR(ctx context.Context, rec store.OrganizationProvisionRecord) {
+// RETURNS THE APISERVER FAILURE — it is NOT best-effort like the sibling
+// teardown steps (#5426 second half). This function used to be `void`: it
+// logged the apiserver error at Error level and returned, and the caller
+// then wrote 204 No Content. On hw293 (2026-08-10) that produced a DELETE
+// which reported success while the CR kept deletionTimestamp: null and its
+// finalizer, and the namespace + vcluster StatefulSet came BACK 138s later
+// under a new uid. A permission error reported as success is a lie the
+// caller cannot detect — the console, a script and a User all read 204 as
+// "deleted" — and that is precisely what let the missing RBAC verb sit
+// undiscovered. The log line was there the whole time and nobody was
+// looking at it, because the status code said everything was fine.
+//
+// Contract:
+//   - invalid slug  -> nil. createOrgOrganizationCR never minted a CR for
+//     it, so there is genuinely nothing to cascade.
+//   - no dyn client -> nil. CI / out-of-cluster; there is no apiserver to
+//     refuse anything, matching createOrgOrganizationCR.
+//   - NotFound      -> nil. Idempotent success: a kubectl-side delete or a
+//     prior DELETE already triggered / completed the cascade.
+//   - anything else -> the error, unwrapped, so the caller can classify it
+//     (apierrors.IsForbidden etc.) and surface it verbatim.
+//
+// The DELETE endpoint is idempotent end-to-end, so the honest failure the
+// caller now receives is directly actionable: fix the grant, re-issue the
+// same DELETE.
+func (h *Handler) deleteOrgOrganizationCR(ctx context.Context, rec store.OrganizationProvisionRecord) error {
 	slug := strings.ToLower(strings.TrimSpace(rec.Subdomain))
 	if !orgSlugRE.MatchString(slug) {
 		// createOrgOrganizationCR never mints a CR for an invalid slug, so
@@ -148,27 +167,28 @@ func (h *Handler) deleteOrgOrganizationCR(ctx context.Context, rec store.Organiz
 			"subdomain", rec.Subdomain,
 			"org_tenant_id", rec.OrganizationID,
 		)
-		return
+		return nil
 	}
 
 	deps, err := h.sovereignDepsFor()
 	if err != nil || deps == nil || deps.dyn == nil {
 		h.log.Info("org-tenant: Organization CR delete skipped — no in-cluster dynamic client",
 			"org_tenant_id", rec.OrganizationID, "err", err)
-		return
+		return nil
 	}
 
 	if err := deps.dyn.Resource(organizationGVR()).Delete(ctx, slug, metav1.DeleteOptions{}); err != nil {
 		if apierrors.IsNotFound(err) {
 			// Already gone — idempotent success.
-			return
+			return nil
 		}
 		h.log.Error("org-tenant: Organization CR delete FAILED — finalizer cascade NOT triggered; namespace/vCluster/realm/Flux sources leak until this DELETE is retried (#5426)",
 			"slug", slug, "org_tenant_id", rec.OrganizationID, "err", err)
-		return
+		return err
 	}
 	h.log.Info("org-tenant: Organization CR deleted — org-controller finalizer cascade triggered",
 		"slug", slug, "org_tenant_id", rec.OrganizationID)
+	return nil
 }
 
 // ensureOrganizationCR builds the Organization CR from the Organization record
