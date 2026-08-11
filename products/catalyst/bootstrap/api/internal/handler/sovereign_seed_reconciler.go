@@ -227,27 +227,115 @@ func (h *Handler) runSeedReconcilePass(ctx context.Context) {
 	}
 }
 
-// reconcileGlobalSeed checks one Sovereign-global OpenBao path and invokes its
-// producing seed only when the path is absent / its expected property empty.
-// A transport error on the read is logged and the seed is skipped this pass (an
-// OpenBao blip would fail the write too) — the next tick retries.
-func (h *Handler) reconcileGlobalSeed(ctx context.Context, label, mount, path string, props []string, seed func()) {
+// SeedHealOutcome — the VERIFIED result of one reconcileGlobalSeed attempt.
+//
+// Every value except SeedHealUnverified is backed by a read of the OpenBao path
+// performed AFTER the seed ran. That is the whole point of the type: the
+// reconciler is not allowed to report an outcome it did not observe (#4277).
+type SeedHealOutcome string
+
+const (
+	// SeedHealHealthy — the path already held a non-empty expected property on
+	// entry. Nothing was written, nothing was logged (no churn, no noise).
+	SeedHealHealthy SeedHealOutcome = "healthy"
+	// SeedHealHealed — the path was absent/hollow on entry and a re-read AFTER
+	// the seed shows it now holds a value. The only outcome that may be
+	// described as a heal.
+	SeedHealHealed SeedHealOutcome = "healed"
+	// SeedHealUnhealed — the path was absent/hollow on entry and is STILL
+	// absent/hollow after the seed ran: the producer could not produce (its
+	// source credential is unset, revoked, or its write failed). This is the
+	// #4277 live state and it is reported LOUDLY.
+	SeedHealUnhealed SeedHealOutcome = "unhealed"
+	// SeedHealUnverified — a transport error on the read left the pass with no
+	// evidence either way. Never reported as healed; the next tick retries.
+	SeedHealUnverified SeedHealOutcome = "unverified"
+)
+
+// seedRemediation maps a reconcileGlobalSeed label to the ONE concrete action
+// that closes its gap. It is carried on the unhealed error so the line an
+// sovereign-admin actually finds in the log tells them what to populate rather
+// than only that something is wrong.
+//
+// Per docs/PRINCIPLES.md #10 these name the ENV VAR and the Secret to fill —
+// never a credential value.
+var seedRemediation = map[string]string{
+	"anthropic": "set CATALYST_ANTHROPIC_CREDENTIALS_JSON (and optionally CATALYST_ANTHROPIC_API_KEY) on catalyst-api " +
+		"— chart values sovereign.anthropic.*, or the operator-rotatable Secret catalyst-system/sovereign-anthropic-credentials (#4277). " +
+		"Until then every Organization's agenity-anthropic-token ExternalSecret stays SecretSyncedError and no Agenity workspace agent can authenticate.",
+	"newapi-admin-token": "NewAPI's bridge Secret has not rendered its ADMIN_SECRET yet — check the bp-newapi HelmRelease (#4477). " +
+		"Until then the catalyst-newapi-admin-token ExternalSecret stays SecretSyncedError and unified-rbac's admin-API calls 401.",
+}
+
+// reconcileGlobalSeed checks one Sovereign-global OpenBao path, invokes its
+// producing seed when the path is absent / its expected property empty, and
+// then RE-READS the path to establish whether the heal actually happened.
+//
+// Why the re-read (#4277). This function used to log
+//
+//	"[SEED-RECONCILE] OpenBao path absent — self-healing (#4877)"
+//
+// and then call seed() and return. That line announces an outcome the function
+// never observed. Every producer it drives is deliberately non-fatal — each one
+// folds a missing prerequisite into a logged skip and returns normally — so
+// "self-healing" was emitted identically whether the write landed or the
+// producer did nothing at all. On a Sovereign holding no Anthropic credential
+// that is exactly what happened: the same reassuring INFO line every 10 minutes
+// for the life of the cluster, while `secret/catalyst/anthropic/token` stayed
+// absent and every Organization's agenity ExternalSecret stayed
+// SecretSyncedError. The gap was not unreported — it was reported as progress.
+//
+// A verdict now requires positive evidence: the pass says "healed" only after
+// reading the value back, and says so LOUDLY, with the remediation, when the
+// path is still empty. A transport error yields SeedHealUnverified rather than
+// either verdict.
+//
+// Returns the outcome so a caller/test can assert on a value instead of on log
+// text. Callers may ignore it — the loud line is the operator-facing surface.
+func (h *Handler) reconcileGlobalSeed(ctx context.Context, label, mount, path string, props []string, seed func()) SeedHealOutcome {
 	present, err := h.openbaoPathHasProperty(ctx, mount, path, props...)
 	if err != nil {
 		if h.log != nil {
 			h.log.Warn("[SEED-RECONCILE] presence check failed; skipping this pass — retry next tick",
 				"seed", label, "err", err)
 		}
-		return
+		return SeedHealUnverified
 	}
 	if present {
-		return // healthy — no churn.
+		return SeedHealHealthy // healthy — no churn.
 	}
 	if h.log != nil {
-		h.log.Info("[SEED-RECONCILE] OpenBao path absent — self-healing (#4877)",
+		// Deliberately phrased as an ATTEMPT. The verdict is below, after the
+		// re-read; this line must never be mistakable for a completed heal.
+		h.log.Info("[SEED-RECONCILE] OpenBao path absent — attempting self-heal (#4877)",
 			"seed", label, "openbaoPath", mount+"/"+path)
 	}
 	seed()
+
+	healed, verr := h.openbaoPathHasProperty(ctx, mount, path, props...)
+	if verr != nil {
+		if h.log != nil {
+			h.log.Warn("[SEED-RECONCILE] self-heal verification read failed — outcome UNKNOWN this pass, retry next tick",
+				"seed", label, "openbaoPath", mount+"/"+path, "err", verr)
+		}
+		return SeedHealUnverified
+	}
+	if healed {
+		if h.log != nil {
+			h.log.Info("[SEED-RECONCILE] self-heal complete — path verified non-empty by read-back",
+				"seed", label, "openbaoPath", mount+"/"+path)
+		}
+		return SeedHealHealed
+	}
+	if h.log != nil {
+		h.log.Error("[SEED-RECONCILE] 🛑 self-heal did NOT take — the OpenBao path is STILL empty after the producer ran; every ExternalSecret reading it stays SecretSyncedError (#4277)",
+			"seed", label,
+			"openbaoPath", mount+"/"+path,
+			"expectedProperties", strings.Join(props, ","),
+			"remediation", seedRemediation[label],
+		)
+	}
+	return SeedHealUnhealed
 }
 
 // openbaoPathHasProperty reports whether the KV-v2 path exists AND at least one
