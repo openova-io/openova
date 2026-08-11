@@ -226,4 +226,90 @@ if sa is None or "organization" not in sa.get("name", ""):
 PY
 echo "  PASS (Role grants secrets get+delete in kube-system, bound to the org-controller SA, with no write verbs)"
 
+echo "[org-region-witness] Case 6: the CLUSTER-WIDE ClusterRole must still WITHHOLD delete on secrets (#6092)"
+# Case 5 asserts the grant EXISTS. This asserts it exists in the RIGHT PLACE,
+# which is the half nothing held until now.
+#
+# RBAC rules merge additively across every Role and ClusterRole bound to a
+# subject, so `delete` added to the cluster-wide secrets rule in
+# organization-controller-clusterrole.yaml satisfies the teardown EXACTLY as
+# well as the namespaced Role does — the Organization stops hanging Terminating
+# either way, the live symptom clears, and Case 5 above stays green because it
+# only ever reads the Role. The difference is invisible to every functional
+# test and is the entire security argument: the cluster-wide rule is
+# `get,list,watch` because controller-runtime's Secret cache is cluster-scoped
+# and READ access has to be, while `delete` there would let this controller
+# remove ANY Secret in the cluster — Keycloak's DB credential, the CNPG
+# superuser, every per-Org wildcard including the five it does not own — to
+# clean up the one it does.
+#
+# This is not hypothetical. PR #6096 proposed exactly that widening, in good
+# faith, with a live-measured root cause and its own passing render gate, and
+# nothing in CI could have told it apart from the namespaced fix that shipped.
+# A gate that only checks "can the teardown delete its Secret" ratifies both.
+#
+# Verified against the delivered artifact rather than trusted from the template:
+# hw293 dep a0077ba47e3720e5, region A, bp-catalyst-platform 1.4.1366, SA
+# system:serviceaccount:catalyst-system:catalyst-organization-controller —
+#   kubectl auth can-i delete secrets -n kube-system       -> yes
+#   kubectl auth can-i delete secrets -n catalyst-system   -> no
+#   kubectl auth can-i delete secrets -n default           -> no
+#   kubectl auth can-i delete secrets -n flux-system       -> no
+# Case 5 pins the `yes`; this pins the three `no`s.
+CR_TEMPLATE="templates/controllers/organization-controller-clusterrole.yaml"
+helm template smoke-rbac . \
+  --set global.sovereignFQDN=hw293.omantel.biz \
+  --show-only "$CR_TEMPLATE" > "$TMP/clusterrole.yaml"
+
+python3 - "$TMP/clusterrole.yaml" <<'PY'
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+cr = next((d for d in docs if d.get("kind") == "ClusterRole"), None)
+if cr is None:
+    sys.exit(f"FAIL: expected a ClusterRole, got kinds {[d.get('kind') for d in docs]} (#6092)")
+
+rules = cr.get("rules") or []
+# Vacuity check. Every assertion below is of the form "verb X is ABSENT", which
+# a render that produced no rules — or rules this parser failed to reach —
+# satisfies trivially. Nothing here may pass on an empty document.
+if len(rules) < 10:
+    sys.exit(f"FAIL: rendered ClusterRole has {len(rules)} rules — the render looks truncated and every "
+             "absence assertion below would pass on nothing (#6092)")
+
+# The effective UNION on core/secrets, across ALL rules and honouring wildcards,
+# because a source grep of the one obvious block is not evidence: a second rule
+# granting apiGroups ["*"]/resources ["*"] widens the SA just as completely.
+verbs = set()
+for r in rules:
+    groups = r.get("apiGroups") or []
+    resources = r.get("resources") or []
+    if "" not in groups and "*" not in groups:
+        continue
+    if "secrets" not in resources and "*" not in resources:
+        continue
+    verbs |= set(r.get("verbs") or [])
+
+# Positive half — the reads this SA genuinely needs must still be here, so a
+# "fix" that satisfied this gate by deleting the secrets rule outright fails.
+missing = {"get", "list", "watch"} - verbs
+if missing:
+    sys.exit(f"FAIL: the ClusterRole no longer grants secrets {sorted(missing)}. The federation "
+             "clientSecretRef read (#1098) and controller-runtime's cluster-scoped Secret cache both "
+             "need them — this gate must not be satisfiable by removing the rule (#6092)")
+
+widened = verbs & {"delete", "create", "update", "patch", "deletecollection", "*"}
+if widened:
+    sys.exit(
+        f"FAIL: the cluster-wide secrets rule grants {sorted(widened)}.\n"
+        "       The per-Org wildcard TLS Secret teardown is served by the NAMESPACED Role in\n"
+        "       templates/controllers/organization-controller-console-tls-secret-role.yaml\n"
+        "       (Case 5), scoped to the single namespace that Secret is issued into.\n"
+        "       A cluster-wide write verb here lets the organization-controller mutate EVERY\n"
+        "       Secret on the Sovereign to clean up its own, and no functional test can tell\n"
+        "       the two fixes apart — both stop the Organization hanging Terminating (#6092)."
+    )
+print(f"  effective cluster-wide verbs on core/secrets: {sorted(verbs)}")
+PY
+echo "  PASS (cluster-wide secrets stay read-only; the delete lives only in the namespaced Role)"
+
 echo "[org-region-witness] All gates green."
