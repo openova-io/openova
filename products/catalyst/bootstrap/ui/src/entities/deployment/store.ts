@@ -10,6 +10,8 @@ import {
   type TopologyTemplate,
   type ProvisionResult,
   type MarketplaceBrand,
+  RETIRED_ORG_DEFAULTS_5401,
+  WIZARD_PERSIST_VERSION,
 } from './model'
 import { parseDeploymentID } from '@/shared/types/deployment'
 import {
@@ -701,6 +703,54 @@ export const useWizardStore = create<WizardStore>()(
       }),
       {
         name: 'openova-catalyst-wizard',
+        version: WIZARD_PERSIST_VERSION,
+        /**
+         * #5401 / UAT rows W1 + W2 — retire the fabricated ORG_DEFAULTS from
+         * payloads written by the pre-fix bundle.
+         *
+         * Emptying ORG_DEFAULTS in model.ts only changes INITIAL_WIZARD_STATE.
+         * `merge()` below returns `{ ...current, ...persisted }`, so a payload
+         * from the old bundle overrides that fix and re-seeds
+         * `orgName: 'Acme Financial'` (W1) and
+         * `orgHeadquarters: 'Frankfurt, Germany'` (W2) on every returning
+         * operator's browser. Without this migration the fix is only visible on
+         * a browser profile that has never run the wizard.
+         *
+         * VALUE-MATCHED, not a blanket wipe: a field is dropped only when it is
+         * still verbatim-identical to the retired default, so an operator who
+         * had already typed their own identity keeps it.
+         *
+         * Deleting the key (rather than writing '') is deliberate — `merge()`
+         * spreads the persisted payload OVER `current`, so an absent key lets
+         * INITIAL_WIZARD_STATE's empty value win, while an explicit '' would
+         * work only by coincidence of the two being equal today.
+         */
+        migrate: (persisted, fromVersion) => {
+          const p = { ...(persisted as Partial<WizardState>) } as Record<string, unknown>
+          // `fromVersion` is `undefined` for payloads written before this
+          // option existed — zustand persists no `version` key at all then.
+          if (fromVersion == null || fromVersion < 1) {
+            let hqWasFabricated = false
+            for (const [key, retired] of Object.entries(RETIRED_ORG_DEFAULTS_5401)) {
+              if (p[key] === retired) {
+                if (key === 'orgHeadquarters') hqWasFabricated = true
+                delete p[key]
+              }
+            }
+            // The DERIVATION is as much a fabricated value as its input.
+            // StepProvider's first-visit effect early-returns when
+            // regionProviders is already populated, so a provider/region set
+            // derived from 'Frankfurt, Germany' would be frozen in and never
+            // recomputed against the operator's real HQ. Drop it so the step
+            // re-derives once they state who they actually are.
+            if (hqWasFabricated) {
+              delete p.provider
+              delete p.regionProviders
+              delete p.regionCloudRegions
+            }
+          }
+          return p as unknown as WizardState
+        },
         // Per credential hygiene (docs/INVIOLABLE-PRINCIPLES.md #10), the
         // private key from /api/v1/sshkey/generate is held in memory ONLY
         // for the duration of the StepCredentials view. We strip it from
