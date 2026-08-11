@@ -557,10 +557,28 @@ images:
     tag: "32dac80"
   catalystUi:
     tag: "32dac80"
+  # 2026-08-11 (#5451): marketplaceApi / console / admin were ALL frozen at
+  # "3c2f7e4" (2026-04-28) for three and a half months. Their build workflows
+  # sed-ed the `image:` line of their chart template; 83ec889f0 (PR #580,
+  # 2026-05-02) turned those lines into Helm expressions and moved the mutable
+  # SHA here, so the seds matched zero lines, exited 0, deploy-bump pushed an
+  # empty diff, and every run reported success. GHCR proves only the DEPLOY leg
+  # was dead — console:ea10f7d was published 2026-07-27, admin:06ea9d4 on
+  # 2026-08-02, marketplace-api:0d9531a on 2026-07-09.
+  #
+  # Live consequence on hw293 (dep a0077ba47e3720e5): org-services/console ran
+  # console:3c2f7e4 with NINE merged per-Organization console commits
+  # undeployed, so every "the fix is merged" reading of an org-console defect
+  # was a false green for that whole window.
+  #
+  # These three pins are now written by scripts/bump-values-image-tag.sh, which
+  # fails closed if the field is reshaped and asserts the write landed.
+  # scripts/check-image-pin-writer-targets.sh gates the writer→pin coupling and
+  # scripts/check-controller-image-tag-freshness.sh now covers these pins too.
   marketplaceApi:
-    tag: "3c2f7e4"
+    tag: "0d9531a"
   console:
-    tag: "3c2f7e4"
+    tag: "ea10f7d"
   # Admin pod has a separate tag from the orgTag bundle because the admin
   # image build is decoupled from the Organization microservices CI run — when
   # orgTag is bumped, admin may not have published for that SHA. Caught
@@ -569,7 +587,7 @@ images:
   # Organization services did). Default to a known-published tag; bump in lockstep
   # with marketplaceApi/console when admin's UI changes.
   admin:
-    tag: "3c2f7e4"
+    tag: "06ea9d4"
   # All 10 Organization microservices share one SHA tag (built from the same mono-repo commit).
   # 2026-06-09: 41e02c8 → c96f998 (#3157 merge SHA). 41e02c8 (built 2026-06-05)
   # predates the #3157 marketplace-plans fix, so services-catalog:41e02c8 lacks

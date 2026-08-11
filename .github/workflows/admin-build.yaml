@@ -52,13 +52,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Update deployment manifest
+      - name: Bump images.admin.tag in values.yaml
+        # #5451: identical break to console-build.yaml. 83ec889f0 (PR #580)
+        # templated org-services/admin.yaml's `image:` line and moved the SHA
+        # into values.yaml `images.admin.tag`; the sed here matched nothing,
+        # exited 0, and froze the pin at 3c2f7e4 (2026-04-28) while GHCR went
+        # on receiving builds (latest admin:06ea9d4, 2026-08-02). hw293 ran
+        # admin:3c2f7e4.
+        #
+        # Note the chart renders this pin as
+        # `default .Values.images.orgTag .Values.images.admin.tag` — admin is
+        # decoupled from the orgTag bundle on purpose (t132 2026-05-16
+        # ImagePullBackOff on admin:b0ed216, an orgTag SHA admin never
+        # published). That fallback is what made the freeze survivable rather
+        # than loud, and is exactly why the pin needs its own working writer.
+        env:
+          SHA_SHORT: ${{ needs.build.outputs.sha_short }}
         run: |
-          SHA=$(echo $GITHUB_SHA | head -c 7)
-          FILE="products/catalyst/chart/templates/org-services/admin.yaml"
-          if [ -f "$FILE" ]; then
-            sed -i "s|image: ${IMAGE}:.*|image: ${IMAGE}:${SHA}|" "$FILE"
-          fi
+          bash scripts/bump-values-image-tag.sh \
+            products/catalyst/chart/values.yaml admin "${SHA_SHORT}"
 
       # TBD-V32 / openova-io/openova#2062 — race-safe push via the shared
       # composite action. The previous 3-attempt inline loop omitted
@@ -67,5 +79,5 @@ jobs:
       - name: Commit and push
         uses: ./.github/actions/deploy-bump
         with:
-          paths: products/catalyst/chart/templates/org-services/admin.yaml
+          paths: products/catalyst/chart/values.yaml
           commit-message: "deploy: update Catalyst admin image to ${{ needs.build.outputs.sha_short }}"

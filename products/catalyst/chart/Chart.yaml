@@ -3855,7 +3855,26 @@ name: bp-catalyst-platform
 #   hop); Case 18 proves the policy can actually be absent.
 #   Egress half in bp-keycloak 1.5.9. Neither half alone restores a brokered
 #   login. Lockstep w/ slot-13 pin.
-version: 1.4.1390
+# 1.4.1391 — #5451: images.console / images.admin / images.marketplaceApi
+#   unfreeze. All three sat at "3c2f7e4" (2026-04-28) for three and a half
+#   months because console-build.yaml / admin-build.yaml /
+#   marketplace-api-build.yaml sed the `image:` line of their chart template,
+#   and 83ec889f0 (PR #580, 2026-05-02) had turned those lines into Helm
+#   expressions and moved the SHA into values.yaml. The seds matched zero
+#   lines, `sed -i` exited 0, deploy-bump pushed an empty diff, and every run
+#   was green. Only the DEPLOY leg was dead: GHCR received console:ea10f7d on
+#   2026-07-27 (the #5452 NOT-SERVING badge), admin:06ea9d4 on 2026-08-02 and
+#   marketplace-api:0d9531a on 2026-07-09. Measured on hw293
+#   (dep a0077ba47e3720e5) 2026-08-11: org-services/console ran
+#   ghcr.io/openova-io/openova/console:3c2f7e4, with nine merged
+#   per-Organization console commits undeployed — so every "the fix is merged"
+#   reading of an org-console defect had been a false green for that window.
+#   The pins now advance through scripts/bump-values-image-tag.sh (fail-closed,
+#   post-condition asserted) and are gated by
+#   scripts/check-image-pin-writer-targets.sh plus the extended
+#   scripts/check-controller-image-tag-freshness.sh. Chart version bump is what
+#   actually delivers the three new tags, so it is the load-bearing half.
+version: 1.4.1391
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
@@ -4010,7 +4029,7 @@ version: 1.4.1390
 # scripts/check-chart-version-forward.sh (#5743) fails unless the two match —
 # main was carrying a pre-existing 1.4.1330/1.4.1329 split, so this bump heals
 # it in the same commit, exactly as the documented self-heal contract does.
-appVersion: 1.4.1390
+appVersion: 1.4.1391
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
