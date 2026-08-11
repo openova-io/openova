@@ -86,16 +86,21 @@ jobs:
       # rule and not merely on being per-Org routes.
       - name: listener pass must be able to fail
         run: |
-          cp scripts/check-live-route-backends.sh /tmp/mutant-listener.sh
+          # `listener_admits` moved to scripts/lib/gateway_route_admission.py
+          # (#6140), shared with the source-side guard. The guard resolves that
+          # module relative to its OWN path, so the mutation copies the whole
+          # scripts/ tree and regresses the module inside the copy — mutating a
+          # lone .sh would leave the real module imported and prove nothing.
+          rm -rf /tmp/mutant-listener && cp -r scripts /tmp/mutant-listener
           python3 - <<'PY'
-          p = "/tmp/mutant-listener.sh"
+          p = "/tmp/mutant-listener/lib/gateway_route_admission.py"
           s = open(p).read()
-          old = '    if lh.startswith("*."):\n        suffix = lh[1:]'
-          new = '    if lh.startswith("*."):\n        return True\n        suffix = lh[1:]'
+          old = '    if listener_hostname.startswith("*."):\n        suffix = listener_hostname[1:]'
+          new = '    if listener_hostname.startswith("*."):\n        return True\n        suffix = listener_hostname[1:]'
           assert old in s, "mutation anchor not found — update this step"
           open(p, "w").write(s.replace(old, new, 1))
           PY
-          if bash /tmp/mutant-listener.sh --self-test >/tmp/mutant-listener.out 2>&1; then
+          if bash /tmp/mutant-listener/check-live-route-backends.sh --self-test >/tmp/mutant-listener.out 2>&1; then
             echo "VACUITY FAIL: the self-test passed against a classifier whose"
             echo "wildcard listener admits every hostname. A route nothing listens"
             echo "for is a TLS reset, not a 503 — no status-code probe can see it."

@@ -460,16 +460,28 @@ ORG2_PARENT="omani.trade"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/route-listener.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
-# prep_chart <chart-dir> — a throwaway copy with `dependencies:` removed.
+# prep_chart <chart-dir> — a throwaway copy that renders the chart's OWN
+# templates and nothing else.
 #
 # 67 charts in this repo declare external Helm dependencies that only resolve
 # with network access, so a plain `helm template` cannot run offline in CI.
 # Every HTTPRoute in this repo is rendered by its chart's OWN templates/, never
-# by a subchart, so dropping the dependency block renders exactly the objects
-# this guard is about — and keeps the guard runnable with no registry.
+# by a subchart, so dropping the dependencies renders exactly the objects this
+# guard is about — and keeps it runnable with no registry.
+#
+# BOTH the `dependencies:` block AND any vendored `charts/` + `Chart.lock` are
+# removed, and that second half is not belt-and-braces. A clean CI checkout has
+# no `charts/` directory, but a developer who has ever run `helm dependency
+# build` or `helm lint` locally does — and then the subcharts render, the guard
+# sees a completely different document set, and it can even crash on upstream
+# YAML this repo does not own (bitnami's harbor redis StatefulSet carries a
+# literal tab, which pyyaml refuses outright). A guard whose verdict depends on
+# whether someone once ran a helm command is not a guard, so the copy is
+# normalised to parent-only every time.
 prep_chart() {
   local chart="$1" dst="$WORK/$(printf '%s' "$1" | tr '/' '_')"
   rm -rf "$dst"; mkdir -p "$dst"; cp -r "$chart/." "$dst/"
+  rm -rf "$dst/charts" "$dst/Chart.lock"
   python3 - "$dst/Chart.yaml" <<'PY'
 import sys, re
 p = sys.argv[1]; out, skip = [], False
@@ -571,10 +583,22 @@ orgs    = json.loads(sys.argv[4])       # [{"slug","parent"}]
 extra   = json.loads(sys.argv[5])       # extra routes injected by --vacuity
 
 def docs(path):
-    with open(path) as fh:
-        for d in yaml.safe_load_all(fh):
-            if isinstance(d, dict) and d.get("kind"):
-                yield d
+    """Every k8s object in a rendered file.
+
+    A render this cannot parse is a SETUP ERROR (exit 2), never a correspondence
+    verdict. Letting the YAML exception escape would exit 1, which reads as
+    "a hostname has no listener" — a wrong answer dressed as a real one.
+    """
+    try:
+        with open(path) as fh:
+            loaded = list(yaml.safe_load_all(fh))
+    except yaml.YAMLError as e:
+        print("SETUP ERROR: cannot parse the render %s:\n    %s"
+              % (path, str(e).replace("\n", "\n    ")), file=sys.stderr)
+        sys.exit(2)
+    for d in loaded:
+        if isinstance(d, dict) and d.get("kind"):
+            yield d
 
 # ── 1. Listeners, out of the ConfigMap the producer chart renders ───────────
 cm = None

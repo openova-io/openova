@@ -163,3 +163,43 @@ jobs:
       # fails if the guard passes, and equally if it fails for another reason.
       - name: the guard must be able to fail
         run: bash scripts/check-chart-route-listener-correspondence.sh --vacuity
+
+      # VACUITY on the SHARED admission module. scripts/lib/
+      # gateway_route_admission.py is now imported by this guard AND by
+      # check-live-route-backends.sh, so a regression there would weaken both
+      # at once. Regress it to the belief that makes the whole class invisible
+      # — "a wildcard listener admits everything" — and require this guard's
+      # fixtures to go RED. Its sibling workflow runs the same mutation against
+      # the live guard, so the shared rule is pinned from both consumers.
+      - name: the shared admission module must be able to fail
+        run: |
+          rm -rf /tmp/mutant-shared && cp -r scripts /tmp/mutant-shared
+          python3 - <<'PY'
+          p = "/tmp/mutant-shared/lib/gateway_route_admission.py"
+          s = open(p).read()
+          old = '    if listener_hostname.startswith("*."):\n        suffix = listener_hostname[1:]'
+          new = '    if listener_hostname.startswith("*."):\n        return True\n        suffix = listener_hostname[1:]'
+          assert old in s, "mutation anchor not found — update this step"
+          open(p, "w").write(s.replace(old, new, 1))
+          PY
+          if bash /tmp/mutant-shared/check-chart-route-listener-correspondence.sh \
+               --root "$PWD" --self-test >/tmp/mutant-shared.out 2>&1; then
+            echo "VACUITY FAIL: the fixtures passed against a module whose wildcard"
+            echo "listener admits every hostname. A hostname no listener admits is a"
+            echo "TLS reset, not a 503 — no status-code probe can see it."
+            cat /tmp/mutant-shared.out
+            exit 1
+          fi
+          # The CONTROLS that share the suspect property must stay green in the
+          # mutant, or the red cannot be attributed to the wildcard rule.
+          for ctl in 'ok  marketplace host admitted by the CONSOLE gateway' \
+                     'ok  the same mcp host on the SHARED gateway'; do
+            grep -qF "$ctl" /tmp/mutant-shared.out || {
+              echo "CONTROL FAIL: '$ctl' went red under the mutation, so the failing"
+              echo "fixtures cannot be attributed to the wildcard rule."
+              cat /tmp/mutant-shared.out
+              exit 1
+            }
+          done
+          echo "OK: mutation caught, both controls stayed green. Failing assertion:"
+          grep -m1 'FAIL:' /tmp/mutant-shared.out
