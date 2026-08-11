@@ -251,27 +251,85 @@ func (h *Handler) exportSecondaryKubeconfigsToChild(dep *Deployment, fqdn, depID
 	wg.Wait()
 }
 
-// waitForSecondaryKubeconfig polls for the kubeconfig file at path to
-// appear (and be non-empty) within budget. Returns (bytes, true) on
-// success, (nil, false) on timeout. Emits a single
+// waitForSecondaryKubeconfig polls for the kubeconfig file at path to appear
+// AND to describe a cluster a client can be built from, within budget. Returns
+// (bytes, true) on success, (nil, false) on timeout. Emits a single
 // `d16-export: waiting on secondary kubeconfig` log every 30s so the
 // catalyst-api journal shows progress instead of going silent.
+//
+// PRESENCE IS NOT USABILITY (#6015). The gate here used to be `len(raw) > 0`,
+// and that is how hw293 (dep a0077ba47e3720e5) ended up with the mothership
+// holding a COMPLETE 2959-byte region-B kubeconfig while the only document
+// ever forwarded to the Sovereign was a 95-byte credential-less shell — no
+// contexts, no users, no CA data.
+//
+// Both facts are true at once because this function read the file once, read
+// it too early, and judged it on length. There are two ways a non-usable
+// document can be sitting at that path when the poll fires, and the repo
+// contains both:
+//
+//   - a TRUNCATED UPLOAD. HandleKubeconfigPUT persists whatever body it
+//     receives with writeFileAtomic0600, gated only on len(body) != 0, so a
+//     secondary CP that uploads a partial k3s kubeconfig lands an atomic,
+//     complete file of 95 bytes. Atomicity guarantees no torn READ; it
+//     guarantees nothing about whether the bytes describe a cluster.
+//   - a TORN WRITE. HandleSovereignSecondaryKubeconfig writes the same
+//     `<depID>-<regionKey>.yaml` names into this very directory with a plain
+//     os.WriteFile, which truncates before it writes, and its route is
+//     registered unconditionally in cmd/api/main.go.
+//
+// Which one produced the hw293 artefact is not decidable from here, and the
+// fix does not depend on the answer: a document that cannot build a client is
+// refused whichever way it arrived.
+//
+// What made it PERMANENT is this function. The old check saw non-empty and
+// returned, the caller captured those bytes, and when the complete document
+// later occupied the path nothing re-read it: the export is one-shot per
+// handover, and postSecondaryKubeconfigWithRetry retries the TRANSPORT with
+// the same captured body. Both of the Sovereign's 422 rejections (#6054)
+// carried the identical stale stub, and a 4xx ends the retry policy, so region
+// B was left permanently credential-less.
+//
+// So the wait is now for a document that PASSES the same usability contract
+// the receiving end enforces — secondaryKubeconfigDefects, which binds to
+// clientcmd, the parser k8scache.AddCluster itself uses. A region whose file
+// is present but unusable keeps polling, which is exactly what lets the
+// complete retry PUT be picked up. Deliberately NOT a byte-length heuristic:
+// a padded credential-less document many times the stub's size is refused, and
+// a shorter complete one is accepted.
+//
+// Per-region by construction: exportSecondaryKubeconfigsToChild fans out one
+// goroutine per region key, each with its own path, so one region's unusable
+// document can neither delay nor displace another's.
 func (h *Handler) waitForSecondaryKubeconfig(path string, budget, poll time.Duration, depID, regionKey string) ([]byte, bool) {
 	deadline := time.Now().Add(budget)
 	logEvery := 30 * time.Second
 	nextLog := time.Now().Add(logEvery)
+	var lastDefects []string
+	lastBytes := 0
 	for {
 		raw, err := os.ReadFile(path)
 		if err == nil && len(raw) > 0 {
-			return raw, true
+			defects := secondaryKubeconfigDefects(string(raw))
+			if len(defects) == 0 {
+				return raw, true
+			}
+			lastDefects, lastBytes = defects, len(raw)
 		}
 		if time.Now().After(deadline) {
+			if len(lastDefects) > 0 {
+				h.log.Error("d16-export: secondary kubeconfig is on disk but cannot produce a client; REFUSING to forward it — the region keeps whatever it already had rather than being overwritten by a credential-less document",
+					"id", depID, "region", regionKey, "path", path,
+					"bytes", lastBytes, "missing", strings.Join(lastDefects, ","),
+				)
+			}
 			return nil, false
 		}
 		if time.Now().After(nextLog) {
 			h.log.Info("d16-export: waiting on secondary kubeconfig PUT-back",
 				"id", depID, "region", regionKey, "path", path,
 				"remaining", time.Until(deadline).Truncate(time.Second).String(),
+				"missing", strings.Join(lastDefects, ","),
 			)
 			nextLog = time.Now().Add(logEvery)
 		}
