@@ -52,18 +52,36 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Update deployment manifest
+      - name: Bump images.console.tag in values.yaml
+        # #5451: this step used to sed the `image:` line of
+        # products/catalyst/chart/templates/org-services/console.yaml. On
+        # 2026-05-02, 83ec889f0 (PR #580, global.imageRegistry) rewrote that
+        # line into a Helm expression and moved the mutable SHA into
+        # values.yaml `images.console.tag`. From that day the sed matched ZERO
+        # lines; `sed -i` with no match exits 0, deploy-bump saw an empty diff,
+        # and this workflow reported success on every run while the pin sat at
+        # 3c2f7e4 (2026-04-28) for three and a half months. GHCR proves the
+        # build leg was fine the whole time — console:ea10f7d (the #5452 fix)
+        # was pushed 2026-07-27 and never pinned. Live on hw293
+        # (dep a0077ba47e3720e5): org-services/console ran April's binary with
+        # nine merged per-Organization console fixes undeployed.
+        #
+        # The shared script is fail-closed on a missing/reshaped field AND
+        # asserts the post-condition (the field re-reads as the new SHA), so a
+        # no-op write can never again be reported as a successful deploy.
+        env:
+          SHA_SHORT: ${{ needs.build.outputs.sha_short }}
         run: |
-          SHA=$(echo $GITHUB_SHA | head -c 7)
-          FILE="products/catalyst/chart/templates/org-services/console.yaml"
-          if [ -f "$FILE" ]; then
-            sed -i "s|image: ${IMAGE}:.*|image: ${IMAGE}:${SHA}|" "$FILE"
-          fi
+          bash scripts/bump-values-image-tag.sh \
+            products/catalyst/chart/values.yaml console "${SHA_SHORT}"
 
       # TBD-V32 / openova-io/openova#2062 — race-safe push via the shared
-      # composite action.
+      # composite action. Its per-line cherry-pick (#4464) merges this
+      # images.console.tag bump cleanly against a concurrent services-build
+      # orgTag or catalyst-build catalystApi.tag bump on the same values.yaml —
+      # each job owns a different line.
       - name: Commit and push
         uses: ./.github/actions/deploy-bump
         with:
-          paths: products/catalyst/chart/templates/org-services/console.yaml
+          paths: products/catalyst/chart/values.yaml
           commit-message: "deploy: update Catalyst console image to ${{ needs.build.outputs.sha_short }}"

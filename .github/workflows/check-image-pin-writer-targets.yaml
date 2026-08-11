@@ -1,0 +1,79 @@
+name: Image-pin writer-target guard
+
+# Refs #5451. A build workflow only moves a chart pin if the file it MUTATES
+# is the file the pin LIVES IN. On 2026-05-02, 83ec889f0 (PR #580) templated
+# products/catalyst/chart/templates/org-services/console.yaml's `image:` line
+# and moved the SHA into values.yaml `images.console.tag`, while
+# console-build.yaml kept sed-ing the template. `sed -i` matching zero lines
+# exits 0, deploy-bump pushed an empty diff, and the workflow stayed green for
+# 101 days: `images.console.tag` sat at 3c2f7e4 (2026-04-28) while GHCR
+# received console:ea10f7d on 2026-07-27. Live on hw293 (dep
+# a0077ba47e3720e5), org-services/console ran April's binary with nine merged
+# per-Organization console commits undeployed. admin and marketplace-api were
+# frozen by the identical break, same day, same commit.
+#
+# Nothing in CI could see it. The build leg was green, GHCR had the tag, main
+# had the code, and the only artifact that disagreed was a running Pod.
+#
+# This guard asks the cheap structural question — *can this writer reach this
+# pin at all?* — with no network and no token, so it goes red the moment a
+# chart reshape decouples a pin from its writer rather than months later on a
+# live walk. It is deliberately NOT the shape of
+# scripts/check-bootstrap-kit-pin-sync.sh, which compares a pin to its own
+# chart and stays green when both are equally stale.
+#
+# The complementary after-the-fact detector is
+# scripts/check-controller-image-tag-freshness.sh, which compares each pin to
+# the latest GHCR push — a source of truth that moves independently of the
+# repo. The same change that adds this file extends that guard to cover these
+# pins too.
+#
+# Event-driven only, no `schedule:` — per docs/PRINCIPLES.md this guard is a
+# property of a commit, not of elapsed time.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - 'products/catalyst/chart/values.yaml'
+      - 'products/catalyst/chart/templates/**'
+      - 'scripts/check-image-pin-writer-targets.sh'
+      - 'scripts/bump-values-image-tag.sh'
+      - 'scripts/tests/test-image-pin-writer-targets.sh'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+      - 'products/catalyst/chart/values.yaml'
+      - 'products/catalyst/chart/templates/**'
+      - 'scripts/check-image-pin-writer-targets.sh'
+      - 'scripts/bump-values-image-tag.sh'
+      - 'scripts/tests/test-image-pin-writer-targets.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-pin-writer-targets-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Image-pin writer targets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # A guard never observed rejecting the real defect is decorative. This
+      # replays the pre-fix console-build.yaml against the real frozen pin and
+      # REQUIRES rejection, and pairs it with marketplace-build.yaml — same
+      # chart, same directory, same templated `image:` line, same deploy-bump
+      # action — which must stay green.
+      - name: Self-test — prove the guard can FAIL, and does not fail everything
+        run: bash scripts/tests/test-image-pin-writer-targets.sh
+
+      - name: check-image-pin-writer-targets.sh
+        run: bash scripts/check-image-pin-writer-targets.sh

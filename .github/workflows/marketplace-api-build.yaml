@@ -52,15 +52,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Update deployment manifest with new SHA tag
+      - name: Bump images.marketplaceApi.tag in values.yaml
+        # #5451: third instance of the same break. 83ec889f0 (PR #580)
+        # templated templates/marketplace-api/deployment.yaml's `image:` line
+        # through global.imageRegistry and moved the SHA into values.yaml
+        # `images.marketplaceApi.tag`. This step kept sed-ing the template, so
+        # it matched nothing and exited 0 — the pin froze at 3c2f7e4
+        # (2026-04-28) while GHCR received marketplace-api:0d9531a on
+        # 2026-07-09, including #4924's durable sovereign-smtp-credentials
+        # seed, which therefore never shipped.
         env:
           SHA_SHORT: ${{ needs.build.outputs.sha_short }}
         run: |
-          DEPLOY_DIR="products/catalyst/chart/templates/marketplace-api"
-          sed -i "s|image: ${IMAGE}:.*|image: ${IMAGE}:${SHA_SHORT}|" \
-            "${DEPLOY_DIR}/deployment.yaml"
-          echo "Updated manifest to SHA ${SHA_SHORT}:"
-          grep "image:" "${DEPLOY_DIR}/deployment.yaml"
+          bash scripts/bump-values-image-tag.sh \
+            products/catalyst/chart/values.yaml marketplaceApi "${SHA_SHORT}"
 
       # TBD-V32 / openova-io/openova#2062 — race-safe push via the shared
       # composite action so concurrent build workflows do not lose the
@@ -68,5 +73,5 @@ jobs:
       - name: Commit and push manifest updates
         uses: ./.github/actions/deploy-bump
         with:
-          paths: products/catalyst/chart/templates/marketplace-api/deployment.yaml
+          paths: products/catalyst/chart/values.yaml
           commit-message: "deploy: update Catalyst marketplace-api image to ${{ needs.build.outputs.sha_short }}"
