@@ -19,7 +19,10 @@
 // vocabulary, for the same cross-module reason.
 package handler
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // tierGateHostNS is the exact set of plan slugs that back a HOST NAMESPACE. It
 // is the literal copy of the `case "", "s", "free":` arm in boundaryIsVcluster.
@@ -126,18 +129,120 @@ func TestIsolationForTier_IgnoresKind(t *testing.T) {
 	}
 }
 
-// TestIsolationForTier_ExplicitOverrideStillWins pins the advanced-operator
-// escape hatch, so the fix above cannot be mistaken for "isolation is now
-// unconditional". An explicit valid isolation in the request is still honoured
-// for either kind.
-func TestIsolationForTier_ExplicitOverrideStillWins(t *testing.T) {
+// TestIsolationForTier_DeclarationNeverOverridesTheTierGate replaces the former
+// TestIsolationForTier_ExplicitOverrideStillWins, which pinned an
+// "advanced-operator escape hatch" that never escaped anything (#6135, UAT row
+// G7). The hatch let a declared `isolation` win over the tier gate in
+// resolveOrgShape while `boundaryIsVcluster(planSlug)` — which takes the plan
+// and nothing else — went on authoring the host `<slug>` namespace. Measured on
+// hw293 (dep a0077ba47e3720e5): 202, `isolation: vcluster`, no vCluster.
+//
+// The declaration is now an ASSERTION, adjudicated at the door. Both halves
+// are pinned here so the change cannot be read as either "declarations are
+// ignored" or "declarations still steer the boundary".
+func TestIsolationForTier_DeclarationNeverOverridesTheTierGate(t *testing.T) {
 	t.Parallel()
 	for _, kind := range []string{"customer", "internal"} {
 		got := resolveOrgShape(orgTenantCreateRequest{
 			Kind: kind, PlanSlug: "s", Isolation: "vcluster",
 		})
-		if got.Isolation != "vcluster" {
-			t.Errorf("kind %s: explicit isolation override dropped, got %q", kind, got.Isolation)
+		if got.Isolation != "namespace" {
+			t.Errorf("kind %s: resolved isolation %q for plan s — a declaration steered the "+
+				"boundary again, and the org-controller will still author a host namespace "+
+				"(gitops.BoundaryIsVcluster(\"s\") == false)", kind, got.Isolation)
+		}
+	}
+}
+
+// TestDeclaredIsolationConflict_RefusesOnlyTheUndeliverable pins the door's
+// adjudicator. The CONTROL cases share the suspect property — they all carry a
+// non-empty declared `isolation` — and stay accepted, so the guard is a new
+// constraint on the undeliverable combination rather than a blanket rejection
+// of the field.
+func TestDeclaredIsolationConflict_RefusesOnlyTheUndeliverable(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name         string
+		declared     string
+		planSlug     string
+		wantConflict bool
+	}{
+		// The measured row: the signup door has no plan picker, so the plan
+		// resolves to "s" and a declared vcluster cannot be delivered.
+		{"row G7: vcluster declared on plan s", "vcluster", "s", true},
+		{"vcluster declared on plan s, mixed case + padding", "  VCluster ", "s", true},
+		{"namespace declared on plan m", "namespace", "m", true},
+		{"unrecognised enum on plan s", "dedicated-cluster", "s", true},
+
+		// CONTROLS — a declaration is present in every one of these.
+		{"vcluster declared on plan m (agrees)", "vcluster", "m", false},
+		{"vcluster declared on plan flexi (agrees)", "vcluster", "flexi", false},
+		{"namespace declared on plan s (agrees)", "namespace", "s", false},
+		// The marketplace funnel's own body: no declaration, nothing to refuse.
+		{"omitted declaration on plan s", "", "s", false},
+		{"omitted declaration on plan xl", "", "xl", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			detail, conflict := declaredIsolationConflict(tc.declared, tc.planSlug)
+			if conflict != tc.wantConflict {
+				t.Fatalf("declaredIsolationConflict(%q, %q) conflict = %v, want %v",
+					tc.declared, tc.planSlug, conflict, tc.wantConflict)
+			}
+			if !conflict {
+				if detail != "" {
+					t.Fatalf("no conflict but detail = %q, want empty", detail)
+				}
+				return
+			}
+			// Assert on the VALUE of the message, not on its presence: a
+			// refusal the caller cannot act on is the silent downgrade with
+			// extra steps. It must name what was asked, what the plan gives,
+			// and the way out.
+			for _, want := range []string{
+				strings.ToLower(strings.TrimSpace(tc.declared)),
+				tc.planSlug,
+				isolationForTier(tc.planSlug),
+				"Omit `isolation`",
+			} {
+				if !strings.Contains(detail, want) {
+					t.Errorf("422 detail %q does not name %q — the caller cannot tell what they "+
+						"were refused or how to proceed", detail, want)
+				}
+			}
+		})
+	}
+}
+
+// TestPlansDeliveringIsolation_ComesFromTheGate is the VACUITY CHECK for the
+// caller-facing plan list: it must be COMPUTED from isolationForTier, not
+// transcribed. A hand-written list would keep naming the same plans after a
+// policy flip and hand every refused caller a wrong instruction.
+//
+// It fails if the list is empty, if it names a plan the gate contradicts, or if
+// it omits a plan the gate qualifies — so it cannot pass on a stub.
+func TestPlansDeliveringIsolation_ComesFromTheGate(t *testing.T) {
+	t.Parallel()
+	for _, want := range []string{"namespace", "vcluster"} {
+		got := plansDeliveringIsolation(want)
+		if len(got) == 0 {
+			t.Fatalf("plansDeliveringIsolation(%q) = [] — the 422 message would tell the "+
+				"caller no plan delivers a boundary the gate does deliver", want)
+		}
+		named := map[string]bool{}
+		for _, p := range got {
+			named[p] = true
+			if isolationForTier(p) != want {
+				t.Errorf("plansDeliveringIsolation(%q) named plan %q, whose gate answer is %q",
+					want, p, isolationForTier(p))
+			}
+		}
+		for _, p := range catalogPlanSlugs {
+			if isolationForTier(p) == want && !named[p] {
+				t.Errorf("plansDeliveringIsolation(%q) omitted plan %q, which the gate DOES "+
+					"deliver — a refused caller is steered away from a plan that would work",
+					want, p)
+			}
 		}
 	}
 }
