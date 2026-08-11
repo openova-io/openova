@@ -343,6 +343,53 @@ export const ORG_DEFAULTS = {
 }
 
 /**
+ * RETIRED_ORG_DEFAULTS_5401 — the fabricated identity ORG_DEFAULTS used to
+ * ship, kept ONLY so the persist `migrate` below can recognise and drop it.
+ *
+ * Emptying ORG_DEFAULTS fixes INITIAL_WIZARD_STATE and nothing else. The
+ * wizard store is `persist`-wrapped, `partialize()` strips only the four
+ * credential fields, and `merge()` returns `{ ...current, ...persisted }` —
+ * so the persisted payload WINS over INITIAL_WIZARD_STATE. Every browser that
+ * ran the wizard against the pre-fix bundle still holds these six values in
+ * `localStorage['openova-catalyst-wizard']` and rehydrates them verbatim,
+ * which makes the #5401 fix invisible on exactly the machines most likely to
+ * walk UAT rows W1/W2 — an operator's own browser, which has run the wizard
+ * before.
+ *
+ * W2 is the sharper half: `orgHeadquarters: 'Frankfurt, Germany'` is matched by
+ * StepProvider's `getHqHint()` against
+ * `/germany|frankfurt|berlin|munich|hamburg|cologne/i`, which derives provider
+ * 'hetzner' + regions ['fsn1','nbg1','hel1'] and renders the
+ * "★ Pre-selected based on HQ" banner — cloud provider and region derived from
+ * a fabricated value, which is precisely what W2 forbids.
+ *
+ * The migration is deliberately VALUE-MATCHED, not a blanket wipe: a field is
+ * dropped only when it is still verbatim-identical to the retired default, so
+ * an operator who had already typed their real identity keeps it. See the
+ * CONTROL cases in `store.org-defaults-rehydrate-5401.test.ts`.
+ *
+ * Do not "clean this up" by deleting it — removing this constant silently
+ * restores the fabricated company on every returning operator's browser.
+ */
+export const RETIRED_ORG_DEFAULTS_5401: Readonly<Record<string, string>> = {
+  orgName: 'Acme Financial',
+  orgDomain: 'acme.io',
+  orgEmail: 'platform@acme.io',
+  orgIndustry: 'Financial Services',
+  orgSize: '2,000–10,000',
+  orgHeadquarters: 'Frankfurt, Germany',
+}
+
+/**
+ * Persist schema version for `localStorage['openova-catalyst-wizard']`.
+ *
+ * 1 — #5401: drop the retired fabricated ORG_DEFAULTS (and any
+ *     provider/region derivation computed from the fabricated HQ) from
+ *     payloads written by the pre-fix bundle.
+ */
+export const WIZARD_PERSIST_VERSION = 1
+
+/**
  * Pool domains a Sovereign operator can pick when sovereignDomainMode='pool'.
  *
  * The first entry, omani.works, is OpenOva's primary pool domain — registered in the
