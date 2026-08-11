@@ -1017,14 +1017,14 @@ func (h *Handler) HandleListOrganizations(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	fromCR, err := h.orgResponsesFromCRs(r.Context())
+	fromCR, observed, err := h.orgResponsesFromCRs(r.Context())
 	if err != nil {
 		// CRD absent / apiserver blip / RBAC gap — degrade to store-only
 		// rather than 5xx-ing the directory. Loud log, soft fall-through.
 		h.log.Warn("org-tenant: list Organization CRs failed — directory degrades to local store only", "err", err)
 	}
 
-	out := mergeOrgResponses(local, fromCR)
+	out := mergeOrgResponses(local, fromCR, observed)
 
 	// #6081 (UAT row 218) — an Org-scoped session sees its OWN row and nothing
 	// else.
@@ -1095,7 +1095,14 @@ func (h *Handler) HandleGetOrganization(w http.ResponseWriter, r *http.Request) 
 	// 1) Local provision store keyed by the BSS-door UUID.
 	if deps.Store != nil {
 		if rec, ok := deps.Store.Get(id); ok {
-			writeJSON(w, http.StatusOK, orgTenantRecordToResponse(rec))
+			resp := orgTenantRecordToResponse(rec)
+			// #6145 (UAT row 101) — the record carries the boundary the create
+			// door DECLARED; the Organization CR carries the one the
+			// org-controller authored. Detail must report the measurement for
+			// the same reason the directory does, or the two surfaces disagree
+			// about the same Organization.
+			resp = applyObservedIsolation(resp, h.observedIsolationForSlug(r.Context(), rec.Subdomain))
+			writeJSON(w, http.StatusOK, resp)
 			return
 		}
 	}

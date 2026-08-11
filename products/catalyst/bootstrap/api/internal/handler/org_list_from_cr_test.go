@@ -51,14 +51,34 @@ func newOrgHandlerWithSeededCRs(t *testing.T, crs ...*unstructured.Unstructured)
 }
 
 // orgCR builds a minimal Ready Organization CR (orgs.openova.io/v1) shaped
-// like the one both doors mint.
+// like the one both doors mint, on the default host-namespace plan `s`.
 func orgReadyCR(slug, displayName, parentDomain, ownerEmail, phase string) *unstructured.Unstructured {
+	return orgReadyCRWithPlan(slug, displayName, parentDomain, ownerEmail, phase, "s")
+}
+
+// orgReadyCRWithPlan builds the same CR on an explicit plan, and — this is the
+// part that matters (#6145) — stamps the status the org-controller would
+// ACTUALLY write for that plan.
+//
+// This fixture used to put `status.vcluster.phase` on every CR regardless of
+// plan. No such object exists: `vclusterStatusFor`
+// (core/controllers/organization/internal/controller/organization_controller.go)
+// is gated on the same tier switch that decides whether a vCluster is authored
+// at all, so a plan-`s` Organization gets the ZERO block (#5489) and reports
+// readiness through the top-level Ready condition instead — exactly what the
+// walked hw293 `g7freea` CR carries (`status.vcluster: {}` + Ready=True with
+// "namespace-isolated tier — no vCluster authored").
+//
+// A fixture that describes an impossible object teaches the tests a shape the
+// production system cannot produce, and any measurement taken from it is a
+// measurement of the fixture.
+func orgReadyCRWithPlan(slug, displayName, parentDomain, ownerEmail, phase, planSlug string) *unstructured.Unstructured {
 	spec := map[string]any{
 		"slug":         slug,
 		"displayName":  displayName,
 		"kind":         "customer",
 		"tier":         "org",
-		"planSlug":     "s",
+		"planSlug":     planSlug,
 		"billingMode":  "real",
 		"sovereignRef": "otech.example",
 		"owners": []any{
@@ -83,9 +103,28 @@ func orgReadyCR(slug, displayName, parentDomain, ownerEmail, phase string) *unst
 		"spec": spec,
 	}
 	if phase != "" {
-		obj["status"] = map[string]any{
-			"vcluster": map[string]any{"phase": phase},
+		status := map[string]any{"observedGeneration": int64(1)}
+		if isolationForTier(planSlug) == "vcluster" {
+			status["vcluster"] = map[string]any{
+				"name":        slug,
+				"hostCluster": "otech.example",
+				"phase":       phase,
+			}
+		} else {
+			// Host-namespace tier: no vcluster block is ever written, and the
+			// Ready condition is the boundary signal boundaryPhaseFromCR reads.
+			ready := "False"
+			if phase == "Ready" {
+				ready = "True"
+			}
+			status["conditions"] = []any{map[string]any{
+				"type":    "Ready",
+				"status":  ready,
+				"reason":  "Reconciled",
+				"message": "host namespace Active (namespace-isolated tier — no vCluster authored)",
+			}}
 		}
+		obj["status"] = status
 	}
 	return &unstructured.Unstructured{Object: obj}
 }

@@ -47,7 +47,7 @@ func TestMergeOrgResponses_CustomDomainOrgDoesNotDoubleCount(t *testing.T) {
 		orgResp("tnt-uatco", "uatco"), // the CR always carries the slug
 	}
 
-	got := mergeOrgResponses(local, fromCR)
+	got := mergeOrgResponses(local, fromCR, nil)
 	if len(got) != 2 {
 		t.Fatalf("merge produced %d rows for 2 Organizations: %v\n"+
 			"The directory now disagrees with `kubectl get organizations` about how many "+
@@ -62,7 +62,7 @@ func TestMergeOrgResponses_LocalRowWinsOnCollision(t *testing.T) {
 	local := []orgTenantResponse{{OrganizationID: "tnt-1", Subdomain: "acme", CompanyName: "from-store"}}
 	fromCR := []orgTenantResponse{{OrganizationID: "tnt-1", Subdomain: "acme", CompanyName: "from-cr"}}
 
-	got := mergeOrgResponses(local, fromCR)
+	got := mergeOrgResponses(local, fromCR, nil)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(got))
 	}
@@ -79,6 +79,7 @@ func TestMergeOrgResponses_CROnlyOrgStillAppears(t *testing.T) {
 	got := mergeOrgResponses(
 		[]orgTenantResponse{orgResp("tnt-1", "acme")},
 		[]orgTenantResponse{orgResp("tnt-1", "acme"), orgResp("tnt-2", "funnelco")},
+		nil,
 	)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 rows, got %d: %v — a funnel-created Org went missing, which is "+
@@ -92,6 +93,7 @@ func TestMergeOrgResponses_FallsBackToSubdomainWhenIDAbsent(t *testing.T) {
 	got := mergeOrgResponses(
 		[]orgTenantResponse{orgResp("", "legacy")},
 		[]orgTenantResponse{orgResp("", "legacy")},
+		nil,
 	)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 row, got %d — the subdomain fallback is gone, so a legacy store "+
@@ -103,7 +105,7 @@ func TestMergeOrgResponses_FallsBackToSubdomainWhenIDAbsent(t *testing.T) {
 // operator's own store authored would be worse than showing it — but it also
 // must not be silently treated as deduped.
 func TestMergeOrgResponses_UnidentifiableRowIsKept(t *testing.T) {
-	got := mergeOrgResponses([]orgTenantResponse{orgResp("", "")}, nil)
+	got := mergeOrgResponses([]orgTenantResponse{orgResp("", "")}, nil, nil)
 	if len(got) != 1 {
 		t.Fatalf("expected the unidentifiable row to survive, got %d rows", len(got))
 	}
@@ -142,6 +144,7 @@ func TestMergeOrgResponses_SameSlugDifferentIDsIsOneOrg(t *testing.T) {
 	got := mergeOrgResponses(
 		[]orgTenantResponse{orgResp("uuid-acme", "acme")},
 		[]orgTenantResponse{orgResp("cr-acme", "acme")},
+		nil,
 	)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 row, got %d: %v — keying on the id alone splits one Organization "+

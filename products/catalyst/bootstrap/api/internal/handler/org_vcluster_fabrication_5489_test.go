@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
@@ -110,10 +108,11 @@ func TestOrgResponseFromCR_NamespaceTier_NoVClusterFields(t *testing.T) {
 // direction: a vcluster-tier CR (customer + plan m) keeps the exact pre-fix
 // shape — vc-<slug> name + a rendered vCluster step.
 func TestOrgResponseFromCR_VclusterTier_KeepsVClusterFields(t *testing.T) {
-	cr := orgReadyCR("acme", "ACME Corp", "", "ceo@acme.com", "Ready")
-	if err := unstructured.SetNestedField(cr.Object, "m", "spec", "planSlug"); err != nil {
-		t.Fatalf("set planSlug: %v", err)
-	}
+	// #6145 — built on plan `m` UP FRONT rather than patched afterwards, so the
+	// fixture's status is the one the org-controller stamps for a vcluster
+	// tier (a real status.vcluster block). Patching the plan after the status
+	// was written produced a CR whose plan and status disagreed.
+	cr := orgReadyCRWithPlan("acme", "ACME Corp", "", "ceo@acme.com", "Ready", "m")
 	h, _ := newOrgHandlerWithSeededCRs(t, cr)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/organizations", nil)

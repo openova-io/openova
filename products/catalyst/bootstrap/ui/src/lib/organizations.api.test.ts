@@ -124,6 +124,9 @@ describe('subOrgRowFromRecord', () => {
   // Legacy rows that predate the B1 spec fields (empty kind/tier/billing/
   // isolation) fall back to the kind-derived customer defaults so they
   // still badge sensibly rather than rendering blanks.
+  //
+  // #6145 (UAT row 101) — with ONE exception, asserted below: `isolation` no
+  // longer falls back. This case used to expect 'vcluster' here.
   it('falls back to customer defaults when spec fields are empty (legacy row)', () => {
     const row = subOrgRowFromRecord({
       ...record,
@@ -135,6 +138,27 @@ describe('subOrgRowFromRecord', () => {
     expect(row.kind).toBe('customer')
     expect(row.tier).toBe('org')
     expect(row.billingMode).toBe('real')
-    expect(row.isolation).toBe('vcluster')
+  })
+
+  // #6145 (UAT row 101). kind/tier/billingMode degrade into a milder version of
+  // themselves when the feed is silent; `isolation` would invent a dedicated
+  // Kubernetes control plane. On hw293 the host-namespace-backed Organization
+  // `g7freea` and the really-vcluster-backed `hw293walkone` both rendered
+  // `Isolation: Vcluster`, and a mapper that substitutes 'vcluster' is the
+  // second way that same wrong value reaches the card.
+  it('reports NO isolation when the feed does not measure one', () => {
+    const row = subOrgRowFromRecord({ ...record, isolation: '' })
+    expect(row.isolation).not.toBe('vcluster')
+    expect(row.isolation).toBe('')
+  })
+
+  // CONTROL for the same change: a feed that DOES report a boundary is passed
+  // through untouched, in both directions. Without this the assertion above is
+  // satisfied by a mapper that blanks the field for everyone.
+  it('passes a measured isolation through verbatim', () => {
+    expect(subOrgRowFromRecord({ ...record, isolation: 'vcluster' }).isolation).toBe('vcluster')
+    expect(subOrgRowFromRecord({ ...record, isolation: 'namespace' }).isolation).toBe('namespace')
+    // Unrecognized values are not measurements either.
+    expect(subOrgRowFromRecord({ ...record, isolation: 'bogus' }).isolation).toBe('')
   })
 })

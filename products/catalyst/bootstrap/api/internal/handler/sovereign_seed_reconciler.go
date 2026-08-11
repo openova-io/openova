@@ -187,7 +187,7 @@ func (h *Handler) runSeedReconcilePass(ctx context.Context) {
 	// source of truth both the BSS door and the marketplace funnel write) and
 	// self-heal each Org's per-slug bearer path. Global seeds above already
 	// ran, so a list failure here never starves them.
-	orgs, err := h.orgResponsesFromCRs(ctx)
+	orgs, _, err := h.orgResponsesFromCRs(ctx)
 	if err != nil {
 		if h.log != nil {
 			h.log.Warn("[SEED-RECONCILE] list Organizations failed; per-Org mcp-bearer self-heal skipped this pass — retry next tick",
