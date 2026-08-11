@@ -40,6 +40,8 @@ on:
       - 'scripts/bump-chart-version.sh'
       - 'scripts/push-chart-version-bump.sh'
       - 'scripts/tests/test-chart-version-forward.sh'
+      - 'scripts/tests/test-bump-chart-version-open-pr-claims.sh'
+      - 'scripts/check-chart-version-not-claimed-by-open-pr.py'
       - '.github/workflows/catalyst-build.yaml'
       - '.github/workflows/services-build.yaml'
       - '.github/workflows/check-chart-version-forward.yaml'
@@ -51,6 +53,8 @@ on:
       - 'scripts/bump-chart-version.sh'
       - 'scripts/push-chart-version-bump.sh'
       - 'scripts/tests/test-chart-version-forward.sh'
+      - 'scripts/tests/test-bump-chart-version-open-pr-claims.sh'
+      - 'scripts/check-chart-version-not-claimed-by-open-pr.py'
       - '.github/workflows/catalyst-build.yaml'
       - '.github/workflows/services-build.yaml'
       - '.github/workflows/check-chart-version-forward.yaml'
@@ -76,3 +80,10 @@ jobs:
 
       - name: Prove the guard goes RED for the real incident and GREEN once fixed
         run: bash scripts/tests/test-chart-version-forward.sh
+
+      # #5583 — the writer must step OVER versions open PR heads already claim,
+      # and must refuse rather than silently answer from origin/main alone when
+      # it cannot see them. Hermetic: the fixture supplies its own gh, so this
+      # needs no token and asserts nothing about the live repo's PRs.
+      - name: Prove the writer cannot hand two open PRs the same version
+        run: bash scripts/tests/test-bump-chart-version-open-pr-claims.sh

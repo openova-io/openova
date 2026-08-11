@@ -530,6 +530,13 @@ jobs:
       # blueprint-release was never dispatched, leaving Sovereigns
       # provisioned afterwards on the pre-fix chart.
       actions: write
+      # pull-requests: read — #5583. scripts/bump-chart-version.sh enumerates
+      # OPEN PRs so it never hands this deploy commit a version an open branch
+      # already claims (whichever lands first publishes the artifact; the other
+      # then merges different content under a taken version and ships nothing).
+      # Without this scope `gh pr list` 403s and the bump step FAILS LOUDLY
+      # rather than quietly falling back to the colliding main-only answer.
+      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -921,6 +928,14 @@ jobs:
       #     scripts/tests/test-chart-version-forward.sh (T5).
       - name: "Atomically bump products/catalyst/chart/Chart.yaml version"
         id: bump_chart_version
+        env:
+          # #5583 — bump-chart-version.sh calls `gh pr list` (via
+          # scripts/check-chart-version-not-claimed-by-open-pr.py) to skip any
+          # version an open PR head already claims. `gh` reads GH_TOKEN; with
+          # no token the step fails loudly instead of computing the colliding
+          # main-only number. A shallow single-branch checkout is fine — the
+          # enumerator fetches PR heads by explicit refspec.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           git config user.name  "hatiyildiz"

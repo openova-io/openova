@@ -62,6 +62,12 @@ jobs:
       # for deploy commits (issues #872, #712 — same root cause as the
       # catalyst-build dispatch fix in PR #720).
       actions: write
+      # pull-requests: read — #5583. scripts/bump-chart-version.sh enumerates
+      # OPEN PRs so it never hands this deploy commit a version an open branch
+      # already claims. Without this scope `gh pr list` 403s and the bump step
+      # FAILS LOUDLY rather than quietly falling back to the colliding
+      # main-only answer. See the matching note in catalyst-build.yaml.
+      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -265,6 +271,11 @@ jobs:
       # field.
       - name: "Atomically bump products/catalyst/chart/Chart.yaml version"
         id: bump_chart_version
+        env:
+          # #5583 — see the matching note in catalyst-build.yaml. `gh` reads
+          # GH_TOKEN; without it bump-chart-version.sh cannot enumerate open PR
+          # claims and fails loudly rather than picking a colliding version.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
