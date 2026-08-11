@@ -46,18 +46,42 @@
 // `targets`, so the admission read-back never looked at it and the emitter
 // logged "admitted in every region" over a one-region list).
 //
-// So the region set is cross-checked against an INDEPENDENT in-cluster witness:
-// the Cilium ClusterMesh config Secret `kube-system/cilium-clustermesh`, whose
-// non-certificate keys name every REMOTE cluster this region is meshed with
-// (hw292 region A: `hw292-me-east-b`). A Sovereign whose mesh declares N remote
-// clusters while the kubeconfig Secret resolves fewer reports the shortfall as
-// UNWIRED — verifyProvisioned turns that into a NOT-provisioned Organization
-// naming the count, never a green Org over an unwritten region. A single-region
-// Sovereign has no ClusterMesh Secret, declares zero remotes, and behaves
-// EXACTLY as before this file existed.
+// So the region set is cross-checked against INDEPENDENT in-cluster witnesses.
+// A Sovereign whose witnesses declare N remote regions while the kubeconfig
+// Secret resolves fewer reports the shortfall as UNWIRED — verifyProvisioned
+// turns that into a NOT-provisioned Organization naming the count, never a
+// green Org over an unwritten region.
+//
+// THERE ARE TWO WITNESSES, AND THE EXPECTATION IS THEIR MAX (#6027)
+// -----------------------------------------------------------------
+// The original witness was the Cilium ClusterMesh config Secret
+// `kube-system/cilium-clustermesh`, whose non-certificate keys name every
+// REMOTE cluster this region is meshed with (hw292 region A:
+// `hw292-me-east-b`). That witness has a window in which it cannot answer: the
+// Secret does not exist until ClusterMesh is ESTABLISHED, so a 2-region
+// Sovereign whose mesh has not come up is byte-identical to a single-region
+// one. Folding its NotFound into "zero secondaries" made the anti-vacuity guard
+// itself vacuous — measured on hw293 dep a0077ba47e3720e5 on 2026-08-11, where
+// `cilium-clustermesh` was NotFound in BOTH regions, region B carried zero
+// per-Org listeners, and both Organizations still read fully provisioned.
+//
+// The second witness closes that window: `configuredRegions` from the
+// `catalyst-system/sovereign-fqdn` ConfigMap — the region list the Sovereign
+// was PROVISIONED with (hw293: `hw-me-east-215-a-rtz-prod,hw-me-east-215-b-rtz-prod`).
+// It is written at bootstrap by the catalyst-platform chart, so it is
+// independent of ClusterMesh AND of the cutover chart that owns the kubeconfig
+// bridge and can fail to install (#6004). It reaches this controller as the
+// kubelet-injected env CATALYST_CONFIGURED_REGIONS — the same `configMapKeyRef`
+// shape catalyst-api already uses for this exact key, which is why it needs no
+// new RBAC (the org-controller SA is denied ConfigMap reads).
+//
+// Taking the MAX of the two means neither witness can SHRINK the set the other
+// proves: one that fails to load can only lose to one that did. A Sovereign
+// with NEITHER witness (legacy / Catalyst-Zero) expects zero remotes and
+// behaves EXACTLY as before this file existed.
 //
 // Refs #5246 · #5511 (the port + admission twin) · #5359 (the kubeconfig
-// bridge) · #5930 (the catalyst-api twin of this fix).
+// bridge) · #5930 (the catalyst-api twin of this fix) · #6027 (the witness).
 
 package controller
 
@@ -195,6 +219,37 @@ func consoleRegionKeyFromSecretKey(k string) string {
 	return ""
 }
 
+// configuredRegionRemoteCount reports how many OTHER regions this Sovereign was
+// provisioned with, derived from the comma-separated `configuredRegions` key of
+// `catalyst-system/sovereign-fqdn` (injected as CATALYST_CONFIGURED_REGIONS).
+// The second return reports whether the witness was present at all — an empty
+// env is "witness not loaded", which is a different state from "one region",
+// and only the caller may decide what to do about it.
+//
+// #6027. This witness exists from bootstrap and is independent of both
+// ClusterMesh (which may never establish) and the cutover chart (which owns the
+// kubeconfig bridge and can fail to install, #6004). It is therefore decidable
+// in the exact window in which the ClusterMesh witness is not.
+func (r *Reconciler) configuredRegionRemoteCount() (int, bool) {
+	raw := strings.TrimSpace(r.ConfiguredRegions)
+	if raw == "" {
+		return 0, false
+	}
+	seen := map[string]bool{}
+	for _, part := range strings.Split(raw, ",") {
+		if k := strings.TrimSpace(part); k != "" {
+			seen[k] = true
+		}
+	}
+	if len(seen) == 0 {
+		return 0, false
+	}
+	// The list names EVERY region including the one this controller runs in,
+	// so the remote count is one fewer. A malformed single-entry list yields
+	// zero remotes, which is the pre-#6027 behaviour.
+	return len(seen) - 1, true
+}
+
 // clusterMeshRemoteClusters extracts the REMOTE cluster names from a Cilium
 // ClusterMesh config Secret. The Secret carries, per remote cluster, one
 // `<name>` config key plus `<name>-ca.crt` / `<name>.crt` / `<name>.key`
@@ -248,8 +303,18 @@ func (r *Reconciler) consoleRegionTargets(ctx context.Context) consoleRegionReso
 		Targets: []consoleRegionTarget{{Region: consoleHostRegionKey, Host: true, Client: r.Client}},
 	}
 
-	// The independent witness first: how many OTHER regions does this
-	// Sovereign's mesh declare? Absent Secret == single-region Sovereign.
+	// The independent witnesses first: how many OTHER regions does this
+	// Sovereign have?
+	//
+	// #6027 — there are TWO, and the expectation is the MAX of them, never
+	// either one alone. The ClusterMesh Secret is absent until the mesh is
+	// ESTABLISHED, so on a 2-region Sovereign whose mesh has not come up it is
+	// byte-identical to a single-region Sovereign; folding that NotFound into
+	// "zero secondaries" is what let hw293 write region A only and report every
+	// Organization complete. The provisioning-time region list is decidable in
+	// exactly that window. Taking the max means neither witness can SHRINK the
+	// set the other proves — a witness that fails to load can only ever lose to
+	// one that did, never silently override it.
 	meshRemotes := 0
 	mesh := &corev1.Secret{}
 	switch err := r.Get(ctx, client.ObjectKey{
@@ -259,8 +324,9 @@ func (r *Reconciler) consoleRegionTargets(ctx context.Context) consoleRegionReso
 	case err == nil:
 		meshRemotes = len(clusterMeshRemoteClusters(mesh))
 	case apierrors.IsNotFound(err):
-		// Single-region Sovereign (or ClusterMesh not yet established).
-		// Zero expected secondaries; behaviour identical to pre-#5246.
+		// Single-region Sovereign, OR ClusterMesh not yet established. These
+		// two are indistinguishable HERE, which is precisely why this is no
+		// longer the only witness — see configuredRegionRemoteCount.
 	default:
 		// Cannot decide completeness this pass. Report it as transient so
 		// the Org requeues rather than being declared complete on an
@@ -268,6 +334,12 @@ func (r *Reconciler) consoleRegionTargets(ctx context.Context) consoleRegionReso
 		res.Unreachable = append(res.Unreachable, fmt.Sprintf(
 			"ClusterMesh witness %s/%s unreadable, so the expected region count is unknown: %s",
 			r.clusterMeshSecretNamespace(), r.clusterMeshSecretName(), err))
+	}
+
+	topologyRemotes, topologyDeclared := r.configuredRegionRemoteCount()
+	expectedRemotes, witness := meshRemotes, "ClusterMesh"
+	if topologyDeclared && topologyRemotes > expectedRemotes {
+		expectedRemotes, witness = topologyRemotes, "sovereign-fqdn configuredRegions"
 	}
 
 	bridgeNS, bridgeName := r.secondaryKubeconfigSecretNamespace(), r.secondaryKubeconfigSecretName()
@@ -293,14 +365,16 @@ func (r *Reconciler) consoleRegionTargets(ctx context.Context) consoleRegionReso
 	}
 	sort.Strings(regions)
 
-	// The shortfall check is the whole anti-vacuity point: a mesh that
-	// declares 1 remote cluster while 0 kubeconfigs are wired means every
+	// The shortfall check is the whole anti-vacuity point: a Sovereign that
+	// declares 1 remote region while 0 kubeconfigs are wired means every
 	// per-Org listener this controller writes reaches exactly half the
-	// regions the console ELB forwards to.
-	if meshRemotes > len(regions) {
+	// regions the console ELB forwards to. The message NAMES the witness that
+	// declared the region so the shortfall's warrant can be checked rather
+	// than taken on faith.
+	if expectedRemotes > len(regions) {
 		res.Unwired = append(res.Unwired, fmt.Sprintf(
-			"%d of %d secondary region(s) have no kubeconfig in %s/%s (ClusterMesh declares %d remote cluster(s); wired region keys: %s)",
-			meshRemotes-len(regions), meshRemotes, bridgeNS, bridgeName, meshRemotes, describeRegionKeys(regions)))
+			"%d of %d secondary region(s) have no kubeconfig in %s/%s (%s declares %d remote region(s); wired region keys: %s)",
+			expectedRemotes-len(regions), expectedRemotes, bridgeNS, bridgeName, witness, expectedRemotes, describeRegionKeys(regions)))
 	}
 
 	cache := r.regionClientCache()

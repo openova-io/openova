@@ -148,6 +148,18 @@ func main() {
 	clusterMeshSecret := envOr("CATALYST_CLUSTERMESH_SECRET", "cilium-clustermesh")
 	clusterMeshSecretNs := envOr("CATALYST_CLUSTERMESH_SECRET_NAMESPACE", "kube-system")
 
+	// #6027 — the SECOND region witness. The ClusterMesh Secret above does not
+	// exist until the mesh is ESTABLISHED, so on a 2-region Sovereign whose
+	// mesh has not come up it is indistinguishable from a single-region one and
+	// the shortfall check silently expects zero secondaries. `configuredRegions`
+	// is written at bootstrap by the catalyst-platform chart and is independent
+	// of both ClusterMesh and the cutover chart that produces the kubeconfig
+	// bridge, so it is decidable in exactly that window. Injected by the chart
+	// as a `configMapKeyRef` on catalyst-system/sovereign-fqdn (optional:true),
+	// which is why an empty value is normal on Catalyst-Zero and legacy
+	// Sovereigns and simply leaves the ClusterMesh witness deciding alone.
+	configuredRegions := envOr("CATALYST_CONFIGURED_REGIONS", "")
+
 	consoleRouteNs := envOr("CATALYST_CONSOLE_ROUTE_NAMESPACE", "catalyst-system")
 	consoleAPISvc := envOr("CATALYST_CONSOLE_API_SERVICE", "catalyst-api")
 	consoleUISvc := envOr("CATALYST_CONSOLE_UI_SERVICE", "catalyst-ui")
@@ -304,6 +316,7 @@ func main() {
 		SecondaryRegionKubeconfigSecretNamespace: secondaryKubeconfigSecretNs,
 		ClusterMeshSecretName:                    clusterMeshSecret,
 		ClusterMeshSecretNamespace:               clusterMeshSecretNs,
+		ConfiguredRegions:                        configuredRegions,
 	}
 	if err := r.SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup reconciler")

@@ -1364,7 +1364,17 @@ spec:
       #   StatefulSet came back 138s later. RBAC ships inside this umbrella, so
       #   the grant only reaches a Sovereign once this pin advances. Lockstep
       #   w/ products/catalyst/chart/Chart.yaml.
-      version: 1.4.1352
+      # 1.4.1354 (#6027): the organization-controller Deployment gains
+      #   CATALYST_CONFIGURED_REGIONS from the sovereign-fqdn ConfigMap — the
+      #   second witness of how many regions this Sovereign serves. The
+      #   ClusterMesh witness the per-Org console fan-out relied on does not
+      #   exist until the mesh is ESTABLISHED, so hw293 (mesh Secret NotFound
+      #   in both regions) read as single-region and wrote the per-Org
+      #   listener into region A only while both Organizations reported
+      #   provisioned. Env injection ships inside this umbrella, so the
+      #   witness reaches the controller only once this pin advances. Lockstep
+      #   w/ products/catalyst/chart/Chart.yaml.
+      version: 1.4.1354
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

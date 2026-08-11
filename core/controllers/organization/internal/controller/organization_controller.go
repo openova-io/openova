@@ -380,13 +380,32 @@ type Reconciler struct {
 	SecondaryRegionKubeconfigSecretNamespace string
 
 	// ClusterMeshSecretName / …Namespace locate the Cilium ClusterMesh config
-	// Secret used as the INDEPENDENT witness of how many other regions this
-	// Sovereign has — without it, "no kubeconfigs wired" would silently mean
-	// "no secondary regions" and the per-region check could never fail.
+	// Secret used as ONE witness of how many other regions this Sovereign has
+	// — without a witness, "no kubeconfigs wired" would silently mean "no
+	// secondary regions" and the per-region check could never fail.
 	// Defaults: cilium-clustermesh / kube-system.
 	// Env: CATALYST_CLUSTERMESH_SECRET{,_NAMESPACE}.
 	ClusterMeshSecretName      string
 	ClusterMeshSecretNamespace string
+
+	// ConfiguredRegions is the comma-separated region-key list this Sovereign
+	// was PROVISIONED with — the `configuredRegions` key of the
+	// `catalyst-system/sovereign-fqdn` ConfigMap, injected as
+	// CATALYST_CONFIGURED_REGIONS exactly the way catalyst-api already
+	// consumes it.
+	//
+	// #6027: the ClusterMesh witness alone cannot decide this. Its Secret is
+	// absent until ClusterMesh is ESTABLISHED, so a 2-region Sovereign whose
+	// mesh has not come up reads identically to a single-region one and the
+	// shortfall check silently expects zero secondaries — measured on hw293,
+	// where both regions lacked `cilium-clustermesh`, region B held zero
+	// per-Org listeners, and both Organizations still read provisioned. This
+	// witness is written at bootstrap by the catalyst-platform chart and is
+	// independent of BOTH ClusterMesh and the cutover chart that produces the
+	// kubeconfig bridge, so it is decidable in exactly the window the others
+	// are not. Empty (legacy / Catalyst-Zero) → the ClusterMesh witness alone
+	// decides, exactly as before.
+	ConfiguredRegions string
 
 	// RegionClientBuilder builds a client from a secondary region's
 	// kubeconfig bytes. Nil in production (a real REST client is built);
