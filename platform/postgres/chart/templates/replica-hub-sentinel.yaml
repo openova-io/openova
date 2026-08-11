@@ -1,0 +1,444 @@
+{{- /*
+Replica-side hub sentinel (0.2.20, #6114) — the region-B half of shared-pg has
+TWO failure modes that both end in silence. This one workload closes both.
+
+────────────────────────────────────────────────────────────────────────────
+WHY THIS EXISTS — the hw293 chain, in order
+────────────────────────────────────────────────────────────────────────────
+
+role-secrets.yaml is gated `not isReplicaSide` — DELIBERATELY (#5224, the hw273
+harbor 28P01 lockout: a replica region that mints its own role passwords creates
+a permanently DIVERGENT credential set that `helm.sh/resource-policy: keep`
+then preserves forever, and any DR promote actor asserting those local values
+clobbers the primary's canonical password). That gate is correct and this file
+does not touch it.
+
+Its CONSEQUENCE is what was never handled: the replica region mints NOTHING and
+depends ENTIRELY on catalyst-api's cross-mesh `syncSharedPGConsumerHubSecrets`
+to deliver every role + hub Secret. When that sync does not run, region-B's
+shared-data holds ZERO of region-A's consumer hub Secrets — and nothing anywhere
+says so. On hw293 that was 14 absent Secrets behind a green bp-postgres release.
+
+  1. Chart 0.2.18 named a role Secret in `bootstrap.initdb.secret` on the
+     replica side — an object role-secrets.yaml deliberately never renders
+     there. CNPG projects it into the initdb Job as
+     `APP_USERNAME <- secretKeyRef{shared-pg-harbor, optional: false}`, which is
+     POD-FATAL: the container cannot be configured at all.
+  2. #6016 (shipped 0.2.19) dropped that reference. The Cluster spec was
+     repaired at generation 2 and the chart ran in BOTH regions.
+  3. IT STILL DID NOT HEAL. A Job's pod template is IMMUTABLE, and CNPG only
+     creates a bootstrap Job when one is ABSENT — it never recreates a Job whose
+     spec has gone stale. The generation-1 `shared-pg-1-initdb` Pod therefore sat
+     in CreateContainerConfigError for TWELVE HOURS against a repaired spec,
+     taking keycloak-0 (Init:0/1), harbor-jobservice (CrashLoopBackOff, 150
+     restarts) and 8 HelmReleases down with it.
+
+A chart fix that repairs the spec but leaves the wedged Pod has not fixed the
+cluster. The repair needs an ACTOR.
+
+────────────────────────────────────────────────────────────────────────────
+WHY A LEVEL-TRIGGERED Deployment, and NOT a Helm hook
+────────────────────────────────────────────────────────────────────────────
+
+  * A `pre-upgrade` hook is WRONG BY ORDERING. It runs BEFORE the repaired
+    Cluster spec is applied, so CNPG would immediately recreate the initdb Job
+    from the still-broken generation-1 spec. The reap is only meaningful AFTER
+    the new spec is live.
+
+  * A `post-upgrade` hook is right by ordering and wrong by blast radius. Slot
+    16a runs `install.remediation.retries: -1` with Helm wait KEPT and a 15m
+    timeout. A failing hook fails the release, and an infinitely-remediated
+    release re-enters install on a Cluster CR that is mid-bootstrap. That trades
+    a silent wedge for a self-inflicted outage — and a hook fires only on a
+    Helm operation, so a wedge that appears BETWEEN upgrades waits for the next
+    one. hw293's wedge existed for 12h without a Helm operation to catch it.
+
+  * A Deployment running an idempotent loop reaps whenever the wedge appears,
+    retries forever, self-heals, and CANNOT block delivery. It is also the
+    repo's canon for a region-local reconciler: the openbao unseal-reconciler
+    shipped as a CronJob (#5148) and did not survive the very region-kill it
+    guarded, because a CronJob's scheduler dies with the region's control plane
+    and did not resume for 40+ min (#5157 converted it to a Deployment).
+
+The readiness probe deliberately reports only "the loop is alive", NEVER "the
+Secrets arrived". Gating readiness on the synced state would convert the
+LEGITIMATE pre-sync window into a failed Helm wait on every fresh 2-region prov,
+and with `retries: -1` that is an infinite install-remediation loop. Loudness is
+delivered as a Warning Event + a status ConfigMap + a failed-state log line —
+all of which are visible without any of them being able to wedge the release.
+
+────────────────────────────────────────────────────────────────────────────
+THE REAP CRITERION IS POSITIVE EVIDENCE, NOT A TIMEOUT
+────────────────────────────────────────────────────────────────────────────
+
+A Job is reaped ONLY when ALL of these hold:
+    (a) it belongs to THIS instance and its name ends in `-initdb`;
+    (b) `.status.succeeded` is 0 — a COMPLETED initdb Job is never touched,
+        because deleting one could invite a re-bootstrap over live data. This
+        is the single most important guard in the file;
+    (c) it references a Secret that DOES NOT EXIST in this namespace — the
+        pod-fatal condition itself, read from the Job's own pod template
+        rather than guessed from a status string;
+    (d) it is older than `minWedgeAgeSeconds`, so a Secret that is merely
+        seconds away from being synced is never raced.
+
+(b)+(c) together mean the reap can only ever delete a Job that is incapable of
+ever starting. There is no timeout heuristic anywhere in it.
+
+Side gate: `isReplicaSide`, NOT `renderReplicaHalf`. The wedge is reachable in
+the PRE-FLIP window — `side` is stamped from SOVEREIGN_REGION_ROLE at cloud-init
+and is present from the very first render, while `activeHotStandby` flips LATE
+(#4460). The hw293 initdb Pods wedged on the pre-flip placeholder singleton
+Cluster, which is exactly the render `renderReplicaHalf` does NOT cover.
+*/ -}}
+{{- $sentinel := .Values.replicaHubSentinel | default dict }}
+{{- /* `dig`, NEVER `$sentinel.enabled | default true`: sprig's `default` treats
+       boolean false as EMPTY and hands back the default, so an explicit
+       `enabled: false` would silently render the sentinel anyway. `dig` returns
+       a present key's real value and only falls back when the key is absent. */ -}}
+{{- if and (ne (toString .Values.enabled) "false") (include "bp-postgres.isReplicaSide" .) (ne (toString (dig "enabled" true $sentinel)) "false") }}
+{{- $ns := include "bp-postgres.namespace" . }}
+{{- $instance := include "bp-postgres.instanceName" . }}
+{{- $name := printf "%s-replica-hub-sentinel" $instance | trunc 63 | trimSuffix "-" }}
+{{- $statusCM := printf "%s-replica-hub-sync-status" $instance | trunc 63 | trimSuffix "-" }}
+{{- $img := $sentinel.image | default dict }}
+{{- $repo := $img.repository | default "harbor.openova.io/proxy-dockerhub/alpine/k8s" }}
+{{- $tag := $img.tag | default "1.30.0" }}
+{{- $pull := $img.pullPolicy | default "IfNotPresent" }}
+{{- $interval := $sentinel.intervalSeconds | default 30 }}
+{{- $minAge := $sentinel.minWedgeAgeSeconds | default 180 }}
+{{- /* Expected Secret names: every role Secret + every consumer hub Secret this
+       chart would have rendered on the PRIMARY side. On the replica these can
+       only arrive via the cross-mesh sync, so their absence is the signal. */ -}}
+{{- $ctx := . }}
+{{- $expected := dict }}
+{{- range .Values.databases }}
+{{- $db := . }}
+{{- $_ := set $expected (include "bp-postgres.roleSecretName" (dict "ctx" $ctx "db" $db)) true }}
+{{- if and $db.reflect $db.reflect.secretName }}
+{{- $_ := set $expected $db.reflect.secretName true }}
+{{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name | quote }}
+  namespace: {{ $ns | quote }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name | quote }}
+  namespace: {{ $ns | quote }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+rules:
+  # Read the Jobs to classify them, delete ONLY the ones proven unstartable.
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, delete]
+  # Read the wedged Pod's status message so the log names the real cause.
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+  # Existence checks only — the sentinel never reads a Secret's DATA.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  # `create` cannot carry resourceNames (the object does not exist yet); the
+  # mutating verbs are pinned to this instance's own status object.
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, update, patch]
+    resourceNames: [{{ $statusCM | quote }}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name | quote }}
+  namespace: {{ $ns | quote }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name | quote }}
+    namespace: {{ $ns | quote }}
+---
+{{- /* shared-data is covered by the platform default-deny CCNP
+       (bp-network-policies), and the kube-apiserver is a reserved Cilium entity
+       a vanilla NetworkPolicy cannot express (#4428 idiom) — so the sentinel's
+       whole egress allow-list lives in ONE CiliumNetworkPolicy, exactly as
+       dr-promoter's does. Without this the Pod cannot reach the API server and
+       the reconciler is inert (a silent failure of the thing that exists to end
+       silent failures). */ -}}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ printf "%s-egress" $name | trunc 63 | trimSuffix "-" | quote }}
+  namespace: {{ $ns | quote }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      catalyst.openova.io/role: replica-hub-sentinel
+      catalyst.openova.io/data-instance: {{ $instance | quote }}
+  egress:
+    - toEntities:
+        - kube-apiserver
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name | quote }}
+  namespace: {{ $ns | quote }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/role: replica-hub-sentinel
+  annotations:
+    catalyst.openova.io/blueprint: bp-postgres
+spec:
+  replicas: 1
+  # Recreate, matching dr-promoter (#6079). A single-replica Deployment with the
+  # DEFAULT RollingUpdate can never roll on a full node: maxSurge 25% ceils to 1
+  # so the new Pod is created, but maxUnavailable 25% floors to 0 so the old Pod
+  # may never be evicted to make room for it. A reconciler that cannot be rolled
+  # out is a reconciler stuck on whatever image it first got — which for THIS
+  # workload would mean the repair silently never updates.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bp-postgres
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      catalyst.openova.io/role: replica-hub-sentinel
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-postgres
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        catalyst.openova.io/role: replica-hub-sentinel
+        catalyst.openova.io/data-instance: {{ $instance | quote }}
+        # kyverno cilium-l7-mtls (Enforce) — required on the Pod template or the
+        # Deployment is DENIED at admission (#3238). Same label dr-promoter and
+        # failover-readiness carry in this chart; verified against those
+        # templates rather than assumed.
+        policy.cilium.io/enforced: "true"
+    spec:
+      serviceAccountName: {{ $name | quote }}
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: sentinel
+          image: {{ printf "%s:%s" $repo $tag | quote }}
+          imagePullPolicy: {{ $pull | quote }}
+          # UID/GID + HOME copied from dr-promoter's `actor` container, which
+          # runs THIS SAME alpine/k8s image in THIS SAME chart. HOME=/tmp is
+          # load-bearing, not cosmetic: kubectl writes its discovery/HTTP cache
+          # under $HOME, and the root filesystem is read-only.
+          securityContext:
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: { cpu: 10m, memory: 48Mi }
+            limits: { memory: 128Mi }
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          env:
+            - name: NS
+              value: {{ $ns | quote }}
+            - name: INSTANCE
+              value: {{ $instance | quote }}
+            - name: STATUS_CM
+              value: {{ $statusCM | quote }}
+            - name: INTERVAL
+              value: {{ $interval | quote }}
+            - name: MIN_WEDGE_AGE
+              value: {{ $minAge | quote }}
+            - name: EXPECTED_SECRETS
+              value: {{ keys $expected | sortAlpha | join " " | quote }}
+            - name: HOME
+              value: /tmp
+          # Readiness = "the loop is alive", never "the Secrets arrived". See
+          # the header: gating readiness on the synced state would fail Helm
+          # wait during the legitimate pre-sync window, and slot 16a's
+          # `install.remediation.retries: -1` would make that an infinite loop.
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "test -f /tmp/alive"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "test -f /tmp/alive"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 4
+          # /bin/sh, NOT /bin/bash — alpine/k8s is Alpine-based and dr-promoter
+          # (same image, same chart) invokes sh. The script below stays
+          # ash-compatible: no arrays, no [[ ]], no here-strings.
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -u
+              # Touch BEFORE the first tick so Helm wait is satisfied immediately
+              # and a slow API server can never look like a dead reconciler.
+              touch /tmp/alive
+              echo "[sentinel] bp-postgres replica hub sentinel — ns=${NS} instance=${INSTANCE} interval=${INTERVAL}s"
+              echo "[sentinel] expected (cross-mesh-synced) Secrets: ${EXPECTED_SECRETS}"
+              KC="kubectl --request-timeout=20s"
+
+              reap_wedged_initdb_jobs() {
+                local jobs_json j name succeeded age refs s missing
+                jobs_json="$($KC -n "${NS}" get jobs -o json 2>/dev/null)" || return 0
+                for name in $(printf '%s' "$jobs_json" \
+                    | jq -r --arg i "${INSTANCE}" \
+                      '.items[] | select(.metadata.name | endswith("-initdb"))
+                                | select(.metadata.name | startswith($i))
+                                | .metadata.name'); do
+                  j="$(printf '%s' "$jobs_json" | jq --arg n "$name" '.items[] | select(.metadata.name==$n)')"
+
+                  # (b) NEVER touch a completed initdb Job — deleting one could
+                  #     invite a re-bootstrap over live data.
+                  succeeded="$(printf '%s' "$j" | jq -r '.status.succeeded // 0')"
+                  if [ "${succeeded}" != "0" ]; then continue; fi
+
+                  # (d) age guard — never race a Secret that is about to sync.
+                  #
+                  # Computed with jq's fromdateiso8601, NOT `date -u -d "<ts>"`.
+                  # busybox date (this is an Alpine image) does not parse an
+                  # RFC3339 string with -d, and the natural fallback for that
+                  # is age=0 — which silently makes the reap NEVER fire. A
+                  # repair that quietly does nothing is worse than no repair,
+                  # because it looks present. jq is already a hard dependency
+                  # two lines up, so this removes a dependency rather than
+                  # adding one.
+                  age="$(printf '%s' "$j" | jq -r '(now - (.metadata.creationTimestamp | fromdateiso8601)) | floor' 2>/dev/null)"
+                  case "${age}" in
+                    ''|*[!0-9-]*) echo "[sentinel] WARN: could not compute age for ${name} (creationTimestamp unparseable) — NOT reaping" >&2; continue ;;
+                  esac
+                  if [ "${age}" -lt "${MIN_WEDGE_AGE}" ]; then continue; fi
+
+                  # (c) POSITIVE evidence: the Job names a Secret that is absent.
+                  refs="$(printf '%s' "$j" | jq -r '
+                    [ .spec.template.spec.containers[]?, .spec.template.spec.initContainers[]? ]
+                    | map( (.env[]?.valueFrom.secretKeyRef.name // empty),
+                           (.envFrom[]?.secretRef.name // empty) )
+                    | flatten | unique | .[]' 2>/dev/null)"
+                  missing=""
+                  for s in ${refs}; do
+                    if ! $KC -n "${NS}" get secret "${s}" >/dev/null 2>&1; then
+                      missing="${missing} ${s}"
+                    fi
+                  done
+                  if [ -z "${missing}" ]; then continue; fi
+
+                  echo "[sentinel] REAPING stale bootstrap Job ${name}: incomplete, ${age}s old, references absent Secret(s):${missing}"
+                  echo "[sentinel]   a Job pod template is IMMUTABLE and CNPG never recreates a stale one — the repaired Cluster spec cannot heal this Pod on its own."
+                  if $KC -n "${NS}" delete job "${name}" --cascade=foreground --wait=false >/dev/null 2>&1; then
+                    echo "[sentinel]   deleted ${name}; CNPG will recreate it from the CURRENT Cluster spec"
+                  else
+                    echo "[sentinel]   ERROR: delete of ${name} FAILED — the wedge persists and needs an operator" >&2
+                  fi
+                done
+              }
+
+              report_missing_hub_secrets() {
+                local missing="" present=0 total=0 s state last
+                for s in ${EXPECTED_SECRETS}; do
+                  total=$(( total + 1 ))
+                  if $KC -n "${NS}" get secret "${s}" >/dev/null 2>&1; then
+                    present=$(( present + 1 ))
+                  else
+                    missing="${missing}${s} "
+                  fi
+                done
+
+                if [ -z "${missing}" ]; then
+                  state="synced"
+                  echo "[sentinel] hub sync OK — ${present}/${total} expected Secret(s) present"
+                else
+                  state="MISSING"
+                  echo "[sentinel] HUB SYNC INCOMPLETE — ${present}/${total} present; ABSENT: ${missing}" >&2
+                  if [ "${present}" -eq 0 ] && [ "${total}" -gt 0 ]; then
+                    echo "[sentinel]   ZERO of ${total} expected Secrets are present. role-secrets.yaml is gated 'not isReplicaSide' BY DESIGN (#5224), so this region mints none of its own and depends entirely on catalyst-api's cross-mesh syncSharedPGConsumerHubSecrets. Zero present means that sync has not run for this namespace." >&2
+                  fi
+                fi
+
+                # Status object — machine-readable, and the de-dupe source for
+                # the Warning Event so a steady failure does not spam the stream.
+                last="$($KC -n "${NS}" get configmap "${STATUS_CM}" -o jsonpath='{.data.missing}' 2>/dev/null || true)"
+                $KC -n "${NS}" create configmap "${STATUS_CM}" \
+                    --from-literal=state="${state}" \
+                    --from-literal=present="${present}/${total}" \
+                    --from-literal=missing="${missing}" \
+                    --dry-run=client -o yaml 2>/dev/null | $KC -n "${NS}" apply -f - >/dev/null 2>&1 || true
+
+                # Emitted via printf, NOT a heredoc: this whole script is the
+                # indented body of a YAML `args:` block, and an unindented `EOF`
+                # terminator cannot survive that (`<<-` strips only TABS).
+                if [ -n "${missing}" ] && [ "${missing}" != "${last}" ]; then
+                  printf '%s\n' \
+                    'apiVersion: v1' \
+                    'kind: Event' \
+                    'metadata:' \
+                    "  generateName: ${INSTANCE}-hub-sync-" \
+                    "  namespace: ${NS}" \
+                    'involvedObject:' \
+                    '  apiVersion: v1' \
+                    '  kind: ConfigMap' \
+                    "  name: ${STATUS_CM}" \
+                    "  namespace: ${NS}" \
+                    'type: Warning' \
+                    'reason: ReplicaHubSecretsMissing' \
+                    "message: \"${present}/${total} cross-mesh-synced Secret(s) present in ${NS}; absent: ${missing}\"" \
+                    'source:' \
+                    '  component: bp-postgres-replica-hub-sentinel' \
+                  | $KC -n "${NS}" create -f - >/dev/null 2>&1 || true
+                fi
+              }
+
+              while true; do
+                # Each tick in a subshell so one fault retries instead of
+                # crashing the loop (#5157 pattern).
+                ( reap_wedged_initdb_jobs ) || echo "[sentinel] reap tick failed; retrying next interval" >&2
+                ( report_missing_hub_secrets ) || echo "[sentinel] report tick failed; retrying next interval" >&2
+                touch /tmp/alive
+                sleep "${INTERVAL}"
+              done
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

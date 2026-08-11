@@ -291,8 +291,46 @@ name: bp-postgres
 #   the singleton render is byte-identical to 0.2.9 (the ipBlock only rendered
 #   under crossRegion, which singletons never set). Lockstep slot pins 16a/16c/
 #   16d → 0.2.10. tests/postgres-render.sh Case 4e/4f added.
-version: 0.2.19
-appVersion: 0.2.19
+# 0.2.20 (#6114, Refs #6016 #5224 #5157): replica-side HUB SENTINEL — a
+#   level-triggered actor for the two ways region-B fails SILENTLY.
+#   (1) THE REAP. #6016 (shipped 0.2.19) dropped cluster.yaml's dangling
+#   bootstrap.initdb.secret on the replica side and the cluster STILL did not
+#   heal: a Job's pod template is IMMUTABLE and CNPG only creates a bootstrap
+#   Job when one is ABSENT, never recreating a stale one. On hw293 the
+#   generation-1 shared-pg-1-initdb Pod therefore sat in
+#   CreateContainerConfigError for 12h against an already-repaired generation-2
+#   spec, taking keycloak-0 (Init:0/1), harbor-jobservice (CrashLoopBackOff,
+#   150 restarts) and 8 HelmReleases with it. Repairing a spec is not repairing
+#   a cluster. The sentinel deletes a bootstrap Job ONLY on positive evidence:
+#   incomplete (.status.succeeded == 0 — a COMPLETED initdb Job is never
+#   touched, since deleting one could invite a re-bootstrap over live data),
+#   older than minWedgeAgeSeconds, and naming a Secret that does not exist.
+#   No timeout heuristic anywhere in it.
+#   (2) THE LOUD HALF. role-secrets.yaml is gated `not isReplicaSide` BY DESIGN
+#   (#5224 — a replica that mints its own role passwords creates a permanently
+#   divergent credential set that resource-policy:keep freezes forever). The
+#   consequence was never handled: the replica mints NOTHING and depends
+#   entirely on catalyst-api's cross-mesh syncSharedPGConsumerHubSecrets, and
+#   when that has not run the namespace holds ZERO of the expected Secrets and
+#   says nothing. The sentinel watches for every role + hub Secret name the
+#   PRIMARY side would render and reports absence as a Warning Event + a
+#   `<instance>-replica-hub-sync-status` ConfigMap + a log line naming each one.
+#   Shape: a Deployment with a sleep loop, NOT a CronJob (#5157 — a CronJob's
+#   scheduler dies with the region's control plane) and NOT a Helm hook (a
+#   pre-upgrade hook runs BEFORE the repaired spec is applied so CNPG would
+#   recreate the Job from the broken one; a post-upgrade hook that fails blocks
+#   the release, and slot 16a runs install.remediation.retries: -1). Readiness
+#   reports only that the loop is alive, NEVER that the Secrets arrived —
+#   gating readiness on the synced state would turn the legitimate pre-sync
+#   window into an infinite install-remediation loop. Gated on isReplicaSide,
+#   NOT renderReplicaHalf: the wedge lives in the PRE-FLIP window (#4460
+#   placeholder singleton), which renderReplicaHalf does not cover. Opt-out via
+#   replicaHubSentinel.enabled=false (read with `dig`, so an explicit false is
+#   honoured — sprig's `default` swallows boolean false). Primary render is
+#   byte-identical. Lockstep slot pins 16a/16c/16d → 0.2.20.
+#   tests/postgres-render.sh Case 21 added.
+version: 0.2.20
+appVersion: 0.2.20
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
   PostgreSQL engine. Each install of bp-postgres = ONE

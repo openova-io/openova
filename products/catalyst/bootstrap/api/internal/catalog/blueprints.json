@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-11T01:17:31.392Z",
+  "generatedAt": "2026-08-11T08:18:06.242Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -4083,7 +4083,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.2.19",
+      "version": "0.2.20",
       "section": "pts-4-1-data-services",
       "depends": [
         "bp-cnpg",

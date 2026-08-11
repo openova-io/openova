@@ -352,9 +352,30 @@ echo "[render] Case 4g: #5224 pre-flip SECONDARY (side=secondary, crossRegion=fa
 if grep -qE '^kind: Secret$' "$TMP/preflip-secondary.yaml"; then
   fail "#5224: pre-flip SECONDARY minted a Secret — the divergent role/hub password mint is back (hw273 harbor 28P01 lockout shape)"
 fi
-if grep -q 'harbor-database-secret' "$TMP/preflip-secondary.yaml"; then
-  fail "#5224: pre-flip SECONDARY rendered the hub connection Secret (must be primary-side only)"
-fi
+# STRUCTURAL, not a bare substring (#6114). The assertion is "the secondary
+# never CREATES this object", and it is checked by parsing the render and
+# looking at what each document actually IS. The former `grep -q
+# 'harbor-database-secret'` could not tell an object from a mention, so it went
+# red the moment the replica-hub sentinel began naming the Secrets it WATCHES
+# FOR in an env value — a workload that exists precisely because the replica
+# must not mint them. Object-identity is the property this case is about; the
+# substring never was. Strength is unchanged: any rendered Secret at all is
+# already fatal two lines above, and this adds that NO document of any kind may
+# be NAMED for the hub Secret.
+python3 - "$TMP/preflip-secondary.yaml" <<'PY' || exit 1
+import sys, yaml
+bad = []
+for d in yaml.safe_load_all(open(sys.argv[1])):
+    if not isinstance(d, dict):
+        continue
+    if (d.get("metadata") or {}).get("name") == "harbor-database-secret":
+        bad.append(d.get("kind"))
+if bad:
+    sys.stderr.write(
+        "FAIL: #5224 pre-flip SECONDARY rendered an object NAMED for the hub "
+        "connection Secret (kinds: %s) — it must be primary-side only\n" % bad)
+    sys.exit(1)
+PY
 # The pre-flip PRIMARY must still mint the full set (the authoritative source).
 grep -qE '^type: kubernetes.io/basic-auth$' "$TMP/preflip-primary.yaml" \
   || fail "#5224: pre-flip PRIMARY lost its role-password Secret (the gate must only exclude the replica side)"
@@ -507,6 +528,12 @@ topology:
   # separately in Cases 20a-20c below; disabling it here keeps the "exactly 1 CNP"
   # crossregion-dr assertion focused.
   autoPromote: { enabled: false }
+# Same isolation, same reason (#6114): the replica-hub sentinel is default-ON on
+# the replica side and carries its OWN -egress CiliumNetworkPolicy (it must
+# reach the kube-apiserver through the shared-data default-deny). Its CNP is
+# asserted separately in Case 21 below, so it is disabled here to keep the
+# "exactly 1 CNP" crossregion-dr assertion focused rather than loosened.
+replicaHubSentinel: { enabled: false }
 databases:
   - name: registry
     owner: harbor
@@ -1003,13 +1030,13 @@ repl_sel=$(helm template shared-pg . \
   --api-versions postgresql.cnpg.io/v1 2>/dev/null)
 # Every `additional` service in the managed block must be selectorType rw:
 # the replication source (this fix) and the write alias (#3629) alike.
-if printf '%s' "${repl_sel}" | grep -qE 'selectorType:[[:space:]]*r[[:space:]]*$'; then
+if grep -qE 'selectorType:[[:space:]]*r[[:space:]]*$' <<<"${repl_sel}"; then
   echo "FAIL (#5473): a managed additional Service still declares 'selectorType: r'." >&2
   echo "  The cross-region replication SOURCE must be the primary ('rw'); 'r' selects every" >&2
   echo "  instance and lets a region-b replica cascade off a standby (live: hw291 2026-07-29)." >&2
   exit 1
 fi
-if ! printf '%s' "${repl_sel}" | grep -q 'catalyst.openova.io/role: replication-source'; then
+if ! grep -q 'catalyst.openova.io/role: replication-source' <<<"${repl_sel}"; then
   echo "FAIL (#5473): the replication-source Service did not render — the assertion is vacuous." >&2
   exit 1
 fi
@@ -1034,11 +1061,11 @@ seed_out=$(helm template shared-pg . \
   --api-versions postgresql.cnpg.io/v1 2>/dev/null)
 
 # VACUITY FIRST: a grep for a missing key "passes" trivially on an empty render.
-if ! printf '%s' "${seed_out}" | grep -q '^kind: Cluster'; then
+if ! grep -q '^kind: Cluster' <<<"${seed_out}"; then
   echo "FAIL (#5504): no Cluster CR rendered — every assertion below is vacuous." >&2
   exit 2
 fi
-if ! printf '%s' "${seed_out}" | grep -qE '^      owner: "harbor"'; then
+if ! grep -qE '^      owner: "harbor"' <<<"${seed_out}"; then
   echo "FAIL (#5504): initdb owner did not render — assertion vacuous." >&2
   exit 2
 fi
@@ -1120,13 +1147,13 @@ pos_out=$(helm template shared-pg . -f "${pos_vals}" --namespace shared-data \
   || { echo "FAIL (#5639): the region-BEARING render errored — the guard must not reject a valid install:" >&2
        printf '%s\n' "${pos_out}" >&2; exit 1; }
 
-printf '%s' "${pos_out}" | grep -qE '^kind: Cluster$' \
+grep -qE '^kind: Cluster$' <<<"${pos_out}" \
   || { echo "FAIL (#5639): no Cluster rendered — every assertion below is vacuous." >&2; exit 2; }
-printf '%s' "${pos_out}" | grep -qE '^    openova\.io/region: "hz-fsn-rtz-prod"$' \
+grep -qE '^    openova\.io/region: "hz-fsn-rtz-prod"$' <<<"${pos_out}" \
   || { echo "FAIL (#5639): primary Cluster LABEL is not the real region (empty label = the defect)." >&2; exit 1; }
-printf '%s' "${pos_out}" | grep -qE '^                values: \["hz-fsn-rtz-prod"\]$' \
+grep -qE '^                values: \["hz-fsn-rtz-prod"\]$' <<<"${pos_out}" \
   || { echo "FAIL (#5639): primary nodeAffinity values[] is not [hz-fsn-rtz-prod]." >&2; exit 1; }
-if printf '%s' "${pos_out}" | grep -qE 'values: \[""\]'; then
+if grep -qE 'values: \[""\]' <<<"${pos_out}"; then
   echo "FAIL (#5639): the render still emits an EMPTY nodeAffinity selector." >&2; exit 1
 fi
 echo "  PASS (+ primary: label + nodeAffinity both carry hz-fsn-rtz-prod)"
@@ -1136,9 +1163,9 @@ pos_replica=$(helm template shared-pg . -f "${pos_vals}" --namespace shared-data
   --set topology.side=secondary --api-versions postgresql.cnpg.io/v1 2>&1) \
   || { echo "FAIL (#5639): the region-bearing REPLICA render errored:" >&2
        printf '%s\n' "${pos_replica}" >&2; exit 1; }
-printf '%s' "${pos_replica}" | grep -qE '^    openova\.io/region: "hz-hel-rtz-prod"$' \
+grep -qE '^    openova\.io/region: "hz-hel-rtz-prod"$' <<<"${pos_replica}" \
   || { echo "FAIL (#5639): replica Cluster LABEL is not the real replica region." >&2; exit 1; }
-printf '%s' "${pos_replica}" | grep -qE '^                values: \["hz-hel-rtz-prod"\]$' \
+grep -qE '^                values: \["hz-hel-rtz-prod"\]$' <<<"${pos_replica}" \
   || { echo "FAIL (#5639): replica nodeAffinity values[] is not [hz-hel-rtz-prod]." >&2; exit 1; }
 echo "  PASS (+ replica: label + nodeAffinity both carry hz-hel-rtz-prod)"
 
@@ -1160,7 +1187,7 @@ if neg_out=$(helm template postgres . -f "${neg_vals}" --namespace hw292-omani-w
   printf '%s\n' "${neg_out}" | grep -E 'openova\.io/region|values: \[' >&2
   rm -f "${neg_vals}"; exit 1
 fi
-printf '%s' "${neg_out}" | grep -q 'topology.primary.region' \
+grep -q 'topology.primary.region' <<<"${neg_out}" \
   || { echo "FAIL (#5639): the render failed but the error does NOT name topology.primary.region:" >&2
        printf '%s\n' "${neg_out}" >&2; rm -f "${neg_vals}"; exit 1; }
 echo "  PASS (- primary: render REFUSED, error names topology.primary.region)"
@@ -1180,7 +1207,7 @@ if neg_replica_out=$(helm template postgres . -f "${neg_replica_vals}" --namespa
   printf '%s\n' "${neg_replica_out}" | grep -E 'openova\.io/region|values: \[' >&2
   rm -f "${neg_vals}" "${neg_replica_vals}"; exit 1
 fi
-printf '%s' "${neg_replica_out}" | grep -q 'topology.replica.region' \
+grep -q 'topology.replica.region' <<<"${neg_replica_out}" \
   || { echo "FAIL (#5639): the replica render failed but the error does NOT name topology.replica.region:" >&2
        printf '%s\n' "${neg_replica_out}" >&2; rm -f "${neg_vals}" "${neg_replica_vals}"; exit 1; }
 echo "  PASS (- replica: render REFUSED, error names topology.replica.region)"
@@ -1194,10 +1221,10 @@ sing_out=$(helm template postgres . -f "${singleton_vals}" --namespace org-acme 
   --api-versions postgresql.cnpg.io/v1 2>&1) \
   || { echo "FAIL (#5639): the SINGLETON render was broken by the region guard:" >&2
        printf '%s\n' "${sing_out}" >&2; rm -f "${neg_vals}" "${neg_replica_vals}" "${singleton_vals}"; exit 1; }
-printf '%s' "${sing_out}" | grep -qE '^kind: Cluster$' \
+grep -qE '^kind: Cluster$' <<<"${sing_out}" \
   || { echo "FAIL (#5639): singleton render emitted no Cluster." >&2
        rm -f "${neg_vals}" "${neg_replica_vals}" "${singleton_vals}"; exit 1; }
-if printf '%s' "${sing_out}" | grep -q 'openova.io/region'; then
+if grep -q 'openova.io/region' <<<"${sing_out}"; then
   echo "FAIL (#5639): the singleton render grew a region pin — it must stay byte-identical." >&2
   rm -f "${neg_vals}" "${neg_replica_vals}" "${singleton_vals}"; exit 1
 fi
@@ -1341,3 +1368,180 @@ helm template shared-pg . -f "$TMP/promoter.values.yaml" --set topology.promoted
 awk '/^kind: Cluster$/{c=1} c&&/^  name: shared-pg-replica$/{r=1} r&&/^    enabled: /{print; exit}' "$TMP/prom-promoted.yaml" | grep -q 'enabled: false' \
   || fail "#5623 topology.promoted=true must render replica.enabled: false (CNPG promotes the survivor)"
 echo "  PASS (promoted:false -> replica.enabled:true; promoted:true -> replica.enabled:false)"
+
+# ── Case 21: #6114 — the replica-side hub sentinel (reap + loud absence) ──────
+#
+# TWO defects, one workload. role-secrets.yaml is gated `not isReplicaSide`
+# DELIBERATELY (#5224) — so the replica mints nothing and depends ENTIRELY on
+# catalyst-api's cross-mesh syncSharedPGConsumerHubSecrets. hw293 showed both
+# ways that goes wrong silently:
+#
+#   (1) #6016 repaired cluster.yaml's dangling bootstrap.initdb.secret, and the
+#       cluster STILL did not heal. A Job's pod template is IMMUTABLE and CNPG
+#       never recreates a stale bootstrap Job, so the generation-1
+#       shared-pg-1-initdb Pod stayed in CreateContainerConfigError for 12h
+#       against an already-correct generation-2 spec. Repairing a spec is not
+#       repairing a cluster; the wedged Job needs an ACTOR.
+#   (2) Region-B's shared-data held ZERO of region-A's 14 consumer hub Secrets
+#       and reported success anyway.
+#
+# Case 4h pins the RENDER half of (1) — no dangling reference. It cannot see a
+# stale Job, because a render test has no cluster. This case pins the actor that
+# can.
+echo "[render] Case 21: #6114 replica-hub sentinel — reap actor + loud absence, primary CONTROL, readiness must NOT gate on sync"
+cat > "$TMP/sentinel.values.yaml" <<'YAML'
+instance: { name: shared-pg, namespace: shared-data }
+topology:
+  mode: singleton
+  side: secondary
+  instances: 1
+  primary: { region: hz-fsn-rtz-prod }
+  replica: { region: hz-hel-rtz-prod }
+databases:
+  - name: registry
+    owner: harbor
+    reflect: { secretName: harbor-database-secret, namespaces: [harbor] }
+  - name: gitea
+    owner: gitea
+    reflect: { secretName: gitea-database-secret, namespaces: [gitea] }
+YAML
+helm template shared-pg . -f "$TMP/sentinel.values.yaml" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/sentinel-replica.yaml" 2>&1 \
+  || fail "#6114 sentinel replica render errored"
+
+# 21a — the sentinel renders on the replica side, with the RBAC + egress it
+# needs. shared-data is default-deny (bp-network-policies) and the kube-apiserver
+# is a reserved Cilium entity a vanilla NetworkPolicy cannot express (#4428), so
+# without its own CNP the reconciler is inert — a silent failure of the very
+# thing that exists to end silent failures.
+grep -qE '^  name: "shared-pg-replica-hub-sentinel"$' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 replica render is missing the hub sentinel"
+for k in ServiceAccount Role RoleBinding Deployment CiliumNetworkPolicy; do
+  grep -qE "^kind: ${k}\$" "$TMP/sentinel-replica.yaml" \
+    || fail "#6114 sentinel missing a ${k} (it cannot reach the apiserver / act without all five)"
+done
+grep -qE '^  name: "shared-pg-replica-hub-sentinel-egress"$' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 sentinel has no -egress CiliumNetworkPolicy — under shared-data default-deny it would be inert"
+grep -q 'kube-apiserver' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 sentinel egress CNP must admit the kube-apiserver entity"
+
+# 21b — the reap criterion is POSITIVE EVIDENCE, and a COMPLETED initdb Job is
+# never touched. This is the single most important line in the actor: deleting a
+# succeeded bootstrap Job could invite a re-bootstrap over live data.
+grep -q 'succeeded' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 reap has no .status.succeeded guard — it could delete a COMPLETED initdb Job and invite a re-bootstrap over live data"
+grep -q 'MIN_WEDGE_AGE' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 reap has no minimum-age guard — it would race a Secret that is seconds from syncing"
+# The age guard must compute with jq's fromdateiso8601, NOT `date -d "<rfc3339>"`.
+# busybox date (this IS an Alpine image) rejects an RFC3339 string outright —
+# `date: invalid date '2026-08-11T04:23:42Z'` — and the natural fallback for
+# that is age=0, which makes the reap NEVER fire. A repair that quietly does
+# nothing is worse than no repair, because it looks present.
+grep -q 'fromdateiso8601' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 reap must compute Job age with jq fromdateiso8601 — busybox date cannot parse RFC3339 and the reap would be permanently inert"
+if grep -qE 'date -u -d "\$\{created\}"|date -d "\$\{created\}"' "$TMP/sentinel-replica.yaml"; then
+  fail "#6114 reap parses creationTimestamp with date -d, which busybox rejects — the age guard would silently pin age to 0 and never reap"
+fi
+grep -q 'secretKeyRef.name' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 reap must read the Job's OWN pod-template Secret references (positive evidence), not guess from a status string"
+grep -q 'delete job' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 sentinel never actually reaps — a reporter that cannot repair leaves the 12h wedge in place"
+
+# 21c — the loud half asserts on the VALUE, not the key (the #5639 lesson): the
+# watch-list must name BOTH the hub Secrets and the role Secrets, because
+# role-secrets.yaml renders neither on this side.
+sentinel_expected="$(awk '/name: EXPECTED_SECRETS/{getline; sub(/^[[:space:]]*value: /,""); gsub(/"/,""); print; exit}' "$TMP/sentinel-replica.yaml")"
+for s in harbor-database-secret gitea-database-secret shared-pg-harbor shared-pg-gitea; do
+  case " ${sentinel_expected} " in
+    *" ${s} "*) ;;
+    *) fail "#6114 EXPECTED_SECRETS omits ${s} — got '${sentinel_expected}'. An absence that is not watched for is an absence that stays silent." ;;
+  esac
+done
+
+# 21d — READINESS MUST NOT GATE ON THE SYNCED STATE. Slot 16a keeps Helm wait
+# with `install.remediation.retries: -1`, so a probe that waits for the Secrets
+# would turn the LEGITIMATE pre-sync window into an infinite install-remediation
+# loop on every fresh 2-region prov — trading a silent wedge for a self-inflicted
+# outage. The probe may only report that the loop is alive.
+awk '/readinessProbe:/{f=1} f&&/command:/{print; exit}' "$TMP/sentinel-replica.yaml" | grep -q 'test -f /tmp/alive' \
+  || fail "#6114 readiness probe must test only loop liveness (test -f /tmp/alive)"
+if awk '/readinessProbe:/{f=1} f&&/command:/{print; exit}' "$TMP/sentinel-replica.yaml" | grep -qE 'get secret|EXPECTED_SECRETS'; then
+  fail "#6114 readiness probe gates on Secret presence — with install.remediation.retries:-1 that is an INFINITE install-remediation loop, not a guard"
+fi
+
+# 21e — CONTROL. Same chart, same bindings, same databases: only the side
+# differs. The PRIMARY mints its own Secrets and has nothing to wait for, so the
+# sentinel must be ABSENT there. Without this control, 21a would pass on a
+# template that rendered unconditionally.
+helm template shared-pg . -f "$TMP/sentinel.values.yaml" --set topology.side=primary \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/sentinel-primary.yaml" 2>&1 \
+  || fail "#6114 sentinel primary render errored"
+if grep -q 'replica-hub-sentinel' "$TMP/sentinel-primary.yaml"; then
+  fail "#6114 CONTROL FAILED: the sentinel rendered on the PRIMARY side, which mints its own Secrets — the side gate is not being applied"
+fi
+# ...and the control is non-vacuous: the primary render is a real render that
+# DOES mint the role Secrets whose absence the replica sentinel watches for.
+grep -q 'name: "harbor-database-secret"' "$TMP/sentinel-primary.yaml" \
+  || fail "#6114 CONTROL VACUOUS: the primary fixture minted no hub Secret, so 'sentinel absent here' proves nothing"
+
+# 21f — the gate is isReplicaSide, NOT renderReplicaHalf. The hw293 wedge lived
+# in the PRE-FLIP window (side=secondary AND activeHotStandby=false), where the
+# placeholder singleton Cluster renders and renderReplicaHalf is still false.
+# A sentinel gated on the flip would not exist during the outage it repairs.
+grep -qE '^  name: "shared-pg-replica-hub-sentinel"$' "$TMP/preflip-secondary.yaml" \
+  || fail "#6114 the sentinel is ABSENT from the pre-flip secondary render — that is precisely the window the initdb wedge lives in (#4460 placeholder)"
+
+# 21g — explicit opt-out renders ZERO sentinel resources. Guarded because
+# `$sentinel.enabled | default true` would silently ignore `enabled: false`
+# (sprig's `default` treats boolean false as EMPTY); the template uses `dig`.
+helm template shared-pg . -f "$TMP/sentinel.values.yaml" --set replicaHubSentinel.enabled=false \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/sentinel-off.yaml" 2>&1 \
+  || fail "#6114 sentinel opt-out render errored"
+if grep -q 'replica-hub-sentinel' "$TMP/sentinel-off.yaml"; then
+  fail "#6114 replicaHubSentinel.enabled=false still rendered the sentinel (sprig 'default' swallowing boolean false?)"
+fi
+# 21h — RUNTIME-SHAPE assertions, each copied from dr-promoter's `actor`
+# container, which runs the SAME alpine/k8s image in THIS chart. Every one of
+# these was initially written wrong from memory and corrected only by reading
+# the proven template, so they are pinned rather than trusted:
+#   * kyverno cilium-l7-mtls (Enforce) DENIES a Pod template without the
+#     policy.cilium.io/enforced label (#3238) — the Deployment would never
+#     be admitted at all.
+#   * alpine/k8s is Alpine: /bin/bash is not the interpreter to assume.
+#   * HOME=/tmp is load-bearing under readOnlyRootFilesystem — kubectl writes
+#     its discovery cache under $HOME.
+grep -q 'policy.cilium.io/enforced: "true"' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 sentinel Pod template lacks policy.cilium.io/enforced — kyverno cilium-l7-mtls (Enforce) DENIES it at admission (#3238)"
+grep -q 'runAsUser: 65534' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 sentinel must run as 65534, the UID dr-promoter's actor uses for this same image"
+awk '/name: HOME/{getline; print; exit}' "$TMP/sentinel-replica.yaml" | grep -q '/tmp' \
+  || fail "#6114 sentinel needs HOME=/tmp — kubectl writes its cache under \$HOME and the rootfs is read-only"
+grep -q '"/bin/bash"' "$TMP/sentinel-replica.yaml" \
+  && fail "#6114 sentinel invokes /bin/bash, but alpine/k8s is Alpine — dr-promoter uses /bin/sh"
+# #6079: a single-replica Deployment on the DEFAULT RollingUpdate can never roll
+# on a full node — maxSurge 25% ceils to 1 but maxUnavailable 25% floors to 0, so
+# the old Pod may never be evicted to make room for the new one. A reconciler
+# that cannot be rolled out is stuck on whatever image it first got, which for
+# THIS workload means the repair silently stops updating. dr-promoter uses
+# Recreate for the same reason. (scripts/check-single-replica-rollout.py is the
+# repo-wide gate; this pins it at the point of use.)
+awk '/^kind: Deployment$/{d=1} d&&/replica-hub-sentinel/{n=1} n&&/type: Recreate/{f=1} END{exit f?0:1}' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114/#6079 sentinel Deployment has no strategy.type: Recreate — a single-replica default RollingUpdate can NEVER roll (maxUnavailable floors to 0)"
+
+# 21i — the rendered loop must actually PARSE as POSIX sh. A bashism here is
+# invisible to every assertion above (they all match text) and would surface
+# only as a CrashLoopBackOff on the replica, which is the failure mode this
+# whole file exists to end. `sh` is dash on Debian/Ubuntu runners.
+python3 - "$TMP/sentinel-replica.yaml" > "$TMP/sentinel-script.sh" <<'PY'
+import sys, yaml
+for d in yaml.safe_load_all(open(sys.argv[1])):
+    if isinstance(d, dict) and d.get("kind") == "Deployment" \
+       and "replica-hub-sentinel" in (d.get("metadata") or {}).get("name", ""):
+        print(d["spec"]["template"]["spec"]["containers"][0]["args"][0])
+PY
+[ -s "$TMP/sentinel-script.sh" ] \
+  || fail "#6114 VACUOUS: extracted an EMPTY sentinel script — the shape check below would pass on nothing"
+sh -n "$TMP/sentinel-script.sh" \
+  || fail "#6114 the sentinel loop is not valid POSIX sh — it would CrashLoopBackOff on the Alpine-based image"
+
+echo "  PASS (sentinel on replica + pre-flip; reap guards completed/age/positive-evidence; watch-list names hub AND role Secrets; readiness cannot wedge Helm wait; absent on primary CONTROL; opt-out clean; admission label + UID + HOME + POSIX-sh parse pinned)"

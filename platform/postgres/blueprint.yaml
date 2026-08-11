@@ -30,7 +30,14 @@ spec:
   # auto-promotes the survivor (keycloak et al. writable in region-B) instead of
   # leaving it pg_is_in_recovery()=t for the whole outage (hw292 G12). sync-only
   # data fence; default-OFF preserved for singleton/primary/async.
-  version: 0.2.19
+  # 0.2.20 (#6114): replica-side hub sentinel — reaps a stale CNPG initdb Job
+  # that CNPG never recreates (a Job pod template is immutable, so #6016's spec
+  # repair could not heal the generation-1 Pod: 12h in
+  # CreateContainerConfigError on hw293), and reports the cross-mesh
+  # consumer-hub sync's absence as a Warning Event + status ConfigMap instead
+  # of leaving 14 Secrets silently missing behind a green release. Readiness
+  # never gates on the synced state, so it cannot wedge Helm wait.
+  version: 0.2.20
   card:
     title: PostgreSQL
     summary: |
