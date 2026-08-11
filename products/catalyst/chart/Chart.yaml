@@ -3877,7 +3877,8 @@ name: bp-catalyst-platform
 #
 # 1.4.1404 — #6166: catalyst-ui carries priorityClassName
 #   catalyst-control-plane, the class its catalyst-api sibling has held since
-#   #4231. The two fixes stack and neither is sufficient alone. #6157 fixed the
+#   #4231. The two fixes stack and neither is sufficient alone. PR #6152
+#   (issue #6157) fixed the
 #   ROLLOUT DEADLOCK: at replicas=1 the default strategy rounds maxSurge 25% UP
 #   to 1 and maxUnavailable 25% DOWN to 0, so the roll needed two Pods live at
 #   once and could never start on a node already at its Pod ceiling;

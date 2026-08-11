@@ -1391,8 +1391,8 @@ spec:
       #   Lockstep w/ products/catalyst/chart/Chart.yaml.
       #
       # 1.4.1404 — #6166: catalyst-ui gets priorityClassName
-      #   catalyst-control-plane, matching its catalyst-api sibling. #6157
-      #   fixed the ROLLOUT DEADLOCK (maxUnavailable: 1, so the old Pod may
+      #   catalyst-control-plane, matching its catalyst-api sibling. PR #6152
+      #   (issue #6157) fixed the ROLLOUT DEADLOCK (maxUnavailable: 1, so the old Pod may
       #   leave before the new one is admitted); that only FREES a Pod slot on
       #   a node at its max-pods cap, it does not WIN it. The scheduler awards
       #   a freed slot to the highest-priority pending Pod, and catalyst-ui ran

@@ -8,7 +8,8 @@ package bootstrapkit
 // "0/1 nodes are available: 1 Too many pods" — the node sat at its 110/110 Pod
 // ceiling.
 //
-// #6157 had already fixed the ROLLOUT DEADLOCK on the same Deployment: at
+// PR #6152 (issue #6157) had already fixed the ROLLOUT DEADLOCK on the same
+// Deployment: at
 // replicas=1 the default strategy rounds maxSurge 25% UP to 1 and
 // maxUnavailable 25% DOWN to 0, so the roll needed two Pods alive at once and
 // could never start on a full node. That fix is correct and necessary.
