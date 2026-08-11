@@ -1826,7 +1826,7 @@ orgTenants:
   # whichever one you missed.
   chartVersions:
     # bp-keycloak — the per-Organization Keycloak realm host.
-    keycloak: "1.5.9"
+    keycloak: "1.5.10"
     # bp-cnpg — currently has NO consumer: the per-Org bp-cnpg operator
     # HelmRelease was removed in #4920 (organization_gitops.go:1259) because the
     # per-Org operator hijacked the shared CNPG webhook. main.go still reads
