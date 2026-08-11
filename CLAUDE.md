@@ -95,6 +95,20 @@ Test provs and tenant Organizations use the domains listed in
 The legacy `admin.<sovereign-fqdn>` subdomain for voucher operations is dead —
 voucher and billing operations live in the operator console's **BSS menu**.
 
+### 🛑 OTP/PIN mail is Sieve-filed into the `OTP` folder — poll `OTP`, NOT INBOX (since 2026-08-11)
+
+ALL mail from `noreply@openova.io` to `emrah.baysal@openova.io` (sign-in PINs,
+"<app> is ready" notifications) is filed server-side into the **`OTP` IMAP
+folder at delivery** by the active Stalwart Sieve script `otp-filter` — it
+never reaches INBOX. Any PIN/OTP poller (e.g. the `read_pin.py` recipe) MUST
+`EXAMINE "OTP"` (read-only) instead of `SELECT INBOX`; everything else in the
+canonical walk-auth flow (memory
+`reference_sovereign_authed_walk_via_mothership_mailbox_pin`) is unchanged.
+The founder's INBOX is human mail only now — the 983-message OTP flood was
+moved out on 2026-08-11; keep it that way. The mailbox remains READ-ONLY:
+never create/rename folders, never touch the Sieve script or SOGo filters —
+rule changes are founder-gated in `openova-private`.
+
 ### 🛑 NodePorts are ABSOLUTELY FORBIDDEN — always, including for testing/debugging/proof
 
 Founder, 2026-07-03 (verbatim): *"YOU CAN NEVER EVER USE NODEPORT EVEN FOR TESTING
@@ -299,6 +313,18 @@ Flux reconcile pulls **exclusively** from the local Gitea + Harbor.
 
 Every claimed-done surface lives in [`docs/ledger/TRUST.md`](docs/ledger/TRUST.md) in one of
 four states: UNVERIFIED (default), VERIFIED-PASS, VERIFIED-FAIL, VERIFIED-PARTIAL.
+
+
+**🛑 The treadmill is refused at the gate, not by memory.** Re-walking the whole
+ledger is not a decision anyone makes — it is the DEFAULT whenever whoever is
+driving loses this context, and it has recurred four times. A doc did not hold;
+a scheduler with no caller did not hold; wiring the scheduler in did not hold
+(it collapsed to walk-everything on a fresh environment). So
+`scripts/check-walk-respects-scheduler.sh` **fails any PR that flips a row to ✅
+the scheduler did not mark due**. It always allows a newly-discovered ❌, always
+allows a clause-only adjudication, and offers `ALLOW_FULL_WALK=1` for a
+deliberate sweep that must be justified in the PR body. Measured on a fresh
+Sovereign: **123 rows owed real attention, 163 spot-checked — not 286.**
 
 **Re-walk scheduling is confidence-driven, not blanket** (2026-08-11). A PR
 invalidates only the rows whose *asserted surface* it actually touches — not

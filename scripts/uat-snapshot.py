@@ -143,6 +143,35 @@ def main():
         w.writerow(row)
     print(f"-> {CYCLES.relative_to(ROOT)} (append-only; past cycles are never edited)")
 
+    # Record the PER-ROW observations too, not only the aggregate.
+    #
+    # The cycle sheet above stores counts. Counts cannot answer "which row
+    # improved and which regressed", and on 2026-08-11 that gap produced a real
+    # misreading: comparing a wiped hw292 against a fresh hw293 showed 40 rows
+    # going green-to-red, when the true count of direct green-to-red transitions
+    # was ONE (row 219). Thirty-nine "regressions" were a machine replacement,
+    # and no amount of careful reporting could have caught it, because the data
+    # had nowhere to record which machine an observation belonged to.
+    #
+    # scripts/uat-confidence.py consumes these observations to derive each row's
+    # confidence, streak and walk interval. It was merged (#6158) and then
+    # invoked by nothing — a scorer with no caller is the same defect class as a
+    # guard no workflow runs (#6162 found ten of those). This call is what makes
+    # it real: every capture feeds the scheduler that decides the next walk-list.
+    rc = subprocess.call([
+        sys.executable, str(ROOT / "scripts" / "uat-confidence.py"),
+        "--observe", "--env", a.env, "--cycle", a.ts,
+    ])
+    if rc != 0:
+        # Fail loud. A silent skip here would let the observation log drift out
+        # of step with the cycle sheet, and the scheduler would then hand
+        # walkers a stale work-list while every printed number looked right.
+        print("ERROR: per-row observation capture failed — the confidence "
+              "scheduler will be working from a stale log.", file=sys.stderr)
+        return 1
+    print("   next walk-list:  python3 scripts/uat-confidence.py --due --env "
+          f"{a.env}")
+
 
 if __name__ == "__main__":
     main()
