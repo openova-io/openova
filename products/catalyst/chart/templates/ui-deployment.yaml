@@ -7,6 +7,31 @@ metadata:
     app.kubernetes.io/component: frontend
 spec:
   replicas: 1
+  # #6079 (2026-08-11): explicit maxUnavailable so a 1-replica Deployment can
+  # actually roll on a node with no spare Pod slot. The k8s DEFAULT strategy is
+  # RollingUpdate{maxSurge: 25%, maxUnavailable: 25%}, and those percentages
+  # round in OPPOSITE directions against replicas=1:
+  #     maxSurge       = ceil (0.25 * 1) = 1   -> the new Pod IS created
+  #     maxUnavailable = floor(0.25 * 1) = 0   -> the old Pod may NEVER leave
+  # so the roll demands two Pods at once. On the mothership (kubelet maxPods=110,
+  # 110 non-terminal Pods bound) the replacement Pod sat Unschedulable "Too many
+  # pods" while the old Pod could not be evicted to make room for it: catalyst-ui
+  # served fad88bd for ten days while its spec advanced to 5f40184 then e6c1533,
+  # stuck in ProgressDeadlineExceeded, holding bp-catalyst-platform in Progressing
+  # and UAT rows W1/W2 red. Reaping dead Pods does NOT help — terminal Pods hold
+  # no scheduling slot (measured: deleting all 3 Succeeded Pods left Running
+  # pinned at 110 and Pending at 7).
+  # maxUnavailable: 1 lets the controller scale the old ReplicaSet to 0 first, so
+  # the roll frees the very slot it needs and requires ZERO spare capacity.
+  # Preferred over `type: Recreate` (used by the catalyst-api sibling, which needs
+  # it for its RWO EVS PVC) because catalyst-ui is stateless: keeping
+  # RollingUpdate means that if the replica count ever grows this rolls gracefully
+  # instead of taking a full outage on every deploy.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: catalyst-ui

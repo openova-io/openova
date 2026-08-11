@@ -21,6 +21,17 @@ metadata:
     app.kubernetes.io/component: frontend
 spec:
   replicas: 1
+  # #6079 (2026-08-11): keep in lockstep with the Helm sibling
+  # (ui-deployment.yaml), which carries the full rationale. Short version: the
+  # k8s default strategy rounds maxSurge 25% UP to 1 and maxUnavailable 25% DOWN
+  # to 0 at replicas=1, so the roll needs two Pods at once and deadlocks forever
+  # on a node with no spare Pod slot. maxUnavailable: 1 lets the old Pod go first,
+  # so the rollout frees the slot it needs and requires zero spare capacity.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: catalyst-ui
