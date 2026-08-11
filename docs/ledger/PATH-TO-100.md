@@ -1,7 +1,323 @@
 # PATH TO 100% — **hw292 live, cc=true** (delivery-state re-measured 2026-08-08)
 
+> ⚠️ **The sections below the 2026-08-11 partition are hw292-era and hw292 is WIPED.** The live env is **hw293** (`hw293.omantel.biz`, dep `a0077ba47e3720e5`). Read the 2026-08-11 partition first; treat everything after it as history until re-measured.
+
 > **Source of truth:** [`UAT.md`](UAT.md). **Current env = hw292** (`hw292.omani.works`, dep `1c56518035a83e03`, 2-region Huawei me-east-215-a/-b-1) — **fired 2026-08-03T04:04Z, converged, `cutoverComplete=true` 08:12:30Z**, and G12 region-kill re-proven **6/6 zero-touch** on 2026-08-04 (promotion T0+136s, failback with a clean re-clone, no split-brain — `docs/sessions/2026-08-04/hw292-g12-region-kill/`). hw291 was wiped 2026-07-31 08:54Z after banking cc=true.
 > This file maps every non-green row to its gate + owner. A row stays non-green until the hw292 walk verifies it — **merge ≠ green** (founder rule). Nothing below is a walk stamp; this is the *fix map*, and it says exactly which fixes are already inside the image hw292 will boot.
+
+---
+
+## 2026-08-11 — the ❌ RESIDUE on hw293, partitioned by ROOT CAUSE (61 rows)
+
+**Scope.** `UAT.md` on `origin/main` reads **186 ✅ · 86 ❌ · 14 ☐ = 286** (parsed
+with `re.split(r'(?<!\\)\|', line)` → 7 content columns; a bare `split("|")`
+gives different offsets and a different count). Eight clusters were already in
+flight with other owners and are excluded here: SSO/keycloak broker (30, 31, 33,
+34, 35, 37, 39, 219), org-lifecycle, topology+DR (51, 52, 56, 57, G3, R12),
+funnel e2e (86, 90, 233, 234, 20, 23), cutover walk (160, 162, 163, 164, 165,
+184), MCP/Agenity (211, 212, 213), region-B endpoints split, and
+obsolete-assertion adjudication (G3, 115, 241).
+
+**Arithmetic correction.** Six of those excluded IDs — **165, 20, 23, 233, 86,
+211** — are NOT ❌ rows at all (they are ✅ or ☐), so the exclusion removes 25
+rows, not 31. **86 − 25 = 61 residue rows**, not 55.
+
+**Everything below was measured read-only on hw293 on 2026-08-11**, against both
+region kubeconfigs, with the node names checked (`…-me-east-215-a-…` /
+`…-me-east-215-b-…`) before any per-region count was believed.
+
+### The deployed artifacts named in the brief were STALE — re-establish them first
+
+| component | brief said | actually deployed 2026-08-11 | subject of |
+|---|---|---|---|
+| Sovereign `catalyst-api` / `catalyst-ui` | `c50f2a5` | **`85e2eaf`** (2026-08-11, #6099) | every Sovereign-side row |
+| Sovereign `organization-controller` | `4d1da63` | **`581e042`** (2026-08-11, #6097) | the per-Org console rows |
+| **MOTHERSHIP** `catalyst-api` | not stated | **`b2294fd`** (2026-08-10) | **30 of the 61 rows** |
+| MOTHERSHIP `catalyst-ui` | not stated | **`fad88bd`** (2026-08-02) | W1, W2 |
+
+`git merge-base --is-ancestor` against the ACTUAL artifacts, not the stated ones:
+`e79715795` (#6078), `9f355d56b` (#6064), `97dc33d3e` (#6051), `5ab5ae2e6`
+(#6059), `b89d0d621` (#6073) and `c50f2a57f` (#6083) are **all** ancestors of
+`85e2eaf`; `0439fbea8` (#5957) and `581e042c6` (#6097) are both ancestors of
+`581e042`. **None of them is an ancestor of the mothership's `b2294fd`.**
+
+### Cluster A — the MOTHERSHIP GitOps loop is DOWN. One mechanism, **30 rows**
+
+This is the single most decision-relevant fact in this partition and it is not
+visible from any Sovereign-side read.
+
+```
+kubectl -n flux-system get deploy            # MOTHERSHIP
+helm-controller          spec=0  available=<none>
+notification-controller  spec=0  available=<none>
+kustomize-controller     spec=1  available=<none>  unavailable=1
+source-controller        spec=1  available=<none>  unavailable=1
+
+kubectl -n flux-system get pod
+kustomize-controller-dbc66fb7-zsbcp   0/1  ImagePullBackOff  5h58m
+source-controller-696b487d8b-pkxb2    0/1  ImagePullBackOff  5h58m
+```
+
+Exact reason, from the pod's own waiting message:
+
+```
+Back-off pulling image "ghcr.io/fluxcd/kustomize-controller:v1.8.1":
+failed to authorize: failed to fetch oauth token: unexpected status from GET
+https://ghcr.io/token?scope=repository%3Afluxcd%2Fkustomize-controller%3Apull
+&service=ghcr.io: 403 Forbidden
+```
+
+A **403** on the anonymous token endpoint of a PUBLIC upstream repo means a
+credential IS being presented and is rejected — the mothership node ghcr
+credential is expired or revoked, so containerd never falls back to anonymous.
+Two of the four controllers are scaled to zero on top of that. Consequence:
+`flux-system/catalyst-platform` last applied `main@sha1:d94d133e…`, the
+mothership `catalyst-api` Deployment's last `Progressing` update is
+**2026-08-10T12:22:10Z**, and **every `deploy: update catalyst images to <sha>`
+commit on `main` is inert for the mother.**
+
+**Four-state: MERGED-BUT-UNDEPLOYED (mothership).** Not one of these 30 rows
+needs code written for it, and not one of them can be moved by a Sovereign roll,
+a re-walk, or a fresh prov that keeps the same mother.
+
+| sub-cluster | rows | producer that WRITES the surface | why it cannot run |
+|---|---|---|---|
+| **A1** region-B kubeconfig never forwarded → Sovereign observes 1 of 2 regions | 55, 62, 64, 65, 66, 187, 188, 189 | `products/catalyst/bootstrap/api/internal/handler/deployment_handover_export.go:588` `runSecondaryKubeconfigDelivery`, spawned at `phase1_watch.go:1476` | post-handover hook; mother-side; handover never fired (A4) |
+| **A2** crossplane adoption never parameterised | G1, G6, 206, 207, 208, 239 | `post_handover_adoption_apply.go:88` `runPostHandoverAdoptionApply`, spawned at `phase1_watch.go:1587` | same hook, same gate |
+| **A3** deployment wizard is MOTHERSHIP-served | W1, W2 | `products/catalyst/bootstrap/ui/src/pages/wizard/steps/` | mother `catalyst-ui` is `fad88bd` (2026-08-02) |
+| **A4** handover never fired — Phase-1 latched `failed` | G11, 166, 227 | `phase1_watch.go` `markPhase1Done` / `fireHandover` / `shouldConvergedLateRescue` | the #6082/#6083 repair (`c50f2a57f`) + #6101 (`e4c14ad86`) are in the Sovereign image, NOT in `b2294fd` |
+| **A5** region-B consumer-hub Secrets never delivered | R13, 32, 36, 67, 69, 70, 111, 235, 236 | `products/catalyst/bootstrap/api/internal/handler/clustermesh.go:2139` `syncSharedPGConsumerHubSecrets`, called at `clustermesh.go:1158` | fix #6073 (`b89d0d621`) re-bases the readiness gate onto the replica's mesh alias — in the Sovereign image, NOT in `b2294fd` |
+| **A6** cnpg-pair flip never happens → zero CnpgPairs | 60, 71 | `clustermesh.go:1583` `enableCNPGPairAfterFullMesh`, gated on `countFullyMeshedRegions` (`clustermesh.go:3887`) | mother-side; live region-A HR reads `topology.crossRegion:false`, `mode:singleton`, `instances:1` |
+
+**A5 carries a STALE CAUSE that must be retired.** Nine rows record their gate as
+*"what is owed is a bp-postgres chart VERSION BUMP + publish (0.2.18 → 0.2.19)"*.
+That is closed: `5ab5ae2e6` (#6059) shipped 0.2.19, all lockstep pin sites read
+`0.2.19` (`clusters/_template/bootstrap-kit/16a|16c|16d`,
+`platform/postgres/blueprint.yaml:33`, `platform/postgres/chart/Chart.yaml:294`),
+and the live HelmRelease reads `desired=0.2.19 applied=0.2.19 Ready=True` in
+**both** regions. The chart is delivered and the rows still fail — so the chart
+was never the gate. Measured now, with the populated denominator as the control:
+
+```
+region A  shared-data  →  9 consumer hub Secrets present
+          gitea-database-secret, grafana-database-env, harbor-database-secret,
+          keycloak-database-secret, newapi-database-secret,
+          openova-flow-database-secret, org-database-secret,
+          pda-shared-database-secret, pdns-database-secret
+region B  shared-data  →  ZERO of the 9 (only ghcr-pull, harbor-robot-token and
+          the CNPG-operator-minted -app/-ca/-replication/-server/-superuser set)
+
+region B  keycloak-0   →  Init:0/1, 11h
+          MountVolume.SetUp failed for volume "keycloak-secrets":
+          secret "keycloak-database-secret" not found   (x355 over 11h)
+```
+
+**Fix (one action, 30 rows):** repair the mothership node ghcr credential, scale
+`helm-controller` + `notification-controller` back to 1, let the loop apply the
+pending `deploy:` commits so the mother reaches ≥ `85e2eaf`.
+**Verify:** `kubectl --kubeconfig <mother> -n catalyst get deploy catalyst-api -o jsonpath='{..image}'`
+returns a tag T for which `git merge-base --is-ancestor b89d0d621 T` exits 0,
+then `kubectl --kubeconfig <regionB> -n shared-data get secret keycloak-database-secret`
+returns the object instead of NotFound.
+
+### Cluster B — **MERGED AND DEPLOYED AND STILL FAILING**: the per-Org console listener fan-out has a MISSING PRODUCER (R16, 87, 95)
+
+The high-value find. Every warrant these three rows are parked under is now
+false, and the residual is an ordering defect nobody has filed.
+
+Delivered, verified live rather than assumed:
+
+* `organization-controller` image `581e042` — contains **#5957** (`0439fbea8`,
+  the fan-out) **and #6097** (`581e042c6`, the region witness).
+* `bp-catalyst-platform` HelmRelease `desired=1.4.1361 applied=1.4.1361
+  Ready=True` — so the chart half of #6097 shipped too.
+* `CATALYST_CONFIGURED_REGIONS` **is** injected into the org-controller
+  container env, and `catalyst-system/sovereign-fqdn.configuredRegions` reads
+  `hw-me-east-215-a-rtz-prod,hw-me-east-215-b-rtz-prod` — the witness answers
+  **two** regions correctly.
+* The namespaced Role `kube-system/catalyst-organization-controller-console-tls`
+  exists (created 2026-08-11T00:22:11Z).
+
+And the surface still fails:
+
+```
+region A  kube-system/cilium-gateway-console listeners:
+  console-https/http, api-https/http, marketplace-https/http,
+  + 5 per-Org pairs (hw293walkone, hw293walktwo, uat107org, uat107vc, hw293vch)
+region B  kube-system/cilium-gateway-console listeners:
+  console-https/http, api-https/http, marketplace-https/http   ← ZERO per-Org
+```
+
+The controller is not silent about it — it logs the shortfall every reconcile,
+for all five Organizations, verbatim:
+
+```
+tenant console TLS reconcile (transient — requeue)
+  console listener for "*.hw293walkone.omani.homes": unwired secondary region:
+  1 of 1 secondary region(s) have no kubeconfig in
+  catalyst/cutover-secondary-kubeconfigs
+  (sovereign-fqdn configuredRegions declares 1 remote region(s);
+   wired region keys: none)
+```
+
+**ROOT CAUSE — a missing producer, searched for before it was named.** The
+consumer is `core/controllers/organization/internal/controller/tenant_console_tls_regions.go:301`
+`consoleRegionTargets` (secret name const at `:108`), reached from
+`organization_controller.go:1071` `reconcileConsoleServing`. The ONLY writer of
+`catalyst/cutover-secondary-kubeconfigs` anywhere in the tree is
+`products/catalyst/bootstrap/api/internal/handler/cutover_secondary_kubeconfigs.go:300`
+`materializeSecondaryKubeconfigsSecret`, and it has exactly ONE call site —
+`cutover.go:1531`, **inside `runCutover`**. So on any Sovereign that has not cut
+over, that Secret cannot exist, and the per-Org multi-region console fan-out is
+unreachable **by construction**. #6097 made the shortfall visible; it did not
+supply the input. Both `secondaryKubeconfigsForCutover` (`:174`) and
+`onDiskSecondaryKubeconfigPrefixes` (`:228`) already do the resolution — only
+the call site is cutover-scoped.
+
+**Fix:** give the Secret a pre-cutover producer. Materialize it from the same
+on-disk `/var/lib/catalyst/kubeconfigs/<depID>-<regionKey>.yaml` set at Phase-1
+convergence (or on the org-controller's own reconcile), not only inside
+`runCutover`. **Coupling to state:** cluster A1's `runSecondaryKubeconfigDelivery`
+is what puts a PARSEABLE region-b kubeconfig on that disk, and today the
+Sovereign's copy is unusable (`AddCluster failed … no configuration has been
+provided`, every 30s). Both halves must land; neither alone closes R16/87/95.
+**Verify:** `kubectl -n catalyst get secret cutover-secondary-kubeconfigs` returns
+the object on a pre-cutover Sovereign, then region B's
+`kube-system/cilium-gateway-console` lists a `console-https-<slug>` pair, then
+`curl --no-keepalive --http1.1` x12 against `console.<slug>.<pool>` returns 12/12
+200 (fresh-TCP; HTTP/2 pins one backend and hides a 50% split).
+
+### Cluster C — Organization delete cascade (R17): **merged AND deployed → RE-WALK owed**
+
+`97dc33d3e` (#6051) is in `85e2eaf` and `581e042c6` (#6097) is in `581e042`; the
+namespaced Role that #6097 added for the Secret reap **exists live**. The
+cluster-wide `secrets: [get,list,watch]` in
+`products/catalyst/chart/templates/controllers/organization-controller-clusterrole.yaml:111-113`
+is deliberate and is NOT the gap — the delete verb lives in the namespaced Role
+by design. Writer: `tenant_networking_teardown.go:122`. All five Organization CRs
+currently hold `orgs.openova.io/tenant-networking` with **no** deletionTimestamp,
+so the wedge is not reproducible right now. **Action: walk it** — create a
+throwaway Org, `DELETE /api/v1/organizations/<id>`, and assert the CR leaves
+Terminating. **Watch for:** the teardown leg now also calls `consoleRegionTargets`,
+so cluster B's unwired-region error can re-wedge the finalizer for a different
+reason. That is the thing to look for, not the old 403.
+
+### Cluster D — merged AND deployed on the Sovereign; only a WALK is owed (8 rows)
+
+| rows | fix in the running artifact | what the walk must do |
+|---|---|---|
+| 7, 15, 25 | `e79715795` (#6078) ⊂ `85e2eaf`. `OrgRow.plan` now declared at `products/catalyst/bootstrap/ui/src/lib/organizations.api.ts:68`; the seed producer `newApplicationCRFromSeed` (`endpoint_handler.go:2312`) now stamps `spec.organizationRef` | re-render `/organizations/<slug>`, `/apps`, showback |
+| 8, G7 | `9f355d56b` (#6064) ⊂ `85e2eaf` — `ListParentDomains` read the Deployment record while create read the startup seed | `/organizations/new` → the parent-domain select must populate; then door A must land a free-subdomain Org |
+| 29 | #5909 aged marker rides in the deployed `catalyst-ui` | inject a stale `catalyst:authed=1` with `catalyst:authed-at` ABSENT, reload the bare console URL, assert silent re-auth rather than the PIN wall |
+| 38 | `bp-newapi` 1.4.153 applied; `scripts/check-live-newapi-sso-version.sh` exits 0 | 2nd hit with an established realm session lands `/console`, not `/setup` |
+
+**W5 is the exception in this group and IS a source fix:** exactly one wizard
+component id — `specter` — resolves to no Blueprint anywhere in the repo, while
+`componentFootprints.ts:127` and `componentLogos.tsx:231`/`:430` still carry it.
+Remove it or realize a `bp-specter`. Its walk half is mothership-gated with W1/W2.
+
+### Cluster E — Agenity: no live model credential, AND no running agent session (R19, G8, G9, 220, 221, 222)
+
+Re-measured live 2026-08-11 in `hw293walktwo`:
+
+```
+agenity-anthropic-token                SecretSyncedError  Ready=False
+agenity-mcp-bearer                     SecretSynced       Ready=True   ← control
+oidc-gate-agenity-hw293walktwo-oidc    SecretSynced       Ready=True   ← control
+```
+
+Same namespace, same `ClusterSecretStore vault-region1`, same controller — store,
+auth and controller all demonstrably work and exactly one remote path is empty.
+The workspace half is NO LONGER absent (`bp-agenity@0.5.22` HR Ready, StatefulSet
+1/1), so any evidence resting on "zero agenity HelmReleases" is retired.
+
+**Two independent causes, and seeding the token alone closes neither row set:**
+(1) #5956 — the previously seeded OAuth token is REVOKED; #4277 — nothing seeds
+the per-Org OpenBao path at Org-create. Producer: `sovereign_anthropic_seed.go`
+plus `products/agenity/chart/templates/externalsecret-anthropic*.yaml`.
+**Four-state: NEVER WRITTEN** for the per-Org seeder; PR **#5968** (check the
+credential's VALIDITY, not its delivery) is **written-but-unmerged**.
+(2) The `chepherd` container has logged `alive sessions: 0` every 30s for the
+pod's entire life — there is no running solo agent for a prompt to reach even
+once a credential arrives.
+**Anti-vacuity note for the walker:** the init container `seed-claude-creds`
+exits **0** while logging `no credentials.json key in Secret — key-only mode`.
+That exit code is a control that cannot fail and must never be read as evidence
+the credential landed.
+
+### Cluster F — the Jobs page, two independent defects (172, 176)
+
+* **172** — feed scope. Every HelmRelease the projection ingests comes from
+  `List()` in `FluxNamespace = "flux-system"`
+  (`products/catalyst/bootstrap/api/internal/helmwatch/helmwatch.go:86`) behind a
+  hard `strings.HasPrefix(name, "bp-")` filter (`:1116`, `:1408`, `:1429`,
+  `:2107`, `:2627`, `:2690`). A per-Org Application HelmRelease fails BOTH gates.
+  **But `a0abba92d` (#6053, "surface per-Organization Application installs on the
+  Jobs page") IS an ancestor of the deployed `85e2eaf`**, and this row's evidence
+  pre-dates that roll. **Re-walk before re-diagnosing.**
+* **176** — `products/catalyst/bootstrap/ui/src/pages/sovereign/JobsTable.tsx:816`
+  gates the Re-run control solely on `isJobRetryable(job.status)`
+  (`src/lib/jobs.types.ts:215`), which tests the status VOCABULARY and never
+  checks that the row resolves to a concrete retryable Job. #5496's
+  name-resolution fix (`8367b627a`) IS deployed and is insufficient. **Four-state:
+  MERGED AND DEPLOYED AND STILL FAILING.** Either withhold the control when the
+  row has no directly-retryable Job, or resolve aggregate rows in the backend.
+
+### Cluster G — a verdict published from ABSENT evidence (197, 63)
+
+Both rows are the same defect class: an absent control rendered as a negative
+fact. They are one fix pattern, not two epics.
+
+* **197** — `products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/ReconcileTab.tsx:103`.
+  `suspended` is `useMemo`'d off the `obj` prop; the mutation's `onSuccess`
+  invalidates only `reconciler-logs` and `reconciliation-dag`, never the
+  resource-object query that produced `obj`, so the button cannot flip after its
+  own action. And `Boolean(obj?.spec?.suspend)` collapses "the object fetch
+  failed" into a confident `false`, which `ResourceDetailPage` then renders on
+  the `objErr` branch as `SUSPENDED: no`. #6085.
+* **63** — `TopologyTab` maps `status.perCluster`'s single `singleton` entry and
+  **returns early**, never reaching `status.targets`, which on the same object
+  carries the correct Primary/Standby pair. `showDR` goes false and the whole DR
+  block is skipped — so an ABSENT control is served where the clause requires a
+  **disabled** one with a named reason. An absent control and a disabled one are
+  not the same statement, which is precisely what this row exists to forbid.
+
+### Cluster H — nine rows, nine independent causes
+
+| row | cause + the component that WRITES the surface | state |
+|---|---|---|
+| 16 | the per-Org console's app-detail path calls SOVEREIGN-ADMIN routes and gets `403 org-scoped-forbidden`. `products/catalyst/bootstrap/ui/src/lib/catalog.api.ts:297/540/599` + `pages/sovereign/AppDetail/`. Needs an Org-scoped app-detail data path | never written |
+| 19 | #5867 is OPEN and asks the owner whether `/apps` answers what the Sovereign CAN run or what IS running. 7 Application CRs vs 77 HelmReleases — an 11x gap, so the two keyings cannot be confused by eye | decision before patch |
+| 109 | the Keycloak account console hangs on `Loading the Account Console` while `/account/config` answers 200 — the clause wants a loud legible refusal and gets an indefinite spinner | never written |
+| 218 | `select-instance-org`'s only option on a per-Org console is the parent Sovereign. `pages/sovereign/AppDetail/InstancesSection.tsx` + `src/lib/organizations.api.ts:281` `listOrganizations`. #5823 deliberately excludes the parent self-org, so a list whose only member IS the parent resolves to zero candidates | never written |
+| 223 | the Org-scoped MCP tool surface lives only in the stdio subprocess inside the Agenity pod; `mcp.<sovereign>` verifies against the sovereign handover key. **Anti-vacuity: an unauthenticated call returns `tools:[]` identically to a valid Org bearer — no verdict may be read off that endpoint** | walk (needs pod exec) |
+| 228 | `janitorDestructive()` (`products/catalyst/bootstrap/api/internal/handler/janitor.go:135`) reads `CATALYST_JANITOR_DESTRUCTIVE`, which appears in ZERO of the 82 env entries on the mothership `catalyst/catalyst-api` Deployment (62 of those 82 begin `CATALYST_` — the control that the scan is not blind). The clause's "janitor log shows the orphaned VPC(s) swept" half cannot be satisfied in the configuration the control plane ships | never written + needs a wipe→re-prov cycle |
+| 232 | `platform/openclaw/chart/values.yaml:287` ships `httpRoute.enabled: false` and an `oidc.issuerURL` placeholder; the sovereign-admin install door passes no parameters, so no route is created and user traffic would 503 on the placeholder issuer. Install via the per-Org gitops overlay, or teach the door to supply both | never written |
+| 237 | the `spines` CRD is not served. Live `kubectl get crd` shows only `cnpgpairs.dr.openova.io`, `continuums.dr.openova.io`, `pdms.dr.openova.io` — nothing can hold a `continuumRef`, so the round-trip has no first leg | **missing producer, verified** |
+| G2 | zero ExternalSecrets in a funnel Org namespace whose `bp-newapi` installed cleanly at chart 1.4.153 — the per-Org ExternalSecret is never rendered. #5987 | never written |
+
+### Residue scoreboard
+
+| cluster | rows | four-state |
+|---|---:|---|
+| A — mothership GitOps loop down | **30** | merged-but-undeployed (mothership) |
+| B — per-Org console fan-out, missing pre-cutover producer | 3 | **merged AND deployed AND still failing** |
+| C — Org delete cascade | 1 | merged AND deployed → re-walk |
+| D — Sovereign-side fixes delivered | 8 | merged AND deployed → re-walk (W5 excepted) |
+| E — Agenity credential + no agent session | 6 | never written (#4277) + unmerged (#5968) |
+| F — Jobs feed / Jobs re-run | 2 | 172 re-walk · 176 **merged AND deployed AND still failing** |
+| G — verdict from absent evidence | 2 | never written |
+| H — nine independent causes | 9 | 7 never written · 1 decision · 1 walk |
+| **total** | **61** | |
+
+**What moves the number fastest:** cluster A is 30 rows behind a single
+infrastructure repair with zero code. Cluster D + C + 172 is 10 more rows behind
+a browser seat with zero code. Together that is **40 of 61** with no engineering
+owed. The genuinely new engineering is B (the missing pre-cutover producer, and
+it is the one an operator's customer feels), G (2 rows, one pattern) and H.
+
+Tracked as a single checklist on the consolidated tracking issue rather than as
+nine new issues.
 
 ---
 
