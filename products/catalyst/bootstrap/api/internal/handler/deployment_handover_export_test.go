@@ -221,8 +221,8 @@ func TestExportSecondaryKubeconfigs_FiresAtHandover(t *testing.T) {
 
 	// Pre-place both secondary kubeconfigs on disk — the realistic
 	// state when both secondary CPs PUT before primary Phase-1 ready.
-	mustWrite(t, filepath.Join(dir, depID+"-nbg1-1.yaml"), "apiVersion: v1\nkind: Config\n# nbg1\n")
-	mustWrite(t, filepath.Join(dir, depID+"-sin-2.yaml"), "apiVersion: v1\nkind: Config\n# sin\n")
+	mustWrite(t, filepath.Join(dir, depID+"-nbg1-1.yaml"), taggedKubeconfig("nbg1"))
+	mustWrite(t, filepath.Join(dir, depID+"-sin-2.yaml"), taggedKubeconfig("sin"))
 
 	runExportWithFakeChroot(t, h, dep, fqdn, depID, srv)
 
@@ -269,7 +269,7 @@ func TestExportSecondaryKubeconfigs_WaitsForLateKubeconfig(t *testing.T) {
 	// catch this and proceed to POST.
 	go func() {
 		time.Sleep(2 * time.Second)
-		mustWrite(t, filepath.Join(dir, depID+"-nbg1-1.yaml"), "apiVersion: v1\nkind: Config\n# nbg1 late\n")
+		mustWrite(t, filepath.Join(dir, depID+"-nbg1-1.yaml"), taggedKubeconfig("nbg1 late"))
 	}()
 
 	runExportWithFakeChroot(t, h, dep, fqdn, depID, srv)
@@ -305,7 +305,7 @@ func TestExportSecondaryKubeconfigs_SlowRegionDoesNotBlockReady(t *testing.T) {
 	dep := makeDep(depID, fqdn, []string{"fsn1", "nbg1", "sin"})
 
 	// nbg1-1 ready immediately, sin-2 never lands.
-	mustWrite(t, filepath.Join(dir, depID+"-nbg1-1.yaml"), "apiVersion: v1\nkind: Config\n# nbg1 ready\n")
+	mustWrite(t, filepath.Join(dir, depID+"-nbg1-1.yaml"), taggedKubeconfig("nbg1 ready"))
 
 	start := time.Now()
 	runExportWithFakeChroot(t, h, dep, fqdn, depID, srv)
@@ -331,4 +331,19 @@ func mustWrite(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("os.WriteFile(%s): %v", path, err)
 	}
+}
+
+// taggedKubeconfig returns a COMPLETE kubeconfig carrying tag as a leading
+// comment, so a fixture stays humanly distinguishable in a multi-region test
+// while still describing a cluster a client can be built from.
+//
+// The fixtures here used to be `apiVersion: v1\nkind: Config\n` plus a
+// comment. That is a well-formed YAML document and a credential-less one, and
+// it passed because delivery's only content check was non-emptiness — the
+// #6015 defect these tests sit next to. Once the export waits for a USABLE
+// document, a placeholder body would make every one of these tests wait out
+// its budget, so the placeholder is replaced by the real shape rather than the
+// gate being relaxed to keep them green.
+func taggedKubeconfig(tag string) string {
+	return "# " + tag + "\n" + completeKubeconfigSameCluster
 }
