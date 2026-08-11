@@ -97,6 +97,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/openova-io/openova/core/controllers/pkg/kubeconfig"
 )
 
 // Console region fan-out defaults. All four are overridable through the
@@ -141,10 +143,12 @@ type consoleRegionTarget struct {
 type consoleRegionResolution struct {
 	// Targets — every region a write can actually be made to, host first.
 	Targets []consoleRegionTarget
-	// Unwired — regions the ClusterMesh witness proves exist but for which
-	// no kubeconfig is wired at all. STRUCTURAL: the listener can never be
-	// written there until an operator supplies the credential, so it is
-	// reported as a missing artifact, not as a transient.
+	// Unwired — regions a witness proves exist but for which no USABLE
+	// kubeconfig is wired. Two shapes qualify and they are equivalent in
+	// consequence: no key at all, and a key whose bytes cannot produce a
+	// client (#6107). STRUCTURAL: the listener can never be written there
+	// until the credential is replaced, so it is reported as a missing
+	// artifact, not as a transient.
 	Unwired []string
 	// Unreachable — regions whose kubeconfig IS wired but whose client could
 	// not be built or used this pass. TRANSIENT: an apiserver blip must not
@@ -353,10 +357,33 @@ func (r *Reconciler) consoleRegionTargets(ctx context.Context) consoleRegionReso
 
 	regions := make([]string, 0, len(bridge.Data))
 	kubeconfigFor := make(map[string][]byte, len(bridge.Data))
+	unusable := make([]string, 0, len(bridge.Data))
 	if err == nil {
 		for k, v := range bridge.Data {
 			region := consoleRegionKeyFromSecretKey(k)
 			if region == "" || len(v) == 0 {
+				continue
+			}
+			// PRESENCE IS NOT USABILITY (#6107). Emptiness was the whole
+			// test here, so the 95-byte credential-less document measured on
+			// hw293 counted as a WIRED region: the shortfall check below then
+			// saw 1 declared remote against 1 wired key, reported nothing, and
+			// the region degraded a few lines later into Unreachable — which
+			// feeds Unverifiable, and `complete()` is `len(Missing) == 0`. The
+			// Organization therefore read FULLY PROVISIONED while its per-Org
+			// listener pair had never been written to that region.
+			//
+			// The contract is the SHARED one (core/controllers/pkg/kubeconfig),
+			// the same bytes-level question catalyst-api's producer and its
+			// delivery leg ask, so a document accepted by one hop cannot be
+			// silently rejected by the next.
+			//
+			// This is STRUCTURAL, not transient: the verdict is a property of
+			// the bytes, so no amount of requeueing can change it, which is
+			// precisely the struct's own definition of Unwired.
+			if defects := kubeconfig.Defects(string(v)); len(defects) > 0 {
+				unusable = append(unusable, fmt.Sprintf("%s (missing: %s)",
+					region, kubeconfig.DescribeDefects(defects)))
 				continue
 			}
 			regions = append(regions, region)
@@ -364,6 +391,17 @@ func (r *Reconciler) consoleRegionTargets(ctx context.Context) consoleRegionReso
 		}
 	}
 	sort.Strings(regions)
+	sort.Strings(unusable)
+
+	// #6107 — a key that EXISTS but cannot produce a client is reported on its
+	// own terms. Folding it into the count message alone would repeat the very
+	// claim that is false here: that the region has "no kubeconfig", when the
+	// key is plainly present and an operator looking for it will find it.
+	for _, u := range unusable {
+		res.Unwired = append(res.Unwired, fmt.Sprintf(
+			"secondary region %s has a kubeconfig in %s/%s that cannot produce a client — the bytes are the fault, so no requeue repairs it and the per-Org console listener can never be written there until the credential is replaced",
+			u, bridgeNS, bridgeName))
+	}
 
 	// The shortfall check is the whole anti-vacuity point: a Sovereign that
 	// declares 1 remote region while 0 kubeconfigs are wired means every
@@ -373,8 +411,9 @@ func (r *Reconciler) consoleRegionTargets(ctx context.Context) consoleRegionReso
 	// than taken on faith.
 	if expectedRemotes > len(regions) {
 		res.Unwired = append(res.Unwired, fmt.Sprintf(
-			"%d of %d secondary region(s) have no kubeconfig in %s/%s (%s declares %d remote region(s); wired region keys: %s)",
-			expectedRemotes-len(regions), expectedRemotes, bridgeNS, bridgeName, witness, expectedRemotes, describeRegionKeys(regions)))
+			"%d of %d secondary region(s) have no usable kubeconfig in %s/%s (%s declares %d remote region(s); wired region keys: %s; present but unusable: %s)",
+			expectedRemotes-len(regions), expectedRemotes, bridgeNS, bridgeName, witness, expectedRemotes,
+			describeRegionKeys(regions), describeRegionKeys(unusable)))
 	}
 
 	cache := r.regionClientCache()
