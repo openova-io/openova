@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-11T06:30:08Z` |
+| Last refreshed | `2026-08-11T06:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5611](https://github.com/openova-io/openova/issues/5611) | Cloud list: Volumes claims 0 while 50 EVS block volumes are attached (Storage Cl | Other |
 | [#5612](https://github.com/openova-io/openova/issues/5612) | newapi session expires in under an hour and the 'Continue with OpenOva SSO' reco | Other |
 | [#5623](https://github.com/openova-io/openova/issues/5623) | Region-kill: the three shared-pg DR pairs never promote — only bp-cnpg-pair sh | Other |
 | [#5635](https://github.com/openova-io/openova/issues/5635) | Per-Org app FQDN fails ~50% of fresh connections — single-region namespace beh | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6149](https://github.com/openova-io/openova/issues/6149) | bp-postgres DR pairs ship a dr-promoter but NO dr-failback — region-A return l | Other |
 | [#6155](https://github.com/openova-io/openova/issues/6155) | Showback bills an Organization the CR model does not contain — the join reads  | Other |
 | [#6156](https://github.com/openova-io/openova/issues/6156) | DR preflight-02 cannot Fail on a 2-region Sovereign — the standby outage that  | Other |
+| [#6157](https://github.com/openova-io/openova/issues/6157) | mothership console has not rolled since 2026-08-03: catalyst-ui deadlocks on max | Other |
 
 ---
 
@@ -309,6 +309,7 @@ flowchart LR
 |---|---|---|---|
 | 2026-08-11T06:14 | [#6154](https://github.com/openova-io/openova/pull/6154) | #6138 | docs(uat): row 176 stops routing to an engineer, G7 names th |
 | 2026-08-11T06:16 | [#6153](https://github.com/openova-io/openova/pull/6153) | #5401 | fix(wizard): the retired fabricated ORG_DEFAULTS come back o |
+| 2026-08-11T06:34 | [#6151](https://github.com/openova-io/openova/pull/6151) | #6138 | fix(catalyst-api, console): report an Organization isolation |
 | 2026-08-11T04:21 | [#6150](https://github.com/openova-io/openova/pull/6150) | #5623 | docs(uat): G12 region-kill WALKED on hw293 — destructive ass |
 | 2026-08-11T04:01 | [#6144](https://github.com/openova-io/openova/pull/6144) | #6054 | fix(catalyst): a usable secondary kubeconfig is not thereby  |
 | 2026-08-11T04:16 | [#6143](https://github.com/openova-io/openova/pull/6143) | #6114 | fix(walk): a console-gateway hostname probed on the shared g |
@@ -324,8 +325,10 @@ flowchart LR
 | 2026-08-11T04:31 | [#6127](https://github.com/openova-io/openova/pull/6127) | #6061 | docs(uat): hw293 re-walk rows 63 + 162 — 63 flips ✅, 162 sti |
 | 2026-08-11T02:46 | [#6126](https://github.com/openova-io/openova/pull/6126) | #4303 | fix(seed): verify the self-heal instead of announcing it (Re |
 | 2026-08-11T02:26 | [#6125](https://github.com/openova-io/openova/pull/6125) | #3840 | fix(bootstrap-kit): the Flux controllers must not be the onl |
+| 2026-08-11T06:34 | [#6124](https://github.com/openova-io/openova/pull/6124) | #4110 | docs(uat): adjudicate rows 213 + 19 — cross-Org denial shape |
 | 2026-08-11T02:22 | [#6123](https://github.com/openova-io/openova/pull/6123) | #5206 | docs(uat): rows 212/213 walked on hw293 — the per-Org MCP in |
 | 2026-08-11T01:55 | [#6121](https://github.com/openova-io/openova/pull/6121) | #6107 | fix(org): an unusable secondary kubeconfig is a MISSING arti |
+| 2026-08-11T06:34 | [#6120](https://github.com/openova-io/openova/pull/6120) | #6108 | fix(catalyst-api): the kubeconfig store can produce a prefix |
 | 2026-08-11T01:42 | [#6119](https://github.com/openova-io/openova/pull/6119) | #6004 | fix(guard): a region must not advertise a hostname it cannot |
 | 2026-08-11T06:27 | [#6118](https://github.com/openova-io/openova/pull/6118) | #6089 | fix(netpol): the catalyst-pin backchannel moved in-cluster a |
 | 2026-08-11T01:38 | [#6117](https://github.com/openova-io/openova/pull/6117) | #5957 | docs(path-to-100): partition the hw293 UAT failure residue b |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-11T01:40 | [#6113](https://github.com/openova-io/openova/pull/6113) | #6055 | docs(uat): hw293 live-walk — 5 cutover/meta rows pass, 162 f |
 | 2026-08-11T01:35 | [#6112](https://github.com/openova-io/openova/pull/6112) | #6015 | fix(catalyst-api): the secondary-kubeconfig delivery leg mus |
 | 2026-08-11T01:25 | [#6110](https://github.com/openova-io/openova/pull/6110) | #5175 | fix(openova-mcp): surface the authoritative /whoami verdict, |
-| 2026-08-11T00:56 | [#6105](https://github.com/openova-io/openova/pull/6105) | #6089 | docs(uat): hw293 SSO re-walk — 9 green, 8 catalyst-pin broke |
-| 2026-08-11T01:26 | [#6104](https://github.com/openova-io/openova/pull/6104) | #6015 | fix(catalyst-api): the peer-region credential Secret must no |
-| 2026-08-11T00:33 | [#6103](https://github.com/openova-io/openova/pull/6103) | #5958 | docs(uat): rows 100 + 238 + 229 flip on live region reads; R |
 
 ---
 
