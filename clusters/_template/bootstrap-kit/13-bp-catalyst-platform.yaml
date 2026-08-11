@@ -1390,7 +1390,7 @@ spec:
       #   bp-keycloak 1.5.9; neither half alone restores a brokered login.
       #   Lockstep w/ products/catalyst/chart/Chart.yaml.
       #
-      # 1.4.1404 — #6166: catalyst-ui gets priorityClassName
+      # 1.4.1413 — #6166: catalyst-ui gets priorityClassName
       #   catalyst-control-plane, matching its catalyst-api sibling. PR #6152
       #   (issue #6157) fixed the ROLLOUT DEADLOCK (maxUnavailable: 1, so the old Pod may
       #   leave before the new one is admitted); that only FREES a Pod slot on
@@ -1400,7 +1400,7 @@ spec:
       #   (1e8), so the console lost every race and /sovereign served a Traefik
       #   503 while catalyst-api beside it stayed 1/1 green. Both halves are
       #   required. Lockstep w/ products/catalyst/chart/Chart.yaml.
-      version: 1.4.1409
+      version: 1.4.1413
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
