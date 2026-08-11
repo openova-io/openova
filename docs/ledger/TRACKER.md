@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-11T08:00:04Z` |
+| Last refreshed | `2026-08-11T08:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-11T08:05 | [#6165](https://github.com/openova-io/openova/pull/6165) | #6114 | fix(guard,catalyst-api): a hostname no listener admits, a re |
 | 2026-08-11T07:48 | [#6161](https://github.com/openova-io/openova/pull/6161) | #6061 | docs(uat): verify the artifact that RENDERS the surface, not |
+| 2026-08-11T08:04 | [#6158](https://github.com/openova-io/openova/pull/6158) | #6114 | feat(qa): confidence-scored risk-based walk scheduling — wal |
 | 2026-08-11T06:14 | [#6154](https://github.com/openova-io/openova/pull/6154) | #6138 | docs(uat): row 176 stops routing to an engineer, G7 names th |
 | 2026-08-11T06:16 | [#6153](https://github.com/openova-io/openova/pull/6153) | #5401 | fix(wizard): the retired fabricated ORG_DEFAULTS come back o |
 | 2026-08-11T06:57 | [#6152](https://github.com/openova-io/openova/pull/6152) | #6079 | fix(catalyst-ui): a 1-replica Deployment cannot roll on a fu |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-11T01:55 | [#6121](https://github.com/openova-io/openova/pull/6121) | #6107 | fix(org): an unusable secondary kubeconfig is a MISSING arti |
 | 2026-08-11T06:34 | [#6120](https://github.com/openova-io/openova/pull/6120) | #6108 | fix(catalyst-api): the kubeconfig store can produce a prefix |
 | 2026-08-11T01:42 | [#6119](https://github.com/openova-io/openova/pull/6119) | #6004 | fix(guard): a region must not advertise a hostname it cannot |
-| 2026-08-11T06:27 | [#6118](https://github.com/openova-io/openova/pull/6118) | #6089 | fix(netpol): the catalyst-pin backchannel moved in-cluster a |
-| 2026-08-11T01:38 | [#6117](https://github.com/openova-io/openova/pull/6117) | #5957 | docs(path-to-100): partition the hw293 UAT failure residue b |
 
 ---
 
