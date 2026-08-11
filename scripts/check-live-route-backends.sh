@@ -134,7 +134,7 @@ while [ $# -gt 0 ]; do
     --grace-seconds)   GRACE_SECONDS="$2";                shift 2 ;;
     --self-test)       SELF_TEST_ONLY=1;                  shift ;;
     -h|--help)
-      sed -n '2,120p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,118p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *) echo "Unknown arg: $1" >&2
        echo "Usage: $0 [--kubeconfig <path>] [--context <ctx>]" >&2
