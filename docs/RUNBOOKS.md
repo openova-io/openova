@@ -1045,6 +1045,8 @@ The canonical deterministic 2-phase walk operator follows. Driven by [`DOD.md`](
 ```bash
 scripts/check-live-route-backends.sh --kubeconfig <region-A>   # expect PASS
 scripts/check-live-route-backends.sh --kubeconfig <region-B>   # expect PASS
+scripts/check-live-gateway-host-ports.sh --fqdn <sov-fqdn> \
+  --node <region-A-node-ip> --node <region-B-node-ip>          # expect PASS
 ```
 
 On a 2-region Sovereign **both regions' nodes are members of the same
@@ -1067,12 +1069,53 @@ stamping. Two properties of the failure make it easy to mis-read:
 
 - **Sequential retries cannot resample it.** HTTP/2 pins one socket, so 25
   sequential retries can return 503 twenty-five times while 8 *parallel* fresh
-  TCP connections return 200 on the first batch. Sample with concurrency or
-  with `--resolve` pinned per node.
+  TCP connections return 200 on the first batch. Sample with concurrency, or
+  with `--resolve` pinned per node **plus `--http1.1 --no-keepalive`** — and
+  only ever at the host port named in §5.1.2 for that hostname.
 - **The signature is `server: envoy` with NO `x-envoy-upstream-service-time`
-  header** (19-byte 503 body, or 0-byte 404 where the region has no route at
-  all). The absent header is the discriminator: envoy never reached an
-  upstream, so this is a fan-out fault, not an application fault.
+  header** and a 19-byte `no healthy upstream` body. The absent header is the
+  discriminator: envoy never reached an upstream, so this is a fan-out fault,
+  not an application fault.
+- **A 0-byte 404 is NOT this fault.** It means the gateway you dialled does not
+  own that hostname. See §5.1.2 before recording anything against it.
+
+##### 5.1.2 Which gateway owns the hostname — check this BEFORE pinning `--resolve` (#6140)
+
+A Sovereign runs **two** Cilium Gateways with **disjoint** hostname sets, and
+under hostNetwork they cannot both bind `node:443`:
+
+| Gateway | Hostnames | Node host port | Public front door |
+|---|---|---|---|
+| `cilium-gateway-console` (#4053) | `console.` `api.` `marketplace.` | **`8443`** (HTTP `8080`) | the dedicated console ELB/EIP on public `:443` |
+| `cilium-gateway` (shared) | `auth.` `gitea.` `harbor.` `grafana.` `openbao.` `powerdns.` `newapi.` … | **`443`** (HTTP `80`) | the wildcard `*.<fqdn>` gateway ELB on public `:443` |
+
+Ports are canon in `infra/providers/_shared/cloudinit-control-plane.tftpl`
+(`CONSOLE_GATEWAY_HTTPS_PORT` / `SOVEREIGN_GATEWAY_HTTPS_PORT`), mirrored as
+`consoleHostPortHTTPS` in `post_handover_gateway_elb.go`. Both are durable
+hostPorts on the hostNetwork `cilium-envoy` pods — **neither is a NodePort**.
+
+**Both listeners terminate the same `*.<fqdn>` wildcard certificate.** So a
+probe pinned at the *wrong* gateway's port still completes the TLS handshake and
+only then meets an envoy with no matching vhost. The answer is a **0-byte 404,
+`server: envoy`, no `x-envoy-upstream-service-time`** — and it is **structural**:
+returned by a fully healthy Sovereign, in **every** region, forever.
+
+Measured on hw293 (dep `a0077ba47e3720e5`) 2026-08-11, region A — the region
+that was **serving perfectly** at the time:
+
+```
+console.hw293.omantel.biz  node:8443   200  1063 B  ust present   <- the truth
+console.hw293.omantel.biz  node:443    404     0 B  ust absent    <- wrong gateway
+gitea.hw293.omantel.biz    node:443    303    38 B  ust present   <- the control
+gitea.hw293.omantel.biz    node:8443   TLS refused                <- wrong gateway
+```
+
+A console `/apps` 404 measured this way was recorded as region-B fan-out residue.
+It was neither: the public path (`console.<fqdn>` -> the console ELB -> `:443`)
+never returned 404 at any point. **`scripts/check-live-gateway-host-ports.sh`
+classifies these automatically** — it fails only when a hostname cannot serve on
+the gateway that *owns* it, and reports a reading from the peer gateway's port as
+`EXPECTED-ISOLATION`, never as a defect.
 
 ### 5.2 The walk — Phase 0 + Phase 1 deterministic test
 
