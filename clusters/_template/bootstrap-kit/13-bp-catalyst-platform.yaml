@@ -1389,7 +1389,13 @@ spec:
       #   guacamole-pg and the shared-pg family as well. Egress half in
       #   bp-keycloak 1.5.9; neither half alone restores a brokered login.
       #   Lockstep w/ products/catalyst/chart/Chart.yaml.
-      version: 1.4.1422
+      # 1.4.1414 (#5921): catalog-seed bp-self-sovereign-cutover pin 0.1.179 ->
+      #   0.1.180 (step-08 gains the pre-hold outbound customer-auth SMTP relay
+      #   lint — the NINTH tether, and the only one on the purchase path). The
+      #   seed renders INSIDE this umbrella, so the new pin only reaches a
+      #   Sovereign once the umbrella republishes and this pin advances (#5734).
+      #   Lockstep w/ products/catalyst/chart/Chart.yaml + slot-06a (0.1.180).
+      version: 1.4.1423
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

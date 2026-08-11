@@ -1,5 +1,36 @@
 apiVersion: v2
 name: bp-self-sovereign-cutover
+# 0.1.180 (#5921) — THE NINTH TETHER: customer sign-in mail. Step-08 gains a
+# PRE-HOLD outbound customer-auth SMTP relay lint. catalyst-system/marketplace-api
+# reads smtp-host from catalyst-system/sovereign-smtp-credentials by secretKeyRef
+# and dials it to send every customer sign-in code; on hw292 that host was
+# mail.openova.io with cutoverComplete=true, so a Sovereign certified independent
+# still could not sell anything unless OUR mail server answered. ADR-0002
+# enumerates EIGHT tethers and outbound customer-auth SMTP is not among them, so
+# no step pivots it. This is a DECLARATION lint, not another deny-set entry:
+# #5951 already named the host in blockedDomains, but SMTP is dialled on a
+# CUSTOMER ACTION rather than a reconcile interval, so a 600s hold containing no
+# signup produces no connection to block and the runtime proof passes over a live
+# tether — the #5650 timing-independence argument with a human, rather than an
+# interval, as the trigger. Reading the configured host is the only measurement
+# that does not depend on someone buying something inside the window. Proven in
+# BOTH directions by chart/tests/smtp-relay-host-lint.sh, which extracts the real
+# function from the RENDER (#5646) and drives 17 cases through a stub kubectl:
+# RED on mail.openova.io (the live hw292 finding), GREEN on mail.<fqdn> / the
+# apex / in-cluster / loopback / an allowHosts exception, fail-CLOSED on an
+# unreadable Secret, and a deliberate PASS carve-out for an ABSENT Secret (no
+# Secret == SMTP_HOST empty == nothing dialled == a funnel gap, not a tether).
+# Scoped to the PRIMARY region on purpose — sovereign-smtp-credentials is a
+# single-region control-plane object, so polling a secondary would fail-closed on
+# every multi-region Sovereign (the #5505 shape). Comments follow #6004's block-
+# comment discipline so the Helm release Secret does not regrow. Step count
+# UNCHANGED at 11 — this is a new lint inside step-08, not a twelfth step. New
+# values: egressTest.smtpRelayHostLint.{enabled,allowHosts,secretNamespace,
+# secretName}, enabled by DEFAULT and expected to go RED on today's Sovereigns,
+# the same call #5951 made. No RBAC change (secrets get was already granted).
+# Slot-06a pin + blueprint.yaml + catalog-seed source.version + spec.version +
+# the API blueprints.json + the generated UI catalog move to 0.1.180 in lockstep
+# (Inviolable Principle #13).
 # 0.1.179 (#6004) — THIS CHART COULD NO LONGER BE INSTALLED ON ANY SOVEREIGN.
 # Helm stores a release as base64(gzip(json(release))) in Secret
 # sh.helm.release.v1.<release>.v<n>, and Kubernetes caps a Secret's data at
@@ -3705,7 +3736,7 @@ name: bp-self-sovereign-cutover
 # pin + blueprint.yaml + catalog-seed source.version + spec.version + the API
 # blueprints.json + the generated UI catalog move to 0.1.176 in lockstep
 # (Inviolable Principle #13).
-version: 0.1.179
+version: 0.1.180
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
