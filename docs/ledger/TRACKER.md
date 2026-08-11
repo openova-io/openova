@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-11T04:30:10Z` |
+| Last refreshed | `2026-08-11T04:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5602](https://github.com/openova-io/openova/issues/5602) | Hubble UI: authenticated landing works but data streams never connect (persisten | Other |
-| [#5608](https://github.com/openova-io/openova/issues/5608) | Keycloak admin console: group Role-mapping tab crashes ('Cannot read properties  | Other |
 | [#5611](https://github.com/openova-io/openova/issues/5611) | Cloud list: Volumes claims 0 while 50 EVS block volumes are attached (Storage Cl | Other |
 | [#5612](https://github.com/openova-io/openova/issues/5612) | newapi session expires in under an hour and the 'Continue with OpenOva SSO' reco | Other |
 | [#5623](https://github.com/openova-io/openova/issues/5623) | Region-kill: the three shared-pg DR pairs never promote — only bp-cnpg-pair sh | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#6145](https://github.com/openova-io/openova/issues/6145) | Organization isolation is reported from the DECLARED field, not the observed bac | Other |
 | [#6148](https://github.com/openova-io/openova/issues/6148) | Region-kill failback: recovered region-A returns as an UNFENCED TL=1 primary and | Other |
 | [#6149](https://github.com/openova-io/openova/issues/6149) | bp-postgres DR pairs ship a dr-promoter but NO dr-failback — region-A return l | Other |
+| [#6155](https://github.com/openova-io/openova/issues/6155) | Showback bills an Organization the CR model does not contain — the join reads  | Other |
+| [#6156](https://github.com/openova-io/openova/issues/6156) | DR preflight-02 cannot Fail on a 2-region Sovereign — the standby outage that  | Other |
 
 ---
 
@@ -319,6 +319,7 @@ flowchart LR
 | 2026-08-11T02:56 | [#6132](https://github.com/openova-io/openova/pull/6132) | #6111 | docs(uat): finish the #6111 adjudication — G6 gets an assert |
 | 2026-08-11T02:58 | [#6130](https://github.com/openova-io/openova/pull/6130) | #6085 | fix(console): stop publishing a DR/suspend verdict from abse |
 | 2026-08-11T03:11 | [#6129](https://github.com/openova-io/openova/pull/6129) | #6092 | test(org-delete): pin the cluster-wide secrets rule read-onl |
+| 2026-08-11T04:31 | [#6127](https://github.com/openova-io/openova/pull/6127) | #6061 | docs(uat): hw293 re-walk rows 63 + 162 — 63 flips ✅, 162 sti |
 | 2026-08-11T02:46 | [#6126](https://github.com/openova-io/openova/pull/6126) | #4303 | fix(seed): verify the self-heal instead of announcing it (Re |
 | 2026-08-11T02:26 | [#6125](https://github.com/openova-io/openova/pull/6125) | #3840 | fix(bootstrap-kit): the Flux controllers must not be the onl |
 | 2026-08-11T02:22 | [#6123](https://github.com/openova-io/openova/pull/6123) | #5206 | docs(uat): rows 212/213 walked on hw293 — the per-Org MCP in |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-11T00:22 | [#6102](https://github.com/openova-io/openova/pull/6102) | #5583 | fix(scripts): bump-chart-version consults open PR heads befo |
 | 2026-08-11T00:05 | [#6101](https://github.com/openova-io/openova/pull/6101) | #6091 | fix(catalyst-api): census the converged-late rescue over the |
 | 2026-08-10T23:51 | [#6100](https://github.com/openova-io/openova/pull/6100) | #6092 | test(org-delete): make the refused Secret delete reachable — |
-| 2026-08-11T00:59 | [#6099](https://github.com/openova-io/openova/pull/6099) | #3646 | fix(jobs,openbao): the cutover tree was ordered by the alpha |
 
 ---
 
