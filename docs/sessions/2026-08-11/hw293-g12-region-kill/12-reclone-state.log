@@ -1,0 +1,19 @@
+[dr-failback/actor] loop started (hold=120s wedgeHold=600s divergenceGrace=180s interval=10s hr=flux-system/bp-cnpg-pair kustomization=flux-system/bootstrap-kit)
+2026-08-11T03:57:38Z [dr-failback/actor] peer writable+ahead held 5s < 120s — waiting
+2026-08-11T03:57:48Z [dr-failback/actor] peer writable+ahead held 15s < 120s — waiting
+2026-08-11T03:57:58Z [dr-failback/actor] peer writable+ahead held 25s < 120s — waiting
+2026-08-11T03:58:08Z [dr-failback/actor] peer writable+ahead held 35s < 120s — waiting
+2026-08-11T03:58:19Z [dr-failback/actor] peer writable+ahead held 46s < 120s — waiting
+2026-08-11T03:58:29Z [dr-failback/actor] peer writable+ahead held 56s < 120s — waiting
+2026-08-11T03:58:39Z [dr-failback/actor] peer writable+ahead held 66s < 120s — waiting
+2026-08-11T03:58:49Z [dr-failback/actor] peer writable+ahead held 76s < 120s — waiting
+2026-08-11T03:59:01Z [dr-failback/actor] peer writable+ahead held 88s < 120s — waiting
+2026-08-11T03:59:12Z [dr-failback/actor] peer writable+ahead held 99s < 120s — waiting
+2026-08-11T03:59:22Z [dr-failback/actor] peer writable+ahead held 109s < 120s — waiting
+2026-08-11T03:59:32Z [dr-failback/actor] peer writable+ahead held 119s < 120s — waiting
+2026-08-11T03:59:42Z [dr-failback/actor] DEMOTING region-A: peer writable on TL=2 >= local TL=1 held 129s — patching Kustomization substitute SOVEREIGN_CNPG_PAIR_DEMOTED=true (durable source seam, #5245)
+kustomization.kustomize.toolkit.fluxcd.io/bootstrap-kit patched
+2026-08-11T03:59:54Z [dr-failback/actor] DIVERGENCE DETECTED: in-place-demoted Cluster (created 2026-08-11T03:31:43Z < episode 2026-08-11T03:59:42Z) reports ConsistentSystemID=False (reason=NotFound, phase='Cluster in healthy state') — the stale-PGDATA line cannot consistently follow region-B; divergence clock started (grace 180s) (#5245 hw278)
+2026-08-11T04:03:02Z [dr-failback/actor] DIVERGENCE ESCALATION: ConsistentSystemID=False held 187s >= 180s on the pre-episode demoted Cluster with peer verified writable — deleting for a clean pg_basebackup re-clone (PKI preserved) (#5245 hw278)
+cluster.postgresql.cnpg.io "cnpg-pair-bp-cnpg-pair-primary" deleted
+2026-08-11T04:03:54Z [dr-failback/actor] CONVERGED: region-A streaming from region-B AND CNPG reports ConsistentSystemID=True (verified consistent lineage — not a divergent equal-LSN standby) — recorded dr-failback-converged-at on HR flux-system/bp-cnpg-pair. Cross-region replication restored, roles swapped; the controlled switchback (demote region-B, restore region-A primary) is the sovereign-admin's RUNBOOKS §6.1 action (#5245 #5331)

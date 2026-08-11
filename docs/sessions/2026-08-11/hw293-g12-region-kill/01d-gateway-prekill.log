@@ -1,0 +1,7 @@
+=== §1d PRE-KILL gateway baseline — 2026-08-11T03:45:53Z ===
+--- console.hw293.omantel.biz -> 212.72.24.49 ---
+200 200 200 200 200 200 
+--- auth.hw293.omantel.biz -> 212.72.24.74 ---
+302 302 302 302 302 302 
+--- grafana.hw293.omantel.biz -> 212.72.24.74 ---
+302 302 302 302 302 302 

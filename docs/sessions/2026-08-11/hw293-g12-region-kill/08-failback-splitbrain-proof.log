@@ -1,0 +1,12 @@
+=== §8 FAILBACK / split-brain proof — 2026-08-11T03:50:29.353Z ===
+--- region A cnpg-pair pods ---
+NAME                               READY   STATUS    RESTARTS   AGE   ROLE
+cnpg-pair-bp-cnpg-pair-primary-1   0/1     Unknown   0          16m   primary
+cnpg-pair-bp-cnpg-pair-primary-2   0/1     Unknown   0          16m   replica
+cnpg-pair-bp-cnpg-pair-primary-3   0/1     Unknown   0          14m   replica
+--- region A cnpg-pair Cluster CR replica.enabled ---
+replica.enabled= source=
+--- region B promoted primary: timeline + rows ---
+B in_recovery=false
+B timeline=2
+B rowcount=2

@@ -1,0 +1,526 @@
+===== 03:39:33Z iter=1 =====
+catalyst-system   openova-flow-pg                  2        <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   <none>   true      cnpg-pair-bp-cnpg-pair-primary   Setting up primary
+guacamole         guacamole-pg                     1        <none>    <none>                           Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       <none>   <none>    <none>                           Setting up primary
+powerdns          pdns-pg                          2        <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              <none>   true      shared-pg-b                      Setting up primary
+shared-data       shared-pg-c                      <none>   <none>    <none>                           Setting up primary
+shared-data       shared-pg-replica                <none>   true      shared-pg                        Setting up primary
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         0/2   ContainerCreating   0     67s
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   0/1   ContainerCreating   0     67s
+cnpg-pair-bp-cnpg-pair-replica-1-pgbasebackup-xlb4p         0/1   PodInitializing     0     67s
+===== 03:40:07Z iter=2 =====
+catalyst-system   openova-flow-pg                  2        <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   <none>   true      cnpg-pair-bp-cnpg-pair-primary   Setting up primary
+guacamole         guacamole-pg                     1        <none>    <none>                           Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       <none>   <none>    <none>                           Setting up primary
+powerdns          pdns-pg                          2        <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              <none>   true      shared-pg-b                      Setting up primary
+shared-data       shared-pg-c                      <none>   <none>    <none>                           Setting up primary
+shared-data       shared-pg-replica                <none>   true      shared-pg                        Setting up primary
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         0/2   ContainerCreating   0     97s
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   0/1   ContainerCreating   0     97s
+cnpg-pair-bp-cnpg-pair-replica-1-pgbasebackup-xlb4p         0/1   PodInitializing     0     97s
+===== 03:40:37Z iter=3 =====
+catalyst-system   openova-flow-pg                  2        <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   <none>   true      cnpg-pair-bp-cnpg-pair-primary   Setting up primary
+guacamole         guacamole-pg                     1        <none>    <none>                           Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       <none>   <none>    <none>                           Setting up primary
+powerdns          pdns-pg                          2        <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              <none>   true      shared-pg-b                      Setting up primary
+shared-data       shared-pg-c                      <none>   <none>    <none>                           Setting up primary
+shared-data       shared-pg-replica                <none>   true      shared-pg                        Setting up primary
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         0/2   ContainerCreating   0     2m8s
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   0/1   ContainerCreating   0     2m8s
+cnpg-pair-bp-cnpg-pair-replica-1-pgbasebackup-xlb4p         0/1   PodInitializing     0     2m8s
+===== 03:41:08Z iter=4 =====
+catalyst-system   openova-flow-pg                  2        <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   <none>   true      cnpg-pair-bp-cnpg-pair-primary   Setting up primary
+guacamole         guacamole-pg                     1        <none>    <none>                           Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       <none>   <none>    <none>                           Setting up primary
+powerdns          pdns-pg                          2        <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              <none>   true      shared-pg-b                      Setting up primary
+shared-data       shared-pg-c                      <none>   <none>    <none>                           Setting up primary
+shared-data       shared-pg-replica                <none>   true      shared-pg                        Setting up primary
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         0/2   ContainerCreating   0     2m42s
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   0/1   ContainerCreating   0     2m42s
+cnpg-pair-bp-cnpg-pair-replica-1-pgbasebackup-xlb4p         0/1   PodInitializing     0     2m42s
+===== 03:41:42Z iter=5 =====
+catalyst-system   openova-flow-pg                  2        <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   <none>   true      cnpg-pair-bp-cnpg-pair-primary   Waiting for the instances to become active
+guacamole         guacamole-pg                     1        <none>    <none>                           Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       <none>   <none>    <none>                           Setting up primary
+powerdns          pdns-pg                          2        <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              <none>   true      shared-pg-b                      Setting up primary
+shared-data       shared-pg-c                      <none>   <none>    <none>                           Setting up primary
+shared-data       shared-pg-replica                <none>   true      shared-pg                        Setting up primary
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         0/2   Running     0     3m12s
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   0/1   Running     0     3m12s
+cnpg-pair-bp-cnpg-pair-replica-1                            0/1   Init:0/1    0     7s
+cnpg-pair-bp-cnpg-pair-replica-1-pgbasebackup-xlb4p         0/1   Completed   0     3m12s
+===== 03:42:12Z iter=6 =====
+catalyst-system   openova-flow-pg                  2        <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   1        true      cnpg-pair-bp-cnpg-pair-primary   Creating a new replica
+guacamole         guacamole-pg                     1        <none>    <none>                           Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       1        <none>    <none>                           Creating a new replica
+powerdns          pdns-pg                          2        <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              <none>   true      shared-pg-b                      Setting up primary
+shared-data       shared-pg-c-replica              <none>   true      shared-pg-c                      Setting up primary
+shared-data       shared-pg-replica                1        true      shared-pg                        Creating a new replica
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running     0     3m50s
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running     0     3m50s
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running     0     45s
+cnpg-pair-bp-cnpg-pair-replica-1-pgbasebackup-xlb4p         0/1   Completed   0     3m50s
+cnpg-pair-bp-cnpg-pair-replica-2                            0/1   Init:0/1    0     0s
+cnpg-pair-bp-cnpg-pair-replica-2-join-67p2f                 0/1   Completed   0     27s
+===== 03:42:50Z iter=7 =====
+catalyst-system   openova-flow-pg                  2        <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   2        true      cnpg-pair-bp-cnpg-pair-primary   Creating a new replica
+newapi            newapi-bp-newapi-newapi-pg       1        <none>    <none>                           Waiting for the instances to become active
+powerdns          pdns-pg                          2        <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              1        true      shared-pg-b                      Creating a new replica
+shared-data       shared-pg-c-replica              <none>   true      shared-pg-c                      Setting up primary
+shared-data       shared-pg-replica                2        true      shared-pg                        Creating a new replica
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running     0     4m21s
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running     0     4m21s
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running     0     76s
+cnpg-pair-bp-cnpg-pair-replica-1-pgbasebackup-xlb4p         0/1   Completed   0     4m21s
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running     0     31s
+cnpg-pair-bp-cnpg-pair-replica-2-join-67p2f                 0/1   Completed   0     58s
+cnpg-pair-bp-cnpg-pair-replica-3-join-b2fc9                 0/1   Init:0/1    0     15s
+===== 03:43:21Z iter=8 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   2       true      cnpg-pair-bp-cnpg-pair-primary   Creating a new replica
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              2       true      shared-pg-b                      Creating a new replica
+shared-data       shared-pg-c-replica              1       true      shared-pg-c                      Creating a new replica
+shared-data       shared-pg-replica                2       true      shared-pg                        Waiting for the instances to become active
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running           0     4m51s
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running           0     4m51s
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running           0     106s
+cnpg-pair-bp-cnpg-pair-replica-1-pgbasebackup-xlb4p         0/1   Completed         0     4m51s
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running           0     61s
+cnpg-pair-bp-cnpg-pair-replica-2-join-67p2f                 0/1   Completed         0     88s
+cnpg-pair-bp-cnpg-pair-replica-3-join-b2fc9                 0/1   PodInitializing   0     45s
+===== 03:43:51Z iter=9 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   2       true      cnpg-pair-bp-cnpg-pair-primary   Waiting for the instances to become active
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              2       true      shared-pg-b                      Waiting for the instances to become active
+shared-data       shared-pg-c-replica              2       true      shared-pg-c                      Creating a new replica
+shared-data       shared-pg-replica                3       true      shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running     0     5m21s
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running     0     5m21s
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running     0     2m16s
+cnpg-pair-bp-cnpg-pair-replica-1-pgbasebackup-xlb4p         0/1   Completed   0     5m21s
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running     0     91s
+cnpg-pair-bp-cnpg-pair-replica-2-join-67p2f                 0/1   Completed   0     118s
+cnpg-pair-bp-cnpg-pair-replica-3                            0/1   Running     0     19s
+cnpg-pair-bp-cnpg-pair-replica-3-join-b2fc9                 0/1   Completed   0     75s
+===== 03:44:21Z iter=10 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       true      cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       true      shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       true      shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     5m52s
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     5m52s
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     2m47s
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     2m2s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     50s
+===== 03:44:52Z iter=11 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       true      cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       true      shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       true      shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     6m22s
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     6m22s
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     3m17s
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     2m32s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     80s
+===== 03:45:22Z iter=12 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       true      cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       true      shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       true      shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     6m52s
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     6m52s
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     3m47s
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     3m2s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     110s
+===== 03:45:52Z iter=13 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       true      cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       true      shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       true      shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     7m23s
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     7m23s
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     4m18s
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     3m33s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     2m21s
+===== 03:46:23Z iter=14 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       true      cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       true      shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       true      shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     7m53s
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     7m53s
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     4m48s
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     4m3s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     2m51s
+===== 03:46:53Z iter=15 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       true      cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       true      shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       true      shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     8m23s
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     8m23s
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     5m18s
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     4m33s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     3m21s
+===== 03:47:23Z iter=16 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       true      cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       true      shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       true      shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     8m53s
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     8m53s
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     5m48s
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     5m3s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     3m51s
+===== 03:47:53Z iter=17 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       true      cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       true      shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       true      shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     9m23s
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     9m23s
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     6m18s
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     5m33s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     4m21s
+===== 03:48:23Z iter=18 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       true      cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              2       false     shared-pg-b                      Waiting for the instances to become active
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                2       false     shared-pg                        Waiting for the instances to become active
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     9m54s
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     9m54s
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     6m49s
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     6m4s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     4m52s
+===== 03:48:54Z iter=19 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   2       false     cnpg-pair-bp-cnpg-pair-primary   Waiting for the instances to become active
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              2       false     shared-pg-b                      Waiting for the instances to become active
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                2       false     shared-pg                        Waiting for the instances to become active
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running    0     10m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running    0     10m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running    0     7m19s
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running    0     6m34s
+cnpg-pair-bp-cnpg-pair-replica-3                            0/1   Init:0/1   0     12s
+===== 03:49:24Z iter=20 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Waiting for the instances to become active
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     10m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     10m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     7m49s
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     16s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     42s
+===== 03:49:55Z iter=21 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     11m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     11m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     8m20s
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     47s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     73s
+===== 03:50:25Z iter=22 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     11m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     11m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     8m50s
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     77s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     103s
+===== 03:50:55Z iter=23 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     12m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     12m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     9m20s
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     107s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     2m13s
+===== 03:51:25Z iter=24 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     12m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     12m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     9m50s
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     2m17s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     2m43s
+===== 03:51:56Z iter=25 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     13m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     13m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     10m
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     2m48s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     3m14s
+===== 03:52:26Z iter=26 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     13m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     13m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     10m
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     3m18s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     3m44s
+===== 03:52:56Z iter=27 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     14m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     14m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     11m
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     3m48s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     4m14s
+===== 03:53:26Z iter=28 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     14m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     14m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     11m
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     4m19s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     4m45s
+===== 03:53:57Z iter=29 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     15m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     15m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     12m
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     4m49s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     5m15s
+===== 03:54:27Z iter=30 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     15m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     15m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     12m
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     5m20s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     5m46s
+===== 03:54:58Z iter=31 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     16m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     16m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     13m
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     5m50s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     6m16s
+===== 03:55:28Z iter=32 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     16m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     16m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     13m
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     6m20s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     6m46s
+===== 03:55:58Z iter=33 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     17m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     17m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     14m
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     6m50s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     7m16s
+===== 03:56:28Z iter=34 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     17m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     17m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     14m
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     7m20s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     7m46s
+===== 03:56:58Z iter=35 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     18m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     18m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     15m
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     7m51s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     8m17s
+===== 03:57:29Z iter=36 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     18m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     18m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     15m
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     8m21s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     8m47s
+===== 03:57:59Z iter=37 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     19m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     19m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     16m
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     8m51s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     9m17s
+===== 03:58:30Z iter=38 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     20m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     20m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     16m
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     9m22s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     9m48s
+===== 03:59:00Z iter=39 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     20m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     20m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     17m
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     9m52s
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     10m
+===== 03:59:30Z iter=40 =====
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       false     cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       false     shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       false     shared-pg                        Cluster in healthy state
+cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf         2/2   Running   0     21m
+cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k   1/1   Running   0     21m
+cnpg-pair-bp-cnpg-pair-replica-1                            1/1   Running   0     17m
+cnpg-pair-bp-cnpg-pair-replica-2                            1/1   Running   0     10m
+cnpg-pair-bp-cnpg-pair-replica-3                            1/1   Running   0     10m
+WATCH DONE

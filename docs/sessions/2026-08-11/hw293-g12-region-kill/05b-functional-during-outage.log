@@ -1,0 +1,10 @@
+=== §5b FUNCTIONAL probe during outage — 2026-08-11T03:47:22Z ===
+--- keycloak OIDC discovery (needs a LIVE backend, not just an envoy redirect) ---
+200 6661B 200 6661B 200 6661B 200 6661B 200 6661B 200 6661B 
+--- body sanity (issuer field) ---
+  sample 1 issuer= https://auth.hw293.omantel.biz/realms/sovereign
+  sample 2 issuer= https://auth.hw293.omantel.biz/realms/sovereign
+  sample 3 issuer= https://auth.hw293.omantel.biz/realms/sovereign
+  sample 4 issuer= https://auth.hw293.omantel.biz/realms/sovereign
+  sample 5 issuer= https://auth.hw293.omantel.biz/realms/sovereign
+  sample 6 issuer= https://auth.hw293.omantel.biz/realms/sovereign

@@ -1,0 +1,25 @@
+=== §4 RPO + POST-KILL WRITE proof on promoted primaries — 2026-08-11T03:48:52.227Z ===
+--- cnpg/cnpg-pair-bp-cnpg-pair-replica ---
+  primary pod: cnpg-pair-bp-cnpg-pair-replica-1
+in_recovery=false
+RPO-sentinel: 1|g12-sentinel-prekill-2026-08-11 03:45:29.925004+00
+POSTKILL-WRITE-ACCEPTED id=34
+INSERT 0 1
+--- shared-data/shared-pg-replica ---
+  primary pod: shared-pg-replica-1
+in_recovery=false
+RPO-sentinel: 1|g12-sentinel-prekill-2026-08-11 03:45:30.181992+00
+POSTKILL-WRITE-ACCEPTED id=34
+INSERT 0 1
+--- shared-data/shared-pg-b-replica ---
+  primary pod: shared-pg-b-replica-1
+in_recovery=false
+RPO-sentinel: 1|g12-sentinel-prekill-2026-08-11 03:45:30.408779+00
+POSTKILL-WRITE-ACCEPTED id=34
+INSERT 0 1
+--- shared-data/shared-pg-c-replica ---
+  primary pod: shared-pg-c-replica-1
+ERROR:  cannot execute INSERT in a read-only transaction
+in_recovery=true
+RPO-sentinel: 1|g12-sentinel-prekill-2026-08-11 03:45:30.913893+00
+command terminated with exit code 1

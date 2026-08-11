@@ -1,0 +1,11 @@
+=== §5 gateway DURING OUTAGE — 2026-08-11T03:46:51Z (T0+~60s) ===
+--- CONTROL: region-A apiserver 212.72.24.43:6443 ---
+  A apiserver REFUSED/TIMEOUT — region A is down
+--- CONTROL: region-B apiserver 212.72.24.25:6443 ---
+  B apiserver OPEN — region B alive
+--- console.hw293.omantel.biz (6 concurrent fresh-TCP) ---
+503 503 503 503 503 503 
+--- auth.hw293.omantel.biz (6 concurrent fresh-TCP) ---
+302 302 302 302 302 302 
+--- grafana.hw293.omantel.biz (6 concurrent fresh-TCP) ---
+302 302 302 302 302 302 
