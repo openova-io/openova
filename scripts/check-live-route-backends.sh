@@ -36,7 +36,7 @@
 # every request stays in rotation forever. This script is the check that CAN
 # fail.
 #
-# THE INVARIANT
+# THE INVARIANT — PART 1, BACKENDS
 #
 # For every backendRef of every HTTPRoute, the backend Service must have a
 # path to at least one endpoint:
@@ -61,19 +61,58 @@
 #         counted. Region A carried exactly one of these (an Application
 #         installed 3 minutes before the sweep) and was clean once it settled.
 #
-# Exit 0 = every advertised backend can serve. 1 = at least one advertised
-# hostname is a 503 generator. 2 = setup error.
+# THE INVARIANT — PART 2, LISTENERS AND REGION SYMMETRY (UAT rows 87/90/95)
+#
+# Part 1 joins a route to its BACKEND. It is blind to the two ways a per-Org
+# application hostname fails on the SAME front door, both measured on hw293:
+#
+#   * The route exists and its backend is healthy, but the parent Gateway
+#     carries no listener whose hostname admits it. Gateway API then reports
+#     `Accepted=False  NoMatchingListenerHostname` and envoy resets the TLS
+#     handshake before any HTTP status exists — so a 503-hunting probe sees
+#     nothing at all. Namespace `g7doora` on hw293 held a healthy
+#     `bp-stalwart-tenant` and a `mail.g7doora.omani.rest` HTTPRoute while
+#     `kube-system/cilium-gateway-console` carried 14 listeners covering four
+#     OTHER Organizations and none for that one. Part 1 scores that route
+#     SERVING, because its backend genuinely serves — nothing can reach it.
+#
+#   * The route is absent from ONE region. Rows 87/90/95 are exactly this:
+#     `wordpress.<orgslug>.<pool-tld>` renders and is publicly trusted, and
+#     4-to-7 of every 12 fresh TCP connections are `Connection reset by peer`,
+#     because region B holds zero routes for that hostname while the ELB
+#     round-robins :443 across both regions' cilium-envoy. A single-cluster
+#     scan CANNOT see this: a region with no route for a hostname produces no
+#     row, no verdict, and a clean PASS. Absence is invisible by construction,
+#     so the peer region's route inventory has to be read too.
+#
+# Hence:
+#
+#   * every hostname on an HTTPRoute must be admitted by at least one listener
+#     of at least one of its parent Gateways, honouring Gateway API wildcard
+#     semantics (`*.a.b` admits `x.a.b` and `x.y.a.b`, never the bare `a.b`)
+#     and any `sectionName` / `port` pin on the parentRef -> else NO-LISTENER
+#   * a parentRef naming a Gateway that does not exist here    -> NO-GATEWAY
+#   * with --peer-kubeconfig / --peer-context, a hostname advertised in one
+#     region and not the other                                 -> REGION-ASYMMETRY
+#
+# Exit 0 = every advertised hostname is admitted by a listener, backed by a
+# reachable endpoint, and (when a peer is supplied) served by both regions.
+# 1 = at least one advertised hostname cannot serve. 2 = setup error.
 #
 # Usage:
 #   scripts/check-live-route-backends.sh                        # current context
 #   scripts/check-live-route-backends.sh --kubeconfig <path>
 #   scripts/check-live-route-backends.sh --context <ctx>
+#   scripts/check-live-route-backends.sh --kubeconfig <a> --peer-kubeconfig <b>
 #   scripts/check-live-route-backends.sh --self-test            # no cluster needed
 #
 # --self-test is a VACUITY CHECK, not decoration. A guard that has only ever
 # been observed passing is worthless, so the self-test drives the classifier
-# through four fixtures — two that MUST pass and two that MUST fail — and
-# fails the script if any must-fail fixture comes back clean.
+# through fixtures — some that MUST pass and some that MUST fail — and fails
+# the script if any must-fail fixture comes back clean. Every must-fail
+# fixture is paired with a CONTROL that shares its suspect property and must
+# stay green, so a verdict can never be read as "this classifier bans a
+# shape" when it should be reading one specific fact about that shape.
 #
 # 🛑 This repo is PUBLIC. The script prints object names, namespaces, hostnames
 #    and counts only. It never reads Secret data and never prints a value.
@@ -81,20 +120,26 @@
 set -euo pipefail
 
 KUBECTL_ARGS=()
+PEER_ARGS=()
+PEER_SUPPLIED=0
 SELF_TEST_ONLY=0
 GRACE_SECONDS="${GRACE_SECONDS:-300}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --kubeconfig)     KUBECTL_ARGS+=(--kubeconfig "$2"); shift 2 ;;
-    --context)        KUBECTL_ARGS+=(--context "$2");    shift 2 ;;
-    --grace-seconds)  GRACE_SECONDS="$2";                shift 2 ;;
-    --self-test)      SELF_TEST_ONLY=1;                  shift ;;
+    --kubeconfig)      KUBECTL_ARGS+=(--kubeconfig "$2"); shift 2 ;;
+    --context)         KUBECTL_ARGS+=(--context "$2");    shift 2 ;;
+    --peer-kubeconfig) PEER_ARGS+=(--kubeconfig "$2"); PEER_SUPPLIED=1; shift 2 ;;
+    --peer-context)    PEER_ARGS+=(--context "$2");    PEER_SUPPLIED=1; shift 2 ;;
+    --grace-seconds)   GRACE_SECONDS="$2";                shift 2 ;;
+    --self-test)       SELF_TEST_ONLY=1;                  shift ;;
     -h|--help)
-      sed -n '2,80p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,120p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *) echo "Unknown arg: $1" >&2
-       echo "Usage: $0 [--kubeconfig <path>] [--context <ctx>] [--grace-seconds N] [--self-test]" >&2
+       echo "Usage: $0 [--kubeconfig <path>] [--context <ctx>]" >&2
+       echo "          [--peer-kubeconfig <path>] [--peer-context <ctx>]" >&2
+       echo "          [--grace-seconds N] [--self-test]" >&2
        exit 2 ;;
   esac
 done
@@ -109,8 +154,19 @@ done
 #   "graceSeconds":       <int>,
 #   "services":  [{"ns","name","global","ageSeconds"}],
 #   "endpoints": [{"ns","name","ready"}],
-#   "routes":    [{"ns","name","hosts":[..],"backends":[{"ns","name"}]}]
+#   "routes":    [{"ns","name","hosts":[..],
+#                  "backends":[{"ns","name"}],
+#                  "parents": [{"ns","name","sectionName","port"}]}],
+#   "gateways":  [{"ns","name","listeners":[{"name","hostname","port"}]}],
+#   "peerHosts": [<hostname>, ..]   # present only when a peer region was read
 # }
+#
+# `gateways` and `peerHosts` are OPTIONAL keys and each gates its own pass.
+# That is not a fail-open: the LIVE path always supplies `gateways` and exits
+# 2 if the cluster will not serve them, and it prints a loud NOTICE when no
+# peer was supplied. The keys are optional so that the four original backend
+# fixtures keep exercising the backend classifier alone — they are the
+# controls proving this change did not disturb it.
 # ─────────────────────────────────────────────────────────────────────────────
 read -r -d '' CLASSIFY_PY <<'PY' || true
 import json, sys
@@ -120,6 +176,31 @@ mesh = int(b.get("meshRemoteClusters", 0))
 grace = int(b.get("graceSeconds", 300))
 svc = {(s["ns"], s["name"]): s for s in b.get("services", [])}
 ready = {(e["ns"], e["name"]): int(e.get("ready", 0)) for e in b.get("endpoints", [])}
+
+
+def listener_admits(lh, h):
+    """Gateway API hostname intersection: does listener hostname `lh` admit
+    route hostname `h`?
+
+    Spec (gateway-api Listener.hostname / HTTPRoute.hostnames): a listener
+    with NO hostname admits every host; a wildcard is a SUFFIX match one or
+    more labels deep, so `*.a.b` admits `x.a.b` AND `x.y.a.b` but never the
+    bare `a.b`. Getting that last clause wrong in either direction is the
+    whole bug class — `endswith("a.b")` would wrongly admit the apex and
+    wrongly admit `nota.b`, and a single-label rule would wrongly reject a
+    legitimate deep host."""
+    if not lh:
+        return True
+    if not h:
+        return True          # a route with no hostnames inherits the listener's
+    if lh.startswith("*."):
+        suffix = lh[1:]      # "*.a.b" -> ".a.b"
+        if h.startswith("*."):
+            return h[1:] == suffix or h[1:].endswith(suffix)
+        return h.endswith(suffix)
+    if h.startswith("*."):
+        return False         # a concrete listener cannot admit a wildcard route
+    return lh == h
 
 rows, seen = [], set()
 for r in b.get("routes", []):
@@ -153,27 +234,115 @@ rows.sort(key=lambda r: (order[r[0]], r[1], r[2]))
 bad = [r for r in rows if r[0] == "DEAD-BACKEND"]
 pending = [r for r in rows if r[0] == "PENDING"]
 
+# ── Pass 2: listener coverage. A hostname nothing listens for is not a 503,
+# it is a TLS reset — which is why the backend pass above cannot see it.
+gws = {(g["ns"], g["name"]): g for g in b.get("gateways", [])}
+hostrows, local_hosts = [], set()
+listener_pass = "gateways" in b
+for r in b.get("routes", []):
+    parents = r.get("parents") or []
+    for h in (r.get("hosts") or []):
+        local_hosts.add(h)
+    if not listener_pass or not parents:
+        continue
+    for h in (r.get("hosts") or [""]):
+        admitted, absent_gws, seen_listeners = False, [], 0
+        for p in parents:
+            key = (p.get("ns") or r["ns"], p["name"])
+            g = gws.get(key)
+            if g is None:
+                absent_gws.append(f"{key[0]}/{key[1]}")
+                continue
+            for ls in (g.get("listeners") or []):
+                if p.get("sectionName") and ls.get("name") != p["sectionName"]:
+                    continue
+                if p.get("port") and int(ls.get("port") or 0) != int(p["port"]):
+                    continue
+                seen_listeners += 1
+                if listener_admits(ls.get("hostname"), h):
+                    admitted = True
+                    break
+            if admitted:
+                break
+        who = f"{r['ns']}/{r['name']}"
+        if admitted:
+            hostrows.append(("SERVING", h or "(inherits listener)", who, "admitted by a parent listener"))
+        elif absent_gws and seen_listeners == 0:
+            hostrows.append(("NO-GATEWAY", h or "(inherits listener)", who,
+                             "parent Gateway absent here: " + ",".join(sorted(set(absent_gws)))))
+        else:
+            hostrows.append(("NO-LISTENER", h or "(inherits listener)", who,
+                             f"no parent listener admits it ({seen_listeners} listener(s) considered)"))
+
+# ── Pass 3: region symmetry. Both regions' nodes sit in ONE round-robin pool,
+# so a hostname either region cannot route is a coin-flip failure for the
+# customer — the shape behind UAT rows 87/90/95.
+peer_known = "peerHosts" in b
+peer_hosts = set(b.get("peerHosts") or [])
+asym = []
+if peer_known:
+    for h in sorted(local_hosts - peer_hosts):
+        asym.append(("REGION-ASYMMETRY", h, "(this region only)",
+                     "advertised here, absent from the peer region"))
+    for h in sorted(peer_hosts - local_hosts):
+        asym.append(("REGION-ASYMMETRY", h, "(peer region only)",
+                     "advertised by the peer region, absent here"))
+
+hostbad = [r for r in hostrows if r[0] != "SERVING"] + asym
+horder = {"NO-GATEWAY": 0, "NO-LISTENER": 1, "REGION-ASYMMETRY": 2, "SERVING": 3}
+hostrows.sort(key=lambda r: (horder[r[0]], r[1], r[2]))
+
 print(f"ClusterMesh remote clusters ready: {mesh}")
 print(f"HTTPRoute backendRefs examined:    {len(rows)}")
 print(f"  SERVING       {sum(1 for r in rows if r[0] == 'SERVING')}")
 print(f"  PENDING       {len(pending)}  (younger than {grace}s — reported, not counted)")
 print(f"  DEAD-BACKEND  {len(bad)}")
+if listener_pass:
+    print(f"HTTPRoute hostnames examined:      {len(hostrows)}  "
+          f"(against {len(gws)} Gateway(s))")
+    print(f"  SERVING       {sum(1 for r in hostrows if r[0] == 'SERVING')}")
+    print(f"  NO-LISTENER   {sum(1 for r in hostrows if r[0] == 'NO-LISTENER')}")
+    print(f"  NO-GATEWAY    {sum(1 for r in hostrows if r[0] == 'NO-GATEWAY')}")
+else:
+    print("HTTPRoute hostnames examined:      skipped (no `gateways` in bundle)")
+if peer_known:
+    print(f"Region symmetry:                   {len(peer_hosts)} peer hostname(s), "
+          f"{len(asym)} asymmetric")
+else:
+    print("Region symmetry:                   NOT CHECKED — no peer region supplied.")
+    print("    A region that holds ZERO routes for a hostname produces no row and no")
+    print("    verdict here, so THIS RUN CANNOT SEE rows 87/90/95's defect. Pass")
+    print("    --peer-kubeconfig / --peer-context to close that hole.")
 print()
 for v, h, be, why in rows:
     if v == "SERVING":
         continue
-    print(f"  {v:<13} host={h:<40} backend={be:<44} {why}")
+    print(f"  {v:<17} host={h:<40} backend={be:<44} {why}")
+for v, h, who, why in hostrows + asym:
+    if v == "SERVING":
+        continue
+    print(f"  {v:<17} host={h:<40} route={who:<44} {why}")
 
-if bad:
+if bad or hostbad:
     print()
-    print(f"FAIL: {len(bad)} advertised backendRef(s) cannot serve. Every request this")
-    print("      Gateway round-robins onto this region for those hostnames returns")
-    print("      envoy 503 `no healthy upstream`. Any UAT verdict recorded against")
-    print("      these hostnames from this region is measurement noise, not a result.")
+    if bad:
+        print(f"FAIL: {len(bad)} advertised backendRef(s) cannot serve. Every request this")
+        print("      Gateway round-robins onto this region for those hostnames returns")
+        print("      envoy 503 `no healthy upstream`.")
+    if hostbad:
+        print(f"FAIL: {len(hostbad)} advertised hostname(s) have no way to be served here.")
+        print("      A hostname no listener admits is not a 503 — envoy resets the TLS")
+        print("      handshake before any HTTP status exists, so a status-code probe")
+        print("      sees nothing wrong. A hostname only one region routes is a")
+        print("      coin flip for every customer behind the shared front door.")
+    print("      Any UAT verdict recorded against these hostnames from this region")
+    print("      is measurement noise, not a result.")
     sys.exit(1)
 
 print()
-print("PASS: every advertised backendRef has a path to at least one endpoint.")
+print("PASS: every advertised backendRef has a path to at least one endpoint,")
+if listener_pass:
+    print("      and every advertised hostname is admitted by a parent listener.")
 PY
 
 # Run the classifier with the bundle on STDIN. `python3 -c` (not `python3 -`)
@@ -219,7 +388,7 @@ if [ "$SELF_TEST_ONLY" = "1" ]; then
     echo "  ok  $name (want=$want, exit=$rc, verdict=${token%:})"
   }
 
-  echo "self-test: driving the classifier through 4 fixtures (2 must pass, 2 must fail)"
+  echo "self-test: driving the classifier through 11 fixtures (6 must pass, 5 must fail)"
 
   # 1. Healthy backend — must PASS.
   run_fixture "healthy backend" pass '{
@@ -258,6 +427,117 @@ if [ "$SELF_TEST_ONLY" = "1" ]; then
     "endpoints": [{"ns":"catalyst-system","name":"catalyst-ui","ready":0}],
     "routes":    [{"ns":"catalyst-system","name":"catalyst-ui","hosts":["console.example.test"],
                    "backends":[{"ns":"catalyst-system","name":"catalyst-ui"}]}]}'
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Listener coverage (UAT rows 87/90/95, and the g7doora shape behind 234).
+  #
+  # Every fixture below carries a HEALTHY backend, so a verdict can only come
+  # from the listener pass. Org hostnames use the per-Org pool TLDs and TWO
+  # DIFFERENT ones, because a Sovereign assigns pool TLDs per Org — a fixture
+  # set that shared one TLD would pass a classifier that hardcoded it.
+  # ───────────────────────────────────────────────────────────────────────────
+
+  # 5. CONTROL for 6/7/8 — a per-Org app hostname on the shared console
+  #    Gateway, admitted by that Org's wildcard listener. Shares every suspect
+  #    property of the failing fixtures (same Gateway, same route shape, same
+  #    per-Org hostname depth) and MUST stay green. Without it, a classifier
+  #    that simply rejected per-Org hostnames would score 6/7/8 "caught".
+  run_fixture "per-Org app host admitted by the Org wildcard listener" pass '{
+    "meshRemoteClusters": 0, "graceSeconds": 300,
+    "services":  [{"ns":"walkone","name":"wordpress","global":null,"ageSeconds":50000}],
+    "endpoints": [{"ns":"walkone","name":"wordpress","ready":1}],
+    "gateways":  [{"ns":"kube-system","name":"cilium-gateway-console","listeners":[
+                    {"name":"apex-https","hostname":"*.sov.example.test","port":443},
+                    {"name":"walkone-https","hostname":"*.walkone.omani.homes","port":443}]}],
+    "routes":    [{"ns":"walkone","name":"app-wordpress-hostroute",
+                   "hosts":["wordpress.walkone.omani.homes"],
+                   "backends":[{"ns":"walkone","name":"wordpress"}],
+                   "parents":[{"ns":"kube-system","name":"cilium-gateway-console"}]}]}'
+
+  # 6. The g7doora shape — the Gateway carries OTHER Organizations wildcards
+  #    and none for this one. Backend is healthy; the customer still cannot
+  #    reach it, and envoy resets TLS rather than answering 503.
+  run_fixture "per-Org app host with no listener on the shared Gateway" fail '{
+    "meshRemoteClusters": 0, "graceSeconds": 300,
+    "services":  [{"ns":"g7doora","name":"bp-stalwart-tenant","global":null,"ageSeconds":50000}],
+    "endpoints": [{"ns":"g7doora","name":"bp-stalwart-tenant","ready":1}],
+    "gateways":  [{"ns":"kube-system","name":"cilium-gateway-console","listeners":[
+                    {"name":"apex-https","hostname":"*.sov.example.test","port":443},
+                    {"name":"walkone-https","hostname":"*.walkone.omani.homes","port":443},
+                    {"name":"walktwo-https","hostname":"*.walktwo.omani.trade","port":443}]}],
+    "routes":    [{"ns":"g7doora","name":"app-mail-hostroute",
+                   "hosts":["mail.g7doora.omani.rest"],
+                   "backends":[{"ns":"g7doora","name":"bp-stalwart-tenant"}],
+                   "parents":[{"ns":"kube-system","name":"cilium-gateway-console"}]}]}'
+
+  # 7. parentRef naming a Gateway that does not exist in this region.
+  run_fixture "route parented to an absent Gateway" fail '{
+    "meshRemoteClusters": 0, "graceSeconds": 300,
+    "services":  [{"ns":"walktwo","name":"wordpress","global":null,"ageSeconds":50000}],
+    "endpoints": [{"ns":"walktwo","name":"wordpress","ready":1}],
+    "gateways":  [],
+    "routes":    [{"ns":"walktwo","name":"app-wordpress-hostroute",
+                   "hosts":["wordpress.walktwo.omani.trade"],
+                   "backends":[{"ns":"walktwo","name":"wordpress"}],
+                   "parents":[{"ns":"kube-system","name":"cilium-gateway-console"}]}]}'
+
+  # 8. The off-by-one that a naive `endswith` gets wrong in BOTH directions:
+  #    `*.walkone.omani.homes` must NOT admit the bare apex it wildcards.
+  run_fixture "wildcard listener must not admit its own apex" fail '{
+    "meshRemoteClusters": 0, "graceSeconds": 300,
+    "services":  [{"ns":"walkone","name":"wordpress","global":null,"ageSeconds":50000}],
+    "endpoints": [{"ns":"walkone","name":"wordpress","ready":1}],
+    "gateways":  [{"ns":"kube-system","name":"cilium-gateway-console","listeners":[
+                    {"name":"walkone-https","hostname":"*.walkone.omani.homes","port":443}]}],
+    "routes":    [{"ns":"walkone","name":"apex","hosts":["walkone.omani.homes"],
+                   "backends":[{"ns":"walkone","name":"wordpress"}],
+                   "parents":[{"ns":"kube-system","name":"cilium-gateway-console"}]}]}'
+
+  # 9. CONTROL for 8 — the SAME wildcard must admit a deeper host, because
+  #    Gateway API wildcards are suffix matches, not single-label matches.
+  #    Paired with 8 this pins the rule from both sides; a classifier that
+  #    passed one and failed the other would be caught here.
+  run_fixture "wildcard listener admits a deeper sub-host" pass '{
+    "meshRemoteClusters": 0, "graceSeconds": 300,
+    "services":  [{"ns":"walkone","name":"wordpress","global":null,"ageSeconds":50000}],
+    "endpoints": [{"ns":"walkone","name":"wordpress","ready":1}],
+    "gateways":  [{"ns":"kube-system","name":"cilium-gateway-console","listeners":[
+                    {"name":"walkone-https","hostname":"*.walkone.omani.homes","port":443}]}],
+    "routes":    [{"ns":"walkone","name":"deep","hosts":["a.b.walkone.omani.homes"],
+                   "backends":[{"ns":"walkone","name":"wordpress"}],
+                   "parents":[{"ns":"kube-system","name":"cilium-gateway-console"}]}]}'
+
+  # 10. Rows 87/90/95 exactly — both regions sit in ONE round-robin pool and
+  #     the peer holds no route for the purchased app hostname, so a fraction
+  #     of every customer visit is reset. The local region is FLAWLESS here:
+  #     healthy backend, admitting listener, nothing a single-cluster scan
+  #     could object to. Only the peer inventory makes it visible.
+  run_fixture "hostname served here, absent from the peer region" fail '{
+    "meshRemoteClusters": 1, "graceSeconds": 300,
+    "services":  [{"ns":"walkone","name":"wordpress","global":null,"ageSeconds":50000}],
+    "endpoints": [{"ns":"walkone","name":"wordpress","ready":1}],
+    "gateways":  [{"ns":"kube-system","name":"cilium-gateway-console","listeners":[
+                    {"name":"walkone-https","hostname":"*.walkone.omani.homes","port":443}]}],
+    "peerHosts": ["console.sov.example.test"],
+    "routes":    [{"ns":"walkone","name":"app-wordpress-hostroute",
+                   "hosts":["wordpress.walkone.omani.homes"],
+                   "backends":[{"ns":"walkone","name":"wordpress"}],
+                   "parents":[{"ns":"kube-system","name":"cilium-gateway-console"}]}]}'
+
+  # 11. CONTROL for 10 — the same two regions once BOTH advertise the host.
+  #     Proves fixture 10 fails on the asymmetry and not merely on the
+  #     presence of a peerHosts key.
+  run_fixture "hostname served by both regions" pass '{
+    "meshRemoteClusters": 1, "graceSeconds": 300,
+    "services":  [{"ns":"walkone","name":"wordpress","global":null,"ageSeconds":50000}],
+    "endpoints": [{"ns":"walkone","name":"wordpress","ready":1}],
+    "gateways":  [{"ns":"kube-system","name":"cilium-gateway-console","listeners":[
+                    {"name":"walkone-https","hostname":"*.walkone.omani.homes","port":443}]}],
+    "peerHosts": ["wordpress.walkone.omani.homes"],
+    "routes":    [{"ns":"walkone","name":"app-wordpress-hostroute",
+                   "hosts":["wordpress.walkone.omani.homes"],
+                   "backends":[{"ns":"walkone","name":"wordpress"}],
+                   "parents":[{"ns":"kube-system","name":"cilium-gateway-console"}]}]}'
 
   echo
   if [ "$fail_count" -ne 0 ]; then
@@ -312,13 +592,41 @@ k get endpoints -A -o json > "$WORKDIR/eps.json"
 k get httproutes.gateway.networking.k8s.io -A -o json > "$WORKDIR/rt.json" 2>/dev/null \
   || echo '{"items":[]}' > "$WORKDIR/rt.json"
 
-if ! MESH_REMOTE="$mesh_remote" GRACE="$GRACE_SECONDS" python3 - \
-      "$WORKDIR/svc.json" "$WORKDIR/eps.json" "$WORKDIR/rt.json" \
+# Gateways are NOT allowed the empty-on-error fallback that HTTPRoutes get. An
+# empty Gateway list makes every route NO-GATEWAY, so a silent fallback would
+# turn an unreadable cluster into a wall of false reds; and the opposite
+# fallback (skip the pass) would be the fail-open that let #6040 hide for 12
+# hours. Unreadable Gateways alongside readable HTTPRoutes is a setup error,
+# and it says so.
+if ! k get gateways.gateway.networking.k8s.io -A -o json > "$WORKDIR/gw.json" 2>/dev/null; then
+  if grep -q '"items": *\[ *\]' "$WORKDIR/rt.json" || ! grep -q '"kind"' "$WORKDIR/rt.json"; then
+    echo '{"items":[]}' > "$WORKDIR/gw.json"
+  else
+    echo "HTTPRoutes are readable but Gateways are not — cannot verify listener" >&2
+    echo "coverage, and passing without it would be a fail-open guard." >&2
+    exit 2
+  fi
+fi
+
+# Peer region, when supplied: only the hostname inventory is needed, so this
+# is one read and it never touches the peer's Services.
+PEER_JSON=""
+if [ "$PEER_SUPPLIED" = "1" ]; then
+  if ! kubectl "${PEER_ARGS[@]}" get httproutes.gateway.networking.k8s.io -A -o json \
+        > "$WORKDIR/peer-rt.json" 2>/dev/null; then
+    echo "cannot read HTTPRoutes from the peer region with the supplied kubeconfig/context" >&2
+    exit 2
+  fi
+  PEER_JSON="$WORKDIR/peer-rt.json"
+fi
+
+if ! MESH_REMOTE="$mesh_remote" GRACE="$GRACE_SECONDS" PEER_JSON="$PEER_JSON" python3 - \
+      "$WORKDIR/svc.json" "$WORKDIR/eps.json" "$WORKDIR/rt.json" "$WORKDIR/gw.json" \
       > "$WORKDIR/bundle.json" <<'PY'
 import json, os, sys
 from datetime import datetime, timezone
 
-svc, eps, rt = (json.load(open(a)) for a in sys.argv[1:4])
+svc, eps, rt, gw = (json.load(open(a)) for a in sys.argv[1:5])
 now = datetime.now(timezone.utc)
 
 
@@ -350,8 +658,30 @@ bundle = {
         "backends": [{"ns": b.get("namespace", r["metadata"]["namespace"]), "name": b["name"]}
                      for rule in (r["spec"].get("rules") or [])
                      for b in (rule.get("backendRefs") or [])],
+        # parentRef.namespace defaults to the ROUTE's namespace per Gateway API,
+        # which is why `cilium-gateway-console` must be written with its
+        # kube-system namespace by every per-Org producer.
+        "parents": [{"ns": p.get("namespace", r["metadata"]["namespace"]),
+                     "name": p["name"],
+                     "sectionName": p.get("sectionName"),
+                     "port": p.get("port")}
+                    for p in (r["spec"].get("parentRefs") or [])],
     } for r in rt["items"]],
+    "gateways": [{
+        "ns": g["metadata"]["namespace"],
+        "name": g["metadata"]["name"],
+        "listeners": [{"name": l.get("name"),
+                       "hostname": l.get("hostname"),
+                       "port": l.get("port")}
+                      for l in (g["spec"].get("listeners") or [])],
+    } for g in gw["items"]],
 }
+
+peer = os.environ.get("PEER_JSON") or ""
+if peer:
+    bundle["peerHosts"] = sorted({h
+                                  for r in json.load(open(peer))["items"]
+                                  for h in (r["spec"].get("hostnames") or [])})
 json.dump(bundle, sys.stdout)
 PY
 then

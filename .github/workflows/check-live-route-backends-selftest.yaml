@@ -74,3 +74,74 @@ jobs:
           fi
           echo "OK: the mutated classifier is caught. Failing assertion:"
           grep -m1 'SELF-TEST FAIL' /tmp/mutant.out || cat /tmp/mutant.out
+
+      # Second vacuity check, for the listener pass (UAT rows 87/90/95, and the
+      # g7doora shape behind row 234). Regress `listener_admits` to the belief
+      # that a wildcard listener is a plain suffix match — the off-by-one that
+      # makes `*.walkone.omani.homes` appear to admit the bare apex — and
+      # require the suite to go RED. The two CONTROL fixtures that share the
+      # suspect property (a per-Org app hostname on the shared console Gateway,
+      # and a deeper sub-host under the same wildcard) must stay green in the
+      # mutant, which is what proves the failing fixtures fail on the hostname
+      # rule and not merely on being per-Org routes.
+      - name: listener pass must be able to fail
+        run: |
+          cp scripts/check-live-route-backends.sh /tmp/mutant-listener.sh
+          python3 - <<'PY'
+          p = "/tmp/mutant-listener.sh"
+          s = open(p).read()
+          old = '    if lh.startswith("*."):\n        suffix = lh[1:]'
+          new = '    if lh.startswith("*."):\n        return True\n        suffix = lh[1:]'
+          assert old in s, "mutation anchor not found — update this step"
+          open(p, "w").write(s.replace(old, new, 1))
+          PY
+          if bash /tmp/mutant-listener.sh --self-test >/tmp/mutant-listener.out 2>&1; then
+            echo "VACUITY FAIL: the self-test passed against a classifier whose"
+            echo "wildcard listener admits every hostname. A route nothing listens"
+            echo "for is a TLS reset, not a 503 — no status-code probe can see it."
+            cat /tmp/mutant-listener.out
+            exit 1
+          fi
+          for ctl in 'ok  per-Org app host admitted by the Org wildcard listener' \
+                     'ok  wildcard listener admits a deeper sub-host'; do
+            grep -qF "$ctl" /tmp/mutant-listener.out || {
+              echo "CONTROL FAIL: '$ctl' went red under the mutation, so the"
+              echo "failing fixtures cannot be attributed to the hostname rule."
+              cat /tmp/mutant-listener.out
+              exit 1
+            }
+          done
+          echo "OK: mutation caught, both controls stayed green. Failing assertion:"
+          grep -m1 'SELF-TEST FAIL' /tmp/mutant-listener.out
+
+      # Third vacuity check, for the region-symmetry pass. Rows 87/90/95 are a
+      # hostname that is FLAWLESS in the region under the microscope — healthy
+      # backend, admitting listener — and simply absent from the peer region
+      # that shares its round-robin pool. Disable the peer comparison and the
+      # suite must go red, or the guard is back to being unable to see the
+      # defect that produced those three rows.
+      - name: region-symmetry pass must be able to fail
+        run: |
+          cp scripts/check-live-route-backends.sh /tmp/mutant-peer.sh
+          python3 - <<'PY'
+          p = "/tmp/mutant-peer.sh"
+          s = open(p).read()
+          old = 'peer_known = "peerHosts" in b'
+          new = 'peer_known = False'
+          assert old in s, "mutation anchor not found — update this step"
+          open(p, "w").write(s.replace(old, new, 1))
+          PY
+          if bash /tmp/mutant-peer.sh --self-test >/tmp/mutant-peer.out 2>&1; then
+            echo "VACUITY FAIL: the self-test passed against a classifier that never"
+            echo "compares regions. A hostname only one region routes is a coin flip"
+            echo "for every customer behind the shared front door."
+            cat /tmp/mutant-peer.out
+            exit 1
+          fi
+          grep -qF 'ok  hostname served by both regions' /tmp/mutant-peer.out || {
+            echo "CONTROL FAIL: the both-regions fixture went red under the mutation."
+            cat /tmp/mutant-peer.out
+            exit 1
+          }
+          echo "OK: mutation caught, control stayed green. Failing assertion:"
+          grep -m1 'SELF-TEST FAIL' /tmp/mutant-peer.out
