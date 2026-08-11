@@ -20,9 +20,12 @@ import (
 //     the NON-FATAL ConsoleDegraded surface instead of latching the whole
 //     cross-region topology inert (the hw276 defect: failed+OutcomeReady
 //     matched no terminal block and no heal path, so region-b never meshed).
-//   - A genuinely-failed primary (outcome != OutcomeReady) stays "failed",
-//     fires NO handover, and never runs the console probe — the honest
-//     failure detection #4706/#3018 pinned is untouched.
+//   - A genuinely-failed primary (outcome != OutcomeReady) stays "failed"
+//     and fires NO handover — the honest failure detection #4706/#3018
+//     pinned is untouched. It DOES run the console probe (UAT row 241): the
+//     flag is a surface, so a failed record must still state whether the
+//     front door answers instead of being silent about a door nobody
+//     opened. Nothing in the failed arms reads the probe result.
 func TestMarkPhase1DoneConsoleGate(t *testing.T) {
 	twoRegions := []provisioner.RegionSpec{{Provider: "huawei"}, {Provider: "huawei"}}
 	mkDep := func() *Deployment {
@@ -100,11 +103,25 @@ func TestMarkPhase1DoneConsoleGate(t *testing.T) {
 		}
 	})
 
-	// The probe is skipped for non-Ready outcomes — a genuine hard failure
-	// upstream must stay failed regardless of console state, and must NOT
-	// fire the producer chain (the fire condition is OutcomeReady, i.e.
-	// every primary HR installed).
-	t.Run("genuinely-failed primary: stays failed, no fire, probe not run", func(t *testing.T) {
+	// The probe RUNS for non-Ready outcomes and changes NOTHING about the
+	// lifecycle — a genuine hard failure upstream stays failed regardless of
+	// console state and must NOT fire the producer chain (the fire condition
+	// is OutcomeReady, i.e. every primary HR installed).
+	//
+	// This subtest previously asserted the opposite ("console probe must not
+	// run for a non-Ready outcome"). That assertion is what made UAT row 241
+	// unsatisfiable in one of the two directions it names: a `failed`-latched
+	// record never ran the probe, so ConsoleDegraded stayed zero-valued and
+	// `omitempty` dropped it, and the record reported no console problem
+	// about a console nobody had looked at. Measured on hw293, dep
+	// a0077ba47e3720e5: `status: failed`, consoleDegraded absent, while
+	// https://console.<fqdn>/ answered 200 from the public internet.
+	//
+	// Skipping the probe was never what protected the lifecycle. The
+	// remaining assertions here are, and they are unchanged: Status, the
+	// handover fire, and the mesh gate are all decided without reading the
+	// probe result.
+	t.Run("genuinely-failed primary: stays failed, no fire, probe runs and surfaces", func(t *testing.T) {
 		h := NewWithPDM(silentLogger(), &fakePDM{})
 		h.suppressPostHandoverHooks = true
 		h.SetHandoverSigner(loadTestSigner(t))
@@ -112,8 +129,8 @@ func TestMarkPhase1DoneConsoleGate(t *testing.T) {
 		h.consoleProbe = func(fqdn string) error { called = true; return nil }
 		dep := mkDep()
 		h.markPhase1Done(dep, finalStates, helmwatch.OutcomeFluxNotReconciling)
-		if called {
-			t.Fatalf("console probe must not run for a non-Ready outcome")
+		if !called {
+			t.Fatalf("console probe must run on a non-Ready outcome — the flag is a surface, not a gate (#5253)")
 		}
 		if dep.Status != "failed" {
 			t.Fatalf("OutcomeFluxNotReconciling must stay failed, got %q", dep.Status)
@@ -122,8 +139,9 @@ func TestMarkPhase1DoneConsoleGate(t *testing.T) {
 			t.Fatalf("a genuinely-failed primary must NOT fire handover: firedAt=%v url=%q",
 				dep.Result.HandoverFiredAt, dep.Result.HandoverURL)
 		}
+		// The door answered, so the surface must say so — not stay silent.
 		if dep.Result.ConsoleDegraded {
-			t.Fatalf("ConsoleDegraded must not be set on a genuine failure")
+			t.Fatalf("ConsoleDegraded must be false when the probe succeeded")
 		}
 	})
 

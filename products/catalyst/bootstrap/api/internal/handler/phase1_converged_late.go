@@ -145,6 +145,23 @@ func (h *Handler) runConvergedLateRescue(dep *Deployment) {
 		return
 	}
 
+	// UAT row 241 — probe the front door BEFORE the flip, outside the lock,
+	// for the same reason markPhase1Done does. #6082/#6083 taught this path
+	// to re-read the CLUSTER instead of the frozen classification; the
+	// console was left behind. The OutcomeFailed arm below flips a record to
+	// `ready` on a live census that says nothing whatsoever about whether the
+	// front door answers, so without this a rescued record reads `ready` with
+	// consoleDegraded absent — the first of the two directions UAT row 241
+	// forbids, reintroduced by the rescue itself. The OutcomeReady arm was no
+	// better: it re-homed a STALE termination-time dep.Error string onto the
+	// surface, so a console that had since recovered stayed flagged degraded
+	// forever.
+	var rescueConsoleErr error
+	rescueConsoleProbed := h.consoleProbe != nil
+	if rescueConsoleProbed {
+		rescueConsoleErr = h.consoleProbe(dep.Request.SovereignFQDN)
+	}
+
 	now := time.Now().UTC()
 	dep.mu.Lock()
 	// Re-check under lock — a concurrent resume/flip loses.
@@ -169,6 +186,21 @@ func (h *Handler) runConvergedLateRescue(dep *Deployment) {
 			dep.Result.ConsoleDegraded = true
 			dep.Result.ConsoleDegradedDetail = dep.Error
 			dep.Error = ""
+		}
+		// UAT row 241 — the FRESH probe wins over anything re-homed above.
+		// A rescue that flips a record to `ready` must state the console's
+		// condition as of the rescue, in both directions: set it when the
+		// door is shut, and CLEAR a re-homed stale text when the door has
+		// since opened. Applied to every rescued outcome, not only the two
+		// arms that carry an Error, because `ready` + silence is precisely
+		// the false-green this row exists to catch.
+		if rescueConsoleProbed {
+			dep.Result.ConsoleDegraded = rescueConsoleErr != nil
+			if rescueConsoleErr != nil {
+				dep.Result.ConsoleDegradedDetail = rescueConsoleErr.Error()
+			} else {
+				dep.Result.ConsoleDegradedDetail = ""
+			}
 		}
 		// #6082 — the FAILED arm's stale text ("Phase 1 finished with N failed
 		// component(s)…") is now provably obsolete: the census just confirmed
