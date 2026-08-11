@@ -56,6 +56,26 @@
 // ACTUAL condition (empty record id / ambiguous on-disk prefixes / no
 // candidate paths resolved / genuinely missing files) instead of
 // folding everything into "0 readable".
+//
+// #6027 addendum — the Secret stopped being a cutover-only artifact.
+//
+// The organization-controller reads THIS Secret to write the per-Org console
+// listener pair into every region (tenant_console_tls_regions.go). While
+// runCutover was the only caller, that credential existed only on a Sovereign
+// that had already fired the operator-gated cutover — so on hw293 the Secret
+// was NotFound in both regions and half of every customer TLS connection to
+// `console.<slug>.<parent>` reset. Three things changed here; the write itself
+// did not move, so there is still exactly one producer:
+//
+//   - A level-triggered caller (secondary_kubeconfig_secret_materializer.go)
+//     runs the same function on an interval and on delivery.
+//   - USABILITY replaced presence. A file, or a Secret value, that cannot
+//     build a client counts as absent — the 95-byte hw293 stub satisfied every
+//     non-empty check and could not authenticate.
+//   - The region COUNT is max(record, CATALYST_CONFIGURED_REGIONS) and the
+//     record may be nil. hw293's chroot restored 0 deployment records, so a
+//     record-only denominator made the completeness check unable to fail on
+//     the one Sovereign that needed it.
 package handler
 
 import (
@@ -156,6 +176,21 @@ type secondaryKubeconfigResolution struct {
 	// resolution refuses to guess between them (silently picking one
 	// could feed a FOREIGN cluster's kubeconfig to the pivot legs).
 	ambiguousPrefixes []string
+	// regionsDeclared is len(dep.Request.Regions) — the SPEC's own count,
+	// kept separately from `expected` because zero declared regions and
+	// one declared region both yield expected == 0 and mean opposite
+	// things (see specAuthoritative).
+	regionsDeclared int
+}
+
+// specAuthoritative reports whether SOMETHING credible declared how many
+// regions this Sovereign has — either the deployment record's own list or
+// the chart-baked CATALYST_CONFIGURED_REGIONS. When neither speaks, an
+// expected count of 0 means "nobody knows", not "this Sovereign is
+// single-region", and acting on that zero would reap a correct Secret a
+// prior pass materialized (the #5488 failure mode inverted).
+func (r secondaryKubeconfigResolution) specAuthoritative() bool {
+	return r.regionsDeclared > 0
 }
 
 // secondaryKubeconfigsForCutover resolves regionKey → on-disk path for
@@ -171,20 +206,57 @@ type secondaryKubeconfigResolution struct {
 // one candidate prefix → adopt it; multiple → record the ambiguity and
 // resolve nothing (the caller prefers the already-materialized Secret
 // and otherwise fails naming the candidates).
+// #6027 — the region COUNT is the max of the record's own list and the
+// chart-baked CATALYST_CONFIGURED_REGIONS, and `dep` may be nil.
+//
+// Measured on hw293 dep a0077ba47e3720e5: the chroot's catalyst-api logs
+// `restored deployments from PVC count=0` — handover never fired, so no
+// record was ever imported and resolveCutoverDeployment returns nil. Taking
+// the record as the sole authority there hands the completeness check a
+// denominator of zero, i.e. a guard that cannot fail: a 2-region Sovereign
+// reads as single-region and the producer decides, correctly by its own
+// arithmetic, that there is nothing to materialize.
+//
+// `sovereign-fqdn`'s `configuredRegions` is written by the IaC at provision
+// time and is independent of both the deployment store and the k8scache — on
+// hw293 it reads `hw-me-east-215-a-rtz-prod,hw-me-east-215-b-rtz-prod` while
+// the store held nothing. It is the same witness placementDeploymentIdentity
+// (#6015) and the org-controller's own region resolver (#6097) take the max
+// against, so no new contract is invented.
+//
+// It supplies a COUNT only. Its region names are cloud regions
+// (`hw-me-east-215-b-rtz-prod`) while the kubeconfig files are keyed by the
+// secondary CP's own regionKey (`me-east-215-b-1`), so the KEYS still come
+// from disk — the count says how many must be found, the disk says which.
 func secondaryKubeconfigsForCutover(dep *Deployment) secondaryKubeconfigResolution {
-	dep.mu.Lock()
-	expected := 0
-	if len(dep.Request.Regions) > 1 {
-		expected = len(dep.Request.Regions) - 1
+	envDeclared := len(regionsFromEnv())
+	expected, regionsDeclared, depID := 0, envDeclared, ""
+	paths := map[string]string{}
+	if envDeclared > 1 {
+		expected = envDeclared - 1
 	}
-	paths := make(map[string]string, len(dep.secondaryKubeconfigPaths))
-	for k, v := range dep.secondaryKubeconfigPaths {
-		paths[k] = v
+	if dep != nil {
+		dep.mu.Lock()
+		if n := len(dep.Request.Regions); n > 1 && n-1 > expected {
+			expected = n - 1
+		}
+		if n := len(dep.Request.Regions); n > regionsDeclared {
+			regionsDeclared = n
+		}
+		paths = make(map[string]string, len(dep.secondaryKubeconfigPaths))
+		for k, v := range dep.secondaryKubeconfigPaths {
+			paths[k] = v
+		}
+		depID = strings.TrimSpace(dep.ID)
+		dep.mu.Unlock()
 	}
-	depID := strings.TrimSpace(dep.ID)
-	dep.mu.Unlock()
 
-	res := secondaryKubeconfigResolution{paths: paths, expected: expected, depID: depID}
+	res := secondaryKubeconfigResolution{
+		paths:           paths,
+		expected:        expected,
+		depID:           depID,
+		regionsDeclared: regionsDeclared,
+	}
 	dir := secondaryKubeconfigsDir()
 
 	prefix := depID
@@ -300,28 +372,99 @@ func sanitizeSecondaryRegionKey(key string) string {
 func (h *Handler) materializeSecondaryKubeconfigsSecret(ctx context.Context, deps *cutoverDeps) (int, error) {
 	name := cutoverSecondaryKubeconfigsSecretName()
 
+	// A record-less process is NOT a single-region one (#6027). The mothership
+	// has no record because it never runs the cutover; a chroot can have none
+	// because handover never fired — hw293's catalyst-api logs `restored
+	// deployments from PVC count=0` while its `sovereign-fqdn` ConfigMap
+	// declares two regions. Returning 0 here, as this function used to, meant
+	// the exact Sovereign that most needs the peer-region credential is the one
+	// guaranteed not to get it. secondaryKubeconfigsForCutover now tolerates a
+	// nil record and falls back to CATALYST_CONFIGURED_REGIONS for the count
+	// and to the on-disk `<prefix>-<regionKey>.yaml` files for the keys; when
+	// NEITHER speaks, specAuthoritative is false below and nothing is touched.
 	dep := h.resolveCutoverDeployment()
-	if dep == nil {
-		// No deployment record on this process (mothership never runs the
-		// cutover; a record-less chroot cannot know its region topology).
-		// Do NOT delete an existing Secret — a prior run with a live record
-		// may have materialized it and the files it points at are still the
-		// truth. Loud in the log so a record-less 2-region chroot is
-		// diagnosable rather than silently single-region.
-		h.log.Warn("cutover: no deployment record matches SOVEREIGN_FQDN — secondary-region detection unavailable; proceeding with any previously-materialized secondary kubeconfigs (#5359)",
-			"secret", name)
-		return 0, nil
-	}
 
 	res := secondaryKubeconfigsForCutover(dep)
 	paths, expected := res.paths, res.expected
+
+	// annotationDepID identifies which deployment the Secret was materialized
+	// for. Empty when the record is absent or degraded AND no single on-disk
+	// prefix could be derived — the annotation is then omitted rather than
+	// written blank, so acceptMaterializedSecondaryKubeconfigsSecret's
+	// foreign-Secret check keeps a meaningful "" == unknown reading.
+	annotationDepID := res.depID
+	if annotationDepID == "" {
+		annotationDepID = res.derivedPrefix
+	}
+
+	// THE SPEC DECIDES SINGLE-REGION, NOT THE DISK (#6027).
+	//
+	// secondaryKubeconfigsForCutover unions the in-memory path map with every
+	// `<depID>-<regionKey>.yaml` it finds on disk, and that union is not
+	// bounded by the declared region count. So a ONE-region deployment that
+	// still carried a file from a prior topology fell straight past the
+	// `expected > len(data)` check (0 > 1 is false) and materialized a Secret
+	// naming a region the Sovereign does not have. Under the cutover's single
+	// call that was a narrow window; under a level-triggered loop it would be
+	// the steady state, and the control that a single-region Sovereign produces
+	// no Secret — the one control that distinguishes this fix from a producer
+	// that always writes — would be false.
+	//
+	// The `expected == 0` arm is split in two because zero has two meanings:
+	//   - a record that DECLARES one region is authoritative; there are no
+	//     secondaries, so any Secret is stale and is reaped;
+	//   - a DEGRADED record (#5488: empty id, no declared regions) knows
+	//     nothing. Reaping on that would delete the correct Secret a prior
+	//     pass materialized, which is the #5488 failure mode inverted. Leave
+	//     the object exactly as it is and say so.
+	if expected == 0 {
+		if !res.specAuthoritative() {
+			h.log.Warn("secondary-kubeconfigs: NOBODY declares a region count — no deployment record and CATALYST_CONFIGURED_REGIONS empty; leaving any already-materialized Secret untouched rather than reaping it on an unknown topology (#5488 inverted). Recovery: check the `sovereign-fqdn` ConfigMap key `configuredRegions`, or re-import the record (POST /api/v1/internal/deployments/import)",
+				"secret", deps.ns+"/"+name)
+			return 0, nil
+		}
+		// Single-region: guarantee the mount stays empty so the chart legs
+		// no-op — reap a stale Secret from a prior multi-region life.
+		//
+		// Get-before-Delete: this function is now also driven by a
+		// level-triggered loop, so an unconditional Delete would issue one
+		// apiserver write every tick, forever, to remove an object that has
+		// never existed. Reading first makes the steady state a single cheap
+		// Get and keeps the reap.
+		if _, gerr := deps.core.CoreV1().Secrets(deps.ns).Get(ctx, name, metav1.GetOptions{}); apierrors.IsNotFound(gerr) {
+			return 0, nil
+		}
+		if derr := deps.core.CoreV1().Secrets(deps.ns).Delete(ctx, name, metav1.DeleteOptions{}); derr != nil && !apierrors.IsNotFound(derr) {
+			return 0, fmt.Errorf("cutover: delete stale %s/%s: %w", deps.ns, name, derr)
+		}
+		return 0, nil
+	}
 
 	data := make(map[string][]byte, len(paths))
 	var missing []string
 	for key, path := range paths {
 		raw, err := os.ReadFile(path)
 		if err != nil || len(raw) == 0 {
-			missing = append(missing, fmt.Sprintf("%s (%s)", key, path))
+			missing = append(missing, fmt.Sprintf("%s (%s: unreadable or empty)", key, path))
+			continue
+		}
+		// USABILITY, not presence (#6027). Until this check existed the only
+		// bar a file had to clear was len(raw) != 0, so the 95-byte hw293
+		// stub — clusters+server and nothing else — was materialized into
+		// the Secret and returned n=1. Every consumer then read region B as
+		// CREDENTIALLED: the org-controller's newRegionClient failed at
+		// clientcmd, logged the region as Unreachable, and the per-Org
+		// console listener was never written there while the Secret sat in
+		// the namespace looking complete. A key whose value cannot build a
+		// client is worth exactly as much as an absent key, so it is counted
+		// as one — the same fail-loud arm, naming the byte count and the
+		// missing sections. See secondary_kubeconfig_completeness.go for the
+		// measured artefact; this is the READ-side twin of the #6054
+		// write-side gate, and it is what disqualifies a stub that landed on
+		// disk BEFORE that gate shipped.
+		if defects := secondaryKubeconfigDefects(string(raw)); len(defects) > 0 {
+			missing = append(missing, fmt.Sprintf("%s (%s: %d bytes, cannot build a client — missing %s)",
+				key, path, len(raw), strings.Join(defects, "+")))
 			continue
 		}
 		data[sanitizeSecondaryRegionKey(key)+".yaml"] = raw
@@ -366,23 +509,19 @@ func (h *Handler) materializeSecondaryKubeconfigsSecret(ctx context.Context, dep
 				res.depID, expected, res.depID, secondaryKubeconfigsDir(), secretRef)
 		default:
 			// Original #5359 contract: candidate paths existed but the
-			// files are genuinely missing/unreadable — name each one.
+			// files are genuinely missing/unreadable/unusable — name each.
 			return 0, fmt.Errorf(
-				"cutover: deployment %s expects %d secondary region(s) but only %d kubeconfig(s) are readable (missing/unreadable: %s) — refusing to start a cutover whose region-B pivot legs would silently no-op (#5359)",
+				"cutover: deployment %s expects %d secondary region(s) but only %d kubeconfig(s) are USABLE (rejected: %s) — refusing to start a cutover whose region-B pivot legs would silently no-op (#5359)",
 				res.depID, expected, len(data), strings.Join(missing, ", "))
 		}
 	}
 
-	if len(data) == 0 {
-		// Single-region: guarantee the mount stays empty so the chart legs
-		// no-op — delete any stale Secret from a prior multi-region life.
-		err := deps.core.CoreV1().Secrets(deps.ns).Delete(ctx, name, metav1.DeleteOptions{})
-		if err != nil && !apierrors.IsNotFound(err) {
-			return 0, fmt.Errorf("cutover: delete stale %s/%s: %w", deps.ns, name, err)
-		}
-		return 0, nil
+	annotations := map[string]string{
+		"catalyst.openova.io/materialized": time.Now().UTC().Format(time.RFC3339),
 	}
-
+	if annotationDepID != "" {
+		annotations["catalyst.openova.io/deployment-id"] = annotationDepID
+	}
 	desired := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -392,10 +531,7 @@ func (h *Handler) materializeSecondaryKubeconfigsSecret(ctx context.Context, dep
 				"app.kubernetes.io/managed-by": "catalyst-api",
 				"app.kubernetes.io/component":  "cutover-secondary-kubeconfigs",
 			},
-			Annotations: map[string]string{
-				"catalyst.openova.io/deployment-id": dep.ID,
-				"catalyst.openova.io/materialized":  time.Now().UTC().Format(time.RFC3339),
-			},
+			Annotations: annotations,
 		},
 		Type: corev1.SecretTypeOpaque,
 		Data: data,
@@ -410,6 +546,25 @@ func (h *Handler) materializeSecondaryKubeconfigsSecret(ctx context.Context, dep
 	case err != nil:
 		return 0, fmt.Errorf("cutover: get %s/%s: %w", deps.ns, name, err)
 	default:
+		// Converged? Then write NOTHING (#6027). The `materialized`
+		// annotation is a timestamp, so an unconditional Update rewrites the
+		// object on every pass and bumps its resourceVersion. That is not
+		// merely wasteful: the org-controller keys its per-region client
+		// cache on exactly this Secret's resourceVersion
+		// (tenant_console_tls_regions.go regionClientCache), so a churning
+		// object throws away every secondary-region client and re-runs
+		// discovery against the peer apiserver once per Org per tick. Under
+		// the cutover's single call this was invisible; under a
+		// level-triggered loop it would be a standing load. Measured on the
+		// fake clientset: 3 identical passes produced 3 writes before this
+		// check, 1 after.
+		if secretDataEqualBytes(existing.Data, desired.Data) &&
+			existing.Type == desired.Type &&
+			len(existing.StringData) == 0 &&
+			existing.Labels["app.kubernetes.io/component"] == desired.Labels["app.kubernetes.io/component"] &&
+			existing.Annotations["catalyst.openova.io/deployment-id"] == desired.Annotations["catalyst.openova.io/deployment-id"] {
+			return len(data), nil
+		}
 		// Full data replace (stale region keys must not linger); keep the
 		// live object's resourceVersion for a conflict-safe update.
 		updated := existing.DeepCopy()
@@ -430,7 +585,7 @@ func (h *Handler) materializeSecondaryKubeconfigsSecret(ctx context.Context, dep
 	h.log.Info("cutover: secondary-region kubeconfigs materialized for the step Jobs (#5359)",
 		"secret", deps.ns+"/"+name,
 		"regions", strings.Join(keys, ","),
-		"deploymentID", dep.ID)
+		"deploymentID", annotationDepID)
 	return len(data), nil
 }
 
@@ -466,9 +621,14 @@ func (h *Handler) acceptMaterializedSecondaryKubeconfigsSecret(ctx context.Conte
 			return 0, false // materialized for a different deployment.
 		}
 	}
+	// USABILITY, not presence (#6027). `len(v) > 0` accepted the 95-byte
+	// hw293 stub here exactly as it did on the read path — and this arm is
+	// the one that runs when the process cannot re-derive its own on-disk
+	// paths, i.e. precisely when nothing else would catch it. A key that
+	// cannot build a client does not count toward the expected total.
 	n := 0
 	for _, v := range existing.Data {
-		if len(v) > 0 {
+		if len(v) > 0 && secondaryKubeconfigUsable(string(v)) {
 			n++
 		}
 	}

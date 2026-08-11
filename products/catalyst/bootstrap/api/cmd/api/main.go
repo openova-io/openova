@@ -1101,6 +1101,23 @@ func main() {
 	// is idempotent, so a healthy Sovereign sees zero object churn.
 	go h.ReconcileOrgConsoleTLSFromOrgCRs(context.Background())
 
+	// #6027 — the CREDENTIAL half of the loop above. Both that emitter and the
+	// organization-controller can only write into a peer region if a kubeconfig
+	// for it exists in-cluster, as
+	// `<cutover-ns>/cutover-secondary-kubeconfigs`. Until this loop existed the
+	// only thing that ever wrote that Secret was runCutover — one call site, in
+	// one file — so a 2-region Sovereign that had not run the operator-gated
+	// self-sovereignty cutover held no credential for its own peer region, and
+	// every per-Org console host answered only the share of the shared EIP's
+	// round-robin that landed in region A. Measured on hw293: the Secret
+	// NotFound in both regions, region B carrying zero per-Org listeners
+	// against five pairs in region A. Same shape as #6015 one layer down, and
+	// the same remedy: give the step its own level-triggered owner instead of
+	// hanging it off an unrelated milestone. Chroot-only, no-op on a
+	// single-region Sovereign, and idempotent to the point of writing nothing
+	// once converged.
+	go h.RunSecondaryKubeconfigSecretMaterializer(context.Background())
+
 	// #4877 — level-triggered self-heal for the three OpenBao seed seams
 	// (newapi-admin-token / anthropic / per-Org mcp-bearer). Those seeds fire
 	// from EXACTLY ONE place (runOrganizationPipeline, once per HTTP Org-create,

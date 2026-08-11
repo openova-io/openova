@@ -81,6 +81,25 @@ type Handler struct {
 	// zero.
 	secondaryKubeconfigDeliveryInterval time.Duration
 
+	// secondaryKubeconfigSecretKick / …Once (#6027) — the coalescing kick the
+	// delivery endpoint uses to ask RunSecondaryKubeconfigSecretMaterializer
+	// for an immediate pass, so a freshly-delivered peer-region kubeconfig
+	// becomes the in-cluster credential Secret in about a second instead of on
+	// the next tick. Capacity 1; a burst of POSTs collapses into one pass.
+	secondaryKubeconfigSecretKick     chan struct{}
+	secondaryKubeconfigSecretKickOnce sync.Once
+
+	// secondaryKubeconfigSecretInterval (#6027) — cadence of that loop. Zero
+	// falls back to secondaryKubeconfigSecretIntervalDefault; tests inject a
+	// sub-second value.
+	secondaryKubeconfigSecretInterval time.Duration
+
+	// secondaryKubeconfigSecretState / …Mu — the last outcome the materializer
+	// reported, so a converged Sovereign stays quiet and every TRANSITION is
+	// logged. The loop is the only writer, but a test may read it.
+	secondaryKubeconfigSecretState   string
+	secondaryKubeconfigSecretStateMu sync.Mutex
+
 	// orphanReleaseWG tracks the releaseOrphanedReservation goroutines that
 	// restoreFromStore fires (#489). Those goroutines outlive the call that
 	// spawned them: after pdm.Release returns they clear the dep's PDM

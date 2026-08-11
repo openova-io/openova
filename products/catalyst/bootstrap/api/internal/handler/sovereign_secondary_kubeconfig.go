@@ -334,6 +334,15 @@ func (h *Handler) HandleSovereignSecondaryKubeconfig(w http.ResponseWriter, r *h
 		"region", body.RegionKey,
 		"clusterID", clusterID,
 	)
+
+	// #6027 — a delivered file is not yet a usable credential. The controllers
+	// that write per-region surfaces (organization-controller's per-Org console
+	// listener pair, and the cutover step Jobs) read the peer region's
+	// kubeconfig from an in-cluster Secret, never from this PVC. Ask the
+	// level-triggered materializer for an immediate pass so the two converge in
+	// about a second rather than on its next tick. Non-blocking, and a no-op
+	// when no loop is running (mothership), so the response path is unchanged.
+	h.kickSecondaryKubeconfigSecret()
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"status":    "registered",
 		"clusterID": clusterID,
