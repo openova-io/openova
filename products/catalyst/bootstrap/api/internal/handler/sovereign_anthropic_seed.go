@@ -142,11 +142,24 @@ func (h *Handler) seedAnthropicToken(ctx context.Context) AnthropicSeedOutcome {
 		// credential. Surface loud + skip rather than seed an empty path
 		// that pretends to work (the reflector/ESO empty-seed trap the
 		// agenity README §"Why not chart-seed it?" warns about).
+		//
+		// ERROR, not WARN (#4277). This branch is the single point every
+		// caller passes through — the Org-create pipeline at provision
+		// time, the catalyst-api startup pass and the 10-minute seed
+		// reconciler — so raising it here makes the gap loud at PROVISION
+		// TIME from one edit, without any call site having to remember to
+		// inspect the returned outcome. It is not a transient condition
+		// that might clear on its own: with no source credential the
+		// OpenBao path is never written, and every Organization's
+		// agenity-anthropic-token ExternalSecret is left permanently
+		// SecretSyncedError with its Agenity workspace agent unable to
+		// authenticate. A permanently broken delivery is an error.
 		if h.log != nil {
-			h.log.Warn("anthropic seed: SKIPPED — platform Anthropic credential unset; agenity chat-runtime will stay offline until the founder supplies it",
+			h.log.Error("🛑 anthropic seed SKIPPED — the platform holds no Anthropic credential, so this Sovereign's OpenBao path is NOT written and EVERY Organization's agenity-anthropic-token ExternalSecret will stay SecretSyncedError (#4277)",
 				"apiKeyEnv", anthropicSeedAPIKeyEnv,
 				"credentialsJsonEnv", anthropicSeedCredentialsJSONEnv,
 				"openbaoPath", anthropicSeedMountPath+"/"+anthropicSeedSecretPath,
+				"remediation", seedRemediation["anthropic"],
 			)
 		}
 		return AnthropicSeedOutcomeSkippedNoEnv
