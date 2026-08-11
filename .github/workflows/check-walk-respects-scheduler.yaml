@@ -1,0 +1,44 @@
+name: uat-walk-respects-scheduler
+
+# The treadmill — re-walking all 286 UAT rows every cycle — is not a decision
+# anyone makes. It is the DEFAULT whenever whoever is driving loses the context
+# that says otherwise, and it has recurred at least four times. A doc did not
+# stop it. A scheduler did not stop it (it shipped with no caller). Wiring the
+# scheduler in did not stop it (it collapsed to walk-everything on a fresh
+# environment). So it is refused here, at the gate, where it cannot be
+# forgotten.
+#
+# Refs #6114.
+
+on:
+  pull_request:
+    paths:
+      - 'docs/ledger/UAT.md'
+      - 'scripts/uat-confidence.py'
+      - 'scripts/check-walk-respects-scheduler.sh'
+      - '.github/workflows/check-walk-respects-scheduler.yaml'
+  workflow_dispatch:
+
+jobs:
+  scheduler:
+    name: check — a walk only stamps rows the scheduler marked due
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the base ref's UAT.md must be readable
+
+      # Vacuity first. A green verdict below is only meaningful if the gate is
+      # demonstrably still able to refuse an undue green AND still able to
+      # allow a due one — a guard that blocks everything is as useless as one
+      # that blocks nothing.
+      - name: Prove the gate can fail (and can pass)
+        run: bash scripts/check-walk-respects-scheduler.sh --self-test
+
+      - name: Prove the scheduler itself still discriminates
+        run: python3 scripts/uat-confidence.py --self-test
+
+      - name: A walk only stamps rows the scheduler marked due
+        run: |
+          bash scripts/check-walk-respects-scheduler.sh \
+            "origin/${{ github.base_ref }}"

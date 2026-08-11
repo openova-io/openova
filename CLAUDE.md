@@ -314,6 +314,18 @@ Flux reconcile pulls **exclusively** from the local Gitea + Harbor.
 Every claimed-done surface lives in [`docs/ledger/TRUST.md`](docs/ledger/TRUST.md) in one of
 four states: UNVERIFIED (default), VERIFIED-PASS, VERIFIED-FAIL, VERIFIED-PARTIAL.
 
+
+**🛑 The treadmill is refused at the gate, not by memory.** Re-walking the whole
+ledger is not a decision anyone makes — it is the DEFAULT whenever whoever is
+driving loses this context, and it has recurred four times. A doc did not hold;
+a scheduler with no caller did not hold; wiring the scheduler in did not hold
+(it collapsed to walk-everything on a fresh environment). So
+`scripts/check-walk-respects-scheduler.sh` **fails any PR that flips a row to ✅
+the scheduler did not mark due**. It always allows a newly-discovered ❌, always
+allows a clause-only adjudication, and offers `ALLOW_FULL_WALK=1` for a
+deliberate sweep that must be justified in the PR body. Measured on a fresh
+Sovereign: **123 rows owed real attention, 163 spot-checked — not 286.**
+
 **Re-walk scheduling is confidence-driven, not blanket** (2026-08-11). A PR
 invalidates only the rows whose *asserted surface* it actually touches — not
 every row in the epic. The former blanket rule ("every PR flips the surface back
