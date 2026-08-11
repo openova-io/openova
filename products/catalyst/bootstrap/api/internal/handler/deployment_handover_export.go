@@ -567,6 +567,26 @@ func (h *Handler) reforwardSecondaryKubeconfigsToChild(dep *Deployment) {
 		if err != nil || len(raw) == 0 {
 			continue
 		}
+		// #6108 — the SECOND sender, carrying the same usability contract
+		// #6112 gave the handover-window poller. Both read the same directory
+		// and both POST to the same receiver; leaving one on `len(raw) > 0`
+		// means the shipped predicate depends on which code path happened to
+		// run, and this is the path that runs FOREVER while the other is
+		// one-shot per handover.
+		//
+		// Skipping beats posting: the receiver's own gate (#6054) 422s the
+		// shell anyway, a 4xx ends postSecondaryKubeconfigWithRetry's retry
+		// policy, and the loop is level-triggered — so a skipped tick costs one
+		// interval and the next pass forwards the completed document, whereas a
+		// posted shell burns the region's delivery and leaves it looking
+		// delivered.
+		if defects := secondaryKubeconfigDefects(string(raw)); len(defects) > 0 {
+			h.log.Warn("secondary-kubeconfig-delivery: SKIPPED a region whose on-disk kubeconfig cannot build a client — not forwarding a credential-less shell; retrying next pass (#6108)",
+				"id", depID, "region", regionKey, "path", path, "bytes", len(raw),
+				"missing", strings.Join(defects, ","),
+			)
+			continue
+		}
 		payload := map[string]string{
 			"deploymentId":   depID,
 			"regionKey":      regionKey,
