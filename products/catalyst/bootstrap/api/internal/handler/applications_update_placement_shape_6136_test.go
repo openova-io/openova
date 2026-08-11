@@ -410,6 +410,96 @@ func TestHandleApplicationUpdate_EditorTargetsReachTheCR_6136(t *testing.T) {
 	}
 }
 
+// TestValidateApplicationUpdate_RegionlessTargetIsRefused_6136 closes the hole
+// the persistence opened. A target with no `region` was accepted by this door
+// and harmlessly discarded; now that targets[] reach the CR it would be the
+// #5639 defect written into desired state — `openova.io/region In [""]`, which
+// no node satisfies, so the workload is unschedulable forever while the update
+// reports success.
+//
+// The rule matches bpv1.ValidatePlacement's own first invariant rather than
+// being invented here. `cluster` is deliberately NOT required: the canonical
+// validator does not require it, and a third authority on target validity is
+// how the vocabularies drift apart in the first place.
+func TestValidateApplicationUpdate_RegionlessTargetIsRefused_6136(t *testing.T) {
+	instances.SetAvailableVClusterTiers("mgmt")
+	t.Cleanup(func() { instances.SetAvailableVClusterTiers("") })
+
+	mk := func(targets ...bpv1.PlacementTarget) applicationUpdateRequest {
+		return applicationUpdateRequest{Placement: &applicationPlacement{
+			Mode:    "singleton",
+			Regions: []string{"me-east-215-a"},
+			Targets: targets,
+		}}
+	}
+
+	t.Run("missing region is named and refused", func(t *testing.T) {
+		msg, ok := validateApplicationUpdateRequest(mk(
+			bpv1.PlacementTarget{Cluster: "mgmt-A", VCluster: "mgmt", Role: bpv1.DataRolePrimary}))
+		if ok {
+			t.Fatal("a regionless target was accepted — it is now PERSISTED, so it renders an " +
+				"unsatisfiable nodeAffinity while the PUT answers 200 (#6136 / #5639)")
+		}
+		// Assert on the VALUE: the message must name the field AND why.
+		if !strings.Contains(msg, "targets[0].region") {
+			t.Errorf("message %q does not name the missing field", msg)
+		}
+		if !strings.Contains(msg, "openova.io/region") {
+			t.Errorf("message %q does not say what an empty region actually does", msg)
+		}
+	})
+
+	// CONTROLS — both carry a region and share the same loop; the guard must
+	// constrain regionless targets, not targets.
+	t.Run("CONTROL: a target with a region is accepted", func(t *testing.T) {
+		if msg, ok := validateApplicationUpdateRequest(mk(
+			bpv1.PlacementTarget{Region: "me-east-215-a", Cluster: "mgmt-A", VCluster: "mgmt", Role: bpv1.DataRolePrimary})); !ok {
+			t.Fatalf("a complete target was refused: %s", msg)
+		}
+	})
+	t.Run("CONTROL: a target with a region but no cluster is still accepted", func(t *testing.T) {
+		if msg, ok := validateApplicationUpdateRequest(mk(
+			bpv1.PlacementTarget{Region: "me-east-215-a", VCluster: "mgmt", Role: bpv1.DataRolePrimary})); !ok {
+			t.Fatalf("a clusterless target was refused: %s — bpv1.ValidatePlacement does not require "+
+				"cluster, and this door must not become a third authority on target validity", msg)
+		}
+	})
+}
+
+// TestPlacementTargetsToUnstructured_OmitsUndeclaredKeys_6136 pins the emitted
+// target shape. An empty `cluster` / `vcluster` key is not a truer record than
+// an absent one — it reads as "this target HAS that field" to anything binding
+// it, the #5501 distinction.
+func TestPlacementTargetsToUnstructured_OmitsUndeclaredKeys_6136(t *testing.T) {
+	t.Parallel()
+	out := placementTargetsToUnstructured([]bpv1.PlacementTarget{
+		{Region: "me-east-215-a", Role: bpv1.DataRolePrimary},
+	})
+	if len(out) != 1 {
+		t.Fatalf("got %d entries, want 1", len(out))
+	}
+	item, _ := out[0].(map[string]interface{})
+	if item["region"] != "me-east-215-a" || item["role"] != "Primary" {
+		t.Fatalf("target = %v, want region+role preserved", item)
+	}
+	for _, k := range []string{"cluster", "vcluster", "standbyType"} {
+		if _, present := item[k]; present {
+			t.Errorf("undeclared key %q emitted as %v — an empty value still reads as a declaration",
+				k, item[k])
+		}
+	}
+	// CONTROL — the same producer DOES emit them when declared, so the check
+	// above is not passing because the producer emits nothing.
+	full, _ := placementTargetsToUnstructured([]bpv1.PlacementTarget{
+		{Region: "me-east-215-b", Cluster: "mgmt-B", VCluster: "mgmt", Role: bpv1.DataRoleStandby, StandbyType: bpv1.StandbyHot},
+	})[0].(map[string]interface{})
+	for k, want := range map[string]string{"cluster": "mgmt-B", "vcluster": "mgmt", "standbyType": "Hot"} {
+		if full[k] != want {
+			t.Errorf("declared key %q = %v, want %q", k, full[k], want)
+		}
+	}
+}
+
 // ── parameters.topology lockstep ─────────────────────────────────────
 
 // postgresAppCR builds a bp-postgres Application in the measured hw293 shape:

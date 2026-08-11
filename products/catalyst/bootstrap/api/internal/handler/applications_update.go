@@ -274,9 +274,15 @@ func placementTargetsToUnstructured(targets []bpv1.PlacementTarget) []interface{
 	out := make([]interface{}, 0, len(targets))
 	for _, t := range targets {
 		item := map[string]interface{}{
-			"region":  t.Region,
-			"cluster": t.Cluster,
-			"role":    string(t.Role),
+			"region": t.Region,
+			"role":   string(t.Role),
+		}
+		// `cluster` and `vcluster` are emitted only when DECLARED. Writing
+		// `cluster: ""` would not be a truer record than omitting the key — it
+		// reads as "this target has a cluster field" to anything that binds it,
+		// which is the #5501 empty-string-vs-absent-key distinction.
+		if v := strings.TrimSpace(t.Cluster); v != "" {
+			item["cluster"] = v
 		}
 		if v := strings.TrimSpace(t.VCluster); v != "" {
 			item["vcluster"] = v
@@ -1123,6 +1129,29 @@ func validateApplicationUpdateRequest(req applicationUpdateRequest) (string, boo
 			return instances.UnavailableTierMessage(req.Placement.VCluster), false
 		}
 		for i, t := range req.Placement.Targets {
+			// #6136 — `region` is REQUIRED on a target and this door never
+			// checked it. That did not matter while the handler discarded
+			// targets[] on the way to the CR; now that they are PERSISTED, an
+			// empty region is exactly the #5639 defect written into desired
+			// state: it renders `openova.io/region In [""]`, which no node can
+			// satisfy, so the workload is unschedulable forever while the
+			// install still reports success.
+			//
+			// The rule is taken from the canonical validator rather than
+			// invented here — bpv1.ValidatePlacement checks region FIRST, for
+			// that reason, and this door must not be laxer than the model it
+			// writes into. It deliberately does NOT also require `cluster`:
+			// ValidatePlacement does not, so adding it would make this a THIRD
+			// authority on target validity. (The controller's own
+			// parsePlacementTargets does hard-error without a cluster — a
+			// pre-existing divergence between those two, now visible because a
+			// producer finally writes the field. The controller's gate reports
+			// it on status; this door does not pre-empt it with a different
+			// rule.)
+			if strings.TrimSpace(t.Region) == "" {
+				return fmt.Sprintf("placement.targets[%d].region is required "+
+					"(an empty region renders openova.io/region In [\"\"], which no node satisfies)", i), false
+			}
 			if !instances.IsKnownVClusterTier(t.VCluster) {
 				return fmt.Sprintf("placement.targets[%d].vcluster must be one of %s",
 					i, instances.KnownVClusterTiersCSV()), false
