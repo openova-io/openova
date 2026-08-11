@@ -260,6 +260,43 @@ func TestCheckAcyclicUniqueRoot_VacuityOnThePoisonedGraph_6131(t *testing.T) {
 	t.Logf("vacuity ok (root branch) — assertion rejects a two-root graph: %v", err)
 }
 
+// TestActivityBridge_ReseedWithoutAnOrderBearingSourceStaysAcyclic_6131
+// pins the one remaining case where the platform cannot know the true
+// order: a completed cutover whose step ConfigMaps have been reaped, so
+// listCutoverSteps returns nothing and the sequence can only come from
+// the durable record — which is alphabetical by construction, because a
+// ConfigMap's data is an unordered map. #6099 accepted that trade.
+//
+// The order is then wrong, and nothing here can fix it. But the tree must
+// still be a TREE. Before #6131 this case produced a CYCLE: the ten
+// non-root steps were rewritten alphabetically while the previously-
+// correct root kept its old edge, because that edge was the empty list
+// the preservation refused to overwrite. So this is a case #6131 quietly
+// improves, and it is asserted rather than assumed.
+func TestActivityBridge_ReseedWithoutAnOrderBearingSourceStaysAcyclic_6131(t *testing.T) {
+	st := newTestStore(t)
+	const depID = "dep-6131-no-order-source"
+
+	// A correctly-ordered store, from when the ConfigMaps still existed.
+	seedCutoverSteps6131(t, st, depID, cutoverStepOrder6131)
+	if err := checkAcyclicUniqueRoot(cutoverEdges6131(t, st, depID),
+		ActivityStepJobName(GroupCutover, "gitea-mirror")); err != nil {
+		t.Fatalf("setup: correctly-ordered store should already be a rooted tree: %v", err)
+	}
+
+	// The ConfigMaps are reaped; a later read can only offer the durable
+	// record's alphabetical list.
+	alpha := alphabeticalCutoverOrder6131()
+	seedCutoverSteps6131(t, st, depID, alpha)
+
+	edges := cutoverEdges6131(t, st, depID)
+	// The order is wrong — that is known and accepted — but the graph is
+	// a tree, rooted at whatever the only available source put first.
+	if err := checkAcyclicUniqueRoot(edges, ActivityStepJobName(GroupCutover, alpha[0])); err != nil {
+		t.Fatalf("re-seed with no order-bearing source must still leave a rooted, acyclic tree: %v", err)
+	}
+}
+
 func cloneEdges6131(in map[string][]string) map[string][]string {
 	out := make(map[string][]string, len(in))
 	for k, v := range in {
