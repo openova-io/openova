@@ -157,6 +157,34 @@ def append_obs(rows):
             w.writerow(r)
 
 
+def cross_env_proof(observations, current_env):
+    """How many DISTINCT OTHER environments this row last passed on.
+
+    This is the signal that stops a fresh Sovereign from becoming a full
+    286-row re-walk — the treadmill this module exists to end.
+
+    Without it the model is: on a new machine there are no same-env
+    observations, so every row scores middling and lands in box 0, and the
+    scheduler asks for everything. That is the old behaviour wearing a
+    posterior.
+
+    The distinction it encodes: a row green on hw292 AND hw293 is evidence
+    about the CODE, and code survives a re-prov. A row green once on one
+    since-wiped machine is not. Measured on the backfill (2026-08-11):
+
+        163 rows  passed on BOTH hw292 and hw293   -> spot-check, not re-walk
+         75 rows  passed on one, failed on other   -> the real suspects
+         41 rows  never green ANYWHERE             -> walk these first
+
+    So a fresh environment owes ~116 rows of real attention, not 286.
+    """
+    by_env = {}
+    for _ts, env, st in observations:
+        if env != current_env:
+            by_env[env] = st
+    return sum(1 for st in by_env.values() if st == "PASS")
+
+
 def score_row(observations, current_env, now_index, cycle_index):
     """Beta posterior + streak + box for one row.
 
@@ -198,10 +226,27 @@ def score_row(observations, current_env, now_index, cycle_index):
     for i, floor in enumerate(BOX_FLOOR):
         if conf >= floor and streak >= i:
             box = i
+
+    # Cross-environment proof floors the box on a machine with no history of
+    # its own. It NEVER overrides a failure: a current-env FAIL has already
+    # zeroed confidence and streak above, and this cannot lift it — pessimism
+    # about the machine in front of us always beats optimism from another one.
+    proofs = cross_env_proof(observations, current_env)
+    same_env_seen = any(env == current_env for _t, env, _s in observations)
+    if not same_env_seen and last_status != "FAIL":
+        # >=2 other environments agreeing is a claim about the code, so the row
+        # is spot-checked rather than re-walked. Exactly 1 is weaker — that
+        # environment may have been wrong in the same way twice.
+        if proofs >= 2:
+            box = max(box, 3)
+        elif proofs == 1:
+            box = max(box, 1)
+
     return {
         "confidence": round(conf, 4),
         "streak": streak,
         "box": box,
+        "cross_env_proof": proofs,
         "last_status": last_status or "-",
         "last_env": last_env or "-",
         "n": len(observations),
@@ -250,9 +295,16 @@ def self_test():
                   r2["confidence"] == 0.0 and r2["box"] == 0, r2))
 
     # THE case that motivated this module: all evidence is from a wiped machine.
+    #
+    # This assertion originally demanded box 0 — "walk it again from scratch".
+    # That was wrong, and it was the treadmill written as a test: it made every
+    # row on a fresh Sovereign due at once, which is the behaviour this module
+    # exists to end. Passes on ONE other environment are weak evidence about the
+    # code (that environment could have been wrong the same way every time), so
+    # the row is demoted to a short interval — not zeroed, and not trusted.
     r3 = score_row(long_pass, "hwB", now, ci)
-    cases.append(("10 passes on a SUPERSEDED env -> not trusted here, box 0",
-                  r3["box"] == 0 and r3["confidence"] < 0.85, r3))
+    cases.append(("10 passes on ONE superseded env -> weak, short interval",
+                  r3["box"] == 1 and r3["confidence"] < CONF_MAX, r3))
     cases.append(("...and is NOT recorded as a failure",
                   r3["confidence"] > 0.5, r3))
 
@@ -277,6 +329,29 @@ def self_test():
                   rtop["box"] == len(BOX_INTERVAL) - 1, rtop))
     cases.append(("every floor sits under the achievable ceiling",
                   all(f <= CONF_MAX for f in BOX_FLOOR), BOX_FLOOR))
+
+    # THE ANTI-TREADMILL CASES. Without these the model asks for all 286 rows
+    # on every fresh Sovereign, which is the behaviour it was built to end.
+    two_envs = [("c1", "hwA", "PASS"), ("c2", "hwB", "PASS")]
+    rn = score_row(two_envs, "hwNEW", now, ci)
+    cases.append(("proven on 2 other envs, none here -> spot-check (box>=3)",
+                  rn["box"] >= 3 and rn["cross_env_proof"] == 2, rn))
+
+    one_env = [("c1", "hwA", "PASS")]
+    r1 = score_row(one_env, "hwNEW", now, ci)
+    cases.append(("proven on only 1 other env -> weaker (box 1, not 3)",
+                  r1["box"] == 1, r1))
+
+    never = [("c1", "hwA", "FAIL"), ("c2", "hwB", "FAIL")]
+    rn0 = score_row(never, "hwNEW", now, ci)
+    cases.append(("never green anywhere -> box 0, walk it first",
+                  rn0["box"] == 0, rn0))
+
+    # A failure HERE must beat any amount of proof elsewhere.
+    contradicted = two_envs + [("c3", "hwNEW", "FAIL")]
+    rc = score_row(contradicted, "hwNEW", now, ci)
+    cases.append(("2 other envs green but FAILS here -> box 0 anyway",
+                  rc["box"] == 0 and rc["confidence"] == 0.0, rc))
 
     bad = 0
     for label, ok, detail in cases:
