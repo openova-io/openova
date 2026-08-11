@@ -2753,6 +2753,44 @@ security:
       - oidc-gate
       - guacamole
       - cnpg-system
+    # #6106 — the catalyst-pin OIDC BACKCHANNEL carve-out.
+    #
+    # `keycloak` is deliberately NOT in the allowedIngressNamespaces list
+    # above. That rule carries no `toPorts`, so listing a namespace there
+    # admits it to EVERY Pod in catalyst-system on EVERY port — including
+    # org-pg, guacamole-pg and the shared-pg family that are host-rendered
+    # into this namespace. The backchannel needs one namespace reaching one
+    # workload on one port, so it renders as its own tight policy in
+    # templates/network-policies/keycloak-backchannel-ingress.yaml
+    # (`baseline-allow-keycloak-oidc-backchannel`, endpointSelector
+    # app.kubernetes.io/name=catalyst-api).
+    #
+    # Why it is needed: #6087/#6089 repointed the sovereign realm's
+    # catalyst-pin IdP so its server-side legs (tokenUrl / userInfoUrl /
+    # jwksUrl) dial catalyst-api in-cluster instead of hairpinning through
+    # the Sovereign's public EIP. Before that split Keycloak arrived as the
+    # reserved `ingress` (cilium-gateway) identity rule 1 already admits;
+    # after it, the leg had no allow at all and every brokered login —
+    # grafana, gitea, openbao, guacamole, newapi, hubble, and the Keycloak
+    # admin console itself — died with
+    # `ConnectTimeoutException: Connect to
+    #  catalyst-api.catalyst-system.svc.cluster.local:8080 ... timed out`
+    # (measured in keycloak-0's log on hw293, UAT rows 30/31/33/34/35/37/39/219).
+    #
+    # `enabled: false` restores the pre-#6089 posture and is only correct on a
+    # Sovereign whose keycloak also runs with catalystAPIInternalURL="" (the
+    # all-public backchannel). Flipping one without the other re-breaks SSO.
+    keycloakBackchannel:
+      enabled: true
+      # Source namespace. Matched via fromEndpoints with the ClusterMesh
+      # cluster key named, so a peer-region Keycloak Pod is admitted too —
+      # catalyst-api runs only in region A (slot 13 is SECONDARY_HR_SUSPEND)
+      # while bp-keycloak renders in both.
+      namespace: keycloak
+      # catalyst-api's only Service port — keep in lockstep with
+      # templates/api-service.yaml (`port: 8080`), which
+      # tests/baseline-cnp-allowlist.sh Case 11 already pins.
+      port: 8080
 
 # ── Migrations (post-install / post-upgrade Helm-hook Jobs) ──────────────
 # Per PR #2795 (G117.2 multi-instance Application CRD): backfill spec.instanceId

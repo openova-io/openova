@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T23:57:47.871Z",
+  "generatedAt": "2026-08-11T01:17:31.392Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -2235,7 +2235,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.5.8",
+      "version": "1.5.9",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [
         "bp-postgres"

@@ -1,0 +1,118 @@
+{{- /*
+CiliumNetworkPolicy — catalyst-api ingress for the catalyst-pin OIDC
+BACKCHANNEL from the keycloak namespace (#6106).
+
+THE INGRESS HALF of the #6089 backchannel split. The egress half ships in
+`platform/keycloak/chart/templates/catalyst-backchannel-egress-cnp.yaml`;
+neither half alone restores a brokered login.
+
+WHAT BROKE
+───────────────────────────────────────────────────────────────────────────
+#6087/#6089 repointed the sovereign realm's `catalyst-pin` identity provider
+so its SERVER-SIDE legs (tokenUrl / userInfoUrl / jwksUrl) stop hairpinning
+through the Sovereign's own public EIP and dial
+`catalyst-api.catalyst-system.svc.cluster.local:8080` directly. The realm
+ConfigMap was re-imported on hw293 at 2026-08-10T23:43:49Z, and from that
+moment every catalyst-pin brokered login failed — measured in keycloak-0's
+own log, region A:
+
+  ERROR [org.keycloak.broker.oidc.AbstractOAuth2IdentityProvider]
+  Failed to make identity provider oauth callback:
+  org.apache.http.conn.ConnectTimeoutException: Connect to
+  catalyst-api.catalyst-system.svc.cluster.local:8080 [10.96.1.11] failed:
+  Connection timed out
+  WARN [org.keycloak.events] type="IDENTITY_PROVIDER_LOGIN_ERROR"
+  realmName="sovereign" clientId="grafana"
+
+…with the same line for clientId `gitea`, `openbao`, `guacamole-gate` and
+`newapi-admin`. The Keycloak admin console falls back to the realm login form
+for the same reason: no keycloak session is obtainable while the broker leg
+is down. UAT rows 30/31/33/34/35/37/39/219 all terminate here.
+
+The denial is in `baseline-catalyst-system.yaml`, this file's sibling: its
+`baseline-default-deny` CNP is `endpointSelector: {}` over the whole
+catalyst-system namespace and its ingress allow-list admits `catalyst`,
+`flux-system`, `kube-system`, `oidc-gate`, `guacamole`, `cnpg-system` — and
+not `keycloak`. Before #6089 that was correct, because Keycloak reached
+catalyst-api over the PUBLIC api.<sovereignFQDN> route, arriving as the
+reserved `ingress` (cilium-gateway) identity that rule 1 already admits.
+Moving the leg in-cluster moved it out of every allow this policy grants.
+
+WHY THIS IS A SEPARATE POLICY, NOT ANOTHER ENTRY IN THE BLANKET LIST
+───────────────────────────────────────────────────────────────────────────
+Adding `keycloak` to `security.baselineCnp.allowedIngressNamespaces` would
+have been one line, and it would have admitted the keycloak namespace to
+EVERY Pod in catalyst-system on EVERY port — that allow-list rule carries no
+`toPorts` — including org-pg, guacamole-pg and the shared-pg family that are
+host-rendered into this namespace. What the backchannel needs is one
+namespace reaching one workload on one port, so it is expressed as its own
+policy with its own `endpointSelector`. Cilium evaluates the UNION of every
+policy selecting an endpoint, so this is purely additive to the
+default-deny; `baseline-default-deny` itself is unchanged by this fix, and
+`tests/baseline-cnp-allowlist.sh` Case 17 asserts `keycloak` never appears in
+that blanket list so a later "simplification" cannot quietly widen it.
+
+CLUSTERMESH — WHY `fromEndpoints` NAMES THE CLUSTER KEY
+───────────────────────────────────────────────────────────────────────────
+On a 2-region Sovereign the source of this traffic is not always local.
+bp-keycloak (slot 09) carries no `SECONDARY_HR_SUSPEND`, so Keycloak and the
+sovereign realm — internal backchannel included — render in BOTH regions,
+while bp-catalyst-platform (slot 13) is suspended on every secondary CP (G2
+#2574) so catalyst-api runs ONLY in region A and is published as a ClusterMesh
+global Service (`api-service.yaml`, `service.cilium.io/global: "true"`,
+#5289). A region-B Keycloak Pod's backchannel therefore arrives here over the
+mesh carrying a REMOTE-CLUSTER identity.
+
+A bare `fromEndpoints` is implicitly ANDed with `cluster=<local>`, which would
+admit region A and silently deny region B — a policy that renders clean and
+drops half the Sovereign's brokered logins. Naming
+`io.cilium.k8s.policy.cluster` with `Exists` suppresses that AND-injection
+(the idiom proven live on hw228, `platform/plane-isolation/chart/templates/
+crossregion-db-egress-cnp.yaml`). An `ipBlock`/`fromCIDR` here would be worse
+still: it can NEVER match a ClusterMesh remote pod identity.
+*/}}
+{{- if and .Values.security.baselineCnp.enabled .Values.security.baselineCnp.keycloakBackchannel.enabled }}
+{{- $bc := .Values.security.baselineCnp.keycloakBackchannel }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: baseline-allow-keycloak-oidc-backchannel
+  namespace: catalyst-system
+  labels:
+    openova.io/managed-by: catalyst-baseline
+    openova.io/policy-tier: baseline
+    catalyst.openova.io/component: keycloak-backchannel-cnp
+  annotations:
+    policies.openova.io/title: Catalyst-API OIDC Backchannel Ingress From Keycloak
+    policies.openova.io/description: |
+      Admits the keycloak namespace — in this cluster and, over the
+      ClusterMesh, in the peer region — to catalyst-api's OIDC backchannel
+      port only. Companion to the catalyst-pin frontchannel-public /
+      backchannel-internal split (#6089); without it every brokered SSO login
+      fails with ConnectTimeoutException (#6106).
+spec:
+  description: "keycloak -> catalyst-api:{{ $bc.port }} — catalyst-pin OIDC backchannel ingress (#6106)."
+  # Scoped to the catalyst-api Pods ONLY — the same selector
+  # templates/api-service.yaml uses to pick its backends. The rest of
+  # catalyst-system (catalyst-ui, the controllers, org-pg, guacamole-pg, the
+  # shared-pg family) stays exactly as closed to the keycloak namespace as it
+  # was before this policy.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: catalyst-api
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $bc.namespace | quote }}
+          matchExpressions:
+            # See the ClusterMesh note above: naming this key is what lets the
+            # rule match a peer-region Keycloak Pod. Dropping it re-breaks
+            # region B while region A keeps passing.
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+      toPorts:
+        - ports:
+            # catalyst-api's only Service port (templates/api-service.yaml).
+            - port: {{ $bc.port | quote }}
+              protocol: TCP
+{{- end }}

@@ -1,0 +1,179 @@
+{{- /*
+CiliumNetworkPolicy — keycloak → catalyst-api OIDC BACKCHANNEL egress (#6106).
+
+WHY THIS EXISTS
+───────────────────────────────────────────────────────────────────────────
+#6087/#6089 split the sovereign realm's `catalyst-pin` identity provider so
+its SERVER-SIDE legs stop hairpinning through the Sovereign's own public EIP:
+
+  authorizationUrl  https://api.<sovereignFQDN>/oidc/auth      (browser — PUBLIC)
+  tokenUrl          {{ "{{ .Values.catalystAPIInternalURL }}" }}/oidc/token    (KC server — INTERNAL)
+  userInfoUrl       {{ "{{ .Values.catalystAPIInternalURL }}" }}/oidc/userinfo (KC server — INTERNAL)
+  jwksUrl           {{ "{{ .Values.catalystAPIInternalURL }}" }}/oidc/certs    (KC server — INTERNAL)
+
+That split moved the dial from `world:443` — which the keycloak namespace's
+egress policy set already permitted — to an IN-CLUSTER endpoint on :8080, and
+nothing granted the new hop. Measured on hw293 region A, from keycloak-0's own
+log:
+
+  ERROR [org.keycloak.broker.oidc.AbstractOAuth2IdentityProvider]
+  Failed to make identity provider oauth callback:
+  org.apache.http.conn.ConnectTimeoutException: Connect to
+  catalyst-api.catalyst-system.svc.cluster.local:8080 [10.96.1.11] failed:
+  Connection timed out
+
+Every brokered login through catalyst-pin — grafana, gitea, openbao,
+guacamole, newapi, hubble, and the Keycloak admin console itself — terminates
+on Keycloak's "Unexpected error when authenticating with identity provider"
+page while that hop is denied.
+
+WHY IT IS NEEDED EVEN THOUGH A LOCAL DIAL LOOKS ALLOWED — THE REGION-B LEG
+───────────────────────────────────────────────────────────────────────────
+bp-plane-isolation's `keycloak-default-deny` NetworkPolicy already carries an
+egress rule `to: [{namespaceSelector: {}}]`, and in the LOCAL region that rule
+does match a catalyst-api Pod, so region A's egress leg is not the denial —
+region A is denied on the catalyst-system INGRESS side (the companion half of
+this fix, `products/catalyst/chart/templates/network-policies/
+keycloak-backchannel-ingress.yaml`). This policy exists for the leg that has
+NO allow at all in either policy set: region B.
+
+  * bp-keycloak (bootstrap-kit slot 09) carries NO `SECONDARY_HR_SUSPEND`, so
+    keycloak — and this realm import, and the catalyst-pin IdP with the
+    internal backchannel — renders in BOTH regions of a 2-region Sovereign.
+  * bp-catalyst-platform (slot 13) IS suspended on every secondary CP
+    (`suspend: ${SECONDARY_HR_SUSPEND:=false}`, G2 #2574), so catalyst-api
+    exists ONLY in region A. Slot 13e (bp-catalyst-secondary-edge, #5289)
+    renders a ClusterMesh global-Service STUB with zero local backends into
+    region B's catalyst-system, and `products/catalyst/chart/templates/
+    api-service.yaml` publishes the real Service with
+    `service.cilium.io/global: "true"`.
+
+So a region-B Keycloak Pod's backchannel dial to
+`catalyst-api.catalyst-system.svc.cluster.local:8080` resolves ACROSS the
+ClusterMesh to the single region-A Pod. That destination arrives with a
+REMOTE-CLUSTER identity, and the documented trap (memory
+`reference_k8s_netpol_ipblock_never_matches_clustermesh_remote_identity`,
+restated at length in `platform/plane-isolation/chart/templates/
+crossregion-db-egress-cnp.yaml`) is that neither half of the default-deny's
+egress allow-list can match it: `namespaceSelector: {}` resolves to LOCAL pod
+identities only, and `ipBlock: 0.0.0.0/0` resolves to `world`. A cross-region
+backchannel is therefore dropped with the SAME ConnectTimeout, and a fix that
+lands only on the ingress side leaves half of a 2-region Sovereign's brokered
+logins dark.
+
+FORM — `toEndpoints`, never `toCIDR`/`ipBlock`
+───────────────────────────────────────────────────────────────────────────
+The destination is expressed as an ENDPOINT selector for exactly that reason.
+`io.cilium.k8s.policy.cluster` is referenced with `Exists` (the idiom proven
+live on hw228 for grafana → shared-pg, crossregion-db-egress-cnp.yaml): a bare
+`toEndpoints` is implicitly ANDed with `cluster=<local>`, which would silently
+re-exclude the peer-region catalyst-api; naming the key suppresses that
+AND-injection so ONE rule covers both the local and the meshed destination.
+`k8s:io.kubernetes.pod.namespace` is likewise named explicitly, which
+suppresses the namespace AND-injection a namespaced CNP would otherwise apply.
+
+SCOPE — deliberately narrow on the DESTINATION
+───────────────────────────────────────────────────────────────────────────
+This is not a namespace-wide grant. The allow is pinned to
+  * the destination namespace + Pod label derived from
+    `.Values.catalystAPIInternalURL` (default catalyst-system /
+    app.kubernetes.io/name=catalyst-api — the exact selector
+    `products/catalyst/chart/templates/api-service.yaml` uses), and
+  * the single TCP port that URL names (default 8080).
+`endpointSelector: {}` on the SOURCE side matches the sibling CNPs already in
+this namespace (`keycloak-allow-apiserver-egress`,
+`keycloak-allow-crossregion-db-egress`) and is correct here: both the Keycloak
+server Pod and the keycloak-config-cli import Job dial the backchannel, and the
+policy is already namespace-scoped by construction.
+
+Every field is DERIVED from `.Values.catalystAPIInternalURL` rather than
+restated, so the policy cannot drift from the realm import that created the
+need for it (Inviolable Principle #4). Set that value to "" — the documented
+escape hatch for a cluster whose EIP does hairpin — and the realm goes back to
+an all-public backchannel and this policy is not emitted at all.
+
+Gated on the `cilium.io/v2` Capabilities check (the #2988/#3102 idiom) so the
+chart still installs on CRD-less clusters (kind CI). Cilium evaluates the UNION
+of every policy selecting an endpoint, so this is purely additive to the
+plane-isolation default-deny — it grants one destination on one port and
+weakens nothing.
+*/ -}}
+{{- if and .Values.sovereignRealm.enabled (not (and .Values.realmConfig (and .Values.realmConfig.tenant .Values.realmConfig.tenant.enabled))) }}
+{{- $url := trimSuffix "/" (trim (.Values.catalystAPIInternalURL | default "")) }}
+{{- if $url }}
+{{- $scheme := "" }}
+{{- $rest := "" }}
+{{- if hasPrefix "http://" $url }}
+{{- $scheme = "http" }}
+{{- $rest = trimPrefix "http://" $url }}
+{{- else if hasPrefix "https://" $url }}
+{{- $scheme = "https" }}
+{{- $rest = trimPrefix "https://" $url }}
+{{- else }}
+{{- fail (printf "bp-keycloak: catalystAPIInternalURL must be an http:// or https:// URL, got %q. An unparseable value would silently emit NO backchannel egress policy and re-break every catalyst-pin brokered login (#6106)." $url) }}
+{{- end }}
+{{- $authority := first (splitList "/" $rest) }}
+{{- $hostport := splitList ":" $authority }}
+{{- $host := index $hostport 0 }}
+{{- $port := "" }}
+{{- if gt (len $hostport) 1 }}
+{{- $port = index $hostport 1 }}
+{{- else if eq $scheme "https" }}
+{{- $port = "443" }}
+{{- else }}
+{{- $port = "80" }}
+{{- end }}
+{{- $dnsLabels := splitList "." $host }}
+{{- /* In-cluster Service DNS shapes ONLY: <svc>.<ns>, <svc>.<ns>.svc,
+       <svc>.<ns>.svc.cluster.local. A PUBLIC host (the all-public backchannel
+       an operator restores on a hairpin-capable EIP) is reached over the
+       existing world egress and needs no endpoint policy — emit nothing. */}}
+{{- $inCluster := and (ge (len $dnsLabels) 2) (or (eq (len $dnsLabels) 2) (eq (index $dnsLabels 2) "svc")) }}
+{{- if and $inCluster (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+{{- $svc := index $dnsLabels 0 }}
+{{- $ns := index $dnsLabels 1 }}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: keycloak-allow-catalyst-api-backchannel-egress
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    app.kubernetes.io/name: bp-keycloak
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    catalyst.openova.io/component: keycloak-catalyst-backchannel-netpol
+  annotations:
+    policies.openova.io/title: Keycloak → catalyst-api OIDC backchannel egress
+    policies.openova.io/description: |
+      Permits the sovereign realm's catalyst-pin identity provider to reach
+      catalyst-api's OIDC token/userinfo/certs endpoints in-cluster, including
+      across the ClusterMesh from a secondary region where catalyst-api runs
+      only in region A. Derived from catalystAPIInternalURL (#6106).
+spec:
+  description: "keycloak → {{ $svc }}.{{ $ns }}:{{ $port }} — catalyst-pin OIDC backchannel (#6106)."
+  # Every endpoint in the keycloak namespace — the Keycloak server Pod dials
+  # the backchannel on each brokered login and the config-cli import Job
+  # validates the IdP at import time. Matches the scope of the sibling
+  # keycloak-allow-* CNPs bp-plane-isolation already renders here.
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $ns | quote }}
+            k8s:app.kubernetes.io/name: {{ $svc | quote }}
+          matchExpressions:
+            # Naming the cluster key suppresses Cilium's implicit
+            # `cluster=<local>` AND-injection, so this ONE rule matches the
+            # local catalyst-api in region A and the ClusterMesh-resolved
+            # region-A backend dialled from region B. An ipBlock/toCIDR here
+            # would render clean and silently deny the peer-region hop.
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+      toPorts:
+        - ports:
+            - port: {{ $port | quote }}
+              protocol: TCP
+{{- end }}
+{{- end }}
+{{- end }}

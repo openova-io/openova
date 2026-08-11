@@ -1374,7 +1374,22 @@ spec:
       #   provisioned. Env injection ships inside this umbrella, so the
       #   witness reaches the controller only once this pin advances. Lockstep
       #   w/ products/catalyst/chart/Chart.yaml.
-      version: 1.4.1383
+      # 1.4.1384 (#6106, Refs #6089, UAT rows 30/31/33/34/35/37/39/219): the
+      #   catalyst-system INGRESS half of the catalyst-pin backchannel fix. The
+      #   #6089 split moved Keycloak's tokenUrl/userInfoUrl/jwksUrl from the
+      #   public api.<fqdn> — where they arrived as the reserved `ingress`
+      #   (cilium-gateway) identity baseline-default-deny already admits — to
+      #   catalyst-api.catalyst-system.svc:8080, which that policy's ingress
+      #   allow-list does not cover. New CiliumNetworkPolicy
+      #   `baseline-allow-keycloak-oidc-backchannel` admits ns keycloak to the
+      #   catalyst-api Pods on TCP/8080 ONLY, with io.cilium.k8s.policy.cluster
+      #   named so a peer-region Keycloak is admitted too. baseline-default-deny
+      #   itself is untouched: adding `keycloak` to its blanket
+      #   allowedIngressNamespaces would have granted every port on org-pg,
+      #   guacamole-pg and the shared-pg family as well. Egress half in
+      #   bp-keycloak 1.5.9; neither half alone restores a brokered login.
+      #   Lockstep w/ products/catalyst/chart/Chart.yaml.
+      version: 1.4.1384
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
