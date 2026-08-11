@@ -286,6 +286,11 @@ func (s *Store) UpsertJob(j Job) error {
 			return s.persistIndex(idx)
 		}
 	}
+	// First write for this id — there is no prior edge set to preserve or
+	// override, so the directive has nothing to say. Clear it for the
+	// same reason mergeJob does: it describes a write, not a record
+	// (#6131).
+	j.DependsOnAuthoritative = false
 	idx.Jobs = append(idx.Jobs, j)
 	return s.persistIndex(idx)
 }
@@ -309,8 +314,23 @@ func (s *Store) UpsertJob(j Job) error {
 // proper deps, because every HR Ready=True event after the seed wrote
 // empty deps. Founder caught the resulting flat-leaf canvas 4 sessions
 // in a row.
+//
+// The one exception is Job.DependsOnAuthoritative (issue #6131). That
+// preservation reads an empty DependsOn as "this write carries no edge
+// information", which is true of every per-event path — but it is false
+// for a writer that holds the complete ordered set, where empty means
+// "no predecessor", i.e. THIS IS THE ROOT. Such a writer says so
+// explicitly and its empty list is written through. Without that,
+// nothing could ever clear a stale edge off a root: the ten non-root
+// cutover steps self-corrected after #6099 because their recomputed
+// edge was non-empty, and gitea-mirror alone stayed wrong because its
+// correct value was the one value this rule refuses to write.
 func mergeJob(prev, next Job) Job {
 	out := next
+	// The directive describes the incoming WRITE, not the record. Drop
+	// it here so a stored row can never re-assert an old write's intent
+	// on some later merge.
+	out.DependsOnAuthoritative = false
 	if next.StartedAt == nil && prev.StartedAt != nil {
 		out.StartedAt = prev.StartedAt
 	}
@@ -320,7 +340,7 @@ func mergeJob(prev, next Job) Job {
 	if next.LatestExecutionID == "" && prev.LatestExecutionID != "" {
 		out.LatestExecutionID = prev.LatestExecutionID
 	}
-	if len(next.DependsOn) == 0 && len(prev.DependsOn) > 0 {
+	if len(next.DependsOn) == 0 && len(prev.DependsOn) > 0 && !next.DependsOnAuthoritative {
 		out.DependsOn = prev.DependsOn
 	}
 	// Carry forward Region — the seed fan-out stamps it once, but a
