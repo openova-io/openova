@@ -1441,6 +1441,28 @@ spec:
     # THAT instead of re-enabling this cross-vCluster host.
     valkey:
       enabled: false
+    # ── CPU sized to the Org boundary, not to a Sovereign (#6114, UAT row 232) ──
+    # The SECOND producer of a per-Org bp-newapi release. The funnel generator
+    # (core/services/provisioning/gitops/helmrelease_apps.go, generateNewAPIHR)
+    # carries the identical override and the reasoning in full; both doors are
+    # enrolled together on purpose, because a fix applied to one producer and
+    # not the other is exactly the shape that let UAT row 15 render half its
+    # cards for a month.
+    #
+    # Short form: bp-newapi's chart default is limits.cpu 2
+    # (platform/newapi/chart/values.yaml:153) while plan "s" grants
+    # limits.cpu "2" for the WHOLE Org
+    # (core/controllers/organization/internal/gitops/manifests.go:121). A
+    # ResourceQuota counts limits, so the chart default reserved the entire cap
+    # and every pod rendered beside it was refused at admission.
+    newapi:
+      resources:
+        requests:
+          cpu: 500m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 1Gi
     # ── Auth: ops-staff admin UI gated by per-tenant Keycloak ─────────
     # Customer-facing API uses Catalyst-minted keys (NewAPI's self-serve
     # portal stays OFF on Catalyst Sovereigns per platform/newapi).

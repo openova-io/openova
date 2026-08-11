@@ -509,6 +509,33 @@ spec:
     # holds every piece of durable state.
     valkey:
       enabled: false
+    # ── CPU sized to the Org boundary, not to a Sovereign (#6114, UAT row 232) ──
+    # bp-newapi's chart default is requests.cpu 100m / limits.cpu **2**
+    # (platform/newapi/chart/values.yaml:150-153). That is defensible for the
+    # bootstrap-kit slot-80 SOVEREIGN install, which runs in no ResourceQuota.
+    # Inside an Org it is fatal: plan "s" — the default for an empty or unknown
+    # plan slug — grants limits.cpu "2" TOTAL
+    # (core/controllers/organization/internal/gitops/manifests.go:121, rendered
+    # as hard["limits.cpu"] at :499), and a ResourceQuota counts LIMITS. So this
+    # one container reserved the whole Org cap and every pod rendered beside it
+    # was refused at admission — the openclaw controller (250m) and this
+    # release's own CNPG (500m) included. A User saw only an opaque Helm
+    # "context deadline exceeded".
+    #
+    # requests == limits deliberately: the boundary sizes on limits, so a
+    # request far below the limit would let this pod in and then starve its
+    # neighbours out of the quota it is not accounted against.
+    #
+    # Overridden HERE rather than in the chart so the Sovereign-level default is
+    # untouched — no chart bump, no five-site lockstep.
+    newapi:
+      resources:
+        requests:
+          cpu: 500m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 1Gi
     # ── catalystIntegration OFF — deliberate, do NOT copy the BSS door here ──
     # #5987/#4477/#5375. This block exists to hand catalyst-api a bearer for the
     # SOVEREIGN's NewAPI (unified-rbac POSTs to newapi.newapi.svc), and it is

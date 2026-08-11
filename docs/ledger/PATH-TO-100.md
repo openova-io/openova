@@ -28,9 +28,21 @@ region kubeconfigs, with the node names checked (`…-me-east-215-a-…` /
 
 ### The deployed artifacts named in the brief were STALE — re-establish them first
 
+> ⚠️ **A deployed sha in this table is stale within ~30 minutes — the deploy
+> treadmill rolls that fast.** Re-measure before believing any four-state call
+> that turns on one. This table has now been wrong TWICE in one day: it was
+> written against `85e2eaf`, corrected to `298e673`, and the artifact actually
+> serving `/api/v1/version` at **2026-08-11T03:4xZ** is **`28b532a`**
+> (`28b532af0`, #6129, built 03:21:54Z). Method that produced that reading, and
+> the only one that works here: **10 PARALLEL fresh-TCP `curl --no-keepalive
+> --http1.1`** — 5 answered `28b532a`, 5 returned `no healthy upstream` (the
+> region-B split). Sequential retries cannot resample it because HTTP/2 pins one
+> socket. Every "IN `85e2eaf`" call below still holds, because `28b532a` is a
+> descendant — but re-test, do not assume, for any commit merged after `85e2eaf`.
+
 | component | brief said | actually deployed 2026-08-11 | subject of |
 |---|---|---|---|
-| Sovereign `catalyst-api` / `catalyst-ui` | `c50f2a5` | **`85e2eaf`** (2026-08-11, #6099) | every Sovereign-side row |
+| Sovereign `catalyst-api` / `catalyst-ui` | `c50f2a5` | **`28b532a`** (re-measured 03:4xZ; was `85e2eaf`, then `298e673`) | every Sovereign-side row |
 | Sovereign `organization-controller` | `4d1da63` | **`581e042`** (2026-08-11, #6097) | the per-Org console rows |
 | **MOTHERSHIP** `catalyst-api` | not stated | **`b2294fd`** (2026-08-10) | **30 of the 61 rows** |
 | MOTHERSHIP `catalyst-ui` | not stated | **`fad88bd`** (2026-08-02) | W1, W2 |
@@ -229,15 +241,43 @@ region B has no wired kubeconfig, and why a fresh delete completes too.
 
 | rows | fix in the running artifact | what the walk must do |
 |---|---|---|
-| 7, 15, 25 | `e79715795` (#6078) ⊂ `85e2eaf`. `OrgRow.plan` now declared at `products/catalyst/bootstrap/ui/src/lib/organizations.api.ts:68`; the seed producer `newApplicationCRFromSeed` (`endpoint_handler.go:2312`) now stamps `spec.organizationRef` | re-render `/organizations/<slug>`, `/apps`, showback |
-| 8, G7 | `9f355d56b` (#6064) ⊂ `85e2eaf` — `ListParentDomains` read the Deployment record while create read the startup seed | `/organizations/new` → the parent-domain select must populate; then door A must land a free-subdomain Org |
+| 7, 15, 25 | `e79715795` (#6078) ⊂ **live `28b532a`** (re-tested 2026-08-11, not carried from the `85e2eaf` call). `OrgRow.plan` now declared at `products/catalyst/bootstrap/ui/src/lib/organizations.api.ts:68`; the seed producer `newApplicationCRFromSeed` (`endpoint_handler.go:2312`) now stamps `spec.organizationRef` | re-render `/organizations/<slug>`, `/apps`, showback |
+| 8, G7 | `9f355d56b` (#6064) ⊂ **live `28b532a`** — `ListParentDomains` read the Deployment record while create read the startup seed | `/organizations/new` → the parent-domain select must populate; then door A must land a free-subdomain Org |
 | 29 | #5909 aged marker rides in the deployed `catalyst-ui` | inject a stale `catalyst:authed=1` with `catalyst:authed-at` ABSENT, reload the bare console URL, assert silent re-auth rather than the PIN wall |
 | 38 | `bp-newapi` 1.4.153 applied; `scripts/check-live-newapi-sso-version.sh` exits 0 | 2nd hit with an established realm session lands `/console`, not `/setup` |
 
-**W5 is the exception in this group and IS a source fix:** exactly one wizard
-component id — `specter` — resolves to no Blueprint anywhere in the repo, while
-`componentFootprints.ts:127` and `componentLogos.tsx:231`/`:430` still carry it.
-Remove it or realize a `bp-specter`. Its walk half is mothership-gated with W1/W2.
+**W5 — CORRECTED 2026-08-11. It does NOT belong in cluster D, and no code I can
+ship today moves it. Move it to A3.** Two independent reasons, both checked
+rather than inferred:
+
+1. **Its surface is MOTHERSHIP-ONLY, warranted at the route.** The prior entry
+   called the mothership gate a footnote on a source fix; it is the whole row.
+   `products/catalyst/bootstrap/ui/src/app/router.tsx:766-768` says it in its
+   own words — the deployments route is reachable *"via `/sovereign/deployments`
+   (Catalyst-Zero) or `/deployments` (**Sovereign build, though that build never
+   exposes the wizard**, so this route is effectively Catalyst-Zero only)"* — and
+   `:39` keys `isCatalystZero` on `window.location.hostname === 'console.openova.io'`.
+   The wizard is served by the mother, whose `catalyst-ui` is `fad88bd`
+   (2026-08-02). W5 is therefore gated exactly as W1/W2 are, by cluster A.
+2. **The residue is a PRODUCT DECISION, not an unwritten fix.** #5979
+   (`05d3f639c`, ⊂ live `28b532a`) already removed five of the six phantom ids
+   and, more importantly, added the bound that matters: `KNOWN_UNBUILT` may no
+   longer absorb a `tier: 'mandatory'` entry, enforced by a test rather than
+   written down. What is left is one id — `specter` — deliberately retained as
+   argued, bounded, **non-mandatory** debt at
+   `componentGroups.catalog-integrity.5575.test.ts:70-77`, on the stated ground
+   that Specter is an OpenOva product with marketplace copy and a documented
+   `familyRequires: ['cortex']` cascade, so deleting the card is a product call.
+
+**A real doc contradiction sits underneath it and should be settled first**, because
+the wizard cannot be judged against a canon that disagrees with itself:
+`docs/ARCHITECTURE.md:259` says *"Specter is a composite Blueprint typically
+installed in corporate Sovereigns"*, while `README.md:130` and `docs/STATUS.md:40`
+both say Specter is *"a deliverable service, **not** a Blueprint in this layout"*
+and that `products/specter/` does not exist. Per the read-order, `STATUS.md` is the
+today-truth and `ARCHITECTURE.md` is the target — so both can stand only if the
+wizard stops offering, **today**, an id that today's platform cannot install.
+Adjudicate that, then delete the card or realize `bp-specter`.
 
 ### Cluster E — Agenity: no live model credential, AND no running agent session (R19, G8, G9, 220, 221, 222)
 
@@ -275,16 +315,50 @@ the credential landed.
   (`products/catalyst/bootstrap/api/internal/helmwatch/helmwatch.go:86`) behind a
   hard `strings.HasPrefix(name, "bp-")` filter (`:1116`, `:1408`, `:1429`,
   `:2107`, `:2627`, `:2690`). A per-Org Application HelmRelease fails BOTH gates.
-  **But `a0abba92d` (#6053, "surface per-Organization Application installs on the
-  Jobs page") IS an ancestor of the deployed `85e2eaf`**, and this row's evidence
-  pre-dates that roll. **Re-walk before re-diagnosing.**
+  **But `a0abba92d` (#6053) IS an ancestor of the live `28b532a`** (re-tested
+  2026-08-11), and this row's evidence pre-dates that roll. **Re-walk before
+  re-diagnosing.** Read at source rather than trusted from the ancestry: #6053
+  does NOT widen the `bp-` filter — it adds a SECOND ingestion leg
+  (`helmwatch/jobs_projection.go`) keyed on `catalyst.openova.io/organization`,
+  the one label BOTH Application renderers emit (`render/manifests.go:352` and
+  `render/fanout.go:218`). It deliberately leaves the informer's Phase-1
+  termination gate alone, and the discriminator is chosen so the per-Org
+  `vcluster` HR — which carries the different key `openova.io/organization` — is
+  NOT swept in. So the mechanism this row's (C) leg named is genuinely addressed,
+  not merely version-bumped past.
 * **176** — `products/catalyst/bootstrap/ui/src/pages/sovereign/JobsTable.tsx:816`
   gates the Re-run control solely on `isJobRetryable(job.status)`
   (`src/lib/jobs.types.ts:215`), which tests the status VOCABULARY and never
   checks that the row resolves to a concrete retryable Job. #5496's
-  name-resolution fix (`8367b627a`) IS deployed and is insufficient. **Four-state:
-  MERGED AND DEPLOYED AND STILL FAILING.** Either withhold the control when the
-  row has no directly-retryable Job, or resolve aggregate rows in the backend.
+  name-resolution fix (`8367b627a`) IS deployed and is insufficient.
+  **↑ THAT CALL IS SUPERSEDED — CORRECTED 2026-08-11. 176 is NOT the fourth
+  state; it is merged AND deployed and owed a RE-WALK.** The correction matters
+  because "merged and deployed and still failing" is the state that justifies
+  spending an engineer, and this row no longer qualifies. `e79715795` (#6078)
+  landed 2026-08-11T02:00Z — AFTER the 2026-08-10 walk that produced the 422 —
+  and is an ancestor of the live `28b532a` (re-tested, not carried). It fixes
+  the row at its producer, with a control:
+  * The 422 was correct-but-unactionable. `syft-sbom` is a SYNTHETIC collapsed
+    scanner identity (#3925) — no Kubernetes object carries that name, so
+    #5496's `<name>-<digits>` fallback could never bridge to the real
+    `syft-grype-bp-syft-grype-<n>`. `SyftScanCronTarget`
+    (`helmwatch/reconcilers.go:708`) now maps the identity back to the CronJob
+    that seeds it, and `jobs_retry.go:292` re-runs there.
+  * **The control that proves this is not "make aggregates return 200":**
+    `trivy-security-scan` aggregates one Job per workload with no single backing
+    object, and deliberately STILL 422s. `SyftScanCronTarget` returns
+    `ok=false` for it by design.
+  * The second half of the clause was never the code's fault either. The button
+    DOES flip in place — `RetryJobButton.tsx:159` renders `Requesting…` while
+    `phase === 'requesting'`, and `:135` renders `✓ Requested` on 2xx. The
+    2026-08-10 walk observed at +0.7s and +5s and saw `Re-run` because the 422
+    returned in well under 0.7s, so the phase had already advanced to `error`.
+    A fast failure is not a missing state. What #6078 changed is that the error
+    now ALSO reaches the app-wide notification centre verbatim, instead of only
+    a span the table clamps to 28ch and a 5s poll can clear.
+  **What the walk must do:** Status=failed → click `Re-run` on the syft-sbom row
+  → expect 2xx and `✓ Requested`; then click the `trivy-security-scan` row as the
+  negative control and expect the honest 422 to appear in the notification centre.
 
 ### Cluster G — a verdict published from ABSENT evidence (197, 63)
 
@@ -309,15 +383,15 @@ fact. They are one fix pattern, not two epics.
 
 | row | cause + the component that WRITES the surface | state |
 |---|---|---|
-| 16 | the per-Org console's app-detail path calls SOVEREIGN-ADMIN routes and gets `403 org-scoped-forbidden`. `products/catalyst/bootstrap/ui/src/lib/catalog.api.ts:297/540/599` + `pages/sovereign/AppDetail/`. Needs an Org-scoped app-detail data path | never written |
+| 16 | **CAUSE SUPERSEDED 2026-08-11 by the re-measurement in PR #6128 — the old entry below is kept only so the change is legible.** ~~the per-Org console's app-detail path calls SOVEREIGN-ADMIN routes and gets `403 org-scoped-forbidden` (`catalog.api.ts:297/540/599` + `pages/sovereign/AppDetail/`); needs an Org-scoped app-detail data path~~. The 403 is no longer what this row dies on. **The measured failure is now a WRITE-SHAPE defect:** Save issues a `PUT`, gets **200**, and bumps `metadata.generation` — so every signal the UI reads says it persisted — while `spec.placement` is written as a bare **string** and `parameters.topology` stays `singleton`. The control that makes the shape the finding rather than a guess: the sibling Application `uat50-ahs-pg` holds `spec.placement` as an **object**. A 200 plus a generation bump is exactly the "verdict from absent evidence" shape cluster G is about — the surface reports success for a write the model did not accept | **merged AND deployed AND still failing** — the ONE true fourth-state row in D/F/H. **FIXED 2026-08-11 (this PR)** at `applications_update.go`: PRESERVE an existing object placement and update `mode` in place; PROMOTE to the object form when the body names a WHERE field; otherwise the scalar stays a scalar. Red-first guard on the VALUE SHAPE plus a string-stays-string CONTROL that shares the suspect property. **Now DEPLOY-GATED then walk** |
 | 19 | ADJUDICATED 2026-08-11 (#5867) — NO code change indicated. `/apps` answers BOTH, disambiguated by the `data-card-kind` attribute #6056 shipped: the estate half is one `[data-card-kind="instance"]` card per Application CR (already Application-keyed; pinned Go-side by `sovereign_apps_one_card_per_cr_5429_test.go` and front-end by `AppsPage.one-card-per-application-19.test.tsx`), the remainder is the install catalog, deduped against every Blueprint that has an instance. The clause now names the selector to count | clause corrected — WALK IT: count `[data-card-kind="instance"]` |
-| 109 | the Keycloak account console hangs on `Loading the Account Console` while `/account/config` answers 200 — the clause wants a loud legible refusal and gets an indefinite spinner | never written |
-| 218 | `select-instance-org`'s only option on a per-Org console is the parent Sovereign. `pages/sovereign/AppDetail/InstancesSection.tsx` + `src/lib/organizations.api.ts:281` `listOrganizations`. #5823 deliberately excludes the parent self-org, so a list whose only member IS the parent resolves to zero candidates | never written |
-| 223 | the Org-scoped MCP tool surface lives only in the stdio subprocess inside the Agenity pod; `mcp.<sovereign>` verifies against the sovereign handover key. **Anti-vacuity: an unauthenticated call returns `tools:[]` identically to a valid Org bearer — no verdict may be read off that endpoint** | walk (needs pod exec) |
+| 109 | the Keycloak account console hangs on `Loading the Account Console` while `/account/config` answers 200 — the clause wants a loud legible refusal and gets an indefinite spinner. **STATE CORRECTED 2026-08-11: a producer EXISTS and was written for this exact measurement.** `platform/keycloak/chart/templates/httproute.yaml:69-122` intercepts `/realms/<realm>/account` + `/account/` with a **302 to `https://console.<sovereignFQDN>/settings`**, default-on at `values.yaml:745-747`. The matches are `Exact`, never `PathPrefix`, deliberately — so `/account/config` keeps answering 200 and the anti-vacuity control this row relies on survives the fix. Two causes are RULED OUT by search, not assumption: there is NO custom theme anywhere in the repo (zero `*.ftl`, zero `theme.properties`, zero `loginTheme/accountTheme/adminTheme`), and the realm's `account-console` client is re-declared at `configmap-sovereign-realm.yaml:567-572` ONLY to bind `browser-no-idp` (#3934), not to disable it. The hang is the stock `keycloak.v2` SPA swallowing its own failed bootstrap, which is why an intercept — not a Keycloak setting — is the right fix. The no-link half is enforced in source: `RequiredActionsModal.tsx:121` `const accountUrl = '/settings'` | **merged BUT UNDEPLOYED** — the chart went 1.5.7 → **1.5.8** (`Chart.yaml:472`, slot pin `09-keycloak.yaml:229`); hw293 was measured on **1.5.7**. Re-walk once `bp-keycloak 1.5.8` reconciles; expect `/realms/sovereign/account/` → **302** and `/account/config` → still 200 |
+| 218 | **CAUSE CORRECTED 2026-08-11 — the old entry accused the wrong component and the state was wrong too.** ~~#5823 deliberately excludes the parent self-org, so a list whose only member IS the parent resolves to zero candidates~~ — that describes the CONSEQUENCE, not the cause, and the predicate it blames is **correct**: `InstancesSection.tsx:531` filters `!o.isParent && !!o.slug`, and `isParent` is set STRUCTURALLY (`organizations.api.ts:198` hardcodes `true` for the parent row, `:268` hardcodes `false` for every sub-Org), so it cannot misclassify `hw293walkone`. The candidate array was genuinely `[parent]` because the sub-Org half returned nothing. **The real cause is one hop upstream:** `GET /api/v1/organizations` answered **403 `org-scoped-forbidden`** to an org-scoped caller, and `bss.api.ts:826-828` swallows a non-OK into `[]` — indistinguishable from "no Orgs". The fix landed in **`fa116941e`** (#6089/#6081): `organization_provisioning.go:954` now confines the response to the caller's own slug (`confineOrgResponsesToSlug`, `:967`) and `org_scope.go:328` admits the path GET-only, leaving POST/DELETE 403. Pinned by `org_directory_scope_6081_test.go:78/:124/:158` | **merged AND deployed** — `fa116941e` re-tested ⊂ live `28b532a`; the 2026-08-10 measurement PRE-DATES it (merged 23:41Z). **RE-WALK, zero code owed** |
+| 223 | **CAUSE CORRECTED 2026-08-11 — do NOT re-file this as a defect.** The transport reading stands (the Org-scoped tool surface lives only in the stdio subprocess inside the Agenity pod; `mcp.<sovereign>` verifies against the sovereign handover key), and so does the anti-vacuity warning: **an unauthenticated call returns `tools:[]` identically to a valid Org bearer, so NO verdict may be read off that endpoint.** But the clause's cross-Org `get_application` → **403** leg is now ADJUDICATED in **ADR-0013** (PR #6124) and **#6122**: answering **not-found** is the CORRECT denial shape, because a 403 there would confirm the Application exists in another Organization. The 403 belongs to the WRITE path (`create_application`, `-32003`), where the caller named the Organization themselves. The clause was corrected, not the code | clause corrected (ADR-0013) + walk (needs pod exec) |
 | 228 | `janitorDestructive()` (`products/catalyst/bootstrap/api/internal/handler/janitor.go:135`) reads `CATALYST_JANITOR_DESTRUCTIVE`, which appears in ZERO of the 82 env entries on the mothership `catalyst/catalyst-api` Deployment (62 of those 82 begin `CATALYST_` — the control that the scan is not blind). The clause's "janitor log shows the orphaned VPC(s) swept" half cannot be satisfied in the configuration the control plane ships | never written + needs a wipe→re-prov cycle |
-| 232 | `platform/openclaw/chart/values.yaml:287` ships `httpRoute.enabled: false` and an `oidc.issuerURL` placeholder; the sovereign-admin install door passes no parameters, so no route is created and user traffic would 503 on the placeholder issuer. Install via the per-Org gitops overlay, or teach the door to supply both | never written |
-| 237 | the `spines` CRD is not served. Live `kubectl get crd` shows only `cnpgpairs.dr.openova.io`, `continuums.dr.openova.io`, `pdms.dr.openova.io` — nothing can hold a `continuumRef`, so the round-trip has no first leg | **missing producer, verified** |
-| G2 | zero ExternalSecrets in a funnel Org namespace whose `bp-newapi` installed cleanly at chart 1.4.153 — the per-Org ExternalSecret is never rendered. #5987 | never written |
+| 232 | **CAUSE SUPERSEDED 2026-08-11 by the re-measurement in PR #6128.** ~~`platform/openclaw/chart/values.yaml:287` ships `httpRoute.enabled: false` + an `oidc.issuerURL` placeholder and the sovereign-admin install door passes no parameters, so no route is created and traffic would 503 on the placeholder issuer~~ — that reading blamed the install door, and the door is **not** the defect: the per-Org GitOps overlay DOES supply the route and a real per-Org issuer, correctly. **The measured cause is `plan-quota` STARVATION, and the arithmetic names ONE line.** `platform/newapi/chart/values.yaml:153` gives the bp-newapi app container `limits.cpu: 2` against `requests.cpu: 100m` (`:150`) — and the S plan's ENTIRE quota is `CPU: "2"` (`core/controllers/organization/internal/gitops/manifests.go:121`, rendered as `hard.limits.cpu` at `:499`). A ResourceQuota counts LIMITS, so **one bp-newapi container claims 100% of the smallest plan's cap** before openclaw's own 250m (`platform/openclaw/chart/values.yaml:79-85`) or its CNPG's 500m are asked for. It became a fresh-Org regression in two merged steps: `70f6b07aa` (#5969) added `"openclaw": {"newapi"}` to `impliedHelmReleaseApps` (`helmrelease_apps.go:113`), then `93d824ea4` (#5987) made that HR installable — before those, the 2000m never landed in an Org namespace. The quota rejection surfaces to a User only as an opaque Helm `context deadline exceeded`. **Correction to an earlier draft of this row: do NOT cite a `maxLimitRequestRatio` violation** — #4758 REMOVED that ratio from the vcluster-Org host-namespace LimitRange (`manifests.go:530-543`) precisely because the vcluster syncer's own pods can never satisfy it | not an install-door gap — **never-written resource sizing**. **FIXED 2026-08-11 (this PR)** — `newapi.resources` pinned to `requests.cpu == limits.cpu == 500m` at BOTH producers, `generateNewAPIHR` (`helmrelease_apps.go`, beside the `valkey:` block) and `orgTenantBPNewAPI` (`organization_gitops.go:1442`), enrolled together so the doors cannot drift. Go-only, no chart bump — the 2-CPU default stays correct for the slot-80 Sovereign install, which runs in no ResourceQuota. Raising the S cap was the WRONG lever: it sells a cap the customer did not buy. Guards red-first at each producer + a vacuity check that runs the parser against the CHART DEFAULT and asserts it is rejected. **Now DEPLOY-GATED then walk** |
+| 237 | **THIS ENTRY WAS WRONG AND IS RETRACTED 2026-08-11.** It read *"the `spines` CRD is not served … missing producer, verified"* — which is the exact mis-aimed-probe reading `#6111` forbids, promoted to a verified finding. `kubectl get spines` answering `the server doesn't have a resource type` is correct output for a probe at an object that **has never existed**: `git log --all -S"kind: Spine"` returns ZERO commits in the repo's whole history, and `products/catalyst/chart/crds/` ships THIRTEEN CRDs, none of them Spine. A missing producer must be proven by finding no writer, not by a `get` that names the wrong kind. **The spine is a SET of `Application` CRs** (#4212), those CRs are live and Ready, and the back-pointer has a real writer with the row's own ticket number at the edit site: `core/controllers/application/internal/controller/continuum.go:318`, `reconcileContinuumCR` — *"write the `status.continuumRef` back-pointer (#4416 — the consumer-READ that closes the #4212 round-trip)"*. **The real gate is the latched-`failed` deployment record (#6082)** — the same gate as G1, not a CRD gap | **NOT a missing producer** — clause adjudicated (#6111); gated on #6082 with G1 |
+| G2 | **THE CLAUSE IS REFUTED, NOT THE PLATFORM — corrected 2026-08-11.** The measurement (zero ExternalSecrets in a funnel Org ns whose `bp-newapi` installed cleanly at 1.4.153) is accurate, and that is the **intended, correct** state: it is what TWO merged commits deliberately produce. `core/services/provisioning/gitops/helmrelease_apps.go:528` (funnel) and `products/catalyst/bootstrap/api/internal/handler/organization_gitops.go:1570` (BSS door) both set `catalystIntegration.enabled: false`, and the comment at `helmrelease_apps.go:512-527` gives the reason: the chart's companion **PushSecret** (default-on, `updatePolicy: Replace`) would overwrite the SOVEREIGN-shared admin-token path with one Org's own key and **401 per-user key issuance for the whole Sovereign** — *"actively destructive, not merely redundant"*. `organization_gitops.go:1530-1569` records the live pre-fix evidence from this very namespace (`g7doora/…-push Errored, 403 permission denied`, ES stuck `SecretSyncedError` while the HR still read Ready). Searched before concluding: the ONLY `catalystIntegration: enabled: true` in the tree is the **Sovereign** slot-80 install (`clusters/_template/bootstrap-kit/80-newapi.yaml:480-493`); `catalyst-newapi-admin-token` is Sovereign-singular by construction. So a per-Org ExternalSecret for it is not an unbuilt feature — it is a defect `93d824ea4` (#5987) and `13c6ffedc` (#6074) removed on purpose | **no code owed — the CLAUSE needs re-authoring** (re-scope to the Sovereign ns `newapi`, or re-author around the real per-Org bearer seam). **Genuine adjacent gap found while proving this:** `openclaw-newapi-controller-token` / key `NEWAPI_KEY` (`helmrelease_apps.go:339`, `organization_gitops.go:1867`) has **NO producer anywhere in the repo** — only two consumers and a README. That, not the admin token, is the real per-Org token gap |
 
 ### Residue scoreboard
 
@@ -326,18 +400,31 @@ fact. They are one fix pattern, not two epics.
 | A — mothership GitOps loop down | **30** | merged-but-undeployed (mothership) |
 | B — per-Org console fan-out, missing pre-cutover producer | 3 | **merged AND deployed AND still failing** |
 | C — Org delete cascade | 1 | merged AND deployed → re-walk |
-| D — Sovereign-side fixes delivered | 8 | merged AND deployed → re-walk (W5 excepted) |
+| D — Sovereign-side fixes delivered | 8 | **7** merged AND deployed → re-walk (re-tested ⊂ live `28b532a`) · **W5 moves to A3** (mothership-served wizard) |
 | E — Agenity credential + no agent session | 6 | never written (#4277) + unmerged (#5968) |
-| F — Jobs feed / Jobs re-run | 2 | 172 re-walk · 176 **merged AND deployed AND still failing** |
+| F — Jobs feed / Jobs re-run | 2 | **BOTH re-walk** — 172 (#6053 ⊂ live) · 176 (#6078 ⊂ live) |
 | G — verdict from absent evidence | 2 | never written |
-| H — nine independent causes | 9 | 7 never written · 1 decision · 1 walk |
+| H — nine independent causes | 9 | **re-audited 2026-08-11 — 7-never-written was wrong.** 2 re-walk (218, 232-adjacent) · 1 merged-but-undeployed (109) · 1 **merged AND deployed AND still failing** (16) · 3 clause corrections (223, G2, 237) · 1 decision (19, PR #6124) · 1 owned elsewhere (228, PR #6137) |
 | **total** | **61** | |
 
-**What moves the number fastest:** cluster A is 30 rows behind a single
-infrastructure repair with zero code. Cluster D + C + 172 is 10 more rows behind
-a browser seat with zero code. Together that is **40 of 61** with no engineering
-owed. The genuinely new engineering is B (the missing pre-cutover producer, and
-it is the one an operator's customer feels), G (2 rows, one pattern) and H.
+**What moves the number fastest — re-stated after the D/F/H re-audit.** Cluster A
+is still 30 rows behind a single infrastructure repair with zero code. But the
+"browser seat" pile is BIGGER than this table said: D contributes 7 (not 8),
+F contributes **2** (176 was mis-filed as the fourth state), and H contributes
+218 — plus 109 the moment `bp-keycloak` reaches 1.5.8. **The genuinely new
+engineering in D/F/H is exactly TWO rows**, not seven:
+
+* **16** — the only true fourth-state row in this scope. `applications_update.go`
+  scalarized an object `spec.placement` on every PUT, silently erasing the
+  vCluster pivot at HTTP 200. Fixed here with a red-then-green guard plus a
+  string-stays-string control.
+* **232** — one line of resource sizing (`newapi` `limits.cpu: 2` = the whole S
+  plan). Go-only, no chart bump.
+
+Three more rows need a **clause correction, not a commit** — 223 (ADR-0013),
+G2 (the zero-ExternalSecrets state is deliberate and correct) and 237 (no `Spine`
+kind has ever existed). Those are worth more than they look: each one currently
+reads as a platform defect and is not.
 
 Tracked as a single checklist on the consolidated tracking issue rather than as
 nine new issues.
