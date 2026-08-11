@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-10T23:45:06Z` |
+| Last refreshed | `2026-08-11T00:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-10T23:51 | [#6100](https://github.com/openova-io/openova/pull/6100) | #6092 | test(org-delete): make the refused Secret delete reachable — |
+| 2026-08-10T23:53 | [#6098](https://github.com/openova-io/openova/pull/6098) | #5956 | docs(uat): e2e-journey walked end to end on hw293 — 216/217/ |
 | 2026-08-10T23:34 | [#6095](https://github.com/openova-io/openova/pull/6095) | #6051 | docs(uat): row 107 passes on a real delete; R17's cause move |
 | 2026-08-10T23:41 | [#6089](https://github.com/openova-io/openova/pull/6089) | #6081 | fix(auth/session): four UAT rows at their producers — the Or |
 | 2026-08-10T23:20 | [#6088](https://github.com/openova-io/openova/pull/6088) | #6078 | docs(uat): rows 7 8 15 25 are DEPLOY-GATED, not NEEDS-CODE — |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-10T17:58 | [#6048](https://github.com/openova-io/openova/pull/6048) | #5426 | docs(uat): 6 mutation-gated rows walked by driving the produ |
 | 2026-08-10T17:50 | [#6047](https://github.com/openova-io/openova/pull/6047) | #3374 | docs(uat): 14 browser-observable rows walked on hw293 — 6 fl |
 | 2026-08-10T17:43 | [#6046](https://github.com/openova-io/openova/pull/6046) | #6004 | docs(uat): partition the 44 ❌ rows that carried no label at  |
-| 2026-08-10T17:37 | [#6044](https://github.com/openova-io/openova/pull/6044) | #5974 | fix(catalyst): unresolved conflict markers on main froze the |
-| 2026-08-10T17:48 | [#6042](https://github.com/openova-io/openova/pull/6042) | #6004 | fix(catalyst-api): a Phase-1 component census must not decid |
 
 ---
 
