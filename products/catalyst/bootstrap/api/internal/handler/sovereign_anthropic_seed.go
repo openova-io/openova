@@ -75,8 +75,11 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // anthropicSeedMountPath / anthropicSeedSecretPath — the OpenBao KV-v2
@@ -100,6 +103,144 @@ const (
 	anthropicSeedAPIKeyEnv          = "CATALYST_ANTHROPIC_API_KEY"
 	anthropicSeedCredentialsJSONEnv = "CATALYST_ANTHROPIC_CREDENTIALS_JSON"
 )
+
+// ── The operator-rotatable credential Secret (#6163) ────────────────────────
+//
+// THE DEFECT this block closes. The env vars above are `secretKeyRef` entries
+// on the catalyst-api Deployment, and a container's environment is materialised
+// ONCE, at container start. So the seeding chain had a freeze in it:
+//
+//	catalyst-system/sovereign-anthropic-credentials   (operator rotates here)
+//	  -> helm lookup -> catalyst-openova-kc-credentials Secret
+//	  -> secretKeyRef -> catalyst-api PROCESS ENV        ← frozen at pod start
+//	  -> seedAnthropicToken -> openbao secret/catalyst/anthropic/token
+//	  -> ExternalSecret -> per-Org Secret -> the workspace agent
+//
+// The seeded value is a claudeAiOauth pair whose accessToken lives for HOURS.
+// When it expires or is revoked the operator rotates the source Secret — and
+// the running catalyst-api keeps re-seeding, every ten minutes, the credential
+// it read at boot. The self-heal loop cannot heal, because it is looking at a
+// snapshot of a credential that has since changed. Rotation only ever took
+// effect on the next catalyst-api roll, which nothing triggers, so an expiring
+// credential re-creates the outage on a timer.
+//
+// The fix is to read the operator's Secret LIVE on every seed and treat the
+// process env as the fallback. The Secret is the seam the chart already
+// documents as operator-rotatable (see
+// products/catalyst/chart/templates/catalyst-openova-kc-credentials-secret.yaml)
+// — this makes it actually rotatable without a pod restart.
+//
+// Namespace resolution mirrors the chart: the Secret is looked up in the
+// release namespace (`targetNamespace: catalyst-system` in bootstrap-kit slot
+// 13), which is also the Pod's own namespace, so the ServiceAccount's
+// namespace file is the truthful default. Overridable per Inviolable-Principle
+// #4.
+const (
+	sovereignAnthropicSecretName         = "sovereign-anthropic-credentials"
+	sovereignAnthropicSecretAPIKeyKey    = "apiKey"
+	sovereignAnthropicSecretCredsJSONKey = "credentialsJson"
+	envAnthropicCredentialNamespace      = "CATALYST_ANTHROPIC_CREDENTIAL_NAMESPACE"
+	defaultAnthropicCredentialNamespace  = "catalyst-system"
+	podNamespaceFile                     = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+)
+
+// errNoSovereignCoreClient — the in-cluster core client is unwired (local dev,
+// CI, Catalyst-Zero). Not a failure: resolveAnthropicCredential falls back to
+// the process env, which is exactly the pre-#6163 behaviour.
+var errNoSovereignCoreClient = errors.New("anthropic seed: no in-cluster core client")
+
+// anthropicCredentialSource names where a resolved credential came from, so
+// the log line distinguishes "the operator's live Secret" from "the snapshot
+// this process booted with". Never carries credential material.
+type anthropicCredentialSource string
+
+const (
+	anthropicCredentialFromSecret anthropicCredentialSource = "sovereign-anthropic-credentials-secret"
+	anthropicCredentialFromEnv    anthropicCredentialSource = "process-env"
+	anthropicCredentialFromNone   anthropicCredentialSource = "none"
+)
+
+// anthropicCredentialNamespace — the namespace holding the operator-rotatable
+// Secret. Env override first, then the Pod's own namespace (which is the
+// release namespace the chart writes into), then the documented default.
+func anthropicCredentialNamespace() string {
+	if v := strings.TrimSpace(os.Getenv(envAnthropicCredentialNamespace)); v != "" {
+		return v
+	}
+	if b, err := os.ReadFile(podNamespaceFile); err == nil {
+		if ns := strings.TrimSpace(string(b)); ns != "" {
+			return ns
+		}
+	}
+	return defaultAnthropicCredentialNamespace
+}
+
+// SetAnthropicCredentialReader wires a test-only reader over the
+// operator-rotatable Secret. Production leaves this nil and
+// readAnthropicCredentialSecret runs against the in-cluster client.
+func (h *Handler) SetAnthropicCredentialReader(f func(ctx context.Context) (apiKey, credsJSON string, err error)) {
+	h.anthropicCredentialReader = f
+}
+
+// readAnthropicCredentialSecret fetches the operator-rotatable Secret from the
+// live apiserver. A missing Secret, an unwired client or any transport error
+// yields empty strings + the error; the caller falls back to the process env
+// rather than failing the seed, so an apiserver blip can never make a
+// Sovereign that was seeding fine stop seeding.
+func (h *Handler) readAnthropicCredentialSecret(ctx context.Context) (apiKey, credsJSON string, err error) {
+	if h.anthropicCredentialReader != nil {
+		return h.anthropicCredentialReader(ctx)
+	}
+	deps, derr := h.sovereignDepsFor()
+	if derr != nil || deps == nil || deps.core == nil {
+		if derr == nil {
+			derr = errNoSovereignCoreClient
+		}
+		return "", "", derr
+	}
+	sec, gerr := deps.core.CoreV1().
+		Secrets(anthropicCredentialNamespace()).
+		Get(ctx, sovereignAnthropicSecretName, metav1.GetOptions{})
+	if gerr != nil {
+		return "", "", gerr
+	}
+	return strings.TrimSpace(string(sec.Data[sovereignAnthropicSecretAPIKeyKey])),
+		strings.TrimSpace(string(sec.Data[sovereignAnthropicSecretCredsJSONKey])),
+		nil
+}
+
+// resolveAnthropicCredential picks the credential this seed pass will write.
+//
+// ORDER IS THE WHOLE POINT: the live Secret wins over the process env. The env
+// is a snapshot taken when this container started; the Secret is what the
+// operator edits when they rotate. Preferring the snapshot is what made
+// rotation require a pod roll (#6163).
+//
+// Falling back to env is what keeps this safe: a Sovereign that has never had
+// the operator Secret (values-only installs, Catalyst-Zero, every existing
+// deployment) behaves exactly as before, and so does one whose apiserver is
+// briefly unreachable.
+func (h *Handler) resolveAnthropicCredential(ctx context.Context) (apiKey, credsJSON string, src anthropicCredentialSource) {
+	secKey, secCreds, err := h.readAnthropicCredentialSecret(ctx)
+	if err == nil && (secKey != "" || secCreds != "") {
+		return secKey, secCreds, anthropicCredentialFromSecret
+	}
+	if err != nil && h.log != nil {
+		// Debug, not Warn: on a Sovereign that never adopted the Secret seam
+		// this fires on every pass and says nothing an operator must act on.
+		// The genuine gap — no credential ANYWHERE — is the loud ERROR in
+		// seedAnthropicToken.
+		h.log.Debug("anthropic seed: operator credential Secret unreadable; falling back to the process env snapshot",
+			"secret", anthropicCredentialNamespace()+"/"+sovereignAnthropicSecretName,
+			"err", err)
+	}
+	envKey := strings.TrimSpace(os.Getenv(anthropicSeedAPIKeyEnv))
+	envCreds := strings.TrimSpace(os.Getenv(anthropicSeedCredentialsJSONEnv))
+	if envKey != "" || envCreds != "" {
+		return envKey, envCreds, anthropicCredentialFromEnv
+	}
+	return "", "", anthropicCredentialFromNone
+}
 
 // AnthropicSeedOutcome — terminal classification of one seed attempt.
 type AnthropicSeedOutcome string
@@ -135,8 +276,11 @@ func (h *Handler) seedAnthropicToken(ctx context.Context) AnthropicSeedOutcome {
 		return AnthropicSeedOutcomeSkippedNoBao
 	}
 
-	apiKey := strings.TrimSpace(os.Getenv(anthropicSeedAPIKeyEnv))
-	credsJSON := strings.TrimSpace(os.Getenv(anthropicSeedCredentialsJSONEnv))
+	// #6163: the operator-rotatable Secret wins over the process env, so a
+	// credential rotated after this Pod started is the one that gets seeded.
+	// See the resolveAnthropicCredential doc comment for why the old
+	// env-only read made rotation require a catalyst-api roll.
+	apiKey, credsJSON, credSource := h.resolveAnthropicCredential(ctx)
 	if apiKey == "" && credsJSON == "" {
 		// 🛑 FOUNDER-SUPPLIED-SECRET GAP: the platform holds no Anthropic
 		// credential. Surface loud + skip rather than seed an empty path
@@ -158,6 +302,7 @@ func (h *Handler) seedAnthropicToken(ctx context.Context) AnthropicSeedOutcome {
 			h.log.Error("🛑 anthropic seed SKIPPED — the platform holds no Anthropic credential, so this Sovereign's OpenBao path is NOT written and EVERY Organization's agenity-anthropic-token ExternalSecret will stay SecretSyncedError (#4277)",
 				"apiKeyEnv", anthropicSeedAPIKeyEnv,
 				"credentialsJsonEnv", anthropicSeedCredentialsJSONEnv,
+				"operatorSecret", anthropicCredentialNamespace()+"/"+sovereignAnthropicSecretName,
 				"openbaoPath", anthropicSeedMountPath+"/"+anthropicSeedSecretPath,
 				"remediation", seedRemediation["anthropic"],
 			)
@@ -193,6 +338,10 @@ func (h *Handler) seedAnthropicToken(ctx context.Context) AnthropicSeedOutcome {
 			"openbaoPath", anthropicSeedMountPath+"/"+anthropicSeedSecretPath,
 			"apiKeyBytes", len(apiKey),
 			"credentialsJsonBytes", len(credsJSON),
+			// #6163: which seam supplied the bytes. "process-env" on a
+			// Sovereign that HAS the operator Secret means the live read
+			// failed and this pass re-seeded a boot-time snapshot.
+			"credentialSource", string(credSource),
 		)
 	}
 	return AnthropicSeedOutcomeSeeded

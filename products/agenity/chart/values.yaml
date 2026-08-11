@@ -87,6 +87,34 @@ anthropic:
   # solo agent can call Claude. Empty = key-only mode (only works for a real
   # sk-ant-api03 API key, which the OAuth journey does not use).
   credentialsKey: credentialsJson
+  # ── late-arriving-credential wait (#6163) ───────────────────────────────
+  # The seed-claude-creds init container used to read the mounted Secret
+  # ONCE at pod start and, on a miss, print "key-only mode" and exit 0 —
+  # forever. Measured on hw293: a workspace held that line for EIGHT HOURS
+  # after the Sovereign's openbao path was seeded, because a one-shot reader
+  # has no way to notice a credential that arrives later.
+  #
+  # kubelet re-projects a mounted Secret on its own sync period, so simply
+  # POLLING the mount picks up an ExternalSecret that resolves after the pod
+  # started, with no restart and no operator action. deadlineSeconds bounds
+  # that wait; onTimeout decides what a still-missing credential means.
+  #
+  #   onTimeout: fail     (default) exit non-zero. The kubelet restarts the
+  #                       init container with backoff — so the wait RESUMES
+  #                       indefinitely and the pod starts by itself once the
+  #                       credential exists — and meanwhile the gap shows up
+  #                       in `kubectl get pod` instead of only in a log.
+  #   onTimeout: continue start the workspace credential-less (the old
+  #                       behaviour). The dashboard renders and every chat
+  #                       message fails 401. Opt in only if you would rather
+  #                       see a shell than an honest error.
+  #
+  # deadlineSeconds: 0 disables the wait (single read). Not recommended: it
+  # is exactly the one-shot shape this block exists to remove.
+  credentialWait:
+    deadlineSeconds: 180
+    pollSeconds: 5
+    onTimeout: fail
   externalSecret:
     enabled: true
     refreshInterval: 1h

@@ -606,6 +606,15 @@ type Handler struct {
 	// it serves (mothership AND post-handover Sovereign).
 	sovereignDepsFactory SovereignDepsFactory
 
+	// anthropicCredentialReader (#6163) — test-only override of the LIVE read
+	// of the operator-rotatable Secret catalyst-system/sovereign-anthropic-
+	// credentials. Production leaves this nil and
+	// readAnthropicCredentialSecret runs against the in-cluster core client.
+	// See sovereign_anthropic_seed.go for why the seed must not read the
+	// process env alone: env is a snapshot taken at container start, so a
+	// rotated credential never reached OpenBao without a catalyst-api roll.
+	anthropicCredentialReader func(ctx context.Context) (apiKey, credsJSON string, err error)
+
 	// ── Compliance score aggregator (EPIC-1 #1096 slice S) ─────────
 	// compliance — joins PolicyReport + ClusterPolicyReport +
 	// compliance-evaluator events into per-resource +

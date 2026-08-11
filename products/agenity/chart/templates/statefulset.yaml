@@ -72,9 +72,47 @@ spec:
         # on the chepherd host. Materialize it from the Secret's full
         # credentials.json blob into a shared emptyDir mounted at
         # /home/chepherd/.claude (writable so claude-code can rotate the OAuth
-        # pair). No-op when the Secret lacks the credentials key (key-only
-        # mode). Runs as uid 1000 to match the chepherd user the agent forks
+        # pair). Runs as uid 1000 to match the chepherd user the agent forks
         # as. The Secret is mounted read-only at /creds.
+        #
+        # ── WHY THIS WAITS INSTEAD OF NO-OPPING (#6163) ─────────────────────
+        # This container used to read /creds ONCE, and on a miss print
+        #   "no credentials.json key in Secret — key-only mode"
+        # and exit 0. Measured on hw293: it printed that line and the
+        # workspace then held it for EIGHT HOURS after the Sovereign's
+        # OpenBao path was seeded — a one-shot reader cannot pick up a
+        # later-arriving credential, so every workspace provisioned before
+        # the seed was stranded until someone hand-deleted the Pod.
+        #
+        # "key-only mode" was also never true here. This whole init
+        # container renders only under `if .Values.anthropic.credentialsKey`
+        # — i.e. only when the installer ASKED for OAuth mode. An install
+        # that genuinely wants a bare `sk-ant-api03` key sets
+        # credentialsKey: "" and gets no init container and an
+        # ANTHROPIC_API_KEY env instead (see the container env below). So
+        # the miss branch could only ever mean "the OAuth credential you
+        # asked for did not arrive", and it announced a supported operating
+        # mode instead. The pod then reached Running with an agent that
+        # 401s on every message, which is exactly what let R19 —
+        # "the init container validates the token and exits 0" — read green
+        # over a workspace that could not talk to Claude.
+        #
+        # The shape now: WAIT (the Secret volume is refreshed by kubelet on
+        # its own sync period, so a credential seeded AFTER this pod started
+        # lands in /creds with no restart — the wait costs nothing and fixes
+        # the common case), then RETRY (on timeout we exit non-zero; the
+        # kubelet restarts the init container with backoff, so the wait
+        # resumes forever until the credential exists), and FAIL LOUDLY
+        # (Init:Error / CrashLoopBackOff puts the gap in `kubectl get pod`,
+        # the one place an operator already looks, instead of on line 3 of a
+        # log nobody reads).
+        #
+        # Why failing is right even though the dashboard then does not
+        # serve: a workspace whose entire purpose is chatting with Claude is
+        # not "serving" when it cannot authenticate. Rendering the shell is
+        # not the product. `anthropic.credentialWait.onTimeout: continue`
+        # restores the old degraded behaviour for anyone who disagrees, and
+        # is deliberately not the default.
         - name: seed-claude-creds
           image: {{ include "agenity.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -84,8 +122,29 @@ spec:
             - |
               set -e
               mkdir -p /claudehome/.claude/projects
-              if [ -s /creds/{{ .Values.anthropic.credentialsKey }} ]; then
-                cp /creds/{{ .Values.anthropic.credentialsKey }} /claudehome/.claude/.credentials.json
+              CREDS_PATH=/creds/{{ .Values.anthropic.credentialsKey }}
+              # Bounded wait for a LATER-ARRIVING credential (#6163). Poll the
+              # mount rather than reading it once: kubelet re-projects a mounted
+              # Secret on its own sync period, so the file materialises in this
+              # container's filesystem the moment the ExternalSecret resolves —
+              # no pod restart, no operator action. deadlineSeconds<=0 disables
+              # the wait entirely (single read, original behaviour).
+              WAIT_DEADLINE={{ .Values.anthropic.credentialWait.deadlineSeconds | int }}
+              WAIT_POLL={{ .Values.anthropic.credentialWait.pollSeconds | int }}
+              [ "$WAIT_POLL" -ge 1 ] || WAIT_POLL=1
+              WAITED=0
+              while [ ! -s "$CREDS_PATH" ] && [ "$WAITED" -lt "$WAIT_DEADLINE" ]; do
+                if [ "$WAITED" -eq 0 ]; then
+                  echo "waiting up to ${WAIT_DEADLINE}s for the Anthropic credential at ${CREDS_PATH} — a credential seeded into openbao AFTER this pod started still arrives here (kubelet re-projects the mounted Secret), so this wait is what stops a workspace being stranded credential-less for the life of the pod (#6163)."
+                fi
+                sleep "$WAIT_POLL"
+                WAITED=$(( WAITED + WAIT_POLL ))
+              done
+              if [ "$WAITED" -gt 0 ] && [ -s "$CREDS_PATH" ]; then
+                echo "Anthropic credential arrived after ~${WAITED}s of waiting."
+              fi
+              if [ -s "$CREDS_PATH" ]; then
+                cp "$CREDS_PATH" /claudehome/.claude/.credentials.json
                 chmod 600 /claudehome/.claude/.credentials.json
                 echo "seeded ~/.claude/.credentials.json ($(wc -c < /claudehome/.claude/.credentials.json) bytes)"
                 # ── OAuth-expiry pre-flight (#4111) ──────────────────────────
@@ -112,7 +171,22 @@ spec:
                   *)        echo "could not parse claude-code OAuth expiry from credentials.json (non-fatal)." ;;
                 esac
               else
-                echo "no credentials.json key in Secret — key-only mode"
+                # The credential never arrived. Say the true thing (#6163):
+                # this install ASKED for OAuth mode (anthropic.credentialsKey
+                # is set, which is the only reason this container exists), so
+                # the miss is a missing credential and never "key-only mode".
+                echo "🛑 AGENITY CREDENTIAL MISSING (#6163): no non-empty '{{ .Values.anthropic.credentialsKey }}' in Secret {{ .Values.anthropic.secretName }} after waiting ${WAIT_DEADLINE}s. The workspace agent CANNOT authenticate to Anthropic and every chat message would fail 401. This is NOT key-only mode — key-only mode is anthropic.credentialsKey=\"\", which renders no init container at all. Fix: seed the Sovereign's openbao catalyst/anthropic/token (catalyst-api CATALYST_ANTHROPIC_CREDENTIALS_JSON, or the operator-rotatable Secret catalyst-system/sovereign-anthropic-credentials) and let the {{ .Values.anthropic.secretName }} ExternalSecret sync."
+                {{- if eq .Values.anthropic.credentialWait.onTimeout "fail" }}
+                # Exit non-zero on purpose. The kubelet restarts this init
+                # container with backoff, so the wait above resumes and the pod
+                # proceeds by itself the moment the credential exists — and
+                # until then the gap is visible in `kubectl get pod` as
+                # Init:Error/CrashLoopBackOff rather than only in a log line
+                # under a pod that reports Running.
+                exit 1
+                {{- else }}
+                echo "anthropic.credentialWait.onTimeout={{ .Values.anthropic.credentialWait.onTimeout }} — starting the workspace anyway. The dashboard will render and every chat message will fail; do not read a Running pod as a working agent."
+                {{- end }}
               fi
               # Onboarding stub so claude-code does not re-run the first-run
               # /login flow AND does not block on the two interactive first-run

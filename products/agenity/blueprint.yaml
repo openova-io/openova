@@ -18,7 +18,12 @@ spec:
   # Keycloak backchannel + upstream) — the per-Org namespace is default-deny
   # and the gate's ingress-only CNP left the OAuth callback 500ing on a DNS
   # timeout. Lockstep with products/agenity/chart + the catalog-seed pin.
-  version: 0.5.22
+  # 0.5.24 (#6163): the seed-claude-creds init container stops being a
+  # ONE-SHOT reader of the Anthropic credential — it now waits for a
+  # late-arriving credential, retries across kubelet restarts, and fails
+  # loudly instead of announcing "key-only mode" and exiting 0 forever.
+  # Lockstep with products/agenity/chart + the catalog-seed pin.
+  version: 0.5.24
   card:
     title: Agenity
     summary: |

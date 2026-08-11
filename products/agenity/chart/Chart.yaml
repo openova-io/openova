@@ -188,7 +188,25 @@ type: application
 # same gateway bp-wordpress-tenant + the org console route attach to, #4054).
 # The old default rendered Accepted=False/InvalidHTTPRoute and the host 404'd
 # until the parentRef was hand-overridden. appVersion (image) unchanged.
-version: 0.5.22
+version: 0.5.24
+# 0.5.24 (#6163): the seed-claude-creds init container stops being a ONE-SHOT
+# reader of the Anthropic credential. It read the mounted Secret once at pod
+# start and, on a miss, printed `no credentials.json key in Secret — key-only
+# mode` and exited 0 — forever. Measured on hw293: a workspace held that line
+# for EIGHT HOURS after the Sovereign's openbao path was seeded, because a
+# one-shot reader cannot notice a credential that arrives later, and the Pod
+# reported Running the whole time (which is what let UAT row R19 — "the init
+# container validates the token and exits 0" — read green over a workspace
+# that could not authenticate). "key-only mode" was never true either: this
+# container renders ONLY under `if .Values.anthropic.credentialsKey`, i.e.
+# only when OAuth mode was requested, so the miss branch could only ever mean
+# "the credential you asked for did not arrive". It now WAITS on the mount
+# (kubelet re-projects a Secret on its own sync period, so a credential seeded
+# after pod start lands with no restart), RETRIES across kubelet init-container
+# restarts, and FAILS LOUDLY into `kubectl get pod` when it never arrives.
+# New values anthropic.credentialWait.{deadlineSeconds,pollSeconds,onTimeout}
+# (180 / 5 / fail); onTimeout=continue restores the old start-anyway shape.
+# Template + values change; appVersion (image) UNCHANGED.
 # 0.5.22 (#5617): the per-Org oidc-gate companion gains its EGRESS
 # CiliumNetworkPolicy (templates/oidc-gate.yaml `oidc-gate-<cid>-egress`).
 # The gate shipped an ingress-only gateway CNP into a DEFAULT-DENY per-Org
