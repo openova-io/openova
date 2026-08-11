@@ -1,0 +1,124 @@
+name: check — every self-test-capable guard actually runs (#6114)
+
+# TWO things happen in this file, and both are load-bearing.
+#
+# 1. THE META-GATE. scripts/check-guards-are-wired.sh asserts that every
+#    scripts/check-*.sh advertising a cluster-free `--self-test` is INVOKED by
+#    at least one workflow. A guard nothing runs is a guard that cannot fire —
+#    the same family as "the guard tested a surface that cannot fail" and the
+#    fail-open `|| echo WARN` that exits 0, both already in the anti-pattern
+#    catalog. This is the cheapest member of the family to detect and the one
+#    that had gone unmeasured.
+#
+# 2. THE GUARDS THEMSELVES. Ten self-test-capable guards were referenced by
+#    ZERO workflows when this file was written, so none of them had ever run in
+#    CI. The one that motivated the sweep is check-per-region-role-secrets.sh
+#    (#6021): it carries a full decision + coverage self-test for the
+#    per-region role-Secret split that has now recurred six times (#5394,
+#    #5406, #5414, #5416, #5487, #5499) and, on hw293, left region B's
+#    shared-data holding zero of region A's consumer hub Secrets. The detector
+#    was correct and merged. Nothing ran it.
+#
+# Every step below contacts NO cluster — each guard's `--self-test` builds its
+# own fixtures and says so on exit. Per docs/PRINCIPLES.md #4a this workflow
+# neither deploys nor calls a cloud API.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/check-*.sh'
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - 'scripts/check-*.sh'
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guards-are-wired:
+    name: no self-test-capable guard is orphaned
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash syntax
+        run: bash -n scripts/check-guards-are-wired.sh
+
+      - name: meta-guard self-test (fixtures only, no cluster)
+        run: bash scripts/check-guards-are-wired.sh --self-test
+
+      # VACUITY on the meta-guard. Regress it to the belief that makes this
+      # whole class invisible — "the script name appearing anywhere in a
+      # workflow means it runs" — which would count a `paths:` trigger entry
+      # as an invocation. A paths: filter selects WHEN a workflow fires, never
+      # WHAT it executes, so under that belief a guard can be certified as
+      # wired by a workflow that never calls it. The suite must go RED.
+      - name: meta-guard self-test must be able to fail
+        run: |
+          cp scripts/check-guards-are-wired.sh /tmp/mutant.sh
+          python3 - <<'PY'
+          p = "/tmp/mutant.sh"
+          s = open(p).read()
+          old = "INVOKE_RE='(^|[[:space:]|;&(])((bash|sh|source)[[:space:]]+|\\./)[A-Za-z0-9_./-]*check-[A-Za-z0-9_.-]+\\.sh'"
+          new = "INVOKE_RE='check-[A-Za-z0-9_.-]+\\.sh'"
+          assert old in s, "mutation anchor not found — update this step"
+          open(p, "w").write(s.replace(old, new, 1))
+          PY
+          if bash /tmp/mutant.sh --self-test >/tmp/mutant.out 2>&1; then
+            echo "VACUITY FAIL: the self-test passed against a matcher that counts"
+            echo "a bare 'paths:' entry as an invocation. That is the exact theater"
+            echo "this guard exists to prevent."
+            cat /tmp/mutant.out
+            exit 1
+          fi
+          echo "OK: the mutated matcher is caught. Failing assertion:"
+          grep -m1 'FAIL:' /tmp/mutant.out || cat /tmp/mutant.out
+
+      - name: every self-test-capable guard is invoked by a workflow
+        run: bash scripts/check-guards-are-wired.sh
+
+  orphaned-guard-selftests:
+    name: run the guards that CI had never run
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # The #6021 detector this sweep started from. Its --self-test proves it
+      # distinguishes AGREE / MINT-ABSENT / DIVERGE / NOT-CONSUMED and that a
+      # one-region fixture cannot pass as covered.
+      - name: per-region role Secrets (#6021)
+        run: bash scripts/check-per-region-role-secrets.sh --self-test
+
+      - name: per-region secret mint
+        run: bash scripts/check-per-region-secret-mint.sh --self-test
+
+      - name: guacamole cross-region drift
+        run: bash scripts/check-guacamole-crossregion-drift.sh --self-test
+
+      - name: kyverno nodeport exclusions
+        run: bash scripts/check-kyverno-nodeport-exclusions.sh --self-test
+
+      - name: orphaned admission webhooks
+        run: bash scripts/check-orphaned-admission-webhooks.sh --self-test
+
+      - name: UAT walkability
+        run: bash scripts/check-uat-walkability.sh --self-test
+
+      # The check-live-* family needs a cluster for its REAL run, but each
+      # carries a cluster-free classifier self-test — the same reason
+      # check-live-route-backends-selftest.yaml and
+      # check-live-node-encryption already run theirs here.
+      - name: live nodeports classifier
+        run: bash scripts/check-live-nodeports.sh --self-test
+
+      - name: live gateway host ports classifier
+        run: bash scripts/check-live-gateway-host-ports.sh --self-test
+
+      - name: live newapi SSO version classifier
+        run: bash scripts/check-live-newapi-sso-version.sh --self-test
