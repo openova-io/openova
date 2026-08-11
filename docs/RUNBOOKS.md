@@ -1593,7 +1593,7 @@ grep -lE '<location-code>\.<sovereign-domain>|<env>\.<sovereign-domain>' \
 
 ### 8.4 Deep-read rotation
 
-After greps, deep-read **one canonical doc + one component README** per pass. Rotate through the canon and the 56 platform components + 7 products (catalyst, cortex, axon, fingate, fabric, relay, specter) over time. The next-most-stale entry should be the target.
+After greps, deep-read **one canonical doc + one component README** per pass. Rotate through the canon and the 56 platform components + the 13 `products/` dirs (agenity, axon, catalyst, catalyst-migrator, continuum, cortex, dmz-vcluster, fabric, fingate, openova-flow, openova-mcp, relay, sandbox) over time. The next-most-stale entry should be the target. (`specter` was listed here as a product folder until #6114; there is no `products/specter/` — it is a deliverable service, not a Blueprint. See [`ARCHITECTURE.md`](ARCHITECTURE.md) §3.5.)
 
 The deep-read confirms the doc's known anchors are present and consistent with the rest of the canon. For each:
 

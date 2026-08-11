@@ -256,7 +256,7 @@ Every Catalyst control-plane component carries an open-source license that allow
 | `bp-relay` | Communication — stalwart, livekit, stunner, matrix, guacamole |
 | `bp-self-sovereign-cutover` | 8-tether pivot — see §5.6 |
 
-`bp-specter` (AIOps agents) and Exodus (migration program) sit alongside the above; Specter is a composite Blueprint typically installed in corporate Sovereigns, Exodus is a services engagement.
+**Specter (AIOps agents) and Exodus (migration program) are NOT composite Blueprints** — both are deliverable services, and neither appears in the table above. This corrects a long-standing contradiction (#6114): this line previously called Specter "a composite Blueprint typically installed in corporate Sovereigns", while [`README.md`](../README.md) §"What's in this repo" and [`STATUS.md`](STATUS.md) §1 both said the opposite. The code decides, and it is unambiguous: there is no `products/specter/` directory (zero paths in the tree match `specter`), no chart, no `blueprint.yaml`, no `bp-specter` OCI artifact, and no catalog-seed entry. `bp-specter` is in fact *unpublishable* as things stand — `.github/workflows/blueprint-release.yaml` enumerates release candidates by scanning for `(platform|products)/<name>/(chart/|blueprint.yaml)`, so a name with no such directory can never produce an artifact. `specter` survives only as a **wizard catalog component id** (`products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.ts`), whose own comment states there is no `bp-specter` HelmRelease and which the catalog-integrity gate carries in an explicit `KNOWN_UNBUILT` debt allowlist. Removing that entry (or realizing a real `bp-specter`) is UAT row **W5**.
 
 ---
 

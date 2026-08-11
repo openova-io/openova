@@ -1880,14 +1880,17 @@ spec:
     # newapi runs as a per-tenant HelmRelease (bp-newapi) — alice has
     # her own NewAPI at api.<org-domain>; OpenClaw points its OpenAI
     # client there. The per-user newapi-key-{uuid} Secret carries the
-    # end-user's bearer token (ADR-0003 §3.3); the controller-side
-    # service token below is used for /readyz probes and any
-    # controller-side LLM call that pre-dates a user session.
+    # end-user's bearer token (ADR-0003 §3.3).
+    #
+    # #6114: no apiKey here. This block used to pin a controller-side
+    # service token at openclaw-newapi-controller-token and justify it as
+    # "/readyz probes and any controller-side LLM call that pre-dates a user
+    # session". Both claims were false: /readyz has exactly two legs
+    # (api-server + OIDC JWKS) and no such controller-side call exists. No
+    # producer for that Secret has ever existed, and the chart no longer
+    # emits the secretKeyRef, so pinning a name here would configure nothing.
     llm:
       baseURL: https://api.{{.Subdomain}}.{{.ParentDomain}}/v1
-      apiKey:
-        name: openclaw-newapi-controller-token
-        key: NEWAPI_KEY
       # NewAPI uses the model name to select a backing channel. C4
       # provisions channel #1 = partner-hosted Qwen at tenant-create
       # time so this default routes to the correct upstream.

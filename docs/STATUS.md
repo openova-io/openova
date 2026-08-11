@@ -37,7 +37,7 @@ Per [`DOD.md`](DOD.md), 🟦 CODE-COMPLETE does NOT mean shipped. A pillar is **
 | `products/axon/` | ✅ | Real implementation (chart/, src/, scripts/). |
 | `products/agenity/` + `products/openova-mcp/` | 🟦 | The **Pillar 4 pair** (re-scoped — see §2.2 and §9): `bp-agenity` (chart 0.5.20 — per-Org multi-agent runtime + dashboard) + `openova-mcp` (Go MCP server: RBAC-scoped thin facade over live catalyst-api, JSON-RPC over stdio). |
 | `products/catalyst/` umbrella (`bp-catalyst-platform`) | 🟦 | Has `bootstrap/{ui,api}/` (React SPA wizard + Go bootstrap API) + `chart/` with Chart.yaml + Helm templates for the full Catalyst-Zero deployment + `crds/` with the 13 CRDs enumerated in §4. Canonical Helm chart for Catalyst-Zero and every franchised Sovereign. |
-| `products/{cortex,fabric,fingate,relay}/` | 📐 | README only. No charts or manifests. (`products/specter/` does not exist — Specter is a deliverable service, not a Blueprint in this layout, per `README.md` §"What's in this repo".) |
+| `products/{cortex,fabric,fingate,relay}/` | 📐 | README only. No charts or manifests. (`products/specter/` does not exist — Specter is a deliverable service, not a Blueprint in this layout, per `README.md` §"What's in this repo" and [`ARCHITECTURE.md`](ARCHITECTURE.md) §3.5, which agreed with this row as of #6114.) |
 
 ---
 

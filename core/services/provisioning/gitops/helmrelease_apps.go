@@ -333,11 +333,12 @@ spec:
       clientSecret:
         name: openclaw-oidc-client-secret
         key: OIDC_CLIENT_SECRET
+    # #6114: no apiKey here. It pinned openclaw-newapi-controller-token, a
+    # Secret nothing in the tree creates, for a secretKeyRef the chart no
+    # longer emits and the controller binary never read. The end-user token
+    # path (per-user newapi-key-{uuid} Secret, ADR-0003 3.3) is unchanged.
     llm:
       baseURL: %s
-      apiKey:
-        name: openclaw-newapi-controller-token
-        key: NEWAPI_KEY
       defaultModel: qwen3.6
     keycloak:
       realmURL: %s

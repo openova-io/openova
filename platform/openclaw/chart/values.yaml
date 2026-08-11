@@ -9,7 +9,6 @@
 #   - oidc.issuerURL             (per-tenant Keycloak realm OIDC issuer)
 #   - oidc.clientSecret.name     (ExternalSecret with OIDC client_secret)
 #   - llm.baseURL                (per-tenant NewAPI OpenAI-compatible endpoint)
-#   - llm.apiKey.name            (Secret carrying NewAPI bearer token)
 #   - tenant.namespace           (Organization tenant namespace where per-user pods run)
 #   - ingress.host               (controller public hostname)
 #   - controller.image.tag       (SHA-pinned tag)
@@ -176,16 +175,23 @@ llm:
   # endpoint (i.e. NewAPI's /v1 surface). Placeholder default lets
   # smoke render pass.
   baseURL: "https://newapi.example.local/v1"
-  # Bearer token sourced from a K8s Secret (Inviolable Principle 10).
-  # Required Secret key: NEWAPI_KEY (or `api-key` for ADR-0003-aligned
-  # per-user secrets). Per-user pods continue to read the per-user
-  # `newapi-key-{uuid}` Secret per ADR-0003 §3.3; this controller-side
-  # secret is the controller's own service-token (used for /readyz
-  # probes and for any controller-side LLM call that pre-dates a user
-  # session).
-  apiKey:
-    name: "openclaw-llm-apikey"
-    key: "NEWAPI_KEY"
+  # #6114 — there is deliberately NO `apiKey:` block here.
+  #
+  # It used to name a controller-side NewAPI service-token Secret
+  # (default `openclaw-llm-apikey`, overridden by both HelmRelease
+  # generators to `openclaw-newapi-controller-token`). NEITHER name has
+  # ever had a producer anywhere in the repo, and the controller binary
+  # reads no api-key env at all — so the block configured a mount that
+  # could not resolve, for a consumer that does not exist.
+  #
+  # The end-user credential path is unaffected and IS built: per ADR-0003
+  # §3.3 each user gets a `newapi-key-{uuid}` Secret (keys `api-key` +
+  # `base-url`) produced by the unified-rbac hook, which the per-user pod
+  # template mounts. That is the ONLY NewAPI bearer token in this chart.
+  #
+  # If a controller-side token is ever genuinely needed, add the Secret
+  # producer in the SAME change as the reference — the chart guard
+  # `TestOpenClawChartSecretRefsHaveProducers` enforces that pairing.
   # The default OpenAI-compatible model identifier sent on /v1/chat/
   # completions when the client doesn't override. NewAPI uses the
   # `model` field to select a channel; for the umbrella #915 DoD this

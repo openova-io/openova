@@ -924,15 +924,23 @@ func TestRenderOrganizationOverlay_OpenClawOIDCAndLLMBlocks(t *testing.T) {
 	wantLLM := []string{
 		"    llm:",
 		"      baseURL: https://api.alice.omantel.omani.works/v1",
-		"      apiKey:",
-		"        name: openclaw-newapi-controller-token",
-		"        key: NEWAPI_KEY",
 		"      defaultModel: qwen3.6",
 	}
 	for _, line := range wantLLM {
 		if !strings.Contains(body, line) {
 			t.Errorf("bp-openclaw llm block missing line %q\n--- rendered ---\n%s", line, body)
 		}
+	}
+	// #6114 — the llm block must NOT pin a controller-side api-key Secret.
+	// It used to name `openclaw-newapi-controller-token`, which nothing in
+	// the repo has ever created, for a chart `secretKeyRef` that is now gone
+	// and a controller binary that never read the env. Assert on the SHAPE
+	// (an apiKey secret reference under llm:) rather than on the dead name,
+	// so reintroducing the same defect under a different name still fails.
+	if strings.Contains(body, "      apiKey:") {
+		t.Errorf("bp-openclaw llm block pins an apiKey Secret reference, but no producer for a "+
+			"controller-side NewAPI token exists (#6114). The end-user path is the per-user "+
+			"newapi-key-{uuid} Secret (ADR-0003 §3.3), not a chart-level token.\n--- rendered ---\n%s", body)
 	}
 	// Per-tenant LLM endpoint MUST be the Organization's own api.<sub>.<parent>,
 	// NEVER the otech-wide newapi.<otech-fqdn> (that would route every
