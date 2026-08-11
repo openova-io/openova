@@ -543,6 +543,34 @@ spec:
             # per-Org Flux GitRepository watches `main` of <slug>/catalyst-tenant.
             - name: TENANT_GITOPS_BRANCH
               value: {{ .Values.orgServices.provisioning.perOrgBranch | default "main" | quote }}
+            # ── Per-Organization application chart pins, funnel leg (#6169) ──
+            #
+            # The SECOND producer of per-Organization HelmReleases. The BSS door
+            # writes the org-tenant overlay (catalyst-api, CATALYST_ORG_BP_*_VER
+            # in templates/api-deployment.yaml); this service writes the funnel
+            # cart's per-Org GitOps tree, and its HR templates carry the same
+            # literal `version: "*"`
+            # (core/services/provisioning/gitops/helmrelease_apps.go:315, :451,
+            # :622). pinHRChartVersion(:211) replaces that wildcard ONLY when a
+            # pin is configured, and an empty pin keeps the floating value.
+            #
+            # This name also had zero setters in the repo, so the service ran on
+            # its Go-side default (main.go:192,
+            # "openclaw=0.2.13,stalwart-mail=0.1.13"). That default was wrong in
+            # two ways at once: both pins were four and two patches STALE
+            # against the shipped charts, and `newapi` — the third
+            # HelmRelease-shaped slug (helmrelease_apps.go:58-62, added in
+            # #4739) — was absent from it entirely, so bp-newapi rendered a bare
+            # wildcard on every funnel Organization.
+            #
+            # Wire format is "slug=version,slug=version" (ParseHRAppVersions,
+            # helmrelease_apps.go:672), keyed by CATALOG APP SLUG — not the bp-*
+            # chart name. All three HelmRelease-shaped slugs are listed; adding a
+            # fourth to helmReleaseAppSlugs without adding it here re-opens the
+            # wildcard for that app, which is what the bootstrap-kit guard
+            # asserts against by enumerating that map.
+            - name: CATALYST_HR_APP_CHART_VERSIONS
+              value: "openclaw={{ required "orgTenants.chartVersions.openclaw must be a concrete chart version (#6169)" .Values.orgTenants.chartVersions.openclaw }},stalwart-mail={{ required "orgTenants.chartVersions.stalwart must be a concrete chart version (#6169)" .Values.orgTenants.chartVersions.stalwart }},newapi={{ required "orgTenants.chartVersions.newapi must be a concrete chart version (#6169)" .Values.orgTenants.chartVersions.newapi }}"
           resources:
             requests:
               cpu: 25m

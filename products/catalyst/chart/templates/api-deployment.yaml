@@ -1891,6 +1891,47 @@ spec:
             # default). NEVER enable on customer Sovereigns.
             - name: CATALYST_TEST_SESSION_ENABLED
               value: "false"
+            # ─── Per-Organization application chart pins (#6169) ───────────
+            #
+            # These seven names are read by cmd/api/main.go:996-1002 into
+            # OrganizationChartVersions and stamped into every per-Organization
+            # HelmRelease the org-tenant overlay writes
+            # (internal/handler/organization_gitops.go, `version:` at :1108,
+            # :1368, :1619, :1863, :1980, :2121). Until #6169 they had NO
+            # setter anywhere in the repo, so six of the seven fell through
+            # withVersionDefaults() to `version: "*"` and each Organization
+            # installed whatever the OCI repo happened to serve newest at
+            # reconcile time. Same read-by-Go/set-by-nothing shape as the
+            # console pin (#6139) and CATALYST_JANITOR_DESTRUCTIVE (row 228).
+            #
+            # Emitted UNCONDITIONALLY and always with a concrete value. A
+            # conditionally-guarded pin (omit-when-unset, the shape most of the
+            # other optional knobs in this file use) would reintroduce exactly
+            # the failure being fixed: the wildcard is what an absent env MEANS
+            # here, so "absent" and "unpinned" must not be expressible in this
+            # chart at all. `required` makes
+            # a blanked value fail the render rather than degrade silently —
+            # an empty string here reads identically to the three-and-a-half
+            # months of empty that this block exists to end.
+            #
+            # Values come from .Values.orgTenants.chartVersions, which the
+            # bootstrap-kit guard holds equal to each chart's own Chart.yaml
+            # version and to the catalog-seed pin. Operators override per
+            # Sovereign through the usual values path.
+            - name: CATALYST_ORG_BP_KEYCLOAK_VER
+              value: {{ required "orgTenants.chartVersions.keycloak must be a concrete chart version — an empty per-Organization chart pin renders `version: \"*\"` (#6169)" .Values.orgTenants.chartVersions.keycloak | quote }}
+            - name: CATALYST_ORG_BP_CNPG_VER
+              value: {{ required "orgTenants.chartVersions.cnpg must be a concrete chart version — an empty per-Organization chart pin renders `version: \"*\"` (#6169)" .Values.orgTenants.chartVersions.cnpg | quote }}
+            - name: CATALYST_ORG_BP_WORDPRESS_VER
+              value: {{ required "orgTenants.chartVersions.wordpress must be a concrete chart version — an empty per-Organization chart pin renders `version: \"*\"` (#6169)" .Values.orgTenants.chartVersions.wordpress | quote }}
+            - name: CATALYST_ORG_BP_OPENCLAW_VER
+              value: {{ required "orgTenants.chartVersions.openclaw must be a concrete chart version — an empty per-Organization chart pin renders `version: \"*\"` (#6169)" .Values.orgTenants.chartVersions.openclaw | quote }}
+            - name: CATALYST_ORG_BP_STALWART_VER
+              value: {{ required "orgTenants.chartVersions.stalwart must be a concrete chart version — an empty per-Organization chart pin renders `version: \"*\"` (#6169)" .Values.orgTenants.chartVersions.stalwart | quote }}
+            - name: CATALYST_ORG_BP_NEWAPI_VER
+              value: {{ required "orgTenants.chartVersions.newapi must be a concrete chart version — an empty per-Organization chart pin renders `version: \"*\"` (#6169)" .Values.orgTenants.chartVersions.newapi | quote }}
+            - name: CATALYST_ORG_BP_AGENITY_VER
+              value: {{ required "orgTenants.chartVersions.agenity must be a concrete chart version — an empty per-Organization chart pin falls back to the bounded agenityChartConstraint, not to an exact pin (#6169)" .Values.orgTenants.chartVersions.agenity | quote }}
           resources:
             requests:
               cpu: 100m

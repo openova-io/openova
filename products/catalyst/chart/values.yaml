@@ -1785,6 +1785,71 @@ orgTenants:
     org: openova
     repo: openova
     branch: org-tenants
+  # ─── Per-Organization application chart pins (#6169) ─────────────────
+  #
+  # THE DEFECT THIS BLOCK EXISTS TO CLOSE. catalyst-api reads seven chart
+  # versions from env — CATALYST_ORG_BP_{KEYCLOAK,CNPG,WORDPRESS,OPENCLAW,
+  # STALWART,NEWAPI,AGENITY}_VER (cmd/api/main.go:996-1002) — and a repo-wide
+  # grep for those names across every .yaml/.yml/.tpl/.json matched them ZERO
+  # times. Six of the seven therefore fell through withVersionDefaults()
+  # (internal/handler/organization_gitops.go:919) to the floating `version: "*"`
+  # every per-Organization HelmRelease shipped with. Same shape as the console
+  # pin that had no writer for 3.5 months (#6139) and as
+  # CATALYST_JANITOR_DESTRUCTIVE (UAT row 228): read by Go, set by nothing.
+  #
+  # `*` resolves to the HIGHEST semver tag on the OCI repo at reconcile time,
+  # so an Organization installed whatever happened to be newest that minute.
+  # Two consequences, both live:
+  #   - A chart-side fix reached Organizations by luck, not by delivery, and
+  #     inverted on the next publish.
+  #   - UAT rows 232/234 cite exact chart versions as evidence. Under `*` those
+  #     numbers were not reproducible — two walks of the same row on the same
+  #     Sovereign could legitimately disagree.
+  # bp-agenity is the proof this bites: it alone falls back to a BOUNDED range
+  # rather than `*`, because an unbounded `*` once resolved a stray IMAGE tag
+  # (0.9.7) over the real 0.5.x chart and bp-agenity never installed (#4922).
+  # Only agenity was hardened, and only after it had already fired.
+  #
+  # Per Inviolable Principle #4 (docs/PRINCIPLES.md §4, "Helm chart version
+  # literal in install function → read from values") the version is
+  # CONFIGURATION, so it lives here and is operator-overridable — it is not a
+  # Go constant. Every value below equals that chart's own
+  # `platform/<x>/chart/Chart.yaml` `version:` AND the pin the Sovereign's own
+  # catalog advertises (templates/catalog-seed/blueprints.yaml). All three are
+  # asserted equal by tests/e2e/bootstrap-kit/org_bp_chart_version_pins_6169_test.go,
+  # so this block cannot silently drift behind a chart bump the way a
+  # catalog-seed pin can drift behind check-bootstrap-kit-pin-sync.sh.
+  #
+  # BUMPING ONE OF THESE: bump platform/<x>/chart/Chart.yaml (via
+  # scripts/bump-chart-version.sh), the matching blueprint.yaml spec.version,
+  # the catalog-seed entry, and this key — in the same commit. The guard names
+  # whichever one you missed.
+  chartVersions:
+    # bp-keycloak — the per-Organization Keycloak realm host.
+    keycloak: "1.5.9"
+    # bp-cnpg — currently has NO consumer: the per-Org bp-cnpg operator
+    # HelmRelease was removed in #4920 (organization_gitops.go:1259) because the
+    # per-Org operator hijacked the shared CNPG webhook. main.go still reads
+    # CATALYST_ORG_BP_CNPG_VER into OrganizationChartVersions.CNPG, so the pin
+    # is wired here to be correct-by-construction the moment a template
+    # references it again rather than reintroducing a wildcard at that point.
+    cnpg: "1.0.14"
+    # bp-wordpress-tenant — the SSO-pre-wired per-Organization WordPress.
+    wordpress: "0.4.23"
+    # bp-openclaw — the per-Organization OpenClaw controller. Row 232 cites
+    # this exact version as evidence; under `*` that citation was unreproducible.
+    openclaw: "0.2.17"
+    # bp-stalwart-tenant — per-Organization mail. Rows 232/234 cite this exact
+    # version as evidence.
+    stalwart: "0.1.15"
+    # bp-newapi — openclaw's LLM gateway (#4739).
+    newapi: "1.4.153"
+    # bp-agenity — the per-Organization Agenity workspace (DoD Pillar 4). An
+    # EXACT pin here supersedes agenityChartConstraint (">=0.5.0 <0.6.0"),
+    # which stays in Go as the never-fatal last resort for a catalyst-api
+    # deployed outside this chart. Keep this inside that range, or bump the
+    # constant in lockstep (organization_gitops.go:917 records the same rule).
+    agenity: "0.5.22"
 
 # ─── catalog-sovereign Flux source (#3668 / #4285 leg C) ──────────────
 # The `openova-catalog-sovereign` GitRepository
