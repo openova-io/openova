@@ -81,6 +81,7 @@ package handler
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -90,6 +91,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/openova-io/openova/core/controllers/pkg/kubeconfig"
 )
 
 // envCutoverSecondaryKubeconfigsSecret overrides the Secret name (runtime-
@@ -481,36 +484,49 @@ func (h *Handler) materializeSecondaryKubeconfigsSecret(ctx context.Context, dep
 		// non-empty values, and not annotated for a different deployment)
 		// — a chain whose region-B legs would silently no-op still aborts
 		// below.
-		if n, ok := h.acceptMaterializedSecondaryKubeconfigsSecret(ctx, deps, name, expected, res.depID); ok {
+		n, ok, refusal := h.acceptMaterializedSecondaryKubeconfigsSecret(ctx, deps, name, expected, res)
+		if ok {
 			return n, nil
 		}
-
 		sort.Strings(missing)
 		secretRef := deps.ns + "/" + name
+		// abort carries the #6107 refusal into the ERROR, not only into a log
+		// line. Every message below ends with "no already-materialized Secret
+		// satisfies the expected count", which is true and useless when the
+		// Secret is right there: an operator reads it, finds the object, sees a
+		// parseable credential with a token in it, and has been told nothing
+		// about why the platform will not use it.
+		abort := func(format string, args ...any) (int, error) {
+			msg := fmt.Sprintf(format, args...)
+			if refusal != "" {
+				msg += " — " + refusal
+			}
+			return 0, fmt.Errorf("%s", msg)
+		}
 		switch {
 		case res.depID == "" && len(res.ambiguousPrefixes) > 0:
 			// #5488 task 3 — ambiguous on-disk fallback: never silently
 			// pick one of several deployment prefixes.
-			return 0, fmt.Errorf(
+			return abort(
 				"cutover: the resolved deployment record carries an EMPTY deployment id (degraded record after a catalyst-api restart, #5488) and %d distinct deployment prefixes exist on disk in %s (%s) — refusing to guess which one is this Sovereign's; expected %d secondary region(s) and no already-materialized %s Secret satisfies them. Recovery: re-import the deployment record (POST /api/v1/internal/deployments/import from the mothership) so the record can name its own id, then re-fire the cutover (#5359 fail-loud contract preserved)",
 				len(res.ambiguousPrefixes), secondaryKubeconfigsDir(), strings.Join(res.ambiguousPrefixes, ", "), expected, secretRef)
 		case res.depID == "":
 			// #5488 task 1 — the empty-ID record is its own diagnosable
 			// condition, not "0 readable".
-			return 0, fmt.Errorf(
+			return abort(
 				"cutover: the resolved deployment record carries an EMPTY deployment id (degraded record after a catalyst-api restart, #5488) while its spec expects %d secondary region(s) — the on-disk <depID>-<regionKey>.yaml kubeconfig paths in %s cannot be derived from a blank id, and no already-materialized %s Secret satisfies the expected count. Recovery: re-import the deployment record (POST /api/v1/internal/deployments/import from the mothership) or re-POST the secondary kubeconfig(s) via /sovereign/secondary-kubeconfig, then re-fire the cutover (#5359 fail-loud contract preserved)",
 				expected, secondaryKubeconfigsDir(), secretRef)
 		case len(paths) == 0:
 			// #5488 task 2 — an empty candidate map is "we never looked",
 			// not "the files were unreadable". Say so instead of printing
 			// an empty missing list.
-			return 0, fmt.Errorf(
+			return abort(
 				"cutover: deployment %s expects %d secondary region(s) but no candidate kubeconfig paths resolved (the in-memory secondary-kubeconfig map is empty — typical after a catalyst-api restart — and no %s-<regionKey>.yaml files were found in %s), and no already-materialized %s Secret satisfies the expected count — refusing to start a cutover whose region-B pivot legs would silently no-op (#5359)",
 				res.depID, expected, res.depID, secondaryKubeconfigsDir(), secretRef)
 		default:
 			// Original #5359 contract: candidate paths existed but the
 			// files are genuinely missing/unreadable/unusable — name each.
-			return 0, fmt.Errorf(
+			return abort(
 				"cutover: deployment %s expects %d secondary region(s) but only %d kubeconfig(s) are USABLE (rejected: %s) — refusing to start a cutover whose region-B pivot legs would silently no-op (#5359)",
 				res.depID, expected, len(data), strings.Join(missing, ", "))
 		}
@@ -608,39 +624,188 @@ func (h *Handler) materializeSecondaryKubeconfigsSecret(ctx context.Context, dep
 //     is foreign and is NOT accepted.
 //
 // Returns (key count, true) on acceptance.
-func (h *Handler) acceptMaterializedSecondaryKubeconfigsSecret(ctx context.Context, deps *cutoverDeps, name string, expected int, depID string) (int, bool) {
+//
+// #6107 — WHY A USABLE KEY COUNT IS NOT ENOUGH, MEASURED
+// -------------------------------------------------------
+// This arm accepted the hw293 (dep a0077ba47e3720e5) Secret every 60 seconds
+// for hours, on the record:
+//
+//	03:06:40 … "accepting as-is" … keys=1 expected=1
+//	03:07:40 … "accepting as-is" … keys=1 expected=1
+//	03:08:40 … "accepting as-is" … keys=1 expected=1
+//
+// Its single key `me-east-215-b-1.yaml` held 219 bytes (sha256
+// 881231f95cd49646…) that pass the shared usability contract completely — five
+// sections, a resolvable current-context, a bearer credential — and name
+// `https://212.72.24.6:6443`, which is NEITHER of this deployment's regions
+// (A answers on .43, B on .25, each proven by its own apiserver certificate's
+// SANs) and answers nothing at all. Those bytes are, to the byte, this
+// repository's own test control fixture `completeKubeconfigSameCluster`.
+//
+// Three consequences followed, and the third is the one that made #6112 and
+// #6116 inert on that Sovereign:
+//
+//  1. The chroot's kubeconfigs dir was EMPTY — region B had never been
+//     delivered at all — so nothing this function could have produced existed.
+//  2. Acceptance short-circuited the producer: materializeSecondaryKubeconfigs-
+//     Secret returns here BEFORE its write, so the mis-delivered value is
+//     STICKY. A correct delivery landing later cannot displace it, because the
+//     pass that would write it never reaches the write.
+//  3. Downstream, every Organization read fully provisioned while region B
+//     held zero per-Org console listeners.
+//
+// So acceptance now requires CORROBORATION — evidence, from outside the Secret
+// itself, that the Secret is what this process would have written:
+//
+//   - PROVENANCE: at least one secondary kubeconfig file exists on disk for a
+//     candidate deployment prefix. This arm exists because a restart wipes the
+//     process-local PATH MAP while the FILES remain (the hw291 #5488 case,
+//     where the on-disk fallback globbed a leading dash and matched nothing).
+//     It was never meant to substitute for a delivery that never happened. An
+//     empty directory is not a lost path map; it is an undelivered region.
+//   - or PROOF: every counted key names an endpoint that answers on the
+//     apiserver port. A credential whose endpoint has never been reached is
+//     not evidence that a prior run materialized anything.
+//
+// Either suffices, which is what keeps this from over-correcting: a genuine
+// post-restart recovery still passes on its files alone (no dial), and a
+// Sovereign whose files were legitimately reaped still passes on a reachable
+// endpoint. Only the state with NEITHER — no files and a dead endpoint — is
+// refused, and that is exactly hw293.
+// The third return is the operator-facing reason the Secret was NOT accepted,
+// empty when there was nothing to refuse (no Secret, or acceptance). The
+// caller appends it to whichever abort message it selects: a refusal that
+// exists only in a log line leaves the ERROR saying "no already-materialized
+// Secret satisfies the expected count" about an object that is plainly sitting
+// in the namespace, which is the state an operator would then go looking for
+// and find.
+func (h *Handler) acceptMaterializedSecondaryKubeconfigsSecret(ctx context.Context, deps *cutoverDeps, name string, expected int, res secondaryKubeconfigResolution) (int, bool, string) {
 	if expected <= 0 {
-		return 0, false // single-region never needs recovery.
+		return 0, false, "" // single-region never needs recovery.
 	}
+	depID := res.depID
 	existing, err := deps.core.CoreV1().Secrets(deps.ns).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return 0, false
+		return 0, false, ""
 	}
 	if depID != "" {
 		if ann := strings.TrimSpace(existing.Annotations["catalyst.openova.io/deployment-id"]); ann != "" && ann != depID {
-			return 0, false // materialized for a different deployment.
+			return 0, false, fmt.Sprintf(
+				"the already-materialized %s/%s Secret is annotated for deployment %q, not this one",
+				deps.ns, name, ann) // materialized for a different deployment.
 		}
 	}
+
+	// PROVENANCE — did this process lose track of files that exist, or was the
+	// region simply never delivered? `paths` is the union of the in-memory map
+	// and the on-disk `<prefix>-<regionKey>.yaml` files, and ambiguousPrefixes
+	// records the case where files exist but could not be attributed to a
+	// deployment. Either means there is something on disk to have lost.
+	corroborated := len(res.paths) > 0 || len(res.ambiguousPrefixes) > 0
+
 	// USABILITY, not presence (#6027). `len(v) > 0` accepted the 95-byte
 	// hw293 stub here exactly as it did on the read path — and this arm is
 	// the one that runs when the process cannot re-derive its own on-disk
 	// paths, i.e. precisely when nothing else would catch it. A key that
 	// cannot build a client does not count toward the expected total.
-	n := 0
-	for _, v := range existing.Data {
-		if len(v) > 0 && secondaryKubeconfigUsable(string(v)) {
-			n++
+	//
+	// DELIVERY, not usability (#6107). When provenance is absent the endpoint
+	// must be proven instead, through the shared contract so the producer and
+	// every reader ask one question. `regionsFromEnv()` is the same declared-
+	// region witness the count is taken from.
+	declared := regionsFromEnv()
+	n, refused := 0, []string{}
+	for key, v := range existing.Data {
+		if len(v) == 0 {
+			continue
 		}
+		delivery := kubeconfig.Delivery{
+			RegionKey:       strings.TrimSuffix(strings.TrimSuffix(key, ".yaml"), ".yml"),
+			DeclaredRegions: declared,
+		}
+		if !corroborated {
+			delivery.EndpointProven = h.secondaryEndpointProven
+		}
+		if defects := kubeconfig.DeliveryDefects(string(v), delivery); len(defects) > 0 {
+			refused = append(refused, fmt.Sprintf("%s (%d bytes, endpoint %s, %s)",
+				key, len(v), describeEndpoint(string(v)), kubeconfig.DescribeDefects(defects)))
+			continue
+		}
+		n++
 	}
 	if n < expected {
-		return 0, false
+		sort.Strings(refused)
+		reason := fmt.Sprintf(
+			"the already-materialized %s/%s Secret is present but is NOT a delivery (#6107): %d of %d key(s) qualify, on-disk corroboration=%v, declared regions=[%s], refused: %s",
+			deps.ns, name, n, expected, corroborated, strings.Join(declared, ","), describeRefusals(refused))
+		// LOUD, not silent. The pre-#6107 arm returned false here with no log
+		// line at all, so a Sovereign in this state showed only the caller's
+		// generic shortfall message and nothing about the Secret that was
+		// sitting there looking complete.
+		h.log.Warn("cutover: the already-materialized secondary-kubeconfigs Secret is NOT a delivery — refusing to accept it as one (#6107). A credential that parses and carries a token but names an endpoint this deployment never answered on is a MIS-delivery: accepting it makes the value sticky, because acceptance returns before the write that would replace it",
+			"secret", deps.ns+"/"+name,
+			"usableKeys", n,
+			"expected", expected,
+			"onDiskCorroboration", corroborated,
+			"declaredRegions", strings.Join(declared, ","),
+			"refused", describeRefusals(refused),
+			"deploymentID", depID,
+			"remedy", "deliver the peer region's kubeconfig (POST /api/v1/sovereign/secondary-kubeconfig) so this Sovereign materializes the Secret from a file it holds")
+		return 0, false, reason
 	}
 	h.log.Info("cutover: secondary kubeconfigs Secret already materialized by a prior run — accepting as-is (#5488 recovery: process-local paths unresolvable after a catalyst-api restart)",
 		"secret", deps.ns+"/"+name,
 		"keys", n,
 		"expected", expected,
+		"onDiskCorroboration", corroborated,
 		"deploymentID", depID)
-	return n, true
+	return n, true, ""
+}
+
+// describeRefusals renders the per-key refusal list, naming the empty case
+// rather than rendering nothing at all — "refused: " with no tail reads as a
+// message that lost its content.
+func describeRefusals(refused []string) string {
+	if len(refused) == 0 {
+		return "none"
+	}
+	return strings.Join(refused, "; ")
+}
+
+// secondaryEndpointProven is the endpoint oracle this component legitimately
+// has: a TCP connect to the apiserver port, the same probe #4000's self-heal
+// already uses to decide whether a kubeconfig needs healing at all. It is a
+// method so a test can replace it through h.secondaryEndpointProbe without
+// dialling anything.
+//
+// A dial is affordable here precisely because this path is rare: it runs only
+// when the producer could NOT build the Secret from its own files, at most
+// once per materializer tick, and only for the keys of one Secret.
+func (h *Handler) secondaryEndpointProven(endpoint string) bool {
+	probe := h.secondaryEndpointProbe
+	if probe == nil {
+		probe = hostReachable
+	}
+	hostPort := kubeconfig.HostPort(endpoint, secondaryHealPort)
+	if hostPort == "" {
+		return false
+	}
+	host, _, err := net.SplitHostPort(hostPort)
+	if err != nil {
+		return false
+	}
+	return probe(host)
+}
+
+// describeEndpoint renders a document's server URL for an operator-facing log
+// line, naming the empty case rather than printing "". The URL is not a
+// secret: it is the address half of the credential, and an operator cannot act
+// on a refusal that will not say where the refused document pointed.
+func describeEndpoint(raw string) string {
+	if e := kubeconfig.Endpoint(raw); e != "" {
+		return e
+	}
+	return "none"
 }
 
 // reapSecondaryCutoverEgressPolicies is the #5014 backstop's region-B

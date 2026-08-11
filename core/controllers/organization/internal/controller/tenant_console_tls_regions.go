@@ -150,10 +150,33 @@ type consoleRegionResolution struct {
 	// until the credential is replaced, so it is reported as a missing
 	// artifact, not as a transient.
 	Unwired []string
-	// Unreachable — regions whose kubeconfig IS wired but whose client could
-	// not be built or used this pass. TRANSIENT: an apiserver blip must not
-	// red-flag every Organization on the Sovereign, so it only requeues.
+	// Unreachable — a region this Sovereign is KNOWN to have and whose
+	// kubeconfig IS wired, but which could not be reached this pass.
+	//
+	// #6107 changed what this means for the completeness verdict. It used to
+	// feed Unverifiable, on the reasoning that "an apiserver blip must not
+	// red-flag every Organization at once". The reasoning is sound about
+	// blips and wrong about verdicts: a region we could not reach is a region
+	// where this pass neither wrote the listener nor read it back, so
+	// reporting the Organization as provisioned on that basis publishes a
+	// verdict from absent evidence. On hw293 that is exactly what happened —
+	// the bridge Secret named an endpoint in neither region, every write to it
+	// timed out, the region landed here, and all six Organizations read
+	// Ready/Reconciled while region B carried zero per-Org listeners for
+	// hours. It now feeds Missing.
+	//
+	// Nothing is destroyed by that: Missing means not-complete means requeue,
+	// so a genuine blip clears itself on the next pass. What it costs is a
+	// status flap during a real outage, which is the honest reading — the
+	// customer door in that region genuinely is unverified while it lasts.
 	Unreachable []string
+	// Undecidable — the pass could not establish how many regions there ARE.
+	// This is the denominator failing, not an artifact: an unreadable witness
+	// or an unreadable bridge Secret leaves the expected count unknown, and
+	// "I cannot count the regions" is a different claim from "I know a region
+	// exists and could not reach it". Only this one is a requeue-and-say-so
+	// (Unverifiable); the other is a region with no listener.
+	Undecidable []string
 }
 
 // regionClientCache memoizes the per-region clients between reconciles, keyed
@@ -235,15 +258,9 @@ func consoleRegionKeyFromSecretKey(k string) string {
 // kubeconfig bridge and can fail to install, #6004). It is therefore decidable
 // in the exact window in which the ClusterMesh witness is not.
 func (r *Reconciler) configuredRegionRemoteCount() (int, bool) {
-	raw := strings.TrimSpace(r.ConfiguredRegions)
-	if raw == "" {
-		return 0, false
-	}
 	seen := map[string]bool{}
-	for _, part := range strings.Split(raw, ",") {
-		if k := strings.TrimSpace(part); k != "" {
-			seen[k] = true
-		}
+	for _, k := range r.configuredRegionList() {
+		seen[k] = true
 	}
 	if len(seen) == 0 {
 		return 0, false
@@ -252,6 +269,26 @@ func (r *Reconciler) configuredRegionRemoteCount() (int, bool) {
 	// so the remote count is one fewer. A malformed single-entry list yields
 	// zero remotes, which is the pre-#6027 behaviour.
 	return len(seen) - 1, true
+}
+
+// configuredRegionList is the parsed CATALYST_CONFIGURED_REGIONS value — the
+// same witness configuredRegionRemoteCount takes its COUNT from, exposed as
+// the NAMES so the shared delivery contract can decide whether a bridge-Secret
+// key names a region this Sovereign actually declares (#6107). One parse, one
+// witness: a second copy of this split is how the count and the names would
+// drift apart.
+func (r *Reconciler) configuredRegionList() []string {
+	raw := strings.TrimSpace(r.ConfiguredRegions)
+	if raw == "" {
+		return nil
+	}
+	out := make([]string, 0, 2)
+	for _, part := range strings.Split(raw, ",") {
+		if k := strings.TrimSpace(part); k != "" {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 // clusterMeshRemoteClusters extracts the REMOTE cluster names from a Cilium
@@ -332,10 +369,10 @@ func (r *Reconciler) consoleRegionTargets(ctx context.Context) consoleRegionReso
 		// two are indistinguishable HERE, which is precisely why this is no
 		// longer the only witness — see configuredRegionRemoteCount.
 	default:
-		// Cannot decide completeness this pass. Report it as transient so
-		// the Org requeues rather than being declared complete on an
-		// unverified region set.
-		res.Unreachable = append(res.Unreachable, fmt.Sprintf(
+		// The DENOMINATOR is unknown this pass — not an artifact verdict.
+		// Report it as undecidable so the Org requeues rather than being
+		// declared complete on an unverified region set.
+		res.Undecidable = append(res.Undecidable, fmt.Sprintf(
 			"ClusterMesh witness %s/%s unreadable, so the expected region count is unknown: %s",
 			r.clusterMeshSecretNamespace(), r.clusterMeshSecretName(), err))
 	}
@@ -350,7 +387,9 @@ func (r *Reconciler) consoleRegionTargets(ctx context.Context) consoleRegionReso
 	bridge := &corev1.Secret{}
 	err := r.Get(ctx, client.ObjectKey{Namespace: bridgeNS, Name: bridgeName}, bridge)
 	if err != nil && !apierrors.IsNotFound(err) {
-		res.Unreachable = append(res.Unreachable, fmt.Sprintf(
+		// Denominator again: without the Secret this pass cannot say which
+		// regions are wired, so it must not claim any verdict about them.
+		res.Undecidable = append(res.Undecidable, fmt.Sprintf(
 			"secondary-region kubeconfig Secret %s/%s unreadable: %s", bridgeNS, bridgeName, err))
 		return res
 	}
@@ -381,7 +420,26 @@ func (r *Reconciler) consoleRegionTargets(ctx context.Context) consoleRegionReso
 			// This is STRUCTURAL, not transient: the verdict is a property of
 			// the bytes, so no amount of requeueing can change it, which is
 			// precisely the struct's own definition of Unwired.
-			if defects := kubeconfig.Defects(string(v)); len(defects) > 0 {
+			//
+			// #6107 second rung — USABILITY IS NOT DELIVERY. The bytes
+			// contract passes on a document that names a host in neither
+			// region: on hw293 this key held 219 bytes (sha256
+			// 881231f95cd49646…) pointing at `https://212.72.24.6:6443` while
+			// region A answered on .43 and region B on .25. So the shared
+			// contract is asked its DELIVERY question, which additionally
+			// checks that the region key is one the Sovereign declares.
+			//
+			// This controller passes no endpoint oracle, deliberately. It has
+			// no cheap probe, and a component that cannot dial is not entitled
+			// to a reachability verdict — inventing one would be the
+			// verdict-from-absent-evidence pattern this file exists to refuse.
+			// The endpoint is proven by catalyst-api, which owns the producer
+			// side and already dials; here an unreachable endpoint surfaces
+			// through Unreachable, which now holds the Organization back.
+			if defects := kubeconfig.DeliveryDefects(string(v), kubeconfig.Delivery{
+				RegionKey:       region,
+				DeclaredRegions: r.configuredRegionList(),
+			}); len(defects) > 0 {
 				unusable = append(unusable, fmt.Sprintf("%s (missing: %s)",
 					region, kubeconfig.DescribeDefects(defects)))
 				continue

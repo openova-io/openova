@@ -100,6 +100,14 @@ type Handler struct {
 	secondaryKubeconfigSecretState   string
 	secondaryKubeconfigSecretStateMu sync.Mutex
 
+	// secondaryEndpointProbe (#6107) — the endpoint oracle the #5488 recovery
+	// arm consults when it has no on-disk corroboration for an
+	// already-materialized Secret. Nil uses hostReachable, the same TCP probe
+	// #4000's self-heal makes; tests inject a pure function so no unit test
+	// ever dials. Takes the host (no port) and answers whether an apiserver
+	// responds there.
+	secondaryEndpointProbe func(host string) bool
+
 	// orphanReleaseWG tracks the releaseOrphanedReservation goroutines that
 	// restoreFromStore fires (#489). Those goroutines outlive the call that
 	// spawned them: after pdm.Release returns they clear the dep's PDM

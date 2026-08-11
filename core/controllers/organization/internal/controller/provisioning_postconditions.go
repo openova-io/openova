@@ -203,7 +203,30 @@ func (r *Reconciler) verifyProvisioned(ctx context.Context, org *orgapi.Organiza
 			"console Gateway listeners %s/%s in every region — %s (the console ELB pool forwards customer TLS to every region's nodes, so a region with no listener resets the handshake for %q on the share of connections it receives)",
 			names.HTTPSName, names.HTTPName, u, names.WildcardHost))
 	}
+	// #6107 — UNREACHABLE IS NOT INDISTINGUISHABLE FROM WIRED.
+	//
+	// This loop used to append to Unverifiable, and `complete()` is
+	// `len(Missing) == 0`, so a region the fan-out could not reach did not
+	// hold the Organization back at all. Measured on hw293: the bridge Secret
+	// carried a well-formed credential naming an endpoint in NEITHER region,
+	// every write to it timed out, the region landed in Unreachable — and all
+	// six Organizations read Ready/Reconciled for hours while region B held
+	// zero per-Org listeners. Reporting provisioned there is a verdict from
+	// absent evidence: this pass did not write the listener in that region and
+	// could not read one back.
+	//
+	// Missing is a requeue too, so a genuine apiserver blip clears on the next
+	// pass rather than sticking. What it no longer does is pass silently.
 	for _, u := range res.Unreachable {
+		out.Missing = append(out.Missing, fmt.Sprintf(
+			"console Gateway listeners %s/%s in every region — %s (unreached: this pass neither wrote the pair there nor read one back, so %q is unverified on the share of connections the console ELB sends to that region; requeueing clears it if the region merely blipped)",
+			names.HTTPSName, names.HTTPName, u, names.WildcardHost))
+	}
+	// The DENOMINATOR failing is a different claim and keeps its old routing:
+	// "I could not count the regions" genuinely is unverifiable, and turning
+	// it into a missing artifact would red-flag every Organization on a
+	// Sovereign whose witness read errored once.
+	for _, u := range res.Undecidable {
 		out.Unverifiable = append(out.Unverifiable, fmt.Sprintf(
 			"console Gateway listeners for %q in every region — %s", names.WildcardHost, u))
 	}
