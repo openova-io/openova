@@ -1107,8 +1107,27 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 	// production calls EnableConsoleReachabilityGate() at startup; unit
 	// tests leave it nil (so they never touch the network) and set a stub
 	// directly when they want to exercise it.
+	//
+	// UAT row 241 — the probe runs on EVERY terminal outcome, not only
+	// OutcomeReady. The clause is "a ready record's console health MATCHES
+	// the live front door, and FAILS IN EITHER DIRECTION", and gating the
+	// probe on OutcomeReady broke the second direction structurally: a
+	// record latched `failed` never ran the probe at all, so
+	// ConsoleDegraded stayed zero-valued and `omitempty` dropped it from
+	// the JSON entirely. The record then read "no console problem" about a
+	// console nobody had looked at — a verdict reported from absent
+	// evidence. Measured on hw293: dep a0077ba47e3720e5 sat `status:
+	// failed` with consoleDegraded absent while https://console.<fqdn>/
+	// answered 200 from the public internet.
+	//
+	// Running it everywhere is safe precisely because this flag is a
+	// SURFACE and never a gate (#5253): no Go consumer branches on
+	// ConsoleDegraded, and the switch below decides dep.Status without
+	// reading consoleReachErr on any non-Ready arm. Probing costs one HTTP
+	// request on a path that is already terminal.
 	var consoleReachErr error
-	if outcome == helmwatch.OutcomeReady && h.consoleProbe != nil {
+	consoleProbed := h.consoleProbe != nil
+	if consoleProbed {
 		consoleReachErr = h.consoleProbe(dep.Request.SovereignFQDN)
 	}
 
@@ -1283,6 +1302,24 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// mechanism that let OutcomeTimeout flip ready on hw91.
 		dep.Status = "failed"
 		dep.Error = fmt.Sprintf("Phase 1 watch terminated with unhandled outcome %q — catalyst-api is missing a status mapping for it. The deployment is NOT marked ready; please file an issue with the deployment ID and the catalyst-api logs from this run.", outcome)
+	}
+
+	// UAT row 241 — publish the console surface for EVERY terminal outcome,
+	// after the switch so it can never influence dep.Status. The OutcomeReady
+	// arm above already set it (and logged the reasoning that belongs to that
+	// arm); this restates the same two fields for the failed arms, and — the
+	// half that only exists here — CLEARS a stale `true` when the probe now
+	// succeeds. Absence of the flag must mean "the console answered", never
+	// "nobody asked": the two were indistinguishable before this, and
+	// `omitempty` on both fields made the record silent in exactly the case
+	// the clause forbids.
+	if consoleProbed {
+		dep.Result.ConsoleDegraded = consoleReachErr != nil
+		if consoleReachErr != nil {
+			dep.Result.ConsoleDegradedDetail = consoleReachErr.Error()
+		} else {
+			dep.Result.ConsoleDegradedDetail = ""
+		}
 	}
 
 	// #3375 DoD-7 — DR INTEGRITY GATE, made SELF-FIRING for a converged
