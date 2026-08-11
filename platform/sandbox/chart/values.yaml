@@ -24,7 +24,7 @@ global:
   imageRegistry: ""
 image:
   repository: ghcr.io/openova-io/openova/sandbox-controller
-  tag: "150ff73"
+  tag: "852de2b"
   pullPolicy: IfNotPresent
   pullSecrets:
     - name: ghcr-pull
