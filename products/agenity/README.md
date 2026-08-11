@@ -142,6 +142,17 @@ Sovereign via either:
 - a per-Sovereign overlay setting `sovereign.anthropic.{apiKey,credentialsJson}`
   on bp-catalyst-platform.
 
+**Rotation takes effect without a pod roll (#6163).** `seedAnthropicToken`
+reads `catalyst-system/sovereign-anthropic-credentials` **live** on every seed
+pass and falls back to the process env. Before that it read only
+`CATALYST_ANTHROPIC_API_KEY` / `CATALYST_ANTHROPIC_CREDENTIALS_JSON`, which are
+`secretKeyRef` env vars — materialised **once, at container start** — so the
+ten-minute self-heal loop re-wrote the credential the process booted with,
+forever, and an operator who rotated the Secret after an OAuth expiry changed
+nothing until the next catalyst-api roll. The seed log line now carries
+`credentialSource`; `process-env` on a Sovereign that HAS the Secret means the
+live read failed.
+
 Until it is supplied the dashboard still renders, but the seed **loud-skips**
 (catalyst-api logs `anthropic seed: SKIPPED — platform Anthropic credential
 unset`) and the agent reports *"runtime offline · 0 workers"* / *"no Claude
@@ -173,7 +184,26 @@ ESO refreshes `agenity-anthropic-token` within `refreshInterval` (1h, or force
 an immediate sync by annotating the ExternalSecret with
 `force-sync=$(date +%s)`); the init container then seeds
 `~/.claude/.credentials.json` from `credentialsJson` and the next agent spawn
-authenticates. This path is **shared per-Sovereign** (not per-Org-namespaced) —
+authenticates.
+
+> **The init container waits for a late credential — it no longer no-ops
+> (#6163).** `seed-claude-creds` used to read the mounted Secret once at pod
+> start and, on a miss, print `no credentials.json key in Secret — key-only
+> mode` and exit 0. Measured on hw293, a workspace held that line for **eight
+> hours** after the openbao path was seeded, with the Pod reporting `Running`
+> throughout. It now polls the mount for
+> `anthropic.credentialWait.deadlineSeconds` (default 180s) — kubelet
+> re-projects a mounted Secret on its own sync period, so a credential seeded
+> after pod start arrives with no restart — and on timeout exits non-zero, so
+> the kubelet retries with backoff and the gap is visible in `kubectl get pod`
+> rather than only in a log. Set
+> `anthropic.credentialWait.onTimeout: continue` to start the workspace anyway.
+> Note that the old "key-only mode" wording was never accurate here: this init
+> container renders only when `anthropic.credentialsKey` is set, i.e. only when
+> OAuth mode was requested — a real key-only install sets `credentialsKey: ""`
+> and gets no init container at all.
+
+This path is **shared per-Sovereign** (not per-Org-namespaced) —
 a single seed serves every Org's agenity install on that Sovereign. The
 preferred durable seam is the platform credential the catalyst-api producer
 auto-seeds (above); this `bao kv put` is a one-off / hot re-seed.
