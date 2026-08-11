@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-11T01:45:06Z` |
+| Last refreshed | `2026-08-11T02:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-11T01:55 | [#6121](https://github.com/openova-io/openova/pull/6121) | #6107 | fix(org): an unusable secondary kubeconfig is a MISSING arti |
 | 2026-08-11T01:42 | [#6119](https://github.com/openova-io/openova/pull/6119) | #6004 | fix(guard): a region must not advertise a hostname it cannot |
 | 2026-08-11T01:38 | [#6117](https://github.com/openova-io/openova/pull/6117) | #5957 | docs(path-to-100): partition the hw293 UAT failure residue b |
 | 2026-08-11T01:32 | [#6115](https://github.com/openova-io/openova/pull/6115) | #4416 | docs(uat): adjudicate the clauses that assert objects the pl |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-10T20:25 | [#6069](https://github.com/openova-io/openova/pull/6069) | #5496 | docs(uat): hw293 WALKABLE NOW walk — 15 rows measured live,  |
 | 2026-08-10T20:02 | [#6066](https://github.com/openova-io/openova/pull/6066) | #5933 | docs(uat): flush 14 rows still graded on a wiped env, and re |
 | 2026-08-10T20:12 | [#6065](https://github.com/openova-io/openova/pull/6065) | #6058 | fix(handover): make the secondary-kubeconfig forward-client  |
-| 2026-08-10T20:36 | [#6064](https://github.com/openova-io/openova/pull/6064) | #837 | fix(catalyst-api): the parent-domain picker offered nothing  |
 
 ---
 
