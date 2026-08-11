@@ -126,8 +126,18 @@ func writeKubeconfigFile5488(t *testing.T, dir, stem string) {
 // in-memory paths map, and nothing derivable on disk — the exact hw291
 // post-restart state. Before the #5488 fallback change this returned the
 // "(missing/unreadable: )" abort; reverting the change makes this fail.
+//
+// #6107 — with nothing on disk there is no PROVENANCE corroboration, so
+// acceptance now rests on the other one: the endpoint the Secret's credential
+// names must answer. hw291's did; hw293's did not, and that is the whole
+// difference between this case and
+// TestSecondaryKubeconfigSecret_6107_MisDeliveredEndpointIsNotRecovery. The
+// probe is injected so no unit test dials, and it is the SUBJECT of this
+// case's twin below (…_NoCorroborationAndDeadEndpoint), which flips only this
+// one input and must abort.
 func TestMaterializeSecondaryKubeconfigs_5488_AcceptsAlreadyMaterializedSecret(t *testing.T) {
 	h, deps, _ := newFixture5488(t, "", 2)
+	h.secondaryEndpointProbe = func(string) bool { return true }
 	seedMaterializedSecret5488(t, deps, "", "me-east-215-b-1.yaml")
 
 	n, err := h.materializeSecondaryKubeconfigsSecret(context.Background(), deps)

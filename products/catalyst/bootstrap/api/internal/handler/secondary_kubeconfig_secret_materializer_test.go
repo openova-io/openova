@@ -227,6 +227,12 @@ func TestSecondaryKubeconfigSecret_StubIsRefused(t *testing.T) {
 func TestSecondaryKubeconfigSecret_StubInSecretIsNotAcceptedAsRecovery(t *testing.T) {
 	h, fake, _ := materializerFixture(t, 2) // 2 regions expected, NOTHING on disk
 	deps := &cutoverDeps{core: fake, ns: cutoverTestNS}
+	// This test isolates the CREDENTIAL axis, so the endpoint axis is held
+	// satisfied: the probe proves whatever host the fixtures name. Endpoint
+	// proof has its own test — TestSecondaryKubeconfigSecret_6107_* — and
+	// leaving it unproven here would let this case pass for the wrong reason.
+	h.secondaryEndpointProbe = func(string) bool { return true }
+	res := secondaryKubeconfigResolution{depID: "dep5359"}
 
 	if _, err := fake.CoreV1().Secrets(cutoverTestNS).Create(context.Background(), &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: cutoverSecondaryKubeconfigsSecretName(), Namespace: cutoverTestNS},
@@ -235,8 +241,8 @@ func TestSecondaryKubeconfigSecret_StubInSecretIsNotAcceptedAsRecovery(t *testin
 		t.Fatalf("seed: %v", err)
 	}
 
-	if n, ok := h.acceptMaterializedSecondaryKubeconfigsSecret(context.Background(), deps,
-		cutoverSecondaryKubeconfigsSecretName(), 1, "dep5359"); ok {
+	if n, ok, _ := h.acceptMaterializedSecondaryKubeconfigsSecret(context.Background(), deps,
+		cutoverSecondaryKubeconfigsSecretName(), 1, res); ok {
 		t.Fatalf("a Secret whose only key is the 95-byte stub satisfied the recovery check (n=%d) — the count was of keys, not of credentials", n)
 	}
 
@@ -246,8 +252,8 @@ func TestSecondaryKubeconfigSecret_StubInSecretIsNotAcceptedAsRecovery(t *testin
 	if _, err := fake.CoreV1().Secrets(cutoverTestNS).Update(context.Background(), sec, metav1.UpdateOptions{}); err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	if n, ok := h.acceptMaterializedSecondaryKubeconfigsSecret(context.Background(), deps,
-		cutoverSecondaryKubeconfigsSecretName(), 1, "dep5359"); !ok || n != 1 {
+	if n, ok, _ := h.acceptMaterializedSecondaryKubeconfigsSecret(context.Background(), deps,
+		cutoverSecondaryKubeconfigsSecretName(), 1, res); !ok || n != 1 {
 		t.Fatalf("the complete control was refused by the recovery check: n=%d ok=%v", n, ok)
 	}
 }

@@ -378,6 +378,9 @@ func (r *Reconciler) reconcileTenantConsoleTLS(ctx context.Context, org *orgapi.
 	for _, u := range res.Unreachable {
 		errs = append(errs, "unreachable secondary region: "+u)
 	}
+	for _, u := range res.Undecidable {
+		errs = append(errs, "undecidable secondary-region count: "+u)
+	}
 	if len(errs) > 0 {
 		sort.Strings(errs)
 		return changed, fmt.Errorf("console listener for %q: %s", names.WildcardHost, strings.Join(errs, "; "))
@@ -634,6 +637,9 @@ func (r *Reconciler) teardownTenantConsoleTLS(ctx context.Context, org *orgapi.O
 	}
 	for _, u := range res.Unreachable {
 		errs = append(errs, "unreachable secondary region: "+u)
+	}
+	for _, u := range res.Undecidable {
+		errs = append(errs, "undecidable secondary-region count: "+u)
 	}
 	if len(errs) > 0 {
 		sort.Strings(errs)
