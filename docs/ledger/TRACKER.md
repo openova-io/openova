@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-11T01:30:10Z` |
+| Last refreshed | `2026-08-11T01:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5602](https://github.com/openova-io/openova/issues/5602) | Hubble UI: authenticated landing works but data streams never connect (persisten | Other |
 | [#5608](https://github.com/openova-io/openova/issues/5608) | Keycloak admin console: group Role-mapping tab crashes ('Cannot read properties  | Other |
 | [#5609](https://github.com/openova-io/openova/issues/5609) | active-passive topology is never selectable: all 24 blueprints declaring it have | Other |
 | [#5610](https://github.com/openova-io/openova/issues/5610) | Catalog edit surfaces: summary inline editor opens empty (wipe hazard) + YamlEdi | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6109](https://github.com/openova-io/openova/issues/6109) | openova-mcp masks the authoritative /whoami verdict behind a stale 'signature is | Other |
 | [#6111](https://github.com/openova-io/openova/issues/6111) | UAT adjudication: three clauses assert objects the platform does not have (Conti | Other |
 | [#6114](https://github.com/openova-io/openova/issues/6114) | UAT ❌ residue on hw293: 61 rows in 8 root-cause clusters — 30 behind one dea | Other |
+| [#6122](https://github.com/openova-io/openova/issues/6122) | UAT row 213: cross-Org get_application answers not-found, not 403 — #5522 move | Other |
 
 ---
 
@@ -307,6 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-11T01:42 | [#6119](https://github.com/openova-io/openova/pull/6119) | #6004 | fix(guard): a region must not advertise a hostname it cannot |
+| 2026-08-11T01:38 | [#6117](https://github.com/openova-io/openova/pull/6117) | #5957 | docs(path-to-100): partition the hw293 UAT failure residue b |
+| 2026-08-11T01:32 | [#6115](https://github.com/openova-io/openova/pull/6115) | #4416 | docs(uat): adjudicate the clauses that assert objects the pl |
+| 2026-08-11T01:40 | [#6113](https://github.com/openova-io/openova/pull/6113) | #6055 | docs(uat): hw293 live-walk — 5 cutover/meta rows pass, 162 f |
+| 2026-08-11T01:35 | [#6112](https://github.com/openova-io/openova/pull/6112) | #6015 | fix(catalyst-api): the secondary-kubeconfig delivery leg mus |
 | 2026-08-11T01:25 | [#6110](https://github.com/openova-io/openova/pull/6110) | #5175 | fix(openova-mcp): surface the authoritative /whoami verdict, |
 | 2026-08-11T00:56 | [#6105](https://github.com/openova-io/openova/pull/6105) | #6089 | docs(uat): hw293 SSO re-walk — 9 green, 8 catalyst-pin broke |
 | 2026-08-11T01:26 | [#6104](https://github.com/openova-io/openova/pull/6104) | #6015 | fix(catalyst-api): the peer-region credential Secret must no |
@@ -332,11 +337,6 @@ flowchart LR
 | 2026-08-10T20:02 | [#6066](https://github.com/openova-io/openova/pull/6066) | #5933 | docs(uat): flush 14 rows still graded on a wiped env, and re |
 | 2026-08-10T20:12 | [#6065](https://github.com/openova-io/openova/pull/6065) | #6058 | fix(handover): make the secondary-kubeconfig forward-client  |
 | 2026-08-10T20:36 | [#6064](https://github.com/openova-io/openova/pull/6064) | #837 | fix(catalyst-api): the parent-domain picker offered nothing  |
-| 2026-08-10T20:06 | [#6063](https://github.com/openova-io/openova/pull/6063) | #5909 | docs(uat): audit all 10 ENV-STATE rows on hw293 — 5 were mis |
-| 2026-08-10T20:08 | [#6061](https://github.com/openova-io/openova/pull/6061) | #5420 | fix(console): the Topology tab returned before it ever read  |
-| 2026-08-10T22:16 | [#6059](https://github.com/openova-io/openova/pull/6059) | #6021 | fix(bp-postgres): release 0.2.19 — #6021's fix was merged wi |
-| 2026-08-10T19:07 | [#6057](https://github.com/openova-io/openova/pull/6057) | #6016 | docs(uat): 13 WALKABLE-NOW rows settled on hw293 — 8 flip gr |
-| 2026-08-10T19:03 | [#6056](https://github.com/openova-io/openova/pull/6056) | #3370 | fix(console): /apps renders two card collections and said wh |
 
 ---
 
