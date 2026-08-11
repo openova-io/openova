@@ -1117,6 +1117,70 @@ classifies these automatically** — it fails only when a hostname cannot serve 
 the gateway that *owns* it, and reports a reading from the peer gateway's port as
 `EXPECTED-ISOLATION`, never as a defect.
 
+##### 5.1.3 The source-side half — correspondence without a cluster (#6140)
+
+§5.1.2 and `check-live-route-backends.sh` both need a running Sovereign. That
+left the whole class decidable **only after a provision**, which is how region B
+shipped HTTPRoutes with zero admitting listeners without CI objecting once.
+
+`scripts/check-chart-route-listener-correspondence.sh` closes that half. It
+renders the listener producer and the route producers and joins them, so a
+hostname with no listener fails in the pull request rather than on a customer's
+TLS handshake. **No cluster, no registry, no credentials.**
+
+What makes it decidable from source: **no chart in this repo renders a
+`kind: Gateway`.** Both Gateways are Kustomize manifests under
+`clusters/_template/sovereign-tls/` whose entire `spec.listeners` is a Flux
+`postBuild` placeholder, and both placeholders are filled by ONE chart:
+
+| Gateway manifest | Placeholder | Rendered by |
+|---|---|---|
+| `cilium-gateway.yaml` | `${PARENT_DOMAINS_LISTENERS_YAML}` | `platform/sovereign-tls-vars/chart` — one `*.<zone>` pair per `parentZones[]` + the per-prov `*.<fqdn>` pair |
+| `cilium-gateway-console.yaml` | `${CONSOLE_LISTENERS_YAML}` | same chart — one **exact** `<prefix>.<fqdn>` pair per `consoleGateway.hostPrefixes[]` |
+
+Three rules the guard encodes, each of which has already been got wrong here:
+
+- **Ownership is the `parentRef`, never a hostname prefix.**
+  `marketplace.<fqdn>` is on the **console** gateway (and is in
+  `hostPrefixes`); `mcp.<fqdn>` is on the **shared** one (#5341 — a console
+  wildcard collided with the shared `*.<fqdn>` chain and 404'd ~50% of every
+  other subdomain). Per-Org `mcp.<slug>.<pool>` *is* on the console gateway but
+  is stamped by catalyst-api at install time, not by any chart. A `console.*`
+  prefix rule gets all three wrong.
+- **Wildcards are suffix matches of one or MORE labels.** `*.a.b` admits
+  `x.a.b` and `x.y.a.b`, never the bare `a.b`. (Distinct from Let's Encrypt
+  wildcard SANs, which match exactly one label — that different rule is why the
+  per-prov `*.<fqdn>` listener pair exists at all. Conflating them is a trap in
+  both directions.)
+- **`sectionName` and `port` are pins.** A pin that names nothing leaves the
+  route with zero candidate listeners. Both listener sets are asserted under
+  the Hetzner (`:443/:80`) **and** Huawei (`:8443/:8080`) console-port profiles,
+  because that split is the mechanism behind the §5.1.2 false 404.
+
+Verdicts are deliberately split by owner: **`NO-LISTENER`** = the Gateway exists
+and its listener set does not cover the host (owner: `consoleGateway.hostPrefixes`
+/ `parentZones`, or the route's own pin). **`NO-GATEWAY`** = the parentRef names
+a Gateway nothing installs (owner: a bootstrap slot). Collapsing them sends every
+one of them to the wrong person.
+
+```bash
+scripts/check-chart-route-listener-correspondence.sh              # repo render
+scripts/check-chart-route-listener-correspondence.sh --self-test  # fixtures only
+scripts/check-chart-route-listener-correspondence.sh --vacuity    # must go RED
+```
+
+Admission semantics live in `scripts/lib/gateway_route_admission.py`, **shared**
+with `check-live-route-backends.sh` — one implementation, so the live and source
+guards cannot drift onto two different readings of the spec.
+
+The first defect it caught: harbor's `harbor.<fqdn>` alias-redirect route read
+`.Values.gateway.sectionName` (a key that does not exist; the real one is
+`.Values.gateway.parentRef.sectionName`) and so always fell back to
+`sectionName: "https"`. That listener name exists only on a **single-zone**
+Sovereign — every Org-pool Sovereign renames it `https-<zone-dashed>` — so the
+route attached to zero listeners and envoy reset the handshake. Fixed in
+bp-harbor 1.2.48.
+
 ### 5.2 The walk — Phase 0 + Phase 1 deterministic test
 
 Per [`DOD.md`](DOD.md), every walk must move at least one of the 5 inseparable pillars:
