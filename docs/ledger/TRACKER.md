@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-11T04:15:04Z` |
+| Last refreshed | `2026-08-11T04:30:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-11T04:21 | [#6150](https://github.com/openova-io/openova/pull/6150) | #5623 | docs(uat): G12 region-kill WALKED on hw293 — destructive ass |
 | 2026-08-11T04:01 | [#6144](https://github.com/openova-io/openova/pull/6144) | #6054 | fix(catalyst): a usable secondary kubeconfig is not thereby  |
+| 2026-08-11T04:16 | [#6143](https://github.com/openova-io/openova/pull/6143) | #6114 | fix(walk): a console-gateway hostname probed on the shared g |
+| 2026-08-11T04:16 | [#6142](https://github.com/openova-io/openova/pull/6142) | #3969 | fix(catalyst-api): stop the Topology-tab Save flattening spe |
+| 2026-08-11T04:16 | [#6141](https://github.com/openova-io/openova/pull/6141) | #4656 | docs(uat): walk the 13 unwalked hw293 rows — 11 flip green,  |
 | 2026-08-11T04:02 | [#6138](https://github.com/openova-io/openova/pull/6138) | #5857 | fix(catalyst-api): refuse a declared isolation the plan cann |
 | 2026-08-11T03:25 | [#6137](https://github.com/openova-io/openova/pull/6137) | #4466 | fix(catalyst-chart): the janitor's whole env surface was unr |
 | 2026-08-11T03:26 | [#6134](https://github.com/openova-io/openova/pull/6134) | #6099 | fix(jobs): the cutover tree had no root — an empty dependsOn |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-08-11T00:05 | [#6101](https://github.com/openova-io/openova/pull/6101) | #6091 | fix(catalyst-api): census the converged-late rescue over the |
 | 2026-08-10T23:51 | [#6100](https://github.com/openova-io/openova/pull/6100) | #6092 | test(org-delete): make the refused Secret delete reachable — |
 | 2026-08-11T00:59 | [#6099](https://github.com/openova-io/openova/pull/6099) | #3646 | fix(jobs,openbao): the cutover tree was ordered by the alpha |
-| 2026-08-10T23:53 | [#6098](https://github.com/openova-io/openova/pull/6098) | #5956 | docs(uat): e2e-journey walked end to end on hw293 — 216/217/ |
-| 2026-08-11T00:03 | [#6097](https://github.com/openova-io/openova/pull/6097) | #6027 | fix(org): two per-Org console defects on hw293 — the region  |
-| 2026-08-10T23:34 | [#6095](https://github.com/openova-io/openova/pull/6095) | #6051 | docs(uat): row 107 passes on a real delete; R17's cause move |
-| 2026-08-11T00:58 | [#6094](https://github.com/openova-io/openova/pull/6094) | #5985 | fix(catalyst-api): the DR runbook preflight must measure wha |
 
 ---
 
