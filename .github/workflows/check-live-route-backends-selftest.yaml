@@ -1,0 +1,76 @@
+name: check — live route/backend serving classifier (#6040)
+
+# scripts/check-live-route-backends.sh answers "does this region ADVERTISE a
+# hostname it cannot serve". It is run by a walker against a live cluster, so
+# nothing but this job can notice when its classifier decays.
+#
+# The shape it exists to catch, measured on hw293 (dep a0077ba47e3720e5) on
+# 2026-08-11 with both regions read read-only:
+#
+#   region A   36 advertised backendRefs    0 dead   ->  curl 200
+#   region B   14 advertised backendRefs   10 dead   ->  curl 503
+#
+# Both regions' nodes sit in the same round-robin ELB pool, so half of every
+# fresh TCP connection to console./api./auth./marketplace./mcp./hubble. hit
+# region B and got envoy's `no healthy upstream`. The ELB could not drain it:
+# its health monitor is TCP against a hostNetwork envoy host port, which binds
+# whether or not envoy has a single resolvable upstream — a check that cannot
+# fail. This classifier is the one that can.
+#
+# This job runs the script's own --self-test. It contacts no cluster.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/check-live-route-backends.sh'
+      - '.github/workflows/check-live-route-backends-selftest.yaml'
+  pull_request:
+    paths:
+      - 'scripts/check-live-route-backends.sh'
+      - '.github/workflows/check-live-route-backends-selftest.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  self-test:
+    name: classifier self-test (no cluster contacted)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash syntax
+        run: bash -n scripts/check-live-route-backends.sh
+
+      - name: self-test
+        run: bash scripts/check-live-route-backends.sh --self-test
+
+      # Vacuity check on the self-test itself. Regress the classifier to the
+      # belief that made #6040 invisible for 12 hours — "a Service carrying
+      # service.cilium.io/global is a legitimate mesh stub, therefore fine" —
+      # and require the suite to go RED. On hw293 that belief was held by
+      # every reader of the chart, and it was wrong precisely because
+      # ClusterMesh reported 0/0 remote clusters in BOTH regions, so the
+      # annotation pointed at nothing.
+      - name: self-test must be able to fail
+        run: |
+          cp scripts/check-live-route-backends.sh /tmp/mutant.sh
+          python3 - <<'PY'
+          p = "/tmp/mutant.sh"
+          s = open(p).read()
+          old = "            if mesh > 0:"
+          new = "            if True:"
+          assert old in s, "mutation anchor not found — update this step"
+          open(p, "w").write(s.replace(old, new, 1))
+          PY
+          if bash /tmp/mutant.sh --self-test >/tmp/mutant.out 2>&1; then
+            echo "VACUITY FAIL: the self-test passed against a classifier that"
+            echo "excuses every global-annotated Service without ever checking"
+            echo "whether a remote cluster exists. That is the #6040 blind spot."
+            cat /tmp/mutant.out
+            exit 1
+          fi
+          echo "OK: the mutated classifier is caught. Failing assertion:"
+          grep -m1 'SELF-TEST FAIL' /tmp/mutant.out || cat /tmp/mutant.out
