@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-11T02:15:04Z` |
+| Last refreshed | `2026-08-11T02:30:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,9 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-11T02:26 | [#6125](https://github.com/openova-io/openova/pull/6125) | #3840 | fix(bootstrap-kit): the Flux controllers must not be the onl |
+| 2026-08-11T02:22 | [#6123](https://github.com/openova-io/openova/pull/6123) | #5206 | docs(uat): rows 212/213 walked on hw293 — the per-Org MCP in |
 | 2026-08-11T01:55 | [#6121](https://github.com/openova-io/openova/pull/6121) | #6107 | fix(org): an unusable secondary kubeconfig is a MISSING arti |
 | 2026-08-11T01:42 | [#6119](https://github.com/openova-io/openova/pull/6119) | #6004 | fix(guard): a region must not advertise a hostname it cannot |
 | 2026-08-11T01:38 | [#6117](https://github.com/openova-io/openova/pull/6117) | #5957 | docs(path-to-100): partition the hw293 UAT failure residue b |
+| 2026-08-11T02:24 | [#6116](https://github.com/openova-io/openova/pull/6116) | #6108 | fix(catalyst-api): stop CREATING torn kubeconfigs, not just  |
 | 2026-08-11T01:32 | [#6115](https://github.com/openova-io/openova/pull/6115) | #4416 | docs(uat): adjudicate the clauses that assert objects the pl |
 | 2026-08-11T01:40 | [#6113](https://github.com/openova-io/openova/pull/6113) | #6055 | docs(uat): hw293 live-walk — 5 cutover/meta rows pass, 162 f |
 | 2026-08-11T01:35 | [#6112](https://github.com/openova-io/openova/pull/6112) | #6015 | fix(catalyst-api): the secondary-kubeconfig delivery leg mus |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-10T21:35 | [#6074](https://github.com/openova-io/openova/pull/6074) | #6071 | fix(org-gitops): the per-Org writer picked a witness that ca |
 | 2026-08-10T21:36 | [#6073](https://github.com/openova-io/openova/pull/6073) | #4460 | fix(clustermesh): re-base the shared-pg hub readiness gate o |
 | 2026-08-10T20:48 | [#6070](https://github.com/openova-io/openova/pull/6070) | #6042 | docs(uat): re-measure the 41 DEPLOY-GATED rows against the s |
-| 2026-08-10T20:25 | [#6069](https://github.com/openova-io/openova/pull/6069) | #5496 | docs(uat): hw293 WALKABLE NOW walk — 15 rows measured live,  |
-| 2026-08-10T20:02 | [#6066](https://github.com/openova-io/openova/pull/6066) | #5933 | docs(uat): flush 14 rows still graded on a wiped env, and re |
-| 2026-08-10T20:12 | [#6065](https://github.com/openova-io/openova/pull/6065) | #6058 | fix(handover): make the secondary-kubeconfig forward-client  |
 
 ---
 
