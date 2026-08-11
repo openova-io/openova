@@ -76,7 +76,7 @@ GLOBS = [
 ]
 
 # Test fixtures are inputs to OTHER guards' unit tests, never deployed. They are
-# out of scope by path, not by allowlist, so they cannot mask a real regression.
+# excluded by PATH, not by allowlist, so they cannot mask a real regression.
 EXCLUDE_SUBSTRINGS = ("/tests/fixtures/", "/node_modules/", "/.claude/")
 
 # RATCHET — pre-existing single-replica Deployments that still carry the trap.
@@ -320,7 +320,7 @@ def self_test() -> int:
                     f"({found}) — it must only govern replicas: 1"
                 )
             else:
-                print(f"  ok   {label}  (correctly out of scope)")
+                print(f"  ok   {label}  (correctly not governed)")
             continue
         if len(found) != 1:
             failures.append(f"{label}: expected 1 in-scope doc, got {len(found)}")
@@ -339,7 +339,7 @@ def self_test() -> int:
             print(f"  - {f}", file=sys.stderr)
         return 1
     print("self-test: 8/8 — guard discriminates trapped vs rollable, and the "
-          "multi-replica CONTROL stays out of scope")
+          "multi-replica CONTROL stays ungoverned")
     return 0
 
 
