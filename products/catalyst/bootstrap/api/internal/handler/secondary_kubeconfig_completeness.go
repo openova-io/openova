@@ -62,81 +62,32 @@
 package handler
 
 import (
-	"sort"
-	"strings"
-
-	"k8s.io/client-go/tools/clientcmd"
+	"github.com/openova-io/openova/core/controllers/pkg/kubeconfig"
 )
 
 // secondaryKubeconfigDefects reports why raw cannot produce a working
 // client, as a stable, sorted list of section names for the log + the HTTP
 // response. An empty slice means the document is usable.
 //
-// The returned names are deliberately the kubeconfig's own top-level keys
-// ("clusters", "contexts", "users", "current-context") so an operator
-// reading the 422 can diff the rejected document against a healthy one
-// without needing this source file.
+// The implementation lives in core/controllers/pkg/kubeconfig so that the
+// PRODUCER of a secondary kubeconfig and the CONSUMER that later reads it back
+// cannot disagree about what "usable" means (#6107). This document crosses
+// three hops — export, receive, and the org-controller's region resolver — and
+// each of them previously carried its own presence-only check. A shared
+// contract is what stops a document being accepted by one hop and rejected by
+// the next while nothing reports the region as credential-less.
+//
+// The dependency direction already existed: this module requires
+// core/controllers (see go.mod replace), so nothing new is coupled here.
+//
+// Refs #6015, #6040, #6107.
 func secondaryKubeconfigDefects(raw string) []string {
-	if strings.TrimSpace(raw) == "" {
-		return []string{"empty"}
-	}
-
-	cfg, err := clientcmd.Load([]byte(raw))
-	if err != nil || cfg == nil {
-		return []string{"unparseable"}
-	}
-
-	missing := map[string]struct{}{}
-
-	// A cluster entry with no server URL is the shape the hw293 stub had
-	// AFTER its truncation point removed everything else: the section is
-	// present, so a "has clusters?" check passes, yet nothing dialable is
-	// declared. Assert on the VALUE, not the presence of the KEY.
-	hasServer := false
-	for _, c := range cfg.Clusters {
-		if c != nil && strings.TrimSpace(c.Server) != "" {
-			hasServer = true
-			break
-		}
-	}
-	if !hasServer {
-		missing["clusters"] = struct{}{}
-	}
-	if len(cfg.Contexts) == 0 {
-		missing["contexts"] = struct{}{}
-	}
-	if len(cfg.AuthInfos) == 0 {
-		missing["users"] = struct{}{}
-	}
-	if strings.TrimSpace(cfg.CurrentContext) == "" {
-		missing["current-context"] = struct{}{}
-	}
-
-	// Decisive gate — the consumer's own parser. A document that satisfies
-	// every structural check above but still cannot build a rest.Config
-	// (unresolvable current-context, a context naming a cluster or user
-	// that does not exist, a user carrying no credential at all) is
-	// rejected here rather than at AddCluster time, which is what the
-	// pre-fix ordering deferred until after the write.
-	if _, rerr := clientcmd.RESTConfigFromKubeConfig([]byte(raw)); rerr != nil {
-		if len(missing) == 0 {
-			missing["client-unbuildable"] = struct{}{}
-		}
-	} else if len(missing) == 0 {
-		return nil
-	}
-
-	out := make([]string, 0, len(missing))
-	for k := range missing {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
+	return kubeconfig.Defects(raw)
 }
 
 // secondaryKubeconfigUsable reports whether raw can produce a client — the
 // boolean form of secondaryKubeconfigDefects for call sites that do not
 // need to name the gap.
 func secondaryKubeconfigUsable(raw string) bool {
-	return len(secondaryKubeconfigDefects(raw)) == 0
+	return kubeconfig.Usable(raw)
 }

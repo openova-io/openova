@@ -173,6 +173,41 @@ type multiRegionFixture struct {
 	region client.Client
 }
 
+// regionKubeconfigMarker is the token embedded in a fixture kubeconfig so a
+// test can prove WHICH region's bytes reached a seam without comparing whole
+// documents.
+func regionKubeconfigMarker(region string) string { return "kubeconfig-for-" + region }
+
+// fixtureRegionKubeconfig returns a COMPLETE kubeconfig — one that satisfies
+// the shared usability contract in core/controllers/pkg/kubeconfig — whose
+// cluster name carries the region marker.
+//
+// The `users:` entry is required and deliberate: a kubeconfig with a context
+// but no user parses fine and builds an ANONYMOUS client, which the peer
+// apiserver refuses 403 on every write. Carrying no credential material
+// (`user: {}`) keeps the fixture safe for a public repository while still
+// making the section non-empty.
+func fixtureRegionKubeconfig(region string) string {
+	marker := regionKubeconfigMarker(region)
+	return `apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    server: https://10.0.0.1:6443
+    insecure-skip-tls-verify: true
+  name: ` + marker + `
+users:
+- name: u
+  user: {}
+contexts:
+- context:
+    cluster: ` + marker + `
+    user: u
+  name: c
+current-context: c
+`
+}
+
 func newMultiRegionFixture(t *testing.T, withMesh, withBridge bool, regionListeners []any) multiRegionFixture {
 	t.Helper()
 	org := multiRegionOrg()
@@ -234,7 +269,7 @@ func newMultiRegionFixture(t *testing.T, withMesh, withBridge bool, regionListen
 				Name:      consoleSecondaryKubeconfigSecretDefaultName,
 				Namespace: consoleSecondaryKubeconfigSecretDefaultNamespace,
 			},
-			Data: map[string][]byte{secondaryRegionKey + ".yaml": []byte("kubeconfig-for-" + secondaryRegionKey)},
+			Data: map[string][]byte{secondaryRegionKey + ".yaml": []byte(fixtureRegionKubeconfig(secondaryRegionKey))},
 		}
 		if err := r.Create(context.Background(), bridge); err != nil {
 			t.Fatalf("seed secondary-region kubeconfig bridge: %v", err)
@@ -242,8 +277,13 @@ func newMultiRegionFixture(t *testing.T, withMesh, withBridge bool, regionListen
 	}
 
 	r.RegionClientBuilder = func(kubeconfig []byte) (client.Client, error) {
-		if string(kubeconfig) != "kubeconfig-for-"+secondaryRegionKey {
-			t.Fatalf("region client built from unexpected kubeconfig %q", string(kubeconfig))
+		// Assert on the MARKER rather than on the whole document. The bytes
+		// used to be the literal string "kubeconfig-for-<region>", which is
+		// unparseable and only ever satisfied the pre-#6107 presence check;
+		// the fixture now carries a real kubeconfig so these tests exercise
+		// the shared usability contract instead of walking past it.
+		if !strings.Contains(string(kubeconfig), regionKubeconfigMarker(secondaryRegionKey)) {
+			t.Fatalf("region client built from an unexpected kubeconfig (%d bytes)", len(kubeconfig))
 		}
 		return peer, nil
 	}
