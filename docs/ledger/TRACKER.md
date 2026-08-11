@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-11T00:15:03Z` |
+| Last refreshed | `2026-08-11T00:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-11T00:22 | [#6102](https://github.com/openova-io/openova/pull/6102) | #5583 | fix(scripts): bump-chart-version consults open PR heads befo |
 | 2026-08-11T00:05 | [#6101](https://github.com/openova-io/openova/pull/6101) | #6091 | fix(catalyst-api): census the converged-late rescue over the |
 | 2026-08-10T23:51 | [#6100](https://github.com/openova-io/openova/pull/6100) | #6092 | test(org-delete): make the refused Secret delete reachable — |
 | 2026-08-10T23:53 | [#6098](https://github.com/openova-io/openova/pull/6098) | #5956 | docs(uat): e2e-journey walked end to end on hw293 — 216/217/ |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-10T18:52 | [#6052](https://github.com/openova-io/openova/pull/6052) | #4292 | fix(ledger): a clause edited in one file only silently delet |
 | 2026-08-10T20:19 | [#6051](https://github.com/openova-io/openova/pull/6051) | #5426 | fix(org-delete): grant the missing delete verb and stop repo |
 | 2026-08-10T18:28 | [#6050](https://github.com/openova-io/openova/pull/6050) | #6049 | fix(deploy-bot): unbreak catalyst + services build — a 64 Ki |
-| 2026-08-10T17:58 | [#6048](https://github.com/openova-io/openova/pull/6048) | #5426 | docs(uat): 6 mutation-gated rows walked by driving the produ |
 
 ---
 
