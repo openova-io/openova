@@ -187,20 +187,43 @@ the object on a pre-cutover Sovereign, then region B's
 `curl --no-keepalive --http1.1` x12 against `console.<slug>.<pool>` returns 12/12
 200 (fresh-TCP; HTTP/2 pins one backend and hides a 50% split).
 
-### Cluster C — Organization delete cascade (R17): **merged AND deployed → RE-WALK owed**
+### Cluster C — Organization delete cascade (R17): **CLOSED 2026-08-11, walked green**
 
-`97dc33d3e` (#6051) is in `85e2eaf` and `581e042c6` (#6097) is in `581e042`; the
-namespaced Role that #6097 added for the Secret reap **exists live**. The
-cluster-wide `secrets: [get,list,watch]` in
+`97dc33d3e` (#6051) is in `85e2eaf` and `581e042c6` (#6097) is in the running
+`organization-controller:852de2b`; the namespaced Role that #6097 added for the
+Secret reap **exists live** — `kube-system/Role/catalyst-organization-controller-console-tls`,
+creationTimestamp 2026-08-11T00:22:11Z, `secrets: [get, delete]`, bound to
+`catalyst-system/catalyst-organization-controller`, delivered at umbrella 1.4.1354
+against a live `bp-catalyst-platform@1.4.1366`. The cluster-wide
+`secrets: [get,list,watch]` in
 `products/catalyst/chart/templates/controllers/organization-controller-clusterrole.yaml:111-113`
 is deliberate and is NOT the gap — the delete verb lives in the namespaced Role
-by design. Writer: `tenant_networking_teardown.go:122`. All five Organization CRs
-currently hold `orgs.openova.io/tenant-networking` with **no** deletionTimestamp,
-so the wedge is not reproducible right now. **Action: walk it** — create a
-throwaway Org, `DELETE /api/v1/organizations/<id>`, and assert the CR leaves
-Terminating. **Watch for:** the teardown leg now also calls `consoleRegionTargets`,
-so cluster B's unwired-region error can re-wedge the finalizer for a different
-reason. That is the thing to look for, not the old 403.
+by design. That reading is now **pinned** by Case 6 of
+`products/catalyst/chart/tests/org-controller-region-witness-contract.sh` (#6129):
+RBAC merges additively, so a `delete` added to the cluster-wide rule satisfies the
+teardown exactly as well and no functional test can tell the two apart. PR #6096
+proposed precisely that widening and is closed as superseded.
+
+**Walked green 2026-08-11T02:30-02:55Z, read-only.** `auth can-i` as the
+controller SA in `kube-system`: `delete` **yes** (was `no`), with the scope
+control holding — `delete secrets` is **no** in catalyst-system, default and
+flux-system. `p474del1`, the Org this cluster recorded wedged in `Terminating`
+at 2026-08-10T23:17:42Z, is gone from `kubectl get organizations.orgs.openova.io -A`
+(finalizer released) along with its namespace, StatefulSets, HelmReleases,
+Certificates and Gateway listener pair; `kube-system/org-wildcard-tls-p474del1-omani-rest`
+is reaped, leaving exactly 6 `org-wildcard-tls-*` Secrets against 6 live
+Organizations — 1:1, zero orphans. DNS re-measured against `@1.1.1.1`: all
+`p474del1` names NXDOMAIN while `console.hw293walkone.omani.homes` and
+`console.uat107org.omani.rest` answer NOERROR → `212.72.24.49`.
+
+**The flagged re-wedge risk does not apply — checked, not assumed.** The concern
+was that the teardown's `consoleRegionTargets` call would let cluster B's
+unwired secondary region hold `firstErr` the way the old 403 did. It cannot:
+`teardownTenantConsoleTLS` (`tenant_console_tls.go:630`) accumulates an error only
+from `res.Unreachable` (TRANSIENT), never from `res.Unwired` (STRUCTURAL — the
+cluster-B condition). The up-path errors on `Unwired` at `:376`; the down-path
+deliberately does not, which is why this cascade completed on a Sovereign whose
+region B has no wired kubeconfig, and why a fresh delete completes too.
 
 ### Cluster D — merged AND deployed on the Sovereign; only a WALK is owed (8 rows)
 
