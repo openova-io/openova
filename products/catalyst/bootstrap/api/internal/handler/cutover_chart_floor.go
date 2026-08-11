@@ -31,10 +31,28 @@ import (
 // single-region no-op.
 //
 // #5710 merged as commit 881115109, whose Chart.yaml reads `version: 0.1.171`;
-// its parent reads 0.1.170. So 0.1.171 is the FIRST published chart version in
-// which a completed cutover means the pivot survived the actor that reverts it.
-// Below that line `cutoverComplete=true` is not evidence of sovereignty, and
-// Pillar 5 cannot be claimed from it.
+// its parent reads 0.1.170. So 0.1.171 is the FIRST chart version in which a
+// completed cutover means the secondary pivot survived the actor that reverts
+// it.
+//
+// AND WHY THE FLOOR IS 0.1.172, ONE HIGHER
+// ────────────────────────────────────────
+// A second defect of the same class sits just above it. Below 0.1.172 the
+// cutover pivots the `vcluster-system/loft` chart source in the PRIMARY REGION
+// ONLY (#5650), so a two-region Sovereign reaches cutoverComplete=true with
+// region B still pointed at charts.loft.sh. Step-08's timed deny-egress hold
+// cannot see it, because a dormant dependency is not exercised in the window.
+// #5719 fixed that and merged as 901b3da22, whose Chart.yaml reads 0.1.172
+// (parent 0.1.171).
+//
+// Two tethers, two versions; the floor is the LATER, because at 0.1.171 the
+// loft tether is still there. Below this line `cutoverComplete=true` is not
+// evidence of sovereignty and Pillar 5 cannot be claimed from it.
+//
+// `scripts/check-cutover-version-floor.py` carried 0.1.171 with the loft fix
+// cited as its reason, which was one version below the guarantee it documented;
+// that is corrected in the same change as this constant, and
+// TestChartFloorMatchesTheSourceSideGuard keeps the two numbers in lockstep.
 //
 // RAISING OR LOWERING THIS NUMBER
 // ───────────────────────────────
@@ -48,7 +66,7 @@ const (
 	// cutoverMinChartVersion is the oldest bp-self-sovereign-cutover chart
 	// permitted to RUN a cutover. See the block comment above for the
 	// derivation. Bare "MAJOR.MINOR.PATCH" — no leading "v", no pre-release.
-	cutoverMinChartVersion = "0.1.171"
+	cutoverMinChartVersion = "0.1.172"
 
 	// cutoverChartNameForFloor is the chart name Helm embeds in the
 	// `helm.sh/chart` label value, which is formatted "<name>-<version>".
@@ -231,7 +249,7 @@ func assertCutoverChartFloor(steps []cutoverStep) error {
 			observed: lowest,
 			floor:    cutoverMinChartVersion,
 			detail: fmt.Sprintf(
-				"bp-self-sovereign-cutover %s is installed (lowest across steps, at step %q) but this Sovereign requires at least %s to run a cutover. Below %s, step-06 reads its secondary pivot back only once and the owning Kustomization reverts it seconds later, so cutoverComplete=true can be reached with HelmRepositories still on ghcr.io (#5919, measured on hw292 chart 0.1.159). Bump the bp-self-sovereign-cutover pin to %s or newer and re-trigger; the cutover reconciler retries on its own once the pin lands.",
+				"bp-self-sovereign-cutover %s is installed (lowest across steps, at step %q) but this Sovereign requires at least %s to run a cutover. Below 0.1.171 step-06 reads its secondary pivot back only once and the owning Kustomization reverts it seconds later, so cutoverComplete=true can be reached with HelmRepositories still on ghcr.io (#5710; measured on hw292 chart 0.1.159, 62 of them). Below %s the loft chart source is pivoted in the primary region only, so region B stays on charts.loft.sh behind a green cutover (#5719, Refs #5650). Both are live tethers behind a completed cutover. Bump the bp-self-sovereign-cutover pin to %s or newer and re-trigger; the cutover reconciler retries on its own once the pin lands (#5919).",
 				lowest, lowestStep, cutoverMinChartVersion, cutoverMinChartVersion, cutoverMinChartVersion,
 			),
 		}

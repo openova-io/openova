@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -75,10 +76,30 @@ func TestCutoverChartFloorAcceptsFloorExactly(t *testing.T) {
 // actually in platform/self-sovereign-cutover/chart/Chart.yaml today must pass.
 // A floor that rejects the shipping chart would wedge every Sovereign.
 func TestCutoverChartFloorAcceptsCurrentChart(t *testing.T) {
-	for _, v := range []string{"0.1.171", "0.1.172", "0.1.179", "0.2.0", "1.0.0"} {
+	for _, v := range []string{"0.1.172", "0.1.179", "0.2.0", "1.0.0"} {
 		if err := assertCutoverChartFloor([]cutoverStep{stepAt("helmrepository-patches", v)}); err != nil {
 			t.Errorf("version %s at/above the floor must be accepted: %v", v, err)
 		}
+	}
+}
+
+// TestCutoverChartFloorRefusesOneBelowTheFloor pins the boundary that moved.
+//
+// 0.1.171 carries #5710's durable secondary-pivot assert but NOT #5719's loft
+// pivot for every region, so a two-region Sovereign at 0.1.171 still reaches
+// cutoverComplete=true with region B on charts.loft.sh. The source-side guard
+// used to sit exactly here and called it a pass.
+func TestCutoverChartFloorRefusesOneBelowTheFloor(t *testing.T) {
+	err := assertCutoverChartFloor([]cutoverStep{stepAt("helmrepository-patches", "0.1.171")})
+	if err == nil {
+		t.Fatal("0.1.171 was ACCEPTED — it is one below the floor and still carries the loft tether in region B")
+	}
+	var fe *cutoverChartFloorError
+	if !errors.As(err, &fe) {
+		t.Fatalf("want *cutoverChartFloorError, got %T", err)
+	}
+	if fe.observed != "0.1.171" {
+		t.Errorf("observed = %q, want %q", fe.observed, "0.1.171")
 	}
 }
 
@@ -86,15 +107,15 @@ func TestCutoverChartFloorAcceptsCurrentChart(t *testing.T) {
 
 // TestChartVersionCompareIsNumericNotLexicographic pins the one comparison
 // most likely to be silently wrong. Lexicographically "0.1.99" > "0.1.171"
-// (because "9" > "1"), which would let a 0.1.99 chart through a floor of
-// 0.1.171. This is the entire reason parseChartVersion is strict.
+// (because "9" > "1"), which would let a 0.1.99 chart through a 0.1.17x floor.
+// This is the entire reason parseChartVersion is strict.
 func TestChartVersionCompareIsNumericNotLexicographic(t *testing.T) {
 	if "0.1.99" <= cutoverMinChartVersion {
 		t.Fatal("premise broken: this test only means something while 0.1.99 sorts ABOVE the floor as a string")
 	}
 	err := assertCutoverChartFloor([]cutoverStep{stepAt("helmrepository-patches", "0.1.99")})
 	if err == nil {
-		t.Fatal("0.1.99 was accepted against a 0.1.171 floor — the comparison is lexicographic, not numeric")
+		t.Fatalf("0.1.99 was accepted against a %s floor — the comparison is lexicographic, not numeric", cutoverMinChartVersion)
 	}
 
 	cases := []struct {
@@ -196,7 +217,7 @@ func TestCutoverChartFloorTakesMinimumAcrossSteps(t *testing.T) {
 	allGood := []cutoverStep{
 		stepAt("gitea-mirror", "0.1.179"),
 		stepAt("harbor-projects", "0.1.179"),
-		stepAt("helmrepository-patches", "0.1.171"),
+		stepAt("helmrepository-patches", cutoverMinChartVersion),
 		stepAt("egress-block-test", "0.1.179"),
 	}
 	if err := assertCutoverChartFloor(allGood); err != nil {
@@ -336,13 +357,71 @@ func TestCutoverChartFloorGuardCanFail(t *testing.T) {
 // 881115109, where #5710 landed assert_secondary_pivot_durable(). If someone
 // edits the constant without editing the rationale, this fails and says so.
 func TestCutoverChartFloorConstantMatchesItsStatedDerivation(t *testing.T) {
-	if cutoverMinChartVersion != "0.1.171" {
+	if cutoverMinChartVersion != "0.1.172" {
 		t.Fatalf("cutoverMinChartVersion = %q, want %q.\n"+
-			"The floor tracks #5710 (assert_secondary_pivot_durable, merged at 881115109 where Chart.yaml reads 0.1.171).\n"+
-			"If you are RAISING it, update the derivation comment in cutover_chart_floor.go to name the new issue and the new assert, then update this test.",
-			cutoverMinChartVersion, "0.1.171")
+			"The floor is the LATER of two same-class tethers: #5710 (assert_secondary_pivot_durable,\n"+
+			"merged at 881115109 where Chart.yaml reads 0.1.171) and #5719 (loft pivot in EVERY region,\n"+
+			"merged at 901b3da22 where Chart.yaml reads 0.1.172).\n"+
+			"If you are RAISING it, update the derivation comment in cutover_chart_floor.go to name the\n"+
+			"new issue and the new assert, and raise scripts/check-cutover-version-floor.py in the same change.",
+			cutoverMinChartVersion, "0.1.172")
 	}
 	if _, err := parseChartVersion(cutoverMinChartVersion); err != nil {
 		t.Fatalf("the floor constant itself must parse: %v", err)
+	}
+}
+
+// TestChartFloorMatchesTheSourceSideGuard keeps the two floors in lockstep.
+//
+// There are two, and they answer different questions:
+//
+//   - scripts/check-cutover-version-floor.py is SOURCE-side. It reads the seven
+//     bp-self-sovereign-cutover pins across the five lockstep sites and stops
+//     this repo from SHIPPING a low pin.
+//   - cutoverMinChartVersion is RUNTIME. It stops a Sovereign from RUNNING a
+//     cutover on a low chart that is already installed — the case a source scan
+//     structurally cannot see, and the case hw292 actually was (0.1.159 live).
+//
+// They must agree, because both encode the same fact: below this version a
+// cutover can report success while the Sovereign is still tethered. Raising one
+// alone would leave the other quietly permissive, which is how the source guard
+// came to sit one version below its own documented guarantee in the first place.
+func TestChartFloorMatchesTheSourceSideGuard(t *testing.T) {
+	raw, err := os.ReadFile("../../../../../../scripts/check-cutover-version-floor.py")
+	if err != nil {
+		t.Skipf("source-side guard not readable from this working dir (%v)", err)
+	}
+
+	// Parse the marker the script maintains for exactly this purpose.
+	const marker = "# FLOOR-LOCKSTEP:"
+	var pyFloor string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if i := strings.Index(line, marker); i >= 0 {
+			pyFloor = strings.TrimSpace(line[i+len(marker):])
+			break
+		}
+	}
+	if pyFloor == "" {
+		t.Fatalf("could not find %q in check-cutover-version-floor.py — the lockstep marker was "+
+			"removed or reshaped, so the two floors can now diverge silently", marker)
+	}
+	if pyFloor != cutoverMinChartVersion {
+		t.Errorf("source-side floor is %s but the runtime floor is %s.\n"+
+			"These must move together: one guards what the repo ships, the other guards what a "+
+			"Sovereign runs. Raise both in the same change.", pyFloor, cutoverMinChartVersion)
+	}
+
+	// Vacuity: the marker must carry a real version, not an empty or unparsed
+	// value that happens to compare equal to a broken constant.
+	if _, err := parseChartVersion(pyFloor); err != nil {
+		t.Errorf("the source-side floor marker %q does not parse as a version: %v", pyFloor, err)
+	}
+
+	// And the value must actually be the one the script enforces, not a stale
+	// comment left behind next to a changed FLOOR tuple.
+	wantTuple := "FLOOR = (" + strings.ReplaceAll(pyFloor, ".", ", ") + ")"
+	if !strings.Contains(string(raw), wantTuple) {
+		t.Errorf("the lockstep marker says %s but the script does not contain %q — "+
+			"the marker has drifted from the FLOOR it is supposed to mirror", pyFloor, wantTuple)
 	}
 }

@@ -7,13 +7,44 @@ catches DRIFT between the two, and it is a good check — but it is satisfied ju
 as happily by 0.1.176/0.1.176 as by 0.1.159/0.1.159. Sync says the two numbers
 agree; it says nothing about whether the number is high enough to be correct.
 
-WHAT THE FLOOR BUYS. Below 0.1.171 the cutover pivots the vcluster-system/loft
-chart source in the PRIMARY REGION ONLY (#5650, fixed by #5719 at 0.1.171). On a
-two-region Sovereign that leaves region B still pointed at charts.loft.sh after
-`cutoverComplete=true` — a live tether behind a green cutover, which is the exact
-shape sovereignty is supposed to disprove. Step-08's timed deny-egress hold does
-not catch it either, because a dormant dependency is not exercised during the
-window (#5650).
+WHAT THE FLOOR BUYS — TWO DEFECTS OF THE SAME CLASS, AND THE FLOOR IS THE LATER.
+
+(a) Below 0.1.171 step-06's SECONDARY leg reads its pivot back exactly once,
+    immediately after patching, and the owning Kustomization re-applies the
+    frozen pre-cutover Git artifact ~55s later. The leg measures the *patch* and
+    records it as the *pivot*. #5710 replaced that with
+    `assert_secondary_pivot_durable()`, which pokes the region's GitRepository +
+    the HR-owning Kustomizations and refuses to certify until one reports
+    `status.lastHandledReconcileAt == <token>`.
+
+(b) Below 0.1.172 the cutover pivots the vcluster-system/loft chart source in
+    the PRIMARY REGION ONLY (#5650), leaving region B pointed at charts.loft.sh
+    after `cutoverComplete=true`. Step-08's timed deny-egress hold does not catch
+    it either, because a dormant dependency is not exercised during the window.
+
+Both are the same class: a live tether behind a green cutover. The floor is
+therefore 0.1.172 — the later of the two — because at 0.1.171 defect (b) is
+still present.
+
+CORRECTED 2026-08-11 (#5919). This file previously read `FLOOR = (0, 1, 171)`
+with the reason "0.1.171 (#5719...) is the first version that pivots the loft
+chart source in EVERY region". #5719 landed at 0.1.172, not 0.1.171, so the
+guard was one version BELOW the guarantee it documented — and its own self-test
+asserted that 0.1.171 "-> pass", i.e. it certified exactly the tethered state the
+docstring says the floor eliminates. Read off the tree, not inferred:
+
+    $ git show 881115109:.../chart/Chart.yaml  | grep ^version:   # #5710 merge
+    version: 0.1.171
+    $ git show 881115109^:.../chart/Chart.yaml | grep ^version:
+    version: 0.1.170
+    $ git show 901b3da22:.../chart/Chart.yaml  | grep ^version:   # #5719 merge
+    version: 0.1.172
+    $ git show 901b3da22^:.../chart/Chart.yaml | grep ^version:
+    version: 0.1.171
+
+0.1.171 was correct for reason (a) and wrong for the reason recorded. All seven
+pins are at 0.1.179 today, so raising the floor to 0.1.172 changes no pin — it
+only makes the documented guarantee true.
 
 MEASURED, NOT ASSUMED: hw292 ran 0.1.159 and carried 62 live ghcr.io
 HelmRepository tethers with cc=true.
@@ -84,10 +115,22 @@ SLOT = ROOT / "clusters" / "_template" / "bootstrap-kit" / "06a-bp-self-sovereig
 CHART_NAME = "bp-self-sovereign-cutover"
 SLUG = "self-sovereign-cutover"
 
-FLOOR = (0, 1, 171)
-FLOOR_REASON = ("0.1.171 (#5719, Refs #5650) is the first version that pivots the loft chart "
-                "source in EVERY region. Below it a two-region Sovereign reaches "
-                "cutoverComplete=true with region B still pointed at charts.loft.sh.")
+FLOOR = (0, 1, 172)
+FLOOR_REASON = ("0.1.172 (#5719, Refs #5650) is the first version that pivots the loft chart "
+                "source in EVERY region; below it a two-region Sovereign reaches "
+                "cutoverComplete=true with region B still pointed at charts.loft.sh. "
+                "0.1.171 (#5710) is where step-06 first proves the secondary pivot DURABLE "
+                "rather than merely applied. The floor is the later of the two.")
+
+# Kept in lockstep with cutoverMinChartVersion in
+# products/catalyst/bootstrap/api/internal/handler/cutover_chart_floor.go — the
+# RUNTIME floor that refuses to start a cutover on an installed chart below this
+# line. This guard stops the repo SHIPPING a low pin; that one stops a Sovereign
+# RUNNING a low chart, which is the case a source-side scan structurally cannot
+# see (hw292 was already installed at 0.1.159). A Go test reads the literal
+# below and fails if the two numbers diverge, so neither can be raised alone.
+# The marker comment on the next line is what that test parses — keep the form.
+# FLOOR-LOCKSTEP: 0.1.172
 
 
 def parse(v):
@@ -375,8 +418,17 @@ def self_test():
     cases.append(("catalog-seed FILE unreadable -> both its pins fail",
                   len(evaluate(seed_gone)[0]), 2))
 
-    at_floor = {k: v.replace("0.1.179", "0.1.171") for k, v in good.items()}
+    at_floor = {k: v.replace("0.1.179", ".".join(map(str, FLOOR))) for k, v in good.items()}
     cases.append(("floor value itself -> pass", len(evaluate(at_floor)[0]), 0))
+
+    # One BELOW the floor must fail at every pin. Before the 2026-08-11
+    # correction this exact fixture (0.1.171) was the "-> pass" case, which is
+    # how the guard came to certify a Sovereign still tethered to charts.loft.sh
+    # in region B. Pinned literally, not derived from FLOOR, so that lowering
+    # FLOOR back to 0.1.171 turns this red instead of silently moving with it.
+    one_below = {k: v.replace("0.1.179", "0.1.171") for k, v in good.items()}
+    cases.append((f"0.1.171 (one below floor) -> {len(SITES)} violations",
+                  len(evaluate(one_below)[0]), len(SITES)))
 
     ns = dict(good)
     ns["Chart.yaml version"] = "version: latest\n"
