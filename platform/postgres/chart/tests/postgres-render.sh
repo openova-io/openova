@@ -1490,4 +1490,39 @@ helm template shared-pg . -f "$TMP/sentinel.values.yaml" --set replicaHubSentine
 if grep -q 'replica-hub-sentinel' "$TMP/sentinel-off.yaml"; then
   fail "#6114 replicaHubSentinel.enabled=false still rendered the sentinel (sprig 'default' swallowing boolean false?)"
 fi
-echo "  PASS (sentinel on replica + pre-flip; reap guards completed/age/positive-evidence; watch-list names hub AND role Secrets; readiness cannot wedge Helm wait; absent on primary CONTROL; opt-out clean)"
+# 21h — RUNTIME-SHAPE assertions, each copied from dr-promoter's `actor`
+# container, which runs the SAME alpine/k8s image in THIS chart. Every one of
+# these was initially written wrong from memory and corrected only by reading
+# the proven template, so they are pinned rather than trusted:
+#   * kyverno cilium-l7-mtls (Enforce) DENIES a Pod template without the
+#     policy.cilium.io/enforced label (#3238) — the Deployment would never
+#     be admitted at all.
+#   * alpine/k8s is Alpine: /bin/bash is not the interpreter to assume.
+#   * HOME=/tmp is load-bearing under readOnlyRootFilesystem — kubectl writes
+#     its discovery cache under $HOME.
+grep -q 'policy.cilium.io/enforced: "true"' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 sentinel Pod template lacks policy.cilium.io/enforced — kyverno cilium-l7-mtls (Enforce) DENIES it at admission (#3238)"
+grep -q 'runAsUser: 65534' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 sentinel must run as 65534, the UID dr-promoter's actor uses for this same image"
+awk '/name: HOME/{getline; print; exit}' "$TMP/sentinel-replica.yaml" | grep -q '/tmp' \
+  || fail "#6114 sentinel needs HOME=/tmp — kubectl writes its cache under \$HOME and the rootfs is read-only"
+grep -q '"/bin/bash"' "$TMP/sentinel-replica.yaml" \
+  && fail "#6114 sentinel invokes /bin/bash, but alpine/k8s is Alpine — dr-promoter uses /bin/sh"
+
+# 21i — the rendered loop must actually PARSE as POSIX sh. A bashism here is
+# invisible to every assertion above (they all match text) and would surface
+# only as a CrashLoopBackOff on the replica, which is the failure mode this
+# whole file exists to end. `sh` is dash on Debian/Ubuntu runners.
+python3 - "$TMP/sentinel-replica.yaml" > "$TMP/sentinel-script.sh" <<'PY'
+import sys, yaml
+for d in yaml.safe_load_all(open(sys.argv[1])):
+    if isinstance(d, dict) and d.get("kind") == "Deployment" \
+       and "replica-hub-sentinel" in (d.get("metadata") or {}).get("name", ""):
+        print(d["spec"]["template"]["spec"]["containers"][0]["args"][0])
+PY
+[ -s "$TMP/sentinel-script.sh" ] \
+  || fail "#6114 VACUOUS: extracted an EMPTY sentinel script — the shape check below would pass on nothing"
+sh -n "$TMP/sentinel-script.sh" \
+  || fail "#6114 the sentinel loop is not valid POSIX sh — it would CrashLoopBackOff on the Alpine-based image"
+
+echo "  PASS (sentinel on replica + pre-flip; reap guards completed/age/positive-evidence; watch-list names hub AND role Secrets; readiness cannot wedge Helm wait; absent on primary CONTROL; opt-out clean; admission label + UID + HOME + POSIX-sh parse pinned)"

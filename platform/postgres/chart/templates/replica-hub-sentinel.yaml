@@ -235,22 +235,28 @@ spec:
         catalyst.openova.io/role: replica-hub-sentinel
         catalyst.openova.io/data-instance: {{ $instance | quote }}
         # kyverno cilium-l7-mtls (Enforce) — required on the Pod template or the
-        # Deployment is DENIED at admission (#3238).
-        io.cilium.proxy-visibility: "<Egress/53/UDP/DNS>"
+        # Deployment is DENIED at admission (#3238). Same label dr-promoter and
+        # failover-readiness carry in this chart; verified against those
+        # templates rather than assumed.
+        policy.cilium.io/enforced: "true"
     spec:
       serviceAccountName: {{ $name | quote }}
       automountServiceAccountToken: true
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1001
-        runAsGroup: 1001
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: sentinel
           image: {{ printf "%s:%s" $repo $tag | quote }}
           imagePullPolicy: {{ $pull | quote }}
+          # UID/GID + HOME copied from dr-promoter's `actor` container, which
+          # runs THIS SAME alpine/k8s image in THIS SAME chart. HOME=/tmp is
+          # load-bearing, not cosmetic: kubectl writes its discovery/HTTP cache
+          # under $HOME, and the root filesystem is read-only.
           securityContext:
+            runAsUser: 65534
+            runAsGroup: 65534
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
@@ -274,6 +280,8 @@ spec:
               value: {{ $minAge | quote }}
             - name: EXPECTED_SECRETS
               value: {{ keys $expected | sortAlpha | join " " | quote }}
+            - name: HOME
+              value: /tmp
           # Readiness = "the loop is alive", never "the Secrets arrived". See
           # the header: gating readiness on the synced state would fail Helm
           # wait during the legitimate pre-sync window, and slot 16a's
@@ -290,10 +298,13 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 30
             failureThreshold: 4
-          command: ["/bin/bash", "-c"]
+          # /bin/sh, NOT /bin/bash — alpine/k8s is Alpine-based and dr-promoter
+          # (same image, same chart) invokes sh. The script below stays
+          # ash-compatible: no arrays, no [[ ]], no here-strings.
+          command: ["/bin/sh", "-c"]
           args:
             - |
-              set -uo pipefail
+              set -u
               # Touch BEFORE the first tick so Helm wait is satisfied immediately
               # and a slow API server can never look like a dead reconciler.
               touch /tmp/alive
