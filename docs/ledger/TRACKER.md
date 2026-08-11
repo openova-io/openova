@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-11T06:15:05Z` |
+| Last refreshed | `2026-08-11T06:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-08-11T06:14 | [#6154](https://github.com/openova-io/openova/pull/6154) | #6138 | docs(uat): row 176 stops routing to an engineer, G7 names th |
+| 2026-08-11T06:16 | [#6153](https://github.com/openova-io/openova/pull/6153) | #5401 | fix(wizard): the retired fabricated ORG_DEFAULTS come back o |
 | 2026-08-11T04:21 | [#6150](https://github.com/openova-io/openova/pull/6150) | #5623 | docs(uat): G12 region-kill WALKED on hw293 — destructive ass |
 | 2026-08-11T04:01 | [#6144](https://github.com/openova-io/openova/pull/6144) | #6054 | fix(catalyst): a usable secondary kubeconfig is not thereby  |
 | 2026-08-11T04:16 | [#6143](https://github.com/openova-io/openova/pull/6143) | #6114 | fix(walk): a console-gateway hostname probed on the shared g |
@@ -326,6 +327,7 @@ flowchart LR
 | 2026-08-11T02:22 | [#6123](https://github.com/openova-io/openova/pull/6123) | #5206 | docs(uat): rows 212/213 walked on hw293 — the per-Org MCP in |
 | 2026-08-11T01:55 | [#6121](https://github.com/openova-io/openova/pull/6121) | #6107 | fix(org): an unusable secondary kubeconfig is a MISSING arti |
 | 2026-08-11T01:42 | [#6119](https://github.com/openova-io/openova/pull/6119) | #6004 | fix(guard): a region must not advertise a hostname it cannot |
+| 2026-08-11T06:27 | [#6118](https://github.com/openova-io/openova/pull/6118) | #6089 | fix(netpol): the catalyst-pin backchannel moved in-cluster a |
 | 2026-08-11T01:38 | [#6117](https://github.com/openova-io/openova/pull/6117) | #5957 | docs(path-to-100): partition the hw293 UAT failure residue b |
 | 2026-08-11T02:24 | [#6116](https://github.com/openova-io/openova/pull/6116) | #6108 | fix(catalyst-api): stop CREATING torn kubeconfigs, not just  |
 | 2026-08-11T01:32 | [#6115](https://github.com/openova-io/openova/pull/6115) | #4416 | docs(uat): adjudicate the clauses that assert objects the pl |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-11T00:56 | [#6105](https://github.com/openova-io/openova/pull/6105) | #6089 | docs(uat): hw293 SSO re-walk — 9 green, 8 catalyst-pin broke |
 | 2026-08-11T01:26 | [#6104](https://github.com/openova-io/openova/pull/6104) | #6015 | fix(catalyst-api): the peer-region credential Secret must no |
 | 2026-08-11T00:33 | [#6103](https://github.com/openova-io/openova/pull/6103) | #5958 | docs(uat): rows 100 + 238 + 229 flip on live region reads; R |
-| 2026-08-11T00:22 | [#6102](https://github.com/openova-io/openova/pull/6102) | #5583 | fix(scripts): bump-chart-version consults open PR heads befo |
-| 2026-08-11T00:05 | [#6101](https://github.com/openova-io/openova/pull/6101) | #6091 | fix(catalyst-api): census the converged-late rescue over the |
 
 ---
 
