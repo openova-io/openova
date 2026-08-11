@@ -177,6 +177,178 @@ func regionsFromPlacementTargets(targets []bpv1.PlacementTarget) []string {
 	return append(primaries, rest...)
 }
 
+// placementValueForUpdate produces the value stored at `spec.placement` by a
+// PUT, resolving the CRD's DUAL FORM instead of flattening it (#6136, UAT row
+// 16).
+//
+// THE DEFECT IT CLOSES. The update path wrote exactly one field of the request:
+//
+//	SetNestedField(patched.Object, canonicalizeTopology(body.Placement.Mode), "spec", "placement")
+//
+// so every Save stored a bare STRING and discarded the rest of what the console
+// sent — `targets[]` (the whole #3969 per-region model the PlacementEditor
+// submits: region, cluster, vcluster, role, standbyType), plus `vcluster` and
+// `clusters` (#3373). Two consequences, both measured on hw293
+// (dep a0077ba47e3720e5):
+//
+//  1. `spec.placement.targets` was never written by anything, while the
+//     TopologyTab reads it as rung 2 of its resolution chain — so the per-target
+//     roles a User picked did not survive the Save that reported HTTP 200.
+//  2. A CR already holding the object form was DOWNGRADED to a scalar. On
+//     `uat50-ahs-pg` a Save replaces the whole node, dropping `vcluster` and
+//     `clusters` the request never mentioned. That is data loss on an untouched
+//     field, not a formatting difference.
+//
+// The install door (applications.go) already emitted the object form when the
+// caller declared WHERE fields. Two producers for one dual-form field, and only
+// one of them knew the field was dual-form.
+//
+// WHY IT WENT UNSEEN. Every reader that RENDERS the posture is shape-tolerant —
+// placementFromSpec (#5422), readTopology, and the console's topologyLabel
+// (#4897) all fall back from the string read to `.mode`. So the console kept
+// showing the right posture after a downgrading Save, and the lost targets were
+// invisible from the surface that caused them.
+//
+// THE RULES.
+//   - `current` is the CR's existing spec.placement value (any shape, or nil).
+//   - A body that declares only a mode, over a CR that holds only a string,
+//     keeps producing the bare string — the legacy wire stays byte-identical.
+//   - A body that declares targets / vcluster / clusters, OR a CR already
+//     holding the object form, produces the OBJECT form.
+//   - The object form is MERGED onto the current one: a key the body does not
+//     restate is carried forward rather than deleted. `mode` is always
+//     rewritten (it is what the PUT is for) and always canonicalised, so one
+//     vocabulary still holds (#3375 DoD-1).
+func placementValueForUpdate(current any, body applicationPlacement) any {
+	canonMode := canonicalizeTopology(body.Mode)
+
+	curObj, _ := current.(map[string]interface{})
+	declaresWhere := strings.TrimSpace(body.VCluster) != "" ||
+		len(body.Clusters) > 0 ||
+		len(body.Targets) > 0
+
+	// Legacy shape in, legacy shape out.
+	if curObj == nil && !declaresWhere {
+		return canonMode
+	}
+
+	out := make(map[string]interface{}, len(curObj)+4)
+	for k, v := range curObj {
+		out[k] = v
+	}
+	out["mode"] = canonMode
+
+	if v := strings.TrimSpace(body.VCluster); v != "" {
+		out["vcluster"] = v
+	}
+	if len(body.Regions) > 0 {
+		regions := make([]interface{}, 0, len(body.Regions))
+		for _, r := range body.Regions {
+			regions = append(regions, r)
+		}
+		out["regions"] = regions
+	}
+	if len(body.Clusters) > 0 {
+		clusters := make([]interface{}, 0, len(body.Clusters))
+		for _, c := range body.Clusters {
+			clusters = append(clusters, c)
+		}
+		out["clusters"] = clusters
+	}
+	if len(body.Targets) > 0 {
+		out["targets"] = placementTargetsToUnstructured(body.Targets)
+	}
+	return out
+}
+
+// placementTargetsToUnstructured converts the typed #3969 targets onto the
+// plain JSON values `unstructured.SetNestedField` accepts — it deep-copies
+// through DeepCopyJSONValue, which rejects a Go struct outright, so the
+// conversion is required rather than cosmetic.
+//
+// `standbyType` is emitted ONLY for a Standby target: the Application CRD's
+// admission CEL forbids it on a Primary (placement_target.go: "REQUIRED iff
+// Role==Standby; FORBIDDEN iff Role==Primary"), so emitting an empty string
+// there would have the apiserver reject the whole update.
+func placementTargetsToUnstructured(targets []bpv1.PlacementTarget) []interface{} {
+	out := make([]interface{}, 0, len(targets))
+	for _, t := range targets {
+		item := map[string]interface{}{
+			"region":  t.Region,
+			"cluster": t.Cluster,
+			"role":    string(t.Role),
+		}
+		if v := strings.TrimSpace(t.VCluster); v != "" {
+			item["vcluster"] = v
+		}
+		if t.Role == bpv1.DataRoleStandby && strings.TrimSpace(string(t.StandbyType)) != "" {
+			item["standbyType"] = string(t.StandbyType)
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+// repointPostgresTopologyMode re-derives `parameters.topology.mode` from a new
+// placement posture so the value the CHART renders from cannot contradict the
+// posture the CR declares (#6136, UAT row 16).
+//
+// The install door already does this — `defaultedParameters(blueprint,
+// canonMode, …)` folds the placement token through postgresConfigSchemaMode
+// into the bp-postgres configSchema's narrow `[singleton, active-hot-standby]`
+// enum. The update door never did, so a Topology-tab Save that moved an
+// Application to active-hot-standby returned 200 with
+// `spec.placement: active-hot-standby` sitting directly above
+// `spec.parameters.topology.mode: singleton` — and the HelmRelease kept
+// rendering a singleton. The Save was a no-op at the layer that matters, which
+// is precisely why the row reads "PUT 200, generation bumped, nothing changed".
+//
+// Deference, matching the install door's:
+//   - Non-postgres blueprints are untouched (the enum is bp-postgres' own).
+//   - A tree with NO `topology` object, or one with no `mode` string, is
+//     untouched: #4283's rule is that we never START declaring a mode where
+//     none was declared, because that would silently promote a backing-service
+//     postgres from singleton to the cross-region pair shape.
+//   - A mode that already folds to the wanted value is untouched, so this
+//     returns changed=false for the overwhelming majority of PUTs.
+//
+// When it does repoint to the HA mode it also completes the contract via
+// stampPostgresPrimaryRegion: #5639 established that a mode without a region
+// renders an unsatisfiable nodeAffinity, and mode+region must travel in the
+// SAME topology object because the controller merges parameters shallowly.
+//
+// Returns the updated parameters tree and whether anything changed.
+func repointPostgresTopologyMode(params map[string]interface{}, blueprint, canonMode string) (map[string]interface{}, bool) {
+	if !isPostgresBlueprint(blueprint) {
+		return params, false
+	}
+	topo, _ := params["topology"].(map[string]interface{})
+	if topo == nil {
+		return params, false
+	}
+	cur, ok := topo["mode"].(string)
+	if !ok || strings.TrimSpace(cur) == "" {
+		return params, false
+	}
+	want := postgresConfigSchemaMode(canonMode)
+	if postgresConfigSchemaMode(cur) == want {
+		return params, false
+	}
+
+	out := make(map[string]interface{}, len(params))
+	for k, v := range params {
+		out[k] = v
+	}
+	nextTopo := make(map[string]interface{}, len(topo))
+	for k, v := range topo {
+		nextTopo[k] = v
+	}
+	nextTopo["mode"] = want
+	out["topology"] = nextTopo
+	stampPostgresPrimaryRegion(out)
+	return out, true
+}
+
 // applicationUpdateResponse mirrors applicationStatusResponse — the UI
 // gets back the patched CR's metadata + status snapshot. `DisplayName`
 // echoes spec.displayName from the persisted CR so the matrix (TC-108)
@@ -318,7 +490,17 @@ func (h *Handler) HandleApplicationUpdate(w http.ResponseWriter, r *http.Request
 
 	// Pull the current placement so we can enforce safety rules + carry
 	// it forward when the body doesn't override.
-	curMode, _, _ := unstructured.NestedString(cur.Object, "spec", "placement")
+	//
+	// #6136 — read through placementFromSpec, the dual-form seam (#5422), NOT a
+	// raw NestedString. `spec.placement` is dual-form by CRD design, and a raw
+	// string read returns ok=false against the object form — so on any
+	// object-form Application (hw293's `uat50-ahs-pg`) curMode was "" and the
+	// destructive-transition gate below compared against an empty current
+	// posture. `topologyTransitionAllowed("", …)` cannot see an active-active →
+	// singleton scale-down, so the `?force=true` confirmation silently never
+	// fired for exactly the CRs most likely to need it.
+	curMode := placementFromSpec(cur)
+	curPlacementRaw, _, _ := unstructured.NestedFieldNoCopy(cur.Object, "spec", "placement")
 	curRegionsRaw, _, _ := unstructured.NestedSlice(cur.Object, "spec", "regions")
 	curRegions := stringsFromAnySlice(curRegionsRaw)
 
@@ -442,15 +624,40 @@ func (h *Handler) HandleApplicationUpdate(w http.ResponseWriter, r *http.Request
 		_ = unstructured.SetNestedMap(patched.Object, paramsCopy, "spec", "parameters")
 	}
 	if body.Placement != nil {
-		// One vocabulary (#3375 DoD-1): the patched CR stores the
-		// canonical placement token regardless of which spelling the PUT
-		// body carried.
-		_ = unstructured.SetNestedField(patched.Object, canonicalizeTopology(body.Placement.Mode), "spec", "placement")
+		// One vocabulary (#3375 DoD-1) + one dual-form producer (#6136): the
+		// patched CR stores the canonical placement token regardless of which
+		// spelling the PUT body carried, and it stores it in the SHAPE the
+		// caller's declaration requires — see placementValueForUpdate.
+		_ = unstructured.SetNestedField(patched.Object,
+			placementValueForUpdate(curPlacementRaw, *body.Placement),
+			"spec", "placement")
 		regionsAny := make([]interface{}, 0, len(body.Placement.Regions))
 		for _, reg := range body.Placement.Regions {
 			regionsAny = append(regionsAny, reg)
 		}
 		_ = unstructured.SetNestedSlice(patched.Object, regionsAny, "spec", "regions")
+
+		// #6136 — keep the value the CHART renders from in lockstep with the
+		// posture the CR now declares. The install door already derives
+		// `parameters.topology.mode` from the placement it was given
+		// (defaultedParameters); this door never re-derived it, so a Save that
+		// moved an Application to active-hot-standby left
+		// `spec.parameters.topology.mode: singleton` in place and the
+		// HelmRelease went on rendering a singleton. Measured on hw293: PUT
+		// 200, generation bumped, parameters.topology still singleton.
+		//
+		// Only on a placement-ONLY edit: a caller who sent `parameters`
+		// explicitly is authoritative over their own tree and is never
+		// second-guessed. And only where a mode is ALREADY declared — the
+		// install door's deference (#4283: "we do not start declaring a mode
+		// where we previously declared none") holds here too.
+		if body.Parameters == nil {
+			bpName, _, _ := unstructured.NestedString(patched.Object, "spec", "blueprintRef", "name")
+			curParams, _, _ := unstructured.NestedMap(patched.Object, "spec", "parameters")
+			if next, changed := repointPostgresTopologyMode(curParams, bpName, canonicalizeTopology(body.Placement.Mode)); changed {
+				_ = unstructured.SetNestedMap(patched.Object, next, "spec", "parameters")
+			}
+		}
 	}
 	if dn := strings.TrimSpace(body.DisplayName); dn != "" {
 		_ = unstructured.SetNestedField(patched.Object, dn, "spec", "displayName")
@@ -508,9 +715,11 @@ func (h *Handler) HandleApplicationUpdate(w http.ResponseWriter, r *http.Request
 	// spec.regions with regionsFromEnv() so qa-fixtures-shaped chroot
 	// Sovereigns carry the literal `["fsn1","hel1",...]` tokens even when
 	// the PUT body shipped only a placement change.
-	if pl, ok, _ := unstructured.NestedString(updated.Object, "spec", "placement"); ok {
-		resp.Placement = pl
-	}
+	// #6136 — dual-form read (#5422), not a raw NestedString: the object form
+	// returns ok=false there, so `omitempty` dropped `placement` from the
+	// response for exactly the CRs that carry the richer shape, and the console
+	// then had to invent a posture it was never told.
+	resp.Placement = placementFromSpec(updated)
 	persistedRegions, _, _ := unstructured.NestedSlice(updated.Object, "spec", "regions")
 	resp.Regions = mergeSortedRegions(stringsFromAnySlice(persistedRegions), regionsFromEnv())
 	if params, ok, _ := unstructured.NestedMap(updated.Object, "spec", "parameters"); ok {

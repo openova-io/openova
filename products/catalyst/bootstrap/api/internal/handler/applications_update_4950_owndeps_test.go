@@ -120,9 +120,19 @@ func TestHandleApplicationUpdate_4950_ConsolePlacementApply_Returns200(t *testin
 	if err != nil {
 		t.Fatalf("get patched CR: %v", err)
 	}
-	mode, _, _ := unstructured.NestedString(got.Object, "spec", "placement")
-	if mode != "active-hot-standby" {
-		t.Fatalf("spec.placement = %q, want active-hot-standby (derived from targets[])", mode)
+	// #6136 — this read used to be a raw NestedString, which now returns ok=false
+	// because a body carrying targets[] is stored in the CRD's OBJECT form. The
+	// assertion is not relaxed by moving to placementFromSpec: the same posture
+	// is still required, and the targets the console sent are additionally
+	// required to have SURVIVED the write, which the scalar form could not carry
+	// at all.
+	if mode := placementFromSpec(got); mode != "active-hot-standby" {
+		t.Fatalf("spec.placement posture = %q, want active-hot-standby (derived from targets[])", mode)
+	}
+	targets, found, _ := unstructured.NestedSlice(got.Object, "spec", "placement", "targets")
+	if !found || len(targets) != 2 {
+		t.Fatalf("spec.placement.targets = %v (found=%v), want the 2 targets the console submitted — "+
+			"the editor's per-region model must survive its own Apply (#6136)", targets, found)
 	}
 	regionsRaw, _, _ := unstructured.NestedSlice(got.Object, "spec", "regions")
 	regions := stringsFromAnySlice(regionsRaw)
