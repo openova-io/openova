@@ -58,17 +58,34 @@ func TestResolveOrgShape(t *testing.T) {
 			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "namespace", PlanSlug: "s"},
 		},
 		{
-			// #4539: an explicit isolation in the request still overrides the
-			// derived value (the advanced operator view) — an S-plan Org can be
-			// force-put onto a vcluster.
-			name: "advanced override: S-plan customer forced onto vcluster",
+			// #6135 (UAT row G7) — these two cases used to assert the OPPOSITE:
+			// that an explicit `isolation` overrides the tier gate, so an S-plan
+			// Org could be "force-put onto a vcluster". No force ever occurred.
+			// Nothing downstream reads this value — `boundaryIsVcluster(planSlug)`
+			// authors the backing from the plan alone — so the only thing the
+			// override produced was a 202 echoing `vcluster` over a host
+			// namespace (measured on hw293, dep a0077ba47e3720e5: 202 +
+			// isolation=vcluster, zero vClusters). The expectation encoded the
+			// defect. The shape now DERIVES unconditionally; a declaration that
+			// contradicts the plan is refused at the door with 422 by
+			// declaredIsolationConflict, so it never reaches this resolver.
+			name: "declared vcluster on an S plan does NOT override the tier gate",
 			in:   orgTenantCreateRequest{Kind: "customer", PlanSlug: "s", Isolation: "vcluster"},
-			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "vcluster", PlanSlug: "s"},
+			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "namespace", PlanSlug: "s"},
 		},
 		{
-			name: "advanced override: internal org forced onto chargeback + vcluster",
+			name: "declared vcluster on an internal org does NOT override the tier gate",
 			in:   orgTenantCreateRequest{Kind: "internal", BillingMode: "chargeback", Isolation: "vcluster"},
-			want: orgShape{Kind: "internal", Tier: "org", BillingMode: "chargeback", Isolation: "vcluster", PlanSlug: "s"},
+			want: orgShape{Kind: "internal", Tier: "org", BillingMode: "chargeback", Isolation: "namespace", PlanSlug: "s"},
+		},
+		{
+			// CONTROL for the two cases above: the declaration is not being
+			// ignored wholesale — kind still drives billingMode on the very same
+			// bodies, and an M-plan declaration of `vcluster` still resolves to
+			// vcluster. What changed is only which input decides the BOUNDARY.
+			name: "declared vcluster AGREEING with an M plan resolves to vcluster",
+			in:   orgTenantCreateRequest{Kind: "customer", PlanSlug: "m", Isolation: "vcluster"},
+			want: orgShape{Kind: "customer", Tier: "org", BillingMode: "real", Isolation: "vcluster", PlanSlug: "m"},
 		},
 		{
 			name: "corporate tier honored",

@@ -183,18 +183,24 @@ export function CreateOrganizationPage({
         // (BoundaryIsVcluster("s") === false → the host `<slug>` namespace). It
         // never reads the record's Isolation.
         //
-        // resolveOrgShape lets a valid explicit `isolation` bypass the tier gate
-        // (organization_provisioning.go:373-377). Sending the kind default —
-        // 'vcluster' for every customer — therefore stamped every Door A Org
-        // `vcluster` while it was namespace-backed, re-introducing through the
-        // override branch the exact mislabel isolationForTier was written to
-        // remove: "an S-plan Org that correctly backs a host namespace was
-        // mislabeled vcluster ... The BACKING was always right — only the label
-        // ignored the tier."
+        // `resolveOrgShape` USED to let a valid explicit `isolation` bypass the
+        // tier gate. Sending the kind default — 'vcluster' for every customer —
+        // therefore stamped every Door A Org `vcluster` while it was
+        // namespace-backed, re-introducing the exact mislabel isolationForTier
+        // was written to remove: "an S-plan Org that correctly backs a host
+        // namespace was mislabeled vcluster ... The BACKING was always right —
+        // only the label ignored the tier."
         //
-        // Omitting it lets the server derive from the tier gate, so the label
-        // matches the backing. An operator who opens Advanced and chooses is
-        // still honoured — that is a deliberate override, not a default.
+        // #6135 closed the override branch server-side: `isolation` is now a
+        // CONSTRAINT ASSERTION. Omitted, the server derives from the tier gate
+        // (what this form relies on). Declared, it must MATCH the resolved
+        // plan's boundary or the create is refused with HTTP 422
+        // `isolation-plan-conflict` — no longer accepted-and-substituted. So an
+        // operator who opens Advanced and picks `vcluster` on this
+        // plan-less form gets a 422 that names the plans which deliver it,
+        // surfaced verbatim at `org-create-submit-error` (org.api.ts throws with
+        // the response body). That refusal is the point: the previous 202 said
+        // vcluster and delivered a namespace.
         ...(advancedOpen ? { isolation } : {}),
       })
       setCreated(result)

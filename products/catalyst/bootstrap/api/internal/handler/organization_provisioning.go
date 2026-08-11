@@ -271,7 +271,16 @@ type orgTenantCreateRequest struct {
 	Kind        string `json:"kind,omitempty"`
 	Tier        string `json:"tier,omitempty"`
 	BillingMode string `json:"billing_mode,omitempty"`
-	Isolation   string `json:"isolation,omitempty"`
+	// Isolation — a CONSTRAINT ASSERTION, not an override (#6135). The
+	// Organization's boundary primitive is authored downstream by
+	// `boundaryIsVcluster(planSlug)`, which takes exactly one argument: the
+	// plan. Nothing in the renderer or the org-controller reads this field.
+	// So a value here can only ever AGREE with the plan's boundary or LIE
+	// about it — and it used to be allowed to lie, silently, in a 202.
+	// Declaring it now asserts the boundary you expect: it must match the
+	// resolved plan's, or the create is refused with 422. Omit it to accept
+	// whatever the plan delivers (the marketplace funnel's path).
+	Isolation string `json:"isolation,omitempty"`
 
 	// PlanSlug — purchased catalog plan slug (s|m|l|xl|flexi). Carried onto
 	// the Organization CR so the org-controller materializes the matching
@@ -346,6 +355,81 @@ func isolationForTier(planSlug string) string {
 	}
 }
 
+// catalogPlanSlugs — the purchasable catalog plans, in tier order. ONE list:
+// resolveOrgShape's normalisation and the #6135 conflict message both read it,
+// so a new plan cannot be accepted by one and invisible to the other.
+var catalogPlanSlugs = []string{"s", "m", "l", "xl", "flexi"}
+
+// isCatalogPlanSlug reports whether `slug` names a purchasable plan.
+func isCatalogPlanSlug(slug string) bool {
+	for _, p := range catalogPlanSlugs {
+		if slug == p {
+			return true
+		}
+	}
+	return false
+}
+
+// plansDeliveringIsolation lists the catalog plans whose boundary primitive is
+// `want`, computed by asking the SAME tier gate the create path resolves with.
+// Never a hand-written table: a table would keep naming `m` after a policy flip
+// that moved M-tier Orgs onto a host namespace, which is the class of drift the
+// caller-facing message exists to prevent.
+func plansDeliveringIsolation(want string) []string {
+	var out []string
+	for _, p := range catalogPlanSlugs {
+		if isolationForTier(p) == want {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// declaredIsolationConflict adjudicates a DECLARED `isolation` against the
+// boundary the RESOLVED plan actually delivers (#6135, UAT row G7).
+//
+// The defect it closes: `resolveOrgShape` used to let any valid explicit
+// isolation WIN over the tier gate. The create door then returned 202 echoing
+// `isolation: vcluster` for a plan-`s` Organization that the org-controller
+// backs with the host `<slug>` namespace — and no vCluster was ever authored.
+// The signup form carries no plan picker, so the plan normalised to `s` and
+// EVERY declaring caller on that door got the substitution.
+//
+// The accepted value was never load-bearing: no non-test reader of it exists in
+// core/services/provisioning/gitops, the provisioning consumer, or any
+// core/controllers reconciler. `boundaryIsVcluster(planSlug)` authors the
+// backing from the plan alone. An override branch over a field nothing honours
+// can only produce a divergence, so it is removed rather than plumbed through:
+// making the declaration a second input to the boundary decision would give one
+// outcome two sources of truth, which is the row's own defect wearing a fix's
+// clothes.
+//
+// Returns ("", false) when there is nothing to refuse — an omitted declaration
+// (the marketplace funnel: byte-unchanged) or one that agrees with the plan.
+// Otherwise returns the caller-facing detail and true. An unrecognised enum
+// value lands here too: it cannot equal the plan's boundary, and silently
+// ignoring it is the same lie in a smaller font.
+func declaredIsolationConflict(declared, planSlug string) (string, bool) {
+	want := strings.ToLower(strings.TrimSpace(declared))
+	if want == "" {
+		return "", false
+	}
+	delivered := isolationForTier(planSlug)
+	if want == delivered {
+		return "", false
+	}
+	detail := fmt.Sprintf(
+		"isolation %q is not deliverable on plan %q: that plan's Organizations are backed by %s isolation. ",
+		want, planSlug, delivered)
+	if alt := plansDeliveringIsolation(want); len(alt) > 0 {
+		detail += fmt.Sprintf("Plans that deliver %q: %s. ", want, strings.Join(alt, ", "))
+	} else {
+		detail += fmt.Sprintf("No catalog plan currently delivers %q. ", want)
+	}
+	detail += "Omit `isolation` to accept the plan's boundary, or send a plan_slug that delivers it."
+	return detail, true
+}
+
 // resolveOrgShape applies the §2.1/§2.3 model: kind defaults to
 // "customer" (the marketplace door); billingMode defaults from kind
 // (internal → showback; customer → real); isolation is DERIVED from the
@@ -375,9 +459,7 @@ func resolveOrgShape(req orgTenantCreateRequest) orgShape {
 	}
 
 	planSlug := strings.ToLower(strings.TrimSpace(req.PlanSlug))
-	switch planSlug {
-	case "s", "m", "l", "xl", "flexi":
-	default:
+	if !isCatalogPlanSlug(planSlug) {
 		planSlug = "s"
 	}
 
@@ -385,14 +467,17 @@ func resolveOrgShape(req orgTenantCreateRequest) orgShape {
 	// vcluster for M+) so the label reflects the real backing. It keys off
 	// planSlug ALONE, exactly like the org-controller gate that authors that
 	// backing — `kind` selects the billing dimension above, never the boundary
-	// primitive (#4292 / UAT row 100). An explicit valid request override still
-	// wins.
-	isolation := strings.ToLower(strings.TrimSpace(req.Isolation))
-	switch isolation {
-	case "namespace", "vcluster":
-	default:
-		isolation = isolationForTier(planSlug)
-	}
+	// primitive (#4292 / UAT row 100).
+	//
+	// #6135 (UAT row G7) — the derivation is now UNCONDITIONAL. A declared
+	// `isolation` used to win here, which is how a plan-`s` create returned 202
+	// echoing `vcluster` while the org-controller authored a host namespace and
+	// no vCluster ever appeared. A declaration is adjudicated by
+	// declaredIsolationConflict at the door and refused with 422 when the plan
+	// cannot deliver it; by the time this runs, any surviving declaration
+	// already AGREES with the value below, so honouring it and deriving it are
+	// the same answer — and deriving it keeps ONE producer for the boundary.
+	isolation := isolationForTier(planSlug)
 
 	tier := strings.ToLower(strings.TrimSpace(req.Tier))
 	switch tier {
@@ -751,6 +836,20 @@ func (h *Handler) HandleCreateOrganization(w http.ResponseWriter, r *http.Reques
 	// internal door sends kind="internal" → showback + namespace, no
 	// voucher step. The resolved shape is stamped on the record below.
 	shape := resolveOrgShape(body)
+
+	// #6135 (UAT row G7) — a DECLARED isolation the resolved plan cannot
+	// deliver is refused here rather than accepted and silently substituted.
+	// Adjudicated against shape.PlanSlug (the RESOLVED plan, after the
+	// empty/unknown → "s" normalisation) so the check and the outcome read the
+	// same plan; against body.PlanSlug it would clear a declaration that the
+	// create then contradicts.
+	if detail, conflict := declaredIsolationConflict(body.Isolation, shape.PlanSlug); conflict {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+			"error":  "isolation-plan-conflict",
+			"detail": detail,
+		})
+		return
+	}
 
 	if mode == "" {
 		mode = string(store.OrganizationDomainFreeSubdomain)
