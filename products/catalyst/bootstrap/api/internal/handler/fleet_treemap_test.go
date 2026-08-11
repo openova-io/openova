@@ -322,7 +322,7 @@ func TestFleetOrgItemsForSovereign_SeparatesCustomerFromPlatform(t *testing.T) {
 		{namespace: "kube-system", application: "coredns", org: "", cpuReq: 50, memReq: 64 << 20},
 	}
 	infra := infraNamespaceSet("")
-	items := fleetOrgItemsForSovereign(rows, "hw292.omani.works", infra)
+	items := fleetOrgItemsForSovereign(rows, "hw292.omani.works", infra, nil)
 
 	if len(items) < 2 {
 		t.Fatalf("expected >=2 items (customer Org + Platform overhead), got %d: %+v", len(items), items)

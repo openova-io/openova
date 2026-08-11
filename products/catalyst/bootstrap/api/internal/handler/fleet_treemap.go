@@ -443,7 +443,8 @@ func (h *Handler) collectFleetOrgItems(ctx context.Context) []fleetTreemapItem {
 		if parentOrg == "" {
 			parentOrg = "sovereign"
 		}
-		items = append(items, fleetOrgItemsForSovereign(rows, parentOrg, infraNamespaces)...)
+		items = append(items, fleetOrgItemsForSovereign(rows, parentOrg, infraNamespaces,
+			h.knownOrganizationSlugs(clusterID))...)
 	}
 	return items
 }
@@ -459,7 +460,13 @@ func (h *Handler) collectFleetOrgItems(ctx context.Context) []fleetTreemapItem {
 // size_value) instead of the showback wire shape. SizeValue reuses the
 // showback cost-unit weights (CPU+memory+storage requests) so cell area
 // reflects live resource footprint, never a billing $ figure.
-func fleetOrgItemsForSovereign(rows []podRow, parentOrg string, infraNamespaces map[string]struct{}) []fleetTreemapItem {
+// knownOrgs is threaded through for the same reason the resolver is
+// shared: #6114 made orgForRow check the label against the Organization CR
+// set, and a treemap that kept the old two-argument call would render an
+// Organization cell for a slug showback has stopped attributing — the two
+// surfaces drifting is precisely what sharing the resolver exists to
+// prevent, and it is one of the four disagreements UAT row 25 names.
+func fleetOrgItemsForSovereign(rows []podRow, parentOrg string, infraNamespaces map[string]struct{}, knownOrgs map[string]struct{}) []fleetTreemapItem {
 	type orgTally struct {
 		count int
 		cost  float64
@@ -481,7 +488,7 @@ func fleetOrgItemsForSovereign(rows []podRow, parentOrg string, infraNamespaces 
 
 	var total float64
 	for _, row := range rows {
-		org := orgForRow(row, infraNamespaces)
+		org := orgForRow(row, infraNamespaces, knownOrgs, parentOrg)
 		t := ensure(org)
 		t.count++
 		cost := row.cpuReq*weightCPUPerMilli +
@@ -501,6 +508,12 @@ func fleetOrgItemsForSovereign(rows []podRow, parentOrg string, infraNamespaces 
 			name = parentOrg
 		case platformOrg:
 			name = "Platform overhead"
+		case unownedOrg:
+			// #6114: the raw `__unowned__` sentinel would render as a cell
+			// label. Give it the same human name the showback line uses so
+			// the orphan is legible on the treemap rather than looking like
+			// a malformed slug.
+			name = "Unowned namespaces"
 		}
 		var pct *float64
 		if total > 0 {

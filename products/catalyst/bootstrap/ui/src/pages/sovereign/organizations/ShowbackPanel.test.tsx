@@ -96,4 +96,43 @@ describe('ShowbackPanel — parent self-showback (DoD 3)', () => {
     renderPanel({ totalCostUnits: 0, pending: true, orgs: [] })
     expect(screen.getByTestId('showback-empty')).toBeTruthy()
   })
+
+  // #6114 / UAT row 25(c) — hw293 billed `g7doora` 4272.25 units as a
+  // customer Organization while `kubectl get organizations` did not list
+  // it. The API now routes that consumption to the synthetic unowned
+  // rollup; the panel must say what it is rather than calling it an
+  // Organization or printing the raw `__unowned__` sentinel.
+  it('names the unowned rollup instead of claiming it is an Organization', () => {
+    const orphaned: SovereignConsumption = {
+      totalCostUnits: 2168,
+      pending: false,
+      unownedOrgs: ['g7doora'],
+      orgs: [
+        { org: 'sovereign', isParent: true, isPlatform: false, costUnits: 0, cpuMilli: 0, memoryGiB: 0, storageGiB: 0, apps: [] },
+        { org: 'hw293vch', isParent: false, isPlatform: false, costUnits: 404, cpuMilli: 400, memoryGiB: 1, storageGiB: 0,
+          apps: [{ application: 'bp-newapi', namespace: 'hw293vch', costUnits: 404, cpuMilli: 400, memoryGiB: 1, storageGiB: 0, percent: 100 }] },
+        { org: '__unowned__', isParent: false, isPlatform: false, isUnowned: true, costUnits: 1764, cpuMilli: 1750, memoryGiB: 3.5, storageGiB: 0,
+          apps: [{ application: 'bp-keycloak', namespace: 'g7doora', costUnits: 1008, cpuMilli: 1000, memoryGiB: 2, storageGiB: 0, percent: 57.14 }] },
+      ],
+    }
+    renderPanel(orphaned)
+
+    // The row is labelled honestly — not "(Organization)", not the sentinel.
+    const labels = screen.getAllByTestId('showback-org').map((n) => n.textContent)
+    expect(labels).toContain('Unowned namespaces')
+    expect(labels).not.toContain('__unowned__')
+
+    // The orphaned slug is named explicitly, which is the whole point of
+    // not billing it silently.
+    expect(screen.getByTestId('showback-unowned-slugs').textContent).toBe('g7doora')
+
+    // CONTROL: the genuine Organization alongside it still renders in full.
+    expect(screen.getByTestId('showback-org-slice-hw293vch')).toBeTruthy()
+    expect(screen.getAllByTestId('showback-total').some((n) => n.textContent === '404')).toBe(true)
+  })
+
+  it('shows no unowned warning on a healthy estate', () => {
+    renderPanel(FEED)
+    expect(screen.queryByTestId('showback-unowned-warning')).toBeNull()
+  })
 })

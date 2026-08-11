@@ -35,7 +35,7 @@ func TestAggregateConsumption_PlatformOverheadRollup(t *testing.T) {
 		{namespace: "acme", application: "scan-vulnerabilityreport-xyz", org: "acme", ownerKind: "Job", cpuReq: 50, memReq: 64 << 20},
 	}
 
-	resp := aggregateConsumption(rows, parent, testInfraSet())
+	resp := aggregateConsumption(rows, parent, testInfraSet(), nil)
 
 	// The parent estate row is always present and first.
 	if len(resp.Orgs) == 0 || !resp.Orgs[0].IsParent {
@@ -82,7 +82,7 @@ func TestAggregateConsumption_RealSecondOrgViaLabelJoinKey(t *testing.T) {
 		{namespace: "kube-system", application: "cilium", ownerKind: "DaemonSet", cpuReq: 100, memReq: 128 << 20},
 	}
 
-	resp := aggregateConsumption(rows, parent, testInfraSet())
+	resp := aggregateConsumption(rows, parent, testInfraSet(), nil)
 
 	var acme, beta *orgConsumption
 	for i := range resp.Orgs {
@@ -125,7 +125,7 @@ func TestAggregateConsumption_PerAppPercentSumsTo100WithinOrg(t *testing.T) {
 		{namespace: "acme", application: "blog", org: "acme", ownerKind: "StatefulSet", cpuReq: 200, memReq: 256 << 20},
 	}
 
-	resp := aggregateConsumption(rows, parent, testInfraSet())
+	resp := aggregateConsumption(rows, parent, testInfraSet(), nil)
 
 	var acme *orgConsumption
 	for i := range resp.Orgs {
@@ -162,7 +162,7 @@ func TestAggregateConsumption_PerAppPercentSumsTo100WithinOrg(t *testing.T) {
 
 func TestAggregateConsumption_EmptyEstateNeverBlank(t *testing.T) {
 	// Zero rows ⇒ still exactly one parent row (the §5 never-blank rule).
-	resp := aggregateConsumption(nil, "sovereign", testInfraSet())
+	resp := aggregateConsumption(nil, "sovereign", testInfraSet(), nil)
 	if len(resp.Orgs) != 1 {
 		t.Fatalf("empty estate must still render the parent row, got %d orgs", len(resp.Orgs))
 	}
@@ -188,7 +188,7 @@ func TestOrgForRow_KeysOnLabelNotName(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := orgForRow(tc.row, infra); got != tc.want {
+			if got := orgForRow(tc.row, infra, nil, "hw291-omani-works"); got != tc.want {
 				t.Errorf("orgForRow(%s) = %q, want %q", tc.name, got, tc.want)
 			}
 		})
@@ -233,7 +233,7 @@ func TestAggregateConsumption_OneShotJobsCollapseToASingleRow(t *testing.T) {
 		{namespace: "cert-manager", application: "cert-nextkey-guard", ownerKind: "Job", cpuReq: 10, memReq: 32 << 20},
 	}
 
-	resp := aggregateConsumption(rows, parent, testInfraSet())
+	resp := aggregateConsumption(rows, parent, testInfraSet(), nil)
 
 	platform := resp.Orgs[len(resp.Orgs)-1]
 	if !platform.IsPlatform {
@@ -331,7 +331,7 @@ func TestAggregateConsumption_SingleNamespaceCollapseKeepsRealNamespace(t *testi
 	resp := aggregateConsumption([]podRow{
 		{namespace: "catalyst-system", application: "cutover-harbor-prewarm-1785340840", ownerKind: "Job", cpuReq: 10},
 		{namespace: "catalyst-system", application: "cutover-gitea-mirror-1785340111", ownerKind: "Job", cpuReq: 20},
-	}, "hw291.omani.works", testInfraSet())
+	}, "hw291.omani.works", testInfraSet(), nil)
 
 	platform := resp.Orgs[len(resp.Orgs)-1]
 	if !platform.IsPlatform || len(platform.Apps) != 1 {
@@ -350,7 +350,7 @@ func TestAggregateConsumption_TenantAppsNeverCollapse(t *testing.T) {
 		{namespace: "acme", application: "blog", org: "acme", ownerKind: "StatefulSet", cpuReq: 200},
 		{namespace: "acme", application: "api", org: "acme", ownerKind: "Deployment", cpuReq: 300},
 		{namespace: "acme", application: "shop", org: "acme", ownerKind: "Deployment", cpuReq: 100},
-	}, "hw291.omani.works", testInfraSet())
+	}, "hw291.omani.works", testInfraSet(), nil)
 
 	var acme *orgConsumption
 	for i := range resp.Orgs {

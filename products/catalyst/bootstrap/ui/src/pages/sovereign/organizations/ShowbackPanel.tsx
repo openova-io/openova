@@ -33,15 +33,25 @@ export interface ShowbackPanelProps {
 /** OrgShowbackSlice — one org's per-app consumption block. Rendered once
  *  in the org-detail view and once per org in the directory view. */
 function OrgShowbackSlice({ target }: { target: OrgConsumption }) {
+  // #6114: the unowned rollup must never read "(Organization)". Its whole
+  // reason for existing is that the consumption belongs to no Organization
+  // — labelling it as one restates the defect on the surface that is
+  // supposed to expose it, and the raw `__unowned__` sentinel would render
+  // as a malformed slug.
+  const label = target.isUnowned
+    ? 'Unowned namespaces'
+    : target.org
   return (
     <div data-testid={`showback-org-slice-${target.org}`} className="mb-4 last:mb-0">
       <p className="mb-2 text-xs text-[var(--color-text-dim)]">
-        <span data-testid="showback-org" className="font-medium text-[var(--color-text)]">{target.org}</span>
+        <span data-testid="showback-org" className="font-medium text-[var(--color-text)]">{label}</span>
         {target.isParent
           ? ' (parent — your own estate)'
           : target.isPlatform
             ? ' (platform overhead)'
-            : ' (Organization)'}{' '}
+            : target.isUnowned
+              ? ' (no Organization CR — not billed to any Organization)'
+              : ' (Organization)'}{' '}
         ·{' '}
         <span data-testid="showback-total" className="font-mono">{target.costUnits}</span> units ·{' '}
         {target.cpuMilli}m CPU · {target.memoryGiB} GiB mem · {target.storageGiB} GiB storage
@@ -119,6 +129,27 @@ export function ShowbackPanel({ org, initialOverride }: ShowbackPanelProps) {
           </span>
         ) : null}
       </div>
+
+      {/* #6114 (UAT row 25): name the orphans. The directory view is where
+          the sets are compared, so this is where a slug that draws
+          consumption with no Organization CR behind it has to be said out
+          loud — an estate can otherwise run a whole namespace's worth of
+          workloads under an identity the control plane does not model, and
+          nothing on any surface says so. */}
+      {!org && feed && (feed.unownedOrgs?.length ?? 0) > 0 ? (
+        <div
+          data-testid="showback-unowned-warning"
+          className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+        >
+          <span className="font-semibold">No Organization CR:</span>{' '}
+          <span data-testid="showback-unowned-slugs" className="font-mono">
+            {feed.unownedOrgs?.join(', ')}
+          </span>{' '}
+          — these namespaces draw consumption but the control plane holds no
+          Organization for them, so nothing is billed to an Organization.
+          Reconcile or remove them.
+        </div>
+      ) : null}
 
       {loading ? (
         <div data-testid="showback-loading" className="text-sm text-[var(--color-text-dim)]">Loading…</div>
