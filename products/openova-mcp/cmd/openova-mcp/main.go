@@ -301,11 +301,40 @@ func (s *server) resolveBearer(bearer string) (*identity.Identity, error) {
 	// on any whoami error (401 / unreachable / not-verified) fall through to
 	// the ORIGINAL local-verify error so a catalyst-api hiccup can never widen
 	// the surface.
-	if wid, werr := s.whoamiFallback(bearer); werr == nil {
+	wid, werr := s.whoamiFallback(bearer)
+	if werr == nil {
 		return wid, nil
+	}
+	// …with ONE exception, and it is not a relaxation: when catalyst-api
+	// VERIFIED the session and this instance's own scope pin refused it
+	// anyway (#5206 wrong-door, the per-Org org-pin, an absent org scope),
+	// that refusal is the better-informed verdict and the local signature
+	// miss is a claim the server already holds evidence against. Returning
+	// the stale "token signature is invalid: crypto/rsa: verification error"
+	// there reports a FALSEHOOD about a token the issuer just vouched for,
+	// and points every reader at the key-pinning subsystem instead of the
+	// door. That is the whole diagnosis cost of UAT rows 212/213: the rows
+	// name NewRS256Resolver as the surface to look at, because that is what
+	// the masked error accused. Still an error, still fail-closed — only the
+	// REASON changes, and only when a positive whoami verdict exists.
+	var verdict *whoamiVerdictError
+	if errors.As(werr, &verdict) {
+		return nil, werr
 	}
 	return nil, err
 }
+
+// whoamiVerdictError marks a refusal issued AFTER catalyst-api verified the
+// session — i.e. the bearer is genuine and this instance's own context/org pin
+// is what turned the caller away. It is distinguished from every other whoami
+// failure (no client wired, transport error, upstream 401, not-verified)
+// precisely because those carry no evidence about the token and must leave the
+// original local-verify error standing.
+type whoamiVerdictError struct{ err error }
+
+func (e *whoamiVerdictError) Error() string { return e.err.Error() }
+
+func (e *whoamiVerdictError) Unwrap() error { return e.err }
 
 // whoamiFallback resolves identity via catalyst-api's /whoami for tokens the
 // local resolver cannot verify (session tokens signed by the deployment-local
@@ -326,7 +355,7 @@ func (s *server) whoamiFallback(bearer string) (*identity.Identity, error) {
 	if !w.Verified {
 		return nil, errors.New("whoami fallback: session not verified")
 	}
-	return s.resolver.FromWhoami(identity.WhoamiIdentity{
+	id, ferr := s.resolver.FromWhoami(identity.WhoamiIdentity{
 		Email:         w.Email,
 		Mode:          w.Mode,
 		Tier:          w.Tier,
@@ -335,6 +364,14 @@ func (s *server) whoamiFallback(bearer string) (*identity.Identity, error) {
 		DeploymentID:  w.DeploymentID,
 		SovereignFQDN: w.SovereignFQDN,
 	}, bearer)
+	if ferr != nil {
+		// Past this line catalyst-api has VOUCHED for the bearer; anything
+		// FromWhoami refuses is this instance's own pin decision, not a
+		// signature problem. Mark it so resolveBearer surfaces it instead of
+		// the local-verify error it supersedes.
+		return nil, &whoamiVerdictError{err: ferr}
+	}
+	return id, nil
 }
 
 // ── bearer plumbing (mirrors the sandbox MCP _auth envelope) ─────────────
