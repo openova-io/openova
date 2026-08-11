@@ -270,3 +270,57 @@ func parseCutoverStatusTime(s string) time.Time {
 	}
 	return time.Now().UTC()
 }
+
+// mergeCutoverStepOrder returns the slug sequence the cutover steps are
+// projected in — and therefore, via projectCutoverResumeSeed's
+// Order: i+1 and ActivityBridge.dependsOnForStepLocked, the dependency
+// edges the execution tree renders (issue #6093).
+//
+// The two arguments are the platform's two step sources, and they are
+// NOT interchangeable:
+//
+//   - ordered — from listCutoverSteps, sorted by the
+//     `bp.openova.io/cutover-order` label on each cutover-step-NN-<slug>
+//     ConfigMap. This is the ONLY source that knows the real execution
+//     sequence.
+//   - fromStatus — from listStepNamesFromStatus, i.e. the durable
+//     self-sovereign-cutover-status ConfigMap. A ConfigMap's data is an
+//     unordered map, so this source CANNOT carry a sequence; it ends in
+//     sort.Strings and is therefore alphabetical by construction.
+//
+// Reading the sequence off fromStatus produced a plausible-looking tree
+// in which every one of the eleven steps was in the wrong slot, with the
+// step-08 deny-egress sovereignty proof rendered third (measured on
+// hw293, 2026-08-11). So order comes from `ordered`, always.
+//
+// They are unioned rather than chosen between, because each covers a
+// case the other misses. `ordered` misses a step whose ConfigMap is gone
+// after a completed cutover — precisely the durability case #3646 built
+// the status replay for. `fromStatus` misses nothing but knows no order.
+// A step known only to the durable record has no order label to claim a
+// position with, so it trails the order-bearing steps in the
+// deterministic order it arrived in, rather than being interleaved into
+// a slot it cannot justify.
+//
+// Blank slugs are dropped: ActivityBridge skips them anyway, and letting
+// one occupy a slot would shift every edge after it.
+func mergeCutoverStepOrder(ordered, fromStatus []string) []string {
+	out := make([]string, 0, len(ordered)+len(fromStatus))
+	seen := make(map[string]struct{}, len(ordered)+len(fromStatus))
+	appendUnique := func(names []string) {
+		for _, n := range names {
+			n = strings.TrimSpace(n)
+			if n == "" {
+				continue
+			}
+			if _, dup := seen[n]; dup {
+				continue
+			}
+			seen[n] = struct{}{}
+			out = append(out, n)
+		}
+	}
+	appendUnique(ordered)
+	appendUnique(fromStatus)
+	return out
+}

@@ -481,15 +481,32 @@ func (h *Handler) chrootSeedCutoverActivity(ctx context.Context, dep *Deployment
 		return
 	}
 	// Nothing to project until the cutover has at least been discovered.
-	// Prefer the durable per-step keys; fall back to live step discovery
-	// so a cutover that's installed-but-never-run still shows its pending
-	// steps (the honest "tethered, 0/N" picture).
-	stepNames := listStepNamesFromStatus(status)
-	if len(stepNames) == 0 {
-		if steps, derr := listCutoverSteps(ctx, deps); derr == nil {
-			stepNames = stepNamesFromSteps(steps)
-		}
+	// UNION the two step sources, order-bearing one FIRST (issue #6093).
+	//
+	// This used to prefer listStepNamesFromStatus and reach
+	// listCutoverSteps only when that came back empty. It never did: the
+	// chart pre-seeds all eleven `step.<name>.result` keys at install
+	// (09-cutover-status-configmap.yaml), so on any Sovereign where the
+	// chart landed the status map is non-empty from the first second and
+	// the order-bearing branch was unreachable. What shipped instead was
+	// listStepNamesFromStatus's sort.Strings output — a ConfigMap's data
+	// is an unordered map, so that source cannot carry a sequence — which
+	// made every projected dependsOn edge alphabetical. On hw293 that put
+	// the step-08 deny-egress sovereignty proof third in the tree.
+	//
+	// mergeCutoverStepOrder takes the sequence from the ConfigMap order
+	// labels and still surfaces any step present only in the durable
+	// record (a completed cutover whose step ConfigMaps were reaped — the
+	// #3646 case), so an installed-but-never-run chain still shows the
+	// honest "tethered, 0/N" picture in the right order.
+	var orderedNames []string
+	if steps, derr := listCutoverSteps(ctx, deps); derr == nil {
+		orderedNames = stepNamesFromSteps(steps)
+	} else {
+		h.log.Debug("chroot seed: ordered cutover step discovery failed; falling back to the durable record's order",
+			"depId", dep.ID, "err", derr)
 	}
+	stepNames := mergeCutoverStepOrder(orderedNames, listStepNamesFromStatus(status))
 	if len(stepNames) == 0 {
 		// Cutover chart not installed / no steps — nothing to surface.
 		return
