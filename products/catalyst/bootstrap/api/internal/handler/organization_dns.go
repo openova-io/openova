@@ -161,16 +161,46 @@ type Resolver interface {
 // parentZone is operator-supplied (one of the Sovereign's
 // role:org-pool entries) — never inferred from a hardcoded OTECHFQDN.
 //
-// #4732(3): the `console` record and the app records target DIFFERENT
-// front doors. App hosts (wordpress/openclaw/mail/keycloak + the per-Org
-// wildcard) ride the SHARED gateway (ingressIPv4). The Org console rides
-// the DEDICATED console gateway/ELB (#4053/#4718) — the same door
-// `console.<sovereign-fqdn>` serves — so its record must carry
-// consoleIPv4. Writing the console record with the shared-gateway IP is
-// exactly the nstar failure: the shared gateway has no console listener
-// for the Org zone, so the browser got the pool `*.<parent>` cert + 404.
-// consoleIPv4 == "" falls back to ingressIPv4 (single-gateway Sovereigns
-// and older callers keep their prior behaviour).
+// #4732(3): the Org console rides the DEDICATED console gateway/ELB
+// (#4053/#4718) — the same door `console.<sovereign-fqdn>` serves — so its
+// record must carry consoleIPv4. Writing the console record with the
+// shared-gateway IP is exactly the nstar failure: the shared gateway has no
+// console listener for the Org zone, so the browser got the pool
+// `*.<parent>` cert + 404.
+//
+// UAT rows 90 + 234 — EVERY host in the Org's pool subtree rides that same
+// door, not just `console`. This block previously read "App hosts
+// (wordpress/openclaw/mail/keycloak + the per-Org wildcard) ride the SHARED
+// gateway (ingressIPv4)", and that premise is false on this platform:
+//
+//   - The ONLY writer of a per-Org wildcard listener is
+//     core/controllers/organization/internal/controller/tenant_console_tls.go:307,
+//     which builds WildcardHost = "*.<slug>.<parentDomain>" and appends the
+//     `console-https-<slug>` / `console-http-<slug>` pair to
+//     consoleGatewayName() — `cilium-gateway-console`. Nothing appends a
+//     per-Org listener to the shared gateway, and the matching wildcard
+//     Certificate is mounted only there. An app host resolving to the shared
+//     gateway therefore arrives with an SNI that gateway holds no listener
+//     for, and the connection is RESET at the TLS handshake — before any HTTP
+//     status, which is why it presents as a dead site rather than a 404.
+//
+//   - The org-controller already writes the SAME `*` record at
+//     core/controllers/organization/internal/controller/tenant_dns.go:182-192
+//     and targets consoleIP. Two writers emitting one RRset with different
+//     targets is an inconsistency on its face. Because that reconciler
+//     re-asserts `*` but never touches the four app prefixes, the app records
+//     stayed orphaned at the shared IP — and being EXPLICIT records they then
+//     shadow the corrected wildcard, so the fault survived reconciliation.
+//
+// Measured read-only on hw293 Org `g7freea`: mail/wordpress resolved to the
+// shared EIP and failed with curl exit 35 (TLS reset), while forcing the same
+// SNI onto the console EIP returned 503 behind a publicly-trusted cert —
+// listener, cert and route all present on the console gateway. 503 (route
+// matched, no upstream) versus exit 35 (no listener) is what separates
+// "wrong front door" from "broken app".
+//
+// consoleIPv4 == "" falls back to ingressIPv4 (single-gateway Sovereigns and
+// older callers keep their prior behaviour).
 func (p DefaultOrganizationDNSProvisioner) ProvisionFreeSubdomain(ctx context.Context, subdomain, parentZone, ingressIPv4, consoleIPv4 string) error {
 	// #4218: pool-domain console A-records (omani.*) live on the CENTRAL
 	// authoritative PowerDNS (pdns.openova.io), not the Sovereign-local
@@ -212,10 +242,12 @@ func (p DefaultOrganizationDNSProvisioner) ProvisionFreeSubdomain(ctx context.Co
 	}
 	for _, prefix := range theFreeSubdomainPrefixes {
 		fqdn := fmt.Sprintf("%s.%s.%s.", prefix, subdomain, parentZone)
-		content := ingressIPv4
-		if prefix == "console" {
-			content = consoleIP
-		}
+		// Every prefix in this Org's subtree — the wildcard and the app hosts
+		// as much as `console` — is served by the console gateway, because
+		// that is the only gateway carrying a `*.<slug>.<parent>` listener and
+		// cert (see the rationale above). consoleIP already collapses to
+		// ingressIPv4 on a single-gateway Sovereign.
+		content := consoleIP
 		rrsets = append(rrsets, pdnsRRSet{
 			Name:       fqdn,
 			Type:       "A",

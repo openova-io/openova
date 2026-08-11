@@ -1889,10 +1889,30 @@ func TestDeleteOrganization_DeprovisionsDNS(t *testing.T) {
 
 // TestProvisionFreeSubdomain_ConsoleTargetsConsoleIPv4 locks #4732 item 3:
 // the `console.<slug>.<parent>` record must target the DEDICATED console
-// gateway/ELB EIP (consoleIPv4) while the per-Org wildcard + app hosts stay
-// on the shared-gateway ingress IP. Writing the console record with the
-// shared IP is the nstar failure (pool-wildcard cert + 404 — the shared
-// gateway has no console listener for the Org zone).
+// gateway/ELB EIP (consoleIPv4). Writing the console record with the shared IP
+// is the nstar failure (pool-wildcard cert + 404 — the shared gateway has no
+// console listener for the Org zone).
+//
+// UAT rows 90 + 234 — the app-host half of this test was INVERTED and is
+// corrected here. It previously required `*`, `wordpress` and `keycloak` to
+// stay on the shared-gateway ingress IP, which pinned the very defect those
+// rows record. The premise it encoded ("app hosts ride the shared gateway")
+// does not hold on this platform:
+//
+//   - The ONLY writer of a per-Org wildcard listener is
+//     core/controllers/organization/internal/controller/tenant_console_tls.go:307,
+//     which appends `console-https-<slug>` / `console-http-<slug>` for
+//     `*.<slug>.<parent>` to the CONSOLE gateway. Nothing appends a per-Org
+//     listener to the shared gateway, and the wildcard cert is mounted only
+//     there — so an app host pointed at the shared gateway is reset at the TLS
+//     handshake, before any HTTP status.
+//   - The org-controller writes the SAME `*` record at
+//     core/controllers/organization/internal/controller/tenant_dns.go:182-192
+//     and targets consoleIP. Two writers disagreeing on one RRset is the
+//     defect; this test was holding the losing side.
+//
+// The console assertion below is unchanged — #4732 item 3 is still correct and
+// is what the shared expectation now extends to the rest of the subtree.
 func TestProvisionFreeSubdomain_ConsoleTargetsConsoleIPv4(t *testing.T) {
 	var gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1928,8 +1948,8 @@ func TestProvisionFreeSubdomain_ConsoleTargetsConsoleIPv4(t *testing.T) {
 		t.Errorf("console record = %q, want console ELB EIP 212.72.24.33", got)
 	}
 	for _, appHost := range []string{"*.nstar.omani.homes.", "wordpress.nstar.omani.homes.", "keycloak.nstar.omani.homes."} {
-		if got := byName[appHost]; got != "212.72.24.14" {
-			t.Errorf("%s = %q, want shared ingress 212.72.24.14", appHost, got)
+		if got := byName[appHost]; got != "212.72.24.33" {
+			t.Errorf("%s = %q, want console gateway EIP 212.72.24.33 — the only gateway carrying a *.nstar.omani.homes listener + cert; the shared ingress 212.72.24.14 resets these SNIs at the TLS handshake", appHost, got)
 		}
 	}
 }
