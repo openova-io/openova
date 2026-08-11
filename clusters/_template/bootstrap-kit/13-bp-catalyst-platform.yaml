@@ -1374,7 +1374,7 @@ spec:
       #   provisioned. Env injection ships inside this umbrella, so the
       #   witness reaches the controller only once this pin advances. Lockstep
       #   w/ products/catalyst/chart/Chart.yaml.
-      version: 1.4.1354
+      version: 1.4.1356
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
