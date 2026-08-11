@@ -381,6 +381,12 @@ export async function getConsumption(): Promise<SovereignConsumption> {
     return {
       totalCostUnits: Number(body.totalCostUnits ?? 0),
       orgs: Array.isArray(body.orgs) ? (body.orgs as OrgConsumption[]) : [],
+      // #6114: this mapper rebuilds the object field by field, so a field
+      // it does not name is dropped no matter what the API sends. Omitting
+      // unownedOrgs here would leave the orphan warning permanently
+      // unrenderable while every panel-level test still passed — they seed
+      // the feed through initialOverride and never traverse this function.
+      unownedOrgs: Array.isArray(body.unownedOrgs) ? (body.unownedOrgs as string[]) : [],
       pending: Boolean(body.pending),
     }
   } catch {
