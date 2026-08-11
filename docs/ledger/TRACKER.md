@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-11T10:45:04Z` |
+| Last refreshed | `2026-08-11T11:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-11T10:50 | [#6180](https://github.com/openova-io/openova/pull/6180) | #6114 | fix(uat): a wipe is not a failure — carry evidence forward i |
 | 2026-08-11T10:24 | [#6179](https://github.com/openova-io/openova/pull/6179) | #6172 | docs(uat): walk hw294 — 17 ✅ from a 0-✅ reset, with a contro |
+| 2026-08-11T10:58 | [#6177](https://github.com/openova-io/openova/pull/6177) | #6089 | fix(bp-keycloak): the realm import named a Service that the  |
 | 2026-08-11T10:20 | [#6173](https://github.com/openova-io/openova/pull/6173) | #6158 | feat(uat): the confidence scheduler had no caller — wire it  |
 | 2026-08-11T08:26 | [#6171](https://github.com/openova-io/openova/pull/6171) | #4901 | fix(catalyst-api): the DR panel printed an em-dash over a li |
 | 2026-08-11T09:58 | [#6170](https://github.com/openova-io/openova/pull/6170) | #3132 | docs(uat): reset the ledger on the hw293 wipe — 205 evidence |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-11T02:58 | [#6130](https://github.com/openova-io/openova/pull/6130) | #6085 | fix(console): stop publishing a DR/suspend verdict from abse |
 | 2026-08-11T03:11 | [#6129](https://github.com/openova-io/openova/pull/6129) | #6092 | test(org-delete): pin the cluster-wide secrets rule read-onl |
 | 2026-08-11T06:53 | [#6128](https://github.com/openova-io/openova/pull/6128) | #6078 | docs(uat): eight walk-gated rows re-measured live on hw293 — |
-| 2026-08-11T04:31 | [#6127](https://github.com/openova-io/openova/pull/6127) | #6061 | docs(uat): hw293 re-walk rows 63 + 162 — 63 flips ✅, 162 sti |
-| 2026-08-11T02:46 | [#6126](https://github.com/openova-io/openova/pull/6126) | #4303 | fix(seed): verify the self-heal instead of announcing it (Re |
 
 ---
 
