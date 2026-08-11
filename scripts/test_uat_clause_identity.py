@@ -201,6 +201,26 @@ def parse_uat(text: str):
                cells[2].strip(), cells[3].strip())
 
 
+def map_clause_cells(text: str, fn, only: str = None) -> str:
+    """Rewrite the CLAUSE cell of every row-ID row (or just `only`) through fn.
+
+    Self-test mutants have to land in the same cell the guard reads. A
+    substitution over the raw markdown can rewrite a number inside an Evidence
+    cell or match across a `|`, which desynchronises the two copies for a
+    reason unrelated to the leg being proven — and the mutant then reports a
+    guard defect that does not exist.
+    """
+    out = []
+    for line in text.split("\n"):
+        cells = UNESCAPED_PIPE.split(line)
+        if line.startswith("|") and len(cells) >= 8 and ROW_ID.match(cells[1].strip()) \
+                and (only is None or cells[1].strip() == only):
+            cells[4] = fn(cells[4])
+            line = "|".join(cells)
+        out.append(line)
+    return "\n".join(out)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--self-test", action="store_true")
@@ -504,13 +524,21 @@ def self_test() -> int:
         else:
             shipped_n = len(shipped_cutover_steps())
             wrong = str(shipped_n - 3)
+
+            def bend_steps(text):
+                return STEP_CLAIM.sub(
+                    lambda m: m.group(0).replace(m.group(1) or m.group(2), wrong, 1), text)
+
             mutated = [dict(r) for r in canon_rows]
             for r in mutated:
-                r["test_case"] = STEP_CLAIM.sub(
-                    lambda m: m.group(0).replace(m.group(1) or m.group(2), wrong, 1),
-                    r["test_case"])
-            mutant_uat = STEP_CLAIM.sub(
-                lambda m: m.group(0).replace(m.group(1) or m.group(2), wrong, 1), uat_text)
+                r["test_case"] = bend_steps(r["test_case"])
+            # Applied CELL-WISE, not over the whole file. A sub across the raw
+            # markdown could rewrite a number inside an Evidence cell, or match
+            # across a cell boundary, and the two copies would then stop being
+            # identical for a reason that has nothing to do with E1 — the leg-C
+            # assertion below would go red and report a mutant defect as a guard
+            # defect.
+            mutant_uat = map_clause_cells(uat_text, bend_steps)
             rc, out = run(mutant_uat, mutated, ret_text)
             if rc == 0 or "LEG E1" not in out:
                 print("[self-test] FAIL — a step count wrong in BOTH files did not trip leg E1 "
@@ -542,7 +570,10 @@ def self_test() -> int:
                      if mm.group(2) in crd_groups)
             broken = "nosuchplural." + m.group(2)
             hit["test_case"] = hit["test_case"].replace(m.group(0), broken, 1)
-            mutant_uat = uat_text.replace(m.group(0), broken)
+            mutant_uat = map_clause_cells(
+                uat_text,
+                lambda t, _r=hit["row_id"]: t.replace(m.group(0), broken, 1),
+                only=hit["row_id"])
             rc, out = run(mutant_uat, mutated, ret_text)
             if rc == 0 or "LEG E2" not in out:
                 print("[self-test] FAIL — a resource the CRDs do not declare did not trip leg E2")
