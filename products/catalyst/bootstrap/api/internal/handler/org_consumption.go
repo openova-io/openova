@@ -60,7 +60,7 @@ type orgConsumption struct {
 	IsPlatform bool `json:"isPlatform"`
 	// IsUnowned flags the synthetic "Unowned namespaces" rollup — real
 	// consumption carrying an `openova.io/organization` label whose slug
-	// has NO Organization CR. It is neither a tenant nor platform
+	// has NO Organization CR. It is neither an Organization nor platform
 	// overhead: nothing is billed to an Organization, but the units are
 	// still counted into TotalCostUnits and the orphaned slugs are named
 	// in UnownedOrgs so the estate total stays honest and the orphan is
@@ -359,7 +359,7 @@ func (h *Handler) knownOrganizationSlugs(clusterID string) map[string]struct{} {
 // It closes UAT row 25's set-agreement conjunct in BOTH directions:
 // a labelled namespace with no CR lands in unownedOrg instead of minting a
 // phantom billable Organization, and every CR gets a row even with nothing
-// running. The tenant rows the console bills — those with
+// running. The Organization rows the console bills — those with
 // !IsParent && !IsPlatform && !IsUnowned — are then exactly the
 // Organization set, which is the invariant the row asserts.
 //
