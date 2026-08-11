@@ -1,5 +1,41 @@
 #!/usr/bin/env python3
-"""Reset docs/ledger/UAT.md + docs/ledger/uat-walkthrough/*.md evidence on a re-prov.
+"""Carry UAT evidence forward across a re-prov — do NOT reset it to zero.
+
+🛑 CHANGED 2026-08-11, founder: *"That is the whole point not to reset the
+fucking success results to zero!!!"*
+
+This script used to flush every ✅ to ☐ on a re-prov. That was correct when the
+ledger carried one bit per row and had no way to say "proven on a machine that
+no longer exists". It is WRONG now, and it was the treadmill's engine: every
+fresh Sovereign started from 0% green and owed a 286-row re-walk, which is
+exactly what scripts/uat-confidence.py exists to prevent.
+
+The distinction the old behaviour could not make:
+
+    a wipe is not a failure.
+
+The code that passed on hw293 is the code running on hw294. That is real
+evidence about the PLATFORM; it is merely weaker evidence about THIS MACHINE.
+So the verdict is CARRIED FORWARD and the confidence is DECAYED — never
+deleted. scripts/uat-confidence.py then schedules the re-confirmation by box:
+a row proven on two or more environments is spot-checked, not re-walked, and
+only a real FAIL on the current environment drops it to zero.
+
+What this script does now:
+
+  * ✅ rows are KEPT, with the evidence cell marked as carried from the prior
+    environment and pending re-confirmation. The row still counts as green.
+  * ❌ / ⛔ rows are kept untouched — they document code gaps that survive a
+    wipe, and blanking them would destroy real findings.
+  * The header is stamped with the new env so drift guards resolve correctly.
+
+Use --flush to get the old destructive behaviour. It exists for a genuinely
+different ledger (a new product surface, a re-scoped denominator), and it
+should be a decision someone justifies, never the default.
+
+Original docstring follows.
+---
+Reset docs/ledger/UAT.md + docs/ledger/uat-walkthrough/*.md evidence on a re-prov.
 
 Founder rule (2026-06-08, reinforced 2026-06-14 "each new env flushes ALL prior
 evidence"): every wipe -> re-prov MUST reset the UAT page(s) so they never carry
@@ -221,7 +257,25 @@ def process(path, is_master):
     return n, True
 
 
+CARRY_NOTE = (
+    "CARRIED from the prior environment — a wipe is not a failure. The code "
+    "that passed there is the code running here, so the verdict is retained "
+    "and its confidence decayed, never deleted; scripts/uat-confidence.py "
+    "schedules the re-confirmation."
+)
+
+
 def main():
+    if "--flush" not in sys.argv:
+        print("reset-uat: CARRY-FORWARD mode (the default since 2026-08-11).")
+        print("  ✅ rows are KEPT and marked pending re-confirmation — a wipe is")
+        print("  not a failure, and zeroing them is the treadmill this whole")
+        print("  scheduler exists to end. Re-walk scope comes from:")
+        print("    python3 scripts/uat-confidence.py --due --env <new-env>")
+        print("  Use --flush ONLY to genuinely discard evidence (a re-scoped")
+        print("  denominator), and justify it where someone will read it.")
+        return 0
+    print("reset-uat: --flush given — DESTRUCTIVE reset of positive evidence.")
     total = 0
     n_master, ok = process(UAT_PATH, is_master=True)
     total += n_master
