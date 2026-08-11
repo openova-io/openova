@@ -60,7 +60,11 @@ func newSecondaryKubeconfigFixture(t *testing.T, regions int) (*Handler, *cutove
 func writeSecondaryKubeconfig(t *testing.T, dir, depID, region string) {
 	t.Helper()
 	path := filepath.Join(dir, depID+"-"+region+".yaml")
-	if err := os.WriteFile(path, []byte("apiVersion: v1\nkind: Config\nclusters: []\n"), 0o600); err != nil {
+	// A COMPLETE kubeconfig (#6027). The placeholder this used to write —
+	// `clusters: []`, 41 bytes — cannot build a client, so these tests were
+	// asserting that a Secret gets a KEY, never that the key is a usable
+	// credential. That is the same gap the 95-byte hw293 stub walked through.
+	if err := os.WriteFile(path, []byte(completeKubeconfigSameCluster), 0o600); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }

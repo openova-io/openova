@@ -84,9 +84,16 @@ func newFixture5488(t *testing.T, depID string, regions int) (*Handler, *cutover
 
 func seedMaterializedSecret5488(t *testing.T, deps *cutoverDeps, annotationDepID string, keys ...string) {
 	t.Helper()
+	// The seeded value must be a COMPLETE kubeconfig. These tests are about
+	// path resolution and the post-restart recovery arm, not about content —
+	// but the placeholder they used to carry (`clusters: []`, 41 bytes) could
+	// not build a client, and the recovery check counted it toward the
+	// expected total anyway. That is the hw293 stub's defect in miniature, so
+	// the fixture now uses a document that actually authenticates and the
+	// count means what it says (#6027).
 	data := map[string][]byte{}
 	for _, k := range keys {
-		data[k] = []byte("apiVersion: v1\nkind: Config\nclusters: []\n")
+		data[k] = []byte(completeKubeconfigSameCluster)
 	}
 	sec := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -106,7 +113,8 @@ func seedMaterializedSecret5488(t *testing.T, deps *cutoverDeps, annotationDepID
 func writeKubeconfigFile5488(t *testing.T, dir, stem string) {
 	t.Helper()
 	path := filepath.Join(dir, stem+".yaml")
-	if err := os.WriteFile(path, []byte("apiVersion: v1\nkind: Config\nclusters: []\n"), 0o600); err != nil {
+	// Complete document — see seedMaterializedSecret5488 (#6027).
+	if err := os.WriteFile(path, []byte(completeKubeconfigSameCluster), 0o600); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }
@@ -267,7 +275,11 @@ func TestMaterializeSecondaryKubeconfigs_5488_AbortMessages(t *testing.T) {
 			},
 			wantSubstrs: []string{
 				"deployment dep5488",
-				"missing/unreadable",
+				// #6027 renamed this arm's verb: the list now covers files
+				// that are unreadable AND files that are readable but cannot
+				// build a client, so each entry names its own condition
+				// instead of sharing one "missing/unreadable" label.
+				"unreadable or empty",
 				"me-east-215-b-1",
 				"does-not-exist.yaml",
 				"#5359",
