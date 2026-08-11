@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-11T10:15:03Z` |
+| Last refreshed | `2026-08-11T10:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,8 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-11T10:24 | [#6179](https://github.com/openova-io/openova/pull/6179) | #6172 | docs(uat): walk hw294 — 17 ✅ from a 0-✅ reset, with a contro |
+| 2026-08-11T10:20 | [#6173](https://github.com/openova-io/openova/pull/6173) | #6158 | feat(uat): the confidence scheduler had no caller — wire it  |
 | 2026-08-11T08:26 | [#6171](https://github.com/openova-io/openova/pull/6171) | #4901 | fix(catalyst-api): the DR panel printed an em-dash over a li |
 | 2026-08-11T09:58 | [#6170](https://github.com/openova-io/openova/pull/6170) | #3132 | docs(uat): reset the ledger on the hw293 wipe — 205 evidence |
+| 2026-08-11T10:17 | [#6167](https://github.com/openova-io/openova/pull/6167) | #6016 | fix(bp-postgres): repairing the spec did not repair the clus |
 | 2026-08-11T08:05 | [#6165](https://github.com/openova-io/openova/pull/6165) | #6114 | fix(guard,catalyst-api): a hostname no listener admits, a re |
 | 2026-08-11T08:28 | [#6162](https://github.com/openova-io/openova/pull/6162) | #6021 | ci(guards): a guard nothing runs cannot fire — wire the 10 o |
 | 2026-08-11T07:48 | [#6161](https://github.com/openova-io/openova/pull/6161) | #6061 | docs(uat): verify the artifact that RENDERS the surface, not |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-11T06:53 | [#6128](https://github.com/openova-io/openova/pull/6128) | #6078 | docs(uat): eight walk-gated rows re-measured live on hw293 — |
 | 2026-08-11T04:31 | [#6127](https://github.com/openova-io/openova/pull/6127) | #6061 | docs(uat): hw293 re-walk rows 63 + 162 — 63 flips ✅, 162 sti |
 | 2026-08-11T02:46 | [#6126](https://github.com/openova-io/openova/pull/6126) | #4303 | fix(seed): verify the self-heal instead of announcing it (Re |
-| 2026-08-11T02:26 | [#6125](https://github.com/openova-io/openova/pull/6125) | #3840 | fix(bootstrap-kit): the Flux controllers must not be the onl |
-| 2026-08-11T06:34 | [#6124](https://github.com/openova-io/openova/pull/6124) | #4110 | docs(uat): adjudicate rows 213 + 19 — cross-Org denial shape |
-| 2026-08-11T02:22 | [#6123](https://github.com/openova-io/openova/pull/6123) | #5206 | docs(uat): rows 212/213 walked on hw293 — the per-Org MCP in |
 
 ---
 
