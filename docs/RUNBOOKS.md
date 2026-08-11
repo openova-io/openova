@@ -1040,6 +1040,40 @@ The canonical deterministic 2-phase walk operator follows. Driven by [`DOD.md`](
 | **Catalyst-Zero (mothership) login** | Confirm before running. Mothership is the OpenOva-run Catalyst-Zero |
 | **kubectl context to mothership** | For pre-flight verification only |
 
+#### 5.1.1 Measurement pre-flight on a multi-region Sovereign — run this BEFORE recording any ❌
+
+```bash
+scripts/check-live-route-backends.sh --kubeconfig <region-A>   # expect PASS
+scripts/check-live-route-backends.sh --kubeconfig <region-B>   # expect PASS
+```
+
+On a 2-region Sovereign **both regions' nodes are members of the same
+round-robin ELB pool** (`huaweicloud_elb_member.{https,http,console_https,console_http}`,
+spanning every region since #5244). A region that cannot serve therefore
+absorbs ~half of every fresh TCP connection to **every** hostname and answers
+envoy `503 no healthy upstream`. The ELB cannot drain it — its health monitor
+is `protocol = "TCP"` against the hostNetwork `cilium-envoy` host port, which
+binds regardless of whether envoy has one resolvable upstream, so that check
+cannot fail.
+
+Measured on hw293 (dep `a0077ba47e3720e5`) 2026-08-11: region A `PASS` 36/36,
+region B `FAIL` with 10 dead backendRefs — `console.` `api.` `auth.`
+`marketplace.` `mcp.` `hubble.`. Half of all traffic to those hosts 503'd for
+12 hours while the features behind them were healthy in region A.
+
+**A walk that records ❌ while this check is red has measured the ELB, not the
+feature.** Re-verify every such row against the passing region before
+stamping. Two properties of the failure make it easy to mis-read:
+
+- **Sequential retries cannot resample it.** HTTP/2 pins one socket, so 25
+  sequential retries can return 503 twenty-five times while 8 *parallel* fresh
+  TCP connections return 200 on the first batch. Sample with concurrency or
+  with `--resolve` pinned per node.
+- **The signature is `server: envoy` with NO `x-envoy-upstream-service-time`
+  header** (19-byte 503 body, or 0-byte 404 where the region has no route at
+  all). The absent header is the discriminator: envoy never reached an
+  upstream, so this is a fan-out fault, not an application fault.
+
 ### 5.2 The walk — Phase 0 + Phase 1 deterministic test
 
 Per [`DOD.md`](DOD.md), every walk must move at least one of the 5 inseparable pillars:
