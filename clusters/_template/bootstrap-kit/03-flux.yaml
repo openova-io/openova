@@ -181,3 +181,81 @@ spec:
                       - name: data
                         emptyDir:
                           sizeLimit: 3Gi
+          # ── #6079 (2026-08-11): the four Flux controllers are the ONLY
+          # workloads on a node whose image pull carries no credential of its
+          # own — so ONE stale node-level registry credential strands the whole
+          # GitOps loop, and the controller that would repair it is the one that
+          # cannot start.
+          #
+          # MEASURED, read-only, on the mothership 2026-08-10/11:
+          #
+          #   Failed to pull ghcr.io/fluxcd/source-controller:v1.8.0: failed to
+          #   authorize: failed to fetch oauth token: GET https://ghcr.io/token
+          #   ?scope=repository:fluxcd/source-controller:pull -> 403 Forbidden
+          #
+          # `fluxcd/source-controller` is a PUBLIC repository, and an anonymous
+          # token request for that exact scope, egressing from that exact node,
+          # returned 200 at the same moment. GHCR answers 401 for "no
+          # credentials" and 403 for "credentials I reject", so the 403 is
+          # positive evidence that the node presented one. It did not come from
+          # k3s: wharfie logs `Using private registry config file at <path>`
+          # whenever /etc/rancher/k3s/registries.yaml exists, and that line is
+          # absent from the node's k3s start — so the credential came from the
+          # kubelet docker keyring (a node-local config.json), which no
+          # Kubernetes object shows.
+          #
+          # kubelet builds that keyring from the pod's imagePullSecrets PLUS the
+          # node's own docker-config files, tries every credential that matches
+          # the registry, and — the whole defect — NEVER retries anonymously
+          # once they have all failed (k8s pkg/kubelet/images/image_manager.go,
+          # EnsureImageExists). A public image that would pull fine with NO auth
+          # fails BECAUSE auth is configured and stale. There is no anonymous
+          # fallback to switch on; the only in-cluster lever is to put a WORKING
+          # credential in the pod's keyring, because kubelet returns on the
+          # first credential that succeeds.
+          #
+          # Every other namespace on that node survived the same stale
+          # credential for exactly that reason. flux-system did not: `flux
+          # install` gives each controller its OWN ServiceAccount
+          # (source-/kustomize-/helm-/notification-controller, never `default`),
+          # so every default-SA or namespace-level imagePullSecret misses them
+          # precisely. Ten days of `deploy:` commits went nowhere.
+          #
+          # This does NOT make public images require auth, and it does not
+          # replace removing the stale node credential — that is the node-side
+          # half and is an operator action (runbook on #6079). This half ships
+          # in git, is reconciled by helm-controller on every interval, and
+          # survives node replacement.
+          #
+          # WHY a postRenderer, same reason as the patch above: helm-controller
+          # owns these ServiceAccounts via the flux2 subchart and re-applies its
+          # rendered manifest on every reconcile, so a raw `kubectl patch` would
+          # be reverted. The flux2 2.14.1 SA templates expose only
+          # `serviceAccount.annotations` — there is no imagePullSecrets value to
+          # set — so the render pipeline is the only override point.
+          #
+          # The `ghcr-pull` Secret already exists in flux-system: cloud-init
+          # applies /var/lib/catalyst/ghcr-pull-secret.yaml before Flux
+          # bootstraps, and bp-reflector (slot 05a) keeps it mirrored.
+          # ServiceAccount imagePullSecrets are injected at POD CREATION, so
+          # this takes effect on the next controller pod — which is exactly the
+          # re-pull path that failed (image GC, node reboot, controller
+          # upgrade), not the first boot.
+          #
+          # The selector is an ANCHORED regex over every Flux controller
+          # ServiceAccount — the four that `flux install` v2.4.0 creates plus
+          # image-automation-/image-reflector-controller when an operator
+          # enables them, since the exposure is identical for any of them. It
+          # deliberately does NOT match the chart's other ServiceAccounts
+          # (bp-flux-stuck-hr-recovery, flux-flux-check), which are Job/CronJob
+          # identities pulling a Harbor-proxied image on a different path.
+          - target:
+              kind: ServiceAccount
+              name: ^[a-z-]+-controller$
+            patch: |
+              apiVersion: v1
+              kind: ServiceAccount
+              metadata:
+                name: flux-controller-pull-credential
+              imagePullSecrets:
+                - name: ghcr-pull
