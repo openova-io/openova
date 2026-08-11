@@ -320,6 +320,25 @@ func (h *Handler) HandleContinuumReplicationStatus(w http.ResponseWriter, r *htt
 			}
 			if lag > 0 {
 				resp.WALLagSeconds = lag
+				// #6114 — RE-DERIVE the gate from the reading we just adopted.
+				//
+				// The gate above came from enrichReplicationStatus ->
+				// walLagHealthGate, which reads the CONTINUUM CR. For
+				// dr-shared-pg that CR carries no lag key at all, so the gate
+				// is Warn/"not reported by the Continuum CR; unverified" —
+				// correct for the CR, and STALE the instant a real producer
+				// (this CNPGPair) hands us a measurement. Leaving it made the
+				// response ship a genuine numeric lag next to a Warn saying no
+				// measurement exists, and the console believes the gate: it
+				// renders an em-dash over the live number. That is what UAT
+				// rows R12/R13 and the topology block assert must never happen.
+				//
+				// Guarded by `lag > 0`, so this can only ever act on a POSITIVE
+				// reading a producer actually wrote. An absent lag never
+				// reaches here and keeps the "unverified" Warn, preserving the
+				// #4901/#4923 invariant that absence is unknown, not a healthy
+				// zero — never a verdict from absent evidence.
+				upsertHealthGate(&resp, walLagGateFromMeasurement(lag, cnpgPairName))
 			}
 			lagBytes := int64(readNumericNested(pair.Object, "status", "walLagBytes"))
 			if lagBytes > 0 {
@@ -1565,6 +1584,29 @@ func walLagHealthGate(obj map[string]interface{}, lag float64) continuumHealthGa
 			Message: fmt.Sprintf("replication lag %.0fs exceeds the 30s promotability threshold", lag)}
 	}
 	return continuumHealthGate{Name: "wal-lag-under-rpo", Status: "Pass", Severity: "info"}
+}
+
+// walLagGateFromMeasurement derives the wal-lag gate from a lag reading that a
+// real producer PUBLISHED, as opposed to walLagHealthGate which derives it from
+// whichever keys a given CR happens to carry.
+//
+// The distinction is the whole point (#6114). walLagHealthGate must treat an
+// absent key as unverified, because absence is not a healthy zero (#4901 kept
+// lag pinned at 0 straight through an outage). But once a producer has handed
+// us an actual positive measurement, continuing to report "no measurement" is
+// simply false — and the console, which trusts the gate over the number,
+// suppresses the live value behind an em-dash.
+//
+// Callers MUST only invoke this with a measurement they positively observed.
+// It has no absent-key branch by design: there is no input to this function
+// that means "unknown", so it can never manufacture a Pass out of nothing.
+func walLagGateFromMeasurement(lag float64, source string) continuumHealthGate {
+	if lag > 30 {
+		return continuumHealthGate{Name: "wal-lag-under-rpo", Status: "Warn", Severity: "warning",
+			Message: fmt.Sprintf("replication lag %.0fs exceeds the 30s promotability threshold (measured by CNPGPair %s)", lag, source)}
+	}
+	return continuumHealthGate{Name: "wal-lag-under-rpo", Status: "Pass", Severity: "info",
+		Message: fmt.Sprintf("replication lag %.1fs is under the 30s promotability threshold (measured by CNPGPair %s)", lag, source)}
 }
 
 // leaseWitnessHealthGate derives the witness-lease gate from the observed
