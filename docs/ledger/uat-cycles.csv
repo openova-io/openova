@@ -4,3 +4,4 @@ cycle_ts,env,dep,milestone,denominator,PASS,FAIL,PARTIAL,NOTRUN,SUPERSEDED,PENDI
 2026-08-10T16:43:11Z,hw293,a0077ba47e3720e5,merge drain: 5 walk PRs + #6025 cutover 1MiB root fix landed,286,137,90,0,59,0,0,47.9
 2026-08-10T22:43:08Z,hw293,a0077ba47e3720e5,19 PRs merged: #6004 cutover 1MiB + #6050 deploy SIGPIPE + #6044 conflict markers; umbrella publishing again,286,190,84,0,12,0,0,66.4
 2026-08-11T06:13:14Z,hw293,a0077ba47e3720e5,G12 region-kill banked 6/6 zero-touch; mothership Flux revived after 9.5d; kubeconfig usability contract unified,286,206,79,0,1,0,0,72.0
+2026-08-11T10:45:28Z,hw294,336e2891743d6c98,hw294 fired + wedged on #6172 keycloak ordering cycle; treadmill refused at the gate; evidence now carried across a wipe instead of zeroed,286,205,76,0,5,0,0,71.7

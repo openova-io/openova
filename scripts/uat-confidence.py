@@ -140,6 +140,24 @@ def parse_ledger(text):
     return out
 
 
+
+def carried_rows(text):
+    """Row ids whose verdict was CARRIED from a prior environment, not measured here.
+
+    scripts/reset-uat.py marks these when a wipe carries evidence forward instead
+    of zeroing it. They are real evidence about the CODE and must keep counting
+    green — but they are not an observation of the CURRENT machine, and recording
+    them as one would let the scorer promote a row nobody walked here.
+    """
+    out = set()
+    for line in text.split("\n"):
+        if re.match(r"^\|\s*(R?\d+|[GWM]\d+)\s*\|", line):
+            f = re.split(r"(?<!\\)\|", line.rstrip())
+            if len(f) >= 8 and "CARRIED from" in f[7]:
+                out.add(f[1].strip())
+    return out
+
+
 def load_obs():
     if not os.path.exists(OBS):
         return []
@@ -388,10 +406,22 @@ def main():
         if not a.env or not a.cycle:
             print("--observe needs --env and --cycle", file=sys.stderr)
             return 2
-        led = parse_ledger(open(UAT, encoding="utf-8").read())
+        text = open(UAT, encoding="utf-8").read()
+        led = parse_ledger(text)
+        carried = carried_rows(text)
         m = {"✅": "PASS", "❌": "FAIL", "☐": "NOTRUN"}
+        # A CARRIED verdict is evidence from a PRIOR environment that survived a
+        # wipe. Recording it as an observation of THIS machine would let the
+        # scorer promote a row nobody measured here, and cross_env_proof — the
+        # whole mechanism that makes a wipe survivable — would be double-counting
+        # its own output. Carried rows contribute nothing to this env's log; the
+        # scorer already reads their real evidence from the prior env's entries.
         rows = [{"cycle_ts": a.cycle, "env": a.env, "row_id": rid,
-                 "status": m.get(v, "NOTRUN")} for rid, v in sorted(led.items())]
+                 "status": m.get(v, "NOTRUN")}
+                for rid, v in sorted(led.items()) if rid not in carried]
+        if carried:
+            print(f"  skipped {len(carried)} CARRIED row(s) — evidence from a "
+                  f"prior environment is not an observation of {a.env}")
         append_obs(rows)
         c = collections.Counter(r["status"] for r in rows)
         print(f"observed {len(rows)} rows on {a.env} @ {a.cycle}: "
