@@ -313,9 +313,8 @@ spec:
               KC="kubectl --request-timeout=20s"
 
               reap_wedged_initdb_jobs() {
-                local jobs_json j name succeeded age created now refs s missing
+                local jobs_json j name succeeded age refs s missing
                 jobs_json="$($KC -n "${NS}" get jobs -o json 2>/dev/null)" || return 0
-                now="$(date -u +%s)"
                 for name in $(printf '%s' "$jobs_json" \
                     | jq -r --arg i "${INSTANCE}" \
                       '.items[] | select(.metadata.name | endswith("-initdb"))
@@ -329,8 +328,19 @@ spec:
                   if [ "${succeeded}" != "0" ]; then continue; fi
 
                   # (d) age guard — never race a Secret that is about to sync.
-                  created="$(printf '%s' "$j" | jq -r '.metadata.creationTimestamp')"
-                  age=$(( now - $(date -u -d "${created}" +%s 2>/dev/null || echo "${now}") ))
+                  #
+                  # Computed with jq's fromdateiso8601, NOT `date -u -d "<ts>"`.
+                  # busybox date (this is an Alpine image) does not parse an
+                  # RFC3339 string with -d, and the natural fallback for that
+                  # is age=0 — which silently makes the reap NEVER fire. A
+                  # repair that quietly does nothing is worse than no repair,
+                  # because it looks present. jq is already a hard dependency
+                  # two lines up, so this removes a dependency rather than
+                  # adding one.
+                  age="$(printf '%s' "$j" | jq -r '(now - (.metadata.creationTimestamp | fromdateiso8601)) | floor' 2>/dev/null)"
+                  case "${age}" in
+                    ''|*[!0-9-]*) echo "[sentinel] WARN: could not compute age for ${name} (creationTimestamp unparseable) — NOT reaping" >&2; continue ;;
+                  esac
                   if [ "${age}" -lt "${MIN_WEDGE_AGE}" ]; then continue; fi
 
                   # (c) POSITIVE evidence: the Job names a Secret that is absent.

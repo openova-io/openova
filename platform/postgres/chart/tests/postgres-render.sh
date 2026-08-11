@@ -1030,13 +1030,13 @@ repl_sel=$(helm template shared-pg . \
   --api-versions postgresql.cnpg.io/v1 2>/dev/null)
 # Every `additional` service in the managed block must be selectorType rw:
 # the replication source (this fix) and the write alias (#3629) alike.
-if printf '%s' "${repl_sel}" | grep -qE 'selectorType:[[:space:]]*r[[:space:]]*$'; then
+if grep -qE 'selectorType:[[:space:]]*r[[:space:]]*$' <<<"${repl_sel}"; then
   echo "FAIL (#5473): a managed additional Service still declares 'selectorType: r'." >&2
   echo "  The cross-region replication SOURCE must be the primary ('rw'); 'r' selects every" >&2
   echo "  instance and lets a region-b replica cascade off a standby (live: hw291 2026-07-29)." >&2
   exit 1
 fi
-if ! printf '%s' "${repl_sel}" | grep -q 'catalyst.openova.io/role: replication-source'; then
+if ! grep -q 'catalyst.openova.io/role: replication-source' <<<"${repl_sel}"; then
   echo "FAIL (#5473): the replication-source Service did not render — the assertion is vacuous." >&2
   exit 1
 fi
@@ -1061,11 +1061,11 @@ seed_out=$(helm template shared-pg . \
   --api-versions postgresql.cnpg.io/v1 2>/dev/null)
 
 # VACUITY FIRST: a grep for a missing key "passes" trivially on an empty render.
-if ! printf '%s' "${seed_out}" | grep -q '^kind: Cluster'; then
+if ! grep -q '^kind: Cluster' <<<"${seed_out}"; then
   echo "FAIL (#5504): no Cluster CR rendered — every assertion below is vacuous." >&2
   exit 2
 fi
-if ! printf '%s' "${seed_out}" | grep -qE '^      owner: "harbor"'; then
+if ! grep -qE '^      owner: "harbor"' <<<"${seed_out}"; then
   echo "FAIL (#5504): initdb owner did not render — assertion vacuous." >&2
   exit 2
 fi
@@ -1147,13 +1147,13 @@ pos_out=$(helm template shared-pg . -f "${pos_vals}" --namespace shared-data \
   || { echo "FAIL (#5639): the region-BEARING render errored — the guard must not reject a valid install:" >&2
        printf '%s\n' "${pos_out}" >&2; exit 1; }
 
-printf '%s' "${pos_out}" | grep -qE '^kind: Cluster$' \
+grep -qE '^kind: Cluster$' <<<"${pos_out}" \
   || { echo "FAIL (#5639): no Cluster rendered — every assertion below is vacuous." >&2; exit 2; }
-printf '%s' "${pos_out}" | grep -qE '^    openova\.io/region: "hz-fsn-rtz-prod"$' \
+grep -qE '^    openova\.io/region: "hz-fsn-rtz-prod"$' <<<"${pos_out}" \
   || { echo "FAIL (#5639): primary Cluster LABEL is not the real region (empty label = the defect)." >&2; exit 1; }
-printf '%s' "${pos_out}" | grep -qE '^                values: \["hz-fsn-rtz-prod"\]$' \
+grep -qE '^                values: \["hz-fsn-rtz-prod"\]$' <<<"${pos_out}" \
   || { echo "FAIL (#5639): primary nodeAffinity values[] is not [hz-fsn-rtz-prod]." >&2; exit 1; }
-if printf '%s' "${pos_out}" | grep -qE 'values: \[""\]'; then
+if grep -qE 'values: \[""\]' <<<"${pos_out}"; then
   echo "FAIL (#5639): the render still emits an EMPTY nodeAffinity selector." >&2; exit 1
 fi
 echo "  PASS (+ primary: label + nodeAffinity both carry hz-fsn-rtz-prod)"
@@ -1163,9 +1163,9 @@ pos_replica=$(helm template shared-pg . -f "${pos_vals}" --namespace shared-data
   --set topology.side=secondary --api-versions postgresql.cnpg.io/v1 2>&1) \
   || { echo "FAIL (#5639): the region-bearing REPLICA render errored:" >&2
        printf '%s\n' "${pos_replica}" >&2; exit 1; }
-printf '%s' "${pos_replica}" | grep -qE '^    openova\.io/region: "hz-hel-rtz-prod"$' \
+grep -qE '^    openova\.io/region: "hz-hel-rtz-prod"$' <<<"${pos_replica}" \
   || { echo "FAIL (#5639): replica Cluster LABEL is not the real replica region." >&2; exit 1; }
-printf '%s' "${pos_replica}" | grep -qE '^                values: \["hz-hel-rtz-prod"\]$' \
+grep -qE '^                values: \["hz-hel-rtz-prod"\]$' <<<"${pos_replica}" \
   || { echo "FAIL (#5639): replica nodeAffinity values[] is not [hz-hel-rtz-prod]." >&2; exit 1; }
 echo "  PASS (+ replica: label + nodeAffinity both carry hz-hel-rtz-prod)"
 
@@ -1187,7 +1187,7 @@ if neg_out=$(helm template postgres . -f "${neg_vals}" --namespace hw292-omani-w
   printf '%s\n' "${neg_out}" | grep -E 'openova\.io/region|values: \[' >&2
   rm -f "${neg_vals}"; exit 1
 fi
-printf '%s' "${neg_out}" | grep -q 'topology.primary.region' \
+grep -q 'topology.primary.region' <<<"${neg_out}" \
   || { echo "FAIL (#5639): the render failed but the error does NOT name topology.primary.region:" >&2
        printf '%s\n' "${neg_out}" >&2; rm -f "${neg_vals}"; exit 1; }
 echo "  PASS (- primary: render REFUSED, error names topology.primary.region)"
@@ -1207,7 +1207,7 @@ if neg_replica_out=$(helm template postgres . -f "${neg_replica_vals}" --namespa
   printf '%s\n' "${neg_replica_out}" | grep -E 'openova\.io/region|values: \[' >&2
   rm -f "${neg_vals}" "${neg_replica_vals}"; exit 1
 fi
-printf '%s' "${neg_replica_out}" | grep -q 'topology.replica.region' \
+grep -q 'topology.replica.region' <<<"${neg_replica_out}" \
   || { echo "FAIL (#5639): the replica render failed but the error does NOT name topology.replica.region:" >&2
        printf '%s\n' "${neg_replica_out}" >&2; rm -f "${neg_vals}" "${neg_replica_vals}"; exit 1; }
 echo "  PASS (- replica: render REFUSED, error names topology.replica.region)"
@@ -1221,10 +1221,10 @@ sing_out=$(helm template postgres . -f "${singleton_vals}" --namespace org-acme 
   --api-versions postgresql.cnpg.io/v1 2>&1) \
   || { echo "FAIL (#5639): the SINGLETON render was broken by the region guard:" >&2
        printf '%s\n' "${sing_out}" >&2; rm -f "${neg_vals}" "${neg_replica_vals}" "${singleton_vals}"; exit 1; }
-printf '%s' "${sing_out}" | grep -qE '^kind: Cluster$' \
+grep -qE '^kind: Cluster$' <<<"${sing_out}" \
   || { echo "FAIL (#5639): singleton render emitted no Cluster." >&2
        rm -f "${neg_vals}" "${neg_replica_vals}" "${singleton_vals}"; exit 1; }
-if printf '%s' "${sing_out}" | grep -q 'openova.io/region'; then
+if grep -q 'openova.io/region' <<<"${sing_out}"; then
   echo "FAIL (#5639): the singleton render grew a region pin — it must stay byte-identical." >&2
   rm -f "${neg_vals}" "${neg_replica_vals}" "${singleton_vals}"; exit 1
 fi
@@ -1432,6 +1432,16 @@ grep -q 'succeeded' "$TMP/sentinel-replica.yaml" \
   || fail "#6114 reap has no .status.succeeded guard — it could delete a COMPLETED initdb Job and invite a re-bootstrap over live data"
 grep -q 'MIN_WEDGE_AGE' "$TMP/sentinel-replica.yaml" \
   || fail "#6114 reap has no minimum-age guard — it would race a Secret that is seconds from syncing"
+# The age guard must compute with jq's fromdateiso8601, NOT `date -d "<rfc3339>"`.
+# busybox date (this IS an Alpine image) rejects an RFC3339 string outright —
+# `date: invalid date '2026-08-11T04:23:42Z'` — and the natural fallback for
+# that is age=0, which makes the reap NEVER fire. A repair that quietly does
+# nothing is worse than no repair, because it looks present.
+grep -q 'fromdateiso8601' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 reap must compute Job age with jq fromdateiso8601 — busybox date cannot parse RFC3339 and the reap would be permanently inert"
+if grep -qE 'date -u -d "\$\{created\}"|date -d "\$\{created\}"' "$TMP/sentinel-replica.yaml"; then
+  fail "#6114 reap parses creationTimestamp with date -d, which busybox rejects — the age guard would silently pin age to 0 and never reap"
+fi
 grep -q 'secretKeyRef.name' "$TMP/sentinel-replica.yaml" \
   || fail "#6114 reap must read the Job's OWN pod-template Secret references (positive evidence), not guess from a status string"
 grep -q 'delete job' "$TMP/sentinel-replica.yaml" \
