@@ -1339,13 +1339,42 @@ The deterministic failover test for two independent CNPG clusters:
      never-acked WAL tail (the RPO=0 contract). Evidence:
      `dr-failback-started-at` / `-recloned-at` / `-converged-at` annotations
      on the region-A HR + both actors' pod logs.
+   🛑 **Sample the failback on ALL FOUR pairs, not just `cnpg-pair` (#6149).**
+   Until `bp-postgres` 0.2.21 this whole step was true of exactly ONE pair. On
+   the hw293 G12 walk (2026-08-11, dep `a0077ba47e3720e5`) the deployment census
+   after region-A returned was **4 `dr-promoter`s in region B against 1
+   `dr-failback` in region A** — `cnpg-pair`'s. The three `shared-pg` pairs
+   promoted correctly and then had nothing to bring them back: `shared-pg` (which
+   carries **keycloak**) and `shared-pg-b` were left **DUAL-WRITABLE on divergent
+   timelines**, both sides `pg_is_in_recovery()=false` with different row counts
+   of the same table. That state does not self-resolve and is invisible to a
+   region-B-only sample. `bp-postgres` 0.2.21 ships the same `dr-failback` with
+   the same chain, per-instance substitutes
+   (`SOVEREIGN_SHARED_PG{,_B,_C}_DEMOTED` — three installs share ONE
+   bootstrap-kit Kustomization), and a producer-side invariant that makes a
+   promoter without a failback unrenderable
+   (`bp-postgres.drPairCapable`). **The walk assertion is the CENSUS, not the
+   presence of any one actor**: `dr-promoter` count in region B must equal
+   `dr-failback` count in region A. Anything else is the #6149 geometry.
+   ```
+   kubectl --context <region-b> get deploy -A -l catalyst.openova.io/role=dr-promoter
+   kubectl --context <region-a> get deploy -A -l catalyst.openova.io/role=dr-failback
+   ```
+   🛑 **#6148 — region A is UNFENCED during the 120s peer-ahead hold.** It comes
+   back a writable TL=1 primary and ACCEPTS writes for the duration of the hold;
+   those commits are on a divergent line and are silently discarded by the
+   re-clone. The end state is correct, but a region-A-local client that commits
+   in that window gets an acknowledged write that later vanishes. Do not read a
+   green end state as proof the window was empty.
+
    **End state**: region-B primary, region-A streaming replica, both HRs
    unsuspended, topology rendered from source. The **controlled switchback**
    to original roles stays a sovereign-admin action: demote region-B and
    restore region-A by resetting BOTH substitutes
-   (`SOVEREIGN_CNPG_PAIR_PROMOTED`/`_DEMOTED` → `"false"` on each region's
-   bootstrap-kit Kustomization) during a maintenance window — automate via
-   the CNPG demotion-token handshake is follow-up on #5245.
+   (`SOVEREIGN_CNPG_PAIR_PROMOTED`/`_DEMOTED` for slot 16b, and
+   `SOVEREIGN_SHARED_PG{,_B,_C}_DEMOTED` for slots 16a/16c/16d → `"false"` on
+   each region's bootstrap-kit Kustomization) during a maintenance window —
+   automate via the CNPG demotion-token handshake is follow-up on #5245.
    🛑 **Timeline-divergence signal (#5220/#5245)**: the dr-promoter still
    records `catalyst.openova.io/dr-timeline-diverged-at` on the region-B HR
    when a side cannot stream from a REACHABLE peer — on ≥ 0.2.18 the wedge
