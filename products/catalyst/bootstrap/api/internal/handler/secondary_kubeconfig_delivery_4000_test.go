@@ -92,8 +92,11 @@ func TestExportSecondaryKubeconfigs_ForwardsKeyTheSpecMisses(t *testing.T) {
 	// `MY_REGION='${r.code}-${idx}'`). The spec key MISSES it; only the
 	// on-disk union catches it.
 	dep := makeDep(depID, fqdn, []string{"me-east-215", "me-east-215"})
-	mustWrite(t, filepath.Join(dir, depID+"-me-east-215-b-1.yaml"),
-		"apiVersion: v1\nkind: Config\nclusters:\n- cluster:\n    server: https://212.72.24.6:6443\n  name: c\n")
+	// #6108 — the fixture must be a DELIVERABLE document. It used to be the
+	// clusters-only shell, which is byte-identical to the torn read hw293
+	// shipped and which the receiver has refused since #6054: this arm was
+	// asserting that the sender forwards bytes the receiver can only 422.
+	mustWrite(t, filepath.Join(dir, depID+"-me-east-215-b-1.yaml"), completeKubeconfigSameCluster)
 
 	// Sanity: the spec key does NOT include the real on-disk key.
 	dep.mu.Lock()
