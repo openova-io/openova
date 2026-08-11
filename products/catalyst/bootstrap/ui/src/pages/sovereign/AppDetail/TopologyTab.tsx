@@ -37,6 +37,10 @@ import {
 } from '@/lib/continuum.api'
 import { getHierarchicalInfrastructure } from '@/lib/infrastructure.types'
 import { PlacementEditor, type OwnedDependencyInfo } from '@/widgets/topology/PlacementEditor'
+// #3648/#3375 — the ONE canonicaliser for the topology-mode vocabulary, mirrored
+// from Go's placement.Canonicalize. Used here (row 63) so a CR declaring
+// `active-hotstandby` is read the same as one declaring `active-hot-standby`.
+import { canonicalizeMode } from '@/widgets/topology/modes'
 import { SwitchoverDialog } from '@/widgets/continuum/SwitchoverDialog'
 import {
   type Capability,
@@ -393,6 +397,54 @@ export function TopologyTab({
     () => targets.some((t) => t.role === 'Standby'),
     [targets],
   )
+
+  // UAT row 63 — WHAT THE CR DECLARES, independently of what was observed.
+  //
+  // `hasStandby` above and `hasLiveDR` below are both derived from OBSERVED
+  // state: a projected Standby target, or a live Continuum reading. Neither
+  // consults what the Application CR DECLARES. On hw293,
+  // `hw293walkone/uat50-ahs-pg` declared `spec.placement.mode:
+  // active-hot-standby` with `standbyRegions [<region-b>]` while nothing had
+  // observed that standby yet — /placement answered `{"targets":[]}`,
+  // `status.targets` was absent, and `status.perCluster` held the single
+  // `singleton` entry the controller wrote after fanning the HelmRelease out to
+  // region A only. So both observed terms were false, `showDR` was false, and
+  // the ENTIRE `topology-tab-dr-*` subtree was absent from the page.
+  //
+  // That is a verdict published from ABSENT evidence, which is the exact thing
+  // row 63 exists to forbid: the page stated "this app has no DR" by omission,
+  // when the object said "a standby is declared and nothing has reported on it
+  // yet". An absent control and a disabled control are not the same statement —
+  // only the second one tells the operator that switchover is a thing this app
+  // HAS and cannot currently do.
+  //
+  // #6061 fixed the rung ABOVE this one (an incomplete `status.perCluster`
+  // shadowing a `status.targets` that already named the pair). It does not help
+  // an app on which NEITHER field was ever written.
+  //
+  // Read only the DECLARED posture here — `spec.placement.mode` on the #3969
+  // object form, the legacy `spec.placement` string, or the pre-#3969
+  // `status.placement` string — and canonicalise it so both spellings of every
+  // mode compare correctly. `singleton` and `active-active` declare no standby
+  // and must NOT open the section: that keeps row 58 (never arm a DR block
+  // against a phantom region) intact, and it is what makes this a
+  // discrimination rather than a blanket promotion.
+  const declaresStandby = useMemo(() => {
+    const specPlacement = app?.spec?.placement
+    const status = (app?.status ?? {}) as Record<string, unknown>
+    const declaredMode =
+      specPlacement && typeof specPlacement === 'object'
+        ? (specPlacement as Record<string, unknown>).mode
+        : typeof specPlacement === 'string'
+          ? specPlacement
+          : typeof status.placement === 'string'
+            ? status.placement
+            : ''
+    if (typeof declaredMode !== 'string' || declaredMode === '') return false
+    const mode = canonicalizeMode(declaredMode)
+    return mode === 'active-hot-standby' || mode === 'active-passive'
+  }, [app])
+
   const continuumName = useMemo(() => `dr-${applicationName}`, [applicationName])
 
   // Poll the DR endpoint for every networked app and gate rendering on a
@@ -556,7 +608,13 @@ export function TopologyTab({
   // here; it was the client that ignored the flag.
   const drBacked = drStatus?.source === 'live'
 
-  const showDR = hasStandby || hasLiveDR
+  // UAT row 63 — the third term is the DECLARATION. `hasStandby` and
+  // `hasLiveDR` are both observations; when both are false the honest answer is
+  // "nothing has reported", not "this app has no DR". `declaresStandby` opens
+  // the section for an app whose CR asks for a standby, and the section's own
+  // `!drBacked` branch below then renders the DISABLED control with its reason
+  // and NOTHING numeric — so this can never arm a phantom switchover (#5514).
+  const showDR = hasStandby || hasLiveDR || declaresStandby
 
   // #4923/#4901 — the EXPLICIT standby-absent condition. The backend verifies
   // the standby leg off the live cnpg cluster-pair and reports the tri-state
@@ -937,7 +995,16 @@ export function TopologyTab({
                   ? 'Checking for a cross-region replica…'
                   : 'No cross-region replica reporting yet for this component.'}
               </p>
-              {hasStandby && drStatus && !drQ.isLoading ? (
+              {/* UAT row 63 — `declaresStandby` joins `hasStandby` here for the
+                  same reason it joins `showDR`: on an app whose standby was
+                  DECLARED but never observed, `hasStandby` is false, so without
+                  it the operator would be shown a DR section with no statement
+                  of why it is there while the Placement panel beside it reads
+                  `singleton`. Silence at that point is the same absent-evidence
+                  defect one level down. `drStatus` is still required — the note
+                  names the reading, so it may not be printed before one
+                  arrives. */}
+              {(hasStandby || declaresStandby) && drStatus && !drQ.isLoading ? (
                 <p
                   className="mt-2 text-xs text-yellow-400"
                   data-testid="topology-tab-dr-unbacked"

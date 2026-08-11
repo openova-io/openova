@@ -130,6 +130,15 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
   const [tree, setTree] = useState<ResourceTreeNode | null>(initialTree ?? null)
   const [treeErr, setTreeErr] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(!initialObj && !!deploymentId)
+  // UAT row 197 / #6085 — the object re-read counter. The resource GET below is
+  // a `useEffect` + `useState`, NOT a react-query query, so nothing downstream
+  // can refresh it by invalidating a key: no key exists. ReconcileTab's
+  // suspend / resume mutation used to invalidate `reconciler-logs` and
+  // `reconciliation-dag` and then render a Suspended verdict off an `obj` that
+  // was fetched once, before the action — so the control could never flip after
+  // its own action, and Resume stayed unreachable from that surface. Bumping
+  // this re-runs the fetch effect, which is the only mechanism that can.
+  const [objRefreshTick, setObjRefreshTick] = useState(0)
 
   // Tab navigation lives entirely on the callsite: ResourceDetailRoute /
   // ResourceDetailNoTabPage pass an `onTabChange` that calls TanStack's
@@ -139,6 +148,9 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
   // jsdom unit tests don't need a Router wrapper.
 
   useEffect(() => {
+    // Row 197 — `initialObj` is a TEST SEAM (and a deep-link preload), so a
+    // caller supplying it owns the object and the refetch is theirs to make.
+    // Only the live-fetch path re-runs on a tick.
     if (initialObj) return
     // Guard against chroot's brief window where `useResolvedDeploymentId`
     // is still resolving (returns null → page receives ''). Without the
@@ -169,7 +181,7 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
       cancelled = true
       ac.abort()
     }
-  }, [deploymentId, apiKind, ns, name, initialObj])
+  }, [deploymentId, apiKind, ns, name, initialObj, objRefreshTick])
 
   useEffect(() => {
     if (initialTree || tab !== 'tree') return
@@ -312,6 +324,12 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
             name={name}
             obj={null}
             isTierAdmin={isTierAdmin}
+            // Row 197 — retry the object GET after an action even on the
+            // degraded branch: the lens GET may have been a transient blip, and
+            // an action that the reconciler endpoints accepted is good evidence
+            // the apiserver is answering again. On success the tab leaves the
+            // `unknown` reading behind and shows the real one.
+            onActionApplied={() => setObjRefreshTick((t) => t + 1)}
           />
         </div>
       )}
@@ -394,6 +412,10 @@ export function ResourceDetailPage(props: ResourceDetailPageProps) {
                 name={name}
                 obj={obj}
                 isTierAdmin={isTierAdmin}
+                // Row 197 — THE flip. Re-read `spec.suspend` off the live
+                // object after the action that changed it, so Suspend becomes
+                // Resume (and back) on the surface the operator is looking at.
+                onActionApplied={() => setObjRefreshTick((t) => t + 1)}
               />
             ) : (
               <PlaceholderTab
