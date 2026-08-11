@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-11T03:15:04Z` |
+| Last refreshed | `2026-08-11T03:30:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5575](https://github.com/openova-io/openova/issues/5575) | Wizard component catalog is unvalidated: 6 components have no Blueprint, 8 carry | Other |
 | [#5591](https://github.com/openova-io/openova/issues/5591) | phase2b bootstrapMode->false flip is primary-region-only: secondary regions keep | Other |
 | [#5596](https://github.com/openova-io/openova/issues/5596) | cutoverComplete=true certifies sovereignty while region-B keeps 64/65 HelmReposi | Other |
 | [#5601](https://github.com/openova-io/openova/issues/5601) | DR Switchover button disabled with 'no caught-up standby' while Continuum report | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6131](https://github.com/openova-io/openova/issues/6131) | Cutover execution tree still has no root: the true first step gitea-mirror keeps | Other |
 | [#6135](https://github.com/openova-io/openova/issues/6135) | The Organization create door accepts a declared isolation it never honours: 202  | Other |
 | [#6136](https://github.com/openova-io/openova/issues/6136) | Topology-tab Save writes spec.placement as a bare string: the editor's targets[] | Other |
+| [#6140](https://github.com/openova-io/openova/issues/6140) | hw293: a console-gateway hostname probed on the SHARED gateway's host port retur | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-11T03:25 | [#6137](https://github.com/openova-io/openova/pull/6137) | #4466 | fix(catalyst-chart): the janitor's whole env surface was unr |
+| 2026-08-11T03:26 | [#6134](https://github.com/openova-io/openova/pull/6134) | #6099 | fix(jobs): the cutover tree had no root — an empty dependsOn |
 | 2026-08-11T03:12 | [#6133](https://github.com/openova-io/openova/pull/6133) | #6132 | test(uat): the new self-test mutants must land in the CLAUSE |
 | 2026-08-11T02:56 | [#6132](https://github.com/openova-io/openova/pull/6132) | #6111 | docs(uat): finish the #6111 adjudication — G6 gets an assert |
 | 2026-08-11T02:58 | [#6130](https://github.com/openova-io/openova/pull/6130) | #6085 | fix(console): stop publishing a DR/suspend verdict from abse |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-11T00:58 | [#6094](https://github.com/openova-io/openova/pull/6094) | #5985 | fix(catalyst-api): the DR runbook preflight must measure wha |
 | 2026-08-10T23:41 | [#6089](https://github.com/openova-io/openova/pull/6089) | #6081 | fix(auth/session): four UAT rows at their producers — the Or |
 | 2026-08-10T23:20 | [#6088](https://github.com/openova-io/openova/pull/6088) | #6078 | docs(uat): rows 7 8 15 25 are DEPLOY-GATED, not NEEDS-CODE — |
-| 2026-08-10T23:09 | [#6086](https://github.com/openova-io/openova/pull/6086) | #6085 | docs(uat): settle 7 never-walked rows on hw293 — create 50,  |
-| 2026-08-10T22:59 | [#6083](https://github.com/openova-io/openova/pull/6083) | #6004 | fix(catalyst-api): let a repaired Phase-1 failure leave the  |
 
 ---
 
