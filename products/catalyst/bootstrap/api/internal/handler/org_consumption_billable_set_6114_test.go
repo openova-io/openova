@@ -32,6 +32,7 @@
 package handler
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -375,6 +376,117 @@ func TestBillableSet_VacuityCheck_PreFixBehaviourFailsBothAssertions(t *testing.
 	}
 	if _, present := billed["uat107org"]; !present {
 		t.Errorf("shipped aggregation still drops uat107org — the inverse half is inert")
+	}
+}
+
+// TestBillableSet_TreemapAgreesWithShowbackOnTheSameEstate — the treemap
+// shares orgForRow with showback precisely so the two cannot drift, and
+// row 25 lists the dashboard as one of the four surfaces that must agree.
+//
+// The specific regression this guards: orgForRow's "always owned" escape
+// keys on `org == parentOrg`, and the treemap used to derive parentOrg as
+// the raw Sovereign FQDN while showback derives it as the CR slug. An
+// FQDN never equals a label value, so the escape would have been denied to
+// the estate's own namespaces and — with no self-org CR in the set — the
+// treemap would have labelled the operator's own workloads "Unowned
+// namespaces" while showback put them on the parent row. Same rows, same
+// resolver, two answers.
+func TestBillableSet_TreemapAgreesWithShowbackOnTheSameEstate(t *testing.T) {
+	const parentSlug = "hw293-omantel-biz"
+	rows := []podRow{
+		// The Sovereign's own spine workload, labelled with the slug.
+		{namespace: "spine", application: "catalyst-ui", org: parentSlug, ownerKind: "Deployment", cpuReq: 100},
+		// A genuine Organization.
+		{namespace: "acme", application: "blog", org: "acme", ownerKind: "Deployment", cpuReq: 200},
+		// An orphan.
+		{namespace: "ghost", application: "bp-wordpress", org: "ghost", ownerKind: "Deployment", cpuReq: 50},
+	}
+	// A CR set holding the customer Org but NOT the Sovereign self-org —
+	// the state that exposes the escape.
+	knownOrgs := map[string]struct{}{"acme": {}}
+
+	showback := aggregateConsumption(rows, parentSlug, testInfraSet(), knownOrgs)
+	treemap := fleetOrgItemsForSovereign(rows, parentSlug, testInfraSet(), knownOrgs)
+
+	// Showback: the estate's own 100 units sit on the parent row.
+	if !showback.Orgs[0].IsParent || showback.Orgs[0].CostUnits != 100 {
+		t.Fatalf("showback parent row = %+v, want the parent carrying 100 units", showback.Orgs[0])
+	}
+	// Showback names exactly one orphan.
+	if !equalStringSlices6114(showback.UnownedOrgs, []string{"ghost"}) {
+		t.Errorf("showback UnownedOrgs = %v, want [ghost]", showback.UnownedOrgs)
+	}
+
+	// Treemap: the same three buckets with the same size values.
+	byName := map[string]float64{}
+	for _, it := range treemap {
+		byName[it.Name] = it.SizeValue
+	}
+	if got := byName[parentSlug]; got != 100 {
+		t.Errorf("treemap parent cell = %v units, want 100 — the estate's own workload must not "+
+			"be reclassified; cells were %v", got, byName)
+	}
+	if got := byName["acme"]; got != 200 {
+		t.Errorf("treemap acme cell = %v units, want 200", got)
+	}
+	if got := byName["Unowned namespaces"]; got != 50 {
+		t.Errorf("treemap unowned cell = %v units, want 50 (only the orphan)", got)
+	}
+	// And the raw sentinel never reaches a cell label.
+	if _, wrong := byName["__unowned__"]; wrong {
+		t.Errorf("treemap rendered the raw sentinel instead of a human label: %v", byName)
+	}
+
+	// THE STAKE. Feed the same rows an FQDN-shaped parent — what the
+	// treemap caller used to derive — and the estate's own workload is
+	// reclassified as an orphan. This is what showbackParentSlug prevents,
+	// asserted rather than described so the guard above is not merely
+	// passing on a value the test itself chose correctly.
+	wrong := fleetOrgItemsForSovereign(rows, "hw293.omantel.biz", testInfraSet(), knownOrgs)
+	wrongByName := map[string]float64{}
+	for _, it := range wrong {
+		wrongByName[it.Name] = it.SizeValue
+	}
+	if wrongByName["Unowned namespaces"] != 150 {
+		t.Errorf("expected an FQDN-shaped parent to sweep the estate's own 100 units into the "+
+			"unowned bucket alongside the orphan's 50 (=150), got %v — if this no longer holds, "+
+			"the parent-slug derivation has stopped mattering and this guard is decorative", wrongByName)
+	}
+}
+
+// TestShowbackParentSlug_IsOneDerivationForBothSurfaces pins the shared
+// seam itself. #5819 fixed the FQDN-vs-slug mismatch on the showback side;
+// it came back on the treemap because the identifier was derived a second
+// time in a second place. Both callers now route through this function, so
+// the value is asserted once, here.
+func TestShowbackParentSlug_IsOneDerivationForBothSurfaces(t *testing.T) {
+	cases := []struct{ fqdn, want string }{
+		{"hw293.omantel.biz", "hw293-omantel-biz"},
+		{"t99.omani.works", "t99-omani-works"},
+		// Unresolvable Sovereign → the visibly synthetic placeholder, never
+		// an invented plausible-looking slug.
+		{"", "sovereign"},
+		{"   ", "sovereign"},
+	}
+	for _, tc := range cases {
+		if got := showbackParentSlug(tc.fqdn); got != tc.want {
+			t.Errorf("showbackParentSlug(%q) = %q, want %q", tc.fqdn, got, tc.want)
+		}
+	}
+
+	// The value must be label-shaped: a dot can never match an
+	// `openova.io/organization` value, which is the defect that keeps
+	// recurring.
+	if got := showbackParentSlug("hw293.omantel.biz"); strings.Contains(got, ".") {
+		t.Errorf("showbackParentSlug returned %q — a dotted value matches no CR slug label", got)
+	}
+
+	// And the showback handler's own resolver agrees with it, so the two
+	// surfaces cannot report two spellings of one estate.
+	h := &Handler{}
+	h.deployments.Store("dep-6114", newDepWithFQDN("dep-6114", "hw293.omantel.biz"))
+	if got, want := h.consumptionParentOrg("dep-6114"), showbackParentSlug("hw293.omantel.biz"); got != want {
+		t.Errorf("consumptionParentOrg = %q but showbackParentSlug = %q — the surfaces have drifted again", got, want)
 	}
 }
 

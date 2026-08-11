@@ -439,10 +439,15 @@ func (h *Handler) collectFleetOrgItems(ctx context.Context) []fleetTreemapItem {
 		replicaSets, _, _ := h.k8sCache.List(clusterID, "replicaset", labels.Everything())
 		rows := buildPodRows(pods, pvcs, podMetrics, namespaces, nodes, replicaSets, clusterID, "")
 
-		parentOrg := sov.FQDN
-		if parentOrg == "" {
-			parentOrg = "sovereign"
-		}
+		// The SHARED parent derivation (org_consumption.go) — not a local
+		// orgNamespace() call. This used to be the raw `sov.FQDN`, which
+		// matches no `openova.io/organization` label value, and under
+		// #6114 that would have denied orgForRow's owned-escape to the
+		// estate's own namespaces and rendered the operator's workloads as
+		// "Unowned namespaces". Deriving the identifier a second way in a
+		// second place is exactly how #5819's fix failed to reach this
+		// surface, so both callers now go through one function.
+		parentOrg := showbackParentSlug(sov.FQDN)
 		items = append(items, fleetOrgItemsForSovereign(rows, parentOrg, infraNamespaces,
 			h.knownOrganizationSlugs(clusterID))...)
 	}

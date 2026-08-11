@@ -632,6 +632,38 @@ func (h *Handler) consumptionParentOrg(depID string) string {
 	return "sovereign"
 }
 
+// showbackParentSlug derives the parent-estate identifier for the FLEET
+// TREEMAP from a Sovereign FQDN, producing the same value
+// consumptionParentOrg produces for the same FQDN. The two are pinned
+// together by value in TestShowbackParentSlug_IsOneDerivationForBothSurfaces;
+// they are separate functions only because consumptionParentOrg resolves
+// its FQDN from the deployment store while the treemap already holds one.
+//
+// It exists because #6114 turned this from a cosmetic detail into a
+// correctness one. orgForRow treats `org == parentOrg` as the "always
+// owned" escape, and parentOrg is compared against
+// `openova.io/organization` label values, which are CR slugs — DNS-1123,
+// no dots. The treemap derived its parent as the RAW Sovereign FQDN, so an
+// FQDN-shaped parent matched no label, denied the escape to the estate's
+// own namespaces, and on an estate whose self-org CR is absent would have
+// rendered the operator's own workloads as "Unowned namespaces" while
+// showback correctly placed them on the parent row. #5819 fixed exactly
+// this on the showback side; it survived on the treemap because the
+// identifier was derived a second time in a second place.
+//
+// The empty check is on the INPUT, not on orgNamespace's output:
+// orgNamespace("") returns "org", not "" (namespace_ensure.go), so an
+// output-emptiness guard would hand an unidentifiable estate the
+// real-looking slug "org". The "sovereign" fallback is deliberately
+// synthetic — a plausible-looking slug for an Org we cannot identify would
+// read as a genuine Organization on the panel.
+func showbackParentSlug(fqdn string) string {
+	if strings.TrimSpace(fqdn) == "" {
+		return "sovereign"
+	}
+	return orgNamespace(fqdn)
+}
+
 func roundPct(v float64) float64 { return round2(v) }
 
 func round2(v float64) float64 {
