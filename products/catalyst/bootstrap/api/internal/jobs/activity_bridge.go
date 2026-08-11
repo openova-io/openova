@@ -59,6 +59,15 @@
 // non-empty prior DependsOn, so re-seeding a step never un-starts it or
 // drops its edges. StartStep reuses an already-open Execution rather
 // than allocating a second one.
+//
+// That DependsOn preservation has one deliberate exception: SeedSteps
+// marks its writes DependsOnAuthoritative because it has just been
+// handed the complete ordered step set, so its EMPTY list means "this
+// step is the root", not "no edge information" (issue #6131). Every
+// other write path here leaves the flag false and keeps inheriting —
+// including ensureStepLocked, which may be registering a step against a
+// partial in-memory set and therefore cannot be believed about an
+// absent edge.
 package jobs
 
 import (
@@ -240,6 +249,16 @@ func (a *ActivityBridge) dependsOnForStepLocked(slug string) []string {
 // StartedAt/Status), so a source may seed lazily once its step list is
 // known and again on resume without regressing live rows.
 //
+// Re-seeding also CORRECTS the edges, including the root's. The caller
+// hands over the complete ordered set, so these writes are marked
+// DependsOnAuthoritative and an empty DependsOn is written through as
+// "this step has no predecessor" rather than inheriting the stored
+// value (#6131). Without that, a store seeded once under a WRONG order
+// could never have its root repaired: every non-root step recomputes to
+// a non-empty edge that overwrites cleanly, while the root recomputes to
+// the one value the preservation rule refuses to write, so it keeps the
+// stale edge forever and the tree stays cyclic.
+//
 // Steps with an empty Slug are skipped (defence against a malformed
 // source). An empty step list materialises just the group Job (so the
 // group is visible as pending even before steps are discovered).
@@ -276,7 +295,18 @@ func (a *ActivityBridge) SeedSteps(steps []ActivityStep) error {
 			Kind:         KindStep,
 			ParentID:     parent,
 			DependsOn:    a.dependsOnForStepLocked(s.Slug),
-			Status:       StatusPending,
+			// SeedSteps was just handed the COMPLETE ordered step set, so
+			// it is the one writer entitled to assert an absence: an empty
+			// DependsOn here means "no predecessor", i.e. this is the
+			// root, not "I don't know the edges". mergeJob inherits the
+			// stored list from every other writer's empty value, which is
+			// what stranded cutover-step-gitea-mirror on its pre-#6099
+			// alphabetical edge (#6131). The lazy ensureStepLocked path
+			// below deliberately does NOT set this: it may be registering
+			// a step against a partial in-memory set, where empty really
+			// does mean "no information".
+			DependsOnAuthoritative: true,
+			Status:                 StatusPending,
 		}); err != nil {
 			return err
 		}

@@ -381,6 +381,30 @@ type Job struct {
 	// arrows to render the canvas resolves these by exact ID match.
 	DependsOn []string `json:"dependsOn"`
 
+	// DependsOnAuthoritative — a WRITE-TIME DIRECTIVE, never record
+	// state, and therefore never persisted (`json:"-"`). It answers the
+	// one question an empty DependsOn cannot (issue #6131).
+	//
+	// mergeJob inherits the stored DependsOn whenever an incoming write
+	// carries an empty one, because for almost every writer empty means
+	// "this write carries no edge information" — the helmwatch bridge's
+	// per-event transition path does not re-derive sibling deps on every
+	// state change, and without that inheritance all 135 install Jobs
+	// flattened to `dependsOn=[]` on prov #73 (#1467).
+	//
+	// But empty has a second, opposite meaning: "I hold the complete
+	// ordered set and this node has no predecessor" — i.e. THIS IS THE
+	// ROOT. Inheriting there is wrong, and it is what left
+	// cutover-step-gitea-mirror (bp.openova.io/cutover-order=1) pointing
+	// at its pre-#6099 alphabetical predecessor on hw293, closing a
+	// five-node cycle and leaving the execution tree with no root.
+	//
+	// A writer sets this to true ONLY when it has just been handed the
+	// full, ordered edge set and can therefore be believed about an
+	// absence. Today that is exactly ActivityBridge.SeedSteps. Every
+	// lazy/per-event path leaves it false and keeps inheriting.
+	DependsOnAuthoritative bool `json:"-"`
+
 	// Status — pending|running|succeeded|failed. For group jobs the
 	// persisted value is ignored on read; the runtime status is
 	// derived from descendants (failed > running > pending >
