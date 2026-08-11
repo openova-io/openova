@@ -3874,7 +3874,19 @@ name: bp-catalyst-platform
 #   scripts/check-image-pin-writer-targets.sh plus the extended
 #   scripts/check-controller-image-tag-freshness.sh. Chart version bump is what
 #   actually delivers the three new tags, so it is the load-bearing half.
-version: 1.4.1395
+version: 1.4.1396
+# 1.4.1396 (#6163): catalog-seed bp-agenity 0.5.22 -> 0.5.24 — the
+#   seed-claude-creds init container stops being a ONE-SHOT reader of the
+#   Anthropic credential. It read the mounted Secret once at pod start and, on
+#   a miss, printed `no credentials.json key in Secret — key-only mode` and
+#   exited 0 forever; measured on hw293, a workspace held that line for eight
+#   hours after the Sovereign's openbao path was seeded, while the Pod reported
+#   Running. It now waits on the mount (kubelet re-projects a Secret on its own
+#   sync period), retries across kubelet init-container restarts, and fails
+#   loudly into `kubectl get pod`. Catalog-seed pin only; the catalyst-api half
+#   of the same fix (seedAnthropicToken reading
+#   catalyst-system/sovereign-anthropic-credentials LIVE instead of the
+#   boot-time env snapshot) rides the api image.
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
@@ -4029,7 +4041,7 @@ version: 1.4.1395
 # scripts/check-chart-version-forward.sh (#5743) fails unless the two match —
 # main was carrying a pre-existing 1.4.1330/1.4.1329 split, so this bump heals
 # it in the same commit, exactly as the documented self-heal contract does.
-appVersion: 1.4.1395
+appVersion: 1.4.1396
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
