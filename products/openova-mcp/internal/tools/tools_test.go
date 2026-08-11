@@ -338,6 +338,16 @@ func TestGetApplicationOrgNameOutsideOwnEstateNotFound(t *testing.T) {
 	if !strings.Contains(err.Error(), "not found") {
 		t.Errorf("want a not-found error (which leaks neither existence nor scope), got: %v", err)
 	}
+	// The message text alone is NOT the contract (#6122). Wrapping this same
+	// wording in ErrForbidden keeps every assertion above green while moving
+	// the wire answer to -32003/403 — an existence oracle over every other
+	// Organization. The denial CLASS is what has to be pinned, because that is
+	// what toolError reads to choose the code. Adjudication:
+	// docs/adr/0013-cross-org-denial-shape.md.
+	if errors.Is(err, ErrForbidden) {
+		t.Errorf("a cross-Org READ must not be ErrForbidden — 403 confirms the Application exists "+
+			"in another Organization, which is exactly the disclosure not-found avoids; got: %v", err)
+	}
 }
 
 // TestListEnvironmentsOrgWithoutDeploymentID — list_environments was equally
