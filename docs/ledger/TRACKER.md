@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-11T01:15:05Z` |
+| Last refreshed | `2026-08-11T01:30:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5598](https://github.com/openova-io/openova/issues/5598) | Guacamole: SSO lands but every session API call returns 403 PERMISSION_DENIED � | Other |
-| [#5599](https://github.com/openova-io/openova/issues/5599) | newapi: valid Keycloak authz code rejected — /api/oauth/sovereign returns 403  | Other |
-| [#5601](https://github.com/openova-io/openova/issues/5601) | DR Switchover button disabled with 'no caught-up standby' while Continuum report | Other |
 | [#5602](https://github.com/openova-io/openova/issues/5602) | Hubble UI: authenticated landing works but data streams never connect (persisten | Other |
 | [#5608](https://github.com/openova-io/openova/issues/5608) | Keycloak admin console: group Role-mapping tab crashes ('Cannot read properties  | Other |
 | [#5609](https://github.com/openova-io/openova/issues/5609) | active-passive topology is never selectable: all 24 blueprints declaring it have | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#6106](https://github.com/openova-io/openova/issues/6106) | catalyst-pin broker back-channel netpol gap: keycloak cannot reach catalyst-api. | Other |
 | [#6107](https://github.com/openova-io/openova/issues/6107) | org-controller counts an UNUSABLE secondary kubeconfig as wired — a contextles | Other |
 | [#6108](https://github.com/openova-io/openova/issues/6108) | secondary-kubeconfig delivery ships a torn read: non-atomic write + a non-empty- | Other |
+| [#6109](https://github.com/openova-io/openova/issues/6109) | openova-mcp masks the authoritative /whoami verdict behind a stale 'signature is | Other |
+| [#6111](https://github.com/openova-io/openova/issues/6111) | UAT adjudication: three clauses assert objects the platform does not have (Conti | Other |
+| [#6114](https://github.com/openova-io/openova/issues/6114) | UAT ❌ residue on hw293: 61 rows in 8 root-cause clusters — 30 behind one dea | Other |
 
 ---
 
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-11T01:25 | [#6110](https://github.com/openova-io/openova/pull/6110) | #5175 | fix(openova-mcp): surface the authoritative /whoami verdict, |
 | 2026-08-11T00:56 | [#6105](https://github.com/openova-io/openova/pull/6105) | #6089 | docs(uat): hw293 SSO re-walk — 9 green, 8 catalyst-pin broke |
+| 2026-08-11T01:26 | [#6104](https://github.com/openova-io/openova/pull/6104) | #6015 | fix(catalyst-api): the peer-region credential Secret must no |
 | 2026-08-11T00:33 | [#6103](https://github.com/openova-io/openova/pull/6103) | #5958 | docs(uat): rows 100 + 238 + 229 flip on live region reads; R |
 | 2026-08-11T00:22 | [#6102](https://github.com/openova-io/openova/pull/6102) | #5583 | fix(scripts): bump-chart-version consults open PR heads befo |
 | 2026-08-11T00:05 | [#6101](https://github.com/openova-io/openova/pull/6101) | #6091 | fix(catalyst-api): census the converged-late rescue over the |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-10T22:16 | [#6059](https://github.com/openova-io/openova/pull/6059) | #6021 | fix(bp-postgres): release 0.2.19 — #6021's fix was merged wi |
 | 2026-08-10T19:07 | [#6057](https://github.com/openova-io/openova/pull/6057) | #6016 | docs(uat): 13 WALKABLE-NOW rows settled on hw293 — 8 flip gr |
 | 2026-08-10T19:03 | [#6056](https://github.com/openova-io/openova/pull/6056) | #3370 | fix(console): /apps renders two card collections and said wh |
-| 2026-08-10T18:57 | [#6055](https://github.com/openova-io/openova/pull/6055) | #793 | fix(console): the cutover trigger was not on the nav — make  |
-| 2026-08-10T18:50 | [#6054](https://github.com/openova-io/openova/pull/6054) | #3991 | fix(catalyst-api): refuse to persist a credential-less secon |
 
 ---
 
