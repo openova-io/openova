@@ -1,3 +1,28 @@
+{{/*
+  #4466 / UAT row 228 — SAFETY INTERLOCK on the janitor's destructive arm.
+
+  `catalystApi.janitor.destructive: true` lets the sweeps actually DELETE live
+  cloud resources (EIPs, keypairs, VPCs, EVS volumes, OBS buckets). janitor.go's
+  own docs describe the protect-list as the belt-and-suspenders for exactly that
+  arm: "even if status inference (buildActivePrefixes) ever regresses again, the
+  CURRENTLY-active deployment id(s) named here are hard-excluded from every
+  delete path". The b9f9590b self-reap — all 12 ECS nodes deleted ~2.5 min after
+  convergence — is what that sentence is about.
+
+  Shipping the arm as a bare boolean would make it possible to render a Pod that
+  deletes prod infrastructure with no explicit protect-list, relying solely on
+  status inference. So arming it without naming at least one protected
+  deployment id is a RENDER-TIME failure, not a runtime surprise. Turning the
+  knob on now forces the operator to say what must survive.
+
+  Log-only (the default) needs no protect-list and is unaffected.
+*/}}
+{{- $janitor := (.Values.catalystApi.janitor | default dict) }}
+{{- if $janitor.destructive }}
+{{- if not (trim (toString ($janitor.activeDeploymentIds | default ""))) }}
+{{- fail "catalystApi.janitor.destructive=true requires a non-empty catalystApi.janitor.activeDeploymentIds — arming the janitor's cloud-resource deletes with no explicit protect-list leaves the live Sovereign's survival dependent on status inference alone (#4466). Set activeDeploymentIds to the deployment id(s) that must never be reaped, or leave destructive unset for log-only mode." }}
+{{- end }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -434,6 +459,74 @@ spec:
             # credentials redacted; see internal/store/store.go.
             - name: CATALYST_DEPLOYMENTS_DIR
               value: /var/lib/catalyst/deployments
+            # ── Janitor (#4466, UAT row 228) ──────────────────────────
+            # The janitor's ENTIRE configuration surface was unreachable
+            # through the shipped chart. `janitorDestructive()`
+            # (internal/handler/janitor.go:135) reads
+            # CATALYST_JANITOR_DESTRUCTIVE and six sweep sites in
+            # providers/huawei/provider.go print "would-reap (log-only;
+            # set CATALYST_JANITOR_DESTRUCTIVE=true to act)" — but a
+            # repo-wide grep across every .yaml/.tpl matched that name
+            # ZERO times, alongside 155 CATALYST_ entries in this very
+            # env block (the control proving the scan was not blind).
+            # So the gate was written, deployed and permanently shut:
+            # row 228's "janitor log shows the orphaned VPC(s) swept"
+            # half could not be satisfied in ANY configuration the
+            # platform ships. The Go side needed nothing; only this
+            # wiring was never authored.
+            #
+            # Every knob defaults EMPTY and is emitted only when set, so
+            # the defaults stay owned by the Go code (one source of
+            # truth) and an unset chart renders exactly today's Pod.
+            # Each knob is emitted when it is NON-EMPTY, tested as a string —
+            # never as truthiness. `enabled` is the reason: its only meaningful
+            # value is the literal "false" (the Go side compares against that
+            # exact string), and `--set catalystApi.janitor.enabled=false`
+            # coerces to a BOOLEAN false, which a bare truthiness test on the
+            # value would discard. Such a test therefore drops the single value
+            # the knob exists to carry, and would do the same to any future "0"
+            # duration. The render guard caught exactly this.
+            #
+            # (Note for future editors: template actions are evaluated inside
+            # YAML `#` comments too, so an example of the WRONG form cannot be
+            # written out here literally — it would be executed.)
+            {{- with .Values.catalystApi.janitor }}
+            {{- if and (not (kindIs "invalid" .enabled)) (ne (toString .enabled) "") }}
+            - name: CATALYST_JANITOR_ENABLED
+              value: {{ .enabled | toString | quote }}
+            {{- end }}
+            {{- if and (not (kindIs "invalid" .interval)) (ne (toString .interval) "") }}
+            - name: CATALYST_JANITOR_INTERVAL
+              value: {{ .interval | toString | quote }}
+            {{- end }}
+            {{- if and (not (kindIs "invalid" .failedMaxAge)) (ne (toString .failedMaxAge) "") }}
+            - name: CATALYST_JANITOR_FAILED_MAX_AGE
+              value: {{ .failedMaxAge | toString | quote }}
+            {{- end }}
+            {{- if and (not (kindIs "invalid" .wipedMaxAge)) (ne (toString .wipedMaxAge) "") }}
+            - name: CATALYST_JANITOR_WIPED_MAX_AGE
+              value: {{ .wipedMaxAge | toString | quote }}
+            {{- end }}
+            {{- if and (not (kindIs "invalid" .ghostMaxAge)) (ne (toString .ghostMaxAge) "") }}
+            - name: CATALYST_JANITOR_GHOST_MAX_AGE
+              value: {{ .ghostMaxAge | toString | quote }}
+            {{- end }}
+            {{- if and (not (kindIs "invalid" .activeDeploymentIds)) (ne (toString .activeDeploymentIds) "") }}
+            - name: CATALYST_JANITOR_ACTIVE_DEPLOYMENT_IDS
+              value: {{ .activeDeploymentIds | toString | quote }}
+            {{- end }}
+            # CATALYST_JANITOR_DESTRUCTIVE is emitted ALWAYS, including
+            # when false. Every other knob above is omit-when-unset
+            # because an absent env and a default agree; this one is
+            # different — it arms deletion of live cloud infrastructure,
+            # so its state must be READABLE off the running Pod rather
+            # than inferred from an absence. `kubectl get pod -o yaml |
+            # grep JANITOR_DESTRUCTIVE` answering nothing cannot
+            # distinguish "log-only" from "this chart cannot express it",
+            # which is exactly the ambiguity row 228 was stuck in.
+            - name: CATALYST_JANITOR_DESTRUCTIVE
+              value: {{ .destructive | default false | quote }}
+            {{- end }}
             # CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS — defensive floor
             # only. The load-bearing termination gate is now the
             # informer's HasSynced signal (after WaitForCacheSync the

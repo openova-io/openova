@@ -1294,6 +1294,48 @@ provisioningState:
 # operator-overridable from the per-Sovereign overlay without rebuilding
 # the chart.
 catalystApi:
+  # ── Janitor configuration (#4466, UAT row 228) ───────────────────────
+  # The janitor reads SEVEN env vars, and until now the chart emitted NONE
+  # of them: a repo-wide grep for `CATALYST_JANITOR_DESTRUCTIVE` across
+  # every .yaml/.tpl matched zero times, while the Go side referenced it in
+  # six places. The gate, the five sweeps and the would-reap logging were
+  # all written and deployed; only this wiring was missing, so the sweeps
+  # could never leave log-only mode in any configuration the platform
+  # ships, and row 228's "janitor log shows the orphaned VPC(s) swept"
+  # half was unsatisfiable by construction.
+  #
+  # Every value below defaults EMPTY/false and is emitted only when set, so
+  # the DEFAULTS stay owned by the Go code (internal/handler/janitor.go) —
+  # one source of truth — and an unset chart renders exactly the Pod it
+  # rendered before this block existed.
+  janitor:
+    # enabled — "false" disables the janitor loop entirely. Empty = the Go
+    # default (enabled). Quoted string, not a bool: the Go side compares
+    # against the literal "false".
+    enabled: ""
+    # interval / failedMaxAge / wipedMaxAge / ghostMaxAge — any
+    # time.ParseDuration value (e.g. "30m", "24h"). Empty = Go defaults.
+    interval: ""
+    failedMaxAge: ""
+    wipedMaxAge: ""
+    ghostMaxAge: ""
+    # activeDeploymentIds — the explicit, status-INDEPENDENT do-not-touch
+    # list: comma/space-separated full deployment ids or 8-char prefixes.
+    # These are hard-excluded from every delete path even if status
+    # inference regresses. REQUIRED whenever `destructive` is true — the
+    # template fails the render otherwise (see the interlock at the top of
+    # api-deployment.yaml).
+    activeDeploymentIds: ""
+    # destructive — arms the cloud-resource sweeps to ACTUALLY delete
+    # (EIPs / keypairs / VPCs / EVS / OBS buckets). Default FALSE = every
+    # pass logs exactly what it WOULD reap and deletes nothing. Keep it
+    # false unless an operator is deliberately running a sweep with a
+    # protect-list set; #4466 made "deletes prod infra" opt-in precisely
+    # because the b9f9590b self-reap took all 12 ECS nodes ~2.5 minutes
+    # after convergence. Unlike the knobs above this one is ALWAYS emitted
+    # into the Pod, including when false, so its state is readable off the
+    # running object instead of inferred from an absent env.
+    destructive: false
   # ── Zero-downtime roll: pin to the EVS volume's node (#4100) ──────────
   # catalyst-api mounts two RWO Huawei-EVS PVCs whose PV nodeAffinity is
   # ZONE-scoped (not node-scoped). With strategy: Recreate, a roll can land the
