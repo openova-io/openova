@@ -1,0 +1,53 @@
+# check-single-replica-rollout.yaml — a 1-replica Deployment must be able to roll.
+#
+# #6079: `replicas: 1` with no explicit `strategy:` inherits the k8s default
+# RollingUpdate{maxSurge: 25%, maxUnavailable: 25%}. Those round in OPPOSITE
+# directions at one replica — maxSurge ceils to 1 (the new Pod is created),
+# maxUnavailable floors to 0 (the old Pod may never leave) — so the roll needs
+# two Pods at once and deadlocks permanently on a node with no spare Pod slot.
+# Live: mothership kubelet maxPods=110 with 110 non-terminal Pods bound, and
+# catalyst-ui served fad88bd for ten days while its spec advanced to e6c1533,
+# stuck in ProgressDeadlineExceeded and holding UAT rows W1/W2 red.
+#
+# No existing guard catches this class: the defect is an ABSENCE (a missing
+# strategy block), so there is no forbidden token to grep for — the same reason
+# check-lb-nodeport0.py had to exist. --self-test is always run first so the
+# guard's own rounding logic and its multi-replica CONTROL stay protected
+# (uat-drift-guard.yaml idiom).
+name: check-single-replica-rollout
+
+on:
+  pull_request:
+    paths:
+      - "platform/*/chart/templates/**"
+      - "products/*/chart/templates/**"
+      - "products/*/charts/*/templates/**"
+      - "core/controllers/**"
+      - "scripts/check-single-replica-rollout.py"
+      - ".github/workflows/check-single-replica-rollout.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "platform/*/chart/templates/**"
+      - "products/*/chart/templates/**"
+      - "products/*/charts/*/templates/**"
+      - "core/controllers/**"
+      - "scripts/check-single-replica-rollout.py"
+      - ".github/workflows/check-single-replica-rollout.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Self-test the single-replica rollout guard
+        run: python3 scripts/check-single-replica-rollout.py --self-test
+      - name: Every single-replica Deployment must be able to roll (#6079)
+        run: python3 scripts/check-single-replica-rollout.py
