@@ -218,27 +218,60 @@ came up 3/3 and the failback chain above proceeded normally. Recorded here becau
 it inflates failback RTO on a cold region return — the same class as #5339 — not
 because it blocked the walk.
 
-## State the environment was left in
+## State the environment was left in — stated precisely, not generously
 
-**Healthy, and the DR pair is fully converged in the failed-over direction.**
+**Infrastructure and the `cnpg-pair` DR pair: healthy. Two `bp-postgres` pairs:
+left in a dual-writable split-brain that will not self-resolve.**
 
-* Region A: 6/6 nodes Ready; pods reconciled; `cnpg-pair` 3/3 streaming from
-  region B with `ConsistentSystemID=True`.
-* Region B: holds the promoted write side on TL=2 with the complete pre- and
-  post-kill history.
+Healthy:
+
+* Region A: 6/6 nodes Ready, 257 pods Running, **0 Unknown** — fully reconciled.
+* Region B: 6/6 nodes Ready.
 * Gateway: `console` 200 ×6, `auth` 302 ×6, `grafana` 302 ×6 — identical to the
   pre-kill baseline.
+* `cnpg-pair`: converged — region A `in_recovery=true` on TL=2 streaming from
+  region B, `ConsistentSystemID=True`, row-sets identical.
 
-The roles are **swapped relative to pre-walk** (region B is now the write side).
-That is the designed post-failover resting state, not a fault: the promotion is
-deliberately latched (`spec.suspend=true` plus the `SOVEREIGN_CNPG_PAIR_PROMOTED=true`
-source substitute) so it cannot silently revert, and the actor's own closing log
-line states that the controlled switchback — demote region-B, restore region-A as
-primary — is the sovereign-admin's RUNBOOKS §6.1 action, deliberately not
-automated. No switchback was performed by this walk.
+Not healthy, and this walk caused it:
 
-The three `shared-pg*` pairs remain promoted in region B on the same basis.
-`shared-pg-c` was never promoted and stayed a consistent replica throughout.
+| pair | region A | region B | state |
+|---|---|---|---|
+| `shared-pg` | **writable**, TL=3, 1 row | **writable**, TL=3, 2 rows | **DUAL-WRITABLE, divergent** |
+| `shared-pg-b` | **writable**, TL=2, 1 row | **writable**, TL=3, 2 rows | **DUAL-WRITABLE, divergent** |
+| `shared-pg-c` | writable, TL=2 | `in_recovery=true`, streaming | consistent — never promoted |
+
+The cause is a clean asymmetry, isolated by a deployment census across both
+regions: **4 `dr-promoter` deployments exist (one per pair), but only 1
+`dr-failback` — `cnpg-pair`'s.** The one pair with a failback actor is the one
+pair that converged. `bp-postgres` promotes but has nothing to bring it back.
+Filed as #6149; it is the symmetric half of #5623, and arguably a consequence of
+fixing it — adding the promoter without the failback converted "does not fail
+over" into "fails over and never comes back". `shared-pg` carries keycloak.
+
+`shared-pg-c` is the control in the other direction: it is consistent not because
+anything recovered it but because its promoter correctly refused to promote, so a
+second timeline never existed.
+
+Reconciling `shared-pg` and `shared-pg-b` is a manual re-clone of the region-A
+side from the region-B write side (RUNBOOKS §6.1 switchback territory). It was not
+performed by this walk.
+
+On `cnpg-pair` the roles are **swapped relative to pre-walk** (region B is the
+write side). That is the designed post-failover resting state, not a fault: the
+promotion is deliberately latched (`spec.suspend=true` plus the
+`SOVEREIGN_CNPG_PAIR_PROMOTED=true` source substitute) so it cannot silently
+revert, and the actor's own closing log line states that the controlled
+switchback is the sovereign-admin's RUNBOOKS §6.1 action, deliberately not
+automated. No switchback was performed.
+
+## Why the row still stamps ✅
+
+#4275's own acceptance clause names the target: *"prove **cnpg-pair** standby
+promotes RTO≤30s / RPO=0"*. On `cnpg-pair` all six legs pass end-to-end, including
+failback with a re-clone proven real. The `bp-postgres` gap is a distinct,
+separately-filed defect on charts that #4275 does not name — the same way hw292
+banked 6/6 while filing #5623 against those very pairs for the opposite failure.
+It is recorded here and in the row's evidence rather than folded into the verdict.
 
 ## Files
 
