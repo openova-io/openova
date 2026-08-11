@@ -271,7 +271,11 @@ func (h *Handler) SelfHealSecondaryKubeconfigsOnDisk(log *slog.Logger) {
 			log.Debug("secondary-kubeconfig self-heal: no change", "clusterID", stem, "reason", reason)
 			continue
 		}
-		if werr := os.WriteFile(path, []byte(healed), 0o600); werr != nil {
+		// #6108 — through the atomic seam. This rewrite lands on a path the
+		// mothership's export poller and LoadClustersFromDir both read, so an
+		// in-place truncate here can hand a reader the same prefix the hw293
+		// 95-byte shell was.
+		if _, werr := persistSecondaryKubeconfig(dir, stem, healed); werr != nil {
 			log.Warn("secondary-kubeconfig self-heal: persist failed", "path", path, "err", werr)
 			continue
 		}

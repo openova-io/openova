@@ -151,6 +151,52 @@ func nodeIPSidecarPath(dir, clusterID string) string {
 	return filepath.Join(dir, clusterID+".nodeip")
 }
 
+// persistSecondaryKubeconfig writes one region's kubeconfig into dir under its
+// canonical `<clusterID>.yaml` name and returns the path it wrote. The single
+// seam through which every producer of a secondary kubeconfig lands its bytes —
+// the receiver below and the #4000 self-heal rewrite — so the durability
+// contract is stated once instead of being re-decided per call site.
+//
+// 🛑 #6108 — the write MUST be atomic, and this is the one store in catalyst-api
+// where that is load-bearing rather than hygienic.
+//
+// #6112 named the two ways an unusable document can be sitting at one of these
+// paths when a reader fires — a truncated upload, or a TORN WRITE — and fixed
+// the readers, deliberately leaving the question of which produced the hw293
+// artefact open because its own fix did not depend on the answer. This closes
+// the second one at its source.
+//
+// `os.WriteFile` is O_TRUNC followed by a write, so between those two the file
+// on disk IS a prefix of the new content. That matters here specifically
+// because this directory is POLLED: waitForSecondaryKubeconfig spins on exactly
+// these paths waiting for a peer process to fill them, and LoadClustersFromDir /
+// onDiskSecondaryKubeconfigKeys / orgConsoleTLSPoolRegions scan it. A reader
+// landing inside the truncate window sees a coherent-looking shell.
+//
+// Measured: hw293 (dep a0077ba47e3720e5) carried
+// `a0077ba47e3720e5-me-east-215-b-1.yaml` at 95 bytes — `apiVersion`, `kind`,
+// one `clusters[]` entry, then nothing, ending mid-token on `  name: c` with no
+// trailing newline — while the mothership's copy of the SAME region was 2959
+// bytes and carried all six top-level keys. A complete source and a prefix at
+// the destination.
+//
+// Refusing to read a torn document and refusing to create one are different
+// guarantees, and only the second one holds for readers this package does not
+// own. temp+rename gives every reader either the previous complete document or
+// the new one. Every other durable store here already does this — store.Save,
+// jobs.Store, k8scache/snapshot, store/tenant_registry, store/user_provision,
+// providers/huawei/eip_blocklist_store — and writeFileAtomic0600 is this
+// package's existing implementation. Its `.<name>.*.tmp` temp files match
+// neither the `.yaml`/`.yml` suffix the region scanners require nor the
+// `<depID>-<regionKey>.yaml` shape, so the swap cannot invent a phantom region.
+func persistSecondaryKubeconfig(dir, clusterID, raw string) (string, error) {
+	path := filepath.Join(dir, clusterID+".yaml")
+	if err := writeFileAtomic0600(path, []byte(raw)); err != nil {
+		return path, err
+	}
+	return path, nil
+}
+
 // HandleSovereignSecondaryKubeconfig handles POST
 // /api/v1/sovereign/secondary-kubeconfig.
 //
@@ -294,8 +340,8 @@ func (h *Handler) HandleSovereignSecondaryKubeconfig(w http.ResponseWriter, r *h
 		return
 	}
 	clusterID := fmt.Sprintf("%s-%s", body.DeploymentID, body.RegionKey)
-	path := filepath.Join(dir, clusterID+".yaml")
-	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+	path, err := persistSecondaryKubeconfig(dir, clusterID, raw)
+	if err != nil {
 		h.log.Warn("secondary-kubeconfig: write failed", "path", path, "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error":  "write-failed",

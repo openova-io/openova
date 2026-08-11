@@ -177,7 +177,9 @@ func (h *Handler) materializeChrootPrimaryKubeconfig(dep *Deployment, path strin
 			"id", dep.ID, "dir", filepath.Dir(path), "err", err)
 		return false
 	}
-	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+	// #6108 — atomic. resolvePrimaryKubeconfigPath os.Stats this path and the
+	// mesh establish reads it; an in-place truncate can hand either a prefix.
+	if err := writeFileAtomic0600(path, []byte(raw)); err != nil {
 		h.log.Warn("clustermesh: chroot primary kubeconfig write failed (#5131)",
 			"id", dep.ID, "path", path, "err", err)
 		return false

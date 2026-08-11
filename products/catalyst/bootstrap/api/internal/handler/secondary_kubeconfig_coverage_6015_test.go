@@ -442,8 +442,13 @@ func TestSecondaryKubeconfigDelivery_RunsOnFailedDeployment_6015(t *testing.T) {
 	defer srv.Close()
 	withChrootForwardClient(t, srv)
 
-	mustWrite(t, filepath.Join(dir, depID+"-me-east-215-b-1.yaml"),
-		"apiVersion: v1\nkind: Config\nclusters:\n- cluster:\n    server: https://212.72.24.6:6443\n  name: c\n")
+	// A COMPLETE kubeconfig (#6108). This fixture used to be the cluster-block-only
+	// document — the hw293 stub's exact shape — so this test asserted that the
+	// delivery loop POSTs SOMETHING while the something it POSTed could never have
+	// built a client. The subject here is "delivery is not gated on the Phase-1
+	// outcome", and that subject is only meaningful over a document a Sovereign
+	// could actually use.
+	mustWrite(t, filepath.Join(dir, depID+"-me-east-215-b-1.yaml"), completeKubeconfigSameCluster)
 
 	h := newExportTestHandler(t)
 	h.secondaryKubeconfigDeliveryInterval = 5 * time.Millisecond
@@ -499,8 +504,9 @@ func TestMarkPhase1Done_FailedOutcomeStillStartsDelivery_6015(t *testing.T) {
 			withChrootForwardClient(t, srv)
 
 			// Region B's kubeconfig IS on the mother's disk — the hw293 state.
-			mustWrite(t, filepath.Join(dir, depID+"-me-east-215-b-1.yaml"),
-				"apiVersion: v1\nkind: Config\nclusters:\n- cluster:\n    server: https://212.72.24.6:6443\n  name: c\n")
+			// COMPLETE (#6108): see the sibling test above for why the
+			// cluster-block-only fixture made this assertion vacuous.
+			mustWrite(t, filepath.Join(dir, depID+"-me-east-215-b-1.yaml"), completeKubeconfigSameCluster)
 
 			h := NewWithPDM(silentLogger(), &fakePDM{})
 			h.secondaryKubeconfigDeliveryInterval = 5 * time.Millisecond
