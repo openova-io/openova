@@ -236,7 +236,19 @@ spec:
       #   catalystAPIInternalURL, with a ClusterMesh-safe toEndpoints selector so the
       #   region-B Keycloak (this slot is NOT SECONDARY_HR_SUSPEND'd) can reach the
       #   region-A catalyst-api over the mesh. Ingress half in bp-catalyst-platform.
-      version: 1.5.9
+      # 1.5.10 — #6172: 1.5.8's backchannel named `catalyst-api.catalyst-system`,
+      #   a Service bp-catalyst-platform creates at slot 13 — behind bp-gitea,
+      #   behind THIS slot. Keycloak accepts a PLAINTEXT identity-provider URL
+      #   only while its host resolves to a private address (UriUtils.checkUrl →
+      #   SslRequired.EXTERNAL → InetAddress.getByName) and the sovereign realm
+      #   ships sslRequired: external, so on fresh prov hw294 the import 400'd
+      #   with `The url [token_url] requires secure connections` and Phase 1
+      #   stalled at 51/67 behind 16 HelmReleases. The chart now renders its own
+      #   ClusterIP anchor at `catalyst-api-backchannel.catalyst-system` — a
+      #   ClusterIP resolves with zero endpoints and routes to catalyst-api once
+      #   slot 13 lands. Also: the config-cli Job now prints the SERVER's error
+      #   body on a failed import instead of a bare 400.
+      version: 1.5.10
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak

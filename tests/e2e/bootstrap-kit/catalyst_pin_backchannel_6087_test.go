@@ -200,9 +200,29 @@ func TestCatalystPin_BackchannelLegsAreInCluster(t *testing.T) {
 				"hairpin does not work on Huawei (#3241/#3844), which is the HTTP 502 at "+
 				"/broker/catalyst-pin/endpoint recorded in UAT row 219.", key, got, publicHost)
 		}
-		if !strings.HasPrefix(got, "http://catalyst-api.catalyst-system.svc") {
-			t.Errorf("catalyst-pin config.%s = %q — want the in-cluster catalyst-api "+
-				"Service, the same seam openova-mcp and bp-self-sovereign-cutover already use", key, got)
+		// #6172: the host is the backchannel ANCHOR Service bp-keycloak renders
+		// itself, NOT `catalyst-api`. Keycloak accepts a plaintext
+		// identity-provider URL only while its host resolves to a private
+		// address, and `catalyst-api` is created by bp-catalyst-platform at
+		// bootstrap-kit slot 13 — behind bp-gitea, behind bp-keycloak at slot
+		// 09 — so at import time it is NXDOMAIN and the realm import 400s with
+		// `The url [token_url] requires secure connections`. Asserting the
+		// literal `catalyst-api` here would re-pin the wedge.
+		if !strings.HasPrefix(got, "http://catalyst-api-backchannel.catalyst-system.svc") {
+			t.Errorf("catalyst-pin config.%s = %q — want the in-cluster backchannel anchor "+
+				"Service catalyst-api-backchannel.catalyst-system, which bp-keycloak renders "+
+				"at slot 09 so the host resolves before bp-catalyst-platform creates "+
+				"catalyst-api at slot 13 (#6172)", key, got)
+		}
+		// The anchor must not be collapsed back onto bp-catalyst-platform's own
+		// Service name: Helm refuses a resource another release owns, so that
+		// would move the wedge from slot 09 to slot 13.
+		if strings.HasPrefix(got, "http://catalyst-api.catalyst-system.svc") {
+			t.Errorf("catalyst-pin config.%s = %q — this is the Service name "+
+				"products/catalyst/chart/templates/api-service.yaml owns in the same "+
+				"namespace. bp-keycloak cannot render it without failing "+
+				"bp-catalyst-platform's install with `exists and cannot be imported "+
+				"into the current release` (#6172).", key, got)
 		}
 		if !strings.HasSuffix(got, oidcPath(key)) {
 			t.Errorf("catalyst-pin config.%s = %q — lost its %q path in the rewrite", key, got, oidcPath(key))

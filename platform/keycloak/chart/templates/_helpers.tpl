@@ -212,3 +212,76 @@ don't rotate per-Org broker secrets.
 {{- end -}}
 {{- $seed | sha256sum -}}
 {{- end -}}
+
+{{/*
+bp-keycloak.catalystBackchannel (#6172) — parse `catalystAPIInternalURL`
+into its parts ONCE, for every consumer.
+
+Returns a YAML mapping the caller reads with `fromYaml`:
+
+  scheme     http | https
+  host       the authority's host  (no port)
+  port       explicit port, else 443/80 by scheme
+  svc        first DNS label  — the Service name, when inCluster
+  ns         second DNS label — the Service namespace, when inCluster
+  inCluster  true when the host is a Kubernetes Service DNS shape
+             (<svc>.<ns>, <svc>.<ns>.svc, <svc>.<ns>.svc.cluster.local)
+  url        the trimmed, trailing-slash-free URL
+
+An empty/absent value yields `url: ""` and `inCluster: false` — the
+all-public backchannel an operator restores on a hairpin-capable EIP.
+
+WHY THIS IS A HELPER AND NOT PARSED TWICE
+─────────────────────────────────────────────────────────────────────────
+Three templates now depend on the SAME parse and must never disagree:
+
+  * configmap-sovereign-realm.yaml   — writes the URL into the realm
+  * catalyst-backchannel-egress-cnp.yaml (#6106) — opens egress to it
+  * catalyst-api-backchannel-service.yaml (#6172) — MAKES IT RESOLVE
+
+If the third disagreed with the first by so much as a label, the realm
+would name a host nothing renders, and Keycloak would refuse the import
+with `The url [token_url] requires secure connections` — the hw294
+wedge this helper exists to make structurally impossible.
+*/}}
+{{- define "bp-keycloak.catalystBackchannel" -}}
+{{- $url := trimSuffix "/" (trim (.Values.catalystAPIInternalURL | default "")) -}}
+{{- if not $url -}}
+url: ""
+inCluster: false
+{{- else -}}
+{{- $scheme := "" -}}
+{{- $rest := "" -}}
+{{- if hasPrefix "http://" $url -}}
+{{- $scheme = "http" -}}
+{{- $rest = trimPrefix "http://" $url -}}
+{{- else if hasPrefix "https://" $url -}}
+{{- $scheme = "https" -}}
+{{- $rest = trimPrefix "https://" $url -}}
+{{- else -}}
+{{- fail (printf "bp-keycloak: catalystAPIInternalURL must be an http:// or https:// URL, got %q. An unparseable value would silently emit NO backchannel egress policy and no resolution anchor, and would re-break every catalyst-pin brokered login (#6106 #6172)." $url) -}}
+{{- end -}}
+{{- $authority := first (splitList "/" $rest) -}}
+{{- $hostport := splitList ":" $authority -}}
+{{- $host := index $hostport 0 -}}
+{{- $port := "" -}}
+{{- if gt (len $hostport) 1 -}}
+{{- $port = index $hostport 1 -}}
+{{- else if eq $scheme "https" -}}
+{{- $port = "443" -}}
+{{- else -}}
+{{- $port = "80" -}}
+{{- end -}}
+{{- $dnsLabels := splitList "." $host -}}
+{{- $inCluster := and (ge (len $dnsLabels) 2) (or (eq (len $dnsLabels) 2) (eq (index $dnsLabels 2) "svc")) -}}
+url: {{ $url | quote }}
+scheme: {{ $scheme | quote }}
+host: {{ $host | quote }}
+port: {{ $port | quote }}
+inCluster: {{ $inCluster }}
+{{- if $inCluster }}
+svc: {{ index $dnsLabels 0 | quote }}
+ns: {{ index $dnsLabels 1 | quote }}
+{{- end }}
+{{- end -}}
+{{- end -}}

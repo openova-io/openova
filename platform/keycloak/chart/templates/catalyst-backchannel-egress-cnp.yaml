@@ -99,39 +99,15 @@ plane-isolation default-deny — it grants one destination on one port and
 weakens nothing.
 */ -}}
 {{- if and .Values.sovereignRealm.enabled (not (and .Values.realmConfig (and .Values.realmConfig.tenant .Values.realmConfig.tenant.enabled))) }}
-{{- $url := trimSuffix "/" (trim (.Values.catalystAPIInternalURL | default "")) }}
-{{- if $url }}
-{{- $scheme := "" }}
-{{- $rest := "" }}
-{{- if hasPrefix "http://" $url }}
-{{- $scheme = "http" }}
-{{- $rest = trimPrefix "http://" $url }}
-{{- else if hasPrefix "https://" $url }}
-{{- $scheme = "https" }}
-{{- $rest = trimPrefix "https://" $url }}
-{{- else }}
-{{- fail (printf "bp-keycloak: catalystAPIInternalURL must be an http:// or https:// URL, got %q. An unparseable value would silently emit NO backchannel egress policy and re-break every catalyst-pin brokered login (#6106)." $url) }}
-{{- end }}
-{{- $authority := first (splitList "/" $rest) }}
-{{- $hostport := splitList ":" $authority }}
-{{- $host := index $hostport 0 }}
-{{- $port := "" }}
-{{- if gt (len $hostport) 1 }}
-{{- $port = index $hostport 1 }}
-{{- else if eq $scheme "https" }}
-{{- $port = "443" }}
-{{- else }}
-{{- $port = "80" }}
-{{- end }}
-{{- $dnsLabels := splitList "." $host }}
-{{- /* In-cluster Service DNS shapes ONLY: <svc>.<ns>, <svc>.<ns>.svc,
-       <svc>.<ns>.svc.cluster.local. A PUBLIC host (the all-public backchannel
-       an operator restores on a hairpin-capable EIP) is reached over the
-       existing world egress and needs no endpoint policy — emit nothing. */}}
-{{- $inCluster := and (ge (len $dnsLabels) 2) (or (eq (len $dnsLabels) 2) (eq (index $dnsLabels 2) "svc")) }}
-{{- if and $inCluster (.Capabilities.APIVersions.Has "cilium.io/v2") }}
-{{- $svc := index $dnsLabels 0 }}
-{{- $ns := index $dnsLabels 1 }}
+{{- /* #6172: the URL is parsed ONCE, in `bp-keycloak.catalystBackchannel`,
+       so this policy, the realm ConfigMap and the resolution-anchor Service
+       in catalyst-api-backchannel-service.yaml can never disagree about
+       which host the backchannel names. */ -}}
+{{- $bc := fromYaml (include "bp-keycloak.catalystBackchannel" .) }}
+{{- if $bc.url }}
+{{- $port := $bc.port }}
+{{- if and $bc.inCluster (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+{{- $ns := $bc.ns }}
 ---
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
@@ -151,7 +127,7 @@ metadata:
       across the ClusterMesh from a secondary region where catalyst-api runs
       only in region A. Derived from catalystAPIInternalURL (#6106).
 spec:
-  description: "keycloak → {{ $svc }}.{{ $ns }}:{{ $port }} — catalyst-pin OIDC backchannel (#6106)."
+  description: "keycloak → {{ $bc.svc }}.{{ $ns }}:{{ $port }} — catalyst-pin OIDC backchannel (#6106)."
   # Every endpoint in the keycloak namespace — the Keycloak server Pod dials
   # the backchannel on each brokered login and the config-cli import Job
   # validates the IdP at import time. Matches the scope of the sibling
@@ -161,7 +137,13 @@ spec:
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: {{ $ns | quote }}
-            k8s:app.kubernetes.io/name: {{ $svc | quote }}
+            {{- /* #6172: select the catalyst-api WORKLOAD, not the Service
+                   name parsed out of the URL. Those were the same string
+                   until the backchannel gained its own resolution anchor;
+                   deriving the Pod label from a Service name is a
+                   correct-by-coincidence match that renders green while
+                   selecting nothing the moment the two diverge. */}}
+            k8s:app.kubernetes.io/name: {{ required "bp-keycloak: catalystAPIWorkloadName must name the catalyst-api Pod label `app.kubernetes.io/name`; an empty value renders a policy that selects every endpoint in the namespace or none (#6172)." .Values.catalystAPIWorkloadName | quote }}
           matchExpressions:
             # Naming the cluster key suppresses Cilium's implicit
             # `cluster=<local>` AND-injection, so this ONE rule matches the

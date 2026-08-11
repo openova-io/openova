@@ -499,7 +499,64 @@ name: bp-keycloak
 # (baseline-allow-keycloak-oidc-backchannel); neither half alone restores a
 # brokered login. Gated on the cilium.io/v2 Capabilities check so CRD-less
 # clusters still install. Guarded by tests/catalyst-backchannel-netpol-6106.sh.
-version: 1.5.9
+# 1.5.10 (#6172): 1.5.8's backchannel pointed the realm at a Service that
+# does not exist yet, and the realm import is what unblocks the chart that
+# creates it. Fresh prov hw294 stalled Phase 1 at 51/67 with 16 HelmReleases
+# -- cutover, the per-Org workspace and every SSO consumer -- parked behind
+# bp-keycloak, because keycloak-config-cli's post-install Job failed
+# BackoffLimitExceeded on an unattributed `Create method returned status Bad
+# Request (Code: 400)`.
+#   Keycloak validates an identity provider's URLs at CREATE. From
+# org.keycloak.common.util.UriUtils.checkUrl in 26.3.3:
+#     if (!"https".equals(protocol) && sslRequired.isRequired(parsed.getHost()))
+#         throw new IllegalArgumentException(
+#             "The url [" + name + "] requires secure connections");
+# and SslRequired.EXTERNAL.isRequired(host) is !isLocal(host), where isLocal
+# is InetAddress.getByName(host) -> loopback / site-local / link-local / ULA.
+# The sovereign realm ships sslRequired: external, so a PLAINTEXT leg is legal
+# only while its host RESOLVES to a private address. It did not: bp-keycloak
+# is bootstrap-kit slot 09 and `catalyst-api` is created by
+# bp-catalyst-platform at slot 13, whose HelmRelease dependsOn bp-gitea ->
+# bp-keycloak. Measured inside keycloak-0 on hw294 region A: `getent hosts
+# catalyst-api.catalyst-system.svc.cluster.local` -> rc=2 (NXDOMAIN), control
+# `kubernetes.default.svc.cluster.local` -> 10.96.0.1. Reproduced against
+# Keycloak 26.3.3 with the realm's own IdP payload:
+#     POST /admin/realms/<realm>/identity-provider/instances
+#     HTTP/1.1 400 Bad Request
+#     {"errorMessage":"The url [token_url] requires secure connections"}
+#   New template `templates/catalyst-api-backchannel-service.yaml` renders the
+# backchannel host as a ClusterIP Service THIS chart owns. A ClusterIP is
+# allocated at create time and CoreDNS answers for it with zero endpoints, so
+# the name resolves to a site-local address from slot 09 and routes to
+# catalyst-api's Pods through the same selector once slot 13 lands. Proven
+# live on hw294 region B, where bp-catalyst-edge-routes renders the same shape
+# and catalyst-api runs only in region A: `endpoints catalyst-api -> <none>`
+# while the name answers 10.97.176.117. That asymmetry IS the defect -- region
+# B got its anchor for free from slot 13e, region A never had one.
+#   The host is `catalyst-api-backchannel`, deliberately NOT `catalyst-api`:
+# Helm refuses a resource another release owns, so reusing the name would
+# unwedge slot 09 by wedging bp-catalyst-platform at slot 13 instead. The
+# template fails the render loudly if the two are ever collapsed.
+#   #6087's split is untouched -- authorizationUrl and issuer stay PUBLIC
+# https (browser redirect; iss claim), only the three server-side legs move.
+#   The #6106 egress CNP now selects the catalyst-api WORKLOAD via the new
+# `catalystAPIWorkloadName` value instead of deriving the Pod label from the
+# URL's first DNS label. That derivation was correct only while the Service
+# name and the Pod label were the same string, and a CNP that selects nothing
+# renders exactly as green as one that selects the right endpoints. Both it
+# and the anchor read ONE parse, the new `bp-keycloak.catalystBackchannel`
+# helper, so the realm, the policy and the anchor cannot disagree.
+#   DIAGNOSTIC: keycloak-config-cli's Job now runs under a wrapper that, on a
+# NON-ZERO exit only, replays the same import with HTTP logging and prints the
+# request LINE, the 4xx/5xx status line and the error payload -- the server's
+# own answer, which upstream discards identically on v6.4.0, v6.4.1, v6.5.0
+# and main (IdentityProviderRepository.create hands the Response straight to
+# CreatedResponseUtil.getCreatedId). Request bodies and success-response
+# bodies are never printed and lines are capped, because the import carries
+# client secrets. The happy path pays nothing and the Job still exits with the
+# original code.
+#   Guarded by tests/catalyst-pin-backchannel-resolvable-6172.sh.
+version: 1.5.10
 description: |
   1.5.2 (#4246): the per-tenant `openclaw-oidc-client-secret` Secret now
   emits BOTH `client-secret` AND `OIDC_CLIENT_SECRET` keys (it previously
