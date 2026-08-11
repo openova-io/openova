@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-11T06:45:04Z` |
+| Last refreshed | `2026-08-11T07:00:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -309,12 +309,15 @@ flowchart LR
 |---|---|---|---|
 | 2026-08-11T06:14 | [#6154](https://github.com/openova-io/openova/pull/6154) | #6138 | docs(uat): row 176 stops routing to an engineer, G7 names th |
 | 2026-08-11T06:16 | [#6153](https://github.com/openova-io/openova/pull/6153) | #5401 | fix(wizard): the retired fabricated ORG_DEFAULTS come back o |
+| 2026-08-11T06:57 | [#6152](https://github.com/openova-io/openova/pull/6152) | #6079 | fix(catalyst-ui): a 1-replica Deployment cannot roll on a fu |
 | 2026-08-11T06:34 | [#6151](https://github.com/openova-io/openova/pull/6151) | #6138 | fix(catalyst-api, console): report an Organization isolation |
 | 2026-08-11T04:21 | [#6150](https://github.com/openova-io/openova/pull/6150) | #5623 | docs(uat): G12 region-kill WALKED on hw293 — destructive ass |
+| 2026-08-11T06:58 | [#6146](https://github.com/openova-io/openova/pull/6146) | #6114 | fix(catalyst-api,funnel): clusters D/F/H of the #6114 residu |
 | 2026-08-11T04:01 | [#6144](https://github.com/openova-io/openova/pull/6144) | #6054 | fix(catalyst): a usable secondary kubeconfig is not thereby  |
 | 2026-08-11T04:16 | [#6143](https://github.com/openova-io/openova/pull/6143) | #6114 | fix(walk): a console-gateway hostname probed on the shared g |
 | 2026-08-11T04:16 | [#6142](https://github.com/openova-io/openova/pull/6142) | #3969 | fix(catalyst-api): stop the Topology-tab Save flattening spe |
 | 2026-08-11T04:16 | [#6141](https://github.com/openova-io/openova/pull/6141) | #4656 | docs(uat): walk the 13 unwalked hw293 rows — 11 flip green,  |
+| 2026-08-11T06:59 | [#6139](https://github.com/openova-io/openova/pull/6139) | #5451 | fix(delivery): the per-Organization console pin had no write |
 | 2026-08-11T04:02 | [#6138](https://github.com/openova-io/openova/pull/6138) | #5857 | fix(catalyst-api): refuse a declared isolation the plan cann |
 | 2026-08-11T03:25 | [#6137](https://github.com/openova-io/openova/pull/6137) | #4466 | fix(catalyst-chart): the janitor's whole env surface was unr |
 | 2026-08-11T03:26 | [#6134](https://github.com/openova-io/openova/pull/6134) | #6099 | fix(jobs): the cutover tree had no root — an empty dependsOn |
@@ -322,6 +325,7 @@ flowchart LR
 | 2026-08-11T02:56 | [#6132](https://github.com/openova-io/openova/pull/6132) | #6111 | docs(uat): finish the #6111 adjudication — G6 gets an assert |
 | 2026-08-11T02:58 | [#6130](https://github.com/openova-io/openova/pull/6130) | #6085 | fix(console): stop publishing a DR/suspend verdict from abse |
 | 2026-08-11T03:11 | [#6129](https://github.com/openova-io/openova/pull/6129) | #6092 | test(org-delete): pin the cluster-wide secrets rule read-onl |
+| 2026-08-11T06:53 | [#6128](https://github.com/openova-io/openova/pull/6128) | #6078 | docs(uat): eight walk-gated rows re-measured live on hw293 — |
 | 2026-08-11T04:31 | [#6127](https://github.com/openova-io/openova/pull/6127) | #6061 | docs(uat): hw293 re-walk rows 63 + 162 — 63 flips ✅, 162 sti |
 | 2026-08-11T02:46 | [#6126](https://github.com/openova-io/openova/pull/6126) | #4303 | fix(seed): verify the self-heal instead of announcing it (Re |
 | 2026-08-11T02:26 | [#6125](https://github.com/openova-io/openova/pull/6125) | #3840 | fix(bootstrap-kit): the Flux controllers must not be the onl |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-08-11T06:27 | [#6118](https://github.com/openova-io/openova/pull/6118) | #6089 | fix(netpol): the catalyst-pin backchannel moved in-cluster a |
 | 2026-08-11T01:38 | [#6117](https://github.com/openova-io/openova/pull/6117) | #5957 | docs(path-to-100): partition the hw293 UAT failure residue b |
 | 2026-08-11T02:24 | [#6116](https://github.com/openova-io/openova/pull/6116) | #6108 | fix(catalyst-api): stop CREATING torn kubeconfigs, not just  |
-| 2026-08-11T01:32 | [#6115](https://github.com/openova-io/openova/pull/6115) | #4416 | docs(uat): adjudicate the clauses that assert objects the pl |
-| 2026-08-11T01:40 | [#6113](https://github.com/openova-io/openova/pull/6113) | #6055 | docs(uat): hw293 live-walk — 5 cutover/meta rows pass, 162 f |
-| 2026-08-11T01:35 | [#6112](https://github.com/openova-io/openova/pull/6112) | #6015 | fix(catalyst-api): the secondary-kubeconfig delivery leg mus |
-| 2026-08-11T01:25 | [#6110](https://github.com/openova-io/openova/pull/6110) | #5175 | fix(openova-mcp): surface the authoritative /whoami verdict, |
 
 ---
 
