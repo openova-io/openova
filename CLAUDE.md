@@ -95,6 +95,20 @@ Test provs and tenant Organizations use the domains listed in
 The legacy `admin.<sovereign-fqdn>` subdomain for voucher operations is dead —
 voucher and billing operations live in the operator console's **BSS menu**.
 
+### 🛑 OTP/PIN mail is Sieve-filed into the `OTP` folder — poll `OTP`, NOT INBOX (since 2026-08-11)
+
+ALL mail from `noreply@openova.io` to `emrah.baysal@openova.io` (sign-in PINs,
+"<app> is ready" notifications) is filed server-side into the **`OTP` IMAP
+folder at delivery** by the active Stalwart Sieve script `otp-filter` — it
+never reaches INBOX. Any PIN/OTP poller (e.g. the `read_pin.py` recipe) MUST
+`EXAMINE "OTP"` (read-only) instead of `SELECT INBOX`; everything else in the
+canonical walk-auth flow (memory
+`reference_sovereign_authed_walk_via_mothership_mailbox_pin`) is unchanged.
+The founder's INBOX is human mail only now — the 983-message OTP flood was
+moved out on 2026-08-11; keep it that way. The mailbox remains READ-ONLY:
+never create/rename folders, never touch the Sieve script or SOGo filters —
+rule changes are founder-gated in `openova-private`.
+
 ### 🛑 NodePorts are ABSOLUTELY FORBIDDEN — always, including for testing/debugging/proof
 
 Founder, 2026-07-03 (verbatim): *"YOU CAN NEVER EVER USE NODEPORT EVEN FOR TESTING
