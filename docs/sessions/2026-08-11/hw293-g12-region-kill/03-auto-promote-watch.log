@@ -1,0 +1,56 @@
+===== 03:46:41.744Z iter=1 =====
+  cnpg-pair-bp-cnpg-pair-replica in_recovery=t
+  shared-pg-replica in_recovery=t
+  shared-pg-b-replica in_recovery=t
+  shared-pg-c-replica in_recovery=t
+===== 03:46:53.330Z iter=2 =====
+  cnpg-pair-bp-cnpg-pair-replica in_recovery=t
+  shared-pg-replica in_recovery=t
+  shared-pg-b-replica in_recovery=t
+  shared-pg-c-replica in_recovery=t
+===== 03:47:03.955Z iter=3 =====
+  cnpg-pair-bp-cnpg-pair-replica in_recovery=t
+  shared-pg-replica in_recovery=t
+  shared-pg-b-replica in_recovery=t
+  shared-pg-c-replica in_recovery=t
+===== 03:47:14.796Z iter=4 =====
+  cnpg-pair-bp-cnpg-pair-replica in_recovery=t
+  shared-pg-replica in_recovery=t
+  shared-pg-b-replica in_recovery=t
+  shared-pg-c-replica in_recovery=t
+===== 03:47:25.414Z iter=5 =====
+  cnpg-pair-bp-cnpg-pair-replica in_recovery=t
+  shared-pg-replica in_recovery=t
+  shared-pg-b-replica in_recovery=t
+  shared-pg-c-replica in_recovery=t
+===== 03:47:36.657Z iter=6 =====
+  cnpg-pair-bp-cnpg-pair-replica in_recovery=t
+  shared-pg-replica in_recovery=t
+  shared-pg-b-replica in_recovery=t
+  shared-pg-c-replica in_recovery=t
+===== 03:47:47.298Z iter=7 =====
+  cnpg-pair-bp-cnpg-pair-replica in_recovery=t
+  shared-pg-replica in_recovery=t
+  shared-pg-b-replica in_recovery=t
+  shared-pg-c-replica in_recovery=t
+===== 03:47:57.982Z iter=8 =====
+  cnpg-pair-bp-cnpg-pair-replica in_recovery=t
+  shared-pg-replica in_recovery=t
+  shared-pg-b-replica in_recovery=t
+  shared-pg-c-replica in_recovery=t
+===== 03:48:09.002Z iter=9 =====
+  cnpg-pair-bp-cnpg-pair-replica in_recovery=t
+  shared-pg-replica in_recovery=t
+  shared-pg-b-replica in_recovery=t
+  shared-pg-c-replica in_recovery=t
+===== 03:48:19.585Z iter=10 =====
+  cnpg-pair-bp-cnpg-pair-replica in_recovery=t
+  shared-pg-replica in_recovery=t
+  shared-pg-b-replica in_recovery=f
+  shared-pg-c-replica in_recovery=t
+PROMOTION DETECTED 03:48:21.076Z
+=== §3b promotion state — 2026-08-11T03:48:31.273Z ===
+  cnpg-pair-bp-cnpg-pair-replica in_recovery=t  (still replica)
+  shared-pg-replica in_recovery=f  <-- PROMOTED/WRITABLE
+  shared-pg-b-replica in_recovery=f  <-- PROMOTED/WRITABLE
+  shared-pg-c-replica in_recovery=t  (still replica)

@@ -1,0 +1,13 @@
+=== G12 hw293 §2 KILL — T0 2026-08-11T03:46:09.641Z ===
+== KILL region-a (HARD os-stop) ==
+  target: 58658681-97d1-48c8-8f2e-8f86c5ee1fb4 catalyst-hw293-omantel-biz-a0077ba4-me-east-215-a-w4c295d ACTIVE
+  target: e24218f1-2c94-49d5-a4eb-1f5c2016a9fc catalyst-hw293-omantel-biz-a0077ba4-me-east-215-a-w39eefe ACTIVE
+  target: e934f1eb-e13b-4540-a9a0-c82e24226a5c catalyst-hw293-omantel-biz-a0077ba4-me-east-215-a-wbffe94 ACTIVE
+  target: 12832580-9a5c-4c2d-9531-ed62a39ddf81 catalyst-hw293-omantel-biz-a0077ba4-me-east-215-a-w7a58db ACTIVE
+  target: 19faa8c5-1f5c-41c9-a266-d25b60c3c8b1 catalyst-hw293-omantel-biz-a0077ba4-me-east-215-a-wd93502 ACTIVE
+  target: a5068e0e-5e41-457f-bca3-0ea04c911614 catalyst-hw293-omantel-biz-a0077ba4-me-east-215-a-cp1-e83482 ACTIVE
+T0=2026-08-11T03:46:09.953Z — issuing HARD os-stop
+HTTP 200 {"job_id":"8a868c419f44e007019feeed7f9801cd"}
+-- polling region-a apiserver death --
+region-a apiserver DEAD at poll 2 (03:46:32.391Z)
+=== KILL RETURNED 2026-08-11T03:46:32.392Z ===

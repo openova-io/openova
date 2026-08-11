@@ -1,0 +1,17 @@
+=== §1b region-B REPLICA read-back (RPO=0 pre-proof) — 2026-08-11T03:45:39.382Z ===
+--- cnpg/cnpg-pair-bp-cnpg-pair-replica ---
+1|g12-sentinel-prekill-2026-08-11 03:45:29.925004+00
+in_recovery=true
+wal_receiver=streaming from cnpg-pair-bp-cnpg-pair-primary-mesh
+--- shared-data/shared-pg-replica ---
+1|g12-sentinel-prekill-2026-08-11 03:45:30.181992+00
+in_recovery=true
+wal_receiver=streaming from shared-pg-mesh
+--- shared-data/shared-pg-b-replica ---
+1|g12-sentinel-prekill-2026-08-11 03:45:30.408779+00
+in_recovery=true
+wal_receiver=streaming from shared-pg-b-mesh
+--- shared-data/shared-pg-c-replica ---
+1|g12-sentinel-prekill-2026-08-11 03:45:30.913893+00
+in_recovery=true
+wal_receiver=streaming from shared-pg-c-mesh

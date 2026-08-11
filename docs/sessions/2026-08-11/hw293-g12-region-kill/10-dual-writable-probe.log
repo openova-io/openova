@@ -1,0 +1,14 @@
+=== §10 DUAL-WRITABLE PROBE — 2026-08-11T03:56:45.031Z ===
+--- region A role=primary pod ---
+  A primary pod = cnpg-pair-bp-cnpg-pair-primary-1
+--- A: recovery state / timeline / rows / read vacuity-control ---
+A in_recovery=false
+A timeline=1
+A rowcount=1
+A transaction_read_only=off
+--- A: WRITE PROBE (the decisive test) ---
+--- B: POSITIVE CONTROL — same write on region B ---
+B in_recovery=false
+B timeline=2
+B-WRITE-ACCEPTED id=35
+INSERT 0 1
