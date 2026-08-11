@@ -56,24 +56,49 @@ jobs:
       # annotation pointed at nothing.
       - name: self-test must be able to fail
         run: |
-          cp scripts/check-live-route-backends.sh /tmp/mutant.sh
+          # The guard imports scripts/lib/gateway_route_admission.py relative to
+          # its OWN path (#6140), so every mutation below copies the whole
+          # scripts/ tree. Copying the lone .sh to /tmp leaves no lib/ beside it
+          # and the classifier dies with ModuleNotFoundError — which exits
+          # non-zero and would be misread by the `if` below as "mutation
+          # caught". That is why each step now also requires the mutant to print
+          # the SPECIFIC failing fixture and to keep a control green: a crash
+          # must never be able to masquerade as a vacuity proof.
+          rm -rf /tmp/mutant && cp -r scripts /tmp/mutant
           python3 - <<'PY'
-          p = "/tmp/mutant.sh"
+          p = "/tmp/mutant/check-live-route-backends.sh"
           s = open(p).read()
           old = "            if mesh > 0:"
           new = "            if True:"
           assert old in s, "mutation anchor not found — update this step"
           open(p, "w").write(s.replace(old, new, 1))
           PY
-          if bash /tmp/mutant.sh --self-test >/tmp/mutant.out 2>&1; then
+          if bash /tmp/mutant/check-live-route-backends.sh --self-test >/tmp/mutant.out 2>&1; then
             echo "VACUITY FAIL: the self-test passed against a classifier that"
             echo "excuses every global-annotated Service without ever checking"
             echo "whether a remote cluster exists. That is the #6040 blind spot."
             cat /tmp/mutant.out
             exit 1
           fi
-          echo "OK: the mutated classifier is caught. Failing assertion:"
-          grep -m1 'SELF-TEST FAIL' /tmp/mutant.out || cat /tmp/mutant.out
+          # The mutation targets the MESH belief, so the fixture that must go red
+          # is the 0-remote-clusters stub — named explicitly so a crash, or a red
+          # from any other fixture, cannot be scored as this proof.
+          grep -qF "fixture 'mesh stub, 0 remote clusters'" /tmp/mutant.out || {
+            echo "VACUITY FAIL: the run failed, but not on the mesh-stub fixture —"
+            echo "the non-zero exit came from something other than the mutation."
+            cat /tmp/mutant.out
+            exit 1
+          }
+          # CONTROL: a fixture that shares the suspect property (a zero-endpoint
+          # Service) but is NOT decided by the mesh belief must stay green.
+          grep -qF 'ok  dead backend, no mesh annotation' /tmp/mutant.out || {
+            echo "CONTROL FAIL: the unannotated dead-backend fixture went red too,"
+            echo "so the red cannot be attributed to the mesh belief."
+            cat /tmp/mutant.out
+            exit 1
+          }
+          echo "OK: mutation caught, control stayed green. Failing assertion:"
+          grep -m1 'SELF-TEST FAIL' /tmp/mutant.out
 
       # Second vacuity check, for the listener pass (UAT rows 87/90/95, and the
       # g7doora shape behind row 234). Regress `listener_admits` to the belief
@@ -127,16 +152,17 @@ jobs:
       # defect that produced those three rows.
       - name: region-symmetry pass must be able to fail
         run: |
-          cp scripts/check-live-route-backends.sh /tmp/mutant-peer.sh
+          # Whole tree, not the lone .sh — see the first vacuity step.
+          rm -rf /tmp/mutant-peer && cp -r scripts /tmp/mutant-peer
           python3 - <<'PY'
-          p = "/tmp/mutant-peer.sh"
+          p = "/tmp/mutant-peer/check-live-route-backends.sh"
           s = open(p).read()
           old = 'peer_known = "peerHosts" in b'
           new = 'peer_known = False'
           assert old in s, "mutation anchor not found — update this step"
           open(p, "w").write(s.replace(old, new, 1))
           PY
-          if bash /tmp/mutant-peer.sh --self-test >/tmp/mutant-peer.out 2>&1; then
+          if bash /tmp/mutant-peer/check-live-route-backends.sh --self-test >/tmp/mutant-peer.out 2>&1; then
             echo "VACUITY FAIL: the self-test passed against a classifier that never"
             echo "compares regions. A hostname only one region routes is a coin flip"
             echo "for every customer behind the shared front door."
