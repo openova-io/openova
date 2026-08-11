@@ -578,7 +578,7 @@ images:
   marketplaceApi:
     tag: "0d9531a"
   console:
-    tag: "ea10f7d"
+    tag: "c290d0a"
   # Admin pod has a separate tag from the orgTag bundle because the admin
   # image build is decoupled from the Organization microservices CI run — when
   # orgTag is bumped, admin may not have published for that SHA. Caught
