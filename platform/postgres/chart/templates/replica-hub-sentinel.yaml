@@ -222,6 +222,14 @@ metadata:
     catalyst.openova.io/blueprint: bp-postgres
 spec:
   replicas: 1
+  # Recreate, matching dr-promoter (#6079). A single-replica Deployment with the
+  # DEFAULT RollingUpdate can never roll on a full node: maxSurge 25% ceils to 1
+  # so the new Pod is created, but maxUnavailable 25% floors to 0 so the old Pod
+  # may never be evicted to make room for it. A reconciler that cannot be rolled
+  # out is a reconciler stuck on whatever image it first got — which for THIS
+  # workload would mean the repair silently never updates.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: bp-postgres

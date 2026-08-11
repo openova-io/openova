@@ -1518,6 +1518,15 @@ awk '/name: HOME/{getline; print; exit}' "$TMP/sentinel-replica.yaml" | grep -q 
   || fail "#6114 sentinel needs HOME=/tmp — kubectl writes its cache under \$HOME and the rootfs is read-only"
 grep -q '"/bin/bash"' "$TMP/sentinel-replica.yaml" \
   && fail "#6114 sentinel invokes /bin/bash, but alpine/k8s is Alpine — dr-promoter uses /bin/sh"
+# #6079: a single-replica Deployment on the DEFAULT RollingUpdate can never roll
+# on a full node — maxSurge 25% ceils to 1 but maxUnavailable 25% floors to 0, so
+# the old Pod may never be evicted to make room for the new one. A reconciler
+# that cannot be rolled out is stuck on whatever image it first got, which for
+# THIS workload means the repair silently stops updating. dr-promoter uses
+# Recreate for the same reason. (scripts/check-single-replica-rollout.py is the
+# repo-wide gate; this pins it at the point of use.)
+awk '/^kind: Deployment$/{d=1} d&&/replica-hub-sentinel/{n=1} n&&/type: Recreate/{f=1} END{exit f?0:1}' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114/#6079 sentinel Deployment has no strategy.type: Recreate — a single-replica default RollingUpdate can NEVER roll (maxUnavailable floors to 0)"
 
 # 21i — the rendered loop must actually PARSE as POSIX sh. A bashism here is
 # invisible to every assertion above (they all match text) and would surface
