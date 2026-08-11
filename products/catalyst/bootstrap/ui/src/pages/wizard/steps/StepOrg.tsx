@@ -46,7 +46,11 @@ function SmartField({
   label: string; defaultValue: string; value: string
   onChange: (v: string) => void; type?: string; required?: boolean
 }) {
-  const isDefault = value === defaultValue
+  // #5401 — ORG_DEFAULTS are now EMPTY, so a bare `value === defaultValue`
+  // badges an untouched blank required field as a supplied "default". Require
+  // a real non-empty default before claiming one exists; the badge mechanism
+  // itself is unchanged for any field that carries one.
+  const isDefault = defaultValue !== '' && value === defaultValue
   const [focused, setFocused] = useState(false)
 
   return (
@@ -132,7 +136,7 @@ export function StepOrg() {
   return (
     <StepShell
       title="Tell us about your organisation"
-      description="We use this profile to recommend the right topology and component defaults. All fields are pre-filled — proceed without changing anything or override what you need."
+      description="We use this profile to recommend the right topology and component defaults. Tell us who the Organization actually is — only the name is required."
       onNext={next}
     >
       <div style={{ display: 'grid', gridTemplateColumns: bp === 'mobile' ? col1 : col2, gap: 14 }}>
@@ -174,7 +178,6 @@ export function StepOrg() {
       </div>
 
       <p style={{ fontSize: 11, color: 'var(--wiz-text-hint)', margin: 0, lineHeight: 1.6 }}>
-        Fields marked <span style={{ color: 'var(--wiz-accent)' }}>default</span> are pre-filled.
         Click to focus — all text is selected so you can type a replacement immediately.
       </p>
     </StepShell>
