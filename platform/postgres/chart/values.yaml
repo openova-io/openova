@@ -390,6 +390,42 @@ continuum:
 #       passwordAliases: []
 databases: []
 
+# ── Replica-side hub sentinel (0.2.20, #6114) ───────────────────────────
+# Renders ONLY where `topology.side` resolves to replica (templates/
+# replica-hub-sentinel.yaml). Two jobs, one loop:
+#
+#   1. REAPS a stale CNPG `<instance>-N-initdb` Job that is incomplete AND
+#      references a Secret that does not exist. A Job's pod template is
+#      IMMUTABLE and CNPG never recreates a stale one, so #6016's repair of
+#      the Cluster spec could not heal the generation-1 Pod it fixed — on
+#      hw293 that Pod sat in CreateContainerConfigError for 12h behind a
+#      correct spec. A COMPLETED initdb Job is never touched.
+#   2. REPORTS, loudly, when the cross-mesh consumer-hub sync has not
+#      delivered. role-secrets.yaml is gated `not isReplicaSide` by design
+#      (#5224), so this region mints nothing and depends entirely on
+#      catalyst-api's syncSharedPGConsumerHubSecrets. Absence used to be
+#      silent — 14 Secrets missing behind a green release.
+#
+# Readiness reports only that the loop is alive, never that the Secrets
+# arrived: slot 16a keeps Helm wait with `install.remediation.retries: -1`,
+# so gating readiness on the synced state would turn the legitimate
+# pre-sync window into an infinite install-remediation loop.
+replicaHubSentinel:
+  enabled: true
+  # Loop period. The wedge it repairs lasted 12h unattended; 30s is ample
+  # and the reap is idempotent.
+  intervalSeconds: 30
+  # A Job younger than this is never reaped, so a Secret that is seconds
+  # away from syncing is never raced. The reap criterion is otherwise
+  # POSITIVE evidence (incomplete + names an absent Secret), never a timeout.
+  minWedgeAgeSeconds: 180
+  # Same harbor-proxy-pull-compliant (`*/proxy-*/*`) prefix as the
+  # dr-promoter actor so the whole chart matches ONE kyverno anyPattern glob.
+  image:
+    repository: harbor.openova.io/proxy-dockerhub/alpine/k8s
+    tag: "1.30.0"
+    pullPolicy: IfNotPresent
+
 # ── Bootstrap self-registration (#3370) ─────────────────────────────────
 # When enabled, the chart self-registers the Application CR
 # (apps.openova.io/v1) for this instance — the canonical representation

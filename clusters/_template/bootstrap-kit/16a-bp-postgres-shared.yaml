@@ -167,7 +167,19 @@ spec:
       # instance's region-B replica stayed read-only for the whole outage (keycloak
       # unrecoverable in region-B) because ONLY bp-cnpg-pair shipped a promoter. sync-
       # only fence; autoPromote.hr.name above targets THIS HR. Lockstep 16a/16c/16d.
-      version: 0.2.19
+      # 0.2.20 (#6114, Refs #6016 #5224): replica-side hub sentinel. #6016 repaired
+      # the dangling bootstrap.initdb.secret and region-B STILL did not heal — a Job
+      # pod template is IMMUTABLE and CNPG never recreates a stale bootstrap Job, so
+      # the generation-1 initdb Pod sat in CreateContainerConfigError for 12h against
+      # a correct generation-2 spec (hw293: keycloak-0 Init:0/1, harbor-jobservice
+      # 150 restarts, 8 HRs not Ready). The sentinel reaps that Job on POSITIVE
+      # evidence only (incomplete + names an absent Secret + older than the age
+      # guard; a COMPLETED initdb Job is never touched) and reports the cross-mesh
+      # hub-sync's absence as a Warning Event + status ConfigMap rather than leaving
+      # 14 Secrets silently missing. Readiness reports loop-liveness ONLY — it must
+      # never gate on the synced state, because this HR keeps Helm wait with
+      # install.remediation.retries: -1. Lockstep 16a/16c/16d.
+      version: 0.2.20
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

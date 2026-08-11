@@ -352,9 +352,30 @@ echo "[render] Case 4g: #5224 pre-flip SECONDARY (side=secondary, crossRegion=fa
 if grep -qE '^kind: Secret$' "$TMP/preflip-secondary.yaml"; then
   fail "#5224: pre-flip SECONDARY minted a Secret — the divergent role/hub password mint is back (hw273 harbor 28P01 lockout shape)"
 fi
-if grep -q 'harbor-database-secret' "$TMP/preflip-secondary.yaml"; then
-  fail "#5224: pre-flip SECONDARY rendered the hub connection Secret (must be primary-side only)"
-fi
+# STRUCTURAL, not a bare substring (#6114). The assertion is "the secondary
+# never CREATES this object", and it is checked by parsing the render and
+# looking at what each document actually IS. The former `grep -q
+# 'harbor-database-secret'` could not tell an object from a mention, so it went
+# red the moment the replica-hub sentinel began naming the Secrets it WATCHES
+# FOR in an env value — a workload that exists precisely because the replica
+# must not mint them. Object-identity is the property this case is about; the
+# substring never was. Strength is unchanged: any rendered Secret at all is
+# already fatal two lines above, and this adds that NO document of any kind may
+# be NAMED for the hub Secret.
+python3 - "$TMP/preflip-secondary.yaml" <<'PY' || exit 1
+import sys, yaml
+bad = []
+for d in yaml.safe_load_all(open(sys.argv[1])):
+    if not isinstance(d, dict):
+        continue
+    if (d.get("metadata") or {}).get("name") == "harbor-database-secret":
+        bad.append(d.get("kind"))
+if bad:
+    sys.stderr.write(
+        "FAIL: #5224 pre-flip SECONDARY rendered an object NAMED for the hub "
+        "connection Secret (kinds: %s) — it must be primary-side only\n" % bad)
+    sys.exit(1)
+PY
 # The pre-flip PRIMARY must still mint the full set (the authoritative source).
 grep -qE '^type: kubernetes.io/basic-auth$' "$TMP/preflip-primary.yaml" \
   || fail "#5224: pre-flip PRIMARY lost its role-password Secret (the gate must only exclude the replica side)"
@@ -507,6 +528,12 @@ topology:
   # separately in Cases 20a-20c below; disabling it here keeps the "exactly 1 CNP"
   # crossregion-dr assertion focused.
   autoPromote: { enabled: false }
+# Same isolation, same reason (#6114): the replica-hub sentinel is default-ON on
+# the replica side and carries its OWN -egress CiliumNetworkPolicy (it must
+# reach the kube-apiserver through the shared-data default-deny). Its CNP is
+# asserted separately in Case 21 below, so it is disabled here to keep the
+# "exactly 1 CNP" crossregion-dr assertion focused rather than loosened.
+replicaHubSentinel: { enabled: false }
 databases:
   - name: registry
     owner: harbor
@@ -1341,3 +1368,126 @@ helm template shared-pg . -f "$TMP/promoter.values.yaml" --set topology.promoted
 awk '/^kind: Cluster$/{c=1} c&&/^  name: shared-pg-replica$/{r=1} r&&/^    enabled: /{print; exit}' "$TMP/prom-promoted.yaml" | grep -q 'enabled: false' \
   || fail "#5623 topology.promoted=true must render replica.enabled: false (CNPG promotes the survivor)"
 echo "  PASS (promoted:false -> replica.enabled:true; promoted:true -> replica.enabled:false)"
+
+# ── Case 21: #6114 — the replica-side hub sentinel (reap + loud absence) ──────
+#
+# TWO defects, one workload. role-secrets.yaml is gated `not isReplicaSide`
+# DELIBERATELY (#5224) — so the replica mints nothing and depends ENTIRELY on
+# catalyst-api's cross-mesh syncSharedPGConsumerHubSecrets. hw293 showed both
+# ways that goes wrong silently:
+#
+#   (1) #6016 repaired cluster.yaml's dangling bootstrap.initdb.secret, and the
+#       cluster STILL did not heal. A Job's pod template is IMMUTABLE and CNPG
+#       never recreates a stale bootstrap Job, so the generation-1
+#       shared-pg-1-initdb Pod stayed in CreateContainerConfigError for 12h
+#       against an already-correct generation-2 spec. Repairing a spec is not
+#       repairing a cluster; the wedged Job needs an ACTOR.
+#   (2) Region-B's shared-data held ZERO of region-A's 14 consumer hub Secrets
+#       and reported success anyway.
+#
+# Case 4h pins the RENDER half of (1) — no dangling reference. It cannot see a
+# stale Job, because a render test has no cluster. This case pins the actor that
+# can.
+echo "[render] Case 21: #6114 replica-hub sentinel — reap actor + loud absence, primary CONTROL, readiness must NOT gate on sync"
+cat > "$TMP/sentinel.values.yaml" <<'YAML'
+instance: { name: shared-pg, namespace: shared-data }
+topology:
+  mode: singleton
+  side: secondary
+  instances: 1
+  primary: { region: hz-fsn-rtz-prod }
+  replica: { region: hz-hel-rtz-prod }
+databases:
+  - name: registry
+    owner: harbor
+    reflect: { secretName: harbor-database-secret, namespaces: [harbor] }
+  - name: gitea
+    owner: gitea
+    reflect: { secretName: gitea-database-secret, namespaces: [gitea] }
+YAML
+helm template shared-pg . -f "$TMP/sentinel.values.yaml" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/sentinel-replica.yaml" 2>&1 \
+  || fail "#6114 sentinel replica render errored"
+
+# 21a — the sentinel renders on the replica side, with the RBAC + egress it
+# needs. shared-data is default-deny (bp-network-policies) and the kube-apiserver
+# is a reserved Cilium entity a vanilla NetworkPolicy cannot express (#4428), so
+# without its own CNP the reconciler is inert — a silent failure of the very
+# thing that exists to end silent failures.
+grep -qE '^  name: "shared-pg-replica-hub-sentinel"$' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 replica render is missing the hub sentinel"
+for k in ServiceAccount Role RoleBinding Deployment CiliumNetworkPolicy; do
+  grep -qE "^kind: ${k}\$" "$TMP/sentinel-replica.yaml" \
+    || fail "#6114 sentinel missing a ${k} (it cannot reach the apiserver / act without all five)"
+done
+grep -qE '^  name: "shared-pg-replica-hub-sentinel-egress"$' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 sentinel has no -egress CiliumNetworkPolicy — under shared-data default-deny it would be inert"
+grep -q 'kube-apiserver' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 sentinel egress CNP must admit the kube-apiserver entity"
+
+# 21b — the reap criterion is POSITIVE EVIDENCE, and a COMPLETED initdb Job is
+# never touched. This is the single most important line in the actor: deleting a
+# succeeded bootstrap Job could invite a re-bootstrap over live data.
+grep -q 'succeeded' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 reap has no .status.succeeded guard — it could delete a COMPLETED initdb Job and invite a re-bootstrap over live data"
+grep -q 'MIN_WEDGE_AGE' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 reap has no minimum-age guard — it would race a Secret that is seconds from syncing"
+grep -q 'secretKeyRef.name' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 reap must read the Job's OWN pod-template Secret references (positive evidence), not guess from a status string"
+grep -q 'delete job' "$TMP/sentinel-replica.yaml" \
+  || fail "#6114 sentinel never actually reaps — a reporter that cannot repair leaves the 12h wedge in place"
+
+# 21c — the loud half asserts on the VALUE, not the key (the #5639 lesson): the
+# watch-list must name BOTH the hub Secrets and the role Secrets, because
+# role-secrets.yaml renders neither on this side.
+sentinel_expected="$(awk '/name: EXPECTED_SECRETS/{getline; sub(/^[[:space:]]*value: /,""); gsub(/"/,""); print; exit}' "$TMP/sentinel-replica.yaml")"
+for s in harbor-database-secret gitea-database-secret shared-pg-harbor shared-pg-gitea; do
+  case " ${sentinel_expected} " in
+    *" ${s} "*) ;;
+    *) fail "#6114 EXPECTED_SECRETS omits ${s} — got '${sentinel_expected}'. An absence that is not watched for is an absence that stays silent." ;;
+  esac
+done
+
+# 21d — READINESS MUST NOT GATE ON THE SYNCED STATE. Slot 16a keeps Helm wait
+# with `install.remediation.retries: -1`, so a probe that waits for the Secrets
+# would turn the LEGITIMATE pre-sync window into an infinite install-remediation
+# loop on every fresh 2-region prov — trading a silent wedge for a self-inflicted
+# outage. The probe may only report that the loop is alive.
+awk '/readinessProbe:/{f=1} f&&/command:/{print; exit}' "$TMP/sentinel-replica.yaml" | grep -q 'test -f /tmp/alive' \
+  || fail "#6114 readiness probe must test only loop liveness (test -f /tmp/alive)"
+if awk '/readinessProbe:/{f=1} f&&/command:/{print; exit}' "$TMP/sentinel-replica.yaml" | grep -qE 'get secret|EXPECTED_SECRETS'; then
+  fail "#6114 readiness probe gates on Secret presence — with install.remediation.retries:-1 that is an INFINITE install-remediation loop, not a guard"
+fi
+
+# 21e — CONTROL. Same chart, same bindings, same databases: only the side
+# differs. The PRIMARY mints its own Secrets and has nothing to wait for, so the
+# sentinel must be ABSENT there. Without this control, 21a would pass on a
+# template that rendered unconditionally.
+helm template shared-pg . -f "$TMP/sentinel.values.yaml" --set topology.side=primary \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/sentinel-primary.yaml" 2>&1 \
+  || fail "#6114 sentinel primary render errored"
+if grep -q 'replica-hub-sentinel' "$TMP/sentinel-primary.yaml"; then
+  fail "#6114 CONTROL FAILED: the sentinel rendered on the PRIMARY side, which mints its own Secrets — the side gate is not being applied"
+fi
+# ...and the control is non-vacuous: the primary render is a real render that
+# DOES mint the role Secrets whose absence the replica sentinel watches for.
+grep -q 'name: "harbor-database-secret"' "$TMP/sentinel-primary.yaml" \
+  || fail "#6114 CONTROL VACUOUS: the primary fixture minted no hub Secret, so 'sentinel absent here' proves nothing"
+
+# 21f — the gate is isReplicaSide, NOT renderReplicaHalf. The hw293 wedge lived
+# in the PRE-FLIP window (side=secondary AND activeHotStandby=false), where the
+# placeholder singleton Cluster renders and renderReplicaHalf is still false.
+# A sentinel gated on the flip would not exist during the outage it repairs.
+grep -qE '^  name: "shared-pg-replica-hub-sentinel"$' "$TMP/preflip-secondary.yaml" \
+  || fail "#6114 the sentinel is ABSENT from the pre-flip secondary render — that is precisely the window the initdb wedge lives in (#4460 placeholder)"
+
+# 21g — explicit opt-out renders ZERO sentinel resources. Guarded because
+# `$sentinel.enabled | default true` would silently ignore `enabled: false`
+# (sprig's `default` treats boolean false as EMPTY); the template uses `dig`.
+helm template shared-pg . -f "$TMP/sentinel.values.yaml" --set replicaHubSentinel.enabled=false \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/sentinel-off.yaml" 2>&1 \
+  || fail "#6114 sentinel opt-out render errored"
+if grep -q 'replica-hub-sentinel' "$TMP/sentinel-off.yaml"; then
+  fail "#6114 replicaHubSentinel.enabled=false still rendered the sentinel (sprig 'default' swallowing boolean false?)"
+fi
+echo "  PASS (sentinel on replica + pre-flip; reap guards completed/age/positive-evidence; watch-list names hub AND role Secrets; readiness cannot wedge Helm wait; absent on primary CONTROL; opt-out clean)"
