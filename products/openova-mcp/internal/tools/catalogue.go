@@ -16,7 +16,27 @@
 // console Install button posts to, with the SAME Org-scope enforcement the
 // read side uses — an Org-scoped token may create only in its own Org; a
 // sovereign-admin may create in any Org. A cross-Org create returns
-// ErrForbidden → MCP 403 (exact parity with the read-side cross-Org get).
+// ErrForbidden → MCP -32003 / 403.
+//
+// THE CROSS-ORG DENIAL SHAPES DIFFER BY DESIGN, and the rule is
+// deny-by-ASSERTION vs deny-by-LOOKUP, not read vs write
+// (docs/adr/0013-cross-org-denial-shape.md, UAT row 213 / #6122):
+//
+//   - create_application refuses an Organization the CALLER NAMED in the
+//     request. Refusing it discloses nothing the caller had not already
+//     asserted, so 403 is safe and is the more useful answer.
+//   - get_application refuses the RESULT OF A LOOKUP. Here the shape of the
+//     refusal IS the disclosure: a 403 would confirm that the named
+//     Application exists in some other Organization, turning the tool into a
+//     name-enumeration oracle over the whole Sovereign. Not-found is the
+//     only answer that leaks neither.
+//
+// So do NOT "harmonise" these two onto one code. An earlier revision of this
+// comment claimed "exact parity" between them; that wording survived
+// de1cbec54 (#5522) moving the read onto the own-org seam and misdescribed
+// the code for a release. Pinned at the wire by
+// cmd/openova-mcp/cross_org_denial_shape_213_test.go.
+//
 // The remaining write/mutating + Sovereign-only tools (deployments.*,
 // vouchers.*, cutover.*, placement.*) stay DEFERRED to follow-ups per
 // #3988 §5.
@@ -230,6 +250,16 @@ func handleGetApplication(ctx context.Context, id *identity.Identity, api *catal
 		// Deliberately NOT ErrForbidden: from inside the Org's own estate we
 		// cannot tell "exists in another Org" from "does not exist at all", and
 		// a not-found answer is the one that leaks neither.
+		//
+		// ADJUDICATED, do not flip this to 403 (UAT row 213 / #6122, ADR-0013).
+		// Emitting a resource-level 403 here would require FIRST establishing
+		// that the Application exists somewhere else on the Sovereign — a
+		// Sovereign-wide probe this caller is not entitled to make and that
+		// OrgScopeGuard's deny-by-default allowlist exists to refuse. The 403
+		// would then be built on a capability we removed on purpose, and it
+		// would answer every "does Organization X run an app called Y?"
+		// question an attacker cares to ask. The message names only the
+		// CALLER's own Organization for the same reason.
 		return nil, fmt.Errorf("application %q not found in organization %q", in.Name, id.OrgID)
 	}
 
@@ -250,9 +280,12 @@ func handleGetApplication(ctx context.Context, id *identity.Identity, api *catal
 // The MCP reimplements NO namespace/CR logic — the catalyst-api endpoint
 // ensures the Org namespace and writes the CR.
 //
-// RBAC parity with the read side: the target Organization must equal the
-// caller's pinned Org scope in Org context (a cross-Org organizationRef is
-// ErrForbidden → 403). A sovereign-admin may create in any Org and MUST
+// RBAC parity with the read side — parity of RULE (own-Org only), not of
+// error SHAPE: the target Organization must equal the caller's pinned Org
+// scope in Org context (a cross-Org organizationRef is ErrForbidden → 403,
+// because the caller NAMED that Organization and the refusal discloses
+// nothing new; the read path answers not-found instead — ADR-0013).
+// A sovereign-admin may create in any Org and MUST
 // name the target organization explicitly (no implicit Org scope). The
 // catalyst-api endpoint's own tier-admin gate is the FINAL word (thin
 // facade): a token that passed layer-1 visibility but lacks tier-admin on
@@ -412,10 +445,12 @@ func resolveBlueprintVersion(ctx context.Context, api *catalystapi.Client, bluep
 // resolveCreateTargetOrg resolves + Org-scope-checks the target
 // Organization for a create. In Org context the caller may omit the
 // organization (it defaults to their own Org) or pass their OWN Org
-// explicitly; naming a DIFFERENT Org is ErrForbidden — exact parity with
-// the read-side cross-Org denial in handleGetApplication. A sovereign-admin
-// must name the target Org explicitly (no implicit scope) and may name any
-// Org.
+// explicitly; naming a DIFFERENT Org is ErrForbidden. This is a
+// deny-by-ASSERTION — the Organization came from the caller's own request,
+// so 403 discloses nothing — and it is deliberately a different shape from
+// handleGetApplication's deny-by-LOOKUP not-found (ADR-0013). A
+// sovereign-admin must name the target Org explicitly (no implicit scope)
+// and may name any Org.
 func resolveCreateTargetOrg(id *identity.Identity, requested string) (string, error) {
 	requested = strings.TrimSpace(requested)
 	if id.Context == identity.ContextOrganization {

@@ -310,7 +310,7 @@ fact. They are one fix pattern, not two epics.
 | row | cause + the component that WRITES the surface | state |
 |---|---|---|
 | 16 | the per-Org console's app-detail path calls SOVEREIGN-ADMIN routes and gets `403 org-scoped-forbidden`. `products/catalyst/bootstrap/ui/src/lib/catalog.api.ts:297/540/599` + `pages/sovereign/AppDetail/`. Needs an Org-scoped app-detail data path | never written |
-| 19 | #5867 is OPEN and asks the owner whether `/apps` answers what the Sovereign CAN run or what IS running. 7 Application CRs vs 77 HelmReleases — an 11x gap, so the two keyings cannot be confused by eye | decision before patch |
+| 19 | ADJUDICATED 2026-08-11 (#5867) — NO code change indicated. `/apps` answers BOTH, disambiguated by the `data-card-kind` attribute #6056 shipped: the estate half is one `[data-card-kind="instance"]` card per Application CR (already Application-keyed; pinned Go-side by `sovereign_apps_one_card_per_cr_5429_test.go` and front-end by `AppsPage.one-card-per-application-19.test.tsx`), the remainder is the install catalog, deduped against every Blueprint that has an instance. The clause now names the selector to count | clause corrected — WALK IT: count `[data-card-kind="instance"]` |
 | 109 | the Keycloak account console hangs on `Loading the Account Console` while `/account/config` answers 200 — the clause wants a loud legible refusal and gets an indefinite spinner | never written |
 | 218 | `select-instance-org`'s only option on a per-Org console is the parent Sovereign. `pages/sovereign/AppDetail/InstancesSection.tsx` + `src/lib/organizations.api.ts:281` `listOrganizations`. #5823 deliberately excludes the parent self-org, so a list whose only member IS the parent resolves to zero candidates | never written |
 | 223 | the Org-scoped MCP tool surface lives only in the stdio subprocess inside the Agenity pod; `mcp.<sovereign>` verifies against the sovereign handover key. **Anti-vacuity: an unauthenticated call returns `tools:[]` identically to a valid Org bearer — no verdict may be read off that endpoint** | walk (needs pod exec) |
@@ -731,9 +731,15 @@ The adjudications, stated so they can be answered without re-deriving them:
   corporate]`), *and* `ISOLATION=vcluster` without the #4292 plan qualifier its
   siblings 10/11 received. Two clauses, neither satisfiable by a correct
   platform. #5847.
-- **row 19** (#5867) — the grid renders 46 blueprint SLOTS; the row asserts one card per
-  **Application**. The feed and the CRs now agree exactly (14 = 14), so this is a
-  model disagreement by design: re-key the grid, or amend the clause.
+- **row 19** (#5867) — **SETTLED 2026-08-11, the clause was amended.** The premise
+  ("the grid renders only blueprint SLOTS") did not survive a full read of
+  `AppsPage.tsx`: it renders TWO collections, instance cards one-per-Application-CR
+  and a catalog remainder that is suppressed for any Blueprint already holding an
+  instance. Both halves have been contract-locked since #6056. So the grid was
+  never mis-keyed — a walker counting EVERY card in the grid was counting the
+  estate and the storefront together. The clause now names
+  `[data-card-kind="instance"]` as the set to count, which keeps the original
+  anti-HelmRelease intent and makes the row settleable by counting.
 - **row 184** — ANSWERED 2026-08-10, no longer an adjudication. It had no
   assertion at all; the slot was retired and replaced one-for-one, so the
   denominator never moved, and the swap is in `uat-retirements.csv`. It now
