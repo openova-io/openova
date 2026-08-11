@@ -215,8 +215,24 @@ type: application
 #   ${SOVEREIGN_ENABLE_CNPG_PAIR}, which catalyst-api stamps true only once
 #   ClusterMesh is established) — a single-region render is byte-identical.
 #   Guarded by tests/redis-crossregion.sh.
-version: 1.2.47
+version: 1.2.48
 appVersion: "2.14.3"
+# 1.2.48 (#6140, 2026-08-11): the harbor.<fqdn> alias-redirect HTTPRoute read
+#   three values keys that do not exist — `.Values.gateway.{name,namespace,
+#   sectionName}`, where the real ones are `.Values.gateway.parentRef.*`. Two
+#   fell through to the right default. The third did not: `sectionName |
+#   default "https"` pinned a listener name that exists ONLY on a single-zone
+#   Sovereign. Every Org-pool Sovereign declares multiple parentZones, so
+#   sovereign-tls-vars names that listener `https-<zone-dashed>` and the pin
+#   matched nothing — the route attached to ZERO listeners, Gateway API
+#   answered `Accepted=False NoMatchingListenerHostname`, and envoy reset the
+#   TLS handshake for harbor.<fqdn> instead of returning any HTTP status a
+#   probe could see. values.yaml already carried the warning on
+#   `gateway.parentRef.sectionName` ("pinning sectionName: https breaks
+#   NoMatchingListener", PR #1888 / #1902); this one route was not reading it.
+#   Now uses the identical parentRef block as the main route, so a sectionName
+#   is emitted only when an operator sets one. Caught source-side by
+#   scripts/check-chart-route-listener-correspondence.sh.
 # 1.2.23 (G117.5 #2744, 2026-06-02): SSO defense-in-depth via Harbor's
 # `oidc_extra_redirect_parms` config field. The configure-oauth Job now
 # PUTs the field with `{"kc_idp_hint":"catalyst-pin"}` (per top-level

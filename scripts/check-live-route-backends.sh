@@ -119,6 +119,11 @@
 
 set -euo pipefail
 
+# The shared admission module lives next to this script, so the classifier can
+# import it no matter what directory the guard is invoked from.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export GUARD_LIB="$SCRIPT_DIR/lib"
+
 KUBECTL_ARGS=()
 PEER_ARGS=()
 PEER_SUPPLIED=0
@@ -169,7 +174,17 @@ done
 # controls proving this change did not disturb it.
 # ─────────────────────────────────────────────────────────────────────────────
 read -r -d '' CLASSIFY_PY <<'PY' || true
-import json, sys
+import json, os, sys
+
+# Hostname admission + the route/listener correspondence pass live in
+# scripts/lib/gateway_route_admission.py, shared with the SOURCE-side guard
+# scripts/check-chart-route-listener-correspondence.sh (#6140). They were
+# inline here until that guard needed the identical rule from `helm template`
+# output instead of from a cluster. A second copy of the wildcard semantics
+# would have been a copy free to drift, and the drift would have been silent —
+# both guards would have kept passing, each against its own idea of the spec.
+sys.path.insert(0, os.environ["GUARD_LIB"])
+from gateway_route_admission import listener_admits, correspondence_rows
 
 b = json.load(sys.stdin)
 mesh = int(b.get("meshRemoteClusters", 0))
@@ -177,30 +192,6 @@ grace = int(b.get("graceSeconds", 300))
 svc = {(s["ns"], s["name"]): s for s in b.get("services", [])}
 ready = {(e["ns"], e["name"]): int(e.get("ready", 0)) for e in b.get("endpoints", [])}
 
-
-def listener_admits(lh, h):
-    """Gateway API hostname intersection: does listener hostname `lh` admit
-    route hostname `h`?
-
-    Spec (gateway-api Listener.hostname / HTTPRoute.hostnames): a listener
-    with NO hostname admits every host; a wildcard is a SUFFIX match one or
-    more labels deep, so `*.a.b` admits `x.a.b` AND `x.y.a.b` but never the
-    bare `a.b`. Getting that last clause wrong in either direction is the
-    whole bug class — `endswith("a.b")` would wrongly admit the apex and
-    wrongly admit `nota.b`, and a single-label rule would wrongly reject a
-    legitimate deep host."""
-    if not lh:
-        return True
-    if not h:
-        return True          # a route with no hostnames inherits the listener's
-    if lh.startswith("*."):
-        suffix = lh[1:]      # "*.a.b" -> ".a.b"
-        if h.startswith("*."):
-            return h[1:] == suffix or h[1:].endswith(suffix)
-        return h.endswith(suffix)
-    if h.startswith("*."):
-        return False         # a concrete listener cannot admit a wildcard route
-    return lh == h
 
 rows, seen = [], set()
 for r in b.get("routes", []):
@@ -237,42 +228,17 @@ pending = [r for r in rows if r[0] == "PENDING"]
 # ── Pass 2: listener coverage. A hostname nothing listens for is not a 503,
 # it is a TLS reset — which is why the backend pass above cannot see it.
 gws = {(g["ns"], g["name"]): g for g in b.get("gateways", [])}
-hostrows, local_hosts = [], set()
 listener_pass = "gateways" in b
-for r in b.get("routes", []):
-    parents = r.get("parents") or []
-    for h in (r.get("hosts") or []):
-        local_hosts.add(h)
-    if not listener_pass or not parents:
-        continue
-    for h in (r.get("hosts") or [""]):
-        admitted, absent_gws, seen_listeners = False, [], 0
-        for p in parents:
-            key = (p.get("ns") or r["ns"], p["name"])
-            g = gws.get(key)
-            if g is None:
-                absent_gws.append(f"{key[0]}/{key[1]}")
-                continue
-            for ls in (g.get("listeners") or []):
-                if p.get("sectionName") and ls.get("name") != p["sectionName"]:
-                    continue
-                if p.get("port") and int(ls.get("port") or 0) != int(p["port"]):
-                    continue
-                seen_listeners += 1
-                if listener_admits(ls.get("hostname"), h):
-                    admitted = True
-                    break
-            if admitted:
-                break
-        who = f"{r['ns']}/{r['name']}"
-        if admitted:
-            hostrows.append(("SERVING", h or "(inherits listener)", who, "admitted by a parent listener"))
-        elif absent_gws and seen_listeners == 0:
-            hostrows.append(("NO-GATEWAY", h or "(inherits listener)", who,
-                             "parent Gateway absent here: " + ",".join(sorted(set(absent_gws)))))
-        else:
-            hostrows.append(("NO-LISTENER", h or "(inherits listener)", who,
-                             f"no parent listener admits it ({seen_listeners} listener(s) considered)"))
+# `local_hosts` is needed by the region-symmetry pass below even when the
+# listener pass is skipped, so it is collected from the SAME shared helper —
+# which returns it alongside the rows — rather than from a second walk here.
+hostrows, local_hosts = correspondence_rows(b.get("routes", []), b.get("gateways", []))
+if not listener_pass:
+    # No `gateways` key means the caller asked for the backend pass alone (the
+    # four original backend fixtures). Every row would be NO-GATEWAY against an
+    # empty Gateway set, which is not a verdict anyone asked for — but the
+    # hostnames still have to reach pass 3. So keep the hosts, drop the rows.
+    hostrows = []
 
 # ── Pass 3: region symmetry. Both regions' nodes sit in ONE round-robin pool,
 # so a hostname either region cannot route is a coin-flip failure for the

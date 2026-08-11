@@ -122,3 +122,84 @@ jobs:
 
       - name: live newapi SSO version classifier
         run: bash scripts/check-live-newapi-sso-version.sh --self-test
+
+      # #6140 — the SOURCE-side route/listener correspondence guard. Fixture
+      # mode only here (no helm, no cluster); the render is a separate job
+      # below because it needs helm and pyyaml.
+      - name: chart route/listener correspondence classifier (#6140)
+        run: bash scripts/check-chart-route-listener-correspondence.sh --self-test
+
+  chart-route-listener-correspondence:
+    name: routes a chart renders must have a listener that admits them (#6140)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash syntax
+        run: bash -n scripts/check-chart-route-listener-correspondence.sh
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+
+      - name: pyyaml
+        run: python3 -m pip install --quiet pyyaml
+
+      # THE GUARD. Renders the listener producer
+      # (platform/sovereign-tls-vars/chart, the one chart that emits BOTH
+      # Gateways' listener arrays) plus every apex-route-bearing chart, and
+      # joins them. No cluster and no registry: the dependency blocks are
+      # stripped from throwaway chart copies, which is sound because every
+      # HTTPRoute in this repo comes from its chart's OWN templates/.
+      - name: route/listener correspondence on both port profiles
+        run: bash scripts/check-chart-route-listener-correspondence.sh
+
+      # VACUITY. A guard that has only ever been observed passing proves
+      # nothing. This re-runs the SAME real scenario with one extra route —
+      # mcp.<fqdn> re-parented onto the console gateway, i.e. exactly the
+      # #5341 misconfiguration — against the real rendered console listener
+      # set, and requires the guard to go RED with NO-LISTENER on it. The step
+      # fails if the guard passes, and equally if it fails for another reason.
+      - name: the guard must be able to fail
+        run: bash scripts/check-chart-route-listener-correspondence.sh --vacuity
+
+      # VACUITY on the SHARED admission module. scripts/lib/
+      # gateway_route_admission.py is now imported by this guard AND by
+      # check-live-route-backends.sh, so a regression there would weaken both
+      # at once. Regress it to the belief that makes the whole class invisible
+      # — "a wildcard listener admits everything" — and require this guard's
+      # fixtures to go RED. Its sibling workflow runs the same mutation against
+      # the live guard, so the shared rule is pinned from both consumers.
+      - name: the shared admission module must be able to fail
+        run: |
+          rm -rf /tmp/mutant-shared && cp -r scripts /tmp/mutant-shared
+          python3 - <<'PY'
+          p = "/tmp/mutant-shared/lib/gateway_route_admission.py"
+          s = open(p).read()
+          old = '    if listener_hostname.startswith("*."):\n        suffix = listener_hostname[1:]'
+          new = '    if listener_hostname.startswith("*."):\n        return True\n        suffix = listener_hostname[1:]'
+          assert old in s, "mutation anchor not found — update this step"
+          open(p, "w").write(s.replace(old, new, 1))
+          PY
+          if bash /tmp/mutant-shared/check-chart-route-listener-correspondence.sh \
+               --root "$PWD" --self-test >/tmp/mutant-shared.out 2>&1; then
+            echo "VACUITY FAIL: the fixtures passed against a module whose wildcard"
+            echo "listener admits every hostname. A hostname no listener admits is a"
+            echo "TLS reset, not a 503 — no status-code probe can see it."
+            cat /tmp/mutant-shared.out
+            exit 1
+          fi
+          # The CONTROLS that share the suspect property must stay green in the
+          # mutant, or the red cannot be attributed to the wildcard rule.
+          for ctl in 'ok  marketplace host admitted by the CONSOLE gateway' \
+                     'ok  the same mcp host on the SHARED gateway'; do
+            grep -qF "$ctl" /tmp/mutant-shared.out || {
+              echo "CONTROL FAIL: '$ctl' went red under the mutation, so the failing"
+              echo "fixtures cannot be attributed to the wildcard rule."
+              cat /tmp/mutant-shared.out
+              exit 1
+            }
+          done
+          echo "OK: mutation caught, both controls stayed green. Failing assertion:"
+          grep -m1 'FAIL:' /tmp/mutant-shared.out
