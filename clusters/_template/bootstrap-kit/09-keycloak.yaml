@@ -226,7 +226,17 @@ spec:
       #   values.yaml wires keycloak.auth.existingSecret=keycloak-admin so the
       #   password is reused (never regenerated) across reinstall + re-home. Chart
       #   + blueprint bumped in lockstep.
-      version: 1.5.8
+      # 1.5.9 — #6106 (Refs #6089): the catalyst-pin backchannel NetworkPolicy the
+      #   1.5.8 URL split needed and did not ship. Moving tokenUrl/userInfoUrl/
+      #   jwksUrl from the public api.<fqdn> to catalyst-api.catalyst-system.svc:8080
+      #   moved the dial from an allowed hop (world:443) to a denied one, and every
+      #   catalyst-pin brokered login ConnectTimeout'd from the moment the realm
+      #   re-imported on hw293. New CiliumNetworkPolicy
+      #   `keycloak-allow-catalyst-api-backchannel-egress`, derived from
+      #   catalystAPIInternalURL, with a ClusterMesh-safe toEndpoints selector so the
+      #   region-B Keycloak (this slot is NOT SECONDARY_HR_SUSPEND'd) can reach the
+      #   region-A catalyst-api over the mesh. Ingress half in bp-catalyst-platform.
+      version: 1.5.9
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak

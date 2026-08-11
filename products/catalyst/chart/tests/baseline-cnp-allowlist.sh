@@ -294,8 +294,6 @@ if ! grep -q '"tenant-acme"' "$TMP/cnp-extra.yaml"; then
 fi
 echo "  PASS (allowedIngressNamespaces is operator-tunable)"
 
-echo "[baseline-cnp] All gates green."
-
 # ── Case 14 (#4444 / UAT row R22): cnpg-system must be in BOTH directions ──
 #
 # The CNPG operator reverse-probes the Pods it manages. Several CNPG Clusters
@@ -352,3 +350,166 @@ if ! printf '%s' "$_egr14" | grep -q '"cnpg-system"'; then
   exit 1
 fi
 echo "  PASS (cnpg-system present in both ingress and egress)"
+
+# ─────────────────────────────────────────────────────────────────────────
+# Cases 15-18 (#6106) — the catalyst-pin OIDC backchannel ingress carve-out.
+#
+# #6087/#6089 repointed the sovereign realm's catalyst-pin IdP so tokenUrl /
+# userInfoUrl / jwksUrl dial catalyst-api.catalyst-system.svc:8080 in-cluster
+# instead of hairpinning through the Sovereign's public EIP. Before that split
+# Keycloak arrived as the reserved `ingress` (cilium-gateway) identity rule 1
+# admits; after it, the leg had NO allow anywhere and every brokered login
+# died in keycloak-0's log with
+#   ConnectTimeoutException: Connect to
+#   catalyst-api.catalyst-system.svc.cluster.local:8080 [10.96.1.11] timed out
+# (hw293, UAT rows 30/31/33/34/35/37/39/219).
+#
+# The allow ships as its OWN policy — baseline-allow-keycloak-oidc-backchannel,
+# templates/network-policies/keycloak-backchannel-ingress.yaml — rather than as
+# another entry in allowedIngressNamespaces, because that list's rule carries no
+# toPorts and would admit keycloak to every Pod in catalyst-system on every
+# port. Case 17 is the CONTROL that keeps it that way.
+# ─────────────────────────────────────────────────────────────────────────
+BACKCHANNEL_TEMPLATE="templates/network-policies/keycloak-backchannel-ingress.yaml"
+
+echo "[baseline-cnp] Case 15: catalyst-pin OIDC backchannel ingress CNP renders with the right VALUES (#6106)"
+helm template smoke . --show-only "${BACKCHANNEL_TEMPLATE}" > "$TMP/backchannel.yaml" 2>"$TMP/backchannel.err" || {
+  echo "FAIL: ${BACKCHANNEL_TEMPLATE} did not render — keycloak cannot reach catalyst-api's OIDC backchannel and EVERY brokered SSO login ConnectTimeouts (#6106)." >&2
+  cat "$TMP/backchannel.err" >&2
+  exit 1
+}
+# Vacuity control: the render must be non-empty before any grep below can mean
+# anything. An empty file makes every `grep -q` fail, which would report the
+# right verdict for the wrong reason; an inverted check would "pass" on nothing.
+if [ ! -s "$TMP/backchannel.yaml" ]; then
+  echo "FAIL: ${BACKCHANNEL_TEMPLATE} rendered EMPTY — the assertions below would be vacuous." >&2
+  exit 1
+fi
+if ! grep -q '^  name: baseline-allow-keycloak-oidc-backchannel$' "$TMP/backchannel.yaml"; then
+  echo "FAIL: baseline-allow-keycloak-oidc-backchannel CNP missing (#6106)." >&2
+  exit 1
+fi
+if ! grep -q '^kind: CiliumNetworkPolicy$' "$TMP/backchannel.yaml"; then
+  echo "FAIL: the backchannel allow is not a CiliumNetworkPolicy — a vanilla NetworkPolicy cannot express the ClusterMesh cluster key (#6106)." >&2
+  exit 1
+fi
+# Assert on the VALUE of the destination selector, not merely that the key
+# exists: `endpointSelector: {}` would also carry an endpointSelector key and
+# would silently widen the grant to the whole namespace.
+if ! awk '/^  endpointSelector:/,/^  ingress:/' "$TMP/backchannel.yaml" | grep -q '^      app.kubernetes.io/name: catalyst-api$'; then
+  echo "FAIL: the backchannel CNP is not scoped to the catalyst-api Pods (endpointSelector app.kubernetes.io/name=catalyst-api). A namespace-wide selector would admit keycloak to org-pg / guacamole-pg / shared-pg too (#6106)." >&2
+  exit 1
+fi
+# Comment-only lines are dropped first: this template documents the CIDR trap
+# it avoids, and the form check in Case 16 would otherwise fail on its own
+# rationale. Every assertion below runs against real YAML only.
+_ing6106="$(awk '/^  ingress:/,0' "$TMP/backchannel.yaml" | grep -v '^[[:space:]]*#' || true)"
+if [ -z "$_ing6106" ]; then
+  echo "FAIL: could not slice the ingress block out of the backchannel CNP — the awk range is broken, not the policy." >&2
+  exit 1
+fi
+if ! printf '%s' "$_ing6106" | grep -q 'k8s:io.kubernetes.pod.namespace: "keycloak"'; then
+  echo "FAIL: the backchannel CNP does not admit the 'keycloak' namespace — the broker's token exchange stays denied (#6106)." >&2
+  exit 1
+fi
+if ! printf '%s' "$_ing6106" | grep -q 'port: "8080"'; then
+  echo "FAIL: the backchannel CNP does not name TCP/8080 — catalyst-api's only Service port, the port keycloak-0 timed out on (#6106)." >&2
+  exit 1
+fi
+if ! printf '%s' "$_ing6106" | grep -q 'protocol: TCP'; then
+  echo "FAIL: the backchannel CNP's port rule has no TCP protocol (#6106)." >&2
+  exit 1
+fi
+echo "  PASS (baseline-allow-keycloak-oidc-backchannel admits ns keycloak -> catalyst-api Pods on TCP/8080)"
+
+echo "[baseline-cnp] Case 16: the backchannel allow uses ClusterMesh-safe ENDPOINT selectors, never CIDR (#6106)"
+# An ipBlock / fromCIDR can NEVER match a ClusterMesh remote pod identity — it
+# renders clean and silently denies. On a 2-region Sovereign bp-keycloak runs in
+# BOTH regions while bp-catalyst-platform is SECONDARY_HR_SUSPEND'd, so the
+# region-B backchannel arrives here over the mesh. Naming
+# io.cilium.k8s.policy.cluster suppresses Cilium's implicit cluster=<local>
+# AND-injection; dropping it re-breaks region B while region A keeps passing.
+if ! printf '%s' "$_ing6106" | grep -q 'fromEndpoints:'; then
+  echo "FAIL: the backchannel allow does not use fromEndpoints (#6106)." >&2
+  exit 1
+fi
+if ! printf '%s' "$_ing6106" | grep -q 'key: io.cilium.k8s.policy.cluster'; then
+  echo "FAIL: the backchannel allow does not name io.cilium.k8s.policy.cluster — Cilium AND-injects cluster=<local> and the region-B Keycloak Pod is silently denied (#6106)." >&2
+  exit 1
+fi
+if ! printf '%s' "$_ing6106" | grep -A1 'key: io.cilium.k8s.policy.cluster' | grep -q 'operator: Exists'; then
+  echo "FAIL: io.cilium.k8s.policy.cluster is named but not with operator Exists — the AND-injection suppression is what makes the peer-region source match (#6106)." >&2
+  exit 1
+fi
+for _bad in 'ipBlock' 'fromCIDR' 'fromCIDRSet'; do
+  if printf '%s' "$_ing6106" | grep -q "${_bad}"; then
+    echo "FAIL: the backchannel allow uses ${_bad} — a CIDR match NEVER resolves a ClusterMesh remote pod identity (#6106)." >&2
+    exit 1
+  fi
+done
+for _wild in 'world' 'cluster' 'all'; do
+  if printf '%s' "$_ing6106" | grep -qE "^\s*-\s*${_wild}\s*$"; then
+    echo "FAIL: the backchannel allow includes the '${_wild}' entity — that is a wildcard, not a carve-out (#6106)." >&2
+    exit 1
+  fi
+done
+echo "  PASS (fromEndpoints + io.cilium.k8s.policy.cluster Exists; no CIDR, no wildcard entity)"
+
+echo "[baseline-cnp] Case 17: CONTROL — baseline-default-deny is UNCHANGED, keycloak never enters the blanket ingress list (#6106)"
+# The one-line "fix" for #6106 was to append `keycloak` to
+# security.baselineCnp.allowedIngressNamespaces. That rule carries NO toPorts,
+# so it would admit the keycloak namespace to every Pod in catalyst-system on
+# every port — org-pg, guacamole-pg and the shared-pg family included.
+#
+# This case is the control that proves the shipped diff is a NEW CONSTRAINT and
+# not a LOOSENED one: the sibling policy that shares the suspect property (a
+# catalyst-system CNP granting ingress) must still carry exactly its six
+# pre-#6106 namespaces and must NOT have gained keycloak. If a later change
+# widens the blanket list instead, Case 15 would still pass and this one fails.
+if printf '%s\n' "$_ing14" | grep -q '"keycloak"'; then
+  echo "FAIL: 'keycloak' appears in baseline-default-deny's blanket ingress allow-list. That admits the namespace to EVERY catalyst-system Pod on EVERY port; the backchannel needs one workload on one port and has its own policy (#6106)." >&2
+  exit 1
+fi
+for _ns in catalyst flux-system kube-system oidc-gate guacamole cnpg-system; do
+  if ! printf '%s\n' "$_ing14" | grep -q "\"${_ns}\""; then
+    echo "FAIL: baseline-default-deny lost '${_ns}' from its ingress allow-list — the #6106 diff must not have touched this policy at all." >&2
+    exit 1
+  fi
+done
+echo "  PASS (baseline-default-deny still admits exactly its 6 namespaces; keycloak is NOT among them)"
+
+echo "[baseline-cnp] Case 18: VACUITY — the backchannel CNP genuinely disappears when toggled off (#6106)"
+# Proof that Case 15 can fail. If the assertions there passed against a subject
+# that cannot produce the absent state, they would be decorative. Each toggle
+# below must actually remove the policy.
+helm template smoke-bc-off . \
+  --set security.baselineCnp.keycloakBackchannel.enabled=false \
+  --show-only "${BACKCHANNEL_TEMPLATE}" > "$TMP/backchannel-off.yaml" 2>&1 || true
+if grep -q 'name: baseline-allow-keycloak-oidc-backchannel' "$TMP/backchannel-off.yaml"; then
+  echo "FAIL: the backchannel CNP still renders with keycloakBackchannel.enabled=false — the toggle is dead and Case 15 proves nothing." >&2
+  exit 1
+fi
+helm template smoke-baseline-off . \
+  --set security.baselineCnp.enabled=false \
+  --show-only "${BACKCHANNEL_TEMPLATE}" > "$TMP/backchannel-baseline-off.yaml" 2>&1 || true
+if grep -q 'name: baseline-allow-keycloak-oidc-backchannel' "$TMP/backchannel-baseline-off.yaml"; then
+  echo "FAIL: the backchannel CNP still renders with security.baselineCnp.enabled=false — it must follow the baseline master gate." >&2
+  exit 1
+fi
+# And the derived values must actually be derived: move the port and the policy
+# must move with it. A hardcoded 8080 would pass Case 15 and fail here.
+helm template smoke-bc-port . \
+  --set security.baselineCnp.keycloakBackchannel.port=18080 \
+  --set security.baselineCnp.keycloakBackchannel.namespace=keycloak-alt \
+  --show-only "${BACKCHANNEL_TEMPLATE}" > "$TMP/backchannel-port.yaml"
+if ! grep -q 'port: "18080"' "$TMP/backchannel-port.yaml"; then
+  echo "FAIL: keycloakBackchannel.port did not propagate — the port is hardcoded in the template, so Case 15's 8080 assertion is a tautology." >&2
+  exit 1
+fi
+if ! grep -q 'k8s:io.kubernetes.pod.namespace: "keycloak-alt"' "$TMP/backchannel-port.yaml"; then
+  echo "FAIL: keycloakBackchannel.namespace did not propagate — the source namespace is hardcoded in the template." >&2
+  exit 1
+fi
+echo "  PASS (policy disappears on both toggles; port + namespace are genuinely values-derived)"
+
+echo "[baseline-cnp] All gates green."

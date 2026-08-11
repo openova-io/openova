@@ -469,7 +469,37 @@ name: bp-keycloak
 #   entry paths ONLY: a PathPrefix would swallow /realms/<realm>/account/config
 #   and the rest of the account REST surface. New knob
 #   gateway.accountConsoleRedirect.
-version: 1.5.8
+#
+# 1.5.9 (#6106, UAT rows 30/31/33/34/35/37/39/219): the backchannel split
+# shipped in 1.5.8 without the NetworkPolicy that lets the new dial happen, so
+# it moved catalyst-pin from a permitted hop to a denied one. Keycloak's egress
+# to `world:443` was already allowed; `catalyst-api.catalyst-system.svc:8080`
+# was not, and from the moment the realm re-imported on hw293
+# (2026-08-10T23:43:49Z) EVERY catalyst-pin brokered login died in keycloak-0's
+# own log with `ConnectTimeoutException: Connect to
+# catalyst-api.catalyst-system.svc.cluster.local:8080 [10.96.1.11] failed:
+# Connection timed out` -- grafana, gitea, openbao, guacamole, newapi, hubble,
+# and the Keycloak admin console, which falls back to the realm login form
+# because no keycloak session is obtainable while the broker is down.
+#   New template `templates/catalyst-backchannel-egress-cnp.yaml` emits
+# CiliumNetworkPolicy `keycloak-allow-catalyst-api-backchannel-egress` --
+# destination namespace, Pod label and port all DERIVED from
+# catalystAPIInternalURL so the policy cannot drift from the URL that needs it,
+# and `catalystAPIInternalURL: ""` removes both together.
+#   The destination is a `toEndpoints` selector that NAMES
+# io.cilium.k8s.policy.cluster with Exists, not a toCIDR. bp-keycloak carries no
+# SECONDARY_HR_SUSPEND so it renders in BOTH regions, while
+# bp-catalyst-platform is suspended on every secondary CP (G2 #2574) and
+# catalyst-api is published as a ClusterMesh global Service (#5289) -- so a
+# region-B Keycloak Pod's backchannel is a cross-cluster hop whose destination
+# arrives with a REMOTE-CLUSTER identity. A CIDR match can never resolve that:
+# it would render clean and leave half a 2-region Sovereign's brokered logins
+# dark. Same idiom, same reason as plane-isolation's crossregion-db-egress CNP.
+#   The companion INGRESS half ships in bp-catalyst-platform
+# (baseline-allow-keycloak-oidc-backchannel); neither half alone restores a
+# brokered login. Gated on the cilium.io/v2 Capabilities check so CRD-less
+# clusters still install. Guarded by tests/catalyst-backchannel-netpol-6106.sh.
+version: 1.5.9
 description: |
   1.5.2 (#4246): the per-tenant `openclaw-oidc-client-secret` Secret now
   emits BOTH `client-secret` AND `OIDC_CLIENT_SECRET` keys (it previously

@@ -3819,7 +3819,43 @@ name: bp-catalyst-platform
 #   arming it without a non-empty activeDeploymentIds protect-list is a
 #   RENDER-TIME failure, not a runtime surprise (#4466's belt-and-suspenders
 #   against the b9f9590b self-reap). Lockstep w/ slot-13 pin.
-version: 1.4.1383
+#
+# 1.4.1384 — #6106 (Refs #6089, UAT rows 30/31/33/34/35/37/39/219): the
+#   catalyst-system INGRESS half of the catalyst-pin OIDC backchannel. #6089
+#   repointed the sovereign realm's tokenUrl/userInfoUrl/jwksUrl at
+#   catalyst-api.catalyst-system.svc:8080 to stop the Keycloak Pod hairpinning
+#   through the Sovereign's own EIP. That was the right move and it landed
+#   without an allow: before the split Keycloak reached catalyst-api over the
+#   PUBLIC api.<fqdn> route and arrived as the reserved `ingress`
+#   (cilium-gateway) identity that baseline-default-deny rule 1 already
+#   admits; after it, the leg is east-west from a namespace that policy's
+#   ingress allow-list (catalyst, flux-system, kube-system, oidc-gate,
+#   guacamole, cnpg-system) does not name. Measured on hw293 in keycloak-0's
+#   own log from the 2026-08-10T23:43:49Z realm re-import onward:
+#   `ConnectTimeoutException: Connect to
+#   catalyst-api.catalyst-system.svc.cluster.local:8080 [10.96.1.11] failed:
+#   Connection timed out`, with IDENTITY_PROVIDER_LOGIN_ERROR for clientId
+#   grafana, gitea, openbao, guacamole-gate and newapi-admin, and the Keycloak
+#   admin console dropping to the realm login form because no keycloak session
+#   is obtainable while the broker is down.
+#   New templates/network-policies/keycloak-backchannel-ingress.yaml emits
+#   `baseline-allow-keycloak-oidc-backchannel`: endpointSelector
+#   app.kubernetes.io/name=catalyst-api, fromEndpoints ns keycloak, toPorts
+#   TCP/8080 — one namespace, one workload, one port.
+#   baseline-default-deny is deliberately UNTOUCHED. Appending `keycloak` to
+#   security.baselineCnp.allowedIngressNamespaces was the one-line version and
+#   is wrong: that rule carries no toPorts, so it would admit the namespace to
+#   every Pod in catalyst-system on every port, org-pg / guacamole-pg / the
+#   shared-pg family included. tests/baseline-cnp-allowlist.sh Case 17 is the
+#   control that keeps the blanket list free of `keycloak`; Case 16 pins the
+#   ClusterMesh-safe form (fromEndpoints + io.cilium.k8s.policy.cluster
+#   Exists, never ipBlock — a CIDR can never match a remote pod identity, and
+#   bp-keycloak renders in BOTH regions while this umbrella is
+#   SECONDARY_HR_SUSPEND'd, so the region-B backchannel is a cross-cluster
+#   hop); Case 18 proves the policy can actually be absent.
+#   Egress half in bp-keycloak 1.5.9. Neither half alone restores a brokered
+#   login. Lockstep w/ slot-13 pin.
+version: 1.4.1384
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
@@ -3974,7 +4010,7 @@ version: 1.4.1383
 # scripts/check-chart-version-forward.sh (#5743) fails unless the two match —
 # main was carrying a pre-existing 1.4.1330/1.4.1329 split, so this bump heals
 # it in the same commit, exactly as the documented self-heal contract does.
-appVersion: 1.4.1383
+appVersion: 1.4.1384
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
