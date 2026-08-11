@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-11T00:45:04Z` |
+| Last refreshed | `2026-08-11T01:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5575](https://github.com/openova-io/openova/issues/5575) | Wizard component catalog is unvalidated: 6 components have no Blueprint, 8 carry | Other |
-| [#5591](https://github.com/openova-io/openova/issues/5591) | phase2b bootstrapMode->false flip is primary-region-only: secondary regions keep | Other |
 | [#5596](https://github.com/openova-io/openova/issues/5596) | cutoverComplete=true certifies sovereignty while region-B keeps 64/65 HelmReposi | Other |
 | [#5598](https://github.com/openova-io/openova/issues/5598) | Guacamole: SSO lands but every session API call returns 403 PERMISSION_DENIED � | Other |
 | [#5599](https://github.com/openova-io/openova/issues/5599) | newapi: valid Keycloak authz code rejected — /api/oauth/sovereign returns 403  | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#6091](https://github.com/openova-io/openova/issues/6091) | converged-late census counts tenant HelmReleases: a customer app install can vet | Other |
 | [#6092](https://github.com/openova-io/openova/issues/6092) | Org delete cascade stalls on the finalizer: organization-controller cannot delet | Other |
 | [#6093](https://github.com/openova-io/openova/issues/6093) | Jobs cutover projection orders the 11 sovereignty steps ALPHABETICALLY — every | Other |
+| [#6106](https://github.com/openova-io/openova/issues/6106) | catalyst-pin broker back-channel netpol gap: keycloak cannot reach catalyst-api. | Other |
+| [#6107](https://github.com/openova-io/openova/issues/6107) | org-controller counts an UNUSABLE secondary kubeconfig as wired — a contextles | Other |
 
 ---
 
@@ -307,13 +307,16 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-11T00:56 | [#6105](https://github.com/openova-io/openova/pull/6105) | #6089 | docs(uat): hw293 SSO re-walk — 9 green, 8 catalyst-pin broke |
 | 2026-08-11T00:33 | [#6103](https://github.com/openova-io/openova/pull/6103) | #5958 | docs(uat): rows 100 + 238 + 229 flip on live region reads; R |
 | 2026-08-11T00:22 | [#6102](https://github.com/openova-io/openova/pull/6102) | #5583 | fix(scripts): bump-chart-version consults open PR heads befo |
 | 2026-08-11T00:05 | [#6101](https://github.com/openova-io/openova/pull/6101) | #6091 | fix(catalyst-api): census the converged-late rescue over the |
 | 2026-08-10T23:51 | [#6100](https://github.com/openova-io/openova/pull/6100) | #6092 | test(org-delete): make the refused Secret delete reachable — |
+| 2026-08-11T00:59 | [#6099](https://github.com/openova-io/openova/pull/6099) | #3646 | fix(jobs,openbao): the cutover tree was ordered by the alpha |
 | 2026-08-10T23:53 | [#6098](https://github.com/openova-io/openova/pull/6098) | #5956 | docs(uat): e2e-journey walked end to end on hw293 — 216/217/ |
 | 2026-08-11T00:03 | [#6097](https://github.com/openova-io/openova/pull/6097) | #6027 | fix(org): two per-Org console defects on hw293 — the region  |
 | 2026-08-10T23:34 | [#6095](https://github.com/openova-io/openova/pull/6095) | #6051 | docs(uat): row 107 passes on a real delete; R17's cause move |
+| 2026-08-11T00:58 | [#6094](https://github.com/openova-io/openova/pull/6094) | #5985 | fix(catalyst-api): the DR runbook preflight must measure wha |
 | 2026-08-10T23:41 | [#6089](https://github.com/openova-io/openova/pull/6089) | #6081 | fix(auth/session): four UAT rows at their producers — the Or |
 | 2026-08-10T23:20 | [#6088](https://github.com/openova-io/openova/pull/6088) | #6078 | docs(uat): rows 7 8 15 25 are DEPLOY-GATED, not NEEDS-CODE — |
 | 2026-08-10T23:09 | [#6086](https://github.com/openova-io/openova/pull/6086) | #6085 | docs(uat): settle 7 never-walked rows on hw293 — create 50,  |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-10T19:03 | [#6056](https://github.com/openova-io/openova/pull/6056) | #3370 | fix(console): /apps renders two card collections and said wh |
 | 2026-08-10T18:57 | [#6055](https://github.com/openova-io/openova/pull/6055) | #793 | fix(console): the cutover trigger was not on the nav — make  |
 | 2026-08-10T18:50 | [#6054](https://github.com/openova-io/openova/pull/6054) | #3991 | fix(catalyst-api): refuse to persist a credential-less secon |
-| 2026-08-10T19:11 | [#6053](https://github.com/openova-io/openova/pull/6053) | #6045 | fix(jobs): surface per-Organization Application installs on  |
-| 2026-08-10T18:52 | [#6052](https://github.com/openova-io/openova/pull/6052) | #4292 | fix(ledger): a clause edited in one file only silently delet |
-| 2026-08-10T20:19 | [#6051](https://github.com/openova-io/openova/pull/6051) | #5426 | fix(org-delete): grant the missing delete verb and stop repo |
 
 ---
 
