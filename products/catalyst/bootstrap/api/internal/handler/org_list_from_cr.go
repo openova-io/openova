@@ -40,25 +40,87 @@ import (
 // out-of-cluster catalyst-api) so callers transparently fall back to the
 // local store. A list error is surfaced so the caller can decide whether to
 // degrade to store-only (it does) rather than 5xx the whole console.
-func (h *Handler) orgResponsesFromCRs(ctx context.Context) ([]orgTenantResponse, error) {
+func (h *Handler) orgResponsesFromCRs(ctx context.Context) ([]orgTenantResponse, observedIsolationIndex, error) {
 	deps, err := h.sovereignDepsFor()
 	if err != nil || deps == nil || deps.dyn == nil {
 		// Out-of-cluster / CI: no apiserver to read CRs from. The caller
 		// falls back to the local provision store.
-		return nil, nil
+		return nil, nil, nil
 	}
 	list, err := deps.dyn.Resource(organizationGVR()).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		// CRD not installed on an older Sovereign, transient apiserver
 		// blip, RBAC gap — degrade to store-only rather than erroring the
 		// directory. The caller logs + falls back.
-		return nil, err
+		return nil, nil, err
 	}
 	out := make([]orgTenantResponse, 0, len(list.Items))
+	observed := make(observedIsolationIndex, len(list.Items)*2)
 	for i := range list.Items {
-		out = append(out, orgCRToResponse(&list.Items[i], h.orgTenantDeps.OTECHFQDN))
+		resp := orgCRToResponse(&list.Items[i], h.orgTenantDeps.OTECHFQDN)
+		out = append(out, resp)
+		observed.record(&list.Items[i], resp)
 	}
-	return out, nil
+	return out, observed, nil
+}
+
+// observedIsolationIndex maps each merge key of a CR-derived row (see
+// orgMergeKeys) to the boundary primitive the org-controller was OBSERVED to
+// have authored for it. Entries exist ONLY for Organizations whose CR carries
+// that observation — an unreconciled CR contributes nothing, so a caller can
+// never mistake "not looked at yet" for a measurement (#6145).
+type observedIsolationIndex map[string]string
+
+func (idx observedIsolationIndex) record(obj *unstructured.Unstructured, resp orgTenantResponse) {
+	observed := observedIsolationFromCR(obj)
+	if observed == "" {
+		return
+	}
+	for _, k := range orgMergeKeys(resp) {
+		idx[k] = observed
+	}
+}
+
+// lookup returns the observed isolation for a row, matching on either of the
+// row's merge keys (Organization id / subdomain).
+func (idx observedIsolationIndex) lookup(r orgTenantResponse) string {
+	for _, k := range orgMergeKeys(r) {
+		if v, ok := idx[k]; ok && v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// applyObservedIsolation replaces a row's DECLARED boundary with the one the
+// org-controller was observed to have authored, and re-derives the two other
+// fields that are claims about the SAME object — the vCluster's name and the
+// vCluster timeline step. Re-deriving them here is what keeps the payload
+// internally consistent: `isolation: "namespace"` beside `vcluster_name:
+// "g7freea"` is the shape #5489/#5501 already removed once, and overwriting
+// only the label would reintroduce it from the store side.
+//
+// A no-op when nothing was observed, or when the observation agrees with the
+// row — so a correctly recorded Organization is byte-unchanged.
+func applyObservedIsolation(r orgTenantResponse, observed string) orgTenantResponse {
+	if observed == "" || observed == r.Isolation {
+		return r
+	}
+	r.Isolation = observed
+	if observed == "namespace" {
+		// Nothing was authored, so there is no vCluster to name and no
+		// vCluster step to report.
+		r.VClusterName = ""
+		r.Steps.VCluster = ""
+		return r
+	}
+	// vcluster: name it after the same slug the org-controller reports
+	// (status.vcluster.name == the slug, #5501). A row with no slug to derive
+	// from keeps whatever name it already carried rather than losing it.
+	if name := vclusterNameFor(observed, r.Subdomain); name != "" {
+		r.VClusterName = name
+	}
+	return r
 }
 
 // orgCRFromSlug fetches a single Organization CR by name (the slug). Returns
@@ -79,6 +141,27 @@ func (h *Handler) orgCRFromSlug(ctx context.Context, slug string) (*orgTenantRes
 	}
 	resp := orgCRToResponse(obj, h.orgTenantDeps.OTECHFQDN)
 	return &resp, true
+}
+
+// observedIsolationForSlug reads the canonical Organization CR for slug and
+// reports the boundary the org-controller was observed to have authored, or ""
+// when there is no in-cluster client, no such CR, or the controller has not
+// reconciled it. Same fail-open-to-unknown contract as observeOrgBoundary: an
+// unreadable substrate yields no measurement rather than a wrong one.
+func (h *Handler) observedIsolationForSlug(ctx context.Context, slug string) string {
+	slug = strings.ToLower(strings.TrimSpace(slug))
+	if slug == "" {
+		return ""
+	}
+	deps, err := h.sovereignDepsFor()
+	if err != nil || deps == nil || deps.dyn == nil {
+		return ""
+	}
+	obj, err := deps.dyn.Resource(organizationGVR()).Get(ctx, slug, metav1.GetOptions{})
+	if err != nil || obj == nil {
+		return ""
+	}
+	return observedIsolationFromCR(obj)
 }
 
 // orgCRToResponse maps an Organization CR (orgs.openova.io/v1) onto the
@@ -133,7 +216,17 @@ func orgCRToResponse(obj *unstructured.Unstructured, otechFQDN string) orgTenant
 	// paid-plan internal Org "namespace" while the org-controller rendered it a
 	// real vCluster (UAT row 100). `kind` is a billing dimension; it is not read
 	// here.
+	//
+	// #6145 (UAT row 101) — the tier gate is now the FALLBACK, not the answer.
+	// It is a second copy of the switch that decides what to author, so it
+	// reports intent; `status.vcluster` reports what the org-controller
+	// actually authored. Prefer the measurement and fall back to the gate only
+	// while the Organization has not been reconciled yet, so a CR minted
+	// seconds ago still badges its plan's boundary instead of blanking.
 	isolation := isolationForTier(planSlug)
+	if observed := observedIsolationFromCR(obj); observed != "" {
+		isolation = observed
+	}
 
 	// tenantPublic.parentDomain carries the org-pool apex; subdomain
 	// defaults to the slug. Empty parent → single-domain back-compat
@@ -215,6 +308,54 @@ func orgCRToResponse(obj *unstructured.Unstructured, otechFQDN string) orgTenant
 	return orgTenantRecordToResponse(rec)
 }
 
+// observedIsolationFromCR reports the boundary primitive the org-controller
+// was OBSERVED to have authored for this Organization — "vcluster",
+// "namespace", or "" when the controller has not reconciled the object yet.
+//
+// #6145 (UAT row 101). `isolation` renders on the Organization identity card
+// as a statement about infrastructure, so it has to be MEASURED. Until this
+// function existed every producer of the field answered from intent: the BSS
+// door persisted the request's declaration (organization_provisioning.go
+// resolveOrgShape) and the CR read path mirrored the tier gate
+// (isolationForTier). On hw293 that produced `Isolation: Vcluster` for
+// `g7freea`, an Organization whose bp-keycloak/bp-agenity StatefulSets ran in
+// the host namespace with no vCluster anywhere on the cluster.
+//
+// The org-controller is the only component that authors the boundary, and it
+// records what it authored: `vclusterStatusFor`
+// (core/controllers/organization/internal/controller/organization_controller.go)
+// stamps `status.vcluster{name,hostCluster,phase}` for a vCluster-backed Org
+// and the ZERO VALUE for a host-namespace one (#5489). So:
+//
+//   - a non-empty name OR phase is POSITIVE evidence a vCluster was authored;
+//   - their absence is evidence of a host namespace ONLY once the controller
+//     has actually processed the object, which `status.observedGeneration`
+//     reports. An untouched CR is byte-identical to a namespace-backed one,
+//     and answering "namespace" for it would report every freshly created
+//     M-plan Organization as host-namespace-backed. That case returns "" and
+//     the caller falls back to the tier gate.
+//
+// The read is on the VALUE, never the key. The walked g7freea CR carries
+// `status.vcluster: {}` — an EMPTY block — so `NestedMap(...)` finding the key
+// says nothing at all, and a presence test would report "vcluster" for exactly
+// the Organization this row is about.
+func observedIsolationFromCR(obj *unstructured.Unstructured) string {
+	if obj == nil {
+		return ""
+	}
+	if vc, found, _ := unstructured.NestedMap(obj.Object, "status", "vcluster"); found {
+		name, _ := vc["name"].(string)
+		phase, _ := vc["phase"].(string)
+		if strings.TrimSpace(name) != "" || strings.TrimSpace(phase) != "" {
+			return "vcluster"
+		}
+	}
+	if gen, found, _ := unstructured.NestedInt64(obj.Object, "status", "observedGeneration"); found && gen > 0 {
+		return "namespace"
+	}
+	return ""
+}
+
 // orgStateFromCR maps the Organization CR status to a provision state for the
 // console timeline. Ready (vcluster phase Ready OR a Ready=True condition) →
 // STSDone; an explicit Failed phase → STSFailed; everything else (Pending /
@@ -256,7 +397,15 @@ func orgStateFromCR(obj *unstructured.Unstructured) store.OrganizationProvisionS
 // Sovereign Org) are appended so the directory shows every real Organization.
 // Order: local rows first (newest-first as the store returns them), then the
 // CR-only remainder.
-func mergeOrgResponses(local, fromCR []orgTenantResponse) []orgTenantResponse {
+//
+// #6145 (UAT row 101) — "local wins" is right for the provisioning TIMELINE
+// and wrong for the boundary. The store record's `isolation` is whatever the
+// create door persisted at t=0; the CR's status is what the org-controller
+// authored. On hw293 the g7freea record said `isolation:"vcluster"` beside
+// `plan_slug:"s"` and won the collision, so the console reported a vCluster
+// for an Organization backed by the host namespace. A local row that collides
+// with an OBSERVED CR therefore adopts that observation before it wins.
+func mergeOrgResponses(local, fromCR []orgTenantResponse, observed observedIsolationIndex) []orgTenantResponse {
 	seen := make(map[string]struct{}, len(local)*2)
 	out := make([]orgTenantResponse, 0, len(local)+len(fromCR))
 
@@ -283,9 +432,9 @@ func mergeOrgResponses(local, fromCR []orgTenantResponse) []orgTenantResponse {
 
 	// Local first: it wins on collision. The BSS door authored the in-flight
 	// provisioning detail (7-step timeline, last_error, commit_sha) that the
-	// CR does not carry.
+	// CR does not carry — but NOT the boundary, which is measured (#6145).
 	for _, r := range local {
-		add(r)
+		add(applyObservedIsolation(r, observed.lookup(r)))
 	}
 	for _, r := range fromCR {
 		add(r)

@@ -111,7 +111,14 @@ export function OrganizationDetailPage({ org, initialOrgsOverride }: Organizatio
                   <Field label="Plan" value={target.plan} testid="org-detail-plan" enumValue />
                 ) : null}
                 <Field label="Billing mode" value={target.billingMode} testid="org-detail-billing" enumValue />
-                <Field label="Isolation" value={target.isolation} testid="org-detail-isolation" enumValue />
+                {/* #6145 (UAT row 101) — the boundary the org-controller was
+                    OBSERVED to have authored, not the one the create door was
+                    asked for. An unmeasured Organization renders an em dash;
+                    the mapper no longer substitutes 'vcluster', which is how
+                    g7freea (host-namespace-backed, no vCluster on the cluster)
+                    came to render the same value as a really-vcluster-backed
+                    Organization on hw293. */}
+                <Field label="Isolation" value={target.isolation || '—'} testid="org-detail-isolation" enumValue />
                 <Field label="Status" value={target.status} testid="org-detail-status" enumValue />
                 {target.ownerEmail ? <Field label="Owner" value={target.ownerEmail} testid="org-detail-owner" /> : null}
                 {target.consoleHost ? (

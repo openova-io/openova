@@ -279,7 +279,9 @@ function OrgDirectoryRow({ org }: { org: OrgRow }) {
         className="px-3 py-2 align-middle text-xs text-[var(--color-text)]"
         data-testid={`organizations-cell-isolation-${org.id}`}
       >
-        {org.isolation}
+        {/* #6145 (UAT row 101) — em dash when the feed reports no measured
+            boundary. The mapper used to substitute 'vcluster' here. */}
+        {org.isolation || '—'}
       </td>
       <td className="px-3 py-2 align-middle">
         <StatusBadge status={org.status} orgId={org.id} />

@@ -71,8 +71,13 @@ export interface OrgRow {
    *  sovereign-root row is the CLUSTER itself — isolated within nothing —
    *  so it carries 'cluster'. #5489: it previously claimed 'vcluster', a
    *  hardcoded literal with no backing object; on hw291 the directory
-   *  advertised a vCluster while `kubectl get vclusters -A` returned none. */
-  isolation: OrgIsolation | 'cluster'
+   *  advertised a vCluster while `kubectl get vclusters -A` returned none.
+   *
+   *  '' when the feed does not report one (#6145). The catalyst-api derives
+   *  this field from the boundary the org-controller was OBSERVED to have
+   *  authored (status.vcluster), so an empty value means "not measured" — and
+   *  the renderers show an em dash rather than guessing. */
+  isolation: OrgIsolation | 'cluster' | ''
   status: OrgStatus
   /** True for the sovereign-root row (parentOrg empty). The Enter-org
    *  button is hidden on this row (#3378 §5: "you are already inside it"). */
@@ -232,13 +237,24 @@ function normalizeBillingMode(raw: string | undefined, kind: OrgKind): OrgBillin
 
 /**
  * normalizeIsolation — coerce the roster-feed `isolation` onto the
- * OrgIsolation union, falling back to the kind-derived default when empty
- * or unrecognized.
+ * OrgIsolation union, or '' when the feed does not say.
+ *
+ * #6145 (UAT row 101). This used to fall back to `kindDefaults(kind).isolation`
+ * — 'vcluster' for every customer Org — so a feed that omitted the field made
+ * the identity card assert a dedicated Kubernetes control plane for an
+ * Organization nobody had measured. That is not a "safe default": every other
+ * badge on this card degrades into a milder version of itself, while this one
+ * invents infrastructure. The same reasoning already removed the parent row's
+ * hardcoded 'vcluster' (#5489) and the record mapper's fabricated plan (#4292).
+ *
+ * Unknown renders as an em dash. `kindDefaults` survives for the CREATE form,
+ * where pre-selecting a boundary the User can still change is a default rather
+ * than a claim.
  */
-function normalizeIsolation(raw: string | undefined, kind: OrgKind): OrgIsolation {
+function normalizeIsolation(raw: string | undefined): OrgIsolation | '' {
   const v = String(raw ?? '').trim().toLowerCase()
   if (v === 'namespace' || v === 'vcluster') return v
-  return kindDefaults(kind).isolation
+  return ''
 }
 
 /**
@@ -263,7 +279,7 @@ export function subOrgRowFromRecord(t: OrgRecord): OrgRow {
     // detail page omits the field rather than naming a plan nobody bought.
     plan: String(t.planSlug ?? '').trim(),
     billingMode: normalizeBillingMode(t.billingMode, kind),
-    isolation: normalizeIsolation(t.isolation, kind),
+    isolation: normalizeIsolation(t.isolation),
     status: t.status,
     isParent: false,
     ownerEmail: t.ownerEmail,
