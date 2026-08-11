@@ -41,6 +41,19 @@ spec:
         app.kubernetes.io/name: catalyst-ui
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466 — kyverno cilium-l7-mtls policy
     spec:
+      # #6079 follow-up (2026-08-11): keep in lockstep with the Kustomize
+      # sibling (ui-deployment-kustomize.yaml), which carries the full
+      # rationale. Short version: the strategy above lets the old Pod leave
+      # first, but on a node at its max-pods cap the freed slot goes to the
+      # highest-priority pending Pod. catalyst-ui ran at priority 0 while
+      # catalyst-api carried catalyst-control-plane (1e8), so the console lost
+      # every race and sat Pending for 8 days, serving /sovereign as a Traefik
+      # 503. The console is control plane and must outrank reschedulable
+      # co-tenant Pods (#4231 rationale).
+      # Same expression api-priorityclass.yaml uses to NAME the object, so an
+      # operator overriding catalystApi.priorityClassName cannot leave this
+      # reference dangling at a class that was never rendered.
+      priorityClassName: {{ .Values.catalystApi.priorityClassName | default "catalyst-control-plane" }}
       imagePullSecrets:
         - name: ghcr-pull
       containers:

@@ -41,6 +41,21 @@ spec:
         app.kubernetes.io/name: catalyst-ui
         policy.cilium.io/enforced: "true"  # Wave 5.121 #2466 — kyverno cilium-l7-mtls policy
     spec:
+      # #6079 follow-up (2026-08-11): the rollout strategy above only guarantees
+      # the OLD Pod leaves first — it does NOT guarantee the new one wins the
+      # freed slot. On a node at its max-pods cap the scheduler hands that slot
+      # to whichever pending Pod outranks the rest, and catalyst-ui ran at
+      # priority 0 (no class) while its catalyst-api sibling carried
+      # catalyst-control-plane (1e8). So the console lost every race and sat
+      # Pending for 8 days behind co-tenant workloads, taking /sovereign to a
+      # Traefik 503 while catalyst-api itself stayed green — the asymmetry, not
+      # the strategy, is what wedged it. Same class as api-deployment-kustomize.
+      # yaml's rationale (#4231): the console is control plane, so it must
+      # outrank reschedulable co-tenant Pods rather than queue behind them.
+      # Literal class name for the contabo-mkt raw-Kustomize path; the
+      # catalyst-control-plane PriorityClass object ships in
+      # api-priorityclass-kustomize.yaml, already listed in kustomization.yaml.
+      priorityClassName: catalyst-control-plane
       imagePullSecrets:
         - name: ghcr-pull
       containers:
