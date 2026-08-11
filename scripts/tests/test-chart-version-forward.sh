@@ -42,6 +42,29 @@ done
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 
+# bump-chart-version.sh consults open PR heads before it picks a version
+# (#5583), and it fails LOUDLY rather than silently degrading when it cannot.
+# Every fixture below has a local bare repo as its "origin", where the real gh
+# has no repository to answer about — so the fixture supplies its own gh that
+# reports the truth for that origin: it has no pull requests at all. Using this
+# rather than --allow-unchecked-siblings keeps T5/T6 exercising the REAL consult
+# path (enumerate -> zero siblings -> main-only ceiling) instead of the opt-out.
+# The sibling-claim arithmetic itself is pinned in
+# scripts/tests/test-bump-chart-version-open-pr-claims.sh.
+STUB_BIN="${WORK}/stub-bin"
+mkdir -p "${STUB_BIN}"
+cat > "${STUB_BIN}/gh" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = "pr" ] && [ "${2:-}" = "list" ]; then
+  echo "[]"
+  exit 0
+fi
+echo "fixture gh stub: unexpected invocation: $*" >&2
+exit 1
+EOF
+chmod +x "${STUB_BIN}/gh"
+export PATH="${STUB_BIN}:${PATH}"
+
 FAILED=0
 fail() { echo "FAIL: $*" >&2; FAILED=1; }
 pass() { echo "PASS: $*"; }

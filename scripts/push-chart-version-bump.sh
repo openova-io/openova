@@ -22,7 +22,15 @@
 # other bot already pushed.
 #
 # Usage:
-#   push-chart-version-bump.sh <path/to/Chart.yaml> [commit-message-prefix] [max-attempts]
+#   push-chart-version-bump.sh [--allow-unchecked-siblings] \
+#       <path/to/Chart.yaml> [commit-message-prefix] [max-attempts]
+#
+# --allow-unchecked-siblings is forwarded verbatim to bump-chart-version.sh; see
+# its header. It disables the open-PR claim consult (#5583), so two branches
+# bumped in the same window can land on the same version and the later merge
+# ships nothing. It exists only for a caller that genuinely cannot enumerate
+# PRs, and it must be chosen explicitly — there is deliberately no automatic
+# fallback to it.
 #
 # Requires: a working tree already checked out with an `origin` remote and
 # `git config user.name`/`user.email` already set by the caller.
@@ -47,7 +55,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUMP="${SCRIPT_DIR}/bump-chart-version.sh"
 
-CHART_YAML="${1:?Usage: $0 <path/to/Chart.yaml> [commit-message-prefix] [max-attempts]}"
+BUMP_FLAGS=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --allow-unchecked-siblings) BUMP_FLAGS+=("$1"); shift ;;
+    --) shift; break ;;
+    -*) echo "::error title=push-chart-version-bump::unknown flag '$1'." >&2; exit 1 ;;
+    *) break ;;
+  esac
+done
+
+CHART_YAML="${1:?Usage: $0 [--allow-unchecked-siblings] <path/to/Chart.yaml> [commit-message-prefix] [max-attempts]}"
 MSG_PREFIX="${2:-deploy(bp-catalyst-platform): bump chart version}"
 MAX_ATTEMPTS="${3:-5}"
 SLEEP_SCALE="${SLEEP_SCALE:-1}"
@@ -56,7 +74,7 @@ git fetch --quiet origin main
 git reset --hard --quiet origin/main
 
 for i in $(seq 1 "${MAX_ATTEMPTS}"); do
-  NEXT="$("${BUMP}" "${CHART_YAML}")"
+  NEXT="$("${BUMP}" ${BUMP_FLAGS[@]+"${BUMP_FLAGS[@]}"} "${CHART_YAML}")"
   git add "${CHART_YAML}"
   if git diff --staged --quiet; then
     echo "push-chart-version-bump: no-op — ${CHART_YAML} already at target on origin/main." >&2
