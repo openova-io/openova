@@ -1,0 +1,9 @@
+=== §6 RECOVER region-A — 2026-08-11T03:49:14.339Z ===
+== RECOVER region-a (os-start) ==
+DRY-RUN (no --arm): would POST os-start
+{"os-start": {"servers": [{"id": "58658681-97d1-48c8-8f2e-8f86c5ee1fb4"}, {"id": "e24218f1-2c94-49d5-a4eb-1f5c2016a9fc"}, {"id": "e934f1eb-e13b-4540-a9a0-c82e24226a5c"}, {"id": "12832580-9a5c-4c2d-9531-ed62a39ddf81"}, {"id": "19faa8c5-1f5c-41c9-a266-d25b60c3c8b1"}, {"id": "a5068e0e-5e41-457f-bca3-0ea04c911614"}]}}
+=== RECOVER RETURNED 2026-08-11T03:49:14.593Z ===
+=== §6 RECOVER region-A (ARMED) — 2026-08-11T03:49:20.246Z ===
+== RECOVER region-a (os-start) ==
+HTTP 200 {"job_id":"8a868c3f9f44cbda019feef067c1793f"}
+=== RECOVER RETURNED 2026-08-11T03:49:20.803Z ===

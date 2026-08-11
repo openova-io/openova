@@ -1,0 +1,17 @@
+=== G12 hw293 §1a SEED on region-A true primaries — 2026-08-11T03:45:29.417Z ===
+--- cnpg/cnpg-pair-bp-cnpg-pair-primary (primary pod cnpg-pair-bp-cnpg-pair-primary-1) ---
+CREATE TABLE
+1|g12-sentinel-prekill-2026-08-11 03:45:29.925004+00
+INSERT 0 1
+--- shared-data/shared-pg (primary pod shared-pg-2) ---
+CREATE TABLE
+1|g12-sentinel-prekill-2026-08-11 03:45:30.181992+00
+INSERT 0 1
+--- shared-data/shared-pg-b (primary pod shared-pg-b-2) ---
+CREATE TABLE
+1|g12-sentinel-prekill-2026-08-11 03:45:30.408779+00
+INSERT 0 1
+--- shared-data/shared-pg-c (primary pod shared-pg-c-2) ---
+CREATE TABLE
+1|g12-sentinel-prekill-2026-08-11 03:45:30.913893+00
+INSERT 0 1

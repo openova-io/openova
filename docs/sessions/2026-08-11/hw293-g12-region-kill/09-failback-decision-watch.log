@@ -1,0 +1,109 @@
+===== 03:55:03Z =====
+cnpg-pair-bp-cnpg-pair-dr-failback-86b4d585b5-m2bzj   2/2   Running   2 (4m43s ago)   23m
+cnpg-pair-bp-cnpg-pair-primary-1                      0/1   Running   1 (4m43s ago)   21m
+cnpg-pair-bp-cnpg-pair-primary-2                      0/1   Running   1 (4m43s ago)   20m
+cnpg-pair-bp-cnpg-pair-primary-3                      0/1   Running   1 (4m40s ago)   18m
+[dr-failback/actor] loop started (hold=120s wedgeHold=600s divergenceGrace=180s interval=10s hr=flux-system/bp-cnpg-pair kustomization=flux-system/bootstrap-kit)
+  UnknownPods=16
+===== 03:55:48Z =====
+cnpg-pair-bp-cnpg-pair-dr-failback-86b4d585b5-m2bzj   2/2   Running   2 (5m29s ago)   24m
+cnpg-pair-bp-cnpg-pair-primary-1                      1/1   Running   1 (5m29s ago)   22m
+cnpg-pair-bp-cnpg-pair-primary-2                      1/1   Running   1 (5m29s ago)   21m
+cnpg-pair-bp-cnpg-pair-primary-3                      1/1   Running   1 (5m26s ago)   19m
+[dr-failback/actor] loop started (hold=120s wedgeHold=600s divergenceGrace=180s interval=10s hr=flux-system/bp-cnpg-pair kustomization=flux-system/bootstrap-kit)
+  UnknownPods=6
+===== 03:56:34Z =====
+cnpg-pair-bp-cnpg-pair-dr-failback-86b4d585b5-m2bzj   2/2   Running   2 (6m14s ago)   24m
+cnpg-pair-bp-cnpg-pair-primary-1                      1/1   Running   1 (6m14s ago)   22m
+cnpg-pair-bp-cnpg-pair-primary-2                      1/1   Running   1 (6m14s ago)   22m
+cnpg-pair-bp-cnpg-pair-primary-3                      1/1   Running   1 (6m11s ago)   20m
+[dr-failback/actor] loop started (hold=120s wedgeHold=600s divergenceGrace=180s interval=10s hr=flux-system/bp-cnpg-pair kustomization=flux-system/bootstrap-kit)
+  UnknownPods=0
+===== 03:57:20Z =====
+cnpg-pair-bp-cnpg-pair-dr-failback-86b4d585b5-m2bzj   2/2   Running   2 (7m ago)      25m
+cnpg-pair-bp-cnpg-pair-primary-1                      1/1   Running   1 (7m ago)      23m
+cnpg-pair-bp-cnpg-pair-primary-2                      1/1   Running   1 (7m ago)      22m
+cnpg-pair-bp-cnpg-pair-primary-3                      1/1   Running   1 (6m57s ago)   21m
+[dr-failback/actor] loop started (hold=120s wedgeHold=600s divergenceGrace=180s interval=10s hr=flux-system/bp-cnpg-pair kustomization=flux-system/bootstrap-kit)
+  UnknownPods=0
+===== 03:58:05Z =====
+cnpg-pair-bp-cnpg-pair-dr-failback-86b4d585b5-m2bzj   2/2   Running   2 (7m45s ago)   26m
+cnpg-pair-bp-cnpg-pair-primary-1                      1/1   Running   1 (7m45s ago)   24m
+cnpg-pair-bp-cnpg-pair-primary-2                      1/1   Running   1 (7m45s ago)   23m
+cnpg-pair-bp-cnpg-pair-primary-3                      1/1   Running   1 (7m42s ago)   21m
+2026-08-11T03:57:38Z [dr-failback/actor] peer writable+ahead held 5s < 120s — waiting
+2026-08-11T03:57:48Z [dr-failback/actor] peer writable+ahead held 15s < 120s — waiting
+2026-08-11T03:57:58Z [dr-failback/actor] peer writable+ahead held 25s < 120s — waiting
+  UnknownPods=0
+===== 03:58:51Z =====
+cnpg-pair-bp-cnpg-pair-dr-failback-86b4d585b5-m2bzj   2/2   Running   2 (8m31s ago)   27m
+cnpg-pair-bp-cnpg-pair-primary-1                      1/1   Running   1 (8m31s ago)   25m
+cnpg-pair-bp-cnpg-pair-primary-2                      1/1   Running   1 (8m31s ago)   24m
+cnpg-pair-bp-cnpg-pair-primary-3                      1/1   Running   1 (8m28s ago)   22m
+2026-08-11T03:58:29Z [dr-failback/actor] peer writable+ahead held 56s < 120s — waiting
+2026-08-11T03:58:39Z [dr-failback/actor] peer writable+ahead held 66s < 120s — waiting
+2026-08-11T03:58:49Z [dr-failback/actor] peer writable+ahead held 76s < 120s — waiting
+  UnknownPods=0
+===== 03:59:36Z =====
+cnpg-pair-bp-cnpg-pair-dr-failback-86b4d585b5-m2bzj   2/2   Running   2 (9m17s ago)   27m
+cnpg-pair-bp-cnpg-pair-primary-1                      1/1   Running   1 (9m17s ago)   25m
+cnpg-pair-bp-cnpg-pair-primary-2                      1/1   Running   1 (9m17s ago)   25m
+cnpg-pair-bp-cnpg-pair-primary-3                      1/1   Running   1 (9m14s ago)   23m
+2026-08-11T03:59:12Z [dr-failback/actor] peer writable+ahead held 99s < 120s — waiting
+2026-08-11T03:59:22Z [dr-failback/actor] peer writable+ahead held 109s < 120s — waiting
+2026-08-11T03:59:32Z [dr-failback/actor] peer writable+ahead held 119s < 120s — waiting
+  UnknownPods=0
+===== 04:00:22Z =====
+cnpg-pair-bp-cnpg-pair-dr-failback-86b4d585b5-m2bzj   2/2   Running   2 (10m ago)     28m
+cnpg-pair-bp-cnpg-pair-primary-1                      1/1   Running   1 (10m ago)     26m
+cnpg-pair-bp-cnpg-pair-primary-2                      1/1   Running   1 (10m ago)     25m
+cnpg-pair-bp-cnpg-pair-primary-3                      1/1   Running   1 (9m59s ago)   24m
+2026-08-11T03:59:42Z [dr-failback/actor] DEMOTING region-A: peer writable on TL=2 >= local TL=1 held 129s — patching Kustomization substitute SOVEREIGN_CNPG_PAIR_DEMOTED=true (durable source seam, #5245)
+kustomization.kustomize.toolkit.fluxcd.io/bootstrap-kit patched
+2026-08-11T03:59:54Z [dr-failback/actor] DIVERGENCE DETECTED: in-place-demoted Cluster (created 2026-08-11T03:31:43Z < episode 2026-08-11T03:59:42Z) reports ConsistentSystemID=False (reason=NotFound, phase='Cluster in healthy state') — the stale-PGDATA line cannot consistently follow region-B; divergence clock started (grace 180s) (#5245 hw278)
+  UnknownPods=0
+===== 04:01:07Z =====
+cnpg-pair-bp-cnpg-pair-dr-failback-86b4d585b5-m2bzj   2/2   Running   2 (10m ago)   29m
+cnpg-pair-bp-cnpg-pair-primary-1                      1/1   Running   1 (10m ago)   27m
+cnpg-pair-bp-cnpg-pair-primary-2                      1/1   Running   1 (10m ago)   26m
+cnpg-pair-bp-cnpg-pair-primary-3                      1/1   Running   1 (10m ago)   24m
+2026-08-11T03:59:42Z [dr-failback/actor] DEMOTING region-A: peer writable on TL=2 >= local TL=1 held 129s — patching Kustomization substitute SOVEREIGN_CNPG_PAIR_DEMOTED=true (durable source seam, #5245)
+kustomization.kustomize.toolkit.fluxcd.io/bootstrap-kit patched
+2026-08-11T03:59:54Z [dr-failback/actor] DIVERGENCE DETECTED: in-place-demoted Cluster (created 2026-08-11T03:31:43Z < episode 2026-08-11T03:59:42Z) reports ConsistentSystemID=False (reason=NotFound, phase='Cluster in healthy state') — the stale-PGDATA line cannot consistently follow region-B; divergence clock started (grace 180s) (#5245 hw278)
+  UnknownPods=0
+===== 04:01:53Z =====
+cnpg-pair-bp-cnpg-pair-dr-failback-86b4d585b5-m2bzj   2/2   Running   2 (11m ago)   30m
+cnpg-pair-bp-cnpg-pair-primary-1                      1/1   Running   1 (11m ago)   28m
+cnpg-pair-bp-cnpg-pair-primary-2                      1/1   Running   1 (11m ago)   27m
+cnpg-pair-bp-cnpg-pair-primary-3                      1/1   Running   1 (11m ago)   25m
+2026-08-11T03:59:42Z [dr-failback/actor] DEMOTING region-A: peer writable on TL=2 >= local TL=1 held 129s — patching Kustomization substitute SOVEREIGN_CNPG_PAIR_DEMOTED=true (durable source seam, #5245)
+kustomization.kustomize.toolkit.fluxcd.io/bootstrap-kit patched
+2026-08-11T03:59:54Z [dr-failback/actor] DIVERGENCE DETECTED: in-place-demoted Cluster (created 2026-08-11T03:31:43Z < episode 2026-08-11T03:59:42Z) reports ConsistentSystemID=False (reason=NotFound, phase='Cluster in healthy state') — the stale-PGDATA line cannot consistently follow region-B; divergence clock started (grace 180s) (#5245 hw278)
+  UnknownPods=0
+===== 04:02:38Z =====
+cnpg-pair-bp-cnpg-pair-dr-failback-86b4d585b5-m2bzj   2/2   Running   2 (12m ago)   30m
+cnpg-pair-bp-cnpg-pair-primary-1                      1/1   Running   1 (12m ago)   28m
+cnpg-pair-bp-cnpg-pair-primary-2                      1/1   Running   1 (12m ago)   28m
+cnpg-pair-bp-cnpg-pair-primary-3                      1/1   Running   1 (12m ago)   26m
+2026-08-11T03:59:42Z [dr-failback/actor] DEMOTING region-A: peer writable on TL=2 >= local TL=1 held 129s — patching Kustomization substitute SOVEREIGN_CNPG_PAIR_DEMOTED=true (durable source seam, #5245)
+kustomization.kustomize.toolkit.fluxcd.io/bootstrap-kit patched
+2026-08-11T03:59:54Z [dr-failback/actor] DIVERGENCE DETECTED: in-place-demoted Cluster (created 2026-08-11T03:31:43Z < episode 2026-08-11T03:59:42Z) reports ConsistentSystemID=False (reason=NotFound, phase='Cluster in healthy state') — the stale-PGDATA line cannot consistently follow region-B; divergence clock started (grace 180s) (#5245 hw278)
+  UnknownPods=0
+===== 04:03:24Z =====
+cnpg-pair-bp-cnpg-pair-dr-failback-86b4d585b5-m2bzj   2/2   Running    2 (13m ago)   31m
+cnpg-pair-bp-cnpg-pair-primary-1-pgbasebackup-4vl5z   0/1   Init:0/1   0             12s
+2026-08-11T03:59:54Z [dr-failback/actor] DIVERGENCE DETECTED: in-place-demoted Cluster (created 2026-08-11T03:31:43Z < episode 2026-08-11T03:59:42Z) reports ConsistentSystemID=False (reason=NotFound, phase='Cluster in healthy state') — the stale-PGDATA line cannot consistently follow region-B; divergence clock started (grace 180s) (#5245 hw278)
+2026-08-11T04:03:02Z [dr-failback/actor] DIVERGENCE ESCALATION: ConsistentSystemID=False held 187s >= 180s on the pre-episode demoted Cluster with peer verified writable — deleting for a clean pg_basebackup re-clone (PKI preserved) (#5245 hw278)
+cluster.postgresql.cnpg.io "cnpg-pair-bp-cnpg-pair-primary" deleted
+  UnknownPods=0
+===== 04:04:11Z =====
+cnpg-pair-bp-cnpg-pair-dr-failback-86b4d585b5-m2bzj   2/2   Running     2 (13m ago)   32m
+cnpg-pair-bp-cnpg-pair-primary-1                      1/1   Running     0             35s
+cnpg-pair-bp-cnpg-pair-primary-1-pgbasebackup-4vl5z   0/1   Completed   0             59s
+cnpg-pair-bp-cnpg-pair-primary-2                      0/1   Init:0/1    0             1s
+2026-08-11T04:03:02Z [dr-failback/actor] DIVERGENCE ESCALATION: ConsistentSystemID=False held 187s >= 180s on the pre-episode demoted Cluster with peer verified writable — deleting for a clean pg_basebackup re-clone (PKI preserved) (#5245 hw278)
+cluster.postgresql.cnpg.io "cnpg-pair-bp-cnpg-pair-primary" deleted
+2026-08-11T04:03:54Z [dr-failback/actor] CONVERGED: region-A streaming from region-B AND CNPG reports ConsistentSystemID=True (verified consistent lineage — not a divergent equal-LSN standby) — recorded dr-failback-converged-at on HR flux-system/bp-cnpg-pair. Cross-region replication restored, roles swapped; the controlled switchback (demote region-B, restore region-A primary) is the sovereign-admin's RUNBOOKS §6.1 action (#5245 #5331)
+  UnknownPods=0
+CONVERGED-SEEN
+WATCH-END

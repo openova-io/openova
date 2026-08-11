@@ -1,0 +1,14 @@
+=== §13 POST-FAILBACK row-set comparison — 2026-08-11T04:05:26.725Z ===
+--- region A (cnpg-pair-bp-cnpg-pair-primary-1) ---
+A in_recovery=true
+A timeline=2
+A wal_receiver=streaming from cnpg-pair-bp-cnpg-pair-replica-mesh
+A row: 1|g12-sentinel-prekill-2026-08-11 03:45:29.925004+00
+A row: 34|g12-POSTKILL-write-2026-08-11 03:48:52.413036+00
+A row: 35|g12-positive-control-B-2026-08-11 03:57:45.886354+00
+--- region B (cnpg-pair-bp-cnpg-pair-replica-1) ---
+B in_recovery=false
+B timeline=2
+B row: 1|g12-sentinel-prekill-2026-08-11 03:45:29.925004+00
+B row: 34|g12-POSTKILL-write-2026-08-11 03:48:52.413036+00
+B row: 35|g12-positive-control-B-2026-08-11 03:57:45.886354+00

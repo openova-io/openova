@@ -1,0 +1,41 @@
+=== G12 hw293 §1 PRE-KILL BASELINE — 2026-08-11T03:45:13.261Z ===
+--- region A: all CNPG clusters ---
+NS                NAME                             READY    REPLICA   SRC            PHASE
+catalyst-system   openova-flow-pg                  2        <none>    <none>         Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-primary   3        <none>    <none>         Cluster in healthy state
+g7doora           bp-newapi-newapi-pg              1        <none>    <none>         Cluster in healthy state
+g7doora           wordpress-db                     1        <none>    <none>         Cluster in healthy state
+g7doora           wordpress-db-replica             <none>   true      wordpress-db   Setting up primary
+g7freea           bp-newapi-newapi-pg              <none>   <none>    <none>         Setting up primary
+g7freea           wordpress-db                     <none>   <none>    <none>         Setting up primary
+g7freea           wordpress-db-replica             <none>   true      wordpress-db   Setting up primary
+guacamole         guacamole-pg                     1        <none>    <none>         Cluster in healthy state
+hw293walkone      postgres                         3        <none>    <none>         Cluster in healthy state
+hw293walkone      wordpress-db                     <none>   <none>    <none>         Setting up primary
+hw293walktwo      postgres                         1        <none>    <none>         Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2        <none>    <none>         Cluster in healthy state
+org-services      org-pg                           2        <none>    <none>         Cluster in healthy state
+powerdns          pdns-pg                          2        <none>    <none>         Cluster in healthy state
+shared-data       shared-pg                        3        <none>    <none>         Cluster in healthy state
+shared-data       shared-pg-b                      3        <none>    <none>         Cluster in healthy state
+shared-data       shared-pg-c                      3        <none>    <none>         Cluster in healthy state
+--- region B: all CNPG clusters ---
+NS                NAME                             READY   REPLICA   SRC                              PHASE
+catalyst-system   openova-flow-pg                  2       <none>    <none>                           Cluster in healthy state
+cnpg              cnpg-pair-bp-cnpg-pair-replica   3       true      cnpg-pair-bp-cnpg-pair-primary   Cluster in healthy state
+newapi            newapi-bp-newapi-newapi-pg       2       <none>    <none>                           Cluster in healthy state
+powerdns          pdns-pg                          2       <none>    <none>                           Cluster in healthy state
+shared-data       shared-pg-b-replica              3       true      shared-pg-b                      Cluster in healthy state
+shared-data       shared-pg-c-replica              3       true      shared-pg-c                      Cluster in healthy state
+shared-data       shared-pg-replica                3       true      shared-pg                        Cluster in healthy state
+--- region B: DR actor pods ---
+cnpg                      cnpg-pair-bp-cnpg-pair-dr-promoter-64d4c9d9b4-cq9vf               2/2   Running             0             6m43s
+cnpg                      cnpg-pair-bp-cnpg-pair-failover-readiness-6b8c5484f-4kl4k         1/1   Running             0             6m43s
+shared-data               shared-pg-b-dr-promoter-868987cb7c-d2w2w                          2/2   Running             0             6m18s
+shared-data               shared-pg-b-failover-readiness-69f9f96b9f-p5pgp                   1/1   Running             0             6m18s
+shared-data               shared-pg-c-dr-promoter-7ccb88b6d6-wtkck                          2/2   Running             0             3m
+shared-data               shared-pg-c-failover-readiness-8b486ff7b-wnrp2                    1/1   Running             0             3m
+shared-data               shared-pg-dr-promoter-568c75cfd-dwdnl                             2/2   Running             0             6m41s
+shared-data               shared-pg-failover-readiness-8648cdb576-bqwf8                     1/1   Running             0             6m41s
+--- region A: DR actor pods ---
+cnpg                      cnpg-pair-bp-cnpg-pair-dr-failback-86b4d585b5-m2bzj               2/2   Running             0               13m

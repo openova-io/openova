@@ -1,0 +1,9 @@
+=== §11 region-A WRITE-FENCE three-way confirm — 2026-08-11T03:58:04.743Z ===
+--- (a) READ vacuity control: can we read at all on A? ---
+A-READ-OK rows=1
+--- (b) WRITE probe on A (decisive) ---
+--- (c) Cluster CR replica.enabled on A (is CNPG fencing it as a replica cluster?) ---
+replica.enabled= source= instances=3
+=== §11b write-fence result — 2026-08-11T03:58:5xZ ===
+region-A write probe: rc=0, stdout='INSERT 0 1' -> WRITE ACCEPTED on TL=1 while region-B was writable on TL=2
+immediately after: 'Is the server running locally and accepting connections on that socket?' (rc=2) -> instance went down for demotion
