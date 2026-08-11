@@ -5,8 +5,46 @@ metadata:
   labels:
     app.kubernetes.io/name: catalyst-ui
     app.kubernetes.io/component: frontend
+  annotations:
+    # Companion to `strategy: Recreate` below. Applying Recreate over a
+    # Deployment that already carries the default RollingUpdate block
+    # fails validating admission with
+    #   spec.strategy.rollingUpdate: Forbidden:
+    #     may not be specified when strategy `type` is 'Recreate'
+    # because strategic-merge merges the new `type` in without dropping
+    # the residual maxSurge/maxUnavailable keys. This annotation is the
+    # durable remediation — see the identical block in
+    # api-deployment.yaml, docs/CHART-AUTHORING.md §"Strategy flips on
+    # existing Deployments", and tests/integration/strategy-flip.yaml.
+    # Do NOT use an inline `$patch: replace` instead: it breaks fresh
+    # installs and Flux's SSA path strips it anyway.
+    kustomize.toolkit.fluxcd.io/force: enabled
 spec:
   replicas: 1
+  # Recreate, not the default RollingUpdate (#6157).
+  #
+  # For `replicas: 1` Kubernetes rounds maxSurge UP (25% -> 1) and
+  # maxUnavailable DOWN (25% -> 0). maxUnavailable=0 forbids retiring
+  # the old Pod until the new one is Ready, so the roll requires a
+  # SECOND Pod slot to exist at the same time. On a node at its Pod
+  # ceiling that slot never appears, the new Pod stays Pending
+  # ("Too many pods"), and the old Pod serves forever:
+  #
+  #   Available=True    reason=MinimumReplicasAvailable   <- hides it
+  #   Progressing=False reason=ProgressDeadlineExceeded
+  #
+  # That deadlock ran unnoticed on the mothership from 2026-08-03 to
+  # 2026-08-11 — 13 ReplicaSets created and scaled back to 0 in a single
+  # day without ever landing a Pod, so every `deploy: update catalyst
+  # images to ...` commit was a no-op at the serving layer while the
+  # console kept serving an 8-day-old bundle.
+  #
+  # catalyst-api (same chart, also replicas: 1) already uses Recreate
+  # and rolled cleanly on the same saturated node in the same minute.
+  # A single-replica stateless frontend has no HA to preserve, so
+  # RollingUpdate buys nothing here and costs the ability to roll.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: catalyst-ui

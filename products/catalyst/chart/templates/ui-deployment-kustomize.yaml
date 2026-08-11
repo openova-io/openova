@@ -19,8 +19,33 @@ metadata:
   labels:
     app.kubernetes.io/name: catalyst-ui
     app.kubernetes.io/component: frontend
+  annotations:
+    # REQUIRED here, not merely mirrored from the Helm sibling: this is
+    # the file contabo-mkt (the mothership) actually applies, and its
+    # live catalyst-ui Deployment already carries the default
+    # RollingUpdate block. Applying `strategy: Recreate` over it fails
+    # validating admission with
+    #   spec.strategy.rollingUpdate: Forbidden:
+    #     may not be specified when strategy `type` is 'Recreate'
+    # unless Flux is told to force-replace the object. See the identical
+    # block in api-deployment-kustomize.yaml, docs/CHART-AUTHORING.md
+    # §"Strategy flips on existing Deployments", and the CI fixture
+    # tests/integration/strategy-flip.yaml.
+    kustomize.toolkit.fluxcd.io/force: enabled
 spec:
   replicas: 1
+  # Recreate, not the default RollingUpdate (#6157). For `replicas: 1`
+  # Kubernetes rounds maxSurge UP (25% -> 1) and maxUnavailable DOWN
+  # (25% -> 0); maxUnavailable=0 forbids retiring the old Pod before the
+  # new one is Ready, so the roll needs a second Pod slot. On the
+  # mothership's single node at its 110-Pod ceiling that slot never
+  # appears, so from 2026-08-03 to 2026-08-11 the new Pod stayed Pending
+  # ("Too many pods") and the console served an 8-day-old bundle while
+  # the Deployment reported Available=True. Kept byte-identical in
+  # intent to the Helm sibling (ui-deployment.yaml) so contabo and
+  # Sovereigns roll the same way.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: catalyst-ui

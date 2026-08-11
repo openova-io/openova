@@ -1,0 +1,43 @@
+name: single-replica-rollout-strategy-guard
+# Regression guard (#6157, 2026-08-11). A Deployment with a literal
+# `replicas: 1` and no `strategy:` block inherits the default RollingUpdate,
+# whose maxUnavailable rounds DOWN to 0 at one replica. maxUnavailable=0
+# forbids retiring the old Pod before the new one is Ready, so every roll
+# needs a spare Pod slot — and on a node at its Pod ceiling that slot never
+# appears. The rollout then deadlocks silently: the Deployment keeps
+# reporting Available=True while serving a stale image.
+#
+# That is exactly how the mothership console served an 8-day-old bundle from
+# 2026-08-03 to 2026-08-11 (13 ReplicaSets created and scaled back to 0 in a
+# single day, every `deploy: update catalyst images to ...` commit a no-op at
+# the serving layer). `catalyst-api`, same chart and same saturated node, had
+# `strategy: Recreate` and rolled fine — the control.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'products/catalyst/chart/templates/**'
+      - 'scripts/check-single-replica-rollout-strategy.py'
+      - '.github/workflows/check-single-replica-rollout-strategy.yaml'
+  pull_request:
+    paths:
+      - 'products/catalyst/chart/templates/**'
+      - 'scripts/check-single-replica-rollout-strategy.py'
+      - '.github/workflows/check-single-replica-rollout-strategy.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: replicas=1 Deployments must declare a rollout strategy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Guard — no un-rollable single-replica Deployment (#6157)
+        run: python3 scripts/check-single-replica-rollout-strategy.py
