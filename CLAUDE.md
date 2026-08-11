@@ -299,7 +299,33 @@ Flux reconcile pulls **exclusively** from the local Gitea + Harbor.
 
 Every claimed-done surface lives in [`docs/ledger/TRUST.md`](docs/ledger/TRUST.md) in one of
 four states: UNVERIFIED (default), VERIFIED-PASS, VERIFIED-FAIL, VERIFIED-PARTIAL.
-Every PR against a surface flips it back to UNVERIFIED until re-walked.
+
+**Re-walk scheduling is confidence-driven, not blanket** (2026-08-11). A PR
+invalidates only the rows whose *asserted surface* it actually touches — not
+every row in the epic. The former blanket rule ("every PR flips the surface back
+to UNVERIFIED") was written for a slower cadence; at ~20 PRs a night it forced a
+full 286-row re-walk every cycle, which spent nearly all walker effort
+re-confirming the ~200 already-green rows and starved the failing ones.
+
+Which rows a cycle walks is now computed, not assumed:
+
+    python3 scripts/uat-confidence.py --observe --env <env> --cycle <ISO8601>
+    python3 scripts/uat-confidence.py --due --env <env>     # the work-list
+    python3 scripts/uat-confidence.py --self-test           # run before trusting it
+
+Each row carries a Beta-Bernoulli **confidence** over time-discounted evidence, a
+**streak**, and a Leitner **box** (walk interval 1/2/5/13/34 cycles). Sustained
+success promotes and lengthens the interval; **any current-env failure drops
+confidence to 0 and the box to 0 at once**. Decay pulls long-quiet rows back to
+due-ness so nothing is trusted forever. Measured on the hw293 backfill: 129 rows
+due, 157 skipped.
+
+Observations record their **environment** (`docs/ledger/uat-observations.csv`,
+append-only). This is the field the old aggregate sheet lacked, and its absence
+caused a real misreading on 2026-08-11: comparing across the hw292 wipe showed
+"40 regressions" when the true count of green-to-red transitions was **one**
+(row 219). A wiped environment now discounts its evidence and reschedules the
+row — it can never again be recorded as failure.
 Verification agents are READ-ONLY — they may not ship PRs to make their own walks pass.
 
 The companion live ledger of open work is [`docs/ledger/TRACKER.md`](docs/ledger/TRACKER.md).
