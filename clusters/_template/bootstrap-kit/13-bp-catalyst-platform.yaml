@@ -1374,6 +1374,20 @@ spec:
       #   provisioned. Env injection ships inside this umbrella, so the
       #   witness reaches the controller only once this pin advances. Lockstep
       #   w/ products/catalyst/chart/Chart.yaml.
+      # 1.4.1385 (#6157, Refs #6114 #6061 #6153): catalyst-ui could not roll at
+      #   all. ui-deployment.yaml declared `replicas: 1` with no `strategy:`,
+      #   inheriting RollingUpdate 25%/25%; at one replica maxSurge rounds UP
+      #   (-> 1) and maxUnavailable rounds DOWN (-> 0), and maxUnavailable=0
+      #   forbids retiring the old Pod until the new one is Ready — so the roll
+      #   needs a SECOND Pod slot, which never appears on a node at its Pod
+      #   ceiling. The mothership served an 8-day-old console bundle this way
+      #   while reporting Available=True. CONTROL: catalyst-api, same chart and
+      #   node, rolled 5s earlier on `strategy: Recreate`. Both ui siblings now
+      #   declare Recreate + `kustomize.toolkit.fluxcd.io/force: enabled`.
+      #   Relevant to Sovereigns because a worker node near its Pod ceiling has
+      #   the identical latent deadlock, and because every front-end fix
+      #   (e.g. #6061's Topology tab) is delivered by this Deployment.
+      #   Lockstep w/ products/catalyst/chart/Chart.yaml.
       # 1.4.1384 (#6106, Refs #6089, UAT rows 30/31/33/34/35/37/39/219): the
       #   catalyst-system INGRESS half of the catalyst-pin backchannel fix. The
       #   #6089 split moved Keycloak's tokenUrl/userInfoUrl/jwksUrl from the
@@ -1389,7 +1403,7 @@ spec:
       #   guacamole-pg and the shared-pg family as well. Egress half in
       #   bp-keycloak 1.5.9; neither half alone restores a brokered login.
       #   Lockstep w/ products/catalyst/chart/Chart.yaml.
-      version: 1.4.1384
+      version: 1.4.1385
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
