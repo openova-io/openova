@@ -72,7 +72,47 @@ sovereignFQDN: ""
 #
 # Set to "" to restore the all-public behaviour on clusters whose EIP does
 # hairpin.
-catalystAPIInternalURL: "http://catalyst-api.catalyst-system.svc.cluster.local:8080"
+#
+# #6172 — THE HOST IS `catalyst-api-backchannel`, NOT `catalyst-api`.
+#
+# Keycloak validates an identity provider's URLs when it CREATES it. A
+# plaintext http leg is accepted only while its host resolves to a private
+# address (`UriUtils.checkUrl` → `SslRequired.EXTERNAL.isRequired` →
+# `InetAddress.getByName`), and the sovereign realm ships
+# `sslRequired: external`. On a fresh Sovereign `catalyst-api` does not
+# resolve at slot 09: it is created by bp-catalyst-platform at slot 13,
+# whose HelmRelease dependsOn bp-gitea → bp-keycloak. The realm import
+# therefore waited on a Service that was waiting on the realm import, and
+# Keycloak answered
+#   400 {"errorMessage":"The url [token_url] requires secure connections"}
+# which keycloak-config-cli reports as a bare `Bad Request (Code: 400)`.
+# hw294 stalled Phase 1 at 51/67 with 16 HelmReleases behind it.
+#
+# So this chart now renders its OWN Service at this host — see
+# templates/catalyst-api-backchannel-service.yaml. A ClusterIP is allocated
+# at create time, so the name resolves to a site-local address immediately
+# and routes to catalyst-api's Pods through the same selector once slot 13
+# lands. The name must stay DISTINCT from `catalyst-api`: Helm refuses to
+# install a resource another release owns, and the template fails the render
+# loudly if the two are ever collapsed.
+catalystAPIInternalURL: "http://catalyst-api-backchannel.catalyst-system.svc.cluster.local:8080"
+
+# catalystAPIWorkloadName / catalystAPIWorkloadPort (#6172) — the catalyst-api
+# WORKLOAD behind the backchannel host, as opposed to the Service name that
+# fronts it.
+#
+# Two templates need the workload and not the hostname: the anchor Service's
+# `spec.selector` and the #6106 egress CiliumNetworkPolicy's `toEndpoints`
+# match. Both used to derive it from the URL's first DNS label, which was
+# correct only while the Service and the Pod label happened to share a
+# string. The moment the backchannel got its own Service name that identity
+# broke, and a policy that selects nothing renders exactly as green as one
+# that selects the right thing — so the value is now stated, not inferred.
+#
+# Must match `app.kubernetes.io/name` on catalyst-api's Pods and the port its
+# container listens on: products/catalyst/chart/templates/api-service.yaml.
+catalystAPIWorkloadName: catalyst-api
+catalystAPIWorkloadPort: 8080
 
 # G117.5b #2789 — SSO client-secret rotation knob.
 #
@@ -537,6 +577,65 @@ keycloak:
   #     can apply group-based RoleBindings (oidc:<group> prefix per
   #     k3s --oidc-groups-prefix flag)
   keycloakConfigCli:
+    # ─── #6172: report the SERVER's rejection, not just the status code ─────
+    #
+    # The bitnami subchart runs this Job as bare
+    # `java -jar /opt/bitnami/keycloak-config-cli/keycloak-config-cli.jar`.
+    # keycloak-config-cli's IdentityProviderRepository.create() hands the
+    # Response straight to `CreatedResponseUtil.getCreatedId`, which raises
+    #
+    #   jakarta.ws.rs.WebApplicationException: Create method returned status
+    #   Bad Request (Code: 400); expected status: Created (201)
+    #
+    # and that is ALL the Job ever prints — no response body, no resource
+    # path, not even which of the realm's elements was being created. The
+    # upstream code is the same on v6.4.0, v6.4.1, v6.5.0 and main, so there
+    # is no version to upgrade to. On hw294 that bare 400 sat behind
+    # `BackoffLimitExceeded` while 16 HelmReleases waited on it; the actual
+    # answer, `{"errorMessage":"The url [token_url] requires secure
+    # connections"}`, was on the wire the whole time and never reached a log.
+    #
+    # So on a NON-ZERO exit — and only then — the same import is replayed
+    # with keycloak-config-cli's own HTTP logging
+    # (`logging.group.http=org.apache.http.wire`) and filtered down to the
+    # three lines that identify the failure: the request LINE (method +
+    # path), the 4xx/5xx status line, and the error payload.
+    #
+    # The filter is deliberately narrow, because this repo is public and the
+    # realm import carries client secrets:
+    #   * request BODIES are never printed — only lines matching
+    #     `>> "<METHOD> /…`, which are request lines, never payload;
+    #   * response bodies are printed only when they START with `{"error`,
+    #     so a 200 client/serverinfo representation (which does carry
+    #     secrets, and does contain the substring `errorMessage` in its
+    #     serverinfo schema) can never match;
+    #   * every line is capped at 400 characters and the tail at 25 lines.
+    # `IMPORT_CACHE_ENABLED=false` forces the replay to re-attempt rather
+    # than skip on an unchanged checksum.
+    #
+    # The happy path pays nothing: the replay runs only after a failure, and
+    # the Job still exits with the original code so Helm's post-install hook
+    # fails exactly as before.
+    command:
+      - /bin/bash
+      - -ec
+    args:
+      - |
+        jar=/opt/bitnami/keycloak-config-cli/keycloak-config-cli.jar
+        java -jar "$jar" && exit 0
+        rc=$?
+        echo "###### keycloak-config-cli exited ${rc} — replaying with HTTP capture ######"
+        echo "# Printed below: request LINES (method + path), 4xx/5xx status lines"
+        echo "# and error payloads. Request bodies and success-response bodies are"
+        echo "# NEVER printed (they carry client secrets); lines are capped at 400"
+        echo "# characters. Refs #6172."
+        echo "############################################################################"
+        LOGGING_LEVEL_HTTP=debug IMPORT_CACHE_ENABLED=false java -jar "$jar" 2>&1 \
+          | cut -c1-400 \
+          | grep -aE '>> "(GET|POST|PUT|DELETE|PATCH) /|<< "HTTP/[0-9.]+ [45][0-9]{2} |<< "\{"error' \
+          | tail -25 || true
+        echo "############################################################################"
+        exit "$rc"
     # 100m: a config-import job does not need 500m; the bitnami default
     # request wedged 25m Pending on hw130 (4 nodes "Insufficient cpu" by
     # REQUESTS while real usage sat at 3-20%) blocking the admin seed.

@@ -1,0 +1,156 @@
+{{- /*
+Resolution ANCHOR for the catalyst-pin OIDC backchannel (#6172).
+
+WHAT BROKE — fresh prov hw294, Phase 1 stalled at 51/67
+─────────────────────────────────────────────────────────────────────────
+#6087/#6089 (bp-keycloak 1.5.8) repointed the sovereign realm's
+`catalyst-pin` identity provider so its server-side legs — tokenUrl,
+userInfoUrl, jwksUrl — dial catalyst-api in-cluster over PLAINTEXT http
+instead of hairpinning through the Sovereign's own public EIP. Correct
+for the hairpin, and it is what UAT row 219 needs. But it made the realm
+import depend on a name that does not exist yet, and the import is what
+creates the realm.
+
+Keycloak 26.3.3 validates an identity provider's URLs at CREATE. From
+`org.keycloak.common.util.UriUtils.checkUrl`:
+
+    if (!"https".equals(protocol) && sslRequired.isRequired(parsed.getHost()))
+        throw new IllegalArgumentException(
+            "The url [" + name + "] requires secure connections");
+
+and `SslRequired.EXTERNAL.isRequired(host)` is `!isLocal(host)`, where
+`isLocal` is `InetAddress.getByName(host)` → loopback / site-local /
+link-local / IPv6-ULA. The sovereign realm ships `sslRequired: external`.
+
+So a PLAINTEXT backchannel is accepted only while its host RESOLVES to a
+private address. On a fresh Sovereign it does not:
+
+  * bp-keycloak is bootstrap-kit slot 09.
+  * `catalyst-api` (the Service) is created by bp-catalyst-platform, slot
+    13, whose HelmRelease `dependsOn` bp-gitea → bp-keycloak.
+
+The host therefore cannot resolve until bp-keycloak is Ready, and
+bp-keycloak cannot become Ready until the host resolves. Measured inside
+keycloak-0 on hw294 region A, 2026-08-11:
+
+    $ getent hosts catalyst-api.catalyst-system.svc.cluster.local ; echo rc=$?
+    rc=2                                              # NXDOMAIN
+    $ getent hosts kubernetes.default.svc.cluster.local ; echo rc=$?
+    10.96.0.1   kubernetes.default.svc.cluster.local  # control, rc=0
+
+…and the server's own answer, reproduced against Keycloak 26.3.3 with the
+realm's exact IdP payload:
+
+    POST /admin/realms/<realm>/identity-provider/instances
+    HTTP/1.1 400 Bad Request
+    {"errorMessage":"The url [token_url] requires secure connections"}
+
+keycloak-config-cli logs only `Create method returned status Bad Request
+(Code: 400)`, so the wedge presented as an unattributed 400 behind
+`BackoffLimitExceeded`, taking 16 HelmReleases — cutover, per-Org
+workspace and every SSO consumer — down with it.
+
+WHY A SERVICE IS THE FIX, AND WHY IT IS NOT NAMED `catalyst-api`
+─────────────────────────────────────────────────────────────────────────
+A ClusterIP Service is allocated its ClusterIP at CREATE and CoreDNS
+answers for it whether or not it has a single endpoint. It is the only
+construct that makes a name resolve to a site-local address before the
+workload behind it exists. Proven live on hw294 region B, where
+bp-catalyst-edge-routes renders the same shape and catalyst-api runs
+only in region A:
+
+    $ kubectl get endpoints -n catalyst-system catalyst-api
+    NAME           ENDPOINTS   AGE
+    catalyst-api   <none>      68m
+    $ kubectl exec -n catalyst-system k8s-ws-proxy-7j8jb -- \
+        getent hosts catalyst-api.catalyst-system.svc.cluster.local
+    10.97.176.117  catalyst-api.catalyst-system.svc.cluster.local
+
+That asymmetry is the whole defect: region B gets its anchor for free
+from slot 13e, region A does not, because on a primary control plane the
+Service comes from the umbrella chart that sits BEHIND this one.
+
+The anchor deliberately does NOT reuse the name `catalyst-api`. Helm
+refuses to install a resource another release already owns, so a
+same-named Service here would fail bp-catalyst-platform's install at slot
+13 with `exists and cannot be imported into the current release`, trading
+one wedge for a later one. A distinct name owned by THIS release routes
+to the same Pods through the same selector and collides with nothing.
+
+CLUSTERMESH
+─────────────────────────────────────────────────────────────────────────
+bp-keycloak carries no `SECONDARY_HR_SUSPEND`, so this Service renders in
+BOTH regions while catalyst-api runs only in region A (G2 #2574). The
+`service.cilium.io/global` + `shared` pair makes Cilium merge the two
+same-name+namespace Services, so a region-B Keycloak Pod falls through
+the mesh to region A's endpoints — the #5289 idiom that
+platform/catalyst-edge-routes/chart/templates/services.yaml and
+platform/openbao/.../cross-region-mesh-service.yaml already use.
+
+The sibling egress policy in catalyst-backchannel-egress-cnp.yaml (#6106)
+selects the catalyst-api WORKLOAD, not this Service, so ClusterIP DNAT
+leaves its identity match intact.
+
+GATING
+─────────────────────────────────────────────────────────────────────────
+Rendered only when the realm actually names an in-cluster PLAINTEXT
+backchannel. Point `catalystAPIInternalURL` at a public https endpoint —
+the all-public behaviour on a hairpin-capable EIP — and no anchor is
+emitted, because `checkUrl` never consults sslRequired for an https URL.
+Set it to "" and the same holds.
+
+This template is deliberately NOT default-off. `catalystAPIInternalURL`
+carries an in-cluster default, so a bare `helm template` DOES emit the
+anchor — and must, because the same bare render emits a realm that names
+that host. The anchor and the realm are one unit: any render that
+produces the plaintext backchannel has to produce the Service that makes
+it resolve, or it produces the hw294 wedge. That coupling is what
+tests/catalyst-pin-backchannel-resolvable-6172.sh asserts.
+*/ -}}
+{{- if .Values.sovereignRealm.enabled }}
+{{- $bc := fromYaml (include "bp-keycloak.catalystBackchannel" .) }}
+{{- if and $bc.url $bc.inCluster (eq $bc.scheme "http") }}
+{{- $workload := trim (.Values.catalystAPIWorkloadName | default "") }}
+{{- if not $workload }}
+{{- fail "bp-keycloak: catalystAPIWorkloadName must name the catalyst-api Pod label `app.kubernetes.io/name`. Empty would render a selector-less anchor Service that resolves but routes nowhere, turning the #6172 import wedge into a silent login failure." }}
+{{- end }}
+{{- if eq $bc.svc $workload }}
+{{- fail (printf "bp-keycloak: catalystAPIInternalURL names Service %q, which is the name bp-catalyst-platform's own api-service.yaml owns in the same namespace. Helm would refuse that release's install with `exists and cannot be imported into the current release`. Give the backchannel anchor a distinct name (#6172)." $bc.svc) }}
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $bc.svc | quote }}
+  namespace: {{ $bc.ns | quote }}
+  labels:
+    app.kubernetes.io/name: bp-keycloak
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    catalyst.openova.io/component: catalyst-pin-backchannel-anchor
+  annotations:
+    policies.openova.io/title: catalyst-pin OIDC backchannel resolution anchor
+    policies.openova.io/description: |
+      Makes catalystAPIInternalURL's host resolve to a site-local ClusterIP
+      from bootstrap-kit slot 09, before bp-catalyst-platform (slot 13)
+      creates catalyst-api. Without it Keycloak refuses the sovereign realm
+      import with "The url [token_url] requires secure connections" and
+      Phase 1 wedges (#6172).
+    # Cilium ClusterMesh: merge this Service with the same-name+namespace
+    # Service the peer region renders, so a region-B Keycloak Pod reaches
+    # region A's catalyst-api (#5289).
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+spec:
+  type: ClusterIP
+  # The ClusterIP is what makes the name resolve; the selector is what makes
+  # it ROUTE once bp-catalyst-platform lands. Zero matches until then is the
+  # intended state, and is exactly region B's steady state.
+  selector:
+    app.kubernetes.io/name: {{ $workload | quote }}
+  ports:
+    - name: http
+      port: {{ $bc.port | int }}
+      targetPort: {{ .Values.catalystAPIWorkloadPort | int }}
+      protocol: TCP
+{{- end }}
+{{- end }}

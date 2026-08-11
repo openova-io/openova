@@ -129,7 +129,17 @@ if [ -z "$realm" ]; then
   echo "FAIL: the sovereign realm ConfigMap did not render — this pairing check would be vacuous." >&2
   exit 1
 fi
-backchannel="http://catalyst-api.catalyst-system.svc.cluster.local:8080"
+# #6172: read the backchannel from values.yaml rather than restating it. This
+# case exists to PAIR the realm against the policy; a literal here pins a third
+# copy of the same string and turns a legitimate host change into a red gate
+# that says nothing about the pairing. Case 1 already derives the policy side
+# from the same value, so the chain values -> policy -> realm stays closed.
+backchannel="$(grep -E '^catalystAPIInternalURL:' "$chart_dir/values.yaml" | head -1 | sed 's/^[^:]*: *//; s/"//g; s|/*$||')"
+if [ -z "$backchannel" ]; then
+  echo "FAIL: catalystAPIInternalURL is absent from values.yaml — this pairing check would be vacuous." >&2
+  exit 1
+fi
+backchannel_host="${backchannel#*://}"; backchannel_host="${backchannel_host%%:*}"
 for leg in tokenUrl userInfoUrl jwksUrl; do
   if ! grep -q "\"${leg}\": \\\\\"${backchannel}/oidc/" <<<"$realm"; then
     # The realm JSON is embedded, so quoting is escaped; fall back to a plain
@@ -160,7 +170,7 @@ if ! grep -q "https://api.${fqdn}/oidc/auth" <<<"$auth_line"; then
   echo "FAIL: authorizationUrl is no longer the public https://api.${fqdn}/oidc/auth. It is a BROWSER redirect; an in-cluster URL is unresolvable from the User's machine. Got: ${auth_line}" >&2
   exit 1
 fi
-if grep -q "catalyst-api.catalyst-system" <<<"$auth_line"; then
+if grep -qF "$backchannel_host" <<<"$auth_line"; then
   echo "FAIL: authorizationUrl was moved to the in-cluster backchannel host — the frontchannel must stay public (#6087)." >&2
   exit 1
 fi
@@ -211,7 +221,7 @@ if [ -z "$realm_off" ]; then
   echo "FAIL: the realm ConfigMap did not render with catalystAPIInternalURL='' — cannot verify the escape hatch." >&2
   exit 1
 fi
-if grep -q "catalyst-api.catalyst-system.svc" <<<"$realm_off"; then
+if grep -qF "$backchannel_host" <<<"$realm_off"; then
   echo "FAIL: with catalystAPIInternalURL='' the realm still carries the in-cluster backchannel — the chart would ship a dial with no policy behind it." >&2
   exit 1
 fi
@@ -238,14 +248,25 @@ if ! grep -q 'k8s:io.kubernetes.pod.namespace: "other-ns"' <<<"$alt_egress"; the
   echo "FAIL: the destination namespace did not follow catalystAPIInternalURL — it is hardcoded, so Case 1's catalyst-system assertion is a tautology." >&2
   exit 1
 fi
-if ! grep -q 'k8s:app.kubernetes.io/name: "cat-api"' <<<"$alt_egress"; then
-  echo "FAIL: the destination Pod label did not follow catalystAPIInternalURL — it is hardcoded." >&2
+# #6172: the Pod label follows catalystAPIWorkloadName, NOT the URL's first
+# DNS label. Those were the same string until the backchannel gained its own
+# resolution-anchor Service, and deriving a WORKLOAD selector from a SERVICE
+# name is correct only by coincidence — the moment they diverge the policy
+# selects nothing and renders exactly as green as one that selects the right
+# endpoints. So the derivation asserted here is the one that is actually true.
+if ! grep -q 'k8s:app.kubernetes.io/name: "catalyst-api"' <<<"$alt_egress"; then
+  echo "FAIL: the destination Pod label did not stay the catalyst-api workload while only the URL moved (#6172)." >&2
+  exit 1
+fi
+alt_wl="$(render --set catalystAPIInternalURL=http://cat-api.other-ns.svc.cluster.local:9090 --set catalystAPIWorkloadName=some-other-workload --show-only "$tpl" || true)"
+if ! grep -q 'k8s:app.kubernetes.io/name: "some-other-workload"' <<<"$(strip_comments <<<"$alt_wl")"; then
+  echo "FAIL: the destination Pod label did not follow catalystAPIWorkloadName — it is hardcoded, so the assertion above is a tautology (#6172)." >&2
   exit 1
 fi
 if ! grep -q 'port: "9090"' <<<"$alt_egress"; then
   echo "FAIL: the destination port did not follow catalystAPIInternalURL — it is hardcoded, so Case 1's 8080 assertion is a tautology." >&2
   exit 1
 fi
-echo "[bp-keycloak/6106] Case 7: PASS (namespace + Pod label + port all derived)"
+echo "[bp-keycloak/6106] Case 7: PASS (namespace + port derived from the URL, Pod label from catalystAPIWorkloadName)"
 
 echo "[bp-keycloak/6106] All gates green."
