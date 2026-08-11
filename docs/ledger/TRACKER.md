@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-11T03:00:03Z` |
+| Last refreshed | `2026-08-11T03:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,10 +200,9 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#5575](https://github.com/openova-io/openova/issues/5575) | Wizard component catalog is unvalidated: 6 components have no Blueprint, 8 carry | Other |
 | [#5591](https://github.com/openova-io/openova/issues/5591) | phase2b bootstrapMode->false flip is primary-region-only: secondary regions keep | Other |
 | [#5596](https://github.com/openova-io/openova/issues/5596) | cutoverComplete=true certifies sovereignty while region-B keeps 64/65 HelmReposi | Other |
-| [#5598](https://github.com/openova-io/openova/issues/5598) | Guacamole: SSO lands but every session API call returns 403 PERMISSION_DENIED � | Other |
-| [#5599](https://github.com/openova-io/openova/issues/5599) | newapi: valid Keycloak authz code rejected — /api/oauth/sovereign returns 403  | Other |
 | [#5601](https://github.com/openova-io/openova/issues/5601) | DR Switchover button disabled with 'no caught-up standby' while Continuum report | Other |
 | [#5602](https://github.com/openova-io/openova/issues/5602) | Hubble UI: authenticated landing works but data streams never connect (persisten | Other |
 | [#5608](https://github.com/openova-io/openova/issues/5608) | Keycloak admin console: group Role-mapping tab crashes ('Cannot read properties  | Other |
@@ -216,7 +215,6 @@ flowchart LR
 | [#5752](https://github.com/openova-io/openova/issues/5752) | bp-stalwart-tenant: per-Org install door emits empty spec.parameters — domain/ | Other |
 | [#5759](https://github.com/openova-io/openova/issues/5759) | sovereign-daytwo-bootstrap --apply REVERTS a completed cutover: 62/69 HelmReposi | Other |
 | [#5762](https://github.com/openova-io/openova/issues/5762) | products/catalyst/bootstrap/ui e2e + marketplace customer-journey: triage the 16 | Other |
-| [#5767](https://github.com/openova-io/openova/issues/5767) | catalyst-api has no graceful shutdown — SIGTERM kills orphan-release mid-persi | Other |
 | [#5796](https://github.com/openova-io/openova/issues/5796) | ESCALATION: uatco-mail-rtz-a annotation directive conflicts with a founder 'No'  | Other |
 | [#5799](https://github.com/openova-io/openova/issues/5799) | Funnel E2E walk is gated on retrieving the emailed sign-in PIN — no mail surfa | Other |
 | [#5814](https://github.com/openova-io/openova/issues/5814) | Sovereign /apps grid carries no Organization attribution — a customer-launched | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#6114](https://github.com/openova-io/openova/issues/6114) | UAT ❌ residue on hw293: 61 rows in 8 root-cause clusters — 30 behind one dea | Other |
 | [#6122](https://github.com/openova-io/openova/issues/6122) | UAT row 213: cross-Org get_application answers not-found, not 403 — #5522 move | Other |
 | [#6131](https://github.com/openova-io/openova/issues/6131) | Cutover execution tree still has no root: the true first step gitea-mirror keeps | Other |
+| [#6135](https://github.com/openova-io/openova/issues/6135) | The Organization create door accepts a declared isolation it never honours: 202  | Other |
+| [#6136](https://github.com/openova-io/openova/issues/6136) | Topology-tab Save writes spec.placement as a bare string: the editor's targets[] | Other |
 
 ---
 
@@ -307,8 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-11T03:12 | [#6133](https://github.com/openova-io/openova/pull/6133) | #6132 | test(uat): the new self-test mutants must land in the CLAUSE |
 | 2026-08-11T02:56 | [#6132](https://github.com/openova-io/openova/pull/6132) | #6111 | docs(uat): finish the #6111 adjudication — G6 gets an assert |
 | 2026-08-11T02:58 | [#6130](https://github.com/openova-io/openova/pull/6130) | #6085 | fix(console): stop publishing a DR/suspend verdict from abse |
+| 2026-08-11T03:11 | [#6129](https://github.com/openova-io/openova/pull/6129) | #6092 | test(org-delete): pin the cluster-wide secrets rule read-onl |
 | 2026-08-11T02:46 | [#6126](https://github.com/openova-io/openova/pull/6126) | #4303 | fix(seed): verify the self-heal instead of announcing it (Re |
 | 2026-08-11T02:26 | [#6125](https://github.com/openova-io/openova/pull/6125) | #3840 | fix(bootstrap-kit): the Flux controllers must not be the onl |
 | 2026-08-11T02:22 | [#6123](https://github.com/openova-io/openova/pull/6123) | #5206 | docs(uat): rows 212/213 walked on hw293 — the per-Org MCP in |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-10T23:20 | [#6088](https://github.com/openova-io/openova/pull/6088) | #6078 | docs(uat): rows 7 8 15 25 are DEPLOY-GATED, not NEEDS-CODE — |
 | 2026-08-10T23:09 | [#6086](https://github.com/openova-io/openova/pull/6086) | #6085 | docs(uat): settle 7 never-walked rows on hw293 — create 50,  |
 | 2026-08-10T22:59 | [#6083](https://github.com/openova-io/openova/pull/6083) | #6004 | fix(catalyst-api): let a repaired Phase-1 failure leave the  |
-| 2026-08-10T22:34 | [#6080](https://github.com/openova-io/openova/pull/6080) | #5573 | fix(guard): flux loop liveness read spec.replicas, a surface |
-| 2026-08-10T22:00 | [#6078](https://github.com/openova-io/openova/pull/6078) | #4292 | fix(console,api): four UAT rows at their producers — purchas |
 
 ---
 
