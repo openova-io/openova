@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-11T01:00:06Z` |
+| Last refreshed | `2026-08-11T01:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5596](https://github.com/openova-io/openova/issues/5596) | cutoverComplete=true certifies sovereignty while region-B keeps 64/65 HelmReposi | Other |
 | [#5598](https://github.com/openova-io/openova/issues/5598) | Guacamole: SSO lands but every session API call returns 403 PERMISSION_DENIED � | Other |
 | [#5599](https://github.com/openova-io/openova/issues/5599) | newapi: valid Keycloak authz code rejected — /api/oauth/sovereign returns 403  | Other |
 | [#5601](https://github.com/openova-io/openova/issues/5601) | DR Switchover button disabled with 'no caught-up standby' while Continuum report | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6093](https://github.com/openova-io/openova/issues/6093) | Jobs cutover projection orders the 11 sovereignty steps ALPHABETICALLY — every | Other |
 | [#6106](https://github.com/openova-io/openova/issues/6106) | catalyst-pin broker back-channel netpol gap: keycloak cannot reach catalyst-api. | Other |
 | [#6107](https://github.com/openova-io/openova/issues/6107) | org-controller counts an UNUSABLE secondary kubeconfig as wired — a contextles | Other |
+| [#6108](https://github.com/openova-io/openova/issues/6108) | secondary-kubeconfig delivery ships a torn read: non-atomic write + a non-empty- | Other |
 
 ---
 
