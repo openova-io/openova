@@ -28,7 +28,12 @@ ClusterMesh-global `-mesh` Service. The REPLICA half is replica-cluster.yaml
 */ -}}
 {{- if and (ne (toString .Values.enabled) "false") (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") (not (include "bp-postgres.renderReplicaHalf" .)) }}
 {{- $ahs := eq (include "bp-postgres.activeHotStandby" .) "true" }}
-{{- $sync := and $ahs (eq (default "sync" .Values.topology.replication.mode) "sync") }}
+{{- /* #6149 REJOIN shape — this primary CR renders as a REPLICA CLUSTER of
+     region-B. See bp-postgres.primaryDemoted. A demoted half carries NO sync
+     fence (a standby has no synchronous standby of its own), so $sync is forced
+     off here rather than at every use site. */ -}}
+{{- $demoted := eq (include "bp-postgres.primaryDemoted" .) "true" }}
+{{- $sync := and $ahs (not $demoted) (eq (default "sync" .Values.topology.replication.mode) "sync") }}
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -76,6 +81,75 @@ spec:
   instances: {{ .Values.topology.instances | default 1 }}
   imageName: {{ include "bp-postgres.imageRef" . | quote }}
   {{- end }}
+
+{{- if $demoted }}
+  {{- $bootFirst := first .Values.databases }}
+  {{- $rejoinDb := (default (dict) $bootFirst).name | default "app" }}
+  {{- $rejoinOwner := (default (dict) $bootFirst).owner | default "app" }}
+  # ── #6149 REJOIN shape — replica cluster of region-B ──────────────
+  # `replica.enabled: true` + pg_basebackup from the `-replica`
+  # externalCluster (region-B's promoted primary over `-replica-mesh`).
+  # bootstrap runs only at Cluster CREATION — the dr-failback actor deletes
+  # the stale Cluster CR once this desired state is rendered, so helm
+  # re-creates it fresh and the basebackup clones region-B's CURRENT
+  # timeline. That discard is what makes the pair converge: a TL-N line
+  # cannot follow a TL-M source (walreceiver FATAL 55000 "highest timeline
+  # … is behind recovery timeline …" every 5s, forever), and on hw293
+  # nothing discarded it, so shared-pg and shared-pg-b stayed dual-writable
+  # on divergent timelines indefinitely (#6149).
+  #
+  # pg_rewind is deliberately NOT used: CNPG has no cross-cluster rewind
+  # trigger, and a rewind's fork-point arithmetic depends on WAL-tail
+  # geometry the actor cannot verify. The basebackup re-clone is
+  # deterministic for every geometry.
+  replica:
+    enabled: true
+    source: {{ include "bp-postgres.replicaName" . }}
+  bootstrap:
+    pg_basebackup:
+      source: {{ include "bp-postgres.replicaName" . }}
+      database: {{ $rejoinDb | quote }}
+      owner:    {{ $rejoinOwner | quote }}
+  externalClusters:
+    - name: {{ include "bp-postgres.replicaName" . }}
+      connectionParameters:
+        # Reverse-direction ClusterMesh global alias: region-B's replica
+        # Cluster publishes its `rw` (designated/promoted primary) as
+        # `<instance>-replica-mesh` (replica-cluster.yaml managed additional
+        # Service); the side=primary local stub (peer-mesh-service.yaml)
+        # makes the name resolve here with zero local backends → traffic
+        # crosses the mesh.
+        host: {{ include "bp-postgres.peerReplicationServiceName" . }}
+        port: "5432"
+        user: streaming_replica
+        sslmode: require
+        dbname: {{ $rejoinDb | quote }}
+      # Region-A's OWN CNPG-issued streaming_replica client cert — accepted
+      # by region-B because the replica Cluster pins its client CA to this
+      # same `<instance>-ca` (replica-cluster.yaml, #6149). Both Secrets
+      # exist natively on cluster-A (CNPG issued them for this Cluster).
+      #
+      # 🛑 NO sslRootCert HERE (#5245 hw278 live-proof): the SERVER this
+      # connection dials is region-B's replica Cluster, whose server chain
+      # is signed by region-B's OWN `<instance>-replica-ca` — a Secret
+      # cluster-A does not hold. Because libpq/pgx upgrade sslmode=require
+      # to verify-ca semantics the moment a root cert IS supplied, pinning
+      # one here makes the re-clone's pgbasebackup bootstrap FATAL-loop on
+      # `x509: certificate signed by unknown authority` (5+ hours on hw278).
+      # With no root cert, sslmode=require is encrypted without server-chain
+      # verification — the same posture as every other in-mesh streaming
+      # hop; peer authenticity rides the client-cert requirement (region-B
+      # verifies THIS cert against the shared client CA) plus the Cilium
+      # ClusterMesh identity path. The FORWARD direction
+      # (replica-cluster.yaml) KEEPS its root pin — there `<instance>-ca`
+      # genuinely signs the server it dials.
+      sslKey:
+        name: {{ include "bp-postgres.instanceName" . }}-replication
+        key: tls.key
+      sslCert:
+        name: {{ include "bp-postgres.instanceName" . }}-replication
+        key: tls.crt
+{{- else }}
 
   bootstrap:
     initdb:
@@ -154,6 +228,7 @@ spec:
       secret:
         name: {{ include "bp-postgres.roleSecretName" (dict "ctx" $ "db" $first) | quote }}
       {{- end }}
+{{- end }}
 
   {{- /*
   managed.roles — one declarative per-consumer login role per binding.
@@ -189,9 +264,17 @@ spec:
   local pre-flip singleton DB.
   */ -}}
   {{- $meshSvc := and (eq (include "bp-postgres.meshGlobalServices" .) "true") (eq (include "bp-postgres.side" .) "primary") }}
-  {{- if or .Values.databases $meshSvc }}
+  {{- /* #6149 — managed.roles is a WRITE reconcile (CREATE/ALTER ROLE). In the
+       demoted rejoin shape this Cluster is a read-only standby of region-B, so
+       CNPG can never satisfy the declaration and would report it pending
+       forever; the roles themselves arrive with the basebackup. The mesh
+       Services stay — they are the names the switchback needs to keep
+       resolving. Mirrors bp-cnpg-pair's demoted primary (no managed roles at
+       all, managed.services unconditional). */ -}}
+  {{- $mgdRoles := and .Values.databases (not $demoted) }}
+  {{- if or $mgdRoles $meshSvc }}
   managed:
-    {{- if .Values.databases }}
+    {{- if $mgdRoles }}
     roles:
       {{- $seenOwners := dict }}
       {{- range .Values.databases }}

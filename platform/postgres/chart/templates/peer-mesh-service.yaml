@@ -1,0 +1,56 @@
+{{- /*
+Primary-side ClusterMesh global Service stub for `<instance>-replica-mesh`
+(#6149) — the exact mirror of replica-mesh-service.yaml, and the exact port of
+bp-cnpg-pair's peer-mesh-service.yaml (#5245).
+
+Cilium ClusterMesh global services merge BY NAME+NAMESPACE: a Service
+participates only if an object with the same name + namespace exists in EVERY
+consuming cluster, each annotated `service.cilium.io/global`. The replica side's
+`<instance>-replica-mesh` Service is CNPG-managed on cluster-B (replica Cluster
+CR `spec.managed.services.additional`) — but cluster-A has no replica Cluster
+CR, so without this stub the name is NXDOMAIN on cluster-A and NEITHER the
+dr-failback peer probe NOR the demoted (rejoin) primary Cluster's
+externalCluster could resolve region-B's writable endpoint. The failback's own
+probe ladder reports that case BY NAME (`peer host … NOT RESOLVABLE …
+(NXDOMAIN)`) precisely because a missing stub is the structural way this breaks.
+
+The selector (`cnpg.io/cluster: <instance>-replica`) matches ZERO Pods on
+cluster-A by construction, so every connection routes across the mesh to
+region-B's backends (the `affinity: local` hint falls through to remote when no
+local backend exists). No CNPG ownership collision: the local CNPG operator on
+cluster-A manages only the primary Cluster's Services, never this name.
+
+Rendered whenever the mesh + multi-region signal are on (NOT failback-gated, and
+NOT gated on the late cnpg-pair flip — same `meshGlobalServices` seam as
+replica-mesh-service.yaml, #4460): the stub is a passive DNS anchor with zero
+backends, so having it present from day 0 means the failback path needs no
+render-ordering dance when peers are wired later. A true single-region prov
+leaves `topology.replica.region` empty → meshGlobalServices false → this file
+renders nothing (byte-identical singleton).
+*/ -}}
+{{- if and (ne (toString .Values.enabled) "false") (eq (include "bp-postgres.meshGlobalServices" .) "true") (eq (include "bp-postgres.side" .) "primary") }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bp-postgres.peerReplicationServiceName" . }}
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+    catalyst.openova.io/role: failback-source
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/affinity: {{ .Values.topology.clusterMesh.affinity | quote }}
+    catalyst.openova.io/blueprint: bp-postgres
+spec:
+  type: ClusterIP
+  selector:
+    # CNPG selector shape for the REPLICA Cluster — matches zero Pods on the
+    # primary cluster by construction.
+    cnpg.io/cluster: {{ include "bp-postgres.replicaName" . }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP
+{{- end }}

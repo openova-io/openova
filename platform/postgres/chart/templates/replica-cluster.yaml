@@ -65,6 +65,37 @@ spec:
   resources:
     {{- toYaml .Values.instance.resources | nindent 4 }}
 
+  # ── Shared client CA (#6149, the bp-cnpg-pair #5245 shape) ────────
+  # Pin THIS cluster's CLIENT CA to the primary instance's CA Secret —
+  # already synced cluster-A → cluster-B at the post-mesh flip
+  # (catalyst-api handler/clustermesh.go copies `<instance>-ca` and
+  # `<instance>-replication`, with ca.crt + ca.key). CNPG then issues this
+  # cluster's own `<instance>-replica-replication` streaming_replica leaf
+  # FROM that CA (cluster_pki.go: a BYO clientCASecret carrying ca.key
+  # generates the replication leaf when replicationTLSSecret is unset), so
+  # every local consumer (failover-readiness + the dr-promoter signals)
+  # keeps mounting `<instance>-replica-replication` unchanged — AND
+  # region-A's own `<instance>-replication` cert (same CA) now
+  # authenticates HERE too.
+  #
+  # That reverse-direction auth is the whole precondition of the #6149
+  # failback: after this side is promoted, the demoted region-A streams
+  # FROM this cluster presenting the only client cert cluster-A natively
+  # holds. Without this pin the failback's peer probe and the rejoin
+  # basebackup are both rejected and the pair stays dual-writable — the
+  # hw293 end state.
+  #
+  # Server certs are untouched. NOTE (#5245 hw278 live-proof): sslmode
+  # =require skips server-chain verification ONLY when no sslRootCert is
+  # supplied; libpq/pgx upgrade `require` to verify-ca semantics the moment
+  # a root cert IS provided. The FORWARD stream below carries
+  # sslRootCert=`<instance>-ca` and verifies fine (that CA signs region-A's
+  # server leafs); the REVERSE stream (cluster.yaml demoted shape) carries
+  # NO root cert, because this cluster's server chain is signed by its own
+  # `<instance>-replica-ca`, which cluster-A does not hold.
+  certificates:
+    clientCASecret: {{ include "bp-postgres.instanceName" . }}-ca
+
   affinity:
     nodeAffinity:
       requiredDuringSchedulingIgnoredDuringExecution:
@@ -153,4 +184,45 @@ spec:
       wal_level: "logical"
 
   enableSuperuserAccess: {{ .Values.instance.enableSuperuserAccess | default false }}
+
+  # ── Reverse-direction replication Service (#6149) ─────────────────
+  # Publish THIS cluster's writable endpoint across the mesh as
+  # `<instance>-replica-mesh` — the exact mirror of the primary side's
+  # `<instance>-mesh` (cluster.yaml managed additional Service,
+  # selectorType rw, Cilium-global). Pre-promote this tracks the
+  # designated primary (a standby — no consumers); POST-PROMOTE it is the
+  # writable survivor that region-A's failback rides: the dr-failback
+  # actor's peer probe and the demoted region-A's externalCluster both
+  # resolve this name (the side=primary local stub in
+  # peer-mesh-service.yaml completes the by-name global-service merge).
+  # CNPG re-points `rw` at whatever instance is current, so the alias
+  # tracks promotion/demotion with no chart change (#3740 idiom).
+  #
+  # selectorType MUST be `rw`, never `r` (#5473): `r` matches every
+  # instance, so a standby could serve as the failback source and region-A
+  # would re-clone from a non-writable line.
+  {{- if ne (toString (dig "clusterMesh" "enabled" true (.Values.topology | default dict))) "false" }}
+  managed:
+    services:
+      additional:
+        - selectorType: rw
+          serviceTemplate:
+            metadata:
+              name: {{ include "bp-postgres.peerReplicationServiceName" . }}
+              labels:
+                {{- include "bp-postgres.labels" . | nindent 16 }}
+                catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+                catalyst.openova.io/role: failback-source
+              annotations:
+                service.cilium.io/global: "true"
+                service.cilium.io/affinity: {{ .Values.topology.clusterMesh.affinity | quote }}
+                catalyst.openova.io/blueprint: bp-postgres
+            spec:
+              type: ClusterIP
+              ports:
+                - name: postgres
+                  port: 5432
+                  targetPort: 5432
+                  protocol: TCP
+  {{- end }}
 {{- end }}

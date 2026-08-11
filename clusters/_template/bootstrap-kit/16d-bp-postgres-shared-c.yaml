@@ -91,7 +91,7 @@ spec:
       # dr-promoter + failover-readiness + topology.promoted HR-value seam on the
       # active-hot-standby replica half (autoPromote.hr.name above targets THIS HR,
       # bp-postgres-shared-c). sync-only fence. Lockstep 16a/16c/16d.
-      version: 0.2.20
+      version: 0.2.22
       sourceRef:
         kind: HelmRepository
         name: bp-postgres
@@ -140,6 +140,40 @@ spec:
       autoPromote:
         hr:
           name: bp-postgres-shared-c
+      # -- Region-A automatic DR FAILBACK (#6149) ---------------------------
+      # THE SYMMETRIC HALF of autoPromote, and not optional relative to it.
+      # On the hw293 G12 region-kill (2026-08-11, dep a0077ba47e3720e5) all four
+      # DR pairs promoted and exactly ONE could come back: the census was 4
+      # dr-promoters in region B against 1 dr-failback in region A
+      # (bp-cnpg-pair's). shared-pg-c and its siblings were left DUAL-WRITABLE on
+      # divergent timelines -- both sides pg_is_in_recovery()=false, different
+      # row counts of the same table, nothing scheduled to ever reconcile them.
+      # shared-pg carries keycloak. Chart 0.2.21 makes the two actors ride ONE
+      # gate (bp-postgres.drPairCapable), so this block is not an opt-in: it
+      # names the seams the region-A actor writes through.
+      #
+      # hr.name MUST be this slot's own HelmRelease -- the actor renders the
+      # demotion onto spec.values.topology.demoted there.
+      #
+      # demotedSubstituteKey MUST be UNIQUE PER INSTANCE. bp-cnpg-pair (slot
+      # 16b) hard-codes SOVEREIGN_CNPG_PAIR_DEMOTED because there is exactly one
+      # pair; the three bp-postgres instances share ONE bootstrap-kit
+      # Kustomization, so a shared key would demote and re-clone all three the
+      # moment any single one of them failed back. Each slot owns its own key,
+      # and cloud-init never needs to stamp it -- the substitute is CREATED by
+      # the actor's merge patch and consumed by the SAME Kustomization on the
+      # next reconcile, exactly as SOVEREIGN_CNPG_PAIR_DEMOTED is for 16b.
+      failback:
+        hr:
+          name: bp-postgres-shared-c
+        demotedSubstituteKey: SOVEREIGN_SHARED_PG_C_DEMOTED
+      # The DEMOTED (rejoin) seam the failback actor drives. Default false;
+      # kustomize renders it true from the substitute above once the actor has
+      # proven region-B writable and equal-or-ahead for the full peer-ahead
+      # hold, which flips this instance's primary Cluster CR into a
+      # pg_basebackup replica of region-B. Flipping it back to false is the
+      # sovereign-admin's controlled switchback (RUNBOOKS 6.1).
+      demoted: ${SOVEREIGN_SHARED_PG_C_DEMOTED:-false}
       # #4442 — HOST shared-data instance: open 5432 to cross-namespace
       # consumers (the singleton operator-probe NP otherwise default-denies
       # them). See slot 16a for the full rationale.
