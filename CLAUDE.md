@@ -99,7 +99,8 @@ voucher and billing operations live in the operator console's **BSS menu**.
 
 ALL mail from `noreply@openova.io` to `emrah.baysal@openova.io` (sign-in PINs,
 "<app> is ready" notifications) is filed server-side into the **`OTP` IMAP
-folder at delivery** by the active Stalwart Sieve script `otp-filter` — it
+folder at delivery** by the active Sieve script (SOGo-managed, rule matches
+sender `noreply@openova.io` OR subject `OpenOva sign-in code`) — it
 never reaches INBOX. Any PIN/OTP poller (e.g. the `read_pin.py` recipe) MUST
 `EXAMINE "OTP"` (read-only) instead of `SELECT INBOX`; everything else in the
 canonical walk-auth flow (memory
