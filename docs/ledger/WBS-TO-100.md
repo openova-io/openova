@@ -35,6 +35,37 @@ That was flattering and wrong: a row you cannot answer is not a row you may
 drop. Excluding failures raises the score by removing the evidence against it,
 which is the floating-denominator behaviour the frozen 286 exists to prevent.
 
+## 1-Z. 2026-08-12T15:33Z — the single highest-leverage unlock, measured on hw295
+
+**Nine of the 43 remaining non-green rows are gated on one thing that does not
+exist yet: a customer Organization.** Not on a fix, not on a re-walk — on a
+purchase never having been made.
+
+| row | epic |
+|---|---|
+| R19 | agenity |
+| G2 | apps |
+| 16 | model |
+| 87 · 90 · 95 | funnel |
+| 218 · 223 | e2e-journey |
+| 234 | apps |
+
+The precondition is confirmed absent rather than assumed: on hw295 the region-B
+apiserver lists only platform namespaces (`alloy … vpa`, plus `org-services`)
+with **no per-Org namespace at all**, and `statefulset,deployment -A` matches
+**zero** `agenity` workloads. There is nothing for a per-Org row to observe.
+
+Why this is the best next move rather than one of the other clusters: it is the
+largest single-event unlock left, and its own precondition is already green —
+the marketplace funnel walks cleanly to the review step (rows 78-83). One
+purchase driven through checkout creates the Org, its namespace, its Agenity
+workspace and its app, and makes all nine observable in one pass.
+
+The other two structural blockers are smaller and both need an event, not a fix:
+the cutover has not been fired here (its 11 steps render but have not run —
+row 162), and no job has failed, so the Re-run control has nothing to act on
+(row 176, correctly gated).
+
 ## 1-A. 2026-08-12 re-partition — by the mechanism that holds each row shut
 
 Read this before §1. The 2026-08-09 partition below buckets by *kind of work*
