@@ -56,10 +56,32 @@ with **no per-Org namespace at all**, and `statefulset,deployment -A` matches
 **zero** `agenity` workloads. There is nothing for a per-Org row to observe.
 
 Why this is the best next move rather than one of the other clusters: it is the
-largest single-event unlock left, and its own precondition is already green —
-the marketplace funnel walks cleanly to the review step (rows 78-83). One
-purchase driven through checkout creates the Org, its namespace, its Agenity
-workspace and its app, and makes all nine observable in one pass.
+largest single-event unlock left. One purchase driven through checkout creates
+the Org, its namespace, its Agenity workspace and its app, and makes all nine
+observable in one pass.
+
+**Corrected 15:32Z after walking it — the purchase has a prerequisite I had not
+stated.** I drove the funnel live to the last step: plan M pre-selects,
+WordPress adds to the cart (`org-cart` = plan M, `tld: omani.rest`), review
+renders the stack, and `/checkout` then stops at **"Sign in to complete your
+order — Send sign-in code"**. The funnel is healthy end-to-end; it is simply
+PIN-gated at the final step, exactly like every other authenticated surface.
+
+So the real head of this chain is not the purchase. It is **a mailbox whose PIN
+this walk can read**:
+
+- The founder's own mailbox is off-limits for walk automation. A prior agent
+  rotated its password to read a PIN and locked the founder out of email; the
+  standing rule is a **dedicated throwaway test mailbox** instead, or minting
+  the session via the handover signer.
+- That same capability also unlocks the mothership wizard rows (W1/W2/W5 are
+  currently ⚠️ on source+test evidence precisely because no live wizard walk was
+  possible), and the janitor rows R1/M1/G4/G5 which need mothership logs.
+
+**One capability — a readable test mailbox (or handover-signer minting) —
+therefore gates the nine per-Org rows AND the wizard AND the janitor set.** That
+is the highest-leverage thing to arrange before the next walk, and it is worth
+more than any single row on the list.
 
 The other two structural blockers are smaller and both need an event, not a fix:
 the cutover has not been fired here (its 11 steps render but have not run —
