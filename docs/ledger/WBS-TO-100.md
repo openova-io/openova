@@ -49,8 +49,8 @@ schedule; this gives the shape).
 | cluster | rows | what holds it shut |
 |---|--:|---|
 | **H — measured on a destroyed env** | 36 | the verdict is real but its Sovereign is gone; the row owes a re-walk, not a fix |
-| **G — destination dead (front door / DNS)** | 21 | the app or console host does not serve; #6186 is the merged fix for the app-host half |
-| **E — founder-credential gated (#4277)** | 7 | one console action by the founder; no code path exists for an agent to supply it |
+| **G — destination dead (front door / DNS)** | 24 | the app or console host does not serve; #6186 is the merged fix for the app-host half |
+| **E — founder-credential gated (#4277)** | 4 | one console action by the founder; no code path exists for an agent to supply it |
 | **C — mutation-gated** | 4 | needs a write walk; a read-only walk structurally cannot answer the clause |
 | **D — needs a customer Org through checkout** | 3 | the funnel must be driven past the review step so a second Org with an app exists |
 | **F — blocked by design / not exercisable** | 2 | correct behaviour on this shape; candidates for clause adjudication |
@@ -59,7 +59,24 @@ schedule; this gives the shape).
 
 - **H (36)** — 16 19 25 29 30 31 33 34 35 37 38 39 51 52 55 56 62 64 65 66 87 101 109 162 166 176 206 207 208 218 219 235 239 G1 G3 W5
 - **G (21)** — 32 36 60 67 69 70 111 172 188 189 213 223 229 232 234 236 241 G7 G11 W1 W2
-- **E (7)** — 95 187 220 221 G8 G9 R13
+- **E (4)** — 220 221 G8 G9  ← corrected 2026-08-12, was 7
+
+  **95, 187 and R13 were misfiled into E and are not credential-gated.** The
+  keyword pass that built this table matched "credential" anywhere in the
+  evidence; reading the rows says otherwise. **95** confirms two Orgs, two TLDs,
+  two running apps and one identical mechanism, and fails only on serving
+  reliability → cluster G. **187** asserts an active-active topology pattern and
+  its reading is a region-B split → cluster G. **R13** is region-B keycloak /
+  gitea / harbor CrashLooping in two distinct ways, only one of them downstream
+  of #6172 → cluster G. E is now exactly the agentic chain behind #4277
+  (`status/blocked`): the credential seed (G8), the agentic run that needs it
+  (G9), the pre-configured solo agent (220) and the chat leg downstream of it
+  (221).
+
+  This matters because E was the group described as needing the founder and
+  nothing else. Three rows sat behind that label while being ordinary platform
+  work, which is the same shape as a row waiting on an environment that no
+  longer exists — attributed, and therefore unworked.
 - **C (4)** — 57 71 197 R19 · **D (3)** — 90 222 R16 · **F (2)** — 227 228 · **A (1)** — 115
 
 **Cluster I is empty on a read.** G2 and 237 both describe a hw293 measurement —
