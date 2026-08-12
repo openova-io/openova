@@ -4535,4 +4535,66 @@ if ! grep -qF '"CATALYST_LOCAL_REGISTRY_URL=${LOCAL_OCI_BASE}"' "$TMP/s07e.yaml"
 fi
 echo "  PASS (#5439: Phase 3e present with a values-driven org-controller target, stamps all three generator Deployments, executed derivation equals step-10's target_host exactly, read-back FATAL + absent-Deployment SKIP + unconfigured-overlay guard, #5527 Phase 3d intact)"
 
+echo "[cutover-contract] Case 90: Step-03 Phase A0 must NOT gate on the cutover chart's OWN workloads (#6198) — EXECUTED, with a control proving the exclusion does not leak"
+# WHY: the gate's premise is "running != desired" — a workload mid-roll would be
+# mirrored at its RUNNING tag, then rolled by step-04/07 to a DESIRED tag that was
+# never mirrored. That premise cannot hold for the cutover's own components: the
+# cutover does not roll itself. Left in scope, one of them DEADLOCKS the cutover.
+# Measured live on hw295: Deployment/catalyst/cutover-daytwo-harbor-reconciler sits
+# 0/1 Running because its readiness probe withholds READY until the local Harbor is
+# populated — which is exactly what THIS step does. Step-03 waited on it; it waited
+# on step-03; cutover died at 9%, step 3 of 11.
+c90_run() {
+  # $1 = deployments fixture. Reuses the Case 77 extracted gate + stub layout.
+  : > "$TMP/c77/patch.log"
+  C77_HR_FIXTURE="$TMP/c90/empty-hr.json" C90_WL_FIXTURE="$1" \
+  C77_PATCH_LOG="$TMP/c77/patch.log" C77_PATCH_RC=0 \
+  PATH="$TMP/c90/bin:$PATH" \
+  STATUS_CONFIGMAP_NAME=self-sovereign-cutover-status \
+  STATUS_CONFIGMAP_NAMESPACE=cutover-test \
+  SETTLED_ROLL_PREFLIGHT=true \
+  sh "$TMP/c77/gate.sh" > "$TMP/c90/out.txt" 2>&1
+}
+mkdir -p "$TMP/c90/bin"
+printf '{"items":[]}' > "$TMP/c90/empty-hr.json"
+cat > "$TMP/c90/bin/kubectl" <<'C90STUB'
+#!/bin/sh
+case "$*" in
+  *"get helmreleases"*) cat "${C77_HR_FIXTURE:?}" ;;
+  *"get deployments,statefulsets"*) cat "${C90_WL_FIXTURE:?}" ;;
+  *"patch configmap"*) printf '%s\n' "$*" >> "${C77_PATCH_LOG:?}"; exit "${C77_PATCH_RC:-0}" ;;
+  *) echo "c90-stub-kubectl: unhandled args: $*" >&2; exit 9 ;;
+esac
+C90STUB
+chmod +x "$TMP/c90/bin/kubectl"
+# The live hw295 offender: the chart's OWN day-two reconciler, never Ready.
+cat > "$TMP/c90/own.json" <<'C90F'
+{"items":[{"kind":"Deployment","metadata":{"name":"cutover-daytwo-harbor-reconciler","namespace":"catalyst","generation":1,"labels":{"app.kubernetes.io/name":"bp-self-sovereign-cutover","app.kubernetes.io/component":"daytwo-harbor-reconciler"}},"spec":{"replicas":1},"status":{"observedGeneration":1,"updatedReplicas":1,"readyReplicas":0}}]}
+C90F
+# CONTROL: byte-identical shape, foreign chart label. MUST still be caught.
+jq '.items[0].metadata.name = "some-tenant-app"
+    | .items[0].metadata.namespace = "acme"
+    | .items[0].metadata.labels["app.kubernetes.io/name"] = "bp-wordpress"' \
+  "$TMP/c90/own.json" > "$TMP/c90/foreign.json"
+
+if ! c90_run "$TMP/c90/own.json"; then
+  echo "FAIL: the gate REFUSED an env whose only unsettled workload is the cutover's OWN day-two reconciler — that is the #6198 deadlock (step-03 waits for the mirror-checker, the mirror-checker waits for step-03)" >&2
+  sed -n '1,20p' "$TMP/c90/out.txt" >&2
+  exit 1
+fi
+if grep -q 'cutover-daytwo-harbor-reconciler' "$TMP/c90/out.txt"; then
+  echo "FAIL: the gate named the chart's own day-two reconciler as an offender (#6198)" >&2
+  exit 1
+fi
+# CONTROL — without this the exclusion could match everything and still "pass".
+if c90_run "$TMP/c90/foreign.json"; then
+  echo "FAIL: CONTROL — a FOREIGN unsettled Deployment (identical shape, app.kubernetes.io/name=bp-wordpress) was NOT caught; the #6198 exclusion leaked and the settled-roll gate is now fail-open" >&2
+  exit 1
+fi
+if ! grep -q 'acme/some-tenant-app' "$TMP/c90/out.txt"; then
+  echo "FAIL: CONTROL — the foreign Deployment was refused but never NAMED; the operator cannot act on an unnamed offender" >&2
+  exit 1
+fi
+echo "  PASS (#6198: the chart's own workloads are excluded from its own settled-roll gate, and the CONTROL proves a foreign unsettled Deployment is still caught and named)"
+
 echo "[cutover-contract] All gates green."
