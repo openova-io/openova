@@ -67,6 +67,122 @@ func TestRetiredProductIsNotSeededIntoTheCatalog(t *testing.T) {
 	}
 }
 
+// Defends: a fresh Sovereign must not be seeded with a PRICE LIST for a product
+// that is not for sale (#5920).
+//
+// The App row and the Plan rows are two different producers, and only the App
+// row was closed. seedMissingSandboxPlans — the path that re-creates missing
+// tiers on an EXISTING Sovereign — already returns early on RetiredAppSlugs,
+// and its comment states the rule outright: "Retiring the product retires its
+// price list with it." The FRESH-seed path appended the same tiers
+// unconditionally, so every newly provisioned Sovereign was still seeded with
+// sandbox-free (0 OMR), sandbox-pro (9 OMR, Popular=true) and sandbox-ent
+// (49 OMR), and served them on the PUBLIC GET /catalog/plans.
+//
+// That is the same product being off the shelf and still in the price list.
+func TestRetiredProductHasNoPlanTiersOnAFreshSovereign(t *testing.T) {
+	plans := seedPlanRows()
+	if len(plans) == 0 {
+		t.Fatal("seedPlanRows returned no rows — nothing was checked")
+	}
+	retired := RetiredAppSlugs()
+	for _, p := range plans {
+		if why, bad := retired[p.ProductSlug]; bad {
+			t.Errorf("seedPlanRows still seeds plan %q at %d OMR for retired product %q (%s) — "+
+				"a fresh Sovereign would create the tier and GET /catalog/plans would serve it",
+				p.Slug, p.PriceOMR, p.ProductSlug, why)
+		}
+		// Belt and braces: catch a tier named for the retired product even if
+		// its ProductSlug were cleared, which would make it look like a generic
+		// compute tier and put it next to S/M/L/XL.
+		for slug := range retired {
+			if strings.HasPrefix(p.Slug, slug+"-") {
+				t.Errorf("seedPlanRows seeds plan %q, named for retired product %q, "+
+					"with ProductSlug=%q", p.Slug, slug, p.ProductSlug)
+			}
+		}
+	}
+}
+
+// Vacuity for the test above. If expectedSandboxPlans() ever returned an empty
+// slice, or stopped setting ProductSlug, then filtering it out of the fresh seed
+// would assert nothing and the test above would pass by examining nothing.
+//
+// This proves the excluded set has teeth: it is non-empty, it is priced, and it
+// carries the exact ProductSlug the filter keys on.
+func TestRetiredPlanExclusionIsNotVacuous(t *testing.T) {
+	excluded := expectedSandboxPlans()
+	if len(excluded) == 0 {
+		t.Fatal("expectedSandboxPlans() is empty — excluding it from the fresh seed " +
+			"would be a no-op and TestRetiredProductHasNoPlanTiersOnAFreshSovereign " +
+			"would pass against an unguarded seed")
+	}
+	if _, retired := RetiredAppSlugs()["sandbox"]; !retired {
+		t.Fatal("sandbox is not retired, so the exclusion never fires")
+	}
+	var priced int
+	for _, p := range excluded {
+		if p.ProductSlug != "sandbox" {
+			t.Errorf("excluded plan %q carries ProductSlug=%q, want %q — the fresh-seed "+
+				"filter keys on ProductSlug and would not catch this row",
+				p.Slug, p.ProductSlug, "sandbox")
+		}
+		if p.PriceOMR > 0 {
+			priced++
+		}
+	}
+	if priced == 0 {
+		t.Error("no excluded tier carries a price — the 'still on sale' claim this " +
+			"test defends would have no teeth")
+	}
+
+	// And the exclusion must actually remove them: every excluded slug must be
+	// absent from the fresh seed.
+	seeded := make(map[string]bool)
+	for _, p := range seedPlanRows() {
+		seeded[p.Slug] = true
+	}
+	for _, p := range excluded {
+		if seeded[p.Slug] {
+			t.Errorf("plan %q is in expectedSandboxPlans AND in the fresh seed — "+
+				"the retirement guard did not fire", p.Slug)
+		}
+	}
+}
+
+// Control. Without this, `return nil` from seedPlanRows would satisfy both tests
+// above and leave a Sovereign with no price list at all — checkout would fail
+// for every product, not just the retired one.
+func TestLiveComputeTiersAreStillSeeded(t *testing.T) {
+	plans := seedPlanRows()
+	seeded := make(map[string]int, len(plans))
+	for _, p := range plans {
+		seeded[p.Slug] = p.PriceOMR
+	}
+	// The generic compute ladder a customer actually buys.
+	for _, slug := range []string{"s", "m", "l", "xl", "flexi"} {
+		if _, ok := seeded[slug]; !ok {
+			t.Errorf("live compute tier %q is no longer seeded — the retirement change "+
+				"removed more than it should have", slug)
+		}
+	}
+	// Assert on a VALUE, not just presence: an empty/zeroed ladder would still
+	// have the keys. M is the Popular default at 9 OMR.
+	if got := seeded["m"]; got != 9 {
+		t.Errorf("tier m PriceOMR = %d, want 9 — the live price ladder was damaged", got)
+	}
+	var popular []string
+	for _, p := range plans {
+		if p.Popular {
+			popular = append(popular, p.Slug)
+		}
+	}
+	if len(popular) != 1 || popular[0] != "m" {
+		t.Errorf("Popular tiers = %v, want exactly [m] — the plan picker's default "+
+			"selection is broken (sandbox-pro also carried Popular=true)", popular)
+	}
+}
+
 // Defends: store.ListPublishedApps requires deployable==true. While the slug is
 // in DeployableAppSlugs, migrateAppDeployable keeps flipping existing rows back
 // to deployable, which is half of what keeps the card on sale.

@@ -92,28 +92,7 @@ func (h *Handler) seedAllData(ctx context.Context) {
 	// -----------------------------------------------------------------------
 	// Plans
 	// -----------------------------------------------------------------------
-	seedPlans := []store.Plan{
-		{Slug: "s", Name: "S", Description: "For personal projects and small teams", CPU: "2 vCPU", Memory: "4 GB", Storage: "25 GB", PriceOMR: 5, Popular: false, SortOrder: 1,
-			Features: []string{"Unlimited apps", "SSO included", "API access", "TLS certificates", "Daily snapshots"}},
-		{Slug: "m", Name: "M", Description: "For growing businesses up to 30 users", CPU: "4 vCPU", Memory: "8 GB", Storage: "50 GB", PriceOMR: 9, Popular: true, SortOrder: 2,
-			Features: []string{"Unlimited apps", "SSO included", "API access", "TLS certificates", "Daily backups", "Priority support", "Custom domain"}},
-		{Slug: "l", Name: "L", Description: "For teams with 30\u2013100 users", CPU: "8 vCPU", Memory: "16 GB", Storage: "100 GB", PriceOMR: 16, Popular: false, SortOrder: 3,
-			Features: []string{"Unlimited apps", "SSO included", "API access", "TLS certificates", "Hourly backups", "Priority support", "Custom domain", "WAF/IPS", "Dedicated support"}},
-		{Slug: "xl", Name: "XL", Description: "For enterprises with 100+ users", CPU: "16 vCPU", Memory: "32 GB", Storage: "200 GB", PriceOMR: 30, Popular: false, SortOrder: 4,
-			Features: []string{"Unlimited apps", "SSO included", "API access", "TLS certificates", "Continuous backups", "Priority support", "Custom domain", "WAF/IPS", "Dedicated support", "SLA 99.9%", "Audit logs"}},
-		{Slug: "flexi", Name: "Flexi", Description: "Pay as you go \u2014 scale resources on demand", CPU: "On demand", Memory: "On demand", Storage: "On demand", PriceOMR: 0, Popular: false, SortOrder: 5,
-			Features: []string{"Unlimited apps", "SSO included", "API access", "TLS certificates", "Pay per use", "Scale on demand"}},
-	}
-
-	// Sandbox product plans \u2014 PR #1633 added the Sandbox app to seedApps
-	// but never wired the matching plan rows, so the marketplace checkout
-	// hit "plan_id not found" the moment a customer picked Sandbox.
-	// Sandbox plans are product-scoped (ProductSlug="sandbox") and carry
-	// IncludedQuotas the sandbox-orchestrator (#1639) reads via the
-	// `openova.io/plan-id` annotation on the Sandbox CR to derive
-	// spec.quota (sessions, agents, storage). Sort orders start at 10 to
-	// stay clear of the generic compute-tier bucket above.
-	seedPlans = append(seedPlans, expectedSandboxPlans()...)
+	seedPlans := seedPlanRows()
 
 	for i := range seedPlans {
 		if err := h.Store.CreatePlan(ctx, &seedPlans[i]); err != nil {
@@ -151,6 +130,48 @@ func (h *Handler) seedAllData(ctx context.Context) {
 	slog.Info("seed: created bundles", "count", len(seedBundles))
 
 	slog.Info("seed: catalog seeding complete")
+}
+
+// seedPlanRows returns the plan rows a FRESH Sovereign is seeded with.
+//
+// Extracted from seedAllData (#5920) to mirror seedAppRows: a pure function
+// with no store, so the retired-product assertions in retired_products_test.go
+// can read what a fresh Sovereign would actually be sold.
+func seedPlanRows() []store.Plan {
+	plans := []store.Plan{
+		{Slug: "s", Name: "S", Description: "For personal projects and small teams", CPU: "2 vCPU", Memory: "4 GB", Storage: "25 GB", PriceOMR: 5, Popular: false, SortOrder: 1,
+			Features: []string{"Unlimited apps", "SSO included", "API access", "TLS certificates", "Daily snapshots"}},
+		{Slug: "m", Name: "M", Description: "For growing businesses up to 30 users", CPU: "4 vCPU", Memory: "8 GB", Storage: "50 GB", PriceOMR: 9, Popular: true, SortOrder: 2,
+			Features: []string{"Unlimited apps", "SSO included", "API access", "TLS certificates", "Daily backups", "Priority support", "Custom domain"}},
+		{Slug: "l", Name: "L", Description: "For teams with 30\u2013100 users", CPU: "8 vCPU", Memory: "16 GB", Storage: "100 GB", PriceOMR: 16, Popular: false, SortOrder: 3,
+			Features: []string{"Unlimited apps", "SSO included", "API access", "TLS certificates", "Hourly backups", "Priority support", "Custom domain", "WAF/IPS", "Dedicated support"}},
+		{Slug: "xl", Name: "XL", Description: "For enterprises with 100+ users", CPU: "16 vCPU", Memory: "32 GB", Storage: "200 GB", PriceOMR: 30, Popular: false, SortOrder: 4,
+			Features: []string{"Unlimited apps", "SSO included", "API access", "TLS certificates", "Continuous backups", "Priority support", "Custom domain", "WAF/IPS", "Dedicated support", "SLA 99.9%", "Audit logs"}},
+		{Slug: "flexi", Name: "Flexi", Description: "Pay as you go \u2014 scale resources on demand", CPU: "On demand", Memory: "On demand", Storage: "On demand", PriceOMR: 0, Popular: false, SortOrder: 5,
+			Features: []string{"Unlimited apps", "SSO included", "API access", "TLS certificates", "Pay per use", "Scale on demand"}},
+	}
+
+	// Sandbox product plans \u2014 PR #1633 added the Sandbox app to seedApps but
+	// never wired the matching plan rows, so the marketplace checkout hit
+	// "plan_id not found" the moment a customer picked Sandbox. Sandbox plans
+	// are product-scoped (ProductSlug="sandbox") and carry IncludedQuotas the
+	// orchestrator (#1639) reads via the `openova.io/plan-id` annotation.
+	//
+	// #5920: Sandbox was RETIRED on 2026-06-30. Its App row is already gone
+	// from seedAppRows and seedMissingSandboxPlans already refuses to re-create
+	// these tiers on an existing Sovereign \u2014 with the note "retiring the product
+	// retires its price list with it". This call site was the other half of that
+	// same decision and was left unguarded, so every FRESH Sovereign was still
+	// seeded with sandbox-free / sandbox-pro (9 OMR, Popular) / sandbox-ent
+	// (49 OMR) and served them on the public GET /catalog/plans.
+	//
+	// One switch (RetiredAppSlugs) now governs both paths, so un-retiring the
+	// product would restore both without a second edit.
+	if _, retired := RetiredAppSlugs()["sandbox"]; !retired {
+		plans = append(plans, expectedSandboxPlans()...)
+	}
+
+	return plans
 }
 
 // expectedSandboxPlans returns the canonical set of Sandbox product plans.
