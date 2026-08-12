@@ -1074,7 +1074,14 @@ spec:
       # chart/tests/ left the package via .helmignore: 757,264 bytes, 72.2%.
       # The rendered manifest is byte-identical modulo comments — no step,
       # value or RBAC change, still 11 steps.
-      version: 0.1.179
+      # 0.1.180 (#5921): step-08 gains the PRE-HOLD outbound customer-auth
+      # SMTP relay lint — the NINTH tether, and the only one on the purchase
+      # path. marketplace-api dials smtp-host from sovereign-smtp-credentials
+      # to send every customer sign-in code; ADR-0002 lists eight tethers and
+      # this is not among them. A declaration lint, because SMTP is dialled on
+      # a customer action and a 600s hold with no signup in it never sees the
+      # dial. Step count unchanged at 11.
+      version: 0.1.180
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

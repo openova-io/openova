@@ -273,6 +273,31 @@ data:
             value: {{ eq (toString .Values.egressTest.providerPackageHostLint.enabled) "true" | quote }}
           - name: PROVIDER_PACKAGE_HOST_ALLOW
             value: {{ .Values.egressTest.providerPackageHostLint.allowHosts | default (list) | join " " | quote }}
+          {{- /*
+           #5921 — pre-hold outbound customer-auth SMTP relay host lint. The
+           NINTH tether, and the only one on the PURCHASE path.
+           catalyst-system/marketplace-api reads smtp-host out of
+           catalyst-system/sovereign-smtp-credentials and dials it to send
+           every customer sign-in code. On hw292 that host is mail.openova.io
+           with cutoverComplete=true: no customer can finish a purchase unless
+           the OpenOva mothership's mail server answers.
+
+           Why the hold cannot see this even with mail.openova.io in the deny
+           set: SMTP is dialled ON A CUSTOMER ACTION, not on a reconcile
+           timer. A 600s window with no signup in it produces no connection
+           to block, so the runtime proof passes over a live tether — the
+           timing-independence argument #5650 made for Flux sources applies
+           with more force here, because the trigger is a human rather than
+           an interval. This lint reads the DECLARATION instead.
+          */}}
+          - name: SMTP_RELAY_HOST_LINT
+            value: {{ eq (toString .Values.egressTest.smtpRelayHostLint.enabled) "true" | quote }}
+          - name: SMTP_RELAY_HOST_ALLOW
+            value: {{ .Values.egressTest.smtpRelayHostLint.allowHosts | default (list) | join " " | quote }}
+          - name: SMTP_RELAY_SECRET_NAMESPACE
+            value: {{ .Values.egressTest.smtpRelayHostLint.secretNamespace | quote }}
+          - name: SMTP_RELAY_SECRET_NAME
+            value: {{ .Values.egressTest.smtpRelayHostLint.secretName | quote }}
           - name: HARBOR_PUBLIC_URL
             value: {{ .Values.sovereign.harborPublicURL | quote }}
           - name: HARBOR_USERNAME
@@ -1232,6 +1257,113 @@ data:
               echo "  PASS — region ${_pp_region}: every Crossplane Provider.spec.package resolves to a Sovereign-local host; no external package dependency remains in the object graph (#5650)"
               return 0
             }
+            {{- /*
+             ── #5921 OUTBOUND CUSTOMER-AUTH SMTP RELAY HOST LINT ──────────
+             The ninth tether. catalyst-system/marketplace-api takes SMTP_HOST
+             from catalyst-system/sovereign-smtp-credentials via secretKeyRef
+             and dials it to deliver every customer sign-in code. ADR-0002
+             enumerates EIGHT tethers; outbound customer-auth SMTP is not among
+             them, so no cutover step pivots it and, until #5951, nothing even
+             named the host in the deny set.
+
+             WHY A DECLARATION LINT AND NOT THE HOLD. Adding mail.openova.io to
+             blockedDomains (#5951) makes the host unreachable during the
+             window; it does not make the dependency visible, because SMTP is
+             dialled on a CUSTOMER ACTION rather than on a reconcile interval.
+             A 600s hold containing no signup produces no connection to block
+             and the runtime proof passes with the tether fully live. That is
+             the #5650 timing argument with a human, rather than an interval,
+             as the trigger — strictly worse, because the interval at least
+             guarantees an eventual dial. Reading the configured host is the
+             only measurement that does not depend on someone buying something
+             inside the window.
+
+             The function is extracted from the RENDER by
+             chart/tests/smtp-relay-host-lint.sh (the #5646 drift reason), so
+             the `_sr_` scratch names and the trailing `return 0` are load-
+             bearing and any nested helper stays on ONE line.
+            */}}
+            run_smtp_relay_host_lint() {
+              _sr_ns="${SMTP_RELAY_SECRET_NAMESPACE:-catalyst-system}"
+              _sr_name="${SMTP_RELAY_SECRET_NAME:-sovereign-smtp-credentials}"
+              echo "[egress-block-test] #5921: PRE-HOLD outbound customer-auth SMTP relay lint — ${_sr_ns}/${_sr_name} smtp-host is what marketplace-api dials to send every customer sign-in code; it must be a Sovereign-local relay (*.${SOVEREIGN_FQDN}, in-cluster DNS, or an explicit SMTP_RELAY_HOST_ALLOW entry)."
+              _sr_err="${WORK_DIR:-/work}/smtprelay-err.$$"
+              if ! : > "${_sr_err}" 2>/dev/null; then
+                echo "  FAIL — cannot create ${_sr_err}; refusing to report PASS from a lint that cannot record its own measurement (fail-closed)"
+                return 1
+              fi
+              {{- /*
+               FAIL-CLOSED ENUMERATION, with ONE deliberate exception. A Secret
+               that does not exist means marketplace-api renders SMTP_HOST
+               empty and sends nothing at all (core/marketplace-api/main.go
+               defaultSMTPHost is ""), which is a broken funnel but NOT a
+               tether — the same treatment the Flux lint gives an uninstalled
+               CRD. Every OTHER error (RBAC drift, unreachable API, expired
+               cert) means the relay could not be measured, and a verdict
+               rendered over an unmeasured surface is the #5633 fail-open shape.
+               The discriminator is the EXIT CODE, not whether stderr happens
+               to be non-empty: kubectl writes deprecation and auth-plugin
+               warnings to stderr on entirely successful calls, so a
+               stderr-is-non-empty test would read a warning as an
+               unmeasurable relay and fail every Sovereign that emits one.
+              */}}
+              if ! _sr_b64="$(kubectl -n "${_sr_ns}" get secret "${_sr_name}" -o jsonpath='{.data.smtp-host}' 2>"${_sr_err}")"; then
+                if grep -qiE 'not found|notfound' "${_sr_err}" 2>/dev/null; then
+                  echo "  PASS — ${_sr_ns}/${_sr_name} does not exist; marketplace-api renders SMTP_HOST empty and dials nothing. No outbound mail tether (NOTE: customer sign-in mail is also disabled — a funnel gap, tracked separately from sovereignty)."
+                  rm -f "${_sr_err}"
+                  return 0
+                fi
+                echo "  FAIL — cannot read ${_sr_ns}/${_sr_name} ($(head -1 "${_sr_err}" 2>/dev/null)). Refusing to report PASS for a relay that could not be measured (fail-closed, #5921)"
+                rm -f "${_sr_err}"
+                return 1
+              fi
+              rm -f "${_sr_err}"
+              if [ -z "${_sr_b64}" ]; then
+                echo "  PASS — ${_sr_ns}/${_sr_name} carries no smtp-host key; marketplace-api renders SMTP_HOST empty and dials nothing. No outbound mail tether (NOTE: customer sign-in mail is also disabled)."
+                return 0
+              fi
+              _sr_host="$(printf '%s' "${_sr_b64}" | base64 -d 2>/dev/null)"
+              if [ -z "${_sr_host}" ]; then
+                echo "  FAIL — smtp-host in ${_sr_ns}/${_sr_name} did not base64-decode to anything. The relay is unmeasurable, not absent (fail-closed)."
+                return 1
+              fi
+              {{- /*
+               Bare host: drop any scheme and any :port. An IPv6 literal keeps
+               its brackets, so only strip a trailing :port when what follows
+               the last colon has no closing bracket in it.
+              */}}
+              _sr_h="${_sr_host#*://}"; _sr_h="${_sr_h%%/*}"
+              case "${_sr_h}" in
+                \[*\]:*) _sr_h="${_sr_h%:*}" ;;
+                \[*\]) : ;;
+                *:*) _sr_h="${_sr_h%:*}" ;;
+              esac
+              case "${_sr_h}" in
+                "${SOVEREIGN_FQDN}"|*".${SOVEREIGN_FQDN}") echo "  PASS — smtp-host ${_sr_host} is a Sovereign-local relay; customer sign-in mail leaves this Sovereign under its own name (#5921)"; return 0 ;;
+                *.svc|*.svc.cluster.local|localhost|127.0.0.1) echo "  PASS — smtp-host ${_sr_host} is an in-cluster relay; customer sign-in mail never leaves the Sovereign (#5921)"; return 0 ;;
+              esac
+              for _sr_a in ${SMTP_RELAY_HOST_ALLOW:-}; do
+                if [ "${_sr_h}" = "${_sr_a}" ]; then
+                  echo "  PASS — smtp-host ${_sr_host} is a reviewed exception declared in egressTest.smtpRelayHostLint.allowHosts (a third-party relay the operator has chosen and owns)"
+                  return 0
+                fi
+              done
+              echo "  FAIL — smtp-host ${_sr_host} (host:${_sr_h}) is NOT a Sovereign-local relay. Every customer sign-in code this Sovereign sends transits a machine somebody else operates, so the purchase path stops working the moment that operator does. This is the NINTH tether and ADR-0002 does not list it, which is why no step pivots it. Fix = point ${_sr_ns}/${_sr_name} at a Sovereign-local submission relay (catalyst-api seeds this at provision time; CATALYST_SOVEREIGN_SMTP_RELAY_MODE=sovereign-local makes it mail.${SOVEREIGN_FQDN}), or declare a reviewed third-party relay in egressTest.smtpRelayHostLint.allowHosts."
+              return 1
+            }
+            if [ "${SMTP_RELAY_HOST_LINT:-false}" = "true" ]; then
+              {{- /*
+               Scoped to the PRIMARY only, on purpose: marketplace-api and the
+               sovereign-smtp-credentials Secret are single-region control-plane
+               objects, so asking a secondary for them would fail-closed on
+               every multi-region Sovereign and wedge the flow this guard
+               protects (the #5505 shape).
+              */}}
+              if ! run_smtp_relay_host_lint; then
+                echo "[egress-block-test] Outbound customer-auth SMTP relay lint FAILED before the hold — sovereignty proof FAILED (cutoverComplete stays false). A Sovereign that cannot send its own sign-in codes cannot complete a purchase without us, whatever the other eight tethers say (#5921)"
+                exit 1
+              fi
+            fi
             {{- /*
              ── #5359 PER-REGION DRIVER ────────────────────────────────────
              Every region is evaluated — no short-circuit — so one run names

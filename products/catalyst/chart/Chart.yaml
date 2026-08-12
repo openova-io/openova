@@ -3578,16 +3578,6 @@ name: bp-catalyst-platform
 #   sovereign-fqdn) so GET /catalog/regions returns the Sovereign's REAL
 #   regions instead of [] — the marketplace BCP picker stops falling back to
 #   the hardcoded Hetzner list.
-# 1.4.1417 — #6114: catalog-seed bp-openclaw pin 0.2.17 -> 0.2.18 (lockstep w/
-#   platform/openclaw chart + blueprint.yaml) so the phantom-Secret removal
-#   reaches fresh Orgs. bp-openclaw 0.2.17 mounted LLM_API_KEY/OPENAI_API_KEY
-#   from `openclaw-newapi-controller-token`, a Secret NOTHING in the repo has
-#   ever created; the refs were `optional: true` so the envs silently stayed
-#   unset and no Pod reported it, and the controller binary reads neither env.
-#   0.2.18 drops the reference rather than minting a live NewAPI token with no
-#   consumer. The per-user `newapi-key-{uuid}` path (ADR-0003 §3.3) is
-#   unchanged. Without this seed bump the Sovereign keeps resolving 0.2.17 and
-#   the fix is a hollow pin (the #6040 class).
 # 1.4.1072 — #4952: catalog-seed bp-openclaw pin 0.2.16 -> 0.2.17 (lockstep w/
 #   platform/openclaw chart + blueprint.yaml) so the per-Org-namespace fix
 #   reaches fresh funnel Orgs. bp-openclaw 0.2.16 defaulted tenant.namespace to
@@ -3899,7 +3889,18 @@ name: bp-catalyst-platform
 #   The seed pin is the delivery half: without this bump a pinned Sovereign
 #   resolves 1.5.9 and never sees the fix. This chart's own templates are
 #   unchanged.
-version: 1.4.1422
+#
+# 1.4.1414 (#5921): catalog-seed bp-self-sovereign-cutover pin 0.1.179 ->
+#   0.1.180 — step-08 gains the pre-hold outbound customer-auth SMTP relay
+#   host lint (the NINTH tether: marketplace-api sends every customer sign-in
+#   code through catalyst-system/sovereign-smtp-credentials' smtp-host, which
+#   is mail.openova.io on a post-cutover Sovereign, so a cluster certified
+#   independent still cannot sell anything unless OUR mail server answers).
+#   Republished here per check-umbrella-republish-gate.py (#5734): a
+#   catalog-seed pin that moves without this file's version moving is never
+#   carried by the published bp-catalyst-platform OCI artifact, so the
+#   Sovereign keeps installing the old cutover chart. Lockstep w/ slot-13 pin.
+version: 1.4.1423
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
@@ -4054,7 +4055,7 @@ version: 1.4.1422
 # scripts/check-chart-version-forward.sh (#5743) fails unless the two match —
 # main was carrying a pre-existing 1.4.1330/1.4.1329 split, so this bump heals
 # it in the same commit, exactly as the documented self-heal contract does.
-appVersion: 1.4.1422
+appVersion: 1.4.1414
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +

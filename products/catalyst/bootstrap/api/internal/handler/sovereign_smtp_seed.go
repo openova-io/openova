@@ -95,6 +95,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -130,6 +131,158 @@ const defaultSovereignSMTPSeedTimeout = 30 * time.Second
 // wizard's reducer renders these events alongside the per-component
 // install lines.
 const sovereignSMTPSeedPhase = "sovereign-smtp-seed"
+
+// ── #5921 — the NINTH tether, and the only one on the purchase path ──
+//
+// Everything this file seeds ends up in catalyst-system/sovereign-smtp-
+// credentials, which `catalyst-system/marketplace-api` reads via
+// secretKeyRef to send every customer sign-in code (chart template
+// marketplace-api/deployment.yaml). Seeding `mail.openova.io` there
+// means a post-cutover Sovereign with cutoverComplete=true still cannot
+// sell anything unless the OpenOva mothership's mail server answers.
+// ADR-0002 enumerates EIGHT tethers; outbound customer-auth SMTP is not
+// among them, so no cutover step pivots it.
+//
+// RELAY SCOPE is therefore an explicit, recorded property of the seed —
+// not an accident of which default fired:
+//
+//   sovereign-local — relay at `mail.<sovereignFQDN>`, sender
+//                     `noreply@<sovereignFQDN>`. The Sovereign sends its
+//                     own customer mail and owns the whole purchase path.
+//                     REQUIRES a Sovereign-local submission relay to
+//                     exist (see the "what remains" note below).
+//   mothership      — relay at `mail.openova.io` (the Phase-1 behaviour
+//                     this file has always had). Deliverable on a fresh
+//                     Sovereign that has no mail stack of its own, and a
+//                     live tether until pivoted.
+//
+// DEFAULT IS `mothership` ON PURPOSE. Flipping the default would point
+// every fresh Sovereign at a relay that does not exist yet — slot 95
+// (bp-stalwart-sovereign) was removed from the bootstrap-kit in 94ffe01ff
+// because its post-install Job was timing out, so today NOTHING serves
+// `mail.<sovereignFQDN>`. A default that breaks PIN delivery on every
+// prov is not a sovereignty fix, it is an outage. The pivot is gated on
+// the local relay actually existing, which is why the ENFORCEMENT half
+// lives in the cutover's step-08 lint (run_smtp_relay_host_lint) rather
+// than in a default flip here.
+const sovereignSMTPRelayModeEnv = "CATALYST_SOVEREIGN_SMTP_RELAY_MODE"
+
+const (
+	// SovereignSMTPRelayScopeMothership — the seed wrote mothership relay
+	// coordinates. The Sovereign's customer-auth mail is TETHERED.
+	SovereignSMTPRelayScopeMothership = "mothership"
+	// SovereignSMTPRelayScopeLocal — the seed wrote Sovereign-local relay
+	// coordinates derived from the deployment's own FQDN.
+	SovereignSMTPRelayScopeLocal = "sovereign-local"
+)
+
+// sovereignSMTPRelay — the resolved outbound relay coordinates plus the
+// SCOPE that produced them.
+type sovereignSMTPRelay struct {
+	Host  string
+	Port  string
+	From  string
+	Scope string
+}
+
+// resolveSovereignSMTPRelay decides the relay coordinates the seed writes.
+//
+// Precedence, highest first:
+//
+//  1. CATALYST_SOVEREIGN_SMTP_RELAY_HOST — an explicit operator-pinned
+//     relay. Honoured in either mode so a bespoke relay needs no rebuild.
+//  2. CATALYST_SOVEREIGN_SMTP_RELAY_MODE=sovereign-local — derive
+//     `mail.<sovereignFQDN>` from the deployment's own request.
+//  3. mothership (default) — `mail.openova.io`.
+//
+// SCOPE IS MEASURED FROM THE RESOLVED HOST, NEVER FROM THE REQUESTED
+// MODE. That distinction is the bug this function also fixes: the seed
+// previously stamped every Secret `seed-phase: phase-1-mothership-relay`
+// unconditionally, so an operator who pinned a Sovereign-local relay via
+// CATALYST_SOVEREIGN_SMTP_RELAY_HOST got a Secret whose own provenance
+// annotation said "mothership". Any cutover lint or migration script
+// keying on that annotation would have read a value that described the
+// code path instead of the bytes — a self-report that cannot go wrong is
+// not evidence.
+//
+// FAIL-SAFE: sovereign-local with an empty SovereignFQDN cannot compose a
+// host. Rather than seed `mail.` (an unresolvable host that would break
+// PIN delivery for the life of the cluster), fall back to the mothership
+// relay and report the scope HONESTLY as mothership, so the operator sees
+// a tether rather than a silent breakage.
+func resolveSovereignSMTPRelay(sovereignFQDN, smtpUser string) sovereignSMTPRelay {
+	port := os.Getenv("CATALYST_SOVEREIGN_SMTP_RELAY_PORT")
+	if port == "" {
+		port = "587"
+	}
+
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv(sovereignSMTPRelayModeEnv)))
+	fqdn := strings.ToLower(strings.TrimSpace(sovereignFQDN))
+
+	host := os.Getenv("CATALYST_SOVEREIGN_SMTP_RELAY_HOST")
+	from := os.Getenv("CATALYST_SOVEREIGN_SMTP_RELAY_FROM")
+
+	if host == "" {
+		if mode == SovereignSMTPRelayScopeLocal && fqdn != "" {
+			host = "mail." + fqdn
+			if from == "" {
+				from = "noreply@" + fqdn
+			}
+		} else {
+			host = "mail.openova.io"
+		}
+	}
+	if from == "" {
+		from = smtpUser
+	}
+
+	return sovereignSMTPRelay{
+		Host:  host,
+		Port:  port,
+		From:  from,
+		Scope: classifySovereignSMTPRelayScope(host, fqdn),
+	}
+}
+
+// classifySovereignSMTPRelayScope reports whether a relay host is the
+// Sovereign's own or somebody else's, from the HOST STRING itself.
+//
+// A host is Sovereign-local when it is the Sovereign's own FQDN or any
+// subdomain of it, or an in-cluster address. Everything else — including
+// every openova.io host — is a tether. Deliberately NOT a
+// "contains openova.io" test: the discriminator is "is this MINE", and a
+// Sovereign whose own FQDN were an openova.io subdomain would still be
+// answering for itself.
+func classifySovereignSMTPRelayScope(host, sovereignFQDN string) string {
+	h := strings.ToLower(strings.TrimSpace(host))
+	h = strings.TrimSuffix(h, ".")
+	if i := strings.LastIndex(h, ":"); i > 0 && !strings.Contains(h[i:], "]") {
+		h = h[:i]
+	}
+	fqdn := strings.ToLower(strings.TrimSpace(sovereignFQDN))
+
+	if fqdn != "" && (h == fqdn || strings.HasSuffix(h, "."+fqdn)) {
+		return SovereignSMTPRelayScopeLocal
+	}
+	switch {
+	case h == "localhost", h == "127.0.0.1":
+		return SovereignSMTPRelayScopeLocal
+	case strings.HasSuffix(h, ".svc"), strings.HasSuffix(h, ".svc.cluster.local"):
+		return SovereignSMTPRelayScopeLocal
+	}
+	return SovereignSMTPRelayScopeMothership
+}
+
+// sovereignSMTPSeedPhaseLabel maps a relay scope onto the historical
+// `seed-phase` annotation vocabulary. The mothership value is preserved
+// verbatim so existing tooling that greps for `phase-1-mothership-relay`
+// keeps matching the Secrets it always matched.
+func sovereignSMTPSeedPhaseLabel(scope string) string {
+	if scope == SovereignSMTPRelayScopeLocal {
+		return "phase-2-sovereign-local-relay"
+	}
+	return "phase-1-mothership-relay"
+}
 
 // SovereignSMTPSeedClientFactory — test-only override for building a
 // kubernetes.Interface from a kubeconfig YAML. Production wires
@@ -205,18 +358,13 @@ func (h *Handler) seedSovereignSMTPCredentials(ctx context.Context, dep *Deploym
 	// contract Secret to a host that actually answers. Env-overridable so a
 	// bespoke relay can be pinned without a rebuild; defaults match the seed's
 	// stated intent (mail.openova.io:587).
-	relayHost := os.Getenv("CATALYST_SOVEREIGN_SMTP_RELAY_HOST")
-	if relayHost == "" {
-		relayHost = "mail.openova.io"
-	}
-	relayPort := os.Getenv("CATALYST_SOVEREIGN_SMTP_RELAY_PORT")
-	if relayPort == "" {
-		relayPort = "587"
-	}
-	relayFrom := os.Getenv("CATALYST_SOVEREIGN_SMTP_RELAY_FROM")
-	if relayFrom == "" {
-		relayFrom = smtpUser
-	}
+	//
+	// #5921 — the relay is now resolved through a SCOPED helper so the
+	// Sovereign-local path exists and the Secret records which scope it
+	// actually got. See resolveSovereignSMTPRelay for the precedence and
+	// for why the default stays `mothership`.
+	relay := resolveSovereignSMTPRelay(dep.Request.SovereignFQDN, smtpUser)
+	relayHost, relayPort, relayFrom := relay.Host, relay.Port, relay.From
 
 	factory := h.sovereignSMTPSeedClientFactory
 	if factory == nil {
@@ -295,10 +443,24 @@ func (h *Handler) seedSovereignSMTPCredentials(ctx context.Context, dep *Deploym
 				// SMTP credentials. The value is a UUID — not a
 				// credential — and is safe to log.
 				"catalyst.openova.io/seeded-by-deployment-id": dep.ID,
-				// Phase-1 marker: when Phase-2 spins up per-Sovereign
+				// Phase marker: when Phase-2 spins up per-Sovereign
 				// Stalwart-relay, the migration script can target
 				// every Secret with this annotation for rotation.
-				"catalyst.openova.io/seed-phase": "phase-1-mothership-relay",
+				//
+				// #5921 — this used to be the CONSTANT string
+				// "phase-1-mothership-relay", stamped even when an
+				// operator had pinned a Sovereign-local relay through
+				// CATALYST_SOVEREIGN_SMTP_RELAY_HOST. It described the
+				// code path rather than the bytes, so it could never
+				// disagree with reality and was worthless as evidence.
+				// It is now derived from the RESOLVED host.
+				"catalyst.openova.io/seed-phase": sovereignSMTPSeedPhaseLabel(relay.Scope),
+				// #5921 — machine-readable tether marker. `mothership`
+				// means every customer sign-in code this Sovereign
+				// sends transits OUR mail server; the cutover step-08
+				// smtp-relay-host lint refuses to certify sovereignty
+				// while that is true.
+				"catalyst.openova.io/relay-scope": relay.Scope,
 			},
 		},
 		Type: corev1.SecretTypeOpaque,
@@ -343,6 +505,8 @@ func (h *Handler) seedSovereignSMTPCredentials(ctx context.Context, dep *Deploym
 		"name", sovereignSMTPSeedSecretName,
 		"smtpRelayHost", relayHost, // #4748 — not a secret; the reachable public relay
 		"smtpRelayPort", relayPort,
+		"smtpRelayScope", relay.Scope, // #5921 — `mothership` == customer-auth mail is tethered
+
 		"smtpUserBytes", len(smtpUser),
 		"smtpPassBytes", len(smtpPass),
 	)

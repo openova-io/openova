@@ -1975,6 +1975,44 @@ egressTest:
   providerPackageHostLint:
     enabled: true
     allowHosts: []
+  # #5921 — outbound customer-auth SMTP relay host lint. The NINTH tether,
+  # and the only one on the PURCHASE path.
+  #
+  # catalyst-system/marketplace-api takes SMTP_HOST from
+  # catalyst-system/sovereign-smtp-credentials by secretKeyRef and dials it to
+  # deliver every customer sign-in code. On hw292 that host is mail.openova.io
+  # while cutoverComplete=true — so a Sovereign certified independent still
+  # cannot sell anything unless the OpenOva mothership's mail server answers.
+  # ADR-0002 enumerates EIGHT tethers and outbound customer-auth SMTP is not
+  # among them, so no cutover step pivots it.
+  #
+  # Why this is a DECLARATION lint rather than another entry in the deny set:
+  # naming mail.openova.io in blockedDomains (#5951) makes it unreachable
+  # during the hold, but SMTP is dialled on a CUSTOMER ACTION, not on a
+  # reconcile interval. A 600s window with no signup in it produces no
+  # connection to block, and the runtime proof passes with the tether live.
+  # That is the #5650 timing-independence argument with a human rather than an
+  # interval as the trigger, which is strictly weaker — an interval at least
+  # guarantees an eventual dial.
+  #
+  # ON BY DEFAULT, and it will go RED on today's Sovereigns. That is the
+  # intended outcome and the same call #5951 made: a red proof beats a green
+  # one asserting a sovereignty that does not hold. The pivot target itself is
+  # still missing — slot 95 (bp-stalwart-sovereign) was removed from the
+  # bootstrap-kit in 94ffe01ff, so nothing yet serves mail.<sovereignFQDN>. An
+  # operator running a cutover before that lands declares their chosen relay in
+  # allowHosts, which is a reviewed decision recorded in Git rather than a
+  # silent default.
+  smtpRelayHostLint:
+    enabled: true
+    # Third-party relays the operator has explicitly chosen and owns. Default
+    # EMPTY so the lint fails closed: a relay is a tether until someone says
+    # otherwise in values, in Git, under review.
+    allowHosts: []
+    # The Secret marketplace-api actually reads. Fixed by the bp-catalyst-
+    # platform chart contract (#901); overridable only for a bespoke install.
+    secretNamespace: catalyst-system
+    secretName: sovereign-smtp-credentials
   # #3678 — TRUE deny-egress shape. defaultDenyEgress flips the Step-08
   # CCNP from a SUBTRACTIVE 4-CIDR block (default-allow, deny only the
   # listed hosts — which left console.openova.io + every un-enumerated
