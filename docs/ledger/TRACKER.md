@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-12T09:00:07Z` |
+| Last refreshed | `2026-08-12T09:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -310,6 +310,8 @@ flowchart LR
 | 2026-08-12T07:51 | [#6188](https://github.com/openova-io/openova/pull/6188) | #6180 | fix(uat): attribute observations to the env that measured th |
 | 2026-08-12T08:57 | [#6186](https://github.com/openova-io/openova/pull/6186) | #4459 | fix(api): per-Org app hosts resolve to a gateway that has no |
 | 2026-08-12T08:58 | [#6185](https://github.com/openova-io/openova/pull/6185) | #5920 | fix(catalog): a retired product must not keep its price list |
+| 2026-08-12T08:57 | [#6184](https://github.com/openova-io/openova/pull/6184) | #5710 | fix(catalyst-api): refuse to run a cutover on a chart that c |
+| 2026-08-12T08:59 | [#6182](https://github.com/openova-io/openova/pull/6182) | #6114 | fix(bp-openclaw): drop the NewAPI controller-token reference |
 | 2026-08-11T10:50 | [#6180](https://github.com/openova-io/openova/pull/6180) | #6114 | fix(uat): a wipe is not a failure — carry evidence forward i |
 | 2026-08-11T10:24 | [#6179](https://github.com/openova-io/openova/pull/6179) | #6172 | docs(uat): walk hw294 — 17 ✅ from a 0-✅ reset, with a contro |
 | 2026-08-11T10:58 | [#6177](https://github.com/openova-io/openova/pull/6177) | #6089 | fix(bp-keycloak): the realm import named a Service that the  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-11T04:02 | [#6138](https://github.com/openova-io/openova/pull/6138) | #5857 | fix(catalyst-api): refuse a declared isolation the plan cann |
 | 2026-08-11T03:25 | [#6137](https://github.com/openova-io/openova/pull/6137) | #4466 | fix(catalyst-chart): the janitor's whole env surface was unr |
 | 2026-08-11T03:26 | [#6134](https://github.com/openova-io/openova/pull/6134) | #6099 | fix(jobs): the cutover tree had no root — an empty dependsOn |
-| 2026-08-11T03:12 | [#6133](https://github.com/openova-io/openova/pull/6133) | #6132 | test(uat): the new self-test mutants must land in the CLAUSE |
-| 2026-08-11T02:56 | [#6132](https://github.com/openova-io/openova/pull/6132) | #6111 | docs(uat): finish the #6111 adjudication — G6 gets an assert |
 
 ---
 
