@@ -170,15 +170,15 @@ anything beyond that, and E needs the founder rather than an agent.
 | bucket | rows | what it needs |
 |---|--:|---|
 | **DEPLOY-GATED** | 1 | the fix is merged and not running here; closes on a roll/prov |
-| **BUILD** | 8 | no fix exists yet (`NEEDS-CODE` in UAT.md) |
+| **BUILD** | 7 | no fix exists yet (`NEEDS-CODE` in UAT.md) |
 | **ENV-STATE** | 4 | needs a different environment shape entirely |
-| **WALKABLE NOW** | 20 | a walk on THIS env can change the verdict |
+| **WALKABLE NOW** | 21 | a walk on THIS env can change the verdict |
 | **total** | **33** | |
 
 - **DEPLOY-GATED (1)** — 227
-- **BUILD (8)** — 16 19 25 87 95 223 G2 R16
+- **BUILD (7)** — 16 19 25 87 95 G2 R16
 - **ENV-STATE (4)** — 166 234 G9 G11
-- **WALKABLE NOW (20)** — 60 90 101 115 176 189 197 213 218 219 220 221 222 228 235 237 241 G7 G8 R19
+- **WALKABLE NOW (21)** — 60 90 101 115 176 189 197 213 218 219 220 221 222 223 228 235 237 241 G7 G8 R19
 
 ## 2. The D-34, clustered by root cause
 
