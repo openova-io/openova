@@ -45,10 +45,26 @@ purchase never having been made.
 |---|---|
 | R19 | agenity |
 | G2 | apps |
-| 16 | model |
 | 87 · 90 · 95 | funnel |
+| 213 | mcp |
 | 218 · 223 | e2e-journey |
 | 234 | apps |
+
+**Membership corrected 15:58Z — my first pass got two of these wrong.** It listed
+**16** and omitted **213**. Row 16 (change an app's topology and Save) needs a
+*mutation*, not a customer Org — it is walkable on `shared-pg`, whose Topology
+tab was measured today; it belongs in the mutation-gated cluster. Row 213
+(cross-Org `get_application` refused as not-found) genuinely cannot be exercised
+with a single Organization, because there is no *other* Org to be refused
+against — my first predicate searched for "per-Org"/"customer Org" phrasing and
+missed "cross-Org" entirely. Same count, different rows: a classifier that
+matches on vocabulary rather than on the requirement will land on the right
+total for the wrong reasons.
+
+Row 213 carries a second, independent blocker worth recording: the MCP surface is
+not exposed on this Sovereign at all — `mcp.hw295…` and `openova-mcp.hw295…`
+both answer **404**, and `bp-openova-mcp` is `suspend: true` in region B. So 213
+needs the Org *and* a reachable MCP endpoint.
 
 The precondition is confirmed absent rather than assumed: on hw295 the region-B
 apiserver lists only platform namespaces (`alloy … vpa`, plus `org-services`)
