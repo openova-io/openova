@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-12T07:45:03Z` |
+| Last refreshed | `2026-08-12T08:00:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-12T07:51 | [#6188](https://github.com/openova-io/openova/pull/6188) | #6180 | fix(uat): attribute observations to the env that measured th |
 | 2026-08-11T10:50 | [#6180](https://github.com/openova-io/openova/pull/6180) | #6114 | fix(uat): a wipe is not a failure — carry evidence forward i |
 | 2026-08-11T10:24 | [#6179](https://github.com/openova-io/openova/pull/6179) | #6172 | docs(uat): walk hw294 — 17 ✅ from a 0-✅ reset, with a contro |
 | 2026-08-11T10:58 | [#6177](https://github.com/openova-io/openova/pull/6177) | #6089 | fix(bp-keycloak): the realm import named a Service that the  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-11T02:56 | [#6132](https://github.com/openova-io/openova/pull/6132) | #6111 | docs(uat): finish the #6111 adjudication — G6 gets an assert |
 | 2026-08-11T02:58 | [#6130](https://github.com/openova-io/openova/pull/6130) | #6085 | fix(console): stop publishing a DR/suspend verdict from abse |
 | 2026-08-11T03:11 | [#6129](https://github.com/openova-io/openova/pull/6129) | #6092 | test(org-delete): pin the cluster-wide secrets rule read-onl |
-| 2026-08-11T06:53 | [#6128](https://github.com/openova-io/openova/pull/6128) | #6078 | docs(uat): eight walk-gated rows re-measured live on hw293 — |
 
 ---
 
