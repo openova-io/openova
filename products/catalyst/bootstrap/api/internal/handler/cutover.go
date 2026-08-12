@@ -200,6 +200,11 @@ const (
 	cutoverPhaseAlreadyDone  = "cutover-already-complete"
 	cutoverPhaseStarted      = "cutover-started"
 	cutoverPhaseSnapshot     = "cutover-status"
+	// cutoverPhaseRefused — a pre-flight refused to start the engine at all
+	// (#5919 chart-version floor). TERMINAL: no step ever runs, so a wizard
+	// EventSource must close on it rather than wait for a step event that
+	// cannot arrive.
+	cutoverPhaseRefused = "cutover-refused"
 
 	// Env override names.
 	envCutoverNamespace     = "CATALYST_CUTOVER_NAMESPACE"
@@ -458,6 +463,12 @@ type cutoverStep struct {
 	mode         string
 	daemonsetRef string
 	podSpec      *corev1.PodSpec
+	// chartVersion is the bp-self-sovereign-cutover version this step was
+	// rendered from, read out of the standard `helm.sh/chart` label the
+	// chart already stamps on every resource. Empty when the label is
+	// absent or names a different chart — assertCutoverChartFloor (#5919)
+	// treats empty as "unknown" and refuses, never as "fine".
+	chartVersion string
 }
 
 // listCutoverSteps reads every ConfigMap with the cutover labels in
@@ -513,6 +524,13 @@ func listCutoverSteps(ctx context.Context, deps *cutoverDeps) ([]cutoverStep, er
 
 func parseCutoverStep(cm corev1.ConfigMap) (cutoverStep, error) {
 	step := cutoverStep{cmName: cm.Name}
+	// #5919 chart-version floor. Read here (not at the gate) so every caller
+	// of listCutoverSteps sees the same resolved view. A missing/foreign label
+	// leaves this empty on purpose — the floor refuses on empty rather than
+	// inventing a version.
+	if v, ok := chartVersionFromHelmLabel(cm.Labels[cutoverChartLabel]); ok {
+		step.chartVersion = v
+	}
 	if v := cm.Labels[cutoverStepOrderLabel]; v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
@@ -2324,13 +2342,13 @@ type cutoverStatusResponse struct {
 	// start (resume/re-fire), distinct from CutoverStartedAt which is the
 	// TRUE first-run anchor. The UI shows total elapsed from CutoverStartedAt
 	// and "current attempt" from this field.
-	CutoverLastAttemptStartedAt string              `json:"cutoverLastAttemptStartedAt,omitempty"`
-	CurrentStep                 string              `json:"currentStep,omitempty"`
-	CurrentStepIndex            int                 `json:"currentStepIndex"`
-	TotalSteps                  int                 `json:"totalSteps"`
-	ProgressPercent             int                 `json:"progressPercent"`
-	FailedStep                  string              `json:"failedStep,omitempty"`
-	LastError                   string              `json:"lastError,omitempty"`
+	CutoverLastAttemptStartedAt string `json:"cutoverLastAttemptStartedAt,omitempty"`
+	CurrentStep                 string `json:"currentStep,omitempty"`
+	CurrentStepIndex            int    `json:"currentStepIndex"`
+	TotalSteps                  int    `json:"totalSteps"`
+	ProgressPercent             int    `json:"progressPercent"`
+	FailedStep                  string `json:"failedStep,omitempty"`
+	LastError                   string `json:"lastError,omitempty"`
 	// SettledRollOverrides (#5391) — the audit record step-03 Phase A0
 	// writes when the settled-roll gate passed WITH one or more NAMED
 	// operator overrides (the catalyst.openova.io/cutover-settled-roll-
@@ -2572,7 +2590,7 @@ func (h *Handler) HandleCutoverEvents(w http.ResponseWriter, r *http.Request) {
 			// Close the stream after the terminal event so a wizard
 			// EventSource closes cleanly without requiring the
 			// browser to time out.
-			if ev.Phase == cutoverPhaseCompleted || ev.Phase == cutoverPhaseStepFailed {
+			if ev.Phase == cutoverPhaseCompleted || ev.Phase == cutoverPhaseStepFailed || ev.Phase == cutoverPhaseRefused {
 				return
 			}
 		}

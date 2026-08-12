@@ -325,6 +325,8 @@ func validateInternalCutoverBearer(ctx context.Context, deps *cutoverDeps, beare
 //   - 401 on missing/invalid bearer.
 //   - 403 on bearer that resolves to a non-cutover SA.
 //   - 409 when a cutover is already in progress.
+//   - 412 when the installed bp-self-sovereign-cutover chart is older than
+//     cutoverMinChartVersion, or its version cannot be read (#5919).
 //   - 424 when no cutover-step ConfigMaps are found (chart not
 //     installed).
 //   - 502 on TokenReview API failure or status read failure.
@@ -416,6 +418,10 @@ const (
 	cutoverSpawnNoSteps
 	// cutoverSpawnAlreadyRunning — another goroutine holds the run flag.
 	cutoverSpawnAlreadyRunning
+	// cutoverSpawnChartBelowFloor — the installed bp-self-sovereign-cutover
+	// chart is older than cutoverMinChartVersion, or its version could not be
+	// read at all. No engine was started (#5919).
+	cutoverSpawnChartBelowFloor
 )
 
 // cutoverSpawnResult carries the outcome of spawnCutoverEngine plus the
@@ -433,6 +439,10 @@ type cutoverSpawnResult struct {
 	// stepNames + totalSteps populate the started 200 snapshot.
 	stepNames  []string
 	totalSteps int
+	// floorErr is set only for cutoverSpawnChartBelowFloor (#5919) and
+	// carries the observed version + operator-actionable detail into the
+	// 412 body.
+	floorErr *cutoverChartFloorError
 }
 
 // spawnCutoverEngine is the w-less engine-spawn core shared by the
@@ -571,6 +581,48 @@ func (h *Handler) spawnCutoverEngine(ctx context.Context, deps *cutoverDeps, sou
 		return cutoverSpawnResult{outcome: cutoverSpawnNoSteps}, nil
 	}
 
+	// Chart-version floor (#5919). Placed HERE deliberately:
+	//
+	//   - AFTER both cutoverComplete short-circuits, so a Sovereign that has
+	//     already cut over keeps its idempotent 200 and is never retro-failed
+	//     by a floor raised after the fact.
+	//   - AFTER the handover gate, because "not handed over yet" is the more
+	//     specific and more benign answer on a fresh prov.
+	//   - AFTER step discovery, because the step ConfigMaps ARE where the
+	//     installed chart version is legible.
+	//   - BEFORE tryStartRun and the engine goroutine, so a chart below the
+	//     floor never starts a run, never claims the run flag, and above all
+	//     never reaches step-08's 600s deny-egress hold on a live cluster.
+	//
+	// This is the single choke point for all four trigger sources (internal /
+	// operator / handover / reconcile), so one check covers every entry into
+	// the engine. It is level-triggered rather than one-shot: the refusal is
+	// stateless, so once the operator bumps the pin the reconciler's next pass
+	// proceeds on its own with no manual re-arming.
+	if err := assertCutoverChartFloor(steps); err != nil {
+		var floorErr *cutoverChartFloorError
+		if errors.As(err, &floorErr) {
+			h.log.Warn("cutover refused: chart below minimum version",
+				"observed", floorErr.observed,
+				"floor", floorErr.floor,
+				"source", source,
+			)
+			bus := h.cutoverBusFor()
+			h.publishCutoverEvent(bus, cutoverEvent{
+				Phase:   cutoverPhaseRefused,
+				Level:   "error",
+				Message: floorErr.detail,
+			})
+			return cutoverSpawnResult{
+				outcome:   cutoverSpawnChartBelowFloor,
+				status:    status,
+				stepNames: listStepNamesFromStatus(status),
+				floorErr:  floorErr,
+			}, nil
+		}
+		return cutoverSpawnResult{}, fmt.Errorf("chart-floor-check-failed: %w", err)
+	}
+
 	bus := h.cutoverBusFor()
 	if !bus.tryStartRun() {
 		return cutoverSpawnResult{outcome: cutoverSpawnAlreadyRunning}, nil
@@ -657,6 +709,21 @@ func (h *Handler) runCutoverFromTrigger(w http.ResponseWriter, r *http.Request, 
 			"error":  "cutover-in-progress",
 			"detail": "a cutover is already running on this catalyst-api Pod",
 		})
+	case cutoverSpawnChartBelowFloor:
+		// 412 Precondition Failed — the request is well-formed and authorized;
+		// the Sovereign's own installed chart fails a precondition the server
+		// requires. Distinct from 424 (chart not installed at all).
+		body := map[string]string{
+			"error":           "cutover-chart-below-floor",
+			"minChartVersion": cutoverMinChartVersion,
+			"observedVersion": "",
+			"detail":          "installed bp-self-sovereign-cutover chart is below the minimum required to run a cutover",
+		}
+		if res.floorErr != nil {
+			body["observedVersion"] = res.floorErr.observed
+			body["detail"] = res.floorErr.detail
+		}
+		writeJSON(w, http.StatusPreconditionFailed, body)
 	default: // cutoverSpawnStarted
 		resp := buildCutoverStatusResponseFromMap(res.status, res.stepNames)
 		resp.TotalSteps = res.totalSteps

@@ -62,6 +62,12 @@ func makeCutoverStepCM(name, stepName string, order int, mode string, podSpec, d
 		cutoverStepComponentLabel: cutoverStepComponentValue,
 		cutoverStepOrderLabel:     fmt.Sprintf("%d", order),
 		cutoverStepModeLabel:      mode,
+		// The real chart stamps helm.sh/chart on every resource it emits
+		// (chart templates/_helpers.tpl), and the #5919 floor reads it here.
+		// Fixtures must carry it too, or they would model a Sovereign whose
+		// chart version is unknowable — which the floor correctly refuses.
+		// makeCutoverStepCMAtChartVersion overrides it for the floor tests.
+		cutoverChartLabel: cutoverChartNameForFloor + "-" + cutoverMinChartVersion,
 	}
 	if daemonset != "" {
 		labels[cutoverStepDaemonSetLabel] = daemonset
