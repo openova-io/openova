@@ -55,12 +55,36 @@ schedule; this gives the shape).
 | **D — needs a customer Org through checkout** | 3 | the funnel must be driven past the review step so a second Org with an app exists |
 | **F — blocked by design / not exercisable** | 2 | correct behaviour on this shape; candidates for clause adjudication |
 | **A — clause retired** | 1 | the replacement clause has never been walked |
-| **I — unclassified** | 2 | needs a read before it can be scheduled |
+| ~~I — unclassified~~ | 0 | resolved on a read — see below |
 
 - **H (36)** — 16 19 25 29 30 31 33 34 35 37 38 39 51 52 55 56 62 64 65 66 87 101 109 162 166 176 206 207 208 218 219 235 239 G1 G3 W5
 - **G (21)** — 32 36 60 67 69 70 111 172 188 189 213 223 229 232 234 236 241 G7 G11 W1 W2
 - **E (7)** — 95 187 220 221 G8 G9 R13
-- **C (4)** — 57 71 197 R19 · **D (3)** — 90 222 R16 · **F (2)** — 227 228 · **A (1)** — 115 · **I (2)** — G2 237
+- **C (4)** — 57 71 197 R19 · **D (3)** — 90 222 R16 · **F (2)** — 227 228 · **A (1)** — 115
+
+**Cluster I is empty on a read.** G2 and 237 both describe a hw293 measurement —
+`catalyst-api answers a0abba9`, the region-B `no healthy upstream` signature —
+without ever writing the token `hw293`. They are cluster H. That moves the
+headline from 57 to **59 of 76**, and it is worth noticing *why* they were
+missed: the classifier looked for an environment NAME and the evidence proved an
+environment by DESCRIPTION.
+
+### The same gap, in the observation filter
+
+`observable_here()` (added with the attribution fix) admits evidence that names
+no environment, on the reasoning that under-recording is recoverable while
+inventing a walk is not. **19 rows are unattributed**, so it is worth stating the
+exposure exactly rather than leaving it as a principle:
+
+    51 52 55 62 64 65 66 67 69 70 111 188 189 227 234 236 G2  — all ❌
+    184  R20                                                   — ✅
+
+**17 of the 19 are ❌, and a failure is never discounted or credited to a machine
+— those are harmless. The real exposure is two rows, 184 and R20**, which could
+be recorded as a pass on a Sovereign that never measured them. The durable fix is
+upstream of the filter: a walk stamp should name its environment, and the three-
+cell re-walk rule already says so. Until those two are re-stamped, treat their
+green as inherited rather than measured.
 
 **The headline: H + G = 57 of 76, three quarters of the failing set, are released
 by the same event — one Sovereign that converges and answers.** Not by more code.
