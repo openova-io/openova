@@ -460,6 +460,12 @@ def main():
     ap.add_argument("--score", action="store_true")
     ap.add_argument("--due", action="store_true")
     ap.add_argument("--self-test", action="store_true")
+    ap.add_argument("--schedule", action="store_true",
+                    help="ordered re-measurement queue: least-trusted row first, "
+                         "so a walker that runs out of time stops on the rows "
+                         "that matter least")
+    ap.add_argument("--limit", type=int, default=0,
+                    help="with --schedule, print only the first N rows")
     ap.add_argument("--snapshot", action="store_true",
                     help="write docs/ledger/confidence.csv — the scorer's per-row "
                          "state, so the schedule can be audited without re-running it")
@@ -515,6 +521,33 @@ def main():
     if not scored:
         print("no observations yet — run --observe first", file=sys.stderr)
         return 2
+
+    if a.schedule:
+        # --due answers "which rows are owed a walk". This answers "in what
+        # ORDER", which is the question that matters when a walk gets cut short
+        # — and every walk gets cut short. Least-trusted first means the rows
+        # dropped at the end are the ones we were most confident about anyway.
+        #
+        # Sort key, in order: due before not-due; then ascending confidence;
+        # then fewer cross-env proofs (a row nothing corroborates is worth more
+        # than one two other machines agree on); then longest-unwalked.
+        q = sorted(
+            scored.items(),
+            key=lambda kv: (not kv[1]["due"], kv[1]["confidence"],
+                            kv[1]["cross_env_proof"], -kv[1]["cycles_since_walk"]),
+        )
+        if a.limit:
+            q = q[: a.limit]
+        print(f"RE-MEASUREMENT QUEUE for {env} — least-trusted first "
+              f"({sum(1 for _r, s in q if s['due'])} due of {len(q)} shown)")
+        print(f"{'#':>5}  {'conf':>6}  {'box':>3}  {'every':>5}  {'proofs':>6}  "
+              f"{'since':>5}  {'last':>7}  {'env':>9}  due")
+        for rid, s in q:
+            print(f"{rid:>5}  {s['confidence']:>6.4f}  {s['box']:>3}  "
+                  f"{BOX_INTERVAL[s['box']]:>5}  {s['cross_env_proof']:>6}  "
+                  f"{s['cycles_since_walk']:>5}  {s['last_status']:>7}  "
+                  f"{s['last_env']:>9}  {'yes' if s['due'] else ''}")
+        return 0
 
     if a.snapshot:
         # The scores drive which rows a cycle walks, and until now they existed
