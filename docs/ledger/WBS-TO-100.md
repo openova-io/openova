@@ -169,10 +169,10 @@ anything beyond that, and E needs the founder rather than an agent.
 
 | bucket | rows | what it needs |
 |---|--:|---|
-| **WALKABLE NOW** | 33 | a walk on THIS env can change the verdict |
-| **total** | **33** | |
+| **WALKABLE NOW** | 31 | a walk on THIS env can change the verdict |
+| **total** | **31** | |
 
-- **WALKABLE NOW (33)** — 16 19 25 60 87 90 95 101 115 166 176 189 197 213 218 219 220 221 222 223 227 228 234 235 237 241 G2 G7 G8 G9 G11 R16 R19
+- **WALKABLE NOW (31)** — 16 19 25 60 87 90 95 101 115 166 176 197 213 218 219 220 221 222 223 227 228 234 235 241 G2 G7 G8 G9 G11 R16 R19
 
 ## 2. The D-34, clustered by root cause
 
