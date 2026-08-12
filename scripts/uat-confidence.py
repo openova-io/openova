@@ -91,6 +91,9 @@ import sys
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 UAT = os.path.join(REPO, "docs", "ledger", "UAT.md")
 OBS = os.path.join(REPO, "docs", "ledger", "uat-observations.csv")
+# DERIVED from OBS by --snapshot. Regenerate it; never hand-edit it. A
+# hand-written score would outrank the evidence it is supposed to summarise.
+SNAPSHOT = os.path.join(REPO, "docs", "ledger", "confidence.csv")
 
 OBS_FIELDS = ["cycle_ts", "env", "row_id", "status"]
 
@@ -138,6 +141,42 @@ def parse_ledger(text):
             if len(f) >= 8:
                 out[f[1].strip()] = f[6].strip()
     return out
+
+
+ENV_TOKEN = re.compile(r"\b(hw\d{2,3}|kom4dc|t\d{2}|mothership)\b")
+
+
+def ledger_envs(text):
+    """{row_id: set(environments named in its evidence)} from a UAT.md body.
+
+    This is what decides whether a verdict may be recorded as an observation of
+    the CURRENT environment. A row stamped `hw293-2026-08-10T23:26Z …` is a
+    measurement of hw293 and of nothing else; copying it onto hw294's sheet
+    invents a walk nobody performed.
+
+    An earlier version of this guard tested the literal string "CARRIED from",
+    which is a MARKER a walker happens to write, not the FACT it stands for.
+    Evidence on main carries no such marker, so the guard passed all 286 rows
+    through and the scheduler concluded every row had just been walked — 0 due
+    with 76 failing. Assert on the environment, never on a word about it.
+    """
+    out = {}
+    for line in text.split("\n"):
+        if re.match(r"^\|\s*(R?\d+|[GWM]\d+)\s*\|", line):
+            f = re.split(r"(?<!\\)\|", line.rstrip())
+            if len(f) >= 8:
+                out[f[1].strip()] = set(ENV_TOKEN.findall(f[7]))
+    return out
+
+
+def observable_here(row_envs, current_env):
+    """True if this row's evidence is a measurement of current_env.
+
+    Unattributed evidence (no environment named at all) is admitted: refusing it
+    would silently drop legitimately-stamped rows whose walker omitted the tag,
+    and the failure mode there is under-recording rather than fabrication.
+    """
+    return (not row_envs) or (current_env in row_envs)
 
 
 def load_obs():
@@ -275,6 +314,54 @@ def build(current_env):
     return scored, len(cycles)
 
 
+def _test_attribution():
+    """The observation filter must refuse another machine's verdict.
+
+    Written after the real failure: the previous guard matched the marker string
+    "CARRIED from", main's evidence never contains it, so 244 rows measured on
+    hw293 were recorded as hw294 observations and the scheduler reported 0 due
+    against 76 failing rows. Every case below is phrased in real evidence prose,
+    because the bug lived in the gap between the prose and the marker.
+    """
+    bad = 0
+    hdr = "| # | Epic | T | Test | Walk | Result | Evidence |"
+    def row(rid, ev):
+        return f"| {rid} | epic | T | case | walk | ✅ | {ev} |"
+
+    body = "\n".join([hdr,
+        row("1", "hw293-2026-08-10T23:26Z LIVE API RE-MEASURE — PASS"),
+        row("2", "hw294-2026-08-11T09:00Z LIVE WALK — PASS"),
+        row("3", "PASS — proven by comparing the two copies"),      # no env named
+    ])
+    envs = ledger_envs(body)
+
+    if observable_here(envs["1"], "hw294"):
+        print("  FAIL  a hw293 verdict was admitted as an hw294 observation"); bad = 1
+    else:
+        print("  PASS  another environment's verdict is refused")
+
+    # CONTROL: the row actually measured here must still be admitted, or the
+    # guard would block every real walk and look correct doing it.
+    if observable_here(envs["2"], "hw294"):
+        print("  PASS  CONTROL — a verdict stamped on THIS env is admitted")
+    else:
+        print("  FAIL  CONTROL: a genuine hw294 walk was refused"); bad = 1
+
+    if observable_here(envs["3"], "hw294"):
+        print("  PASS  unattributed evidence is admitted (under-record, never invent)")
+    else:
+        print("  FAIL  an unstamped row was dropped"); bad = 1
+
+    # VACUITY: the marker-string guard this replaced would pass all three, since
+    # none of them says "CARRIED". If the filter ever stops discriminating, this
+    # is the assertion that notices.
+    if sum(1 for r in ("1", "2", "3") if observable_here(envs[r], "hw294")) == 3:
+        print("  FAIL  VACUITY: the filter admitted everything — it cannot fail"); bad = 1
+    else:
+        print("  PASS  VACUITY — the filter discriminates")
+    return bad
+
+
 def self_test():
     """Prove the scorer discriminates. A scorer that cannot fail is decoration."""
     ci = {f"c{i}": i for i in range(12)}
@@ -359,6 +446,11 @@ def self_test():
         if not ok:
             print(f"        got: {detail}")
             bad += 1
+
+    # The scorer can be perfect and still be fed a fabricated walk. Attribution
+    # is what decides which observations reach it at all, so it is tested here
+    # rather than in a separate command nobody runs.
+    bad += _test_attribution()
     return bad
 
 
@@ -368,6 +460,15 @@ def main():
     ap.add_argument("--score", action="store_true")
     ap.add_argument("--due", action="store_true")
     ap.add_argument("--self-test", action="store_true")
+    ap.add_argument("--schedule", action="store_true",
+                    help="ordered re-measurement queue: least-trusted row first, "
+                         "so a walker that runs out of time stops on the rows "
+                         "that matter least")
+    ap.add_argument("--limit", type=int, default=0,
+                    help="with --schedule, print only the first N rows")
+    ap.add_argument("--snapshot", action="store_true",
+                    help="write docs/ledger/confidence.csv — the scorer's per-row "
+                         "state, so the schedule can be audited without re-running it")
     ap.add_argument("--env")
     ap.add_argument("--cycle")
     a = ap.parse_args()
@@ -388,10 +489,26 @@ def main():
         if not a.env or not a.cycle:
             print("--observe needs --env and --cycle", file=sys.stderr)
             return 2
-        led = parse_ledger(open(UAT, encoding="utf-8").read())
+        body = open(UAT, encoding="utf-8").read()
+        led = parse_ledger(body)
+        envs = ledger_envs(body)
         m = {"✅": "PASS", "❌": "FAIL", "☐": "NOTRUN"}
-        rows = [{"cycle_ts": a.cycle, "env": a.env, "row_id": rid,
-                 "status": m.get(v, "NOTRUN")} for rid, v in sorted(led.items())]
+        rows, foreign = [], []
+        for rid, v in sorted(led.items()):
+            if not observable_here(envs.get(rid, set()), a.env):
+                foreign.append(rid)
+                continue
+            rows.append({"cycle_ts": a.cycle, "env": a.env, "row_id": rid,
+                         "status": m.get(v, "NOTRUN")})
+        if foreign:
+            print(f"skipped {len(foreign)} row(s) whose evidence belongs to another "
+                  f"environment — a verdict from a different machine is not an "
+                  f"observation of {a.env}")
+        if not rows:
+            print(f"refusing: no row in the ledger is attributable to {a.env}. "
+                  f"Recording nothing beats recording a walk that did not happen.",
+                  file=sys.stderr)
+            return 1
         append_obs(rows)
         c = collections.Counter(r["status"] for r in rows)
         print(f"observed {len(rows)} rows on {a.env} @ {a.cycle}: "
@@ -404,6 +521,83 @@ def main():
     if not scored:
         print("no observations yet — run --observe first", file=sys.stderr)
         return 2
+
+    if a.schedule:
+        # --due answers "which rows are owed a walk". This answers "in what
+        # ORDER", which is the question that matters when a walk gets cut short
+        # — and every walk gets cut short. Least-trusted first means the rows
+        # dropped at the end are the ones we were most confident about anyway.
+        #
+        # Sort key, in order: due before not-due; then ascending confidence;
+        # then fewer cross-env proofs (a row nothing corroborates is worth more
+        # than one two other machines agree on); then longest-unwalked.
+        q = sorted(
+            scored.items(),
+            key=lambda kv: (not kv[1]["due"], kv[1]["confidence"],
+                            kv[1]["cross_env_proof"], -kv[1]["cycles_since_walk"]),
+        )
+        if a.limit:
+            q = q[: a.limit]
+        print(f"RE-MEASUREMENT QUEUE for {env} — least-trusted first "
+              f"({sum(1 for _r, s in q if s['due'])} due of {len(q)} shown)")
+        print(f"{'#':>5}  {'conf':>6}  {'box':>3}  {'every':>5}  {'proofs':>6}  "
+              f"{'since':>5}  {'last':>7}  {'env':>9}  due")
+        for rid, s in q:
+            print(f"{rid:>5}  {s['confidence']:>6.4f}  {s['box']:>3}  "
+                  f"{BOX_INTERVAL[s['box']]:>5}  {s['cross_env_proof']:>6}  "
+                  f"{s['cycles_since_walk']:>5}  {s['last_status']:>7}  "
+                  f"{s['last_env']:>9}  {'yes' if s['due'] else ''}")
+        return 0
+
+    if a.snapshot:
+        # The scores drive which rows a cycle walks, and until now they existed
+        # only inside this process. That is the shape of a decision nobody can
+        # check: the schedule was auditable only by re-deriving it. This writes
+        # the state next to the evidence it came from.
+        #
+        # It is DERIVED, never authoritative — uat-observations.csv is the
+        # source. Regenerate rather than hand-edit; a hand-edited score would
+        # silently outrank the evidence.
+        obs = load_obs()
+        last_ts = {}
+        for r in obs:
+            rid = r["row_id"]
+            if rid not in last_ts or r["cycle_ts"] > last_ts[rid]:
+                last_ts[rid] = r["cycle_ts"]
+        cols = ["row_id", "confidence", "box", "walk_every_cycles", "streak",
+                "cross_env_proof", "observations", "cycles_since_walk",
+                "decay_applied", "due", "last_status", "last_env", "last_measured"]
+        out = SNAPSHOT
+        with open(out, "w", newline="", encoding="utf-8") as fh:
+            w = csv.DictWriter(fh, fieldnames=cols)
+            w.writeheader()
+            for rid in sorted(scored, key=lambda x: (len(x), x)):
+                s = scored[rid]
+                w.writerow({
+                    "row_id": rid,
+                    "confidence": s["confidence"],
+                    "box": s["box"],
+                    "walk_every_cycles": BOX_INTERVAL[s["box"]],
+                    "streak": s["streak"],
+                    "cross_env_proof": s["cross_env_proof"],
+                    "observations": s["n"],
+                    "cycles_since_walk": s["cycles_since_walk"],
+                    # The discount currently sitting on this row's newest PASS.
+                    # Makes decay visible as a number rather than an assertion.
+                    "decay_applied": round(DECAY ** max(s["cycles_since_walk"], 0), 4),
+                    "due": "yes" if s["due"] else "no",
+                    "last_status": s["last_status"],
+                    "last_env": s["last_env"],
+                    "last_measured": last_ts.get(rid, "-"),
+                })
+        due = sum(1 for s in scored.values() if s["due"])
+        boxes = collections.Counter(s["box"] for s in scored.values())
+        print(f"-> {os.path.relpath(out, REPO)}  ({len(scored)} rows, env={env}, "
+              f"{ncyc} cycles of evidence)")
+        print("   box occupancy: " + "  ".join(
+            f"box{b}={boxes.get(b,0)}(every {BOX_INTERVAL[b]})" for b in range(len(BOX_INTERVAL))))
+        print(f"   due now: {due}   skipped: {len(scored)-due}")
+        return 0
 
     if a.due:
         due = {r: s for r, s in scored.items() if s["due"] or s["box"] == 0}

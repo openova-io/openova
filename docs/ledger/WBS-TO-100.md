@@ -35,7 +35,68 @@ That was flattering and wrong: a row you cannot answer is not a row you may
 drop. Excluding failures raises the score by removing the evidence against it,
 which is the floating-denominator behaviour the frozen 286 exists to prevent.
 
-## 1. The ❌ set, partitioned by what actually unblocks them
+## 1-A. 2026-08-12 re-partition — by the mechanism that holds each row shut
+
+Read this before §1. The 2026-08-09 partition below buckets by *kind of work*
+(deploy / build / env / walkable). That cut stopped being the useful one once
+hw292, hw293 and hw294 all went away: it answers "what sort of effort does this
+need" when the pressing question is "what single event would release it".
+
+Derived by classifying all 76 ❌ rows on their own evidence text, most specific
+mechanism first (`scripts/uat-confidence.py --due --env <env>` gives the
+schedule; this gives the shape).
+
+| cluster | rows | what holds it shut |
+|---|--:|---|
+| **H — measured on a destroyed env** | 36 | the verdict is real but its Sovereign is gone; the row owes a re-walk, not a fix |
+| **G — destination dead (front door / DNS)** | 21 | the app or console host does not serve; #6186 is the merged fix for the app-host half |
+| **E — founder-credential gated (#4277)** | 7 | one console action by the founder; no code path exists for an agent to supply it |
+| **C — mutation-gated** | 4 | needs a write walk; a read-only walk structurally cannot answer the clause |
+| **D — needs a customer Org through checkout** | 3 | the funnel must be driven past the review step so a second Org with an app exists |
+| **F — blocked by design / not exercisable** | 2 | correct behaviour on this shape; candidates for clause adjudication |
+| **A — clause retired** | 1 | the replacement clause has never been walked |
+| ~~I — unclassified~~ | 0 | resolved on a read — see below |
+
+- **H (36)** — 16 19 25 29 30 31 33 34 35 37 38 39 51 52 55 56 62 64 65 66 87 101 109 162 166 176 206 207 208 218 219 235 239 G1 G3 W5
+- **G (21)** — 32 36 60 67 69 70 111 172 188 189 213 223 229 232 234 236 241 G7 G11 W1 W2
+- **E (7)** — 95 187 220 221 G8 G9 R13
+- **C (4)** — 57 71 197 R19 · **D (3)** — 90 222 R16 · **F (2)** — 227 228 · **A (1)** — 115
+
+**Cluster I is empty on a read.** G2 and 237 both describe a hw293 measurement —
+`catalyst-api answers a0abba9`, the region-B `no healthy upstream` signature —
+without ever writing the token `hw293`. They are cluster H. That moves the
+headline from 57 to **59 of 76**, and it is worth noticing *why* they were
+missed: the classifier looked for an environment NAME and the evidence proved an
+environment by DESCRIPTION.
+
+### The same gap, in the observation filter
+
+`observable_here()` (added with the attribution fix) admits evidence that names
+no environment, on the reasoning that under-recording is recoverable while
+inventing a walk is not. **19 rows are unattributed**, so it is worth stating the
+exposure exactly rather than leaving it as a principle:
+
+    51 52 55 62 64 65 66 67 69 70 111 188 189 227 234 236 G2  — all ❌
+    184  R20                                                   — ✅
+
+**17 of the 19 are ❌, and a failure is never discounted or credited to a machine
+— those are harmless. The real exposure is two rows, 184 and R20**, which could
+be recorded as a pass on a Sovereign that never measured them. The durable fix is
+upstream of the filter: a walk stamp should name its environment, and the three-
+cell re-walk rule already says so. Until those two are re-stamped, treat their
+green as inherited rather than measured.
+
+**The headline: H + G = 57 of 76, three quarters of the failing set, are released
+by the same event — one Sovereign that converges and answers.** Not by more code.
+Every fix those rows need is already merged; what is absent is a surface to
+measure against. This is why the ❌ count sat flat at 76 while real defects were
+being closed, and why walking harder against a dead environment cannot move it.
+
+That also sets the order. Fire a Sovereign first and walk H; cluster G's app-host
+half rides in on #6186 and is measured in the same pass. Only E, C, D and A need
+anything beyond that, and E needs the founder rather than an agent.
+
+## 1. The ❌ set, partitioned by what actually unblocks them (2026-08-09)
 
 | bucket | rows | what it needs |
 |---|--:|---|
