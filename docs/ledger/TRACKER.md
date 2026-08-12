@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-12T21:45:04Z` |
+| Last refreshed | `2026-08-12T22:00:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5814](https://github.com/openova-io/openova/issues/5814) | Sovereign /apps grid carries no Organization attribution — a customer-launched | Other |
 | [#5817](https://github.com/openova-io/openova/issues/5817) | Org detail page title-cases identifiers: slug `uatco` renders `Uatco`, owner `em | Other |
 | [#5819](https://github.com/openova-io/openova/issues/5819) | Showback names the parent Organization `hw292.omani.works` while the directory a | Other |
 | [#5821](https://github.com/openova-io/openova/issues/5821) | /version reports process START time as `buildTime` with no way to tell — hw292 | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6192](https://github.com/openova-io/openova/issues/6192) | Per-app Overview prints stale PLACEMENT 'singleton' while Topology reads runtime | Other |
 | [#6194](https://github.com/openova-io/openova/issues/6194) | Wizard StepOrg still says "All fields are pre-filled" after #5401 emptied them � | Other |
 | [#6197](https://github.com/openova-io/openova/issues/6197) | P0: mothership Stalwart is killed by its own liveness probe every ~15min — mai | Other |
+| [#6198](https://github.com/openova-io/openova/issues/6198) | P0 Pillar-5: cutover step-03 deadlocks on the cutover's OWN day-two reconciler � | Other |
 
 ---
 
