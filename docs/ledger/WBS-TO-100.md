@@ -100,13 +100,13 @@ anything beyond that, and E needs the founder rather than an agent.
 
 | bucket | rows | what it needs |
 |---|--:|---|
-| **DEPLOY-GATED** | 3 | the fix is merged and not running here; closes on a roll/prov |
+| **DEPLOY-GATED** | 1 | the fix is merged and not running here; closes on a roll/prov |
 | **BUILD** | 11 | no fix exists yet (`NEEDS-CODE` in UAT.md) |
 | **ENV-STATE** | 7 | needs a different environment shape entirely |
 | **WALKABLE NOW** | 16 | a walk on THIS env can change the verdict |
-| **total** | **37** | |
+| **total** | **35** | |
 
-- **DEPLOY-GATED (3)** — 227 W1 W2
+- **DEPLOY-GATED (1)** — 227
 - **BUILD (11)** — 16 19 25 87 90 95 223 235 G2 G7 R16
 - **ENV-STATE (7)** — 166 228 234 G8 G9 G11 R19
 - **WALKABLE NOW (16)** — 29 60 101 115 176 189 197 213 218 219 220 221 222 237 241 W5
