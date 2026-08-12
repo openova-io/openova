@@ -713,7 +713,7 @@ backing services (Postgres, Redis, etc.) in their own section.
 | `kubectl` access for users | Off | On for `org-developer` and above |
 | Git access for users | Off (sovereign-admin can flip per-Org) | On |
 | Marketplace features (search, bundles, ratings) | All on | All on but de-emphasized |
-| Specter / AIOps Blueprint included by default | Optional | Recommended (Cortex + Specter on top) |
+| Specter / AIOps **service engagement** offered | Optional | Recommended (Cortex Blueprint + Specter engagement on top) |
 
 Each Sovereign sets its defaults at provisioning time; users within can
 override via per-user preferences within the role permissions allowed.

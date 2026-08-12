@@ -147,22 +147,17 @@ explicitly set to a non-placeholder value, it always wins.
 {{- end -}}
 {{- end }}
 
-{{- define "bp-openclaw.llm.apiKeySecretName" -}}
-{{- if and .Values.llm.apiKey .Values.llm.apiKey.name -}}
-{{- .Values.llm.apiKey.name -}}
-{{- else -}}
-{{- "openclaw-llm-apikey" -}}
-{{- end -}}
-{{- end }}
-
-{{- define "bp-openclaw.llm.apiKeySecretKey" -}}
-{{- if and .Values.llm.apiKey .Values.llm.apiKey.key -}}
-{{- .Values.llm.apiKey.key -}}
-{{- else -}}
-{{- "NEWAPI_KEY" -}}
-{{- end -}}
-{{- end }}
-
+{{- /*
+#6114 — `bp-openclaw.llm.apiKeySecretName` / `.apiKeySecretKey` are GONE.
+They resolved the name of a controller-side NewAPI service-token Secret that
+no template in this chart (or anywhere in the repo) has ever created, so the
+`secretKeyRef` they fed could only ever resolve to nothing. The chart default
+was `openclaw-llm-apikey` and both HelmRelease generators overrode it to
+`openclaw-newapi-controller-token`; neither name had a producer. The controller
+binary reads no api-key env, so nothing regressed by removing them. Do not
+reintroduce a secret-name helper without adding the Secret template alongside
+it — `TestOpenClawChartSecretRefsHaveProducers` fails the build if you do.
+*/ -}}
 {{- define "bp-openclaw.llm.defaultModel" -}}
 {{- default "qwen3.6" .Values.llm.defaultModel -}}
 {{- end }}

@@ -64,7 +64,6 @@ if ! helm template smoke-openclaw . \
     --set "oidc.issuerURL=https://kc.acme.example/realms/sme-acme" \
     --set "oidc.clientSecret.name=openclaw-oidc-client-secret" \
     --set "llm.baseURL=https://api.acme.example/v1" \
-    --set "llm.apiKey.name=openclaw-newapi-controller-token" \
     --set "llm.defaultModel=qwen3.6" \
     --set "tenant.namespace=sme-acme" \
     --set "controller.image.tag=sha-deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" \
@@ -76,15 +75,35 @@ if ! helm template smoke-openclaw . \
   exit 1
 fi
 # Assert canonical envs are present on the controller.
+# #6114: LLM_API_KEY / OPENAI_API_KEY are NOT in this list. They carried a
+# secretKeyRef at `llm.apiKey.name` whose target Secret has no producer
+# anywhere in the repo, and the controller binary reads neither env — the
+# reference was removed rather than backed by a token nothing consumes.
 for env in OIDC_ISSUER_URL OIDC_CLIENT_ID OIDC_CLIENT_SECRET \
-           LLM_BASE_URL LLM_API_KEY LLM_DEFAULT_MODEL \
-           OPENAI_API_BASE OPENAI_API_KEY \
+           LLM_BASE_URL LLM_DEFAULT_MODEL \
+           OPENAI_API_BASE \
            KEYCLOAK_REALM_URL NEWAPI_BASE_URL_DEFAULT; do
   if ! grep -q "name: ${env}" "$TMP/real.yaml"; then
     echo "FAIL: controller env ${env} missing from rendered manifests" >&2
     exit 1
   fi
 done
+# #6114 regression guard: the controller must not MOUNT a Secret this chart
+# does not create. Match `name:` at a reference position only — a bare grep for
+# the dead names also hits the explanatory comments the templates render, which
+# would make this guard fail on its own documentation.
+if grep -qE "^[[:space:]]*name:[[:space:]]*(openclaw-newapi-controller-token|openclaw-llm-apikey)[[:space:]]*$" "$TMP/real.yaml"; then
+  echo "FAIL: rendered manifests reference a controller-side NewAPI token Secret," >&2
+  echo "      but no template in this chart creates one (#6114)." >&2
+  exit 1
+fi
+# Vacuity check for the guard above: the same matcher MUST fire on a known
+# reference, otherwise a typo'd pattern would let the defect back in silently.
+if ! printf '                  name: openclaw-newapi-controller-token\n' \
+     | grep -qE "^[[:space:]]*name:[[:space:]]*(openclaw-newapi-controller-token|openclaw-llm-apikey)[[:space:]]*$"; then
+  echo "FAIL: the #6114 reference matcher does not match a known-bad line — guard is vacuous." >&2
+  exit 1
+fi
 # Assert the per-user pod-template ConfigMap carries OPENAI_API_BASE +
 # LLM_DEFAULT_MODEL so OpenAI-SDK-based runtimes work without code change.
 if ! grep -q "OPENAI_API_BASE" "$TMP/real.yaml"; then

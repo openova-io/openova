@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-openclaw
-version: 0.2.17
+version: 0.2.18
 appVersion: "0.2.0"
 description: |
   Catalyst Blueprint chart for the OpenClaw workspace controller pattern
@@ -31,6 +31,36 @@ description: |
 
   Changelog
   ─────────
+  0.2.18 (2026-08-11, #6114 — drop the controller-side NewAPI token reference
+          that never had a producer)
+    - ROOT CAUSE: `llm.apiKey` named a Secret nothing in the repo creates. The
+      chart default was `openclaw-llm-apikey` and both HelmRelease generators
+      (the funnel generic generator and the BSS-door overlay) overrode it to
+      `openclaw-newapi-controller-token`. Neither name has ever appeared in a
+      producing position: `git log --all -S"openclaw-newapi-controller-token"
+      -- '*.yaml' '*.tpl'` returns ZERO commits, so this was never a producer
+      that got deleted — it was never written.
+    - WHY IT WAS SILENT: the two `secretKeyRef`s (LLM_API_KEY, OPENAI_API_KEY)
+      carried `optional: true`, so the kubelet left both envs unset instead of
+      failing the container. There was no runtime signal of any kind — unlike
+      the sibling `openclaw-oidc-client-secret`, whose non-optional ref DID
+      hard-fail and got a lookup-or-generate producer in #4272/#4307.
+    - WHY REMOVED RATHER THAN PRODUCED: the controller binary reads neither
+      env. `loadConfig` takes only PORT / OIDC_* / TENANT_NAMESPACE /
+      KUBERNETES_* / IDLE_TIMEOUT_MINUTES, and `/readyz` has exactly two legs
+      (api-server + OIDC JWKS) — no NewAPI leg. Both stated justifications for
+      the token ("/readyz probes", "a controller-side LLM call that pre-dates a
+      user session") describe code that does not exist. Minting a real NewAPI
+      service token into every Org namespace to satisfy a reference no code
+      reads would add a live credential with no consumer.
+    - UNCHANGED: the end-user credential path of ADR-0003 §3.3 — the per-user
+      `newapi-key-{uuid}` Secret (keys `api-key` + `base-url`) produced by
+      `K8sSecretApplier.ApplyNewAPIKeySecret` and mounted by the per-user pod
+      template. That is now the only NewAPI bearer token in this Blueprint.
+    - GUARD: `TestOpenClawChartSecretRefsHaveProducers` fails the build if a
+      `secretKeyRef` names a helper no `kind: Secret` template in this chart
+      renders; `TestOpenClawOverlayPinsOnlyProducedSecretPaths` fails if a
+      generator pins a Secret name at a values path no producer consumes.
   0.2.17 (2026-07-10, #4952 — per-Org install no longer targets a non-existent
           `org-example` namespace)
     - ROOT CAUSE: `tenant.namespace` defaulted to the truthy placeholder

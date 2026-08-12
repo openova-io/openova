@@ -81,7 +81,6 @@ The chart fails to render if any of these are unset (see
 | `oidc.clientId` | `openclaw` |
 | `oidc.clientSecret.name` | `openclaw-oidc-client-secret` (Secret with key `OIDC_CLIENT_SECRET`) |
 | `llm.baseURL` | `https://api.acme.<parent-domain>/v1` (per-tenant NewAPI OpenAI-compatible endpoint) |
-| `llm.apiKey.name` | `openclaw-newapi-controller-token` (Secret with key `NEWAPI_KEY`) |
 | `llm.defaultModel` | `qwen3.6` (NewAPI maps this to a backing channel — e.g. a partner-hosted Qwen) |
 | `tenant.namespace` | `org-acme` |
 | `controller.image.tag` | SHA-pinned tag (Inviolable Principle 4) |
@@ -90,6 +89,16 @@ The chart fails to render if any of these are unset (see
 
 Legacy `keycloak.*` / `newapi.*` keys remain accepted for back-compat
 (see umbrella epic #915).
+
+There is deliberately **no `llm.apiKey`** knob (#6114). The chart used to
+mount a controller-side NewAPI service token from a Secret named
+`openclaw-newapi-controller-token`, which **nothing in this repo has ever
+created** — the reference was `optional: true`, so the env silently stayed
+unset and no Pod ever reported it, and the controller binary reads no
+api-key env in any case. The only NewAPI bearer token in this Blueprint is
+the per-user `newapi-key-{uuid}` Secret described under *Runtime image
+contract* below. Adding a Secret reference back without adding its producer
+in the same change fails `TestOpenClawChartSecretRefsHaveProducers`.
 
 ---
 
