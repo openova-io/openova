@@ -1389,7 +1389,7 @@ spec:
       #   guacamole-pg and the shared-pg family as well. Egress half in
       #   bp-keycloak 1.5.9; neither half alone restores a brokered login.
       #   Lockstep w/ products/catalyst/chart/Chart.yaml.
-      version: 1.4.1419
+      version: 1.4.1421
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
