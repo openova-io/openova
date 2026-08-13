@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T02:45:03Z` |
+| Last refreshed | `2026-08-13T03:00:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T02:58 | [#6201](https://github.com/openova-io/openova/pull/6201) | #6200 | fix(catalyst-api): canonicalise placement mode before decidi |
+| 2026-08-13T02:58 | [#6193](https://github.com/openova-io/openova/pull/6193) | #6090 | docs(uat): hw295 convergence walk — 196→232 green, a false n |
 | 2026-08-12T07:51 | [#6188](https://github.com/openova-io/openova/pull/6188) | #6180 | fix(uat): attribute observations to the env that measured th |
 | 2026-08-12T08:57 | [#6186](https://github.com/openova-io/openova/pull/6186) | #4459 | fix(api): per-Org app hosts resolve to a gateway that has no |
 | 2026-08-12T08:58 | [#6185](https://github.com/openova-io/openova/pull/6185) | #5920 | fix(catalog): a retired product must not keep its price list |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-11T04:16 | [#6141](https://github.com/openova-io/openova/pull/6141) | #4656 | docs(uat): walk the 13 unwalked hw293 rows — 11 flip green,  |
 | 2026-08-11T06:59 | [#6139](https://github.com/openova-io/openova/pull/6139) | #5451 | fix(delivery): the per-Organization console pin had no write |
 | 2026-08-11T04:02 | [#6138](https://github.com/openova-io/openova/pull/6138) | #5857 | fix(catalyst-api): refuse a declared isolation the plan cann |
-| 2026-08-11T03:25 | [#6137](https://github.com/openova-io/openova/pull/6137) | #4466 | fix(catalyst-chart): the janitor's whole env surface was unr |
-| 2026-08-11T03:26 | [#6134](https://github.com/openova-io/openova/pull/6134) | #6099 | fix(jobs): the cutover tree had no root — an empty dependsOn |
 
 ---
 
