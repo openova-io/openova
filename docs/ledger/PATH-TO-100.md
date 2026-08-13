@@ -186,7 +186,29 @@ supply the input. Both `secondaryKubeconfigsForCutover` (`:174`) and
 `onDiskSecondaryKubeconfigPrefixes` (`:228`) already do the resolution — only
 the call site is cutover-scoped.
 
-**Fix:** give the Secret a pre-cutover producer. Materialize it from the same
+> 🟢 **SUPERSEDED 2026-08-13 — the pre-cutover producer prescribed below ALREADY
+> SHIPPED. Do not re-implement it.** `RunSecondaryKubeconfigSecretMaterializer`
+> (`products/catalyst/bootstrap/api/internal/handler/secondary_kubeconfig_secret_materializer.go:117`)
+> is a level-triggered materializer started **unconditionally** at
+> `products/catalyst/bootstrap/api/cmd/api/main.go:1119` — not inside `runCutover`.
+> It landed `8c225b9c9` on 2026-08-11 (#6027) and its own startup log reads
+> *"the per-Org console credential for a peer region no longer waits on a cutover"*.
+>
+> The "ONLY writer … exactly ONE call site … unreachable **by construction**"
+> analysis above was true when written and is false now. It is left in place
+> because the consumer-side citations remain accurate; only the producer verdict
+> changed.
+>
+> **The coupling note below is now the LIVE half.** A materializer can only
+> publish what is on disk, so cluster A1's `runSecondaryKubeconfigDelivery` must
+> put a PARSEABLE region-b kubeconfig at
+> `/var/lib/catalyst/kubeconfigs/<depID>-<regionKey>.yaml`. Check the DISK
+> contents first: an empty Secret with a healthy producer means the disk input is
+> missing or unparseable — a different defect from "no producer exists", and the
+> one a walker should rule out before filing anything.
+
+**Fix (HISTORICAL — shipped, see the note above):** give the Secret a pre-cutover
+producer. Materialize it from the same
 on-disk `/var/lib/catalyst/kubeconfigs/<depID>-<regionKey>.yaml` set at Phase-1
 convergence (or on the org-controller's own reconcile), not only inside
 `runCutover`. **Coupling to state:** cluster A1's `runSecondaryKubeconfigDelivery`
