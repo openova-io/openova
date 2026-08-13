@@ -1,12 +1,22 @@
 # uat-drift-guard.yaml — block UAT walk-evidence that cites a PREDECESSOR env.
 #
-# THE LAW (founder 2026-06-14, the "fake snapshots" rebuke): each new env
-# flushes ALL prior evidence — a ✅ UAT row that still links a wiped env's
-# screenshot is a fabricated snapshot. `scripts/reset-uat.py` clears that
-# evidence on a fresh fire; THIS guard is the CI backstop that fails the build
-# if a ledger slips through with a ✅ row whose proof artifact references an
-# `hwNNN` env that is not the current env (resolved from the UAT.md H1 header,
-# or $UAT_CURRENT_ENV / --env).
+# THE LAW (founder 2026-06-14, the "fake snapshots" rebuke): a ✅ UAT row that
+# still links a wiped env's screenshot is a fabricated snapshot. THIS guard is
+# the CI backstop that fails the build if a ledger slips through with a ✅ row
+# whose proof artifact references an `hwNNN` env that is not the current env
+# (resolved from the UAT.md H1 header, or $UAT_CURRENT_ENV / --env).
+#
+# NOT A FLUSH. The 2026-06-14 rule was originally phrased "each new env flushes
+# ALL prior evidence" and founder 2026-08-11 superseded that half of it — a wipe
+# is not a failure, and zeroing the successes is the treadmill. So
+# `scripts/reset-uat.py` CARRIES each such row forward as `⏳` (pending
+# re-confirmation) with its evidence cell intact, and `uat-confidence.py` decays
+# the row rather than deleting it. Only the claim about THIS machine is
+# withdrawn. Between 2026-08-11 and 2026-08-13 those two mechanisms encoded two
+# different policies and reset-uat.py's carry-forward branch did nothing at all,
+# so this guard went red on 47 rows while its own remediation told the operator
+# to run the script that no-opped. reset-uat.py now asserts this guard is
+# satisfied before it writes.
 #
 # READ-ONLY: this guard never edits the ledger (verification stays read-only —
 # memory L7/L8). It only reports. The fix for a violation is a live re-walk on
@@ -79,6 +89,14 @@ jobs:
 
       - name: Self-test the guard (clean -> 0, stale -> 1, both directions)
         run: python3 scripts/uat-drift-guard.py --self-test
+
+      # The guard and the script that satisfies it must be tested TOGETHER, or
+      # they drift apart exactly as they did on 2026-08-13: each half green on
+      # its own, the pair unsatisfiable. This self-test runs the guard against
+      # carry-forward's real output — red before, green after, and red again on
+      # a carried row someone re-stamps ✅ without re-walking it.
+      - name: Self-test carry-forward AGAINST the guard (red -> green -> red)
+        run: python3 scripts/reset-uat.py --self-test
 
       - name: Guard the live UAT ledger against predecessor-env evidence
         # Current env is auto-derived from the `on \`hwNNN\`` token in the UAT.md

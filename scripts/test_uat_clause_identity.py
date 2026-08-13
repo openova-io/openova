@@ -304,6 +304,21 @@ def check() -> int:
             f"LEG D — retirement records missing for {missing}; empty-field records for {hollow}"
         )
         print(f"  FAIL  leg D: missing {missing}, hollow {hollow}")
+    elif not retired_in_ledger:
+        # Say so out loud rather than printing a confident PASS over an empty
+        # population. Leg D is "no row is bad", which nothing satisfies more
+        # easily than nothing — and this leg has been in that state the whole
+        # time: `uat-retirements.csv` holds records while NO ledger row carries
+        # the marker in its Evidence, so the mapping the leg checks has never
+        # actually been exercised on real data. Not a failure (a ledger may
+        # legitimately carry no retirement stamp), but it must not read as one
+        # more green among six.
+        print(
+            f"  VACUOUS  leg D: 0 rows carry '{RETIRED_MARKER}' in Evidence, so the "
+            f"leg checked nothing — {len(records)} record(s) sit in "
+            f"{RETIREMENTS.name} with no ledger row pointing at them. To give the "
+            "leg a real population, stamp a retired row's Evidence with the marker."
+        )
     else:
         print(
             f"  PASS  leg D: all {len(retired_in_ledger)} RETIRED AND REPLACED rows "
@@ -410,7 +425,12 @@ def check() -> int:
             print(f"::error::{f}")
         print(f"\nLEDGER IDENTITY BROKEN — {len(failures)} of 4 legs failed.")
         return 1
-    print("\nLEDGER IDENTITY OK — 286 rows, bijective, clause-identical, retirements recorded.")
+    # The summary must not claim a leg that ran on nothing. "retirements recorded"
+    # is exactly the sentence a reader greps for, and with leg D vacuous it would
+    # assert a check that never touched a row.
+    retirements_claim = ("retirements recorded" if retired_in_ledger
+                         else "retirement mapping UNEXERCISED (leg D vacuous)")
+    print(f"\nLEDGER IDENTITY OK — 286 rows, bijective, clause-identical, {retirements_claim}.")
     return 0
 
 
@@ -477,32 +497,91 @@ def self_test() -> int:
         else:
             print("[self-test] PASS — leg B catches a canon row that vanished")
 
-        # 3 — leg D: hollow out the ground of a retirement record for a row that
-        #     is ACTUALLY in leg D's population. Mutating an out-of-population
-        #     row would produce a green that proves nothing — leg D only looks
-        #     at rows whose Evidence carries the marker, so the mutant has to be
-        #     chosen from that set or the control is vacuous.
+        # 3 — leg D. The mutant must be IN leg D's population, since the leg only
+        #     looks at rows whose Evidence carries the marker; mutating an
+        #     out-of-population row would produce a green proving nothing.
+        #
+        #     This used to BORROW a member from the live ledger, and that made the
+        #     control's existence contingent on ledger content. It went red on
+        #     2026-08-13 (#6248) when the population reached zero, and the way it
+        #     reached zero is the more interesting half: leg D's entire population
+        #     had been ONE row, 184 — the META row describing this guard, whose
+        #     Evidence merely QUOTED the marker while explaining what leg D does.
+        #     No actual retired row has ever carried it. So the hw296 walk
+        #     re-stamped 184's evidence with a fresh stamp, the quotation went with
+        #     it, and a leg that had never had a real member lost its only
+        #     accidental one.
+        #
+        #     So the fixture is SYNTHESIZED here instead. It marks a ledger row
+        #     that genuinely has a retirement record, which puts a real member in
+        #     the population without touching the denominator, the canon or the
+        #     bijection — and it runs BOTH directions, because "the marked row
+        #     fails" proves nothing unless the same row passes with its ground
+        #     intact.
         ret_rows = list(csv.DictReader(io.StringIO(ret_text)))
-        marked_ids = {rid for rid, _, ev, _, _ in parse_uat(uat_text) if RETIRED_MARKER in ev}
-        victim = next((r for r in ret_rows if r["row_id"] in marked_ids), None)
-        if victim is None:
-            print("[self-test] FAIL — no retirement record is in leg D's population; "
-                  "leg D is currently unfalsifiable and must not be trusted")
+        ledger_ids = {rid for rid, _, _, _, _ in parse_uat(uat_text)}
+        seed = next(
+            (r for r in ret_rows
+             if r["row_id"] in ledger_ids
+             and all(r.get(k, "").strip() for k in
+                     ("old_clause", "new_clause", "ground_for_retirement"))),
+            None,
+        )
+        if seed is None:
+            print("[self-test] FAIL — no retirement record names a row that is in the "
+                  "ledger with all three fields populated; leg D cannot be exercised")
             ok = False
         else:
-            fields = list(ret_rows[0].keys())
-            victim["ground_for_retirement"] = ""
-            sio = io.StringIO()
-            w = csv.DictWriter(sio, fieldnames=fields)
-            w.writeheader()
-            w.writerows(ret_rows)
-            rc, out = run(uat_text, canon_rows, sio.getvalue())
-            if rc == 0 or "LEG D" not in out:
-                print("[self-test] FAIL — an empty ground did not trip leg D")
+            rid = seed["row_id"]
+
+            def mark(text, row_id):
+                """Put row_id INTO leg D's population by marking its Evidence cell."""
+                out_lines = []
+                for line in text.split("\n"):
+                    if re.match(rf"^\|\s*{re.escape(row_id)}\s*\|", line):
+                        f = re.split(r"(?<!\\)\|", line.rstrip())
+                        if len(f) > 7:
+                            f[7] = f[7].rstrip() + f" {RETIRED_MARKER}. "
+                            line = "|".join(f)
+                    out_lines.append(line)
+                return "\n".join(out_lines)
+
+            marked_uat = mark(uat_text, rid)
+            if RETIRED_MARKER not in dict(
+                (r, e) for r, _, e, _, _ in parse_uat(marked_uat)
+            ).get(rid, ""):
+                print(f"[self-test] FAIL — could not put row {rid} into leg D's "
+                      "population; the fixture, not the guard, is broken")
                 ok = False
             else:
-                print("[self-test] PASS — leg D catches a retirement record with an "
-                      f"empty ground (row {victim['row_id']})")
+                # DIRECTION 1 — marked, record intact: leg D must stay GREEN.
+                # Without this the mutant below could be failing because marking a
+                # row breaks something else entirely.
+                rc, out = run(marked_uat, canon_rows, ret_text)
+                if "LEG D" in out:
+                    print(f"[self-test] FAIL — leg D tripped on row {rid} whose "
+                          "retirement record is COMPLETE; it rejects valid ledgers")
+                    ok = False
+                else:
+                    print(f"[self-test] PASS — CONTROL: a marked row with a complete "
+                          f"record leaves leg D green (row {rid})")
+
+                # DIRECTION 2 — same row, ground hollowed: leg D must go RED.
+                hollowed = [dict(r) for r in ret_rows]
+                for r in hollowed:
+                    if r["row_id"] == rid:
+                        r["ground_for_retirement"] = ""
+                sio = io.StringIO()
+                w = csv.DictWriter(sio, fieldnames=list(ret_rows[0].keys()))
+                w.writeheader()
+                w.writerows(hollowed)
+                rc, out = run(marked_uat, canon_rows, sio.getvalue())
+                if rc == 0 or "LEG D" not in out:
+                    print("[self-test] FAIL — an empty ground did not trip leg D")
+                    ok = False
+                else:
+                    print("[self-test] PASS — leg D catches a retirement record with "
+                          f"an empty ground (row {rid})")
 
         # 4 — vacuity: a ledger the regex cannot read must FAIL, not pass.
         rc, out = run(uat_text.replace("\n|", "\nX|"), canon_rows, ret_text)

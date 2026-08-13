@@ -36,7 +36,14 @@ import json
 import os
 import sys
 
-GLYPHS = ["✅", "⚠️", "◑", "❌", "☐", "⛔"]
+# `⏳` (PENDING) was missing here while every other reader carried it —
+# uat-snapshot.py, uat-backfill.py, uat-audit.py and test_uat_table_shape.py all
+# list it. So the one glyph `scripts/reset-uat.py` WRITES was the one this tally
+# could not name, and 47 carried rows scored `N/A`: not merely uncounted, but
+# indistinguishable in the output from a row whose Result cell is unreadable.
+# That is the exact hazard UAT.md §Status-icons warns about, landing in the
+# script whose numbers get quoted.
+GLYPHS = ["✅", "⚠️", "◑", "❌", "☐", "⛔", "⏳"]
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_UAT = os.path.join(REPO_ROOT, "docs", "ledger", "UAT.md")
 

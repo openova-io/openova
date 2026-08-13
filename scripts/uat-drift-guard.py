@@ -1,11 +1,29 @@
 #!/usr/bin/env python3
 """Fail CI if the UAT ledger carries walk-evidence from a PREDECESSOR environment.
 
-Founder rule (2026-06-14, the "fake snapshots" rebuke): each new env flushes ALL
-prior evidence — a ✅ row that still cites a wiped env's screenshot is a fabricated
-snapshot. `scripts/reset-uat.py` clears the evidence on a fresh fire; THIS guard is
-the CI backstop that catches a ledger which slipped through (a hand-edited ✅ row,
-a merge that re-introduced an old env's proof, or a reset that was skipped).
+Founder rule (2026-06-14, the "fake snapshots" rebuke): a ✅ row that still cites a
+wiped env's screenshot is a fabricated snapshot. `scripts/reset-uat.py` re-marks
+those rows on a fresh fire; THIS guard is the CI backstop that catches a ledger
+which slipped through (a hand-edited ✅ row, a merge that re-introduced an old
+env's proof, or a reset that was skipped).
+
+WHAT THIS GUARD DOES *NOT* SAY — the distinction that cost main an hour of red on
+2026-08-13. The 2026-06-14 rule was originally written as "each new env flushes ALL
+prior evidence", and this guard's remediation used to print exactly that sentence
+and point at a `reset-uat.py` that had, by then, stopped flushing anything. Founder
+2026-08-11 superseded the flush: *"That is the whole point not to reset the fucking
+success results to zero!!!"* A wipe is not a failure — the code that passed on the
+predecessor is the code running here, so the evidence is CARRIED and its confidence
+DECAYED by `scripts/uat-confidence.py`, never deleted.
+
+Those two policies do not actually conflict; one column was doing two jobs. The
+Result cell answers "did this hold ON THE CURRENT ENV", which is the only question
+a ✅ may answer — so a carried row is stamped `⏳` (PENDING: carried, awaiting
+re-confirmation) and KEEPS its evidence cell verbatim, env stamp and all. The
+verdict survives, the confidence survives, the artifact survives; what does not
+survive is the claim that a wiped machine's screenshot proves anything about this
+one. This guard is unchanged by that — it has always rejected exactly ✅-plus-a-
+foreign-artifact, and it still does.
 
 It scans `docs/ledger/UAT.md` + `docs/ledger/uat-walkthrough/*.md` and exits
 NON-ZERO if any markdown table row is BOTH:
@@ -87,6 +105,18 @@ PROOF_ARTIFACT = re.compile(
     r"|hw\d+-\d+",                 # an "hwNNN-09"-style screenshot id
     re.IGNORECASE,
 )
+
+
+# The #3581 meta runbook documents THIS guard + reset-uat.py; its example rows
+# intentionally cite prior envs (B4/B5/D2/G1) to illustrate what stale evidence
+# looks like. It is process-documentation, not an env-specific walk ledger, so it
+# is excluded from the staleness scan.
+#
+# MODULE-LEVEL on purpose: `scripts/reset-uat.py` imports this guard and must skip
+# exactly the same files. While this lived inside guard() it was invisible to that
+# importer, which would have re-marked the runbook's illustrative rows — rewriting
+# the documentation of the mechanism as if it were a walk record.
+SKIP_BASENAMES = {"uat-walkthrough-regenerate-on-current-env.md"}
 
 
 def header_env(text):
@@ -202,11 +232,6 @@ def guard(current_env, root=REPO_ROOT, quiet=False):
         current_env = header_env(open(uat, encoding="utf-8").read())
 
     total = 0
-    # The #3581 meta runbook documents THIS guard + reset-uat.py; its example
-    # rows intentionally cite prior envs (B4/B5/D2/G1) to illustrate what stale
-    # evidence looks like. It is process-documentation, not an env-specific
-    # walk ledger, so exclude it from the staleness scan.
-    SKIP_BASENAMES = {"uat-walkthrough-regenerate-on-current-env.md"}
     for p in paths:
         if os.path.basename(p) in SKIP_BASENAMES:
             continue
@@ -227,9 +252,25 @@ def guard(current_env, root=REPO_ROOT, quiet=False):
         if not quiet:
             print("")
             print(f"uat-drift-guard: FAIL — {total} ✅ row(s) cite a wiped/predecessor env.")
-            print("Each new env flushes ALL prior evidence (founder 2026-06-14). Run")
-            print("  python3 scripts/reset-uat.py <current-env>")
-            print("to clear stale evidence, then re-walk + re-fill on the live env.")
+            print("")
+            print("A ✅ in the Result column is a claim about the CURRENT env. Evidence from")
+            print("a wiped env is real evidence about the PLATFORM and none at all about this")
+            print("machine, so it is CARRIED, not deleted (founder 2026-08-11 — a wipe is not")
+            print("a failure). Two commands, in this order:")
+            print("")
+            print(f"  python3 scripts/reset-uat.py {current_env or '<current-env>'}")
+            print("      Re-marks each row above as ⏳ (carried, awaiting re-confirmation) and")
+            print("      KEEPS its evidence cell verbatim — env stamp, artifact link and all —")
+            print("      so scripts/uat-confidence.py decays the row instead of zeroing it.")
+            print("")
+            print(f"  python3 scripts/uat-confidence.py --due --env {current_env or '<current-env>'}")
+            print("      The work-list: which of those rows this cycle actually owes a re-walk.")
+            print("      Re-walking all 286 is the treadmill; the scheduler decides who is due,")
+            print("      and check-walk-respects-scheduler.sh refuses greens it did not ask for.")
+            print("")
+            print("Then walk the due rows on the live env and stamp ✅ against THIS env's proof.")
+            print("Deleting the predecessor's env token to quiet this guard is NOT a fix — that")
+            print("evasion is why an anonymised reference counts exactly as a named one here.")
         return 1
 
     if not quiet:
