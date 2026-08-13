@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T17:00:08Z` |
+| Last refreshed | `2026-08-13T17:15:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T17:12 | [#6246](https://github.com/openova-io/openova/pull/6246) | #6230 | fix(bp-k8s-ws-proxy,bp-guacamole): the seeded Guacamole conn |
+| 2026-08-13T17:01 | [#6245](https://github.com/openova-io/openova/pull/6245) | #4482 | fix(anthropic-seed): a credential that cannot authenticate i |
 | 2026-08-13T16:50 | [#6244](https://github.com/openova-io/openova/pull/6244) | #6240 | docs(ledger): convergence capture 2026-08-13T16:44:11Z — hw2 |
 | 2026-08-13T16:50 | [#6243](https://github.com/openova-io/openova/pull/6243) | #4290 | fix(funnel): a lost settlement-launch strands a PAID Org for |
 | 2026-08-13T16:18 | [#6241](https://github.com/openova-io/openova/pull/6241) | #6122 | test(openova-mcp): pin UAT row 213 as indistinguishability,  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-13T04:20 | [#6210](https://github.com/openova-io/openova/pull/6210) | #4277 | docs(wbs): section 1-B — every failing row now has a measure |
 | 2026-08-13T04:16 | [#6209](https://github.com/openova-io/openova/pull/6209) | #4277 | docs(uat): the four Anthropic rows are double-gated — the cr |
 | 2026-08-13T04:12 | [#6208](https://github.com/openova-io/openova/pull/6208) | #3988 | docs(uat): row 213 — both isolation halves are implemented a |
-| 2026-08-13T04:09 | [#6207](https://github.com/openova-io/openova/pull/6207) | #3687 | docs(uat): row 16 — the Topology tab is absent from the CUST |
-| 2026-08-13T04:04 | [#6206](https://github.com/openova-io/openova/pull/6206) | #3374 | docs(uat): row 29 — an HTTP probe cannot decide this row, an |
 
 ---
 
