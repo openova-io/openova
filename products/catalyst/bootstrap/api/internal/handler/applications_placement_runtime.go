@@ -97,6 +97,16 @@ type runtimePlacementResponse struct {
 	// UnobservedClusters — this deployment's registered cluster ids whose List
 	// failed (unregistered in the cache, or apiserver unreachable).
 	UnobservedClusters []string `json:"unobservedClusters,omitempty"`
+
+	// UnresolvedPrimary — the projection surfaced a Standby leg but could not
+	// resolve ANY Primary (#6268). That is a half-pair, not a placement: the
+	// standby augmentation asserts a cross-region follower while the thing it
+	// follows is missing from the list. Rendering it as-is puts one card on
+	// the Topology tab, which is indistinguishable from an honest single
+	// region app — the exact collapse row 60 exists to catch. Carried to the
+	// FE alongside `derivedFromRuntime: false` so the tab keeps its
+	// spec/status fallback instead of drawing a false singleton.
+	UnresolvedPrimary bool `json:"unresolvedPrimary,omitempty"`
 }
 
 // HandleApplicationPlacement — GET
@@ -175,7 +185,37 @@ func (h *Handler) HandleApplicationPlacement(w http.ResponseWriter, r *http.Requ
 	// declaredRegions == 0 means we genuinely cannot tell (no record, no
 	// chart-baked env), so (b) is skipped rather than inventing a failure —
 	// the surface-not-gate discipline. It never DOWNGRADES a full observation.
-	derived := len(cov.observed) > 0 && (declaredRegions == 0 || len(cov.observed) >= declaredRegions)
+	// #6268 — a Standby with no Primary is a half-pair, not a placement.
+	//
+	// derivePlacementTargets keys on the component's OWN pods; for an app whose
+	// only stateful identity is its CNPG pair, those pods carry the DATABASE
+	// identity, not the app's, so occupancy legitimately finds nothing. The
+	// standby augmentation below then appends a follower to an empty list, and
+	// the endpoint answers with exactly one Standby target carrying an empty
+	// `cluster`. Walked live on hw296 (row 60): backing state fully correct —
+	// primary + standby, armed=true, Continuum Healthy holding the lease, CNPG
+	// 3/3, Application Ready — while the Topology tab drew `Pattern: not
+	// reported`, one card, and a disabled Switchover control.
+	//
+	// The augmentation now emits the Primary leg from the same resolved pair,
+	// so this state should be unreachable whenever the pair resolves. When it
+	// is still reached, the primary genuinely could not be resolved, and the
+	// honest answer is to say so rather than to ship a one-card projection
+	// that reads identically to a single-region app.
+	unresolvedPrimary := hasStandbyTarget(targets) && !hasPrimaryTarget(targets)
+	if unresolvedPrimary {
+		h.log.Error("placement: surfaced a Standby leg with NO Primary — refusing to assert derivedFromRuntime, a half-pair renders identically to an honest single-region app (#6268)",
+			"id", urlID,
+			"deploymentID", depID,
+			"component", name,
+			"namespace", ns,
+			"targets", len(targets),
+			"regionsDeclared", declaredRegions,
+			"regionsObserved", len(cov.observed),
+		)
+	}
+
+	derived := len(cov.observed) > 0 && (declaredRegions == 0 || len(cov.observed) >= declaredRegions) && !unresolvedPrimary
 	if !derived {
 		h.log.Error("placement: runtime coverage is NARROWER than the deployment declares — refusing to assert derivedFromRuntime, every unobserved region would read as absent and collapse this component to a false singleton (#6015)",
 			"id", urlID,
@@ -194,7 +234,31 @@ func (h *Handler) HandleApplicationPlacement(w http.ResponseWriter, r *http.Requ
 		RegionsDeclared:    declaredRegions,
 		RegionsObserved:    len(cov.observed),
 		UnobservedClusters: cov.unobserved,
+		UnresolvedPrimary:  unresolvedPrimary,
 	})
+}
+
+// hasPrimaryTarget / hasStandbyTarget — role predicates over a target list
+// (#6268). Both roles have to be asked about independently: an EMPTY list has
+// neither, and is an honest "nothing observed", while a list holding only a
+// Standby is a half-pair. Collapsing the two into one "is it paired" helper
+// would make those cases indistinguishable, which is the defect itself.
+func hasPrimaryTarget(targets []bpv1.PlacementTarget) bool {
+	for _, t := range targets {
+		if t.Role == bpv1.DataRolePrimary {
+			return true
+		}
+	}
+	return false
+}
+
+func hasStandbyTarget(targets []bpv1.PlacementTarget) bool {
+	for _, t := range targets {
+		if t.Role == bpv1.DataRoleStandby {
+			return true
+		}
+	}
+	return false
 }
 
 // placementRuntimeCoverage records which of THIS deployment's region clusters
@@ -327,18 +391,7 @@ func (h *Handler) augmentWithCNPGStandby(
 		// as the replica region (defensive — occupancy had no Standby, but
 		// the replica region could coincide with a stateless Primary
 		// occupancy).
-		for _, t := range targets {
-			if t.Role == bpv1.DataRoleStandby && t.Region == st.ReplicaRegion {
-				return targets
-			}
-		}
-		return append(targets, bpv1.PlacementTarget{
-			Region:      st.ReplicaRegion,
-			Cluster:     st.ReplicaClusterName,
-			VCluster:    "",
-			Role:        bpv1.DataRoleStandby,
-			StandbyType: bpv1.StandbyHot,
-		})
+		return mergeCNPGPairIntoTargets(targets, st)
 	}
 
 	// Continuum-CR fallback (the #4551 render-gate fix). The cnpg-pair path
@@ -347,6 +400,57 @@ func (h *Handler) augmentWithCNPGStandby(
 	// Continuum CR, which lives in region-a and carries it in
 	// spec.hotStandbyRegions.
 	return h.augmentWithContinuumStandby(r, client, name, ns, targets)
+}
+
+// mergeCNPGPairIntoTargets folds a fully-resolved CNPG pair into the occupancy
+// derived target list, adding only the legs occupancy did not already supply.
+//
+// Pure by design: the defect this fixes (#6268) lives entirely in which legs
+// get emitted, so keeping the decision free of the dynamic client makes it
+// directly testable rather than only reachable through a live pair lookup.
+//
+// Callers must have already established that `st` holds two DISTINCT non-empty
+// regions — the same invariant deriveLiveContinuumRecord enforces.
+func mergeCNPGPairIntoTargets(targets []bpv1.PlacementTarget, st *cnpgPairState) []bpv1.PlacementTarget {
+	// Already represented as a Standby in the replica region — nothing to add.
+	for _, t := range targets {
+		if t.Role == bpv1.DataRoleStandby && t.Region == st.ReplicaRegion {
+			return targets
+		}
+	}
+
+	// #6268 — emit the PRIMARY leg too when occupancy could not supply one.
+	//
+	// This block already holds a fully resolved pair: findCNPGPairForApp
+	// returned both halves with two distinct non-empty regions. Appending
+	// only the follower was correct while occupancy was assumed to have
+	// produced the Primary — but occupancy keys on the component's own
+	// pods, and for an app whose stateful identity IS its CNPG pair, those
+	// pods carry the database's labels rather than the app's, so occupancy
+	// legitimately yields nothing. The endpoint then answered with one
+	// Standby, no Primary, empty `cluster` (hw296, row 60), which the
+	// Topology tab renders as `Pattern: not reported` with Switchover
+	// disabled.
+	//
+	// st.PrimaryRegion / st.PrimaryClusterName are the same resolved pair
+	// the Standby is being drawn from, so this adds no new source of truth
+	// and cannot fabricate: it is reached only when the pair resolved with
+	// two distinct regions, and only when NO Primary is already present.
+	if !hasPrimaryTarget(targets) {
+		targets = append(targets, bpv1.PlacementTarget{
+			Region:   st.PrimaryRegion,
+			Cluster:  st.PrimaryClusterName,
+			VCluster: "",
+			Role:     bpv1.DataRolePrimary,
+		})
+	}
+	return append(targets, bpv1.PlacementTarget{
+		Region:      st.ReplicaRegion,
+		Cluster:     st.ReplicaClusterName,
+		VCluster:    "",
+		Role:        bpv1.DataRoleStandby,
+		StandbyType: bpv1.StandbyHot,
+	})
 }
 
 // augmentWithContinuumStandby synthesizes a Standby·Hot PlacementTarget from
