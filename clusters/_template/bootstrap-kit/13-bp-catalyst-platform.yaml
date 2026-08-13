@@ -1424,7 +1424,14 @@ spec:
       #   hardcoded 30s and returns `{Enabled:false}, nil` on expiry, so the
       #   operator stays alive and healthy with the controller permanently
       #   off). Lockstep w/ products/catalyst/chart/Chart.yaml.
-      version: 1.4.1470
+      # 1.4.1471 — #6273: catalog-seed advances bp-self-sovereign-cutover
+      #   0.1.184 -> 0.1.185, the release that stops an Organization's failed
+      #   application install from fail-closing the sovereignty cutover.
+      #   harbor-prewarm's Phase A0 now partitions offenders by the
+      #   openova.io/organization namespace label: platform namespaces stay
+      #   FATAL, Organization namespaces warn and proceed. Lockstep w/
+      #   products/catalyst/chart/Chart.yaml.
+      version: 1.4.1471
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
