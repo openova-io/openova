@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T03:30:05Z` |
+| Last refreshed | `2026-08-13T03:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -298,8 +298,8 @@ flowchart LR
 | [#6192](https://github.com/openova-io/openova/issues/6192) | Per-app Overview prints stale PLACEMENT 'singleton' while Topology reads runtime | Other |
 | [#6194](https://github.com/openova-io/openova/issues/6194) | Wizard StepOrg still says "All fields are pre-filled" after #5401 emptied them � | Other |
 | [#6197](https://github.com/openova-io/openova/issues/6197) | P0: mothership Stalwart is killed by its own liveness probe every ~15min — mai | Other |
-| [#6198](https://github.com/openova-io/openova/issues/6198) | P0 Pillar-5: cutover step-03 deadlocks on the cutover's OWN day-two reconciler � | Other |
 | [#6200](https://github.com/openova-io/openova/issues/6200) | active-hot-standby preview renders BOTH regions as primary — the role switch m | Other |
+| [#6202](https://github.com/openova-io/openova/issues/6202) | Cutover engine re-adopts a prior attempt's FAILED step Job instead of recreating | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T03:41 | [#6203](https://github.com/openova-io/openova/pull/6203) | #6198 | docs(uat): cite the merged #6198 fix on the 4 cutover rows,  |
 | 2026-08-13T02:58 | [#6201](https://github.com/openova-io/openova/pull/6201) | #6200 | fix(catalyst-api): canonicalise placement mode before decidi |
 | 2026-08-13T03:21 | [#6199](https://github.com/openova-io/openova/pull/6199) | #5640 | fix(cutover): stop step-03 gating on the cutover's OWN workl |
 | 2026-08-13T02:58 | [#6193](https://github.com/openova-io/openova/pull/6193) | #6090 | docs(uat): hw295 convergence walk — 196→232 green, a false n |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-11T04:16 | [#6143](https://github.com/openova-io/openova/pull/6143) | #6114 | fix(walk): a console-gateway hostname probed on the shared g |
 | 2026-08-11T04:16 | [#6142](https://github.com/openova-io/openova/pull/6142) | #3969 | fix(catalyst-api): stop the Topology-tab Save flattening spe |
 | 2026-08-11T04:16 | [#6141](https://github.com/openova-io/openova/pull/6141) | #4656 | docs(uat): walk the 13 unwalked hw293 rows — 11 flip green,  |
-| 2026-08-11T06:59 | [#6139](https://github.com/openova-io/openova/pull/6139) | #5451 | fix(delivery): the per-Organization console pin had no write |
 
 ---
 
