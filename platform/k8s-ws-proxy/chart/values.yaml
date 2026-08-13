@@ -29,7 +29,7 @@ k8sWsProxy:
     # SHA-pinned per INVIOLABLE-PRINCIPLES #4a. CI populates this via
     # build-k8s-ws-proxy.yaml on every push to core/cmd/k8s-ws-proxy/**
     # or platform/k8s-ws-proxy/chart/**.
-    tag: "f34c3e6"
+    tag: "21e6fad"
     pullPolicy: IfNotPresent
   # The DaemonSet binds to host port 0 (random); the ClusterIP
   # Service in front uses `internalTrafficPolicy: Local` so kube-proxy
@@ -81,8 +81,8 @@ k8sWsProxy:
     # under another name. guacd verifies the server hostname itself, so
     # a name absent here cannot be dialed.
     extraServerNames: []
-    duration: 8760h    # 1y leaves
-    renewBefore: 720h  # 30d
+    duration: 8760h # 1y leaves
+    renewBefore: 720h # 30d
     caDuration: 43800h # 5y CA
     caRenewBefore: 720h
   # Label key used to resolve a WORKLOAD name in the pod position of an
