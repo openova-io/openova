@@ -1424,7 +1424,7 @@ spec:
       #   hardcoded 30s and returns `{Enabled:false}, nil` on expiry, so the
       #   operator stays alive and healthy with the controller permanently
       #   off). Lockstep w/ products/catalyst/chart/Chart.yaml.
-      version: 1.4.1469
+      version: 1.4.1470
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
