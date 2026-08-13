@@ -221,6 +221,47 @@ the object on a pre-cutover Sovereign, then region B's
 `curl --no-keepalive --http1.1` x12 against `console.<slug>.<pool>` returns 12/12
 200 (fresh-TCP; HTTP/2 pins one backend and hides a 50% split).
 
+> 🟢 **MOVED ON 2026-08-14 — on hw296 the fan-out WORKED and the failure is now
+> one hop downstream (#6255, R16/87/90/95). Read this before re-deriving the
+> producer analysis above.** The listeners reached region B's `.spec` — all ten
+> of them — so `consoleRegionTargets`, the materializer and the disk kubeconfig
+> are no longer the failing leg on that environment. What fails is that region B
+> never *published* them: its `cilium-operator` lost the Gateway-API CRD race
+> against its OWN apiserver at boot and disabled the controller for the process
+> lifetime.
+>
+> Upstream cilium v1.19.3 `operator/pkg/gateway-api/cell.go:135` wraps CRD
+> discovery in a hardcoded `context.WithTimeout(context.Background(),
+> 30*time.Second)`. No pflag reaches it (cell.go:182-192), `isTransientError`
+> (cell.go:323-346) does not classify the resulting `context deadline exceeded`
+> as transient, and the give-up at cell.go:148-155 returns
+> `{Enabled:false}, **nil**` — so the hive cell SUCCEEDS, `/healthz` stays green,
+> and `initGatewayAPIController` (cell.go:210-213) returns without registering
+> the controller. The A/B is same-chart / same-version / same-boot on hw296
+> (dep `e689e3b34a75fdec`): region `me-east-215-a` `Invoked
+> duration=16.84419141s`, Gateway 10/10; region `me-east-215-b-1` `Invoked
+> duration=30.024306733s`, Gateway 10 spec / **6** status. Because the console
+> EIP pool spans both regions, every per-Org door answered on exactly 50% of
+> fresh TCP connections (15/30, against a 27/30 control on the SAME EIP).
+>
+> **Fix:** PR #6259, `bp-cilium 1.4.20` — a region-local
+> `gateway-api-controller-watchdog` that runs the unbounded CRD retry outside
+> the operator process and restarts the local operator once the CRDs are
+> Established. The ceiling is upstream Go; there is no flag to set.
+>
+> **Diagnose in this order on any 2-region Sovereign** — the three legs are
+> distinguishable in one command each, and confusing them has already cost
+> cycles: (1) listeners absent from region B's `.spec` → the producer chain
+> above; (2) present in `.spec`, missing from `.status` → #6255, confirm with
+> `kubectl -n kube-system logs deploy/cilium-operator | grep gateway-api` and
+> look for `Invoked duration=30.0…s`; (3) present in both and still 50% → a
+> genuine edge/datapath split. Note `Programmed=False / AddressNotAssigned` is
+> NORMAL in both regions under the §854 hostPort model and is not a signal.
+>
+> **Superseded here too:** #5511's wildcard/SNI-collision hypothesis. Region A
+> admits TWO per-Org wildcards simultaneously and reports 10/10 — #5511's own
+> proposed regression check, passing.
+
 ### Cluster C — Organization delete cascade (R17): **CLOSED 2026-08-11, walked green**
 
 `97dc33d3e` (#6051) is in `85e2eaf` and `581e042c6` (#6097) is in the running
