@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T04:30:07Z` |
+| Last refreshed | `2026-08-13T04:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5819](https://github.com/openova-io/openova/issues/5819) | Showback names the parent Organization `hw292.omani.works` while the directory a | Other |
 | [#5821](https://github.com/openova-io/openova/issues/5821) | /version reports process START time as `buildTime` with no way to tell — hw292 | Other |
 | [#5823](https://github.com/openova-io/openova/issues/5823) | Install wizard never pre-selects the Organization — even on a per-Org console  | Other |
 | [#5825](https://github.com/openova-io/openova/issues/5825) | Two identity readers in one header disagree: the sidebar shows the signed-in own | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6197](https://github.com/openova-io/openova/issues/6197) | P0: mothership Stalwart is killed by its own liveness probe every ~15min — mai | Other |
 | [#6200](https://github.com/openova-io/openova/issues/6200) | active-hot-standby preview renders BOTH regions as primary — the role switch m | Other |
 | [#6202](https://github.com/openova-io/openova/issues/6202) | Cutover engine re-adopts a prior attempt's FAILED step Job instead of recreating | Other |
+| [#6211](https://github.com/openova-io/openova/issues/6211) | harbor-prewarm PUSHes into a Harbor proxy-cache project — the first pass alway | Other |
 
 ---
 
