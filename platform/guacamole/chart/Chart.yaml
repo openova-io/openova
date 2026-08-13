@@ -352,7 +352,7 @@ name: bp-guacamole
 # Lockstep: 52-bp-guacamole.yaml pin + blueprint.yaml + catalog-seed
 # source.version → 0.2.38.
 # Refs #5991.
-version: 0.2.38
+version: 0.2.39
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
