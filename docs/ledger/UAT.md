@@ -136,9 +136,10 @@ put `main` red on 47 rows and PR #6250 quieted the guard by demoting all 47 to
 lost — but the rows stopped COUNTING, which is the outcome carry-forward exists to
 prevent. Founder, same day: *"wiping and recreating an environment doesn't
 necessarily mean wiping test results as well — this is why we created the new
-framework."* **Necessarily** is the design: the scheduler decides which, and 39 of
-those 47 were restored to `✅` with their evidence cells untouched, while the 8 it
-does owe a walk (W3 · 55 · 57 · 62 · 67 · 69 · 71 · 188) stayed `⏳`. That
+framework."* **Necessarily** is the design: the scheduler decides which, and in
+#6258 39 of those 47 were restored to `✅` with their evidence cells untouched,
+while the 8 it does owe a walk (W3 · 55 · 57 · 62 · 67 · 69 · 71 · 188) stayed
+`⏳`. That
 restoration was a reinstatement of prior measurement, not a new walk — no row
 below was re-observed to produce it.
 
