@@ -35,6 +35,75 @@ That was flattering and wrong: a row you cannot answer is not a row you may
 drop. Excluding failures raises the score by removing the evidence against it,
 which is the floating-denominator behaviour the frozen 286 exists to prevent.
 
+## 1-Z. 2026-08-12T15:33Z — the single highest-leverage unlock, measured on hw295
+
+**Nine of the 43 remaining non-green rows are gated on one thing that does not
+exist yet: a customer Organization.** Not on a fix, not on a re-walk — on a
+purchase never having been made.
+
+| row | epic |
+|---|---|
+| R19 | agenity |
+| G2 | apps |
+| 87 · 90 · 95 | funnel |
+| 213 | mcp |
+| 218 · 223 | e2e-journey |
+| 234 | apps |
+
+**Membership corrected 15:58Z — my first pass got two of these wrong.** It listed
+**16** and omitted **213**. Row 16 (change an app's topology and Save) needs a
+*mutation*, not a customer Org — it is walkable on `shared-pg`, whose Topology
+tab was measured today; it belongs in the mutation-gated cluster. Row 213
+(cross-Org `get_application` refused as not-found) genuinely cannot be exercised
+with a single Organization, because there is no *other* Org to be refused
+against — my first predicate searched for "per-Org"/"customer Org" phrasing and
+missed "cross-Org" entirely. Same count, different rows: a classifier that
+matches on vocabulary rather than on the requirement will land on the right
+total for the wrong reasons.
+
+Row 213 carries a second, independent blocker worth recording: the MCP surface is
+not exposed on this Sovereign at all — `mcp.hw295…` and `openova-mcp.hw295…`
+both answer **404**, and `bp-openova-mcp` is `suspend: true` in region B. So 213
+needs the Org *and* a reachable MCP endpoint.
+
+The precondition is confirmed absent rather than assumed: on hw295 the region-B
+apiserver lists only platform namespaces (`alloy … vpa`, plus `org-services`)
+with **no per-Org namespace at all**, and `statefulset,deployment -A` matches
+**zero** `agenity` workloads. There is nothing for a per-Org row to observe.
+
+Why this is the best next move rather than one of the other clusters: it is the
+largest single-event unlock left. One purchase driven through checkout creates
+the Org, its namespace, its Agenity workspace and its app, and makes all nine
+observable in one pass.
+
+**Corrected 15:32Z after walking it — the purchase has a prerequisite I had not
+stated.** I drove the funnel live to the last step: plan M pre-selects,
+WordPress adds to the cart (`org-cart` = plan M, `tld: omani.rest`), review
+renders the stack, and `/checkout` then stops at **"Sign in to complete your
+order — Send sign-in code"**. The funnel is healthy end-to-end; it is simply
+PIN-gated at the final step, exactly like every other authenticated surface.
+
+So the real head of this chain is not the purchase. It is **a mailbox whose PIN
+this walk can read**:
+
+- The founder's own mailbox is off-limits for walk automation. A prior agent
+  rotated its password to read a PIN and locked the founder out of email; the
+  standing rule is a **dedicated throwaway test mailbox** instead, or minting
+  the session via the handover signer.
+- That same capability also unlocks the mothership wizard rows (W1/W2/W5 are
+  currently ⚠️ on source+test evidence precisely because no live wizard walk was
+  possible), and the janitor rows R1/M1/G4/G5 which need mothership logs.
+
+**One capability — a readable test mailbox (or handover-signer minting) —
+therefore gates the nine per-Org rows AND the wizard AND the janitor set.** That
+is the highest-leverage thing to arrange before the next walk, and it is worth
+more than any single row on the list.
+
+The other two structural blockers are smaller and both need an event, not a fix:
+the cutover has not been fired here (its 11 steps render but have not run —
+row 162), and no job has failed, so the Re-run control has nothing to act on
+(row 176, correctly gated).
+
 ## 1-A. 2026-08-12 re-partition — by the mechanism that holds each row shut
 
 Read this before §1. The 2026-08-09 partition below buckets by *kind of work*
@@ -100,16 +169,12 @@ anything beyond that, and E needs the founder rather than an agent.
 
 | bucket | rows | what it needs |
 |---|--:|---|
-| **DEPLOY-GATED** | 15 | the fix is merged and not running here; closes on a roll/prov |
-| **BUILD** | 24 | no fix exists yet (`NEEDS-CODE` in UAT.md) |
-| **ENV-STATE** | 7 | needs a different environment shape entirely |
-| **WALKABLE NOW** | 30 | a walk on THIS env can change the verdict |
-| **total** | **76** | |
+| **BUILD** | 4 | no fix exists yet (`NEEDS-CODE` in UAT.md) |
+| **WALKABLE NOW** | 15 | a walk on THIS env can change the verdict |
+| **total** | **19** | |
 
-- **DEPLOY-GATED (15)** — 51 52 55 56 62 64 65 66 176 187 188 189 227 W1 W2
-- **BUILD (24)** — 16 19 25 32 36 57 67 69 70 71 87 90 95 111 115 223 232 235 236 237 G2 G3 G7 R16
-- **ENV-STATE (7)** — 166 228 234 G8 G9 G11 R19
-- **WALKABLE NOW (30)** — 29 30 31 33 34 35 37 38 39 60 101 109 162 172 197 206 207 208 213 218 219 220 221 222 229 239 241 G1 W5 R13
+- **BUILD (4)** — 87 90 95 R16
+- **WALKABLE NOW (15)** — 16 60 115 166 213 222 227 228 234 235 G7 G8 G9 G11 R19
 
 ## 2. The D-34, clustered by root cause
 
