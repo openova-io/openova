@@ -665,6 +665,32 @@ spec:
 }
 
 
+// DefaultHRAppChartVersions is the built-in CATALYST_HR_APP_CHART_VERSIONS
+// value — the chart version every HelmRelease-shaped funnel app installs at
+// when the operator sets no env override, which on every Sovereign we run is
+// ALWAYS (nothing in this repo sets that env).
+//
+// # The invariant (UAT row 234, Refs #4307)
+//
+// It MUST equal the catalog-seed delivery pin for the same chart. That was
+// already the stated contract at the call site in main.go ("Defaults = the
+// current catalog-seed pins") and nothing enforced it, so it silently rotted:
+// the funnel installed bp-stalwart-tenant 0.1.13 while the seed served 0.1.15,
+// and the intervening 0.1.14 is the §854 nodePort fix WITHOUT WHICH KYVERNO
+// DENIES THE HELMRELEASE AT ADMISSION — no pod, no HTTPRoute, and
+// `mail.<slug>.<pool-tld>` answers nothing. bp-openclaw was five versions
+// behind (0.2.13 vs 0.2.18) for the same reason.
+//
+// A stale pin here is invisible in every other gate: the chart renders, the
+// seed renders, the bootstrap-kit renders, and the two numbers simply differ.
+// hrAppPinSeedDrift in helmrelease_apps_pin_seed_drift_test.go is the guard
+// that makes the drift fail a PR instead of a walk.
+//
+// Living here rather than as a literal in main.go is what makes the guard test
+// the value main.go actually ships — a copy in the test would pass while the
+// binary shipped something else.
+const DefaultHRAppChartVersions = "openclaw=0.2.18,stalwart-mail=0.1.15,newapi=1.4.153"
+
 // ParseHRAppVersions parses the CATALYST_HR_APP_CHART_VERSIONS wire format
 // ("slug=version,slug=version") into the HelmReleaseAppVersions map (#4706).
 // Malformed entries are skipped rather than fatal — a typo in one pin must

@@ -543,6 +543,20 @@ type sovereignAppsResponse struct {
 	Apps         []sovereignAppItem `json:"apps"`
 	GeneratedAt  string             `json:"generatedAt,omitempty"`
 	BootstrapKit []string           `json:"bootstrapKit"`
+
+	// ApplicationEstateUnreadable — the Application-CR List that sources the
+	// Application-keyed half of this estate FAILED (CRD unregistered, RBAC
+	// denial, apiserver timeout), so `apps` cannot contain any Application
+	// and its absence from the grid means NOTHING (UAT row 222, Refs #3988;
+	// same distinction #6249/#6251 drew on the Sovereign estate).
+	//
+	// Omitted on the normal path, so a `false` is never transmitted and no
+	// existing consumer changes shape. Present-and-true is the ONLY honest
+	// way for a caller to tell "this Org has no Applications" apart from
+	// "we could not ask" — the two were byte-identical on the wire, which is
+	// precisely how a chat-created Application that DID converge would read
+	// to an operator as one that never appeared.
+	ApplicationEstateUnreadable bool `json:"applicationEstateUnreadable,omitempty"`
 }
 
 // HandleSovereignApps — GET /api/v1/sovereign/apps.

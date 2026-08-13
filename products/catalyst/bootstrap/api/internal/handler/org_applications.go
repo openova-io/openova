@@ -340,7 +340,41 @@ func (h *Handler) HandleOrgApplications(w http.ResponseWriter, r *http.Request) 
 	adopted := map[string]bool{} // HR names already projected via an Application CR
 
 	// Application CR pass — each CR in the Org namespace is one card.
-	if appList, err := deps.dyn.Resource(applicationGVR).Namespace(orgNS).List(ctx, metav1.ListOptions{}); err == nil {
+	//
+	// UAT row 222 (Refs #3988) — the OUTCOME of this List is load-bearing, not
+	// just its contents. This is the estate a chat-created Application has to
+	// appear in: `create_application` POSTs to catalyst-api, which writes an
+	// Application CR into `orgNS` (applications.go:547), and THIS pass is the
+	// only one that can see it — the HelmRelease and funnel-HTTPRoute passes
+	// below are keyed on other objects entirely.
+	//
+	// The `err` used to be discarded at the `if`, so a failed List (Application
+	// CRD unregistered, RBAC denial on apps.openova.io, apiserver timeout) fell
+	// through to a 200 whose `apps` was built from HelmReleases and HTTPRoutes
+	// alone. The grid then looked populated and merely lacked the agent's app —
+	// indistinguishable from "the agent's app never converged", which is the
+	// one conclusion this row exists to adjudicate. #6249/#6251 drew exactly
+	// this distinction on the Sovereign estate (sovereign.go:786); the
+	// Org-scoped estate — the surface this row's clause names — was never
+	// enrolled.
+	//
+	// The ACTION deliberately differs from the Sovereign path's. There the
+	// remedy was to SKIP the HelmRelease fallback once the Application estate
+	// is authoritative; here that would be wrong, because an Org legitimately
+	// owns HR-only apps with no Application CR (agenity-demo, per the pass
+	// below) and funnel purchases that deploy neither. Suppressing them would
+	// blank a correct estate. So the failure is REPORTED, not compensated:
+	// every pass still runs, and the response says plainly that the
+	// Application-keyed half is missing.
+	appList, appListErr := deps.dyn.Resource(applicationGVR).Namespace(orgNS).List(ctx, metav1.ListOptions{})
+	if appListErr != nil {
+		resp.ApplicationEstateUnreadable = true
+		if h.log != nil {
+			h.log.Warn("org apps: Application CR list failed; estate omits every Application",
+				"orgNamespace", orgNS, "err", appListErr)
+		}
+	}
+	if appListErr == nil {
 		for i := range appList.Items {
 			app := &appList.Items[i]
 			bpFull, _, _ := unstructured.NestedString(app.Object, "spec", "blueprintRef", "name")

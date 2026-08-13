@@ -105,6 +105,48 @@ export function kindDefaults(kind: OrgKind): {
     : { billingMode: 'real', isolation: 'vcluster' }
 }
 
+/**
+ * ORG_PLAN_SLUGS — the purchasable catalog plans, in tier order (UAT row G7,
+ * Refs #4293/#4292).
+ *
+ * Mirrors `catalogPlanSlugs` in
+ * products/catalyst/bootstrap/api/internal/handler/organization_provisioning.go:361,
+ * the ONE list the create handler normalises against: a `plan_slug` outside it
+ * is silently coerced to `s`. Kept as a single exported constant so the create
+ * form's picker and any future plan surface offer exactly the set the server
+ * accepts — a hand-typed subset would render options that vanish on submit.
+ */
+export const ORG_PLAN_SLUGS = ['s', 'm', 'l', 'xl', 'flexi'] as const
+
+export type OrgPlanSlug = (typeof ORG_PLAN_SLUGS)[number]
+
+/**
+ * isolationForPlan — the #4292 TIER GATE, front-end side.
+ *
+ * The boundary primitive an Organization gets is decided by the plan slug
+ * ALONE, never by `kind`. free/S share the host `<slug>` namespace; every paid
+ * tier from M up gets a dedicated Org-vCluster. This is the exact predicate of
+ * `isolationForTier` (organization_provisioning.go:346) and of the renderer
+ * that actually authors the boundary, `boundaryIsVcluster`
+ * (core/controllers/organization/internal/gitops/manifests.go:151).
+ *
+ * It exists so the create form can show the isolation the CHOSEN PLAN will
+ * deliver. Before UAT row G7 the form showed `kindDefaults(kind).isolation` —
+ * 'vcluster' for every customer Org — while the form had no plan input at all,
+ * so the server normalised the plan to `s` and authored a host namespace. The
+ * page advertised a boundary it could not order.
+ */
+export function isolationForPlan(planSlug: string): OrgIsolation {
+  switch (planSlug.trim().toLowerCase()) {
+    case '':
+    case 's':
+    case 'free':
+      return 'namespace'
+    default:
+      return 'vcluster'
+  }
+}
+
 interface SovereignSelf {
   deploymentId: string
   sovereignFQDN: string

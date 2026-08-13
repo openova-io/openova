@@ -189,6 +189,22 @@ export interface OrgCreateRequest {
   tier?: 'org' | 'corporate'
   billing_mode?: 'real' | 'chargeback' | 'showback'
   isolation?: 'namespace' | 'vcluster'
+  /** The PURCHASED catalog plan (s|m|l|xl|flexi) — UAT row G7, Refs
+   *  #4293/#4292.
+   *
+   *  This field is what makes the console door capable of ordering a
+   *  vcluster-isolation Organization at all. The server has accepted
+   *  `plan_slug` since #4292 (organization_provisioning.go:290) and derives
+   *  BOTH the boundary primitive (`boundaryIsVcluster`) and the
+   *  ResourceQuota/LimitRange from it — but this request type never carried
+   *  it, so every Organization created through the console arrived with no
+   *  plan, was normalised to `s`, and was authored onto the host `<slug>`
+   *  namespace. The dual-door clause ("both Org doors land a
+   *  vcluster-isolation Org") could not be satisfied from this door by
+   *  construction; the funnel door has carried the slug since #4473.
+   *
+   *  Omitted ⇒ the server's `s` default, i.e. the previous behaviour. */
+  plan_slug?: string
 }
 
 /** Wire shape mirrors the canonical issue #829 endpoint

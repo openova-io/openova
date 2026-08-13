@@ -185,11 +185,14 @@ func main() {
 	// ghcr artifact broke every Org install; majors could jump ungated).
 	// Defaults = the current catalog-seed pins; operators override via env.
 	// A missing/malformed entry falls back to "*" (never fatal).
-	// stalwart-mail 0.1.13 (#4833): CPU right-sized 1->500m so bp-openclaw's
-	// controller fits the S-plan 2-vCPU plan-quota on a co-tenant funnel Org
-	// (0.1.12's guaranteed full core starved openclaw → UAT 224/232 red).
+	// UAT row 234 (Refs #4307) — the default now lives in the gitops package as
+	// gitops.DefaultHRAppChartVersions, guarded in lockstep with the
+	// catalog-seed delivery pins. It used to be an inline literal that fell two
+	// versions behind bp-stalwart-tenant (0.1.13 vs the seed's 0.1.15, missing
+	// the 0.1.14 §854 nodePort fix that Kyverno denies the install without) and
+	// five behind bp-openclaw, with nothing able to notice.
 	generator.HelmReleaseAppVersions = gitops.ParseHRAppVersions(getEnv(
-		"CATALYST_HR_APP_CHART_VERSIONS", "openclaw=0.2.13,stalwart-mail=0.1.13"))
+		"CATALYST_HR_APP_CHART_VERSIONS", gitops.DefaultHRAppChartVersions))
 
 	// #4282/#4275 CROSS-REGION STANDBY: the flux-system Secret name holding
 	// region-B's (the STANDBY region's) host-cluster kubeconfig. The per-Org
