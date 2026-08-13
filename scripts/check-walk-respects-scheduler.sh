@@ -26,6 +26,8 @@
 #   * FAILING a row that was not due                       (a discovered defect
 #     is always welcome — pessimism is never rate-limited)
 #   * adjudication PRs that change a clause but no verdict (Result cell equal)
+#   * REINSTATING a carried verdict: ⏳ -> ✅ on a row whose evidence names no
+#     current-env walk. See below — this one is not a walk at all.
 #   * an explicit, reasoned override via ALLOW_FULL_WALK=1 (a fresh prov's
 #     first walk, or a founder-directed sweep) — which must be stated in the
 #     PR body, because the point is that it becomes a decision again
@@ -35,6 +37,33 @@
 #   * flipping a row to ✅ that the scheduler did not ask for. That is the
 #     treadmill's signature: re-confirming something already believed, using
 #     effort that a failing row needed.
+#
+# THE ⏳ CARVE-OUT, AND WHY IT DOES NOT LEAK
+# -----------------------------------------
+# This gate and scripts/uat-drift-guard.py both key on the scheduler, in
+# OPPOSITE directions: a walk may stamp ✅ only on a row that IS due, while a
+# carried verdict may stand only on a row that is NOT. On the hw295 -> hw296
+# rotation those two met head-on. PR #6250 demoted 47 carried ✅ rows to ⏳ to
+# quiet the drift guard (headline 225 -> 178); reinstating them then looked to
+# THIS gate like 39 undue greens, so between them nothing could ever be put
+# back. Founder: *"wiping and recreating an environment doesn't necessarily mean
+# wiping test results as well — this is why we created the new framework."*
+#
+# The two are not really in conflict; they govern different events, and the
+# ledger says which is which. A ⏳ -> ✅ flip is:
+#
+#   * a WALK, if the row's evidence names the CURRENT env — somebody went and
+#     measured it here, so the due-list governs and this gate applies as before.
+#   * a REINSTATEMENT, if it does not — the evidence is the predecessor's,
+#     unchanged, and no walker effort was spent. There is no treadmill to
+#     refuse: re-walking is exactly what did NOT happen. Whether that carried
+#     verdict may stand is uat-drift-guard.py's question, and it refuses any row
+#     the scheduler no longer holds.
+#
+# The split is read from the evidence cell with uat-confidence.observable_here,
+# the same predicate that decides whether a verdict may be recorded as an
+# observation of this env — not from a marker word a walker might write. It does
+# not leak into ❌ -> ✅ or ☐ -> ✅, which stay under their existing rules.
 #
 # Usage:  check-walk-respects-scheduler.sh <base-ref> [env]
 #         check-walk-respects-scheduler.sh --self-test
@@ -116,6 +145,38 @@ self_test() {
     echo "  PASS  CONTROL — the ☐ carve-out does not leak into ❌→✅"
   fi
 
+  # REINSTATEMENT: ⏳ -> ✅ on a row whose evidence carries no current-env walk
+  # is not a walk at all — it puts back a carried verdict a reset demoted, and
+  # uat-drift-guard.py is what decides whether it may stand. This is the case
+  # that had no path at all between the two gates on 2026-08-13.
+  printf '6 ⏳\n' > "$tmp/before"; printf '6 ✅\n' > "$tmp/after"; : > "$tmp/due"
+  printf '6\n' > "$tmp/carried"
+  if verdict_diff_ok "$tmp/before" "$tmp/after" "$tmp/due" "$tmp/carried" >/dev/null 2>&1; then
+    echo "  PASS  an undue ⏳→✅ REINSTATEMENT is allowed (no walk was performed)"
+  else
+    echo "  FAIL  a carried verdict could not be reinstated — the 225→178 trap"; bad=1
+  fi
+
+  # CONTROL for that carve-out, and the one that keeps it honest: the SAME flip
+  # on a row that is NOT in the reinstatement set is a genuine walk (its
+  # evidence names this env), so the due-list still governs it.
+  printf '6 ⏳\n' > "$tmp/before"; printf '6 ✅\n' > "$tmp/after"; : > "$tmp/due"
+  : > "$tmp/carried"
+  if verdict_diff_ok "$tmp/before" "$tmp/after" "$tmp/due" "$tmp/carried" >/dev/null 2>&1; then
+    echo "  FAIL  CONTROL: the ⏳ carve-out fired without current-env evidence to justify it"; bad=1
+  else
+    echo "  PASS  CONTROL — a ⏳→✅ WALK on this env still needs the scheduler"
+  fi
+
+  # CONTROL: the carve-out must not leak into ❌→✅ even for a listed row.
+  printf '6 ❌\n' > "$tmp/before"; printf '6 ✅\n' > "$tmp/after"; : > "$tmp/due"
+  printf '6\n' > "$tmp/carried"
+  if verdict_diff_ok "$tmp/before" "$tmp/after" "$tmp/due" "$tmp/carried" >/dev/null 2>&1; then
+    echo "  FAIL  CONTROL: the ⏳ carve-out leaked into ❌→✅"; bad=1
+  else
+    echo "  PASS  CONTROL — the ⏳ carve-out does not leak into ❌→✅"
+  fi
+
   # VACUITY: the comparator must be capable of failing at all.
   printf '1 ❌\n' > "$tmp/before"; printf '1 ✅\n' > "$tmp/after"; : > "$tmp/due"
   if verdict_diff_ok "$tmp/before" "$tmp/after" "$tmp/due" >/dev/null 2>&1; then
@@ -127,15 +188,19 @@ self_test() {
   return $bad
 }
 
-# before/after/due are FILES. Returns 0 if the walk respects the scheduler.
+# before/after/due are FILES; the optional 4th is the REINSTATEMENT set — row
+# IDs whose ⏳ -> ✅ flip carries no current-env evidence and is therefore not a
+# walk. Returns 0 if the walk respects the scheduler.
 verdict_diff_ok() {
-  python3 - "$1" "$2" "$3" <<'PY'
+  python3 - "$1" "$2" "$3" "${4:-/dev/null}" <<'PY'
 import sys
 before = dict(l.split(None, 1) for l in open(sys.argv[1]) if l.strip())
 after  = dict(l.split(None, 1) for l in open(sys.argv[2]) if l.strip())
 due    = {l.strip() for l in open(sys.argv[3]) if l.strip()}
+carried = {l.strip() for l in open(sys.argv[4]) if l.strip()}
 GREEN = "✅"
 UNWALKED = "☐"
+PENDING = "⏳"
 undue = []
 for rid, now in after.items():
     was = before.get(rid)
@@ -143,6 +208,18 @@ for rid, now in after.items():
         continue                       # no verdict movement
     if now.strip() != GREEN:
         continue                       # a discovered failure is never blocked
+    if was.strip() == PENDING and rid in carried:
+        # REINSTATEMENT, not a walk. The row was demoted to ⏳ by a reset and
+        # its evidence still names only the predecessor, so putting the ✅ back
+        # spends no walker effort on an already-believed row — which is the only
+        # thing this gate exists to ration. uat-drift-guard.py holds the other
+        # side: it refuses the reinstatement outright if the scheduler has
+        # stopped standing behind that carried verdict.
+        #
+        # Membership is computed from the evidence cell, NOT from the ⏳ alone.
+        # A ⏳ row walked HERE and stamped green is a real walk, is absent from
+        # this set, and stays under the due-list rule.
+        continue
     if was.strip() == UNWALKED:
         # FIRST MEASUREMENT, not re-confirmation. The treadmill this gate
         # exists to stop is re-walking the ~200 rows already believed green.
@@ -207,8 +284,29 @@ if [ ! -s "$tmp/due" ]; then
   exit 0
 fi
 
-echo "env=$ENV_LABEL  due=$(wc -l < "$tmp/due") row(s)"
-verdict_diff_ok "$tmp/before" "$tmp/after" "$tmp/due" || {
+# The REINSTATEMENT set: rows whose evidence in the PR's ledger is not a
+# measurement of this env, so a ⏳ -> ✅ on them put back a carried verdict
+# rather than recording a walk. Attribution comes from uat-confidence's own
+# observable_here — the predicate that already decides whether a verdict may be
+# recorded as an observation of this env — so this gate and the scheduler cannot
+# disagree about which machine a row was measured on.
+python3 - "$UAT" "$ENV_LABEL" > "$tmp/carried" <<'PY' || : > "$tmp/carried"
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("uat_confidence", "scripts/uat-confidence.py")
+uc = importlib.util.module_from_spec(spec); spec.loader.exec_module(uc)
+body = open(sys.argv[1], encoding="utf-8").read()
+for rid, envs in uc.ledger_envs(body).items():
+    # A row qualifies only if its evidence NAMES a predecessor and does not name
+    # this env. UNATTRIBUTED evidence deliberately does not qualify: it is the
+    # shape a real walk takes when the walker forgets the stamp, and admitting it
+    # would let anyone stamp green by omitting the env label — the same evasion
+    # uat-drift-guard.py already treats an anonymised predecessor reference as.
+    if envs and not uc.observable_here(envs, sys.argv[2]):
+        print(rid)
+PY
+
+echo "env=$ENV_LABEL  due=$(wc -l < "$tmp/due") row(s)  reinstatable=$(wc -l < "$tmp/carried")"
+verdict_diff_ok "$tmp/before" "$tmp/after" "$tmp/due" "$tmp/carried" || {
   echo >&2
   echo "The scheduler decides what a cycle walks. Re-confirming rows it did not" >&2
   echo "ask for is the treadmill: effort spent on already-green rows is effort" >&2

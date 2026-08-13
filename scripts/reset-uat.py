@@ -82,6 +82,23 @@ The assertion at the end is the anti-collision device: if these two files ever
 drift apart again, this one fails LOUDLY at the moment of the reset instead of
 silently returning while the guard goes red somewhere else.
 
+NOT EVERY CARRIED ROW IS RE-MARKED — corrected after PR #6250
+-------------------------------------------------------------
+The first version of this function re-marked EVERY row the guard rejected, which
+on the hw295 -> hw296 rotation was all 47 of them, and the headline fell from 225
+green to 178. Nothing had been measured and nothing had regressed; the rows
+simply stopped counting. Founder, verbatim: *"wiping and recreating an
+environment doesn't necessarily mean wiping test results as well — this is why we
+created the new framework."*
+
+"Necessarily" is the load-bearing word. Which carried rows still stand and which
+owe a re-walk is a question `scripts/uat-confidence.py` was built to answer, and
+`uat-drift-guard.py` now asks it: a row the scheduler is holding keeps its ✅ and
+this script leaves it ALONE. Only the rows the scheduler will not carry — due
+here, box 0, or never scored — get the `⏳`. Passing the guard's consent set
+through `scan_text` is what keeps this script from re-demoting, on the next
+rotation, exactly the rows a previous session restored.
+
 Original docstring follows.
 ---
 Reset docs/ledger/UAT.md + docs/ledger/uat-walkthrough/*.md evidence on a re-prov.
@@ -397,14 +414,19 @@ def carry_row(cells, guard):
     return changed
 
 
-def carry_forward_text(text, env, guard, is_master):
+def carry_forward_text(text, env, guard, is_master, carried=frozenset()):
     """Return (new_text, n_rows_carried) for one ledger file.
 
     `env` may be None — a header with no concrete env (the RESET/pending state)
     means no hwNNN proof is legitimate yet, so every artifact-bearing ✅ carries.
+
+    `carried` is the guard's consent set: rows the confidence scheduler is still
+    holding, which keep their ✅ untouched. Empty by default, so a caller that
+    does not supply it gets the strict re-mark-everything behaviour rather than
+    accidentally leaving stale rows green.
     """
     lines = text.split("\n")
-    stale_lines = {ln for ln, _stale, _exc in guard.scan_text(text, env)}
+    stale_lines = {ln for ln, _stale, _exc in guard.scan_text(text, env, carried=carried)}
     n = 0
     for lineno in sorted(stale_lines):
         cells = CELL_SPLIT.split(lines[lineno - 1])
@@ -453,12 +475,20 @@ def carry_forward(env, root=REPO_ROOT, write=True):
     uat = os.path.join(root, "docs", "ledger", "UAT.md")
     walks = sorted(glob.glob(os.path.join(root, "docs", "ledger", "uat-walkthrough", "*.md")))
 
+    # The guard's consent set — the rows the scheduler still stands behind, which
+    # keep their ✅. Scoped to the MASTER ledger for the same reason the guard
+    # scopes it there: the scheduler keys on UAT.md row IDs, and a walkthrough
+    # numbers its own steps from 1, so the same key names a different assertion.
+    consent = guard.carried_forward(env, root=root) if hasattr(guard, "carried_forward") else frozenset()
+
     total, touched = 0, []
     for path in ([uat] if os.path.exists(uat) else []) + walks:
         if os.path.basename(path) in getattr(guard, "SKIP_BASENAMES", set()):
             continue
         text = open(path, encoding="utf-8").read()
-        new, n = carry_forward_text(text, env, guard, is_master=(path == uat))
+        is_master = path == uat
+        new, n = carry_forward_text(text, env, guard, is_master=is_master,
+                                    carried=consent if is_master else frozenset())
         if new != text and write:
             open(path, "w", encoding="utf-8").write(new)
         total += n
@@ -571,6 +601,56 @@ def _selftest():
         open(uat, "w", encoding="utf-8").write(relapse)
         emit(guard.guard(current_env="hw900", root=d, quiet=True) == 1,
              "VACUITY — re-stamping a carried row ✅ without a re-walk goes RED again")
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+    # ---------------------------------------------------------------------- #
+    # THE #6250 REVERSAL, asserted. A row the scheduler is still holding must  #
+    # keep its ✅ — re-marking it is what dropped 47 rows and 47 headline       #
+    # points for no measurement. Its neighbour, which the scheduler owes a     #
+    # walk, must still be re-marked in the same pass, or "leave it alone"      #
+    # would just be "do nothing" wearing a policy.                             #
+    # ---------------------------------------------------------------------- #
+    d = tempfile.mkdtemp()
+    try:
+        uat = os.path.join(d, "docs", "ledger", "UAT.md")
+        os.makedirs(os.path.dirname(uat))
+        open(uat, "w", encoding="utf-8").write(
+            "# UAT — ground reality on `hw900.omani.works` (2026-06-17)\n\n"
+            "| # | Epic | Ticket | Test case | Walk | Result | Evidence |\n"
+            "|---|---|---|---|---|---|---|\n"
+            "| 1 | dr | [#1](u) | the scheduler still stands behind this one "
+            "| hw800-2026-06-15 | ✅ | hw800-2026-06-15T02:1xZ LIVE WALK "
+            "([shot](../sessions/2026-06-15/evidence/hw800-09.png)) |\n"
+            "| 2 | dr | [#2](u) | the scheduler owes this one a walk here "
+            "| hw800-2026-06-15 | ✅ | hw800-2026-06-15T02:2xZ LIVE WALK "
+            "([shot](../sessions/2026-06-15/evidence/hw800-10.png)) |\n"
+        )
+        # Row 1: passed on hw700 and hw800, never observed on hw900 -> carried.
+        # Row 2: the same history plus a FAIL on hw900 -> box 0, owed a walk.
+        open(os.path.join(d, "docs", "ledger", "uat-observations.csv"), "w",
+             encoding="utf-8").write(
+            "cycle_ts,env,row_id,status\n"
+            "c0,hw700,1,PASS\nc0,hw700,2,PASS\n"
+            "c1,hw800,1,PASS\nc1,hw800,2,PASS\n"
+            "c2,hw900,2,FAIL\n"
+        )
+
+        total, _t = carry_forward("hw900", root=d)
+        rows = {}
+        for line in open(uat, encoding="utf-8").read().split("\n"):
+            if re.match(r"^\|\s*\d+\s*\|", line):
+                f = CELL_SPLIT.split(line.rstrip())
+                rows[f[1].strip()] = f
+
+        emit(rows["1"][6].strip() == "✅",
+             "a row the scheduler HOLDS keeps its ✅ (the #6250 demotion, reversed)")
+        emit("hw800-09.png" in rows["1"][7] and not rows["1"][7].lstrip().startswith(CARRIED_VERDICT),
+             "...and its evidence cell is untouched — no carry banner, nothing rewritten")
+        emit(rows["2"][6].strip() == CARRIED_VERDICT and total == 1,
+             f"CONTROL — the row the scheduler owes a walk IS re-marked (carried {total}, want 1)")
+        emit(guard.guard(current_env="hw900", root=d, quiet=True) == 0,
+             "the guard is green on the mixed ledger (one carried, one re-marked)")
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
