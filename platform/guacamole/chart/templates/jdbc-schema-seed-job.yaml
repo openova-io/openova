@@ -61,6 +61,86 @@ postgresql.cnpg.io CRD absent.
    name-match did not reach the owner live on hw133 — #3475). */ -}}
 {{- $cronName := printf "%s-admin-enroll" (include "bp-guacamole.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- $promoteSchedule := $db.promoteSchedule | default "* * * * *" -}}
+{{- /* #5991 / UAT row 115 (2026-08-13) — the CONNECTION PRODUCER.
+
+   Everything above this line seeds IDENTITY: the <adminGroup> USER_GROUP, its
+   ADMINISTER + CREATE_* system permissions, and the per-minute enrollment of
+   each SSO-auto-created USER into that group. That is the RIGHT to create a
+   connection; it created none, and `guacamole_connection` — created empty by
+   the vendored Apache schema (files/postgresql/001-create-schema.sql:109) —
+   stayed at zero rows on every Sovereign. A signed-in sovereign-admin
+   therefore reached Guacamole successfully and landed on an empty ALL
+   CONNECTIONS list. No producer existed anywhere in the repo (the
+   `GuacamoleConnection` CRD + `relay-controller` the README used to describe
+   were never written; catalyst-api's `GuacamoleClient` interface has no
+   production implementation and `SetGuacamoleClient` no non-test caller).
+
+   The target set is DECLARED in .Values.guacamole.database.connections and
+   rendered into seed_connections() below, one block per target. An empty
+   declared set renders an EMPTY body — this producer writes zero rows rather
+   than invent one, which matters more than usual on a table that carries
+   credentials.
+
+   Credentials NEVER come from values, this template, or the ConfigMap (public
+   repo): each target may name an OPTIONAL Secret, mounted read-only at
+   /conn-cred/<connection-name>, whose keys are read at run time. The
+   render-time guard below FAILS the template if a credential-shaped parameter
+   is set from values instead. */ -}}
+{{- $conn := $db.connections | default dict -}}
+{{- /* `default true X` is UNSAFE for a bool: sprig treats false as empty and
+   hands back the default, so `enabled: false` would arm the producer anyway.
+   hasKey is the only correct off-switch here. */ -}}
+{{- $connEnabled := true -}}
+{{- if hasKey $conn "enabled" }}{{- $connEnabled = $conn.enabled -}}{{- end -}}
+{{- $targets := list -}}
+{{- if $connEnabled -}}
+{{- $ns := $conn.nodeShell | default dict -}}
+{{- $nsEnabled := true -}}
+{{- if hasKey $ns "enabled" }}{{- $nsEnabled = $ns.enabled -}}{{- end -}}
+{{- if $nsEnabled -}}
+{{- $targets = append $targets (dict
+      "name" ($ns.name | default "sovereign-node")
+      "protocol" ($ns.protocol | default "ssh")
+      "hostnameFromNodeIP" true
+      "params" (dict "port" (toString ($ns.port | default 22)) "username" ($ns.username | default "root"))
+      "credentialSecretName" ($ns.credentialSecretName | default "")) -}}
+{{- end -}}
+{{- range $e := ($conn.extra | default list) -}}
+{{- $targets = append $targets (dict
+      "name" (required "bp-guacamole: every guacamole.database.connections.extra entry needs a name" $e.name)
+      "protocol" (required "bp-guacamole: every guacamole.database.connections.extra entry needs a protocol" $e.protocol)
+      "hostnameFromNodeIP" false
+      "params" ($e.parameters | default dict)
+      "credentialSecretName" ($e.credentialSecretName | default "")) -}}
+{{- end -}}
+{{- end -}}
+{{- /* Render-time guards. Each one has a live failure mode: a credential in
+   values would be committed to a public repo, and a quote in a name or value
+   would break out of the single-quoted shell word the target block renders. */ -}}
+{{- $credentialParams := list "password" "passphrase" "private-key" "client-key" "client-cert" "secret" "token" "auth-token" -}}
+{{- range $t := $targets -}}
+{{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" $t.name) -}}
+{{- fail (printf "bp-guacamole: connection name %q is not [A-Za-z0-9._-]{1,64} — the name is rendered into a shell word and a Secret mount path" $t.name) -}}
+{{- end -}}
+{{- /* A connection with no hostname is a broken row, and a broken row is
+   exactly what row 115's vacuity guard is written against. The nodeShell
+   target gets its hostname at run time from the downward API; every other
+   target must declare one. */ -}}
+{{- if and (not $t.hostnameFromNodeIP) (not (get $t.params "hostname")) -}}
+{{- fail (printf "bp-guacamole: connection %q declares no `hostname` parameter — a connection with nowhere to dial is not a connection" $t.name) -}}
+{{- end -}}
+{{- range $k, $v := $t.params -}}
+{{- if has $k $credentialParams -}}
+{{- fail (printf "bp-guacamole: connection %q sets credential parameter %q from values. Credentials must come from a Secret named by credentialSecretName and read at run time — never from values, this chart, or a ConfigMap (this repo is public)." $t.name $k) -}}
+{{- end -}}
+{{- if not (regexMatch "^[A-Za-z0-9._-]+$" $k) -}}
+{{- fail (printf "bp-guacamole: connection %q parameter name %q is not [A-Za-z0-9._-]+" $t.name $k) -}}
+{{- end -}}
+{{- if contains "'" (toString $v) -}}
+{{- fail (printf "bp-guacamole: connection %q parameter %q value contains a single quote, which would break the rendered shell word" $t.name $k) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -80,7 +160,10 @@ data:
     # admin-enroll function (#3374). Sourced by seed.sh (one-shot) + promote.sh
     # (per-minute CronJob).
     set -eu
-    CRED=/cnpg
+    # /cnpg in the Pod (the CNPG -app Secret projection). Overridable so the
+    # chart's own test harness can run THIS script — not a copy of it —
+    # against a throwaway Postgres (tests/connection-seed-sql.sh).
+    CRED="${CRED:-/cnpg}"
     PGHOST="$(cat "${CRED}/host")"
     PGPORT="$(cat "${CRED}/port" 2>/dev/null || echo 5432)"
     PGDATABASE="$(cat "${CRED}/dbname")"
@@ -130,8 +213,115 @@ data:
       cnt="$(printf '%s' "$n" | grep -c . || true)"
       echo "[jdbc-seed] enrolled ${cnt} user(s) into ${ADMIN_GROUP}"
     }
+    # ── connection producer (#5991 / UAT row 115) ──────────────────────────
+    # ensure_connection <name> <protocol>: create the connection if absent and
+    # grant the admin USER_GROUP READ on it (what makes it render in ALL
+    # CONNECTIONS for a member who is not a system admin).
+    #
+    # The absence guard is NOT EXISTS rather than ON CONFLICT because the
+    # schema's UNIQUE (connection_name, parent_id) does NOT dedupe root-level
+    # connections: parent_id is NULL there and Postgres treats NULLs as
+    # distinct, so a bare INSERT adds one duplicate per run — and this runs
+    # every minute from promote.sh.
+    #
+    # Every value crosses into SQL as a psql :'var' literal, never string
+    # concatenation, so a hostname or key containing a quote cannot terminate
+    # the statement.
+    ensure_connection() {
+      cname="$1"; cproto="$2"
+      $PSQL -v cname="$cname" -v cproto="$cproto" -v agroup="$ADMIN_GROUP" <<'SQL'
+    INSERT INTO guacamole_connection (connection_name, protocol)
+    SELECT :'cname', :'cproto'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM guacamole_connection
+      WHERE connection_name = :'cname' AND parent_id IS NULL
+    );
+    UPDATE guacamole_connection SET protocol = :'cproto'
+    WHERE connection_name = :'cname' AND parent_id IS NULL AND protocol <> :'cproto';
+    INSERT INTO guacamole_connection_permission (entity_id, connection_id, permission)
+    SELECT e.entity_id, c.connection_id, 'READ'::guacamole_object_permission_type
+    FROM guacamole_entity e
+    JOIN guacamole_connection c
+      ON c.connection_name = :'cname' AND c.parent_id IS NULL
+    WHERE e.name = :'agroup' AND e.type = 'USER_GROUP'
+      AND NOT EXISTS (
+        SELECT 1 FROM guacamole_connection_permission p
+        WHERE p.entity_id = e.entity_id AND p.connection_id = c.connection_id
+          AND p.permission = 'READ'
+      );
+    SQL
+    }
+    # set_connection_parameter <name> <param> <value>: converge one parameter.
+    # Empty value writes nothing — an empty hostname is a broken connection,
+    # not a connection.
+    set_connection_parameter() {
+      cname="$1"; pname="$2"; pvalue="$3"
+      if [ -z "$pvalue" ]; then
+        echo "[jdbc-seed] ${cname}: parameter ${pname} has no value — not written"
+        return 0
+      fi
+      $PSQL -v cname="$cname" -v pname="$pname" -v pvalue="$pvalue" <<'SQL'
+    INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+    SELECT c.connection_id, :'pname', :'pvalue'
+    FROM guacamole_connection c
+    WHERE c.connection_name = :'cname' AND c.parent_id IS NULL
+    ON CONFLICT (connection_id, parameter_name)
+    DO UPDATE SET parameter_value = EXCLUDED.parameter_value;
+    SQL
+    }
+    # load_connection_credentials <name> <dir>: credential material is read
+    # HERE, at run time, from a Secret mounted read-only — it is never in
+    # values, in this chart, or in the ConfigMap. The mount is optional, so an
+    # absent Secret leaves the connection credential-free (guacd then prompts
+    # the signed-in sovereign-admin) instead of failing the seed.
+    load_connection_credentials() {
+      cname="$1"; dir="$2"
+      [ -n "$dir" ] || return 0
+      if [ ! -d "$dir" ]; then
+        echo "[jdbc-seed] ${cname}: credential Secret not mounted — connection left credential-free"
+        return 0
+      fi
+      for key in username password private-key passphrase; do
+        [ -f "${dir}/${key}" ] || continue
+        set_connection_parameter "$cname" "$key" "$(cat "${dir}/${key}")"
+        echo "[jdbc-seed] ${cname}: ${key} sourced from the mounted Secret"
+      done
+    }
+    # seed_connections: converge the DECLARED set. The per-target blocks are
+    # rendered from .Values.guacamole.database.connections — declare nothing
+    # and this function's body is empty, which is deliberate: zero rows beats
+    # a fabricated one on a table that holds credentials.
+    seed_connections() {
+      if ! $PSQL -c "SELECT to_regclass('public.guacamole_connection');" 2>/dev/null | grep -q '^guacamole_connection$'; then
+        echo "[jdbc-seed] schema not yet present — connection seeding deferred"; return 0
+      fi
+{{- range $t := $targets }}
+      # ── target: {{ $t.name }} ({{ $t.protocol }}) ──
+  {{- if $t.hostnameFromNodeIP }}
+      # Hostname is this Sovereign's own node, learned from the downward API
+      # (status.hostIP) — no cluster read, no node list baked into the chart.
+      if [ -z "${NODE_IP:-}" ]; then
+        echo "[jdbc-seed] {{ $t.name }}: NODE_IP empty — connection NOT written (a target is never invented)"
+      else
+        ensure_connection '{{ $t.name }}' '{{ $t.protocol }}'
+        set_connection_parameter '{{ $t.name }}' 'hostname' "${NODE_IP}"
+    {{- range $k, $v := $t.params }}
+        set_connection_parameter '{{ $t.name }}' '{{ $k }}' '{{ toString $v }}'
+    {{- end }}
+        load_connection_credentials '{{ $t.name }}' "{{ if $t.credentialSecretName }}${CONN_CRED_DIR:-/conn-cred}/{{ $t.name }}{{ end }}"
+      fi
+  {{- else }}
+      ensure_connection '{{ $t.name }}' '{{ $t.protocol }}'
+    {{- range $k, $v := $t.params }}
+      set_connection_parameter '{{ $t.name }}' '{{ $k }}' '{{ toString $v }}'
+    {{- end }}
+      load_connection_credentials '{{ $t.name }}' "{{ if $t.credentialSecretName }}${CONN_CRED_DIR:-/conn-cred}/{{ $t.name }}{{ end }}"
+  {{- end }}
+{{- end }}
+      echo "[jdbc-seed] guacamole_connection holds $($PSQL -c 'SELECT count(*) FROM guacamole_connection;') row(s)"
+    }
   seed.sh: |
-    . /scripts/common.sh
+    . "${SCRIPTS_DIR:-/scripts}/common.sh"
     echo "[jdbc-seed] target=${PGHOST}:${PGPORT}/${PGDATABASE} user=${PGUSER}"
     wait_for_db
 
@@ -142,7 +332,7 @@ data:
       echo "[jdbc-seed] schema already present — skipping 001-create-schema.sql"
     else
       echo "[jdbc-seed] applying 001-create-schema.sql"
-      $PSQL -f /schema/001-create-schema.sql
+      $PSQL -f "${SCHEMA_DIR:-/schema}/001-create-schema.sql"
       echo "[jdbc-seed] schema applied"
     fi
 
@@ -186,11 +376,17 @@ data:
     #     (catch-up for owners who logged in before this seed ran). The
     #     per-minute admin-enroll CronJob covers first-login users going forward.
     enroll_admins
+
+    # (4) Converge the declared connection set (#5991 / UAT row 115). Runs
+    #     AFTER enrollment so a fault here can never cost the owner their
+    #     admin grant, and again every minute from promote.sh.
+    seed_connections
     echo "[jdbc-seed] done."
   promote.sh: |
-    . /scripts/common.sh
+    . "${SCRIPTS_DIR:-/scripts}/common.sh"
     wait_for_db
     enroll_admins
+    seed_connections
   # Verbatim Apache Guacamole 1.5.5 PostgreSQL schema, vendored into the chart
   # (files/postgresql/001-create-schema.sql) and pinned to
   # .Values.guacamole.webapp.image.tag. Loaded here so the seed container needs
@@ -247,6 +443,18 @@ spec:
           image: {{ $pgImage | quote }}
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "/scripts/seed.sh"]
+          # #5991: the node-shell connection's hostname. The downward API is
+          # the whole node-address mechanism — no cluster read, no RBAC, and
+          # nothing about the Sovereign's addresses baked into a public chart.
+          env:
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -265,6 +473,13 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
+            {{- range $i, $t := $targets }}
+            {{- if $t.credentialSecretName }}
+            - name: conn-cred-{{ $i }}
+              mountPath: {{ printf "/conn-cred/%s" $t.name | quote }}
+              readOnly: true
+            {{- end }}
+            {{- end }}
           resources:
             {{- toYaml ($sj.resources | default (dict "requests" (dict "cpu" "10m" "memory" "64Mi") "limits" (dict "cpu" "200m" "memory" "128Mi"))) | nindent 12 }}
       volumes:
@@ -279,6 +494,16 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 8Mi
+        {{- range $i, $t := $targets }}
+        {{- if $t.credentialSecretName }}
+        # #5991: connection credential for {{ $t.name }} — optional, so the
+        # connection is still produced (credential-free) when it is absent.
+        - name: conn-cred-{{ $i }}
+          secret:
+            secretName: {{ $t.credentialSecretName | quote }}
+            optional: true
+        {{- end }}
+        {{- end }}
 ---
 {{- /* #3374 (2026-06-14): per-minute admin-enroll CronJob. Binds every
    SSO-auto-created JDBC USER into <adminGroup> membership so the owner's FIRST
@@ -340,6 +565,19 @@ spec:
               image: {{ $pgImage | quote }}
               imagePullPolicy: IfNotPresent
               command: ["/bin/sh", "/scripts/promote.sh"]
+              # #5991: same downward-API node address as the seed Job — this
+              # CronJob is the CONVERGING leg of the connection producer, so a
+              # restored or rebuilt database returns to the declared set on its
+              # own within one minute.
+              env:
+                - name: NODE_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.hostIP
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
@@ -354,6 +592,13 @@ spec:
                   readOnly: true
                 - name: tmp
                   mountPath: /tmp
+                {{- range $i, $t := $targets }}
+                {{- if $t.credentialSecretName }}
+                - name: conn-cred-{{ $i }}
+                  mountPath: {{ printf "/conn-cred/%s" $t.name | quote }}
+                  readOnly: true
+                {{- end }}
+                {{- end }}
               resources:
                 requests:
                   cpu: 10m
@@ -373,4 +618,12 @@ spec:
               emptyDir:
                 medium: Memory
                 sizeLimit: 8Mi
+            {{- range $i, $t := $targets }}
+            {{- if $t.credentialSecretName }}
+            - name: conn-cred-{{ $i }}
+              secret:
+                secretName: {{ $t.credentialSecretName | quote }}
+                optional: true
+            {{- end }}
+            {{- end }}
 {{- end }}

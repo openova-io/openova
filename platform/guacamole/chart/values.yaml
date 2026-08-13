@@ -376,6 +376,58 @@ guacamole:
     # (operators only), so enrolling SSO users as admin matches the chart's
     # intent (same model as bp-newapi's promote CronJob). Idempotent.
     promoteSchedule: "* * * * *"
+    # ── Connection producer (#5991 / UAT row 115, 2026-08-13) ──────
+    # Everything above seeds IDENTITY — the <adminGroup> USER_GROUP and its
+    # ADMINISTER + CREATE_* system permissions. That is the RIGHT to create a
+    # connection; until this block existed, nothing in the repository ever
+    # inserted one, so `guacamole_connection` sat at zero rows on every
+    # Sovereign and a signed-in sovereign-admin landed on an empty ALL
+    # CONNECTIONS list. seed_connections() in the schema-seed ConfigMap is the
+    # producer; the per-minute enroll CronJob re-runs it, so the declared set
+    # converges rather than being written once.
+    #
+    # CREDENTIALS ARE NEVER DECLARED HERE. This repo is public and these
+    # values land in a ConfigMap. A target names an OPTIONAL Secret
+    # (`credentialSecretName`); the seeder mounts it read-only at
+    # /conn-cred/<connection-name> and reads the keys `username`, `password`,
+    # `private-key`, `passphrase` at run time. Setting any credential-shaped
+    # parameter under `parameters` FAILS the helm render on purpose.
+    connections:
+      # Master switch. OFF means the producer's body renders empty and writes
+      # zero rows — never a fabricated row.
+      enabled: true
+      # The default target, and the only one the chart can name on its own: a
+      # node of this Sovereign. Its address comes from the seeder Pod's own
+      # downward API (status.hostIP), so no node list is baked into the chart
+      # and the seeder needs no cluster read.
+      #
+      # HONEST LIMIT: the Sovereign's node sshd is key-only
+      # (`PasswordAuthentication no`, `PermitRootLogin prohibit-password` —
+      # infra/providers/_shared/cloudinit-control-plane.tftpl), and the node
+      # SSH private key is deliberately NOT in the cluster. Leave
+      # credentialSecretName empty and Guacamole opens the connection and
+      # prompts; point it at a Secret holding `private-key` (+ `passphrase`)
+      # and the session authenticates. Which operator holds that key is a
+      # Sovereign decision, not a platform one.
+      nodeShell:
+        enabled: true
+        name: sovereign-node
+        protocol: ssh
+        port: 22
+        username: root
+        credentialSecretName: ""
+      # Additional connections declared by the per-Sovereign overlay. Each
+      # entry: {name, protocol, parameters: {…}, credentialSecretName}. The
+      # `parameters` map is guacd's own parameter set (hostname, port, …) and
+      # must carry NO credential — see the render guard above.
+      #   extra:
+      #     - name: legacy-erp
+      #       protocol: rdp
+      #       parameters:
+      #         hostname: "10.42.7.12"
+      #         port: "3389"
+      #       credentialSecretName: guacamole-legacy-erp
+      extra: []
     # Image for the schema-seed Job's psql container (same CNPG postgres image
     # as the cluster — has psql). The schema SQL itself is copied out of the
     # guacamole webapp image by an initContainer.

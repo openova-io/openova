@@ -134,35 +134,74 @@ spec:
 
 ---
 
-## Connection definitions — DESIGN, NOT BUILT
+## Connection definitions — seeded by the chart (0.2.38)
 
-> **Status (2026-08-10, UAT row 115).** Nothing in this repository creates a
-> Guacamole connection. `guacamole_connection` is created empty by the Apache
-> schema DDL (`chart/files/postgresql/001-create-schema.sql:109`) and stays at
-> zero rows, so a signed-in sovereign-admin lands on an empty connections list.
->
-> The `GuacamoleConnection` CRD and the `relay-controller` that this section
-> previously described as reconciling it **do not exist** — no Go type, no CRD
-> manifest, no reconciler, no chart template; the only occurrences of either
-> name in the repo were the two sentences this note replaces. Documenting an
-> absent producer as a shipped one is how a missing component reads as a
-> configuration problem, so the design sketch is kept below explicitly labelled
-> as a sketch.
->
-> What DOES exist today, in `chart/templates/jdbc-schema-seed-job.yaml`, is the
-> identity + permission half: the `<adminGroup>` USER_GROUP (`:155-164`) and its
-> `ADMINISTER` + five `CREATE_*` system permissions (`:166-181`), plus the
-> per-minute admin-enroll CronJob (`:116-125`). That grants the *right* to
-> create connections; it creates none.
->
-> A seeded kubectl-shell connection additionally needs a wire fix, not just an
-> INSERT: `bp-k8s-ws-proxy` rejects any WebSocket upgrade without
-> `X-Catalyst-Timestamp` + `X-Catalyst-HMAC`
-> (`core/cmd/k8s-ws-proxy/DESIGN.md:32-37`, 401 at `:79`), and guacd's
-> `kubernetes` protocol handler cannot emit them — so a naively seeded row would
-> fail on click rather than open a shell.
+**Status (2026-08-13, UAT row 115 / #5991).** The chart now ships a connection
+**producer**. Until 0.2.38 nothing in this repository ever inserted into
+`guacamole_connection` — the table is created empty by the Apache schema DDL
+(`chart/files/postgresql/001-create-schema.sql:109`), the `GuacamoleConnection`
+CRD and `relay-controller` this section once described were never written, and
+catalyst-api's `GuacamoleClient` interface has no production implementation
+(`SetGuacamoleClient` has no non-test caller). So a signed-in sovereign-admin
+reached Guacamole successfully and landed on an empty connections list. The
+`<adminGroup>` USER_GROUP with `ADMINISTER` + five `CREATE_*` system permissions
+was already seeded — that is the *right* to create a connection, and it created
+none.
 
-Design sketch (target state — **not** reconciled by anything today):
+**What produces the rows.** `seed_connections()` in
+`chart/templates/jdbc-schema-seed-job.yaml`, alongside the existing identity
+seed. It runs from `seed.sh` on install/upgrade and again from `promote.sh` on
+the per-minute admin-enroll CronJob, so the set **converges**: a restored or
+rebuilt database returns to the declared set on its own. Writes are idempotent —
+the connection INSERT is `NOT EXISTS`-guarded (the schema's
+`UNIQUE (connection_name, parent_id)` does *not* dedupe root-level connections,
+because `parent_id` is NULL there and Postgres treats NULLs as distinct) and
+parameters converge via `ON CONFLICT … DO UPDATE`. Each connection also gets a
+`READ` grant for the admin USER_GROUP, so it renders for a member who is not a
+system admin.
+
+**The declared set** lives in `.Values.guacamole.database.connections`. The
+default is one target — `sovereign-node`, protocol `ssh`, port 22, user `root`.
+Its hostname is this Sovereign's own node address, taken from the seeder Pod's
+**downward API** (`status.hostIP`): no node list is baked into a public chart and
+the seeder needs no cluster read. Declare nothing and the producer's body
+renders empty — zero rows, never a fabricated one, which matters on a table that
+carries credentials.
+
+**Credentials never come from values or the chart.** A target names an *optional*
+Secret (`credentialSecretName`); the seeder mounts it read-only at
+`/conn-cred/<connection-name>` and reads `username` / `password` / `private-key`
+/ `passphrase` at run time. Setting a credential-shaped parameter under
+`parameters` fails the helm render on purpose — this repo is public and those
+values land in a ConfigMap.
+
+**Honest limits, so the next reader does not re-derive them.**
+
+- The Sovereign's node sshd is key-only (`PasswordAuthentication no`,
+  `PermitRootLogin prohibit-password` —
+  `infra/providers/_shared/cloudinit-control-plane.tftpl:118-136`), and the node
+  SSH private key is deliberately **not** in the cluster. With no
+  `credentialSecretName`, Guacamole opens the connection and prompts; point it at
+  a Secret holding `private-key` and the session authenticates. Who holds that
+  key is a Sovereign decision, not a platform one.
+- A **kubectl-shell** connection is not seeded, and not for want of an INSERT.
+  guacd's `kubernetes` protocol authenticates to the kube-apiserver by mTLS
+  client certificate only, and nothing in-cluster can mint an apiserver-trusted
+  client cert without granting the seeder CSR **approve** rights on the
+  `kubernetes.io/kube-apiserver-client` signer — which is not scopeable by CN and
+  is therefore cluster-admin-equivalent escalation. The other wire is no better:
+  `bp-k8s-ws-proxy` rejects any WebSocket upgrade without `X-Catalyst-Timestamp`
+  + `X-Catalyst-HMAC` (`core/cmd/k8s-ws-proxy/DESIGN.md:32-37`, 401 at `:79`) and
+  guacd cannot emit them. The browser shell into a Pod stays the console's
+  `/shells/issue` → k8s-ws-proxy → xterm.js path, which already works.
+
+Tests: `chart/tests/connection-seed-render.sh` (render + the empty-set control +
+the credential guard) and `chart/tests/connection-seed-sql.sh`, which executes
+the shipped `seed.sh`/`common.sh` against a throwaway Postgres and reads the
+tables back.
+
+Design sketch (a CRD-shaped future, **not** reconciled by anything today — the
+shipped model is the values-driven set above):
 
 ```yaml
 apiVersion: catalyst.openova.io/v1alpha1
@@ -185,10 +224,12 @@ spec:
     maxDurationMinutes: 60
 ```
 
-The intended model is that a controller reconciles `GuacamoleConnection` into
-Guacamole's PostgreSQL backend (managed by CNPG), the Catalyst console exposes a
-"Connections" tab, and sovereign-admin / org-admin grant connection access via
-Keycloak group membership. None of those three parts is built.
+That sketch's model is a controller reconciling `GuacamoleConnection` into
+Guacamole's PostgreSQL backend, a "Connections" tab in the Catalyst console, and
+JIT approval — **none of those three is built**. What 0.2.38 ships instead is the
+declarative values-driven set described above, written by the seed Job, which
+covers the "the list must not be empty for a sovereign-admin" contract without a
+CRD, a controller, or a console surface.
 
 ---
 

@@ -3908,7 +3908,16 @@ name: bp-catalyst-platform
 #   seed pin is the delivery half: without this republish a pinned Sovereign
 #   resolves 0.2.20 and never sees the failback. This chart's own templates are
 #   unchanged apart from the seed entry.
-version: 1.4.1439
+# 1.4.1440 — #5991 (UAT row 115): catalog-seed advances bp-guacamole 0.2.37 ->
+#   0.2.38, the release that finally WRITES a Guacamole connection. Nothing in
+#   the repository had ever inserted into `guacamole_connection`, so a signed-in
+#   sovereign-admin reached Guacamole and landed on an empty ALL CONNECTIONS
+#   list — the identity half (admin USER_GROUP + CREATE_* permissions) was the
+#   right to create a connection, not a connection. The seed pin is the delivery
+#   half: without this republish a pinned Sovereign resolves 0.2.37 and the list
+#   stays empty. This chart's own templates are unchanged apart from the seed
+#   entry.
+version: 1.4.1440
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
