@@ -49,13 +49,34 @@ describe('CreateOrganizationPage', () => {
 
   /* ── Organizations internal door (issue #3378 B1, DoD-4) ── */
 
-  it('defaults to customer kind with real + vcluster derived defaults', () => {
+  /* UAT row G7 — this test USED TO assert `data-isolation === 'vcluster'` on
+   * first render, and it was protecting a defect rather than behaviour.
+   *
+   * The form's own #5857 comment already recorded why 'vcluster' is wrong here:
+   * the boundary is authored by `boundaryIsVcluster(planSlug)` alone, the form
+   * sent no plan, the server normalised it to `s`, and the org-controller
+   * therefore built a host `<slug>` namespace. The badge asserted 'vcluster'
+   * over a namespace-backed Org — "the BACKING was always right, only the label
+   * ignored the tier", which is the exact mislabel isolationForTier was written
+   * to remove. Pinning it kept the page advertising a boundary it could not
+   * order, and made the honest value look like the regression.
+   *
+   * The kind-derived BILLING default is real behaviour and stays pinned.
+   * Isolation now follows the plan, so it is asserted against the default plan
+   * below and re-asserted for a paid tier in CreateOrganizationPage.plan-g7.test.tsx.
+   */
+  it('defaults to customer kind with real billing and the default plan S boundary', () => {
     render(<CreateOrganizationPage initialParentDomains={POOL} disableFetch />)
     expect(
       screen.getByTestId('create-org-kind-customer').getAttribute('aria-pressed'),
     ).toBe('true')
     expect(screen.getByTestId('create-org-billing-mode').getAttribute('data-mode')).toBe('real')
-    expect(screen.getByTestId('create-org-isolation').getAttribute('data-isolation')).toBe('vcluster')
+    // Plan defaults to S, and S shares the host namespace — so this is what the
+    // create will actually deliver.
+    expect(
+      (screen.getByTestId('create-org-plan-select') as HTMLSelectElement).value,
+    ).toBe('s')
+    expect(screen.getByTestId('create-org-isolation').getAttribute('data-isolation')).toBe('namespace')
   })
 
   it('selecting Internal renders showback + namespace defaults', () => {
@@ -185,11 +206,12 @@ describe('CreateOrganizationPage', () => {
     vi.mocked(createOrganization).mockRejectedValueOnce(new Error('stop here'))
     render(<CreateOrganizationPage initialParentDomains={POOL} disableFetch />)
 
-    // Sanity: the badge still SHOWS the kind default, so this is a
-    // wire-payload fix and not a visible-behaviour change.
+    // Sanity: the badge shows the boundary the DEFAULT PLAN delivers. This
+    // line used to assert 'vcluster' — the kind default — which is the mislabel
+    // described above rather than a property worth preserving (UAT row G7).
     expect(
       screen.getByTestId('create-org-isolation').getAttribute('data-isolation'),
-    ).toBe('vcluster')
+    ).toBe('namespace')
 
     fireEvent.change(screen.getByTestId('org-create-subdomain'), {
       target: { value: 'acme' },

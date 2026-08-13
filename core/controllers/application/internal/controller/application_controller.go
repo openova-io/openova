@@ -869,7 +869,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 	// written against `Mode`/`BcpTopology` (§8d).
 	fanoutFromTargets := len(spec.PlacementTargets) > 0
 	if bpTopo != nil || fanoutFromTargets {
-		appTopo := spec.Topology
+		// UAT row 60 (Refs #3375) — the operator's chosen posture lives in
+		// `spec.placement(.mode)`, NOT `spec.topology`. The latter is an
+		// OBJECT in the CRD, so parseSpec's NestedString read of it can only
+		// ever be "" and ResolveTopology's operator-override branch was
+		// unreachable from here: every Application resolved the Blueprint's
+		// region-count default, which is how an explicitly hot-standby app
+		// reached buildContinuumPlan as `singleton` and never armed a
+		// Switchover. See topology_override.go for the full derivation.
+		appTopo := topologyOverrideFromPlacement(spec.Placement, bpTopo)
 		sovRegions := len(envSpec.Regions)
 		var (
 			choice  bpv1alpha1.BcpTopology
@@ -3317,16 +3325,6 @@ type appSpec struct {
 	Regions          []string
 	Parameters       map[string]interface{}
 
-	// Topology — G117.6 (Refs #2745). When non-empty, the operator
-	// has explicitly chosen a BCP topology (one of "active-active",
-	// "active-hot-standby", "active-passive", "singleton"). The
-	// reconciler validates that the choice is in
-	// Blueprint.spec.topology.supported[]; on mismatch the
-	// Application moves to Ready=False, reason=InvalidTopology.
-	// When empty, the reconciler picks the Blueprint's default
-	// keyed on Sovereign-region-count (locked decision #7).
-	Topology string
-
 	// ── #3373 instance-level placement (object form of
 	// `spec.placement`) ──────────────────────────────────────────
 	//
@@ -3509,10 +3507,15 @@ func parseSpec(app *unstructured.Unstructured) (appSpec, error) {
 	params, _, _ := unstructured.NestedMap(app.Object, "spec", "parameters")
 	out.Parameters = params
 
-	// G117.6 (Refs #2745) — optional Application.spec.topology operator
-	// override. Empty string is the default-derived path.
-	tp, _, _ := unstructured.NestedString(app.Object, "spec", "topology")
-	out.Topology = tp
+	// UAT row 60 (Refs #3375) — the G117.6 `spec.topology` STRING read that
+	// used to live here is gone, and no `Topology` field replaces it. The CRD
+	// types `spec.topology` as an OBJECT (application.yaml:221 — autoFailover /
+	// rto / rpo / minReplicas), so NestedString could only ever return "" and
+	// the apiserver rejects a string there regardless. The field it fed was
+	// therefore a permanently-empty "operator override" that silently disabled
+	// ResolveTopology's override branch. The operator's posture is read from
+	// `spec.placement(.mode)` above (out.Placement) and reaches the fan-out via
+	// topologyOverrideFromPlacement.
 
 	// #3370 — optional spec.dependsOn[] backing-service wiring.
 	depsRaw, _, _ := unstructured.NestedSlice(app.Object, "spec", "dependsOn")
