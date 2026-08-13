@@ -144,18 +144,29 @@ func TestSovereignApps_OneCardPerApplicationCR_NoFanoutPhantom(t *testing.T) {
 }
 
 // TestSovereignApps_FanoutSuppressionScopedToPresentCRs proves the
-// suppression is not a blanket "drop every labelled HR". When the parent
-// Application CR is absent (deleted, or its CRD/RBAC unreadable — the
-// handler lists Applications in a separate best-effort call), the
-// HelmRelease is the only surviving representation of a real running
+// suppression is not a blanket "drop every labelled HR". When the
+// Application list cannot be READ (CRD not yet registered, or an RBAC
+// denial — the handler lists Applications in a separate best-effort call),
+// the HelmRelease is the only surviving representation of a real running
 // install and MUST still project a card. Without this the fix would trade
 // a duplicate card for a vanished one.
+//
+// #6249 — RE-POINTED, not weakened. This test previously ran against a
+// readable, EMPTY Application list and asserted that an orphan HR still
+// rendered an estate card. That is the condition UAT row 19 forbids: with
+// the Application list answering, an HR with no CR is not an Application,
+// and projecting it is exactly the hw296 11-vs-10 defect (see
+// sovereign_apps_estate_is_application_keyed_6249_test.go). The unreadable
+// case above is the one this test's own rationale names, and it is the one
+// that carries the real risk of a blank estate, so that is what it now
+// drives. The formerly-asserted case is covered with the opposite verdict
+// by TestSovereignApps_HelmReleaseWithoutApplicationCRIsNotAnEstateCard.
 func TestSovereignApps_FanoutSuppressionScopedToPresentCRs(t *testing.T) {
 	dynObjs := []runtime.Object{
-		// Labelled HR whose parent Application CR does NOT exist.
+		// Labelled HR whose parent Application CR cannot be looked up.
 		makeFannedOutHR("orphan-app", "hw290-rtz-a", "True"),
 	}
-	h := newSovereignHandler(t, nil, dynObjs)
+	h := newSovereignHandlerApplicationsUnreadable(t, dynObjs)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereign/apps", nil)
 	w := httptest.NewRecorder()
 	h.HandleSovereignApps(w, req)

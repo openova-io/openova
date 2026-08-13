@@ -401,14 +401,26 @@ func makeShareableHR(hrName, releaseName string, ready string, dbs []map[string]
 }
 
 // TestSovereignApps_BootstrapHRShareableInstanceCards is the #3537
-// regression: on a zero-touch converged prov the shared-pg / -b / -c
-// instances exist ONLY as bootstrap Flux HelmReleases (0 Application
-// CRs). The /api/v1/sovereign/apps handler must still project them as
-// instance:true cards WITH the ⛓ Contexts count — the exact gap the
-// founder hit live on hw138 (instance rows = 0, contextCount = 0) while
-// /catalyst/v1/catalog/postgres/instances correctly rendered them.
+// regression: during the first-bootstrap window the shared-pg / -b / -c
+// instances exist ONLY as bootstrap Flux HelmReleases, because the
+// Application CRD is not yet registered and the self-registering chart
+// template (gated on `.Capabilities.APIVersions.Has "apps.openova.io/v1"`)
+// has not emitted a CR yet. The /api/v1/sovereign/apps handler must still
+// project them as instance:true cards WITH the ⛓ Contexts count — the exact
+// gap the founder hit live on hw138 (instance rows = 0, contextCount = 0)
+// while /catalyst/v1/catalog/postgres/instances correctly rendered them.
+//
+// #6249 — RE-POINTED, not weakened. Every assertion below is unchanged;
+// only the precondition is now stated on the wire the way it actually
+// occurs. "No Application CRs yet" during bootstrap means the CRD is
+// UNREADABLE, not that an empty list came back: once the list answers, the
+// estate is Application-keyed and a shareable HR with no CR must not be an
+// estate card (UAT row 19 — the hw296 11-vs-10 defect, pinned in
+// sovereign_apps_estate_is_application_keyed_6249_test.go). Keeping this
+// test on a readable-but-empty list would have required the handler to
+// contradict that row.
 func TestSovereignApps_BootstrapHRShareableInstanceCards(t *testing.T) {
-	// THREE shareable HRs, ZERO Application CRs — the hw138 shape.
+	// THREE shareable HRs, Application CRD not yet registered — the hw138 shape.
 	dynObjs := []runtime.Object{
 		makeShareableHR("bp-postgres-shared", "shared-pg", "True", []map[string]interface{}{
 			{"name": "registry", "owner": "harbor", "consumer": map[string]interface{}{"blueprint": "bp-harbor"}},
@@ -422,7 +434,7 @@ func TestSovereignApps_BootstrapHRShareableInstanceCards(t *testing.T) {
 		// A non-shareable bootstrap HR must NOT become an instance card.
 		makeHR("bp-cilium", "flux-system", "True"),
 	}
-	h := newSovereignHandler(t, nil, dynObjs)
+	h := newSovereignHandlerApplicationsUnreadable(t, dynObjs)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereign/apps", nil)
 	w := httptest.NewRecorder()
 	h.HandleSovereignApps(w, req)
