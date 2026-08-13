@@ -168,6 +168,21 @@ func handleListOrganizations(ctx context.Context, id *identity.Identity, api *ca
 	items := resp.Items
 	// Org scoping: an Org-context caller sees only their own Organization.
 	// A sovereign-admin sees the full list.
+	//
+	// WHY A CLIENT-SIDE FILTER SURVIVES HERE when #5516 removed it from the
+	// applications path. The two seams are not alike. /api/v1/org/applications
+	// is STRUCTURALLY own-org — it has no way to name another Organization —
+	// so a filter on it can only subtract. /api/v1/organizations is the
+	// Sovereign-WIDE directory: it returns every Org to an operator, and is
+	// confined to the caller's own row only by catalyst-api's
+	// confineOrgResponsesToSlug (#6081, UAT row 218), which reaches an MCP
+	// caller through orgScopeForRequest's CLAIMS fallback — the MCP presents
+	// no Org console host, so the host half of that predicate does not fire.
+	// This filter is the second lock on a directory whose first lock depends
+	// on a claims path, and it costs nothing.
+	//
+	// It is only worth keeping while it can actually match, which is the bug
+	// fixed alongside this comment — see orgIdentityKeys.
 	if id.Context == identity.ContextOrganization {
 		items = filterOrgs(items, id.OrgID)
 	}
@@ -577,10 +592,42 @@ func filterOrgs(items []map[string]any, orgID string) []map[string]any {
 	return out
 }
 
-// orgMatches reports whether an org record's slug/id/name matches orgID.
+// orgIdentityKeys are the response fields that CARRY an Organization's
+// identity, in the shape GET /api/v1/organizations actually emits.
+//
+// `subdomain` is the live one and it was missing: the endpoint marshals
+// orgTenantResponse (organization_provisioning.go), whose Org slug is tagged
+// `json:"subdomain"` — there is no `slug`, `id`, `name`, `org_id` or
+// `organization` key anywhere in that payload. So the previous key list
+// matched NOTHING, filterOrgs dropped the caller's own row, and
+// list_organizations answered every Org-scoped caller with an empty
+// directory reported as success. That is the #5516 failure mode verbatim
+// ("a client-side filter … would drop EVERY row and report an empty estate
+// as success"), which the note at the foot of this file records for the
+// applications path — it survived here because this endpoint's payload was
+// never sampled. Pinned by TestListOrganizations… in org_scope_213_test.go,
+// which builds its fixture from the real JSON tags.
+//
+// `console_host` is deliberately ABSENT. It is `console.<slug>.<zone>`, so
+// under the leading-label comparison below its first label is the literal
+// "console" for every Organization on the Sovereign — matching on it would
+// make one Org's row match another's. An identity key must be the identity,
+// not a string that contains it.
+var orgIdentityKeys = []string{"subdomain", "slug", "id", "org_tenant_id", "name", "org_id", "organization"}
+
+// orgMatches reports whether an org record names the caller's Organization.
+//
+// It delegates to orgRefMatches — the SAME slug-vs-FQDN equivalence
+// create_application enforces — rather than re-deriving one. The two sides
+// previously disagreed: this function did an exact case-fold compare while
+// resolveCreateTargetOrg accepted "hw178" and "hw178.omani.works" as one
+// Org, so a token scoped to the FQDN could create in the Org it could not
+// see listed. orgRefMatches also rejects an empty ref on either side, which
+// the old compare did not — `EqualFold("", "")` is true, so a record with a
+// blank identity field matched a caller with no Org scope at all.
 func orgMatches(rec map[string]any, orgID string) bool {
-	for _, k := range []string{"slug", "id", "name", "org_id", "organization"} {
-		if v, ok := rec[k].(string); ok && strings.EqualFold(strings.TrimSpace(v), orgID) {
+	for _, k := range orgIdentityKeys {
+		if v, ok := rec[k].(string); ok && orgRefMatches(v, orgID) {
 			return true
 		}
 	}
