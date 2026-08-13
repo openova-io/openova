@@ -1115,6 +1115,16 @@ func validateApplicationUpdateRequest(req applicationUpdateRequest) (string, boo
 				return fmt.Sprintf("placement.regions[%d] is empty", i), false
 			}
 		}
+		// UAT row 60 (and the change half, row 16) — the SAME rule the install
+		// door applies, from the SAME helper so there is not a second
+		// authority. This door reaches it through the targets[] fold in
+		// applicationUpdateRequestNormalize, whose regionsFromPlacementTargets
+		// DEDUPES: a PlacementEditor Apply whose Primary and Standby name the
+		// same region arrives here as active-hot-standby over ONE region, and
+		// would otherwise be persisted as a standby-less hot-standby.
+		if msg := placementRegionCountError(req.Placement.Mode, req.Placement.Regions); msg != "" {
+			return msg, false
+		}
 		// #5616 — the placement TIER was never validated on this door at
 		// all, on either the flat field or the #3969 per-target form. It
 		// is the door the shipped Topology-tab PlacementEditor uses, and

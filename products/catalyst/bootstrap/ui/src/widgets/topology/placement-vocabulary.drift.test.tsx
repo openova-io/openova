@@ -17,7 +17,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { ALL_MODES, canonicalizeMode, describeMode } from './modes'
+import { ALL_MODES, MULTI_REGION_MODES, canonicalizeMode, describeMode, requiresMultipleRegions } from './modes'
 import { canonicalizeTopologyMode } from '@/lib/fleet.api'
 
 // THE canonical vocabulary — must mirror Go placement.CanonicalModes()
@@ -59,6 +59,29 @@ describe('#3375 DoD-1 — one placement vocabulary, every FE surface', () => {
     for (const spelling of [...CANONICAL_MODES, ...LEGACY_SPELLINGS]) {
       expect(canonicalizeTopologyMode(spelling)).toBe(canonicalizeMode(spelling))
     }
+  })
+
+  // UAT row 60 — the multi-region PARTITION of the same vocabulary. Three
+  // surfaces gate on it (the create dialog, the install page, and the
+  // catalyst-api's Go mirror placementModeRequiresMultipleRegions), and a
+  // mode that lands on the wrong side of it is a DR posture placed over one
+  // region — accepted, reported Ready, with no standby and no Continuum.
+  it('MULTI_REGION_MODES is exactly the canonical set MINUS singleton', () => {
+    const expected = ALL_MODES.filter((m) => m !== 'singleton')
+    expect([...MULTI_REGION_MODES].sort()).toEqual([...expected].sort())
+    // Stated the other way round so a FIFTH mode cannot be added to
+    // ALL_MODES without a deliberate decision here: every canonical mode is
+    // either the one-region posture or a multi-region one.
+    for (const mode of ALL_MODES) {
+      expect(requiresMultipleRegions(mode)).toBe(mode !== 'singleton')
+    }
+  })
+
+  it('requiresMultipleRegions canonicalises first, so a legacy spelling answers the same', () => {
+    expect(requiresMultipleRegions('active-hotstandby')).toBe(true)
+    expect(requiresMultipleRegions('active-hot-standby')).toBe(true)
+    expect(requiresMultipleRegions('single-region')).toBe(false)
+    expect(requiresMultipleRegions('singleton')).toBe(false)
   })
 
   it('the InstallPage placement <select> hard-codes exactly the canonical options (no legacy spelling)', () => {

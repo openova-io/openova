@@ -363,12 +363,24 @@ export function TopologyTab({
     const statusRegions = (status.regions ?? []) as RegionStatus[]
     // status.placement is an OBJECT on a real (#3373/#3969) controller; only
     // a pre-#3969 controller wrote the legacy posture string here.
+    //
+    // UAT row 16 — read the OBJECT form's `mode` too. `spec.placement` is
+    // dual-form (#3373) and the /status endpoint now reports it in the shape
+    // the CR holds instead of flattening it to a posture token, which is what
+    // makes rung 2 above reachable at all. This rung must not lose the posture
+    // in exchange: an object-form CR that carries `{mode, regions}` but no
+    // `targets[]` — the shape the "+ New instance" dialog writes — reaches
+    // here, and reading only the string form would leave `mode` empty and
+    // project an ACTIVE-ACTIVE app as primary+standby. Same dual-form read as
+    // declaresStandby below.
     const mode =
       typeof specPlacement === 'string'
         ? specPlacement
-        : typeof status.placement === 'string'
-          ? status.placement
-          : ''
+        : specPlacement && typeof (specPlacement as Record<string, unknown>).mode === 'string'
+          ? ((specPlacement as Record<string, unknown>).mode as string)
+          : typeof status.placement === 'string'
+            ? status.placement
+            : ''
     const regions = Array.isArray(app?.spec?.regions) ? app!.spec!.regions! : statusRegions.map((r) => r.name)
     const legacy = targetsFromLegacy({ mode, regions, statusRegions })
     // Nothing anywhere — an empty list is neither observed nor declared, and

@@ -281,11 +281,21 @@ export interface ApplicationStatusResponse {
   /**
    * #3599 — the create-time placement projected from the Application
    * CR's spec so the Topology tab reflects it without waiting for the
-   * controller to populate status.placement. `placement` is the editor
-   * posture string (single-region | active-active | active-hotstandby).
+   * controller to populate status.placement.
+   *
+   * `placement` is DUAL-FORM, exactly as `Application.spec.placement` is
+   * (#3373): the posture STRING on its own, or the #3969 object
+   * `{mode, vcluster, regions, clusters, targets, ownedDependencies}`.
+   *
+   * This type said `string` while the endpoint really did flatten the
+   * object form to a posture token — so it was accurate, and the pair of
+   * them silently made the Topology tab's `spec.placement.targets` read
+   * (its rung 2, the DESIRED placement an operator just Saved) unreachable
+   * (UAT row 16). Both sides now carry the CR's real shape; consumers must
+   * branch on `typeof`, which TopologyTab already does.
    */
   spec?: {
-    placement?: string
+    placement?: string | Record<string, unknown>
     regions?: string[]
     environmentRef?: string
     blueprintRef?: { name?: string; version?: string }
