@@ -370,7 +370,49 @@ name: bp-cilium
 #   auth=none the HTTPRoute targets the UPSTREAM hubble-ui Service, which this
 #   chart does not own, so crossRegion is a documented no-op there.
 #   Refs #5602 #5358 #5406.
-version: 1.4.19
+#
+# 1.4.20 (#6255, 2026-08-14): gateway-api-controller-watchdog — cilium-operator
+#   loses the Gateway-API CRD race against its OWN apiserver at boot and never
+#   recovers. Upstream v1.19.3 `operator/pkg/gateway-api/cell.go:135` opens a
+#   HARDCODED `context.WithTimeout(context.Background(), 30*time.Second)` around
+#   CRD discovery. It is not a flag — `gatewayApiConfig.Flags()` (cell.go:182-192)
+#   exposes secrets-sync / xff-hops / hostnetwork and nothing that widens it, so
+#   `operator.extraArgs` cannot reach it. On expiry `isTransientError`
+#   (cell.go:323-346) does not treat the `context deadline exceeded` as
+#   transient, so cell.go:148-155 logs "Required GatewayAPI resources are not
+#   found" and returns `{Enabled:false}, nil` — a NIL error. The hive cell
+#   SUCCEEDS, the operator stays alive and healthy on /healthz, and
+#   `initGatewayAPIController` (cell.go:210-213) returns immediately without
+#   registering the controller. Nothing re-invokes it for the process lifetime.
+#   Live A/B on hw296 (dep e689e3b34a75fdec), SAME chart, SAME version, SAME
+#   boot: region me-east-215-a `Invoked duration=16.84419141s`, controller
+#   running, Gateway 10 spec / 10 status; region me-east-215-b-1
+#   `Invoked duration=30.024306733s` after `dial tcp 10.179.1.83:6443: connect:
+#   connection refused`, controller never started, Gateway 10 spec / 6 status
+#   with the four per-Org listeners silently dropped. The console EIP pool spans
+#   both regions, so every per-Org customer door answered on exactly 50% of
+#   fresh TCP connections (15/30 served, vs a 27/30 control on the SAME EIP).
+#   The bootstrap-kit `dependsOn: bp-gateway-api` edge (#2614) stays correct but
+#   only orders the FIRST install — it cannot help an operator Pod restarting
+#   into a cold apiserver on node reboot, eviction, OOM or region-kill recovery.
+#   FIX (deployment-level, because the ceiling is upstream Go): a region-local
+#   `gateway-api-controller-watchdog` Deployment that runs the UNBOUNDED retry
+#   the operator lacks — no attempt cap, no deadline — then deletes the local
+#   cilium-operator Pod when the controller is provably not reconciling while
+#   the CRDs ARE Established. Liveness is a live generation-vs-observedGeneration
+#   and spec-vs-status-listener comparison, never a trust of written status (region
+#   B's stale 6 listeners were written by an earlier instance); `Programmed` is
+#   deliberately not asserted since `AddressNotAssigned` is normal under the §854
+#   hostPort model on BOTH regions. Apiserver-unreachable passes score UNKNOWN and
+#   never trigger a restart. Guarded by
+#   chart/tests/6255-gateway-api-controller-watchdog-slow-apiserver.sh, which
+#   holds a fake apiserver refused for 35s (longer than the 30s ceiling) and
+#   fails against both a no-watchdog world and a 30s-bounded variant.
+#   This supersedes the wildcard/SNI-collision hypothesis #5511 closed on:
+#   region A admits TWO per-Org wildcards simultaneously and reports 10/10,
+#   which is #5511's own proposed regression check, passing. Refs #6255 #5511
+#   #3376 #4290.
+version: 1.4.20
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`

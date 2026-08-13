@@ -150,7 +150,25 @@ spec:
       # empty"), which the SPA paints as a permanent "Idle / Data streams are
       # reconnecting…". crossRegion below anchors the singleton in the primary
       # region; the secondary keeps only a zero-backend mesh stub. Refs #5602.
-      version: 1.4.19
+      # 1.4.20 (#6255, 2026-08-14): gateway-api-controller-watchdog. This slot's
+      # `dependsOn: bp-gateway-api` edge above (#2614) orders the FIRST install
+      # and stays correct — but cilium-operator decides ONCE, at process start,
+      # whether to run its Gateway-API controller, and gives up after a HARDCODED
+      # 30s (upstream v1.19.3 operator/pkg/gateway-api/cell.go:135; no flag
+      # widens it), returning a NIL error so the operator stays alive and healthy
+      # with the controller permanently off. Ordering cannot help an operator Pod
+      # that RESTARTS into a cold local apiserver — node reboot, eviction, OOM,
+      # or region-kill recovery. hw296 (dep e689e3b34a75fdec): region
+      # me-east-215-b-1 `Invoked duration=30.024306733s` after
+      # `dial tcp 10.179.1.83:6443: connect: connection refused` and published 6
+      # of the console Gateway's 10 listeners, while region me-east-215-a on the
+      # SAME chart and version returned in 16.84s and published 10/10. The shared
+      # console EIP pool spans both regions, so every per-Org customer door
+      # answered on exactly 50% of fresh TCP connections. The chart now ships a
+      # region-local watchdog running the UNBOUNDED CRD retry the operator lacks,
+      # which restarts the local operator when the controller is provably not
+      # reconciling. Refs #6255 #5511.
+      version: 1.4.20
       sourceRef:
         kind: HelmRepository
         name: bp-cilium

@@ -1,0 +1,252 @@
+{{/*
+#6255 — gateway-api-controller-watchdog.
+
+WHAT IS BROKEN (upstream, and not reachable from any chart value)
+
+  cilium-operator decides ONCE, at process start, whether to run its Gateway-API
+  controller. Upstream cilium v1.19.3, `operator/pkg/gateway-api/cell.go:135`:
+
+      ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+
+  A hardcoded literal, with no pflag behind it — `gatewayApiConfig.Flags()`
+  (cell.go:182-192) exposes the secrets-sync / xff-hops / hostnetwork knobs and
+  nothing that widens this budget, so `operator.extraArgs` cannot reach it. On
+  expiry, `isTransientError` (cell.go:323-346) does not treat the resulting
+  `context deadline exceeded` as transient, so cell.go:148-155 logs
+  "Required GatewayAPI resources are not found" and returns
+  `&gatewayAPIPreconditions{Enabled: false}, nil` — a NIL ERROR. The hive cell
+  succeeds, the operator stays alive and healthy on /healthz, and
+  `initGatewayAPIController` (cell.go:210-213) returns immediately without ever
+  registering the controller. Nothing re-invokes it for the process lifetime.
+
+  Measured on hw296 (dep e689e3b34a75fdec, me-east-215-a / -b-1), 2026-08-13:
+  region B `Invoked duration=30.024306733s` + the error line; region A, same
+  chart, same version, same boot, `Invoked duration=16.84419141s` and no error.
+  Region B's own apiserver was `connection refused` for the first seconds of the
+  window — which on a fresh 2-region prov, and on every region-kill recovery
+  where the apiserver comes back cold, is a NORMAL condition and not an error.
+
+  Consequence: region B published 6 of the console Gateway's 10 listeners and
+  stopped reconciling the object. The console EIP pool spans both regions, so
+  every per-Org customer door answered on exactly 50% of fresh TCP connections
+  (15/30 served, against a 27/30 control on the same EIP). UAT rows R16/87/90/95.
+
+WHY A WATCHDOG AND NOT ORDERING
+
+  The bootstrap-kit already orders `bp-cilium dependsOn bp-gateway-api` (#2614,
+  clusters/_template/bootstrap-kit/01-cilium.yaml) and that stays correct — but
+  ordering only constrains the FIRST install. It does nothing for the case this
+  exists for: the operator Pod restarting (node reboot, eviction, OOM,
+  region-kill recovery) into a cold local apiserver. The fix has to be an
+  UNBOUNDED retry that lives OUTSIDE the operator process and re-invokes it once
+  the precondition it gave up on is satisfiable — a watch, not a one-shot poll.
+
+WHY AN INIT CONTAINER WAS REJECTED
+
+  Blocking inside the operator Pod would be the tighter fix, but upstream's
+  operator Deployment template (cilium/templates/cilium-operator/deployment.yaml)
+  exposes `extraVolumes` / `extraVolumeMounts` / `extraEnv` / `extraArgs` and NO
+  initContainers hook, so it would have to be injected by a Flux postRenderer —
+  and that would make cilium-operator, at bootstrap slot 01, unable to start
+  until it pulled a SECOND image. A pull failure there wedges the CNI itself.
+  A separate Deployment can be degraded (ImagePullBackOff, unscheduled) without
+  ever holding cilium back, which is why the same shape was chosen for
+  vpc-podcidr-route-reconciler (#5339).
+
+WHY A Deployment AND NOT A CronJob
+
+  Same reason as #5339 / #5157: a CronJob leaves a gap exactly at region-reboot,
+  which is precisely when the apiserver is coldest and this race is most likely.
+  replicas: 1 — a single evaluator; N racing instances would each restart the
+  same operator Pod.
+
+DEFAULT-ON, deliberately. This is a correctness fix for a defect that holds four
+acceptance rows red on every 2-region Sovereign, not an observability toggle;
+shipping it `enabled: false` would leave the defect live everywhere. It renders
+only when Gateway API is actually enabled, and `catalystOverlay
+.gatewayApiWatchdog.enabled=false` is the escape hatch.
+*/}}
+{{- $wd := dig "gatewayApiWatchdog" (dict) (.Values.catalystOverlay | default dict) }}
+{{- $gwapi := dig "gatewayAPI" (dict) (.Values.cilium | default dict) }}
+{{- if and (ne $wd.enabled false) (dig "enabled" false $gwapi) }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gateway-api-controller-watchdog
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: gateway-api-controller-watchdog
+    catalyst.openova.io/blueprint: bp-cilium
+    catalyst.openova.io/blueprint-version: {{ .Chart.Version | quote }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gateway-api-controller-watchdog
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: gateway-api-controller-watchdog
+rules:
+  # Read-only. The CRD Established condition is the unbounded gate's input; the
+  # GatewayClass/Gateway generations vs observedGenerations are the liveness
+  # comparison. The watchdog never writes a Gateway-API object.
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gatewayclasses", "gateways"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gateway-api-controller-watchdog
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: gateway-api-controller-watchdog
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: gateway-api-controller-watchdog
+subjects:
+  - kind: ServiceAccount
+    name: gateway-api-controller-watchdog
+    namespace: kube-system
+---
+# The ONLY mutation this component performs, scoped to kube-system by a Role
+# (not a ClusterRole): delete the local cilium-operator Pod so it re-executes
+# its start-time Gateway-API precondition. `resourceNames` is deliberately
+# absent — operator Pod names carry a random ReplicaSet suffix, so a name pin
+# would silently stop matching on the first roll (docs/PRINCIPLES.md
+# anti-pattern: an RBAC rule that cannot fire).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gateway-api-controller-watchdog
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: gateway-api-controller-watchdog
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gateway-api-controller-watchdog
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: gateway-api-controller-watchdog
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gateway-api-controller-watchdog
+subjects:
+  - kind: ServiceAccount
+    name: gateway-api-controller-watchdog
+    namespace: kube-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-api-controller-watchdog-script
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: gateway-api-controller-watchdog
+    catalyst.openova.io/blueprint: bp-cilium
+    catalyst.openova.io/blueprint-version: {{ .Chart.Version | quote }}
+data:
+  # Sourced from chart/files/ via .Files.Get rather than inlined, so
+  # chart/tests/6255-gateway-api-controller-watchdog-slow-apiserver.sh executes
+  # the EXACT bytes that get mounted into the Pod. An inlined heredoc would let
+  # the tested script and the shipped script drift apart silently; the guard's
+  # render case re-asserts that this ConfigMap still carries the file.
+  # trimSuffix "\n" keeps the rendered block byte-identical to the file (helm's
+  # `indent` would otherwise emit a trailing 4-space line), so the guard's diff
+  # is exact rather than whitespace-tolerant.
+  watchdog.sh: |
+{{ .Files.Get "files/gateway-api-controller-watchdog.sh" | trimSuffix "\n" | indent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-api-controller-watchdog
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: bp-cilium
+    app.kubernetes.io/component: gateway-api-controller-watchdog
+    catalyst.openova.io/blueprint: bp-cilium
+    catalyst.openova.io/blueprint-version: {{ .Chart.Version | quote }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bp-cilium
+      app.kubernetes.io/component: gateway-api-controller-watchdog
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-cilium
+        app.kubernetes.io/component: gateway-api-controller-watchdog
+      annotations:
+        # Roll the Pod whenever the script changes, so a chart bump that edits
+        # the watchdog actually takes effect without a manual delete.
+        checksum/script: {{ .Files.Get "files/gateway-api-controller-watchdog.sh" | sha256sum | trunc 16 | quote }}
+    spec:
+      serviceAccountName: gateway-api-controller-watchdog
+      containers:
+        - name: watchdog
+          # alpine/k8s toolbox (bash + kubectl + jq), dockerhub-proxied per
+          # MIRROR-EVERYTHING — the same image and tag the sibling
+          # vpc-podcidr-route-reconciler already ships in this chart.
+          image: {{ (default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.30.0" $wd.image) | quote }}
+          command: ["bash", "/opt/watchdog/watchdog.sh"]
+          env:
+            - name: WATCHDOG_INTERVAL_SECONDS
+              value: {{ (default 30 $wd.intervalSeconds) | quote }}
+            - name: WATCHDOG_CRD_BACKOFF_MAX_SECONDS
+              value: {{ (default 30 $wd.crdBackoffMaxSeconds) | quote }}
+            - name: WATCHDOG_FAILURE_THRESHOLD
+              value: {{ (default 3 $wd.failureThreshold) | quote }}
+            - name: WATCHDOG_RESTART_COOLDOWN_SECONDS
+              value: {{ (default 300 $wd.restartCooldownSeconds) | quote }}
+            - name: WATCHDOG_GATEWAY_CLASS
+              value: {{ (default "cilium" $wd.gatewayClass) | quote }}
+            # readOnlyRootFilesystem is on, so give kubectl a writable HOME for
+            # its discovery cache ($HOME/.kube/cache). Cache writes are
+            # best-effort in client-go, but without this every 30s pass pays a
+            # full discovery round-trip against the apiserver this component
+            # exists to be gentle with.
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: script
+              mountPath: /opt/watchdog
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+      volumes:
+        - name: script
+          configMap:
+            name: gateway-api-controller-watchdog-script
+        - name: tmp
+          emptyDir: {}
+{{- end }}
