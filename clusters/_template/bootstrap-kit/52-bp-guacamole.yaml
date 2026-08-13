@@ -206,7 +206,7 @@ spec:
       # Sovereign's own node, address from the downward API) and the
       # per-minute enroll CronJob re-converges it. Credentials come from an
       # optional Secret, never from values.
-      version: 0.2.38
+      version: 0.2.39
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole
