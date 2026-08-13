@@ -135,8 +135,32 @@ func (h *Handler) seedAnthropicToken(ctx context.Context) AnthropicSeedOutcome {
 		return AnthropicSeedOutcomeSkippedNoBao
 	}
 
-	apiKey := strings.TrimSpace(os.Getenv(anthropicSeedAPIKeyEnv))
-	credsJSON := strings.TrimSpace(os.Getenv(anthropicSeedCredentialsJSONEnv))
+	// #6163 FREEZE 1 — read the operator's Secret LIVE, with the process env
+	// as the fallback.
+	//
+	// `CATALYST_ANTHROPIC_API_KEY` / `CATALYST_ANTHROPIC_CREDENTIALS_JSON` are
+	// secretKeyRef env vars, and a container's environment is materialised ONCE
+	// at container start. Reading them with os.Getenv on every pass meant this
+	// ten-minute self-heal loop re-wrote, forever, the credential the process
+	// booted with. The seeded value is a claudeAiOauth pair whose accessToken
+	// lives hours; when it expired the operator edited
+	// catalyst-system/sovereign-anthropic-credentials and NOTHING changed,
+	// because the running process could not see the edit. Rotation only ever
+	// took effect on a catalyst-api roll, which nothing triggers — so the loop
+	// meant to heal the outage was re-applying the stale snapshot that caused
+	// it. A self-repeat, not a self-heal.
+	//
+	// Live read first, env second. The fallback is not politeness: a Sovereign
+	// that never adopted the Secret (or a Catalyst-Zero/CI process with no
+	// in-cluster identity) keeps exactly its previous behaviour, so this cannot
+	// regress an install that works today.
+	apiKey, credsJSON := anthropicCredentialFromSecret()
+	if apiKey == "" {
+		apiKey = strings.TrimSpace(os.Getenv(anthropicSeedAPIKeyEnv))
+	}
+	if credsJSON == "" {
+		credsJSON = strings.TrimSpace(os.Getenv(anthropicSeedCredentialsJSONEnv))
+	}
 	if apiKey == "" && credsJSON == "" {
 		// 🛑 FOUNDER-SUPPLIED-SECRET GAP: the platform holds no Anthropic
 		// credential. Surface loud + skip rather than seed an empty path
