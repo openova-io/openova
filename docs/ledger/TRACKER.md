@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T18:00:05Z` |
+| Last refreshed | `2026-08-13T18:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T18:13 | [#6251](https://github.com/openova-io/openova/pull/6251) | #3537 | fix(sovereign-api): the /apps estate is Application-keyed, n |
+| 2026-08-13T18:05 | [#6250](https://github.com/openova-io/openova/pull/6250) | #6236 | fix(uat): the drift guard and reset-uat encoded two founder  |
 | 2026-08-13T17:38 | [#6248](https://github.com/openova-io/openova/pull/6248) | #6243 | docs(uat): hw296 live walk — 26 rows stamped; the env carrie |
 | 2026-08-13T17:16 | [#6247](https://github.com/openova-io/openova/pull/6247) | #6246 | fix(bootstrap-kit): slot 13 carries unresolved conflict mark |
 | 2026-08-13T17:12 | [#6246](https://github.com/openova-io/openova/pull/6246) | #6230 | fix(bp-k8s-ws-proxy,bp-guacamole): the seeded Guacamole conn |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-13T07:04 | [#6216](https://github.com/openova-io/openova/pull/6216) | #6214 | fix(cutover): run the isolation proof LAST — step-08 was gat |
 | 2026-08-13T06:57 | [#6215](https://github.com/openova-io/openova/pull/6215) | #6163 | fix(anthropic): read the operator's credential Secret live — |
 | 2026-08-13T05:52 | [#6213](https://github.com/openova-io/openova/pull/6213) | #4901 | fix(dr): preflight-02 can now Fail on a 2-region Sovereign — |
-| 2026-08-13T05:15 | [#6212](https://github.com/openova-io/openova/pull/6212) | #6193 | docs(ledger): convergence capture 2026-08-13T04:43:19Z — hw2 |
-| 2026-08-13T04:20 | [#6210](https://github.com/openova-io/openova/pull/6210) | #4277 | docs(wbs): section 1-B — every failing row now has a measure |
 
 ---
 
