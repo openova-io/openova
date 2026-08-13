@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T19:45:02Z` |
+| Last refreshed | `2026-08-13T20:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T19:46 | [#6258](https://github.com/openova-io/openova/pull/6258) | #6250 | fix(uat): carry-forward outranks the flush rule it replaced  |
+| 2026-08-13T19:54 | [#6257](https://github.com/openova-io/openova/pull/6257) | #4293 | fix(catalyst): four unowned UAT rows — G7 plan door, row 60  |
 | 2026-08-13T19:08 | [#6256](https://github.com/openova-io/openova/pull/6256) | #4290 | docs(uat): hw296 seven-row walk — the funnel completes end t |
 | 2026-08-13T19:09 | [#6254](https://github.com/openova-io/openova/pull/6254) | #6246 | fix(cutover): a hollow chart pin is TERMINAL, not "wait for  |
 | 2026-08-13T18:22 | [#6252](https://github.com/openova-io/openova/pull/6252) | #6246 | fix(guards): the expected bootstrap DAG never learned the tw |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-13T09:45 | [#6222](https://github.com/openova-io/openova/pull/6222) | #6217 | fix(agenity): the credential init container WAITS instead of |
 | 2026-08-13T09:00 | [#6221](https://github.com/openova-io/openova/pull/6221) | #6156 | test(dr): cover preflight-02's CALL SITE, not just the seam  |
 | 2026-08-13T08:57 | [#6220](https://github.com/openova-io/openova/pull/6220) | #5245 | docs(runbooks): §6.1's reverse leg covers the cnpg-pair pair |
-| 2026-08-13T09:07 | [#6219](https://github.com/openova-io/openova/pull/6219) | #6148 | fix(cnpg-pair): guard the peer-ahead hold so the stale prima |
-| 2026-08-13T07:41 | [#6218](https://github.com/openova-io/openova/pull/6218) | #6216 | docs(uat): cite the two merged fixes on the eight rows they  |
 
 ---
 
