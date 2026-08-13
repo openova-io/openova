@@ -94,7 +94,10 @@ func (s *rwKVServer) client() *openbao.Client {
 // absent path → false, present-with-value → true, present-but-empty → false.
 func Test_openbaoPathHasProperty(t *testing.T) {
 	srv := newRWKVServer(t)
-	srv.seedPresent("catalyst/anthropic/token", map[string]any{"apiKey": "sk-ant-x", "credentialsJson": ""})
+	// #6250: an apiKey with an EMPTY credentialsJson is NOT a healthy path —
+	// claude-code authenticates from the OAuth blob. A genuinely all-present
+	// pass needs a credential that can authenticate.
+	srv.seedPresent("catalyst/anthropic/token", map[string]any{"apiKey": "FAKE-not-a-real-api-key", "credentialsJson": validAnthropicCredentialsJSON()})
 	srv.seedPresent("catalyst/agenity/hollow/mcp-bearer", map[string]any{"bearer": "  "})
 
 	h := &Handler{log: silentLogger()}
@@ -123,7 +126,10 @@ func Test_openbaoPathHasProperty(t *testing.T) {
 func Test_runSeedReconcilePass_NoChurnWhenAllPresent(t *testing.T) {
 	srv := newRWKVServer(t)
 	srv.seedPresent("catalyst/newapi/admin-token", map[string]any{"ADMIN_API_TOKEN": "bridge-secret"})
-	srv.seedPresent("catalyst/anthropic/token", map[string]any{"apiKey": "sk-ant-x", "credentialsJson": ""})
+	// #6250: an apiKey with an EMPTY credentialsJson is NOT a healthy path —
+	// claude-code authenticates from the OAuth blob. A genuinely all-present
+	// pass needs a credential that can authenticate.
+	srv.seedPresent("catalyst/anthropic/token", map[string]any{"apiKey": "FAKE-not-a-real-api-key", "credentialsJson": validAnthropicCredentialsJSON()})
 
 	h := &Handler{log: silentLogger()}
 	h.openbao = srv.client()
@@ -147,8 +153,8 @@ func Test_runSeedReconcilePass_SelfHealsAbsentGlobalSeed(t *testing.T) {
 
 	h := &Handler{log: silentLogger()}
 	h.openbao = srv.client()
-	t.Setenv(anthropicSeedAPIKeyEnv, "sk-ant-selfheal")
-	t.Setenv(anthropicSeedCredentialsJSONEnv, "")
+	t.Setenv(anthropicSeedAPIKeyEnv, "FAKE-not-a-real-api-key")
+	t.Setenv(anthropicSeedCredentialsJSONEnv, validAnthropicCredentialsJSON())
 
 	h.runSeedReconcilePass(context.Background())
 
@@ -212,5 +218,5 @@ func Test_StartSovereignSeedReconciler_DormantWhenNoOpenBao(t *testing.T) {
 	h := &Handler{log: silentLogger()}
 	// h.openbao deliberately nil.
 	h.StartSovereignSeedReconciler(context.Background()) // must return immediately, no panic.
-	h.runSeedReconcilePass(context.Background())          // must no-op, no panic.
+	h.runSeedReconcilePass(context.Background())         // must no-op, no panic.
 }

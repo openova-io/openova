@@ -220,6 +220,52 @@ the OAuth journey until upstream `claude-code` gains a reliable
 non-interactive refresh — track it as a recurring per-Sovereign chore, not a
 one-time seed.
 
+### The Sovereign-side verdict: absent, unusable and valid are three states (#6250)
+
+Everything above is the per-Org (workspace) half. The producer half —
+`seedAnthropicToken`, which writes this OpenBao path at Org-create and every ten
+minutes thereafter — used to answer only **two** of the three questions an
+operator can be in, and the missing one is the one a stale Sovereign is
+usually in:
+
+| Sovereign state | catalyst-api verdict | what the operator sees |
+|---|---|---|
+| **absent** — no credential configured | `skipped-no-env`, loud ERROR naming the Secret to create | correct, and correct since #4277 |
+| **valid** — a `claudeAiOauth` blob that can authenticate | `seeded` | correct |
+| **unusable** — configured and cannot authenticate | ~~`seeded`~~ → `unusable-credential-seeded` | **was reported as success** |
+
+`unusable` covers three real operator states, each with its own remediation, so
+the log line names which one it is:
+
+- **key-only** — `apiKey` is set and `credentialsJson` is empty. `claude-code`
+  authenticates from the OAuth blob, so this cannot spawn an agent at all.
+- **malformed** — `credentialsJson` is not a `claudeAiOauth` document. The
+  commonest shape is a bare `sk-ant-oat01-…` token pasted into that field.
+- **expired** — the right document, an `accessToken` past its `expiresAt`.
+  Given the hours-long lifetime described above, this is the **steady state**
+  of a credential nobody rotated, not a rare edge. Remediation is **rotation**,
+  not creation — which is why it must not share a message with `absent`.
+
+Two consequences worth knowing before reading a log:
+
+- The unusable value **is still written** to the OpenBao path, deliberately, so
+  the per-Org ExternalSecret syncs and the workspace's own init container can
+  diagnose from the real bytes rather than reporting a generic "credential never
+  arrived". What changed is that catalyst-api no longer calls it seeded.
+- The write is **withheld** when the stored path already holds a credential that
+  works (outcome `unusable-credential-withheld`) — a fat-fingered rotation must
+  not demote a Sovereign whose workspaces authenticate today.
+
+The ten-minute self-heal loop asks the same question of what is **already
+stored**: its health check is `credentialsJson` being present *and usable*, not
+`apiKey` **or** `credentialsJson` being non-empty. Under the old check a path
+holding an apiKey and an empty `credentialsJson` read healthy and the loop went
+silent for the life of the cluster, while every Agenity workspace on the
+Sovereign refused to start. A stored credential that cannot work now re-seeds if
+a usable source exists, and otherwise keeps reporting
+`[SEED-RECONCILE] 🛑 self-heal did NOT take` with the rotation remediation
+attached.
+
 > **Why not chart-seed it?** A Helm-seeded placeholder would pin an **empty**
 > value forever under the reflector/ESO empty-seed trap (the bp-wordpress-tenant
 > empty-password lesson) — the agent would then hold a permanently-blank

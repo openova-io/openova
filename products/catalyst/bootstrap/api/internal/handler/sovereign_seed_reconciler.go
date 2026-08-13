@@ -172,15 +172,33 @@ func (h *Handler) runSeedReconcilePass(ctx context.Context) {
 		func() { _ = h.seedNewapiAdminToken(ctx) },
 	)
 
-	// (2) anthropic token — Sovereign-GLOBAL. Seed only when the path lacks a
-	// non-empty apiKey AND credentialsJson. seedAnthropicToken loud-skips when
-	// the founder cred env is unset, so on a credless Sovereign the path stays
+	// (2) anthropic token — Sovereign-GLOBAL. seedAnthropicToken loud-skips
+	// when the founder cred is unset, so on a credless Sovereign the path stays
 	// absent and the loop keeps (usefully) surfacing that gap.
+	//
+	// #6250 — TWO corrections to what this leg calls healthy, because the old
+	// check could not see the failure mode that actually strands UAT R19/G8/G9:
+	//
+	//   props was []string{"apiKey", "credentialsJson"} and the presence check
+	//   is an OR, so a path holding an apiKey and an EMPTY credentialsJson read
+	//   HEALTHY. claude-code authenticates from the OAuth blob; an apiKey-only
+	//   path cannot spawn an agent, and the bp-agenity init container waits out
+	//   credentialWait and exits non-zero (#6163 FREEZE 2). The loop meanwhile
+	//   said nothing, forever. credentialsJson is the load-bearing property, so
+	//   it is the only one named.
+	//
+	//   Presence is still not health: a credentialsJson that expired six hours
+	//   ago is non-empty and useless. The seeded blob is a claudeAiOauth pair
+	//   whose accessToken lives HOURS and nothing refreshes it, so an unrotated
+	//   credential spends most of its life in exactly that state. The usable
+	//   predicate asks of the stored bytes the same question the workspace pod
+	//   asks of them one layer down.
 	h.reconcileGlobalSeed(ctx,
 		"anthropic",
 		anthropicSeedMountPath, anthropicSeedSecretPath,
-		[]string{"apiKey", "credentialsJson"},
+		[]string{"credentialsJson"},
 		func() { _ = h.seedAnthropicToken(ctx) },
+		anthropicStoredCredentialUsable,
 	)
 
 	// (3) per-Org mcp-bearer. Enumerate every Organization CR (the single
@@ -262,7 +280,10 @@ const (
 var seedRemediation = map[string]string{
 	"anthropic": "set CATALYST_ANTHROPIC_CREDENTIALS_JSON (and optionally CATALYST_ANTHROPIC_API_KEY) on catalyst-api " +
 		"— chart values sovereign.anthropic.*, or the operator-rotatable Secret catalyst-system/sovereign-anthropic-credentials (#4277). " +
-		"Until then every Organization's agenity-anthropic-token ExternalSecret stays SecretSyncedError and no Agenity workspace agent can authenticate.",
+		"Until then every Organization's agenity-anthropic-token ExternalSecret stays SecretSyncedError and no Agenity workspace agent can authenticate. " +
+		"If a credential IS already set, this leg also reports unhealed when the stored credentialsJson cannot authenticate — empty, " +
+		"not a claudeAiOauth document, or EXPIRED — in which case the action is to ROTATE that Secret, not to create it (#6250). " +
+		"The preceding 'anthropic seed' line names which of the two it is.",
 	"newapi-admin-token": "NewAPI's bridge Secret has not rendered its ADMIN_SECRET yet — check the bp-newapi HelmRelease (#4477). " +
 		"Until then the catalyst-newapi-admin-token ExternalSecret stays SecretSyncedError and unified-rbac's admin-API calls 401.",
 }
@@ -292,8 +313,17 @@ var seedRemediation = map[string]string{
 //
 // Returns the outcome so a caller/test can assert on a value instead of on log
 // text. Callers may ignore it — the loud line is the operator-facing surface.
-func (h *Handler) reconcileGlobalSeed(ctx context.Context, label, mount, path string, props []string, seed func()) SeedHealOutcome {
-	present, err := h.openbaoPathHasProperty(ctx, mount, path, props...)
+// The optional trailing `usable` predicate (#6250) upgrades the check from
+// PRESENCE to HEALTH for seams where a non-empty value can still be unusable —
+// the anthropic leg, whose stored OAuth blob expires in hours. Omit it and the
+// behaviour is exactly the pre-#6250 presence semantics, which is what the
+// newapi leg and every existing test still get.
+func (h *Handler) reconcileGlobalSeed(ctx context.Context, label, mount, path string, props []string, seed func(), usable ...func(map[string]any) bool) SeedHealOutcome {
+	var healthy func(map[string]any) bool
+	if len(usable) > 0 {
+		healthy = usable[0]
+	}
+	present, err := h.openbaoPathIsHealthy(ctx, mount, path, props, healthy)
 	if err != nil {
 		if h.log != nil {
 			h.log.Warn("[SEED-RECONCILE] presence check failed; skipping this pass — retry next tick",
@@ -312,7 +342,7 @@ func (h *Handler) reconcileGlobalSeed(ctx context.Context, label, mount, path st
 	}
 	seed()
 
-	healed, verr := h.openbaoPathHasProperty(ctx, mount, path, props...)
+	healed, verr := h.openbaoPathIsHealthy(ctx, mount, path, props, healthy)
 	if verr != nil {
 		if h.log != nil {
 			h.log.Warn("[SEED-RECONCILE] self-heal verification read failed — outcome UNKNOWN this pass, retry next tick",
@@ -349,6 +379,20 @@ func (h *Handler) reconcileGlobalSeed(ctx context.Context, label, mount, path st
 //   - transport error           → (false, err): the caller skips this pass and
 //     retries next tick (a write would fail against the same blip).
 func (h *Handler) openbaoPathHasProperty(ctx context.Context, mount, path string, props ...string) (bool, error) {
+	return h.openbaoPathIsHealthy(ctx, mount, path, props, nil)
+}
+
+// openbaoPathIsHealthy is openbaoPathHasProperty plus, when `usable` is
+// supplied, a verdict on the VALUE rather than only on its emptiness (#6250).
+//
+// A nil predicate is the presence-only semantics documented above, unchanged.
+// A non-nil one runs ONLY after presence passes, so an absent or hollow path is
+// still reported as the #4877 gap and never handed to a predicate that has
+// nothing to judge. The predicate answering false means "present but cannot do
+// its job" — same verdict as absent, because the consumer cannot tell the two
+// apart either: an Agenity workspace given an expired blob and an Agenity
+// workspace given no blob both fail to start an agent.
+func (h *Handler) openbaoPathIsHealthy(ctx context.Context, mount, path string, props []string, usable func(map[string]any) bool) (bool, error) {
 	data, err := h.openbao.GetKVv2(ctx, mount, path)
 	if err != nil {
 		if errors.Is(err, openbao.ErrSecretNotFound) {
@@ -356,10 +400,18 @@ func (h *Handler) openbaoPathHasProperty(ctx context.Context, mount, path string
 		}
 		return false, err
 	}
+	found := false
 	for _, p := range props {
 		if s, ok := data[p].(string); ok && strings.TrimSpace(s) != "" {
-			return true, nil
+			found = true
+			break
 		}
 	}
-	return false, nil
+	if !found {
+		return false, nil
+	}
+	if usable != nil && !usable(data) {
+		return false, nil
+	}
+	return true, nil
 }
