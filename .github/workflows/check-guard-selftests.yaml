@@ -28,10 +28,12 @@ on:
     branches: [main]
     paths:
       - 'scripts/check-*.sh'
+      - 'scripts/uat-pivot.py'
       - '.github/workflows/**'
   pull_request:
     paths:
       - 'scripts/check-*.sh'
+      - 'scripts/uat-pivot.py'
       - '.github/workflows/**'
   workflow_dispatch:
 
@@ -133,3 +135,11 @@ jobs:
       # the meta-gate's own contract and belongs in its own PR.
       - name: umbrella sibling-build gate (#6262)
         run: python3 scripts/check-sibling-chart-builds.py --self-test
+
+      # The 6-hourly convergence report is only as honest as this renderer.
+      # It grouped cycles by DATE, so four cycles a day collapsed to one and a
+      # lost green could go unnamed while the output looked confident. Not a
+      # check-*.sh, so the meta-gate cannot see it either — wired by hand for
+      # the same reason (#6272).
+      - name: convergence pivot — per-cycle keying + reconciliation (#6114)
+        run: python3 scripts/uat-pivot.py --self-test
