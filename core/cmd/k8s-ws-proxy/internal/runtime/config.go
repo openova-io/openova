@@ -47,6 +47,56 @@ type Config struct {
 	// HandshakeTimeout caps the per-request HTTP→WebSocket upgrade.
 	// Defaults to 10s.
 	HandshakeTimeout time.Duration
+
+	// ── TLS listener + mTLS client-certificate auth (#5991) ──────────
+	//
+	// All of this is ADDITIVE. With TLSCertFile/TLSKeyFile unset the
+	// binary starts exactly one plaintext listener on ListenAddr, as it
+	// always has, and ClientCertSubjects is inert.
+
+	// TLSListenAddr is the bind address for the TLS listener. Only used
+	// when TLSCertFile and TLSKeyFile are both set. Defaults to ":8443".
+	TLSListenAddr string
+
+	// TLSCertFile / TLSKeyFile are the proxy's server certificate and
+	// private key, mounted from a cert-manager-issued Secret. BOTH must
+	// be set to start the TLS listener; one without the other is a
+	// configuration error rather than a silent downgrade to plaintext.
+	TLSCertFile string
+	TLSKeyFile  string
+
+	// TLSClientCAFile is the CA bundle that client certificates must
+	// chain to. Required whenever ClientCertSubjects is non-empty: an
+	// allowlist with no CA to verify against would accept a subject
+	// claimed by anyone.
+	TLSClientCAFile string
+
+	// ClientCertSubjects is the explicit allowlist of client-certificate
+	// identities (CN or DNS SAN) permitted to authenticate. EMPTY
+	// DISABLES client-certificate auth entirely — enabling TLS alone
+	// never opens the second credential leg.
+	ClientCertSubjects []string
+
+	// PodAliasLabel enables workload-name resolution of the pod segment
+	// of an exec URL (see internal/proxy/podresolve.go). Empty (default)
+	// = literal pod names only, no apiserver read per request.
+	PodAliasLabel string
+
+	// NodeName is this Pod's node, from the downward API. Used only to
+	// prefer a node-local Pod when an alias resolves to several.
+	NodeName string
+}
+
+// TLSEnabled reports whether the binary should start the TLS listener.
+func (c Config) TLSEnabled() bool {
+	return c.TLSCertFile != "" && c.TLSKeyFile != ""
+}
+
+// ClientCertAuthEnabled reports whether the mTLS credential leg is
+// configured. Both halves are required: an allowlist AND a CA to verify
+// chains against.
+func (c Config) ClientCertAuthEnabled() bool {
+	return len(c.ClientCertSubjects) > 0 && c.TLSClientCAFile != ""
 }
 
 // LoadFromEnv reads the env-var contract and returns a validated Config.
@@ -63,6 +113,15 @@ type Config struct {
 //	LOG_LEVEL                   - debug/info/warn/error, default info
 //	WS_PING_PERIOD              - duration, default "30s"
 //	WS_HANDSHAKE_TIMEOUT        - duration, default "10s"
+//	TLS_LISTEN_ADDR             - default ":8443" (used only with TLS)
+//	TLS_CERT_FILE               - server cert PEM; pairs with TLS_KEY_FILE
+//	TLS_KEY_FILE                - server key PEM; pairs with TLS_CERT_FILE
+//	TLS_CLIENT_CA_FILE          - CA bundle client certs must chain to
+//	CLIENT_CERT_ALLOWED_SUBJECTS - comma-separated CN/DNS-SAN allowlist;
+//	                              EMPTY disables mTLS auth (#5991)
+//	POD_ALIAS_LABEL             - label key for workload-name resolution;
+//	                              empty = literal pod names only
+//	NODE_NAME                   - downward API; node-locality preference
 func LoadFromEnv() (Config, error) {
 	cfg := Config{
 		ListenAddr:       getenvDefault("WS_PROXY_LISTEN_ADDR", ":8080"),
@@ -94,6 +153,34 @@ func LoadFromEnv() (Config, error) {
 
 	cfg.PingPeriod = mustParseDur(getenvDefault("WS_PING_PERIOD", "30s"), 30*time.Second)
 	cfg.HandshakeTimeout = mustParseDur(getenvDefault("WS_HANDSHAKE_TIMEOUT", "10s"), 10*time.Second)
+
+	cfg.TLSListenAddr = getenvDefault("TLS_LISTEN_ADDR", ":8443")
+	cfg.TLSCertFile = strings.TrimSpace(os.Getenv("TLS_CERT_FILE"))
+	cfg.TLSKeyFile = strings.TrimSpace(os.Getenv("TLS_KEY_FILE"))
+	cfg.TLSClientCAFile = strings.TrimSpace(os.Getenv("TLS_CLIENT_CA_FILE"))
+	// One of the pair without the other would otherwise fall through to
+	// "TLS not enabled" and serve the exec endpoint in plaintext while
+	// the operator believed it was mTLS-gated. Fail startup instead.
+	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {
+		return cfg, errors.New("TLS_CERT_FILE and TLS_KEY_FILE must be set together")
+	}
+	for _, s := range strings.Split(os.Getenv("CLIENT_CERT_ALLOWED_SUBJECTS"), ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			cfg.ClientCertSubjects = append(cfg.ClientCertSubjects, s)
+		}
+	}
+	// Same reasoning: an allowlist with no CA bundle cannot verify a
+	// chain, so honouring it would accept any self-signed certificate
+	// claiming an allowlisted CN.
+	if len(cfg.ClientCertSubjects) > 0 && cfg.TLSClientCAFile == "" {
+		return cfg, errors.New("CLIENT_CERT_ALLOWED_SUBJECTS is set but TLS_CLIENT_CA_FILE is empty — an allowlist with no CA verifies nothing")
+	}
+	if len(cfg.ClientCertSubjects) > 0 && !cfg.TLSEnabled() {
+		return cfg, errors.New("CLIENT_CERT_ALLOWED_SUBJECTS is set but the TLS listener is not configured (TLS_CERT_FILE/TLS_KEY_FILE)")
+	}
+
+	cfg.PodAliasLabel = strings.TrimSpace(os.Getenv("POD_ALIAS_LABEL"))
+	cfg.NodeName = strings.TrimSpace(os.Getenv("NODE_NAME"))
 
 	return cfg, nil
 }

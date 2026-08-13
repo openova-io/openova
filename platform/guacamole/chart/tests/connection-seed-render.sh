@@ -14,6 +14,16 @@
 # The load-bearing pair here is:
 #   * the producer renders a real target, and
 #   * the CONTROL — an empty declared set renders ZERO connection writes.
+#
+# #5991 mTLS leg: a SECOND target, `cluster-shell`, is asserted here.
+# The distinction matters and the assertions below keep it visible.
+# `sovereign-node` dials a key-only sshd whose key is deliberately not in
+# the cluster, so absent an operator Secret it renders and then PROMPTS
+# on click. `cluster-shell` speaks guacd's `kubernetes` protocol to
+# bp-k8s-ws-proxy over mTLS, with a client certificate the platform mints
+# for itself — so it is the one seeded connection that authenticates on
+# click with no operator input. A producer that shipped only the first
+# would satisfy "the list is non-empty" while the feature stayed broken.
 # Without the control, this file would also pass for a producer that invents a
 # row, which on a table that holds credentials is worse than the empty list
 # row 115 is about.
@@ -124,6 +134,33 @@ else
   fail "no runtime guard on an empty NODE_IP — the producer could write a hostname-less row"
 fi
 
+if printf '%s' "${seed_body}" | grep -q "ensure_connection 'cluster-shell' 'kubernetes'"; then
+  pass "seed_connections() creates the cluster-shell connection on guacd's kubernetes protocol"
+else
+  fail "seed_connections() has no cluster-shell/kubernetes target — nothing seeded can authenticate on click"
+fi
+# use-ssl is what makes guacd present a client certificate at all: with
+# it false, guacamole-server 1.5.5 settings.c never even PARSES
+# client-cert/client-key/ca-cert (they are read inside `if
+# (settings->use_ssl)`), so the connection would dial plaintext and 401.
+if printf '%s' "${seed_body}" | grep -q "set_connection_parameter 'cluster-shell' 'use-ssl' 'true'"; then
+  pass "cluster-shell sets use-ssl=true (guacd parses the client-cert parameters only when it is on)"
+else
+  fail "cluster-shell does not set use-ssl=true — guacd would ignore the client certificate entirely"
+fi
+# guacd verifies the SERVER certificate against this exact string, so a
+# short name here is a handshake failure.
+if printf '%s' "${seed_body}" | grep -q "set_connection_parameter 'cluster-shell' 'hostname' 'k8s-ws-proxy.catalyst-system.svc.cluster.local'"; then
+  pass "cluster-shell dials the proxy by its fully-qualified Service name"
+else
+  fail "cluster-shell hostname is not the fully-qualified proxy Service name"
+fi
+if printf '%s' "${seed_body}" | grep -q "set_connection_parameter 'cluster-shell' 'pod' 'k8s-ws-proxy'"; then
+  pass "cluster-shell targets a WORKLOAD name (survives a pod rollout; a literal pod name would 404)"
+else
+  fail "cluster-shell has no pod target"
+fi
+
 echo "[connection-seed] 3/6 — idempotent and permission-granting SQL"
 if printf '%s' "${common}" | grep -A4 'INSERT INTO guacamole_connection (connection_name, protocol)' | grep -q 'WHERE NOT EXISTS'; then
   pass "the connection INSERT is guarded by NOT EXISTS (re-run adds no duplicate)"
@@ -144,6 +181,7 @@ fi
 echo "[connection-seed] 4/6 — CONTROL: an empty declared set writes nothing"
 render "${TMP}/empty.yaml" \
   --set guacamole.database.connections.nodeShell.enabled=false \
+  --set guacamole.database.connections.clusterShell.enabled=false \
   --set-json 'guacamole.database.connections.extra=[]' \
   || { echo "helm template failed:"; cat "${TMP}/empty.yaml.err"; exit 1; }
 scripts "${TMP}/empty.yaml" common.sh >"${TMP}/empty-common.sh"
@@ -249,6 +287,108 @@ for want in "Job:volume:optional=True" "CronJob:volume:optional=True" \
     fail "missing: ${want} (got: $(printf '%s' "${mounts}" | tr '\n' ' '))"
   fi
 done
+
+csmounts="$(python3 - "${TMP}/default.yaml" <<'PY'
+import sys, yaml
+out = []
+for d in (x for x in yaml.safe_load_all(open(sys.argv[1])) if x):
+    kind = d.get("kind")
+    if kind == "Job":
+        spec = d["spec"]["template"]["spec"]
+    elif kind == "CronJob":
+        spec = d["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    else:
+        continue
+    for v in spec.get("volumes", []):
+        sec = v.get("secret") or {}
+        if sec.get("secretName") == "k8s-ws-proxy-client-tls":
+            out.append("%s:volume:optional=%s" % (kind, sec.get("optional")))
+    for c in spec.get("containers", []):
+        for m in c.get("volumeMounts", []):
+            if m.get("mountPath") == "/conn-cred/cluster-shell":
+                out.append("%s:mount:readOnly=%s" % (kind, m.get("readOnly")))
+print("\n".join(out))
+PY
+)"
+# optional=True is load-bearing: bp-k8s-ws-proxy mints this Secret and
+# reflector mirrors it in, so on a fresh Sovereign it can lag the seed by
+# a reconcile. Optional means the connection is produced credential-free
+# and the per-minute CronJob converges it — a REQUIRED mount would wedge
+# the seed Pod in ContainerCreating and produce NO connections at all.
+for want in "Job:volume:optional=True" "CronJob:volume:optional=True" \
+            "Job:mount:readOnly=True" "CronJob:mount:readOnly=True"; do
+  if printf '%s\n' "${csmounts}" | grep -qx -- "${want}"; then
+    pass "cluster-shell mTLS credential ${want}"
+  else
+    fail "cluster-shell mTLS credential missing: ${want} (got: $(printf '%s' "${csmounts}" | tr '\n' ' '))"
+  fi
+done
+
+# The credential RENAME is the load-bearing line: a cert-manager Secret
+# is always tls.crt/tls.key/ca.crt, guacd reads client-cert/client-key/
+# ca-cert. Writing them through unrenamed leaves guacd with no client
+# certificate and every click 401s, with nothing in the row to say why.
+for pair in 'tls.crt:client-cert' 'tls.key:client-key' 'ca.crt:ca-cert'; do
+  if printf '%s' "${common}" | grep -q "${pair}"; then
+    pass "load_connection_credentials maps ${pair}"
+  else
+    fail "load_connection_credentials does not map ${pair} — guacd would receive no client certificate"
+  fi
+done
+
+# The connection must also be REACHABLE. The Sovereign runs a
+# namespace-wide default-deny (bp-plane-isolation ships podSelector:{}
+# Ingress+Egress per component namespace) and guacd carried NO egress
+# policy of its own, because until now nothing dialled out of guacd —
+# the kubectl path went through the webapp. guacd's `kubernetes`
+# protocol opens its OWN WebSocket, so without this policy the
+# cluster-shell connection renders in ALL CONNECTIONS and then hangs on
+# click: present, listed, and useless.
+netpol() { # netpol <render>
+  python3 - "$1" <<'PY'
+import sys, yaml
+for d in (x for x in yaml.safe_load_all(open(sys.argv[1])) if x):
+    if d.get("kind") == "NetworkPolicy" and d["metadata"]["name"].endswith("guacd-egress"):
+        sel = d["spec"]["podSelector"].get("matchLabels", {})
+        ports = []
+        nss = []
+        for rule in d["spec"].get("egress", []):
+            for to in rule.get("to", []):
+                ns = (to.get("namespaceSelector") or {}).get("matchLabels", {})
+                if ns:
+                    nss.append(list(ns.values())[0])
+            for pt in rule.get("ports", []):
+                ports.append(str(pt.get("port")))
+        print("selector=%s;ports=%s;ns=%s" % (
+            sel.get("app.kubernetes.io/component") or sorted(sel.items()),
+            ",".join(sorted(set(ports))), ",".join(sorted(set(nss)))))
+        break
+else:
+    print("ABSENT")
+PY
+}
+np="$(netpol "${TMP}/default.yaml")"
+if [[ "${np}" == "ABSENT" ]]; then
+  fail "no guacd-egress NetworkPolicy — under the Sovereign's namespace default-deny the cluster-shell connection would render and then hang on click"
+else
+  [[ "${np}" == *";ports="*"8443"* ]] \
+    && pass "guacd-egress allows the proxy mTLS port (${np})" \
+    || fail "guacd-egress does not allow the proxy port: ${np}"
+  [[ "${np}" == *"catalyst-system"* ]] \
+    && pass "guacd-egress targets the proxy namespace" \
+    || fail "guacd-egress does not reach catalyst-system: ${np}"
+  [[ "${np}" == *"53"* ]] \
+    && pass "guacd-egress allows DNS (guacd resolves the proxy by the name it also verifies the certificate against)" \
+    || fail "guacd-egress has no DNS rule: ${np}"
+fi
+# CONTROL — no mTLS target declared, no egress grant. A policy that
+# renders unconditionally would be granting guacd egress on a Sovereign
+# that never asked for the connection.
+if [[ "$(netpol "${TMP}/empty.yaml")" == "ABSENT" ]]; then
+  pass "CONTROL: with no cluster-shell target, no guacd egress is granted"
+else
+  fail "CONTROL: guacd-egress rendered for a Sovereign with no mTLS connection declared"
+fi
 
 # Vacuity check — every assertion above reads the seed ConfigMap, so prove the
 # default render actually contained the seed Job it belongs to.

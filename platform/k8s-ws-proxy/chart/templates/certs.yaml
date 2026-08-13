@@ -1,0 +1,161 @@
+{{- /*
+#5991 / UAT row 115 — the mTLS material for the proxy's TLS listener.
+
+WHY A SECOND CREDENTIAL EXISTS AT ALL. The proxy's original credential
+is the X-Catalyst-HMAC header pair. Apache guacd cannot present it: its
+`kubernetes` protocol builds the WebSocket upgrade through
+libwebsockets and exposes no hook for custom HTTP headers
+(guacamole-server 1.5.5, src/protocols/kubernetes/kubernetes.c). What it
+DOES expose is `client-cert` / `client-key` / `ca-cert` connection
+parameters, read as in-memory PEM (src/protocols/kubernetes/ssl.c). So a
+Guacamole connection can reach this proxy only over mTLS — and until it
+could, `guacamole_connection` had no producer whose row survived being
+clicked.
+
+THE CHAIN. cert-manager cannot self-sign a leaf in one step, so this is
+the same four-object shape every cert-manager webhook in this repo uses
+(see platform/cert-manager-powerdns-webhook/chart/templates/certificate.yaml):
+
+  1. SelfSigned Issuer            — signs anything that asks
+  2. Root CA Certificate          — isCA, issued by (1)
+  3. CA Issuer                    — uses (2)'s Secret
+  4a. server leaf                 — what the proxy presents on :8443
+  4b. client leaf                 — what guacd presents to the proxy
+
+This CA is PRIVATE to the proxy: it signs exactly two leaves and is the
+only CA the proxy accepts client certificates from. It is deliberately
+NOT a cluster-wide issuer, so possessing some other cert-manager
+certificate grants nothing here.
+
+WHY THE CLIENT LEAF LIVES IN THIS CHART, NOT IN bp-guacamole. A
+cert-manager Issuer is namespaced, so a Certificate in the `guacamole`
+namespace cannot reference this CA Issuer in `catalyst-system`. The
+alternatives were a ClusterIssuer (which would make this CA usable from
+every namespace on the Sovereign — a far larger grant than the one
+caller needs) or minting the leaf here and MIRRORING the Secret to the
+one namespace that needs it. The mirror is narrower, so the chart mints
+the leaf and reflector copies it to the namespaces named in
+.Values.k8sWsProxy.tls.reflectClientCertTo — the same annotation pattern
+platform/postgres uses for its role Secrets.
+*/ -}}
+{{- if and .Values.k8sWsProxy.enabled (include "bp-k8s-ws-proxy.tlsEnabled" .) -}}
+{{- $tls := .Values.k8sWsProxy.tls -}}
+{{- $svc := include "bp-k8s-ws-proxy.workloadName" . -}}
+{{- $ns := .Release.Namespace -}}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "bp-k8s-ws-proxy.selfSignedIssuer" . }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-k8s-ws-proxy.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "bp-k8s-ws-proxy.caCertificate" . }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-k8s-ws-proxy.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "bp-k8s-ws-proxy.caCertificate" . }}
+  isCA: true
+  # CN is opaque identity — nothing validates a hostname against it —
+  # and it stays well inside the 64-byte PKIX bound regardless of
+  # releaseName (the #508 shape that bit bp-cert-manager-powerdns-webhook).
+  commonName: "ca.{{ $svc }}.{{ $ns }}"
+  duration: {{ $tls.caDuration }}
+  renewBefore: {{ $tls.caRenewBefore }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  issuerRef:
+    name: {{ include "bp-k8s-ws-proxy.selfSignedIssuer" . }}
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "bp-k8s-ws-proxy.caIssuer" . }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-k8s-ws-proxy.labels" . | nindent 4 }}
+spec:
+  ca:
+    secretName: {{ include "bp-k8s-ws-proxy.caCertificate" . }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "bp-k8s-ws-proxy.serverCertificate" . }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-k8s-ws-proxy.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "bp-k8s-ws-proxy.serverCertificate" . }}
+  duration: {{ $tls.duration }}
+  renewBefore: {{ $tls.renewBefore }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  # guacd runs its OWN hostname verification against the `hostname`
+  # connection parameter — X509_VERIFY_PARAM_set1_host /
+  # set1_ip_asc in src/protocols/kubernetes/ssl.c — because
+  # libwebsockets' check is skipped for IP literals. So the leaf must
+  # carry EVERY name a caller could dial the Service by, and the
+  # fully-qualified form is the one a cross-namespace caller uses.
+  dnsNames:
+    - {{ $svc }}
+    - {{ $svc }}.{{ $ns }}
+    - {{ $svc }}.{{ $ns }}.svc
+    - {{ $svc }}.{{ $ns }}.svc.cluster.local
+    {{- range $tls.extraServerNames }}
+    - {{ . | quote }}
+    {{- end }}
+  issuerRef:
+    name: {{ include "bp-k8s-ws-proxy.caIssuer" . }}
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "bp-k8s-ws-proxy.clientCertificate" . }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bp-k8s-ws-proxy.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "bp-k8s-ws-proxy.clientCertificate" . }}
+  duration: {{ $tls.duration }}
+  renewBefore: {{ $tls.renewBefore }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  # This CN is the identity the proxy allowlists. Both writes come from
+  # the same helper — see bp-k8s-ws-proxy.clientSubject.
+  commonName: {{ include "bp-k8s-ws-proxy.clientSubject" . | quote }}
+  dnsNames:
+    - {{ include "bp-k8s-ws-proxy.clientSubject" . | quote }}
+  usages:
+    - digital signature
+    - key encipherment
+    - client auth
+  {{- with $tls.reflectClientCertTo }}
+  # reflector mirrors the issued Secret (tls.crt / tls.key / ca.crt) into
+  # the consuming namespace. The chart never renders key material — only
+  # cert-manager writes it, and only into a Secret.
+  secretTemplate:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: {{ join "," . | quote }}
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: {{ join "," . | quote }}
+  {{- end }}
+  issuerRef:
+    name: {{ include "bp-k8s-ws-proxy.caIssuer" . }}
+    kind: Issuer
+{{- end }}

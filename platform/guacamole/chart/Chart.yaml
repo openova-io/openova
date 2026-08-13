@@ -1,5 +1,52 @@
 apiVersion: v2
 name: bp-guacamole
+# 0.2.40 (#5991 / UAT row 115): a seeded connection that AUTHENTICATES
+# when clicked, not merely one that renders.
+#
+# 0.2.38 shipped the producer and closed the "nothing ever writes a
+# `guacamole_connection` row" half of row 115. What it could not close
+# was the other half. Its one default target, `sovereign-node`, dials the
+# Sovereign's node sshd, which is key-only (`PasswordAuthentication no`,
+# `PermitRootLogin prohibit-password`) and whose private key is
+# deliberately not in the cluster — so absent an operator-supplied
+# Secret, the connection renders in ALL CONNECTIONS and then PROMPTS. A
+# list that is non-empty and unusable is precisely what row 115's vacuity
+# guard is written against.
+#
+# This version adds `cluster-shell`: guacd's `kubernetes` protocol
+# pointed at bp-k8s-ws-proxy's mTLS listener (0.1.17), with a client
+# certificate the PLATFORM mints for itself — bp-k8s-ws-proxy issues it
+# from its own private CA and reflector mirrors the Secret here. It is
+# the one seeded connection needing no operator input to work.
+#
+# Three things make it work that are invisible in a render:
+#   * load_connection_credentials RENAMES the mounted keys. A
+#     cert-manager Secret is always tls.crt/tls.key/ca.crt; guacd reads
+#     client-cert/client-key/ca-cert. Straight-through, guacd gets no
+#     client certificate and every click 401s with nothing in the row to
+#     say why. tests/connection-seed-sql.sh mounts a cert-manager-shaped
+#     Secret and reads guacd's names back out of a real Postgres.
+#   * use-ssl=true. guacamole-server 1.5.5 settings.c parses
+#     client-cert/client-key/ca-cert ONLY inside `if (settings->use_ssl)`.
+#   * templates/networkpolicy.yaml gains `guacd-egress`. guacd's
+#     kubernetes protocol dials the proxy ITSELF (its own libwebsockets
+#     client), not through the webapp, and the Sovereign applies a
+#     namespace-wide default-deny (bp-plane-isolation). Without that
+#     policy the connection renders and then hangs on click. The file
+#     header used to state the opposite; it is corrected in place.
+#
+# `pod` names a WORKLOAD, not a Pod: the row is written once and read on
+# every click, so a literal pod name would 404 after the first rollout.
+# bp-k8s-ws-proxy resolves it (literal Pod name still tried first).
+#
+# NOT taken: dialing the kube-apiserver directly. guacd's kubernetes
+# protocol can do it, but an apiserver-trusted client certificate needs
+# CSR `approve` on the kubernetes.io/kube-apiserver-client signer, which
+# is not scopeable by CN and is cluster-admin-equivalent escalation
+# shipped default-on in a public chart. The proxy is our own service with
+# its own private CA and its own allowlist, so the same wire costs none
+# of that.
+#
 # 0.2.30 (#5358): SSO moves off the upstream implicit flow — new
 # `guacamole.sso.mode` knob, DEFAULT `header`. Root cause (live on hw288):
 # guacamole-auth-sso-openid is implicit-flow-only (response_type=id_token in
@@ -352,7 +399,7 @@ name: bp-guacamole
 # Lockstep: 52-bp-guacamole.yaml pin + blueprint.yaml + catalog-seed
 # source.version → 0.2.38.
 # Refs #5991.
-version: 0.2.39
+version: 0.2.40
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless

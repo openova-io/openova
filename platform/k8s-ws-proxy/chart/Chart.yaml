@@ -1,5 +1,46 @@
 apiVersion: v2
 name: bp-k8s-ws-proxy
+# 0.1.17 (#5991 / UAT row 115): an mTLS listener on :8443 as a SECOND way
+# to present the same authority, plus workload-name resolution of the pod
+# segment. Both are ADDITIVE — the plaintext :8080 listener and the HMAC
+# credential are byte-identical to 0.1.16.
+#
+# WHY. Row 115 asserts a signed-in sovereign-admin sees a non-empty
+# Guacamole connections list. bp-guacamole 0.2.38 shipped the producer,
+# but every connection it could seed either prompted for a credential the
+# platform does not hold or could not authenticate to this proxy at all:
+# Apache guacd CANNOT send the X-Catalyst-HMAC headers. Its `kubernetes`
+# protocol builds the WebSocket upgrade through libwebsockets with no
+# hook for custom HTTP headers, and builds the PATH with a literal
+# snprintf (guacamole-server 1.5.5, src/protocols/kubernetes/{kubernetes,
+# url}.c). The one credential it CAN present is a TLS client certificate
+# (client-cert / client-key / ca-cert, src/protocols/kubernetes/ssl.c).
+#
+# So this chart mints that certificate from a PRIVATE CA it also owns
+# (templates/certs.yaml: selfSigned Issuer → CA → CA Issuer → server leaf
+# + client leaf — the same four-object shape every cert-manager webhook
+# in this repo uses), allowlists exactly that one identity on the new
+# listener, and mirrors the client Secret into the `guacamole` namespace
+# via reflector. The CA signs two leaves and nothing else, so holding
+# some other cert-manager certificate on the Sovereign grants nothing
+# here.
+#
+# The listener does NOT open a second way in by itself: mTLS auth is live
+# only when CLIENT_CERT_ALLOWED_SUBJECTS is non-empty, and the binary
+# refuses to start when an allowlist has no CA to verify against. The
+# whole TLS block is additionally gated on the cert-manager.io/v1 CRD, so
+# a cluster without cert-manager renders zero TLS objects rather than a
+# Secret mount nothing satisfies (that Pod would never start and the exec
+# proxy would be DOWN, not merely un-upgraded — tests/mtls-render.sh
+# asserts the OFF state is COMPLETE, both halves, for exactly that
+# reason).
+#
+# podAliasLabel (default app.kubernetes.io/name) is what keeps a SEEDED
+# connection working: a Guacamole connection is a row written once and
+# read on every click, so a literal DaemonSet pod name in it goes stale
+# at the first rollout. The literal Pod name is still tried FIRST, and a
+# workload name matching nothing is a hard 404, never a guess.
+#
 # 0.1.1 (qa-loop iter-7 Fix #39): canonical workload name `k8s-ws-proxy`
 # regardless of release name — DaemonSet + Service + ClusterRole +
 # ClusterRoleBinding all named `k8s-ws-proxy` so the catalyst-api
@@ -54,7 +95,7 @@ name: bp-k8s-ws-proxy
 # idiom. Slot-51 pin moves in lockstep. NB: build-k8s-ws-proxy.yaml's promote job
 # auto-bumps this patch +1 (→ 0.1.16) with the new image SHA on merge; the slot
 # pin is auto-lifted to the published version by blueprint-release (TBD-A6 hook).
-version: 0.1.16
+version: 0.1.17
 appVersion: "0.1.0"
 description: |
   Catalyst-authored Blueprint chart for the k8s-ws-proxy DaemonSet —

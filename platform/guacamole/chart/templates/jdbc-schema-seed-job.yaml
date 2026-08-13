@@ -105,6 +105,54 @@ postgresql.cnpg.io CRD absent.
       "params" (dict "port" (toString ($ns.port | default 22)) "username" ($ns.username | default "root"))
       "credentialSecretName" ($ns.credentialSecretName | default "")) -}}
 {{- end -}}
+{{- /* #5991 (mTLS leg) — the kubectl-shell target, and the only seeded
+   connection whose credential the PLATFORM holds end to end.
+
+   The nodeShell target above dials the Sovereign's node sshd, which is
+   key-only (`PasswordAuthentication no`, `PermitRootLogin
+   prohibit-password`) and whose private key is deliberately not in the
+   cluster, so without an operator-supplied Secret it renders in the
+   list and then prompts on click. This target closes that gap: guacd's
+   `kubernetes` protocol authenticates by TLS CLIENT CERTIFICATE
+   (`client-cert` / `client-key` / `ca-cert`, guacamole-server 1.5.5
+   src/protocols/kubernetes/ssl.c), and bp-k8s-ws-proxy mints exactly
+   that certificate from its own private CA and mirrors it here. Nothing
+   external is needed for the click to work.
+
+   It dials bp-k8s-ws-proxy, NOT the kube-apiserver directly. Reaching
+   the apiserver would mean an apiserver-trusted client certificate,
+   which needs CSR `approve` on the kubernetes.io/kube-apiserver-client
+   signer — not scopeable by CN, so cluster-admin-equivalent escalation
+   shipped default-on in a public chart. The proxy is our own service
+   with its own private CA and its own allowlist, so the same wire costs
+   none of that.
+
+   `pod` names a WORKLOAD, not a Pod. A connection row is written once
+   and read on every click; a literal Deployment/DaemonSet pod name
+   would go stale at the next rollout and 404 forever after. The proxy
+   resolves it against POD_ALIAS_LABEL (literal Pod name still tried
+   first). */ -}}
+{{- $cs := $conn.clusterShell | default dict -}}
+{{- $csEnabled := true -}}
+{{- if hasKey $cs "enabled" }}{{- $csEnabled = $cs.enabled -}}{{- end -}}
+{{- if $csEnabled -}}
+{{- $csParams := dict
+      "hostname" (required "bp-guacamole: guacamole.database.connections.clusterShell.proxyHost is required — guacd verifies the proxy's server certificate against exactly this name" $cs.proxyHost)
+      "port" (toString ($cs.proxyPort | default 8443))
+      "namespace" ($cs.targetNamespace | default "catalyst-system")
+      "pod" (required "bp-guacamole: guacamole.database.connections.clusterShell.targetWorkload is required" $cs.targetWorkload)
+      "exec-command" ($cs.execCommand | default "/bin/sh")
+      "use-ssl" "true" -}}
+{{- if $cs.container -}}
+{{- $_ := set $csParams "container" $cs.container -}}
+{{- end -}}
+{{- $targets = append $targets (dict
+      "name" ($cs.name | default "cluster-shell")
+      "protocol" "kubernetes"
+      "hostnameFromNodeIP" false
+      "params" $csParams
+      "credentialSecretName" ($cs.credentialSecretName | default "")) -}}
+{{- end -}}
 {{- range $e := ($conn.extra | default list) -}}
 {{- $targets = append $targets (dict
       "name" (required "bp-guacamole: every guacamole.database.connections.extra entry needs a name" $e.name)
@@ -281,10 +329,21 @@ data:
         echo "[jdbc-seed] ${cname}: credential Secret not mounted — connection left credential-free"
         return 0
       fi
-      for key in username password private-key passphrase; do
+      # <file-in-the-Secret>:<guacd-connection-parameter>. The identity
+      # pairs are 1:1; the three TLS pairs are a RENAME, because a
+      # cert-manager-issued Secret is always tls.crt / tls.key / ca.crt
+      # while guacd's `kubernetes` protocol reads client-cert /
+      # client-key / ca-cert. Writing the cert-manager names straight
+      # through would leave guacd with no client certificate at all and
+      # every click would 401 — with nothing in the connection to
+      # explain why.
+      for pair in username:username password:password \
+                  private-key:private-key passphrase:passphrase \
+                  tls.crt:client-cert tls.key:client-key ca.crt:ca-cert; do
+        key="${pair%%:*}"; param="${pair##*:}"
         [ -f "${dir}/${key}" ] || continue
-        set_connection_parameter "$cname" "$key" "$(cat "${dir}/${key}")"
-        echo "[jdbc-seed] ${cname}: ${key} sourced from the mounted Secret"
+        set_connection_parameter "$cname" "$param" "$(cat "${dir}/${key}")"
+        echo "[jdbc-seed] ${cname}: ${param} sourced from the mounted Secret"
       done
     }
     # seed_connections: converge the DECLARED set. The per-target blocks are
