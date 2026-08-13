@@ -574,6 +574,13 @@ type Handler struct {
 	// exercised without standing up a real cluster.
 	sovereignSMTPSeedClientFactory SovereignSMTPSeedClientFactory
 
+	// ── Sovereign Anthropic seed (issues #4277 / #4111) ─────────────────────
+	// sovereignAnthropicSeedClientFactory — same seam as the SMTP one
+	// above, for the mothership→Sovereign write of
+	// catalyst-system/sovereign-anthropic-credentials. See
+	// sovereign_anthropic_seed_mothership.go.
+	sovereignAnthropicSeedClientFactory SovereignAnthropicSeedClientFactory
+
 	// ── NewAPI admin-token OpenBao seed (issue #4477 secondary; ADR-0003) ───
 	// newapiAdminTokenSecretReader — test-only override for reading the
 	// bridge ADMIN_SECRET from the in-cluster
