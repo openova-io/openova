@@ -1,0 +1,1252 @@
+{{- /*
+Region-A DR auto-FAILBACK for the shared-pg pairs (#6149 - chart 0.2.21).
+
+WHY THIS EXISTS
+---------------
+#5623 gave this chart a region-B `dr-promoter` and it works: on the hw293 G12
+region-kill (2026-08-11, dep a0077ba47e3720e5) all three shared-pg pairs
+promoted. Nothing gave them the SYMMETRIC half. The deployment census taken
+after region A returned:
+
+    dr-promoter deployments in region B : 4   <- all four pairs
+    dr-failback deployments in region A : 1   <- bp-cnpg-pair ONLY
+
+`cnpg-pair` - the one pair carrying a failback - converged cleanly: region A
+came back `in_recovery=true` on TL=2, streaming from B. `shared-pg` and
+`shared-pg-b` did not, and could not:
+
+    shared-pg    region A: WRITABLE TL=3, 1 row | region B: WRITABLE TL=3, 2 rows
+    shared-pg-b  region A: WRITABLE TL=2, 1 row | region B: WRITABLE TL=3, 2 rows
+
+Both sides `pg_is_in_recovery()=false`, different row counts of the SAME table,
+neither following the other, and nothing anywhere scheduled to ever reconcile
+them. `shared-pg` carries keycloak - the authoritative identity store. A
+split-brained auth database fails OPEN and SILENT: two live writable copies
+accumulating divergent state, which is strictly worse than #5623's read-only
+outage, because that one failed closed and was obvious.
+
+So adding the promoter without the failback converted "does not fail over" into
+"fails over and never comes back". This Deployment closes that loop, and
+`bp-postgres.drPairCapable` (_helpers.tpl) makes the two actors share ONE
+structural gate so the asymmetry cannot be re-created: a pair that can be
+PROMOTED can always FAIL BACK.
+
+This is a FAITHFUL PORT of bp-cnpg-pair's dr-failback (chart 0.2.23) - the same
+region-A-local actor, the same signals/actor split, the same peer-ahead hold,
+the same divergence detector, the same bounded re-clone, the same fail-safes -
+templated with bp-postgres's own naming helpers and value seams. The logic was
+not invented here; it was proven on hw293 in the very walk that measured this
+defect, on the one pair that had it.
+
+RENDER GATING
+-------------
+Renders ONLY on side=primary (it acts on cluster-A, which by definition exists
+again exactly when failback matters) and ONLY under `bp-postgres.drPairCapable`
+- active-hot-standby + sync replication + clusterMesh + at least one peer
+ClusterMesh name. Without a positive peer proof there is no safe action, so the
+actor does not render at all; and because the promoter now rides the SAME gate,
+it does not render either.
+
+WHAT IT DOES - demote + re-clone region-A onto region-B's line
+--------------------------------------------------------------
+The correct failback direction is fixed by the data, not by preference:
+region-B's promoted line contains every ACKNOWLEDGED commit region-A ever made.
+Structurally: sync remote_apply + FIRST 1 pinned to the cross-region replica
+means (a) before the kill, no commit was acked on A that B had not already
+applied; (b) the dead window adds nothing; (c) post-recovery region-A is
+write-fenced by the same unsatisfiable FIRST 1 (its only allowed sync standby
+has left the timeline), so it acks nothing new. Discarding region-A's line loses
+only never-acked local WAL - exactly what the RPO=0 contract already discards.
+The reverse direction (re-cloning region-B from region-A) would destroy the
+acknowledged post-promote writes and is therefore never automatic. This is why
+the actor renders only in sync mode: the fence IS the authority proof.
+
+  1. DETECT (signals container, psql as streaming_replica with this cluster's
+     own client cert): local cluster WRITABLE (in_recovery=f) on timeline N, the
+     pinned sync standby ABSENT from pg_stat_replication, AND the peer REACHABLE
+     + WRITABLE + on an EQUAL-OR-HIGHER timeline over the `-replica-mesh` global
+     Service. Timelines come from IDENTIFY_SYSTEM over a replication-protocol
+     connection - the one surface streaming_replica is guaranteed to have (no
+     pg_control privileges, the #5239 lesson). TL_peer >= TL_local, NOT strictly
+     greater (#5245 hw277: region-A's os-start recovery ran a LOCAL HA failover
+     that bumped its own timeline to the SAME number as region-B's promote, so a
+     strict `>` gate is structurally unsatisfiable and both regions served writes
+     for 57 minutes). Equality is safe to act on because the sync fence, not the
+     TL number, carries the authority.
+  2. HOLD peerAheadHoldSeconds (120s default) - a mesh blip or a replica restart
+     clears the clock. The stale region-A line is WRITE-GUARDED for the whole
+     window (#6148) - see the FENCING section below.
+  3. DEMOTE through the DURABLE SOURCE SEAM: patch the bootstrap-kit
+     Kustomization's `postBuild.substitute.<DEMOTED_SUB_KEY>` to "true" and let
+     kustomize render `topology.demoted: true` onto this instance's HelmRelease.
+     NEVER a live `kubectl patch` of the Cluster CR - flux drift-correction
+     reverts that mid-outage (#5125-D1, hw256 G12). The substitute key is
+     PER-INSTANCE (see $demotedSubKey): this chart is installed three times
+     against ONE bootstrap-kit Kustomization, so a shared key would demote all
+     three the moment any one of them failed back.
+  4. RE-CLONE, bounded: once the demoted shape is rendered, delete the stale
+     Cluster CR exactly once so helm re-creates it and pg_basebackup clones
+     region-B's current timeline. A Cluster created AFTER the episode started is
+     NEVER deleted. PKI Secrets are ownerReference-stripped first so the delete
+     does not GC the CA lineage (#5245 hw278).
+  5. CONVERGE: record `dr-failback-converged-at` ONLY when region-A is streaming
+     from region-B AND CNPG reports `ConsistentSystemID=True`. The bare
+     'streaming' signal is NOT sufficient - a divergent in-place-demoted standby
+     attaches at a coincidentally-equal LSN and reads 'streaming' while missing
+     region-B's post-failover writes (#5331, hw285 data-loss trap).
+
+FENCING THE HOLD WINDOW (#6148) - the write-guard
+--------------------------------------------------
+The hold is legitimate and must not be shortened: it guards the DEMOTE decision
+against a flap, and a demote/re-promote cycle bumps the timeline, which is the
+same class of damage the failback exists to repair. But for those 120s region-A
+is a writable primary on a line that is already doomed, so every commit it
+accepts is acknowledged to a consumer and then destroyed by the re-clone. On
+`shared-pg` those consumers are keycloak, gitea and harbor.
+
+So the window gets a guard rather than a shorter hold. On peer-ahead DETECTION
+the actor applies a CiliumNetworkPolicy (rendered as inert ConfigMap data below,
+never as a live template - see that comment for why) that DENIES ingress to
+:5432 for everything except the pair's own Pods and this actor. It is removed by
+`guard_off`, which runs unconditionally on every tick where the hold clock is
+not set - so every fail-safe path the signals loop already has takes the guard
+back down with it, and no future control flow can forget to.
+
+Four properties are load-bearing, each for a reason that was measured, not
+guessed:
+  - CiliumNetworkPolicy, NOT NetworkPolicy. k8s policies are additive
+    allow-lists and cannot subtract the consumer->5432 allow this chart's own
+    networkpolicy.yaml grants; a NetworkPolicy guard would be created, logged,
+    and permit every write it claimed to stop.
+  - `enableDefaultDeny: {ingress:false, egress:false}` - purely subtractive, so
+    it cannot take out the replication and CNPG-operator carve-outs.
+  - the failback Pod stays exempt. The signals loop reads the LOCAL timeline
+    over 5432; blind that read and `clear_hold "local timeline unreadable"`
+    aborts the whole failback. This is exactly what ruled out CNPG instance
+    fencing as the mechanism.
+  - `guard_on` is NON-FATAL. Converging region-A is what ENDS the exposure, so a
+    guard that cannot be applied must warn loudly and let the failback run.
+
+WHY A DEPLOYMENT, NOT A CronJob (#5157)
+---------------------------------------
+A region-local actor that must run DURING and AFTER a region outage is a
+continuous Deployment loop; a CronJob's scheduler is the regional control plane
+and does not reliably resume after recovery. side=primary-gated so it runs ON
+cluster-A with no dependency on anything in region-B beyond the peer probe.
+
+SAFETY - what it will NEVER do
+------------------------------
+Never patches a live Cluster CR (#5125-D1). Never deletes PVCs directly
+(owner-GC only), never any object but the one resourceNames-pinned Cluster CR.
+Never acts when the peer is unreachable, in recovery, or on a LOWER timeline - a
+mere mesh partition, a healthy pair, or the pre-promote outage window all read as
+"no peer-ahead proof" and clear the hold clock. Never re-promotes region-B (that
+is the dr-promoter's job, on cluster-B). Every destructive step re-checks a
+<60s-fresh peer proof.
+*/ -}}
+{{- if (include "bp-postgres.failbackActive" .) }}
+{{- $topology := .Values.topology | default dict }}
+{{- $fb := dig "failback" dict $topology }}
+{{- $hr := $fb.hr | default dict }}
+{{- $hrName := $hr.name | default "bp-postgres-shared" }}
+{{- $hrNamespace := $hr.namespace | default "flux-system" }}
+{{- $ks := $fb.kustomization | default dict }}
+{{- $ksName := $ks.name | default "bootstrap-kit" }}
+{{- $ksNamespace := $ks.namespace | default "flux-system" }}
+{{- /* Per-INSTANCE demotion substitute key (#6149). bp-cnpg-pair hard-codes
+       SOVEREIGN_CNPG_PAIR_DEMOTED because there is exactly one pair; this chart
+       is installed THREE times (shared-pg / -b / -c) against the SAME
+       bootstrap-kit Kustomization, so a shared key would demote all three the
+       moment any one of them failed back. Slots 16a/16c/16d stamp their own. */ -}}
+{{- $demotedSubKey := $fb.demotedSubstituteKey | default "SOVEREIGN_SHARED_PG_DEMOTED" }}
+{{- $kimg := $fb.kubectlImage | default dict }}
+{{- $krepo := $kimg.repository | default "harbor.openova.io/proxy-dockerhub/alpine/k8s" }}
+{{- $ktag := $kimg.tag | default "1.30.0" }}
+{{- $kpull := $kimg.pullPolicy | default "IfNotPresent" }}
+{{- $interval := $fb.intervalSeconds | default 10 }}
+{{- $hold := $fb.peerAheadHoldSeconds | default 120 }}
+{{- $startupGrace := $fb.startupGraceSeconds | default 300 }}
+{{- $probeTimeout := $fb.livenessProbeTimeoutSeconds | default 5 }}
+{{- $wedgeHold := $fb.wedgeHoldSeconds | default 600 }}
+{{- $divergenceGrace := $fb.divergenceGraceSeconds | default 180 }}
+{{- $starvationSurface := $fb.starvationSurfaceSeconds | default 300 }}
+{{- $peerClusters := dig "networkPolicy" "crossRegionPeerClusters" (list) $topology }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-dr-failback
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+    catalyst.openova.io/role: dr-failback
+---
+# #6148 WRITE-GUARD manifest — rendered here as inert ConfigMap DATA, applied
+# and deleted by the actor.
+#
+# WHY THE MANIFEST IS DATA AND NOT A TEMPLATE. The guard must exist only for
+# the duration of the peer-ahead hold, so its lifecycle is the actor's, not
+# helm's. Rendering it as a live template would put it under the bootstrap-kit
+# Kustomization's inventory and flux drift-correction would fight the actor over
+# it — the #5125-D1 shape this chart forbids everywhere else. As ConfigMap data
+# it stays version-controlled, render-testable and reviewable, while the OBJECT
+# the actor applies is owned by nobody but the actor and is therefore never
+# reverted and never pruned.
+#
+# WHY CiliumNetworkPolicy AND NOT NetworkPolicy. A k8s NetworkPolicy cannot
+# express deny — policies selecting the same Pods are additive allow-lists, so a
+# new one cannot subtract the consumer->5432 allow networkpolicy.yaml grants
+# (`- from: [{namespaceSelector: {}}]`, the #3577 rule). It would be created,
+# logged, and permit every write it claimed to stop. Cilium's ingressDeny takes
+# precedence over every allow, in this policy or any other.
+#
+# WHY enableDefaultDeny IS FALSE. A CNP that selects an endpoint normally flips
+# it to default-deny for that direction. This policy is purely subtractive: it
+# removes one path without disturbing the carve-outs in networkpolicy.yaml that
+# keep replication and the CNPG operator's status probe alive.
+#
+# WHO STAYS REACHABLE, AND WHY EACH ONE MUST. matchExpressions inside one
+# selector are ANDed, so the denied set is "endpoints that are neither a pair
+# Pod nor the failback Pod":
+#   - the pair's own Pods keep 5432 — that is the replication path region-A
+#     needs in order to re-clone from region-B once the demote lands
+#   - the failback Pod keeps 5432 — the signals loop reads the local timeline
+#     over it, and if that read fails `clear_hold "local timeline unreadable"`
+#     aborts the whole failback. A guard that blinds the decider is worse than
+#     no guard; that is the trap which ruled out CNPG instance fencing.
+#   - the CNPG operator is untouched — it probes 8000/9187, never 5432.
+# fromEndpoints (not ipBlock) is required for the cross-region case: an ipBlock
+# never matches a ClusterMesh remote Pod's identity, so an ipBlock guard would
+# silently miss the very peer traffic it reasons about.
+#
+# WHAT IT COSTS ON A *SHARED* ENGINE, STATED PLAINLY. bp-cnpg-pair's pair has no
+# in-cluster consumers; `shared-pg` has keycloak, gitea and harbor (16a), and
+# 16c/16d have grafana/powerdns and the Organization mesh. So the hold window
+# denies THEIR 5432 too, for up to peerAheadHoldSeconds. That is the correct
+# trade and not a regression in disguise: the guard goes up only once the
+# post-failover geometry is PROVEN (local writable + pinned sync standby absent
+# + peer writable on an equal-or-higher timeline), and from that moment every
+# commit region-A accepts is acknowledged to the consumer and then silently
+# discarded by the re-clone. Refusing a keycloak write for ~120s is strictly
+# better than accepting it, telling keycloak it is durable, and destroying it.
+# The guard is also reversible at zero cost: any fail-safe path that clears the
+# hold clock takes it straight back down.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-write-guard
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+data:
+  guard.yaml: |
+    apiVersion: cilium.io/v2
+    kind: CiliumNetworkPolicy
+    metadata:
+      name: {{ include "bp-postgres.instanceName" . }}-write-guard
+      namespace: {{ include "bp-postgres.namespace" . }}
+      labels:
+        catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+        catalyst.openova.io/role: dr-failback-write-guard
+      annotations:
+        catalyst.openova.io/why: >-
+          Applied by dr-failback for the duration of the peer-ahead hold (#6148).
+          region-A is a writable primary on a timeline the peer has already
+          overtaken, so a write committed here is acknowledged and then silently
+          discarded by the re-clone. Removed on clear_hold.
+    spec:
+      endpointSelector:
+        matchLabels:
+          cnpg.io/cluster: {{ include "bp-postgres.instanceName" . }}
+      enableDefaultDeny:
+        ingress: false
+        egress: false
+      ingressDeny:
+        - fromEndpoints:
+            - matchExpressions:
+                - key: cnpg.io/cluster
+                  operator: NotIn
+                  values:
+                    - {{ include "bp-postgres.instanceName" . }}
+                    - {{ include "bp-postgres.replicaName" . }}
+                - key: catalyst.openova.io/role
+                  operator: NotIn
+                  values:
+                    - dr-failback
+          toPorts:
+            - ports:
+                - port: "5432"
+                  protocol: TCP
+---
+# Local-namespace surface: get + delete on EXACTLY the primary Cluster
+# CR (the bounded re-clone). No patch (live-CR patches are the #5125-D1
+# anti-pattern), no PVC verbs (owner-GC does the storage), no list.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-dr-failback
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+rules:
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [clusters]
+    verbs: [get, delete]
+    resourceNames: [{{ include "bp-postgres.instanceName" . }}]
+  # #6148 write-guard lifecycle. The guard is applied on peer-ahead detection
+  # and deleted on clear_hold, so the actor needs to own exactly one object.
+  # get/patch/delete are resourceNames-pinned to that one name.
+  #
+  # `create` is deliberately in its own rule WITHOUT resourceNames, because
+  # k8s RBAC ignores resourceNames on create — the object does not exist yet,
+  # so there is no name to authorize against. Pinning it there would read as a
+  # constraint while enforcing nothing, so the split states the real scope
+  # instead of implying a narrower one. The residual power is "create some
+  # CiliumNetworkPolicy in this one namespace", which is strictly less than the
+  # `delete` on the Cluster CR this same Role already grants.
+  - apiGroups: [cilium.io]
+    resources: [ciliumnetworkpolicies]
+    verbs: [get, patch, delete]
+    resourceNames: [{{ include "bp-postgres.instanceName" . }}-write-guard]
+  - apiGroups: [cilium.io]
+    resources: [ciliumnetworkpolicies]
+    verbs: [create]
+  # #5245 0.2.20 preserve_pki: strip the controller ownerReferences from
+  # the CNPG-issued PKI Secrets before the bounded Cluster-CR delete so
+  # the CA lineage survives (hw278: the delete GC'd -ca/-replication/
+  # -server, CNPG re-issued a FRESH CA, and region-B's one-shot synced
+  # clientCASecret copy could never trust the re-cloned cluster's new
+  # client leaf). get+patch only, resourceNames-pinned to the three
+  # Secrets — no list, no read of any other Secret.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, patch]
+    resourceNames:
+      - {{ include "bp-postgres.instanceName" . }}-ca
+      - {{ include "bp-postgres.instanceName" . }}-replication
+      - {{ include "bp-postgres.instanceName" . }}-server
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-dr-failback
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "bp-postgres.instanceName" . }}-dr-failback
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-postgres.instanceName" . }}-dr-failback
+    namespace: {{ include "bp-postgres.namespace" . }}
+---
+# flux-system surface: the HR (annotations + reconcile nudges) and the
+# Kustomization (the durable per-instance DEMOTED substitute) —
+# both resourceNames-pinned, get+patch only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-dr-failback
+  namespace: {{ $hrNamespace }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+rules:
+  - apiGroups: [helm.toolkit.fluxcd.io]
+    resources: [helmreleases]
+    verbs: [get, patch]
+    resourceNames: [{{ $hrName }}]
+  - apiGroups: [kustomize.toolkit.fluxcd.io]
+    resources: [kustomizations]
+    verbs: [get, patch]
+    resourceNames: [{{ $ksName }}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-dr-failback
+  namespace: {{ $hrNamespace }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "bp-postgres.instanceName" . }}-dr-failback
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-postgres.instanceName" . }}-dr-failback
+    namespace: {{ include "bp-postgres.namespace" . }}
+---
+# Egress allow-list (one CNP, #4428 idiom): apiserver (kubectl) +
+# kube-dns + the local primary cluster's 5432 (signals psql) + the
+# peer replica cluster's 5432 across the ClusterMesh (the peer probe —
+# same #4846 identity-scoped shape as the dr-promoter's region-A leg).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-dr-failback-egress
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+spec:
+  endpointSelector:
+    matchLabels:
+      catalyst.openova.io/role: dr-failback
+      catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . }}
+  egress:
+    - toEntities:
+        - kube-apiserver
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            cnpg.io/cluster: {{ include "bp-postgres.instanceName" . }}
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # Peer probe path — region-B's replica Cluster Pods over the mesh.
+    # Cross-region ClusterMesh endpoints carry their OWN pod identity;
+    # a plain toEndpoints is implicitly ANDed with the LOCAL cluster
+    # (#4846), so admit the peer cluster(s) explicitly.
+    - toEndpoints:
+        - matchLabels:
+            cnpg.io/cluster: {{ include "bp-postgres.replicaName" . }}
+          matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: In
+              values:
+                {{- range $peerClusters }}
+                - {{ . | quote }}
+                {{- end }}
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-dr-failback
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+    catalyst.openova.io/role: dr-failback
+  annotations:
+    catalyst.openova.io/blueprint: bp-postgres
+spec:
+  replicas: 1
+  # Single actor; never two failback loops at once (#5157 shape).
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bp-postgres
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      catalyst.openova.io/role: dr-failback
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bp-postgres
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        catalyst.openova.io/role: dr-failback
+        catalyst.openova.io/cnpg-pair: {{ include "bp-postgres.instanceName" . | quote }}
+        # kyverno cilium-l7-mtls (Enforce) — required on the Pod
+        # template or the Deployment is DENIED at admission (#3238).
+        policy.cilium.io/enforced: "true"
+    spec:
+      # The actor runs in the primary region — the half being rejoined.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: openova.io/region
+                    operator: In
+                    values: [{{ include "bp-postgres.primaryRegion" . | quote }}]
+      serviceAccountName: {{ include "bp-postgres.instanceName" . }}-dr-failback
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 26
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        # ── signals — post-failover-geometry detector ─────────────────
+        # psql (streaming_replica client cert — this cluster's own
+        # `-primary-replication`, the #5133 auth pattern) against the
+        # LOCAL `-rw` plus the PEER probe over `-replica-mesh`. The
+        # peer psql presents the SAME local cert: region-B accepts it
+        # because its client CA is pinned to the shared `-primary-ca`
+        # (replica-cluster.yaml #5245). Timelines via IDENTIFY_SYSTEM
+        # on replication-protocol connections (pg_hba `hostssl
+        # replication streaming_replica all cert` — no pg_control /
+        # pg_read_all_stats privileges involved, #5239 lesson).
+        - name: signals
+          image: {{ include "bp-postgres.imageRef" . | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              LOCAL_CONN="host={{ include "bp-postgres.instanceName" . }}-rw port=5432 dbname=postgres user=streaming_replica sslmode=require sslcert=/tls/client/tls.crt sslkey=/tls/client/tls.key"
+              PEER_CONN="host=${PEER_MESH_HOST} port=5432 dbname=postgres user=streaming_replica sslmode=require sslcert=/tls/client/tls.crt sslkey=/tls/client/tls.key"
+              # Replication-protocol conninfo for IDENTIFY_SYSTEM (the
+              # timeline read every streaming_replica can perform).
+              LOCAL_REPL="host={{ include "bp-postgres.instanceName" . }}-rw port=5432 dbname=postgres user=streaming_replica sslmode=require sslcert=/tls/client/tls.crt sslkey=/tls/client/tls.key replication=true"
+              PEER_REPL="host=${PEER_MESH_HOST} port=5432 dbname=postgres user=streaming_replica sslmode=require sslcert=/tls/client/tls.crt sslkey=/tls/client/tls.key replication=true"
+              # LOCAL state ladder — mirrors the dr-promoter's #5239-readable
+              # signals: 'primary' (writable), 'streaming' (standby with a live
+              # walreceiver row + a set receive-LSN), 'receiving' (row, no WAL
+              # yet), 'noreceiver' (standby, no stream), 'unknown' (probe
+              # failed — fail-safe).
+              LQ="SELECT CASE
+                WHEN NOT pg_is_in_recovery() THEN 'primary'
+                WHEN EXISTS (SELECT 1 FROM pg_stat_wal_receiver) AND pg_last_wal_receive_lsn() IS NOT NULL THEN 'streaming'
+                WHEN EXISTS (SELECT 1 FROM pg_stat_wal_receiver) THEN 'receiving'
+                ELSE 'noreceiver'
+              END"
+              # Pinned sync standby present? The walsender rows run AS
+              # streaming_replica, so this probe role sees its own rows in
+              # full (no #5239 NULLing for same-user rows) — and row
+              # ABSENCE, the signal that matters, is visible to everyone.
+              SQ="SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_stat_replication WHERE application_name = '{{ include "bp-postgres.replicaName" . }}') THEN 'present' ELSE 'absent' END"
+              # IDENTIFY_SYSTEM row: systemid | timeline | xlogpos | dbname
+              tl_of() {
+                psql "$1" -tAXc "IDENTIFY_SYSTEM" 2>/dev/null | head -1 | cut -d'|' -f2
+              }
+              is_int() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
+              STARTED=$(date -u +%s)
+              echo "[dr-failback/signals] loop started (interval=${INTERVAL_SECONDS}s startupGrace=${STARTUP_GRACE_SECONDS}s peerMeshHost=${PEER_MESH_HOST})"
+              clear_hold() {
+                if [ -f /shared/peer-ahead-since ]; then
+                  echo "$(date -u +"%FT%TZ") [dr-failback/signals] $1 — peer-ahead hold clock cleared"
+                fi
+                rm -f /shared/peer-ahead-since
+              }
+              clear_wedge() { rm -f /shared/wedge-since; }
+              # #5388 — starvation clock: accrues ONLY while the
+              # post-failover geometry candidate (local primary, sync
+              # standby absent) persists with the peer probe failing for
+              # an observability-dead reason. Every other path clears it.
+              starve_clear() { rm -f /shared/peer-starved-since; }
+              # peer_report <key> <message> — #5245 FAIL-LOUD probe
+              # diagnostics (chart 0.2.19). hw277: the loop sat 57 min
+              # after 'loop started' with ZERO output while the peer
+              # probe failed every tick (TL2==TL2 under the then-strict
+              # -gt gate) — a silent wedge indistinguishable from an
+              # NXDOMAIN from outside. Every probe REASON now logs on
+              # its transition and re-logs every 30 ticks (~5 min at
+              # the 10s interval) while a non-ok reason persists.
+              peer_report() {
+                _k="$1"; _m="$2"
+                _prev=$(cat /shared/peer-probe-reason 2>/dev/null || echo "")
+                if [ "${_k}" != "${_prev}" ]; then
+                  echo "${_k}" > /shared/peer-probe-reason
+                  echo 0 > /shared/peer-probe-ticks
+                  echo "$(date -u +"%FT%TZ") [dr-failback/signals] peer probe: ${_m}"
+                elif [ "${_k}" != "ok" ]; then
+                  _n=$(($(cat /shared/peer-probe-ticks 2>/dev/null || echo 0) + 1))
+                  if [ "${_n}" -ge 30 ]; then
+                    _n=0
+                    echo "$(date -u +"%FT%TZ") [dr-failback/signals] peer probe STILL: ${_m}"
+                  fi
+                  echo "${_n}" > /shared/peer-probe-ticks
+                fi
+              }
+              # probe_peer_writable — peer RESOLVABLE + REACHABLE +
+              # WRITABLE. The first three rungs of the probe ladder,
+              # split out (0.2.20, #5245 hw278) so the post-demote
+              # escalations can keep a LIVE writable-peer proof while
+              # the LOCAL cluster is psql-dark (mid-demote restarts, a
+              # bootstrap-looping re-clone) — once the demotion is
+              # durably rendered the authority question is settled and
+              # what a destructive step still needs is a fresh writable
+              # peer, not a re-run of the TL arithmetic. Touches
+              # /shared/peer-writable-fresh on success. Failure reasons
+              # stay fail-loud via peer_report; success reporting is
+              # the CALLER's job (probe_peer_ahead reports 'ok' with
+              # the TL numbers; probe_peer_writable_report reports the
+              # dark-window transition) so alternating call sites never
+              # spam per-tick transitions.
+              probe_peer_writable() {
+                # DNS first, separately from reachability: a structural
+                # NXDOMAIN (missing local -replica-mesh stub Service /
+                # broken kube-dns) must surface BY NAME, immediately
+                # (#5245). getent-less images fall through to
+                # pg_isready, which still covers reachability.
+                if command -v getent >/dev/null 2>&1 && ! getent hosts "${PEER_MESH_HOST}" >/dev/null 2>&1; then
+                  peer_report nxdomain "peer host ${PEER_MESH_HOST} NOT RESOLVABLE from this pod (NXDOMAIN) — the like-named local -replica-mesh stub Service (peer-mesh-service.yaml) or kube-dns is missing/broken; failback cannot observe the peer (#5245)"
+                  return 1
+                fi
+                if ! pg_isready -h "${PEER_MESH_HOST}" -p 5432 -t "${PROBE_TIMEOUT}" -q; then
+                  peer_report unreachable "peer ${PEER_MESH_HOST} resolves but is UNREACHABLE (pg_isready failed — region-B down, mesh partition, or CNP block)"
+                  return 1
+                fi
+                _rec=$(psql "${PEER_CONN}" -tAXc "SELECT pg_is_in_recovery()" 2>/dev/null || echo "err")
+                if [ "${_rec}" != "f" ]; then
+                  peer_report in-recovery "peer ${PEER_MESH_HOST} reachable but NOT WRITABLE (in_recovery=${_rec}) — region-B not promoted (healthy pair / pre-promote window): no failback"
+                  return 1
+                fi
+                : > /shared/peer-writable-fresh
+                return 0
+              }
+              # probe_peer_writable_report — standalone form for ticks
+              # where the TL arithmetic cannot run (local psql dark):
+              # logs the writable-proof transition once, never per-tick.
+              probe_peer_writable_report() {
+                if probe_peer_writable; then
+                  _prev=$(cat /shared/peer-probe-reason 2>/dev/null || echo "")
+                  case "${_prev}" in
+                    ok|writable-ok) : ;;
+                    *) peer_report writable-ok "peer ${PEER_MESH_HOST} WRITABLE (in_recovery=f) — peer-writable proof held while the local cluster is psql-dark (#5245 hw278)" ;;
+                  esac
+                fi
+              }
+              # probe_peer_ahead <tl_local> — probe_peer_writable + TL
+              # equal-or-higher (>= — see the DETECT rationale: the
+              # hw277 TL2==TL2 deadlock; the sync fence, not the TL
+              # number, is the authority proof). On success touches the
+              # freshness marker the actor re-checks before EVERY
+              # destructive step. Any failure → non-zero (caller
+              # clears) with its reason fail-loud via peer_report.
+              probe_peer_ahead() {
+                _tl_local="$1"
+                probe_peer_writable || return 1
+                _tl_peer=$(tl_of "${PEER_REPL}")
+                if ! is_int "${_tl_peer}"; then
+                  peer_report tl-unreadable "peer ${PEER_MESH_HOST} writable but its timeline is unreadable over the replication protocol — fail-safe"
+                  return 1
+                fi
+                if ! [ "${_tl_peer}" -ge "${_tl_local}" ]; then
+                  peer_report tl-behind "SPLIT-BRAIN with peer TL BEHIND local (peer TL=${_tl_peer} < local TL=${_tl_local}): both sides writable but the recovered region out-promoted the survivor — automatic failback REFUSES this geometry (fail-safe); sovereign-admin action per RUNBOOKS §6.1 (#5245)"
+                  return 1
+                fi
+                peer_report ok "peer ${PEER_MESH_HOST} WRITABLE on TL=${_tl_peer} >= local TL=${_tl_local} — peer-ahead proof available (#5245)"
+                echo "${_tl_peer}" > /shared/tl-peer
+                : > /shared/peer-ahead-fresh
+                return 0
+              }
+              while true; do
+                : > /shared/signals-alive
+                STATE=$(psql "${LOCAL_CONN}" -tAXc "${LQ}" 2>/dev/null || echo "unknown")
+                NOW=$(date -u +%s)
+                echo "${STATE}" > /shared/local-state
+                if [ "$((NOW - STARTED))" -lt "${STARTUP_GRACE_SECONDS}" ]; then
+                  clear_hold "startup grace ($((NOW - STARTED))s<${STARTUP_GRACE_SECONDS}s, state=${STATE})"
+                  clear_wedge
+                  starve_clear
+                  sleep "${INTERVAL_SECONDS}"; continue
+                fi
+                case "${STATE}" in
+                  primary)
+                    clear_wedge
+                    SYNC=$(psql "${LOCAL_CONN}" -tAXc "${SQ}" 2>/dev/null || echo "err")
+                    if [ "${SYNC}" != "absent" ]; then
+                      # Standby streaming from us (or probe failed) — the pair
+                      # is healthy (or unknowable): fail-safe, no failback.
+                      clear_hold "local primary with sync standby ${SYNC}"
+                      starve_clear
+                      sleep "${INTERVAL_SECONDS}"; continue
+                    fi
+                    TL_LOCAL=$(tl_of "${LOCAL_REPL}")
+                    if ! is_int "${TL_LOCAL}"; then
+                      clear_hold "local timeline unreadable — fail-safe"
+                      starve_clear
+                      sleep "${INTERVAL_SECONDS}"; continue
+                    fi
+                    echo "${TL_LOCAL}" > /shared/tl-local
+                    if probe_peer_ahead "${TL_LOCAL}"; then
+                      starve_clear
+                      if [ ! -f /shared/peer-ahead-since ]; then
+                        echo "${NOW}" > /shared/peer-ahead-since
+                        echo "$(date -u +"%FT%TZ") [dr-failback/signals] POST-FAILOVER GEOMETRY: local writable TL=${TL_LOCAL}, sync standby ABSENT, peer WRITABLE on TL=$(cat /shared/tl-peer) (>= local) — peer-ahead hold clock started (#5245)"
+                      fi
+                    else
+                      clear_hold "peer not provably writable+equal-or-ahead (reason in the fail-loud peer-probe line above)"
+                      # #5388 — this is the hw290 leg-6 shape: local primary,
+                      # sync standby gone, and the peer UNOBSERVABLE
+                      # (nxdomain / unreachable / tl-unreadable — e.g. the
+                      # rebooted region's cross-region routes not yet healed,
+                      # #5339). Accrue the starvation clock so the actor can
+                      # surface it on the HR; an observable-but-ineligible
+                      # peer (in-recovery / tl-behind) clears instead — those
+                      # geometries are diagnosed by their own reasons.
+                      case "$(cat /shared/peer-probe-reason 2>/dev/null || echo '')" in
+                        nxdomain|unreachable|tl-unreadable)
+                          [ -f /shared/peer-starved-since ] || echo "${NOW}" > /shared/peer-starved-since ;;
+                        *) starve_clear ;;
+                      esac
+                    fi
+                    ;;
+                  streaming)
+                    # Demoted + streaming from region-B — the DATA-PLANE
+                    # signal only. A divergent in-place-demoted standby on its
+                    # own TL-fork also reads 'streaming' (walreceiver row + a
+                    # set receive-LSN) at a coincidentally-equal LSN; the ACTOR
+                    # makes the convergence call by ALSO checking CNPG's
+                    # ConsistentSystemID verdict (#5331). Keep the
+                    # peer-WRITABLE proof fresh here so that, if the actor
+                    # finds this 'streaming' is actually the divergent case
+                    # (ConsistentSystemID=False), its re-clone escalation has a
+                    # <60s-fresh writable-peer proof to act on — this arm never
+                    # refreshed it before, so the divergence escalation would
+                    # starve for a fresh proof and wedge. Harmless for a
+                    # genuinely-converged replica: the actor exits at CONVERGED
+                    # and never consumes the proof.
+                    clear_hold "local standby streaming (data-plane signal; actor verifies ConsistentSystemID)"
+                    clear_wedge
+                    starve_clear
+                    : > /shared/converged-streaming
+                    probe_peer_writable_report
+                    ;;
+                  receiving|noreceiver)
+                    # A local standby that is NOT streaming. If the peer is
+                    # provably writable+ahead this is the in-place-demote
+                    # wedge candidate (stale TL-N PGDATA that cannot follow) —
+                    # accrue the wedge clock for the actor's escalation.
+                    clear_hold "local standby state=${STATE}"
+                    starve_clear
+                    rm -f /shared/converged-streaming
+                    TL_LOCAL=$(tl_of "${LOCAL_REPL}")
+                    if is_int "${TL_LOCAL}" && probe_peer_ahead "${TL_LOCAL}"; then
+                      if [ ! -f /shared/wedge-since ]; then
+                        echo "${NOW}" > /shared/wedge-since
+                        echo "$(date -u +"%FT%TZ") [dr-failback/signals] local standby cannot stream (state=${STATE}) while peer is writable+equal-or-ahead — wedge clock started (#5245 escalation)"
+                      fi
+                    else
+                      # 0.2.20 (#5245 hw278): a standby whose own TL is
+                      # unreadable still needs the writable-peer proof
+                      # kept fresh for the divergence escalation.
+                      is_int "${TL_LOCAL}" || probe_peer_writable_report
+                      clear_wedge
+                    fi
+                    ;;
+                  unknown|*)
+                    # Local probe failed — mid-re-clone (no endpoints) or an
+                    # unhealthy local cluster. Fail-safe: no evidence accrues.
+                    # 0.2.20 (#5245 hw278): STILL probe the peer's
+                    # writability — the divergence escalation and the
+                    # post-re-clone watch need a fresh peer proof precisely
+                    # while the local cluster is psql-dark (the demoted
+                    # standby restarts through the in-place switch; a
+                    # bootstrap-looping re-clone has no endpoints at all).
+                    clear_hold "local state unknown (probe failed — fail-safe)"
+                    clear_wedge
+                    starve_clear
+                    rm -f /shared/converged-streaming
+                    probe_peer_writable_report
+                    ;;
+                esac
+                sleep "${INTERVAL_SECONDS}"
+              done
+          env:
+            - name: PGCONNECT_TIMEOUT
+              value: "5"
+            - name: PEER_MESH_HOST
+              value: {{ include "bp-postgres.peerReplicationServiceName" . | quote }}
+            - name: PROBE_TIMEOUT
+              value: {{ $probeTimeout | quote }}
+            - name: STARTUP_GRACE_SECONDS
+              value: {{ $startupGrace | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ $interval | quote }}
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "test -f /shared/signals-alive && test -z \"$(find /shared/signals-alive -mmin +1)\""
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["test", "-f", "/shared/signals-alive"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            runAsUser: 26   # postgres in upstream cnpg image
+            runAsGroup: 26
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+            - name: tmp
+              mountPath: /tmp
+            - name: replication-cert
+              mountPath: /tls/client
+              readOnly: true
+        # ── actor — demote (substitute) + bounded re-clone ────────────
+        # Every write carries --field-manager=dr-failback (survives the
+        # kustomize kubectl-manager cleanup — the #5245 root cause).
+        # Each tick runs in a subshell; every step is guarded by
+        # live-observed state, so the loop is idempotent and resumes
+        # from any crash point.
+        - name: actor
+          image: {{ printf "%s:%s" $krepo $ktag | quote }}
+          imagePullPolicy: {{ $kpull | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              FM="--field-manager=dr-failback"
+              echo "[dr-failback/actor] loop started (hold=${HOLD_SECONDS}s wedgeHold=${WEDGE_HOLD_SECONDS}s divergenceGrace=${DIVERGENCE_GRACE_SECONDS}s interval=${INTERVAL_SECONDS}s hr=${HR_NAMESPACE}/${HR_NAME} kustomization=${KS_NAMESPACE}/${KS_NAME})"
+              # nudge <kind> <ns> <name> <marker> — rate-limited flux
+              # reconcile request (reconcile.fluxcd.io/requestedAt).
+              nudge() {
+                if [ ! -f "/shared/$4" ] || [ -n "$(find "/shared/$4" -mmin +1)" ]; then
+                  kubectl -n "$2" annotate "$1" "$3" "reconcile.fluxcd.io/requestedAt=$(date -u +%s)" --overwrite ${FM} >/dev/null 2>&1 || true
+                  : > "/shared/$4"
+                fi
+              }
+              # peer_fresh — the signals container re-verified the peer
+              # writable+ahead within the last 60s (it re-probes every
+              # tick, ~10s). Required before EVERY destructive step (a
+              # stale proof is no proof). POSIX find only (-mmin integer:
+              # busybox-safe).
+              peer_fresh() {
+                [ -f /shared/peer-ahead-fresh ] && [ -z "$(find /shared/peer-ahead-fresh -mmin +1 2>/dev/null)" ]
+              }
+              # peer_fresh_writable — the signals container verified the
+              # peer WRITABLE within the last 60s (0.2.20, #5245 hw278).
+              # The divergence escalation runs while the LOCAL cluster is
+              # psql-dark, so the full TL-arithmetic proof (peer_fresh)
+              # may be structurally unavailable — but the demotion is
+              # already durably rendered by then, so a live writable peer
+              # is the guard that still matters before destruction.
+              peer_fresh_writable() {
+                [ -f /shared/peer-writable-fresh ] && [ -z "$(find /shared/peer-writable-fresh -mmin +1 2>/dev/null)" ]
+              }
+              # preserve_pki — strip the controller ownerReferences from
+              # the CNPG-issued PKI Secrets so the bounded Cluster-CR
+              # delete does NOT garbage-collect the CA lineage (0.2.20,
+              # #5245 hw278: the delete GC'd -ca/-replication/-server,
+              # CNPG re-issued a FRESH CA on re-create, and region-B's
+              # one-shot post-mesh-flip synced clientCASecret copy could
+              # never trust the re-cloned cluster's new client leaf —
+              # auth dead even after the sslRootCert fix). CNPG adopts
+              # the surviving Secrets on re-create (BYO path). A failed
+              # strip ABORTS the delete for this tick — deleting anyway
+              # would reproduce the trust break.
+              preserve_pki() {
+                _rc=0
+                for _s in "${PRIMARY_CLUSTER}-ca" "${PRIMARY_CLUSTER}-replication" "${PRIMARY_CLUSTER}-server"; do
+                  if kubectl -n "${NAMESPACE}" get secret "${_s}" >/dev/null 2>&1; then
+                    if ! kubectl -n "${NAMESPACE}" patch secret "${_s}" --type merge ${FM} -p '{"metadata":{"ownerReferences":[]}}' >/dev/null 2>&1; then
+                      echo "$(date -u +"%FT%TZ") [dr-failback/actor] PKI-PRESERVE FAILED on Secret ${_s} — NOT deleting the Cluster this tick (#5245 hw278: a delete now would GC the CA and orphan region-B's synced client-CA trust); retrying next tick"
+                      _rc=1
+                    fi
+                  fi
+                done
+                return ${_rc}
+              }
+              # ts_lt <a> <b> — RFC3339-UTC lexicographic a < b (POSIX;
+              # no `[ \< ]` bashism).
+              ts_lt() {
+                [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort | head -1)" = "$1" ]
+              }
+              # ── #6148 write-guard ────────────────────────────────────
+              # region-A returns from a region-kill as a writable stale-timeline
+              # primary while the peer is already writable and AHEAD. Every write
+              # committed in that window is acknowledged to the client and then
+              # silently discarded by the re-clone — and on THIS chart the
+              # clients are keycloak, gitea, harbor, grafana, powerdns and the
+              # Organization mesh. The 120s hold is legitimate — it guards the
+              # DEMOTE decision against a flap, and a demote/re-promote cycle
+              # bumps the timeline, which is the same class of damage. So the
+              # hold stays and the window gets a guard that is reversible at
+              # zero cost.
+              #
+              # Both helpers are idempotent and cheap: /shared/guard-state
+              # keeps them from re-issuing an API call every tick. They are
+              # deliberately NON-FATAL — a guard that cannot be applied must
+              # never stall the failback, because converging region-A is what
+              # ends the exposure. The failure is reported loudly instead.
+              GUARD_STATE=/shared/guard-state
+              guard_on() {
+                [ "$(cat "${GUARD_STATE}" 2>/dev/null || echo)" = "on" ] && return 0
+                if kubectl -n "${NAMESPACE}" apply ${FM} -f /guard/guard.yaml >/dev/null 2>&1; then
+                  echo "on" > "${GUARD_STATE}"
+                  echo "$(date -u +"%FT%TZ") [dr-failback/actor] WRITE-GUARD ON: region-A is a writable primary on TL=$(cat /shared/tl-local 2>/dev/null || echo '?') that the peer has overtaken on TL=$(cat /shared/tl-peer 2>/dev/null || echo '?') — denying consumer ingress to :5432 for the duration of the hold; replication and this actor's own timeline probe stay open (#6148)"
+                else
+                  echo "$(date -u +"%FT%TZ") [dr-failback/actor] WARN: WRITE-GUARD could not be applied (RBAC/CRD absent?) — the hold window is UNGUARDED and a region-A-local consumer can still commit a write that the re-clone will discard; failback continues (#6148)"
+                fi
+              }
+              guard_off() {
+                [ -f "${GUARD_STATE}" ] || return 0
+                kubectl -n "${NAMESPACE}" delete ciliumnetworkpolicy \
+                  "{{ include "bp-postgres.instanceName" . }}-write-guard" \
+                  --ignore-not-found >/dev/null 2>&1 || true
+                rm -f "${GUARD_STATE}"
+                echo "$(date -u +"%FT%TZ") [dr-failback/actor] WRITE-GUARD OFF — the peer-ahead hold is no longer active, consumer ingress to :5432 restored (#6148)"
+              }
+              while true; do
+                : > /shared/actor-alive
+                # Unconditional, and BEFORE the per-tick subshell: the guard is
+                # tied to the hold clock itself, not to any one geometry branch.
+                # The signals loop clears /shared/peer-ahead-since on every
+                # fail-safe path it has, so pinning the guard to that single
+                # file means every existing abort already unwinds it and no new
+                # control flow can forget to.
+                [ -f /shared/peer-ahead-since ] || guard_off
+                (
+                  set -eu
+                  SUB=$(kubectl -n "${KS_NAMESPACE}" get kustomization "${KS_NAME}" -o jsonpath="{.spec.postBuild.substitute.${DEMOTED_SUB_KEY}}" 2>/dev/null || echo "")
+                  VALS_DEMOTED=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.spec.values.topology.demoted}' 2>/dev/null || echo "")
+                  # 0.2.20 (#5245 hw278): also read the ConsistentSystemID
+                  # condition (CNPG's own cannot-consistently-follow-the-
+                  # source signal — live shape on hw278:
+                  # status=False reason=NotFound) + the phase, for the
+                  # divergence escalation and the post-re-clone watch.
+                  CR_JSON=$(kubectl -n "${NAMESPACE}" get clusters.postgresql.cnpg.io "${PRIMARY_CLUSTER}" -o jsonpath="{.spec.replica.enabled}|{.metadata.creationTimestamp}|{.metadata.deletionTimestamp}|{.status.conditions[?(@.type=='ConsistentSystemID')].status}|{.status.conditions[?(@.type=='ConsistentSystemID')].reason}|{.status.phase}" 2>/dev/null || echo "__absent__")
+                  STARTED_AT=$(kubectl -n "${HR_NAMESPACE}" get helmrelease "${HR_NAME}" -o jsonpath='{.metadata.annotations.catalyst\.openova\.io/dr-failback-started-at}' 2>/dev/null || echo "")
+                  # 0.2.21 (#5331): parse the CR fields up-front — the
+                  # CONVERGED verification gate below needs CNPG's own
+                  # ConsistentSystemID verdict, not just the psql streaming
+                  # signal. When the CR is absent (mid-re-clone) every field
+                  # is empty and the gate correctly declines to converge.
+                  CR_REPLICA=$(echo "${CR_JSON}" | cut -d'|' -f1)
+                  CR_CREATED=$(echo "${CR_JSON}" | cut -d'|' -f2)
+                  CR_DELETING=$(echo "${CR_JSON}" | cut -d'|' -f3)
+                  CR_SYSID_OK=$(echo "${CR_JSON}" | cut -d'|' -f4)
+                  CR_SYSID_REASON=$(echo "${CR_JSON}" | cut -d'|' -f5)
+                  CR_PHASE=$(echo "${CR_JSON}" | cut -d'|' -f6)
+
+                  # ── CONVERGED — record once, then idle ────────────────
+                  # #5331 (hw285 P0 data-loss trap): gate on VERIFIED data
+                  # convergence, NEVER on the bare local 'streaming' signal.
+                  # region-A must be BOTH (a) streaming from region-B (the
+                  # data-plane signal /shared/converged-streaming) AND (b)
+                  # reporting CNPG's ConsistentSystemID=True — CNPG's own
+                  # positive attestation that region-A's PGDATA / system
+                  # lineage is CONSISTENT with the source it streams from.
+                  # A divergent in-place-demoted standby on its OWN TL-fork
+                  # also reads 'streaming' (a walreceiver row + a set
+                  # receive-LSN) at a COINCIDENTALLY-EQUAL LSN, yet holds
+                  # ConsistentSystemID=False and is missing region-B's
+                  # post-failover writes. On hw285 the 0.2.20 gate
+                  # (converged-streaming + demoted only) declared such a
+                  # standby CONVERGED 10s into the 180s divergence grace,
+                  # with NO re-clone — a data-loss trap on switchback.
+                  # ConsistentSystemID=True CANNOT hold on a divergent line,
+                  # so it is the load-bearing positive proof; LSN-equality is
+                  # NOT (equal LSNs are exactly the false signal). The
+                  # divergence path below (D2a) re-clones region-A from
+                  # region-B, after which a genuine pg_basebackup replica
+                  # reports ConsistentSystemID=True and converges here.
+                  if [ -f /shared/converged-streaming ] && [ "${VALS_DEMOTED}" = "true" ] && [ "${CR_SYSID_OK}" = "True" ] && [ ! -f /shared/converged-recorded ]; then
+                    if kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-failback-converged-at\":\"$(date -u +"%FT%TZ")\"}}}" >/dev/null 2>&1; then
+                      : > /shared/converged-recorded
+                      echo "$(date -u +"%FT%TZ") [dr-failback/actor] CONVERGED: region-A streaming from region-B AND CNPG reports ConsistentSystemID=True (verified consistent lineage — not a divergent equal-LSN standby) — recorded dr-failback-converged-at on HR ${HR_NAMESPACE}/${HR_NAME}. Cross-region replication restored, roles swapped; the controlled switchback (demote region-B, restore region-A primary) is the sovereign-admin's RUNBOOKS §6.1 action (#5245 #5331)"
+                    fi
+                    exit 0
+                  fi
+
+                  # ── D0: DECIDE — flip the durable demotion substitute ─
+                  if [ "${SUB}" != "true" ]; then
+                    # ── #5388 STARVATION SURFACING (0.2.23, hw290 G12 leg-6) ──
+                    # The post-failover geometry candidate (local writable
+                    # primary, sync standby ABSENT) has persisted while the
+                    # peer probe fails for an OBSERVABILITY-DEAD reason —
+                    # on hw290 the rebooted region's cross-region routes
+                    # were gone (#5339 shape) and this actor idled at D0
+                    # forever while the split-brain persisted, with the only
+                    # evidence in this pod's logs. Record the starvation on
+                    # the HR where an operator looks. Diagnostic only: a
+                    # 2-node actor cannot distinguish region-B-dead (serving
+                    # here is CORRECT) from region-B-unreachable (split-
+                    # brain), so it must never act on blindness — but it
+                    # must not be silent about it either. Re-records on
+                    # reason change; clears its marker when the probe
+                    # recovers so a later episode records afresh.
+                    if [ -f /shared/peer-starved-since ]; then
+                      _ss=$(cat /shared/peer-starved-since 2>/dev/null || echo "")
+                      _now=$(date -u +%s)
+                      _reason=$(cat /shared/peer-probe-reason 2>/dev/null || echo "unknown")
+                      if [ -n "${_ss}" ] && [ "$((_now - _ss))" -ge "${STARVATION_SURFACE_SECONDS}" ] && [ "$(cat /shared/starved-recorded 2>/dev/null || echo '')" != "${_reason}" ]; then
+                        if kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-failback-starved-at\":\"$(date -u +"%FT%TZ")\",\"catalyst.openova.io/dr-failback-starved-reason\":\"peer probe ${_reason} for >=${STARVATION_SURFACE_SECONDS}s while local is a writable primary with the sync standby absent — failback cannot observe the peer; if region-B was promoted this IS a live split-brain until the mesh/datapath heals (#5388 #5339)\"}}}" >/dev/null 2>&1; then
+                          echo "${_reason}" > /shared/starved-recorded
+                          echo "$(date -u +"%FT%TZ") [dr-failback/actor] STARVED: post-failover geometry candidate held $((_now - _ss))s with peer probe '${_reason}' — recorded dr-failback-starved-at on HR ${HR_NAMESPACE}/${HR_NAME}; failback is BLIND, not idle (#5388)"
+                        else
+                          echo "$(date -u +"%FT%TZ") [dr-failback/actor] WARN: could not record starvation on HR (RBAC/conflict?) — retrying next tick (#5388)"
+                        fi
+                      fi
+                    else
+                      rm -f /shared/starved-recorded
+                    fi
+                    [ -f /shared/peer-ahead-since ] || exit 0
+                    # #6148 — guard FIRST, then evaluate the hold. The exposure
+                    # starts the moment the geometry is known-divergent, which
+                    # is here, not ${HOLD_SECONDS} later at the demote.
+                    guard_on
+                    SINCE=$(cat /shared/peer-ahead-since)
+                    NOW=$(date -u +%s)
+                    HELD=$((NOW - SINCE))
+                    if [ "${HELD}" -lt "${HOLD_SECONDS}" ]; then
+                      echo "$(date -u +"%FT%TZ") [dr-failback/actor] peer writable+ahead held ${HELD}s < ${HOLD_SECONDS}s — waiting"
+                      exit 0
+                    fi
+                    peer_fresh || { echo "$(date -u +"%FT%TZ") [dr-failback/actor] hold expired but peer proof is stale — re-verifying next tick (fail-safe)"; exit 0; }
+                    echo "$(date -u +"%FT%TZ") [dr-failback/actor] DEMOTING region-A: peer writable on TL=$(cat /shared/tl-peer 2>/dev/null || echo '?') >= local TL=$(cat /shared/tl-local 2>/dev/null || echo '?') held ${HELD}s — patching Kustomization substitute ${DEMOTED_SUB_KEY}=true (durable source seam, #5245 #6149)"
+                    kubectl -n "${KS_NAMESPACE}" patch kustomization "${KS_NAME}" --type merge ${FM} -p "{\"spec\":{\"postBuild\":{\"substitute\":{\"${DEMOTED_SUB_KEY}\":\"true\"}}}}"
+                    kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-failback-started-at\":\"$(date -u +"%FT%TZ")\",\"catalyst.openova.io/dr-failback-reason\":\"region-A resumed stale TL$(cat /shared/tl-local 2>/dev/null || echo '?') primary while region-B is writable on TL$(cat /shared/tl-peer 2>/dev/null || echo '?'); demoting + re-cloning region-A onto region-B's line (#5245)\"}}}" >/dev/null 2>&1 || true
+                    nudge kustomization "${KS_NAMESPACE}" "${KS_NAME}" nudged-ks
+                    exit 0
+                  fi
+
+                  # ── D1: WAIT for kustomize to render the demotion ─────
+                  if [ "${VALS_DEMOTED}" != "true" ]; then
+                    echo "$(date -u +"%FT%TZ") [dr-failback/actor] substitute set but HR values not yet rendered (demoted='${VALS_DEMOTED}') — waiting for kustomize-controller"
+                    nudge kustomization "${KS_NAMESPACE}" "${KS_NAME}" nudged-ks
+                    exit 0
+                  fi
+
+                  # ── D1.5: EPISODE-MARKER self-heal (0.2.20, #5245 hw278) ─
+                  # dr-failback-started-at was written once, best-effort, in
+                  # the same D0 tick as the substitute patch. If that single
+                  # write was lost (patch failure, actor crash between the
+                  # two patches), ts_lt() below never passes and EVERY
+                  # escalation is structurally disabled — silently. Re-write
+                  # it loudly whenever the demotion is rendered but the
+                  # marker is absent. (A late marker is safe: it only makes
+                  # the pre-existing in-place-demoted CR read as
+                  # pre-episode, which it is.)
+                  if [ -z "${STARTED_AT}" ]; then
+                    STARTED_AT="$(date -u +"%FT%TZ")"
+                    echo "$(date -u +"%FT%TZ") [dr-failback/actor] dr-failback-started-at annotation MISSING while the demotion is rendered — self-healing the episode marker to ${STARTED_AT} (#5245 hw278: without it the divergence/wedge escalations are dead, silently)"
+                    kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-failback-started-at\":\"${STARTED_AT}\"}}}" >/dev/null 2>&1 || { echo "$(date -u +"%FT%TZ") [dr-failback/actor] episode-marker self-heal patch FAILED — retrying next tick"; exit 0; }
+                  fi
+
+                  # ── D2: RE-CLONE — the one bounded destructive act ────
+                  if [ "${CR_JSON}" = "__absent__" ]; then
+                    # Deleted (by us) or not yet re-created — nudge helm to
+                    # render the demoted shape promptly.
+                    nudge helmrelease "${HR_NAMESPACE}" "${HR_NAME}" nudged-hr
+                    exit 0
+                  fi
+                  # CR fields parsed up-front (before the CONVERGED gate, #5331).
+                  if [ -n "${CR_DELETING}" ]; then
+                    exit 0   # teardown in progress — wait
+                  fi
+                  if [ "${CR_REPLICA}" != "true" ]; then
+                    # Still the OLD primary shape with the stale timeline.
+                    peer_fresh || { echo "$(date -u +"%FT%TZ") [dr-failback/actor] demotion rendered but peer proof stale — NOT deleting (fail-safe)"; exit 0; }
+                    preserve_pki || exit 0
+                    echo "$(date -u +"%FT%TZ") [dr-failback/actor] RE-CLONING: deleting stale Cluster ${PRIMARY_CLUSTER} (old primary shape, TL=$(cat /shared/tl-local 2>/dev/null || echo '?')) — helm re-creates it as a pg_basebackup replica of region-B; PVCs are CNPG-owned and garbage-collect, PKI Secrets preserved (#5245)"
+                    kubectl -n "${NAMESPACE}" delete clusters.postgresql.cnpg.io "${PRIMARY_CLUSTER}" --wait=false
+                    kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-failback-recloned-at\":\"$(date -u +"%FT%TZ")\"}}}" >/dev/null 2>&1 || true
+                    exit 0
+                  fi
+                  # Demoted shape exists. A CR created BEFORE the failback
+                  # episode is an IN-PLACE demote keeping stale PGDATA — it
+                  # escalates to the bounded re-clone on EITHER detector
+                  # below. A CR created AFTER (a fresh clone) is NEVER
+                  # deleted — bounded destruction, at most one re-clone per
+                  # divergence detection.
+                  if [ -n "${STARTED_AT}" ] && ts_lt "${CR_CREATED}" "${STARTED_AT}"; then
+                    # ── D2a: DIVERGENCE escalation (0.2.20, #5245 hw278) ──
+                    # CNPG's own signal: ConsistentSystemID stays False on
+                    # the in-place-demoted CR. Unlike the wedge clock below
+                    # this needs NO contiguous psql observability — the
+                    # demoted standby restarts through the in-place switch
+                    # and every 'unknown' tick resets the wedge clock (how
+                    # hw278 crawled to its escalation). One clock, cleared
+                    # whenever the condition leaves False; the delete still
+                    # requires a fresh writable-peer proof.
+                    # #5331: ConsistentSystemID=False is CNPG's AUTHORITATIVE
+                    # divergence verdict and OVERRIDES a coincidental local
+                    # 'streaming' appearance. A divergent in-place-demoted
+                    # standby momentarily attaches to region-B at an equal LSN
+                    # (walreceiver row + set receive-LSN → local state
+                    # 'streaming' → /shared/converged-streaming) yet can never
+                    # follow region-B's line. The removed
+                    # `! -f /shared/converged-streaming` conjunct let that
+                    # false 'streaming' suppress the escalation AND reset the
+                    # divergence clock via the else-branch below — exactly how
+                    # hw285 skipped the re-clone. Gate on CNPG's verdict alone.
+                    if [ "${CR_SYSID_OK}" = "False" ]; then
+                      if [ ! -f /shared/diverged-since ]; then
+                        date -u +%s > /shared/diverged-since
+                        echo "$(date -u +"%FT%TZ") [dr-failback/actor] DIVERGENCE DETECTED: in-place-demoted Cluster (created ${CR_CREATED} < episode ${STARTED_AT}) reports ConsistentSystemID=False (reason=${CR_SYSID_REASON:-?}, phase='${CR_PHASE:-?}') — the stale-PGDATA line cannot consistently follow region-B; divergence clock started (grace ${DIVERGENCE_GRACE_SECONDS}s) (#5245 hw278)"
+                      fi
+                      DSINCE=$(cat /shared/diverged-since)
+                      NOW=$(date -u +%s)
+                      if [ "$((NOW - DSINCE))" -ge "${DIVERGENCE_GRACE_SECONDS}" ]; then
+                        if peer_fresh_writable; then
+                          preserve_pki || exit 0
+                          echo "$(date -u +"%FT%TZ") [dr-failback/actor] DIVERGENCE ESCALATION: ConsistentSystemID=False held $((NOW - DSINCE))s >= ${DIVERGENCE_GRACE_SECONDS}s on the pre-episode demoted Cluster with peer verified writable — deleting for a clean pg_basebackup re-clone (PKI preserved) (#5245 hw278)"
+                          kubectl -n "${NAMESPACE}" delete clusters.postgresql.cnpg.io "${PRIMARY_CLUSTER}" --wait=false
+                          rm -f /shared/diverged-since
+                          kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-failback-recloned-at\":\"$(date -u +"%FT%TZ")\"}}}" >/dev/null 2>&1 || true
+                          exit 0
+                        fi
+                        echo "$(date -u +"%FT%TZ") [dr-failback/actor] divergence grace expired but no fresh peer-writable proof — NOT deleting (fail-safe)"
+                        exit 0
+                      fi
+                    else
+                      rm -f /shared/diverged-since
+                    fi
+                    # ── D2b: WEDGE escalation (the psql-observed path) ──
+                    if [ -f /shared/wedge-since ]; then
+                      WSINCE=$(cat /shared/wedge-since)
+                      NOW=$(date -u +%s)
+                      if [ "$((NOW - WSINCE))" -ge "${WEDGE_HOLD_SECONDS}" ]; then
+                        peer_fresh || { echo "$(date -u +"%FT%TZ") [dr-failback/actor] wedge hold expired but peer proof stale — NOT deleting (fail-safe)"; exit 0; }
+                        preserve_pki || exit 0
+                        echo "$(date -u +"%FT%TZ") [dr-failback/actor] WEDGE ESCALATION: in-place-demoted Cluster (created ${CR_CREATED} < failback start ${STARTED_AT}) unable to stream $((NOW - WSINCE))s >= ${WEDGE_HOLD_SECONDS}s with peer writable+ahead — deleting for a clean re-clone (PKI preserved) (#5245)"
+                        kubectl -n "${NAMESPACE}" delete clusters.postgresql.cnpg.io "${PRIMARY_CLUSTER}" --wait=false
+                        kubectl -n "${HR_NAMESPACE}" patch helmrelease "${HR_NAME}" --type merge ${FM} -p "{\"metadata\":{\"annotations\":{\"catalyst.openova.io/dr-failback-recloned-at\":\"$(date -u +"%FT%TZ")\"}}}" >/dev/null 2>&1 || true
+                        exit 0
+                      fi
+                    fi
+                    # Pre-episode CR, clocks still accruing (or following
+                    # cleanly) — wait.
+                    exit 0
+                  fi
+                  # ── D3: POST-RE-CLONE convergence watch (0.2.20) ──────
+                  # The CR postdates the episode: the fresh clone. NEVER
+                  # deleted (bounded destruction). hw278: the fresh clone's
+                  # pgbasebackup Job FATAL-looped on x509 for 5+ hours with
+                  # the actor totally silent — a wedged re-clone must name
+                  # itself. Log the live phase + ConsistentSystemID every
+                  # 30 ticks (~5 min) until CONVERGED records. #5331: key the
+                  # heartbeat on converged-RECORDED, not converged-STREAMING —
+                  # a fresh clone that is streaming but not yet
+                  # ConsistentSystemID=True is NOT converged (the CONVERGED
+                  # gate requires both), and must keep naming itself rather
+                  # than go dark on the bare streaming signal.
+                  if [ ! -f /shared/converged-recorded ]; then
+                    _n=$(($(cat /shared/postclone-ticks 2>/dev/null || echo 0) + 1))
+                    if [ "${_n}" -ge 30 ]; then
+                      _n=0
+                      echo "$(date -u +"%FT%TZ") [dr-failback/actor] RE-CLONE NOT YET CONVERGED: Cluster phase='${CR_PHASE:-?}', ConsistentSystemID=${CR_SYSID_OK:-?}(${CR_SYSID_REASON:-?}), local state=$(cat /shared/local-state 2>/dev/null || echo '?') — streaming AND ConsistentSystemID=True not both observed yet; check the ${PRIMARY_CLUSTER}-1-pgbasebackup Job logs (hw278 wedge shape: x509 unknown-authority = a root cert pinned against the wrong CA; hw285 shape: ConsistentSystemID=False = a divergent line that never re-cloned) (#5245 #5331)"
+                    fi
+                    echo "${_n}" > /shared/postclone-ticks
+                  else
+                    rm -f /shared/postclone-ticks
+                  fi
+                  # Fresh clone converging (or converged) — the CONVERGED
+                  # block closes out on the streaming signal.
+                  exit 0
+                ) || echo "[dr-failback/actor] tick returned non-zero — retry in ${INTERVAL_SECONDS}s"
+                sleep "${INTERVAL_SECONDS}"
+              done
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: HR_NAME
+              value: {{ $hrName | quote }}
+            - name: HR_NAMESPACE
+              value: {{ $hrNamespace | quote }}
+            - name: KS_NAME
+              value: {{ $ksName | quote }}
+            - name: KS_NAMESPACE
+              value: {{ $ksNamespace | quote }}
+            # #6149 - the PER-INSTANCE demotion substitute key on the shared
+            # bootstrap-kit Kustomization (shared-pg / -b / -c each own one).
+            - name: DEMOTED_SUB_KEY
+              value: {{ $demotedSubKey | quote }}
+            - name: HOLD_SECONDS
+              value: {{ $hold | quote }}
+            - name: WEDGE_HOLD_SECONDS
+              value: {{ $wedgeHold | quote }}
+            - name: DIVERGENCE_GRACE_SECONDS
+              value: {{ $divergenceGrace | quote }}
+            - name: STARVATION_SURFACE_SECONDS
+              value: {{ $starvationSurface | quote }}
+            - name: INTERVAL_SECONDS
+              value: {{ $interval | quote }}
+            - name: PRIMARY_CLUSTER
+              value: {{ include "bp-postgres.instanceName" . | quote }}
+            # kubectl writes its discovery/http cache under $HOME.
+            - name: HOME
+              value: /tmp
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "test -f /shared/actor-alive && test -z \"$(find /shared/actor-alive -mmin +1)\""
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["test", "-f", "/shared/actor-alive"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+            - name: tmp
+              mountPath: /tmp
+            # #6148 — the write-guard manifest the actor applies during the
+            # peer-ahead hold. Read-only: the actor applies this file, it
+            # never authors one, so a bug cannot widen the guard's scope.
+            - name: write-guard
+              mountPath: /guard
+              readOnly: true
+      volumes:
+        - name: shared
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: write-guard
+          configMap:
+            name: {{ include "bp-postgres.instanceName" . }}-write-guard
+        # THIS primary cluster's own CNPG-issued streaming_replica client
+        # cert — 0440 root:26, the perms libpq requires for an sslkey
+        # (#5133). The SAME cert authenticates against region-B thanks to
+        # the shared client CA (replica-cluster.yaml #5245).
+        - name: replication-cert
+          secret:
+            secretName: {{ include "bp-postgres.instanceName" . }}-replication
+            defaultMode: 0440
+{{- end }}

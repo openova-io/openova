@@ -484,6 +484,14 @@ topology:
   replica: { region: hz-hel-rtz-prod }
   networkPolicy:
     crossRegionPeerClusters: [hw228-me-east-b]
+  # Isolate this case to the #4846 crossregion admission. The DR actors are
+  # default-ON and each carries its OWN egress CiliumNetworkPolicy (the #5623
+  # dr-promoter on the replica side, the #6149 dr-failback on this one), which
+  # are asserted separately in Cases 20a-20c / 21a-21h. Both gates must move
+  # TOGETHER: since #6149 the chart FAILS THE RENDER when exactly one of them is
+  # disabled, because a promoter without a failback is the hw293 hazard.
+  autoPromote: { enabled: false }
+  failback: { enabled: false }
 databases:
   - name: registry
     owner: harbor
@@ -526,8 +534,11 @@ topology:
   # Isolate this case to the #4846 crossregion admission — the #5623 dr-promoter
   # (default-ON) carries its OWN dr-promoter-egress CiliumNetworkPolicy, asserted
   # separately in Cases 20a-20c below; disabling it here keeps the "exactly 1 CNP"
-  # crossregion-dr assertion focused.
+  # crossregion-dr assertion focused. Since #6149 the two DR gates must move
+  # TOGETHER — disabling exactly one FAILS the render, because a promoter without
+  # a failback is the hw293 dual-writable hazard.
   autoPromote: { enabled: false }
+  failback: { enabled: false }
 # Same isolation, same reason (#6114): the replica-hub sentinel is default-ON on
 # the replica side and carries its OWN -egress CiliumNetworkPolicy (it must
 # reach the kube-apiserver through the shared-data default-deny). Its CNP is
@@ -1309,7 +1320,7 @@ grep -q 'already diverged' "$TMP/promoter.yaml" \
 grep -q 'resourceNames: \[bp-postgres-shared\]' "$TMP/promoter.yaml" \
   || fail "#5623 dr-promoter HR Role must be resourceNames-pinned to bp-postgres-shared"
 if grep -q 'kustomizations' "$TMP/promoter.yaml"; then
-  fail "#5623 dr-promoter must NOT grant kustomizations verbs (the #5245 durable-substitute handoff is a follow-up, not ported)"; fi
+  fail "#5623 dr-promoter must NOT grant kustomizations verbs — the durable-substitute seam belongs to the region-A dr-failback (#6149), and the promoter drives promotion through the HR values + suspend latch alone"; fi
 # 11. dr-promoter-egress CNP admits the kube-apiserver entity (kubectl egress).
 grep -q 'kube-apiserver' "$TMP/promoter.yaml" \
   || fail "#5623 dr-promoter-egress CNP missing the kube-apiserver entity — kubectl egress would be default-denied"
@@ -1330,7 +1341,12 @@ helm template shared-pg . -f "$TMP/promoter.values.yaml" --set topology.replicat
   --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/prom-async.yaml" 2>&1 || fail "#5623 async render errored"
 if grep -q 'role: dr-promoter' "$TMP/prom-async.yaml"; then
   fail "#5623 replication.mode=async must render ZERO dr-promoter resources (no sync-rep data fence)"; fi
-helm template shared-pg . -f "$TMP/promoter.values.yaml" --set topology.autoPromote.enabled=false \
+# #6149: the two DR gates move TOGETHER. Disabling exactly one FAILS the render
+# (a promoter without a failback is the hw293 dual-writable hazard), so the
+# operator-off case sets both — and Case 21f asserts the one-sided form is
+# refused.
+helm template shared-pg . -f "$TMP/promoter.values.yaml" \
+  --set topology.autoPromote.enabled=false --set topology.failback.enabled=false \
   --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/prom-off.yaml" 2>&1 || fail "#5623 autoPromote-off render errored"
 if grep -qE 'role: dr-promoter|role: failover-readiness-probe|shared-pg-probe-egress' "$TMP/prom-off.yaml"; then
   fail "#5623 autoPromote.enabled=false must render ZERO dr-promoter/probe resources"; fi
@@ -1338,8 +1354,21 @@ if grep -qE 'role: dr-promoter|role: failover-readiness-probe|shared-pg-probe-eg
   fail "#5623 singleton render leaked dr-promoter/probe resources (active-hot-standby replica only)"; fi
 echo "  PASS (no promoter/probe on primary / async / autoPromote-off / singleton)"
 
-# ── Case 20c: #5623 — fail-safe observe-only WITHOUT a cross-region liveness path ─
-echo "[render] Case 20c: #5623 fail-safe — no peer clusters => observe-only (PRIMARY_LIVENESS_ENABLED=false, no region-A egress rule)"
+# ── Case 20c: #6149 — NO cross-region probe path => NEITHER DR actor renders ──
+# SUPERSEDES the 0.2.18 shape of this case, which asserted the promoter still
+# rendered without peers as an "observe-only fail-safe" that would auto-arm once
+# the mesh was wired. That promoter could never promote: #5178's
+# PRIMARY_LIVENESS_ENABLED is exactly `clusterMesh AND peers`, so with no peers it
+# was a Deployment that consumed a Pod slot, reported Ready, and was structurally
+# incapable of the one thing it existed to do — indistinguishable from a working
+# one until a region was killed.
+#
+# #6149 makes the promoter and the failback ride ONE side-independent gate
+# (bp-postgres.drPairCapable) so the pair cannot be half-rendered. The failback
+# has ALWAYS required a peer — without a positive peer-writable proof it has no
+# safe action at all — so sharing the gate means the promoter requires one too.
+# An actor that cannot act is now honestly ABSENT rather than silently inert.
+echo "[render] Case 20c: #6149 no peer clusters => ZERO DR actors on BOTH sides (the gate is shared)"
 cat > "$TMP/promoter-nopeer.values.yaml" <<'YAML'
 instance: { name: shared-pg, namespace: shared-data }
 topology:
@@ -1350,14 +1379,16 @@ topology:
   replica: { region: hz-hel-rtz-prod }
 YAML
 helm template shared-pg . -f "$TMP/promoter-nopeer.values.yaml" --namespace shared-data \
-  --api-versions postgresql.cnpg.io/v1 > "$TMP/promoter-nopeer.yaml" 2>&1 || fail "#5623 no-peer render errored"
-grep -q 'role: dr-promoter' "$TMP/promoter-nopeer.yaml" \
-  || fail "#5623 the promoter still renders without peers (observe-only), so it can auto-arm once the mesh is wired"
-awk '/name: PRIMARY_LIVENESS_ENABLED/{getline; if ($0 ~ /"false"/) f=1} END{exit f?0:1}' "$TMP/promoter-nopeer.yaml" \
-  || fail "#5623 no-peer render must set PRIMARY_LIVENESS_ENABLED=false (fail-safe observe-only)"
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/promoter-nopeer.yaml" 2>&1 || fail "#6149 no-peer replica render errored"
+if grep -q 'role: dr-promoter' "$TMP/promoter-nopeer.yaml"; then
+  fail "#6149 no-peer replica render still emits a dr-promoter — with no peer identity it can never positively prove region-A is gone (#5178), so it is inert, and its failback counterpart cannot render at all"; fi
 if grep -q 'io.cilium.k8s.policy.cluster' "$TMP/promoter-nopeer.yaml"; then
-  fail "#5623 no-peer render must NOT emit the region-A liveness egress rule (nothing proves region-A gone)"; fi
-echo "  PASS (observe-only fail-safe: PRIMARY_LIVENESS_ENABLED=false, no region-A egress rule)"
+  fail "#6149 no-peer render must NOT emit the region-A liveness egress rule (nothing proves region-A gone)"; fi
+helm template shared-pg . -f "$TMP/promoter-nopeer.values.yaml" --set topology.side=primary \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/failback-nopeer.yaml" 2>&1 || fail "#6149 no-peer primary render errored"
+if grep -q 'role: dr-failback' "$TMP/failback-nopeer.yaml"; then
+  fail "#6149 no-peer primary render still emits a dr-failback — without a peer probe it has no safe action"; fi
+echo "  PASS (no peers => no dr-promoter on the replica side AND no dr-failback on the primary side)"
 
 # ── Case 20d: #5623 — the promoted VALUE drives replica.enabled (both directions) ─
 echo "[render] Case 20d: #5623 replica.enabled follows topology.promoted (default replica, promoted->primary)"
@@ -1545,3 +1576,292 @@ sh -n "$TMP/sentinel-script.sh" \
   || fail "#6114 the sentinel loop is not valid POSIX sh — it would CrashLoopBackOff on the Alpine-based image"
 
 echo "  PASS (sentinel on replica + pre-flip; reap guards completed/age/positive-evidence; watch-list names hub AND role Secrets; readiness cannot wedge Helm wait; absent on primary CONTROL; opt-out clean; admission label + UID + HOME + POSIX-sh parse pinned)"
+# ─────────────────────────────────────────────────────────────────────────────
+# Cases 21a-21f: #6149 — the region-A dr-failback and the PAIRING INVARIANT.
+#
+# hw293 G12 (2026-08-11, dep a0077ba47e3720e5): all four DR pairs promoted and
+# exactly ONE could come back. Census after region A returned — 4 dr-promoters in
+# region B, 1 dr-failback in region A (bp-cnpg-pair's). `shared-pg` (keycloak's
+# database) and `shared-pg-b` were left DUAL-WRITABLE on divergent timelines,
+# both sides pg_is_in_recovery()=false with different row counts of the same
+# table and nothing scheduled to reconcile them.
+#
+# The catalog-wide census assertion (promoters == failbacks across every pair,
+# both sides, with a vacuity control) is
+# tests/e2e/bootstrap-kit/dr_pair_symmetry_6149_test.go and
+# scripts/check-dr-pairs-declare-promotion.sh Phase 3. What follows is this
+# chart's own contract: the actor renders where it must, is able to act when it
+# does, and renders nowhere else.
+# ─────────────────────────────────────────────────────────────────────────────
+echo "[render] Case 21a: #6149 dr-failback — side=primary, #5157 Deployment shape, durable demote seam"
+cat > "$TMP/failback.values.yaml" <<'YAML'
+instance: { name: shared-pg, namespace: shared-data }
+topology:
+  mode: active-hot-standby
+  side: primary
+  instances: 3
+  primary: { region: hz-fsn-rtz-prod }
+  replica: { region: hz-hel-rtz-prod }
+  networkPolicy:
+    crossRegionPeerClusters: [hw228-me-east-b]
+databases:
+  - name: keycloak
+    owner: keycloak
+    reflect: { secretName: keycloak-database-secret, namespaces: [keycloak] }
+YAML
+helm template shared-pg . -f "$TMP/failback.values.yaml" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/failback.yaml" 2>&1 || fail "#6149 failback render errored"
+# 1. It is a Deployment, not a CronJob (#5157 — a CronJob's scheduler is the
+#    regional control plane and does not reliably resume after recovery), and a
+#    SINGLE actor (Recreate; never two failback loops at once).
+awk '/^kind: Deployment$/{d=1} d&&/^  name: shared-pg-dr-failback$/{f=1} END{exit f?0:1}' "$TMP/failback.yaml" \
+  || fail "#6149 no shared-pg-dr-failback Deployment on the primary side"
+if grep -q 'kind: CronJob' "$TMP/failback.yaml"; then fail "#6149 the failback must be a Deployment, not a CronJob (#5157)"; fi
+grep -q 'type: Recreate' "$TMP/failback.yaml" || fail "#6149 failback Deployment must use strategy Recreate (single actor)"
+# 2. It runs in REGION A — the half being rejoined.
+grep -q 'values: \["hz-fsn-rtz-prod"\]' "$TMP/failback.yaml" \
+  || fail "#6149 failback must pin nodeAffinity to the PRIMARY region (it acts on cluster-A)"
+# 3. #5125-D1 — the demote rides the DURABLE source seam (Kustomization
+#    substitute -> HR values), never a live Cluster-CR patch, which flux
+#    drift-correction reverts mid-outage (hw256 G12). Assert on the VALUES.
+for env_pair in "KS_NAME|bootstrap-kit" "KS_NAMESPACE|flux-system" "HR_NAME|bp-postgres-shared" "DEMOTED_SUB_KEY|SOVEREIGN_SHARED_PG_DEMOTED"; do
+  k="${env_pair%%|*}"; v="${env_pair#*|}"
+  awk -v k="$k" -v v="$v" '$0 ~ ("name: " k "$"){getline; if ($0 ~ ("\"" v "\"")) f=1} END{exit f?0:1}' "$TMP/failback.yaml" \
+    || fail "#6149 failback actor env $k != \"$v\" — without it there is no durable demote seam"
+done
+# 4. RBAC is resourceNames-pinned and carries NO blanket verbs. The one
+#    destructive verb it holds is `delete` on exactly this instance's Cluster CR.
+grep -q 'resourceNames: \[shared-pg\]' "$TMP/failback.yaml" \
+  || fail "#6149 failback Cluster Role must be resourceNames-pinned to shared-pg"
+grep -q 'verbs: \[get, delete\]' "$TMP/failback.yaml" \
+  || fail "#6149 failback Cluster Role must hold get+delete only (no patch — live-CR patches are the #5125-D1 anti-pattern)"
+if grep -qE 'resources: \[persistentvolumeclaims\]' "$TMP/failback.yaml"; then
+  fail "#6149 failback must NOT hold PVC verbs — storage is reclaimed by CNPG owner-GC"; fi
+# 5. Egress CNP: apiserver + kube-dns + the LOCAL cluster + the PEER cluster by
+#    ClusterMesh identity (a plain toEndpoints is implicitly local-only, #4846).
+grep -q 'shared-pg-dr-failback-egress' "$TMP/failback.yaml" || fail "#6149 missing the dr-failback egress CiliumNetworkPolicy"
+grep -q 'kube-apiserver' "$TMP/failback.yaml" || fail "#6149 failback egress CNP missing the kube-apiserver entity"
+grep -q '"hw228-me-east-b"' "$TMP/failback.yaml" || fail "#6149 failback egress CNP missing the peer cluster identity (the peer probe would be denied)"
+# 6. NO NodePort — ever.
+if grep -q 'NodePort' "$TMP/failback.yaml"; then fail "#6149 render leaked a NodePort (ABSOLUTELY FORBIDDEN)"; fi
+echo "  PASS (dr-failback Deployment/Recreate on region A; durable Kustomization+HR demote seam; pinned RBAC, get+delete only, no PVC verbs; peer-identity egress CNP)"
+
+echo "[render] Case 21b: #6149 the reverse-direction -replica-mesh alias exists on BOTH sides"
+# Cilium merges global services BY NAME+NAMESPACE. Without a same-named object on
+# cluster-A the failback's peer probe and the rejoin stream both NXDOMAIN — the
+# probe ladder reports that case by name precisely because it is the structural
+# way this breaks.
+grep -q 'name: shared-pg-replica-mesh' "$TMP/failback.yaml" \
+  || fail "#6149 primary side missing the -replica-mesh stub Service (peer host would be NXDOMAIN on cluster-A)"
+grep -q 'cnpg.io/cluster: shared-pg-replica' "$TMP/failback.yaml" \
+  || fail "#6149 -replica-mesh stub must select the REPLICA Cluster (zero local backends on cluster-A -> traffic crosses the mesh)"
+helm template shared-pg . -f "$TMP/failback.values.yaml" --set topology.side=replica \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/failback-replica.yaml" 2>&1 || fail "#6149 replica render errored"
+grep -q 'name: shared-pg-replica-mesh' "$TMP/failback-replica.yaml" \
+  || fail "#6149 replica side must publish -replica-mesh via the replica Cluster's managed.services"
+awk '/name: shared-pg-replica-mesh/{found=1} /selectorType: rw/{rw=1} END{exit (found&&rw)?0:1}' "$TMP/failback-replica.yaml" \
+  || fail "#6149 -replica-mesh must be selectorType rw (#5473: r matches every instance, so a STANDBY could serve as the failback source)"
+# The shared client CA is what lets region-A's own cert authenticate against
+# region-B — the precondition of the whole reverse direction.
+grep -q 'clientCASecret: shared-pg-ca' "$TMP/failback-replica.yaml" \
+  || fail "#6149 replica Cluster must pin clientCASecret to the shared shared-pg-ca, else region-A's rejoin stream is rejected"
+echo "  PASS (-replica-mesh published rw on the replica side + stubbed on the primary side; shared client CA pinned)"
+
+echo "[render] Case 21c: #6149 topology.demoted renders the REJOIN shape (replica of region-B)"
+helm template shared-pg . -f "$TMP/failback.values.yaml" --set topology.demoted=true \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/failback-demoted.yaml" 2>&1 || fail "#6149 demoted render errored"
+awk '/^kind: Cluster$/{c=1} c&&/^  name: shared-pg$/{r=1} r&&/^    enabled: /{print; exit}' "$TMP/failback-demoted.yaml" | grep -q 'enabled: true' \
+  || fail "#6149 topology.demoted=true must render replica.enabled: true on the primary Cluster (the region-A rejoin)"
+grep -q 'pg_basebackup:' "$TMP/failback-demoted.yaml" \
+  || fail "#6149 the demoted shape must bootstrap by pg_basebackup — a TL-N line cannot follow a TL-M source, so the stale timeline has to be discarded"
+grep -q 'host: shared-pg-replica-mesh' "$TMP/failback-demoted.yaml" \
+  || fail "#6149 the rejoin externalCluster must dial the reverse-direction -replica-mesh alias"
+# #5245 hw278: libpq/pgx upgrade sslmode=require to verify-ca semantics the moment
+# a root cert is supplied, and region-B's server chain is signed by a CA cluster-A
+# does not hold. Pinning one here FATAL-loops the re-clone on x509 for hours.
+if awk '/name: shared-pg-replica$/{e=1} e&&/sslRootCert:/{f=1} END{exit f?0:1}' "$TMP/failback-demoted.yaml"; then
+  fail "#6149 the rejoin externalCluster must carry NO sslRootCert (#5245 hw278 x509 unknown-authority FATAL-loop)"; fi
+# A standby carries no sync fence and can never reconcile CREATE/ALTER ROLE.
+if grep -q 'dataDurability: required' "$TMP/failback-demoted.yaml"; then
+  fail "#6149 the demoted shape must omit the synchronous block (a standby has no sync standby of its own)"; fi
+if grep -qE '^    roles:$' "$TMP/failback-demoted.yaml"; then
+  fail "#6149 the demoted shape must omit managed.roles — a read-only standby can never reconcile them"; fi
+if grep -q '^kind: Database$' "$TMP/failback-demoted.yaml"; then
+  fail "#6149 the demoted shape must omit Database CRs — CREATE DATABASE against a standby can never succeed"; fi
+# The mesh aliases stay: the switchback needs those names to keep resolving.
+grep -q 'name: shared-pg-mesh-rw' "$TMP/failback-demoted.yaml" \
+  || fail "#6149 the demoted shape dropped the -mesh-rw consumer alias"
+echo "  PASS (rejoin: replica.enabled + pg_basebackup off -replica-mesh, no sslRootCert, no sync fence, no managed roles, no Database CRs, mesh aliases intact)"
+
+echo "[render] Case 21d: #6149 dr-failback absent for replica / async / singleton"
+if grep -q 'role: dr-failback' "$TMP/failback-replica.yaml"; then
+  fail "#6149 side=replica must render ZERO dr-failback resources (the actor belongs on cluster-A, the half being rejoined)"; fi
+helm template shared-pg . -f "$TMP/failback.values.yaml" --set topology.replication.mode=async \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/failback-async.yaml" 2>&1 || fail "#6149 async render errored"
+if grep -q 'role: dr-failback' "$TMP/failback-async.yaml"; then
+  fail "#6149 replication.mode=async must render ZERO dr-failback resources — without the sync fence, 'region-B's line contains every acknowledged commit' is not true, so an automatic re-clone could DISCARD acked data"; fi
+helm template shared-pg . --set instance.name=shared-pg --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/failback-singleton.yaml" 2>&1 || fail "#6149 singleton render errored"
+if grep -qE 'role: dr-failback|shared-pg-replica-mesh' "$TMP/failback-singleton.yaml"; then
+  fail "#6149 a single-region singleton must be byte-identical — no failback, no reverse-direction alias"; fi
+echo "  PASS (no failback on replica / async / singleton; singleton leaks no -replica-mesh)"
+
+echo "[render] Case 21e: #6149 both DR actors render TOGETHER on their own sides"
+grep -q 'role: dr-failback' "$TMP/failback.yaml" || fail "#6149 primary side must render the dr-failback"
+grep -q 'role: dr-promoter' "$TMP/failback-replica.yaml" || fail "#6149 replica side must render the dr-promoter"
+if grep -q 'role: dr-promoter' "$TMP/failback.yaml"; then fail "#6149 the promoter must NOT render on the primary side"; fi
+echo "  PASS (exactly one dr-failback on side=primary, exactly one dr-promoter on side=replica — 1:1)"
+
+echo "[render] Case 21f: #6149 THE PAIRING INVARIANT — disabling exactly one half FAILS the render"
+# The structural preconditions are shared (bp-postgres.drPairCapable), so the only
+# remaining way to express the hw293 geometry by hand is a one-sided operator
+# gate. Both directions are refused: promoter-without-failback is the hazard
+# itself; failback-without-promoter is an actor armed to demote and re-clone
+# region A on a peer-ahead proof only a hand-promotion could produce.
+for one_sided in topology.failback.enabled topology.autoPromote.enabled; do
+  if helm template shared-pg . -f "$TMP/failback.values.yaml" --set "${one_sided}=false" \
+    --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/failback-asym.yaml" 2>&1; then
+    fail "#6149 the chart ACCEPTED ${one_sided}=false — a pair that can be promoted must be able to fail back; this configuration is what left hw293's shared-pg dual-writable"
+  fi
+  grep -q 'DR PAIRING INVARIANT VIOLATED' "$TMP/failback-asym.yaml" \
+    || fail "#6149 ${one_sided}=false failed, but not with the pairing-invariant error — the operator cannot tell which two keys disagree"
+  grep -q 'topology.autoPromote.enabled' "$TMP/failback-asym.yaml" \
+    || fail "#6149 the invariant error must name topology.autoPromote.enabled"
+  grep -q 'topology.failback.enabled' "$TMP/failback-asym.yaml" \
+    || fail "#6149 the invariant error must name topology.failback.enabled"
+done
+# Both off together is a legitimate (if unusual) operator choice: no DR chain at
+# all, symmetric. It must render cleanly with ZERO actors — otherwise the guard
+# is just "always red", which proves nothing.
+helm template shared-pg . -f "$TMP/failback.values.yaml" \
+  --set topology.failback.enabled=false --set topology.autoPromote.enabled=false \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 > "$TMP/failback-bothoff.yaml" 2>&1 \
+  || fail "#6149 both-off render errored — symmetric OFF is a valid configuration, the invariant is about ASYMMETRY"
+if grep -qE 'role: dr-failback|role: dr-promoter' "$TMP/failback-bothoff.yaml"; then
+  fail "#6149 both-off render still emitted a DR actor"; fi
+echo "  PASS (one-sided gate REFUSED in both directions naming both keys; symmetric OFF renders cleanly with zero actors)"
+
+# ── Case 21g: #6148 peer-ahead write-guard ───────────────────────────────────
+#
+# region-A returns from a region-kill as a writable primary on a timeline the
+# peer has already overtaken, and stays writable for the WHOLE peer-ahead hold.
+# Every commit it accepts in that window is acknowledged to a consumer and then
+# discarded by the re-clone — and on THIS chart the consumers are keycloak,
+# gitea, harbor, grafana, powerdns and the Organization mesh, not a dedicated DR
+# pair with no clients. bp-cnpg-pair closed that window in #6148 (PR #6219); the
+# #6149 port must not re-open it here.
+#
+# These assertions pin the FOUR properties that make it a real guard rather than
+# an object that merely exists. Each one has a specific way of being wrong that
+# renders cleanly and reads correct, which is why each is asserted on the parsed
+# object rather than by grepping for a token.
+echo "[render] Case 21g: #6148 peer-ahead write-guard (deny is real · decider stays reachable · unwinds on every abort)"
+python3 - "$TMP/failback.yaml" <<'PYEOF' || { echo "FAIL: #6148 write-guard assertions failed." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+
+dep=[d for d in docs if d.get('kind')=='Deployment' and 'dr-failback' in d['metadata']['name']][0]
+act=[c for c in dep['spec']['template']['spec']['containers'] if c['name']=='actor'][0]['args'][0]
+
+cms=[d for d in docs if d.get('kind')=='ConfigMap' and d['metadata']['name'].endswith('-write-guard')]
+assert len(cms)==1, f"#6148: exactly one write-guard ConfigMap expected, got {len(cms)}"
+guard=yaml.safe_load(cms[0]['data']['guard.yaml'])
+
+# (a) The guard must DENY. A k8s NetworkPolicy cannot express deny — policies
+#     selecting the same Pods are additive allow-lists — so a guard authored as
+#     a NetworkPolicy would be created, logged, and permit every write it
+#     claimed to stop. That failure mode is REACHABLE here: this chart's own
+#     networkpolicy.yaml grants `- from: [{namespaceSelector: {}}]` on 5432
+#     (#3577), and nothing a NetworkPolicy can say subtracts it.
+assert guard['kind']=='CiliumNetworkPolicy', \
+    f"#6148: the guard must be a CiliumNetworkPolicy — a k8s NetworkPolicy cannot deny, got {guard['kind']}"
+deny=guard['spec'].get('ingressDeny')
+assert deny, "#6148: the guard must carry ingressDeny — an allow-only policy subtracts nothing"
+ports=[p['port'] for r in deny for tp in r.get('toPorts',[]) for p in tp.get('ports',[])]
+assert '5432' in ports, f"#6148: the guard must deny the postgres port, got {ports}"
+
+# (b) It must be purely SUBTRACTIVE. A CNP selecting an endpoint normally flips
+#     it to default-deny for that direction, which would take out the
+#     replication and CNPG-operator-status carve-outs in networkpolicy.yaml.
+edd=guard['spec'].get('enableDefaultDeny')
+assert edd=={'ingress': False, 'egress': False}, \
+    f"#6148: the guard must not flip the primary to default-deny, got {edd}"
+
+# (c) The DECIDER must stay reachable. The signals loop reads the local timeline
+#     over 5432; if that read fails, clear_hold "local timeline unreadable"
+#     aborts the failback outright. A guard that blinds the decider is worse
+#     than no guard — this is exactly what ruled out CNPG instance fencing.
+exempt=set()
+for r in deny:
+    for fe in r.get('fromEndpoints',[]):
+        for me in fe.get('matchExpressions',[]):
+            assert me['operator']=='NotIn', f"#6148: exemptions must be NotIn, got {me['operator']}"
+            exempt.add(me['key'])
+            exempt.update(me['values'])
+assert 'dr-failback' in exempt, \
+    "#6148: the failback Pod must be exempt or its own timeline probe trips clear_hold and aborts the failback"
+assert 'cnpg.io/cluster' in exempt, \
+    "#6148: the pair's own Pods must be exempt or the re-clone cannot stream from the peer"
+# fromEndpoints, never ipBlock: an ipBlock never matches a ClusterMesh remote
+# Pod identity, so an ipBlock guard silently misses the peer traffic it reasons about.
+assert not any(r.get('fromCIDR') or r.get('fromCIDRSet') for r in deny), \
+    "#6148: the guard must select by endpoint identity, not CIDR (ipBlock never matches a ClusterMesh remote Pod)"
+
+# (d) It must go UP at detection and come DOWN on every abort. The guard is
+#     keyed to /shared/peer-ahead-since, the same file every fail-safe path in
+#     the signals loop already clears, so no new control flow can forget it.
+k=act.find('peer-ahead-since ] || exit 0')
+assert k!=-1, "#6148: the D0 peer-ahead early-exit must still exist"
+assert 'guard_on' in act[k:k+400], \
+    "#6148: guard_on must fire at DETECTION (right after the D0 early-exit), not at demote time"
+assert '[ -f /shared/peer-ahead-since ] || guard_off' in act, \
+    "#6148: guard_off must run unconditionally per tick whenever the hold is not active"
+assert act.find('[ -f /shared/peer-ahead-since ] || guard_off') < act.find('while true') + 400, \
+    "#6148: the guard_off sweep must sit in the outer loop, not inside one geometry branch"
+
+# (e) It must be NON-FATAL. Converging region-A is what ends the exposure, so a
+#     guard that cannot be applied must report loudly and let the failback run.
+i=act.find('guard_on() {'); j=act.find('guard_off() {')
+assert i!=-1 and j!=-1 and i<j, "#6148: both guard helpers must be defined, guard_on first"
+body=act[i:j]
+assert 'exit 1' not in body and 'return 1' not in body, \
+    "#6148: guard_on must never fail the tick — stalling the failback prolongs the very window the guard exists to shorten"
+assert 'WARN' in body, "#6148: a guard that could not be applied must say so loudly"
+
+# (f) The actor must be able to take its own guard DOWN, and must not be able to
+#     create anything else. `create` cannot be resourceNames-pinned (k8s RBAC has
+#     no name to match before the object exists), so it is bounded by RESOURCE.
+roles=[d for d in docs if d.get('kind')=='Role' and 'dr-failback' in d['metadata']['name']]
+assert len(roles)==2, f"#6148: expected 2 dr-failback Roles (local ns + flux-system), got {len(roles)}"
+cnp_delete=[r for role in roles for r in role.get('rules',[])
+            if r.get('resources')==['ciliumnetworkpolicies'] and 'delete' in r.get('verbs',[])]
+assert cnp_delete, "#6148: the actor must hold delete on its own guard or a failed episode leaves :5432 denied after the reason has passed"
+assert all(r.get('resourceNames') for r in cnp_delete), "#6148: the guard delete rule must be resourceNames-pinned"
+for role in roles:
+    for r in role.get('rules',[]):
+        verbs=set(r.get('verbs',[])); res=r.get('resources',[])
+        assert 'persistentvolumeclaims' not in res, "#6148/#6149: dr-failback must never hold PVC verbs"
+        if 'create' in verbs:
+            assert res==['ciliumnetworkpolicies'], \
+                f"#6148: create verb only on the write-guard resource, got {res}"
+        if 'delete' in verbs:
+            assert res in (['clusters'], ['ciliumnetworkpolicies']), \
+                f"#6148/#6149: delete verb only on the Cluster CR or the write-guard, got {res}"
+
+# (g) The guard manifest must be MOUNTED read-only from the ConfigMap: the actor
+#     applies this file, it never authors one, so a bug cannot widen its scope.
+mounts=[m for c in dep['spec']['template']['spec']['containers'] if c['name']=='actor'
+        for m in c.get('volumeMounts',[]) if m['mountPath']=='/guard']
+assert mounts and mounts[0].get('readOnly') is True, \
+    "#6148: /guard must be mounted read-only into the actor"
+vols=[v for v in dep['spec']['template']['spec']['volumes'] if v['name']=='write-guard']
+assert vols and vols[0].get('configMap',{}).get('name','').endswith('-write-guard'), \
+    "#6148: the write-guard volume must come from the rendered ConfigMap"
+PYEOF
+# The guard is part of the DR chain, so it must be absent everywhere the chain
+# is — otherwise a singleton or a replica half carries a deny-5432 manifest.
+for absent in "$TMP/failback-replica.yaml" "$TMP/failback-singleton.yaml" "$TMP/failback-bothoff.yaml"; do
+  if grep -q 'shared-pg-write-guard' "$absent"; then
+    fail "#6148 the write-guard leaked into a render with no dr-failback ($absent)"; fi
+done
+echo "  PASS (#6148 ingressDeny on 5432 · purely subtractive · failback Pod and replication exempt · endpoint-identity not CIDR · armed at detection, swept on every abort · non-fatal · RBAC bounded · absent with the chain)"

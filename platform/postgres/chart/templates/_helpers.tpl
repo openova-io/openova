@@ -109,13 +109,184 @@ TRUE only when ALL of (mirrors bp-cnpg-pair.autoPromoteActive exactly):
                                   no fence → the promoter does NOT render there.)
 renderReplicaHalf is already false when the whole chart is disabled or singleton;
 dr-promoter.yaml additionally guards on `ne (toString .Values.enabled) "false"`.
+
+0.2.21 (#6149): the promoter no longer carries its own precondition set. Both DR
+actors now ride the single SIDE-INDEPENDENT `bp-postgres.drPairCapable` gate
+below, so it is structurally impossible for this chart to render a promoter on
+cluster-B without rendering the matching failback on cluster-A. See
+drPairCapable + assertDRPairSymmetry.
 */}}
 {{- define "bp-postgres.autoPromoteActive" -}}
+{{- include "bp-postgres.assertDRPairSymmetry" . -}}
 {{- $topology := .Values.topology | default dict -}}
 {{- $ap := dig "autoPromote" dict $topology -}}
 {{- $apEnabled := true -}}
 {{- if hasKey $ap "enabled" }}{{- $apEnabled = $ap.enabled -}}{{- end -}}
-{{- if and (include "bp-postgres.renderReplicaHalf" .) $apEnabled (eq (dig "replication" "mode" "sync" $topology) "sync") -}}true{{- end -}}
+{{- if and (eq (include "bp-postgres.drPairCapable" .) "true") (eq (include "bp-postgres.side" .) "replica") $apEnabled -}}true{{- end -}}
+{{- end -}}
+
+{{/*
+DR PAIR CAPABILITY — the SIDE-INDEPENDENT preconditions under which this pair
+has an automatic DR chain at all (#6149, chart 0.2.21).
+
+WHY THIS EXISTS — the #6149 defect, measured
+--------------------------------------------
+hw293 G12 region-kill (2026-08-11, dep a0077ba47e3720e5). Deployment census
+after region-A returned:
+
+    dr-promoter deployments in region B : 4   <- all four pairs
+    dr-failback deployments in region A : 1   <- bp-cnpg-pair ONLY
+
+`shared-pg` and `shared-pg-b` were left DUAL-WRITABLE on divergent timelines —
+both sides `pg_is_in_recovery()=false`, different row counts of the same table,
+neither following the other, nothing scheduled to ever reconcile them.
+`shared-pg` carries keycloak, the authoritative identity store.
+
+That is the SYMMETRIC half of #5623: #5623 added the promoter to this chart and
+converted "does not fail over" into "fails over and never comes back" — strictly
+worse, because a split-brain accepting writes on BOTH sides silently diverges
+rather than simply being unavailable.
+
+THE INVARIANT — a pair that can be PROMOTED must be able to FAIL BACK
+---------------------------------------------------------------------
+A promoter without a failback is not a partial feature; it is a data-integrity
+hazard. So the two actors do NOT get independent precondition sets. Everything
+STRUCTURAL is resolved once, here, side-independently, and BOTH actors gate on
+it — the promoter (side=replica, cluster-B) and the failback (side=primary,
+cluster-A). The two sides render in SEPARATE helm invocations, but the only
+input that differs between them is `topology.side`, so this helper — which
+never reads `side` — computes the same answer on both clusters. Rendering one
+actor without the other is therefore not a thing the chart can express.
+
+TRUE only when ALL of:
+  - activeHotStandby          (the pair shape is on at all)
+  - replication.mode == sync  (the anti-split-brain DATA FENCE. remote_apply +
+                               FIRST 1 pinned to the cross-region replica means
+                               the old primary cannot durably commit while its
+                               sync standby is unreachable or diverged, so the
+                               promote cannot fork committed data AND the
+                               failback's "region-B's line ⊇ region-A's acked
+                               history" premise holds. async has neither.)
+  - clusterMesh.enabled AND crossRegionPeerClusters non-empty
+                              (the cross-region probe path. The failback has
+                               ALWAYS required this — without a positive
+                               peer-writable proof it has no safe action at
+                               all. The promoter required it too, in substance:
+                               #5178's PRIMARY_LIVENESS_ENABLED is exactly
+                               `clusterMesh AND peers`, and with it false the
+                               promoter renders but can NEVER promote. Making
+                               the requirement structural turns an actor that
+                               was silently inert into one that is honestly
+                               absent, and — the point — makes the promoter's
+                               precondition set IDENTICAL to the failback's.)
+
+SAFE AGAINST THE RUNTIME FLIP ORDER: catalyst-api stamps
+SOVEREIGN_ENABLE_CNPG_PAIR and SOVEREIGN_PEER_CLUSTERMESH_NAMES in ONE merge
+patch (handler/clustermesh.go patchOne — "Both keys land in ONE merge patch so
+the CNP appears atomically with the crossRegion netpol half it gates"), so
+crossRegion=true with peers=[] is not a window this chart is rendered through.
+And where it is reachable at all, this gate FAILS CLOSED (no actors) rather than
+erroring the render — a template `fail` there would break the atomic bootstrap-
+kit apply and land ZERO HelmReleases, which is the trap clustermesh.go already
+guards its region precondition against.
+*/}}
+{{- define "bp-postgres.drPairCapable" -}}
+{{- $topology := .Values.topology | default dict -}}
+{{- $peers := dig "networkPolicy" "crossRegionPeerClusters" (list) $topology -}}
+{{- $meshOn := ne (toString (dig "clusterMesh" "enabled" true $topology)) "false" -}}
+{{- if and (include "bp-postgres.activeHotStandby" .) (eq (dig "replication" "mode" "sync" $topology) "sync") $meshOn (gt (len $peers) 0) -}}true{{- end -}}
+{{- end -}}
+
+{{/*
+Region-A automatic DR FAILBACK — active? (#6149, chart 0.2.21)
+
+The exact mirror of autoPromoteActive: the SAME drPairCapable structural gate,
+the OTHER side, and its own operator gate. The actor runs ON cluster-A, the half
+being rejoined — by definition it only matters once region-A is back.
+*/}}
+{{- define "bp-postgres.failbackActive" -}}
+{{- include "bp-postgres.assertDRPairSymmetry" . -}}
+{{- $topology := .Values.topology | default dict -}}
+{{- $fb := dig "failback" dict $topology -}}
+{{- $fbEnabled := true -}}
+{{- if hasKey $fb "enabled" }}{{- $fbEnabled = $fb.enabled -}}{{- end -}}
+{{- if and (eq (include "bp-postgres.drPairCapable" .) "true") (eq (include "bp-postgres.side" .) "primary") $fbEnabled -}}true{{- end -}}
+{{- end -}}
+
+{{/*
+THE PAIRING INVARIANT, enforced at the producer (#6149, chart 0.2.21).
+
+drPairCapable makes the STRUCTURAL preconditions common to both actors, so the
+only remaining way to render a promoter without a failback is for an operator to
+switch exactly one of the two `enabled` gates off. That is a values mistake, not
+a runtime state, and it must not render — it re-creates the hw293 geometry by
+hand: region B promotes on a kill and region A comes back dual-writable forever.
+
+So it FAILS THE RENDER, loudly, naming both keys. Unlike the structural gate this
+`fail` is reachable ONLY from a hand-edited values file — never from a substitute
+the bootstrap-kit stamps (16a/16c/16d set neither key; the chart defaults are
+both true) — so it cannot wedge an atomic bootstrap-kit apply.
+
+Both directions are refused. `failback.enabled=false` with a live promoter is the
+#6149 hazard itself. `autoPromote.enabled=false` with a live failback is the
+inverse trap: an actor armed to demote region A on a peer-ahead proof, with
+nothing that could ever legitimately produce one — the only way its peer goes
+ahead is an operator promoting region B by hand mid-incident, and it would then
+demote + re-clone region A underneath them.
+*/}}
+{{- define "bp-postgres.assertDRPairSymmetry" -}}
+{{- $topology := .Values.topology | default dict -}}
+{{- $ap := dig "autoPromote" dict $topology -}}
+{{- $apEnabled := true -}}
+{{- if hasKey $ap "enabled" }}{{- $apEnabled = $ap.enabled -}}{{- end -}}
+{{- $fb := dig "failback" dict $topology -}}
+{{- $fbEnabled := true -}}
+{{- if hasKey $fb "enabled" }}{{- $fbEnabled = $fb.enabled -}}{{- end -}}
+{{- if and (eq (include "bp-postgres.drPairCapable" .) "true") (ne (toString $apEnabled) (toString $fbEnabled)) -}}
+{{- fail (printf "bp-postgres: DR PAIRING INVARIANT VIOLATED — topology.autoPromote.enabled=%v but topology.failback.enabled=%v. A pair that can be PROMOTED must be able to FAIL BACK, and vice versa; the two are one feature. Shipping only the promoter is #6149: on the hw293 G12 region-kill (2026-08-11) region B promoted and region A came back a writable primary on a divergent timeline with nothing scheduled to reconcile them — shared-pg (which carries keycloak) and shared-pg-b were left permanently DUAL-WRITABLE. Shipping only the failback is the inverse trap: an actor armed to demote and re-clone region A on a peer-ahead proof that only a hand-promotion could produce. Set BOTH to the same value." $apEnabled $fbEnabled) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+DEMOTED (rejoin) shape — active? (#6149, chart 0.2.21)
+
+TRUE when this install is the active-hot-standby PRIMARY half AND
+`topology.demoted` is set — the region-A rejoin after a region-kill promote.
+The dr-failback actor drives this through the DURABLE SOURCE SEAM: it patches
+the bootstrap-kit Kustomization's per-instance demotion substitute, kustomize
+renders `topology.demoted: true` onto this instance's HelmRelease, and helm
+re-renders the primary Cluster CR as a REPLICA CLUSTER of region-B. Never a live
+`kubectl patch` of the Cluster CR — flux drift-correction reverts that mid-outage
+(#5125-D1, hw256 G12).
+
+Only consulted on the primary side: on side=replica the primary Cluster CR is not
+rendered at all, so a stray `demoted: true` there is inert rather than confusing.
+Flipping it back to false is the sovereign-admin's controlled switchback
+(RUNBOOKS §6.1), after region-B has been demoted in turn.
+*/}}
+{{- define "bp-postgres.primaryDemoted" -}}
+{{- $topology := .Values.topology | default dict -}}
+{{- if and (include "bp-postgres.activeHotStandby" .) (eq (include "bp-postgres.side" .) "primary") (ne (toString (dig "demoted" false $topology)) "false") -}}true{{- end -}}
+{{- end -}}
+
+{{/*
+Peer replication Service name (#6149) — the REVERSE-direction ClusterMesh alias.
+
+`<instance>-mesh` carries region-A's primary read endpoint to region-B (the
+forward WAL stream). `<instance>-replica-mesh` is its mirror: region-B's replica
+Cluster publishes its `rw` (designated/promoted primary) endpoint under this
+name, and region-A reaches it here. Declared on side=replica via the replica
+Cluster CR's `spec.managed.services.additional[]` (selectorType rw, so it
+follows the promotion), plus a zero-backend local stub on side=primary
+(peer-mesh-service.yaml) because Cilium merges global services by name+namespace
+— without the stub the name is NXDOMAIN on cluster-A.
+
+Consumed by the dr-failback actor's peer probe AND by the demoted primary
+Cluster's externalCluster (the region-A rejoin stream). Mirrors bp-cnpg-pair's
+`cnpg-pair.peerReplicationServiceName` exactly.
+*/}}
+{{- define "bp-postgres.peerReplicationServiceName" -}}
+{{- printf "%s-replica-mesh" (include "bp-postgres.instanceName" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 {{/*

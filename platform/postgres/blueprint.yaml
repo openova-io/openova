@@ -37,7 +37,17 @@ spec:
   # consumer-hub sync's absence as a Warning Event + status ConfigMap instead
   # of leaving 14 Secrets silently missing behind a green release. Readiness
   # never gates on the synced state, so it cannot wedge Helm wait.
-  version: 0.2.20
+  # 0.2.22 (#6149): region-A AUTOMATIC DR FAILBACK — the symmetric half of
+  # 0.2.18, plus the invariant that makes it non-optional. hw293 G12
+  # (2026-08-11) shipped 4 dr-promoters against 1 dr-failback and left
+  # shared-pg (keycloak's database) and shared-pg-b permanently DUAL-WRITABLE
+  # on divergent timelines with nothing scheduled to reconcile them: 0.2.18 had
+  # converted "does not fail over" into "fails over and never comes back". The
+  # ported bp-cnpg-pair dr-failback now demotes region A through a durable
+  # Kustomization-substitute seam and re-clones it onto region B's line, and
+  # both DR actors render off ONE side-independent gate so a promoter without a
+  # failback is not expressible. New: topology.demoted, topology.failback.*.
+  version: 0.2.23
   card:
     title: PostgreSQL
     summary: |
