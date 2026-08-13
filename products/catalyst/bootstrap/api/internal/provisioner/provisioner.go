@@ -2044,26 +2044,39 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	// apply, which is the canonical authority. We never block on quota
 	// uncertainty — only on quota *known to be insufficient after a
 	// reclaim attempt*.
+	//
+	// #6225 (UAT row 228) — that last sentence is now enforced by
+	// vpcPreflightRefuses instead of being restated inline. It previously
+	// held for the FIRST read only: the post-reclaim re-read was an
+	// assign-on-success with no else, so a flaky re-read left the STALE
+	// pre-reclaim numbers in place and the refusal fired on them, killing
+	// a re-prov whose orphaned catalyst-* VPCs had just been reclaimed
+	// successfully. Same uncertainty as a flaky first read, opposite
+	// verdict. The decision now lives in vpc_quota_preflight.go where it
+	// is unit-testable without an HCS project.
 	if req.Provider == "huawei" && len(req.Regions) > 0 && VPCQuotaHook != nil {
 		needed := len(req.Regions)
 		region := strings.TrimSpace(req.HuaweiRegion)
 		if region == "" {
 			region = "me-east-215"
 		}
-		used, limit, qerr := VPCQuotaHook(ctx, req.HuaweiAccessKey, req.HuaweiSecretKey, req.HuaweiProjectID, region)
-		if qerr != nil {
-			emit("tofu-init", "warn", fmt.Sprintf("HCS VPC quota check skipped (transient API error): %v", qerr))
+		var first, after quotaReading
+		reclaimAttempted := false
+		first.used, first.limit, first.err = VPCQuotaHook(ctx, req.HuaweiAccessKey, req.HuaweiSecretKey, req.HuaweiProjectID, region)
+		if !first.known() {
+			emit("tofu-init", "warn", fmt.Sprintf("HCS VPC quota check skipped (transient API error): %v", first.err))
 		} else {
-			emit("tofu-init", "info", fmt.Sprintf("HCS VPC quota: used %d / %d, requesting %d", used, limit, needed))
-			if used+needed > limit && VPCReclaimHook != nil {
+			emit("tofu-init", "info", fmt.Sprintf("HCS VPC quota: used %d / %d, requesting %d", first.used, first.limit, needed))
+			if !first.fits(needed) && VPCReclaimHook != nil {
 				// #4614: protect EVERY live deployment, not just THIS
 				// prov's own prefix. SweepOrphanVPCs reaps any catalyst-*
 				// VPC whose 8-char prefix is NOT in `protect`; seeding it
 				// with only this prov's prefix made the reclaim treat a
 				// live production Sovereign sharing the project as an
 				// orphan and DELETE its VPC (the 2026-06-28 incident).
+				reclaimAttempted = true
 				protect := reclaimProtectSet(req.DeploymentID)
-				emit("tofu-init", "info", fmt.Sprintf("HCS VPC quota over budget (%d/%d, need %d) — reclaiming orphaned catalyst VPCs before failing", used, limit, needed))
+				emit("tofu-init", "info", fmt.Sprintf("HCS VPC quota over budget (%d/%d, need %d) — reclaiming orphaned catalyst VPCs before failing", first.used, first.limit, needed))
 				reclaimed, rerr := VPCReclaimHook(ctx, req.HuaweiAccessKey, req.HuaweiSecretKey, req.HuaweiProjectID, region, protect, func(msg string) {
 					emit("tofu-init", "info", "vpc-reclaim: "+msg)
 				})
@@ -2072,15 +2085,20 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 				} else {
 					emit("tofu-init", "info", fmt.Sprintf("HCS orphan-VPC reclaim freed %d VPC(s); re-reading quota", reclaimed))
 				}
-				// Re-read the quota after reclaim. A failed re-read falls
-				// through (best-effort — tofu apply remains authority).
-				if u2, l2, q2 := VPCQuotaHook(ctx, req.HuaweiAccessKey, req.HuaweiSecretKey, req.HuaweiProjectID, region); q2 == nil {
-					used, limit = u2, l2
-					emit("tofu-init", "info", fmt.Sprintf("HCS VPC quota after reclaim: used %d / %d, requesting %d", used, limit, needed))
+				// Re-read the quota after the reclaim. #6225: a FAILED
+				// re-read genuinely falls through now — the project is not
+				// known to be insufficient, so the prov proceeds and tofu
+				// apply arbitrates, exactly as a failed first read does.
+				after.used, after.limit, after.err = VPCQuotaHook(ctx, req.HuaweiAccessKey, req.HuaweiSecretKey, req.HuaweiProjectID, region)
+				if after.known() {
+					emit("tofu-init", "info", fmt.Sprintf("HCS VPC quota after reclaim: used %d / %d, requesting %d", after.used, after.limit, needed))
+				} else {
+					emit("tofu-init", "warn", fmt.Sprintf("HCS VPC quota re-read after reclaim failed (%v) — reclaimed %d VPC(s); proceeding to tofu apply, which is the canonical authority on project capacity", after.err, reclaimed))
 				}
 			}
-			if used+needed > limit {
-				return nil, fmt.Errorf("HCS VPC quota exhausted: project at %d/%d after orphan reclaim, this prov requests %d more — a concurrent Sovereign genuinely occupies the project; wipe one before retrying", used, limit, needed)
+			if vpcPreflightRefuses(needed, first, reclaimAttempted, after) {
+				eff := effectiveReading(first, reclaimAttempted, after)
+				return nil, fmt.Errorf("HCS VPC quota exhausted: project at %d/%d after orphan reclaim, this prov requests %d more — a concurrent Sovereign genuinely occupies the project; wipe one before retrying", eff.used, eff.limit, needed)
 			}
 		}
 	}
