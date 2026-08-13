@@ -1,5 +1,16 @@
 apiVersion: v2
 name: bp-agenity
+# 0.5.26 (#6163 FREEZE 2): the credential init container WAITS instead of
+# reading the mount once. The old branch printed "no credentials.json key in
+# Secret — key-only mode" and exited 0 on a miss, permanently. Measured on
+# hw293: a workspace held that line for EIGHT HOURS after the Sovereign's
+# OpenBao path was seeded, Pod Running throughout — which is exactly what let
+# UAT row R19 ("the init container validates the token and exits 0") read green
+# over a workspace that could not reach Anthropic at all. The wait is what makes
+# a late credential land with NO restart: kubelet re-projects a mounted Secret
+# on its own sync period, so a value seeded after the Pod started becomes
+# visible in-place. anthropic.credentialWait tunes it (timeoutSeconds 300,
+# intervalSeconds 5, onTimeout fail|continue) and the miss branch is fail-loud.
 # 0.5.20 (#4706-family, 2026-07-03): image repo moved ghcr.io/openova-io/
 # bp-agenity → ghcr.io/openova-io/agenity. The dashboard image (tag =
 # appVersion 0.9.7) squatted the bp-agenity CHART OCI repo, so any
@@ -188,7 +199,7 @@ type: application
 # same gateway bp-wordpress-tenant + the org console route attach to, #4054).
 # The old default rendered Accepted=False/InvalidHTTPRoute and the host 404'd
 # until the parentRef was hand-overridden. appVersion (image) unchanged.
-version: 0.5.22
+version: 0.5.26
 # 0.5.22 (#5617): the per-Org oidc-gate companion gains its EGRESS
 # CiliumNetworkPolicy (templates/oidc-gate.yaml `oidc-gate-<cid>-egress`).
 # The gate shipped an ingress-only gateway CNP into a DEFAULT-DENY per-Org
