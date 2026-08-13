@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T03:45:04Z` |
+| Last refreshed | `2026-08-13T04:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T03:45 | [#6204](https://github.com/openova-io/openova/pull/6204) | #6200 | docs(uat): withdraw row 60's "no Switchover producer" claim  |
 | 2026-08-13T03:41 | [#6203](https://github.com/openova-io/openova/pull/6203) | #6198 | docs(uat): cite the merged #6198 fix on the 4 cutover rows,  |
 | 2026-08-13T02:58 | [#6201](https://github.com/openova-io/openova/pull/6201) | #6200 | fix(catalyst-api): canonicalise placement mode before decidi |
 | 2026-08-13T03:21 | [#6199](https://github.com/openova-io/openova/pull/6199) | #5640 | fix(cutover): stop step-03 gating on the cutover's OWN workl |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-11T04:01 | [#6144](https://github.com/openova-io/openova/pull/6144) | #6054 | fix(catalyst): a usable secondary kubeconfig is not thereby  |
 | 2026-08-11T04:16 | [#6143](https://github.com/openova-io/openova/pull/6143) | #6114 | fix(walk): a console-gateway hostname probed on the shared g |
 | 2026-08-11T04:16 | [#6142](https://github.com/openova-io/openova/pull/6142) | #3969 | fix(catalyst-api): stop the Topology-tab Save flattening spe |
-| 2026-08-11T04:16 | [#6141](https://github.com/openova-io/openova/pull/6141) | #4656 | docs(uat): walk the 13 unwalked hw293 rows — 11 flip green,  |
 
 ---
 
