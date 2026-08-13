@@ -1644,7 +1644,7 @@ echo "[cutover-contract] Case 40: cutover step + resolver ConfigMaps re-render o
 c40_keep_policy() {
   local _name="$1" _file="$2" _meta
   if command -v yq >/dev/null 2>&1; then
-    yq "select(.kind == \"ConfigMap\" and .metadata.name == \"${_name}\") | .metadata.annotations.\"helm.sh/resource-policy\" // \"none\"" "$_file"
+    yq ea "[select(.kind == \"ConfigMap\" and .metadata.name == \"${_name}\") | .metadata.annotations.\"helm.sh/resource-policy\"] | .[0] // \"none\"" "$_file"
     return 0
   fi
   # No yq: slice ONLY the metadata block (name -> the `data:` key at column 0,
