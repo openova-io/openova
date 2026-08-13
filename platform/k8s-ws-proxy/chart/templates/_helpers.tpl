@@ -94,6 +94,75 @@ bp-openova-flow-server.image helper.
 {{- end }}
 
 {{/*
+TLS gate (#5991 / UAT row 115).
+
+TRUE only when the operator asked for TLS AND the cert-manager CRD is
+registered on the cluster. Both halves matter:
+
+  * without `.Values.k8sWsProxy.tls.enabled` the chart is byte-identical
+    to pre-#5991 — one plaintext listener, HMAC only;
+  * without the CRD, rendering a Certificate produces a manifest the
+    apiserver rejects, which on a Flux install fails the WHOLE release
+    (Helm apply is atomic) and would take the exec proxy down with it.
+
+EVERY TLS-dependent block in this chart keys off this one helper, so
+the Certificates, the volume mounts that expect their Secrets, the
+container port and the env cannot drift into a state where the
+DaemonSet mounts a Secret nothing creates.
+*/}}
+{{- define "bp-k8s-ws-proxy.tlsEnabled" -}}
+{{- $tls := .Values.k8sWsProxy.tls | default dict -}}
+{{- if and $tls.enabled (.Capabilities.APIVersions.Has "cert-manager.io/v1") -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/*
+Certificate + Secret names. Derived from the canonical workload name so
+they are stable across releaseName variations, exactly like the
+DaemonSet/Service/ClusterRole above.
+*/}}
+{{- define "bp-k8s-ws-proxy.selfSignedIssuer" -}}
+{{- printf "%s-selfsigned" (include "bp-k8s-ws-proxy.workloadName" .) -}}
+{{- end }}
+
+{{- define "bp-k8s-ws-proxy.caCertificate" -}}
+{{- printf "%s-ca" (include "bp-k8s-ws-proxy.workloadName" .) -}}
+{{- end }}
+
+{{- define "bp-k8s-ws-proxy.caIssuer" -}}
+{{- printf "%s-ca-issuer" (include "bp-k8s-ws-proxy.workloadName" .) -}}
+{{- end }}
+
+{{- define "bp-k8s-ws-proxy.serverCertificate" -}}
+{{- printf "%s-server-tls" (include "bp-k8s-ws-proxy.workloadName" .) -}}
+{{- end }}
+
+{{- define "bp-k8s-ws-proxy.clientCertificate" -}}
+{{- printf "%s-client-tls" (include "bp-k8s-ws-proxy.workloadName" .) -}}
+{{- end }}
+
+{{/*
+The client identity, in ONE place.
+
+This string is written twice and the two writes MUST agree: it is the
+`commonName` of the client Certificate cert-manager issues for guacd,
+and it is the entry in the proxy's CLIENT_CERT_ALLOWED_SUBJECTS. If they
+drift, guacd presents a certificate that verifies against the CA and is
+then denied by the allowlist — a 401 whose cause is invisible from
+either side. tests/mtls-render.sh asserts the two rendered values are
+equal for exactly this reason.
+*/}}
+{{- define "bp-k8s-ws-proxy.clientSubject" -}}
+{{- $tls := .Values.k8sWsProxy.tls | default dict -}}
+{{- $s := $tls.clientSubject | default "" -}}
+{{- if not $s -}}
+{{- fail "bp-k8s-ws-proxy: .Values.k8sWsProxy.tls.clientSubject is empty — the mTLS caller needs an identity, and an empty allowlist silently disables client-certificate auth" -}}
+{{- end -}}
+{{- $s -}}
+{{- end }}
+
+{{/*
 HMAC secret name fail-fast — operator MUST pre-provision it.
 */}}
 {{- define "bp-k8s-ws-proxy.hmacSecretName" -}}

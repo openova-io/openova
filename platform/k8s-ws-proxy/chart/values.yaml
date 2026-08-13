@@ -43,6 +43,58 @@ k8sWsProxy:
     key: secret
   # Skew tolerance for HMAC timestamps (in either direction).
   hmacSkewSeconds: 300
+  # ── mTLS listener (#5991 / UAT row 115) ────────────────────────
+  # A SECOND way to present the same authority, for one reason: Apache
+  # guacd cannot set HTTP headers on its WebSocket upgrade, so it can
+  # never produce an X-Catalyst-HMAC. It CAN present a TLS client
+  # certificate (guacamole-server 1.5.5 `kubernetes` protocol:
+  # client-cert / client-key / ca-cert). Without this, no Guacamole
+  # connection through this proxy could authenticate, which is why UAT
+  # row 115's connection list had no producer that survived a click.
+  #
+  # The plaintext listener on `port` above is UNCHANGED and still
+  # HMAC-only: a plaintext request has no TLS state, so the certificate
+  # leg cannot authenticate it however this block is configured.
+  tls:
+    # Gated additionally on the cert-manager.io/v1 CRD being present —
+    # see the bp-k8s-ws-proxy.tlsEnabled helper. Rendering a Certificate
+    # on a cluster without cert-manager would fail the whole atomic Helm
+    # apply and take the exec proxy down with it.
+    enabled: true
+    # ClusterIP port only. NEVER a nodePort (docs/PRINCIPLES.md).
+    port: 8443
+    # The identity the proxy ACCEPTS — written to the client
+    # Certificate's commonName AND to CLIENT_CERT_ALLOWED_SUBJECTS. An
+    # empty value fails the render, because an empty allowlist silently
+    # disables client-certificate auth: the connection would then
+    # authenticate against nothing and every click would 401.
+    clientSubject: guacd.guacamole.svc.cluster.local
+    # Namespaces the issued client Secret (tls.crt/tls.key/ca.crt) is
+    # mirrored into by reflector. `guacamole` is where guacd runs; the
+    # bp-guacamole seed reads the PEM from that mirror at run time and
+    # writes it into the connection's client-cert/client-key/ca-cert
+    # parameters. Empty list = no mirror (mTLS material stays in this
+    # namespace and no in-cluster caller can use it).
+    reflectClientCertTo:
+      - guacamole
+    # Extra SANs for the server leaf, if a Sovereign fronts the proxy
+    # under another name. guacd verifies the server hostname itself, so
+    # a name absent here cannot be dialed.
+    extraServerNames: []
+    duration: 8760h    # 1y leaves
+    renewBefore: 720h  # 30d
+    caDuration: 43800h # 5y CA
+    caRenewBefore: 720h
+  # Label key used to resolve a WORKLOAD name in the pod position of an
+  # exec URL to a Pod running right now (#5991). Empty disables it and
+  # the proxy makes no apiserver read per request.
+  #
+  # This is what keeps a SEEDED Guacamole connection working: the row
+  # stores a pod string once and is read on every click, so a literal
+  # Deployment/DaemonSet pod name in it goes stale at the next rollout.
+  # The literal name is still tried FIRST, so existing callers that name
+  # a real Pod are unaffected.
+  podAliasLabel: app.kubernetes.io/name
   # tmux-cascade — wraps every exec in a shared `catalyst-ops`
   # session. Default false; operators flip on for dedicated bastion
   # nodes.

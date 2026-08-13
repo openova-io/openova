@@ -416,6 +416,50 @@ guacamole:
         port: 22
         username: root
         credentialSecretName: ""
+      # The kubectl-shell target (#5991 mTLS leg) — the one seeded
+      # connection whose credential the PLATFORM holds end to end, so it
+      # authenticates on click with no operator input.
+      #
+      # guacd's `kubernetes` protocol authenticates by TLS CLIENT
+      # CERTIFICATE only (client-cert / client-key / ca-cert, read as
+      # in-memory PEM). bp-k8s-ws-proxy mints that certificate from its
+      # own private CA, allowlists exactly that identity on its mTLS
+      # listener, and reflector mirrors the Secret into this namespace;
+      # the seeder reads the PEM at run time and writes it into the
+      # connection. Nothing about it is in this chart or in any
+      # ConfigMap.
+      #
+      # It dials bp-k8s-ws-proxy, never the kube-apiserver: an
+      # apiserver-trusted client certificate needs CSR `approve` on the
+      # kubernetes.io/kube-apiserver-client signer, which is not
+      # scopeable by CN and is cluster-admin-equivalent escalation.
+      clusterShell:
+        enabled: true
+        name: cluster-shell
+        # The proxy Service, FULLY QUALIFIED. guacd runs its own
+        # hostname verification against this exact string, so it must
+        # appear in the proxy server leaf's SANs
+        # (bp-k8s-ws-proxy tls.extraServerNames covers non-default names).
+        proxyHost: k8s-ws-proxy.catalyst-system.svc.cluster.local
+        proxyPort: 8443
+        # Where the shell lands. `targetWorkload` is a WORKLOAD name, not
+        # a Pod name — the proxy resolves it per request against its
+        # POD_ALIAS_LABEL, which is what keeps this stored row working
+        # after a rollout. Default target is the proxy's own node-local
+        # DaemonSet Pod: it exists on every node, its container is the
+        # least-privileged always-present workload on the Sovereign, and
+        # it is the component serving the session, so a shell there can
+        # never promise more availability than the connection itself has.
+        targetNamespace: catalyst-system
+        targetWorkload: k8s-ws-proxy
+        container: k8s-ws-proxy
+        execCommand: /bin/sh
+        # Mirrored in by reflector from bp-k8s-ws-proxy's client
+        # Certificate (tls.crt / tls.key / ca.crt). The mount is
+        # OPTIONAL: before the mirror lands, the connection is produced
+        # credential-free and the per-minute CronJob converges it as
+        # soon as the Secret appears.
+        credentialSecretName: k8s-ws-proxy-client-tls
       # Additional connections declared by the per-Sovereign overlay. Each
       # entry: {name, protocol, parameters: {…}, credentialSecretName}. The
       # `parameters` map is guacd's own parameter set (hostname, port, …) and

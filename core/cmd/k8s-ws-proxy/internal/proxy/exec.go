@@ -5,19 +5,19 @@
 //
 // Why a proxy at all?
 //
-//   1. The kube-apiserver speaks the channelled protocol
-//      `v4.channel.k8s.io` (multiplexes stdin/stdout/stderr/error/resize
-//      onto one WebSocket via the first byte of every frame). Browsers
-//      cannot reach the apiserver directly without exposing kubeconfig
-//      tokens to the SPA — that is the credential-leak we explicitly
-//      forbid (INVIOLABLE-PRINCIPLES.md #5).
-//   2. Putting the proxy on the node (DaemonSet) keeps the exec stream
-//      node-local — the apiserver and the proxy share a kernel TCP
-//      stack, no cross-node hop, latency is sub-ms.
-//   3. The HMAC layer (auth/hmac.go) lets the upstream caller
-//      (catalyst-api or Guacamole) authenticate WITHOUT shipping a
-//      kubeconfig to the browser. The proxy uses the in-cluster
-//      ServiceAccount token to talk to the apiserver.
+//  1. The kube-apiserver speaks the channelled protocol
+//     `v4.channel.k8s.io` (multiplexes stdin/stdout/stderr/error/resize
+//     onto one WebSocket via the first byte of every frame). Browsers
+//     cannot reach the apiserver directly without exposing kubeconfig
+//     tokens to the SPA — that is the credential-leak we explicitly
+//     forbid (INVIOLABLE-PRINCIPLES.md #5).
+//  2. Putting the proxy on the node (DaemonSet) keeps the exec stream
+//     node-local — the apiserver and the proxy share a kernel TCP
+//     stack, no cross-node hop, latency is sub-ms.
+//  3. The HMAC layer (auth/hmac.go) lets the upstream caller
+//     (catalyst-api or Guacamole) authenticate WITHOUT shipping a
+//     kubeconfig to the browser. The proxy uses the in-cluster
+//     ServiceAccount token to talk to the apiserver.
 //
 // Frame protocol: the proxy is transparent at the WebSocket-frame
 // layer. Bytes the browser sends → the apiserver receives byte-equal;
@@ -72,6 +72,19 @@ type HandlerOptions struct {
 	Logger   *slog.Logger
 	Verifier *auth.Verifier
 
+	// CertVerifier enables the mTLS client-certificate credential as an
+	// ALTERNATIVE to the HMAC headers (#5991). Optional: nil keeps the
+	// proxy HMAC-only, which is the default and the pre-#5991
+	// behaviour. When set, New combines it with Verifier into a single
+	// auth.Authorizer — the one seam that decides accept/reject.
+	CertVerifier *auth.CertVerifier
+
+	// PodResolver, when non-nil, maps the pod segment of the request
+	// path to a Pod that exists right now (see podresolve.go). nil
+	// means the segment is used verbatim and the proxy makes no
+	// apiserver read before dialing — the pre-#5991 behaviour.
+	PodResolver PodResolver
+
 	// RESTConfig is the in-cluster kube REST config the proxy uses
 	// to dial the apiserver. The ServiceAccount + Token files live
 	// at /var/run/secrets/kubernetes.io/serviceaccount/ — InClusterConfig
@@ -98,6 +111,10 @@ type HandlerOptions struct {
 
 	// upgrader is constructed once per HandlerOptions.
 	upgrader websocket.Upgrader
+
+	// authorizer is built by New from Verifier + CertVerifier. Never
+	// set by callers.
+	authorizer *auth.Authorizer
 }
 
 // New constructs an HTTP handler that proxies `/proxy/exec/{ns}/{pod}/{container}`
@@ -121,6 +138,11 @@ func New(opts HandlerOptions) (http.Handler, error) {
 	if opts.HandshakeTimeout <= 0 {
 		opts.HandshakeTimeout = 10 * time.Second
 	}
+	authorizer, err := auth.NewAuthorizer(opts.Verifier, opts.CertVerifier)
+	if err != nil {
+		return nil, fmt.Errorf("proxy: %w", err)
+	}
+	opts.authorizer = authorizer
 	opts.upgrader = websocket.Upgrader{
 		HandshakeTimeout: opts.HandshakeTimeout,
 		Subprotocols:     []string{channelV4},
@@ -138,32 +160,63 @@ type handler struct {
 }
 
 // ServeHTTP routes a single request:
-//  1. parse {namespace,pod,container} from the URL path
-//  2. verify the HMAC signature
+//  1. parse {namespace,pod,container} from the URL path — either the
+//     canonical /proxy/exec/… shape or the apiserver-shaped
+//     /api/v1/namespaces/… shape guacd hardcodes (#5991)
+//  2. authorize: HMAC headers OR mTLS client certificate
 //  3. enforce AllowedNamespaces (if configured)
-//  4. open the apiserver exec stream
-//  5. WebSocket-upgrade the client
-//  6. bridge the two streams (this method blocks until either side
+//  4. resolve the pod segment to a Pod that exists right now
+//  5. open the apiserver exec stream
+//  6. WebSocket-upgrade the client
+//  7. bridge the two streams (this method blocks until either side
 //     closes)
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ns, pod, container, ok := parseExecPath(r.URL.Path)
 	if !ok {
-		writeError(w, http.StatusNotFound, "expected path /proxy/exec/{ns}/{pod}/{container}")
+		if ns, pod, ok = parseAPIServerExecPath(r.URL.Path); ok {
+			// The apiserver shape carries the container in the query
+			// string, not the path. guacd omits it entirely when the
+			// connection declares no `container` parameter; an empty
+			// value means "the Pod's default container", exactly as
+			// the apiserver treats it.
+			container = r.URL.Query().Get("container")
+		}
+	}
+	if !ok {
+		writeError(w, http.StatusNotFound,
+			"expected path /proxy/exec/{ns}/{pod}/{container} or /api/v1/namespaces/{ns}/pods/{pod}/exec")
 		return
 	}
 
-	if err := h.opts.Verifier.VerifyRequest(r); err != nil {
-		h.opts.Logger.Warn("proxy: hmac verify failed",
-			"err", err, "path", r.URL.Path, "remote", r.RemoteAddr)
+	mode, err := h.opts.authorizer.Authorize(r)
+	if err != nil {
+		h.opts.Logger.Warn("proxy: authorization failed",
+			"err", err, "path", r.URL.Path, "remote", r.RemoteAddr,
+			"tls", r.TLS != nil, "clientCertAuth", h.opts.authorizer.ClientCertEnabled())
 		writeError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 
 	if !h.namespaceAllowed(ns) {
 		h.opts.Logger.Warn("proxy: namespace denied",
-			"ns", ns, "pod", pod, "container", container)
+			"ns", ns, "pod", pod, "container", container, "authMode", mode)
 		writeError(w, http.StatusForbidden, "namespace not in AllowedNamespaces")
 		return
+	}
+
+	if h.opts.PodResolver != nil {
+		resolved, err := h.opts.PodResolver.Resolve(r.Context(), ns, pod)
+		if err != nil {
+			h.opts.Logger.Warn("proxy: pod resolution failed",
+				"err", err, "ns", ns, "segment", pod, "authMode", mode)
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		if resolved != pod {
+			h.opts.Logger.Info("proxy: pod segment resolved via alias label",
+				"ns", ns, "segment", pod, "pod", resolved)
+		}
+		pod = resolved
 	}
 
 	cmd := parseCommand(r.URL.Query())
@@ -184,7 +237,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	h.opts.Logger.Info("proxy: bridge open",
 		"ns", ns, "pod", pod, "container", container,
-		"tmuxCascade", h.opts.TmuxCascade, "cmd", cmd)
+		"authMode", mode, "tmuxCascade", h.opts.TmuxCascade, "cmd", cmd)
 
 	if err := h.bridge(r.Context(), clientWS, ns, pod, container, cmd, tty); err != nil {
 		h.opts.Logger.Warn("proxy: bridge ended with error", "err", err)
@@ -271,6 +324,44 @@ func parseExecPath(p string) (ns, pod, container string, ok bool) {
 	return ns, pod, container, true
 }
 
+// parseAPIServerExecPath extracts {ns} and {pod} from the
+// kube-apiserver's own exec URL shape,
+// /api/v1/namespaces/{ns}/pods/{pod}/exec.
+//
+// The proxy serves this shape because guacd BUILDS it and cannot be
+// told otherwise: guacamole-server 1.5.5's
+// src/protocols/kubernetes/url.c writes
+// "/api/v1/namespaces/%s/pods/%s/%s" with a literal snprintf and
+// appends command/container/stdin/stdout/tty itself. There is no
+// endpoint-path connection parameter. So a `kubernetes`-protocol
+// Guacamole connection can reach this proxy only if the proxy answers
+// on the apiserver's path — the alternative was a producer that
+// couldn't work when clicked (#5991).
+//
+// The trailing segment must be exactly "exec". guacd emits "attach"
+// instead when the connection declares no exec-command, and attach is a
+// different subresource with different semantics; answering it here
+// with an exec stream would be a silent lie about what the operator
+// connected to.
+func parseAPIServerExecPath(p string) (ns, pod string, ok bool) {
+	const prefix = "/api/v1/namespaces/"
+	if !strings.HasPrefix(p, prefix) {
+		return "", "", false
+	}
+	parts := strings.Split(strings.TrimPrefix(p, prefix), "/")
+	if len(parts) != 4 {
+		return "", "", false
+	}
+	if parts[1] != "pods" || parts[3] != "exec" {
+		return "", "", false
+	}
+	ns, pod = parts[0], parts[2]
+	if ns == "" || pod == "" {
+		return "", "", false
+	}
+	return ns, pod, true
+}
+
 // parseCommand returns the `command=` query parameters (repeated) as
 // the exec command vector. Defaults to `["/bin/sh"]` when the caller
 // passed no explicit command.
@@ -304,7 +395,15 @@ func buildExecURL(host, ns, pod, container string, command []string, tty bool) (
 	}
 	u.Path = fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/exec", ns, pod)
 	q := url.Values{}
-	q.Set("container", container)
+	// An empty container means "the Pod's default container". The
+	// apiserver applies that default itself when the parameter is
+	// ABSENT; sending container= (empty) is a request for a container
+	// literally named "", which 404s. guacd omits the parameter when
+	// the connection declares none, so the empty case is reachable from
+	// the apiserver-shaped route (#5991).
+	if container != "" {
+		q.Set("container", container)
+	}
 	q.Set("stdin", "true")
 	q.Set("stdout", "true")
 	q.Set("stderr", "true")

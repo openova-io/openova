@@ -38,6 +38,11 @@ spec:
             - name: http
               containerPort: {{ .Values.k8sWsProxy.port }}
               protocol: TCP
+            {{- if include "bp-k8s-ws-proxy.tlsEnabled" . }}
+            - name: https
+              containerPort: {{ .Values.k8sWsProxy.tls.port }}
+              protocol: TCP
+            {{- end }}
           env:
             - name: WS_PROXY_LISTEN_ADDR
               value: ":{{ .Values.k8sWsProxy.port }}"
@@ -53,10 +58,46 @@ spec:
             {{- end }}
             - name: LOG_LEVEL
               value: {{ .Values.k8sWsProxy.logLevel | quote }}
+            {{- if .Values.k8sWsProxy.podAliasLabel }}
+            # #5991 — lets a caller name a WORKLOAD in the pod position of
+            # the exec URL. A Guacamole connection is a stored row read on
+            # every click; a literal Deployment/DaemonSet pod name in that
+            # row goes stale at the next rollout, so the seeded connection
+            # would render and then 404 on click.
+            - name: POD_ALIAS_LABEL
+              value: {{ .Values.k8sWsProxy.podAliasLabel | quote }}
+            {{- end }}
+            # Downward API — used ONLY to prefer the node-local Pod when a
+            # workload name resolves to several. Never affects eligibility.
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            {{- if include "bp-k8s-ws-proxy.tlsEnabled" . }}
+            - name: TLS_LISTEN_ADDR
+              value: ":{{ .Values.k8sWsProxy.tls.port }}"
+            - name: TLS_CERT_FILE
+              value: /etc/k8s-ws-proxy/tls/tls.crt
+            - name: TLS_KEY_FILE
+              value: /etc/k8s-ws-proxy/tls/tls.key
+            - name: TLS_CLIENT_CA_FILE
+              value: /etc/k8s-ws-proxy/tls/ca.crt
+            # The mTLS credential leg is OFF unless this allowlist is
+            # non-empty — turning TLS on never by itself opens a second
+            # way to authenticate. Same source as the client
+            # Certificate's commonName (templates/certs.yaml).
+            - name: CLIENT_CERT_ALLOWED_SUBJECTS
+              value: {{ include "bp-k8s-ws-proxy.clientSubject" . | quote }}
+            {{- end }}
           volumeMounts:
             - name: hmac-secret
               mountPath: /etc/k8s-ws-proxy/secret
               readOnly: true
+            {{- if include "bp-k8s-ws-proxy.tlsEnabled" . }}
+            - name: server-tls
+              mountPath: /etc/k8s-ws-proxy/tls
+              readOnly: true
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -77,4 +118,13 @@ spec:
         - name: hmac-secret
           secret:
             secretName: {{ include "bp-k8s-ws-proxy.hmacSecretName" . }}
+        {{- if include "bp-k8s-ws-proxy.tlsEnabled" . }}
+        # NOT optional. The binary refuses to start when TLS_CERT_FILE is
+        # set and unreadable, so an optional mount would trade a visible
+        # ContainerCreating for a CrashLoop with a config error — and the
+        # Certificate is created by this same release.
+        - name: server-tls
+          secret:
+            secretName: {{ include "bp-k8s-ws-proxy.serverCertificate" . }}
+        {{- end }}
 {{- end }}
