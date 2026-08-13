@@ -92,7 +92,7 @@ replication.mode=sync (see bp-postgres.autoPromoteActive) — async has no fence
 {{- $probeTimeout := $ap.livenessProbeTimeoutSeconds | default 5 }}
 {{- $renderWait := $ap.promoteRenderWaitSeconds | default 90 }}
 {{- $armSeconds := $ap.steadyStateArmSeconds | default 180 }}
-{{- $peerClusters := .Values.topology.networkPolicy.crossRegionPeerClusters | default list }}
+{{- $peerClusters := dig "networkPolicy" "crossRegionPeerClusters" (list) (.Values.topology | default dict) }}
 {{- /* #5178 — the region-A liveness gate is meaningful ONLY when the mesh egress to
        region-A can be wired: clusterMesh on AND at least one peer ClusterMesh name.
        Without it the actor observes but NEVER promotes (fail-safe), because it has no

@@ -1,5 +1,91 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.23 — #6149 (Refs #5623 #5245 #5331 #5388 #6148): region-A AUTOMATIC DR
+#   FAILBACK, the PAIRING INVARIANT that makes it non-optional, and the #6148
+#   write-guard that fences the hold window.
+#   0.2.18 gave this chart a region-B dr-promoter and it works — on the hw293 G12
+#   region-kill (2026-08-11, dep a0077ba47e3720e5) all three shared-pg pairs
+#   promoted. Nothing gave them the symmetric half. The deployment census taken
+#   after region A returned: dr-promoter deployments in region B = 4 (all four
+#   pairs), dr-failback deployments in region A = 1 (bp-cnpg-pair ONLY). The one
+#   pair carrying a failback converged (region A back as in_recovery=true on TL=2,
+#   streaming from B); `shared-pg` (writable TL=3, 1 row | writable TL=3, 2 rows)
+#   and `shared-pg-b` (writable TL=2, 1 row | writable TL=3, 2 rows) were left
+#   permanently DUAL-WRITABLE on divergent timelines with nothing scheduled to
+#   ever reconcile them. `shared-pg` carries keycloak. That means 0.2.18 converted
+#   "does not fail over" into "fails over and never comes back" — strictly worse,
+#   because it fails OPEN and SILENT where #5623 failed closed and obvious.
+#     - templates/dr-failback.yaml — a FAITHFUL PORT of bp-cnpg-pair's dr-failback
+#       (chart 0.2.23), side=primary-gated: signals detects the post-failover
+#       geometry (local writable + pinned sync standby ABSENT + peer WRITABLE on an
+#       EQUAL-or-higher TL over `-replica-mesh`, IDENTIFY_SYSTEM timelines over the
+#       replication protocol), holds peerAheadHoldSeconds, then the actor demotes
+#       through the DURABLE SOURCE SEAM (patch the bootstrap-kit Kustomization's
+#       per-instance demotion substitute → kustomize renders topology.demoted onto
+#       this HR → helm re-renders the CR as a replica cluster — never a live
+#       Cluster-CR patch, #5125-D1), escalates on CNPG's own ConsistentSystemID=
+#       False divergence verdict (#5331 — the bare 'streaming' signal is the hw285
+#       data-loss trap), and deletes exactly once for a clean pg_basebackup
+#       re-clone with the PKI ownerReferences stripped first (#5245 hw278).
+#       Bounded destruction, every destructive step re-gated on a <60s-fresh
+#       writable-peer proof, starvation surfaced on the HR (#5388).
+#     - THE INVARIANT (bp-postgres.drPairCapable + assertDRPairSymmetry): the two
+#       actors no longer carry independent precondition sets. One SIDE-INDEPENDENT
+#       gate (active-hot-standby + sync + clusterMesh + ≥1 peer ClusterMesh name)
+#       decides whether this pair has a DR chain at all, and both the promoter
+#       (side=replica) and the failback (side=primary) render off it — so a
+#       promoter without a failback is not expressible. The promoter previously
+#       rendered with peers=[] and could never promote (#5178's
+#       PRIMARY_LIVENESS_ENABLED is exactly `clusterMesh AND peers`); it is now
+#       honestly absent instead of silently inert. Setting exactly ONE of
+#       autoPromote.enabled / failback.enabled FAILS THE RENDER naming both keys.
+#     - templates/peer-mesh-service.yaml — the side=primary zero-backend stub for
+#       `<instance>-replica-mesh`, so the reverse-direction global service merges
+#       by name and region-B's writable endpoint resolves on cluster-A.
+#     - replica-cluster.yaml — certificates.clientCASecret pinned to the shared
+#       `<instance>-ca` (so region-A's own client cert authenticates against
+#       region-B) + the `<instance>-replica-mesh` managed Service, selectorType rw
+#       so it tracks promotion (#5473: `r` would let a standby serve as the
+#       failback source).
+#     - cluster.yaml — the DEMOTED (rejoin) shape: replica.enabled + pg_basebackup
+#       from `<instance>-replica-mesh` with NO sslRootCert (#5245 hw278 x509
+#       FATAL-loop), sync fence off, managed.roles off (a read-only standby can
+#       never reconcile CREATE/ALTER ROLE); database.yaml likewise skipped.
+#     - #6148 WRITE-GUARD (ported from bp-cnpg-pair 0.2.24 / PR #6219): region A
+#       is a writable primary on an already-doomed line for the whole 120s hold,
+#       so every commit it accepts is acknowledged to a consumer and then
+#       discarded by the re-clone — and on THIS chart those consumers are
+#       keycloak, gitea, harbor, grafana, powerdns and the Organization mesh, not
+#       a dedicated DR pair with no clients. On peer-ahead DETECTION the actor now
+#       applies a CiliumNetworkPolicy (rendered as inert ConfigMap DATA so its
+#       lifecycle is the actor's and flux drift-correction has nothing to revert,
+#       #5125-D1) that DENIES ingress to :5432 for everything except the pair's
+#       own Pods and the failback Pod itself. Four load-bearing properties:
+#       `ingressDeny` on a CNP — a k8s NetworkPolicy CANNOT deny and would not
+#       subtract this chart's own `namespaceSelector: {}` consumer allow (#3577),
+#       so it would be created, logged and permit every write it claimed to stop;
+#       `enableDefaultDeny: {ingress:false, egress:false}` so it is purely
+#       subtractive and leaves the replication + CNPG-operator carve-outs intact;
+#       the failback Pod stays exempt or its own timeline probe trips
+#       `clear_hold "local timeline unreadable"` and aborts the whole failback
+#       (the trap that ruled out CNPG instance fencing); and `guard_on` is
+#       NON-FATAL, because converging region A is what ENDS the exposure. The
+#       guard is keyed to /shared/peer-ahead-since and `guard_off` sweeps
+#       unconditionally per tick, so every fail-safe path the signals loop
+#       already has takes it back down. RBAC adds ciliumnetworkpolicies
+#       get/patch/delete resourceNames-pinned to that one object, plus `create`
+#       in its own rule (k8s RBAC ignores resourceNames on create, so pinning it
+#       there would read as a constraint while enforcing nothing).
+#   New values under topology: demoted, failback.* (incl. the PER-INSTANCE
+#   demotedSubstituteKey — three installs share ONE bootstrap-kit Kustomization,
+#   so a shared key would demote all three at once). Default-OFF preserved:
+#   singleton / async / no-peers render ZERO DR resources, write-guard included.
+#   LIVE region-kill proof on the shared-pg pairs is owed on the next 2-region G12
+#   walk. tests/postgres-render.sh Cases 21a-21g added (21g vacuity-checked with
+#   five COMPILING mutants: default-deny flipped on, failback exemption removed,
+#   guard_on removed, the guard_off sweep removed, CNP downgraded to a k8s
+#   NetworkPolicy — each renders cleanly and each turns 21g red).
+#   Lockstep: 16a/16c/16d HR pins + blueprint.yaml + catalog-seed.
 # 0.2.18 — #5623 (Refs #5137 #5178 #5218 #5220 #5133 #5157): region-B AUTOMATIC DR
 #   promotion for the shared-pg pairs. The three shared-pg instances render the EXACT
 #   bp-cnpg-pair split-side replica shape but shipped NO region-local promoter, so on
@@ -329,8 +415,8 @@ name: bp-postgres
 #   honoured — sprig's `default` swallows boolean false). Primary render is
 #   byte-identical. Lockstep slot pins 16a/16c/16d → 0.2.20.
 #   tests/postgres-render.sh Case 21 added.
-version: 0.2.20
-appVersion: 0.2.20
+version: 0.2.23
+appVersion: 0.2.23
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
   PostgreSQL engine. Each install of bp-postgres = ONE

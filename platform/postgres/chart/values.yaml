@@ -251,6 +251,100 @@ topology:
       tag: "1.30.0"
       pullPolicy: IfNotPresent
 
+  # ── DEMOTED (rejoin) seam (#6149) ─────────────────────────────────────
+  # When true the active-hot-standby PRIMARY half renders as a REPLICA CLUSTER
+  # of region-B — the region-A rejoin after a region-kill promote. The
+  # dr-failback actor drives this through the DURABLE SOURCE SEAM (it patches
+  # the bootstrap-kit Kustomization's per-instance demotion substitute, which
+  # kustomize renders onto this key), NEVER a live `kubectl patch` of the
+  # Cluster CR — flux drift-correction reverts that mid-outage (#5125-D1,
+  # hw256 G12). Flipping it back to false is the sovereign-admin's controlled
+  # switchback (RUNBOOKS §6.1), after region-B has been demoted in turn.
+  demoted: false
+
+  # ── Region-A AUTOMATIC DR FAILBACK (#6149) ────────────────────────────
+  # THE SYMMETRIC HALF OF autoPromote, and not optional relative to it.
+  #
+  # On the hw293 G12 region-kill (2026-08-11, dep a0077ba47e3720e5) all four
+  # DR pairs promoted — and exactly ONE of them, bp-cnpg-pair, could come
+  # back. `shared-pg` and `shared-pg-b` were left DUAL-WRITABLE on divergent
+  # timelines: both sides `pg_is_in_recovery()=false`, different row counts of
+  # the same table, neither following the other, and nothing scheduled to ever
+  # reconcile them. `shared-pg` carries keycloak. A split-brained identity
+  # store fails OPEN and SILENT, which is strictly worse than #5623's
+  # read-only outage — that one failed closed and was obvious.
+  #
+  # So: a pair that can be PROMOTED must be able to FAIL BACK. Both actors
+  # ride ONE structural gate (bp-postgres.drPairCapable — active-hot-standby +
+  # sync + clusterMesh + peers), and setting exactly one of the two `enabled`
+  # keys FAILS THE RENDER naming both (bp-postgres.assertDRPairSymmetry).
+  # There is no supported configuration in which only one of them exists.
+  #
+  # The actor is a region-A-local Deployment (Deployment NOT CronJob — #5157)
+  # that detects the post-failover geometry (local writable + pinned sync
+  # standby ABSENT + peer WRITABLE on an equal-or-higher timeline over
+  # `-replica-mesh`), holds peerAheadHoldSeconds, demotes through the durable
+  # substitute seam, and re-clones region-A onto region-B's line exactly once.
+  # Same chain proven live on bp-cnpg-pair in the hw293 walk that measured
+  # this defect.
+  failback:
+    enabled: true
+    intervalSeconds: 10
+    # The peer-ahead evidence must hold CONTINUOUSLY this long before the
+    # actor flips the demotion substitute. A transient mesh blip or a replica
+    # restart clears the clock. #6148 records what this window still leaves
+    # open: the stale region-A line is UNFENCED and accepts writes for its
+    # duration.
+    peerAheadHoldSeconds: 120
+    # A freshly-(re)started signals container must never act on a
+    # half-observed geometry.
+    startupGraceSeconds: 300
+    # pg_isready timeout for the peer probe.
+    livenessProbeTimeoutSeconds: 5
+    # How long an in-place-demoted standby (a Cluster CR that CNPG demoted in
+    # place, keeping its stale TL-n PGDATA) may sit unable to stream from a
+    # writable+ahead peer before the actor escalates to the re-clone. A fresh
+    # clone created AFTER the failback started is NEVER deleted (bounded
+    # destruction: at most one re-clone per failback episode).
+    wedgeHoldSeconds: 600
+    # How long the in-place-demoted Cluster's ConsistentSystemID condition
+    # (CNPG's own cannot-consistently-follow-the-source signal) must stay
+    # False before the actor escalates to the re-clone. Unlike the wedge clock
+    # this detector needs NO contiguous psql observability — the demoted
+    # standby restarts through the in-place switch and every 'unknown' tick
+    # resets the 600s wedge clock (#5245 hw278).
+    divergenceGraceSeconds: 180
+    # How long the post-failover geometry candidate may persist with the peer
+    # probe failing for an OBSERVABILITY-DEAD reason (nxdomain / unreachable /
+    # tl-unreadable) before the actor surfaces the starvation on the HR. A
+    # 2-node actor cannot distinguish region-B-dead (serving here is CORRECT)
+    # from region-B-unreachable (split-brain), so it must never act on
+    # blindness — but it must not be silent about it either (#5388).
+    starvationSurfaceSeconds: 300
+    # The flux HelmRelease this instance's demotion renders onto
+    # (spec.values.topology.demoted). Per-instance, same as autoPromote.hr.
+    hr:
+      name: bp-postgres-shared
+      namespace: flux-system
+    # The flux Kustomization carrying the DURABLE demotion substitute. This is
+    # the bootstrap-kit Kustomization cloud-init applies.
+    kustomization:
+      name: bootstrap-kit
+      namespace: flux-system
+    # PER-INSTANCE demotion substitute key. bp-cnpg-pair hard-codes
+    # SOVEREIGN_CNPG_PAIR_DEMOTED because there is exactly one pair; this
+    # chart is installed THREE times against the SAME bootstrap-kit
+    # Kustomization, so a shared key would demote all three the moment any one
+    # of them failed back. Slots 16a/16c/16d stamp their own
+    # (SOVEREIGN_SHARED_PG{,_B,_C}_DEMOTED).
+    demotedSubstituteKey: SOVEREIGN_SHARED_PG_DEMOTED
+    # kubectl-bearing image for the actor container — same harbor-proxy-pull-
+    # compliant prefix as autoPromote.kubectlImage.
+    kubectlImage:
+      repository: harbor.openova.io/proxy-dockerhub/alpine/k8s
+      tag: "1.30.0"
+      pullPolicy: IfNotPresent
+
   # ── Cilium ClusterMesh — the canonical inter-region replication transport
   # (ADR-0001 §9). The primary's `-mesh` global Service publishes its read
   # endpoint across the mesh; the replica's externalCluster dials it. OFF

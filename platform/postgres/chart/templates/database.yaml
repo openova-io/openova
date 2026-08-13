@@ -24,8 +24,15 @@ active-hot-standby the replica half is a streaming follower that inherits
 every database via the WAL stream (CNPG forbids writes there until promoted),
 so a Database CR on the replica cluster would be rejected / meaningless. The
 renderReplicaHalf gate skips this whole template on side=replica.
+
+#6149 — the SAME reasoning applies to the DEMOTED (rejoin) primary. Once the
+dr-failback actor has demoted region-A, this Cluster is a read-only standby of
+region-B for exactly the same reason, and a Database CR against it is a CREATE
+DATABASE that can never succeed. The databases arrive with the basebackup; the
+CRs return on the controlled switchback (RUNBOOKS §6.1) when `topology.demoted`
+goes back to false.
 */ -}}
-{{- if and (ne (toString .Values.enabled) "false") (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") (not (include "bp-postgres.renderReplicaHalf" .)) }}
+{{- if and (ne (toString .Values.enabled) "false") (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") (not (include "bp-postgres.renderReplicaHalf" .)) (not (include "bp-postgres.primaryDemoted" .)) }}
 {{- $ctx := . }}
 {{- range .Values.databases }}
 ---

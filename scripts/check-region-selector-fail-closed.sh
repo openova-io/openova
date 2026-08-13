@@ -90,6 +90,7 @@ fail() {
 REGISTRY="
 platform/postgres/chart/templates/cluster.yaml|platform/postgres/chart|bp-postgres.primaryRegion
 platform/postgres/chart/templates/replica-cluster.yaml|platform/postgres/chart|bp-postgres.replicaRegion
+platform/postgres/chart/templates/dr-failback.yaml|platform/postgres/chart|bp-postgres.primaryRegion (#6149 — failbackActive requires drPairCapable+side=primary, so cluster.yaml co-renders; the Deployment nodeAffinity pins bp-postgres.primaryRegion directly)
 platform/postgres/chart/templates/dr-promoter.yaml|platform/postgres/chart|bp-postgres.replicaRegion (#5623 — autoPromoteActive requires renderReplicaHalf, so replica-cluster.yaml co-renders; the Deployment nodeAffinity pins bp-postgres.replicaRegion directly)
 platform/postgres/chart/templates/failover-readiness.yaml|platform/postgres/chart|bp-postgres.replicaRegion (#5623 — same autoPromoteActive gate; the Deployment nodeAffinity pins bp-postgres.replicaRegion directly)
 platform/cnpg-pair/chart/templates/primary-cluster.yaml|platform/cnpg-pair/chart|cnpg-pair.validateRegions

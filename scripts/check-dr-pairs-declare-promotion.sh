@@ -156,8 +156,14 @@ REGISTRY="
 platform/cnpg-pair/chart/templates/replica-cluster.yaml|platform/cnpg-pair/chart|dr-promoter
 platform/cnpg-pair/chart/templates/primary-cluster.yaml|platform/cnpg-pair/chart|dr-promoter
 platform/postgres/chart/templates/replica-cluster.yaml|platform/postgres/chart|dr-promoter
+platform/postgres/chart/templates/cluster.yaml|platform/postgres/chart|dr-promoter
 platform/wordpress-tenant/chart/templates/cnpg-cluster.yaml|platform/wordpress-tenant/chart|manual
 "
+# platform/postgres/chart/templates/cluster.yaml joined the registry with #6149:
+# in the DEMOTED (rejoin) shape the primary half renders as a pg_basebackup
+# replica of region-B, so it is a standby-half renderer by the same structural
+# signature the detector uses — exactly as bp-cnpg-pair's primary-cluster.yaml
+# has been since #5245.
 
 echo "══ Phase 1 — registry completeness ══"
 
@@ -447,9 +453,131 @@ else
   fail "bp-wordpress-tenant singleton render errored — the #5623 declaration must not affect non-DR installs"
 fi
 
+# ─────────────────────────────────────────────────────────────────────────────
+echo
+echo "══ Phase 3 — the PAIRING INVARIANT (#6149) ══"
+#
+# This phase exists because Phase 2 was GREEN on the tree that produced hw293.
+# It proved every pair can PROMOTE and said nothing about coming back, so
+# `bp-postgres` shipped four promoters against one failback and the G12 walk of
+# 2026-08-11 left `shared-pg` (keycloak's database) and `shared-pg-b`
+# permanently DUAL-WRITABLE on divergent timelines — both sides
+# pg_is_in_recovery()=false, different row counts of the same table, nothing
+# scheduled to reconcile them. A promoter without a failback is not a partial
+# feature; it is a data-integrity hazard, and #5623 made the failure mode worse
+# rather than better by shipping one alone.
+#
+# So the assertion is on the PAIR COUNT — promoters == failbacks — never on
+# either alone. The two halves render in SEPARATE helm invocations
+# (side=primary on cluster-A, side=replica on cluster-B), so both are rendered
+# here and the census is taken across the catalog exactly as it was taken live.
+#
+# The exhaustive form of this check (per-pair census, the operator-gate
+# symmetry, the vacuity control, the registry-rot detector) is
+# tests/e2e/bootstrap-kit/dr_pair_symmetry_6149_test.go. This phase is the
+# same claim in the gate whose promoter-only framing let the defect through.
+
+# failback_deployments <file> — rendered Deployments carrying the
+# `catalyst.openova.io/role: dr-failback` LABEL VALUE. Parsed as YAML, so a
+# comment or a name substring can never satisfy it (#5639).
+failback_deployments() {
+  python3 - "$1" <<'PYEOF'
+import sys, yaml
+try:
+    docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+except Exception as e:
+    print(f"__PARSE_ERROR__ {e}")
+    sys.exit(0)
+for d in docs:
+    if d.get('kind') == 'Deployment':
+        md = d.get('metadata') or {}
+        if (md.get('labels') or {}).get('catalyst.openova.io/role') == 'dr-failback':
+            print(md.get('name', ''))
+PYEOF
+}
+
+total_promoters=0
+total_failbacks=0
+
+# count_pair <label> <promoter-side render> <failback-side render>
+count_pair() {
+  local label="$1" pfile="$2" ffile="$3"
+  local p f np nf
+  p="$(promoter_deployments "$pfile")"
+  f="$(failback_deployments "$ffile")"
+  np=$([ -n "$p" ] && echo "$p" | wc -l || echo 0)
+  nf=$([ -n "$f" ] && echo "$f" | wc -l || echo 0)
+  total_promoters=$((total_promoters + np))
+  total_failbacks=$((total_failbacks + nf))
+  if [ "$np" -eq "$nf" ] && [ "$np" -gt 0 ]; then
+    pass "$label: promoters=$np failbacks=$nf — a pair that can be promoted can fail back"
+  else
+    fail "$label: PAIR ASYMMETRY — promoters=$np failbacks=$nf.
+        This is the #6149 geometry: region B promotes on a region kill and
+        region A returns as a SECOND writable primary on a divergent timeline
+        with nothing scheduled to reconcile them. Measured live on hw293
+        2026-08-11 — shared-pg and shared-pg-b, both left dual-writable."
+  fi
+}
+
+# bp-cnpg-pair — THE CONTROL. It shares the suspect property (a CNPG DR pair
+# rendering a region-B promoter) and already carried a failback before #6149, so
+# it must stay green and unchanged. A red control means this phase cannot tell a
+# real green from a vacuous one.
+if helm template dr platform/cnpg-pair/chart \
+  --set cnpgPair.enabled=true \
+  --set cnpgPair.side=primary \
+  --set cnpgPair.primary.region="$A" \
+  --set cnpgPair.replica.region="$B" \
+  --set cnpgPair.image.tag=16.3-23 \
+  --set 'cnpgPair.networkPolicy.crossRegionPeerClusters={peer-mesh}' \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/cnpg-pair-primary.yaml" 2>"$TMP/cnpg-pair-primary.err"; then
+  count_pair "bp-cnpg-pair (CONTROL)" "$TMP/cnpg-pair-replica.yaml" "$TMP/cnpg-pair-primary.yaml"
+else
+  fail "bp-cnpg-pair side=primary render errored: $(tail -2 "$TMP/cnpg-pair-primary.err")"
+fi
+
+# bp-postgres — the three shared-pg instances. shared-pg carries keycloak.
+if helm template shared-pg platform/postgres/chart -f "$TMP/pg-replica.values.yaml" \
+  --set topology.side=primary \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 \
+  > "$TMP/pg-primary.yaml" 2>"$TMP/pg-primary.err"; then
+  count_pair "bp-postgres (shared-pg)" "$TMP/pg-replica.yaml" "$TMP/pg-primary.yaml"
+else
+  fail "bp-postgres side=primary render errored: $(tail -2 "$TMP/pg-primary.err")"
+fi
+
+# The aggregate census — the exact number the hw293 walk produced (4 vs 1).
+if [ "$total_promoters" -eq "$total_failbacks" ] && [ "$total_promoters" -gt 0 ]; then
+  pass "catalog census: dr-promoter=$total_promoters dr-failback=$total_failbacks"
+else
+  fail "CATALOG CENSUS ASYMMETRY — dr-promoter=$total_promoters dr-failback=$total_failbacks.
+        hw293 measured 4 and 1, and that asymmetry IS the whole explanation of
+        its two permanently dual-writable databases."
+fi
+
+# Operator-gate symmetry: disabling exactly ONE half must FAIL THE RENDER. The
+# structural preconditions are shared (bp-postgres.drPairCapable), so this is
+# the only remaining way to express the hazard by hand — in both directions.
+for pair in "topology.failback.enabled|promoter without a failback (the #6149 hazard)" \
+            "topology.autoPromote.enabled|failback without a promoter (the inverse trap)"; do
+  key="${pair%%|*}"; why="${pair#*|}"
+  if helm template shared-pg platform/postgres/chart -f "$TMP/pg-replica.values.yaml" \
+    --set "${key}=false" \
+    --namespace shared-data --api-versions postgresql.cnpg.io/v1 \
+    > /dev/null 2>"$TMP/pg-asym.err"; then
+    fail "bp-postgres accepted ${key}=false — $why. The chart must fail closed."
+  elif grep -q 'DR PAIRING INVARIANT VIOLATED' "$TMP/pg-asym.err"; then
+    pass "bp-postgres: ${key}=false fails closed naming both keys ($why)"
+  else
+    fail "bp-postgres: ${key}=false failed, but not with the pairing-invariant error —
+        got: $(tail -2 "$TMP/pg-asym.err")"
+  fi
+done
+
 echo
 if [ "$fails" -ne 0 ]; then
-  echo "══ $fails failure(s) — a DR pair in this catalog cannot promote its standby ══"
+  echo "══ $fails failure(s) — a DR pair in this catalog cannot promote its standby, or cannot come back ══"
   exit 1
 fi
-echo "══ OK — every DR pair declares a promotion mechanism and renders it ══"
+echo "══ OK — every DR pair declares a promotion mechanism, renders it, and can fail back ══"
