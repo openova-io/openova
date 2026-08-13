@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T16:15:04Z` |
+| Last refreshed | `2026-08-13T16:30:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5829](https://github.com/openova-io/openova/issues/5829) | bp-openbao: a failed ACL-policy write is swallowed, then the OIDC role names a p | Other |
 | [#5831](https://github.com/openova-io/openova/issues/5831) | Nine page components are reachable from nothing but their own tests — includin | Other |
 | [#5833](https://github.com/openova-io/openova/issues/5833) | GET /api/v1/organizations double-counts an Organization — the store/CR merge k | Other |
 | [#5835](https://github.com/openova-io/openova/issues/5835) | GET /applications/{name}/status 404s for every bootstrap component while its own | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6231](https://github.com/openova-io/openova/issues/6231) | Topology choice does not survive the round trip: the status endpoint flattens th | Other |
 | [#6235](https://github.com/openova-io/openova/issues/6235) | cutover-contract Case 40 is fail-open: pipefail turns a matched grep -q into 141 | Other |
 | [#6238](https://github.com/openova-io/openova/issues/6238) | main is red: the bp-guacamole auto-bump workflow bumps Chart.yaml without the ca | Other |
+| [#6242](https://github.com/openova-io/openova/issues/6242) | fix(funnel): a settled order whose launch call is lost strands the paid Organiza | Other |
 
 ---
 
@@ -307,10 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T16:18 | [#6241](https://github.com/openova-io/openova/pull/6241) | #6122 | test(openova-mcp): pin UAT row 213 as indistinguishability,  |
 | 2026-08-13T15:52 | [#6240](https://github.com/openova-io/openova/pull/6240) | #5844 | walk(hw295): SSO bare-URL rows 33/34/36/37 — measured, then  |
 | 2026-08-13T14:11 | [#6239](https://github.com/openova-io/openova/pull/6239) | #5734 | chore(lockstep): republish the umbrella for bp-guacamole 0.2 |
 | 2026-08-13T14:11 | [#6237](https://github.com/openova-io/openova/pull/6237) | #6027 | docs(path-to-100): mark the secondary-kubeconfig producer SU |
 | 2026-08-13T15:52 | [#6236](https://github.com/openova-io/openova/pull/6236) | #4982 | fix(cutover): Case 40 could not detect what it asserts — pip |
+| 2026-08-13T16:20 | [#6234](https://github.com/openova-io/openova/pull/6234) | #6215 | fix(agenity): an expired Anthropic credential must not exit  |
 | 2026-08-13T13:06 | [#6233](https://github.com/openova-io/openova/pull/6233) | #4993 | fix(provisioning): one unresolvable cart entry no longer sin |
 | 2026-08-13T14:10 | [#6232](https://github.com/openova-io/openova/pull/6232) | #3373 | fix(catalyst): make the topology choice survive the round tr |
 | 2026-08-13T13:07 | [#6230](https://github.com/openova-io/openova/pull/6230) | #5734 | fix(bp-guacamole): nothing had ever written a Guacamole conn |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-13T04:04 | [#6206](https://github.com/openova-io/openova/pull/6206) | #3374 | docs(uat): row 29 — an HTTP probe cannot decide this row, an |
 | 2026-08-13T04:04 | [#6205](https://github.com/openova-io/openova/pull/6205) | #6197 | docs(uat): row 235 — the stale-secret 401 this row names is  |
 | 2026-08-13T03:45 | [#6204](https://github.com/openova-io/openova/pull/6204) | #6200 | docs(uat): withdraw row 60's "no Switchover producer" claim  |
-| 2026-08-13T03:41 | [#6203](https://github.com/openova-io/openova/pull/6203) | #6198 | docs(uat): cite the merged #6198 fix on the 4 cutover rows,  |
-| 2026-08-13T02:58 | [#6201](https://github.com/openova-io/openova/pull/6201) | #6200 | fix(catalyst-api): canonicalise placement mode before decidi |
 
 ---
 
