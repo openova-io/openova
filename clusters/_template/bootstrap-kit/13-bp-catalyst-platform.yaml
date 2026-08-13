@@ -1392,7 +1392,7 @@ spec:
       # 1.4.1437 — #6149 (Refs #6148): catalog-seed advances bp-postgres 0.2.20 ->
       #   0.2.23 (region-A dr-failback for the three shared-pg DR pairs + the
       #   #6148 peer-ahead write-guard). Lockstep w/ products/catalyst/chart/Chart.yaml.
-      version: 1.4.1437
+      version: 1.4.1438
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
