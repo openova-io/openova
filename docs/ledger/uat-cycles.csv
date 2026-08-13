@@ -10,3 +10,4 @@ cycle_ts,env,dep,milestone,denominator,PASS,FAIL,PARTIAL,NOTRUN,SUPERSEDED,PENDI
 2026-08-12T14:21:37Z,hw295,952c564cab38d320,,286,232,37,1,16,0,0,81.1
 2026-08-12T16:43:18Z,hw295,952c564cab38d320,,286,240,34,3,9,0,0,83.9
 2026-08-12T22:43:29Z,hw295,952c564cab38d320,"owner session restored via PIN in a Stalwart uptime window (#6197); cutover fired, failed step-03 circular deadlock (#6198, fix PR #6199)",286,252,28,5,1,0,0,88.1
+2026-08-13T04:43:19Z,hw295,952c564cab38d320,step-03 cleared: #6198 fixed+proven live; #6202 + #6211 filed,286,252,18,15,1,0,0,88.1
