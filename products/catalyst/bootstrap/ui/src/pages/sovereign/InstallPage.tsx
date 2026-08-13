@@ -138,11 +138,14 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
     if (!needsSecondRegion) return null
     const primary = region.trim()
     const secondary = secondaryRegion.trim()
+    // active-active places a co-equal primary, not a standby — naming it a
+    // "standby region" there would be copy the operator can tell is wrong.
+    const secondName = placementMode === 'active-active' ? 'second region' : 'standby region'
     if (!secondary) {
-      return `${placementMode} needs a second region — name the standby region, or pick singleton for a one-region install.`
+      return `${placementMode} needs a second region — name the ${secondName}, or pick singleton for a one-region install.`
     }
     if (secondary === primary) {
-      return `Primary and standby regions must differ — ${placementMode} places the standby in another region.`
+      return `The two regions must differ — ${placementMode} runs in a second region, and naming the same one twice is one place.`
     }
     return null
   }, [needsSecondRegion, region, secondaryRegion, placementMode])
