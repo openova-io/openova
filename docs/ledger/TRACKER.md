@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T15:45:04Z` |
+| Last refreshed | `2026-08-13T16:00:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,14 +307,17 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T15:52 | [#6240](https://github.com/openova-io/openova/pull/6240) | #5844 | walk(hw295): SSO bare-URL rows 33/34/36/37 — measured, then  |
 | 2026-08-13T14:11 | [#6239](https://github.com/openova-io/openova/pull/6239) | #5734 | chore(lockstep): republish the umbrella for bp-guacamole 0.2 |
 | 2026-08-13T14:11 | [#6237](https://github.com/openova-io/openova/pull/6237) | #6027 | docs(path-to-100): mark the secondary-kubeconfig producer SU |
+| 2026-08-13T15:52 | [#6236](https://github.com/openova-io/openova/pull/6236) | #4982 | fix(cutover): Case 40 could not detect what it asserts — pip |
 | 2026-08-13T13:06 | [#6233](https://github.com/openova-io/openova/pull/6233) | #4993 | fix(provisioning): one unresolvable cart entry no longer sin |
 | 2026-08-13T14:10 | [#6232](https://github.com/openova-io/openova/pull/6232) | #3373 | fix(catalyst): make the topology choice survive the round tr |
 | 2026-08-13T13:07 | [#6230](https://github.com/openova-io/openova/pull/6230) | #5734 | fix(bp-guacamole): nothing had ever written a Guacamole conn |
 | 2026-08-13T11:34 | [#6228](https://github.com/openova-io/openova/pull/6228) | #6149 | docs(ledger): publish UAT-FINAL — every case with its confid |
 | 2026-08-13T11:43 | [#6227](https://github.com/openova-io/openova/pull/6227) | #4466 | fix(catalyst): a flaky post-reclaim quota re-read false-fail |
 | 2026-08-13T11:22 | [#6226](https://github.com/openova-io/openova/pull/6226) | #5516 | fix(openova-mcp): row 213 sibling sweep — list_organizations |
+| 2026-08-13T15:52 | [#6224](https://github.com/openova-io/openova/pull/6224) | #6149 | docs(ledger): convergence capture 2026-08-13T10:43:13Z — hw2 |
 | 2026-08-13T11:23 | [#6223](https://github.com/openova-io/openova/pull/6223) | #6149 | fix(bp-postgres): the shared-pg pairs get a dr-failback AND  |
 | 2026-08-13T09:45 | [#6222](https://github.com/openova-io/openova/pull/6222) | #6217 | fix(agenity): the credential init container WAITS instead of |
 | 2026-08-13T09:00 | [#6221](https://github.com/openova-io/openova/pull/6221) | #6156 | test(dr): cover preflight-02's CALL SITE, not just the seam  |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-13T03:45 | [#6204](https://github.com/openova-io/openova/pull/6204) | #6200 | docs(uat): withdraw row 60's "no Switchover producer" claim  |
 | 2026-08-13T03:41 | [#6203](https://github.com/openova-io/openova/pull/6203) | #6198 | docs(uat): cite the merged #6198 fix on the 4 cutover rows,  |
 | 2026-08-13T02:58 | [#6201](https://github.com/openova-io/openova/pull/6201) | #6200 | fix(catalyst-api): canonicalise placement mode before decidi |
-| 2026-08-13T03:21 | [#6199](https://github.com/openova-io/openova/pull/6199) | #5640 | fix(cutover): stop step-03 gating on the cutover's OWN workl |
-| 2026-08-13T02:58 | [#6193](https://github.com/openova-io/openova/pull/6193) | #6090 | docs(uat): hw295 convergence walk — 196→232 green, a false n |
-| 2026-08-12T07:51 | [#6188](https://github.com/openova-io/openova/pull/6188) | #6180 | fix(uat): attribute observations to the env that measured th |
 
 ---
 
