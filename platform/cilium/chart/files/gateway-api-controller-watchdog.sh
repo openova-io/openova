@@ -246,13 +246,20 @@ while true; do
       # the very race being fixed.
       log "pass verdict=UNKNOWN detail=${detail} — not counted toward the failure threshold"
       ;;
-    *)
+    DEAD)
       consecutive=$((consecutive + 1))
       log "pass verdict=DEAD consecutive=${consecutive}/${THRESHOLD} detail=${detail}"
       if [ "$consecutive" -ge "$THRESHOLD" ]; then
         restart_operator
         consecutive=0
       fi
+      ;;
+    *)
+      # DEAD is the only verdict that may restart anything, so it must be named
+      # explicitly. A catch-all `*)` that fell through to DEAD would turn any
+      # future unrecognised verdict — or an empty line from a truncated
+      # controller_verdict — into a Pod deletion. Unrecognised is UNKNOWN.
+      log "pass verdict=UNRECOGNISED line='${verdict_line}' — treated as UNKNOWN, not counted"
       ;;
   esac
   sleep "$INTERVAL"
