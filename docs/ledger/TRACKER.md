@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T20:45:02Z` |
+| Last refreshed | `2026-08-13T21:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T20:53 | [#6263](https://github.com/openova-io/openova/pull/6263) | #6254 | fix(cutover): the settled-roll gate blocked on the cutover's |
 | 2026-08-13T20:18 | [#6261](https://github.com/openova-io/openova/pull/6261) | #6255 | docs(uat): hw296 first-measurement walk — 28 SSO + Jobs Re-r |
 | 2026-08-13T19:46 | [#6258](https://github.com/openova-io/openova/pull/6258) | #6250 | fix(uat): carry-forward outranks the flush rule it replaced  |
 | 2026-08-13T19:54 | [#6257](https://github.com/openova-io/openova/pull/6257) | #4293 | fix(catalyst): four unowned UAT rows — G7 plan door, row 60  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-13T15:52 | [#6224](https://github.com/openova-io/openova/pull/6224) | #6149 | docs(ledger): convergence capture 2026-08-13T10:43:13Z — hw2 |
 | 2026-08-13T11:23 | [#6223](https://github.com/openova-io/openova/pull/6223) | #6149 | fix(bp-postgres): the shared-pg pairs get a dr-failback AND  |
 | 2026-08-13T09:45 | [#6222](https://github.com/openova-io/openova/pull/6222) | #6217 | fix(agenity): the credential init container WAITS instead of |
-| 2026-08-13T09:00 | [#6221](https://github.com/openova-io/openova/pull/6221) | #6156 | test(dr): cover preflight-02's CALL SITE, not just the seam  |
 
 ---
 
