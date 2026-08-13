@@ -215,8 +215,10 @@ func Test_reconcileGlobalSeed_SuccessfulHealNeverErrors(t *testing.T) {
 	h.openbao = srv.client()
 
 	// The only difference: a platform credential exists, so the seed writes.
+	// #6250: an apiKey alone cannot authenticate an agent, so it is no longer a
+	// credential that "exists" for the purposes of a successful seed.
 	t.Setenv(anthropicSeedAPIKeyEnv, "test-only-not-a-real-credential")
-	t.Setenv(anthropicSeedCredentialsJSONEnv, "")
+	t.Setenv(anthropicSeedCredentialsJSONEnv, validAnthropicCredentialsJSON())
 
 	h.reconcileGlobalSeed(context.Background(),
 		"anthropic", anthropicSeedMountPath, anthropicSeedSecretPath,
@@ -244,8 +246,10 @@ func Test_reconcileGlobalSeed_HealedGapIsVerifiedAndQuiet(t *testing.T) {
 	h.openbao = srv.client()
 
 	// The only difference: a platform credential exists, so the seed writes.
+	// #6250: an apiKey alone cannot authenticate an agent, so it is no longer a
+	// credential that "exists" for the purposes of a successful seed.
 	t.Setenv(anthropicSeedAPIKeyEnv, "test-only-not-a-real-credential")
-	t.Setenv(anthropicSeedCredentialsJSONEnv, "")
+	t.Setenv(anthropicSeedCredentialsJSONEnv, validAnthropicCredentialsJSON())
 
 	got := h.reconcileGlobalSeed(context.Background(),
 		"anthropic", anthropicSeedMountPath, anthropicSeedSecretPath,
@@ -355,8 +359,10 @@ func Test_seedAnthropicToken_SeededPathIsNotAnError(t *testing.T) {
 	lg, read := capturingLogger()
 	h := &Handler{log: lg}
 	h.openbao = srv.client()
+	// #6250: an apiKey alone cannot authenticate an agent, so it is no longer a
+	// credential that "exists" for the purposes of a successful seed.
 	t.Setenv(anthropicSeedAPIKeyEnv, "test-only-not-a-real-credential")
-	t.Setenv(anthropicSeedCredentialsJSONEnv, "")
+	t.Setenv(anthropicSeedCredentialsJSONEnv, validAnthropicCredentialsJSON())
 
 	if out := h.seedAnthropicToken(context.Background()); out != AnthropicSeedOutcomeSeeded {
 		t.Fatalf("outcome = %q, want %q", out, AnthropicSeedOutcomeSeeded)

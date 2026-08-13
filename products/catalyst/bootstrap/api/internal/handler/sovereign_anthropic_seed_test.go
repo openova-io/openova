@@ -67,7 +67,10 @@ func Test_seedAnthropicToken_SeedsExpectedPathAndFields(t *testing.T) {
 	h.openbao = &openbao.Client{Addr: srv.srv.URL, Token: "test-token", HTTP: srv.srv.Client()}
 
 	t.Setenv(anthropicSeedAPIKeyEnv, "sk-ant-test-key")
-	t.Setenv(anthropicSeedCredentialsJSONEnv, `{"claudeAiOauth":{"accessToken":"oat-x","refreshToken":"r","expiresAt":1,"scopes":["user:inference"]}}`)
+	// #6250: this fixture used to carry `"expiresAt":1` — epoch-millisecond 1,
+	// i.e. an already-expired credential asserted as a successful seed. The
+	// happy path now needs a credential that can actually authenticate.
+	t.Setenv(anthropicSeedCredentialsJSONEnv, validAnthropicCredentialsJSON())
 
 	outcome := h.seedAnthropicToken(context.Background())
 	if outcome != AnthropicSeedOutcomeSeeded {

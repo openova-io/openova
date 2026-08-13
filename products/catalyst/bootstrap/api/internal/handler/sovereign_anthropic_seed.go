@@ -109,6 +109,25 @@ const (
 	AnthropicSeedOutcomeSkippedNoEnv AnthropicSeedOutcome = "skipped-no-env"
 	AnthropicSeedOutcomeSkippedNoBao AnthropicSeedOutcome = "skipped-no-openbao"
 	AnthropicSeedOutcomeWriteFailure AnthropicSeedOutcome = "write-failure"
+
+	// AnthropicSeedOutcomeUnusableSeeded — a credential IS configured and
+	// CANNOT authenticate an agent (key-only / malformed / expired), and the
+	// stored path held nothing usable to protect, so the value was written
+	// anyway and reported as what it is.
+	//
+	// Written, deliberately: withholding it would leave the per-Org
+	// ExternalSecret unsynced, and the workspace pod would then report the
+	// generic "credential never arrived" instead of the exact
+	// "EXPIRED ~45h ago" its init container can render from the real bytes
+	// (#6163 FREEZE 3). The operator gets the precise diagnosis at BOTH
+	// layers. What must never happen is calling this seeded.
+	AnthropicSeedOutcomeUnusableSeeded AnthropicSeedOutcome = "unusable-credential-seeded"
+
+	// AnthropicSeedOutcomeUnusableWithheld — the configured credential cannot
+	// work AND the OpenBao path already holds one that can (or could not be
+	// read, so we do not know). The write is withheld: a fat-fingered rotation
+	// must not demote a Sovereign whose workspaces authenticate today.
+	AnthropicSeedOutcomeUnusableWithheld AnthropicSeedOutcome = "unusable-credential-withheld"
 )
 
 // seedAnthropicToken writes the Sovereign's OpenBao
@@ -161,7 +180,14 @@ func (h *Handler) seedAnthropicToken(ctx context.Context) AnthropicSeedOutcome {
 	if credsJSON == "" {
 		credsJSON = strings.TrimSpace(os.Getenv(anthropicSeedCredentialsJSONEnv))
 	}
-	if apiKey == "" && credsJSON == "" {
+	// Three outcomes, not two (#4277/#4111/#4482). ABSENT and VALID were always
+	// distinguishable here; INVALID — a credential that IS configured and
+	// CANNOT authenticate — took VALID's verdict, was written, and was logged
+	// as "wrote OpenBao path so every Org's agenity ExternalSecret resolves".
+	// See anthropic_credential_class.go for the full account.
+	class, detail := classifyAnthropicCredential(apiKey, credsJSON)
+
+	if class == anthropicCredAbsent {
 		// 🛑 FOUNDER-SUPPLIED-SECRET GAP: the platform holds no Anthropic
 		// credential. Surface loud + skip rather than seed an empty path
 		// that pretends to work (the reflector/ESO empty-seed trap the
@@ -189,13 +215,55 @@ func (h *Handler) seedAnthropicToken(ctx context.Context) AnthropicSeedOutcome {
 		return AnthropicSeedOutcomeSkippedNoEnv
 	}
 
+	// 🛑 CONFIGURED-BUT-UNUSABLE. A credential exists and cannot authenticate
+	// an agent: key-only, malformed, or expired. Before #6250 this fell
+	// straight through to the write below and returned "seeded".
+	if !class.usable() {
+		// Never demote a Sovereign that works today. If the stored path holds
+		// a usable credential — or could not be read, so we do not know —
+		// withhold the write and say why. A rotation typo must not cost a
+		// working install its agents.
+		if stored, observed := h.storedAnthropicCredentialClass(ctx); !observed || stored.usable() {
+			if h.log != nil {
+				h.log.Error("🛑 anthropic seed WITHHELD — the configured credential cannot authenticate an agent, and the OpenBao path already holds one that can (or could not be read). Not overwriting (#4277)",
+					"credentialClass", string(class),
+					"detail", detail,
+					"storedClass", string(stored),
+					"storedObserved", observed,
+					"openbaoPath", anthropicSeedMountPath+"/"+anthropicSeedSecretPath,
+					"remediation", anthropicCredentialRemediation(class),
+				)
+			}
+			return AnthropicSeedOutcomeUnusableWithheld
+		}
+		if h.log != nil {
+			h.log.Error("🛑 anthropic seed wrote a credential that CANNOT authenticate an agent — every Organization's Agenity workspace will refuse to start (#4111/#4482). This is NOT a seeded Sovereign",
+				"credentialClass", string(class),
+				"detail", detail,
+				"openbaoPath", anthropicSeedMountPath+"/"+anthropicSeedSecretPath,
+				"remediation", anthropicCredentialRemediation(class),
+			)
+		}
+		if err := h.openbao.PutKVv2(ctx, anthropicSeedMountPath, anthropicSeedSecretPath, map[string]any{
+			"apiKey":          apiKey,
+			"credentialsJson": credsJSON,
+		}); err != nil {
+			if h.log != nil {
+				h.log.Error("anthropic seed: OpenBao write failed",
+					"openbaoPath", anthropicSeedMountPath+"/"+anthropicSeedSecretPath,
+					"err", err,
+				)
+			}
+			return AnthropicSeedOutcomeWriteFailure
+		}
+		return AnthropicSeedOutcomeUnusableSeeded
+	}
+
 	// KV-v2 payload. Field names MUST match the agenity ExternalSecret's
 	// remoteRef.property values: `apiKey` (anthropic.externalSecret
 	// .remoteProperty) + `credentialsJson` (remoteCredentialsProperty).
 	// Both keys are always present so the ExternalSecret's optional
-	// credentialsJson property resolves cleanly; an empty value for a
-	// missing env var is fine (the chart's seed-claude-creds init
-	// container treats a 0-byte credentialsJson as key-only mode).
+	// credentialsJson property resolves cleanly.
 	data := map[string]any{
 		"apiKey":          apiKey,
 		"credentialsJson": credsJSON,
@@ -215,6 +283,8 @@ func (h *Handler) seedAnthropicToken(ctx context.Context) AnthropicSeedOutcome {
 		// Per docs/PRINCIPLES.md #10: byte lengths only, never plaintext.
 		h.log.Info("anthropic seed: wrote OpenBao path so every Org's agenity ExternalSecret resolves",
 			"openbaoPath", anthropicSeedMountPath+"/"+anthropicSeedSecretPath,
+			"credentialClass", string(class),
+			"detail", detail,
 			"apiKeyBytes", len(apiKey),
 			"credentialsJsonBytes", len(credsJSON),
 		)
