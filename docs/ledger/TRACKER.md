@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T09:00:04Z` |
+| Last refreshed | `2026-08-13T09:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T09:00 | [#6221](https://github.com/openova-io/openova/pull/6221) | #6156 | test(dr): cover preflight-02's CALL SITE, not just the seam  |
 | 2026-08-13T08:57 | [#6220](https://github.com/openova-io/openova/pull/6220) | #5245 | docs(runbooks): §6.1's reverse leg covers the cnpg-pair pair |
+| 2026-08-13T09:07 | [#6219](https://github.com/openova-io/openova/pull/6219) | #6148 | fix(cnpg-pair): guard the peer-ahead hold so the stale prima |
 | 2026-08-13T07:41 | [#6218](https://github.com/openova-io/openova/pull/6218) | #6216 | docs(uat): cite the two merged fixes on the eight rows they  |
 | 2026-08-13T07:04 | [#6216](https://github.com/openova-io/openova/pull/6216) | #6214 | fix(cutover): run the isolation proof LAST — step-08 was gat |
 | 2026-08-13T06:57 | [#6215](https://github.com/openova-io/openova/pull/6215) | #6163 | fix(anthropic): read the operator's credential Secret live — |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-11T10:20 | [#6173](https://github.com/openova-io/openova/pull/6173) | #6158 | feat(uat): the confidence scheduler had no caller — wire it  |
 | 2026-08-11T08:26 | [#6171](https://github.com/openova-io/openova/pull/6171) | #4901 | fix(catalyst-api): the DR panel printed an em-dash over a li |
 | 2026-08-11T09:58 | [#6170](https://github.com/openova-io/openova/pull/6170) | #3132 | docs(uat): reset the ledger on the hw293 wipe — 205 evidence |
-| 2026-08-11T10:17 | [#6167](https://github.com/openova-io/openova/pull/6167) | #6016 | fix(bp-postgres): repairing the spec did not repair the clus |
-| 2026-08-11T08:05 | [#6165](https://github.com/openova-io/openova/pull/6165) | #6114 | fix(guard,catalyst-api): a hostname no listener admits, a re |
 
 ---
 
