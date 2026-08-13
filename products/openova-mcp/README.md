@@ -119,7 +119,15 @@ server **inside hw173's catalyst-api pod** pointed at the real
 - A sovereign-admin `list_applications` returns the **real** Application CRs
   unfiltered.
 - An Org token (`org_id=acme`) sees **only** that Org's Applications.
-- An out-of-scope `get_application` for another Org returns **forbidden**.
+- A cross-Org `get_application` is refused.
+
+  ⚠️ That walk pre-dates #5522. It recorded the refusal as **forbidden**,
+  which is no longer the contract and must not be cited as one: the read
+  path now answers **not found** (`-32000`), deliberately, because a 403
+  would confirm the Application exists in another Organization. The write
+  path keeps 403. The rule is deny-by-LOOKUP vs deny-by-ASSERTION, not read
+  vs write — see `docs/adr/0013-cross-org-denial-shape.md`, UAT row 213,
+  #6122, and the `internal/tools` doc comment on `orgScopedNotFound`.
 
 See the walk evidence on issue #3988.
 

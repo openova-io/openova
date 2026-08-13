@@ -275,7 +275,7 @@ func handleGetApplication(ctx context.Context, id *identity.Identity, api *catal
 		// would answer every "does Organization X run an app called Y?"
 		// question an attacker cares to ask. The message names only the
 		// CALLER's own Organization for the same reason.
-		return nil, fmt.Errorf("application %q not found in organization %q", in.Name, id.OrgID)
+		return nil, orgScopedNotFound(in.Name, id.OrgID)
 	}
 
 	// Sovereign context: the deployment-addressed get-by-name seam. A
@@ -287,6 +287,32 @@ func handleGetApplication(ctx context.Context, id *identity.Identity, api *catal
 		return nil, err
 	}
 	return api.GetApplication(ctx, depID, in.Name, bearerOf(id))
+}
+
+// orgScopedNotFound builds the ONE refusal an Org-context by-name lookup is
+// allowed to produce (UAT row 213 / #6122, ADR-0013).
+//
+// THE CONTRACT IS INDISTINGUISHABILITY, not merely the words "not found".
+// The bytes this returns must be identical for a name that exists in ANOTHER
+// Organization and for a name that exists NOWHERE ON THE SOVEREIGN. Anything
+// that varies between those two cases — a different code, a different
+// wording, a "check the owning organization" hint, an extra field, even a
+// different upstream request pattern a caller could time — reconstructs the
+// existence oracle the not-found answer exists to deny. `-32003 forbidden`
+// is the loud version of that leak; a helpfully-worded `-32000` is the quiet
+// one, and the quiet one passes a test that only reads the code.
+//
+// It takes only the requested name and the CALLER'S OWN Org, because those
+// are the only two facts this path is entitled to know. There is deliberately
+// no parameter through which a foreign Organization could ever be threaded.
+//
+// Kept as ONE constructor so the contract has ONE site to hold. Two inline
+// fmt.Errorf calls on two branches is exactly how a well-meaning "make the
+// error more helpful" edit lands on one of them and splits the two cases
+// apart. Pinned end-to-end (real handler, real transport, both worlds) by
+// cmd/openova-mcp/cross_org_indistinguishable_213_test.go.
+func orgScopedNotFound(name, callerOrgID string) error {
+	return fmt.Errorf("application %q not found in organization %q", name, callerOrgID)
 }
 
 // handleCreateApplication installs an Application in the caller's Org by
