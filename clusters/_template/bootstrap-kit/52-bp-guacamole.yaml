@@ -198,7 +198,15 @@ spec:
       # dead cached GUAC_AUTH token → 403 PERMISSION_DENIED on every
       # session API call → bare "An error has occurred" page (UAT rows
       # 35/115 on hw292). Session lifetime now matches the gate cookie.
-      version: 0.2.37
+      #
+      # 0.2.38 (#5991 / UAT row 115): the connection PRODUCER. Nothing had
+      # ever inserted into `guacamole_connection`, so a signed-in
+      # sovereign-admin landed on an empty ALL CONNECTIONS list. The seed
+      # Job now writes the declared set (default: one ssh target on this
+      # Sovereign's own node, address from the downward API) and the
+      # per-minute enroll CronJob re-converges it. Credentials come from an
+      # optional Secret, never from values.
+      version: 0.2.38
       sourceRef:
         kind: HelmRepository
         name: bp-guacamole

@@ -301,7 +301,58 @@ name: bp-guacamole
 # chart/tests/crossregion-render.sh (Case 3 fails against the pre-fix chart —
 # role=secondary there still renders 2 Deployments + 1 CNPG Cluster).
 # Refs #5358.
-version: 0.2.37
+#
+# 0.2.38 (#5991 / UAT row 115, 2026-08-13): the CONNECTION PRODUCER. Until this
+# version nothing in the repository ever inserted into `guacamole_connection` —
+# the Apache schema creates it empty (files/postgresql/001-create-schema.sql:109),
+# the `GuacamoleConnection` CRD + `relay-controller` the README described were
+# never written, and catalyst-api's `GuacamoleClient` interface has no production
+# implementation (`SetGuacamoleClient` has no non-test caller). A signed-in
+# sovereign-admin therefore reached Guacamole successfully and landed on an EMPTY
+# ALL CONNECTIONS list. The `<adminGroup>` USER_GROUP with ADMINISTER + five
+# CREATE_* system permissions, seeded since 0.2.9, is the RIGHT to create a
+# connection — it creates none, which is exactly what row 115's vacuity guard
+# says is a FAIL.
+#   - seed_connections() in templates/jdbc-schema-seed-job.yaml writes the
+#     declared set. Called from seed.sh (install/upgrade) AND promote.sh (the
+#     per-minute enroll CronJob), so the set CONVERGES after a restore or rebuild
+#     rather than being written once.
+#   - Idempotent by construction: the connection INSERT is NOT EXISTS-guarded
+#     because UNIQUE (connection_name, parent_id) does NOT dedupe root-level
+#     connections — parent_id is NULL and Postgres treats NULLs as distinct, so a
+#     bare INSERT would add one duplicate per minute. Parameters converge with
+#     ON CONFLICT … DO UPDATE. Each connection carries a READ grant for the admin
+#     USER_GROUP so it renders for a member who is not a system admin.
+#   - Default declared set: ONE target, `sovereign-node` (ssh :22, user root),
+#     whose hostname comes from the seeder Pod's downward API (status.hostIP) —
+#     no node list baked into a public chart, no cluster read, no new RBAC.
+#     Declare nothing (connections.enabled=false, or nodeShell.enabled=false with
+#     an empty `extra`) and the producer's body renders EMPTY: zero rows, never a
+#     fabricated one.
+#   - Credentials NEVER come from values or this chart. A target names an
+#     OPTIONAL Secret (credentialSecretName), mounted read-only at
+#     /conn-cred/<name>; username/password/private-key/passphrase are read at run
+#     time. A credential-shaped parameter in values FAILS the render — the repo
+#     is public and those values land in a ConfigMap.
+#   - NOT seeded, deliberately: a kubectl-shell connection. guacd's `kubernetes`
+#     protocol authenticates by mTLS client certificate only, and minting an
+#     apiserver-trusted client cert in-cluster needs CSR `approve` on the
+#     kubernetes.io/kube-apiserver-client signer, which is not scopeable by CN
+#     and is cluster-admin-equivalent escalation; bp-k8s-ws-proxy's HMAC upgrade
+#     contract (core/cmd/k8s-ws-proxy/DESIGN.md:32-37) is unspeakable by guacd.
+#     The browser shell into a Pod remains the console's /shells/issue path.
+#   - New guards: chart/tests/connection-seed-render.sh (producer renders, the
+#     empty-set CONTROL writes nothing, credentials in values are refused) and
+#     chart/tests/connection-seed-sql.sh, which runs the SHIPPED seed.sh +
+#     common.sh against a throwaway Postgres and reads the tables back — it is
+#     what proves the second run adds no duplicate.
+#   - CRED / SCRIPTS_DIR / SCHEMA_DIR / CONN_CRED_DIR in the seed scripts gained
+#     `${VAR:-<pod path>}` defaults so the test harness can execute the shipped
+#     script rather than a copy. Pod behaviour is unchanged.
+# Lockstep: 52-bp-guacamole.yaml pin + blueprint.yaml + catalog-seed
+# source.version → 0.2.38.
+# Refs #5991.
+version: 0.2.38
 appVersion: "1.5.5"
 description: |
   Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
