@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T23:30:07Z` |
+| Last refreshed | `2026-08-13T23:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T23:30 | [#6279](https://github.com/openova-io/openova/pull/6279) | #6259 | docs(ledger): convergence cycle 2026-08-13T23:25:21Z — 254/2 |
 | 2026-08-13T23:24 | [#6277](https://github.com/openova-io/openova/pull/6277) | #6257 | docs(uat): re-walk the 26 invalidated SSO rows on hw296 — 25 |
+| 2026-08-13T23:30 | [#6276](https://github.com/openova-io/openova/pull/6276) | #6272 | fix(ledger): the convergence pivot grouped cycles by DATE, s |
+| 2026-08-13T23:31 | [#6275](https://github.com/openova-io/openova/pull/6275) | #5391 | fix(cutover): an Organization's failed app no longer fail-cl |
 | 2026-08-13T23:27 | [#6271](https://github.com/openova-io/openova/pull/6271) | #3375 | fix(catalyst-api): the Topology tab drew a Standby with no P |
 | 2026-08-13T23:11 | [#6270](https://github.com/openova-io/openova/pull/6270) | #6254 | ci(release): the umbrella must not publish a seed pin its si |
 | 2026-08-13T22:50 | [#6269](https://github.com/openova-io/openova/pull/6269) | #3379 | fix(cutover): stamp a carried-over step failure with the Job |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-13T15:52 | [#6240](https://github.com/openova-io/openova/pull/6240) | #5844 | walk(hw295): SSO bare-URL rows 33/34/36/37 — measured, then  |
 | 2026-08-13T14:11 | [#6239](https://github.com/openova-io/openova/pull/6239) | #5734 | chore(lockstep): republish the umbrella for bp-guacamole 0.2 |
 | 2026-08-13T14:11 | [#6237](https://github.com/openova-io/openova/pull/6237) | #6027 | docs(path-to-100): mark the secondary-kubeconfig producer SU |
-| 2026-08-13T15:52 | [#6236](https://github.com/openova-io/openova/pull/6236) | #4982 | fix(cutover): Case 40 could not detect what it asserts — pip |
-| 2026-08-13T16:20 | [#6234](https://github.com/openova-io/openova/pull/6234) | #6215 | fix(agenity): an expired Anthropic credential must not exit  |
-| 2026-08-13T13:06 | [#6233](https://github.com/openova-io/openova/pull/6233) | #4993 | fix(provisioning): one unresolvable cart entry no longer sin |
 
 ---
 
