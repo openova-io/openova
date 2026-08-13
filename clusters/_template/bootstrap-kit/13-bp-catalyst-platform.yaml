@@ -1409,7 +1409,7 @@ spec:
       #   bearer catalyst-api itself accepts is no longer refused with
       #   `crypto/rsa: verification error`. Lockstep w/
       #   products/catalyst/chart/Chart.yaml.
-      version: 1.4.1457
+      version: 1.4.1458
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
