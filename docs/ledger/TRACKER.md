@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T11:30:12Z` |
+| Last refreshed | `2026-08-13T11:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T11:34 | [#6228](https://github.com/openova-io/openova/pull/6228) | #6149 | docs(ledger): publish UAT-FINAL — every case with its confid |
+| 2026-08-13T11:43 | [#6227](https://github.com/openova-io/openova/pull/6227) | #4466 | fix(catalyst): a flaky post-reclaim quota re-read false-fail |
 | 2026-08-13T11:22 | [#6226](https://github.com/openova-io/openova/pull/6226) | #5516 | fix(openova-mcp): row 213 sibling sweep — list_organizations |
 | 2026-08-13T11:23 | [#6223](https://github.com/openova-io/openova/pull/6223) | #6149 | fix(bp-postgres): the shared-pg pairs get a dr-failback AND  |
 | 2026-08-13T09:45 | [#6222](https://github.com/openova-io/openova/pull/6222) | #6217 | fix(agenity): the credential init container WAITS instead of |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-12T08:57 | [#6184](https://github.com/openova-io/openova/pull/6184) | #5710 | fix(catalyst-api): refuse to run a cutover on a chart that c |
 | 2026-08-12T08:59 | [#6182](https://github.com/openova-io/openova/pull/6182) | #6114 | fix(bp-openclaw): drop the NewAPI controller-token reference |
 | 2026-08-11T10:50 | [#6180](https://github.com/openova-io/openova/pull/6180) | #6114 | fix(uat): a wipe is not a failure — carry evidence forward i |
-| 2026-08-11T10:24 | [#6179](https://github.com/openova-io/openova/pull/6179) | #6172 | docs(uat): walk hw294 — 17 ✅ from a 0-✅ reset, with a contro |
-| 2026-08-11T10:58 | [#6177](https://github.com/openova-io/openova/pull/6177) | #6089 | fix(bp-keycloak): the realm import named a Service that the  |
 
 ---
 
