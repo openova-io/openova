@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T09:30:08Z` |
+| Last refreshed | `2026-08-13T09:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T09:45 | [#6222](https://github.com/openova-io/openova/pull/6222) | #6217 | fix(agenity): the credential init container WAITS instead of |
 | 2026-08-13T09:00 | [#6221](https://github.com/openova-io/openova/pull/6221) | #6156 | test(dr): cover preflight-02's CALL SITE, not just the seam  |
 | 2026-08-13T08:57 | [#6220](https://github.com/openova-io/openova/pull/6220) | #5245 | docs(runbooks): §6.1's reverse leg covers the cnpg-pair pair |
 | 2026-08-13T09:07 | [#6219](https://github.com/openova-io/openova/pull/6219) | #6148 | fix(cnpg-pair): guard the peer-ahead hold so the stale prima |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-11T10:58 | [#6177](https://github.com/openova-io/openova/pull/6177) | #6089 | fix(bp-keycloak): the realm import named a Service that the  |
 | 2026-08-11T10:20 | [#6173](https://github.com/openova-io/openova/pull/6173) | #6158 | feat(uat): the confidence scheduler had no caller — wire it  |
 | 2026-08-11T08:26 | [#6171](https://github.com/openova-io/openova/pull/6171) | #4901 | fix(catalyst-api): the DR panel printed an em-dash over a li |
-| 2026-08-11T09:58 | [#6170](https://github.com/openova-io/openova/pull/6170) | #3132 | docs(uat): reset the ledger on the hw293 wipe — 205 evidence |
 
 ---
 
