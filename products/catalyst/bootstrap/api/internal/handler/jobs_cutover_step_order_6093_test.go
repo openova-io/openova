@@ -36,20 +36,35 @@ import (
 
 // theElevenStepsInChartOrder is the declared execution order carried by
 // the `bp.openova.io/cutover-order` label on the cutover-step-NN-<slug>
-// ConfigMaps — read live off hw293 and identical to the ADR-0002 /
-// CLAUDE.md eleven-step chain.
+// ConfigMaps.
+//
+// UPDATED for #6214 (2026-08-13). The labels were renumbered so the
+// deny-egress hold runs strictly LAST: gitea-token-mint 9->8,
+// vcluster-registry-pivot 10->9, crossplane-provider-pivot 11->10,
+// egress-block-test 8->11. Step-08's pre-hold lints assert that every
+// Flux source, workload image and Crossplane Provider package already
+// resolves Sovereign-local — two of the steps that PRODUCE that state
+// used to run after it, so cutoverComplete was structurally unreachable
+// on any Sovereign carrying an external Provider.
+//
+// Note the FILENAMES are deliberately unchanged (08-egress-block-test-job.yaml
+// still carries order 11); the label is authoritative, so read the label,
+// never the filename prefix. Verified against
+// platform/self-sovereign-cutover/chart/templates/*.yaml at chart 0.1.182,
+// and pinned there by cutover-contract.sh Case 91 (egress strictly last)
+// and Case 92 (the labels are a contiguous 1..11 permutation).
 var theElevenStepsInChartOrder = []string{
-	"gitea-mirror",              // 01
-	"harbor-projects",           // 02
-	"harbor-prewarm",            // 03
-	"registry-pivot",            // 04
-	"flux-gitrepository-patch",  // 05
-	"helmrepository-patches",    // 06
-	"catalyst-api-env-patch",    // 07
-	"egress-block-test",         // 08 — the deny-egress sovereignty proof
-	"gitea-token-mint",          // 09
-	"vcluster-registry-pivot",   // 10
-	"crossplane-provider-pivot", // 11
+	"gitea-mirror",              // label 1
+	"harbor-projects",           // label 2
+	"harbor-prewarm",            // label 3
+	"registry-pivot",            // label 4
+	"flux-gitrepository-patch",  // label 5
+	"helmrepository-patches",    // label 6
+	"catalyst-api-env-patch",    // label 7
+	"gitea-token-mint",          // label 8  (file 09-)
+	"vcluster-registry-pivot",   // label 9  (file 10-)
+	"crossplane-provider-pivot", // label 10 (file 11-)
+	"egress-block-test",         // label 11 (file 08-) — the deny-egress proof, LAST
 }
 
 // statusKeysFor builds the durable status map the chart pre-seeds at
@@ -95,8 +110,16 @@ func TestMergeCutoverStepOrder_ChartOrderWins(t *testing.T) {
 
 	// Name the single most misleading consequence explicitly, so a
 	// regression reads as what it is rather than as a diff of two lists.
-	if idx := indexOfSlug(got, "egress-block-test"); idx != 7 {
-		t.Errorf("egress-block-test is the step-08 deny-egress sovereignty proof; projected at position %d, want position 8", idx+1)
+	//
+	// Asserted as a RELATION (last), not the literal 8 it used to be. That
+	// literal was written before #6214 renumbered the labels, and it had
+	// become a trap pointing the wrong way: anyone correcting the fixture
+	// above to the real chart order would have been failed by this line and
+	// pushed to revert the correction — the guard arguing against the fix it
+	// is supposed to protect. Renumbering stays free; moving the deny-egress
+	// hold off the end does not. Mirrors cutover-contract.sh Case 91.
+	if idx, last := indexOfSlug(got, "egress-block-test"), len(theElevenStepsInChartOrder)-1; idx != last {
+		t.Errorf("egress-block-test is the deny-egress sovereignty proof and must project LAST (it proves the end state, so nothing may run after it — #6214); projected at position %d of %d, want position %d", idx+1, len(got), last+1)
 	}
 }
 

@@ -113,8 +113,15 @@ export interface CutoverStepDef {
  *   01 gitea-mirror · 02 harbor-projects · 03 harbor-prewarm ·
  *   04 registry-pivot · 05 flux-gitrepository-patch ·
  *   06 helmrepository-patches · 07 catalyst-api-env-patch ·
- *   08 egress-block-test · 09 gitea-token-mint ·
- *   10 vcluster-registry-pivot · 11 crossplane-provider-pivot
+ *   08 gitea-token-mint · 09 vcluster-registry-pivot ·
+ *   10 crossplane-provider-pivot · 11 egress-block-test
+ *
+ * #6214 (2026-08-13): those numbers are the `bp.openova.io/cutover-order`
+ * LABELS, which were renumbered so the deny-egress hold runs strictly last —
+ * it proves the end state, so it cannot precede the steps that establish it.
+ * The chart FILENAMES were deliberately left alone, so 08-egress-block-test-job.yaml
+ * now carries order 11 and 09/10/11-*.yaml carry 8/9/10. Read the label, never
+ * the filename. This list previously still carried the pre-#6214 sequence.
  * NOTE the slug is `helmrepository-patches` (NOT the prior `helmrepo-patches`)
  * — the old FE id never matched the chart, so that row could never light up.
  */
@@ -206,13 +213,6 @@ export const CUTOVER_STEPS: readonly CutoverStepDef[] = [
       'the upstream-fallback default.',
   },
   {
-    id: 'egress-block-test',
-    label: 'Egress-block self-test',
-    description:
-      'Apply a NetworkPolicy denying egress to github.com + ghcr.io + ' +
-      'harbor.openova.io for 10 minutes; assert all reconciles stay green.',
-  },
-  {
     id: 'gitea-token-mint',
     label: 'Mint local Gitea token',
     description:
@@ -232,6 +232,16 @@ export const CUTOVER_STEPS: readonly CutoverStepDef[] = [
     description:
       'Rewrite Crossplane provider + function package refs from upstream ' +
       'registries to the local Harbor proxy projects.',
+  },
+  {
+    // LAST by design (#6214). The hold proves the END state — every Flux
+    // source, workload image and Crossplane package already resolving
+    // Sovereign-local — so it cannot precede the steps that establish it.
+    id: 'egress-block-test',
+    label: 'Egress-block self-test',
+    description:
+      'Apply a NetworkPolicy denying egress to github.com + ghcr.io + ' +
+      'harbor.openova.io for 10 minutes; assert all reconciles stay green.',
   },
 ] as const
 

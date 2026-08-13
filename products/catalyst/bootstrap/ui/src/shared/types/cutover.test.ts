@@ -94,6 +94,14 @@ describe('CUTOVER_STEPS — canonical 11-step list', () => {
     // `bp.openova.io/cutover-order` labels 01..11. The catalyst-api engine
     // discovers + runs them in this order. The slug is `helmrepository-patches`
     // (the prior `helmrepo-patches` never matched the chart).
+    //
+    // #6214 (2026-08-13): egress-block-test moved from label 8 to label 11 and
+    // gitea-token-mint / vcluster-registry-pivot / crossplane-provider-pivot
+    // each moved down one, so the deny-egress hold runs strictly LAST. The
+    // chart FILENAMES did not change — 08-egress-block-test-job.yaml carries
+    // order 11 — so this expectation must be read off the LABEL, never the
+    // file prefix. It is pinned chart-side by cutover-contract.sh Case 91
+    // (egress strictly last) and Case 92 (contiguous 1..11 permutation).
     expect(CUTOVER_STEPS.map((s) => s.id)).toEqual([
       'gitea-mirror',
       'harbor-projects',
@@ -102,11 +110,19 @@ describe('CUTOVER_STEPS — canonical 11-step list', () => {
       'flux-gitrepository-patch',
       'helmrepository-patches',
       'catalyst-api-env-patch',
-      'egress-block-test',
       'gitea-token-mint',
       'vcluster-registry-pivot',
       'crossplane-provider-pivot',
+      'egress-block-test',
     ])
+  })
+
+  it('runs the deny-egress hold LAST — it proves the end state (#6214)', () => {
+    // A relation, not a literal index: renumbering stays free, moving the
+    // hold off the end does not. This is the front-end mirror of
+    // cutover-contract.sh Case 91 and the catalyst-api
+    // jobs_cutover_step_order_6093_test.go assertion.
+    expect(CUTOVER_STEPS[CUTOVER_STEPS.length - 1]!.id).toBe('egress-block-test')
   })
 
   it('every step has a non-empty label and description', () => {

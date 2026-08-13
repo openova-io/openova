@@ -1605,6 +1605,54 @@ echo "[cutover-contract] Case 40: cutover step + resolver ConfigMaps re-render o
 # (self-sovereign-cutover-status) keeps, to preserve mid-cutover progress across a
 # chart uninstall (Case 6). This gate locks that invariant so a future edit cannot
 # re-introduce the inert-mid-cutover bug (the #3668/#3710 shape that seeded #4417).
+#
+# #6235 — THIS GATE COULD NOT DETECT WHAT IT ASSERTS. Two defects, one line:
+#
+#   if awk "/^  name: ${cm}\$/,/^---\$/" render.yaml | grep -q 'helm.sh/...: keep'
+#
+# (1) FAIL-OPEN, and this is the dominant behaviour. The script runs under
+#     `set -euo pipefail` (line 37). `grep -q` exits the instant it matches, awk
+#     is then killed by SIGPIPE (141), and pipefail promotes 141 to the pipeline
+#     status — so a FOUND match returns non-zero and the `if` reads it as "no
+#     match". Measured on the default render: the three ranges that contain the
+#     string all return rc=141. Proof by mutant — a genuine
+#     `helm.sh/resource-policy: keep` added to step-05's metadata.annotations
+#     renders cleanly and the pre-fix gate reports PASS on it.
+#
+# (2) FALSE POSITIVE when the race lands the other way. The range was the WHOLE
+#     document including `data:`, and every step CM carries its shell script
+#     there. #5216 (2026-07-18) added to _helpers.tpl:222 the literal line
+#         # helm.sh/resource-policy: keep so nothing prunes the applied copy.
+#     — a COMMENT ABOUT the annotation. When awk finishes before grep exits (a
+#     short range, or scheduling), the pipeline returns 0 and Case 40 fires on
+#     that comment. Observed exactly once here, on cutover-step-09, which
+#     `exit 1`s the script and takes Cases 41-91 with it — including the #6198
+#     and #6214 gates added the same day. Re-runs of the identical tree pass, so
+#     it is a flake, not a standing red; blueprint-release.yaml has stayed green.
+#
+# The repair removes the pipeline entirely: `yq` reads the field, and the awk
+# fallback captures into a variable before matching, so no consumer can ever
+# SIGPIPE a producer again. The predicate lives in ONE function used by the real
+# check, the positive half AND the control, so the control cannot drift from
+# what the gate actually runs.
+#
+# c40_keep_policy <configmap-name> <rendered-yaml> — echoes "keep" or "none".
+c40_keep_policy() {
+  local _name="$1" _file="$2" _meta
+  if command -v yq >/dev/null 2>&1; then
+    yq "select(.kind == \"ConfigMap\" and .metadata.name == \"${_name}\") | .metadata.annotations.\"helm.sh/resource-policy\" // \"none\"" "$_file"
+    return 0
+  fi
+  # No yq: slice ONLY the metadata block (name -> the `data:` key at column 0,
+  # which always follows it) and match on the captured text, never through a
+  # pipe into an early-exiting reader.
+  _meta="$(awk "/^  name: ${_name}\$/,/^data:\$/" "$_file")"
+  case "$_meta" in
+    *"helm.sh/resource-policy: keep"*) echo keep ;;
+    *) echo none ;;
+  esac
+}
+
 for cm in cutover-offline-mirror-resolver \
           cutover-step-01-gitea-mirror cutover-step-02-harbor-projects \
           cutover-step-03-harbor-prewarm cutover-step-04-registry-pivot \
@@ -1612,25 +1660,52 @@ for cm in cutover-offline-mirror-resolver \
           cutover-step-07-catalyst-api-env-patch cutover-step-08-egress-block-test \
           cutover-step-09-gitea-token-mint cutover-step-10-vcluster-registry-pivot \
           cutover-step-11-crossplane-provider-pivot; do
-  # The metadata name renders at exactly 2-space indent (`  name: <cm>`); the
-  # deep-indented volume/configMap refs inside podSpec do NOT match, so the awk
-  # range spans exactly this one ConfigMap document (name → next `---`).
   if ! grep -q "^  name: ${cm}$" "$TMP/render.yaml"; then
     echo "FAIL: expected ConfigMap ${cm} not found in render (Case 40 list drifted from the chart)" >&2
     exit 1
   fi
-  if awk "/^  name: ${cm}\$/,/^---\$/" "$TMP/render.yaml" | grep -q 'helm.sh/resource-policy: keep'; then
+  if [ "$(c40_keep_policy "$cm" "$TMP/render.yaml")" = keep ]; then
     echo "FAIL: ConfigMap ${cm} carries helm.sh/resource-policy: keep — it will NOT re-render on a helm upgrade, so a mid-cutover chart fix is INERT (#4982 Finding A). Drop keep from step/resolver CMs; only self-sovereign-cutover-status keeps." >&2
     exit 1
   fi
 done
 # Positive half of the invariant: the status CM MUST keep (mirror of Case 6, kept
 # here so Case 40 fully specifies the keep policy across ALL cutover ConfigMaps).
-if ! awk '/^  name: self-sovereign-cutover-status$/,/^---$/' "$TMP/render.yaml" | grep -q 'helm.sh/resource-policy: keep'; then
+if [ "$(c40_keep_policy self-sovereign-cutover-status "$TMP/render.yaml")" != keep ]; then
   echo "FAIL: self-sovereign-cutover-status ConfigMap must carry helm.sh/resource-policy: keep to preserve mid-cutover progress (#4982 Finding A / Case 6)" >&2
   exit 1
 fi
-echo "  PASS (resolver + 11 step CMs re-render on upgrade; only the status CM keeps)"
+# CONTROL — this is the assertion the pre-#6235 gate silently failed, so it is
+# the one that must be executed rather than reasoned about. A step-shaped CM
+# carrying a REAL metadata.annotations keep, run through the SAME function the
+# loop above calls, must come back "keep". Without it the repair could have
+# swapped a flaky false positive for a permanently dead gate and looked greener.
+cat > "$TMP/c40-control.yaml" <<'C40CTL'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-step-99-control
+  annotations:
+    helm.sh/resource-policy: keep
+data:
+  stepName: control
+C40CTL
+if [ "$(c40_keep_policy cutover-step-99-control "$TMP/c40-control.yaml")" != keep ]; then
+  echo "FAIL: CONTROL — the annotation-anchored keep check did NOT detect a genuine metadata.annotations keep on a step CM; Case 40 is fail-open again (#6235, #4982 Finding A)" >&2
+  exit 1
+fi
+# CONTROL 2 — the comment in _helpers.tpl:222 that used to trip this gate is
+# still in the render. Prove the new predicate does NOT read it as a keep: pick
+# a step CM whose script body contains the phrase and assert it reads "none".
+if ! grep -q 'helm.sh/resource-policy: keep so nothing prunes' "$TMP/render.yaml"; then
+  echo "FAIL: CONTROL 2 is vacuous — the _helpers.tpl comment that caused the #6235 false positive is no longer in the render, so this control proves nothing. Re-point it at a body that still carries the phrase, or drop it." >&2
+  exit 1
+fi
+if [ "$(c40_keep_policy cutover-step-09-gitea-token-mint "$TMP/render.yaml")" != none ]; then
+  echo "FAIL: CONTROL 2 — a step CM whose SCRIPT BODY mentions helm.sh/resource-policy: keep was read as carrying the annotation; the #6235 body/metadata confusion is back" >&2
+  exit 1
+fi
+echo "  PASS (resolver + 11 step CMs re-render on upgrade; only the status CM keeps; CONTROL proves a real metadata keep is caught, CONTROL 2 proves the _helpers.tpl comment is not)"
 
 echo "[cutover-contract] Case 41: Step-03 harbor-prewarm has a settled-roll pre-flight (Phase A0) that fail-closes on a mid-roll env BEFORE building the mirror (#4982 Finding B, Refs #3379)"
 # #4982 Finding B: harbor-prewarm mirrors the RUNNING / declared-template image
@@ -4638,5 +4713,102 @@ if ! grep -q 'acme/some-tenant-app' "$TMP/c90/out.txt"; then
   exit 1
 fi
 echo "  PASS (#6198: the chart's own workloads are excluded from its own settled-roll gate, and the CONTROL proves a foreign unsettled Deployment is still caught and named)"
+
+echo "[cutover-contract] Case 92: the cutover-order labels are a CONTIGUOUS 1..N permutation — no duplicate, no gap (#6235, UAT row 166)"
+# UAT row 166 asks the `cutover` group on /jobs to read all-11-green. The order
+# the group renders in is not the filename order — catalyst-api's
+# listCutoverSteps (api/internal/handler/cutover.go:513) sorts on the integer
+# `bp.openova.io/cutover-order` label and, ON A TIE, falls back to the ConfigMap
+# NAME. That tiebreak is alphabetical, which is exactly the #6093 defect the
+# order labels exist to prevent: two steps sharing an order silently restore
+# lexicographic sequencing for that pair.
+#
+# Nothing else in this file can see that. Case 2 counts the step CMs (11) — a
+# count is satisfied by any permutation and by any duplicate. Case 91 pins the
+# egress-block-test as strictly last — a relation between one step and the max,
+# blind to a collision or a hole among the other ten. #6214 renumbered four
+# labels by hand; a fifth hand-edit that lands two steps on the same integer
+# would pass both existing gates.
+#
+# Assert the whole map at once: the sorted order values must equal 1..N exactly.
+# That is one predicate for three defects — duplicate, gap, and off-by-one base.
+yq 'select(.kind == "ConfigMap" and .metadata.labels."app.kubernetes.io/component" == "cutover-step")
+    | .metadata.labels."bp.openova.io/cutover-order" + " " + .data.stepName' \
+  "$TMP/render.yaml" | grep -vx -- --- | sort -n > "$TMP/c92-orders.txt"
+c92_n="$(wc -l < "$TMP/c92-orders.txt")"
+if [ "$c92_n" -ne 11 ]; then
+  echo "FAIL: expected 11 order-bearing step ConfigMaps, read $c92_n (#6235)" >&2
+  cat "$TMP/c92-orders.txt" >&2
+  exit 1
+fi
+c92_got="$(cut -d' ' -f1 "$TMP/c92-orders.txt" | paste -sd, -)"
+c92_want="$(seq 1 "$c92_n" | paste -sd, -)"
+if [ "$c92_got" != "$c92_want" ]; then
+  # Name the actual shape so the operator sees WHICH kind of break it is.
+  c92_dupes="$(cut -d' ' -f1 "$TMP/c92-orders.txt" | sort -n | uniq -d | paste -sd' ' -)"
+  echo "FAIL: the cutover-order labels are not a contiguous 1..$c92_n permutation (#6235, UAT row 166)." >&2
+  echo "       got:  $c92_got" >&2
+  echo "       want: $c92_want" >&2
+  [ -n "$c92_dupes" ] && echo "       DUPLICATE order value(s): $c92_dupes — listCutoverSteps ties break on ConfigMap NAME, so those steps sequence alphabetically (the #6093 defect)" >&2
+  echo "       full map:" >&2
+  sed 's/^/         /' "$TMP/c92-orders.txt" >&2
+  exit 1
+fi
+# CONTROL — the predicate must REJECT a duplicate, or it is only counting rows.
+# Same eleven steps, orders 9 and 10 collapsed onto 9: a shape that renders
+# perfectly and that Case 2 (count) and Case 91 (egress strictly last) both pass.
+printf '1\n2\n3\n4\n5\n6\n7\n8\n9\n9\n11\n' > "$TMP/c92-dupe.txt"
+c92_ctl_got="$(sort -n "$TMP/c92-dupe.txt" | paste -sd, -)"
+if [ "$c92_ctl_got" = "$c92_want" ]; then
+  echo "FAIL: CONTROL — a duplicated order value compared EQUAL to the contiguous 1..$c92_n sequence; Case 92's predicate cannot detect a collision (#6235)" >&2
+  exit 1
+fi
+echo "  PASS (#6235: cutover-order is a contiguous 1..$c92_n permutation — $c92_got; CONTROL proves a duplicate order is rejected)"
+
+echo "[cutover-contract] Case 93: the pre-seeded status ConfigMap's step slugs EQUAL the step ConfigMaps' stepNames (#6235, UAT row 166)"
+# The /jobs cutover group is seeded by chrootSeedCutoverActivity
+# (api/internal/handler/jobs.go:503-509), which UNIONs two sources:
+#   ordered  — listCutoverSteps, from the step ConfigMaps' order labels
+#   durable  — listStepNamesFromStatus, the `step.<slug>.result` keys pre-seeded
+#              into self-sovereign-cutover-status by 09-cutover-status-configmap.yaml
+# The union is deliberate (#3646: a completed cutover whose step CMs were reaped
+# must still render). Its cost is that the SEED is authoritative for existence:
+# a slug that appears ONLY in the status ConfigMap becomes a row on the cutover
+# group that has no step ConfigMap behind it, so the engine never runs it, and it
+# can never leave `pending`. The group could then never read all-11-green — UAT
+# row 166 would fail forever on a chain that is otherwise perfectly healthy, and
+# the failure would look like a stuck step rather than a typo in a template.
+#
+# One transposed character in either file produces it, and every other gate is
+# blind: the seed keys carry no order label (Cases 2/92 skip them), no podSpec
+# (Case 3 skips them), and the count `totalSteps` is a hand-written literal.
+c93_steps="$(yq 'select(.kind == "ConfigMap" and .metadata.labels."app.kubernetes.io/component" == "cutover-step") | .data.stepName' "$TMP/render.yaml" | grep -vx -- --- | sort)"
+c93_seed="$(yq 'select(.kind == "ConfigMap" and .metadata.name == "self-sovereign-cutover-status") | .data | keys | .[]' "$TMP/render.yaml" \
+  | sed -n 's/^step\.\(.*\)\.result$/\1/p' | sort)"
+if [ "$c93_steps" != "$c93_seed" ]; then
+  echo "FAIL: the status ConfigMap's pre-seeded step slugs do not match the step ConfigMaps' stepNames (#6235, UAT row 166)." >&2
+  echo "       only in the step ConfigMaps (seeded nowhere — absent from the durable record):" >&2
+  comm -23 <(printf '%s\n' "$c93_steps") <(printf '%s\n' "$c93_seed") | sed 's/^/         /' >&2
+  echo "       only in the status seed (a /jobs row with no step behind it — can never go green):" >&2
+  comm -13 <(printf '%s\n' "$c93_steps") <(printf '%s\n' "$c93_seed") | sed 's/^/         /' >&2
+  exit 1
+fi
+# totalSteps is what the wizard renders as the denominator ("3 of 11"). A drift
+# here does not strand a row, but it misreports the chain length on every screen
+# that shows progress, including the one UAT row 166 is read off.
+c93_total="$(yq 'select(.kind == "ConfigMap" and .metadata.name == "self-sovereign-cutover-status") | .data.totalSteps' "$TMP/render.yaml")"
+c93_count="$(printf '%s\n' "$c93_steps" | wc -l)"
+if [ "$c93_total" != "$c93_count" ]; then
+  echo "FAIL: status ConfigMap totalSteps=\"$c93_total\" but the chart renders $c93_count steps (#6235, UAT row 166)" >&2
+  exit 1
+fi
+# CONTROL — the comparison must REJECT a one-character slug drift. Without this,
+# an assertion that both lists are merely non-empty would look identical here.
+c93_typo="$(printf '%s\n' "$c93_seed" | sed 's/^gitea-token-mint$/gitea-token-mints/' | sort)"
+if [ "$c93_steps" = "$c93_typo" ]; then
+  echo "FAIL: CONTROL — a seed slug typo'd to 'gitea-token-mints' still compared EQUAL to the step stepNames; Case 93 cannot detect a stranded row (#6235)" >&2
+  exit 1
+fi
+echo "  PASS (#6235: $c93_count step slugs seeded, exactly matching the step ConfigMaps; totalSteps=$c93_total; CONTROL proves a one-character slug drift is rejected)"
 
 echo "[cutover-contract] All gates green."
