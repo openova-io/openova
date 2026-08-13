@@ -220,6 +220,24 @@ func main() {
 		slog.Warn("NATS_URL is empty — metering consumer disabled (HTTP path still active)")
 	}
 
+	// #6242 — settlement-launch reconciler. dispatchOrderPlaced's launch call
+	// is the last, non-durable leg of a transaction whose earlier legs (the
+	// order row, the spent credit, the burned voucher) are already committed.
+	// Losing it left a PAID Organization parked at `pending_payment` with
+	// nothing that would ever move it again. This sweep re-offers the same
+	// call from the durable orders table, so the recovery survives a restart
+	// of this very process. Idempotent by construction — the tenant service's
+	// launch endpoint CAS-transitions only from `pending_payment`.
+	settlementLaunch := &handlers.SettlementLaunchReconciler{
+		Store:    billingStore,
+		Launcher: h,
+		Interval: getEnvDuration("SETTLEMENT_LAUNCH_INTERVAL", handlers.DefaultSettlementLaunchInterval),
+		Lookback: getEnvDuration("SETTLEMENT_LAUNCH_LOOKBACK", handlers.DefaultSettlementLaunchLookback),
+	}
+	settlementCtx, stopSettlementLaunch := context.WithCancel(context.Background())
+	defer stopSettlementLaunch()
+	go settlementLaunch.Run(settlementCtx)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", health.Handler())
 
@@ -267,4 +285,22 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// getEnvDuration reads a Go duration string (e.g. "90s", "2m") from env.
+// An unset OR unparseable value falls back to the caller's default and says so
+// — a typo in a tuning knob must not silently disable the recovery sweep it
+// tunes (#6242).
+func getEnvDuration(key string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		slog.Warn("ignoring unusable duration env — using default",
+			"env", key, "value", raw, "default", fallback, "error", err)
+		return fallback
+	}
+	return d
 }

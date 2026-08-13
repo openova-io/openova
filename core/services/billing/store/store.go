@@ -517,6 +517,70 @@ func (s *Store) ListRecentOrders(ctx context.Context) ([]Order, error) {
 	return orders, rows.Err()
 }
 
+// ListOrdersAwaitingLaunch returns SETTLED orders that carry a tenant, newest
+// first, created within `lookback` of now.
+//
+// #6242. This is the durable record the settlement-launch reconciler sweeps.
+// The `orders` row is written inside the same transaction that spends the
+// customer's credit (CreditOnlyCheckout) or is flipped by the Stripe webhook,
+// so a row in `completed` is proof the customer PAID. The launch that turns
+// that payment into a running Organization is a single fire-and-forget HTTP
+// call (handlers.go launchTenant), and losing it stranded the paid Org at
+// `pending_payment` with nothing to retry it.
+//
+// Deliberately NOT joined against tenant status: billing owns no tenant table,
+// and asking the tenant service per row would trade one lost call for N. The
+// launch endpoint is itself the authority — it CAS-transitions only from
+// `pending_payment` and answers `launched:false` for everything else — so
+// re-offering an already-launched order is a cheap no-op, and a row that
+// SHOULD launch can never be filtered out here by a stale second opinion.
+//
+// The lookback bounds the sweep: an order old enough that the customer has
+// given up is a support case, not something to silently provision weeks later.
+func (s *Store) ListOrdersAwaitingLaunch(ctx context.Context, lookback time.Duration, limit int) ([]Order, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	cutoff := time.Now().Add(-lookback)
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT o.id, o.customer_id, o.tenant_id, o.plan_id, o.apps, o.addons, o.topology,
+		        o.amount_omr, o.amount_baisa, o.status, o.stripe_session_id, o.created_at,
+		        o.promo_code, pc.deleted_at
+		   FROM orders o
+		   LEFT JOIN promo_codes pc ON pc.code = o.promo_code
+		  WHERE o.status = 'completed'
+		    AND o.tenant_id IS NOT NULL
+		    AND o.tenant_id <> ''
+		    AND o.created_at >= $1
+		  ORDER BY o.created_at DESC LIMIT $2`, cutoff, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: list orders awaiting launch: %w", err)
+	}
+	defer rows.Close()
+
+	var orders []Order
+	for rows.Next() {
+		var o Order
+		var sessionID sql.NullString
+		var promoCode sql.NullString
+		var promoDeletedAt sql.NullTime
+		if err := rows.Scan(&o.ID, &o.CustomerID, &o.TenantID, &o.PlanID, &o.Apps, &o.Addons, &o.Topology,
+			&o.AmountOMR, &o.AmountBaisa, &o.Status, &sessionID, &o.CreatedAt,
+			&promoCode, &promoDeletedAt); err != nil {
+			return nil, fmt.Errorf("store: scan order awaiting launch: %w", err)
+		}
+		o.StripeSessionID = sessionID.String
+		o.PromoCode = promoCode.String
+		o.PromoDeleted = promoDeletedAt.Valid
+		orders = append(orders, o)
+	}
+	if orders == nil {
+		orders = []Order{}
+	}
+	return orders, rows.Err()
+}
+
 // ---------------------------------------------------------------------------
 // Subscriptions
 // ---------------------------------------------------------------------------

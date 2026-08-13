@@ -117,5 +117,10 @@ func TestDispatchOrderPlaced_LaunchesDeferredOrgOnSettlement(t *testing.T) {
 // panic or block, mirroring the existing lookupTenantSubdomain guard.
 func TestLaunchTenant_NoopWhenTenantURLUnset(t *testing.T) {
 	h := &Handler{}
-	h.launchTenant("tid") // TenantURL empty → no-op, must not panic.
+	// TenantURL empty → no-op, must not panic. #6242: the no-op reports nil,
+	// not an error — an unwired Catalyst-Zero loop has nothing to retry, and
+	// reporting failure here would make the reconciler log an outage forever.
+	if err := h.launchTenant(context.Background(), "tid"); err != nil {
+		t.Fatalf("launchTenant with empty TenantURL = %v, want nil", err)
+	}
 }

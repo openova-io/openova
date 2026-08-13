@@ -112,9 +112,14 @@ var KnownApps = map[string]AppSpec{
 		Image: "calcom/cal.com:v6.2.0", Port: 3000,
 		NeedsDB: "postgres",
 		RAMMI:   "256Mi", CPUMilli: "100m",
+		// #6242 — PARENTDOMAIN, never a literal pool zone. See the placeholder
+		// contract on generateAppDeployment: this Org's zone is whichever of
+		// the four .omani.* pools the customer picked in the funnel, so a
+		// baked-in `omani.rest` pointed every cal.com callback at a domain the
+		// Org does not own the moment a second Org picked a second TLD.
 		EnvVars: map[string]string{
-			"NEXT_PUBLIC_WEBAPP_URL": "https://TENANT.omani.rest/calcom",
-			"NEXTAUTH_URL":           "https://TENANT.omani.rest/calcom",
+			"NEXT_PUBLIC_WEBAPP_URL": "https://TENANT.PARENTDOMAIN/calcom",
+			"NEXTAUTH_URL":           "https://TENANT.PARENTDOMAIN/calcom",
 		},
 	},
 	"chatwoot": {
@@ -138,7 +143,8 @@ var KnownApps = map[string]AppSpec{
 		RAMMI:   "256Mi", CPUMilli: "100m",
 		EnvVars: map[string]string{
 			"NODE_ENV": "production",
-			"url":      "https://TENANT.omani.rest/ghost",
+			// #6242 — PARENTDOMAIN, never a literal pool zone (see cal-com).
+			"url": "https://TENANT.PARENTDOMAIN/ghost",
 		},
 		DBEnvStyle:  "ghost",
 		ContentPath: "/var/lib/ghost/content",

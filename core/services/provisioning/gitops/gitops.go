@@ -553,7 +553,7 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 	// bp-cnpg-pair HR, which must live on the host with HR-level kubeConfig —
 	// never inside the vcluster-redirected apps/ tree).
 	hostFiles := map[string]string{
-		"ingress.yaml":           generateHostIngress(hostNS, slug, appSlugs),
+		"ingress.yaml":           generateHostIngress(hostNS, slug, g.parentDomain(), appSlugs),
 		"apps-sync.yaml":         generateAppsSyncKustomization(hostNS, slug, g.BasePath, isVcluster, g.appsSyncSourceRepo()),
 		"provisioning-rbac.yaml": generateProvisioningTenantRBAC(hostNS),
 	}
@@ -893,7 +893,7 @@ spec:
 `, slug, ns, sourceRepo, basePath, slug, kubeConfig)
 }
 
-func generateHostIngress(ns, slug string, appSlugs []string) string {
+func generateHostIngress(ns, slug, parentDomain string, appSlugs []string) string {
 	// HelmRelease-shaped apps (openclaw #4272, stalwart-mail #4307) carry their
 	// OWN chart-emitted HTTPRoute parented to cilium-gateway-console — they must
 	// NOT also appear in this traefik host ingress (a second route to a service
@@ -951,6 +951,13 @@ func generateHostIngress(ns, slug string, appSlugs []string) string {
 `, prefix, syncedName(app))
 	}
 
+	// #6242 — the host is the ORG'S pool zone, not a literal. Both the rule
+	// host and the TLS SAN read `<slug>.omani.rest` before this change,
+	// regardless of which pool zone the customer picked in the funnel, so on a
+	// Sovereign serving more than one pool TLD every Org's Ingress claimed a
+	// hostname in one particular zone. parentDomain is the per-Org value the
+	// rest of this generator already renders under.
+	host := appPublicHost(slug, parentDomain)
 	return fmt.Sprintf(`apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -961,14 +968,29 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: %s.omani.rest
+    - host: %s
       http:
         paths:
 %s  tls:
     - hosts:
-        - %s.omani.rest
+        - %s
       secretName: tenant-%s-tls
-`, ns, slug, paths, slug, slug)
+`, ns, host, paths, host, slug)
+}
+
+// appPublicHost composes the Org-scoped public hostname `<slug>.<parentDomain>`.
+//
+// #6242 — the ONE derivation for the funnel generator's Org-scoped hosts, so a
+// pool zone can never be reintroduced as a literal at one site while the others
+// stay correct. An empty parentDomain (a degenerate generator with no pool wired)
+// yields the bare slug rather than a trailing-dot hostname; the caller's manifest
+// is then obviously wrong instead of subtly wrong.
+func appPublicHost(slug, parentDomain string) string {
+	parentDomain = strings.Trim(strings.TrimSpace(strings.ToLower(parentDomain)), ".")
+	if parentDomain == "" {
+		return slug
+	}
+	return slug + "." + parentDomain
 }
 
 // --- in-vCluster manifests (applied with vCluster kubeconfig) ---
@@ -1811,9 +1833,31 @@ func generateAppDeployment(ns, slug, planSlug, appSlug string, spec AppSpec, dbP
 	}
 	staticKeys = sortStrings(staticKeys)
 
+	// The AppSpec EnvVars carry two placeholders, both substituted here and
+	// nowhere else: `TENANT` -> this Org's slug, and `PARENTDOMAIN` -> the pool
+	// zone this Org actually lives under.
+	//
+	// #6242 — PARENTDOMAIN replaces what used to be a literal `omani.rest`
+	// baked into cal.com's NEXTAUTH_URL / NEXT_PUBLIC_WEBAPP_URL and Ghost's
+	// `url` (apps.go). Those are self-referential URLs the app hands back to
+	// the browser for callbacks and canonical links, so an Org whose funnel
+	// pick was `omani.trade` or `omani.homes` got an app configured to send its
+	// own users to a hostname on a DIFFERENT Organization's pool zone — one
+	// this Org has no cert, no A-record and no HTTPRoute for. It is invisible
+	// on a single-TLD Sovereign and breaks exactly when a second Org picks a
+	// second TLD.
+	//
+	// parentDomain is already this call's per-Org argument (the generator is
+	// cloned per Org at consumer.go's resolveOrgParentDomain seam), so no new
+	// plumbing is needed — only the removal of the literal. An empty
+	// parentDomain leaves the placeholder untouched rather than producing a
+	// URL with a dangling dot.
 	var envLines string
 	for _, k := range staticKeys {
 		val := strings.ReplaceAll(spec.EnvVars[k], "TENANT", slug)
+		if parentDomain != "" {
+			val = strings.ReplaceAll(val, "PARENTDOMAIN", parentDomain)
+		}
 		envLines += fmt.Sprintf("            - name: %s\n              value: \"%s\"\n", k, val)
 	}
 
@@ -1895,10 +1939,10 @@ func generateAppDeployment(ns, slug, planSlug, appSlug string, spec AppSpec, dbP
             - name: DB_DATABASE
               value: "%s"
             - name: APP_URL
-              value: "https://%s.omani.rest"
+              value: "https://%s"
             - name: APP_KEY
               value: "%s"
-`, dbPassword, dbPassword, appDB, slug, randomAppKey())
+`, dbPassword, dbPassword, appDB, appPublicHost(slug, parentDomain), randomAppKey())
 		case "ghost":
 			envLines += fmt.Sprintf(`            - name: database__client
               value: "mysql"
