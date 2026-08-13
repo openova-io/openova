@@ -772,7 +772,20 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 		// Application CR pass — separate List so a missing CRD or
 		// RBAC denial on apps.openova.io doesn't break the HR pass
 		// above (which is the load-bearing one for status).
-		if appList, err := deps.dyn.Resource(applicationGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
+		//
+		// #6249 (UAT rows 19/15) — the OUTCOME of this List, not just its
+		// contents, is load-bearing. When it succeeds we hold the
+		// authoritative answer to "what Applications exist on this
+		// Sovereign", and the estate is exactly that set. When it fails
+		// (CRD not yet registered during first bootstrap, or an RBAC
+		// denial) we hold no answer at all, and the HelmRelease fallback
+		// below is the only thing standing between the operator and a
+		// blank estate. Those are different situations and the old code
+		// could not tell them apart: it discarded `err` at the `if`, so
+		// "zero Applications" and "could not ask" were the same state.
+		appList, appListErr := deps.dyn.Resource(applicationGVR).Namespace("").List(ctx, metav1.ListOptions{})
+		applicationEstateAuthoritative := appListErr == nil
+		if appListErr == nil {
 			for _, app := range appList.Items {
 				// #3370 — every Application CR is one RUNNING INSTANCE
 				// and projects as its OWN card row (the canonical G117
@@ -932,6 +945,44 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 				// Also suppress any bootstrap SLOT row for this HR below —
 				// the Application CR's card is its one card.
 				adoptedHRs[hrName] = true
+				continue
+			}
+			// #6249 (UAT rows 19/15) — THE ESTATE IS APPLICATION-KEYED.
+			//
+			// Measured on hw296 2026-08-13: the grid drew 11 estate cards
+			// against 10 Application CRs, and the console's own
+			// reconciliation lens counted `Application 10/10` on the same
+			// page load. The surplus card was `valkey` — a HelmRelease
+			// (flux-system/bp-valkey) and a Pod, with no Application CR
+			// anywhere. It is this pass that drew it, and the card it drew
+			// was not merely extra: it carried environment "dev" (the
+			// resolveAppEnvironment fallback) while the only Environments on
+			// that Sovereign were hw296-omani-works-cp and -prod. An
+			// operator counting the estate got a number no other surface
+			// agreed with, and a chip naming an Environment that does not
+			// exist.
+			//
+			// A HelmRelease is how an Application is INSTALLED, not what an
+			// Application IS. Once the Application list has answered, the
+			// estate is exactly that answer, so an HR with no CR is not an
+			// estate card here.
+			//
+			// NOTHING VANISHES. Suppression is of the INSTANCE row only, and
+			// deliberately leaves `adoptedHRs` unset so the blueprint's
+			// bootstrap/catalog slot row still renders below, still badged
+			// INSTALLED off the `installed` map this same loop's HR pass
+			// built. bp-valkey keeps its card; it stops claiming to be an
+			// Application. That is the whole change.
+			//
+			// The gate is readability, NOT per-CR presence — the distinction
+			// the fallback's own rationale draws. During first bootstrap the
+			// Application CRD is not yet registered (the self-registering
+			// chart template is gated on
+			// `.Capabilities.APIVersions.Has "apps.openova.io/v1"`, so the CR
+			// materialises only on the first post-CRD upgrade), the List
+			// errors, and this pass still runs — which is exactly the
+			// zero-touch-prov window it was written for.
+			if applicationEstateAuthoritative {
 				continue
 			}
 			chart, _, _ := unstructured.NestedString(hr.Object, "spec", "chart", "spec", "chart")
