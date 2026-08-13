@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T17:15:07Z` |
+| Last refreshed | `2026-08-13T17:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T17:16 | [#6247](https://github.com/openova-io/openova/pull/6247) | #6246 | fix(bootstrap-kit): slot 13 carries unresolved conflict mark |
 | 2026-08-13T17:12 | [#6246](https://github.com/openova-io/openova/pull/6246) | #6230 | fix(bp-k8s-ws-proxy,bp-guacamole): the seeded Guacamole conn |
 | 2026-08-13T17:01 | [#6245](https://github.com/openova-io/openova/pull/6245) | #4482 | fix(anthropic-seed): a credential that cannot authenticate i |
 | 2026-08-13T16:50 | [#6244](https://github.com/openova-io/openova/pull/6244) | #6240 | docs(ledger): convergence capture 2026-08-13T16:44:11Z — hw2 |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-13T05:15 | [#6212](https://github.com/openova-io/openova/pull/6212) | #6193 | docs(ledger): convergence capture 2026-08-13T04:43:19Z — hw2 |
 | 2026-08-13T04:20 | [#6210](https://github.com/openova-io/openova/pull/6210) | #4277 | docs(wbs): section 1-B — every failing row now has a measure |
 | 2026-08-13T04:16 | [#6209](https://github.com/openova-io/openova/pull/6209) | #4277 | docs(uat): the four Anthropic rows are double-gated — the cr |
-| 2026-08-13T04:12 | [#6208](https://github.com/openova-io/openova/pull/6208) | #3988 | docs(uat): row 213 — both isolation halves are implemented a |
 
 ---
 
