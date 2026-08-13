@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T21:45:04Z` |
+| Last refreshed | `2026-08-13T22:00:11Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -311,6 +311,7 @@ flowchart LR
 | 2026-08-13T21:19 | [#6264](https://github.com/openova-io/openova/pull/6264) | #6245 | fix(agenity): the Anthropic credential had no producer, and  |
 | 2026-08-13T20:53 | [#6263](https://github.com/openova-io/openova/pull/6263) | #6254 | fix(cutover): the settled-roll gate blocked on the cutover's |
 | 2026-08-13T20:18 | [#6261](https://github.com/openova-io/openova/pull/6261) | #6255 | docs(uat): hw296 first-measurement walk — 28 SSO + Jobs Re-r |
+| 2026-08-13T21:51 | [#6259](https://github.com/openova-io/openova/pull/6259) | #6255 | fix(cilium): the Gateway-API controller must survive a slow  |
 | 2026-08-13T19:46 | [#6258](https://github.com/openova-io/openova/pull/6258) | #6250 | fix(uat): carry-forward outranks the flush rule it replaced  |
 | 2026-08-13T19:54 | [#6257](https://github.com/openova-io/openova/pull/6257) | #4293 | fix(catalyst): four unowned UAT rows — G7 plan door, row 60  |
 | 2026-08-13T19:08 | [#6256](https://github.com/openova-io/openova/pull/6256) | #4290 | docs(uat): hw296 seven-row walk — the funnel completes end t |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-13T11:34 | [#6228](https://github.com/openova-io/openova/pull/6228) | #6149 | docs(ledger): publish UAT-FINAL — every case with its confid |
 | 2026-08-13T11:43 | [#6227](https://github.com/openova-io/openova/pull/6227) | #4466 | fix(catalyst): a flaky post-reclaim quota re-read false-fail |
 | 2026-08-13T11:22 | [#6226](https://github.com/openova-io/openova/pull/6226) | #5516 | fix(openova-mcp): row 213 sibling sweep — list_organizations |
-| 2026-08-13T15:52 | [#6224](https://github.com/openova-io/openova/pull/6224) | #6149 | docs(ledger): convergence capture 2026-08-13T10:43:13Z — hw2 |
 
 ---
 
