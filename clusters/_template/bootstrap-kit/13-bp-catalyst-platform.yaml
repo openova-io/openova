@@ -1416,7 +1416,7 @@ spec:
       #   runner's yq (0.1.183 was never published). Catches the pin up past
       #   1.4.1463, whose Chart.yaml-only bump left this slot behind. Lockstep
       #   w/ products/catalyst/chart/Chart.yaml.
-      version: 1.4.1464
+      version: 1.4.1466
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
