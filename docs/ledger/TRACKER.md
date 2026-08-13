@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T16:45:05Z` |
+| Last refreshed | `2026-08-13T17:00:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T16:50 | [#6244](https://github.com/openova-io/openova/pull/6244) | #6240 | docs(ledger): convergence capture 2026-08-13T16:44:11Z — hw2 |
+| 2026-08-13T16:50 | [#6243](https://github.com/openova-io/openova/pull/6243) | #4290 | fix(funnel): a lost settlement-launch strands a PAID Org for |
 | 2026-08-13T16:18 | [#6241](https://github.com/openova-io/openova/pull/6241) | #6122 | test(openova-mcp): pin UAT row 213 as indistinguishability,  |
 | 2026-08-13T15:52 | [#6240](https://github.com/openova-io/openova/pull/6240) | #5844 | walk(hw295): SSO bare-URL rows 33/34/36/37 — measured, then  |
 | 2026-08-13T14:11 | [#6239](https://github.com/openova-io/openova/pull/6239) | #5734 | chore(lockstep): republish the umbrella for bp-guacamole 0.2 |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-13T04:12 | [#6208](https://github.com/openova-io/openova/pull/6208) | #3988 | docs(uat): row 213 — both isolation halves are implemented a |
 | 2026-08-13T04:09 | [#6207](https://github.com/openova-io/openova/pull/6207) | #3687 | docs(uat): row 16 — the Topology tab is absent from the CUST |
 | 2026-08-13T04:04 | [#6206](https://github.com/openova-io/openova/pull/6206) | #3374 | docs(uat): row 29 — an HTTP probe cannot decide this row, an |
-| 2026-08-13T04:04 | [#6205](https://github.com/openova-io/openova/pull/6205) | #6197 | docs(uat): row 235 — the stale-secret 401 this row names is  |
-| 2026-08-13T03:45 | [#6204](https://github.com/openova-io/openova/pull/6204) | #6200 | docs(uat): withdraw row 60's "no Switchover producer" claim  |
 
 ---
 
