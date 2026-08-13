@@ -18,7 +18,7 @@ spec:
   # Keycloak backchannel + upstream) — the per-Org namespace is default-deny
   # and the gate's ingress-only CNP left the OAuth callback 500ing on a DNS
   # timeout. Lockstep with products/agenity/chart + the catalog-seed pin.
-  version: 0.5.26
+  version: 0.5.27
   card:
     title: Agenity
     summary: |
