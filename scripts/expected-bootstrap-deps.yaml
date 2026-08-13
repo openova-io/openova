@@ -643,14 +643,23 @@ slots:
   # W2.K4 AI-runtime cohort (slots 36-48) so they never collide.
   #   - bp-k8s-ws-proxy: per-node DaemonSet bridging HMAC-signed
   #     callers onto the local kube-apiserver pods/exec stream.
-  #     Depends on bp-cilium (CNI) + bp-sealed-secrets (HMAC secret).
+  #     Depends on bp-cilium (CNI) + bp-sealed-secrets (HMAC secret)
+  #     + bp-cert-manager + bp-reflector. The last two arrived with
+  #     #5991's mTLS leg (UAT row 115): the chart renders cert-manager
+  #     Certificates for its mTLS listener, and reflector mirrors the
+  #     issued client-certificate Secret into the `guacamole` namespace
+  #     (tls.reflectClientCertTo) so guacd has a credential to present.
+  #     Both edges are load-bearing for ORDERING only — the Certificate
+  #     render is gated on the cert-manager.io/v1 CRD, so a missing edge
+  #     produces a proxy with no TLS listener instead of a failed apply,
+  #     which is the silent shape this DAG exists to make loud.
   #   - bp-guacamole: HTML5 RDP/SSH/exec gateway. Depends on
   #     bp-cilium (Gateway API) + bp-cert-manager (TLS) + bp-keycloak
   #     (OIDC) + bp-sealed-secrets (OIDC client secret) + bp-seaweedfs
   #     (RWX recordings PVC) + bp-k8s-ws-proxy (apiserver tunnel).
   - slot: 51
     name: bp-k8s-ws-proxy
-    depends_on: [bp-cilium, bp-sealed-secrets]
+    depends_on: [bp-cilium, bp-sealed-secrets, bp-cert-manager, bp-reflector]
     wave: present
   - slot: 52
     name: bp-guacamole
