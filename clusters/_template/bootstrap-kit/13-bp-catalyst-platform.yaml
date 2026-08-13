@@ -1395,9 +1395,6 @@ spec:
       # 1.4.1440 — #5991 (UAT row 115): catalog-seed advances bp-guacamole
       #   0.2.37 -> 0.2.38, the release that writes a Guacamole connection at
       #   all. Lockstep w/ products/catalyst/chart/Chart.yaml.
-<<<<<<< HEAD
-      version: 1.4.1453
-=======
       # 1.4.1454 — #5991 (UAT row 115), the delivery half of the mTLS leg:
       #   catalog-seed advances bp-k8s-ws-proxy 0.1.16 -> 0.1.17 (the proxy
       #   gains a client-certificate credential guacd can actually present)
@@ -1407,7 +1404,6 @@ spec:
       #   proxy mints the certificate the connection presents. Lockstep w/
       #   products/catalyst/chart/Chart.yaml.
       version: 1.4.1454
->>>>>>> ca5b4f1ea (fix(bp-k8s-ws-proxy,bp-guacamole): the seeded Guacamole connection now authenticates when clicked (UAT row 115))
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
