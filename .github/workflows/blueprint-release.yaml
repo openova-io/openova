@@ -81,6 +81,7 @@ permissions:
   contents: write
   packages: write
   id-token: write              # for cosign keyless signing
+  actions: read                # #6262: read this run's sibling job outcomes
 
 jobs:
   detect:
@@ -501,6 +502,88 @@ jobs:
           python3 scripts/check-helm-release-payload-size.py "${{ matrix.path }}/chart" \
             --release-name "${{ steps.chart.outputs.name }}" \
             --namespace catalyst
+
+      # ──────────────────────────────────────────────────────────────
+      # GATE — the umbrella never publishes a seed pin its sibling
+      #        failed to push in this same run (#6262)
+      # ──────────────────────────────────────────────────────────────
+      # Every changed Blueprint builds as one entry of this matrix, and
+      # `fail-fast: false` makes those entries independent — deliberately,
+      # so one broken chart does not stop the rest. But `products/catalyst`
+      # is not peer to the others: it CARRIES the catalog seed, and the seed
+      # pins every sub-chart by exact version. Independence therefore lets
+      # the umbrella publish a pin to a tag that was never pushed.
+      #
+      # That is the measured cause of hw296's cutover dying at step 3 of 11,
+      # four times (#6262). #6254 moved bp-self-sovereign-cutover to 0.1.183;
+      # in run 31734398570 `build (platform/self-sovereign-cutover)` FAILED,
+      # so 0.1.183 never reached ghcr — while `build (products/catalyst)` in
+      # the SAME run succeeded and shipped the umbrella carrying the pin.
+      # hw296's Flux repinned to 0.1.183 and parked on
+      #   chart pull error: ... 0.1.183: not found
+      # which harbor-prewarm's Phase A0 then read as its own mid-roll and
+      # fail-closed on. The same shape recurred twice more the same night
+      # (bp-guacamole 0.2.40, bp-catalyst-platform 1.4.1464).
+      #
+      # A gate for the resulting STATE already exists —
+      # check-catalog-seed-lockstep.sh --check-ghcr — but it lives in
+      # check-catalog-seed-lockstep.yaml, is continue-on-error on push
+      # (it has to be: it races this very workflow), and only fails loud on
+      # an hourly cron. By the time the cron fires, Sovereigns have already
+      # pulled the umbrella. Closing the race here rather than detecting it
+      # afterwards is what makes the --check-ghcr call below safe to run as a
+      # HARD gate: once every sibling has finished, there is no race left.
+      - name: "Umbrella: no seed pin may outrun its sibling build (#6262)"
+        if: steps.chart.outputs.skip != 'true' && matrix.path == 'products/catalyst'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SELF_JOB_NAME: "build (${{ matrix.path }})"
+        run: |
+          set -euo pipefail
+
+          # Prove every verdict is reachable before trusting one of them.
+          # Without this the gate could report "no sibling failed" from a job
+          # list it never managed to read — the defect class #6262 is filed
+          # under, one layer up.
+          python3 scripts/check-sibling-chart-builds.py --self-test
+
+          deadline=$(( SECONDS + 900 ))
+          while :; do
+            gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs" \
+              --paginate --jq '.jobs[]' | jq -s '.' > /tmp/run-jobs.json
+
+            set +e
+            python3 scripts/check-sibling-chart-builds.py \
+              --jobs-file /tmp/run-jobs.json --self-name "${SELF_JOB_NAME}"
+            rc=$?
+            set -e
+
+            case "$rc" in
+              0)  break ;;
+              75)
+                if [ "$SECONDS" -ge "$deadline" ]; then
+                  echo "::error title=Sibling builds did not finish::Waited 15 min for sibling chart builds in this run; refusing to publish the umbrella on an unknown sibling outcome (#6262)."
+                  exit 1
+                fi
+                sleep 20
+                ;;
+              1)
+                echo "::error title=Umbrella would ship a hollow pin::A sibling chart build in this run failed, so the seed pin it owns points at a tag that was never pushed. See the offender named above (#6262)."
+                exit 1
+                ;;
+              *)
+                echo "::error title=Sibling-build gate could not read this run::The gate refused to report a verdict. This is an input error, never a pass (#6262)."
+                exit "$rc"
+                ;;
+            esac
+          done
+
+          # Siblings are all done and green, so this is no longer racing any
+          # publish and can block. Catches the residual class the wait cannot:
+          # a seed pin to a chart that was NOT part of this run and was never
+          # published at all. Measured on main 2026-08-14: 75/75 pins resolve,
+          # 5 declared known-gaps, 0 failures.
+          bash scripts/check-catalog-seed-lockstep.sh --check-ghcr
 
       - name: Helm push to GHCR
         if: steps.chart.outputs.skip != 'true'

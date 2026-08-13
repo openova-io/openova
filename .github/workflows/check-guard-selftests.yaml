@@ -122,3 +122,14 @@ jobs:
 
       - name: live newapi SSO version classifier
         run: bash scripts/check-live-newapi-sso-version.sh --self-test
+
+      # #6262 — the umbrella's sibling-build gate. Wired here DELIBERATELY,
+      # not incidentally: check-guards-are-wired.sh globs `scripts/check-*.sh`,
+      # so a PYTHON guard is invisible to the meta-gate and would sit orphaned
+      # in exactly the way this workflow exists to prevent — while the meta
+      # gate reported green. That blind spot is real and currently hides one
+      # other guard (check-helmrepo-auth-coverage.py); it is filed separately
+      # rather than widened here, because extending the glob is a change to
+      # the meta-gate's own contract and belongs in its own PR.
+      - name: umbrella sibling-build gate (#6262)
+        run: python3 scripts/check-sibling-chart-builds.py --self-test
