@@ -179,10 +179,24 @@ def observable_here(row_envs, current_env):
     return (not row_envs) or (current_env in row_envs)
 
 
-def load_obs():
-    if not os.path.exists(OBS):
+def load_obs(obs_path=None):
+    """Read the append-only observation log.
+
+    `obs_path` is parameterised so a CALLER can point the scorer at the log that
+    belongs to the tree it is scanning. `scripts/uat-drift-guard.py` asks this
+    module which rows are legitimately carried, and its self-tests run against
+    synthetic ledgers in temp directories. With a hardcoded module-level path
+    those fixtures would have been scored against the REAL repo's log: fixture
+    row "1" would inherit live row 1's confidence, and a guard whose fixtures
+    silently consult production data proves nothing about either.
+
+    A missing log yields no observations, which every caller must read as "the
+    scheduler has nothing to say" — never as consent.
+    """
+    path = obs_path or OBS
+    if not os.path.exists(path):
         return []
-    with open(OBS, newline="", encoding="utf-8") as fh:
+    with open(path, newline="", encoding="utf-8") as fh:
         return list(csv.DictReader(fh))
 
 
@@ -292,8 +306,8 @@ def score_row(observations, current_env, now_index, cycle_index):
     }
 
 
-def build(current_env):
-    obs = load_obs()
+def build(current_env, obs_path=None):
+    obs = load_obs(obs_path)
     cycles = sorted({r["cycle_ts"] for r in obs})
     cycle_index = {ts: i for i, ts in enumerate(cycles)}
     now_index = len(cycles) - 1 if cycles else 0
@@ -312,6 +326,52 @@ def build(current_env):
         s["due"] = s["cycles_since_walk"] >= BOX_INTERVAL[s["box"]]
         scored[rid] = s
     return scored, len(cycles)
+
+
+# --------------------------------------------------------------------------- #
+# THE WALK-LIST SELECTOR — one definition, every caller.                       #
+# --------------------------------------------------------------------------- #
+# `--due` used to compute `s["due"] or s["box"] == 0` inline, so any other tool
+# that needed "is this row owed a re-walk" had to re-derive it. Re-deriving a
+# ledger predicate has cost this program real damage before: a 35-row fix became
+# a 190-row wipe because a hand-rolled regex reproduced a guard's headline
+# condition and dropped the clause that NARROWED it. The two conditions below
+# are not interchangeable and dropping either one is silent:
+#
+#   * `due`      — the Leitner interval for this row's box has elapsed.
+#   * `box == 0` — there is no basis for trust on THIS machine at all, whatever
+#                  the interval says. A box-0 row is never "not yet due"; it is
+#                  unknown here.
+#
+# Import this. Do not copy it.
+def is_due(s):
+    """True if the scheduler owes this row a walk on the environment it was scored for."""
+    return bool(s["due"] or s["box"] == 0)
+
+
+def walk_list(scored):
+    """{row_id: state} for every row the scheduler owes a walk — the `--due` set."""
+    return {rid: s for rid, s in scored.items() if is_due(s)}
+
+
+def carried_and_due(current_env, obs_path=None):
+    """(carried, due) row-id sets for `current_env`.
+
+    carried — the scheduler TRACKS the row and does NOT owe it a walk this
+              cycle. A verdict proven on a predecessor may stand for these:
+              a wipe is not a failure, and the confidence that survived the
+              wipe is exactly the claim that the code still holds.
+    due     — tracked, and owed a re-confirmation here. A predecessor's proof
+              may NOT stand for these; the scheduler has already said the
+              evidence has decayed past the point of being load-bearing.
+
+    A row the scheduler has never seen appears in NEITHER set. Callers must
+    treat absence as "no consent", never as "carried" — an unknown row is the
+    shape a fabricated one has.
+    """
+    scored, _ncyc = build(current_env, obs_path=obs_path)
+    due = set(walk_list(scored))
+    return frozenset(set(scored) - due), frozenset(due)
 
 
 def _test_attribution():
@@ -359,6 +419,71 @@ def _test_attribution():
         print("  FAIL  VACUITY: the filter admitted everything — it cannot fail"); bad = 1
     else:
         print("  PASS  VACUITY — the filter discriminates")
+    return bad
+
+
+def _test_walk_list():
+    """The exported selector must be the one `--due` uses, and must discriminate.
+
+    `scripts/uat-drift-guard.py` now decides whether a ✅ proven on a predecessor
+    env may stand by asking THIS predicate. That makes it load-bearing in two
+    directions at once — too permissive and stale evidence launders into a
+    permanent pass, too strict and every carried row goes red on a fresh
+    Sovereign, which is the treadmill. So both directions are asserted, and the
+    partition is asserted whole: a tracked row is carried XOR due, never both and
+    never neither.
+    """
+    bad = 0
+    ci = {f"c{i}": i for i in range(12)}
+    now = 11
+
+    solid = {"due": False, "box": 3}
+    if is_due(solid):
+        print("  FAIL  a not-due row in a late box was reported due"); bad = 1
+    else:
+        print("  PASS  a not-due row in a late box is NOT on the walk-list")
+
+    if not is_due({"due": False, "box": 0}):
+        print("  FAIL  a box-0 row was treated as trusted — the narrowing clause "
+              "was dropped, which is how a 35-row fix became a 190-row wipe"); bad = 1
+    else:
+        print("  PASS  box 0 is on the walk-list even when the interval has not elapsed")
+
+    if not is_due({"due": True, "box": 4}):
+        print("  FAIL  an overdue top-box row was reported trusted"); bad = 1
+    else:
+        print("  PASS  an overdue row is on the walk-list whatever its box")
+
+    # VACUITY: a selector that answers the same way for every input cannot
+    # discriminate, and would hand the drift guard blanket consent.
+    answers = {is_due(s) for s in ({"due": False, "box": 3},
+                                   {"due": False, "box": 0},
+                                   {"due": True, "box": 4})}
+    if len(answers) != 2:
+        print("  FAIL  VACUITY: the selector returned one answer for every input"); bad = 1
+    else:
+        print("  PASS  VACUITY — the selector discriminates")
+
+    # The partition the drift guard relies on. An UNKNOWN row must land in
+    # neither set: absence of evidence is not consent, and a row nobody has ever
+    # observed is the shape a fabricated one has.
+    scored = {
+        "kept": score_row([(f"c{i}", "hwA", "PASS") for i in range(10)], "hwA", now, ci),
+        "red": score_row([("c10", "hwA", "FAIL")], "hwA", now, ci),
+    }
+    for s in scored.values():
+        s["cycles_since_walk"] = 0
+        s["due"] = s["cycles_since_walk"] >= BOX_INTERVAL[s["box"]]
+    due = set(walk_list(scored))
+    carried = set(scored) - due
+    if "red" not in due:
+        print("  FAIL  a current-env failure was not on the walk-list"); bad = 1
+    elif "kept" not in carried:
+        print("  FAIL  a sustained-pass row was not carried"); bad = 1
+    elif due & carried or (due | carried) != set(scored) or "never-seen" in (due | carried):
+        print("  FAIL  carried/due is not a clean partition of the tracked rows"); bad = 1
+    else:
+        print("  PASS  tracked rows partition into carried XOR due; an unseen row is in neither")
     return bad
 
 
@@ -451,6 +576,9 @@ def self_test():
     # is what decides which observations reach it at all, so it is tested here
     # rather than in a separate command nobody runs.
     bad += _test_attribution()
+    # The walk-list selector is now consumed by scripts/uat-drift-guard.py, so
+    # its two directions are pinned here rather than only at its call site.
+    bad += _test_walk_list()
     return bad
 
 
@@ -600,7 +728,7 @@ def main():
         return 0
 
     if a.due:
-        due = {r: s for r, s in scored.items() if s["due"] or s["box"] == 0}
+        due = walk_list(scored)
         red = sorted(r for r, s in due.items() if s["last_status"] == "FAIL")
         rest = sorted(r for r in due if r not in red)
         print(f"WALK-LIST for {env} — {len(due)} of {len(scored)} rows "
