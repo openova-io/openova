@@ -303,11 +303,16 @@ type applicationStatusResponse struct {
 }
 
 // applicationStatusSpec is the spec subset the Topology tab consumes.
-// Placement is normalised to the editor posture string
-// (single-region | active-active | active-hotstandby) regardless of
-// whether the CR stored the legacy string form or the #3373 object form.
+//
+// `Placement` is DUAL-FORM, exactly as `Application.spec.placement` is
+// (#3373): the legacy posture STRING, or the #3969 object
+// `{mode, vcluster, regions, clusters, targets, ownedDependencies}`. It is
+// `any` rather than `string` because this endpoint is the console's only read
+// of the DESIRED placement, and a string cannot carry `targets[]` — see
+// placementValueForStatus for the defect that typing it `string` caused
+// (UAT row 16).
 type applicationStatusSpec struct {
-	Placement      string                 `json:"placement,omitempty"`
+	Placement      any                    `json:"placement,omitempty"`
 	Regions        []string               `json:"regions,omitempty"`
 	EnvironmentRef string                 `json:"environmentRef,omitempty"`
 	BlueprintRef   map[string]interface{} `json:"blueprintRef,omitempty"`
@@ -771,18 +776,14 @@ func (h *Handler) HandleApplicationStatus(w http.ResponseWriter, r *http.Request
 }
 
 // applicationStatusSpecFromCR projects the Application CR's spec subset
-// the Topology tab reads. Placement is normalised to the editor posture
-// string via placementForTopology so the editor's mode pre-select works
-// whether the CR stored the legacy string (`single-region`) or the
-// #3373 object form (`{mode: active-hotstandby, regions: [...]}`).
+// the Topology tab reads. Placement keeps the SHAPE the CR holds — see
+// placementValueForStatus.
 func applicationStatusSpecFromCR(obj *unstructured.Unstructured) *applicationStatusSpec {
 	if obj == nil {
 		return nil
 	}
 	spec := &applicationStatusSpec{}
-	// Placement: readTopology already handles string + object(mode) +
-	// label fallback; map its result onto the editor posture enum.
-	spec.Placement = placementForTopology(readTopology(obj))
+	spec.Placement = placementValueForStatus(obj)
 	if regions, ok, _ := unstructured.NestedStringSlice(obj.Object, "spec", "regions"); ok {
 		spec.Regions = regions
 	}
@@ -793,6 +794,74 @@ func applicationStatusSpecFromCR(obj *unstructured.Unstructured) *applicationSta
 		spec.BlueprintRef = br
 	}
 	return spec
+}
+
+// placementValueForStatus produces the value GET /applications/{name}/status
+// reports at `spec.placement`, resolving the CRD's DUAL FORM instead of
+// flattening it (UAT row 16).
+//
+// THE DEFECT IT CLOSES. This projection used to be one line:
+//
+//	spec.Placement = placementForTopology(readTopology(obj))
+//
+// onto a `string` field. `spec.placement` is dual-form by CRD design (#3373):
+// the STRING form carries the posture alone, the OBJECT form additionally
+// carries WHERE the instance runs — `vcluster`, `clusters`, `regions`, and
+// since #3969 the whole per-region `targets[]` model. Reducing all of that to
+// a posture token meant the object form NEVER reached the console.
+//
+// That is the READ half of the same round trip #6136 fixed the WRITE half of.
+// #6136 stopped the Topology-tab Save scalarising `spec.placement` so the
+// PlacementEditor's `targets[]` are finally PERSISTED; this endpoint then
+// dropped them again on the way back out, and it is the only read of the
+// DESIRED placement the tab has. The consequence is measurable in the
+// consumer: `AppDetail/TopologyTab.tsx` resolves its target list through a
+// three-rung chain whose rung 2 is
+//
+//	if (specPlacement && typeof specPlacement === 'object') { ...targets... }
+//
+// documented as "the #3969 desired-state the operator explicitly chose in the
+// editor (used pre-rollout / when the data plane is unavailable)". Against
+// this endpoint `typeof specPlacement` was ALWAYS 'string', so rung 2 —
+// exactly the rung that renders a placement the operator just Saved but whose
+// Pods have not moved yet — was unreachable, as was the sibling
+// `spec.placement.ownedDependencies` read. A Save wrote targets that nothing
+// could read back, and the tab kept rendering the pre-Save posture.
+//
+// THE RULES, deliberately mirroring placementValueForUpdate on the write side
+// so one dual-form producer faces each direction:
+//   - A CR holding the OBJECT form is reported as an object, verbatim, with
+//     `mode` REWRITTEN to the canonical token (#3375 DoD-1) so one vocabulary
+//     still holds on the wire regardless of which spelling was stored.
+//   - A CR holding the string form (or none at all) is reported as the posture
+//     STRING via the pre-existing placementForTopology(readTopology(...)) path
+//     — byte-identical to the previous behaviour, including its
+//     empty/unknown → `singleton` display default for the listing-style
+//     consumers that have always relied on it.
+//
+// It never SYNTHESISES an object: an Application that declares only a posture
+// reports only a posture. Inventing `targets` here would hand the tab a
+// declared intention it could not distinguish from an observed one, which is
+// the #5568 defect this repo has already paid for once.
+func placementValueForStatus(obj *unstructured.Unstructured) any {
+	posture := placementForTopology(readTopology(obj))
+	if obj == nil {
+		return posture
+	}
+	raw, found, err := unstructured.NestedFieldNoCopy(obj.Object, "spec", "placement")
+	if err != nil || !found {
+		return posture
+	}
+	cur, isObject := raw.(map[string]interface{})
+	if !isObject {
+		return posture
+	}
+	out := make(map[string]interface{}, len(cur)+1)
+	for k, v := range cur {
+		out[k] = v
+	}
+	out["mode"] = posture
+	return out
 }
 
 // ── HTTP handler — SSE status stream ────────────────────────────────
@@ -970,6 +1039,11 @@ func validateApplicationInstallRequest(req applicationInstallRequest) (string, b
 		if strings.TrimSpace(r) == "" {
 			return fmt.Sprintf("placement.regions[%d] is empty", i), false
 		}
+	}
+	// UAT row 60 — a multi-region posture over one region is a DR promise
+	// nothing downstream can keep. See placementRegionCountError.
+	if msg := placementRegionCountError(req.Placement.Mode, req.Placement.Regions); msg != "" {
+		return msg, false
 	}
 	// #3373 — instance placement WHERE fields.
 	// #5616 — separate "not a tier at all" from "a real tier this

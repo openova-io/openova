@@ -36,6 +36,36 @@ export const ALL_MODES = ['singleton', 'active-active', 'active-hot-standby', 'a
 export type TopologyMode = (typeof ALL_MODES)[number]
 
 /**
+ * MULTI_REGION_MODES — the classes that require ≥2 regions. `singleton` is
+ * the one-region posture; every other canonical class places a second region
+ * (a standby for active-hot-standby / active-passive, a co-equal primary for
+ * active-active).
+ *
+ * Lives here, in the vocabulary module, because THREE surfaces need the same
+ * predicate and a copy in each is how they drift: the create dialog
+ * (`NewInstanceDialog` in pages/sovereign/AppDetail/InstancesSection — where
+ * this set was defined and from where it moved), the install page
+ * (pages/sovereign/InstallPage), and the catalyst-api's Go mirror
+ * `placementModeRequiresMultipleRegions`. Membership is tested on the
+ * CANONICAL token, so callers must canonicalizeMode first — requiresMultipleRegions
+ * does that for them.
+ */
+export const MULTI_REGION_MODES: ReadonlySet<string> = new Set([
+  'active-active',
+  'active-hot-standby',
+  'active-passive',
+])
+
+/**
+ * requiresMultipleRegions — does this topology mode need ≥2 regions?
+ * Canonicalises first so a legacy spelling (`active-hotstandby`) answers the
+ * same as the canonical one.
+ */
+export function requiresMultipleRegions(mode: string): boolean {
+  return MULTI_REGION_MODES.has(canonicalizeMode(mode))
+}
+
+/**
  * canonicalizeMode (#3648, #3375 DoD-1) folds BOTH the legacy editor
  * dialect (single-region / active-hotstandby) AND the canonical
  * vocabulary (singleton / active-active / active-hot-standby /

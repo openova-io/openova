@@ -29,7 +29,12 @@ import {
 import { listOrganizations, type OrgRow } from '@/lib/organizations.api'
 import { getHierarchicalInfrastructure } from '@/lib/infrastructure.types'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
-import { ALL_MODES, canonicalizeMode, describeModeForComponent } from '@/widgets/topology/modes'
+import {
+  ALL_MODES,
+  MULTI_REGION_MODES as SHARED_MULTI_REGION_MODES,
+  canonicalizeMode,
+  describeModeForComponent,
+} from '@/widgets/topology/modes'
 import { BLUEPRINT_BY_ID, TOPOLOGY_BY_ID } from '@/shared/constants/catalog.generated'
 
 // #3599 / #3600 / #5616 — the tier namespaces the backend can RESOLVE:
@@ -48,10 +53,13 @@ const RESOLVABLE_TIER_NAMESPACES = ['mgmt', 'dmz', 'rtz'] as const
 
 /**
  * Modes that require ≥2 regions (the create-flow validation rule). ONE
- * canonical vocabulary (#3375 DoD-1) — active-passive is multi-region
- * too. Membership is tested on the canonical token (canonicalEditorMode).
+ * canonical vocabulary (#3375 DoD-1) — active-passive is multi-region too.
+ *
+ * The set MOVED to `@/widgets/topology/modes` (UAT row 60) because the install
+ * page needs the identical predicate and a second copy would drift. Imported
+ * rather than re-declared, and aliased so the call sites below read unchanged.
  */
-const MULTI_REGION_MODES = new Set(['active-active', 'active-hot-standby', 'active-passive'])
+const MULTI_REGION_MODES = SHARED_MULTI_REGION_MODES
 
 /**
  * InstancesSection — renders the per-Blueprint instances list (one row

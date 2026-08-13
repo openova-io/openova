@@ -41,6 +41,7 @@ import {
 } from '@/lib/catalog.api'
 import { InstallForm } from '@/widgets/install/InstallForm'
 import { CodeView } from '@/widgets/code/CodeView'
+import { requiresMultipleRegions } from '@/widgets/topology/modes'
 
 interface InstallPageProps {
   /** Test seam — pre-selected Blueprint without going through the catalog grid. */
@@ -83,6 +84,17 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
   const [appName, setAppName] = useState<string>('')
   const [region, setRegion] = useState<string>('hz-fsn-rtz-prod')
   const [placementMode, setPlacementMode] = useState<string>('singleton')
+  // UAT row 60 — the SECOND region. A multi-region posture places a standby
+  // (active-hot-standby / active-passive) or a co-equal primary
+  // (active-active) in another region, and this page had nowhere to name it:
+  // composeInstallRequest hardcoded `regions: [region]`, so picking
+  // active-hot-standby submitted a ONE-region hot-standby. The Application CR
+  // then declared a DR posture the placement plan could not back —
+  // placement.Resolve yields zero standbys from a one-region list, so
+  // buildContinuumPlan mints no Continuum and there is nothing for the
+  // Topology tab's Switchover to arm against. HTTP 201 and phase Ready
+  // throughout (#6033).
+  const [secondaryRegion, setSecondaryRegion] = useState<string>('')
 
   // Reset the form scaffold when a new Blueprint is selected. Keeps the
   // "click another card" UX intuitive — the prior input doesn't survive
@@ -97,6 +109,44 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCard?.name])
 
+  // UAT row 60 — does the CHOSEN mode need a second region? Answered by the
+  // shared predicate (widgets/topology/modes), never a list re-typed here: the
+  // create dialog and the catalyst-api both gate on that same set, and a
+  // fourth hand-rolled copy is how the three of them would stop agreeing.
+  const needsSecondRegion = requiresMultipleRegions(placementMode)
+
+  /**
+   * The regions[] this page submits. `regions[0]` is the primary and
+   * `regions[1..]` are the standbys — the ordering
+   * `core/controllers/internal/placement/placement.go` resolves, and the
+   * reason the second region is a distinct field rather than a count.
+   */
+  const placementRegions = useMemo(() => {
+    const primary = region.trim()
+    if (!needsSecondRegion) return [primary]
+    const secondary = secondaryRegion.trim()
+    return secondary ? [primary, secondary] : [primary]
+  }, [region, secondaryRegion, needsSecondRegion])
+
+  /**
+   * Refuse the submit the server would now refuse (and that it previously
+   * ACCEPTED, silently, producing a standby-less hot-standby). Same rule and
+   * same wording family as the funnel's BCP step and the create dialog.
+   * Returns null when the placement is submittable.
+   */
+  const placementRegionError = useMemo<string | null>(() => {
+    if (!needsSecondRegion) return null
+    const primary = region.trim()
+    const secondary = secondaryRegion.trim()
+    if (!secondary) {
+      return `${placementMode} needs a second region — name the standby region, or pick singleton for a one-region install.`
+    }
+    if (secondary === primary) {
+      return `Primary and standby regions must differ — ${placementMode} places the standby in another region.`
+    }
+    return null
+  }, [needsSecondRegion, region, secondaryRegion, placementMode])
+
   const composeInstallRequest = (parameters: Record<string, unknown>): ApplicationInstallRequest => ({
     blueprintRef: {
       name: selectedCard?.name ?? '',
@@ -106,12 +156,16 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
     organizationRef,
     environmentRef,
     parameters,
-    placement: { mode: placementMode, regions: [region] },
+    placement: { mode: placementMode, regions: placementRegions },
   })
 
   const handleSubmit = async (parameters: Record<string, unknown>) => {
     if (!deploymentId || !selectedCard) return
     setInstallError(null)
+    if (placementRegionError) {
+      setInstallError(placementRegionError)
+      return
+    }
     try {
       const resp = await installApplication(deploymentId, composeInstallRequest(parameters))
       setStatusName(resp.name)
@@ -123,6 +177,10 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
   const handlePreview = async (parameters: Record<string, unknown>) => {
     if (!deploymentId || !selectedCard) return
     setInstallError(null)
+    if (placementRegionError) {
+      setInstallError(placementRegionError)
+      return
+    }
     try {
       const resp = await previewApplication(deploymentId, composeInstallRequest(parameters))
       setPreviewState(resp)
@@ -392,7 +450,7 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
               />
             </label>
             <label className="flex flex-col text-xs text-[var(--color-text-dim)]">
-              Region
+              {needsSecondRegion ? 'Primary region' : 'Region'}
               <input
                 type="text"
                 className="mt-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm"
@@ -401,6 +459,22 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
                 onChange={(e) => setRegion(e.target.value)}
               />
             </label>
+            {/* UAT row 60 — the standby / second region, rendered ONLY for a
+                posture that places one. Absent for singleton so the
+                one-region flow is unchanged. */}
+            {needsSecondRegion ? (
+              <label className="flex flex-col text-xs text-[var(--color-text-dim)]">
+                {placementMode === 'active-active' ? 'Second region' : 'Standby region'}
+                <input
+                  type="text"
+                  className="mt-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm"
+                  data-testid="install-page-standby-region"
+                  value={secondaryRegion}
+                  onChange={(e) => setSecondaryRegion(e.target.value)}
+                  placeholder="e.g. hz-hel-rtz-prod"
+                />
+              </label>
+            ) : null}
             <label className="flex flex-col text-xs text-[var(--color-text-dim)]">
               Placement mode
               {/*
@@ -429,6 +503,18 @@ export function InstallPage({ preselectedBlueprint }: InstallPageProps = {}) {
               </select>
             </label>
           </div>
+
+          {/* UAT row 60 — say WHY the submit will be refused, before it is.
+              The catalyst-api enforces the same rule, so this is the local
+              half of one contract, not a second authority. */}
+          {placementRegionError ? (
+            <div
+              className="mb-3 rounded-md border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-300"
+              data-testid="install-page-placement-regions-validation"
+            >
+              {placementRegionError}
+            </div>
+          ) : null}
 
           {/* Auto-form for Blueprint parameters. */}
           {versionQuery.isLoading ? (

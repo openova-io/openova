@@ -96,13 +96,26 @@ func TestPlacementForTopology_EmitsOnlyCanonicalTokens(t *testing.T) {
 // The install + update + preview wire-validation MUST accept every
 // canonical class and the legacy aliases, and reject a genuine unknown.
 func TestApplicationWireValidation_AcceptsCanonicalVocabulary(t *testing.T) {
+	// This test pins the VOCABULARY, so its fixture must satisfy every OTHER
+	// rule of the validator — otherwise a rejection here reads as "the mode
+	// spelling was refused" when the real cause was elsewhere. UAT row 60 added
+	// one such rule: a multi-region posture needs ≥2 distinct regions
+	// (placementRegionCountError). The region list is therefore shaped from the
+	// SAME predicate the rule uses rather than a second hand-rolled list of
+	// which modes are multi-region — a copy here would silently stop matching
+	// the moment the vocabulary grows, which is the drift this file exists to
+	// catch.
 	base := func(mode string) applicationInstallRequest {
+		regions := []string{"hz-fsn-rtz-prod"}
+		if placementModeRequiresMultipleRegions(canonicalizeTopology(mode)) {
+			regions = append(regions, "hz-hel-rtz-prod")
+		}
 		return applicationInstallRequest{
 			BlueprintRef:    applicationBlueprintRef{Name: "bp-wp", Version: "1.0.0"},
 			Name:            "site",
 			OrganizationRef: "acme",
 			EnvironmentRef:  "acme-prod",
-			Placement:       applicationPlacement{Mode: mode, Regions: []string{"hz-fsn-rtz-prod"}},
+			Placement:       applicationPlacement{Mode: mode, Regions: regions},
 		}
 	}
 	accept := append([]string{}, canonicalPlacementVocabulary...)
