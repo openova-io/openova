@@ -1270,41 +1270,54 @@ func (h *Handler) dispatchOrderPlaced(tenantID string, order *store.Order) {
 	// endpoint is idempotent. This is the ONLY caller that can launch a deferred
 	// Org (the endpoint 401s externally), so a failed/abandoned checkout — which
 	// never reaches this function — leaves the Org un-provisioned.
-	h.launchTenant(tenantID)
+	//
+	// #6242 — the error is deliberately NOT propagated into the checkout
+	// response. By this point the money is spent and the order row is
+	// committed, so failing the HTTP response would tell the customer their
+	// purchase did not happen when it did. The recovery is the settlement-launch
+	// reconciler (settlement_launch_reconciler.go), which re-offers this same
+	// call from the durable orders table until it lands.
+	if err := h.launchTenant(context.Background(), tenantID); err != nil {
+		slog.Error("dispatchOrderPlaced: settlement launch did not land — the reconciler will retry it (#6242)",
+			"tenant_id", tenantID, "order_id", order.ID, "error", err)
+	}
 }
 
 // launchTenant asks the tenant service to launch a DEFERRED (pending_payment)
 // Org once its checkout has settled (#4956). Server-to-server POST to the
 // cluster-internal launch endpoint — the same in-cluster tenant URL + path
-// family lookupTenantSubdomain already uses. Best-effort with a short timeout:
-// a transient tenant-service blip logs loud (the paid Org would be left parked)
-// but does not fail the settlement, and the operator can re-drive via the
-// tenant's day-2 surface. Idempotent on the tenant side.
-func (h *Handler) launchTenant(tenantID string) {
+// family lookupTenantSubdomain already uses. Idempotent on the tenant side:
+// InternalLaunchTenant CAS-transitions only from `pending_payment`, so a repeat
+// call on an already-launched Org is a benign 200 no-op.
+//
+// #6242 — this RETURNS its failure instead of logging it into the void. It used
+// to be `func(string)` with every failure path ending in a bare `return`, which
+// meant no caller could tell a delivered launch from a lost one, and so nothing
+// could retry it. A lost call left a PAID order beside an Organization parked at
+// `pending_payment` with no producer that would ever move it again. The error is
+// still not fatal to settlement — see dispatchOrderPlaced — but it is now
+// observable, which is what the reconciler needs to do its job.
+func (h *Handler) launchTenant(ctx context.Context, tenantID string) error {
 	if h.TenantURL == "" || tenantID == "" {
-		return
+		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	url := h.TenantURL + "/tenant/internal/tenants/" + tenantID + "/launch"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
-		slog.Error("launchTenant: build request", "tenant_id", tenantID, "error", err)
-		return
+		return fmt.Errorf("build launch request for tenant %s: %w", tenantID, err)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		slog.Error("launchTenant: tenant launch call failed — paid Org may be left parked at pending_payment (#4956)",
-			"tenant_id", tenantID, "error", err)
-		return
+		return fmt.Errorf("tenant launch call for %s failed: %w", tenantID, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		slog.Error("launchTenant: tenant launch non-200 — paid Org may be left parked at pending_payment (#4956)",
-			"tenant_id", tenantID, "status", resp.StatusCode)
-		return
+		return fmt.Errorf("tenant launch for %s returned HTTP %d", tenantID, resp.StatusCode)
 	}
 	slog.Info("launchTenant: settlement launch dispatched", "tenant_id", tenantID)
+	return nil
 }
 
 // lookupTenantAppConfigs fetches the tenant's per-app configSchema values
