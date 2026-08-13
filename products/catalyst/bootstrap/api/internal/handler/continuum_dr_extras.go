@@ -1104,7 +1104,7 @@ func (h *Handler) runDRPreflight(r *http.Request, depID string) []drRunbookPrefl
 		conts = contList.Items
 	}
 	preflightContinuumReady(&checks[0], conts, contErr)
-	preflightCNPGPairStreaming(ctx, client, &checks[1])
+	preflightCNPGPairStreaming(ctx, client, &checks[1], conts)
 	preflightWALLagUnderRTO(&checks[2], conts, contErr)
 	preflightQuorumWitnesses(ctx, client, &checks[3])
 	return checks
@@ -1163,7 +1163,7 @@ func preflightContinuumReady(check *drRunbookPreflightCheck, conts []unstructure
 // the per-region split (#5511 class — this client is scoped to region A and
 // the replica Cluster lives in region B), which is honestly UNVERIFIED, not a
 // Pass and not a Fail.
-func preflightCNPGPairStreaming(ctx context.Context, client dynamic.Interface, check *drRunbookPreflightCheck) {
+func preflightCNPGPairStreaming(ctx context.Context, client dynamic.Interface, check *drRunbookPreflightCheck, conts []unstructured.Unstructured) {
 	pairList, pairErr := client.Resource(drCNPGPairGVR()).Namespace("").List(ctx, metav1.ListOptions{})
 	if pairErr == nil && pairList != nil && len(pairList.Items) > 0 {
 		notStreaming := []string{}
@@ -1246,21 +1246,99 @@ func preflightCNPGPairStreaming(ctx context.Context, client dynamic.Interface, c
 		check.Severity = "critical"
 		check.Message = fmt.Sprintf("%d of %d cnpg pair(s) have a replica half that is present but NOT ready: %s",
 			len(down), len(names), strings.Join(down, ", "))
-	case len(unseen) == len(names):
-		check.Status = preflightWarn
-		check.Severity = "warning"
-		check.Message = fmt.Sprintf("no replica half visible from this cluster's API for %d pair(s) (%s) — a 2-region pair keeps its replica in the peer region, so streaming is unverified here",
-			len(unseen), strings.Join(unseen, ", "))
 	case len(unseen) > 0:
-		check.Status = preflightWarn
-		check.Severity = "warning"
-		check.Message = fmt.Sprintf("%d of %d cnpg pair(s) streaming; replica half not visible here for: %s",
-			len(names)-len(unseen), len(names), strings.Join(unseen, ", "))
+		// #6156 — the replica half of a 2-region pair is a Cluster in the PEER
+		// region and this handler's dynamic client is scoped to region A, so
+		// `unseen` is the permanent steady state here, not an anomaly. Warning
+		// unconditionally made this gate unable to reach Fail on any 2-region
+		// Sovereign: a genuine standby outage read exactly like a healthy one,
+		// and `classifyPreflight` only blocks a mutating playback on Fail.
+		//
+		// The continuum-controller does not share that blind spot — it probes
+		// the standby directly (pgprobe, #4901/#5311) and publishes the verdict
+		// as `status.standbyAvailable`. This is the SAME fallback
+		// augmentReplicationStandbyStatus already relies on, consulted the same
+		// way, and it is the probe that GOES FALSE during an outage. A pair
+		// whose Continuum omits the key still reports unverifiable — never a
+		// fabricated Pass.
+		probed, probedDown := continuumStandbyForPairs(conts, unseen)
+		switch {
+		case len(probedDown) > 0:
+			check.Status = preflightFail
+			check.Severity = "critical"
+			check.Message = fmt.Sprintf("the Continuum controller's standby probe reports the required hot-standby is UNAVAILABLE for %d of %d cnpg pair(s): %s — replication has no standby leg, so a mutating DR playback is unsafe",
+				len(probedDown), len(names), strings.Join(probedDown, ", "))
+		case len(probed) == len(unseen) && len(unseen) == len(names):
+			check.Status = preflightPass
+			check.Severity = "info"
+			check.Message = fmt.Sprintf("%d cnpg pair(s) reported streaming by the Continuum controller's standby probe (the replica half lives in the peer region and is not visible from this cluster's API — weaker provenance than reading the replica half directly)",
+				len(probed))
+		case len(probed) == len(unseen):
+			check.Status = preflightPass
+			check.Severity = "info"
+			check.Message = fmt.Sprintf("%d of %d cnpg pair(s) have a ready replica half here; the remaining %d (%s) are reported available by the Continuum controller's standby probe (peer-region replica, weaker provenance)",
+				len(names)-len(unseen), len(names), len(unseen), strings.Join(unseen, ", "))
+		case len(unseen) == len(names):
+			check.Status = preflightWarn
+			check.Severity = "warning"
+			check.Message = fmt.Sprintf("no replica half visible from this cluster's API for %d pair(s) (%s), and no Continuum CR carries a standbyAvailable verdict for them — a 2-region pair keeps its replica in the peer region, so streaming is unverified here",
+				len(unseen), strings.Join(unseen, ", "))
+		default:
+			check.Status = preflightWarn
+			check.Severity = "warning"
+			check.Message = fmt.Sprintf("%d of %d cnpg pair(s) streaming; replica half not visible here and no standbyAvailable verdict for: %s",
+				len(names)-len(unseen), len(names), strings.Join(unseen, ", "))
+		}
 	default:
 		check.Status = preflightPass
 		check.Severity = "info"
 		check.Message = fmt.Sprintf("%d cnpg pair(s) with a ready replica half", len(names))
 	}
+}
+
+// continuumStandbyForPairs resolves the continuum-controller's own
+// standby-probe verdict for cnpg pair names whose replica half was NOT visible
+// from this region's API (#6156).
+//
+// It reads `status.standbyAvailable` — the SAME key augmentReplicationStandbyStatus
+// falls back to, published by the controller's direct pgprobe of the standby
+// (#4901/#5311) — and matches a Continuum CR to a pair via `spec.cnpgPair.name`.
+//
+// Returns (available, unavailable). A pair is in NEITHER slice when no Continuum
+// CR names it or the CR omits the key: that is honest-unknown and must stay a
+// Warn, never a fabricated Pass. Absence of evidence is not evidence of health.
+func continuumStandbyForPairs(conts []unstructured.Unstructured, pairs []string) (available, unavailable []string) {
+	if len(pairs) == 0 || len(conts) == 0 {
+		return nil, nil
+	}
+	verdict := map[string]bool{}
+	for i := range conts {
+		name, _, _ := unstructured.NestedString(conts[i].Object, "spec", "cnpgPair", "name")
+		if name == "" {
+			continue
+		}
+		if v, found, _ := unstructured.NestedBool(conts[i].Object, "status", "standbyAvailable"); found {
+			// A false verdict from ANY CR naming the pair wins: an outage
+			// reported by one producer is not cancelled by another's silence.
+			if prev, seen := verdict[name]; !seen || prev {
+				verdict[name] = v
+			}
+		}
+	}
+	for _, p := range pairs {
+		v, found := verdict[p]
+		switch {
+		case !found:
+			// no verdict — leave it unknown
+		case v:
+			available = append(available, p)
+		default:
+			unavailable = append(unavailable, p)
+		}
+	}
+	sort.Strings(available)
+	sort.Strings(unavailable)
+	return available, unavailable
 }
 
 // preflightWALLagUnderRTO — preflight-03. Compares the lag key the Continuum
