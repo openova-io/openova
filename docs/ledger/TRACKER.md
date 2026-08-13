@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T20:15:04Z` |
+| Last refreshed | `2026-08-13T20:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5847](https://github.com/openova-io/openova/issues/5847) | UAT row 5 asserts TIER=sme, a value the Organization CRD 422-rejects — the row | Other |
 | [#5848](https://github.com/openova-io/openova/issues/5848) | Org delete leaves an orphaned HTTPRoute: teardown reaps by derived NAME while cr | Other |
 | [#5857](https://github.com/openova-io/openova/issues/5857) | Door A stamps every customer Org isolation=vcluster while the GitOps renderer ba | Other |
 | [#5867](https://github.com/openova-io/openova/issues/5867) | Two UAT rows need an owner decision and have no tracker issue: row 19 (grid keye | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6253](https://github.com/openova-io/openova/issues/6253) | harbor-prewarm calls an unpublished chart pin 'genuinely mid-roll' and then refu | Other |
 | [#6255](https://github.com/openova-io/openova/issues/6255) | region-B cilium-operator never starts its Gateway-API controller (30s CRD poll l | Other |
 | [#6260](https://github.com/openova-io/openova/issues/6260) | Sandbox retirement is half-landed: the reconciler's only install site was delete | Other |
+| [#6262](https://github.com/openova-io/openova/issues/6262) | harbor-prewarm blocks on the cutover's OWN hollow pin, and the chart's Case 40 g | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T20:18 | [#6261](https://github.com/openova-io/openova/pull/6261) | #6255 | docs(uat): hw296 first-measurement walk — 28 SSO + Jobs Re-r |
 | 2026-08-13T19:46 | [#6258](https://github.com/openova-io/openova/pull/6258) | #6250 | fix(uat): carry-forward outranks the flush rule it replaced  |
 | 2026-08-13T19:54 | [#6257](https://github.com/openova-io/openova/pull/6257) | #4293 | fix(catalyst): four unowned UAT rows — G7 plan door, row 60  |
 | 2026-08-13T19:08 | [#6256](https://github.com/openova-io/openova/pull/6256) | #4290 | docs(uat): hw296 seven-row walk — the funnel completes end t |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-13T11:23 | [#6223](https://github.com/openova-io/openova/pull/6223) | #6149 | fix(bp-postgres): the shared-pg pairs get a dr-failback AND  |
 | 2026-08-13T09:45 | [#6222](https://github.com/openova-io/openova/pull/6222) | #6217 | fix(agenity): the credential init container WAITS instead of |
 | 2026-08-13T09:00 | [#6221](https://github.com/openova-io/openova/pull/6221) | #6156 | test(dr): cover preflight-02's CALL SITE, not just the seam  |
-| 2026-08-13T08:57 | [#6220](https://github.com/openova-io/openova/pull/6220) | #5245 | docs(runbooks): §6.1's reverse leg covers the cnpg-pair pair |
 
 ---
 
