@@ -336,7 +336,7 @@ spec:
             # field so dashboards can correlate api-version <-> chart-
             # version on a single probe.
             - name: CATALYST_BUILD_SHA
-              value: "0227e6d"
+              value: "1240b46"
             - name: CATALYST_CHART_VERSION
               value: "1.4.95"
             # #2940 (2026-06-03): was hardcoded "https://console.openova.io".
