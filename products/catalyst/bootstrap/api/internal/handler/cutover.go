@@ -926,12 +926,28 @@ func findExistingRunningJobForStep(ctx context.Context, deps *cutoverDeps, stepN
 	return nil
 }
 
-// jobCompletionTime returns the Job's completion timestamp in RFC3339,
-// falling back to the latest condition's LastTransitionTime, then to
-// time.Now() if the Job is malformed. The fallbacks are defensive — a
-// terminal condition without timing data is a chart bug, but we'd
-// rather emit a slightly-imprecise audit row than drop the success
-// signal entirely.
+// jobCompletionTime returns the Job's terminal timestamp, falling back to
+// the terminal condition's LastTransitionTime, then to time.Now() if the
+// Job is malformed. The fallbacks are defensive — a terminal condition
+// without timing data is a chart bug, but we'd rather emit a
+// slightly-imprecise audit row than drop the signal entirely.
+//
+// #6262 — this must answer for a FAILED Job, not only a Complete one. The
+// sole caller stamps `step.<name>.finishedAt` on BOTH terminal branches,
+// but the loop below used to match only batchv1.JobComplete, and the
+// kube-apiserver sets Status.CompletionTime only on success. So every
+// carried-over FAILURE fell through to time.Now() and was stamped with the
+// moment it was RE-READ rather than the moment it failed.
+//
+// That is not a cosmetic audit-row defect — it erases the one field that
+// distinguishes a fresh failure from a stale one. Measured on hw296 (dep
+// e689e3b34a75fdec): Job cutover-harbor-prewarm-1786655169 failed
+// 21:08:08Z, and the 22:02:16Z auto-resume re-reported it with
+// finishedAt=22:03:34Z — one second after step-02 succeeded. The status
+// API therefore showed step-03 failing inside the current attempt when the
+// evidence was 56 minutes old and from a prior one, which is exactly the
+// reading that sent three separate investigations after the wrong cause.
+// The JobFailed condition carried the true 21:08:08Z all along.
 func jobCompletionTime(job *batchv1.Job) time.Time {
 	if job == nil {
 		return time.Now().UTC()
@@ -940,7 +956,10 @@ func jobCompletionTime(job *batchv1.Job) time.Time {
 		return job.Status.CompletionTime.Time.UTC()
 	}
 	for _, c := range job.Status.Conditions {
-		if c.Type == batchv1.JobComplete && c.Status == corev1.ConditionTrue && !c.LastTransitionTime.IsZero() {
+		if c.Type != batchv1.JobComplete && c.Type != batchv1.JobFailed {
+			continue
+		}
+		if c.Status == corev1.ConditionTrue && !c.LastTransitionTime.IsZero() {
 			return c.LastTransitionTime.Time.UTC()
 		}
 	}
@@ -1988,14 +2007,53 @@ func (h *Handler) runCutoverStep(ctx context.Context, deps *cutoverDeps, step cu
 				// idempotent PodSpec usually fails the same way; the operator
 				// must address the cause then re-fire /start (which sets
 				// operatorRetry=true and takes the re-run branch above).
+				//
+				// #6262 — this branch halts the engine on EVIDENCE FROM A
+				// PRIOR ATTEMPT, so the durable rows it writes have to make
+				// that legible. Two fields did the opposite:
+				//
+				//   startedAt was never patched at all. The JobComplete
+				//   branch directly above carefully recovers it; this one
+				//   left it "". A step whose row reads result=failed +
+				//   finishedAt=<set> + startedAt="" is a step that finished
+				//   without ever starting, which is precisely the shape of
+				//   "no Job ran this attempt" — the single most useful fact
+				//   here — rendered as though it were missing data.
+				//
+				//   finishedAt was stamped with the re-read time (see
+				//   jobCompletionTime), collapsing a 56-minute-old failure
+				//   onto the current attempt's timeline.
+				//
+				// Stamp both from the Job itself so the row, the status API
+				// and the CTA all say the same thing: this failure predates
+				// the current attempt. Prefer the Job's own StartTime — it is
+				// authoritative for THIS Job, where the durable row may still
+				// carry an even earlier attempt's value.
+				startedAt := ""
+				if job.Status.StartTime != nil && !job.Status.StartTime.IsZero() {
+					startedAt = job.Status.StartTime.UTC().Format(time.RFC3339)
+				} else if priorStatus, readErr := readCutoverStatus(ctx, deps); readErr == nil {
+					startedAt = priorStatus["step."+step.stepName+".startedAt"]
+				}
+				if startedAt == "" && !job.CreationTimestamp.IsZero() {
+					startedAt = job.CreationTimestamp.UTC().Format(time.RFC3339)
+				}
+				if startedAt == "" {
+					startedAt = finishedAt.Format(time.RFC3339)
+				}
 				if err := patchCutoverStatus(ctx, deps, map[string]string{
+					"step." + step.stepName + ".startedAt":  startedAt,
 					"step." + step.stepName + ".finishedAt": finishedAt.Format(time.RFC3339),
 					"step." + step.stepName + ".result":     "failed",
 					"step." + step.stepName + ".jobName":    job.Name,
 				}); err != nil {
 					return fmt.Errorf("status patch (resume-failed): %w", err)
 				}
-				return fmt.Errorf("Job %s/%s reported Failed condition (carried over from prior cutover attempt)", deps.ns, job.Name)
+				// Name the Job's OWN failure time in lastError. The operator
+				// reads this string first; without the timestamp it cannot
+				// tell a fresh failure from one this attempt never re-ran.
+				return fmt.Errorf("Job %s/%s reported Failed condition at %s (carried over from a prior cutover attempt — this attempt did NOT re-run the step; re-fire /cutover/start to delete the prior Job and re-run it)",
+					deps.ns, job.Name, finishedAt.Format(time.RFC3339))
 			}
 		}
 	}
