@@ -61,7 +61,7 @@ missed "cross-Org" entirely. Same count, different rows: a classifier that
 matches on vocabulary rather than on the requirement will land on the right
 total for the wrong reasons.
 
-Row 213 carries a second, independent blocker worth recording: the MCP surface is
+Row 213 carries a second, independent cause worth recording: the MCP surface is
 not exposed on this Sovereign at all — `mcp.hw295…` and `openova-mcp.hw295…`
 both answer **404**, and `bp-openova-mcp` is `suspend: true` in region B. So 213
 needs the Org *and* a reachable MCP endpoint.
@@ -99,7 +99,7 @@ therefore gates the nine per-Org rows AND the wizard AND the janitor set.** That
 is the highest-leverage thing to arrange before the next walk, and it is worth
 more than any single row on the list.
 
-The other two structural blockers are smaller and both need an event, not a fix:
+The other two structural causes are smaller and both need an event, not a fix:
 the cutover has not been fired here (its 11 steps render but have not run —
 row 162), and no job has failed, so the Re-run control has nothing to act on
 (row 176, correctly gated).
@@ -164,6 +164,46 @@ being closed, and why walking harder against a dead environment cannot move it.
 That also sets the order. Fire a Sovereign first and walk H; cluster G's app-host
 half rides in on #6186 and is measured in the same pass. Only E, C, D and A need
 anything beyond that, and E needs the founder rather than an agent.
+
+## 1-B. 2026-08-13T04:2xZ — every ❌ now carries a MEASURED cause, and they collapse to five inputs
+
+All 18 failing rows were re-examined against the live environment or the source
+this session. None is now "unknown" or "env-held, cause unclear". They reduce
+to five inputs, and the order below is forced by measurement, not preference.
+
+| # | Input | Rows it releases | Status |
+|---|---|---|---|
+| 1 | Cutover reaches `cutoverComplete=true` | G11, 166, 227, 228 | IN FLIGHT — #6198 fixed and proven; step-03 mirroring 137 images |
+| 2 | A customer Organization exists | R16, G7, 87, 90, 95, 213, 234 | Door found + payload staged; deliberately held until (1) |
+| 3 | Anthropic credential (#4277) | R19, G8, G9, 222 | Gated BEHIND (2) — see below |
+| 4 | Topology tab in `core/console` | 16 | Front-end work, not a walk |
+| 5 | Guacamole connection producer | 115 | Wire decision resolved; needs a scoped client cert |
+
+**Why (2) must precede (3), measured not assumed.** hw295 has **0 agenity
+namespaces** (of 52), **0 agenity HelmReleases**, no agenity StatefulSet, and
+**0 Secrets carrying an `ANTHROPIC*`/`CLAUDE*` key** — scanned by key name, so a
+differently-named holder could not hide. Agenity is a PER-ORG workspace and the
+Sovereign currently has one Organization, `hw295-omani-works` (internal,
+namespace-isolated), which carries none. The credential is necessary but not
+sufficient: seeded today it would land in a cluster with nothing to consume it.
+
+**Why (2) is held until (1).** Creating an Organization now authors HelmReleases
+whose images are absent from the mirror step-03 is building, and step-08's 600s
+deny-egress hold would then fail on a ghcr pull — breaking the sovereignty proof
+that is the point of the exercise. The runner refuses on `cutoverComplete!=true`
+by construction rather than by discipline.
+
+**Two rows moved on measurement rather than on a fix.** Row 235 went ❌→⚠️: its
+named failure mode (a stale client secret → `invalid_client`) is disproven 3/3,
+since Keycloak returns `unauthorized_client` — it authenticated the client and
+declined only the grant. Row 60's placement half is fixed and measured
+(region-a `primary`, region-b `standby`); only the Switchover half is unproven,
+and its producer exists in the application-controller, contrary to what I first
+recorded.
+
+**One methodological result worth keeping.** An HTTP probe cannot decide any
+SPA-served row: `GET console.<fqdn>/` returns byte-identical 200s with and
+without a session. Rows asserting a signed-in view need a browser.
 
 ## 1. The ❌ set, partitioned by what actually unblocks them (2026-08-09)
 
