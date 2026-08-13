@@ -1431,7 +1431,7 @@ spec:
       #   openova.io/organization namespace label: platform namespaces stay
       #   FATAL, Organization namespaces warn and proceed. Lockstep w/
       #   products/catalyst/chart/Chart.yaml.
-      version: 1.4.1472
+      version: 1.4.1473
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
