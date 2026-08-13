@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T05:15:02Z` |
+| Last refreshed | `2026-08-13T05:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T05:15 | [#6212](https://github.com/openova-io/openova/pull/6212) | #6193 | docs(ledger): convergence capture 2026-08-13T04:43:19Z — hw2 |
 | 2026-08-13T04:20 | [#6210](https://github.com/openova-io/openova/pull/6210) | #4277 | docs(wbs): section 1-B — every failing row now has a measure |
 | 2026-08-13T04:16 | [#6209](https://github.com/openova-io/openova/pull/6209) | #4277 | docs(uat): the four Anthropic rows are double-gated — the cr |
 | 2026-08-13T04:12 | [#6208](https://github.com/openova-io/openova/pull/6208) | #3988 | docs(uat): row 213 — both isolation halves are implemented a |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-11T08:04 | [#6158](https://github.com/openova-io/openova/pull/6158) | #6114 | feat(qa): confidence-scored risk-based walk scheduling — wal |
 | 2026-08-11T06:14 | [#6154](https://github.com/openova-io/openova/pull/6154) | #6138 | docs(uat): row 176 stops routing to an engineer, G7 names th |
 | 2026-08-11T06:16 | [#6153](https://github.com/openova-io/openova/pull/6153) | #5401 | fix(wizard): the retired fabricated ORG_DEFAULTS come back o |
-| 2026-08-11T06:57 | [#6152](https://github.com/openova-io/openova/pull/6152) | #6079 | fix(catalyst-ui): a 1-replica Deployment cannot roll on a fu |
 
 ---
 
