@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T13:00:05Z` |
+| Last refreshed | `2026-08-13T13:15:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5825](https://github.com/openova-io/openova/issues/5825) | Two identity readers in one header disagree: the sidebar shows the signed-in own | Other |
 | [#5827](https://github.com/openova-io/openova/issues/5827) | GET /applications/catalyst-api 404s while GET /applications/catalyst-api/placeme | Other |
 | [#5829](https://github.com/openova-io/openova/issues/5829) | bp-openbao: a failed ACL-policy write is swallowed, then the OIDC role names a p | Other |
 | [#5831](https://github.com/openova-io/openova/issues/5831) | Nine page components are reachable from nothing but their own tests — includin | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6225](https://github.com/openova-io/openova/issues/6225) | Re-prov after a wipe false-fails on orphaned catalyst-* VPCs when the post-recla | Other |
 | [#6229](https://github.com/openova-io/openova/issues/6229) | /api/v1/version reports a sha from a Deployment env var that a roll never update | Other |
 | [#6231](https://github.com/openova-io/openova/issues/6231) | Topology choice does not survive the round trip: the status endpoint flattens th | Other |
+| [#6235](https://github.com/openova-io/openova/issues/6235) | cutover-contract.sh exits at Case 40 on a false positive, so 40 of its 82 cases  | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T13:06 | [#6233](https://github.com/openova-io/openova/pull/6233) | #4993 | fix(provisioning): one unresolvable cart entry no longer sin |
+| 2026-08-13T13:07 | [#6230](https://github.com/openova-io/openova/pull/6230) | #5734 | fix(bp-guacamole): nothing had ever written a Guacamole conn |
 | 2026-08-13T11:34 | [#6228](https://github.com/openova-io/openova/pull/6228) | #6149 | docs(ledger): publish UAT-FINAL — every case with its confid |
 | 2026-08-13T11:43 | [#6227](https://github.com/openova-io/openova/pull/6227) | #4466 | fix(catalyst): a flaky post-reclaim quota re-read false-fail |
 | 2026-08-13T11:22 | [#6226](https://github.com/openova-io/openova/pull/6226) | #5516 | fix(openova-mcp): row 213 sibling sweep — list_organizations |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-12T08:57 | [#6186](https://github.com/openova-io/openova/pull/6186) | #4459 | fix(api): per-Org app hosts resolve to a gateway that has no |
 | 2026-08-12T08:58 | [#6185](https://github.com/openova-io/openova/pull/6185) | #5920 | fix(catalog): a retired product must not keep its price list |
 | 2026-08-12T08:57 | [#6184](https://github.com/openova-io/openova/pull/6184) | #5710 | fix(catalyst-api): refuse to run a cutover on a chart that c |
-| 2026-08-12T08:59 | [#6182](https://github.com/openova-io/openova/pull/6182) | #6114 | fix(bp-openclaw): drop the NewAPI controller-token reference |
-| 2026-08-11T10:50 | [#6180](https://github.com/openova-io/openova/pull/6180) | #6114 | fix(uat): a wipe is not a failure — carry evidence forward i |
 
 ---
 
