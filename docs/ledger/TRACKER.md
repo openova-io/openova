@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T19:00:03Z` |
+| Last refreshed | `2026-08-13T19:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5835](https://github.com/openova-io/openova/issues/5835) | GET /applications/{name}/status 404s for every bootstrap component while its own | Other |
 | [#5843](https://github.com/openova-io/openova/issues/5843) | per-Org GitOps renderer emits no openova-mcp instance at Org-create — decide w | Other |
 | [#5847](https://github.com/openova-io/openova/issues/5847) | UAT row 5 asserts TIER=sme, a value the Organization CRD 422-rejects — the row | Other |
 | [#5848](https://github.com/openova-io/openova/issues/5848) | Org delete leaves an orphaned HTTPRoute: teardown reaps by derived NAME while cr | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6242](https://github.com/openova-io/openova/issues/6242) | fix(funnel): a settled order whose launch call is lost strands the paid Organiza | Other |
 | [#6249](https://github.com/openova-io/openova/issues/6249) | Sovereign /apps estate grid renders 11 cards against 10 Application CRs — a He | Other |
 | [#6253](https://github.com/openova-io/openova/issues/6253) | harbor-prewarm calls an unpublished chart pin 'genuinely mid-roll' and then refu | Other |
+| [#6255](https://github.com/openova-io/openova/issues/6255) | region-B cilium-operator never starts its Gateway-API controller (30s CRD poll l | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T19:08 | [#6256](https://github.com/openova-io/openova/pull/6256) | #4290 | docs(uat): hw296 seven-row walk — the funnel completes end t |
+| 2026-08-13T19:09 | [#6254](https://github.com/openova-io/openova/pull/6254) | #6246 | fix(cutover): a hollow chart pin is TERMINAL, not "wait for  |
 | 2026-08-13T18:22 | [#6252](https://github.com/openova-io/openova/pull/6252) | #6246 | fix(guards): the expected bootstrap DAG never learned the tw |
 | 2026-08-13T18:13 | [#6251](https://github.com/openova-io/openova/pull/6251) | #3537 | fix(sovereign-api): the /apps estate is Application-keyed, n |
 | 2026-08-13T18:05 | [#6250](https://github.com/openova-io/openova/pull/6250) | #6236 | fix(uat): the drift guard and reset-uat encoded two founder  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-13T08:57 | [#6220](https://github.com/openova-io/openova/pull/6220) | #5245 | docs(runbooks): §6.1's reverse leg covers the cnpg-pair pair |
 | 2026-08-13T09:07 | [#6219](https://github.com/openova-io/openova/pull/6219) | #6148 | fix(cnpg-pair): guard the peer-ahead hold so the stale prima |
 | 2026-08-13T07:41 | [#6218](https://github.com/openova-io/openova/pull/6218) | #6216 | docs(uat): cite the two merged fixes on the eight rows they  |
-| 2026-08-13T07:04 | [#6216](https://github.com/openova-io/openova/pull/6216) | #6214 | fix(cutover): run the isolation proof LAST — step-08 was gat |
-| 2026-08-13T06:57 | [#6215](https://github.com/openova-io/openova/pull/6215) | #6163 | fix(anthropic): read the operator's credential Secret live — |
 
 ---
 
