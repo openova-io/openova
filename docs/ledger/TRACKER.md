@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T23:15:05Z` |
+| Last refreshed | `2026-08-13T23:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5871](https://github.com/openova-io/openova/issues/5871) | hw292 live: 11 of 14 Applications are Degraded on a cutoverComplete=true Soverei | Other |
 | [#5878](https://github.com/openova-io/openova/issues/5878) | newapi is the only SSO app that does not accept the realm session — bare URL 3 | Other |
 | [#5882](https://github.com/openova-io/openova/issues/5882) | OpenBao SSO session lands with no token prompt but its policy cannot list mounts | Other |
 | [#5883](https://github.com/openova-io/openova/issues/5883) | A mistyped email at the PIN form persists a Keycloak user — sovereign realm ho | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6268](https://github.com/openova-io/openova/issues/6268) | Topology tab shows one target for an active-hot-standby app whose backing pair i | Other |
 | [#6272](https://github.com/openova-io/openova/issues/6272) | check-guards-are-wired.sh globs only *.sh — a python guard is orphaned invisib | Other |
 | [#6273](https://github.com/openova-io/openova/issues/6273) | harbor-prewarm Phase A0: an Organization's failed app install fail-closes the so | Other |
+| [#6278](https://github.com/openova-io/openova/issues/6278) | Funnel + vcluster Org: every per-Org chart rendering a cert-manager Certificate  | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T23:24 | [#6277](https://github.com/openova-io/openova/pull/6277) | #6257 | docs(uat): re-walk the 26 invalidated SSO rows on hw296 — 25 |
+| 2026-08-13T23:27 | [#6271](https://github.com/openova-io/openova/pull/6271) | #3375 | fix(catalyst-api): the Topology tab drew a Standby with no P |
 | 2026-08-13T23:11 | [#6270](https://github.com/openova-io/openova/pull/6270) | #6254 | ci(release): the umbrella must not publish a seed pin its si |
 | 2026-08-13T22:50 | [#6269](https://github.com/openova-io/openova/pull/6269) | #3379 | fix(cutover): stamp a carried-over step failure with the Job |
 | 2026-08-13T22:14 | [#6267](https://github.com/openova-io/openova/pull/6267) | #4292 | docs(uat): walk 16 rows live on hw296 — 8 green, and row 60  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-13T15:52 | [#6236](https://github.com/openova-io/openova/pull/6236) | #4982 | fix(cutover): Case 40 could not detect what it asserts — pip |
 | 2026-08-13T16:20 | [#6234](https://github.com/openova-io/openova/pull/6234) | #6215 | fix(agenity): an expired Anthropic credential must not exit  |
 | 2026-08-13T13:06 | [#6233](https://github.com/openova-io/openova/pull/6233) | #4993 | fix(provisioning): one unresolvable cart entry no longer sin |
-| 2026-08-13T14:10 | [#6232](https://github.com/openova-io/openova/pull/6232) | #3373 | fix(catalyst): make the topology choice survive the round tr |
-| 2026-08-13T13:07 | [#6230](https://github.com/openova-io/openova/pull/6230) | #5734 | fix(bp-guacamole): nothing had ever written a Guacamole conn |
 
 ---
 
