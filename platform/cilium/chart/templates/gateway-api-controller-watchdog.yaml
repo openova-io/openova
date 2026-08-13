@@ -219,10 +219,19 @@ spec:
               value: {{ (default 300 $wd.restartCooldownSeconds) | quote }}
             - name: WATCHDOG_GATEWAY_CLASS
               value: {{ (default "cilium" $wd.gatewayClass) | quote }}
+            # readOnlyRootFilesystem is on, so give kubectl a writable HOME for
+            # its discovery cache ($HOME/.kube/cache). Cache writes are
+            # best-effort in client-go, but without this every 30s pass pays a
+            # full discovery round-trip against the apiserver this component
+            # exists to be gentle with.
+            - name: HOME
+              value: /tmp
           volumeMounts:
             - name: script
               mountPath: /opt/watchdog
               readOnly: true
+            - name: tmp
+              mountPath: /tmp
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -238,4 +247,6 @@ spec:
         - name: script
           configMap:
             name: gateway-api-controller-watchdog-script
+        - name: tmp
+          emptyDir: {}
 {{- end }}
