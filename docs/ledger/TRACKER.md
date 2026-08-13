@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T04:00:04Z` |
+| Last refreshed | `2026-08-13T04:15:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T04:12 | [#6208](https://github.com/openova-io/openova/pull/6208) | #3988 | docs(uat): row 213 — both isolation halves are implemented a |
+| 2026-08-13T04:09 | [#6207](https://github.com/openova-io/openova/pull/6207) | #3687 | docs(uat): row 16 — the Topology tab is absent from the CUST |
+| 2026-08-13T04:04 | [#6206](https://github.com/openova-io/openova/pull/6206) | #3374 | docs(uat): row 29 — an HTTP probe cannot decide this row, an |
+| 2026-08-13T04:04 | [#6205](https://github.com/openova-io/openova/pull/6205) | #6197 | docs(uat): row 235 — the stale-secret 401 this row names is  |
 | 2026-08-13T03:45 | [#6204](https://github.com/openova-io/openova/pull/6204) | #6200 | docs(uat): withdraw row 60's "no Switchover producer" claim  |
 | 2026-08-13T03:41 | [#6203](https://github.com/openova-io/openova/pull/6203) | #6198 | docs(uat): cite the merged #6198 fix on the 4 cutover rows,  |
 | 2026-08-13T02:58 | [#6201](https://github.com/openova-io/openova/pull/6201) | #6200 | fix(catalyst-api): canonicalise placement mode before decidi |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-08-11T06:57 | [#6152](https://github.com/openova-io/openova/pull/6152) | #6079 | fix(catalyst-ui): a 1-replica Deployment cannot roll on a fu |
 | 2026-08-11T06:34 | [#6151](https://github.com/openova-io/openova/pull/6151) | #6138 | fix(catalyst-api, console): report an Organization isolation |
 | 2026-08-11T04:21 | [#6150](https://github.com/openova-io/openova/pull/6150) | #5623 | docs(uat): G12 region-kill WALKED on hw293 — destructive ass |
-| 2026-08-11T06:58 | [#6146](https://github.com/openova-io/openova/pull/6146) | #6114 | fix(catalyst-api,funnel): clusters D/F/H of the #6114 residu |
-| 2026-08-11T04:01 | [#6144](https://github.com/openova-io/openova/pull/6144) | #6054 | fix(catalyst): a usable secondary kubeconfig is not thereby  |
-| 2026-08-11T04:16 | [#6143](https://github.com/openova-io/openova/pull/6143) | #6114 | fix(walk): a console-gateway hostname probed on the shared g |
-| 2026-08-11T04:16 | [#6142](https://github.com/openova-io/openova/pull/6142) | #3969 | fix(catalyst-api): stop the Topology-tab Save flattening spe |
 
 ---
 
