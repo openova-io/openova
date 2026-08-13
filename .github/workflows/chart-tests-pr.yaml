@@ -1,0 +1,265 @@
+name: Chart tests (PR)
+
+# WHY THIS FILE EXISTS — Refs #6262, #5323
+#
+# A `chart/tests/`-only change was never executed by ANY build until after it
+# merged, and the toolchain it ran under on the release runner was not the one
+# it was written against. Both halves fired together on 2026-08-13 and cost a
+# published chart.
+#
+# HALF 1 — no build ran the edit.
+#   The only two workflows that invoke chart/tests/*.sh were `push`-only on the
+#   test path:
+#     - blueprint-release.yaml  -> on.push.branches[main] + workflow_dispatch.
+#       No `pull_request:` trigger at all. This is the workflow that actually
+#       runs every chart/tests/*.sh (step "Run chart integration tests").
+#     - test-bootstrap-kit.yaml -> has `pull_request:` with a
+#       `platform/**/chart/**` filter, but it executes exactly ONE hardcoded
+#       script (platform/newapi/chart/tests/5612-...sh), not the suites.
+#   So a tests-only PR had zero executions of the thing it changed. And
+#   check-chart-version-bumped correctly requires NO version bump for a
+#   tests-only edit, so nothing else forced the release path either. The broken
+#   predicate then sat latent until an UNRELATED PR bumped the chart version and
+#   that PR's release build inherited the failure.
+#
+# HALF 2 — the toolchain differed from the author's.
+#   blueprint-release.yaml installs yq v4.44.3 on the runner. Workstations carry
+#   v4.53.2. #6236 introduced `yq 'select(...) | ... // "none"'` over a
+#   MULTI-DOCUMENT render: on v4.53.2 that prints `keep`; on v4.44.3 the
+#   `// "none"` alternative ALSO fires for every document `select` filtered out,
+#   printing `none` x18, `---`, `keep`. Green locally, fatal on the runner.
+#
+# WHAT IT COST — #6254 bumped platform/self-sovereign-cutover, its release build
+# inherited the predicate and failed at step 17, steps 18-29 were skipped so
+# `Helm push to GHCR` never ran, and bp-self-sovereign-cutover:0.1.183 was never
+# published. `build (products/catalyst)` in the SAME run succeeded and shipped an
+# umbrella pinning that nonexistent artifact. hw296 parked on
+# `Ready=False SourceNotReady` and the sovereignty cutover died at step 3.
+# The loop half of the same case degraded the other way — step ConfigMaps
+# answered `none...---...none` and never `keep` — so the 12-ConfigMap scan the
+# case exists to run was FAIL-OPEN on the release runner. A guard that could not
+# fail. Same class as #5323, which was closed.
+#
+# THE REMEDY, EXACTLY THIS: run chart/tests/*.sh at PULL REQUEST time, on the
+# charts whose tests changed, under the SAME toolchain versions the release
+# workflow installs.
+#
+# PATH FILTER — `platform/*/chart/tests/**` + `products/*/chart/tests/**` and
+# nothing else. Not `platform/*/chart/**`: 191 test scripts across 63 charts
+# already run on the release path for a chart edit, and re-running every touched
+# chart's suite at PR time would multiply an Actions queue that is already
+# saturated. A change that doubles CI load becomes its own defect. This fires
+# only when a test script itself changes — which is precisely the edit that had
+# no execution at all. The single `*` mirrors blueprint-release.yaml's own
+# `platform/*/chart/**` shape (one Blueprint folder per directory).
+#
+# This workflow's OWN path is deliberately NOT in the filter. Adding it would
+# fire the workflow on every edit to this file while changing nothing under
+# chart/tests — the detect job would compute an empty matrix and the test job
+# would be skipped. That is load without signal, the exact thing the filter is
+# here to avoid. blueprint-release.yaml likewise does not list itself.
+#
+# TOOLCHAIN — read out of blueprint-release.yaml at runtime, never hardcoded
+# here. That workflow is the single source for both pins; a second literal in
+# this file is the drift that caused the incident. The read asserts EXACTLY ONE
+# distinct version per tool, so a shape change or an in-place divergence fails
+# loudly instead of silently falling back to whatever the runner ships.
+#
+# KNOWN SIBLING, deliberately not addressed here: a failed sub-chart build still
+# lets the umbrella in the same run publish a pin to a nonexistent artifact
+# (#6262). This workflow moves the sub-chart failure earlier; it does not change
+# the per-chart matrix.
+
+on:
+  pull_request:
+    paths:
+      - 'platform/*/chart/tests/**'
+      - 'products/*/chart/tests/**'
+  workflow_dispatch:
+    inputs:
+      blueprint:
+        description: 'Blueprint path to test (e.g. platform/self-sovereign-cutover). Empty = none.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: read          # helm registry login, for charts with oci:// deps
+
+concurrency:
+  # Supersede an in-flight run when the PR is re-pushed. Actions is saturated;
+  # a stale run of an overwritten commit has no signal left in it.
+  group: chart-tests-pr-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect:
+    name: which charts changed a test script
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.changed.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect charts with changed test scripts
+        id: changed
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          INPUT_BLUEPRINT: ${{ inputs.blueprint }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${INPUT_BLUEPRINT:-}" ]; then
+            echo "workflow_dispatch: testing ${INPUT_BLUEPRINT}"
+            echo "matrix={\"include\":[{\"path\":\"${INPUT_BLUEPRINT}\"}]}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # actions/checkout on a pull_request checks out refs/pull/N/merge, so
+          # merge-base(origin/<base>, HEAD) is the base tip and the three-dot
+          # diff is exactly the PR's own changes.
+          git fetch --no-tags --quiet origin "${BASE_REF}"
+          echo "Diffing origin/${BASE_REF}...HEAD"
+          changed=$(git diff --name-only "origin/${BASE_REF}...HEAD" \
+                    | grep -E '^(platform|products)/[^/]+/chart/tests/' \
+                    | awk -F/ '{print $1"/"$2}' | sort -u || true)
+
+          echo "Charts with changed test scripts:"
+          echo "${changed:-(none)}"
+
+          if [ -z "$changed" ]; then
+            echo "matrix={\"include\":[]}" >> "$GITHUB_OUTPUT"
+          else
+            include=$(printf '%s\n' "$changed" | jq -R -s -c 'split("\n") | map(select(length > 0)) | map({path: .})')
+            echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
+          fi
+
+  chart-tests:
+    name: "chart/tests/*.sh — ${{ matrix.path }}"
+    needs: detect
+    if: ${{ needs.detect.outputs.matrix != '{"include":[]}' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      # Cap the fan-out: a sweep that rewrites many suites at once must not
+      # claim an unbounded slice of a saturated runner pool.
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.detect.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ──────────────────────────────────────────────────────────────
+      # Toolchain pins — DERIVED from blueprint-release.yaml, not copied
+      # ──────────────────────────────────────────────────────────────
+      # If these two workflows can disagree about a tool version, they will,
+      # and the disagreement is invisible until a release build inherits it.
+      # So there is exactly one literal in the repo and this reads it.
+      - name: Read toolchain pins from blueprint-release.yaml
+        id: pins
+        run: |
+          set -euo pipefail
+          RELEASE_WF=.github/workflows/blueprint-release.yaml
+          test -f "$RELEASE_WF" || { echo "::error::$RELEASE_WF is missing — the pin source is gone."; exit 1; }
+
+          # yq: the release workflow installs it from a pinned release URL.
+          yq_versions=$(grep -oE 'yq/releases/download/v[0-9]+\.[0-9]+\.[0-9]+/yq_linux_amd64' "$RELEASE_WF" \
+                        | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | sort -u)
+          yq_count=$(printf '%s\n' "$yq_versions" | grep -c . || true)
+          if [ "$yq_count" -ne 1 ]; then
+            echo "::error title=yq pin unreadable::Expected exactly ONE yq version in $RELEASE_WF, found ${yq_count}: ${yq_versions:-<none>}. Either the install step changed shape or the release workflow pins two different yq versions — both mean this job would silently run a different yq than the release build. Fix the source, do not hardcode here."
+            exit 1
+          fi
+
+          # helm: azure/setup-helm@vN followed by `version: vX.Y.Z`.
+          helm_versions=$(grep -A4 'azure/setup-helm@' "$RELEASE_WF" \
+                          | grep -oE 'version: v[0-9]+\.[0-9]+\.[0-9]+' \
+                          | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | sort -u)
+          helm_count=$(printf '%s\n' "$helm_versions" | grep -c . || true)
+          if [ "$helm_count" -ne 1 ]; then
+            echo "::error title=helm pin unreadable::Expected exactly ONE helm version in $RELEASE_WF, found ${helm_count}: ${helm_versions:-<none>}."
+            exit 1
+          fi
+
+          echo "yq=$yq_versions"     >> "$GITHUB_OUTPUT"
+          echo "helm=$helm_versions" >> "$GITHUB_OUTPUT"
+          echo "Derived from $RELEASE_WF — yq $yq_versions, helm $helm_versions"
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ steps.pins.outputs.helm }}
+
+      - name: Install yq (release-pinned)
+        run: |
+          set -euo pipefail
+          sudo wget -qO /usr/local/bin/yq \
+            "https://github.com/mikefarah/yq/releases/download/${{ steps.pins.outputs.yq }}/yq_linux_amd64"
+          sudo chmod +x /usr/local/bin/yq
+          # The predicate that cost 0.1.183 was correct on v4.53.2 and wrong on
+          # v4.44.3. Print what we actually got, so a future divergence is one
+          # grep away in the log rather than a forensic exercise.
+          echo "yq in PATH: $(yq --version)  (release pin: ${{ steps.pins.outputs.yq }})"
+          yq --version | grep -qF "${{ steps.pins.outputs.yq }}" || {
+            echo "::error title=yq pin not honoured::Installed yq does not report ${{ steps.pins.outputs.yq }}."
+            exit 1
+          }
+
+      - name: Helm registry login (for OCI dependencies)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username "${{ github.actor }}" --password-stdin
+
+      - name: Helm dependency build
+        run: |
+          set -euo pipefail
+          chart_dir="${{ matrix.path }}/chart"
+          if [ ! -f "$chart_dir/Chart.yaml" ]; then
+            echo "No chart at $chart_dir — nothing to resolve."
+            exit 0
+          fi
+          dep_count=$(yq '.dependencies | length // 0' "$chart_dir/Chart.yaml")
+          if [ "$dep_count" -eq 0 ]; then
+            echo "Chart $chart_dir declares no dependencies — skipping helm dependency build."
+            exit 0
+          fi
+          echo "Resolving $dep_count declared dependency/dependencies for $chart_dir"
+          helm dependency build "$chart_dir"
+
+      # ──────────────────────────────────────────────────────────────
+      # THE GATE — byte-for-byte the loop blueprint-release.yaml runs
+      # ──────────────────────────────────────────────────────────────
+      # Same invocation contract (`bash <script> <chart_dir>`), same working
+      # tree, same tool versions. Run the WHOLE suite, not just the changed
+      # script: suites share helpers across files (cutover-contract.sh resolves
+      # a sibling via SCRIPT_DIR), so a change to one script can break another,
+      # and the release gate would run all of them anyway.
+      - name: "Run chart integration tests (chart/tests/*.sh)"
+        run: |
+          set -euo pipefail
+          chart_dir="${{ matrix.path }}/chart"
+          tests_dir="$chart_dir/tests"
+          if [ ! -d "$tests_dir" ]; then
+            echo "No tests/ directory at $tests_dir — the scripts were deleted or moved; nothing to run."
+            exit 0
+          fi
+          shopt -s nullglob
+          scripts=( "$tests_dir"/*.sh )
+          if [ "${#scripts[@]}" -eq 0 ]; then
+            echo "tests/ directory present at $tests_dir but no *.sh scripts — skipping."
+            exit 0
+          fi
+          echo "Running ${#scripts[@]} chart-test script(s) under $tests_dir:"
+          for s in "${scripts[@]}"; do
+            echo "  → $s"
+          done
+          for s in "${scripts[@]}"; do
+            echo "── $(basename "$s") ──"
+            bash "$s" "$chart_dir"
+          done
+          echo "All chart-test scripts passed."
