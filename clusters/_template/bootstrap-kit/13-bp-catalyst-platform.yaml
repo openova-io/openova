@@ -1395,7 +1395,7 @@ spec:
       # 1.4.1440 — #5991 (UAT row 115): catalog-seed advances bp-guacamole
       #   0.2.37 -> 0.2.38, the release that writes a Guacamole connection at
       #   all. Lockstep w/ products/catalyst/chart/Chart.yaml.
-      version: 1.4.1447
+      version: 1.4.1449
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
