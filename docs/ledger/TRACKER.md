@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T13:15:06Z` |
+| Last refreshed | `2026-08-13T13:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -299,7 +299,7 @@ flowchart LR
 | [#6225](https://github.com/openova-io/openova/issues/6225) | Re-prov after a wipe false-fails on orphaned catalyst-* VPCs when the post-recla | Other |
 | [#6229](https://github.com/openova-io/openova/issues/6229) | /api/v1/version reports a sha from a Deployment env var that a roll never update | Other |
 | [#6231](https://github.com/openova-io/openova/issues/6231) | Topology choice does not survive the round trip: the status endpoint flattens th | Other |
-| [#6235](https://github.com/openova-io/openova/issues/6235) | cutover-contract.sh exits at Case 40 on a false positive, so 40 of its 82 cases  | Other |
+| [#6235](https://github.com/openova-io/openova/issues/6235) | cutover-contract Case 40 is fail-open: pipefail turns a matched grep -q into 141 | Other |
 
 ---
 
