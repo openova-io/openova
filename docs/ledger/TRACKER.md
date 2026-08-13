@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T07:30:07Z` |
+| Last refreshed | `2026-08-13T07:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,7 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#5819](https://github.com/openova-io/openova/issues/5819) | Showback names the parent Organization `hw292.omani.works` while the directory a | Other |
 | [#5821](https://github.com/openova-io/openova/issues/5821) | /version reports process START time as `buildTime` with no way to tell — hw292 | Other |
 | [#5823](https://github.com/openova-io/openova/issues/5823) | Install wizard never pre-selects the Organization — even on a per-Org console  | Other |
 | [#5825](https://github.com/openova-io/openova/issues/5825) | Two identity readers in one header disagree: the sidebar shows the signed-in own | Other |
@@ -279,7 +280,6 @@ flowchart LR
 | [#6122](https://github.com/openova-io/openova/issues/6122) | UAT row 213: cross-Org get_application answers not-found, not 403 — #5522 move | Other |
 | [#6131](https://github.com/openova-io/openova/issues/6131) | Cutover execution tree still has no root: the true first step gitea-mirror keeps | Other |
 | [#6135](https://github.com/openova-io/openova/issues/6135) | The Organization create door accepts a declared isolation it never honours: 202  | Other |
-| [#6136](https://github.com/openova-io/openova/issues/6136) | Topology-tab Save writes spec.placement as a bare string: the editor's targets[] | Other |
 | [#6140](https://github.com/openova-io/openova/issues/6140) | hw293: a console-gateway hostname probed on the SHARED gateway's host port retur | Other |
 | [#6148](https://github.com/openova-io/openova/issues/6148) | Region-kill failback: recovered region-A returns as an UNFENCED TL=1 primary and | Other |
 | [#6149](https://github.com/openova-io/openova/issues/6149) | bp-postgres DR pairs ship a dr-promoter but NO dr-failback — region-A return l | Other |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T07:41 | [#6218](https://github.com/openova-io/openova/pull/6218) | #6216 | docs(uat): cite the two merged fixes on the eight rows they  |
 | 2026-08-13T07:04 | [#6216](https://github.com/openova-io/openova/pull/6216) | #6214 | fix(cutover): run the isolation proof LAST — step-08 was gat |
 | 2026-08-13T06:57 | [#6215](https://github.com/openova-io/openova/pull/6215) | #6163 | fix(anthropic): read the operator's credential Secret live — |
 | 2026-08-13T05:52 | [#6213](https://github.com/openova-io/openova/pull/6213) | #4901 | fix(dr): preflight-02 can now Fail on a 2-region Sovereign — |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-11T10:17 | [#6167](https://github.com/openova-io/openova/pull/6167) | #6016 | fix(bp-postgres): repairing the spec did not repair the clus |
 | 2026-08-11T08:05 | [#6165](https://github.com/openova-io/openova/pull/6165) | #6114 | fix(guard,catalyst-api): a hostname no listener admits, a re |
 | 2026-08-11T08:28 | [#6162](https://github.com/openova-io/openova/pull/6162) | #6021 | ci(guards): a guard nothing runs cannot fire — wire the 10 o |
-| 2026-08-11T07:48 | [#6161](https://github.com/openova-io/openova/pull/6161) | #6061 | docs(uat): verify the artifact that RENDERS the surface, not |
 
 ---
 
