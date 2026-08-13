@@ -308,10 +308,41 @@ data:
        intentionally scaled-to-zero (spec.replicas == 0). DaemonSets are
        deliberately NOT gated: cordoned / control-plane-tainted nodes skew
        desired-vs-ready legitimately and would false-positive the gate.
+
+       #6198 — THIS CHART'S OWN WORKLOADS ARE EXCLUDED, and the reason is
+       circularity rather than convenience. The gate's whole premise is
+       "running != desired": a workload mid-roll would be mirrored at its
+       RUNNING tag and then rolled by step-04/step-07 to a DESIRED tag that
+       was never mirrored. That premise cannot apply to the cutover's own
+       components — the cutover does not roll itself to new tags, so their
+       running IS their desired, exactly like the suspended-HR case above.
+
+       Left in scope, one of them deadlocks the whole cutover. Measured live
+       on hw295 (dep 952c564cab38d320): Deployment/catalyst/
+       cutover-daytwo-harbor-reconciler installs at PROV and stays 0/1
+       Running because its readiness probe (`grep -qx READY
+       /tmp/daytwo-work/health`) withholds READY until the local Harbor holds
+       every workload image — it logs `MISSING local Harbor image:
+       registry.<fqdn>/proxy-dockerhub/goharbor/harbor-core:v2.14.3 (HTTP
+       404)` and one line like it per image (#5640). Populating those is
+       precisely what THIS step does. So step-03 waited on the reconciler and
+       the reconciler waited on step-03: cutover dead at 9%, step 3 of 11,
+       BackoffLimitExceeded, on an otherwise healthy env (63/67 HRs Ready,
+       handover sealed, chart above the #5919 floor).
+
+       A component whose readiness IS "the mirror exists" must never gate the
+       step that builds the mirror.
+
+       This exclusion is narrow on purpose: it keys on the chart's own
+       `app.kubernetes.io/name` label, so every workload the cutover actually
+       rolls stays gated. It is NOT the whole-gate kill switch
+       (`prewarm.settledRollPreflight.enabled=false`), which stays available
+       and stays a last resort.
       */}}
-      wl_pending=$(printf '%s' "${_srp_wl_json}" | jq -r '
+      wl_pending=$(printf '%s' "${_srp_wl_json}" | jq -r --arg own {{ .Chart.Name | quote }} '
         .items[]
         | select((.spec.replicas // 1) > 0)
+        | select(((.metadata.labels // {})["app.kubernetes.io/name"] // "") != $own)
         | select(
             ((.status.observedGeneration // -1) < (.metadata.generation // 0))
             or ((.status.updatedReplicas // 0) < (.spec.replicas // 1))
