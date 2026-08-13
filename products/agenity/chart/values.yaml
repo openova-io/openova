@@ -87,6 +87,38 @@ anthropic:
   # solo agent can call Claude. Empty = key-only mode (only works for a real
   # sk-ant-api03 API key, which the OAuth journey does not use).
   credentialsKey: credentialsJson
+  # #6163 FREEZE 2 — the seed init container WAITS for the credential instead
+  # of reading the mount once and asserting whatever it saw.
+  #
+  # The old branch printed "no credentials.json key in Secret — key-only mode"
+  # and exited 0 on a miss, forever. Measured on hw293: a workspace held that
+  # line for EIGHT HOURS after the Sovereign's OpenBao path was seeded, with the
+  # Pod reporting Running the whole time — which is what let UAT row R19 ("the
+  # init container validates the token and exits 0") read green over a workspace
+  # that could not talk to Anthropic at all.
+  #
+  # The wait is what makes a late credential land with NO restart: kubelet
+  # re-projects a mounted Secret on its own sync period, so a value seeded after
+  # pod start appears in /creds while this loop is still running.
+  #
+  # "key-only mode" was never a true description of that branch either. This
+  # init container renders ONLY under `anthropic.credentialsKey`, i.e. only when
+  # OAuth mode was requested; a genuinely key-only install sets credentialsKey
+  # to "" and gets no init container at all. So the miss could only ever mean
+  # "the credential you asked for did not arrive", and it named a supported
+  # operating mode instead.
+  credentialWait:
+    # Total seconds to wait for the credential to appear. Spans the ExternalSecret
+    # refreshInterval by default so a seed landing on the next ESO sync is caught.
+    timeoutSeconds: 300
+    intervalSeconds: 5
+    # What to do when the credential never arrives.
+    #   fail     — exit non-zero. The Pod shows Init:Error / CrashLoopBackOff in
+    #              `kubectl get pod`, which is the honest signal: the workspace
+    #              cannot do the thing it exists to do.
+    #   continue — start anyway, having said so loudly. Restores the pre-#6163
+    #              shape for anyone who wants a shell over an honest error.
+    onTimeout: fail
   externalSecret:
     enabled: true
     refreshInterval: 1h
