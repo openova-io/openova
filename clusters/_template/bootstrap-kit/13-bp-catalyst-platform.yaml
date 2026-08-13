@@ -1403,7 +1403,13 @@ spec:
       #   connection names an identity the proxy must allowlist, and the
       #   proxy mints the certificate the connection presents. Lockstep w/
       #   products/catalyst/chart/Chart.yaml.
-      version: 1.4.1455
+      # 1.4.1456 — #6067 (UAT rows 212/213): catalog-seed advances
+      #   bp-openova-mcp 0.1.6 -> 0.1.7, the release that verifies a bearer
+      #   against a key SET instead of one pinned RS256 key, so an Org-scoped
+      #   bearer catalyst-api itself accepts is no longer refused with
+      #   `crypto/rsa: verification error`. Lockstep w/
+      #   products/catalyst/chart/Chart.yaml.
+      version: 1.4.1456
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

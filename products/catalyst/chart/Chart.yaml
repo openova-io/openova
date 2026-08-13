@@ -3774,6 +3774,21 @@ name: bp-catalyst-platform
 #   Sovereign would keep installing cutover 0.1.176 while the seed in git
 #   claimed 0.1.177 — check-umbrella-republish-gate.py (#5734). Lockstep w/
 #   slot-13 pin.
+# 1.4.1344 (#6067, Refs #5175 / UAT rows 212-213): the catalog-seed card +
+#   delivery pin for bp-openova-mcp move 0.1.6 -> 0.1.7 (the RS256 verify
+#   surface becomes a SET, so an Org-scoped bearer signed by a catalyst-api's
+#   own handoverjwt signer stops failing `crypto/rsa: verification error`
+#   against the mothership-injected `public.jwk`). A seed pin that moves
+#   without THIS file's version moving is never carried by the published OCI
+#   artifact, so the Sovereign would keep installing bp-openova-mcp 0.1.6 while
+#   the seed in git claimed 0.1.7 — check-umbrella-republish-gate.py (#5734).
+#   Numbering: 1.4.1342 was taken by the deploy-bot (da6c0450b) while this
+#   branch was open and 1.4.1343 is claimed by open PR #6059, so this rebase
+#   moves to the next free number rather than republishing a tag that already
+#   names a DIFFERENT tree — the 1.4.1325 hazard at the top of this file.
+#   The slot-13 pin is NOT hand-edited here: the deploy-bot's auto-bump hook
+#   owns it (blueprint-release.yaml), and origin/main is itself sitting at
+#   chart=1.4.1342 / pin=1.4.1341 right now for exactly that reason.
 # 1.4.1341 (#5426): templates/clusterrole-cutover-driver.yaml grants
 #   catalyst-api `delete` on orgs.openova.io/organizations. The SA had
 #   get/list/watch (#3978) and create (#4921) but never delete, so the ONE
@@ -3917,7 +3932,19 @@ name: bp-catalyst-platform
 #   half: without this republish a pinned Sovereign resolves 0.2.37 and the list
 #   stays empty. This chart's own templates are unchanged apart from the seed
 #   entry.
-version: 1.4.1455
+# 1.4.1456 — #6067 (UAT rows 212/213): catalog-seed advances bp-openova-mcp
+#   0.1.6 -> 0.1.7, the release whose identity.Resolver verifies a bearer
+#   against a key SET instead of the single pinned RS256 key. On a Sovereign
+#   the pinned key is the MOTHERSHIP-injected inbound-handover key that
+#   decidePubkeyPublish deliberately preserves (#4450), while every bearer a
+#   caller presents is signed by a catalyst-api's OWN per-Pod handoverjwt
+#   signer — so an Org-scoped bearer the issuer itself accepts (GET /whoami
+#   200, orgScoped:true) was refused by the MCP with `crypto/rsa: verification
+#   error`, 3/3, and neither row's RBAC clause could be evaluated. The seed
+#   pin is the delivery half: without this republish a pinned Sovereign
+#   resolves 0.1.6 and keeps the authentication refusal. This chart's own
+#   templates are unchanged apart from the seed entry.
+version: 1.4.1456
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
@@ -4072,7 +4099,7 @@ version: 1.4.1455
 # scripts/check-chart-version-forward.sh (#5743) fails unless the two match —
 # main was carrying a pre-existing 1.4.1330/1.4.1329 split, so this bump heals
 # it in the same commit, exactly as the documented self-heal contract does.
-appVersion: 1.4.1455
+appVersion: 1.4.1456
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
