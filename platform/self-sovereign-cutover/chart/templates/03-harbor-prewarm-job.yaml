@@ -247,6 +247,42 @@ data:
             or (($m | test("chart pull error")) and ($m | test("not found")))
           );
       def _terminal: _stalled or _source_absent;
+      {{- /*
+       #6262 — THIS CHART'S OWN HELMRELEASE IS EXCLUDED, for exactly the
+       circularity #6198 already recognised one paragraph down for this
+       chart's own WORKLOADS. The gate's premise is "running != desired":
+       an offender would be mirrored at its RUNNING tag and then rolled by
+       step-04/step-07 to a DESIRED tag that was never mirrored. That
+       premise cannot apply to the release that is RUNNING THIS GATE. The
+       script executing right now was rendered from the INSTALLED revision,
+       so it is self-consistent by construction, and the cutover never rolls
+       itself to a new tag mid-run.
+
+       Left in scope it is not merely noisy, it is a dead end with no
+       in-chart remedy: the only way to deliver a fix for the deadlock is a
+       new version of the very chart that cannot install. Measured live on
+       hw296 (dep e689e3b34a75fdec), fourth cutover attempt, step 3 of 11,
+       progressPercent 18:
+
+         mid-roll: HelmRelease/flux-system/bp-self-sovereign-cutover
+           (chart pull error: failed to get
+            'oci://ghcr.io/openova-io/bp-self-sovereign-cutover:0.1.183':
+            not found)
+
+       — 67 HelmReleases on that cluster, exactly ONE not Ready (this one),
+       zero pending Deployments/StatefulSets. The env was settled; the gate
+       was blocking on its own hollow pin, shipped when #6254's chart build
+       failed on Case 40 while the umbrella that seeds the pin published in
+       the same run.
+
+       Deliberately narrow, and matched by the Case 94 CONTROL: it keys on
+       the chart this HR installs (`.spec.chart.spec.chart`) and on the
+       bootstrap-kit slot-06a release name, both of which equal .Chart.Name.
+       Every OTHER HelmRelease — including a foreign one that is byte-
+       identically stuck — stays gated and stays named.
+      */}}
+      def _is_own_release($own):
+        ((.spec.chart.spec.chart // "") == $own) or ((.metadata.name // "") == $own);
     '
     srp_kubectl_json() {
       {{- /*
@@ -307,11 +343,15 @@ data:
        #5391 override validation FIRST, before ANY exclusion — the gate
        fail-closes on a malformed or over-broad override rather than
        honoring it. A SUSPENDED HR is outside the gate's domain entirely
-       (skipped below), so its annotations are not judged here.
+       (skipped below), so its annotations are not judged here. #6262: so is
+       this chart's OWN release — judging an override on a release the gate
+       does not gate would reject it as "names a HEALTHY HelmRelease" and
+       fail the whole gate closed on an annotation that was never needed.
       */}}
-      or_bad=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" "${SRP_TERMINAL_JQ}"'
+      or_bad=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" --arg own {{ .Chart.Name | quote }} "${SRP_TERMINAL_JQ}"'
         .items[]
         | select((.spec.suspend // false) | not)
+        | select(_is_own_release($own) | not)
         | select((.metadata.annotations // {}) | has($okey))
         | ((.metadata.annotations[$okey] // "") | gsub("^\\s+|\\s+$"; "")) as $reason
         | ((((.status.conditions // []) | map(select(.type=="Ready")) | (.[0].status // "Unknown")) == "True")
@@ -374,9 +414,10 @@ data:
        operator to a command that cannot work; name the real one instead
        (publish the pinned version, or re-pin to a published one).
       */}}
-      hr_pending=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" "${SRP_TERMINAL_JQ}"'
+      hr_pending=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" --arg own {{ .Chart.Name | quote }} "${SRP_TERMINAL_JQ}"'
         .items[]
         | select((.spec.suspend // false) | not)
+        | select(_is_own_release($own) | not)
         | select(((.metadata.annotations // {}) | has($okey)) | not)
         | select(
             ((.status.observedGeneration // -1) < (.metadata.generation // 0))
@@ -393,6 +434,29 @@ data:
         echo "[harbor-prewarm] FATAL: Phase A0 HelmRelease-offender jq failed — refusing to fail open (#5391)"
         return 1
       }
+      {{- /*
+       #6262 — the own-release exclusion must not be SILENT. Skipping the
+       gate is the right call (the deadlock above), but an unsettled own
+       release still means the next chart fix will not reach this Sovereign,
+       and the operator has to learn that from somewhere. Report it as a
+       NOTE that never blocks: same evidence, no exit.
+      */}}
+      own_hr=$(printf '%s' "${_srp_hr_json}" | jq -r --arg own {{ .Chart.Name | quote }} "${SRP_TERMINAL_JQ}"'
+        .items[]
+        | select(_is_own_release($own))
+        | select(
+            ((.status.observedGeneration // -1) < (.metadata.generation // 0))
+            or (((.status.conditions // []) | map(select(.type=="Ready")) | (.[0].status // "Unknown")) != "True")
+          )
+        | "HelmRelease/\(.metadata.namespace)/\(.metadata.name)"
+          + (if _terminal then "  [TERMINAL]" else "" end)
+          + ((((.status.conditions // []) | map(select(.type=="Ready")) | (.[0].message // "")) | split("\n")[0]) as $why
+             | if ($why | length) > 0 then "  (\($why))" else "" end)') || own_hr=""
+      if [ -n "${own_hr}" ]; then
+        echo "[harbor-prewarm] NOTE: this chart's OWN HelmRelease is not settled. It is EXCLUDED from the settled-roll gate on purpose (#6262/#6198 circularity — the cutover does not roll itself, and this script was rendered from the INSTALLED revision), so the cutover proceeds:"
+        printf '%s\n' "${own_hr}" | sed 's/^/  own (not gated): /'
+        echo "[harbor-prewarm]   It does mean a NEWER cutover chart is not reaching this Sovereign — if the message above is a 404 on the pinned version, that version was never published and the pin needs fixing at its source before any future cutover fix can land here."
+      fi
       {{- /*
        Deployments + StatefulSets: a pending rollout — observedGeneration
        behind the spec, or updated/ready replicas short of desired. Skip

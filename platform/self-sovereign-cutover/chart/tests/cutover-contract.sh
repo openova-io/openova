@@ -1636,11 +1636,44 @@ echo "[cutover-contract] Case 40: cutover step + resolver ConfigMaps re-render o
 # check, the positive half AND the control, so the control cannot drift from
 # what the gate actually runs.
 #
+# #6262 — AND THEN THE REPAIR ITSELF WAS VERSION-DEPENDENT, which cost a
+# published chart. The #6235 form was
+#
+#   yq 'select(.kind == "ConfigMap" and .metadata.name == "<n>")
+#       | .metadata.annotations."helm.sh/resource-policy" // "none"' render.yaml
+#
+# run against a MULTI-DOCUMENT render. In plain (non-`ea`) mode yq evaluates the
+# expression once per document, and on yq v4.44.3 — the version
+# blueprint-release.yaml pins and installs on the runner — the `// "none"`
+# alternative is ALSO applied to every document `select` filtered out. The status
+# CM therefore answers
+#
+#   none\nnone\n…(18x)…\n---\nkeep
+#
+# not `keep`, so `[ "$(c40_keep_policy …)" != keep ]` fired and Case 40 failed the
+# release build for platform/self-sovereign-cutover on merge commit 129f40f33
+# (run 31734398570). 0.1.183 was never pushed; the umbrella in the SAME run
+# published carrying the 0.1.183 seed pin; hw296 repinned to it and parked on
+# `Ready=False SourceNotReady`, which the Phase A0 gate then read as an offender.
+# Cutover dead at step 3 of 11, fourth attempt. On yq v4.53.2 the identical
+# command prints one line, `keep` — so the defect is invisible on a current
+# workstation and fatal on the release runner.
+#
+# The loop half degraded the other way and that is the worse half: for a step CM
+# the same call returns `none…---…none`, which never equals `keep`, so the 12-CM
+# scan Case 40 exists to run was FAIL-OPEN on the release runner.
+#
+# `ea` (eval-all) is the fix: it loads the whole stream as one sequence, so
+# `select` REMOVES the non-matching documents rather than leaving a per-document
+# result for `//` to fill in. Collect the survivors and read `[0]`. Verified
+# byte-identical on yq v4.44.3 and v4.53.2 for all three cases (annotated CM →
+# `keep`; CM present without the annotation → `none`; name absent → `none`).
+#
 # c40_keep_policy <configmap-name> <rendered-yaml> — echoes "keep" or "none".
 c40_keep_policy() {
   local _name="$1" _file="$2" _meta
   if command -v yq >/dev/null 2>&1; then
-    yq "select(.kind == \"ConfigMap\" and .metadata.name == \"${_name}\") | .metadata.annotations.\"helm.sh/resource-policy\" // \"none\"" "$_file"
+    yq ea "[select(.kind == \"ConfigMap\" and .metadata.name == \"${_name}\") | .metadata.annotations.\"helm.sh/resource-policy\"] | .[0] // \"none\"" "$_file"
     return 0
   fi
   # No yq: slice ONLY the metadata block (name -> the `data:` key at column 0,
@@ -1671,6 +1704,12 @@ for cm in cutover-offline-mirror-resolver \
 done
 # Positive half of the invariant: the status CM MUST keep (mirror of Case 6, kept
 # here so Case 40 fully specifies the keep policy across ALL cutover ConfigMaps).
+# Presence first, so "the CM vanished from the render" can never be reported as a
+# keep-policy verdict — c40_keep_policy answers "none" for an absent name.
+if ! grep -q '^  name: self-sovereign-cutover-status$' "$TMP/render.yaml"; then
+  echo "FAIL: the self-sovereign-cutover-status ConfigMap is not in the render at all — mid-cutover progress would not survive a chart uninstall (#4982 Finding A / Case 6)" >&2
+  exit 1
+fi
 if [ "$(c40_keep_policy self-sovereign-cutover-status "$TMP/render.yaml")" != keep ]; then
   echo "FAIL: self-sovereign-cutover-status ConfigMap must carry helm.sh/resource-policy: keep to preserve mid-cutover progress (#4982 Finding A / Case 6)" >&2
   exit 1
@@ -1680,7 +1719,23 @@ fi
 # carrying a REAL metadata.annotations keep, run through the SAME function the
 # loop above calls, must come back "keep". Without it the repair could have
 # swapped a flaky false positive for a permanently dead gate and looked greener.
+#
+# #6262 — THE CONTROL FIXTURE IS MULTI-DOCUMENT, and that is the whole point of
+# it. The #6235 control was a SINGLE-document file, and every yq-version defect
+# in this predicate lives in multi-document streaming: with one document there is
+# nothing for `select` to filter out, so `// "none"` has no spurious document to
+# fire on and v4.44.3 and v4.53.2 agree. The control therefore passed on the exact
+# runner where the real check was both false-failing (status CM) and fail-open
+# (the 12-CM loop). A control that cannot reproduce the shape the real check runs
+# against proves nothing — keep decoy documents on BOTH sides of the annotated one.
 cat > "$TMP/c40-control.yaml" <<'C40CTL'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-step-97-decoy-before
+data:
+  stepName: decoy
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -1689,11 +1744,28 @@ metadata:
     helm.sh/resource-policy: keep
 data:
   stepName: control
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-step-98-decoy-after
+data:
+  stepName: decoy
 C40CTL
 if [ "$(c40_keep_policy cutover-step-99-control "$TMP/c40-control.yaml")" != keep ]; then
-  echo "FAIL: CONTROL — the annotation-anchored keep check did NOT detect a genuine metadata.annotations keep on a step CM; Case 40 is fail-open again (#6235, #4982 Finding A)" >&2
+  echo "FAIL: CONTROL — the annotation-anchored keep check did NOT detect a genuine metadata.annotations keep on a step CM inside a MULTI-DOCUMENT stream; Case 40's positive half is dead again (#6262, #6235, #4982 Finding A)" >&2
   exit 1
 fi
+# CONTROL 1b — the fail-open half. A CM with NO keep annotation, sitting in the
+# SAME multi-document stream as one that has it, must read "none". On yq v4.44.3
+# the pre-#6262 predicate answered `none…---…none` here: never equal to "keep",
+# so the loop above could not have caught a real keep on any step CM.
+for _decoy in cutover-step-97-decoy-before cutover-step-98-decoy-after; do
+  if [ "$(c40_keep_policy "$_decoy" "$TMP/c40-control.yaml")" != none ]; then
+    echo "FAIL: CONTROL — an UNannotated CM in a multi-document stream did not read \"none\" (got \"$(c40_keep_policy "$_decoy" "$TMP/c40-control.yaml")\"); the 12-CM loop above cannot detect a real keep and Case 40 is fail-open (#6262)" >&2
+    exit 1
+  fi
+done
 # CONTROL 2 — the comment in _helpers.tpl:222 that used to trip this gate is
 # still in the render. Prove the new predicate does NOT read it as a keep: pick
 # a step CM whose script body contains the phrase and assert it reads "none".
@@ -1705,7 +1777,7 @@ if [ "$(c40_keep_policy cutover-step-09-gitea-token-mint "$TMP/render.yaml")" !=
   echo "FAIL: CONTROL 2 — a step CM whose SCRIPT BODY mentions helm.sh/resource-policy: keep was read as carrying the annotation; the #6235 body/metadata confusion is back" >&2
   exit 1
 fi
-echo "  PASS (resolver + 11 step CMs re-render on upgrade; only the status CM keeps; CONTROL proves a real metadata keep is caught, CONTROL 2 proves the _helpers.tpl comment is not)"
+echo "  PASS (resolver + 11 step CMs re-render on upgrade; only the status CM keeps; CONTROL proves a real metadata keep is caught AND an unannotated sibling reads none inside a multi-document stream, CONTROL 2 proves the _helpers.tpl comment is not read as the annotation)"
 
 echo "[cutover-contract] Case 41: Step-03 harbor-prewarm has a settled-roll pre-flight (Phase A0) that fail-closes on a mid-roll env BEFORE building the mirror (#4982 Finding B, Refs #3379)"
 # #4982 Finding B: harbor-prewarm mirrors the RUNNING / declared-template image
@@ -4833,6 +4905,75 @@ if ! grep -q 'acme/some-tenant-app' "$TMP/c90/out.txt"; then
   exit 1
 fi
 echo "  PASS (#6198: the chart's own workloads are excluded from its own settled-roll gate, and the CONTROL proves a foreign unsettled Deployment is still caught and named)"
+
+echo "[cutover-contract] Case 94: Step-03 Phase A0 must NOT gate on the cutover chart's OWN HelmRelease (#6262) — EXECUTED, with controls proving the exclusion does not leak and is not name-only"
+# WHY: #6198 removed the chart's own WORKLOADS from this gate for circularity and
+# stopped there. The HelmRelease selection kept filtering only on spec.suspend and
+# the #5391 override annotation — so the release that IS RUNNING THE GATE was
+# judged by the gate. The script executing Phase A0 was rendered from the
+# INSTALLED revision, so it is self-consistent by construction and the cutover
+# never rolls itself mid-run; a pending upgrade of it cannot invalidate the mirror
+# this step builds. Left in scope it is a dead end with no in-chart remedy: the
+# only vehicle for a fix is a new version of the chart that cannot install.
+#
+# Live hw296 (dep e689e3b34a75fdec), fourth attempt, step 3 of 11: 67
+# HelmReleases, exactly ONE not Ready — flux-system/bp-self-sovereign-cutover,
+# 404 on its own pinned 0.1.183 — and zero pending workloads. The env was
+# settled and the gate blocked on its own hollow pin.
+c93_run() {
+  # $1 = HR fixture. Reuses the Case 77 extracted gate + stub layout, whose
+  # kubectl stub already answers deployments,statefulsets with an empty set.
+  c77_run "$1"
+}
+mkdir -p "$TMP/c93"
+# The live hw296 shape: own release, own chart, 404 on the pinned version.
+cat > "$TMP/c93/own-chart.json" <<'C93F'
+{"items":[{"metadata":{"name":"bp-self-sovereign-cutover","namespace":"flux-system","generation":7},"spec":{"chart":{"spec":{"chart":"bp-self-sovereign-cutover","version":"0.1.183"}}},"status":{"observedGeneration":7,"conditions":[{"type":"Ready","status":"False","reason":"SourceNotReady","message":"HelmChart 'flux-system/flux-system-bp-self-sovereign-cutover' is not ready: chart pull error: failed to download chart for remote reference: failed to get 'oci://ghcr.io/openova-io/bp-self-sovereign-cutover:0.1.183': ghcr.io/openova-io/bp-self-sovereign-cutover:0.1.183: not found"}]}}]}
+C93F
+# Same release expressed the OTHER supported way — .spec.chartRef (an
+# OCIRepository), where .spec.chart.spec.chart does not exist at all. Without the
+# metadata.name leg of _is_own_release this fixture would sail straight back into
+# the deadlock, and nothing else in this file would notice.
+jq 'del(.items[0].spec.chart) | .items[0].spec.chartRef = {"kind":"OCIRepository","name":"bp-self-sovereign-cutover"}' \
+  "$TMP/c93/own-chart.json" > "$TMP/c93/own-chartref.json"
+# CONTROL: byte-identical failure shape, FOREIGN chart and name. Must still block.
+jq '.items[0].metadata.name = "bp-guacamole"
+    | .items[0].spec.chart.spec.chart = "bp-guacamole"
+    | .items[0].status.conditions[0].message = "HelmChart '\''flux-system/flux-system-bp-guacamole'\'' is not ready: chart pull error: failed to download chart for remote reference: failed to get '\''oci://ghcr.io/openova-io/bp-guacamole:0.2.40'\'': ghcr.io/openova-io/bp-guacamole:0.2.40: not found"' \
+  "$TMP/c93/own-chart.json" > "$TMP/c93/foreign.json"
+
+for _fx in own-chart own-chartref; do
+  if ! c93_run "$TMP/c93/${_fx}.json"; then
+    echo "FAIL: the gate REFUSED an env whose only unsettled HelmRelease is the cutover's OWN (${_fx}) — that is the #6262 deadlock: the fix can only ship as a new version of the chart that cannot install" >&2
+    sed -n '1,20p' "$TMP/c77/out.txt" >&2
+    exit 1
+  fi
+  if grep -q 'mid-roll: HelmRelease/flux-system/bp-self-sovereign-cutover' "$TMP/c77/out.txt"; then
+    echo "FAIL: the gate named its OWN HelmRelease as a blocking offender (${_fx}) (#6262)" >&2
+    exit 1
+  fi
+  # The exclusion must not be SILENT — an unsettled own release still means no
+  # newer cutover chart is reaching this Sovereign, and only this line says so.
+  if ! grep -q 'own (not gated): HelmRelease/flux-system/bp-self-sovereign-cutover' "$TMP/c77/out.txt"; then
+    echo "FAIL: the gate skipped its own unsettled HelmRelease (${_fx}) WITHOUT reporting it — a silent exclusion hides that future cutover chart fixes cannot land on this Sovereign (#6262)" >&2
+    exit 1
+  fi
+done
+# CONTROL — without this the exclusion could match every HelmRelease and still "pass".
+if c93_run "$TMP/c93/foreign.json"; then
+  echo "FAIL: CONTROL — a FOREIGN HelmRelease with a byte-identical hollow-pin failure (bp-guacamole) was NOT caught; the #6262 exclusion leaked and the settled-roll gate is now fail-open" >&2
+  exit 1
+fi
+if ! grep -q 'HelmRelease/flux-system/bp-guacamole' "$TMP/c77/out.txt"; then
+  echo "FAIL: CONTROL — the foreign HelmRelease was refused but never NAMED; the operator cannot act on an unnamed offender" >&2
+  exit 1
+fi
+# ...and it must still carry the #6253 hollow-pin remedy, not the stalled one.
+if ! grep -q 'does not exist in the registry' "$TMP/c77/out.txt"; then
+  echo "FAIL: CONTROL — the foreign hollow pin lost its TERMINAL hollow-pin classification; #6253's remedy split regressed" >&2
+  exit 1
+fi
+echo "  PASS (#6262: the chart's own HelmRelease is excluded from its own settled-roll gate under BOTH the .spec.chart and .spec.chartRef shapes and is still reported as a non-blocking NOTE; the CONTROL proves a foreign hollow pin is still caught, named, and classified TERMINAL)"
 
 echo "[cutover-contract] Case 92: the cutover-order labels are a CONTIGUOUS 1..N permutation — no duplicate, no gap (#6235, UAT row 166)"
 # UAT row 166 asks the `cutover` group on /jobs to read all-11-green. The order

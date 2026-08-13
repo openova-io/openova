@@ -3944,7 +3944,7 @@ name: bp-catalyst-platform
 #   pin is the delivery half: without this republish a pinned Sovereign
 #   resolves 0.1.6 and keeps the authentication refusal. This chart's own
 #   templates are unchanged apart from the seed entry.
-version: 1.4.1463
+version: 1.4.1464
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which
