@@ -330,7 +330,7 @@ func (h *Handler) HandleApplicationPreview(w http.ResponseWriter, r *http.Reques
 	warnings := []string{}
 
 	for i, region := range body.Placement.Regions {
-		standby := body.Placement.Mode == "active-hotstandby" && i > 0
+		standby := canonicalizeTopology(body.Placement.Mode) == "active-hot-standby" && i > 0
 		role := previewRoleForPlacement(body.Placement.Mode, i)
 		in := render.Inputs{
 			AppName:          appName,
@@ -445,7 +445,7 @@ func (h *Handler) renderApplicationPreview(
 	warnings := []string{}
 
 	for i, region := range body.Placement.Regions {
-		standby := body.Placement.Mode == "active-hotstandby" && i > 0
+		standby := canonicalizeTopology(body.Placement.Mode) == "active-hot-standby" && i > 0
 		role := previewRoleForPlacement(body.Placement.Mode, i)
 		in := render.Inputs{
 			AppName:          appName,
@@ -595,10 +595,20 @@ func environmentTypeFromName(env string) string {
 // label. Mirrors the application-controller's reconcile contract so
 // preview labels match production labels.
 func previewRoleForPlacement(mode string, idx int) string {
-	switch mode {
+	// #6200 — canonicalise BEFORE comparing. This switch used to test the
+	// raw string against the LEGACY spelling "active-hotstandby" only, so
+	// the CANONICAL "active-hot-standby" — the spelling the validator
+	// advertises, the console sends, and 112 of the repo's 141 literals
+	// use — fell through to the default and returned "primary" for EVERY
+	// region. An active-hot-standby preview therefore rendered TWO
+	// primaries and no standby, silently: no error, no warning, just the
+	// wrong manifests. canonicalizeTopology, in this same package, is the documented
+	// alias mapping (it agrees with core placement.Canonicalize under the
+	// drift test); the bug was simply not using it.
+	switch canonicalizeTopology(mode) {
 	case "active-active":
 		return "active"
-	case "active-hotstandby":
+	case "active-hot-standby":
 		if idx == 0 {
 			return "primary"
 		}
