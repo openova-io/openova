@@ -5809,11 +5809,11 @@ spec:
   # CNPG never recreates (a Job pod template is immutable, so #6016's spec repair
   # could not heal the generation-1 Pod) and reports the cross-mesh consumer-hub
   # sync's absence loudly instead of leaving 14 Secrets silently missing.
-  # 0.2.22 (#6149): region-A AUTOMATIC DR FAILBACK — ported bp-cnpg-pair dr-failback
+  # 0.2.23 (#6149, Refs #6148): region-A AUTOMATIC DR FAILBACK — ported bp-cnpg-pair dr-failback
   # + the `-replica-mesh` reverse alias + the topology.demoted rejoin shape, AND the
   # pairing invariant that renders promoter and failback off ONE gate. hw293 shipped
   # 4 promoters against 1 failback and left shared-pg/-b permanently dual-writable.
-  version: "0.2.22"
+  version: "0.2.23"
   visibility: listed
   # Shareability + Contexts (#3370) — seeded verbatim from
   # platform/postgres/blueprint.yaml (lockstep-guarded). One instance
@@ -5937,11 +5937,11 @@ spec:
     # + topology.promoted seam) on the active-hot-standby replica half.
     # 0.2.20 (#6114): replica-side hub sentinel (stale-initdb reap + loud hub-sync
     # absence); readiness never gates on the synced state so it cannot wedge Helm wait.
-    # 0.2.22 (#6149): region-A automatic DR FAILBACK (dr-failback + the
+    # 0.2.23 (#6149, Refs #6148): region-A automatic DR FAILBACK (dr-failback + the
     # `-replica-mesh` reverse alias + the topology.demoted rejoin shape) AND the
     # pairing invariant — promoter and failback now ride ONE gate, so a pair that
     # can be promoted can always fail back. hw293 left shared-pg/-b dual-writable.
-    version: "0.2.22"
+    version: "0.2.23"
   # Seeded verbatim from platform/postgres/blueprint.yaml spec.topology.
   # singleton = single-instance Cluster; active-hot-standby = sync
   # replication across regions (ADR-0004 Pillar-3 zero-tx-loss) via the
