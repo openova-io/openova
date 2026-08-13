@@ -51,7 +51,13 @@ interface ApplicationStatus {
 interface ApplicationSpec {
   blueprintRef?: { name?: string; version?: string }
   parameters?: Record<string, unknown>
-  placement?: string
+  // DUAL-FORM, like `Application.spec.placement` itself (#3373 / UAT row 16):
+  // the posture string, or the #3969 object carrying targets[]. This tab does
+  // not read the field — the declaration exists so the shared
+  // ApplicationStatusResponse assigns cleanly — but it must not narrow the
+  // wire contract, which is how the object form got flattened in the first
+  // place.
+  placement?: string | Record<string, unknown>
   regions?: string[]
   environmentRef?: string
 }
