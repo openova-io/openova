@@ -98,6 +98,24 @@ self_test() {
     echo "  FAIL  an adjudication PR was refused"; bad=1
   fi
 
+  # A ☐ row (never walked, no verdict in the ledger) stamped green is FIRST
+  # measurement, not re-confirmation — allowed even when not due.
+  printf '4 ☐\n' > "$tmp/before"; printf '4 ✅\n' > "$tmp/after"; : > "$tmp/due"
+  if verdict_diff_ok "$tmp/before" "$tmp/after" "$tmp/due" >/dev/null 2>&1; then
+    echo "  PASS  an undue ☐→✅ is allowed (first measurement, nothing to re-confirm)"
+  else
+    echo "  FAIL  a never-walked row was refused its FIRST verdict"; bad=1
+  fi
+
+  # CONTROL for that carve-out: it must not leak into ❌→✅, which IS
+  # re-confirmation territory and stays refused when not due.
+  printf '4 ❌\n' > "$tmp/before"; printf '4 ✅\n' > "$tmp/after"; : > "$tmp/due"
+  if verdict_diff_ok "$tmp/before" "$tmp/after" "$tmp/due" >/dev/null 2>&1; then
+    echo "  FAIL  CONTROL: the ☐ carve-out leaked into ❌→✅"; bad=1
+  else
+    echo "  PASS  CONTROL — the ☐ carve-out does not leak into ❌→✅"
+  fi
+
   # VACUITY: the comparator must be capable of failing at all.
   printf '1 ❌\n' > "$tmp/before"; printf '1 ✅\n' > "$tmp/after"; : > "$tmp/due"
   if verdict_diff_ok "$tmp/before" "$tmp/after" "$tmp/due" >/dev/null 2>&1; then
@@ -117,6 +135,7 @@ before = dict(l.split(None, 1) for l in open(sys.argv[1]) if l.strip())
 after  = dict(l.split(None, 1) for l in open(sys.argv[2]) if l.strip())
 due    = {l.strip() for l in open(sys.argv[3]) if l.strip()}
 GREEN = "✅"
+UNWALKED = "☐"
 undue = []
 for rid, now in after.items():
     was = before.get(rid)
@@ -124,6 +143,20 @@ for rid, now in after.items():
         continue                       # no verdict movement
     if now.strip() != GREEN:
         continue                       # a discovered failure is never blocked
+    if was.strip() == UNWALKED:
+        # FIRST MEASUREMENT, not re-confirmation. The treadmill this gate
+        # exists to stop is re-walking the ~200 rows already believed green.
+        # A ☐ row carries NO belief — there is nothing to re-confirm, and the
+        # ledger has no verdict for it at all. Refusing it would rate-limit
+        # the first time anyone ever looks at a row, which is the opposite of
+        # the rule. Symmetric with the ❌ carve-out above: never rate-limit
+        # NEW information, in either direction.
+        #
+        # Measured 2026-08-12 on hw295: rows 26/27/28/42/44/45 were ☐ on main,
+        # walked green, and the scheduler had not marked them due because
+        # cross_env_proof from earlier environments put them in a later Leitner
+        # box. The gate called that a treadmill. It was not one.
+        continue
     if rid not in due:
         undue.append(rid)
 if undue:
