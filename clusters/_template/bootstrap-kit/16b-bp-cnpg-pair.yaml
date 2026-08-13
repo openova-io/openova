@@ -313,6 +313,9 @@ spec:
       # -allow-replication-to-primary policy (default-denies all other ingress).
       # hw287: cnpg-pair region-b replica pg_stat_wal_receiver=streaming yet all
       # 8 Continuum CRs read standbyAvailable=UNSET. Substitutes unchanged.
+      # 0.2.24 (#6148): dr-failback peer-ahead write-guard — client ingress to
+      # the stale primary's :5432 is denied for the duration of the peer-ahead
+      # hold and restored on clear_hold. Lockstep slot 16b pin -> 0.2.24.
       # 0.2.23 (#5388): dr-failback starvation surfacing (hw290 G12 leg-6) —
       # when the post-failover geometry candidate (local writable primary, sync
       # standby absent) persists with the peer probe failing observability-dead
@@ -320,7 +323,7 @@ spec:
       # shape, #5339), the actor records dr-failback-starved-at + reason on the
       # HR instead of idling silently at D0 while a split-brain persists.
       # Diagnostic only; substitutes unchanged.
-      version: 0.2.23
+      version: 0.2.24
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair
