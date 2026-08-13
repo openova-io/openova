@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T23:00:09Z` |
+| Last refreshed | `2026-08-13T23:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5857](https://github.com/openova-io/openova/issues/5857) | Door A stamps every customer Org isolation=vcluster while the GitOps renderer ba | Other |
-| [#5867](https://github.com/openova-io/openova/issues/5867) | Two UAT rows need an owner decision and have no tracker issue: row 19 (grid keye | Other |
 | [#5871](https://github.com/openova-io/openova/issues/5871) | hw292 live: 11 of 14 Applications are Degraded on a cutoverComplete=true Soverei | Other |
 | [#5878](https://github.com/openova-io/openova/issues/5878) | newapi is the only SSO app that does not accept the realm session — bare URL 3 | Other |
 | [#5882](https://github.com/openova-io/openova/issues/5882) | OpenBao SSO session lands with no token prompt but its policy cannot list mounts | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#6260](https://github.com/openova-io/openova/issues/6260) | Sandbox retirement is half-landed: the reconciler's only install site was delete | Other |
 | [#6262](https://github.com/openova-io/openova/issues/6262) | harbor-prewarm blocks on the cutover's OWN hollow pin, and the chart's Case 40 g | Other |
 | [#6268](https://github.com/openova-io/openova/issues/6268) | Topology tab shows one target for an active-hot-standby app whose backing pair i | Other |
+| [#6272](https://github.com/openova-io/openova/issues/6272) | check-guards-are-wired.sh globs only *.sh — a python guard is orphaned invisib | Other |
+| [#6273](https://github.com/openova-io/openova/issues/6273) | harbor-prewarm Phase A0: an Organization's failed app install fail-closes the so | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T23:11 | [#6270](https://github.com/openova-io/openova/pull/6270) | #6254 | ci(release): the umbrella must not publish a seed pin its si |
 | 2026-08-13T22:50 | [#6269](https://github.com/openova-io/openova/pull/6269) | #3379 | fix(cutover): stamp a carried-over step failure with the Job |
 | 2026-08-13T22:14 | [#6267](https://github.com/openova-io/openova/pull/6267) | #4292 | docs(uat): walk 16 rows live on hw296 — 8 green, and row 60  |
 | 2026-08-13T21:09 | [#6265](https://github.com/openova-io/openova/pull/6265) | #6236 | ci: run chart/tests/*.sh at PR time under the release-pinned |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-13T13:06 | [#6233](https://github.com/openova-io/openova/pull/6233) | #4993 | fix(provisioning): one unresolvable cart entry no longer sin |
 | 2026-08-13T14:10 | [#6232](https://github.com/openova-io/openova/pull/6232) | #3373 | fix(catalyst): make the topology choice survive the round tr |
 | 2026-08-13T13:07 | [#6230](https://github.com/openova-io/openova/pull/6230) | #5734 | fix(bp-guacamole): nothing had ever written a Guacamole conn |
-| 2026-08-13T11:34 | [#6228](https://github.com/openova-io/openova/pull/6228) | #6149 | docs(ledger): publish UAT-FINAL — every case with its confid |
 
 ---
 
