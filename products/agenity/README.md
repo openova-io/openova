@@ -134,13 +134,31 @@ zero-touch by construction — no per-Org `bao kv put`.
 > prefix. The path is **cluster-shared** — one seed serves every Org's agenity
 > install on that Sovereign.
 
-**Supplying the platform credential (the one founder action).** Set it once per
-Sovereign via either:
-- the operator-rotatable `catalyst-system/sovereign-anthropic-credentials`
-  Secret (keys `apiKey` / `credentialsJson`) — **source-wins**, so this is also
-  the seam to re-seed the EXPIRING OAuth blob without a chart upgrade; or
-- a per-Sovereign overlay setting `sovereign.anthropic.{apiKey,credentialsJson}`
-  on bp-catalyst-platform.
+**Supplying the platform credential (the one founder action).** Set it **once on
+the mothership** — not once per Sovereign:
+
+- **Mothership (preferred, #4277).** Populate `CATALYST_ANTHROPIC_API_KEY` and
+  `CATALYST_ANTHROPIC_CREDENTIALS_JSON` on the mothership catalyst-api (they
+  arrive via its own `catalyst-openova-kc-credentials` Secret, which
+  `catalyst-system/sovereign-anthropic-credentials` on the MOTHERSHIP
+  source-wins into). Every Sovereign provisioned afterwards is seeded with no
+  human step: the cloud-init kubeconfig postback runs
+  `seedSovereignAnthropicCredentials`
+  (`products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_seed_mothership.go`,
+  called from `kubeconfig.go`'s `PutKubeconfig`), which creates
+  `catalyst-system/sovereign-anthropic-credentials` on the new cluster — the
+  same rail the #883 SMTP-relay credential rides. It refuses to ship a
+  credential that is absent, key-only, malformed or expired, so a Sovereign is
+  never handed a Secret that inspects as populated and fails at first use.
+- **Per-Sovereign (the escape hatch, and the rotation seam).** Create or edit
+  `catalyst-system/sovereign-anthropic-credentials` (keys `apiKey` /
+  `credentialsJson`) on that Sovereign directly. The mothership seed **never
+  overwrites an existing Secret**, so operator-supplied bytes always win, and
+  this stays the way to re-seed the EXPIRING OAuth blob without a chart
+  upgrade (#6163 reads it live — no catalyst-api roll needed).
+- **Chart floor.** A per-Sovereign overlay setting
+  `sovereign.anthropic.{apiKey,credentialsJson}` on bp-catalyst-platform is the
+  lowest-precedence source; both seams above win over it.
 
 Until it is supplied the dashboard still renders, but the seed **loud-skips**
 (catalyst-api logs `anthropic seed: SKIPPED — platform Anthropic credential

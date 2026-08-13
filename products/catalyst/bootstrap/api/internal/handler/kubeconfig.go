@@ -698,6 +698,24 @@ func (h *Handler) PutKubeconfig(w http.ResponseWriter, r *http.Request) {
 		seedOutcome := h.seedSovereignSMTPCredentials(r.Context(), dep, string(body))
 		h.emitSovereignSMTPSeedEvent(dep, seedOutcome)
 
+		// Issues #4277 / #4111 — seed the Sovereign-side
+		// catalyst-system/sovereign-anthropic-credentials Secret from the
+		// mothership's own Anthropic credential, on the same rail and for
+		// the same reason as the SMTP seed above.
+		//
+		// Before this, that Secret had two readers and NO writer anywhere
+		// in the repo: it came into existence only when a human ran
+		// `kubectl create secret` on that one Sovereign. Every Sovereign
+		// therefore started life with its Agenity workspaces unable to
+		// reach Anthropic, and the gap re-opened on every fresh prov.
+		//
+		// The seed cannot invent a credential the mothership does not
+		// hold — that branch skips loudly and provisioning continues
+		// exactly as before. What it removes is the per-Sovereign manual
+		// step for every Sovereign after the founder's one-time edit.
+		anthropicSeedOutcome := h.seedSovereignAnthropicCredentials(r.Context(), dep, string(body))
+		h.emitSovereignAnthropicSeedEvent(dep, anthropicSeedOutcome)
+
 		// Launch the helmwatch goroutine in the background.
 		//
 		// phase1WatchWG (test-only; nil in production) lets a test
