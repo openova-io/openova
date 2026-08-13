@@ -84,6 +84,26 @@ spec:
             - |
               set -e
               mkdir -p /claudehome/.claude/projects
+              # ── #6163 FREEZE 2: WAIT for the credential, do not read once ──
+              # kubelet re-projects a mounted Secret on its own sync period, so a
+              # value seeded AFTER pod start appears in /creds while this loop is
+              # still running — that is what lets a late credential land with no
+              # restart. Retrying here also survives an init-container restart,
+              # because each attempt re-reads the mount rather than a snapshot.
+              _cw_timeout={{ (.Values.anthropic.credentialWait).timeoutSeconds | default 300 }}
+              _cw_interval={{ (.Values.anthropic.credentialWait).intervalSeconds | default 5 }}
+              _cw_ontimeout='{{ (.Values.anthropic.credentialWait).onTimeout | default "fail" }}'
+              _cw_waited=0
+              while [ ! -s /creds/{{ .Values.anthropic.credentialsKey }} ] && [ "$_cw_waited" -lt "$_cw_timeout" ]; do
+                if [ "$_cw_waited" = 0 ]; then
+                  echo "waiting for /creds/{{ .Values.anthropic.credentialsKey }} (up to ${_cw_timeout}s) — a credential seeded after pod start lands here with no restart (#6163)"
+                fi
+                sleep "$_cw_interval"
+                _cw_waited=$((_cw_waited + _cw_interval))
+              done
+              if [ -s /creds/{{ .Values.anthropic.credentialsKey }} ] && [ "$_cw_waited" -gt 0 ]; then
+                echo "credential arrived after ${_cw_waited}s of waiting (#6163)"
+              fi
               if [ -s /creds/{{ .Values.anthropic.credentialsKey }} ]; then
                 cp /creds/{{ .Values.anthropic.credentialsKey }} /claudehome/.claude/.credentials.json
                 chmod 600 /claudehome/.claude/.credentials.json
@@ -112,7 +132,24 @@ spec:
                   *)        echo "could not parse claude-code OAuth expiry from credentials.json (non-fatal)." ;;
                 esac
               else
-                echo "no credentials.json key in Secret — key-only mode"
+                # #6163 FREEZE 2. This branch is NOT "key-only mode" — this init
+                # container only renders when `anthropic.credentialsKey` is set,
+                # i.e. when OAuth mode was REQUESTED. A genuinely key-only install
+                # sets it to "" and gets no init container. So the only thing this
+                # can mean is: the credential you asked for did not arrive.
+                #
+                # Saying "key-only mode" named a supported operating mode and made
+                # an outage look like a configuration choice — the reason a hw293
+                # workspace sat broken for eight hours while its Pod read Running.
+                echo "🛑 FATAL (#6163): no credential at /creds/{{ .Values.anthropic.credentialsKey }} after ${_cw_timeout}s."
+                echo "🛑 This is NOT key-only mode — this init container only runs when anthropic.credentialsKey is set, so OAuth mode WAS requested and the credential never arrived."
+                echo "🛑 The spawned agent cannot authenticate to Anthropic. Seed the Org's OpenBao path catalyst/anthropic/token with a credentialsJson and let the ExternalSecret sync (see README: Seeding)."
+                if [ "$_cw_ontimeout" = "continue" ]; then
+                  echo "🛑 anthropic.credentialWait.onTimeout=continue — starting anyway; the dashboard will serve but the agent will fail 401."
+                else
+                  echo "🛑 anthropic.credentialWait.onTimeout=fail — refusing to start, so this surfaces in kubectl get pod instead of a Running Pod that cannot work."
+                  exit 1
+                fi
               fi
               # Onboarding stub so claude-code does not re-run the first-run
               # /login flow AND does not block on the two interactive first-run
