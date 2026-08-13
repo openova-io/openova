@@ -93,6 +93,10 @@ spec:
               _cw_timeout={{ (.Values.anthropic.credentialWait).timeoutSeconds | default 300 }}
               _cw_interval={{ (.Values.anthropic.credentialWait).intervalSeconds | default 5 }}
               _cw_ontimeout='{{ (.Values.anthropic.credentialWait).onTimeout | default "fail" }}'
+              # #6163 FREEZE 3 — verdict for a credential that IS present but is
+              # already expired. Same fail|continue vocabulary as onTimeout,
+              # because it is the same question: can this workspace work?
+              _cw_onexpired='{{ .Values.anthropic.onExpiredCredential | default "fail" }}'
               _cw_waited=0
               while [ ! -s /creds/{{ .Values.anthropic.credentialsKey }} ] && [ "$_cw_waited" -lt "$_cw_timeout" ]; do
                 if [ "$_cw_waited" = 0 ]; then
@@ -119,14 +123,27 @@ spec:
                 # other signal. So we parse expiresAt HERE and emit a LOUD,
                 # greppable line when the seeded token is ALREADY expired — the
                 # operator's cue to re-seed openbao catalyst/anthropic/token with a fresh
-                # credentialsJson (see README §Seeding). This is diagnostic
-                # ONLY: we never block the pod (the dashboard must still serve)
-                # and never mutate the blob (claude-code owns rotation). The
+                # credentialsJson (see README §Seeding).
+                #
+                # #6163 FREEZE 3: this is NO LONGER diagnostic-only. It used to
+                # warn and exit 0 — which meant R19 ("the init container
+                # validates the token and exits 0") read GREEN over a workspace
+                # whose every spawn 401s, the same false-green FREEZE 2 was cut
+                # to kill one branch over. An expired credential now takes the
+                # same verdict as an absent one, under anthropic
+                # .onExpiredCredential (fail|continue, default fail). We still
+                # never mutate the blob — claude-code owns rotation. The
                 # parser is a single-line python3 -c (no heredoc) so the YAML
                 # block scalar stays whitespace-robust across Helm renders.
                 EXP=$(python3 -c 'import json,time;o=json.load(open("/claudehome/.claude/.credentials.json")).get("claudeAiOauth",{});e=int(o.get("expiresAt",0) or 0);n=int(time.time()*1000);print(("EXPIRED %d"%((n-e)//3600000)) if e and e<n else ("OK %d"%((e-n)//3600000)) if e else "NOEXP")' 2>/dev/null || echo "")
                 case "$EXP" in
-                  EXPIRED*) echo "🛑 WARNING (#4111): seeded claude-code OAuth token is EXPIRED (~${EXP#EXPIRED }h ago) — the spawned agent will fail '401 Invalid authentication credentials' and the dashboard will show 'runtime offline / 0 workers'. RE-SEED openbao catalyst/anthropic/token with a FRESH credentialsJson and force-sync the ExternalSecret (see README: Seeding the catalyst/anthropic/token openbao path)." ;;
+                  EXPIRED*) echo "🛑 FATAL (#6163): seeded claude-code OAuth token is EXPIRED (~${EXP#EXPIRED }h ago) — the spawned agent will fail '401 Invalid authentication credentials' and the dashboard will show 'runtime offline / 0 workers'. RE-SEED openbao catalyst/anthropic/token with a FRESH credentialsJson and force-sync the ExternalSecret (see README: Seeding the catalyst/anthropic/token openbao path)."
+                            if [ "$_cw_onexpired" = "continue" ]; then
+                              echo "🛑 anthropic.onExpiredCredential=continue — starting anyway; the dashboard will serve but every agent spawn will 401."
+                            else
+                              echo "🛑 anthropic.onExpiredCredential=fail — refusing to start, so this surfaces in kubectl get pod instead of a Running Pod whose agent cannot authenticate."
+                              exit 1
+                            fi ;;
                   OK*)      echo "claude-code OAuth token valid (~${EXP#OK }h remaining)." ;;
                   NOEXP)    echo "claude-code credentials.json has no expiresAt — assuming a non-expiring credential." ;;
                   *)        echo "could not parse claude-code OAuth expiry from credentials.json (non-fatal)." ;;

@@ -119,6 +119,35 @@ anthropic:
     #   continue — start anyway, having said so loudly. Restores the pre-#6163
     #              shape for anyone who wants a shell over an honest error.
     onTimeout: fail
+  # #6163 FREEZE 3 — an EXPIRED credential is as unusable as an absent one, so
+  # it gets the same verdict.
+  #
+  # FREEZE 2 made the ABSENT branch fail-loud on exactly this reasoning: a Pod
+  # that cannot do the thing it exists to do must not read Running. But the
+  # branch one line over — credential PRESENT and already EXPIRED — still
+  # printed a warning and exited 0. The init container had already parsed the
+  # expiry (it prints "EXPIRED ~Nh ago"), then threw the verdict away.
+  #
+  # That is the SAME false-green FREEZE 2 was cut to kill, and it is the one
+  # R19 actually reads: R19's clause is "the init container validates the token
+  # and exits 0", and an expired token satisfies it literally — Pod Running,
+  # init exit 0, row green — while every spawned agent fails "401 Invalid
+  # authentication credentials" and G8/G9/222 sit red behind a green R19. The
+  # live precedent is in the template comment: on omantel.biz a token expired
+  # ~45h prior left the dashboard serving and every spawn 401ing, with no
+  # signal other than "runtime offline · 0 workers".
+  #
+  # The seeded blob is a claudeAiOauth pair whose accessToken lives HOURS, and
+  # nothing in this repo refreshes it (headless claude-code does not reliably
+  # refresh from the refreshToken — see the template comment). So expiry is the
+  # EXPECTED steady state of a credential nobody rotated, not a rare edge.
+  #
+  #   fail     — exit non-zero, same as the absent branch. Init:Error surfaces
+  #              in `kubectl get pod` instead of a Running Pod that 401s.
+  #   continue — start anyway, having said so loudly. Restores the pre-FREEZE-3
+  #              diagnostic-only posture for anyone who wants the dashboard to
+  #              serve over an honest error.
+  onExpiredCredential: fail
   externalSecret:
     enabled: true
     refreshInterval: 1h

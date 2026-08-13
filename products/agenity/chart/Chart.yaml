@@ -1,5 +1,24 @@
 apiVersion: v2
 name: bp-agenity
+# 0.5.27 (#6163 FREEZE 3): an EXPIRED credential now takes the same verdict as
+# an absent one. FREEZE 2 made the ABSENT branch fail-loud because a Pod that
+# cannot do the thing it exists to do must not read Running — but the branch one
+# line over, credential PRESENT and already EXPIRED, still printed a warning and
+# exited 0. The init container had already parsed the expiry (it logs "EXPIRED
+# ~Nh ago") and then threw the verdict away. That is the same false green
+# FREEZE 2 was cut to kill, and it is the one UAT row R19 actually reads: R19's
+# clause is "the init container validates the token and exits 0", which an
+# expired token satisfies literally — Pod Running, init exit 0, row green —
+# while every spawned agent fails "401 Invalid authentication credentials" and
+# G8/G9/222 sit red behind it. The seeded blob is a claudeAiOauth pair whose
+# accessToken lives HOURS and nothing in this repo refreshes it, so expiry is
+# the expected steady state of a credential nobody rotated, not a rare edge.
+# New knob anthropic.onExpiredCredential (fail|continue, default fail);
+# `continue` restores the prior diagnostic-only posture. Pinned by
+# chart/tests/credential-verdict.sh, which EXECUTES the rendered init script
+# against valid / no-expiresAt / expired / absent / 0-byte fixtures — the two
+# valid fixtures are load-bearing controls, without which "fail on expiry" is
+# indistinguishable from "fail on everything".
 # 0.5.26 (#6163 FREEZE 2): the credential init container WAITS instead of
 # reading the mount once. The old branch printed "no credentials.json key in
 # Secret — key-only mode" and exited 0 on a miss, permanently. Measured on
@@ -199,7 +218,7 @@ type: application
 # same gateway bp-wordpress-tenant + the org console route attach to, #4054).
 # The old default rendered Accepted=False/InvalidHTTPRoute and the host 404'd
 # until the parentRef was hand-overridden. appVersion (image) unchanged.
-version: 0.5.26
+version: 0.5.27
 # 0.5.22 (#5617): the per-Org oidc-gate companion gains its EGRESS
 # CiliumNetworkPolicy (templates/oidc-gate.yaml `oidc-gate-<cid>-egress`).
 # The gate shipped an ingress-only gateway CNP into a DEFAULT-DENY per-Org
