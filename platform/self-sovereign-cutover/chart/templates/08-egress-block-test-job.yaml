@@ -34,7 +34,7 @@ metadata:
   labels:
     {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
     app.kubernetes.io/component: cutover-step
-    bp.openova.io/cutover-order: "8"
+    bp.openova.io/cutover-order: "11"
     bp.openova.io/cutover-mode: "job"
 data:
   stepName: egress-block-test

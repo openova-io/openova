@@ -636,12 +636,12 @@ if ! grep -F 'patch secret "${DEST_SECRET_NAME}"' "$TMP/render.yaml" >/dev/null;
   echo "FAIL: Step-09 missing kubectl patch of dest Secret (TBD-C18)" >&2
   exit 1
 fi
-# Step-09 must be order=9 so it lands LAST in the cutover sequence.
-# (Order doesn't actually matter for correctness — no other step reads
-# the token — but order 9 avoids renumbering 01..08 which would
-# invalidate operator history.)
-if ! grep -A15 'cutover-step-09-gitea-token-mint' "$TMP/render.yaml" | grep -q 'bp.openova.io/cutover-order: "9"'; then
-  echo "FAIL: Step-09 not labelled bp.openova.io/cutover-order=9 (TBD-C18)" >&2
+# Step-09 is order=8 since #6214. Its old comment claimed order 9 made it
+# land LAST, which stopped being true the moment steps 10 and 11 were added
+# after it; and by its own reasoning the position is free — no other step
+# reads the token. The isolation proof is what must be last (Case 91).
+if ! grep -A15 'cutover-step-09-gitea-token-mint' "$TMP/render.yaml" | grep -q 'bp.openova.io/cutover-order: "8"'; then
+  echo "FAIL: Step-09 not labelled bp.openova.io/cutover-order=8 (TBD-C18, renumbered by #6214)" >&2
   exit 1
 fi
 echo "  PASS (Step-09 mints Gitea API token + patches provisioning-github-token)"
@@ -718,8 +718,8 @@ if ! grep -q 'cutover-step-10-vcluster-registry-pivot' "$TMP/render.yaml"; then
   echo "FAIL: Step-10 vcluster-registry-pivot ConfigMap missing (TBD-V24 MISS-1)" >&2
   exit 1
 fi
-if ! grep -A20 'cutover-step-10-vcluster-registry-pivot' "$TMP/render.yaml" | grep -q 'bp.openova.io/cutover-order: "10"'; then
-  echo "FAIL: Step-10 not labelled bp.openova.io/cutover-order=10 (TBD-V24 MISS-1)" >&2
+if ! grep -A20 'cutover-step-10-vcluster-registry-pivot' "$TMP/render.yaml" | grep -q 'bp.openova.io/cutover-order: "9"'; then
+  echo "FAIL: Step-10 not labelled bp.openova.io/cutover-order=9 (TBD-V24 MISS-1, renumbered by #6214)" >&2
   exit 1
 fi
 # All 3 vCluster HelmRelease names must be referenced in the patch script.
@@ -813,8 +813,8 @@ if ! grep -q 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml"; the
   echo "FAIL: Step-11 crossplane-provider-pivot ConfigMap missing (TBD-V24 MISS-3)" >&2
   exit 1
 fi
-if ! grep -A20 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml" | grep -q 'bp.openova.io/cutover-order: "11"'; then
-  echo "FAIL: Step-11 not labelled bp.openova.io/cutover-order=11 (TBD-V24 MISS-3)" >&2
+if ! grep -A20 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml" | grep -q 'bp.openova.io/cutover-order: "10"'; then
+  echo "FAIL: Step-11 not labelled bp.openova.io/cutover-order=10 (TBD-V24 MISS-3, renumbered by #6214)" >&2
   exit 1
 fi
 # Default upstream host must be xpkg.upbound.io (the Crossplane Provider
@@ -1996,7 +1996,7 @@ fi
 # (3) the step-08 script writes each PROVIDER_API_CIDRS entry into the CCNP —
 # the writer loop must sit INSIDE the default-deny allow-list (toCIDR) section,
 # i.e. after the ALLOW_CIDRS loop and before the toEntities block.
-step08_block="$(awk '/name: cutover-egress-block-test-script|cutover-order: "8"/{c=1} c{print}' "$TMP/render-providercidr.yaml")"
+step08_block="$(awk '/name: cutover-egress-block-test-script|cutover-order: "11"/{c=1} c{print}' "$TMP/render-providercidr.yaml")"
 if ! grep -q 'for cidr in ${PROVIDER_API_CIDRS}' <<<"$step08_block"; then
   echo "FAIL: Step-08 CCNP writer has no PROVIDER_API_CIDRS loop — provider API CIDRs never reach the deny-egress allow-list (#5017)" >&2
   exit 1
@@ -2027,7 +2027,7 @@ if ! grep -A1 'name: FRESH_PULL_DS_PER_NODE' "$TMP/render.yaml" | grep -q 'value
   echo "FAIL: FRESH_PULL_DS_PER_NODE env missing or default != 120 (#5022)" >&2
   exit 1
 fi
-step08_all="$(awk '/cutover-order: "8"/{c=1} c{print}' "$TMP/render.yaml")"
+step08_all="$(awk '/cutover-order: "11"/{c=1} c{print}' "$TMP/render.yaml")"
 if ! grep -q 'desiredNumberScheduled' <<<"$step08_all"; then
   echo "FAIL: roll_and_check_workload does not scale the DaemonSet budget from desiredNumberScheduled (#5022)" >&2
   exit 1
@@ -4534,6 +4534,48 @@ if ! grep -qF '"CATALYST_LOCAL_REGISTRY_URL=${LOCAL_OCI_BASE}"' "$TMP/s07e.yaml"
   exit 1
 fi
 echo "  PASS (#5439: Phase 3e present with a values-driven org-controller target, stamps all three generator Deployments, executed derivation equals step-10's target_host exactly, read-back FATAL + absent-Deployment SKIP + unconfigured-overlay guard, #5527 Phase 3d intact)"
+
+echo "[cutover-contract] Case 91: the isolation proof runs LAST — every pivot precedes the deny-egress hold (#6214)"
+# #6214. Step-08's PRE-HOLD lints assert that every Flux source, every workload
+# image ref and every Crossplane Provider package already resolves to a
+# Sovereign-local host. Three steps that PRODUCE exactly that state used to run
+# AFTER it: vcluster-registry-pivot and crossplane-provider-pivot.
+#
+# Measured on hw295 (2026-08-13): the cutover reached 7/11 and failed step-08 on
+#   EXTERNAL-PROVIDER-PACKAGE [primary] provider-opentofu
+#     xpkg.upbound.io/upbound/provider-opentofu:v1.1.3
+# whose remedy is "re-run step-11's crossplane-provider-pivot" — a step the gate
+# had made unreachable. Step-08 fails, 9/10/11 never run, the provider is never
+# pivoted, and the next attempt fails identically. cutoverComplete was
+# structurally unreachable on any Sovereign carrying an external Provider.
+#
+# The invariant, pinned so a future renumber cannot quietly reintroduce it:
+# the egress-block-test's order MUST be strictly greater than every other
+# step's. This asserts the RELATION, not the literal 11 — renumbering stays
+# free, inverting the relation does not.
+egress_order="$(awk '/cutover-step-08-egress-block-test/{c=1} c&&/bp.openova.io\/cutover-order:/{gsub(/[^0-9]/,"",$2); print $2; exit}' "$TMP/render.yaml")"
+if [ -z "$egress_order" ]; then
+  echo "FAIL: could not read the egress-block-test cutover-order label (#6214)" >&2
+  exit 1
+fi
+max_other=0; offenders=""
+while read -r ord name; do
+  [ -z "$ord" ] && continue
+  case "$name" in *egress-block-test*) continue ;; esac
+  [ "$ord" -gt "$max_other" ] && max_other="$ord"
+  [ "$ord" -gt "$egress_order" ] && offenders="$offenders $name(order=$ord)"
+done <<EOF2
+$(awk '/bp.openova.io\/cutover-order:/{ord=$2; gsub(/[^0-9]/,"",ord); print ord" "prev} {if ($0 ~ /name: cutover-step-/) prev=$2}' "$TMP/render.yaml")
+EOF2
+if [ -n "$offenders" ]; then
+  echo "FAIL: these steps run AFTER the deny-egress hold, so the hold cannot prove what they establish (#6214):$offenders" >&2
+  exit 1
+fi
+if [ "$egress_order" -le "$max_other" ]; then
+  echo "FAIL: egress-block-test order=$egress_order is not strictly last (max other=$max_other) (#6214)" >&2
+  exit 1
+fi
+echo "  PASS (#6214: egress-block-test order=$egress_order runs strictly after every pivot, max other=$max_other)"
 
 echo "[cutover-contract] Case 90: Step-03 Phase A0 must NOT gate on the cutover chart's OWN workloads (#6198) — EXECUTED, with a control proving the exclusion does not leak"
 # WHY: the gate's premise is "running != desired" — a workload mid-roll would be
