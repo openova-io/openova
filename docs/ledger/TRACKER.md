@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T13:45:05Z` |
+| Last refreshed | `2026-08-13T14:00:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5827](https://github.com/openova-io/openova/issues/5827) | GET /applications/catalyst-api 404s while GET /applications/catalyst-api/placeme | Other |
 | [#5829](https://github.com/openova-io/openova/issues/5829) | bp-openbao: a failed ACL-policy write is swallowed, then the OIDC role names a p | Other |
 | [#5831](https://github.com/openova-io/openova/issues/5831) | Nine page components are reachable from nothing but their own tests — includin | Other |
 | [#5833](https://github.com/openova-io/openova/issues/5833) | GET /api/v1/organizations double-counts an Organization — the store/CR merge k | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6229](https://github.com/openova-io/openova/issues/6229) | /api/v1/version reports a sha from a Deployment env var that a roll never update | Other |
 | [#6231](https://github.com/openova-io/openova/issues/6231) | Topology choice does not survive the round trip: the status endpoint flattens th | Other |
 | [#6235](https://github.com/openova-io/openova/issues/6235) | cutover-contract Case 40 is fail-open: pipefail turns a matched grep -q into 141 | Other |
+| [#6238](https://github.com/openova-io/openova/issues/6238) | main is red: the bp-guacamole auto-bump workflow bumps Chart.yaml without the ca | Other |
 
 ---
 
