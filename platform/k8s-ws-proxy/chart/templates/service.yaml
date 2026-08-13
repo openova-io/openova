@@ -20,4 +20,13 @@ spec:
       port: {{ .Values.k8sWsProxy.port }}
       targetPort: http
       protocol: TCP
+    {{- if include "bp-k8s-ws-proxy.tlsEnabled" . }}
+    # #5991 — the mTLS listener guacd dials. ClusterIP only; no
+    # nodePort is allocated on this Service and none may ever be
+    # (docs/PRINCIPLES.md, and scripts/check-no-nodeports.sh enforces it).
+    - name: https
+      port: {{ .Values.k8sWsProxy.tls.port }}
+      targetPort: https
+      protocol: TCP
+    {{- end }}
 {{- end }}

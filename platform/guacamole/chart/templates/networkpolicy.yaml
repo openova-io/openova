@@ -5,10 +5,16 @@
 # Gateway's allow rule; egress here is the load-bearing surface that
 # unbreaks the OIDC handshake + the kubectl-WS proxy.
 #
-# guacd has NO egress rule of its own — it only talks to k8s-ws-proxy
-# (for kubectl exec) and the captures volume. The kubectl path goes
-# via the webapp, so guacd's only allowed egress is internal
-# (recordings volume = filesystem, not network).
+# #5991 CORRECTION — this header used to say "guacd has NO egress rule
+# of its own … the kubectl path goes via the webapp". That was true only
+# while no connection used guacd's `kubernetes` protocol. That protocol
+# dials the proxy FROM GUACD, over its own libwebsockets client, so with
+# the cluster-shell connection seeded guacd needs egress of its own; the
+# `guacd-egress` policy at the bottom of this file grants it, narrowly.
+# The Sovereign runs a namespace-wide default-deny
+# (bp-plane-isolation), so without that policy the connection renders in
+# the list and times out on click — the exact half-working shape UAT row
+# 115's vacuity guard is written against.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -143,5 +149,63 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.guacamole.webapp.port }}
+{{- end }}
+{{- $conn := (.Values.guacamole.database | default dict).connections | default dict }}
+{{- $cs := $conn.clusterShell | default dict }}
+{{- $connOn := true }}{{- if hasKey $conn "enabled" }}{{- $connOn = $conn.enabled }}{{- end }}
+{{- $csOn := true }}{{- if hasKey $cs "enabled" }}{{- $csOn = $cs.enabled }}{{- end }}
+{{- if and $connOn $csOn }}
+---
+# #5991 / UAT row 115 — guacd's own egress to bp-k8s-ws-proxy.
+#
+# guacd's `kubernetes` protocol opens its OWN WebSocket to the proxy
+# (libwebsockets client inside guacd, not a call routed through the
+# webapp), so the webapp's egress policy above does not cover it. The
+# Sovereign applies a namespace-wide default-deny to `guacamole`
+# (bp-plane-isolation ships podSelector:{} Ingress+Egress per component
+# namespace), so absent this rule the seeded cluster-shell connection
+# renders in ALL CONNECTIONS and then hangs on click.
+#
+# NetworkPolicies are additive, so this only GRANTS: it cannot narrow
+# any existing allow, and it selects guacd — which carried no policy of
+# its own before — rather than touching the webapp's rules.
+#
+# Scope is exactly two destinations: DNS (guacd resolves the proxy by
+# its fully-qualified Service name, which is also the name it verifies
+# the server certificate against) and the proxy's mTLS port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-guacamole.guacdName" . }}-egress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "bp-guacamole.guacdSelectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $cs.targetProxyNamespace | default .Values.guacamole.networkPolicy.k8sWsProxy.namespace }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.guacamole.networkPolicy.k8sWsProxy.podSelector | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ $cs.proxyPort | default 8443 }}
 {{- end }}
 {{- end }}

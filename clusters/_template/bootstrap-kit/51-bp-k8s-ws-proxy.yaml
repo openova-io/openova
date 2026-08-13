@@ -58,6 +58,19 @@ spec:
   dependsOn:
     - name: bp-cilium
     - name: bp-sealed-secrets
+    # #5991 — the chart now renders cert-manager Certificates for its mTLS
+    # listener. The render is ALSO gated on the cert-manager.io/v1 CRD
+    # being registered, so a missing edge would not fail the apply — it
+    # would silently produce a proxy with no TLS listener, and every
+    # Guacamole click would then fail with nothing to point at. This edge
+    # makes the ordering explicit rather than probabilistic.
+    - name: bp-cert-manager
+    # reflector mirrors the issued client-certificate Secret into the
+    # `guacamole` namespace (tls.reflectClientCertTo). Without it the
+    # connection is seeded credential-free; the per-minute enroll CronJob
+    # converges it once the mirror lands, so this edge is about landing
+    # on the FIRST reconcile rather than the second.
+    - name: bp-reflector
   chart:
     spec:
       chart: bp-k8s-ws-proxy
@@ -87,7 +100,7 @@ spec:
       # `values.global.imageRegistry: ''` seam below). CI promote auto-bumps this
       # to 0.1.16 with the new image SHA on merge; blueprint-release (TBD-A6) then
       # lifts this pin to the published version in lockstep.
-      version: 0.1.16
+      version: 0.1.17
       sourceRef:
         kind: HelmRepository
         name: bp-k8s-ws-proxy

@@ -134,7 +134,7 @@ spec:
 
 ---
 
-## Connection definitions — seeded by the chart (0.2.38)
+## Connection definitions — seeded by the chart (0.2.38, mTLS target in 0.2.40)
 
 **Status (2026-08-13, UAT row 115 / #5991).** The chart now ships a connection
 **producer**. Until 0.2.38 nothing in this repository ever inserted into
@@ -184,16 +184,54 @@ values land in a ConfigMap.
   `credentialSecretName`, Guacamole opens the connection and prompts; point it at
   a Secret holding `private-key` and the session authenticates. Who holds that
   key is a Sovereign decision, not a platform one.
-- A **kubectl-shell** connection is not seeded, and not for want of an INSERT.
-  guacd's `kubernetes` protocol authenticates to the kube-apiserver by mTLS
-  client certificate only, and nothing in-cluster can mint an apiserver-trusted
-  client cert without granting the seeder CSR **approve** rights on the
-  `kubernetes.io/kube-apiserver-client` signer — which is not scopeable by CN and
-  is therefore cluster-admin-equivalent escalation. The other wire is no better:
-  `bp-k8s-ws-proxy` rejects any WebSocket upgrade without `X-Catalyst-Timestamp`
-  + `X-Catalyst-HMAC` (`core/cmd/k8s-ws-proxy/DESIGN.md:32-37`, 401 at `:79`) and
-  guacd cannot emit them. The browser shell into a Pod stays the console's
-  `/shells/issue` → k8s-ws-proxy → xterm.js path, which already works.
+- The `sovereign-node` target above is therefore **listed but not usable** out of
+  the box. That is the reason 0.2.40 adds a second target rather than calling
+  row 115 done at 0.2.38.
+
+### `cluster-shell` — the target that authenticates on click (0.2.40)
+
+`cluster-shell` is guacd's `kubernetes` protocol pointed at **bp-k8s-ws-proxy's
+mTLS listener**, and it is the one seeded connection whose credential the
+platform holds end to end.
+
+- **Why mTLS at all.** guacd cannot present the proxy's `X-Catalyst-HMAC`
+  credential: its `kubernetes` protocol builds the WebSocket upgrade through
+  libwebsockets with no hook for custom HTTP headers, and builds the path with a
+  literal `snprintf` (guacamole-server 1.5.5,
+  `src/protocols/kubernetes/{kubernetes,url}.c`). The only credential it *can*
+  present is a TLS client certificate — `client-cert` / `client-key` / `ca-cert`,
+  read as in-memory PEM in `src/protocols/kubernetes/ssl.c`. So `bp-k8s-ws-proxy`
+  0.1.17 gained an mTLS listener that accepts a client certificate as an
+  alternative to the HMAC pair, and serves the apiserver-shaped path guacd emits.
+  The HMAC contract is untouched.
+- **Where the certificate comes from.** `bp-k8s-ws-proxy` mints it from a private
+  CA it owns (that CA signs two leaves — the proxy's server cert and this client
+  cert — and nothing else), allowlists exactly that one subject, and mirrors the
+  Secret into the `guacamole` namespace via reflector. The seeder reads
+  `tls.crt` / `tls.key` / `ca.crt` from the read-only mount at run time and writes
+  them as guacd's `client-cert` / `client-key` / `ca-cert`. **That rename is
+  load-bearing**: written through unrenamed, guacd receives no client certificate
+  and every click 401s with nothing in the row to explain it.
+- **Why not the kube-apiserver directly**, which guacd also supports: an
+  apiserver-trusted client certificate needs CSR **approve** on the
+  `kubernetes.io/kube-apiserver-client` signer, which is not scopeable by CN and
+  is therefore cluster-admin-equivalent escalation shipped default-on in a public
+  chart. The proxy is our own service with its own CA and its own allowlist, so
+  the same wire costs none of that.
+- **`pod` names a WORKLOAD, not a Pod.** A connection is a row written once and
+  read on every click, so a literal Deployment/DaemonSet pod name would 404 after
+  the first rollout. The proxy resolves the segment against its
+  `POD_ALIAS_LABEL`, trying the literal Pod name first and failing hard (404) when
+  a workload name matches nothing. The default target is the proxy's own
+  node-local DaemonSet Pod.
+- **Reachability is part of the fix.** guacd dials the proxy itself, and the
+  Sovereign applies a namespace-wide default-deny (`bp-plane-isolation`), so
+  `chart/templates/networkpolicy.yaml` gained a `guacd-egress` policy for DNS +
+  the proxy's mTLS port. Without it the connection renders in the list and hangs
+  on click. NetworkPolicies are additive, so it only grants.
+
+The browser shell into a Pod is unchanged and still the console's
+`/shells/issue` → k8s-ws-proxy → xterm.js path over HMAC.
 
 Tests: `chart/tests/connection-seed-render.sh` (render + the empty-set control +
 the credential guard) and `chart/tests/connection-seed-sql.sh`, which executes

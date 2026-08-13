@@ -16,6 +16,14 @@
 #   * an empty declared set leaves the table EMPTY while the same script still
 #     seeds the admin group — a control that a fabricating producer fails.
 #
+# #5991 mTLS leg. Step 4 is now the strongest assertion in this file: it
+# mounts a cert-manager-SHAPED Secret (tls.crt / tls.key / ca.crt) and
+# reads back guacd's OWN parameter names (client-cert / client-key /
+# ca-cert). That rename is a pure run-time behaviour of the shipped
+# script — no render assertion can see it — and getting it wrong leaves
+# guacd with no client certificate, so the connection renders in ALL
+# CONNECTIONS and 401s on every click.
+#
 # Database: uses $PGHOST/$PGPORT/$PGUSER/$PGPASSWORD if exported, else starts
 # an ephemeral postgres via podman/docker. With neither, it SKIPS LOUDLY —
 # nothing is asserted, and the render test remains the CI gate.
@@ -118,21 +126,32 @@ creds "${TMP}/cred-armed" guac_armed
 run_seed "${TMP}/armed" "${TMP}/cred-armed" || { echo "seed.sh failed:"; tail -30 "${TMP}/seed.log"; exit 1; }
 
 n="$(q guac_armed "SELECT count(*) FROM guacamole_connection")"
-[[ "${n}" == "1" ]] && pass "guacamole_connection holds 1 row (was 0 on every Sovereign)" \
-                    || fail "guacamole_connection holds ${n} rows, want 1"
-got="$(q guac_armed "SELECT connection_name || '/' || protocol FROM guacamole_connection")"
-[[ "${got}" == "sovereign-node/ssh" ]] && pass "the row is sovereign-node/ssh" \
-                                       || fail "row is ${got}, want sovereign-node/ssh"
-host="$(q guac_armed "SELECT parameter_value FROM guacamole_connection_parameter WHERE parameter_name='hostname'")"
-[[ "${host}" == "10.9.8.7" ]] && pass "hostname parameter carries the downward-API node IP" \
+[[ "${n}" == "2" ]] && pass "guacamole_connection holds 2 rows (was 0 on every Sovereign)" \
+                    || fail "guacamole_connection holds ${n} rows, want 2"
+got="$(q guac_armed "SELECT string_agg(connection_name || '/' || protocol, ',' ORDER BY connection_name) FROM guacamole_connection")"
+[[ "${got}" == "cluster-shell/kubernetes,sovereign-node/ssh" ]] \
+  && pass "the rows are cluster-shell/kubernetes + sovereign-node/ssh" \
+  || fail "rows are ${got}, want cluster-shell/kubernetes,sovereign-node/ssh"
+host="$(q guac_armed "SELECT p.parameter_value FROM guacamole_connection_parameter p JOIN guacamole_connection c USING (connection_id) WHERE p.parameter_name='hostname' AND c.connection_name='sovereign-node'")"
+[[ "${host}" == "10.9.8.7" ]] && pass "sovereign-node hostname carries the downward-API node IP" \
                               || fail "hostname is '${host}', want 10.9.8.7 (the NODE_IP the Pod was given)"
-params="$(q guac_armed "SELECT string_agg(parameter_name || '=' || parameter_value, ',' ORDER BY parameter_name) FROM guacamole_connection_parameter")"
+params="$(q guac_armed "SELECT string_agg(p.parameter_name || '=' || p.parameter_value, ',' ORDER BY p.parameter_name) FROM guacamole_connection_parameter p JOIN guacamole_connection c USING (connection_id) WHERE c.connection_name='sovereign-node'")"
 [[ "${params}" == "hostname=10.9.8.7,port=22,username=root" ]] \
-  && pass "parameters are exactly hostname/port/username" \
-  || fail "parameters are '${params}'"
-perm="$(q guac_armed "SELECT e.name || ':' || p.permission FROM guacamole_connection_permission p JOIN guacamole_entity e USING (entity_id)")"
-[[ "${perm}" == "sovereign-admins:READ" ]] && pass "the admin USER_GROUP holds READ on the connection" \
-                                           || fail "connection permission is '${perm}', want sovereign-admins:READ"
+  && pass "sovereign-node parameters are exactly hostname/port/username" \
+  || fail "sovereign-node parameters are '${params}'"
+# The mTLS target, read back from the database rather than from the
+# render: guacd needs use-ssl on (it parses client-cert only inside
+# `if (settings->use_ssl)`) and the fully-qualified proxy name, which is
+# also the name it verifies the server certificate against.
+csparams="$(q guac_armed "SELECT string_agg(p.parameter_name || '=' || p.parameter_value, ',' ORDER BY p.parameter_name) FROM guacamole_connection_parameter p JOIN guacamole_connection c USING (connection_id) WHERE c.connection_name='cluster-shell'")"
+want_cs="container=k8s-ws-proxy,exec-command=/bin/sh,hostname=k8s-ws-proxy.catalyst-system.svc.cluster.local,namespace=catalyst-system,pod=k8s-ws-proxy,port=8443,use-ssl=true"
+[[ "${csparams}" == "${want_cs}" ]] \
+  && pass "cluster-shell parameters are the full guacd kubernetes set incl. use-ssl=true" \
+  || fail "cluster-shell parameters are '${csparams}', want '${want_cs}'"
+perm="$(q guac_armed "SELECT string_agg(e.name || ':' || p.permission, ',' ORDER BY c.connection_name) FROM guacamole_connection_permission p JOIN guacamole_entity e USING (entity_id) JOIN guacamole_connection c USING (connection_id)")"
+[[ "${perm}" == "sovereign-admins:READ,sovereign-admins:READ" ]] \
+  && pass "the admin USER_GROUP holds READ on BOTH connections" \
+  || fail "connection permissions are '${perm}', want a READ grant on each"
 # No credential Secret was mounted, so nothing credential-shaped may exist.
 leaked="$(q guac_armed "SELECT count(*) FROM guacamole_connection_parameter WHERE parameter_name IN ('password','private-key','passphrase')")"
 [[ "${leaked}" == "0" ]] && pass "no credential parameter written when no Secret is mounted" \
@@ -143,13 +162,14 @@ run_seed "${TMP}/armed" "${TMP}/cred-armed" || { echo "second seed.sh failed:"; 
 n2="$(q guac_armed "SELECT count(*) FROM guacamole_connection")"
 p2="$(q guac_armed "SELECT count(*) FROM guacamole_connection_parameter")"
 r2="$(q guac_armed "SELECT count(*) FROM guacamole_connection_permission")"
-[[ "${n2}" == "1" && "${p2}" == "3" && "${r2}" == "1" ]] \
-  && pass "second run: 1 connection / 3 parameters / 1 permission (no duplicates)" \
+[[ "${n2}" == "2" && "${p2}" == "10" && "${r2}" == "2" ]] \
+  && pass "second run: 2 connections / 10 parameters / 2 permissions (no duplicates)" \
   || fail "second run drifted: connections=${n2} parameters=${p2} permissions=${r2}"
 
 echo "[connection-seed-sql] 3/4 — CONTROL: an empty declared set writes NO connection"
 extract "${TMP}/empty" \
   --set guacamole.database.connections.nodeShell.enabled=false \
+  --set guacamole.database.connections.clusterShell.enabled=false \
   --set-json 'guacamole.database.connections.extra=[]'
 q "${ADMIN_DB}" "DROP DATABASE IF EXISTS guac_empty" >/dev/null
 q "${ADMIN_DB}" "CREATE DATABASE guac_empty" >/dev/null
@@ -165,10 +185,21 @@ gn="$(q guac_empty "SELECT count(*) FROM guacamole_user_group")"
 
 echo "[connection-seed-sql] 4/4 — credentials come from the Secret, never from the chart"
 extract "${TMP}/cred" --set guacamole.database.connections.nodeShell.credentialSecretName=guac-node-key
-mkdir -p "${TMP}/mounted/sovereign-node"
+mkdir -p "${TMP}/mounted/sovereign-node" "${TMP}/mounted/cluster-shell"
 printf '%s' '-----BEGIN OPENSSH PRIVATE KEY-----
 TEST-ONLY-NOT-A-REAL-KEY
 -----END OPENSSH PRIVATE KEY-----' >"${TMP}/mounted/sovereign-node/private-key"
+# A cert-manager-SHAPED mount: exactly the three keys a Certificate's
+# Secret carries, under exactly those names.
+printf '%s' '-----BEGIN CERTIFICATE-----
+TEST-ONLY-NOT-A-REAL-CLIENT-CERT
+-----END CERTIFICATE-----' >"${TMP}/mounted/cluster-shell/tls.crt"
+printf '%s' '-----BEGIN EC PRIVATE KEY-----
+TEST-ONLY-NOT-A-REAL-KEY
+-----END EC PRIVATE KEY-----' >"${TMP}/mounted/cluster-shell/tls.key"
+printf '%s' '-----BEGIN CERTIFICATE-----
+TEST-ONLY-NOT-A-REAL-CA
+-----END CERTIFICATE-----' >"${TMP}/mounted/cluster-shell/ca.crt"
 q "${ADMIN_DB}" "DROP DATABASE IF EXISTS guac_cred" >/dev/null
 q "${ADMIN_DB}" "CREATE DATABASE guac_cred" >/dev/null
 creds "${TMP}/cred-cred" guac_cred
@@ -178,6 +209,18 @@ CRED="${TMP}/cred-cred" SCRIPTS_DIR="${TMP}/cred" SCHEMA_DIR="${TMP}/cred" \
 kn="$(q guac_cred "SELECT count(*) FROM guacamole_connection_parameter WHERE parameter_name='private-key'")"
 [[ "${kn}" == "1" ]] && pass "the mounted Secret's private-key reached the connection" \
                      || fail "private-key parameter count is ${kn}, want 1"
+# THE mTLS assertion. The mounted files are named the way cert-manager
+# writes them; the parameters read back must be named the way guacd reads
+# them. A straight-through copy would leave client-cert absent and every
+# click would 401 with nothing in the row to explain it.
+tlsparams="$(q guac_cred "SELECT string_agg(p.parameter_name, ',' ORDER BY p.parameter_name) FROM guacamole_connection_parameter p JOIN guacamole_connection c USING (connection_id) WHERE c.connection_name='cluster-shell' AND p.parameter_name IN ('client-cert','client-key','ca-cert','tls.crt','tls.key','ca.crt')")"
+[[ "${tlsparams}" == "ca-cert,client-cert,client-key" ]] \
+  && pass "cert-manager's tls.crt/tls.key/ca.crt arrived as guacd's client-cert/client-key/ca-cert" \
+  || fail "cluster-shell TLS parameters are '${tlsparams}', want ca-cert,client-cert,client-key"
+certval="$(q guac_cred "SELECT p.parameter_value FROM guacamole_connection_parameter p JOIN guacamole_connection c USING (connection_id) WHERE c.connection_name='cluster-shell' AND p.parameter_name='client-cert'" | head -1)"
+[[ "${certval}" == *"BEGINCERTIFICATE"* || "${certval}" == *"BEGIN CERTIFICATE"* ]] \
+  && pass "the client-cert parameter carries PEM, not a filename" \
+  || fail "client-cert parameter is '${certval}' — guacd reads this value AS PEM (BIO_new_mem_buf), not as a path"
 if grep -q 'TEST-ONLY-NOT-A-REAL-KEY' "${TMP}/cred/render.yaml"; then
   fail "the key material appears in the rendered manifests — a chart must never carry it"
 else

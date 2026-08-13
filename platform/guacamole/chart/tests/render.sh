@@ -123,11 +123,20 @@ helm template bp-guacamole . \
   --set guacamole.recordings.persistence=true \
   > "$render_on"
 
-# 13-doc target in default header mode: Deployment×2 (guacd + webapp),
-# Service×2, PVC, NetworkPolicy×2 (webapp egress + #5358 ingress guard),
-# Job (recordings-migrate), ServiceAccount, Role, RoleBinding, ClusterRole,
-# ClusterRoleBinding.
-expect_total=13
+# 14-doc target in default header mode: Deployment×2 (guacd + webapp),
+# Service×2, PVC, NetworkPolicy×3 (webapp egress + #5358 ingress guard +
+# #5991 guacd egress), Job (recordings-migrate), ServiceAccount, Role,
+# RoleBinding, ClusterRole, ClusterRoleBinding.
+#
+# 13 → 14 in 0.2.40 (#5991): guacd's `kubernetes` protocol dials
+# bp-k8s-ws-proxy from GUACD, over its own libwebsockets client rather
+# than through the webapp, so the webapp's egress policy does not cover
+# it. Under the Sovereign's namespace-wide default-deny
+# (bp-plane-isolation) the seeded cluster-shell connection would render
+# in ALL CONNECTIONS and then hang on click. tests/connection-seed-
+# render.sh asserts that policy's CONTENT and carries the control that
+# it does NOT render when no mTLS connection is declared.
+expect_total=14
 got_total="$(grep -cE '^kind:' "$render_on")"
 if [[ "$got_total" != "$expect_total" ]]; then
   echo "FAIL: full-ON (header mode) rendered $got_total resources, want $expect_total"
@@ -212,7 +221,10 @@ helm template bp-guacamole . \
   --set guacamole.oidc.issuer=https://kc.test/realms/sovereign \
   --set guacamole.recordings.persistence=true \
   > "$render_legacy"
-expect_legacy=14
+# 14 → 15 in 0.2.40 (#5991): the guacd egress NetworkPolicy. It is keyed
+# on the mTLS connection being declared, NOT on the SSO mode, so it
+# renders in both modes — guacd dials bp-k8s-ws-proxy either way.
+expect_legacy=15
 got_legacy="$(grep -cE '^kind:' "$render_legacy")"
 if [[ "$got_legacy" != "$expect_legacy" ]]; then
   echo "FAIL: legacy openid mode rendered $got_legacy resources, want $expect_legacy"
