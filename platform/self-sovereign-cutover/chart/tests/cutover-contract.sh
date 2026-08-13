@@ -4479,6 +4479,19 @@ cat > "$TMP/c77/bin/kubectl" <<'C77STUB'
 #!/bin/sh
 # Case 77 stub kubectl — dispatches on argv; fixtures + patch log via env.
 case "$*" in
+  # #6273 ownership read. The stub REFUSES a namespace listing that does not
+  # carry the label selector: if the gate ever listed namespaces unfiltered,
+  # every namespace would classify as an Organization namespace and the whole
+  # gate would fail OPEN — a leak no output assertion below would notice.
+  # C77_NS_FIXTURE unset => no Organization namespaces, so every pre-#6273
+  # direction in this case keeps its exact fail-closed semantics (the
+  # delta-corp / flux-system fixtures classify as platform).
+  *"get namespaces"*)
+      case "$*" in
+        *"-l openova.io/organization"*) ;;
+        *) echo "c77-stub-kubectl: namespace listing without the openova.io/organization selector: $*" >&2; exit 9 ;;
+      esac
+      if [ -n "${C77_NS_FIXTURE:-}" ]; then cat "${C77_NS_FIXTURE}"; else printf '{"items":[]}'; fi ;;
   *"get helmreleases"*) cat "${C77_HR_FIXTURE:?}" ;;
   *"get deployments,statefulsets"*) printf '{"items":[]}' ;;
   *"patch configmap"*) printf '%s\n' "$*" >> "${C77_PATCH_LOG:?}"; exit "${C77_PATCH_RC:-0}" ;;
@@ -4869,6 +4882,13 @@ printf '{"items":[]}' > "$TMP/c90/empty-hr.json"
 cat > "$TMP/c90/bin/kubectl" <<'C90STUB'
 #!/bin/sh
 case "$*" in
+  # See the Case 77 stub for why the selector is REQUIRED here (#6273).
+  *"get namespaces"*)
+      case "$*" in
+        *"-l openova.io/organization"*) ;;
+        *) echo "c90-stub-kubectl: namespace listing without the openova.io/organization selector: $*" >&2; exit 9 ;;
+      esac
+      if [ -n "${C77_NS_FIXTURE:-}" ]; then cat "${C77_NS_FIXTURE}"; else printf '{"items":[]}'; fi ;;
   *"get helmreleases"*) cat "${C77_HR_FIXTURE:?}" ;;
   *"get deployments,statefulsets"*) cat "${C90_WL_FIXTURE:?}" ;;
   *"patch configmap"*) printf '%s\n' "$*" >> "${C77_PATCH_LOG:?}"; exit "${C77_PATCH_RC:-0}" ;;
@@ -5071,5 +5091,229 @@ if [ "$c93_steps" = "$c93_typo" ]; then
   exit 1
 fi
 echo "  PASS (#6235: $c93_count step slugs seeded, exactly matching the step ConfigMaps; totalSteps=$c93_total; CONTROL proves a one-character slug drift is rejected)"
+
+echo "[cutover-contract] Case 95: Step-03 Phase A0 partitions offenders by OWNERSHIP — an Organization-namespace offender WARNS and the cutover proceeds, a platform-namespace offender is still FATAL (#6273) — EXECUTED, both passes, with controls"
+# WHY. Phase A0's premise is "running != desired", and it lists `helmreleases -A`
+# plus `deployments,statefulsets -A` — so a customer's failed app install lands
+# in the same fail-closed bucket as a broken platform component and holds the
+# Sovereign's independence closed. Measured twice, independently:
+#   hw290 — "7 offenders, ALL per-Org customer apps" (the template records it).
+#   hw296, 2026-08-13 — the walk created Organization namespace `walkthree`;
+#     HelmRelease/walkthree/{bp-agenity,bp-newapi,bp-wordpress-tenant} all
+#     Ready=False Stalled=True RetriesExceeded (TERMINAL by this gate's own
+#     classifier — Flux has permanently stopped retrying), plus
+#     Deployment/walkthree/{bp-newapi,bp-wordpress-tenant} and
+#     StatefulSet/walkthree/{bp-agenity,bp-stalwart-tenant} at 0/1. ZERO
+#     platform offenders: all 68 flux-system HelmReleases Ready=True.
+# A fully healthy Sovereign could not become independent because a customer app
+# failed to install. #6198 already carved out the cutover's OWN workloads for
+# circularity; this is the same shape one scope wider, argued on OWNERSHIP —
+# the sovereign-admin cannot be required to repair an Organization's Application to
+# earn sovereignty.
+#
+# BOTH passes must carry the partition or it fixes nothing: the #5391 named
+# override is HelmRelease-ONLY (`wl_pending` has no override check at all), so
+# four of those seven hw296 offenders had no escape except the whole-gate kill
+# switch. Directions (1) and (2) below exercise the HR pass and the workload
+# pass SEPARATELY, each with its own leak control.
+#
+# No yq here: this case executes the RENDERED gate against kubectl JSON
+# fixtures consumed by jq, so the v4.44.3 multi-document `//` trap (#6262)
+# has no surface in it.
+mkdir -p "$TMP/c95"
+c95_run() {
+  # $1 = HR fixture; $2 = workload fixture; $3 = namespaces fixture.
+  # Reuses the Case 77 extracted gate + the Case 90 stub (which reads BOTH
+  # object fixtures), so what runs here is what production runs.
+  : > "$TMP/c77/patch.log"
+  C77_HR_FIXTURE="$1" C90_WL_FIXTURE="$2" C77_NS_FIXTURE="$3" \
+  C77_PATCH_LOG="$TMP/c77/patch.log" C77_PATCH_RC=0 \
+  PATH="$TMP/c90/bin:$PATH" \
+  STATUS_CONFIGMAP_NAME=self-sovereign-cutover-status \
+  STATUS_CONFIGMAP_NAMESPACE=cutover-test \
+  SETTLED_ROLL_PREFLIGHT=true \
+  sh "$TMP/c77/gate.sh" > "$TMP/c95/out.txt" 2>&1
+}
+# The ownership label is a FIXED contract with the org-controller
+# (core/controllers/organization/internal/gitops/manifests.go stamps
+# openova.io/organization=<slug> on every Organization namespace; pinned by
+# org_namespace_invariant_4292_test.go). Assert the literal, exactly as this
+# file already does for the #5391 override annotation key.
+if ! grep -q 'ORG_NAMESPACE_LABEL="openova.io/organization"' "$TMP/c77/gate.sh"; then
+  echo "FAIL: the Organization-namespace label drifted from the org-controller's contract openova.io/organization — the partition would classify every customer namespace as platform (#6273)" >&2
+  exit 1
+fi
+# Fixtures: the live hw296 label-selected namespace list, and the live offenders.
+cat > "$TMP/c95/ns-org.json" <<'C95NS'
+{"items":[
+{"metadata":{"name":"hw296-omani-works","labels":{"openova.io/organization":"hw296-omani-works","openova.io/tier":"org"}}},
+{"metadata":{"name":"walkone","labels":{"openova.io/organization":"walkone","openova.io/tier":"org"}}},
+{"metadata":{"name":"walktwo","labels":{"openova.io/organization":"walktwo","openova.io/tier":"org"}}},
+{"metadata":{"name":"walkthree","labels":{"openova.io/organization":"walkthree","openova.io/tier":"org"}}}
+]}
+C95NS
+printf '{"items":[]}' > "$TMP/c95/ns-none.json"
+printf '{"items":[]}' > "$TMP/c95/empty.json"
+cat > "$TMP/c95/hr-org.json" <<'C95HR'
+{"items":[
+{"metadata":{"name":"bp-agenity","namespace":"walkthree","generation":1},"spec":{"chart":{"spec":{"chart":"bp-agenity"}}},"status":{"observedGeneration":1,"conditions":[{"type":"Ready","status":"False","reason":"InstallFailed","message":"Helm install failed for release walkthree/bp-agenity: timed out waiting for the condition"},{"type":"Stalled","status":"True","reason":"RetriesExceeded","message":"Failed to install after 1 attempt(s)"}]}},
+{"metadata":{"name":"bp-newapi","namespace":"walkthree","generation":1},"spec":{"chart":{"spec":{"chart":"bp-newapi"}}},"status":{"observedGeneration":1,"conditions":[{"type":"Ready","status":"False","reason":"InstallFailed","message":"Helm install failed for release walkthree/bp-newapi: timed out waiting for the condition"},{"type":"Stalled","status":"True","reason":"RetriesExceeded","message":"Failed to install after 1 attempt(s)"}]}},
+{"metadata":{"name":"bp-wordpress-tenant","namespace":"walkthree","generation":1},"spec":{"chart":{"spec":{"chart":"bp-wordpress-tenant"}}},"status":{"observedGeneration":1,"conditions":[{"type":"Ready","status":"False","reason":"InstallFailed","message":"Helm install failed for release walkthree/bp-wordpress-tenant: timed out waiting for the condition"},{"type":"Stalled","status":"True","reason":"RetriesExceeded","message":"Failed to install after 1 attempt(s)"}]}}
+]}
+C95HR
+cat > "$TMP/c95/wl-org.json" <<'C95WL'
+{"items":[
+{"kind":"Deployment","metadata":{"name":"bp-newapi","namespace":"walkthree","generation":1},"spec":{"replicas":1},"status":{"observedGeneration":1,"updatedReplicas":1,"readyReplicas":0}},
+{"kind":"Deployment","metadata":{"name":"bp-wordpress-tenant","namespace":"walkthree","generation":1},"spec":{"replicas":1},"status":{"observedGeneration":1,"updatedReplicas":1,"readyReplicas":0}},
+{"kind":"StatefulSet","metadata":{"name":"bp-agenity","namespace":"walkthree","generation":1},"spec":{"replicas":1},"status":{"observedGeneration":1,"updatedReplicas":1,"readyReplicas":0}},
+{"kind":"StatefulSet","metadata":{"name":"bp-stalwart-tenant","namespace":"walkthree","generation":1},"spec":{"replicas":1},"status":{"observedGeneration":1,"updatedReplicas":1,"readyReplicas":0}}
+]}
+C95WL
+# Workload CONTROL — byte-identical shapes moved into a PLATFORM namespace.
+jq '[.items[] | .metadata.namespace = "harbor"] as $i | {items: $i}' \
+  "$TMP/c95/wl-org.json" > "$TMP/c95/wl-plt.json"
+# Platform HelmRelease offender: the live hw296 hollow pin, in flux-system.
+cat > "$TMP/c95/hr-plt.json" <<'C95P'
+{"items":[{"metadata":{"name":"bp-guacamole","namespace":"flux-system","generation":3},"spec":{"chart":{"spec":{"chart":"bp-guacamole","version":"0.2.40"}}},"status":{"observedGeneration":2,"conditions":[{"type":"Ready","status":"False","reason":"SourceNotReady","message":"HelmChart 'flux-system/flux-system-bp-guacamole' is not ready: chart pull error: failed to download chart for remote reference: failed to get 'oci://ghcr.io/openova-io/bp-guacamole:0.2.40': ghcr.io/openova-io/bp-guacamole:0.2.40: not found"}]}}]}
+C95P
+# VACUITY CONTROL fixture for the platform-FATAL direction: the SAME offender,
+# with the ONE discriminating input flipped — flux-system listed as an
+# Organization namespace. Synthetic (the org-controller never labels
+# flux-system), and that is the point: it isolates the predicate.
+jq '.items += [{"metadata":{"name":"flux-system","labels":{"openova.io/organization":"flux-system"}}}]' \
+  "$TMP/c95/ns-org.json" > "$TMP/c95/ns-plus-fluxsystem.json"
+# Stale-override fixtures: a HEALTHY release still carrying a #5391 annotation.
+cat > "$TMP/c95/hr-org-healthy-annotated.json" <<'C95OA'
+{"items":[{"metadata":{"name":"bp-agenity","namespace":"walkthree","generation":2,"annotations":{"catalyst.openova.io/cutover-settled-roll-override":"was stalled during the 2026-08-13 walk"}},"spec":{"chart":{"spec":{"chart":"bp-agenity"}}},"status":{"observedGeneration":2,"conditions":[{"type":"Ready","status":"True","reason":"ReconciliationSucceeded","message":"Release reconciliation succeeded"}]}}]}
+C95OA
+jq '.items[0].metadata.namespace = "flux-system"' \
+  "$TMP/c95/hr-org-healthy-annotated.json" > "$TMP/c95/hr-plt-healthy-annotated.json"
+
+# (1) HELMRELEASE PASS — the three live walkthree releases WARN and the gate
+#     proceeds, naming every one with the same evidence the FATAL path prints.
+if ! c95_run "$TMP/c95/hr-org.json" "$TMP/c95/empty.json" "$TMP/c95/ns-org.json"; then
+  echo "FAIL: the gate REFUSED a Sovereign whose only unsettled HelmReleases are customer apps in an Organization namespace — a failed customer install still fail-closes Pillar 5 (#6273)" >&2
+  sed -n '1,25p' "$TMP/c95/out.txt" >&2
+  exit 1
+fi
+for _r in bp-agenity bp-newapi bp-wordpress-tenant; do
+  if ! grep -q "not gated (Organization namespace): HelmRelease/walkthree/${_r}" "$TMP/c95/out.txt"; then
+    echo "FAIL: the gate skipped Organization-namespace release ${_r} WITHOUT naming it — a silent narrowing of a fail-closed gate is indistinguishable from the gate not working (#6273)" >&2
+    cat "$TMP/c95/out.txt" >&2
+    exit 1
+  fi
+done
+if ! grep -q 'not gated (Organization namespace): HelmRelease/walkthree/bp-agenity  \[TERMINAL' "$TMP/c95/out.txt"; then
+  echo "FAIL: the warning rows dropped the #6253 TERMINAL classification — the skipped releases must be reported with exactly the evidence the FATAL path formats (#6273)" >&2
+  exit 1
+fi
+if ! grep -q 'may need a re-install' "$TMP/c95/out.txt"; then
+  echo "FAIL: the warning never states what the skip COSTS (a genuinely mid-roll app may be mirrored at a tag the post-cutover roll moves away from, and then fail to pull) — hiding the cost makes this a silent narrowing (#6273)" >&2
+  exit 1
+fi
+if grep -q 'env NOT settled' "$TMP/c95/out.txt"; then
+  echo "FAIL: the gate warned about the Organization offenders AND still declared the env not settled (#6273)" >&2
+  exit 1
+fi
+# (2) WORKLOAD PASS — the half with no override seam at all. Same verdict.
+if ! c95_run "$TMP/c95/empty.json" "$TMP/c95/wl-org.json" "$TMP/c95/ns-org.json"; then
+  echo "FAIL: the gate REFUSED a Sovereign whose only unsettled workloads are customer apps in an Organization namespace — wl_pending has NO override check, so this shape's only escape was the whole-gate kill switch (#6273)" >&2
+  sed -n '1,25p' "$TMP/c95/out.txt" >&2
+  exit 1
+fi
+for _w in "Deployment/walkthree/bp-newapi" "Deployment/walkthree/bp-wordpress-tenant" "StatefulSet/walkthree/bp-agenity" "StatefulSet/walkthree/bp-stalwart-tenant"; do
+  if ! grep -q "not gated (Organization namespace): ${_w}" "$TMP/c95/out.txt"; then
+    echo "FAIL: Organization-namespace workload ${_w} was skipped without being named (#6273)" >&2
+    cat "$TMP/c95/out.txt" >&2
+    exit 1
+  fi
+done
+# (3) CONTROL for (2) — the same four workloads in a PLATFORM namespace must
+#     still be FATAL and named. Without this the workload partition could match
+#     everything and every assertion above would still pass.
+if c95_run "$TMP/c95/empty.json" "$TMP/c95/wl-plt.json" "$TMP/c95/ns-org.json"; then
+  echo "FAIL: CONTROL — byte-identical unsettled workloads in the PLATFORM namespace harbor were NOT caught; the #6273 workload partition leaked and the settled-roll gate is fail-open" >&2
+  cat "$TMP/c95/out.txt" >&2
+  exit 1
+fi
+if ! grep -q 'mid-roll: Deployment/harbor/bp-newapi' "$TMP/c95/out.txt"; then
+  echo "FAIL: CONTROL — the platform-namespace workload was refused but never NAMED (#6273)" >&2
+  exit 1
+fi
+# (4) PLATFORM HELMRELEASE OFFENDER — still FATAL, still named, still carrying
+#     the #6253 hollow-pin remedy, with Organizations present on the cluster.
+if c95_run "$TMP/c95/hr-plt.json" "$TMP/c95/empty.json" "$TMP/c95/ns-org.json"; then
+  echo "FAIL: a PLATFORM-namespace HelmRelease offender (flux-system/bp-guacamole) passed the gate — #6273 must not weaken the platform half in any way" >&2
+  cat "$TMP/c95/out.txt" >&2
+  exit 1
+fi
+if ! grep -q 'mid-roll: HelmRelease/flux-system/bp-guacamole' "$TMP/c95/out.txt"; then
+  echo "FAIL: the platform offender was refused but never NAMED (#6273)" >&2
+  exit 1
+fi
+if ! grep -q 'does not exist in the registry' "$TMP/c95/out.txt"; then
+  echo "FAIL: the platform offender lost its #6253 hollow-pin classification under the #6273 partition" >&2
+  exit 1
+fi
+if grep -q 'not gated (Organization namespace)' "$TMP/c95/out.txt"; then
+  echo "FAIL: a flux-system release was reported as an Organization-namespace skip — the partition is matching namespaces it must not (#6273)" >&2
+  exit 1
+fi
+# (5) VACUITY CONTROL for (4) — the platform-FATAL direction must be ABLE to go
+#     the other way. Same offender, same fixtures, ONE input flipped:
+#     flux-system now appears in the label-selected namespace list. If this run
+#     also FATALs, direction (4) proves nothing about the predicate (it would be
+#     passing because everything fails, not because ownership decided).
+if ! c95_run "$TMP/c95/hr-plt.json" "$TMP/c95/empty.json" "$TMP/c95/ns-plus-fluxsystem.json"; then
+  echo "FAIL: VACUITY CONTROL — flipping the ONLY discriminating input (flux-system present in the org-labelled namespace list) did NOT flip the verdict, so direction (4)'s FATAL is not evidence that the ownership predicate decides anything (#6273)" >&2
+  cat "$TMP/c95/out.txt" >&2
+  exit 1
+fi
+if ! grep -q 'not gated (Organization namespace): HelmRelease/flux-system/bp-guacamole' "$TMP/c95/out.txt"; then
+  echo "FAIL: VACUITY CONTROL — the run passed but the release was never reported as a skip; the pass came from somewhere other than the partition (#6273)" >&2
+  exit 1
+fi
+# (6) MIXED — a platform offender alongside Organization offenders: FATAL on the
+#     platform one ONLY, the Organization rows still named, and the count in the
+#     FATAL headline must exclude them (a count that included them would send the
+#     operator hunting for offenders the gate is not blocking on).
+if c95_run "$TMP/c95/hr-plt.json" "$TMP/c95/wl-org.json" "$TMP/c95/ns-org.json"; then
+  echo "FAIL: a platform offender was swallowed by the Organization warning path (#6273)" >&2
+  exit 1
+fi
+if ! grep -q 'FATAL: env NOT settled — 1 PLATFORM-namespace' "$TMP/c95/out.txt"; then
+  echo "FAIL: the FATAL headline count includes Organization-namespace offenders the gate is NOT blocking on (#6273)" >&2
+  grep 'env NOT settled' "$TMP/c95/out.txt" >&2
+  exit 1
+fi
+if ! grep -q 'not gated (Organization namespace): StatefulSet/walkthree/bp-agenity' "$TMP/c95/out.txt"; then
+  echo "FAIL: on a FAILING run the Organization skips are not reported — the operator sees only half the picture (#6273)" >&2
+  exit 1
+fi
+# (7) FAIL-CLOSED DEFAULT — the very same customer offenders on a Sovereign with
+#     NO org-labelled namespaces stay FATAL. An unlabelled namespace is platform;
+#     the partition can never widen by accident.
+if c95_run "$TMP/c95/hr-org.json" "$TMP/c95/wl-org.json" "$TMP/c95/ns-none.json"; then
+  echo "FAIL: offenders in namespaces carrying NO openova.io/organization label passed the gate — the partition is not label-driven and defaults open (#6273)" >&2
+  cat "$TMP/c95/out.txt" >&2
+  exit 1
+fi
+# (8) A STALE #5391 OVERRIDE on a now-HEALTHY Organization release must not
+#     fail the gate closed. Organization releases are not gated, so an override
+#     there is never needed — but the fail-closed validator would reject it as
+#     "names a HEALTHY HelmRelease" and take the whole cutover down with it, the
+#     exact dead end #6262 removed for this chart's own release.
+if ! c95_run "$TMP/c95/hr-org-healthy-annotated.json" "$TMP/c95/empty.json" "$TMP/c95/ns-org.json"; then
+  echo "FAIL: a stale override annotation on a HEALTHY Organization-namespace release fail-closed the whole gate (#6273)" >&2
+  cat "$TMP/c95/out.txt" >&2
+  exit 1
+fi
+# CONTROL — the SAME stale annotation on a PLATFORM release is still rejected.
+if c95_run "$TMP/c95/hr-plt-healthy-annotated.json" "$TMP/c95/empty.json" "$TMP/c95/ns-org.json"; then
+  echo "FAIL: CONTROL — a stale override on a HEALTHY flux-system release was honored; #6273 weakened the #5391 fail-closed override validation" >&2
+  exit 1
+fi
+grep -q 'names a HEALTHY HelmRelease' "$TMP/c95/out.txt" || { echo "FAIL: CONTROL — the platform stale-override rejection lost its class name (#5391/#6273)" >&2; exit 1; }
+echo "  PASS (#6273: BOTH Phase A0 passes partition by ownership — the HelmRelease pass and the override-free wl_pending pass each WARN-and-proceed on Organization namespaces with every offender named, its TERMINAL tag intact and the re-install cost stated; platform offenders stay FATAL, named and classified, are counted alone in the headline, and the VACUITY CONTROL proves that FATAL flips to a warning when the one discriminating input flips; leak controls: identical workloads in harbor still fatal, unlabelled namespaces still fatal, stale override on a platform release still rejected)"
 
 echo "[cutover-contract] All gates green."

@@ -3705,7 +3705,60 @@ name: bp-self-sovereign-cutover
 # pin + blueprint.yaml + catalog-seed source.version + spec.version + the API
 # blueprints.json + the generated UI catalog move to 0.1.176 in lockstep
 # (Inviolable Principle #13).
-version: 0.1.184
+# 0.1.185 (#6273, Refs #6262 #6198 #5391) — AN ORGANIZATION'S FAILED APP NO
+# LONGER HOLDS THE SOVEREIGN'S INDEPENDENCE CLOSED. Phase A0 (the settled-roll
+# pre-flight) lists `helmreleases -A` and `deployments,statefulsets -A`, so
+# every Organization namespace has always been in scope and a customer's failed
+# install was a hard stop on Pillar 5. Measured twice, independently: hw290
+# ("7 offenders, ALL per-Org customer apps") and hw296 on 2026-08-13, where the
+# walk's Organization `walkthree` carried HelmRelease/{bp-agenity,bp-newapi,
+# bp-wordpress-tenant} Stalled=True/RetriesExceeded — TERMINAL by this gate's
+# own classifier — plus four Deployments/StatefulSets at 0/1, against ZERO
+# platform offenders and all 68 flux-system HelmReleases Ready=True. A fully
+# healthy Sovereign could not become independent because a customer app failed
+# to install.
+#
+# Phase A0 now partitions offenders by OWNERSHIP. Platform namespaces are
+# UNCHANGED — still FATAL, still named, still classified. An offender in an
+# Organization namespace is a loud, fully-enumerated WARNING and the cutover
+# proceeds. #6198 already carved out the cutover's own workloads for
+# circularity and #6262 its own HelmRelease; this is the same shape one scope
+# wider, argued on the stronger ground: a sovereign-admin cannot be required to
+# repair an Organization's Application to earn sovereignty.
+#
+# The predicate is DERIVED, not invented — no new namespace list enters the
+# chart. `openova.io/organization=<slug>` is stamped on every Organization's
+# host namespace by core/controllers/organization/internal/gitops/manifests.go,
+# pinned as an invariant by that package's org_namespace_invariant_4292_test.go,
+# and already read through this exact selector by
+# core/services/provisioning/handlers/kubeconfig_reconciler.go. Being POSITIVE,
+# it is fail-closed by construction: a namespace WITHOUT the label is platform.
+#
+# BOTH passes carry it. Applying it to the HelmRelease pass alone would have
+# fixed nothing — the #5391 named override is HelmRelease-only, so four of the
+# seven hw296 offenders had no escape but the whole-gate kill switch. The
+# #5391 override VALIDATION also stops judging Organization releases, or a stale
+# annotation would fail the gate closed the moment the customer's app recovered.
+#
+# THE COST IS PRINTED, not hidden: mirroring is unchanged (still best-effort
+# over every running tag, Organization namespaces included), so a genuinely
+# mid-roll app can be mirrored at a tag the post-cutover roll moves away from
+# and may need a re-install. The Sovereign is unaffected.
+#
+# GUARDS. cutover-contract.sh Case 95 EXECUTES the rendered gate in eight
+# directions over the live hw296 fixtures — the HelmRelease pass and the
+# override-free workload pass each warn-and-proceed with every offender named
+# and its TERMINAL tag intact; platform offenders stay fatal and are counted
+# alone in the headline; leak controls (identical workloads in `harbor`,
+# unlabelled namespaces, a stale override on a platform release) all stay red;
+# and a VACUITY CONTROL flips the one discriminating input to prove the
+# platform-FATAL direction can go the other way. The Case 77/90 kubectl stubs
+# REFUSE a namespace listing that omits the label selector, so a gate that
+# listed namespaces unfiltered (every namespace an Organization, total
+# fail-open) cannot pass. Slot-06a pin + blueprint.yaml + catalog-seed
+# spec.version + source.version + the API blueprints.json + the generated UI
+# catalog move to 0.1.185 in lockstep (Inviolable Principle #13).
+version: 0.1.185
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

@@ -169,6 +169,32 @@ data:
     # ── settled-roll-preflight BEGIN (Case 77 extraction anchor — tests/cutover-contract.sh executes this block verbatim with a stubbed kubectl) ──
     SETTLED_ROLL_OVERRIDE_ANNOTATION="catalyst.openova.io/cutover-settled-roll-override"
     {{- /*
+     #6273 — the OWNERSHIP partition. An Organization's application release
+     must not fail-close the Sovereign's cutover; a PLATFORM namespace
+     offender still does, unchanged.
+
+     This label is a FIXED contract with the org-controller, exactly like
+     the override annotation key above. `openova.io/organization=<slug>` is
+     stamped on the host Namespace of EVERY Organization at EVERY tier by
+     core/controllers/organization/internal/gitops/manifests.go
+     (namespaceTemplate), it is pinned as an invariant by that package's
+     org_namespace_invariant_4292_test.go ("EVERY Organization, at EVERY
+     tier, owns EXACTLY ONE host namespace, named after its slug and
+     carrying openova.io/organization=<slug>"), and production already
+     reads the estate through this exact selector —
+     core/services/provisioning/handlers/kubeconfig_reconciler.go lists
+     `/api/v1/namespaces?labelSelector=openova.io/organization`.
+
+     So the predicate is DERIVED, not invented: no new namespace list is
+     introduced here, and there is nothing to keep in sync. It is also
+     POSITIVE and therefore fail-closed by construction — a namespace
+     WITHOUT the label is platform and stays FATAL. Measured on live hw296
+     (dep e689e3b34a75fdec, 2026-08-13): 55 namespaces, exactly 4 carry the
+     label (hw296-omani-works, walkone, walktwo, walkthree), and every one
+     of the 7 current Phase A0 offenders sits in `walkthree`.
+    */}}
+    ORG_NAMESPACE_LABEL="openova.io/organization"
+    {{- /*
      #6253 (Refs #5391 #5392 #3379) — the TERMINAL classifier, defined ONCE
      and consumed by BOTH the override-validation and the offender-tagging
      below. It used to be re-hand-rolled at each call site as the bare
@@ -284,6 +310,29 @@ data:
       def _is_own_release($own):
         ((.spec.chart.spec.chart // "") == $own) or ((.metadata.name // "") == $own);
     '
+    {{- /*
+     #6273 — defined ONCE and consumed by ALL THREE jq sites (the override
+     validation, the HelmRelease offender pass, and the workload
+     `wl_pending` pass). Re-hand-rolling `index` at each site is how the
+     two terminal classifiers drifted apart before #6253; and a partition
+     applied to only one of the two passes fixes nothing, because the
+     #5391 override annotation is HelmRelease-only — a workload offender's
+     ONLY escape today is the whole-gate kill switch.
+    */}}
+    SRP_ORG_NS_JQ='
+      def _in_org_ns($orgns):
+        {{- /*
+         Bind the namespace FIRST — the SAME trap `_source_absent` above
+         carries a warning for. `$orgns | index($x)` re-binds `.` to the
+         array, so an inline `.metadata.namespace` inside the index
+         argument is evaluated against the ARRAY and dies with "Cannot
+         index array with string metadata". Caught by executing the
+         extracted gate against the live hw296 fixtures before this
+         shipped, exactly as Case 77 direction 1 caught it for #6253.
+        */}}
+        (.metadata.namespace // "") as $ns
+        | (($orgns | index($ns)) != null);
+    '
     srp_kubectl_json() {
       {{- /*
        kubectl get "$@" -o json with a bounded retry; JSON on stdout,
@@ -340,6 +389,24 @@ data:
         return 1
       fi
       {{- /*
+       #6273 — read the Organization-namespace set from the LABEL, not from
+       a list this chart carries. Fail-closed on an unreadable answer for
+       the same reason as the two reads above: without it every namespace
+       would classify as platform, which is the STRICTER verdict, but the
+       gate would then be certifying an ownership split it could not see.
+       An EMPTY answer is a legitimate reading (a Sovereign with no
+       Organizations yet) and is NOT a failure — kubectl still returns a
+       well-formed `{"items":[]}`.
+      */}}
+      if ! _srp_ns_json=$(srp_kubectl_json namespaces -l "${ORG_NAMESPACE_LABEL}"); then
+        echo "[harbor-prewarm] FATAL: Phase A0 could not list Organization namespaces (-l ${ORG_NAMESPACE_LABEL}) after 5 attempts — the gate cannot partition offenders by ownership it cannot read; refusing to fail open (#6273)"
+        return 1
+      fi
+      org_ns=$(printf '%s' "${_srp_ns_json}" | jq -c '[.items[].metadata.name]') || {
+        echo "[harbor-prewarm] FATAL: Phase A0 Organization-namespace jq failed — refusing to fail open (#6273)"
+        return 1
+      }
+      {{- /*
        #5391 override validation FIRST, before ANY exclusion — the gate
        fail-closes on a malformed or over-broad override rather than
        honoring it. A SUSPENDED HR is outside the gate's domain entirely
@@ -347,11 +414,17 @@ data:
        this chart's OWN release — judging an override on a release the gate
        does not gate would reject it as "names a HEALTHY HelmRelease" and
        fail the whole gate closed on an annotation that was never needed.
+       #6273: an Organization-namespace release is now in that same
+       position. Its offenders only WARN, so an override there is never
+       needed — but a sovereign-admin who annotated one under the old
+       fail-closed contract would otherwise have that stale annotation
+       FATAL the whole cutover the moment the customer's app recovered.
       */}}
-      or_bad=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" --arg own {{ .Chart.Name | quote }} "${SRP_TERMINAL_JQ}"'
+      or_bad=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" --arg own {{ .Chart.Name | quote }} --argjson orgns "${org_ns}" "${SRP_TERMINAL_JQ}${SRP_ORG_NS_JQ}"'
         .items[]
         | select((.spec.suspend // false) | not)
         | select(_is_own_release($own) | not)
+        | select(_in_org_ns($orgns) | not)
         | select((.metadata.annotations // {}) | has($okey))
         | ((.metadata.annotations[$okey] // "") | gsub("^\\s+|\\s+$"; "")) as $reason
         | ((((.status.conditions // []) | map(select(.type=="Ready")) | (.[0].status // "Unknown")) == "True")
@@ -414,7 +487,14 @@ data:
        operator to a command that cannot work; name the real one instead
        (publish the pinned version, or re-pin to a published one).
       */}}
-      hr_pending=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" --arg own {{ .Chart.Name | quote }} "${SRP_TERMINAL_JQ}"'
+      {{- /*
+       #6273 — ONE enumeration, tagged by ownership, split in shell. The
+       row TEXT after the tag is byte-identical in both directions, so an
+       Organization offender is reported with exactly the evidence the
+       FATAL path prints (including the #6253 TERMINAL classification) and
+       the two can never drift into two different formatters.
+      */}}
+      hr_all=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" --arg own {{ .Chart.Name | quote }} --argjson orgns "${org_ns}" "${SRP_TERMINAL_JQ}${SRP_ORG_NS_JQ}"'
         .items[]
         | select((.spec.suspend // false) | not)
         | select(_is_own_release($own) | not)
@@ -426,7 +506,8 @@ data:
         | _stalled as $stalled
         | _source_absent as $source_absent
         | (((.status.conditions // []) | map(select(.type=="Ready")) | (.[0].message // "")) | split("\n")[0]) as $why
-        | "HelmRelease/\(.metadata.namespace)/\(.metadata.name)"
+        | (if _in_org_ns($orgns) then "ORG " else "PLT " end)
+          + "HelmRelease/\(.metadata.namespace)/\(.metadata.name)"
           + (if $stalled then "  [TERMINAL: Flux stalled — it has STOPPED retrying and will never clear itself]"
              elif $source_absent then "  [TERMINAL: the pinned chart version does not exist in the registry — retrying cannot create it]"
              else "" end)
@@ -434,6 +515,8 @@ data:
         echo "[harbor-prewarm] FATAL: Phase A0 HelmRelease-offender jq failed — refusing to fail open (#5391)"
         return 1
       }
+      hr_pending=$(printf '%s\n' "${hr_all}" | grep '^PLT ' | sed 's/^PLT //' || true)
+      hr_org=$(printf '%s\n' "${hr_all}" | grep '^ORG ' | sed 's/^ORG //' || true)
       {{- /*
        #6262 — the own-release exclusion must not be SILENT. Skipping the
        gate is the right call (the deadlock above), but an unsettled own
@@ -494,7 +577,14 @@ data:
        (`prewarm.settledRollPreflight.enabled=false`), which stays available
        and stays a last resort.
       */}}
-      wl_pending=$(printf '%s' "${_srp_wl_json}" | jq -r --arg own {{ .Chart.Name | quote }} '
+      {{- /*
+       #6273 — the workload pass carries the SAME ownership tag. This half
+       is the one that actually mattered on hw296: four of the seven
+       offenders were Deployments/StatefulSets in `walkthree`, and the
+       #5391 named override is HelmRelease-only, so nothing short of the
+       whole-gate kill switch could clear them.
+      */}}
+      wl_all=$(printf '%s' "${_srp_wl_json}" | jq -r --arg own {{ .Chart.Name | quote }} --argjson orgns "${org_ns}" "${SRP_ORG_NS_JQ}"'
         .items[]
         | select((.spec.replicas // 1) > 0)
         | select(((.metadata.labels // {})["app.kubernetes.io/name"] // "") != $own)
@@ -503,10 +593,44 @@ data:
             or ((.status.updatedReplicas // 0) < (.spec.replicas // 1))
             or ((.status.readyReplicas // 0) < (.spec.replicas // 1))
           )
-        | "\(.kind // "Workload")/\(.metadata.namespace)/\(.metadata.name)"') || {
+        | (if _in_org_ns($orgns) then "ORG " else "PLT " end)
+          + "\(.kind // "Workload")/\(.metadata.namespace)/\(.metadata.name)"') || {
         echo "[harbor-prewarm] FATAL: Phase A0 workload-offender jq failed — refusing to fail open (#5391)"
         return 1
       }
+      wl_pending=$(printf '%s\n' "${wl_all}" | grep '^PLT ' | sed 's/^PLT //' || true)
+      wl_org=$(printf '%s\n' "${wl_all}" | grep '^ORG ' | sed 's/^ORG //' || true)
+      {{- /*
+       #6273 — the WARNING, printed BEFORE the platform verdict so it is
+       visible on a passing run AND on a failing one. It is deliberately
+       loud and fully enumerated: this is the one place a narrowing of a
+       fail-closed gate could become silent, and a silent narrowing is
+       indistinguishable from the gate not working.
+
+       The argument is OWNERSHIP, which is stronger ground than the #6198
+       circularity carve-out one scope down. A sovereign-admin cannot be
+       required to repair an Organization's application in order to earn
+       the Sovereign's independence: the app belongs to the Organization
+       that installed it, and on hw296 a fully healthy Sovereign (all 68
+       flux-system HelmReleases Ready=True, zero platform offenders) was
+       held out of Pillar 5 by three customer releases in `walkthree`
+       whose install had failed. hw290 was the same shape a month earlier
+       ("7 offenders, ALL per-Org customer apps", recorded below).
+
+       The cost is REAL and is stated in the output rather than buried
+       here: mirroring is unchanged (still best-effort over every running
+       tag, Organization namespaces included), so a genuinely MID-ROLL app
+       can still be mirrored at a tag the post-cutover roll moves away
+       from. That app can then fail to pull and need a re-install. What
+       changes is only whether that possibility fail-closes the Sovereign.
+      */}}
+      org_unsettled=$(printf '%s\n%s\n' "${hr_org}" "${wl_org}" | grep -c . || true)
+      if [ "${org_unsettled}" -gt 0 ]; then
+        echo "[harbor-prewarm] WARNING: Phase A0 found ${org_unsettled} unsettled release(s)/workload(s) in Organization namespaces. The cutover PROCEEDS anyway (#6273) — an Organization's application belongs to the Organization that installed it, and a sovereign-admin must not have to repair a customer's app to gain the Sovereign's independence. Platform namespaces are UNCHANGED: any offender there is still FATAL below."
+        printf '%s\n%s\n' "${hr_org}" "${wl_org}" | grep . | sed 's/^/  not gated (Organization namespace): /'
+        echo "[harbor-prewarm] WHAT THIS COSTS, stated plainly: if one of the above is GENUINELY MID-ROLL rather than terminally stuck, harbor-prewarm mirrors the tag it is running NOW and the post-cutover roll may move it to a desired tag that was never mirrored — that Application can then fail to pull its image after the cutover and may need a re-install. The Sovereign itself is unaffected; every platform workload is still gated."
+        echo "[harbor-prewarm] Organization namespaces are read from the live cluster by the ${ORG_NAMESPACE_LABEL} label the org-controller stamps on every Organization namespace — a namespace WITHOUT that label is treated as platform and stays FATAL."
+      fi
       unsettled=$(printf '%s\n%s\n' "${hr_pending}" "${wl_pending}" | grep -c . || true)
       if [ "${unsettled}" -gt 0 ]; then
         terminal=$(printf '%s\n' "${hr_pending}" | grep -c 'TERMINAL:' || true)
@@ -517,7 +641,7 @@ data:
         */}}
         terminal_hollow=$(printf '%s\n' "${hr_pending}" | grep -c 'does not exist in the registry' || true)
         terminal_stalled=$((terminal - terminal_hollow))
-        echo "[harbor-prewarm] FATAL: env NOT settled — ${unsettled} release(s)/workload(s) are mid-roll; harbor-prewarm would mirror running tags the cutover then rolls away from (running != desired):"
+        echo "[harbor-prewarm] FATAL: env NOT settled — ${unsettled} PLATFORM-namespace release(s)/workload(s) are mid-roll; harbor-prewarm would mirror running tags the cutover then rolls away from (running != desired):"
         printf '%s\n%s\n' "${hr_pending}" "${wl_pending}" | grep . | sed 's/^/  mid-roll: /'
         if [ "${terminal}" -gt 0 ]; then
           {{- /* #5391 — do NOT tell the operator to wait when waiting cannot work. */}}
@@ -561,7 +685,7 @@ data:
         printf '%s\n' "${or_used}" | sed 's/^/  override: /'
         echo "[harbor-prewarm] override record written to ConfigMap ${STATUS_CONFIGMAP_NAMESPACE}/${STATUS_CONFIGMAP_NAME} key settledRollOverrides (surfaced on GET /sovereign/cutover/status)"
       else
-        echo "[harbor-prewarm] Phase A0: env settled — no HelmRelease/Deployment/StatefulSet mid-roll; building the mirror from running == desired tags"
+        echo "[harbor-prewarm] Phase A0: env settled — no PLATFORM-namespace HelmRelease/Deployment/StatefulSet mid-roll; building the mirror from running == desired tags"
       fi
       return 0
     }
