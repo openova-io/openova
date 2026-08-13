@@ -1263,7 +1263,116 @@ func unstructuredToSandboxItem(u *unstructured.Unstructured) sandboxItem {
 		}
 	}
 
+	// #6260 — an empty `.status` that has stopped being young is NOT
+	// "the controller has not observed it yet". Since 9ed9619e1 (#5117)
+	// deleted bootstrap-kit slot 19a there is no install site anywhere in
+	// this repo for the reconciler of this CRD, so on every Sovereign
+	// built since 2026-07-15 an empty `.status` is the PERMANENT state.
+	// Reporting it as `pending` held the FE's 6-stage provisioning
+	// checklist open forever. Projected last so a controller-authored
+	// `.status.conditions` list is never displaced by the synthetic one.
+	if age, stale := sandboxUnreconciled(u, rawPhase, time.Now()); stale {
+		item.Status = "failed"
+		item.Conditions = append(item.Conditions, sandboxCondition{
+			Type:    sandboxReconciledConditionType,
+			Status:  "False",
+			Reason:  sandboxNoReconcilerReason,
+			Message: sandboxNoReconcilerMessage(age),
+		})
+	}
+
 	return item
+}
+
+// ── #6260 unreconciled projection ───────────────────────────────────
+//
+// sandboxReconciledConditionType / sandboxNoReconcilerReason are the
+// synthetic condition the projection appends when a Sandbox CR's
+// `.status` never arrives. `status: "False"` plus a non-empty `Reason`
+// is exactly the shape SandboxProvisioningPanel.tsx already treats as
+// actionable (isSandboxFailed + the failureConditions filter), so the
+// honest state needs no front-end change — the back end simply was
+// never telling it.
+const (
+	sandboxReconciledConditionType = "Reconciled"
+	sandboxNoReconcilerReason      = "NoReconciler"
+)
+
+// defaultSandboxUnreconciledAfter — how long a Sandbox CR may carry an
+// EMPTY `.status` before the projection stops calling it pending.
+//
+// Sized against the surface it guards, not a round number: the panel's
+// own contract (mapSandboxStatus' doc comment) is that a reconciled
+// Sandbox transits Pending → Provisioning → Ready in under ten seconds,
+// so two minutes is an order of magnitude of headroom over a live
+// controller's slowest observed first write, while still resolving well
+// inside a walker's attention span.
+const defaultSandboxUnreconciledAfter = 2 * time.Minute
+
+// sandboxUnreconciledAfter reads the grace window from
+// CATALYST_SANDBOX_UNRECONCILED_AFTER (a Go duration, e.g. "90s").
+// Unset / unparseable / non-positive falls back to the default — an
+// operator cannot accidentally disable the honest verdict by setting
+// the knob to garbage. Per Inviolable Principle #4 the value is read
+// from env, never hardcoded at the call site.
+func sandboxUnreconciledAfter() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("CATALYST_SANDBOX_UNRECONCILED_AFTER"))
+	if raw == "" {
+		return defaultSandboxUnreconciledAfter
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return defaultSandboxUnreconciledAfter
+	}
+	return d
+}
+
+// sandboxUnreconciled reports whether a Sandbox CR has carried an empty
+// `.status.phase` for longer than the grace window, and how long.
+//
+// Three cases deliberately do NOT report stale, because each is a state
+// the projection cannot prove is wrong:
+//
+//   - rawPhase is non-empty — a controller HAS written status; whatever
+//     it says is the truth and mapSandboxStatus owns the projection.
+//   - metadata.creationTimestamp is zero — the CR's age is unknown, and
+//     staleness that cannot be measured must not be asserted. (This is
+//     also the shape of the hand-built fixtures in the unit tests.)
+//
+// Clock skew — a creationTimestamp in the FUTURE relative to this
+// process — needs no branch of its own and deliberately does not get
+// one. The window is guaranteed positive by sandboxUnreconciledAfter,
+// so a negative age fails the comparison on its own and reads pending.
+// An explicit `if age < 0` guard was written first and then removed:
+// no mutant of it could be made to fail a test, which meant it was
+// unfalsifiable code asserting a condition already covered. What DOES
+// discriminate is the sign itself, so the skew case is pinned as a
+// test (TestSandboxSessions_FutureCreationTimestampIsPending) against
+// anyone later reaching for an absolute value here.
+func sandboxUnreconciled(u *unstructured.Unstructured, rawPhase string, now time.Time) (time.Duration, bool) {
+	if u == nil || rawPhase != "" {
+		return 0, false
+	}
+	created := u.GetCreationTimestamp()
+	if created.IsZero() {
+		return 0, false
+	}
+	age := now.Sub(created.Time)
+	return age, age >= sandboxUnreconciledAfter()
+}
+
+// sandboxNoReconcilerMessage renders the operator-facing explanation.
+// It names the age measured (so the reader can tell a genuine stall
+// from a misconfigured grace window), the retirement that removed the
+// reconciler, and the surface that replaced it.
+func sandboxNoReconcilerMessage(age time.Duration) string {
+	return fmt.Sprintf(
+		"no controller has written .status in %s. The Sandbox reconciler is not installed on this Sovereign — "+
+			"bootstrap-kit slot 19a was retired on 2026-07-15 (#5114) when the Sandbox concept was removed, "+
+			"so this session cannot provision. The supported agentic surface is the per-Organization Agenity "+
+			"workspace (bp-agenity) with bp-openova-mcp. See issue #6260.",
+		age.Round(time.Second),
+	)
 }
 
 // readSandboxPhase reads `.status.phase` verbatim, trimming
@@ -1283,8 +1392,17 @@ func readSandboxPhase(u *unstructured.Unstructured) string {
 // products/catalyst/bootstrap/ui/src/lib/sandbox.api.ts:normalizeStatus.
 //
 // Empty / unknown phases surface as `pending` so the FE renders the
-// spinner rather than the red-text "unknown" pill — a fresh Sandbox
-// typically transits Pending → Provisioning → Ready in <10s.
+// spinner rather than the red-text "unknown" pill — a RECONCILED
+// Sandbox transits Pending → Provisioning → Ready in <10s.
+//
+// #6260 — that "<10s" is a claim about a Sovereign that HAS a Sandbox
+// reconciler, and since 9ed9619e1 (#5117 retired bootstrap-kit slot
+// 19a) none does. This function still maps the empty phase to
+// `pending` because from a raw phase string alone it cannot tell a
+// two-second-old CR from a two-hour-old one; the AGE-aware verdict
+// lives in sandboxUnreconciled, which unstructuredToSandboxItem
+// applies over this result. Do not push the age check down here —
+// mapSandboxStatus has no access to metadata and would have to guess.
 //
 // Wave 14: signature takes the raw phase string (was: *Unstructured).
 // The caller reads via readSandboxPhase exactly once and reuses the
@@ -1299,8 +1417,9 @@ func mapSandboxStatus(rawPhase string) string {
 	case "failed":
 		return "failed"
 	case "":
-		// No status yet — the controller hasn't observed the CR.
-		// Render as pending so the FE shows the spinner.
+		// No status yet. Pending is only correct while the CR is still
+		// young — sandboxUnreconciled promotes an aged empty status to
+		// `failed` + a NoReconciler condition (#6260).
 		return "pending"
 	default:
 		return "unknown"
