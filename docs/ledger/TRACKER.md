@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T22:45:05Z` |
+| Last refreshed | `2026-08-13T23:00:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T22:50 | [#6269](https://github.com/openova-io/openova/pull/6269) | #3379 | fix(cutover): stamp a carried-over step failure with the Job |
 | 2026-08-13T22:14 | [#6267](https://github.com/openova-io/openova/pull/6267) | #4292 | docs(uat): walk 16 rows live on hw296 — 8 green, and row 60  |
 | 2026-08-13T21:09 | [#6265](https://github.com/openova-io/openova/pull/6265) | #6236 | ci: run chart/tests/*.sh at PR time under the release-pinned |
 | 2026-08-13T21:19 | [#6264](https://github.com/openova-io/openova/pull/6264) | #6245 | fix(agenity): the Anthropic credential had no producer, and  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-13T14:10 | [#6232](https://github.com/openova-io/openova/pull/6232) | #3373 | fix(catalyst): make the topology choice survive the round tr |
 | 2026-08-13T13:07 | [#6230](https://github.com/openova-io/openova/pull/6230) | #5734 | fix(bp-guacamole): nothing had ever written a Guacamole conn |
 | 2026-08-13T11:34 | [#6228](https://github.com/openova-io/openova/pull/6228) | #6149 | docs(ledger): publish UAT-FINAL — every case with its confid |
-| 2026-08-13T11:43 | [#6227](https://github.com/openova-io/openova/pull/6227) | #4466 | fix(catalyst): a flaky post-reclaim quota re-read false-fail |
 
 ---
 
