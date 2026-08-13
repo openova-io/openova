@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T18:15:04Z` |
+| Last refreshed | `2026-08-13T18:30:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5833](https://github.com/openova-io/openova/issues/5833) | GET /api/v1/organizations double-counts an Organization — the store/CR merge k | Other |
 | [#5835](https://github.com/openova-io/openova/issues/5835) | GET /applications/{name}/status 404s for every bootstrap component while its own | Other |
 | [#5843](https://github.com/openova-io/openova/issues/5843) | per-Org GitOps renderer emits no openova-mcp instance at Org-create — decide w | Other |
 | [#5847](https://github.com/openova-io/openova/issues/5847) | UAT row 5 asserts TIER=sme, a value the Organization CRD 422-rejects — the row | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6238](https://github.com/openova-io/openova/issues/6238) | main is red: the bp-guacamole auto-bump workflow bumps Chart.yaml without the ca | Other |
 | [#6242](https://github.com/openova-io/openova/issues/6242) | fix(funnel): a settled order whose launch call is lost strands the paid Organiza | Other |
 | [#6249](https://github.com/openova-io/openova/issues/6249) | Sovereign /apps estate grid renders 11 cards against 10 Application CRs — a He | Other |
+| [#6253](https://github.com/openova-io/openova/issues/6253) | harbor-prewarm calls an unpublished chart pin 'genuinely mid-roll' and then refu | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T18:22 | [#6252](https://github.com/openova-io/openova/pull/6252) | #6246 | fix(guards): the expected bootstrap DAG never learned the tw |
 | 2026-08-13T18:13 | [#6251](https://github.com/openova-io/openova/pull/6251) | #3537 | fix(sovereign-api): the /apps estate is Application-keyed, n |
 | 2026-08-13T18:05 | [#6250](https://github.com/openova-io/openova/pull/6250) | #6236 | fix(uat): the drift guard and reset-uat encoded two founder  |
 | 2026-08-13T17:38 | [#6248](https://github.com/openova-io/openova/pull/6248) | #6243 | docs(uat): hw296 live walk — 26 rows stamped; the env carrie |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-13T07:41 | [#6218](https://github.com/openova-io/openova/pull/6218) | #6216 | docs(uat): cite the two merged fixes on the eight rows they  |
 | 2026-08-13T07:04 | [#6216](https://github.com/openova-io/openova/pull/6216) | #6214 | fix(cutover): run the isolation proof LAST — step-08 was gat |
 | 2026-08-13T06:57 | [#6215](https://github.com/openova-io/openova/pull/6215) | #6163 | fix(anthropic): read the operator's credential Secret live — |
-| 2026-08-13T05:52 | [#6213](https://github.com/openova-io/openova/pull/6213) | #4901 | fix(dr): preflight-02 can now Fail on a 2-region Sovereign — |
 
 ---
 
