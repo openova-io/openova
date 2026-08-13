@@ -456,15 +456,32 @@ func buildResolver() (*identity.Resolver, error) {
 		// cutover at step-3. Degrade instead — the pod reaches Ready, serves
 		// /healthz + /readyz + the empty unauthenticated tools/list, and
 		// rejects tools/call 401 — until the key is wired.
+		// #5175 / UAT rows 212-213: the verify surface is a SET, not a key.
+		// OPENOVA_MCP_RS256_PUBKEY_PEM carries the Secret the chart has always
+		// pointed at (`catalyst-handover-jwt-public` key `public.jwk` — which
+		// on a Sovereign is the MOTHERSHIP-injected handover key, preserved
+		// there by #4450); OPENOVA_MCP_RS256_PUBKEY_SET carries the Sovereign's
+		// own catalyst-api signer set (`signers.jwks` on the same Secret). Both
+		// are optional and both are unioned — see identity.Resolver.rsaPubs.
 		pemStr := strings.TrimSpace(os.Getenv("OPENOVA_MCP_RS256_PUBKEY_PEM"))
-		if pemStr == "" {
-			log.Printf("WARNING: verify=rs256 but OPENOVA_MCP_RS256_PUBKEY_PEM is empty/absent — starting in DEGRADED mode: /healthz + /readyz serve, tools/list is the empty unauthenticated surface, tools/call is rejected 401. Wire the Sovereign handover verify pubkey (PKIX PEM) into OPENOVA_MCP_RS256_PUBKEY_PEM to enable authenticated tools. A missing OPTIONAL verify Secret must never CrashLoop the pod — the cutover settle-gate needs Ready.")
-			r = identity.NewDegradedResolver("verify=rs256 but OPENOVA_MCP_RS256_PUBKEY_PEM is absent", pin)
-		} else if pub, perr := parseRSAPublicKey(pemStr); perr != nil {
-			log.Printf("WARNING: verify=rs256 pubkey present but unparseable (%v) — starting in DEGRADED mode (see the absent-key note). The value must be a PKIX/PKCS1 RSA public-key PEM or an RSA JWK ({\"kty\":\"RSA\",\"n\":…,\"e\":…} — the format of the `catalyst-handover-jwt-public` mirror, #5167).", perr)
+		setStr := strings.TrimSpace(os.Getenv("OPENOVA_MCP_RS256_PUBKEY_SET"))
+		pubs, perr := parseRSAPublicKeySet(pemStr, setStr)
+		switch {
+		case pemStr == "" && setStr == "":
+			log.Printf("WARNING: verify=rs256 but neither OPENOVA_MCP_RS256_PUBKEY_PEM nor OPENOVA_MCP_RS256_PUBKEY_SET is set — starting in DEGRADED mode: /healthz + /readyz serve, tools/list is the empty unauthenticated surface, tools/call is rejected 401. Wire the Sovereign handover verify pubkey (PKIX PEM, RSA JWK, or a JWKS document) to enable authenticated tools. A missing OPTIONAL verify Secret must never CrashLoop the pod — the cutover settle-gate needs Ready.")
+			r = identity.NewDegradedResolver("verify=rs256 but no RS256 pubkey env is set", pin)
+		case len(pubs) == 0:
+			log.Printf("WARNING: verify=rs256 pubkey present but NO key parsed out of it (%v) — starting in DEGRADED mode (see the absent-key note). Accepted values: a PKIX/PKCS1 RSA public-key PEM (one or more blocks), an RSA JWK ({\"kty\":\"RSA\",\"n\":…,\"e\":…} — the format of the `catalyst-handover-jwt-public` mirror, #5167), or a JWKS document ({\"keys\":[…]}).", perr)
 			r = identity.NewDegradedResolver("verify=rs256 pubkey present but unparseable", pin)
-		} else {
-			r = identity.NewRS256Resolver(pub, pin)
+		default:
+			if perr != nil {
+				// Some entries parsed and some did not. Serve with what
+				// verified rather than degrade the whole surface, but say so
+				// loudly — a silently-dropped key is how this class recurs.
+				log.Printf("WARNING: verify=rs256 accepted %d key(s) but at least one entry did not parse: %v", len(pubs), perr)
+			}
+			log.Printf("verify=rs256 active with %d trusted key(s)", len(pubs))
+			r = identity.NewRS256SetResolver(pubs, pin)
 		}
 	case "hs256":
 		// Same #5114 degrade posture: the hs256 secret also rides an OPTIONAL
@@ -504,6 +521,140 @@ func parseRSAPublicKey(s string) (*rsa.PublicKey, error) {
 		return parseRSAPublicKeyJWK(s)
 	}
 	return parseRSAPublicKeyPEM(s)
+}
+
+// parseRSAPublicKeySet parses every source into ONE deduplicated key set — the
+// consumer half of #5175 / UAT rows 212-213 (see identity.Resolver.rsaPubs for
+// why a Sovereign needs a set at all).
+//
+// Each source may be:
+//   - a JWKS document `{"keys":[{kty:RSA,n,e}, …]}` — what catalyst-api
+//     publishes to `catalyst-handover-jwt-public` key `signers.jwks`, one entry
+//     per catalyst-api handoverjwt signer on this Sovereign;
+//   - a single RSA JWK `{"kty":"RSA","n":…,"e":…}` — the `public.jwk` mirror
+//     (#5167);
+//   - one OR MORE concatenated PKIX/PKCS1 PEM blocks.
+//
+// Returns every key it could parse plus a non-nil error naming what it could
+// NOT. Callers serve on a non-empty set and degrade only on an empty one: a
+// Secret that gains a malformed entry must not take the whole authenticated
+// surface down, and a dropped key must not be silent.
+func parseRSAPublicKeySet(sources ...string) ([]*rsa.PublicKey, error) {
+	var out []*rsa.PublicKey
+	var problems []string
+	// Dedupe on the modulus+exponent so the same signer appearing in both
+	// sources (the common case once `signers.jwks` includes the injected key)
+	// is tried once, not twice.
+	seen := map[string]struct{}{}
+	add := func(k *rsa.PublicKey) {
+		if k == nil || k.N == nil {
+			return
+		}
+		id := k.N.String() + "/" + strconv.Itoa(k.E)
+		if _, dup := seen[id]; dup {
+			return
+		}
+		seen[id] = struct{}{}
+		out = append(out, k)
+	}
+
+	for _, src := range sources {
+		src = strings.TrimSpace(src)
+		if src == "" {
+			continue
+		}
+		if strings.HasPrefix(src, "{") {
+			keys, err := parseRSAJWKDocument(src)
+			if err != nil {
+				problems = append(problems, err.Error())
+				continue
+			}
+			for _, k := range keys {
+				add(k)
+			}
+			continue
+		}
+		// PEM: walk every block in the value, not just the first. A Secret key
+		// holding two concatenated PUBLIC KEY blocks is a legitimate way to
+		// express the set without JSON.
+		rest := []byte(src)
+		found := 0
+		for {
+			var block *pem.Block
+			block, rest = pem.Decode(rest)
+			if block == nil {
+				break
+			}
+			k, err := parsePEMBlockRSAPublicKey(block)
+			if err != nil {
+				problems = append(problems, err.Error())
+				continue
+			}
+			found++
+			add(k)
+		}
+		if found == 0 {
+			problems = append(problems, "RS256 pubkey: no PEM block found")
+		}
+	}
+
+	if len(problems) > 0 {
+		return out, errors.New(strings.Join(problems, "; "))
+	}
+	return out, nil
+}
+
+// parseRSAJWKDocument accepts either a JWKS (`{"keys":[…]}`) or a bare RSA JWK
+// and returns every RSA key in it. Non-RSA entries in a JWKS are SKIPPED rather
+// than failing the document — a realm JWKS legitimately carries EC keys too.
+func parseRSAJWKDocument(s string) ([]*rsa.PublicKey, error) {
+	var doc struct {
+		Keys []json.RawMessage `json:"keys"`
+	}
+	if err := json.Unmarshal([]byte(s), &doc); err == nil && len(doc.Keys) > 0 {
+		out := make([]*rsa.PublicKey, 0, len(doc.Keys))
+		var problems []string
+		for _, raw := range doc.Keys {
+			k, err := parseRSAPublicKeyJWK(string(raw))
+			if err != nil {
+				// kty != RSA is expected in a mixed JWKS; only surface real
+				// decode failures on RSA-shaped entries.
+				if !strings.Contains(err.Error(), "kty=") {
+					problems = append(problems, err.Error())
+				}
+				continue
+			}
+			out = append(out, k)
+		}
+		if len(out) == 0 {
+			if len(problems) > 0 {
+				return nil, errors.New(strings.Join(problems, "; "))
+			}
+			return nil, errors.New("RS256 pubkey: JWKS carries no RSA key")
+		}
+		return out, nil
+	}
+	k, err := parseRSAPublicKeyJWK(s)
+	if err != nil {
+		return nil, err
+	}
+	return []*rsa.PublicKey{k}, nil
+}
+
+// parsePEMBlockRSAPublicKey turns one decoded PEM block into an RSA public key,
+// trying PKIX then PKCS1 — the same order parseRSAPublicKeyPEM uses.
+func parsePEMBlockRSAPublicKey(block *pem.Block) (*rsa.PublicKey, error) {
+	if key, err := x509.ParsePKIXPublicKey(block.Bytes); err == nil {
+		if rk, ok := key.(*rsa.PublicKey); ok {
+			return rk, nil
+		}
+		return nil, errors.New("RS256 pubkey: PKIX key is not RSA")
+	}
+	rk, err := x509.ParsePKCS1PublicKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("RS256 pubkey: parse: %w", err)
+	}
+	return rk, nil
 }
 
 // parseRSAPublicKeyJWK parses an RSA JWK ({"kty":"RSA","n":…,"e":…}) into an

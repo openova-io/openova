@@ -1,5 +1,17 @@
 apiVersion: v2
 name: bp-openova-mcp
+# 0.1.7 / appVersion 0.2.6 (#5175, UAT rows 212-213): the RS256 verify
+# surface is a SET, not a single pinned key. A Sovereign does not have one
+# session signer -- `catalyst-handover-jwt-public`/`public.jwk` holds the
+# MOTHERSHIP-injected inbound-handover key (preserved there by #4450), while
+# every bearer a caller presents is signed by a catalyst-api's OWN handoverjwt
+# signer, self-generated per Pod from a key file on an RWO PVC. Verifying
+# against the one published key refused genuine Org-scoped bearers with
+# `crypto/rsa: verification error` 3/3 on hw293 while catalyst-api answered 200
+# for the byte-identical string. catalyst-api now publishes the full signer set
+# into `signers.jwks` on the same Secret, and this chart projects it as the
+# additive OPENOVA_MCP_RS256_PUBKEY_SET. Still a set of REAL public keys: a
+# bearer must verify against one of them, and an empty set refuses everything.
 # 0.1.5 / appVersion 0.2.5 (#5206, Org-usability gap-3 hardening): a
 # Sovereign-mode (mode=sovereign, pinnedCtx=Sovereign) instance used to
 # silently RELABEL any Org-scoped caller's context to Sovereign — harmless
@@ -93,7 +105,7 @@ type: application
 # catalog-seed (blueprints.json) 0.1.1. Image = ghcr.io/openova-io/
 # openova-mcp:<appVersion> (build-openova-mcp.yaml; plain image repo per
 # the #4706 chart-repo-collision lesson).
-version: 0.1.6
+version: 0.1.7
 # appVersion is the default image tag (openova-mcp.image in _helpers.tpl).
 # 0.2.5 (#5206): see the version-0.1.5 note above — identity.go/whoami.go
 # reject an Org-scoped caller reaching a Sovereign-pinned instance instead
@@ -108,7 +120,7 @@ version: 0.1.6
 # the OPENOVA_MCP_EXPECTED_ISSUER / OPENOVA_MCP_ORG_SCOPE instance pins) —
 # the 0.1.x binary was stdio-only (the agenity in-pod child, #4010/#4097)
 # and cannot back a Service.
-appVersion: "0.2.5"
+appVersion: "0.2.6"
 keywords:
   - mcp
   - agent

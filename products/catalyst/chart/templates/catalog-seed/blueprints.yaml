@@ -6158,14 +6158,18 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  # 0.1.6 — lockstep with products/openova-mcp/chart/Chart.yaml (appVersion
-  # 0.2.5). 0.1.5 (#5206) added the per-Org install door + made an Org-scoped
+  # 0.1.7 — lockstep with products/openova-mcp/chart/Chart.yaml (appVersion
+  # 0.2.6). 0.1.7 (#5175, UAT rows 212-213) makes the RS256 verify surface a
+  # SET: `public.jwk` on a Sovereign is the MOTHERSHIP-injected handover key
+  # (#4450 preserves it there), not the key that signs the session bearers
+  # callers actually present, so a per-Org instance refused genuine Org-scoped
+  # bearers with `crypto/rsa: verification error`. 0.1.5 (#5206) added the per-Org install door + made an Org-scoped
   # caller reaching a Sovereign-pinned instance a clear identity error instead
   # of a silent context relabel; 0.1.4 (#5175) added the fail-closed
   # whoami-delegated verify so post-handover SESSION tokens are accepted;
   # 0.1.3 (#5167) made verify=rs256 parse the JWK mirror a Sovereign actually
   # seeds. All three are why a per-Org instance is worth installing at all.
-  version: "0.1.6"
+  version: "0.1.7"
   visibility: unlisted
   card:
     title: "OpenOva MCP"
@@ -6187,7 +6191,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openova-mcp
-    version: 0.1.6
+    version: 0.1.7
   topology:
     supported:
       - singleton

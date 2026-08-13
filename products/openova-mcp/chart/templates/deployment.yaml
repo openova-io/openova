@@ -104,6 +104,17 @@ spec:
                   # optional — see file header (#4228 lesson).
                   optional: true
             {{- end }}
+            {{- if and (eq .Values.auth.verify "rs256") .Values.auth.rs256PubkeySetSecret.name }}
+            - name: OPENOVA_MCP_RS256_PUBKEY_SET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.rs256PubkeySetSecret.name }}
+                  key: {{ .Values.auth.rs256PubkeySetSecret.key }}
+                  # optional — the key is absent until a catalyst-api that
+                  # publishes it has booted. The binary unions whatever it
+                  # gets; an unset env is simply one fewer source (#5175).
+                  optional: true
+            {{- end }}
             {{- if and (eq .Values.auth.verify "hs256") .Values.auth.hs256Secret.name }}
             - name: OPENOVA_MCP_HS256_SECRET
               valueFrom:
