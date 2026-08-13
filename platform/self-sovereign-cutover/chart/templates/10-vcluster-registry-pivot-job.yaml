@@ -127,7 +127,7 @@ metadata:
   labels:
     {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
     app.kubernetes.io/component: cutover-step
-    bp.openova.io/cutover-order: "10"
+    bp.openova.io/cutover-order: "9"
     bp.openova.io/cutover-mode: "job"
 data:
   stepName: vcluster-registry-pivot
