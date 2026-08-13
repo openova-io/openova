@@ -1188,8 +1188,25 @@ for r in roles:
         assert 'persistentvolumeclaims' not in res, "dr-failback must never hold PVC verbs (storage goes via owner-GC only)"
         assert 'pods' not in res, "dr-failback needs no pod verbs"
         if 'delete' in verbs:
-            assert res==['clusters'], f"delete verb only on the Cluster CR, got {res}"
+            # The destructive surface is an ALLOW-LIST of two, not "whatever the
+            # chart happens to render". Widening it is a review decision, so it
+            # is spelled out here rather than by relaxing the shape of the check.
+            #   clusters              — the bounded re-clone (#5245)
+            #   ciliumnetworkpolicies — the #6148 write-guard the actor puts up
+            #                           for the peer-ahead hold and takes down
+            #                           on clear_hold. It must be able to remove
+            #                           its own guard or a failed episode leaves
+            #                           region-A's :5432 denied to clients after
+            #                           the reason for denying it has passed.
+            assert res in (['clusters'], ['ciliumnetworkpolicies']), \
+                f"delete verb only on the Cluster CR or the #6148 write-guard, got {res}"
             assert rule.get('resourceNames'), "the delete rule must be resourceNames-pinned"
+        # #6148 — `create` cannot be resourceNames-pinned (k8s RBAC has no name
+        # to match before the object exists), so bound it by RESOURCE instead:
+        # the only thing dr-failback may bring into existence is its own guard.
+        if 'create' in verbs:
+            assert res==['ciliumnetworkpolicies'], \
+                f"create verb only on the #6148 write-guard resource, got {res}"
 PYEOF
 
 # (g) DEMOTED REJOIN SHAPE: primary.demoted=true renders the primary Cluster
@@ -1518,5 +1535,84 @@ assert 'delete' not in act[j:k], "#5388: the starvation path is DIAGNOSTIC-ONLY 
 PYEOF
 
 echo "  PASS (CONVERGED gated on ConsistentSystemID=True + streaming + demoted · divergence escalation on CNPG verdict alone · streaming arm keeps peer-writable proof fresh · post-re-clone watch keys off converged-recorded · starvation surfaced on HR before D0 early-exit, diagnostic-only)"
+
+# ── Case 22: #6148 peer-ahead write-guard ────────────────────────────────
+# region-A returns from a region-kill as a writable TL=1 primary while the peer
+# is already writable and AHEAD, and stays writable for the whole peer-ahead
+# hold. Writes committed in that window are acknowledged and then discarded by
+# the re-clone. These assertions pin the guard that closes the window, and in
+# particular pin the three properties that make it a REAL guard rather than an
+# object that merely exists.
+echo "[render] Case 22: #6148 peer-ahead write-guard (deny is real · decider stays reachable · unwinds on every abort)"
+python3 - "$TMP/cnp-primary.yaml" "$TMP/fb-actor.sh" <<'PYEOF' || { echo "FAIL: #6148 write-guard assertions failed." >&2; exit 1; }
+import sys, yaml
+docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+act=open(sys.argv[2]).read()
+
+cms=[d for d in docs if d.get('kind')=='ConfigMap' and d['metadata']['name'].endswith('-write-guard')]
+assert len(cms)==1, f"#6148: exactly one write-guard ConfigMap expected, got {len(cms)}"
+guard=yaml.safe_load(cms[0]['data']['guard.yaml'])
+
+# (a) The guard must DENY. A k8s NetworkPolicy cannot express deny — policies
+#     selecting the same Pods are additive allow-lists — so a guard authored as
+#     a NetworkPolicy would be created, logged, and permit every write it
+#     claimed to stop. Only Cilium's ingressDeny actually subtracts a path.
+assert guard['kind']=='CiliumNetworkPolicy', \
+    f"#6148: the guard must be a CiliumNetworkPolicy — a k8s NetworkPolicy cannot deny, got {guard['kind']}"
+deny=guard['spec'].get('ingressDeny')
+assert deny, "#6148: the guard must carry ingressDeny — an allow-only policy subtracts nothing"
+ports=[p['port'] for r in deny for tp in r.get('toPorts',[]) for p in tp.get('ports',[])]
+assert '5432' in ports, f"#6148: the guard must deny the postgres port, got {ports}"
+
+# (b) It must be purely SUBTRACTIVE. A CNP selecting an endpoint normally flips
+#     it to default-deny for that direction, which would take out the
+#     replication and operator-status carve-outs in networkpolicy.yaml.
+edd=guard['spec'].get('enableDefaultDeny')
+assert edd=={'ingress': False, 'egress': False}, \
+    f"#6148: the guard must not flip the primary to default-deny, got {edd}"
+
+# (c) The DECIDER must stay reachable. The signals loop reads the local timeline
+#     over 5432; if that read fails, clear_hold "local timeline unreadable"
+#     aborts the failback. A guard that blinds the decider is worse than no
+#     guard — this is exactly what ruled out CNPG instance fencing.
+exempt=set()
+for r in deny:
+    for fe in r.get('fromEndpoints',[]):
+        for me in fe.get('matchExpressions',[]):
+            assert me['operator']=='NotIn', f"#6148: exemptions must be NotIn, got {me['operator']}"
+            exempt.add(me['key'])
+            exempt.update(me['values'])
+assert 'dr-failback' in exempt, \
+    "#6148: the failback Pod must be exempt or its own timeline probe trips clear_hold and aborts the failback"
+assert 'cnpg.io/cluster' in exempt, \
+    "#6148: the pair's own Pods must be exempt or the re-clone cannot stream from the peer"
+# fromEndpoints, never ipBlock: an ipBlock never matches a ClusterMesh remote
+# Pod identity, so an ipBlock guard silently misses the peer traffic it reasons about.
+assert not any(r.get('fromCIDR') or r.get('fromCIDRSet') for r in deny), \
+    "#6148: the guard must select by endpoint identity, not CIDR (ipBlock never matches a ClusterMesh remote Pod)"
+
+# (d) It must go UP at detection and come DOWN on every abort. The guard is
+#     keyed to /shared/peer-ahead-since, the same file every fail-safe path in
+#     the signals loop already clears, so no new control flow can forget it.
+k=act.find('peer-ahead-since ] || exit 0')
+assert k!=-1, "#6148: the D0 peer-ahead early-exit must still exist"
+assert 'guard_on' in act[k:k+400], \
+    "#6148: guard_on must fire at DETECTION (right after the D0 early-exit), not at demote time"
+assert '[ -f /shared/peer-ahead-since ] || guard_off' in act, \
+    "#6148: guard_off must run unconditionally per tick whenever the hold is not active"
+assert act.find('[ -f /shared/peer-ahead-since ] || guard_off') < act.find('while true') + 400, \
+    "#6148: the guard_off sweep must sit in the outer loop, not inside one geometry branch"
+
+# (e) It must be NON-FATAL. Converging region-A is what ends the exposure, so a
+#     guard that cannot be applied must report loudly and let the failback run.
+i=act.find('guard_on() {'); j=act.find('guard_off() {')
+assert i!=-1 and j!=-1 and i<j, "#6148: both guard helpers must be defined, guard_on first"
+body=act[i:j]
+assert 'exit 1' not in body and 'return 1' not in body, \
+    "#6148: guard_on must never fail the tick — stalling the failback prolongs the very window the guard exists to shorten"
+assert 'WARN' in body, "#6148: a guard that could not be applied must say so loudly"
+PYEOF
+
+echo "  PASS (#6148 ingressDeny on 5432 · purely subtractive · failback Pod and replication exempt · endpoint-identity not CIDR · armed at detection, swept on every abort · non-fatal)"
 
 echo "[render] All bp-cnpg-pair render gates green."

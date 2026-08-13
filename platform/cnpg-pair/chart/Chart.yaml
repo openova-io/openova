@@ -1,5 +1,18 @@
 apiVersion: v2
 name: bp-cnpg-pair
+# 0.2.24 (#6148): dr-failback PEER-AHEAD WRITE-GUARD. region-A returned from
+# a region-kill as a writable TL=1 primary and ACCEPTED writes for the whole
+# 120s peer-ahead hold (hw293, 03:58Z) — acknowledged commits on a divergent
+# line, silently discarded by the re-clone. The hold itself is correct: it
+# guards the DEMOTE against a flap, and a demote/re-promote bumps the
+# timeline, which is the same damage. So the hold stays and the window gets a
+# guard. The actor applies a CiliumNetworkPolicy on peer-ahead DETECTION and
+# removes it on clear_hold. ingressDeny, not a k8s NetworkPolicy: k8s policies
+# are additive allow-lists and cannot subtract the app->5432 allows granted
+# elsewhere, so a NetworkPolicy guard would permit every write it claimed to
+# stop. enableDefaultDeny=false keeps it purely subtractive; the pair's Pods
+# and the failback Pod stay exempt (the latter reads the local timeline, and
+# blinding that read trips clear_hold and aborts the failback).
 # 0.2.23 (#5388): dr-failback STARVATION SURFACING (hw290 G12 leg-6). All four
 # region-A nodes rebooted through the kill, the per-node cross-region routes
 # were gone (#5339 shape), and the failback actor idled at D0 forever while the
@@ -376,7 +389,7 @@ name: bp-cnpg-pair
 # the post-mesh flip. Default-OFF contract UNCHANGED: cnpgPair.enabled=false OR
 # empty crossRegionPeerClusters renders ZERO CiliumNetworkPolicy — resource
 # counts unchanged from 0.2.8. Lockstep slot 16b pin → 0.2.9.
-version: 0.2.23
+version: 0.2.24
 appVersion: "0.2.1"
 description: |
   Catalyst-curated Blueprint for an active-hotstandby CNPG cluster-pair

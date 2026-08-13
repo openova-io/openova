@@ -120,12 +120,17 @@ spec:
   # topology (the #5335 Secret-RBAC fix was necessary-not-sufficient; the
   # connection was still NetworkPolicy-dropped — hw287 residual). NetworkPolicy
   # + values only; no schema/RBAC/resource delta to the Cluster CRs.
+  # 0.2.24 (#6148): dr-failback peer-ahead write-guard — region-A stays
+  # writable through the 120s hold and its commits are discarded by the
+  # re-clone; the actor now denies client ingress to :5432 for the duration
+  # of the hold via a CiliumNetworkPolicy, exempting replication and its own
+  # timeline probe, and removes it on clear_hold.
   # 0.2.23 (#5388): dr-failback starvation surfacing — when the post-failover
   # geometry candidate persists with the peer unobservable (the hw290 G12 leg-6
   # rebooted-region datapath shape, #5339), the actor records
   # dr-failback-starved-at + reason on the HR instead of idling silently at D0
   # while a split-brain persists. Script + env + value only.
-  version: 0.2.23
+  version: 0.2.24
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
     summary: |

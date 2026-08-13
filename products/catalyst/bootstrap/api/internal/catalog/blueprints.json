@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T06:10:34.550Z",
+  "generatedAt": "2026-08-13T08:57:29.376Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -863,7 +863,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.2.23",
+      "version": "0.2.24",
       "section": "pts-9-disaster-recovery",
       "depends": [
         "bp-cnpg",

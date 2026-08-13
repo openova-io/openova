@@ -299,6 +299,90 @@ metadata:
 # Local-namespace surface: get + delete on EXACTLY the primary Cluster
 # CR (the bounded re-clone). No patch (live-CR patches are the #5125-D1
 # anti-pattern), no PVC verbs (owner-GC does the storage), no list.
+#
+# #6148 WRITE-GUARD manifest — rendered here as inert ConfigMap DATA, applied
+# and deleted by the actor.
+#
+# WHY THE MANIFEST IS DATA AND NOT A TEMPLATE. The guard must exist only for
+# the duration of the peer-ahead hold, so its lifecycle is the actor's, not
+# helm's. Rendering it as a live template would put it under the Kustomization's
+# inventory and flux drift-correction would fight the actor over it — the
+# #5125-D1 shape this same comment forbids two lines up. As ConfigMap data it
+# stays version-controlled, render-testable and reviewable, while the OBJECT the
+# actor applies is owned by nobody but the actor and is therefore never reverted
+# and never pruned.
+#
+# WHY CiliumNetworkPolicy AND NOT NetworkPolicy. A k8s NetworkPolicy cannot
+# express deny — policies selecting the same Pods are additive allow-lists, so a
+# new one cannot subtract the app->5432 allows granted elsewhere. It would be
+# created, logged, and permit every write it claimed to stop. Cilium's
+# ingressDeny takes precedence over every allow, in this policy or any other.
+#
+# WHY enableDefaultDeny IS FALSE. A CNP that selects an endpoint normally flips
+# it to default-deny for that direction. This policy is purely subtractive: it
+# removes one path without disturbing the carve-outs in networkpolicy.yaml that
+# keep replication and the CNPG operator's status probe alive.
+#
+# WHO STAYS REACHABLE, AND WHY EACH ONE MUST. matchExpressions inside one
+# selector are ANDed, so the denied set is "endpoints that are neither a pair
+# Pod nor the failback Pod":
+#   - the pair's own Pods keep 5432 — that is the replication path region-A
+#     needs in order to re-clone from region-B once the demote lands
+#   - the failback Pod keeps 5432 — the signals loop reads the local timeline
+#     over it, and if that read fails `clear_hold "local timeline unreadable"`
+#     aborts the whole failback. A guard that blinds the decider is worse than
+#     no guard; that is the trap which ruled out CNPG instance fencing here.
+#   - the CNPG operator is untouched — it probes 8000/9187, never 5432.
+# fromEndpoints (not ipBlock) is required for the cross-region case: an ipBlock
+# never matches a ClusterMesh remote Pod's identity, so an ipBlock guard would
+# silently miss the very peer traffic it reasons about.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cnpg-pair.fullname" . }}-write-guard
+  labels:
+    {{- include "cnpg-pair.labels" . | nindent 4 }}
+    catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+data:
+  guard.yaml: |
+    apiVersion: cilium.io/v2
+    kind: CiliumNetworkPolicy
+    metadata:
+      name: {{ include "cnpg-pair.fullname" . }}-write-guard
+      namespace: {{ .Release.Namespace }}
+      labels:
+        catalyst.openova.io/cnpg-pair: {{ include "cnpg-pair.fullname" . | quote }}
+        catalyst.openova.io/role: dr-failback-write-guard
+      annotations:
+        catalyst.openova.io/why: >-
+          Applied by dr-failback for the duration of the peer-ahead hold (#6148).
+          region-A is a writable primary on a timeline the peer has already
+          overtaken, so a write committed here is acknowledged and then silently
+          discarded by the re-clone. Removed on clear_hold.
+    spec:
+      endpointSelector:
+        matchLabels:
+          cnpg.io/cluster: {{ include "cnpg-pair.primaryName" . }}
+      enableDefaultDeny:
+        ingress: false
+        egress: false
+      ingressDeny:
+        - fromEndpoints:
+            - matchExpressions:
+                - key: cnpg.io/cluster
+                  operator: NotIn
+                  values:
+                    - {{ include "cnpg-pair.primaryName" . }}
+                    - {{ include "cnpg-pair.replicaName" . }}
+                - key: catalyst.openova.io/role
+                  operator: NotIn
+                  values:
+                    - dr-failback
+          toPorts:
+            - ports:
+                - port: "5432"
+                  protocol: TCP
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -311,6 +395,24 @@ rules:
     resources: [clusters]
     verbs: [get, delete]
     resourceNames: [{{ include "cnpg-pair.primaryName" . }}]
+  # #6148 write-guard lifecycle. The guard is applied on peer-ahead detection
+  # and deleted on clear_hold, so the actor needs to own exactly one object.
+  # get/patch/delete are resourceNames-pinned to that one name.
+  #
+  # `create` is deliberately in its own rule WITHOUT resourceNames, because
+  # k8s RBAC ignores resourceNames on create — the object does not exist yet,
+  # so there is no name to authorize against. Pinning it there would read as a
+  # constraint while enforcing nothing, so the split states the real scope
+  # instead of implying a narrower one. The residual power is "create some
+  # CiliumNetworkPolicy in this one namespace", which is strictly less than the
+  # `delete` on the Cluster CR this same Role already grants.
+  - apiGroups: [cilium.io]
+    resources: [ciliumnetworkpolicies]
+    verbs: [get, patch, delete]
+    resourceNames: [{{ include "cnpg-pair.fullname" . }}-write-guard]
+  - apiGroups: [cilium.io]
+    resources: [ciliumnetworkpolicies]
+    verbs: [create]
   # #5245 0.2.20 preserve_pki: strip the controller ownerReferences from
   # the CNPG-issued PKI Secrets before the bounded Cluster-CR delete so
   # the CA lineage survives (hw278: the delete GC'd -ca/-replication/
@@ -866,8 +968,48 @@ spec:
               ts_lt() {
                 [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort | head -1)" = "$1" ]
               }
+              # ── #6148 write-guard ────────────────────────────────────
+              # region-A returns from a region-kill as a writable TL=1 primary
+              # while the peer is already writable and AHEAD. Every write
+              # committed in that window is acknowledged to the client and then
+              # silently discarded by the re-clone. The 120s hold is legitimate
+              # — it guards the DEMOTE decision against a flap, and a
+              # demote/re-promote cycle bumps the timeline, which is the same
+              # class of damage. So the hold stays and the window gets a guard
+              # that is reversible at zero cost.
+              #
+              # Both helpers are idempotent and cheap: /shared/guard-state
+              # keeps them from re-issuing an API call every tick. They are
+              # deliberately NON-FATAL — a guard that cannot be applied must
+              # never stall the failback, because converging region-A is what
+              # ends the exposure. The failure is reported loudly instead.
+              GUARD_STATE=/shared/guard-state
+              guard_on() {
+                [ "$(cat "${GUARD_STATE}" 2>/dev/null || echo)" = "on" ] && return 0
+                if kubectl -n "${NAMESPACE}" apply ${FM} -f /guard/guard.yaml >/dev/null 2>&1; then
+                  echo "on" > "${GUARD_STATE}"
+                  echo "$(date -u +"%FT%TZ") [dr-failback/actor] WRITE-GUARD ON: region-A is a writable primary on TL=$(cat /shared/tl-local 2>/dev/null || echo '?') that the peer has overtaken on TL=$(cat /shared/tl-peer 2>/dev/null || echo '?') — denying client ingress to :5432 for the duration of the hold; replication and this actor's own timeline probe stay open (#6148)"
+                else
+                  echo "$(date -u +"%FT%TZ") [dr-failback/actor] WARN: WRITE-GUARD could not be applied (RBAC/CRD absent?) — the hold window is UNGUARDED and a region-A-local client can still commit a write that the re-clone will discard; failback continues (#6148)"
+                fi
+              }
+              guard_off() {
+                [ -f "${GUARD_STATE}" ] || return 0
+                kubectl -n "${NAMESPACE}" delete ciliumnetworkpolicy \
+                  "{{ include "cnpg-pair.fullname" . }}-write-guard" \
+                  --ignore-not-found >/dev/null 2>&1 || true
+                rm -f "${GUARD_STATE}"
+                echo "$(date -u +"%FT%TZ") [dr-failback/actor] WRITE-GUARD OFF — the peer-ahead hold is no longer active, client ingress to :5432 restored (#6148)"
+              }
               while true; do
                 : > /shared/actor-alive
+                # Unconditional, and BEFORE the per-tick subshell: the guard is
+                # tied to the hold clock itself, not to any one geometry branch.
+                # The signals loop clears /shared/peer-ahead-since on every
+                # fail-safe path it has, so pinning the guard to that single
+                # file means every existing abort already unwinds it and no new
+                # control flow can forget to.
+                [ -f /shared/peer-ahead-since ] || guard_off
                 (
                   set -eu
                   SUB=$(kubectl -n "${KS_NAMESPACE}" get kustomization "${KS_NAME}" -o jsonpath='{.spec.postBuild.substitute.SOVEREIGN_CNPG_PAIR_DEMOTED}' 2>/dev/null || echo "")
@@ -954,6 +1096,10 @@ spec:
                       rm -f /shared/starved-recorded
                     fi
                     [ -f /shared/peer-ahead-since ] || exit 0
+                    # #6148 — guard FIRST, then evaluate the hold. The exposure
+                    # starts the moment the geometry is known-divergent, which
+                    # is here, not ${HOLD_SECONDS} later at the demote.
+                    guard_on
                     SINCE=$(cat /shared/peer-ahead-since)
                     NOW=$(date -u +%s)
                     HELD=$((NOW - SINCE))
@@ -1169,11 +1315,20 @@ spec:
               mountPath: /shared
             - name: tmp
               mountPath: /tmp
+            # #6148 — the write-guard manifest the actor applies during the
+            # peer-ahead hold. Read-only: the actor applies this file, it
+            # never authors one, so a bug cannot widen the guard's scope.
+            - name: write-guard
+              mountPath: /guard
+              readOnly: true
       volumes:
         - name: shared
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        - name: write-guard
+          configMap:
+            name: {{ include "cnpg-pair.fullname" . }}-write-guard
         # THIS primary cluster's own CNPG-issued streaming_replica client
         # cert — 0440 root:26, the perms libpq requires for an sslkey
         # (#5133). The SAME cert authenticates against region-B thanks to
