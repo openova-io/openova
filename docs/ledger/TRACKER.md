@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T06:45:03Z` |
+| Last refreshed | `2026-08-13T07:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T06:57 | [#6215](https://github.com/openova-io/openova/pull/6215) | #6163 | fix(anthropic): read the operator's credential Secret live — |
 | 2026-08-13T05:52 | [#6213](https://github.com/openova-io/openova/pull/6213) | #4901 | fix(dr): preflight-02 can now Fail on a 2-region Sovereign — |
 | 2026-08-13T05:15 | [#6212](https://github.com/openova-io/openova/pull/6212) | #6193 | docs(ledger): convergence capture 2026-08-13T04:43:19Z — hw2 |
 | 2026-08-13T04:20 | [#6210](https://github.com/openova-io/openova/pull/6210) | #4277 | docs(wbs): section 1-B — every failing row now has a measure |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-11T08:28 | [#6162](https://github.com/openova-io/openova/pull/6162) | #6021 | ci(guards): a guard nothing runs cannot fire — wire the 10 o |
 | 2026-08-11T07:48 | [#6161](https://github.com/openova-io/openova/pull/6161) | #6061 | docs(uat): verify the artifact that RENDERS the surface, not |
 | 2026-08-11T08:04 | [#6158](https://github.com/openova-io/openova/pull/6158) | #6114 | feat(qa): confidence-scored risk-based walk scheduling — wal |
-| 2026-08-11T06:14 | [#6154](https://github.com/openova-io/openova/pull/6154) | #6138 | docs(uat): row 176 stops routing to an engineer, G7 names th |
 
 ---
 
