@@ -274,6 +274,49 @@ spec:
         backoff: 100ms
 ```
 
+### `gateway-api-controller-watchdog` (#6255)
+
+`cilium-operator` decides **once, at process start**, whether to run its
+Gateway-API controller. Upstream v1.19.3
+(`operator/pkg/gateway-api/cell.go:135`) bounds CRD discovery at a hardcoded
+`30*time.Second`; there is no flag behind it, so `operator.extraArgs` cannot
+widen it. On expiry it logs `Required GatewayAPI resources are not found` and
+returns `{Enabled: false}, nil` — a **nil error** — so the hive cell succeeds,
+the operator stays alive and healthy on `/healthz`, and the controller is never
+registered for the process lifetime.
+
+Measured on hw296: region `me-east-215-b-1` returned `Invoked
+duration=30.024306733s` after `dial tcp 10.179.1.83:6443: connect: connection
+refused`, while region `me-east-215-a` on the **same chart and version** returned
+in `16.84419141s` and worked. Region B then published 6 of the console Gateway's
+10 listeners and stopped reconciling it; because the console EIP pool spans both
+regions, every per-Org customer door answered on exactly 50% of fresh TCP
+connections.
+
+The slot-01 `dependsOn: bp-gateway-api` edge (#2614) is still correct but only
+orders the **first** install — it cannot help an operator Pod restarting into a
+cold apiserver on node reboot, eviction, OOM or region-kill recovery. So this
+chart ships a region-local `gateway-api-controller-watchdog` Deployment that:
+
+- waits **unbounded**, with capped backoff, for the local apiserver to answer and
+  the `gateway.networking.k8s.io` CRDs to reach `Established`;
+- then compares, live, `metadata.generation` against the Accepted condition's
+  `observedGeneration` on `GatewayClass/cilium` and on every Gateway of that
+  class, plus `len(spec.listeners)` against `len(status.listeners)` — stale
+  status written by a dead operator instance cannot satisfy either;
+- deletes the local `cilium-operator` Pod after `failureThreshold` consecutive
+  failing passes, subject to `restartCooldownSeconds`;
+- scores an unreachable apiserver as `UNKNOWN`, never counting it toward the
+  threshold — restarting during an outage would only re-run the race.
+
+`Programmed` is deliberately **not** asserted: under the §854 hostPort /
+Local-ETP model both regions legitimately report
+`Programmed=False / AddressNotAssigned`.
+
+Knobs live under `catalystOverlay.gatewayApiWatchdog` (default **on**; renders
+only when `cilium.gatewayAPI.enabled` is true). Guard:
+`chart/tests/6255-gateway-api-controller-watchdog-slow-apiserver.sh`.
+
 ---
 
 ## Resilience Patterns

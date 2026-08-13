@@ -3944,7 +3944,31 @@ name: bp-catalyst-platform
 #   pin is the delivery half: without this republish a pinned Sovereign
 #   resolves 0.1.6 and keeps the authentication refusal. This chart's own
 #   templates are unchanged apart from the seed entry.
-version: 1.4.1467
+# 1.4.1468 — #6255 (UAT rows R16/87/90/95): catalog-seed advances bp-cilium
+#   1.4.19 -> 1.4.20, the release that stops region B's cilium-operator from
+#   losing the Gateway-API CRD race against its OWN apiserver at boot. Upstream
+#   v1.19.3 operator/pkg/gateway-api/cell.go:135 bounds CRD discovery at a
+#   hardcoded 30s and, on expiry, returns `{Enabled:false}, nil` — a NIL error —
+#   so the operator stays alive and healthy with the Gateway-API controller
+#   permanently off and nothing re-invokes it. On hw296 region me-east-215-b-1
+#   that cost 4 of the console Gateway's 10 listeners and, because the console
+#   EIP pool spans both regions, put every per-Org customer door at exactly 50%
+#   reachability. 1.4.20 ships a region-local watchdog running the unbounded CRD
+#   retry the operator lacks. The seed pin is the delivery half: without this
+#   republish a pinned Sovereign resolves 1.4.19 and keeps the 50% door. This
+#   chart's own templates are unchanged apart from the seed entry.
+#   (Rebase note: this entry was authored against 1.4.1460/1.4.1461 and the
+#   republish number moved three times while the PR waited on CI, because a
+#   version is a claim on a namespace shared by every open branch. 1.4.1464
+#   was taken mid-rebase by #6263 and caught by
+#   scripts/check-chart-version-not-claimed-by-open-pr.py — exactly the race
+#   that check exists for. 1.4.1465 was then overtaken by main itself, which
+#   published 1.4.1466 and 1.4.1467 while the checks ran; landing 1.4.1465 at
+#   that point would have moved `version:` BACKWARD, the same shape this
+#   file's 1.4.1325 entry records as permanently burned. The republish
+#   therefore lands on 1.4.1468 — ahead of main's 1.4.1467, absent from GHCR,
+#   and claimed by no open PR.)
+version: 1.4.1468
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which

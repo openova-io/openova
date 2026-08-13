@@ -169,6 +169,26 @@ jobs:
           pip install pyyaml --quiet 2>/dev/null || true
           bash platform/newapi/chart/tests/5612-slot80-session-carrier-render.sh
 
+      - name: cilium Gateway-API controller survives a slow apiserver (#6255)
+        # cilium-operator decides ONCE, at process start, whether to run its
+        # Gateway-API controller, and gives up after a HARDCODED 30s (upstream
+        # v1.19.3 operator/pkg/gateway-api/cell.go:135 — no flag widens it),
+        # returning a NIL error so the operator stays alive and healthy with the
+        # controller permanently off. On hw296 region me-east-215-b-1 that cost 4
+        # of the console Gateway's 10 listeners and, because the console EIP pool
+        # spans both regions, put every per-Org customer door at exactly 50%
+        # reachability. Region A, same chart and version, returned in 16.84s.
+        #
+        # This is a TIMING defect, so the guard holds a fake apiserver REFUSED
+        # for 35s — longer than the 30s ceiling — and asserts the controller ends
+        # up running anyway. It carries its own vacuity cases (no watchdog, and a
+        # 30s-bounded variant, both of which must FAIL the case-A assertions) and
+        # a fast-path control that forbids spurious restarts.
+        #
+        # It runs HERE and not only in blueprint-release.yaml because that job
+        # fires on push to main — a regression would already be merged.
+        run: bash platform/cilium/chart/tests/6255-gateway-api-controller-watchdog-slow-apiserver.sh
+
   pin-sync-audit:
     # TBD-A6 regression test. Asserts every Chart.yaml in platform/* or
     # products/* whose chart is pinned in clusters/_template/bootstrap-

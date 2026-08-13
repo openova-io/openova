@@ -585,3 +585,47 @@ catalystOverlay:
     huaweiSecretKey: ""
     huaweiProjectId: ""
     huaweiRegion: ""
+
+  # #6255 — gateway-api-controller-watchdog. cilium-operator decides ONCE, at
+  # process start, whether to run its Gateway-API controller, and gives up after
+  # a HARDCODED 30s (upstream v1.19.3 operator/pkg/gateway-api/cell.go:135,
+  # `context.WithTimeout(context.Background(), 30*time.Second)` — no pflag
+  # behind it, so operator.extraArgs cannot widen it). On expiry it logs
+  # "Required GatewayAPI resources are not found" and returns
+  # `{Enabled:false}, nil` — a NIL error, so the operator stays alive and
+  # healthy with the controller permanently off and nothing ever re-invokes it.
+  #
+  # hw296, 2026-08-13: region B `Invoked duration=30.024306733s` (its own
+  # apiserver was `connection refused` at boot) vs region A `16.84419141s` on
+  # the SAME chart and version. Region B then published 6 of the console
+  # Gateway's 10 listeners and stopped reconciling it, so every per-Org customer
+  # door answered on exactly 50% of fresh TCP connections across the shared EIP
+  # pool. UAT rows R16/87/90/95.
+  #
+  # This runs the unbounded retry the operator lacks, OUTSIDE the operator
+  # process, and deletes the local cilium-operator Pod when the Gateway-API
+  # controller is provably not reconciling while the CRDs ARE Established.
+  #
+  # DEFAULT ON — a correctness fix for four red acceptance rows, not an
+  # observability toggle. It renders only when cilium.gatewayAPI.enabled is
+  # true; set enabled:false to opt a Sovereign out.
+  gatewayApiWatchdog:
+    enabled: true
+    # Steady-state evaluation interval, seconds.
+    intervalSeconds: 30
+    # Ceiling of the exponential BACKOFF while waiting for the Gateway-API CRDs
+    # — NOT a ceiling on how long it waits. The wait itself has no bound and no
+    # attempt cap; that bound is the defect being fixed.
+    crdBackoffMaxSeconds: 30
+    # Consecutive DEAD passes before the operator Pod is deleted. 3 × 30s = 90s,
+    # comfortably longer than a healthy reconcile, so normal latency never
+    # triggers a restart. Passes that cannot reach the apiserver are UNKNOWN and
+    # are not counted — restarting during an outage re-runs the very race.
+    failureThreshold: 3
+    # Minimum seconds between operator restarts. A controller that stays dead
+    # across a restart is a DIFFERENT fault; restart-storming would hide it.
+    restartCooldownSeconds: 300
+    gatewayClass: "cilium"
+    # alpine/k8s toolbox (bash + kubectl + jq), proxied — same image/tag as the
+    # sibling vpcPodcidrRouteReconciler above.
+    image: "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.30.0"
