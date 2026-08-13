@@ -168,6 +168,86 @@ data:
     */}}
     # ── settled-roll-preflight BEGIN (Case 77 extraction anchor — tests/cutover-contract.sh executes this block verbatim with a stubbed kubectl) ──
     SETTLED_ROLL_OVERRIDE_ANNOTATION="catalyst.openova.io/cutover-settled-roll-override"
+    {{- /*
+     #6253 (Refs #5391 #5392 #3379) — the TERMINAL classifier, defined ONCE
+     and consumed by BOTH the override-validation and the offender-tagging
+     below. It used to be re-hand-rolled at each call site as the bare
+     `Stalled=True` test, and the two sites then disagreed with reality in the
+     same direction.
+
+     WHY a second terminal shape exists. `Stalled=True/RetriesExceeded` is how
+     Flux gives up on an UPGRADE. It is NOT how Flux behaves when the pinned
+     chart version does not exist in the registry: source-controller cannot
+     build an artifact, helm-controller parks the release on
+     `Ready=False reason=SourceNotReady` and waits for a source that will
+     never appear, and NO Stalled condition is ever set. Measured live on
+     hw296 (dep e689e3b34a75fdec, 2026-08-13): bp-guacamole pinned 0.2.40
+     while ghcr.io/openova-io/bp-guacamole tops out at 0.2.39 — its publish
+     job aborted on the #6247 conflict markers before `Helm push` — so the HR
+     read exactly
+
+       Ready=False SourceNotReady "HelmChart 'flux-system/flux-system-bp-guacamole'
+       is not ready: chart pull error: failed to download chart for remote
+       reference: failed to get 'oci://ghcr.io/openova-io/bp-guacamole:0.2.40':
+       ghcr.io/openova-io/bp-guacamole:0.2.40: not found"
+
+     with conditions Reconciling/Ready/Released and no Stalled at all.
+
+     Under the old classifier that single hollow pin produced TWO wrong
+     operator-facing outcomes, and the second one is the serious one:
+
+       1. the gate printed "genuinely mid-roll — wait for them to settle,
+          then re-trigger" for a release that cannot settle by waiting, and
+       2. the #5391 named-override recovery seam REFUSED the annotation on it
+          ("it will settle on its own"), so the only remaining remedy was the
+          whole-gate kill switch this chart calls a last resort.
+
+     A gate that tells the operator to wait forever and then rejects the
+     escape hatch is a dead end, which is the exact failure #5391 was written
+     to remove. So "the source artifact is absent" joins Stalled as terminal.
+
+     Deliberately NARROW: an absent artifact is a 404-class answer
+     (`not found` / `no chart version found`), and it is only trusted under a
+     SOURCE-side Ready reason. A transient pull failure — `context deadline
+     exceeded`, `connection refused`, a 5xx — matches none of those strings
+     and stays classified mid-roll, so waiting is still the advice whenever
+     waiting can actually work.
+
+     "404-class" is NOT the same as "the words not found appear", and the
+     difference was measured, not reasoned about. Sampling hw296 while it was
+     reconciling turned up bp-sso-bridge and bp-trivy sitting on
+
+       ArtifactFailed  "Source not ready: artifact not found. Retrying in 30s"
+
+     — Flux's own artifact store still rebuilding after a source-controller
+     restart. Those charts exist, that state clears in ~30s by itself, and a
+     bare `not found` test would have branded both as hollow pins and told
+     the operator to publish a version that is already published. So the
+     404-class token must arrive together with a REMOTE-RESOLUTION context:
+     `chart pull error` (Flux's wording when the registry download itself
+     failed) or `no chart version found` (a classic HelmRepository index
+     miss, self-contained). Both live shapes are pinned as Case 77 fixtures.
+    */}}
+    SRP_TERMINAL_JQ='
+      def _cond($t): (.status.conditions // []) | map(select(.type == $t)) | (.[0] // {});
+      def _stalled: ((_cond("Stalled").status) // "False") == "True";
+      def _source_absent:
+        {{- /*
+         Bind the Ready condition FIRST. `["a","b"] | index($x)` re-binds `.`
+         to the array literal, so any `_cond(...)` evaluated inside that pipe
+         would run against the array and die with "Cannot index array with
+         string status" — caught by Case 77 direction 1 before this shipped.
+        */}}
+        (_cond("Ready")) as $r
+        | ((($r.message) // "") | ascii_downcase) as $m
+        | ((($r.status) // "Unknown") != "True")
+          and ((["SourceNotReady", "ArtifactFailed", "ChartPullError"] | index(($r.reason) // "")) != null)
+          and (
+            ($m | test("no chart version found"))
+            or (($m | test("chart pull error")) and ($m | test("not found")))
+          );
+      def _terminal: _stalled or _source_absent;
+    '
     srp_kubectl_json() {
       {{- /*
        kubectl get "$@" -o json with a bounded retry; JSON on stdout,
@@ -229,18 +309,18 @@ data:
        honoring it. A SUSPENDED HR is outside the gate's domain entirely
        (skipped below), so its annotations are not judged here.
       */}}
-      or_bad=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" '
+      or_bad=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" "${SRP_TERMINAL_JQ}"'
         .items[]
         | select((.spec.suspend // false) | not)
         | select((.metadata.annotations // {}) | has($okey))
         | ((.metadata.annotations[$okey] // "") | gsub("^\\s+|\\s+$"; "")) as $reason
         | ((((.status.conditions // []) | map(select(.type=="Ready")) | (.[0].status // "Unknown")) == "True")
            and ((.status.observedGeneration // -1) >= (.metadata.generation // 0))) as $healthy
-        | (((.status.conditions // []) | map(select(.type=="Stalled")) | (.[0].status // "False")) == "True") as $stalled
+        | _terminal as $terminal
         | (((.status.conditions // []) | map(select(.type=="Ready")) | (.[0].reason // ""))) as $why
         | if ($reason | length) == 0 then "\(.metadata.namespace)/\(.metadata.name)\tEMPTY-REASON"
           elif $healthy then "\(.metadata.namespace)/\(.metadata.name)\tHEALTHY"
-          elif (($stalled or ($why == "DependencyNotReady")) | not) then "\(.metadata.namespace)/\(.metadata.name)\tMID-ROLL"
+          elif (($terminal or ($why == "DependencyNotReady")) | not) then "\(.metadata.namespace)/\(.metadata.name)\tMID-ROLL"
           else empty end') || {
         echo "[harbor-prewarm] FATAL: Phase A0 override-validation jq failed — refusing to fail open (#5391)"
         return 1
@@ -251,7 +331,7 @@ data:
           case "${_srp_class}" in
             EMPTY-REASON) echo "[harbor-prewarm]   ${_srp_hr}: annotation present but the reason is EMPTY — an override must say why; re-annotate with a non-empty reason (or remove it)" ;;
             HEALTHY)      echo "[harbor-prewarm]   ${_srp_hr}: names a HEALTHY HelmRelease (Ready=True, observedGeneration==generation) — a stale/over-broad override; remove the annotation" ;;
-            MID-ROLL)     echo "[harbor-prewarm]   ${_srp_hr}: genuinely mid-roll (neither Stalled=True nor Ready.reason=DependencyNotReady) — it will settle on its own; wait and re-trigger instead of overriding" ;;
+            MID-ROLL)     echo "[harbor-prewarm]   ${_srp_hr}: genuinely mid-roll (not terminal — neither Stalled=True, nor an absent chart artifact, nor Ready.reason=DependencyNotReady) — it will settle on its own; wait and re-trigger instead of overriding" ;;
           esac
         done
         return 1
@@ -285,8 +365,16 @@ data:
        (delta-corp/bp-keycloak `context deadline exceeded` alone cascaded
        DependencyNotReady onto 4 siblings). Tag those rows so the operator
        can tell "wait 5 minutes" from "this blocks you until you act".
+
+       #6253: the two terminal shapes need DIFFERENT remedies, so they carry
+       different tags. `flux reconcile --reset` clears a Stalled upgrade; it
+       does nothing whatsoever for a pin whose chart was never published —
+       there is no artifact to pull, so retrying is guaranteed to fail
+       identically. Emitting the stalled remedy for a hollow pin sends the
+       operator to a command that cannot work; name the real one instead
+       (publish the pinned version, or re-pin to a published one).
       */}}
-      hr_pending=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" '
+      hr_pending=$(printf '%s' "${_srp_hr_json}" | jq -r --arg okey "${SETTLED_ROLL_OVERRIDE_ANNOTATION}" "${SRP_TERMINAL_JQ}"'
         .items[]
         | select((.spec.suspend // false) | not)
         | select(((.metadata.annotations // {}) | has($okey)) | not)
@@ -294,10 +382,13 @@ data:
             ((.status.observedGeneration // -1) < (.metadata.generation // 0))
             or (((.status.conditions // []) | map(select(.type=="Ready")) | (.[0].status // "Unknown")) != "True")
           )
-        | (((.status.conditions // []) | map(select(.type=="Stalled")) | (.[0].status // "False")) == "True") as $stalled
+        | _stalled as $stalled
+        | _source_absent as $source_absent
         | (((.status.conditions // []) | map(select(.type=="Ready")) | (.[0].message // "")) | split("\n")[0]) as $why
         | "HelmRelease/\(.metadata.namespace)/\(.metadata.name)"
-          + (if $stalled then "  [TERMINAL: Flux stalled — it has STOPPED retrying and will never clear itself]" else "" end)
+          + (if $stalled then "  [TERMINAL: Flux stalled — it has STOPPED retrying and will never clear itself]"
+             elif $source_absent then "  [TERMINAL: the pinned chart version does not exist in the registry — retrying cannot create it]"
+             else "" end)
           + (if ($why | length) > 0 then "  (\($why))" else "" end)') || {
         echo "[harbor-prewarm] FATAL: Phase A0 HelmRelease-offender jq failed — refusing to fail open (#5391)"
         return 1
@@ -355,14 +446,36 @@ data:
       unsettled=$(printf '%s\n%s\n' "${hr_pending}" "${wl_pending}" | grep -c . || true)
       if [ "${unsettled}" -gt 0 ]; then
         terminal=$(printf '%s\n' "${hr_pending}" | grep -c 'TERMINAL:' || true)
+        {{- /*
+         #6253 — count the hollow-pin terminals separately so the remedy
+         printed matches the terminal shape actually present. Both counts
+         feed the same "do not say wait" branch; only the fix line differs.
+        */}}
+        terminal_hollow=$(printf '%s\n' "${hr_pending}" | grep -c 'does not exist in the registry' || true)
+        terminal_stalled=$((terminal - terminal_hollow))
         echo "[harbor-prewarm] FATAL: env NOT settled — ${unsettled} release(s)/workload(s) are mid-roll; harbor-prewarm would mirror running tags the cutover then rolls away from (running != desired):"
         printf '%s\n%s\n' "${hr_pending}" "${wl_pending}" | grep . | sed 's/^/  mid-roll: /'
         if [ "${terminal}" -gt 0 ]; then
           {{- /* #5391 — do NOT tell the operator to wait when waiting cannot work. */}}
-          echo "[harbor-prewarm] ${terminal} of these are TERMINAL (Flux Stalled/RetriesExceeded). Waiting will NOT clear them — Flux has already given up retrying. Each one needs an explicit re-drive before the cutover can proceed:"
-          echo "[harbor-prewarm]   flux reconcile helmrelease <name> -n <namespace> --reset     # clears Stalled and retries"
-          echo "[harbor-prewarm]   (or remove the Organization if the release belongs to a customer app you no longer need)"
-          echo "[harbor-prewarm] Fix the underlying failure first — the message in parentheses above is the Helm error that stalled it."
+          echo "[harbor-prewarm] ${terminal} of these are TERMINAL. Waiting will NOT clear them. Each one needs an explicit fix before the cutover can proceed:"
+          if [ "${terminal_stalled}" -gt 0 ]; then
+            echo "[harbor-prewarm]   ${terminal_stalled} Flux Stalled/RetriesExceeded — Flux has already given up retrying:"
+            echo "[harbor-prewarm]     flux reconcile helmrelease <name> -n <namespace> --reset   # clears Stalled and retries"
+            echo "[harbor-prewarm]     (or remove the Organization if the release belongs to a customer app you no longer need)"
+            echo "[harbor-prewarm]   Fix the underlying failure first — the message in parentheses above is the Helm error that stalled it."
+          fi
+          if [ "${terminal_hollow}" -gt 0 ]; then
+            {{- /*
+             #6253 — a hollow pin. Do NOT offer `flux reconcile --reset`
+             here: the chart version was never published, so every retry
+             404s identically. Live hw296 (dep e689e3b34a75fdec):
+             bp-guacamole pinned 0.2.40, published max 0.2.39.
+            */}}
+            echo "[harbor-prewarm]   ${terminal_hollow} pinned to a chart version that DOES NOT EXIST in the registry (a hollow pin). Re-driving Flux cannot help — there is no artifact to pull. Fix the pin at its source:"
+            echo "[harbor-prewarm]     - publish the pinned chart version (its Blueprint Release build likely failed before the push), OR"
+            echo "[harbor-prewarm]     - re-pin the release to a version that IS published, and let Flux reconcile."
+            echo "[harbor-prewarm]   The parenthesised message above names the exact chart reference that 404'd."
+          fi
           echo "[harbor-prewarm] If a release is GENUINELY unfixable right now (e.g. quota-wedged, #5393), a sovereign-admin may exclude that ONE release from this gate with a named, audited override (#5391):"
           echo "[harbor-prewarm]   kubectl annotate helmrelease <name> -n <namespace> ${SETTLED_ROLL_OVERRIDE_ANNOTATION}=\"<why it is stuck / ticket ref>\""
           echo "[harbor-prewarm]   The override is validated fail-closed (a healthy or merely mid-roll release is REJECTED), recorded in the cutover status ConfigMap, and shown on GET /sovereign/cutover/status."

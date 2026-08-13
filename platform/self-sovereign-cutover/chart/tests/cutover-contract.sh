@@ -4515,7 +4515,127 @@ if ! c77_run "$TMP/c77/cascade.json"; then
   exit 1
 fi
 grep -q 'env settled WITH 2 named operator override' "$TMP/c77/out.txt" || { echo "FAIL: cascade pass does not announce both overrides (#5391)" >&2; exit 1; }
-echo "  PASS (#5391: gate executed in 7 directions — stuck+no-override blocks with TERMINAL diagnosis and remedy, valid named override passes AND records <ns>/<name>=<reason> durably, empty-reason/healthy/mid-roll overrides all fail-closed, unrecordable override refused, clean pass clears the record, hw290 DependencyNotReady cascade overridable; extracted gate ${c77_lines} lines)"
+# ── #6253 — the HOLLOW-PIN terminal shape (live hw296, dep e689e3b34a75fdec).
+# A pin whose chart version was never published parks the HR on
+# Ready=False/SourceNotReady with NO Stalled condition at all, so the
+# Stalled-only classifier called it "genuinely mid-roll": the gate told the
+# operator to wait for something that can never arrive, AND the #5391 named
+# override was rejected on it, leaving only the whole-gate kill switch.
+cat > "$TMP/c77/hollow.json" <<'C77H'
+{"items":[{"metadata":{"name":"bp-guacamole","namespace":"flux-system","generation":3},"spec":{"chart":{"spec":{"version":"0.2.40"}}},"status":{"observedGeneration":2,"conditions":[{"type":"Reconciling","status":"True","reason":"Progressing","message":"Fulfilling prerequisites"},{"type":"Ready","status":"False","reason":"SourceNotReady","message":"HelmChart 'flux-system/flux-system-bp-guacamole' is not ready: chart pull error: failed to download chart for remote reference: failed to get 'oci://ghcr.io/openova-io/bp-guacamole:0.2.40': ghcr.io/openova-io/bp-guacamole:0.2.40: not found"},{"type":"Released","status":"True","reason":"UpgradeSucceeded","message":"Helm upgrade succeeded for release guacamole/guacamole.v2 with chart bp-guacamole@0.2.39"}]}}]}
+C77H
+jq '.items[0].metadata.annotations = {"catalyst.openova.io/cutover-settled-roll-override":"bp-guacamole 0.2.40 unpublished, publish job aborted on #6247 markers"}' \
+  "$TMP/c77/hollow.json" > "$TMP/c77/hollow-override.json"
+# NARROWNESS CONTROL A — same Ready=False + SourceNotReady, but a TRANSIENT
+# pull failure rather than an absent artifact. It must stay classified
+# mid-roll (waiting genuinely can clear it), and an override on it must stay
+# REJECTED. Without this control the new classifier could be a blanket
+# "SourceNotReady is terminal" and still pass every assertion above.
+jq '.items[0].status.conditions[1].message = "HelmChart '"'"'flux-system/flux-system-bp-guacamole'"'"' is not ready: chart pull error: failed to download chart for remote reference: context deadline exceeded"' \
+  "$TMP/c77/hollow.json" > "$TMP/c77/transient-source.json"
+jq '.items[0].metadata.annotations = {"catalyst.openova.io/cutover-settled-roll-override":"impatient about a transient pull"}' \
+  "$TMP/c77/transient-source.json" > "$TMP/c77/transient-source-annotated.json"
+# NARROWNESS CONTROL B — the shape a bare `not found` test gets WRONG, taken
+# verbatim off live hw296 while it reconciled: bp-sso-bridge and bp-trivy on
+# `ArtifactFailed` / "Source not ready: artifact not found. Retrying in 30s".
+# That is Flux's own artifact store rebuilding after a source-controller
+# restart. The charts exist, the state clears itself in ~30s, and calling it
+# a hollow pin would tell the operator to publish a version that is already
+# published. It carries BOTH suspect properties — a reason in the terminal
+# set AND the literal words "not found" — so it is the control that actually
+# constrains the predicate.
+jq '.items[0].status.conditions[1].reason = "ArtifactFailed" | .items[0].status.conditions[1].message = "Source not ready: artifact not found. Retrying in 30s"' \
+  "$TMP/c77/hollow.json" > "$TMP/c77/artifact-rebuild.json"
+jq '.items[0].metadata.annotations = {"catalyst.openova.io/cutover-settled-roll-override":"impatient about an artifact rebuild"}' \
+  "$TMP/c77/artifact-rebuild.json" > "$TMP/c77/artifact-rebuild-annotated.json"
+# (7) Hollow pin, no override → BLOCKS, named TERMINAL, with the PUBLISH/RE-PIN
+#     remedy and explicitly NOT the `flux reconcile --reset` remedy (which
+#     cannot create an artifact that was never pushed).
+if c77_run "$TMP/c77/hollow.json"; then
+  echo "FAIL: gate PASSED on a hollow pin (chart version absent from the registry) (#6253)" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+if ! grep -q 'does not exist in the registry' "$TMP/c77/out.txt"; then
+  echo "FAIL: hollow pin is not tagged TERMINAL — the gate still calls an unpublished chart version 'genuinely mid-roll' and tells the operator to wait forever (#6253)" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+if ! grep -q 'publish the pinned chart version' "$TMP/c77/out.txt"; then
+  echo "FAIL: hollow-pin diagnosis does not name the actual remedy (publish / re-pin) (#6253)" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+if grep -q 'flux reconcile helmrelease' "$TMP/c77/out.txt"; then
+  echo "FAIL: hollow pin was offered the Stalled remedy 'flux reconcile --reset' — retrying cannot create an unpublished artifact, so this sends the operator to a command that provably cannot work (#6253)" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+if grep -q 'genuinely mid-roll' "$TMP/c77/out.txt"; then
+  echo "FAIL: gate still printed the 'wait for them to settle' advice for an env whose ONLY offender is terminal (#6253)" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+# (8) Hollow pin WITH a valid named override → the #5391 recovery seam is
+#     REACHABLE for this shape (it was rejected as MID-ROLL before #6253).
+if ! c77_run "$TMP/c77/hollow-override.json"; then
+  echo "FAIL: gate REJECTED a named override on a hollow pin — the #5391 recovery seam is unreachable for the shape that most needs it (#6253)" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+if ! grep -q 'flux-system/bp-guacamole=bp-guacamole 0.2.40 unpublished' "$TMP/c77/patch.log"; then
+  echo "FAIL: hollow-pin override was honored but not durably recorded (#6253/#5391)" >&2
+  cat "$TMP/c77/patch.log" >&2
+  exit 1
+fi
+# (9) Narrowness control — a TRANSIENT source failure must NOT be terminal.
+if c77_run "$TMP/c77/transient-source.json"; then
+  echo "FAIL: gate PASSED on a transiently-unreadable source — the settle check weakened (#6253)" >&2
+  exit 1
+fi
+if grep -q 'does not exist in the registry' "$TMP/c77/out.txt"; then
+  echo "FAIL: a TRANSIENT chart-pull failure (context deadline exceeded) was classified as a hollow pin — the #6253 predicate is a blanket SourceNotReady test, not an absent-artifact test" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+if ! grep -q 'genuinely mid-roll' "$TMP/c77/out.txt"; then
+  echo "FAIL: a transient source failure lost its 'wait for it to settle' advice — waiting DOES clear this one (#6253)" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+if c77_run "$TMP/c77/transient-source-annotated.json"; then
+  echo "FAIL: gate honored an override on a transiently-unreadable source — fail-closed override validation weakened by #6253" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+grep -q 'genuinely mid-roll' "$TMP/c77/out.txt" || { echo "FAIL: transient-source override rejection does not name the class (#6253)" >&2; exit 1; }
+# (10) Narrowness control B — the LIVE hw296 artifact-rebuild shape. This one
+#      carries BOTH suspect properties: a reason in the terminal set
+#      (ArtifactFailed) AND the literal words "not found". A bare `not found`
+#      predicate calls it a hollow pin and tells the operator to publish a
+#      chart that is already published. It must stay mid-roll and stay
+#      non-overridable — waiting genuinely clears it in ~30s.
+if c77_run "$TMP/c77/artifact-rebuild.json"; then
+  echo "FAIL: gate PASSED on a Flux artifact rebuild — the settle check weakened (#6253)" >&2
+  exit 1
+fi
+if grep -q 'does not exist in the registry' "$TMP/c77/out.txt"; then
+  echo "FAIL: 'Source not ready: artifact not found. Retrying in 30s' (ArtifactFailed) was classified as a hollow pin — the #6253 predicate reads the words 'not found' without requiring a REMOTE-resolution context, so it would tell the operator to publish an already-published chart (measured live on hw296: bp-sso-bridge, bp-trivy)" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+if ! grep -q 'genuinely mid-roll' "$TMP/c77/out.txt"; then
+  echo "FAIL: a Flux artifact rebuild lost its 'wait for it to settle' advice — waiting DOES clear this one in ~30s (#6253)" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+if c77_run "$TMP/c77/artifact-rebuild-annotated.json"; then
+  echo "FAIL: gate honored an override on a Flux artifact rebuild — fail-closed override validation weakened by #6253" >&2
+  cat "$TMP/c77/out.txt" >&2
+  exit 1
+fi
+grep -q 'genuinely mid-roll' "$TMP/c77/out.txt" || { echo "FAIL: artifact-rebuild override rejection does not name the class (#6253)" >&2; exit 1; }
+echo "  PASS (#5391/#6253: gate executed in 13 directions — stuck+no-override blocks with TERMINAL diagnosis and remedy, valid named override passes AND records <ns>/<name>=<reason> durably, empty-reason/healthy/mid-roll overrides all fail-closed, unrecordable override refused, clean pass clears the record, hw290 DependencyNotReady cascade overridable, hw296 hollow pin tagged TERMINAL with the publish/re-pin remedy and NOT the reconcile-reset one and is overridable, two narrowness CONTROLS stay mid-roll and stay non-overridable — a transient chart-pull failure and the live hw296 ArtifactFailed "artifact not found. Retrying in 30s" rebuild that carries both suspect properties; extracted gate ${c77_lines} lines)"
 
 # ── Case 78 (#5439): step-07 Phase 3e — the per-Org IMAGE registry host ──────
 # LIVE hw292 2026-08-06 (dep 1c56518035a83e03, cutoverComplete=true since
