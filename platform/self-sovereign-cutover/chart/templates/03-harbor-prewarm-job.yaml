@@ -212,6 +212,21 @@ data:
      exceeded`, `connection refused`, a 5xx — matches none of those strings
      and stays classified mid-roll, so waiting is still the advice whenever
      waiting can actually work.
+
+     "404-class" is NOT the same as "the words not found appear", and the
+     difference was measured, not reasoned about. Sampling hw296 while it was
+     reconciling turned up bp-sso-bridge and bp-trivy sitting on
+
+       ArtifactFailed  "Source not ready: artifact not found. Retrying in 30s"
+
+     — Flux's own artifact store still rebuilding after a source-controller
+     restart. Those charts exist, that state clears in ~30s by itself, and a
+     bare `not found` test would have branded both as hollow pins and told
+     the operator to publish a version that is already published. So the
+     404-class token must arrive together with a REMOTE-RESOLUTION context:
+     `chart pull error` (Flux's wording when the registry download itself
+     failed) or `no chart version found` (a classic HelmRepository index
+     miss, self-contained). Both live shapes are pinned as Case 77 fixtures.
     */}}
     SRP_TERMINAL_JQ='
       def _cond($t): (.status.conditions // []) | map(select(.type == $t)) | (.[0] // {});
@@ -224,10 +239,13 @@ data:
          string status" — caught by Case 77 direction 1 before this shipped.
         */}}
         (_cond("Ready")) as $r
+        | ((($r.message) // "") | ascii_downcase) as $m
         | ((($r.status) // "Unknown") != "True")
           and ((["SourceNotReady", "ArtifactFailed", "ChartPullError"] | index(($r.reason) // "")) != null)
-          and ((($r.message) // "") | ascii_downcase
-               | (test("not found") or test("no chart version found")));
+          and (
+            ($m | test("no chart version found"))
+            or (($m | test("chart pull error")) and ($m | test("not found")))
+          );
       def _terminal: _stalled or _source_absent;
     '
     srp_kubectl_json() {
