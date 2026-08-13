@@ -1403,7 +1403,7 @@ spec:
       #   connection names an identity the proxy must allowlist, and the
       #   proxy mints the certificate the connection presents. Lockstep w/
       #   products/catalyst/chart/Chart.yaml.
-      version: 1.4.1454
+      version: 1.4.1455
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
