@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-13T14:00:07Z` |
+| Last refreshed | `2026-08-13T14:15:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-13T14:11 | [#6239](https://github.com/openova-io/openova/pull/6239) | #5734 | chore(lockstep): republish the umbrella for bp-guacamole 0.2 |
+| 2026-08-13T14:11 | [#6237](https://github.com/openova-io/openova/pull/6237) | #6027 | docs(path-to-100): mark the secondary-kubeconfig producer SU |
 | 2026-08-13T13:06 | [#6233](https://github.com/openova-io/openova/pull/6233) | #4993 | fix(provisioning): one unresolvable cart entry no longer sin |
+| 2026-08-13T14:10 | [#6232](https://github.com/openova-io/openova/pull/6232) | #3373 | fix(catalyst): make the topology choice survive the round tr |
 | 2026-08-13T13:07 | [#6230](https://github.com/openova-io/openova/pull/6230) | #5734 | fix(bp-guacamole): nothing had ever written a Guacamole conn |
 | 2026-08-13T11:34 | [#6228](https://github.com/openova-io/openova/pull/6228) | #6149 | docs(ledger): publish UAT-FINAL — every case with its confid |
 | 2026-08-13T11:43 | [#6227](https://github.com/openova-io/openova/pull/6227) | #4466 | fix(catalyst): a flaky post-reclaim quota re-read false-fail |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-13T03:21 | [#6199](https://github.com/openova-io/openova/pull/6199) | #5640 | fix(cutover): stop step-03 gating on the cutover's OWN workl |
 | 2026-08-13T02:58 | [#6193](https://github.com/openova-io/openova/pull/6193) | #6090 | docs(uat): hw295 convergence walk — 196→232 green, a false n |
 | 2026-08-12T07:51 | [#6188](https://github.com/openova-io/openova/pull/6188) | #6180 | fix(uat): attribute observations to the env that measured th |
-| 2026-08-12T08:57 | [#6186](https://github.com/openova-io/openova/pull/6186) | #4459 | fix(api): per-Org app hosts resolve to a gateway that has no |
-| 2026-08-12T08:58 | [#6185](https://github.com/openova-io/openova/pull/6185) | #5920 | fix(catalog): a retired product must not keep its price list |
-| 2026-08-12T08:57 | [#6184](https://github.com/openova-io/openova/pull/6184) | #5710 | fix(catalyst-api): refuse to run a cutover on a chart that c |
 
 ---
 
