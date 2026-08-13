@@ -1339,6 +1339,29 @@ The deterministic failover test for two independent CNPG clusters:
      never-acked WAL tail (the RPO=0 contract). Evidence:
      `dr-failback-started-at` / `-recloned-at` / `-converged-at` annotations
      on the region-A HR + both actors' pod logs.
+
+   🛑 **This reverse leg covers the bp-cnpg-pair pair ONLY — the three shared-pg
+   pairs are not in it (#6149).** All three moves above are bp-cnpg-pair
+   mechanisms (`SOVEREIGN_CNPG_PAIR_PROMOTED` / `_DEMOTED` and the dr-failback
+   actor). `shared-pg`, `shared-pg-b` and `shared-pg-c` run **bp-postgres**,
+   which ships `dr-promoter` but no `dr-failback`: measured against
+   bp-cnpg-pair's promoter it carries the suspend latch, arm gate, liveness gate,
+   anti-flap and readback-verify, and **zero** timeline-divergence machinery
+   (`ConsistentSystemID`, `pg_basebackup` and `IDENTIFY_SYSTEM` are absent from
+   it entirely). They appear in this section's **promotion** table above and
+   nowhere in this step.
+
+   Consequence on a real region-A return: those three pairs auto-promote in
+   region B, and then nothing detects that the returning region-A primary is on
+   a divergent line — two writable primaries with no automatic resolution. Note
+   that bp-postgres's own header comment defers to "the operator lifts it on
+   region-A recovery (RUNBOOKS §6.1)", and this step says the lift is automatic
+   via a component those pairs do not have; the manual procedure it implies has
+   never been written. Treat shared-pg failback as **operator-driven and
+   undefined** until #6149 lands the port, and prefer to recover those pairs by
+   re-cloning the returning side from the promoted one rather than letting both
+   sides serve.
+
    **End state**: region-B primary, region-A streaming replica, both HRs
    unsuspended, topology rendered from source. The **controlled switchback**
    to original roles stays a sovereign-admin action: demote region-B and
