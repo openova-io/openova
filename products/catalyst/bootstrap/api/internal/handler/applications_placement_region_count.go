@@ -2,7 +2,6 @@ package handler
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 )
 
@@ -73,17 +72,24 @@ func placementRegionCountError(mode string, regions []string) string {
 	if len(distinct) >= 2 {
 		return ""
 	}
-	sort.Strings(distinct)
 	named := "none"
 	if len(distinct) == 1 {
 		named = fmt.Sprintf("%q", distinct[0])
 	}
+	// State the consequence per CLASS. active-active has no standby by design —
+	// its problem is that one region makes it a singleton under another name —
+	// so a shared "has no standby" sentence would be wrong for it, and an error
+	// an operator can tell is wrong is one they learn to skip.
+	consequence := "regions[0] is the primary and regions[1..] are the standbys, so a " +
+		"single-region " + canon + " has no standby to fail over to and no Continuum is created for it"
+	if canon == "active-active" {
+		consequence = "active-active means every region serves traffic, so over one region it is a " +
+			"singleton under another name"
+	}
 	return fmt.Sprintf(
-		"placement.mode %q needs at least 2 DISTINCT regions and got %d (%s) — "+
-			"regions[0] is the primary and regions[1..] are the standbys, so a single-region "+
-			"%s has no standby to fail over to and no Continuum is created for it. "+
+		"placement.mode %q needs at least 2 DISTINCT regions and got %d (%s) — %s. "+
 			"Name a second region, or use placement.mode singleton for a one-region install",
-		canon, len(distinct), named, canon)
+		canon, len(distinct), named, consequence)
 }
 
 // placementModeRequiresMultipleRegions reports whether a canonical topology
