@@ -33,6 +33,10 @@
 #       on gateway.networking.k8s.io/gateways so the poll resolves.
 #
 # Usage: bash tests/cutover-contract.sh [CHART_DIR]
+#
+# SCRATCH — vacuity probe for PR #6265, never to be merged. This comment is the
+# whole change; it exists only to trip the new tests-only path filter so the
+# gate can be watched failing on the predicate main still carries.
 
 set -euo pipefail
 
