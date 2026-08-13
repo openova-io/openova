@@ -208,6 +208,16 @@ func (g *ManifestGenerator) GeneratePerOrgHostAppRoutes(slug, planSlug string, a
 		if isHelmReleaseApp(a) {
 			continue // carries its own chart-emitted HTTPRoute; syncs no Service
 		}
+		// #5910 — the SAME predicate the Deployment render uses. An entry that
+		// resolves to no catalog AppSpec emits no Deployment and no Service, so
+		// a route for it would bind a `<app>-x-<slug>-x-vcluster` backend that
+		// can never exist (ResolvedRefs=False / BackendNotFound). Skipping it
+		// here is what keeps the file set and this route set on ONE predicate:
+		// a slug rendered by one and not the other is either an unapplied file
+		// or a permanently-dangling route.
+		if !AppIsRenderable(a) {
+			continue
+		}
 		name := fmt.Sprintf("app-%s-hostroute.yaml", a)
 		out[PerOrgHostAppsDir+"/"+name] = generateHostNativeAppRoute(hostNS, slug, a, g.parentDomain())
 		docs = append(docs, name)

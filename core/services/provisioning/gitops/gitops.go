@@ -728,6 +728,20 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 		if isHelmReleaseApp(a) {
 			continue
 		}
+		// #5910 — a cart entry that resolves to NO catalog AppSpec (an
+		// unresolved UUID passed through resolveAppSlugs, or a slug this
+		// build's catalog does not carry) would render a Deployment with a
+		// null `image` and `containerPort: 0`. Flux aborts the ENTIRE
+		// vcluster/apps Kustomization on one invalid doc, so that husk takes
+		// every co-installed app and its DB down with it. Emit nothing for it
+		// instead — same remedy as the isHelmReleaseApp skip above — so the
+		// customer's other purchased apps still apply and serve. See
+		// AppIsRenderable for the full rationale.
+		if !AppIsRenderable(a) {
+			slog.Error("provisioning/gitops: cart entry resolves to no catalog AppSpec — emitting NO manifest for it so the rest of the cart still applies (#5910)",
+				"tenant", slug, "app", a)
+			continue
+		}
 		spec := GetAppSpec(a)
 		// MIRROR-EVERYTHING (#3785, Refs #3376 #3761): route the app image
 		// (main container + the InitCommand initContainer that reuses it)

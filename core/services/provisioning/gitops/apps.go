@@ -249,6 +249,45 @@ func LookupAppSpec(slug string) (AppSpec, bool) {
 	return spec, ok
 }
 
+// AppIsRenderable reports whether the generic Deployment generator can emit an
+// APPLIABLE manifest for this catalog slug — i.e. whether the slug resolves to
+// an AppSpec carrying an image.
+//
+// # Why an unrenderable slug must produce NOTHING rather than a husk (#5910)
+//
+// resolveAppSlugs (handlers.go) passes an id it cannot resolve through
+// UNCHANGED — deliberately, because callers may legitimately hand it values
+// that are already slugs. #5910 made that case observable but left the value
+// flowing into the generator, where GetAppSpec returns a bare AppSpec{} and
+// generateAppDeployment renders a Deployment with a null `image` and
+// `containerPort: 0`.
+//
+// That manifest is INVALID to the apiserver, and Flux aborts the WHOLE
+// `vcluster/apps` Kustomization on a single dry-run failure. So the blast
+// radius is not the one unresolvable cart entry — it is every co-installed app
+// in the same apply plus its database, the identical whole-tree abort #5423
+// documents (`inventory: 0`, the customer's WordPress and its MySQL never
+// applied). A cart holding one bad id therefore takes down the apps the
+// customer actually paid for.
+//
+// The old comment on GetAppSpec called the empty spec "fail loud rather than
+// silently succeed". That reasoning predates the whole-Kustomization abort:
+// today an invalid manifest does not fail loudly for one app, it fails
+// SILENTLY for all of them. Emitting nothing collapses the blast radius back
+// to the single entry that could not resolve, so the rest of the cart still
+// deploys and serves (UAT rows 90 / 95 / 234).
+//
+// This is the same remedy, keyed off the same property, that the
+// isHelmReleaseApp skip in GenerateAllWithAppConfigs already applies to the
+// #941 shape ("don't render an invalid `image: Required value` manifest").
+// Exported as ONE predicate because it has two call sites — the Deployment
+// render and the host-native route render — and a slug rendered by one but not
+// the other is either an unapplied file or a route to a backend that will
+// never exist.
+func AppIsRenderable(slug string) bool {
+	return strings.TrimSpace(GetAppSpec(slug).Image) != ""
+}
+
 // GetAppSpec returns the deployment spec for an app slug. Kept for
 // backwards-compat with callers that intentionally want the nginx fallback
 // (placeholder-for-demo cases only) — prefer LookupAppSpec in new code.
