@@ -1087,6 +1087,34 @@ helmRepositories:
     - "bootstrap-kit"
     - "org-tenants"
 
+  # ── #6293: per-Org tenant HelmRepository DURABLE-SOURCE pivot (Phase-2b) ──
+  #
+  # The six shared bp-* HelmRepositories the per-Org overlays sourceRef
+  # (bp-keycloak / bp-newapi / bp-wordpress-tenant / bp-openclaw /
+  # bp-stalwart-tenant / bp-agenity) are NOT owned by bootstrap-kit. The
+  # catalyst-api org-tenant pipeline writes them to
+  # clusters/<fqdn>/org-tenants/helmrepositories.yaml on a DEDICATED branch
+  # and the org-tenants Kustomization re-applies that file every 1m with
+  # prune=true. A live `kubectl patch` of an object under that Kustomization
+  # is reverted before it can matter — hw296 measured bp-keycloak at
+  # metadata.generation 101 while step-06 logged `live-K8s ok=4 fail=0`.
+  #
+  # `branch` MUST equal the branch three other places already agree on:
+  #   - products/catalyst/chart/templates/org-services/
+  #     org-repo-gitrepository.yaml  → spec.ref.branch
+  #   - the same chart's gitea-org-repo-bootstrap-job.yaml → the branch it
+  #     creates
+  #   - catalyst-api's CATALYST_GITOPS_BRANCH → where the writer pushes
+  # Override all four together or not at all.
+  orgTenantsSource:
+    enabled: true
+    branch: "org-tenants"
+    # Flux GitRepository poked after the push so the pivot lands on the next
+    # reconcile instead of the polling interval. A name that does not exist is
+    # a harmless no-op (the annotate is `|| true`).
+    gitRepositoryName: "openova-org-tenants"
+    gitRepositoryNamespace: "flux-system"
+
   # ── #5650: vcluster loft chart-source pivot (step-06 Phase-2c) ──────────
   #
   # The ONE Flux source the URL-pivot above cannot reach. The
