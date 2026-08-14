@@ -554,7 +554,13 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "031db43"
+    # 2026-08-14 (#6268): bumped 031db43 -> 98f4495 to DELIVER the region-B
+    # per-Org standby producer (PR #6291). Until this pin moves, UAT row 60
+    # cannot be walked against the fix: the running image is 031db43 and
+    # `git merge-base --is-ancestor 98f44954b 031db43` is FALSE. catalystUi is
+    # deliberately NOT bumped with it — the UI carries no part of this change,
+    # and moving a pin whose component did not change is an unverified rollout.
+    tag: "98f4495"
   catalystUi:
     tag: "031db43"
   # 2026-08-11 (#5451): marketplaceApi / console / admin were ALL frozen at
