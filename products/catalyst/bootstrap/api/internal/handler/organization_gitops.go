@@ -1455,6 +1455,23 @@ spec:
     # (core/controllers/organization/internal/gitops/manifests.go:121). A
     # ResourceQuota counts limits, so the chart default reserved the entire cap
     # and every pod rendered beside it was refused at admission.
+    #
+    # ── WHAT THIS BLOCK DOES *NOT* SIZE (#6324) ───────────────────────
+    # It pins ONE of the THREE quota-counted containers in this release's
+    # Pod, and a ResourceQuota admits the POD:
+    #   sandbox-bridge    200m  chart default; a NATIVE sidecar
+    #                           (initContainers + restartPolicy: Always,
+    #                           #3374), counted on k8s 1.29+
+    #   newapi            500m  pinned below
+    #   metering-sidecar  500m  chart default
+    #   ------------------------
+    #   POD limits.cpu   1200m
+    # Org bundle = 1200m + openclaw 250m + CNPG 500m = 1950m of the 2000m
+    # smallest-plan cap — 50m of real headroom, not the 750m a
+    # single-container reading suggests. Raising EITHER sidecar by 100m
+    # puts the Org over the cap. Both guards now compute this Pod total
+    # from the chart; sizing the Pod is #5393, and nothing here changes a
+    # value.
     newapi:
       resources:
         requests:

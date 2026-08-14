@@ -16,15 +16,33 @@ name: Test — Provisioning Service (Go)
 # (core/services/provisioning/go.mod); sibling services under core/services/
 # still need their own gates and are deliberately NOT claimed here.
 
+# TRIGGERS MUST COVER WHAT THE TESTS READ, not only where they live (#6324).
+# Several guards in this module derive their assertions from files OUTSIDE it —
+# the bp-newapi and bp-openclaw charts, and the org-controller's planQuotaTable.
+# Scoped to this module's own path, a chart-only PR would change a term the
+# guard asserts on and never run the guard: green by absence of measurement.
+# That is the same fail-open shape as the go-test cache trap #6235 closes, one
+# level up, and it is exactly how a sidecar's limits could ship invisibly.
+#
+# The paths below are the ones the #6324 Pod-quota guards read:
+#   platform/newapi/chart/**                     sidecar + CNPG limits, the DSN gate
+#   platform/openclaw/chart/**                   the controller's 250m neighbour term
+#   core/controllers/organization/internal/gitops/**  planQuotaTable["s"] — the cap
 on:
   push:
     paths:
       - 'core/services/provisioning/**'
+      - 'platform/newapi/chart/**'
+      - 'platform/openclaw/chart/**'
+      - 'core/controllers/organization/internal/gitops/**'
       - '.github/workflows/test-provisioning-service.yaml'
     branches: [main]
   pull_request:
     paths:
       - 'core/services/provisioning/**'
+      - 'platform/newapi/chart/**'
+      - 'platform/openclaw/chart/**'
+      - 'core/controllers/organization/internal/gitops/**'
       - '.github/workflows/test-provisioning-service.yaml'
   workflow_dispatch:
 

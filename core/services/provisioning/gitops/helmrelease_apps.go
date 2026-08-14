@@ -527,6 +527,26 @@ spec:
     # request far below the limit would let this pod in and then starve its
     # neighbours out of the quota it is not accounted against.
     #
+    # ── WHAT THIS BLOCK DOES *NOT* SIZE (#6324) ─────────────────────────────
+    # It pins ONE of the THREE quota-counted containers in this release's Pod,
+    # and a ResourceQuota admits the POD:
+    #
+    #   sandbox-bridge    200m  chart default; a NATIVE sidecar (initContainers
+    #                           entry with restartPolicy: Always, #3374), so its
+    #                           limits count toward the Pod on k8s 1.29+
+    #   newapi            500m  pinned below
+    #   metering-sidecar  500m  chart default
+    #   ------------------------
+    #   POD limits.cpu   1200m
+    #
+    # So the Org bundle is 1200m + openclaw 250m + CNPG 500m = 1950m of the
+    # 2000m smallest-plan cap: 50m of real headroom, not the 750m the
+    # single-container reading suggests. Raising EITHER sidecar by 100m puts the
+    # Org over the cap. The two guards now compute this Pod-level total from the
+    # chart rather than from the one term pinned here — see
+    # newapi_pod_quota_arithmetic_6324_test.go. Sizing the Pod itself is a
+    # plan-capacity decision and belongs to #5393; nothing here changes a value.
+    #
     # Overridden HERE rather than in the chart so the Sovereign-level default is
     # untouched — no chart bump, no five-site lockstep.
     newapi:

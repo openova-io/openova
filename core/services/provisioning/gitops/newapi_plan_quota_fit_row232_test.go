@@ -69,6 +69,11 @@ func cpuToMillis(v string) (int, error) {
 // smallestPlanCPUMillis mirrors planQuotaTable["s"].CPU ("2") from
 // core/controllers/organization/internal/gitops/manifests.go:121, which is the
 // cap an Org gets when its plan slug is empty or unknown (planQuota(), :132).
+//
+// It is a MIRROR, and a mirror can go stale: a LOWERED cap would leave this
+// guard asserting against a ceiling the platform no longer grants, and pass.
+// TestNewAPIHR_Row232_VacuityCheck_HelperSeesTheChartDefault therefore pins it
+// against the real table via smallestPlanCPUMillisFromController (#6324).
 const smallestPlanCPUMillis = 2000
 
 // TestNewAPIHR_Row232_FitsSmallestPlanQuota is the RED test: the per-Org
@@ -125,15 +130,24 @@ func TestNewAPIHR_Row232_FitsSmallestPlanQuota(t *testing.T) {
 					req, reqMillis, limit, limitMillis)
 			}
 
-			// The headroom assertion the row actually turns on: openclaw's own
-			// controller (250m) plus bp-newapi's CNPG (500m) must still fit.
-			const openclawControllerMillis = 250
-			const newapiCNPGMillis = 500
-			if limitMillis+openclawControllerMillis+newapiCNPGMillis > smallestPlanCPUMillis {
-				t.Fatalf("newapi %dm + openclaw controller %dm + newapi CNPG %dm = %dm "+
-					"exceeds the smallest-plan cap %dm — row 232's pod is refused at admission",
-					limitMillis, openclawControllerMillis, newapiCNPGMillis,
-					limitMillis+openclawControllerMillis+newapiCNPGMillis, smallestPlanCPUMillis)
+			// The headroom assertion the row actually turns on, at POD
+			// granularity (#6324). It sums the whole bp-newapi Pod — the
+			// container pinned above PLUS the two chart-default containers this
+			// overlay never mentions — because a ResourceQuota admits a Pod,
+			// not a container. Summing only `limitMillis` here understated the
+			// cost by 700m and left this guard green while the live cluster
+			// refused the Pod. See newapi_pod_quota_arithmetic_6324_test.go for
+			// the full derivation, the term list, and the live refusal.
+			pod := newapiPodCPUMillis(t, values)
+			openclawControllerMillis := openclawControllerPodCPUMillis(t)
+			newapiCNPGMillis := newapiCNPGCPUMillis(t)
+			if pod.total+openclawControllerMillis+newapiCNPGMillis > smallestPlanCPUMillis {
+				t.Fatalf("bp-newapi POD %dm + openclaw controller %dm + newapi CNPG %dm = %dm "+
+					"exceeds the smallest-plan cap %dm — row 232's pod is refused at admission.\n"+
+					"(the POD costs %dm; this overlay pins only %dm, on the `newapi` container)\n%s",
+					pod.total, openclawControllerMillis, newapiCNPGMillis,
+					pod.total+openclawControllerMillis+newapiCNPGMillis, smallestPlanCPUMillis,
+					pod.total, limitMillis, pod)
 			}
 		})
 	}
@@ -162,5 +176,17 @@ func TestNewAPIHR_Row232_VacuityCheck_HelperSeesTheChartDefault(t *testing.T) {
 	}
 	if m, err := cpuToMillis("0.5"); err != nil || m != 500 {
 		t.Fatalf("cpuToMillis(\"0.5\") = %dm err=%v, want 500m", m, err)
+	}
+
+	// #6324 — and the ceiling itself must still be the platform's ceiling. A
+	// local mirror that drifted BELOW the real cap would make every assertion
+	// above conservative-but-wrong; one that drifted ABOVE would let a Pod the
+	// cluster refuses pass here.
+	if derived := smallestPlanCPUMillisFromController(t); derived != smallestPlanCPUMillis {
+		t.Fatalf("smallestPlanCPUMillis = %dm but planQuotaTable[\"s\"].CPU in "+
+			"core/controllers/organization/internal/gitops/manifests.go now grants %dm. "+
+			"This guard is asserting against a ceiling the platform no longer has — "+
+			"update the mirror and re-check every headroom number that depends on it.",
+			smallestPlanCPUMillis, derived)
 	}
 }

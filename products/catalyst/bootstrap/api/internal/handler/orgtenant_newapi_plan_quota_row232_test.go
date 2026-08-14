@@ -88,11 +88,22 @@ func TestOrgTenantBPNewAPI_Row232_PinsCPUInsideThePlanQuota(t *testing.T) {
 			"these must match so the reservation is honest",
 			reqM[1], reqMillis, limM[1], limMillis)
 	}
-	// Headroom for the workloads rendered alongside: openclaw controller 250m
-	// + this release's own CNPG 500m.
-	if limMillis+250+500 > smallestPlanCPUMillisBSS {
-		t.Fatalf("newapi %dm + openclaw 250m + CNPG 500m exceeds the %dm cap",
-			limMillis, smallestPlanCPUMillisBSS)
+	// Headroom for the workloads rendered alongside, at POD granularity
+	// (#6324). It sums the whole bp-newapi Pod — the container pinned above
+	// PLUS the two chart-default containers this overlay never mentions —
+	// because a ResourceQuota admits a Pod, not a container. Summing only
+	// `limMillis` here understated the cost by 700m and left this guard green
+	// while the live cluster refused the Pod. Terms derived in
+	// orgtenant_newapi_pod_quota_arithmetic_6324_test.go.
+	pod := newapiPodCPUMillisBSS(t)
+	openclaw := openclawControllerPodCPUMillisBSS(t)
+	cnpg := newapiCNPGCPUMillisBSS(t)
+	if pod.total+openclaw+cnpg > smallestPlanCPUMillisBSS {
+		t.Fatalf("bp-newapi POD %dm + openclaw controller %dm + newapi CNPG %dm = %dm exceeds "+
+			"the %dm cap.\n(the POD costs %dm; this overlay pins only %dm, on the `newapi` "+
+			"container)\n%s",
+			pod.total, openclaw, cnpg, pod.total+openclaw+cnpg, smallestPlanCPUMillisBSS,
+			pod.total, limMillis, pod)
 	}
 }
 
