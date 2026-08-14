@@ -47,6 +47,12 @@ func fakeDynForOrgAppSurface(t *testing.T, orgs ...*unstructured.Unstructured) *
 			organizationGVR():     "OrganizationList",
 			appSurfaceServicesGVR: "ServiceList",
 			namespacesGVR():       "NamespaceList",
+			// A real Sovereign always has the Flux CRDs; a fake that omits
+			// them models a cluster that does not exist, and the dynamic
+			// fake PANICS (rather than erroring) on a List for an
+			// unregistered list kind. #6268.
+			{Group: "helm.toolkit.fluxcd.io", Version: "v2", Resource: "helmreleases"}:       "HelmReleaseList",
+			{Group: "source.toolkit.fluxcd.io", Version: "v1", Resource: "helmrepositories"}: "HelmRepositoryList",
 		})
 	ctx := context.Background()
 	gw := &unstructured.Unstructured{Object: map[string]any{

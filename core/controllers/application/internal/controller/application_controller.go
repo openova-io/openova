@@ -453,6 +453,53 @@ func (r *Reconciler) clusterResolver() clusterregistry.Resolver {
 	}
 }
 
+// localRegion is the canonical Region this controller instance runs in, the
+// same derivation clusterResolver makes. Kept as one helper so the #4282
+// narrowing below and the registry can never disagree about which cluster IDs
+// are "same-region".
+func (r *Reconciler) localRegion() clusterregistry.Region {
+	local := clusterregistry.Region(strings.ToUpper(r.Cfg.LocalRegion))
+	if !clusterregistry.IsKnownRegion(local) {
+		local = clusterregistry.RegionA
+	}
+	return local
+}
+
+// hostCNPGKubeSecretFor narrows the #4282 host-CNPG rule (#6268).
+//
+// #4282 measured a real defect: a CNPG-bearing Blueprint pivoted into a
+// vCluster renders a hollow `InstallSucceeded`, because the chart's
+// `cluster.yaml` is gated on `.Capabilities.APIVersions.Has
+// "postgresql.cnpg.io/v1"` and a vCluster apiserver registers no such CRD and
+// runs no cnpg operator. Its remedy was `fanoutKubeSecretFor = nil` — which
+// removes the pivot for EVERY leg of the Application, same-region and
+// cross-region alike.
+//
+// The warrant does not reach that far. It is a statement about VCLUSTERS, and
+// a cross-region cluster ID does not name one: `rtz-B` is a different REGION's
+// HOST cluster, which on a 2-region Sovereign runs its own cnpg operator and
+// registers the CRD (hw296 region B: `cnpg-system/cnpg-cloudnative-pg`,
+// `clusters.postgresql.cnpg.io`). Suppressing its resolution therefore
+// suppressed nothing #4282 was about, while removing the only signal the
+// renderer has that a standby leg belongs somewhere else.
+//
+// So: same-region (and unparseable) IDs still resolve to ("",""), which is
+// exactly the pre-#6268 behaviour for every leg #4282 measured; a cross-region
+// ID is delegated to the registry, which returns a Secret only when an operator
+// has wired a remote-region kubeconfig for that region and ("","") otherwise.
+// A nil base is treated as "nothing to delegate to" rather than as an error —
+// this wrapper only ever narrows.
+func (r *Reconciler) hostCNPGKubeSecretFor(base func(string) (string, string)) func(string) (string, string) {
+	local := r.localRegion()
+	return func(cluster string) (string, string) {
+		id, err := clusterregistry.Parse(cluster)
+		if err != nil || id.Region == local || base == nil {
+			return "", ""
+		}
+		return base(cluster)
+	}
+}
+
 // Defaults applies missing-field defaults to a Config. Returns a copy.
 func (c Config) Defaults() Config {
 	out := c
@@ -1024,7 +1071,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				r.Log.Info("CNPG-bearing Blueprint placed in a vCluster tier — routing the Cluster CR host-side (no vCluster pivot) so the host cnpg-system operator reconciles it (#4282)",
 					"blueprint", spec.BlueprintName, "tier", placementTier, "hostNamespace", app.GetNamespace())
 				fanoutWriteNamespace = app.GetNamespace()
-				fanoutKubeSecretFor = nil
+				// #6268 — NARROWED, not deleted. The rule's warrant is "a
+				// vCluster apiserver registers no postgresql.cnpg.io CRD and
+				// runs no cnpg operator", which is a statement about VCLUSTERS.
+				// Nilling the whole seam applied it to a CROSS-REGION leg as
+				// well, where it does not hold: region B's HOST cluster runs
+				// `cnpg-system/cnpg-cloudnative-pg` with
+				// `clusters.postgresql.cnpg.io` registered (read live on hw296
+				// dep e689e3b34a75fdec), so a `rtz-B` leg has exactly the
+				// operator + CRD the invariant asks for. The narrowed form
+				// suppresses the SAME-REGION vCluster pivot — the whole of what
+				// #4282 measured — and leaves a cross-region cluster ID to the
+				// registry, which resolves it only when a remote-region
+				// kubeconfig is actually wired and returns ("","") otherwise.
+				fanoutKubeSecretFor = r.hostCNPGKubeSecretFor(fanoutKubeSecretFor)
 			}
 
 			// Source-ref + chart: read from Blueprint.spec.manifests

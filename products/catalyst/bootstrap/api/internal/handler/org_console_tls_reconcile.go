@@ -162,6 +162,16 @@ func (h *Handler) reconcileOrgConsoleTLSOnce(ctx context.Context) {
 		// bp-catalyst-edge-routes uses for the platform hosts. No-op on a
 		// single-region Sovereign. See org_app_surface_mesh.go.
 		h.reconcileOrgAppSurfaceAcrossRegions(ctx, deps, rec)
+		// #6268 STANDBY half. The two halves above give a secondary region the
+		// per-Org listener pair and the app ROUTES — the front door. Neither
+		// puts a WORKLOAD there. A Catalog-provisioned `active-hot-standby`
+		// Application's standby leg is rendered as a HelmRelease that lands in
+		// the host region beside its own primary, because nothing writes a
+		// per-Org HelmRelease into a secondary region. This projects that leg
+		// into the region its placement names, where that region's OWN Flux
+		// reconciles it. No-op on a single-region Sovereign. See
+		// org_app_standby_regions.go.
+		h.reconcileOrgAppStandbyAcrossRegions(ctx, deps, rec)
 		reconciled++
 	}
 	if reconciled > 0 {
