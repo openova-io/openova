@@ -4,9 +4,9 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-14T07:00:07Z` |
+| Last refreshed | `2026-08-14T07:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
-| Open issues |  |
+| Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
 | DoD completion | <img alt="DONE" src="https://img.shields.io/badge/-DONE-2ea043?style=flat-square" /> 41 / 41 = 100% |
@@ -34,7 +34,7 @@ t32 (live now): `console.t32.omani.works` returns HTTP 200 + envoy. Handover fir
 
 ## 2. Open-issue blocking graph
 
-**All  open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
+**All 100 open issues** grouped by where they sit in the convergence sequence. Each chain runs left-to-right; chains stack vertically.
 
 > 💡 GitHub strips click handlers from rendered mermaid for security — every node label below has a 1:1 entry in the **clickable index** that follows the diagram.
 
@@ -196,7 +196,7 @@ flowchart LR
 
 **Concurrency cap (2026-05-19 06:59 founder ask):** max 3 parallel sub-agents. Existing 6 complete gracefully; future dispatches respect cap.
 
-### All  open items (clickable table)
+### All 100 open items (clickable table)
 
 | # | Title | Bucket |
 |---|---|---|
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-08-14T06:55 | [#6315](https://github.com/openova-io/openova/pull/6315) | #6090 | docs(uat): close four hw296 partials — 242 proven by live PO |
+| 2026-08-14T07:11 | [#6310](https://github.com/openova-io/openova/pull/6310) | #3988 | docs(uat): row 222 — quota is NOT the only obstacle; a secon |
 | 2026-08-14T05:05 | [#6308](https://github.com/openova-io/openova/pull/6308) | #3526 | docs(uat): hw296 cutover driven to step 11 — G11 refuted the |
 | 2026-08-14T04:30 | [#6305](https://github.com/openova-io/openova/pull/6305) | #6197 | docs(uat): re-walk the 26 invalidated SSO rows live on hw296 |
 | 2026-08-14T04:04 | [#6303](https://github.com/openova-io/openova/pull/6303) | #5436 | fix(cutover): step-06 pivots the org-tenants HelmRepository  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-13T22:14 | [#6267](https://github.com/openova-io/openova/pull/6267) | #4292 | docs(uat): walk 16 rows live on hw296 — 8 green, and row 60  |
 | 2026-08-13T21:09 | [#6265](https://github.com/openova-io/openova/pull/6265) | #6236 | ci: run chart/tests/*.sh at PR time under the release-pinned |
 | 2026-08-13T21:19 | [#6264](https://github.com/openova-io/openova/pull/6264) | #6245 | fix(agenity): the Anthropic credential had no producer, and  |
-| 2026-08-13T20:53 | [#6263](https://github.com/openova-io/openova/pull/6263) | #6254 | fix(cutover): the settled-roll gate blocked on the cutover's |
 
 ---
 
