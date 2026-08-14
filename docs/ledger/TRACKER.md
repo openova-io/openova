@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-14T11:15:05Z` |
+| Last refreshed | `2026-08-14T11:30:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-14T11:18 | [#6333](https://github.com/openova-io/openova/pull/6333) | #6331 | docs(uat): rows 219-222 record the merged quota fix and STAY |
 | 2026-08-14T10:59 | [#6331](https://github.com/openova-io/openova/pull/6331) | #6114 | fix(quota): model the bp-newapi POD, not one container, in b |
 | 2026-08-14T10:03 | [#6329](https://github.com/openova-io/openova/pull/6329) | #6323 | fix(ci): close the fail-open test-gate class outside the cut |
 | 2026-08-14T09:36 | [#6328](https://github.com/openova-io/openova/pull/6328) | #6325 | docs(ledger): convergence cycle 2026-08-14T09:22Z — 278/286  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-14T00:37 | [#6283](https://github.com/openova-io/openova/pull/6283) | #6282 | docs(uat): rows 63/212/213 walked green on hw296 after insta |
 | 2026-08-14T00:17 | [#6282](https://github.com/openova-io/openova/pull/6282) | #6068 | docs(uat): rows 212/213 have no Org-context MCP door at all, |
 | 2026-08-14T00:27 | [#6281](https://github.com/openova-io/openova/pull/6281) | #6273 | fix(cutover): grant Phase A0 the namespaces read its #6273 p |
-| 2026-08-13T23:30 | [#6279](https://github.com/openova-io/openova/pull/6279) | #6259 | docs(ledger): convergence cycle 2026-08-13T23:25:21Z — 254/2 |
 
 ---
 
