@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-14T09:15:04Z` |
+| Last refreshed | `2026-08-14T09:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-14T09:19 | [#6325](https://github.com/openova-io/openova/pull/6325) | #6313 | docs(uat): W1 and 235 walked green — the wizard fix delivere |
 | 2026-08-14T08:33 | [#6321](https://github.com/openova-io/openova/pull/6321) | #5575 | fix(wizard): UAT row W5 — remove the `specter` phantom card; |
 | 2026-08-14T08:37 | [#6316](https://github.com/openova-io/openova/pull/6316) | #6314 | fix(agenity): per-Org oidc-gate issuer must name the Soverei |
 | 2026-08-14T06:55 | [#6315](https://github.com/openova-io/openova/pull/6315) | #6090 | docs(uat): close four hw296 partials — 242 proven by live PO |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-13T23:31 | [#6275](https://github.com/openova-io/openova/pull/6275) | #5391 | fix(cutover): an Organization's failed app no longer fail-cl |
 | 2026-08-13T23:27 | [#6271](https://github.com/openova-io/openova/pull/6271) | #3375 | fix(catalyst-api): the Topology tab drew a Standby with no P |
 | 2026-08-13T23:11 | [#6270](https://github.com/openova-io/openova/pull/6270) | #6254 | ci(release): the umbrella must not publish a seed pin its si |
-| 2026-08-13T22:50 | [#6269](https://github.com/openova-io/openova/pull/6269) | #3379 | fix(cutover): stamp a carried-over step failure with the Job |
 
 ---
 
