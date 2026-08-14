@@ -46,7 +46,10 @@ function SmartField({
   label: string; defaultValue: string; value: string
   onChange: (v: string) => void; type?: string; required?: boolean
 }) {
-  const isDefault = value === defaultValue
+  // An EMPTY default is not a default — #5401 emptied ORG_DEFAULTS, and the
+  // badge kept firing because `'' === ''`. A blank required field wearing a
+  // DEFAULT chip tells the operator a value is already there.
+  const isDefault = defaultValue !== '' && value === defaultValue
   const [focused, setFocused] = useState(false)
 
   return (
@@ -84,8 +87,26 @@ function SmartField({
   )
 }
 
-function SelectField({ label, value, options, onChange }: {
+/**
+ * SelectField — an optional profile dropdown.
+ *
+ * The BLANK first option is load-bearing, not decoration. #5401 emptied
+ * ORG_DEFAULTS so `store.orgIndustry` starts as `''`, but this select's
+ * option list held no `''` entry, so the HTML "ask for a reset" algorithm
+ * (no option selected + display size 1 ⇒ select the first non-disabled
+ * option) put INDUSTRIES[0] — `Financial Services` — in the field. That is
+ * verbatim `RETIRED_ORG_DEFAULTS_5401.orgIndustry`: the fabricated company's
+ * industry, back on step 1 as a real DOM value (`select.value` reads
+ * `'Financial Services'`, length 18), while the store still holds `''`.
+ * Measured live on hw296 2026-08-14, UAT row W1.
+ *
+ * Two harms, both closed by the blank option: the operator is shown a
+ * profile value nobody chose, and the field they see disagrees with the
+ * value the wizard would submit.
+ */
+function SelectField({ label, value, options, onChange, placeholder = 'Select…' }: {
   label: string; value: string; options: string[]; onChange: (v: string) => void
+  placeholder?: string
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -107,6 +128,7 @@ function SelectField({ label, value, options, onChange }: {
           backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center',
         }}
       >
+        <option value="" style={{ background: 'var(--wiz-deep-bg)' }}>{placeholder}</option>
         {options.map(o => <option key={o} value={o} style={{ background: 'var(--wiz-deep-bg)' }}>{o}</option>)}
       </select>
     </div>
@@ -132,7 +154,7 @@ export function StepOrg() {
   return (
     <StepShell
       title="Tell us about your organisation"
-      description="We use this profile to recommend the right topology and component defaults. All fields are pre-filled — proceed without changing anything or override what you need."
+      description="We use this profile to recommend the right topology and component defaults. Nothing is pre-filled — tell us who the Organisation is, and leave the optional fields blank if they do not apply."
       onNext={next}
     >
       <div style={{ display: 'grid', gridTemplateColumns: bp === 'mobile' ? col1 : col2, gap: 14 }}>
@@ -174,8 +196,9 @@ export function StepOrg() {
       </div>
 
       <p style={{ fontSize: 11, color: 'var(--wiz-text-hint)', margin: 0, lineHeight: 1.6 }}>
-        Fields marked <span style={{ color: 'var(--wiz-accent)' }}>default</span> are pre-filled.
-        Click to focus — all text is selected so you can type a replacement immediately.
+        Only <span style={{ color: 'var(--wiz-accent)' }}>Organisation name</span> identifies the
+        Organisation you are provisioning — everything else on this step is optional and only
+        shapes what the next steps recommend.
       </p>
     </StepShell>
   )
