@@ -36,7 +36,53 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+// operativeTimeout is one non-comment `timeout:` line in the cloud-init
+// template, tagged with the kind + metadata.name of the document that owns it.
+// Ownership matters because the two controllers that read a `timeout:` field
+// mean completely different things by it (see classifyTimeouts).
+type operativeTimeout struct {
+	line int
+	text string // trimmed, e.g. "timeout: 5m"
+	kind string // owning document kind, e.g. "Kustomization"
+	name string // owning document metadata.name
+}
+
+// classifyTimeouts walks the cloud-init template and returns every operative
+// `timeout:` declaration tagged with its owning document.
+//
+// Ownership tracking mirrors TestKustomizationTimeout_WaitTrueRetained: the
+// document kind comes from a `kind:` line, and metadata.name is the `name:`
+// line whose previous non-comment line is `metadata:` (so sourceRef.name /
+// dependsOn[].name / substituteFrom[].name never shadow it).
+func classifyTimeouts(tpl string) []operativeTimeout {
+	var out []operativeTimeout
+	kind, name, prevNonComment := "", "", ""
+	for i, line := range strings.Split(tpl, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue // comment — never operative
+		}
+		if strings.HasPrefix(trimmed, "kind:") {
+			// A `kind:` under sourceRef (previous line is `sourceRef:`) names the
+			// REFERENT, not this document. Only a top-of-document `kind:` re-tags.
+			if prevNonComment != "sourceRef:" {
+				kind = strings.TrimSpace(strings.TrimPrefix(trimmed, "kind:"))
+				name = ""
+			}
+		}
+		if strings.HasPrefix(trimmed, "name:") && prevNonComment == "metadata:" {
+			name = strings.TrimSpace(strings.TrimPrefix(trimmed, "name:"))
+		}
+		if strings.HasPrefix(trimmed, "timeout:") {
+			out = append(out, operativeTimeout{line: i + 1, text: trimmed, kind: kind, name: name})
+		}
+		prevNonComment = trimmed
+	}
+	return out
+}
 
 // TestKustomizationTimeout_AllAtFiveMinutes locks the bootstrap Flux
 // Kustomization timeouts. The two health-gating (`wait: true`)
@@ -51,32 +97,36 @@ import (
 // #492 deadlock pathology this test guards simply does not apply to it —
 // it has no operative `timeout:` line and is excluded from the count.
 //
-// Implementation note: we don't bother locating each Kustomization by
-// name and inspecting the next `timeout:` line beneath it. The
-// cloud-init template is small and the only operative `timeout:` lines
-// outside commentary are the two health-gating Kustomization timeouts. We
-// assert presence of two `timeout: 5m` lines AND absence of any
-// `timeout: 30m` lines (the pre-issue-492 form).
+// #6336 — the operative `timeout:` lines are no longer Kustomization-only.
+// The bootstrap `GitRepository/openova` now declares one too, and it means the
+// OPPOSITE thing: source-controller's clone deadline, on an object that holds
+// no revision lock. Conflating the two is exactly how a well-meaning "make the
+// timeouts consistent" edit would re-break a fresh prov, so this test buckets
+// timeouts BY OWNING KIND (classifyTimeouts) and pins each bucket to its own
+// canonical value. An operative `timeout:` owned by neither kind fails: a newly
+// inlined resource must be promoted into this spec, not absorbed silently.
 func TestKustomizationTimeout_AllAtFiveMinutes(t *testing.T) {
 	tpl := readCloudInit(t)
 
-	// Walk lines and bucket the operative `timeout:` declarations.
-	// "Operative" means the line, after trimming whitespace, starts
-	// with `timeout:` (no leading `#`). Comments that quote the
-	// previous form for explanatory purposes are allowed.
+	all := classifyTimeouts(tpl)
 	var operativeTimeouts []string
-	for i, line := range strings.Split(tpl, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "#") {
-			continue // comment — allowed to reference old/new form
-		}
-		if strings.HasPrefix(trimmed, "timeout:") {
-			operativeTimeouts = append(operativeTimeouts, trimmed)
-			t.Logf("line %d: %s", i+1, trimmed)
+	for _, ot := range all {
+		t.Logf("line %d: %s (owner: %s/%s)", ot.line, ot.text, ot.kind, ot.name)
+		switch ot.kind {
+		case "Kustomization":
+			operativeTimeouts = append(operativeTimeouts, ot.text)
+		case "GitRepository":
+			// Asserted by TestGitRepositoryCloneTimeout_HasHeadroom below.
+		default:
+			t.Errorf("line %d: operative `timeout:` on an unclassified document (kind=%q name=%q): %s\n"+
+				"Every operative timeout must be promoted into this test's spec — a new inlined resource "+
+				"carrying a timeout nobody pinned is how issue #492 and issue #6336 both happened.",
+				ot.line, ot.kind, ot.name, ot.text)
 		}
 	}
 
-	// Expect exactly ONE operative timeout line in cloud-init: bootstrap-kit.
+	// Expect exactly ONE Kustomization-owned timeout line in cloud-init:
+	// bootstrap-kit.
 	// #4521 moved the `infrastructure-config` Kustomization OUT of the inline
 	// cloud-init into a COMMITTED Flux Kustomization CR
 	// (clusters/_template/infrastructure/providers/{,hetzner}/
@@ -262,5 +312,74 @@ func TestKustomizationTimeout_CommittedInfrastructureConfig(t *testing.T) {
 		if !strings.Contains(body, "- name: infrastructure-providers") {
 			t.Errorf("#4521: committed infrastructure-config CR %s must `dependsOn: [infrastructure-providers]` (the atomic-dry-run ordering fix)", f)
 		}
+	}
+}
+
+// gitRepositoryCloneTimeoutFloor / Ceiling — the same bounds
+// scripts/check-gitrepository-clone-timeout.sh enforces, restated here so the
+// Go suite fails on its own without the shell guard present.
+//
+// Floor: a depth-1 clone of this repo measured 651s (10m51s) on hw297 region-b
+// on 2026-08-14 — `13:41:33Z building artifact` -> `13:52:24Z ready=True`.
+// Ceiling: helmwatch's DefaultWatchTimeout (60m); a clone budget larger than
+// the Phase-1 watch window turns an unreachable origin into one silent endless
+// attempt instead of a failure the watch can classify.
+const (
+	gitRepositoryCloneTimeoutFloor   = 15 * time.Minute
+	gitRepositoryCloneTimeoutCeiling = 60 * time.Minute
+)
+
+// TestGitRepositoryCloneTimeout_HasHeadroom is the issue #6336 guard: the
+// bootstrap `GitRepository/openova` cloud-init writes MUST declare an operative
+// `spec.timeout`, and it must sit inside [floor, ceiling].
+//
+// Absence is the defect, not a neutral default. With the field absent, the
+// source-controller v1.4.1 CRD default of 60s applies; on hw297 region-b every
+// reconcile then died with `failed to checkout and determine revision: unable
+// to clone 'https://github.com/openova-io/openova': context deadline exceeded`,
+// so bootstrap-kit / bootstrap-kit-crs / sovereign-tls all sat on `Source
+// artifact not found`, `kubectl get helmrelease -A` returned nothing, and the
+// prov froze at `phase1-watching` with 0 HelmReleases.
+//
+// There is no shallow-clone lever to reach for instead: source-controller
+// v1.4.1 already sets `repository.CloneConfig{... ShallowClone: true}`
+// unconditionally, and `source.toolkit.fluxcd.io/v1` exposes no depth /
+// sparse-checkout field. `spec.ignore` filters at artifact-build time, AFTER
+// checkout, so it never shrinks the transfer either. The deadline is the only
+// knob, which is precisely why it must not drift back down.
+func TestGitRepositoryCloneTimeout_HasHeadroom(t *testing.T) {
+	tpl := readCloudInit(t)
+
+	var found []operativeTimeout
+	for _, ot := range classifyTimeouts(tpl) {
+		if ot.kind == "GitRepository" {
+			found = append(found, ot)
+		}
+	}
+
+	if len(found) != 1 {
+		t.Fatalf("#6336: expected exactly 1 operative GitRepository `timeout:` in the cloud-init template, got %d: %+v\n"+
+			"Zero means the 60s CRD default applies and a fresh Sovereign converges to ZERO HelmReleases.",
+			len(found), found)
+	}
+	got := found[0]
+
+	if got.name != "openova" {
+		t.Errorf("#6336: the timed GitRepository is named %q, want \"openova\" (the bootstrap source every Kustomization sourceRefs)", got.name)
+	}
+
+	raw := strings.TrimSpace(strings.TrimPrefix(got.text, "timeout:"))
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		t.Fatalf("#6336: GitRepository/%s timeout %q is not a parseable duration: %v", got.name, raw, err)
+	}
+	if d < gitRepositoryCloneTimeoutFloor {
+		t.Errorf("#6336: GitRepository/%s timeout %v is below the %v floor. A depth-1 clone of this repo measured 10m51s on hw297; anything under the floor reproduces the 0-HelmRelease wedge.\n"+
+			"NOTE: the 5m of issue #492 is the kustomize-controller REVISION-LOCK budget. A GitRepository holds no revision lock — do not harmonise this down to match it.",
+			got.name, d, gitRepositoryCloneTimeoutFloor)
+	}
+	if d > gitRepositoryCloneTimeoutCeiling {
+		t.Errorf("#6336: GitRepository/%s timeout %v exceeds the %v ceiling (helmwatch DefaultWatchTimeout) — an unreachable origin would never surface inside the Phase-1 watch window.",
+			got.name, d, gitRepositoryCloneTimeoutCeiling)
 	}
 }
