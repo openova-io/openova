@@ -3968,7 +3968,7 @@ name: bp-catalyst-platform
 #   file's 1.4.1325 entry records as permanently burned. The republish
 #   therefore lands on 1.4.1468 — ahead of main's 1.4.1467, absent from GHCR,
 #   and claimed by no open PR.)
-version: 1.4.1473
+version: 1.4.1474
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which

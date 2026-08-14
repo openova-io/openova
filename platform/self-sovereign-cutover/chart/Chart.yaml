@@ -3705,6 +3705,41 @@ name: bp-self-sovereign-cutover
 # pin + blueprint.yaml + catalog-seed source.version + spec.version + the API
 # blueprints.json + the generated UI catalog move to 0.1.176 in lockstep
 # (Inviolable Principle #13).
+# 0.1.186 (#6280, Refs #6273 #3379) — THE 0.1.185 PARTITION SHIPPED WITHOUT ITS
+# RBAC, SO IT COULD NEVER RUN. 0.1.185 added `kubectl get namespaces -l
+# openova.io/organization` to Phase A0 but no `namespaces` rule to the runner
+# ClusterRole. The API server refused the list; the gate — correctly, by its own
+# #5391 design — refuses to fail open on a roll state it cannot read. Net effect:
+# the release written to stop a customer's failed app from blocking the cutover
+# stopped the cutover itself, at the same step, one phase earlier.
+#
+# Measured on hw296 (dep e689e3b34a75fdec) 2026-08-13T23:57Z, on a genuinely
+# fresh operator-initiated attempt (all 11 step results cleared, new Job
+# cutover-harbor-prewarm-1786665374). Pod ...-qpmtg:
+#   [harbor-prewarm] Phase A0: kubectl get namespaces -l openova.io/organization failed (attempt 1/5); retry in 5s
+#   ... x5 ...
+#   [harbor-prewarm] FATAL: Phase A0 could not list Organization namespaces (-l openova.io/organization) after 5 attempts — the gate cannot partition offenders by ownership it cannot read; refusing to fail open (#6273)
+# Confirmed directly rather than inferred:
+#   $ kubectl auth can-i list namespaces --as=system:serviceaccount:catalyst:bp-self-sovereign-cutover-runner
+#   no
+#
+# WHY THE GUARD MISSED IT. tests/cutover-contract.sh Case 95 executes the
+# rendered gate against a STUBBED kubectl, and the stub answers the namespace
+# listing — so all eight assertion directions passed while the real
+# ServiceAccount was refused. The contract test proves the gate's LOGIC; nothing
+# proved the gate's GRANTS. That gap is now closed by tests/rbac-coverage.sh,
+# which renders the chart, extracts every resource the step scripts actually
+# read, and asserts each one appears in the ClusterRole — with a mutation
+# control that removes the new rule and requires the guard to go red.
+#
+# FIX: one read-only, cluster-scoped rule — namespaces get/list/watch — granted
+# exactly like the blueprints rule beside it. The gate is NOT weakened: no
+# override, no `prewarm.settledRollPreflight.enabled=false`, no change to any
+# classifier or to the platform-FATAL direction. Step count unchanged at 11.
+# Slot-06a pin + blueprint.yaml + catalog-seed source.version + spec.version +
+# the API blueprints.json + the generated UI catalog move to 0.1.186 in
+# lockstep, and the umbrella republishes at 1.4.1474 so the new pin is carried
+# by a published artifact (Inviolable Principle #13).
 # 0.1.185 (#6273, Refs #6262 #6198 #5391) — AN ORGANIZATION'S FAILED APP NO
 # LONGER HOLDS THE SOVEREIGN'S INDEPENDENCE CLOSED. Phase A0 (the settled-roll
 # pre-flight) lists `helmreleases -A` and `deployments,statefulsets -A`, so
@@ -3758,7 +3793,7 @@ name: bp-self-sovereign-cutover
 # fail-open) cannot pass. Slot-06a pin + blueprint.yaml + catalog-seed
 # spec.version + source.version + the API blueprints.json + the generated UI
 # catalog move to 0.1.185 in lockstep (Inviolable Principle #13).
-version: 0.1.185
+version: 0.1.186
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
