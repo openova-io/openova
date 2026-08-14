@@ -4061,7 +4061,99 @@ name: bp-self-sovereign-cutover
 # Slot-06a pin + blueprint.yaml + catalog-seed spec.version + source.version +
 # the API blueprints.json + the generated UI catalog move to 0.1.189 in lockstep
 # (Inviolable Principle #13).
-version: 0.1.189
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# 0.1.190 (#5439) — THE PER-ORGANIZATION vCLUSTER KEPT THE MOTHERSHIP REGISTRY
+# THROUGH A CUTOVER THAT REPORTED SUCCESS.
+#
+# Step-09 (vcluster-registry-pivot) pivoted exactly FOUR named HelmReleases in
+# ONE namespace: bp-mgmt-vcluster, bp-rtz-vcluster, bp-dmz-vcluster and
+# bp-sso-bridge, all in flux-system. The per-Organization vCluster HelmRelease is
+# a FIFTH shape those four patches structurally cannot reach — it is named
+# `vcluster`, it lives in the Organization's OWN namespace, there is one PER
+# ORGANIZATION, and its durable source is a THIRD repo class,
+# `<slug>/catalyst-tenant@main:vcluster/vcluster.yaml`, written by
+# core/controllers/organization/internal/gitops Render() and reconciled by the
+# `catalyst-tenant-<slug>-vcluster` Kustomization (prune=true).
+#
+# Live on hw292, cutoverComplete=true since 2026-08-03T08:12:04Z:
+#
+#   kubectl -n uatco get hr vcluster -o json | jq -r .spec.values
+#     "image":{"registry":"harbor.openova.io"
+#     "statefulSet":{"image":{"registry":"harbor.openova.io"
+#     "coredns":{...:"harbor.openova.io/proxy-dockerhub/coredns/..."}
+#
+# WHY NOTHING WENT RED — the part that makes this worse than an ordinary miss.
+# Step-11's pod-spec ref-host lint EXEMPTS harbor.openova.io as a host step-04's
+# containerd redirect covers (true of the PULL, silent about the DECLARATION),
+# and the Flux source lint reads only HelmRepository / GitRepository /
+# OCIRepository spec.url — a HelmRelease's spec.values is never examined. So the
+# tether and the green coexisted. This defect never blocked cutoverComplete=true;
+# that is precisely why it mattered. A green that overstates is worse than a red.
+#
+# WHAT LANDS. Step-09 gains Phase 3: enumerate Organizations LIVE (Organization
+# CRs UNION the live `catalyst-tenant-*` Flux GitRepositories — the SAME two
+# sources step-06 Phase-2d uses, deliberately, so the two legs can never disagree
+# about which Organizations exist), clone each `<slug>/catalyst-tenant`, rewrite
+# the mothership host out of the reconciled `vcluster/` tree, push, and then POLL
+# the live per-Org HelmReleases until the owning reconciler has fetched and
+# re-applied the rewrite. Pushed is not pivoted until something applied it.
+#
+# WHY ORDER 9 AND NOT STEP-06 (order 6). The generator is made cutover-aware by
+# step-07 Phase 3e (order 7), which stamps CATALYST_LOCAL_IMAGE_REGISTRY_HOST on
+# the org-controller / provisioning / catalyst-api Deployments and rolls them.
+# Rewriting the repos BEFORE that stamp lands races the org-controller: any
+# Organization reconcile in between re-renders the mothership literal straight
+# back into the Flux-owned source. At order 9 the stamp is already in the pod
+# template, so a regeneration after this leg reproduces the same local host.
+# chart/tests/perorg-vcluster-registry-pivot.sh Section B pins that ordering off
+# the RENDER's own cutover-order labels, so the durability argument cannot
+# silently regress into a no-op with good logs.
+#
+# WHY A HOST-LITERAL REWRITE AND NOT THREE NAMED YAML PATHS. The generator
+# renders every image reference off ONE variable but in TWO shapes — a bare
+# `registry:` scalar for the distro and syncer images, a fully-qualified
+# host/path:tag for coredns — and it has GAINED fields before; #5439 exists one
+# field over from #5527 for exactly that reason. Replacing the host wherever it
+# appears in the reconciled tree covers the shapes that exist, the shapes that
+# get added, and the app manifests beside them, while preserving every path and
+# tag. Idempotent by construction: after a run the literal is gone.
+#
+# DETECTION. Step-11 gains a pre-hold lint: no HelmRelease belonging to an
+# Organization may name a mothership registry host anywhere in spec.values.
+# Membership is decided by `openova.io/organization` — on the HelmRelease or on
+# its namespace — the selector the org-controller already stamps and
+# org_namespace_invariant_4292_test.go already pins, so nothing new is invented
+# and there is nothing to keep in sync. It runs PER REGION through the existing
+# #5359 driver, and an unreadable region is a FAIL, never a skip.
+#
+# TWO ANTI-VACUITY WITNESSES, because "nothing to do" and "I could not look"
+# render identically and this whole issue is an instance of that. Phase-3: a
+# GitRepository listing that EXITS 0 and returns ZERO objects is FATAL — this
+# step annotates gitrepository/openova in that same namespace moments earlier, so
+# zero is not a state a Sovereign can be in, and a "no Organizations" verdict
+# drawn from it would be a fabrication. The lint: zero HelmReleases from a
+# SUCCEEDING listing is FATAL for the same reason. Both are proven able to fail
+# by mutants (Section G) that neuter only the witness and re-run the identical
+# fixture.
+#
+# RBAC: no new grant. Phase-3 reads gitrepositories, customresourcedefinitions,
+# organizations and helmreleases; the lint adds namespaces and helmreleases. All
+# six are already in the runner ClusterRole's READ rules, and no rule in the
+# create or update/patch groups needed widening — the leg never patches a live
+# per-Org HelmRelease, by design (a prune=true Kustomization reverts that).
+# chart/tests/rbac-coverage.sh re-derives this from the render.
+#
+# GUARDS. chart/tests/perorg-vcluster-registry-pivot.sh — 33 assertions, exit 0 —
+# executes the RENDERED Phase-3 bytes against REAL local git repositories and
+# reads every verdict out of the BARE origin, and drives the RENDERED lint under
+# a programmable stub. Watched red first: on `git archive origin/main` it exits 1
+# naming the absent pivot region, and on a half-fix tree carrying Phase-3 but no
+# lint it exits 1 naming the absent lint — so both halves are independently
+# load-bearing. Slot-06a pin + blueprint.yaml + catalog-seed spec.version +
+# source.version + the API blueprints.json + the generated UI catalog move to
+# 0.1.190 in lockstep (Inviolable Principle #13).
+version: 0.1.190
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
