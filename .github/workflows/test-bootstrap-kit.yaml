@@ -21,6 +21,7 @@ on:
       - 'scripts/check-umbrella-republish-gate.py'
       - 'scripts/sync-catalog-seed-pin.py'
       - 'scripts/check-cloudinit-kustomization-deps.sh'
+      - 'scripts/check-gitrepository-clone-timeout.sh'
       - 'scripts/expected-bootstrap-deps.yaml'
       - 'scripts/expected-cloudinit-kustomization-deps.yaml'
       - 'scripts/render-slot-placement.py'
@@ -42,6 +43,7 @@ on:
       - 'scripts/check-umbrella-republish-gate.py'
       - 'scripts/sync-catalog-seed-pin.py'
       - 'scripts/check-cloudinit-kustomization-deps.sh'
+      - 'scripts/check-gitrepository-clone-timeout.sh'
       - 'scripts/expected-bootstrap-deps.yaml'
       - 'scripts/expected-cloudinit-kustomization-deps.yaml'
       - 'scripts/render-slot-placement.py'
@@ -112,6 +114,23 @@ jobs:
         # back. This pins them to scripts/expected-cloudinit-kustomization-
         # deps.yaml; any drift fails here.
         run: bash scripts/check-cloudinit-kustomization-deps.sh
+
+      - name: GitRepository clone-budget self-test (#6336)
+        # Prove the guard below CAN fail before trusting the verdict it gives.
+        # The fixture suite asserts each must-fail case (no timeout / 60s / 5m /
+        # 2h / no such GitRepository) actually returns non-zero.
+        run: bash scripts/check-gitrepository-clone-timeout.sh --self-test
+
+      - name: GitRepository clone-budget guard (#6336)
+        # The bootstrap GitRepository/openova carried no spec.timeout, so the
+        # source-controller CRD default of 60s applied. A depth-1 clone of this
+        # repo measured 651s on hw297 (2026-08-14) — every reconcile died
+        # "context deadline exceeded", no artifact was ever built, and the
+        # fresh prov converged to ZERO HelmReleases. There is no shallow-clone
+        # knob to reach for (source-controller v1.4.1 already shallow-clones
+        # and the v1 CRD has no depth field), so the deadline is the only lever
+        # and must not drift back under the measured clone.
+        run: bash scripts/check-gitrepository-clone-timeout.sh
 
       - name: Placement-as-data drift gate (#3373 DoD-6)
         # placement.yaml is THE single placement source of truth; a

@@ -513,6 +513,49 @@ write_files:
         namespace: flux-system
       spec:
         interval: 1m
+        # CLONE BUDGET (issue #6336) — this is source-controller's whole-reconcile
+        # deadline, NOT the kustomize-controller revision-lock knob issue #492
+        # governs. Never "harmonise" it down to 5m by analogy: a GitRepository
+        # holds no revision lock, so a longer deadline costs nothing on the happy
+        # path, while a short one produces ZERO HelmReleases forever.
+        #
+        # Measured on hw297 region-b, 2026-08-14: with the field ABSENT the CRD
+        # default of 60s applies (source-controller v1.4.1 CRD:
+        # `spec.timeout` default "60s"), and every reconcile died at
+        #   `failed to checkout and determine revision: unable to clone
+        #    'https://github.com/openova-io/openova': context deadline exceeded`
+        # -> bootstrap-kit / bootstrap-kit-crs / sovereign-tls all stuck on
+        # `Source artifact not found` -> `kubectl get helmrelease -A` empty ->
+        # the Phase-1 watch reported 0 HelmReleases and the prov froze.
+        # Patching ONLY this field to 10m on the live cluster produced
+        # `13:41:33Z building artifact` -> `13:52:24Z ready=True
+        # rev=main@sha1:e050028da1634e` — 651s (10m51s) for one clone.
+        #
+        # WHY THE CLONE IS THAT EXPENSIVE, and why `ignore:` below does not help:
+        # source-controller v1.4.1 ALREADY shallow-clones unconditionally
+        # (internal/controller/gitrepository_controller.go: `cloneOpts :=
+        # repository.CloneConfig{... ShallowClone: true}`) and the v1 CRD exposes
+        # NO depth / shallow / sparse-checkout knob to tune — so the history is
+        # already excluded and cannot be excluded any further from here. What
+        # crosses the wire is the depth-1 tree at HEAD: 449 MB, of which
+        # docs/ is 373 MB (docs/sessions alone 338 MB). `ignore:` is an
+        # ARTIFACT-BUILD filter applied AFTER checkout, so it never shrinks the
+        # transfer. 449 MB / 651 s => ~0.69 MB/s effective on that link.
+        #
+        # 20m = 1.84x the measured 651s. Floor: it must clear a real observed
+        # clone with room for the tree to grow (docs/sessions grows every walk)
+        # or the link to halve. Ceiling: it must stay well inside the 60m
+        # DefaultWatchTimeout of the Phase-1 HelmRelease watch so a genuinely
+        # unreachable origin still fails visibly INSIDE the watch window rather
+        # than in one endless attempt. A retry cannot rescue a slow clone (each
+        # attempt re-clones from scratch at the same speed), so single-attempt
+        # headroom is what matters; retry count is not.
+        #
+        # This moves the cliff, it does not remove it: at a fixed timeout, repo
+        # growth eventually crosses any value. The durable removal is to stop
+        # carrying hundreds of MB of walk evidence in the reconciled tree.
+        # Guarded by scripts/check-gitrepository-clone-timeout.sh.
+        timeout: 20m
         url: ${gitops_repo_url}
         ref:
           branch: ${gitops_branch}
