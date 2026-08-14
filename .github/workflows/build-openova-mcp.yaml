@@ -49,7 +49,11 @@ jobs:
         run: |
           set -euo pipefail
           cd products/openova-mcp
-          go test ./...
+          # -count=1 — Refs #6235. This repo has no root go.mod, and Go's test
+          # cache keys on a package's OWN inputs only, so any test that reads a
+          # file outside its module can report a stale `ok (cached)` forever.
+          # Enforced repo-wide by scripts/check-go-test-count1.sh.
+          go test -count=1 ./...
 
       - name: Set short SHA + chart appVersion
         id: vars
