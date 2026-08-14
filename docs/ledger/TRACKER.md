@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-14T13:00:10Z` |
+| Last refreshed | `2026-08-14T13:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-14T13:11 | [#6335](https://github.com/openova-io/openova/pull/6335) | #6330 | docs: UAT carry-forward runs after the env is live + append  |
 | 2026-08-14T12:53 | [#6334](https://github.com/openova-io/openova/pull/6334) | #6309 | fix(cutover): pivot the per-Organization vCluster HelmReleas |
 | 2026-08-14T11:18 | [#6333](https://github.com/openova-io/openova/pull/6333) | #6331 | docs(uat): rows 219-222 record the merged quota fix and STAY |
 | 2026-08-14T11:58 | [#6332](https://github.com/openova-io/openova/pull/6332) | #3678 | fix(cutover): the sovereignty proof could report PASS withou |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-14T03:07 | [#6286](https://github.com/openova-io/openova/pull/6286) | #4347 | fix(row222): bp-alloy could never satisfy our own probes pol |
 | 2026-08-14T00:52 | [#6285](https://github.com/openova-io/openova/pull/6285) | #6271 | docs(uat): row 60 — the fix is live, and the standby leg nev |
 | 2026-08-14T00:41 | [#6284](https://github.com/openova-io/openova/pull/6284) | #4482 | docs(uat): the Anthropic credential had two missing writers  |
-| 2026-08-14T00:37 | [#6283](https://github.com/openova-io/openova/pull/6283) | #6282 | docs(uat): rows 63/212/213 walked green on hw296 after insta |
 
 ---
 
