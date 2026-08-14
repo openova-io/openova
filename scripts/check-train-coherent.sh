@@ -226,7 +226,7 @@ note()  { echo "  ·  $*"; }
 tc_site1() { # <root> <chart_dir>
   local f="$1/$2/chart/Chart.yaml"
   [ -f "$f" ] || { echo ""; return 0; }
-  awk '/^version:[[:space:]]/ { gsub(/^version:[[:space:]]*/,""); gsub(/["'"'"']/,""); print; exit }' "$f"
+  awk '/^version:[[:space:]]/ { gsub(/^version:[[:space:]]*/,""); sub(/[[:space:]]+#.*$/,""); gsub(/^[[:space:]]+|[[:space:]]+$/,""); gsub(/["'"'"']/,""); print; exit }' "$f"
 }
 
 # Read a chart's version AT A GIT REF, rather than from the working tree.
@@ -246,7 +246,7 @@ tc_site1() { # <root> <chart_dir>
 # one is its own bug class, independent of either value being correct.
 tc_version_at_ref() { # <ref> <chart_dir>
   git show "$1:$2/chart/Chart.yaml" 2>/dev/null \
-    | awk '/^version:[[:space:]]/ { gsub(/^version:[[:space:]]*/,""); gsub(/["'"'"']/,""); print; exit }'
+    | awk '/^version:[[:space:]]/ { gsub(/^version:[[:space:]]*/,""); sub(/[[:space:]]+#.*$/,""); gsub(/^[[:space:]]+|[[:space:]]+$/,""); gsub(/["'"'"']/,""); print; exit }'
 }
 
 tc_chart_name() { # <root> <chart_dir>
@@ -264,7 +264,7 @@ tc_site2() { # <root> <chart_dir>
     /^spec:[[:space:]]*$/ { in_spec=1; next }
     /^[^[:space:]]/       { in_spec=0 }
     in_spec && /^  version:[[:space:]]/ {
-      gsub(/^  version:[[:space:]]*/,""); gsub(/["'"'"']/,""); print; exit
+      gsub(/^  version:[[:space:]]*/,""); sub(/[[:space:]]+#.*$/,""); gsub(/^[[:space:]]+|[[:space:]]+$/,""); gsub(/["'"'"']/,""); print; exit
     }' "$f"
 }
 
@@ -308,14 +308,31 @@ tc_site3() { # <root> <chart_name>
       next
     }
     /^spec:[[:space:]]*$/ { inspec=1; insrc=0; next }
-    /^[^[:space:]#]/      { if ($0 !~ /^spec:/) { inspec=0; insrc=0 } }
+    # Leaving the spec block is signalled ONLY by a real top-level manifest key.
+    #
+    # This used to read /^[^[:space:]#]/ — "any line starting in column 0 ends
+    # spec". That is wrong for this file. Several cards carry a multi-line
+    # description whose CONTINUATION LINES sit at column 0, e.g. bp-kserve:
+    #
+    #     description: "KServe ... stack supporting multi-
+    #   framework predictors (vLLM, TorchServe, Triton, SKLearn), inference
+    #   graphs. Wraps the upstream chart and ships a
+    #     ..."
+    #
+    # Every wrapped line looked like a new top-level key, so inspec went to 0
+    # before source: was ever reached and the delivery pin read __ABSENT__.
+    # That reported 10 charts as lockstep failures which are perfectly in sync
+    # — a false positive on every card long enough to wrap. These are Kubernetes
+    # manifests, so the top-level key set is closed and small: match it exactly
+    # instead of inferring structure from indentation.
+    /^(apiVersion|kind|metadata|status):/ { inspec=0; insrc=0 }
     inspec && /^  source:[[:space:]]*$/ { insrc=1; next }
     inspec && /^  [a-zA-Z]/ && $0 !~ /^  source:/ { insrc=0 }
     inspec && !insrc && /^  version:[[:space:]]/ {
-      v=$0; sub(/^  version:[[:space:]]*/,"",v); gsub(/["'"'"']/,"",v); if (spec=="") spec=v
+      v=$0; sub(/^  version:[[:space:]]*/,"",v); sub(/[[:space:]]+#.*$/,"",v); gsub(/^[[:space:]]+|[[:space:]]+$/,"",v); gsub(/["'"'"']/,"",v); if (spec=="") spec=v
     }
     insrc && /^    version:[[:space:]]/ {
-      v=$0; sub(/^    version:[[:space:]]*/,"",v); gsub(/["'"'"']/,"",v); if (src=="") src=v
+      v=$0; sub(/^    version:[[:space:]]*/,"",v); sub(/[[:space:]]+#.*$/,"",v); gsub(/^[[:space:]]+|[[:space:]]+$/,"",v); gsub(/["'"'"']/,"",v); if (src=="") src=v
     }
     END { flush(); if (!printed) print "__ABSENT__" }
   ' "$f"
@@ -739,6 +756,39 @@ run_self_test() {
   st_mkchart "$R" "platform/demo" "bp-demo" "1.2.3" "1.2.3" "1.2.3" "1.2.3"
   st_case "4 sites: all five agree"                    0 tc_check_sites "$R" "platform/demo" "bp-demo"
 
+  # REGRESSION PIN 1 — an inline YAML comment after the version. Fourteen
+  # charts in the real tree carry one (`version: 1.0.1  # lockstep with ...`),
+  # and the first cut reported every single one as a lockstep failure because
+  # it compared "1.0.1  # lockstep with ..." against "1.0.1".
+  local RCOM="$T/repo-comment"; mkdir -p "$RCOM/platform/demo/chart" "$RCOM/$(dirname "$SEED_REL")"
+  printf 'apiVersion: v2\nname: bp-demo\nversion: 1.2.3  # bumped for #1234\n' \
+    > "$RCOM/platform/demo/chart/Chart.yaml"
+  printf 'apiVersion: catalyst.openova.io/v1alpha1\nkind: Blueprint\nmetadata:\n  name: bp-demo\nspec:\n  version: 1.2.3  # lockstep with chart/Chart.yaml (#1234)\n' \
+    > "$RCOM/platform/demo/blueprint.yaml"
+  printf -- '---\n' > "$RCOM/$SEED_REL"
+  st_case "4 sites: CONTROL inline YAML comment is not a mismatch" 0 \
+    tc_check_sites "$RCOM" "platform/demo" "bp-demo"
+
+  # REGRESSION PIN 2 — a seed card whose description wraps to column 0. Ten
+  # charts in the real tree do this (bp-kserve, bp-valkey, bp-matrix, ...) and
+  # the first cut read their delivery pin as __ABSENT__, because a wrapped
+  # description line was mistaken for a new top-level key and ended the spec
+  # block before `source:`.
+  local RWRAP="$T/repo-wrap"; mkdir -p "$RWRAP/platform/demo/chart" "$RWRAP/$(dirname "$SEED_REL")"
+  printf 'apiVersion: v2\nname: bp-demo\nversion: 1.2.3\n' > "$RWRAP/platform/demo/chart/Chart.yaml"
+  {
+    printf -- '---\n'
+    printf 'apiVersion: catalyst.openova.io/v1alpha1\nkind: Blueprint\nmetadata:\n  name: bp-demo\n'
+    printf 'spec:\n  version: "1.2.3"\n'
+    printf '  card:\n    description: "A long summary that wraps across\n'
+    printf 'several lines whose continuation sits at column zero, exactly\n'
+    printf 'like bp-kserve and nine other cards in the real seed.\n'
+    printf '"\n'
+    printf '  source:\n    kind: HelmRepository\n    chart: bp-demo\n    version: "1.2.3"\n'
+  } > "$RWRAP/$SEED_REL"
+  st_case "4 sites: CONTROL column-0 description wrap still finds source" 0 \
+    tc_check_sites "$RWRAP" "platform/demo" "bp-demo"
+
   local RB="$T/repo-lag"; mkdir -p "$RB"
   st_mkchart "$RB" "platform/demo" "bp-demo" "1.2.3" "1.2.3" "1.2.3" "1.2.2"
   st_case "4 sites: VIOLATING seed source.version lags" 1 tc_check_sites "$RB" "platform/demo" "bp-demo"
@@ -928,7 +978,7 @@ for d in "${TRAIN_DIRS[@]}"; do
   while IFS= read -r sha; do
     [ -n "$sha" ] || continue
     git show "$sha:$f" 2>/dev/null \
-      | awk '/^version:[[:space:]]/ { gsub(/^version:[[:space:]]*/,""); gsub(/["'"'"']/,""); print; exit }' \
+      | awk '/^version:[[:space:]]/ { gsub(/^version:[[:space:]]*/,""); sub(/[[:space:]]+#.*$/,""); gsub(/^[[:space:]]+|[[:space:]]+$/,""); gsub(/["'"'"']/,""); print; exit }' \
       >> "$TMP/series" || true
   done < <(git rev-list --max-count="$HISTORY_DEPTH" "$REF" -- "$f" 2>/dev/null | tac)
   [ -s "$TMP/series" ] || continue
@@ -1079,7 +1129,7 @@ else
       on_main=no
       if git rev-list --max-count=1 origin/main -- "$d/chart/Chart.yaml" >/dev/null 2>&1; then
         mv_on_main="$(git show origin/main:"$d/chart/Chart.yaml" 2>/dev/null \
-          | awk '/^version:[[:space:]]/ { gsub(/^version:[[:space:]]*/,""); gsub(/["'"'"']/,""); print; exit }')"
+          | awk '/^version:[[:space:]]/ { gsub(/^version:[[:space:]]*/,""); sub(/[[:space:]]+#.*$/,""); gsub(/^[[:space:]]+|[[:space:]]+$/,""); gsub(/["'"'"']/,""); print; exit }')"
         [ "$mv_on_main" = "$ver" ] && on_main=yes
       fi
       # ORDER MATTERS HERE, and the first cut had it backwards.
