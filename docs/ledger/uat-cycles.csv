@@ -16,3 +16,4 @@ cycle_ts,env,dep,milestone,denominator,PASS,FAIL,PARTIAL,NOTRUN,SUPERSEDED,PENDI
 2026-08-13T23:25:21Z,hw296,e689e3b34a75fdec,25 SSO rows re-proven + G7/234 closed; funnel+vcluster mail defect #6278 found,286,254,5,12,7,0,8,88.8
 2026-08-14 09:22:00,hw296,e689e3b34a75fdec,,286,278,6,0,2,0,0,97.2
 2026-08-14 10:44:53,hw296,e689e3b34a75fdec,"hw296 wiped — pre-fire, train at cutover 0.1.188 / umbrella 1.4.1496",286,278,6,0,2,0,0,97.2
+2026-08-14 22:44:23,hw298,2540d866403f1f7c,"cutover fired: 10/11 steps succeeded, egress-block-test FAILED at 138s of a 600s hold (#6332 refusing a false PASS)",286,278,7,0,1,0,0,97.2
