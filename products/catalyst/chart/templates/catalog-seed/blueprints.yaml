@@ -2469,7 +2469,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.18"
+  version: "0.2.19"
   visibility: listed
   card:
     title: "OpenClaw"
@@ -2504,7 +2504,7 @@ hook (ADR-0003). Identity-blind by construction.
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openclaw
-    version: "0.2.18"
+    version: "0.2.19"
   topology:
     supported:
       - singleton
