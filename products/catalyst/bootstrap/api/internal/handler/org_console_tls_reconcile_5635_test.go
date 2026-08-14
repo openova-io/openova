@@ -51,6 +51,12 @@ func fakeDynForOrgConsoleReconcile(t *testing.T, orgs ...*unstructured.Unstructu
 		consoleGatewayGVR: "GatewayList",
 		httpRouteGVR:      "HTTPRouteList",
 		organizationGVR(): "OrganizationList",
+		// A real Sovereign always has the Flux CRDs installed; a fake that
+		// omits them models a cluster that does not exist, and the
+		// dynamic fake PANICS (rather than erroring) on a List for an
+		// unregistered list kind. #6268.
+		{Group: "helm.toolkit.fluxcd.io", Version: "v2", Resource: "helmreleases"}:       "HelmReleaseList",
+		{Group: "source.toolkit.fluxcd.io", Version: "v1", Resource: "helmrepositories"}: "HelmRepositoryList",
 	}
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToList)
 	ctx := context.Background()
