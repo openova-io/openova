@@ -4039,7 +4039,7 @@ name: bp-self-sovereign-cutover
 # This is a Job deadline only: no cpu/memory request, limit or quota is touched
 # (#5393 surface untouched).
 #
-# GUARDS. chart/tests/egress-hold-invariant.sh — new, 13 assertions, exit 0 — is
+# GUARDS. chart/tests/egress-hold-invariant.sh — new, 14 assertions, exit 0 — is
 # the first suite in this chart to assert on a VERB rather than a resource:
 # tests/rbac-coverage.sh compares the resources the scripts read against the
 # resources the ClusterRole grants and never looks at a verb, so a resource
@@ -4048,6 +4048,16 @@ name: bp-self-sovereign-cutover
 # in BOTH directions, and carries mutation controls that replay the pre-fix text
 # of each and require it to reproduce the swallow and the false PASS. Run against
 # the 0.1.188 tree it reports RESULT: FAIL (8), naming the false PASS directly.
+#
+# The executed blocks run under `set -eu` — the SAME options this Job sets at
+# 08-egress-block-test-job.yaml line 390 — and that is not decoration. The first
+# draft of the FATAL captured the apply as a bare `_eb_apply_out=$(kubectl apply
+# …)`, which under errexit dies AT the assignment: the operator would have got
+# the raw kubectl error and none of the diagnosis written below it. The shipped
+# form puts the capture in an `if` condition, where errexit is suspended (the
+# same reason the pre-fix `if kubectl apply …; then` reached its WARN branch at
+# all), and the suite's errexit control runs the bare-assignment shape and
+# requires it to LOSE the message — so that choice is guarded, not remembered.
 # Slot-06a pin + blueprint.yaml + catalog-seed spec.version + source.version +
 # the API blueprints.json + the generated UI catalog move to 0.1.189 in lockstep
 # (Inviolable Principle #13).

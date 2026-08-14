@@ -1431,9 +1431,20 @@ data:
                  resource "ciliumclusterwidenetworkpolicies"`). Re-running the
                  apply just to print its error would be a second, different
                  attempt — it can succeed and contradict the verdict.
+
+                 The assignment MUST sit in an `if` condition. This script runs
+                 `set -eu` (line 390): a BARE `_x=$(cmd)` whose substitution
+                 fails is a simple command with a non-zero status, so errexit
+                 fires there and the FATAL below would never print — the job
+                 would die with the raw kubectl error and no diagnosis. An `if`
+                 condition suspends errexit, which is exactly why the pre-fix
+                 `if kubectl apply …; then` shape reached its WARN branch at all.
                 */}}
-                _eb_apply_out=$(kubectl apply -f /work/egress-deny.yaml 2>&1)
-                _eb_apply_rc=$?
+                if _eb_apply_out=$(kubectl apply -f /work/egress-deny.yaml 2>&1); then
+                  _eb_apply_rc=0
+                else
+                  _eb_apply_rc=$?
+                fi
                 printf '%s\n' "${_eb_apply_out}" | sed 's/^/[egress-block-test]   apply: /'
                 if [ "${_eb_apply_rc}" -eq 0 ]; then
                   POLICY_APPLIED="yes"

@@ -98,27 +98,37 @@ exit 0
 EOF
 chmod +x "${TMP}/kubectl"
 
+# ── The executed blocks run under `set -eu`, the SAME options the shipped Job
+#    sets at 08-egress-block-test-job.yaml line 390. This is not decoration: a
+#    bare `_x=$(cmd)` that fails is a simple command with a non-zero status, so
+#    under errexit the script dies THERE and any diagnosis written below it never
+#    runs. Executing the block under laxer options than the container uses would
+#    be a harness that cannot reproduce the container's control flow.
+SHELL_OPTS='set -eu'
+
 # ── run_apply_block <block-file> <APPLY_RC> — execute the region-A apply block,
 #    echo the resulting POLICY_APPLIED, and return the block's exit code.
 run_apply_block() {
   local block="$1" rc="$2"
-  ( set +u
-    export PATH="${TMP}:${PATH}" APPLY_RC="${rc}"
+  ( export PATH="${TMP}:${PATH}" APPLY_RC="${rc}"
     mkdir -p "${TMP}/work" && : >"${TMP}/work/egress-deny.yaml"
     cd "${TMP}"
-    DEFAULT_DENY_EGRESS=true POLICY_APPLIED="" sh -c "
-      $(sed 's|/work/egress-deny.yaml|'"${TMP}"'/work/egress-deny.yaml|g' "${block}")
-      echo \"POLICY_APPLIED=[\${POLICY_APPLIED}]\"
-    " ) 2>&1
+    sh -c "${SHELL_OPTS}
+DEFAULT_DENY_EGRESS=true
+POLICY_APPLIED=\"\"
+$(sed 's|/work/egress-deny.yaml|'"${TMP}"'/work/egress-deny.yaml|g' "${block}")
+echo \"POLICY_APPLIED=[\${POLICY_APPLIED}]\"" ) 2>&1
 }
 
 # ── run_verdict <block-file> <POLICY_APPLIED> <ENFORCE_CIDR_BLOCK> ───────────
 run_verdict() {
   local block="$1" applied="$2" enforce="$3"
-  ( set +u
-    new_failures=0 POLICY_APPLIED="${applied}" ENFORCE_CIDR_BLOCK="${enforce}" \
-    DURATION_SECONDS=600 secondary_kubeconfig_count=1 \
-      sh -c "new_failures=0; POLICY_APPLIED='${applied}'; ENFORCE_CIDR_BLOCK='${enforce}'; DURATION_SECONDS=600; secondary_kubeconfig_count=1
+  ( sh -c "${SHELL_OPTS}
+new_failures=0
+POLICY_APPLIED='${applied}'
+ENFORCE_CIDR_BLOCK='${enforce}'
+DURATION_SECONDS=600
+secondary_kubeconfig_count=1
 $(cat "${block}")" ) 2>&1
 }
 
@@ -249,6 +259,34 @@ if [ "${P_RC}" -eq 0 ] && printf '%s' "${P_OUT}" | grep -q 'assertion-only fallb
   pass "mutation control: the PRE-FIX apply block does swallow the failure (rc=0) — Case 4 can fail"
 else
   fail "mutation control did NOT reproduce the pre-fix swallow (rc=${P_RC}) — Case 4 may be untestable: ${P_OUT}"
+fi
+
+# ── Case 8 — ERREXIT control: the capture MUST sit in an `if` condition ─────
+# The Job runs `set -eu`. Written as a bare `_x=$(kubectl apply …)` the script
+# dies AT the assignment and the FATAL diagnosis below it never executes — the
+# operator gets a raw kubectl error and no statement of what it means. This
+# control runs exactly that shape and requires it to lose the message, which is
+# what makes the `if _eb_apply_out=$(…); then` form in the shipped template a
+# load-bearing choice rather than a stylistic one.
+cat >"${TMP}/errexit-apply.sh" <<'EOF'
+if [ -f /work/egress-deny.yaml ]; then
+  kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true 2>/dev/null || true
+  _eb_apply_out=$(kubectl apply -f /work/egress-deny.yaml 2>&1)
+  _eb_apply_rc=$?
+  printf '%s\n' "${_eb_apply_out}" | sed 's/^/[egress-block-test]   apply: /'
+  if [ "${_eb_apply_rc}" -eq 0 ]; then
+    POLICY_APPLIED="yes"
+  else
+    echo "[egress-block-test] FATAL: could not apply the deny-egress hold 'cutover-egress-block' …" >&2
+    exit 1
+  fi
+fi
+EOF
+E_OUT="$(run_apply_block "${TMP}/errexit-apply.sh" 1)"; E_RC=$?
+if [ "${E_RC}" -ne 0 ] && ! printf '%s' "${E_OUT}" | grep -q 'FATAL'; then
+  pass "errexit control: the bare-assignment form dies before its own FATAL — the \`if\`-condition capture is load-bearing"
+else
+  fail "errexit control did not reproduce the set -eu abort (rc=${E_RC}) — Case 4's message assertion may be passing for the wrong reason: ${E_OUT}"
 fi
 
 cat >"${TMP}/prefix-verdict.sh" <<'EOF'
