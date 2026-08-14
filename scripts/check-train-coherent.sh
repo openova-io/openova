@@ -149,6 +149,10 @@ MIN_OPEN_PRS=1
 
 DO_GHCR=1
 DO_FIRE=0
+# The baseline that open-PR claims are measured against. This is deliberately a
+# REMOTE ref, not the working tree — see tc_version_at_ref's comment.
+BASELINE_REF="origin/main"
+DO_FETCH=1
 SELF_TEST=0
 HISTORY_DEPTH=40
 TRAIN_OVERRIDE=""
@@ -159,6 +163,8 @@ usage() { sed -n '2,140p' "$0"; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --no-ghcr)        DO_GHCR=0; shift ;;
+    --baseline)       BASELINE_REF="${2:-origin/main}"; shift 2 ;;
+    --no-fetch)       DO_FETCH=0; shift ;;
     --fire-readiness) DO_FIRE=1; shift ;;
     --self-test)      SELF_TEST=1; shift ;;
     --history-depth)  HISTORY_DEPTH="${2:-40}"; shift 2 ;;
@@ -220,6 +226,26 @@ tc_site1() { # <root> <chart_dir>
   local f="$1/$2/chart/Chart.yaml"
   [ -f "$f" ] || { echo ""; return 0; }
   awk '/^version:[[:space:]]/ { gsub(/^version:[[:space:]]*/,""); gsub(/["'"'"']/,""); print; exit }' "$f"
+}
+
+# Read a chart's version AT A GIT REF, rather than from the working tree.
+#
+# This exists because of a real false positive on this script's first live run.
+# Check 1b compares open-PR claims — which come from the LIVE GitHub API — and
+# it was comparing them against the version in the LOCAL working tree. A feature
+# branch is forked from some older main, so the moment anything merges, the
+# local baseline is stale and every claim that merely CARRIES the new main value
+# looks like a bump above main. Concretely: #6316 merged mid-run, taking main to
+# bp-agenity 0.5.28; PRs #6320 and #6325 both carried 0.5.28 while changing no
+# agenity file at all; measured against the stale local 0.5.27 they read as two
+# PRs claiming the same future version, and the run went red on a collision that
+# did not exist.
+#
+# A live question needs a live baseline. Comparing a fresh fact against a stale
+# one is its own bug class, independent of either value being correct.
+tc_version_at_ref() { # <ref> <chart_dir>
+  git show "$1:$2/chart/Chart.yaml" 2>/dev/null \
+    | awk '/^version:[[:space:]]/ { gsub(/^version:[[:space:]]*/,""); gsub(/["'"'"']/,""); print; exit }'
 }
 
 tc_chart_name() { # <root> <chart_dir>
@@ -580,6 +606,17 @@ run_self_test() {
   printf '5964 1.4.1332\n5968 1.4.1332\n' > "$T/claims-bad"
   st_case "1b claims: distinct futures + stale carries" 0 tc_check_distinct_claims "$T/claims-clean" 1.4.1484
   st_case "1b claims: VIOLATING duplicate future claim" 1 tc_check_distinct_claims "$T/claims-bad"   1.4.1331
+  # REGRESSION PIN — the exact false positive this script produced on its first
+  # live run. #6316 merged mid-run taking main to bp-agenity 0.5.28; #6320 and
+  # #6325 both CARRIED 0.5.28 and changed no agenity file. Against the FRESH
+  # baseline they are carries and the run must stay green; against the STALE
+  # one they read as a duplicate future claim and the run goes red on nothing.
+  # Both directions are asserted so the baseline can never quietly go stale.
+  printf '6320 0.5.28\n6325 0.5.28\n' > "$T/claims-carry"
+  st_case "1b claims: CONTROL carries of a FRESH baseline are not a collision" 0 \
+    tc_check_distinct_claims "$T/claims-carry" 0.5.28
+  st_case "1b claims: the same input against a STALE baseline DOES go red"     1 \
+    tc_check_distinct_claims "$T/claims-carry" 0.5.27
   echo
 
   # ── CHECK 2 — hollow pin: we DELEGATE, so what must be proven here is
@@ -720,6 +757,21 @@ fi
 note "tree floors ok: $kit_slots kit slots, $seed_cards seed cards"
 echo
 
+# ── refresh the baseline ───────────────────────────────────────────────────
+# main moves under long-running work — #6316 merged while this script's own
+# first live run was in flight. A pre-flight that reads a remote-tracking ref
+# nobody refreshed is reporting yesterday's train.
+if [ "$DO_GHCR" = 1 ] && [ "$DO_FETCH" = 1 ]; then
+  if git fetch --quiet origin "${BASELINE_REF#origin/}" 2>/dev/null; then
+    note "baseline refreshed: $BASELINE_REF @ $(git rev-parse --short "$BASELINE_REF" 2>/dev/null || echo '?')"
+  else
+    note "could not fetch $BASELINE_REF — using the remote-tracking ref as it stands (may be stale)"
+  fi
+else
+  note "baseline NOT refreshed (--no-fetch or --no-ghcr): $BASELINE_REF @ $(git rev-parse --short "$BASELINE_REF" 2>/dev/null || echo '?')"
+fi
+echo
+
 # ── discover the train ─────────────────────────────────────────────────────
 # The train is DERIVED, not hardcoded: any chart whose Chart.yaml differs from
 # its state at the merge-base of origin/main is in motion locally, plus every
@@ -830,15 +882,24 @@ if [ "$DO_GHCR" = 1 ]; then
         unread "1b enumerator returned $nclaims claim(s) for $d — a zero from a failed read is not 'no open PRs'"
         continue
       fi
+      # Measure live claims against the LIVE baseline, never the local tree.
+      base_ver="$(tc_version_at_ref "$BASELINE_REF" "$d")"
+      if [ -z "$base_ver" ]; then
+        unread "1b cannot read $d/chart/Chart.yaml at $BASELINE_REF — refusing to compare live claims against an unknown baseline"
+        continue
+      fi
+      if [ "$base_ver" != "${MAIN_VER[$d]}" ]; then
+        note "1b ${CHART_NAME[$d]}: working tree is at ${MAIN_VER[$d]} but $BASELINE_REF is at $base_ver — using $base_ver as the baseline"
+      fi
       prev="$(tc_errexit_state)"; set +e
-      cout="$(tc_check_distinct_claims "$TMP/claims.$$" "${MAIN_VER[$d]}")"; rc=$?
+      cout="$(tc_check_distinct_claims "$TMP/claims.$$" "$base_ver")"; rc=$?
       tc_errexit_restore "$prev"
       ahead="$(printf '%s\n' "$cout" | awk -F= '/^__AHEAD__=/ { print $2 }')"
       AHEAD_CLAIMS["$d"]="$(awk -v m="${MAIN_VER[$d]}" '{print $1"="$2}' "$TMP/claims.$$" | tr '\n' ' ')"
       if [ "$rc" -ne 0 ]; then
         fail "1b ${CHART_NAME[$d]}: $(printf '%s' "$cout" | grep -v '^__AHEAD__' | tr '\n' ';')"
       else
-        ok "1b ${CHART_NAME[$d]}: main=${MAIN_VER[$d]}, ${ahead:-0} distinct future claim(s), no collision"
+        ok "1b ${CHART_NAME[$d]}: $BASELINE_REF=$base_ver, ${ahead:-0} distinct future claim(s), no collision"
       fi
     done
   fi
