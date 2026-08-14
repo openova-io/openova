@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-14T04:45:03Z` |
+| Last refreshed | `2026-08-14T05:00:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5920](https://github.com/openova-io/openova/issues/5920) | Marketplace still sells 'Sandbox' — a concept retired 2026-06-30 — and a sou | Other |
 | [#5921](https://github.com/openova-io/openova/issues/5921) | P0 sovereignty: post-cutover Sovereign sends customer sign-in mail via mail.open | Other |
 | [#5926](https://github.com/openova-io/openova/issues/5926) | UAT row 85: checkout renders payment-method tiles + Stripe redirect copy on a fu | Other |
 | [#5929](https://github.com/openova-io/openova/issues/5929) | UAT row 164: a terminal Failed Job produces no failed leaf — an unterminated l | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6297](https://github.com/openova-io/openova/issues/6297) | bp-alloy slot 21: the Sovereign's own telemetry DaemonSet is denied on re-admiss | Other |
 | [#6298](https://github.com/openova-io/openova/issues/6298) | Seven workflows run an unpinned azure/setup-helm — including check-no-nodeport | Other |
 | [#6306](https://github.com/openova-io/openova/issues/6306) | noreply@openova.io burns its 25/hour send budget in 83s — PIN sign-in blocked  | Other |
+| [#6307](https://github.com/openova-io/openova/issues/6307) | Post-pivot cutover deadlock: a step that terminal-fails past step-05 can never r | Other |
 
 ---
 
