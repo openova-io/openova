@@ -709,7 +709,14 @@ spec:
 // Living here rather than as a literal in main.go is what makes the guard test
 // the value main.go actually ships — a copy in the test would pass while the
 // binary shipped something else.
-const DefaultHRAppChartVersions = "openclaw=0.2.18,stalwart-mail=0.1.15,newapi=1.4.153"
+// 2026-08-14: openclaw 0.2.18 -> 0.2.19. f7961510f bumped platform/openclaw/
+// chart/Chart.yaml and the catalog seed to 0.2.19 and did not bump this pin, so
+// main went red on hrAppPinSeedDrift. The guard was already correct; what let
+// the drift LAND is that its workflow was path-scoped to
+// core/services/provisioning/** while the value it asserts on lives in
+// products/catalyst/chart/templates/catalog-seed/ — the guard never ran on the
+// commit that broke it. Those paths are now in the trigger (#6324).
+const DefaultHRAppChartVersions = "openclaw=0.2.19,stalwart-mail=0.1.15,newapi=1.4.153"
 
 // ParseHRAppVersions parses the CATALYST_HR_APP_CHART_VERSIONS wire format
 // ("slug=version,slug=version") into the HelmReleaseAppVersions map (#4706).

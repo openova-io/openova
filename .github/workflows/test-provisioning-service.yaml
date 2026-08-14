@@ -24,10 +24,18 @@ name: Test — Provisioning Service (Go)
 # That is the same fail-open shape as the go-test cache trap #6235 closes, one
 # level up, and it is exactly how a sidecar's limits could ship invisibly.
 #
-# The paths below are the ones the #6324 Pod-quota guards read:
+# PROVEN, not theorised: on 2026-08-14 f7961510f bumped bp-openclaw to 0.2.19 in
+# the catalog seed and left DefaultHRAppChartVersions at 0.2.18. hrAppPinSeedDrift
+# exists to catch exactly that and never ran, because the seed is not under this
+# workflow's paths — main went red and stayed red until an unrelated PR happened
+# to touch this module. That is the gap, with a live example.
+#
+# The paths below are the ones this module's guards read:
 #   platform/newapi/chart/**                     sidecar + CNPG limits, the DSN gate
 #   platform/openclaw/chart/**                   the controller's 250m neighbour term
 #   core/controllers/organization/internal/gitops/**  planQuotaTable["s"] — the cap
+#   products/catalyst/chart/templates/catalog-seed/**  the delivery pins
+#   scripts/lib/parse-catalog-seed-pins.awk      the shared seed parser
 on:
   push:
     paths:
@@ -35,6 +43,8 @@ on:
       - 'platform/newapi/chart/**'
       - 'platform/openclaw/chart/**'
       - 'core/controllers/organization/internal/gitops/**'
+      - 'products/catalyst/chart/templates/catalog-seed/**'
+      - 'scripts/lib/parse-catalog-seed-pins.awk'
       - '.github/workflows/test-provisioning-service.yaml'
     branches: [main]
   pull_request:
@@ -43,6 +53,8 @@ on:
       - 'platform/newapi/chart/**'
       - 'platform/openclaw/chart/**'
       - 'core/controllers/organization/internal/gitops/**'
+      - 'products/catalyst/chart/templates/catalog-seed/**'
+      - 'scripts/lib/parse-catalog-seed-pins.awk'
       - '.github/workflows/test-provisioning-service.yaml'
   workflow_dispatch:
 
