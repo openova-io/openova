@@ -5,8 +5,11 @@
 // PlacementSpec.Clusters[]. Each HR carries:
 //
 //   - LabelRole = active | passive | singleton (per the variant's
-//     PlacementSpec.Roles map; defaults to singleton when the map is
-//     empty AND len(Clusters)==1, else passive)
+//     PlacementSpec.Roles map; when the map is empty, defaults to
+//     singleton for a 1-cluster variant and otherwise to the role the
+//     DECLARED TOPOLOGY implies for that cluster — see roleFor)
+//   - LabelStandbyDelivery = remote | local-undelivered, on passive
+//     legs only: whether the standby actually reached its own cluster
 //   - LabelTopology = the resolved BCP topology choice
 //   - LabelApp = the parent Application name (back-pointer for delete
 //     + observability rollup)
@@ -142,8 +145,9 @@ type HRDependsOn struct {
 // FanoutHRs returns one `*unstructured.Unstructured` HelmRelease per
 // cluster in the variant's PlacementSpec.Clusters[]. Order is stable:
 // the input slice order. Role-stamping follows variant.Placement.Roles
-// when set; falls back to RoleSingleton (single-cluster) or
-// RolePassive (multi-cluster with no Roles map) defensively.
+// when set; falls back to RoleSingleton (single-cluster) or, for a
+// multi-cluster variant with no Roles map, to the topology-derived role
+// (roleFor).
 //
 // Errors:
 //   - in.Variant == nil
@@ -195,20 +199,39 @@ func renderOneHR(in FanoutInputs, cluster string) *unstructured.Unstructured {
 	// parallel render path (placement.Resolve → render.mergeValues)
 	// computed the `replicas:0` standby scale-down. Two divergent
 	// manifest sets ran every reconcile (issue §3(b)). The standby
-	// scale-down now lives HERE — the SOLE topology fan-out — so the
-	// fanned-out passive HR carries `replicas:0` + the `_openova_standby`
-	// marker, exactly the semantic placement.go:151's `Standby` flag
-	// carried on the now-removed second path. The Continuum lease
-	// governs whether the passive replica serves; the scale-down ensures
-	// the standby boots cold (replicas:0) so a backend whose chart keys
-	// off `.Values.replicas` does NOT run a hot second copy. The marker
+	// scale-down now lives HERE — the SOLE topology fan-out. The marker
 	// `_openova_standby: true` is the canonical Openova standby signal
 	// (docs/EPICS-1-6-unified-design.md §5) for operators that need a
 	// boolean rather than an integer count (CNPG `replica.enabled`).
-	role := roleFor(cluster, in.Variant.Placement)
+	//
+	// #6268 — the scale-down is no longer UNCONDITIONAL. `replicas: 0`
+	// is the COLD-standby semantic (rebuild-on-failover, active-passive);
+	// applying it to a HOT standby contradicts the posture the operator
+	// chose, because a hot standby is defined by streaming and a replica
+	// with zero replicas cannot stream. Which one a passive leg gets is
+	// decided by standbyIsHot() — see its doc for why DELIVERY is half
+	// of that decision and not a defensive extra.
+	//
+	// The kubeConfig pivot is resolved FIRST because the values overlay
+	// depends on it: an undelivered leg renders into the same cluster as
+	// its active peer, and that changes what booting it "hot" would mean.
+	role := roleFor(cluster, in.Variant.Placement, in.Topology)
+
+	// G92.1 #2674 kubeConfig pivot — Flux v2 helm-controller installs
+	// INTO the cluster whose kubeconfig is in the referenced Secret.
+	// When KubeConfigSecretFor is nil, or resolves this cluster to the
+	// empty string, the field is omitted so the HR targets the LOCAL
+	// cluster (legacy / substrate Blueprints; the clusterregistry
+	// split-side default for an unwired remote region).
+	secretName, secretNamespace := "", ""
+	if in.KubeConfigSecretFor != nil {
+		secretName, secretNamespace = in.KubeConfigSecretFor(cluster)
+	}
+	delivered := secretName != ""
+
 	values := in.Values
 	if role == RolePassive {
-		values = withStandbyOverlay(in.Values)
+		values = withStandbyOverlay(in.Values, standbyIsHot(in.Topology, delivered))
 	}
 
 	// Labels — start from OwnerLabels, then overlay the
@@ -223,6 +246,17 @@ func renderOneHR(in FanoutInputs, cluster string) *unstructured.Unstructured {
 	labels[LabelTopology] = string(in.Topology)
 	labels[LabelCluster] = cluster
 	labels[LabelRole] = role
+	// #6268 — record WHERE a standby leg actually landed. Stamped only
+	// on passive HRs (an active / singleton HR has no standby leg), so
+	// the label's presence is itself meaningful and no existing HR shape
+	// gains a field it cannot explain.
+	if role == RolePassive {
+		if delivered {
+			labels[LabelStandbyDelivery] = StandbyDeliveryRemote
+		} else {
+			labels[LabelStandbyDelivery] = StandbyDeliveryLocal
+		}
+	}
 	hr.SetLabels(labels)
 
 	// Spec.
@@ -285,34 +319,29 @@ func renderOneHR(in FanoutInputs, cluster string) *unstructured.Unstructured {
 		}
 	}
 
-	// G92.1 #2674 kubeConfig pivot — Flux v2 helm-controller installs
-	// INTO the cluster whose kubeconfig is in the referenced Secret.
-	// When KubeConfigSecretFor is nil the field is omitted so the HR
-	// targets the local cluster (legacy / substrate Blueprints).
-	if in.KubeConfigSecretFor != nil {
-		secretName, secretNamespace := in.KubeConfigSecretFor(cluster)
-		if secretName != "" {
-			secretRef := map[string]interface{}{
-				"name": secretName,
-			}
-			// #3373: stamp the Secret data key when the caller
-			// declares it (vcluster exportKubeConfig convention is
-			// "config"; without the key Flux looks up its default
-			// key and the pivot silently fails against vc-* Secrets).
-			if in.KubeConfigSecretKey != "" {
-				secretRef["key"] = in.KubeConfigSecretKey
-			}
-			kc := map[string]interface{}{
-				"secretRef": secretRef,
-			}
-			// Flux v2 SecretReference contract: namespace is implied
-			// from the HR's own namespace. We DO NOT stamp the
-			// namespace into the secretRef block (Flux rejects the
-			// nested field). The caller is responsible for setting
-			// WriteNamespace = secretNamespace.
-			_ = secretNamespace
-			spec["kubeConfig"] = kc
+	// Emit the kubeConfig block for a leg that resolved one (resolution
+	// itself happened above, before the values overlay).
+	if delivered {
+		secretRef := map[string]interface{}{
+			"name": secretName,
 		}
+		// #3373: stamp the Secret data key when the caller
+		// declares it (vcluster exportKubeConfig convention is
+		// "config"; without the key Flux looks up its default
+		// key and the pivot silently fails against vc-* Secrets).
+		if in.KubeConfigSecretKey != "" {
+			secretRef["key"] = in.KubeConfigSecretKey
+		}
+		kc := map[string]interface{}{
+			"secretRef": secretRef,
+		}
+		// Flux v2 SecretReference contract: namespace is implied
+		// from the HR's own namespace. We DO NOT stamp the
+		// namespace into the secretRef block (Flux rejects the
+		// nested field). The caller is responsible for setting
+		// WriteNamespace = secretNamespace.
+		_ = secretNamespace
+		spec["kubeConfig"] = kc
 	}
 
 	hr.Object["spec"] = spec
@@ -367,45 +396,115 @@ func HRNameFor(app, cluster string) string {
 // emits the SAME standby shape the now-removed parallel path did.
 const StandbyMarker = "_openova_standby"
 
-// withStandbyOverlay returns a COPY of `user` with the standby scale-down
-// overlaid: `replicas: 0` (the universal Helm-chart standby signal for
-// Deployment / StatefulSet kinds) + `_openova_standby: true` (the
-// boolean marker for operators that key off a flag). #3375 DoD-2 — this
-// is the placement.go `Standby` semantic, relocated into the topology
-// fan-out so the fanned-out passive HR carries the scale-down instead of
-// being byte-identical to the active HR. The input map is NEVER mutated
+// withStandbyOverlay returns a COPY of `user` with the standby overlay
+// applied. #3375 DoD-2 — this is the placement.go `Standby` semantic,
+// relocated into the topology fan-out so the fanned-out passive HR is
+// not byte-identical to the active HR. The input map is NEVER mutated
 // (it is the Blueprint-derived shared `in.Values`); a shallow copy is
 // sufficient because we only set top-level keys.
-func withStandbyOverlay(user map[string]interface{}) map[string]interface{} {
+//
+// Both standby kinds carry `_openova_standby: true` — the marker says
+// "this leg is the standby", which is true of a hot standby and a cold
+// one alike, and charts whose standby semantic is a boolean rather than
+// an integer count (CNPG `replica.enabled`) key off exactly that.
+//
+// They differ in ONE key. A COLD standby is additionally pinned to
+// `replicas: 0`: it runs no process and is rebuilt from the bucket on
+// failover, so a chart keying off `.Values.replicas` must not start it.
+// A HOT standby is left at the declared replica count, because a hot
+// standby is DEFINED by streaming from the primary and a workload scaled
+// to zero cannot stream. Zeroing it produced an active-hot-standby
+// Application whose standby was, in fact, cold — the posture the
+// operator picked in the Catalog and the posture the platform ran
+// disagreed, silently, with `status.phase: Ready` over the top (#6268).
+func withStandbyOverlay(user map[string]interface{}, hot bool) map[string]interface{} {
 	out := make(map[string]interface{}, len(user)+2)
 	for k, v := range user {
 		out[k] = v
 	}
-	// int64 (NOT a bare Go int): the rendered HR is an
-	// unstructured.Unstructured that gets DeepCopy'd on the dynamic-client
-	// write path. k8s.io/apimachinery's DeepCopyJSONValue only accepts
-	// JSON-compatible scalars (int64/float64/string/bool) and panics on a
-	// bare `int` ("cannot deep copy int"). The text/template per-region
-	// path can use a plain int because it serialises to YAML, but this
-	// path must stay JSON-deep-copyable.
-	out["replicas"] = int64(0)
+	if !hot {
+		// int64 (NOT a bare Go int): the rendered HR is an
+		// unstructured.Unstructured that gets DeepCopy'd on the
+		// dynamic-client write path. k8s.io/apimachinery's
+		// DeepCopyJSONValue only accepts JSON-compatible scalars
+		// (int64/float64/string/bool) and panics on a bare `int`
+		// ("cannot deep copy int"). The text/template per-region path
+		// can use a plain int because it serialises to YAML, but this
+		// path must stay JSON-deep-copyable.
+		out["replicas"] = int64(0)
+	}
 	out[StandbyMarker] = true
 	return out
 }
 
-// roleFor picks the per-cluster role from the variant's Roles map,
-// falling back to RoleSingleton (single-cluster variant) or
-// RolePassive (multi-cluster, no map).
+// standbyIsHot reports whether a passive leg must boot HOT (a live,
+// streaming replica) rather than COLD (`replicas: 0`, rebuilt on
+// failover). BOTH conditions are required:
 //
-// The defensive fallbacks are NOT a substitute for a well-formed
-// Blueprint — the admission webhook enforces that an
+//  1. the resolved topology declares a hot standby — `active-hot-standby`
+//     is the only posture in the enum whose standby streams;
+//     `active-passive` is the cold one by definition, and a singleton /
+//     active-active has no standby leg to classify.
+//
+//  2. the leg is actually DELIVERED to its own cluster — i.e. the
+//     fan-out resolved a kubeConfig secretRef for it.
+//
+// Condition 2 is not defensive padding, and it is the reason this
+// function takes an argument that looks unrelated to "hot". When no
+// kubeConfig resolves, the renderer omits `spec.kubeConfig` and Flux
+// installs the HR into the cluster the controller itself runs in — the
+// SAME cluster, and the same namespace, as the active peer. Booting
+// that leg "hot" would not produce a standby; it would install a second
+// full primary next to the first, under a name that says standby. So
+// while delivery is unmet the leg stays cold, which is inert, and
+// LabelStandbyDelivery records the shortfall on the object rather than
+// letting a duplicate be mistaken for a replica.
+//
+// The consequence worth stating plainly: turning an undelivered standby
+// hot requires FIXING DELIVERY, not relaxing this predicate.
+func standbyIsHot(topology bpv1alpha1.BcpTopology, delivered bool) bool {
+	return topology == bpv1alpha1.BcpActiveHotStandby && delivered
+}
+
+// roleFor picks the per-cluster role from the variant's Roles map,
+// falling back to RoleSingleton (single-cluster variant) or, for a
+// multi-cluster variant with no usable Roles entry, to the role the
+// DECLARED TOPOLOGY implies for that cluster.
+//
+// The declared roles always win. The fallbacks are NOT a substitute for
+// a well-formed Blueprint — the admission webhook enforces that an
 // active-hot-standby variant declares roles for every cluster in
-// Placement.Clusters. These fallbacks exist so a singleton-variant
-// (no roles map needed) doesn't crash the controller and a
-// legacy/multi-cluster Blueprint missing roles gets a conservative
-// "everything passive" treatment that surfaces in the operator
-// console as obviously wrong (rather than a silent crash).
-func roleFor(cluster string, p *bpv1alpha1.PlacementSpec) string {
+// Placement.Clusters — they exist so a singleton variant (which needs no
+// roles map) doesn't crash the controller and a legacy / multi-cluster
+// Blueprint missing roles still renders a coherent placement.
+//
+// #6268 — that last clause is the change. The previous fallback returned
+// RolePassive for EVERY cluster of a multi-cluster variant with no roles
+// map, on the reasoning that "everything passive" is conservative and
+// would look obviously wrong in the console. It is not conservative and
+// it does not look wrong: passive is the role that triggers the standby
+// overlay, so an active-hot-standby Application whose Blueprint omitted
+// the map rendered TWO standbys and NO primary — an app with nothing
+// serving, reported with a per-cluster status that reads as a normal
+// multi-region rollout. A fallback that can produce a placement with no
+// active member is not a safe default; it is a different failure.
+//
+// The topology already states the answer, so the fallback reads it
+// instead of guessing:
+//
+//	active-active           → every cluster active (no standby exists)
+//	active-hot-standby      → first declared cluster active, rest passive
+//	active-passive          → first declared cluster active, rest passive
+//	singleton / unset       → passive (unchanged; a multi-cluster
+//	                          singleton is malformed and the caller's
+//	                          topology resolution is the thing to fix)
+//
+// "First declared cluster is the primary" is the same convention the
+// Blueprint catalog already authors to (bp-postgres declares
+// `clusters: [rtz-A, rtz-B]` with `roles: {rtz-A: active, rtz-B:
+// passive}`), so the derived answer agrees with the declared one
+// wherever both exist.
+func roleFor(cluster string, p *bpv1alpha1.PlacementSpec, topology bpv1alpha1.BcpTopology) string {
 	if p == nil {
 		return RoleSingleton
 	}
@@ -417,6 +516,15 @@ func roleFor(cluster string, p *bpv1alpha1.PlacementSpec) string {
 	// No explicit role for this cluster.
 	if len(p.Clusters) == 1 {
 		return RoleSingleton
+	}
+	switch topology {
+	case bpv1alpha1.BcpActiveActive:
+		return RoleActive
+	case bpv1alpha1.BcpActiveHotStandby, bpv1alpha1.BcpActivePassive:
+		if len(p.Clusters) > 0 && p.Clusters[0] == cluster {
+			return RoleActive
+		}
+		return RolePassive
 	}
 	return RolePassive
 }
@@ -468,6 +576,16 @@ type PerClusterStatus struct {
 	Role    string `json:"role"`
 	HR      string `json:"hr"`
 	Status  string `json:"status,omitempty"`
+
+	// StandbyDelivery mirrors LabelStandbyDelivery for the passive legs
+	// (empty for active / singleton, which have no standby leg). #6268 —
+	// without it, a standby that never left the primary region is
+	// reported here identically to one that landed in its own region:
+	// same cluster ID, same role, same Ready status, because the HR IS
+	// Ready — it installed successfully, just not where the placement
+	// says. Readers that need "is this Application actually in two
+	// regions?" cannot answer it from cluster+role+status alone.
+	StandbyDelivery string `json:"standbyDelivery,omitempty"`
 }
 
 // PerClusterStatusesFor returns a templated `perCluster` slice from a
@@ -479,9 +597,10 @@ func PerClusterStatusesFor(hrs []*unstructured.Unstructured) []PerClusterStatus 
 	for _, hr := range hrs {
 		labels := hr.GetLabels()
 		out = append(out, PerClusterStatus{
-			Cluster: labels[LabelCluster],
-			Role:    labels[LabelRole],
-			HR:      hr.GetName(),
+			Cluster:         labels[LabelCluster],
+			Role:            labels[LabelRole],
+			HR:              hr.GetName(),
+			StandbyDelivery: labels[LabelStandbyDelivery],
 		})
 	}
 	return out

@@ -561,28 +561,82 @@ func TestFanoutHRs_ThreeClusterActiveActiveAllActive(t *testing.T) {
 	}
 }
 
-func TestFanoutHRs_PassiveDefaultsForMultiClusterMissingRolesMap(t *testing.T) {
-	variant := bpv1alpha1.TopologyVariant{
-		Placement: &bpv1alpha1.PlacementSpec{
-			Clusters: []string{"mgmt-A", "mgmt-B"},
-			// Roles intentionally nil — defensive path.
+// #6268 — a multi-cluster variant with NO Roles map derives each role
+// from the declared topology, and in particular still produces exactly
+// one ACTIVE member.
+//
+// This test replaces TestFanoutHRs_PassiveDefaultsForMultiClusterMissing
+// RolesMap, which asserted the opposite (every cluster passive). That
+// assertion encoded the defect rather than a requirement: "everything
+// passive" reads as conservative but passive is the role that triggers
+// the standby overlay, so the fallback produced an Application with two
+// standbys and nothing serving. The old test would have had to be
+// deleted to fix the bug, which is the signal that it was pinning the
+// bug in place.
+func TestFanoutHRs_6268_MissingRolesMapDerivesRolesFromDeclaredMode(t *testing.T) {
+	cases := []struct {
+		name     string
+		topology bpv1alpha1.BcpTopology
+		want     []string // per declared cluster order
+	}{
+		{
+			name:     "active-hot-standby: first declared cluster leads",
+			topology: bpv1alpha1.BcpActiveHotStandby,
+			want:     []string{RoleActive, RolePassive},
+		},
+		{
+			name:     "active-passive: first declared cluster leads",
+			topology: bpv1alpha1.BcpActivePassive,
+			want:     []string{RoleActive, RolePassive},
+		},
+		{
+			name:     "active-active: every cluster serves",
+			topology: bpv1alpha1.BcpActiveActive,
+			want:     []string{RoleActive, RoleActive},
 		},
 	}
-	hrs, err := FanoutHRs(FanoutInputs{
-		AppName:      "x",
-		AppNamespace: "ns",
-		Topology:     bpv1alpha1.BcpActiveHotStandby,
-		Variant:      &variant,
-		Chart:        "x",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	for _, hr := range hrs {
-		if hr.GetLabels()[LabelRole] != RolePassive {
-			t.Fatalf("multi-cluster missing-roles fallback should mark passive; got %q",
-				hr.GetLabels()[LabelRole])
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			variant := bpv1alpha1.TopologyVariant{
+				Placement: &bpv1alpha1.PlacementSpec{
+					Clusters: []string{"mgmt-A", "mgmt-B"},
+					// Roles intentionally nil — the fallback path.
+				},
+			}
+			hrs, err := FanoutHRs(FanoutInputs{
+				AppName:      "x",
+				AppNamespace: "ns",
+				Topology:     tc.topology,
+				Variant:      &variant,
+				Chart:        "x",
+			})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(hrs) != len(tc.want) {
+				t.Fatalf("want %d HRs; got %d", len(tc.want), len(hrs))
+			}
+			// FanoutHRs preserves the declared cluster order (it is not
+			// sorted until SortHRsForReconcile), so index maps to
+			// Clusters[i].
+			actives := 0
+			for i, hr := range hrs {
+				got := hr.GetLabels()[LabelRole]
+				if got != tc.want[i] {
+					t.Fatalf("hr[%d] (cluster %q) role = %q, want %q",
+						i, hr.GetLabels()[LabelCluster], got, tc.want[i])
+				}
+				if got == RoleActive {
+					actives++
+				}
+			}
+			// The property that actually matters, stated independently
+			// of the table: a derived placement always has something
+			// serving. This is what the previous fallback violated.
+			if actives == 0 {
+				t.Fatalf("derived placement has NO active member — %d clusters, all passive", len(hrs))
+			}
+		})
 	}
 }
 
