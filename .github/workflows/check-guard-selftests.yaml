@@ -29,11 +29,13 @@ on:
     paths:
       - 'scripts/check-*.sh'
       - 'scripts/uat-pivot.py'
+      - 'scripts/chart-tests-pr-matrix.sh'
       - '.github/workflows/**'
   pull_request:
     paths:
       - 'scripts/check-*.sh'
       - 'scripts/uat-pivot.py'
+      - 'scripts/chart-tests-pr-matrix.sh'
       - '.github/workflows/**'
   workflow_dispatch:
 
@@ -143,3 +145,27 @@ jobs:
       # the same reason (#6272).
       - name: convergence pivot — per-cycle keying + reconciliation (#6114)
         run: python3 scripts/uat-pivot.py --self-test
+
+      # #6235 — `go test` caches on a package's OWN inputs, so a test that reads
+      # a chart template / blueprint.yaml / .tf module from outside its module
+      # can print `ok (cached)` over a file that was just mutated. Measured:
+      # mutating platform/openclaw/chart/templates/oidc-client-secret.yaml left
+      # core/services/provisioning `ok (cached)` and only went FAIL under
+      # -count=1. This guard is a `check-*.sh` so the meta-gate DOES see it —
+      # but the meta-gate only asserts it is invoked somewhere, which is this
+      # line.
+      - name: every workflow's go test passes -count=1 (#6235)
+        run: bash scripts/check-go-test-count1.sh
+
+      - name: go-test -count=1 guard self-test (#6235)
+        run: bash scripts/check-go-test-count1.sh --self-test
+
+      # #6235 — the chart-tests-pr matrix predicate. Wired HERE BY HAND for the
+      # same reason as the two python entries above: check-guards-are-wired.sh
+      # globs `scripts/check-*.sh`, and this is not a `check-` script, so the
+      # meta-gate cannot see it. It decides whether the PR-time chart gate runs
+      # at all, so a silent regression in it looks exactly like "no chart needed
+      # testing". chart-tests-pr.yaml runs this same self-test, but only when a
+      # chart changed — this entry runs it whenever the predicate itself does.
+      - name: chart-tests-pr matrix predicate (#6235)
+        run: bash scripts/chart-tests-pr-matrix.sh --self-test

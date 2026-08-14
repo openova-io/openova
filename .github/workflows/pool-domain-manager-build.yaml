@@ -53,7 +53,10 @@ jobs:
         # (store_test.go round-trip against CNPG) lives in
         # test-bootstrap-api.yaml.
         run: |
-          go test ./internal/pdns/... \
+          # -count=1 — Refs #6235. Go's test cache keys on the package's own
+          # inputs; a test reading outside its module can report a stale
+          # `ok (cached)` forever. Enforced by scripts/check-go-test-count1.sh.
+          go test -count=1 ./internal/pdns/... \
                   ./internal/allocator/... \
                   ./internal/dynadot/... \
                   ./internal/reserved/... \

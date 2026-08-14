@@ -135,7 +135,14 @@ fi
 # Strip comment lines (the plain-CRD template's own history note names the
 # retired type in prose) before asserting the composite type is gone —
 # match only real manifest declarations of the XUserAccess composite.
-if grep -vE '^\s*#' "$TMP/render.yaml" | grep -Eq 'kind: XUserAccess|xuseraccesses'; then
+# `grep -Ec … >/dev/null` — NOT `grep -Eq`. Refs #6235: `-q` exits on the FIRST
+# match, so the producer's next write hits a pipe with no reader (SIGPIPE 141
+# locally; EPIPE -> rc 1 on the GitHub runner, where SIGPIPE is SIG_IGN). Under
+# `set -o pipefail` that poisons the pipeline status, and a PRESENT XUserAccess
+# reads as absent — the `if` goes false and this fail-open assertion reports a
+# pass. `-c` counts, so it reads to EOF and the producer always finishes. This
+# producer emits 492,746 bytes; the earliest offending line is near the top.
+if grep -vE '^\s*#' "$TMP/render.yaml" | grep -Ec 'kind: XUserAccess|xuseraccesses' >/dev/null; then
   echo "FAIL: XUserAccess / xuseraccesses composite type still present — the XR-spawning layer must be gone (Refs #4773)" >&2
   grep -vE '^\s*#' "$TMP/render.yaml" | grep -nE 'kind: XUserAccess|xuseraccesses' >&2
   exit 1

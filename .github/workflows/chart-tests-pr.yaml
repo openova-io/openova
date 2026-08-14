@@ -44,14 +44,33 @@ name: Chart tests (PR)
 # charts whose tests changed, under the SAME toolchain versions the release
 # workflow installs.
 #
-# PATH FILTER — `platform/*/chart/tests/**` + `products/*/chart/tests/**` and
-# nothing else. Not `platform/*/chart/**`: 191 test scripts across 63 charts
-# already run on the release path for a chart edit, and re-running every touched
-# chart's suite at PR time would multiply an Actions queue that is already
-# saturated. A change that doubles CI load becomes its own defect. This fires
-# only when a test script itself changes — which is precisely the edit that had
-# no execution at all. The single `*` mirrors blueprint-release.yaml's own
-# `platform/*/chart/**` shape (one Blueprint folder per directory).
+# PATH FILTER — `platform/*/chart/**` + `products/*/chart/**`, byte-for-byte the
+# chart half of blueprint-release.yaml's own filter.
+#
+# 🛑 THIS WAS NARROWER AND THAT WAS ITS OWN DEFECT — Refs #6235.
+# Until 2026-08-14 the filter read `platform/*/chart/tests/**` +
+# `products/*/chart/tests/**`, on the reasoning that only a tests-only edit had
+# gone unexecuted and that widening would multiply a saturated Actions queue.
+# The load argument was real; the conclusion was not. A PR that changed chart
+# TEMPLATES without touching a test file ran NO chart suite at PR time, so the
+# gate could not fire on the change it exists to gate — the same class as the
+# fail-open predicate in #6235 and as the `check-*.sh` nothing invokes. Measured
+# on the last 600 non-deploy commits of main: 8 commits changed a chart that HAS
+# a tests/ suite without touching a single test file, and not one of them ran
+# that suite before merging.
+#
+# The load concern is answered where it actually bites rather than by refusing
+# to fire: `scripts/chart-tests-pr-matrix.sh` drops a chart whose ONLY changed
+# file is `chart/Chart.yaml` with a version-only diff. That is exactly and only
+# what `scripts/bump-chart-version.sh` writes, and it is what the deploy-bots put
+# on essentially every open PR (41 carried the umbrella bump when this was
+# written) — so the umbrella suite no longer fires on a bump that cannot change a
+# render, while every template/values edit now does fire. The predicate lives in
+# that script rather than in a `run:` block so it can be mutation-tested; its
+# `--self-test` carries 8 git-fixture cases and every one of them is proven able
+# to go red.
+#
+# The single `*` mirrors blueprint-release.yaml (one Blueprint folder per dir).
 #
 # This workflow's OWN path is deliberately NOT in the filter. Adding it would
 # fire the workflow on every edit to this file while changing nothing under
@@ -73,8 +92,8 @@ name: Chart tests (PR)
 on:
   pull_request:
     paths:
-      - 'platform/*/chart/tests/**'
-      - 'products/*/chart/tests/**'
+      - 'platform/*/chart/**'
+      - 'products/*/chart/**'
   workflow_dispatch:
     inputs:
       blueprint:
@@ -94,7 +113,7 @@ concurrency:
 
 jobs:
   detect:
-    name: which charts changed a test script
+    name: which charts changed
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -105,7 +124,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Detect charts with changed test scripts
+      # The matrix predicate self-tests BEFORE it is trusted. It is the thing
+      # that decides whether this gate runs at all, so a silent regression in it
+      # is indistinguishable from "no chart needed testing" — a green.
+      - name: Matrix predicate self-test (git fixtures, no cluster)
+        run: bash scripts/chart-tests-pr-matrix.sh --self-test
+
+      - name: Detect charts to test
         id: changed
         env:
           BASE_REF: ${{ github.base_ref }}
@@ -124,19 +149,11 @@ jobs:
           # diff is exactly the PR's own changes.
           git fetch --no-tags --quiet origin "${BASE_REF}"
           echo "Diffing origin/${BASE_REF}...HEAD"
-          changed=$(git diff --name-only "origin/${BASE_REF}...HEAD" \
-                    | grep -E '^(platform|products)/[^/]+/chart/tests/' \
-                    | awk -F/ '{print $1"/"$2}' | sort -u || true)
+          matrix="$(bash scripts/chart-tests-pr-matrix.sh --base "origin/${BASE_REF}" --head HEAD)"
 
-          echo "Charts with changed test scripts:"
-          echo "${changed:-(none)}"
-
-          if [ -z "$changed" ]; then
-            echo "matrix={\"include\":[]}" >> "$GITHUB_OUTPUT"
-          else
-            include=$(printf '%s\n' "$changed" | jq -R -s -c 'split("\n") | map(select(length > 0)) | map({path: .})')
-            echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
-          fi
+          echo "Charts selected:"
+          printf '%s\n' "$matrix" | jq -r '.include[].path' | sed 's/^/  /'
+          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
 
   chart-tests:
     name: "chart/tests/*.sh — ${{ matrix.path }}"

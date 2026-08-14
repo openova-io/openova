@@ -169,7 +169,12 @@ echo "[auto-unseal-toggle] Case 6: #5146 reconciler captures bao's REAL rc (seal
 REC="$TMP/autounseal.yaml"
 # 6a — the buggy `if ! bao status` wrapper must be ABSENT from executable code
 # (strip comment lines — the fix's own doc-comment names the antipattern).
-if grep -vE '^[[:space:]]*#' "$REC" | grep -qE 'if ! bao status'; then
+# `grep -cE … >/dev/null` — NOT `grep -qE`. Refs #6235: `-q` exits on the first
+# match and SIGPIPEs the producer, which `set -o pipefail` turns into a non-zero
+# pipeline status indistinguishable from "not found" — so a PRESENT `if ! bao
+# status` would read as absent and this fail-open assertion would report a pass.
+# `-c` reads to EOF. Measured producer output here: 87,744 bytes.
+if grep -vE '^[[:space:]]*#' "$REC" | grep -cE 'if ! bao status' >/dev/null; then
   echo "FAIL: reconciler wraps 'bao status' in 'if !' — the negation clobbers \$? (1.2.61 bug)." >&2
   exit 1
 fi
