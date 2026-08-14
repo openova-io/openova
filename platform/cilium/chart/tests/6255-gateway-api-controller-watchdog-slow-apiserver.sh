@@ -482,20 +482,60 @@ echo "CASE F — the tested script is the shipped script, and the RBAC to restar
 render="$work/render.yaml"
 "$helm" template smoke "$chart_dir" --show-only templates/gateway-api-controller-watchdog.yaml >"$render" 2>/dev/null
 
+# Extract the ConfigMap's watchdog.sh by PARSING the render, not by scraping
+# its lines.
+#
+# This used to be an awk line-scraper keyed on `^  watchdog.sh: |` that kept
+# every following 4-space-indented OR EMPTY line. That predicate is not YAML:
+# a blank line between documents is document-level whitespace, outside the
+# block scalar, but the scraper swallowed it as content.
+#
+# Helm 4.2.4 (2026-08-14) began emitting two blank lines before each `---`
+# separator where 4.2.3 emitted none. Nothing in this chart changed — the
+# ConfigMap value is byte-identical under both, sha256 db7fee4e96783582,
+# 12708 bytes, equal to chart/files/gateway-api-controller-watchdog.sh — but
+# the scraper appended those two blank lines to the extraction (268 lines vs
+# the source's 266) and Case F reported a drift that did not exist. Because
+# `azure/setup-helm@v4` was unpinned in .github/workflows/test-bootstrap-kit.yaml,
+# that broke main and every open PR at once, the moment 4.2.4 shipped. (The
+# pin is now v3.18.4, the version blueprint-release.yaml publishes with, so
+# this job measures the bytes the publish path actually produces.)
+#
+# Parsing `data["watchdog.sh"]` makes the comparison depend on the VALUE the
+# Pod receives rather than on how any Helm version chose to lay the YAML out.
+# That is STRICTER than the scraper, not looser: it still demands exact
+# byte-equality with chart/files/, and it additionally catches drift the
+# scraper could not see — a re-indented block, a quoted or folded scalar, an
+# escaped-character change, or a second ConfigMap shadowing this key.
+#
+# PyYAML is proven present in this job: scripts/audit-placement-conformance.py
+# imports it and runs earlier in the same `dependency-graph-audit` job. If it
+# were ever absent this FAILS rather than skips — a guard that silently opts
+# out is the vacuity trap this suite exists to refuse.
 extracted="$work/extracted.sh"
-awk '
-  /^  watchdog\.sh: \|/ { grab=1; next }
-  grab {
-    if ($0 ~ /^    /) { sub(/^    /, ""); print; next }
-    if ($0 == "") { print; next }
-    grab=0
-  }
-' "$render" >"$extracted"
+python3 - "$render" "$extracted" <<'PY' || true
+import sys, yaml
+render_path, out_path = sys.argv[1], sys.argv[2]
+with open(render_path) as fh:
+    docs = [d for d in yaml.safe_load_all(fh) if isinstance(d, dict)]
+cms = [
+    d for d in docs
+    if d.get("kind") == "ConfigMap"
+    and "watchdog.sh" in (d.get("data") or {})
+]
+# Exactly one carrier: two would mean the Pod's mount is ambiguous.
+if len(cms) != 1:
+    sys.stderr.write(f"expected exactly 1 ConfigMap carrying watchdog.sh, found {len(cms)}\n")
+    sys.exit(1)
+with open(out_path, "w") as fh:
+    fh.write(cms[0]["data"]["watchdog.sh"])
+PY
 
-if [ -s "$extracted" ] && diff -q <(sed -e 's/[[:space:]]*$//' "$script_src") <(sed -e 's/[[:space:]]*$//' "$extracted") >/dev/null 2>&1; then
+if [ -s "$extracted" ] && cmp -s "$script_src" "$extracted"; then
   pass "ConfigMap watchdog.sh matches chart/files/gateway-api-controller-watchdog.sh"
 else
   fail "rendered watchdog.sh drifted from chart/files/ — cases A-E would be testing bytes that never reach the Pod"
+  diff "$script_src" "$extracted" | head -20 || true
 fi
 for want in \
   'kind: Deployment' \
