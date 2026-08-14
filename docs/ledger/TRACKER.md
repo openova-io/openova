@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-14T04:30:05Z` |
+| Last refreshed | `2026-08-14T04:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5919](https://github.com/openova-io/openova/issues/5919) | hw292 cut over on chart 0.1.159 — twelve versions before the #5710 durable piv | Other |
 | [#5920](https://github.com/openova-io/openova/issues/5920) | Marketplace still sells 'Sandbox' — a concept retired 2026-06-30 — and a sou | Other |
 | [#5921](https://github.com/openova-io/openova/issues/5921) | P0 sovereignty: post-cutover Sovereign sends customer sign-in mail via mail.open | Other |
 | [#5926](https://github.com/openova-io/openova/issues/5926) | UAT row 85: checkout renders payment-method tiles + Stripe redirect copy on a fu | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6294](https://github.com/openova-io/openova/issues/6294) | harbor-prewarm enumerates the same destination twice and the redundant push fail | Other |
 | [#6297](https://github.com/openova-io/openova/issues/6297) | bp-alloy slot 21: the Sovereign's own telemetry DaemonSet is denied on re-admiss | Other |
 | [#6298](https://github.com/openova-io/openova/issues/6298) | Seven workflows run an unpinned azure/setup-helm — including check-no-nodeport | Other |
+| [#6306](https://github.com/openova-io/openova/issues/6306) | noreply@openova.io burns its 25/hour send budget in 83s — PIN sign-in blocked  | Other |
 
 ---
 
