@@ -11,7 +11,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.5.27",
+      "version": "0.5.28",
       "section": "pts-7-org-tenant",
       "depends": [
         "bp-external-secrets"

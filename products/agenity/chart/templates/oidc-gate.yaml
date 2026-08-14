@@ -29,7 +29,19 @@ undefined routing — the gate owns the host).
 {{- $cid := include "agenity.gateClientId" . }}
 {{- $gateName := printf "oidc-gate-%s" $cid }}
 {{- $g := .Values.oidcGate }}
-{{- $issuer := printf "https://auth.%s/realms/%s" .Values.sovereignFqdn $g.realm }}
+{{- /*
+#6314 — the BROWSER-facing issuer host is `oidcGate.issuerHost` when set, and
+falls back to `.Values.sovereignFqdn` otherwise (byte-identical render for
+every values set that does not opt in). The fallback is NOT the safe default it
+looks like: the per-Org gitops producer sets `sovereignFqdn` to the ORG zone
+(<slug>.<pool>) so the MCP catalyst-api URL resolves to the Org console, which
+made this line render `auth.<slug>.<pool>` — a host with no HTTPRoute, envoy
+404, login dead-ended (measured hw296 2026-08-14). The back-channel legs below
+already dial the SOVEREIGN Keycloak, so front- and back-channel must name the
+same realm on the same Sovereign. See values.yaml oidcGate.issuerHost.
+*/ -}}
+{{- $issuerHost := $g.issuerHost | default .Values.sovereignFqdn }}
+{{- $issuer := printf "https://auth.%s/realms/%s" $issuerHost $g.realm }}
 {{- /*
 The agenity Service the gate proxies to (same chart release, this namespace).
 Upstream host = <fullname>.<namespace>.svc.cluster.local:<service.port>.

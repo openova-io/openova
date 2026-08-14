@@ -383,6 +383,28 @@ oidcGate:
     pullPolicy: IfNotPresent
   # Keycloak realm the gated client lives in (the Sovereign shared realm).
   realm: sovereign
+  # BROWSER-FACING Keycloak issuer host, WITHOUT the `auth.` prefix (#6314).
+  # Empty (default) → falls back to `.Values.sovereignFqdn`, so every existing
+  # values set renders byte-identically.
+  #
+  # WHY THIS EXISTS AS ITS OWN KNOB. `sovereignFqdn` is read by three
+  # consumers with INCOMPATIBLE host requirements:
+  #   1. this file's gate issuer          → `auth.<host>`    — must be the SOVEREIGN
+  #   2. statefulset.yaml:208/312 MCP URL → `console.<host>` — per-Org install wants the ORG
+  #   3. _helpers.tpl:48 gate hostname    → `agenity.<host>` — per-Org install wants the ORG
+  # The per-Org gitops producer (organization_gitops.go `orgTenantBPAgenity`)
+  # sets `sovereignFqdn: <slug>.<pool>` precisely so consumer 2 resolves to the
+  # Org console — and consumer 1 then rendered `auth.<slug>.<pool>`, a host that
+  # has NO HTTPRoute anywhere on a Sovereign. Measured on hw296 2026-08-14:
+  # `https://auth.walkthree.omani.trade/realms/sovereign/...` → envoy 404
+  # (content-length 0, no Keycloak body), so the agenity console's login
+  # dead-ended and no User could reach the workspace in a browser. The
+  # Sovereign's real issuer `auth.hw296.omani.works` answers 200, and the
+  # back-channel args below ALREADY dial the SOVEREIGN Keycloak
+  # (keycloakInternalURL + realm `sovereign`), so the front-channel host
+  # disagreeing with the back-channel was the defect, not a design choice.
+  # Splitting the knob fixes consumer 1 without touching 2 or 3.
+  issuerHost: ""
   # In-cluster Keycloak base URL for the BACKCHANNEL OIDC legs (#3844): the
   # gate SKIPS discovery against the public issuer EIP (unhairpinnable from
   # inside the cluster on Huawei/kom4dc → CrashLoop) and dials the in-cluster

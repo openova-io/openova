@@ -174,4 +174,39 @@ grep -qE 'name: "oidc-gate-agenity-custom"' <<<"$co"     || { echo "FAIL: gate n
 grep -qE 'key: "sso/sovereign/agenity-custom"' <<<"$co"  || { echo "FAIL: ExternalSecret key did not pick up clientId override" >&2; exit 1; }
 echo "  PASS"
 
-echo "[bp-agenity #4553/#4556 oidc-gate companion] All cases PASS"
+# ── Case 5: #6314 — the BROWSER issuer host is separable from sovereignFqdn ──
+#
+# The per-Org gitops producer sets sovereignFqdn to the ORG zone (<slug>.<pool>)
+# so the MCP catalyst-api URL resolves to the Org console. Before #6314 that same
+# value also built the gate's front-channel issuer, rendering auth.<slug>.<pool>
+# — a host with NO HTTPRoute on any Sovereign (measured hw296 2026-08-14:
+# auth.walkthree.omani.trade -> envoy 404, auth.hw296.omani.works -> 200), so the
+# User's login dead-ended before Keycloak.
+#
+# BOTH directions are asserted, because either alone is vacuous: (a) the override
+# must reach BOTH front-channel args, and (b) the fallback must still render the
+# sovereignFqdn host so no existing values set silently changes. Case 1 above
+# already pins the fallback's --login-url; this pins its --oidc-issuer-url too and
+# proves the override MOVES both.
+echo "[oidc-gate-companion] Case 5: #6314 oidcGate.issuerHost override + fallback"
+SOV=hw296.omani.works
+io="$(render_gated --set "oidcGate.issuerHost=$SOV")"
+grep -qE -- "--oidc-issuer-url=https://auth\.${SOV//./\\.}/realms/sovereign\$" <<<"$io" \
+  || { echo "FAIL: issuerHost override did not reach --oidc-issuer-url" >&2; echo "$io" >&2; exit 1; }
+grep -qE -- "--login-url=https://auth\.${SOV//./\\.}/realms/sovereign.*kc_idp_hint=catalyst-pin" <<<"$io" \
+  || { echo "FAIL: issuerHost override did not reach --login-url" >&2; exit 1; }
+# The override must NOT leak into the Org-facing hosts (consumers 2 and 3 of
+# sovereignFqdn) — the gate still owns the ORG hostname and redirects back to it.
+grep -qE -- "--redirect-url=https://${HOST//./\\.}/oauth2/callback" <<<"$io" \
+  || { echo "FAIL: issuerHost override wrongly moved the gate's redirect-url off the Org host" >&2; exit 1; }
+# VACUITY CONTROL — unset, the fallback still renders the sovereignFqdn host on
+# BOTH args, so this test cannot pass on a chart that ignores the value entirely.
+fb="$(render_gated)"
+grep -qE -- "--oidc-issuer-url=https://auth\.${FQDN//./\\.}/realms/sovereign\$" <<<"$fb" \
+  || { echo "FAIL: issuerHost fallback to sovereignFqdn broken on --oidc-issuer-url" >&2; echo "$fb" >&2; exit 1; }
+if grep -qE -- "auth\.${SOV//./\\.}" <<<"$fb"; then
+  echo "FAIL: the override host appears with issuerHost UNSET — the assertion above is vacuous" >&2; exit 1
+fi
+echo "  PASS"
+
+echo "[bp-agenity #4553/#4556/#6314 oidc-gate companion] All cases PASS"
