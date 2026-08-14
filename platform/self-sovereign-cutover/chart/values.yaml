@@ -2747,7 +2747,41 @@ stepTimeouts:
   # NB: this is inside helmRepositoryPatchesSeconds (2400s) alongside the
   # gateway-wait + stripReadinessSeconds worst-case sum.
   pivotReadbackSeconds: 300
-  catalystAPIEnvPatchSeconds: 600
+  # Step 07 (catalyst-api-env-patch). Was 600s from the day it was written and
+  # never revisited, while the step grew five bounded waits whose worst case sums
+  # to nearly FOUR TIMES that. Measured from the shipped values + the actual call
+  # sites in templates/07-catalyst-api-env-patch-job.yaml, in execution order:
+  #
+  #   image_warmed_gate               240s  (catalystAPI.rollSafety.
+  #     line 666, one call                   imageWarmedGate.pollSeconds)
+  #   roll_and_wait_catalyst_api      630s  (rollBudgetSeconds 600 + the final
+  #     line 964, "image pivot"              blocking `rollout status
+  #                                          --timeout=30s` at its budget end)
+  #   roll_and_wait_catalyst_api      630s  (SAME function, called a SECOND time)
+  #     line 1008, "issuer envs"
+  #   Phase 3d rollout status         180s  (line 1076)
+  #   Phase 3e rollout status         540s  (line 1142, --timeout=180s inside a
+  #                                          loop over THREE Deployments)
+  #                                 ------
+  #                                  2220s  of bounded waits alone
+  #
+  # plus the unbounded Phase 4 pod-spec sweep (lines 402-443: one `kubectl get`
+  # per workload kind cluster-wide, then a per-image local-Harbor presence probe
+  # and a strategic patch per offender — ~130 workloads on a 2-region prov), plus
+  # preroll_node_prep / evs_detach_gate. Against a 600s deadline ONE slow roll
+  # consumed the entire budget before Phase 3 began, and the Job died
+  # DeadlineExceeded mid-pivot — the same shape #4723/#5065 diagnosed on step-11,
+  # where a deadline shorter than the step's own internal budget was read for two
+  # cycles as an egress failure. A half-applied env pivot leaves catalyst-api
+  # pointing at a mix of local and mothership endpoints, so the deadline must
+  # cover the worst case rather than truncate it.
+  #
+  # 3600s = the 2220s bounded worst case + ~62% headroom for the unbounded sweep,
+  # and it puts step 07 back in family with its neighbours (fluxGitRepositoryPatch
+  # 1800, helmRepositoryPatches 2400, egressBlockTest 7200, harborPrewarm 9600) —
+  # it was the outlier, not the exception. A healthy run still returns in minutes:
+  # activeDeadlineSeconds caps the worst case, it does not schedule one.
+  catalystAPIEnvPatchSeconds: 3600
   # 600s deny survival window + up to 300s #3526 bounded pivot-poll
   # (force-reconcile GitRepository + bootstrap-kit Kustomization and wait
   # for Step-06's durable git-push to converge BEFORE the window opens)

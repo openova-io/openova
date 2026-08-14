@@ -208,9 +208,24 @@ rules:
   - apiGroups: ["pkg.crossplane.io"]
     resources: ["providers", "imageconfigs"]
     verbs: ["update", "patch"]   # step 11 crossplane-provider-pivot (TBD-V24 MISS-3); #5204 patches the ImageConfig on re-run (kubectl apply)
+  {{- /*
+   #6309 — `ciliumclusterwidenetworkpolicies` was MISSING from THIS rule while
+   the create rule above already granted it. The step-11 hold IS a
+   CiliumClusterwideNetworkPolicy (cutover-egress-block), and `kubectl apply`
+   over an ALREADY-EXISTING object issues a PATCH, not a POST — so a re-run, or
+   any run following a SIGKILLed one that leaked the policy, was refused 403 on
+   the patch, POLICY_APPLIED stayed empty, and the step went on to print
+   "sovereignty proof PASSED" anyway. A verb asymmetry between the create rule
+   and the update rule is structurally invisible to tests/rbac-coverage.sh,
+   which compares RESOURCES only and never reads a verb; tests/egress-hold-
+   invariant.sh asserts the verb set directly.
+   (Helm block comment, not `#`: a `#` comment in a template is paid for twice
+   in the release Secret — once stored, once rendered — and this chart is at
+   78% of the 1048576-byte ceiling. See the 0.1.179 note in Chart.yaml.)
+  */}}
   - apiGroups: ["cilium.io"]
-    resources: ["ciliumnetworkpolicies"]
-    verbs: ["delete", "patch", "update"]   # step 08 removes the policy at end-of-test
+    resources: ["ciliumnetworkpolicies", "ciliumclusterwidenetworkpolicies"]
+    verbs: ["delete", "patch", "update"]   # step 11 (file 08-, cutover-order 11) applies + tears down cutover-egress-block (#6309)
   - apiGroups: ["batch"]
     resources: ["cronjobs"]
     verbs: ["get", "list", "watch", "delete"]   # G75 #2622: step 01 deletes gitea-mirror-resync CronJob to sever upstream git tether (ADR-0002 Pillar 5)

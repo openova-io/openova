@@ -1411,7 +1411,31 @@ data:
                emitted (default-deny OR legacy subtractive), once, fixes both.
               */}}
               if [ -f /work/egress-deny.yaml ]; then
-                if kubectl apply -f /work/egress-deny.yaml; then
+                {{- /*
+                 Delete-before-apply, IDENTICAL to what the #5359 secondary-region
+                 leg below already does (search: "clears a stale hold policy
+                 leaked by a SIGKILLed prior run"). Region A was the ONLY leg
+                 without it, and that asymmetry is half of the false-PASS below:
+                 `kubectl apply` on an ALREADY-EXISTING cutover-egress-block
+                 issues a PATCH, not a POST, and until 0.1.189 the runner
+                 ClusterRole granted ciliumclusterwidenetworkpolicies
+                 {create,delete,get} but NOT {update,patch} — so a re-run, or any
+                 run following a SIGKILLed one that leaked the policy, was
+                 refused 403 on exactly this line.
+                */}}
+                kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true 2>/dev/null || true
+                {{- /*
+                 Capture stdout+stderr ONCE so the FATAL branch can name the
+                 actual apiserver refusal (a 403 on the patch reads
+                 `is forbidden: User "system:serviceaccount:…" cannot patch
+                 resource "ciliumclusterwidenetworkpolicies"`). Re-running the
+                 apply just to print its error would be a second, different
+                 attempt — it can succeed and contradict the verdict.
+                */}}
+                _eb_apply_out=$(kubectl apply -f /work/egress-deny.yaml 2>&1)
+                _eb_apply_rc=$?
+                printf '%s\n' "${_eb_apply_out}" | sed 's/^/[egress-block-test]   apply: /'
+                if [ "${_eb_apply_rc}" -eq 0 ]; then
                   POLICY_APPLIED="yes"
                   {{- /*
                    Trap teardown so an abnormal exit (activeDeadline SIGTERM,
@@ -1422,11 +1446,26 @@ data:
                   trap 'kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true 2>/dev/null || true' TERM EXIT
                   echo "[egress-block-test] egressDeny applied (default-deny=${DEFAULT_DENY_EGRESS}) — hidden runtime tethers will now surface as NotReady"
                 else
-                  echo "  WARN — egressDeny apply failed; assertion-only fallback (fail-safe)"
+                  {{- /*
+                   ── #6309: WAS `WARN — assertion-only fallback (fail-safe)`. ──
+                   That fallback was not fail-SAFE, it was fail-QUIET: it left
+                   POLICY_APPLIED empty, which SKIPS the #3678 call-home
+                   assertion and the #3647 fresh-pull proof (both gated on
+                   POLICY_APPLIED=yes) — and the survival loop then ran anyway
+                   and printed "sovereignty proof PASSED" at the end. So "I could
+                   not apply the hold" and "the hold held" produced the SAME
+                   verdict and the SAME cutoverComplete=true. ADR-0002 allows no
+                   cutover claim without the egress-block proof, so a hold that
+                   could not be applied is a FAILED proof, never a quieter one.
+                   The #5359 secondary leg below was already FATAL on this exact
+                   condition; region A — the primary — was the lenient one.
+                  */}}
+                  echo "[egress-block-test] FATAL: could not apply the deny-egress hold 'cutover-egress-block' (CiliumClusterwideNetworkPolicy, from /work/egress-deny.yaml) on region A — kubectl apply exited ${_eb_apply_rc}. Without an applied hold there is no isolation window to survive, the call-home and fresh-pull proofs cannot run, and a PASS would certify sovereignty that was never measured (#6309). Refusing to continue; cutoverComplete stays false." >&2
+                  exit 1
                 fi
               fi
             else
-              echo "[egress-block-test] enforce mode OFF (default) — assertion + survival-poll only (#2940: flip egressTest.enforceCIDRBlock=true after a validated cutover walk)"
+              echo "[egress-block-test] enforce mode OFF (egressTest.enforceCIDRBlock=false — an EXPLICIT opt-out; the chart default and the slot-06a overlay both ship true since 0.1.57/#3379) — assertion + survival-poll only, which the #6309 verdict below will NOT call a sovereignty proof"
             fi
 
             {{- /*
@@ -2316,6 +2355,35 @@ data:
             if [ "${new_failures}" -gt 0 ]; then
               echo "[egress-block-test] cluster developed NEW NotReady items during the window (any region) — sovereignty proof FAILED"
               exit 1
+            fi
+            {{- /*
+             ── #6309 PASS INVARIANT — no PASS without a hold that was APPLIED ─
+             Belt to the FATAL suspenders at the region-A apply above. Every
+             other exit from this script is a measured verdict; the survival
+             loop alone is not, because it measures the SAME thing whether or
+             not any egress was ever denied — already-running pods stay Ready
+             in a cluster with full internet access. So the survival result may
+             only be spoken of as a sovereignty PROOF when POLICY_APPLIED=yes.
+             This is deliberately placed at the verdict rather than only at the
+             apply: it covers EVERY route to an empty POLICY_APPLIED, including
+             ones written later (the zero-public-IPs subtractive fallback above,
+             a future branch that forgets to set the flag), not just the one
+             that was measured on 2026-08-14.
+            */}}
+            if [ "${POLICY_APPLIED}" != "yes" ]; then
+              if [ "${ENFORCE_CIDR_BLOCK}" = "true" ]; then
+                echo "[egress-block-test] FATAL: the ${DURATION_SECONDS}s window completed with NO deny-egress hold applied (POLICY_APPLIED empty) while egressTest.enforceCIDRBlock=true asked for one. Surviving a window that denied nothing proves nothing; refusing to report a sovereignty PASS (#6309). cutoverComplete stays false." >&2
+                exit 1
+              fi
+              {{- /*
+               enforceCIDRBlock=false is an explicit operator opt-out (chart
+               default and the slot-06a overlay both ship `true`, and
+               tests/cutover-contract.sh already fails a PR that unpins the
+               overlay). The opt-out survives — what does NOT survive is calling
+               its result a proof. The word PASSED is never printed here.
+              */}}
+              echo "[egress-block-test] no new regressions during ${DURATION_SECONDS}s window (all $((secondary_kubeconfig_count + 1)) region(s)) — but egressTest.enforceCIDRBlock=false, so NO egress was ever denied: this is a survival poll, NOT the ADR-0002 sovereignty proof (#6309)"
+              exit 0
             fi
             echo "[egress-block-test] no new regressions during ${DURATION_SECONDS}s window (all $((secondary_kubeconfig_count + 1)) region(s)) — sovereignty proof PASSED"
         resources:
