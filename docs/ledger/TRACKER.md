@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-14T10:15:04Z` |
+| Last refreshed | `2026-08-14T10:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -311,6 +311,7 @@ flowchart LR
 | 2026-08-14T09:36 | [#6328](https://github.com/openova-io/openova/pull/6328) | #6325 | docs(ledger): convergence cycle 2026-08-14T09:22Z — 278/286  |
 | 2026-08-14T09:35 | [#6327](https://github.com/openova-io/openova/pull/6327) | #6307 | feat(ci): train-coherence pre-flight — is this train safe to |
 | 2026-08-14T09:19 | [#6325](https://github.com/openova-io/openova/pull/6325) | #6313 | docs(uat): W1 and 235 walked green — the wizard fix delivere |
+| 2026-08-14T10:24 | [#6323](https://github.com/openova-io/openova/pull/6323) | #6303 | fix(cutover): step-06 pivots the THIRD GitOps repo class — e |
 | 2026-08-14T08:33 | [#6321](https://github.com/openova-io/openova/pull/6321) | #5575 | fix(wizard): UAT row W5 — remove the `specter` phantom card; |
 | 2026-08-14T08:37 | [#6316](https://github.com/openova-io/openova/pull/6316) | #6314 | fix(agenity): per-Org oidc-gate issuer must name the Soverei |
 | 2026-08-14T06:55 | [#6315](https://github.com/openova-io/openova/pull/6315) | #6090 | docs(uat): close four hw296 partials — 242 proven by live PO |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-14T00:27 | [#6281](https://github.com/openova-io/openova/pull/6281) | #6273 | fix(cutover): grant Phase A0 the namespaces read its #6273 p |
 | 2026-08-13T23:30 | [#6279](https://github.com/openova-io/openova/pull/6279) | #6259 | docs(ledger): convergence cycle 2026-08-13T23:25:21Z — 254/2 |
 | 2026-08-13T23:24 | [#6277](https://github.com/openova-io/openova/pull/6277) | #6257 | docs(uat): re-walk the 26 invalidated SSO rows on hw296 — 25 |
-| 2026-08-13T23:30 | [#6276](https://github.com/openova-io/openova/pull/6276) | #6272 | fix(ledger): the convergence pivot grouped cycles by DATE, s |
 
 ---
 
