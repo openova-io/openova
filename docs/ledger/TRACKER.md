@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-14T06:00:05Z` |
+| Last refreshed | `2026-08-14T06:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5926](https://github.com/openova-io/openova/issues/5926) | UAT row 85: checkout renders payment-method tiles + Stripe redirect copy on a fu | Other |
 | [#5929](https://github.com/openova-io/openova/issues/5929) | UAT row 164: a terminal Failed Job produces no failed leaf — an unterminated l | Other |
 | [#5932](https://github.com/openova-io/openova/issues/5932) | Dashboard treemap: the vCluster grouping dimension keys on the retired #4325 vcl | Other |
 | [#5933](https://github.com/openova-io/openova/issues/5933) | Customer Application CRs never carry spec.organizationRef — the #5814 Org-attr | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6306](https://github.com/openova-io/openova/issues/6306) | noreply@openova.io burns its 25/hour send budget in 83s — PIN sign-in blocked  | Other |
 | [#6307](https://github.com/openova-io/openova/issues/6307) | Post-pivot cutover deadlock: a step that terminal-fails past step-05 can never r | Other |
 | [#6309](https://github.com/openova-io/openova/issues/6309) | No cutover step pivots the per-Org <slug>/catalyst-tenant repos — G11 cannot c | Other |
+| [#6311](https://github.com/openova-io/openova/issues/6311) | bp-wordpress-tenant cannot converge in ANY Org: no cnpg-system carve-out blinds  | Other |
 
 ---
 
