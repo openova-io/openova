@@ -3793,7 +3793,82 @@ name: bp-self-sovereign-cutover
 # fail-open) cannot pass. Slot-06a pin + blueprint.yaml + catalog-seed
 # spec.version + source.version + the API blueprints.json + the generated UI
 # catalog move to 0.1.185 in lockstep (Inviolable Principle #13).
-version: 0.1.186
+#
+# 0.1.187 (#6293) — STEP-06 PATCHED FIVE OBJECTS IT DOES NOT OWN, THEN GRADED
+# ITSELF ON WHETHER THEY STUCK. hw296's cutover reached 6/11 and terminal-failed
+# there: `live-K8s ok=4 skip=62 fail=0` immediately followed by
+# `FATAL: Phase-1.5 read-back: 5 region-A HelmRepository(ies) are STILL on
+# oci://ghcr.io/openova-io` — bp-agenity / bp-keycloak / bp-openclaw /
+# bp-stalwart-tenant / bp-wordpress-tenant. No retry could converge it; every
+# re-run re-entered the same order.
+#
+# All five are `status.inventory` entries of the `org-tenants` Flux
+# Kustomization: path ./clusters/<fqdn>/org-tenants, interval 1m, prune=true,
+# sourceRef GitRepository/openova-org-tenants, whose spec.ref.branch is
+# `org-tenants`. Their durable source is written by the catalyst-api org-tenant
+# pipeline (organization_gitops.go writeParentTenantsIndex →
+# clusters/<fqdn>/org-tenants/helmrepositories.yaml) and pushed to
+# `HEAD:org-tenants`. So Phase-1's live kubectl patch is reverted on the next
+# reconcile, always. Live proof on hw296: bp-keycloak and bp-newapi at
+# metadata.generation 101, certSecretRef absent on all six, and two of them
+# logged `SKIP (already pivoted)` at scan time yet came back STILL-UPSTREAM at
+# the read-back — reverted between two reads inside one Job.
+#
+# THREE DEFECTS ON ONE PATH, each of which alone was enough:
+#
+#  1. ORDERING. The Phase-1.5 read-back was `|| exit 1` and ran THREE phases
+#     before Phase-2/2b — the durable Gitea rewrite that is the only thing that
+#     can make the pivot stick. Its own comment justified single-shot sampling
+#     with "Phase-1's patches are synchronous API writes, so there is nothing to
+#     converge", which is true of the WRITE and false of a Flux-owned OBJECT.
+#     It is now a DIAGNOSTIC that names its offenders and cites the gate.
+#     #5436 is NOT weakened: the enforcing call is the Phase-3 pre-strip
+#     read-back — bounded budget, reconcile re-pokes, still `|| exit 1`,
+#     deliberately placed to run on EVERY exit path including the
+#     MOTHERSHIP_AUTHS_TO_STRIP-empty early return, and now the only call that
+#     runs after the durable rewrite. step-08's `-A` scan is unchanged.
+#
+#  2. WRONG BRANCH. #4885 added the org-tenants rewrite inside the working tree
+#     of a clone opened `--branch main`. TBD-C18e moved the org-tenants tree to
+#     its own branch precisely so the step-01 mirror's force-push of main could
+#     not clobber per-Org overlays, so main has no clusters/<fqdn>/org-tenants
+#     directory at all — this repo proves it: `find clusters -type d -name
+#     org-tenants` returns nothing. The collector matched zero files and printed
+#     "sed edited 0 org-tenant HelmRepository file(s)" on every Sovereign that
+#     ever ran it. Phase-2b now lives in its own ConfigMap key, clones the
+#     `org-tenants` branch, rewrites, and pushes `HEAD:org-tenants`.
+#
+#  3. UNSTAGED. Even on a match, the commit staged `git add "${target_dir}"` —
+#     clusters/_template/bootstrap-kit only — and pushed `origin main`. A tenant
+#     edit would have been counted into ${edited}, logged as edited, then
+#     dropped onto the "git diff empty after sed" path, which reads as success.
+#     Phase-2b stages the tree it edits and FATALs if the working tree has
+#     changes the index does not.
+#
+# The rewrite emits `oci://registry.<fqdn>/openova-io`, the SAME value shape the
+# catalyst-api generator emits post-cutover (#5527 orgTenantHelmRepositoryURL),
+# so the two writers of that file agree and Flux has nothing to drift-correct.
+# #5527 keys off step-07's env fact and therefore cannot cover step-06's own
+# window; this closes exactly that window.
+#
+# GUARDS. chart/tests/step06-org-tenants-source.sh executes the RENDERED
+# phase2b.sh against REAL local git repositories with a real main and a real
+# org-tenants branch — a stubbed git cannot be on the wrong branch, and the
+# defect IS the branch. Verdicts are read out of the bare origin, never a
+# working tree the script left behind. Five single-behaviour mutants prove each
+# case individually: cloning main (defect 2) leaves all six upstream; a narrowed
+# `git add` (defect 3) empties the index and FATALs; dropping the injector call
+# strips every certSecretRef; widening the collector breaks the scoping control;
+# swallowing the ls-remote verdict turns an unreadable remote into silent
+# success. step06-pivot-readback.sh gains B7/B7b (Phase-1.5 alone exits 0 on the
+# identical offender state B3 uses to prove the gate still fails closed) and
+# asserts both call sites' fail-wiring in both directions. cutover-contract.sh
+# Case 16b's two render-text greps — which stayed green from #4885 to hw296
+# because a render grep cannot see a wrong branch — are replaced with branch and
+# push-target assertions. Slot-06a pin + blueprint.yaml + catalog-seed
+# spec.version + source.version + the API blueprints.json + the generated UI
+# catalog move to 0.1.187 in lockstep (Inviolable Principle #13).
+version: 0.1.187
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

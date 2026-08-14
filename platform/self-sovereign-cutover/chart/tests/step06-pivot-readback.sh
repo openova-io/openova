@@ -100,11 +100,30 @@ else
   ok "no assert_region_a_pivot call site swallows its verdict"
 fi
 
-callsites=$(grep -cE '^[[:space:]]*assert_region_a_pivot "' "${TMP}/step06.sh" || true)
+# Counts BOTH invocation shapes: the bare `assert_region_a_pivot "…"` gate and
+# the `if ! assert_region_a_pivot "…"` diagnostic (#6293). Anchoring on
+# start-of-line matched only the first and under-counted the diagnostic form to
+# zero — a guard that silently stops seeing what it is counting.
+callsites=$(grep -cE 'assert_region_a_pivot "' "${TMP}/step06.sh" || true)
 if [ "${callsites}" -ge 2 ]; then
-  ok "read-back is called at ${callsites} sites (post-Phase-1 + pre-strip)"
+  ok "read-back is called at ${callsites} sites (post-Phase-1 diagnostic + pre-strip gate)"
 else
-  bad "read-back called at ${callsites} site(s); expected >= 2 (post-Phase-1 fail-fast + pre-strip gate)"
+  bad "read-back called at ${callsites} site(s); expected >= 2 (post-Phase-1 diagnostic + pre-strip gate)"
+fi
+
+# #6293 — and exactly ONE of them may be the fail-closed gate, at Phase 3. If a
+# future edit restores `|| exit 1` on the Phase-1.5 call, the cutover
+# terminal-fails again on offenders whose durable source Phase-2/2b has not yet
+# rewritten; if the Phase-3 call loses it, #5436 is gone entirely.
+if grep -qE 'assert_region_a_pivot "Phase-1.5 read-back"[^|]*\|\|[[:space:]]*exit 1' "${TMP}/step06.sh"; then
+  bad "the Phase-1.5 read-back fails closed — it runs BEFORE Phase-2/2b writes the durable source (the hw296 wedge, #6293)"
+else
+  ok "the Phase-1.5 read-back is a diagnostic, not a gate"
+fi
+if grep -qE 'assert_region_a_pivot "Phase-3 pre-strip read-back"[^|]*\|\|[[:space:]]*exit 1' "${TMP}/step06.sh"; then
+  ok "the Phase-3 pre-strip read-back is still the fail-closed gate (#5436 intact)"
+else
+  bad "the Phase-3 pre-strip read-back lost its \`|| exit 1\` — #5436 would be weakened, not relocated"
 fi
 
 # The pre-strip call MUST precede the executable mothership-auth strip, or
@@ -122,13 +141,34 @@ fi
 # ── B. execution harness ──────────────────────────────────────────────────
 echo "== B. exit-code assertions against a fake kubectl =="
 
-# Truncate the real script immediately after the Phase-1.5 read-back call.
+# Truncate the real script at the END of the Phase-1.5 read-back block — the
+# closing `fi` of the diagnostic, not the call line, or the `if` is left
+# unterminated and every case below exits 2 on a SYNTAX ERROR while still
+# looking like the expected non-zero verdict (#6293 caught exactly that).
 cut_ln=$(awk 'index($0,"assert_region_a_pivot \"Phase-1.5"){print NR; exit}' "${TMP}/step06.sh")
 if [ -z "${cut_ln}" ]; then
   bad "no Phase-1.5 read-back call to truncate at — cannot run the exit-code cases"
   echo; echo "RESULT: ${pass} passed, ${fail} failed"; [ "${fail}" -eq 0 ]; exit
 fi
-head -n "${cut_ln}" "${TMP}/step06.sh" > "${TMP}/step06.phase15.sh"
+end_ln=$(awk -v s="${cut_ln}" 'NR>=s && /^[[:space:]]*fi[[:space:]]*$/{print NR; exit}' "${TMP}/step06.sh")
+[ -n "${end_ln}" ] || end_ln="${cut_ln}"
+head -n "${end_ln}" "${TMP}/step06.sh" > "${TMP}/step06.diag.sh"
+if bash -n "${TMP}/step06.diag.sh" 2>/dev/null; then
+  ok "the truncated Phase-1.5 slice is syntactically complete"
+else
+  bad "the truncated Phase-1.5 slice does not parse — every exit-code case below would report a syntax error as a verdict"
+fi
+
+# #6293 — Phase-1.5 is a DIAGNOSTIC: it runs BEFORE Phase-2/2b writes the
+# durable Gitea source, so offenders owned by the org-tenants Kustomization are
+# expected there and no retry can converge them. The fail-closed gate is the
+# Phase-3 pre-strip call, which runs after the durable rewrite. The cases below
+# drive THAT call — appended verbatim, with a 0s budget so the suite does not
+# sit out HELMREPO_READBACK_BUDGET_SECONDS. Section A independently asserts the
+# real call site still carries `|| exit 1`.
+cp "${TMP}/step06.diag.sh" "${TMP}/step06.phase15.sh"
+printf '\nassert_region_a_pivot "Phase-3 pre-strip read-back" 0 || exit 1\n' \
+  >> "${TMP}/step06.phase15.sh"
 
 # Relocate the container mount path (the harness is not a container). Assert
 # the substitution actually applied so a template rename cannot silently turn
@@ -138,6 +178,7 @@ if [ "${work_hits}" -lt 1 ]; then
   bad "step-06 no longer reads /work/helmrepository-names.txt — harness mount relocation is stale"
 fi
 sed -i "s,/work/helmrepository-names.txt,${TMP}/work/helmrepository-names.txt,g" "${TMP}/step06.phase15.sh"
+sed -i "s,/work/helmrepository-names.txt,${TMP}/work/helmrepository-names.txt,g" "${TMP}/step06.diag.sh"
 
 # ── fake kubectl ──
 # Models the LIVE shape: `kubectl patch helmrepository` returns 0 and the
@@ -253,7 +294,7 @@ run_case() {
     FAKE_PATCH_ERRORS="${FAKE_PATCH_ERRORS:-}" \
     FAKE_LATE_ARRIVAL="${late}" \
     HARBOR_USERNAME=admin HARBOR_PASSWORD=notasecret \
-    bash -c "set -a; . '${TMP}/step06.env'; set +a; bash '${TMP}/step06.phase15.sh'" \
+    bash -c "set -a; . '${TMP}/step06.env'; set +a; bash '${RUN_SCRIPT:-${TMP}/step06.phase15.sh}'" \
     > "${TMP}/out.log" 2>&1
   rc=$?
   set -e
@@ -314,6 +355,32 @@ FAKE_PATCH_ERRORS="bp-keycloak" run_case "B6 kubectl patch returns non-zero" \
   "bp-cilium=${UP}
 bp-keycloak=${UP}" \
   "" 1
+
+# B7 (#6293) — the SAME offender state as B3, run against the Phase-1.5 slice
+#      ALONE (no appended gate). It must exit 0: at that point in the step the
+#      durable Gitea rewrite has not happened yet, so failing closed there
+#      terminal-fails a cutover no retry can converge — the hw296 wedge. B3
+#      above proves the gate still fails closed on this identical state, so
+#      B3+B7 together pin "diagnostic here, gate there" in both directions.
+RUN_SCRIPT="${TMP}/step06.diag.sh" run_case "B7 Phase-1.5 alone does not fail closed on org-tenants offenders" \
+  "bp-cilium=${UP}
+bp-agenity=${UP}
+bp-keycloak=${UP}
+bp-openclaw=${UP}
+bp-stalwart-tenant=${UP}
+bp-wordpress-tenant=${UP}" \
+  "bp-agenity bp-keycloak bp-openclaw bp-stalwart-tenant bp-wordpress-tenant" 0
+
+# B7b — and it must not be SILENT. A diagnostic that prints nothing is worse
+#       than the gate it replaced.
+if grep -q 'STILL-UPSTREAM bp-agenity' "${TMP}/out.log" \
+   && grep -q 'DIAGNOSTIC' "${TMP}/out.log" \
+   && grep -q 'Phase-3 pre-strip read-back' "${TMP}/out.log"; then
+  ok "B7b the Phase-1.5 diagnostic names its offenders and points at the gate that will judge them"
+else
+  bad "B7b the Phase-1.5 diagnostic is silent or unattributed — offenders must be named and the real gate cited"
+  sed 's/^/      /' "${TMP}/out.log" | tail -10
+fi
 
 # ── C. sibling step-11: same class, same wiring requirement ───────────────
 echo "== C. step-11 crossplane-provider-pivot patch verdicts are wired (#5436) =="

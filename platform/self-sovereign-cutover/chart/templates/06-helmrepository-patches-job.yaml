@@ -82,6 +82,139 @@ data:
     {{ . }}
     {{- end }}
   {{- /*
+   #6293 — Phase 2b, the org-tenants DURABLE-SOURCE pivot. Same `.`-source
+   discipline as phase2c.sh (#5593 inline-arg budget), and the same reason to
+   live in its own key: chart/tests/step06-org-tenants-source.sh awk-slices
+   this region out of the RENDERED manifest and runs it against REAL git
+   repositories, so what the test executes is these bytes and not a copy.
+
+   WHAT IT FIXES. The catalyst-api org-tenant pipeline pushes
+   clusters/<fqdn>/org-tenants/helmrepositories.yaml to a DEDICATED
+   `org-tenants` branch; the org-tenants Flux Kustomization reconciles that
+   path every 1m with prune=true. #4885's rewrite ran in the `--branch main`
+   clone, where the tree does not exist, so it matched nothing and the live
+   Phase-1 patch was reverted every reconcile — measured on hw296: bp-keycloak
+   and bp-newapi at metadata.generation 101, all six owned HelmRepositories
+   back on oci://ghcr.io/openova-io with certSecretRef absent.
+
+   It runs AFTER the main-branch push so its own commit cannot be entangled
+   with `git add "${target_dir}"`, which stages the bootstrap-kit directory
+   only — the second half of the same defect.
+  */}}
+  phase2b.sh: |
+    # ---- Phase 2b (#6293): org-tenants durable-source pivot ----
+    if [ "${ORG_TENANTS_PIVOT_ENABLED:-true}" != "true" ]; then
+      echo "[helmrepository-patches] Phase-2b SKIP: helmRepositories.orgTenantsSource.enabled=false"
+    else
+      ot_branch="${ORG_TENANTS_BRANCH:-org-tenants}"
+      {{- /*
+       ls-remote FIRST so an ABSENT branch (a Sovereign that never bootstrapped
+       the per-Org tenants repo — nothing re-applies tenant HelmRepositories
+       there, so there is nothing to make durable) is distinguishable from an
+       AUTH failure. Collapsing those two into one "skip" is how a credential
+       problem would present as a clean no-op, which is the exact shape #4885
+       shipped. Non-zero exit = fail closed.
+      */}}
+      if ! git ls-remote --heads "${push_url}" "${ot_branch}" > /tmp/.ot-heads.txt 2>/tmp/.ot-heads.err; then
+        echo "[helmrepository-patches] FATAL: Phase-2b: git ls-remote ${ot_branch} against ${redacted} failed — an unreadable remote is NOT an absent branch, and guessing leaves every per-Org HelmRepository on ${UPSTREAM_PREFIX} (#6293)" >&2
+        sed -e 's,://[^@]*@,://***@,g' /tmp/.ot-heads.err >&2 || true
+        exit 1
+      fi
+      if ! grep -q "refs/heads/${ot_branch}" /tmp/.ot-heads.txt; then
+        echo "[helmrepository-patches] Phase-2b SKIP: ${redacted} has no ${ot_branch} branch — no per-Org tenants source exists on this Sovereign, so no Kustomization re-applies tenant HelmRepositories from one (Phase-3 read-back remains the gate)"
+      else
+        cd /tmp
+        rm -rf repo-org-tenants
+        if ! git clone --depth 1 --branch "${ot_branch}" "${push_url}" repo-org-tenants >/dev/null 2>/tmp/.ot-clone.err; then
+          echo "[helmrepository-patches] FATAL: Phase-2b: clone of ${redacted} branch ${ot_branch} failed (#6293)" >&2
+          sed -e 's,://[^@]*@,://***@,g' /tmp/.ot-clone.err >&2 || true
+          exit 1
+        fi
+        cd repo-org-tenants
+        {{- /*
+         Scoped to paths containing /org-tenants/. This branch is a branch of
+         the SAME repo, so it also carries clusters/_template/bootstrap-kit —
+         already rewritten on main, and nothing reconciles bootstrap-kit from
+         here. Rewriting it again would be pointless divergence between the two
+         branches.
+        */}}
+        ot_list=/tmp/.ot-targets.txt
+        : > "${ot_list}"
+        grep -rlE "^[[:space:]]*url:[[:space:]]*${UPSTREAM_PREFIX}[[:space:]]*$" clusters 2>/dev/null | grep '/org-tenants/' >> "${ot_list}" || true
+        ot_edited=0
+        for otf in $(awk 'NF' "${ot_list}" | sort -u); do
+          sed -i -E "s,^([[:space:]]*url:[[:space:]]*)${UPSTREAM_PREFIX}([[:space:]]*)$,\1${local_prefix}\2," "${otf}"
+          ot_edited=$((ot_edited+1))
+          echo "[helmrepository-patches] Phase-2b edited ${ot_branch}:${otf}"
+        done
+        {{- /*
+         Same certSecretRef durability the bootstrap-kit files get: without it
+         the pivoted tenant HelmRepositories x509-fail against the in-cluster
+         Harbor the moment the Kustomization re-applies the local url. Calls
+         the shared injector defined in the step args — never a second copy.
+        */}}
+        if [ -n "${trust_secret}" ]; then
+          ot_trust_list=/tmp/.ot-trust-targets.txt
+          : > "${ot_trust_list}"
+          grep -rlE "^[[:space:]]*url:[[:space:]]*${local_prefix}([[:space:]]*|/.*)$" clusters 2>/dev/null | grep '/org-tenants/' >> "${ot_trust_list}" || true
+          ot_trust=0
+          for otf in $(awk 'NF' "${ot_trust_list}" | sort -u); do
+            inject_trust_ref "${otf}"
+            ot_trust=$((ot_trust+1))
+            echo "[helmrepository-patches] Phase-2b trust-injected certSecretRef -> ${ot_branch}:${otf}"
+          done
+          ot_edited=$((ot_edited+ot_trust))
+        fi
+        {{- /*
+         Post-condition on the FILES, before anything is committed: zero
+         org-tenants documents may still declare the upstream prefix. This is
+         the durable-source analogue of #5436's live read-back — it asserts the
+         rewrite's RESULT rather than counting the loop iterations that were
+         supposed to produce it.
+        */}}
+        ot_left=$(grep -rlE "^[[:space:]]*url:[[:space:]]*${UPSTREAM_PREFIX}[[:space:]]*$" clusters 2>/dev/null | grep -c '/org-tenants/' || true)
+        if [ "${ot_left}" -ne 0 ]; then
+          echo "[helmrepository-patches] FATAL: Phase-2b: ${ot_left} org-tenants file(s) still declare ${UPSTREAM_PREFIX} after the rewrite — pushing now would record a durable pivot that does not exist (#6293)" >&2
+          exit 1
+        fi
+        {{- /*
+         Commit on ACTUAL tree state, never on the edit counters: the trust
+         injector is idempotent, so a re-run legitimately reports edits and
+         produces no diff. Gating the commit on ${ot_edited} turned that
+         no-op into a hard failure on every second run.
+        */}}
+        if git diff --quiet; then
+          echo "[helmrepository-patches] Phase-2b: org-tenants source already pivoted (${ot_edited} file-visit(s), no diff) — nothing to push"
+        else
+          {{- /*
+           `git add -A clusters` — NOT `git add <one dir>`. The main-branch
+           commit above stages ${target_dir} alone, which is why a tenant edit
+           there was counted, logged, and then silently dropped onto the
+           "git diff empty after sed" path. Staging the whole tree this leg
+           edits is what makes the commit match the log; the assert below is
+           what makes a future re-narrowing fail loudly instead of silently.
+          */}}
+          git add -A clusters
+          if git diff --staged --quiet; then
+            echo "[helmrepository-patches] FATAL: Phase-2b: the working tree has changes but the index is empty — \`git add\` is mis-scoped and this push would carry none of the rewrite (#6293)" >&2
+            exit 1
+          fi
+          git commit -m "cutover: pivot ${ot_edited} org-tenant HelmRepository URL(s) to local Harbor" >/dev/null
+          if ! ot_push_err=$(git push origin "HEAD:${ot_branch}" 2>&1); then
+            echo "[helmrepository-patches] FATAL: Phase-2b: push to ${ot_branch} failed — the per-Org HelmRepositories keep reverting to ${UPSTREAM_PREFIX} on every reconcile (#6293)" >&2
+            printf '%s\n' "${ot_push_err}" >&2
+            exit 1
+          fi
+          echo "[helmrepository-patches] Phase-2b OK: pushed ${ot_edited} edit(s) to ${redacted} branch ${ot_branch}"
+          kubectl annotate --overwrite gitrepository "${ORG_TENANTS_GITREPO:-openova-org-tenants}" \
+            -n "${ORG_TENANTS_GITREPO_NAMESPACE:-flux-system}" \
+            "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null 2>&1 || true
+        fi
+        cd /tmp/repo
+      fi
+    fi
+    # ---- end Phase 2b (#6293) ----
+  {{- /*
    #5593 — Phase 2c of the step script, mounted and exec (`.`-sourced) FROM
    FILE. Step-06 renders within a few hundred bytes of the 110000-byte inline
    arg budget, so this block MUST NOT move back into podSpec.args. Its
@@ -639,6 +772,22 @@ data:
           - name: HELMREPO_READBACK_BUDGET_SECONDS
             value: {{ .Values.stepTimeouts.pivotReadbackSeconds | quote }}
           {{- /*
+           #6293 — Phase-2b org-tenants durable-source pivot. The branch MUST
+           track products/catalyst/chart/templates/org-services/
+           org-repo-gitrepository.yaml `ref.branch` (default org-tenants) and
+           the catalyst-api writer's CATALYST_GITOPS_BRANCH; they are the same
+           branch seen from three sides, and a mismatch reverts to the silent
+           no-op this fixes.
+          */}}
+          - name: ORG_TENANTS_PIVOT_ENABLED
+            value: {{ eq (toString .Values.helmRepositories.orgTenantsSource.enabled) "true" | quote }}
+          - name: ORG_TENANTS_BRANCH
+            value: {{ .Values.helmRepositories.orgTenantsSource.branch | quote }}
+          - name: ORG_TENANTS_GITREPO
+            value: {{ .Values.helmRepositories.orgTenantsSource.gitRepositoryName | quote }}
+          - name: ORG_TENANTS_GITREPO_NAMESPACE
+            value: {{ .Values.helmRepositories.orgTenantsSource.gitRepositoryNamespace | quote }}
+          {{- /*
            #5596 — SECONDARY-region DURABLE pivot assert inputs. The #5359
            read-back was single-shot and fired seconds after the patch loop,
            so it measured the PATCH and never the PIVOT: region-B's own
@@ -695,6 +844,10 @@ data:
             readOnly: true
           - name: bootstrap-kit-pins
             mountPath: /pin-extractor
+            readOnly: true
+          {{- /* #6293 — Phase 2b of the step script, `.`-sourced from here. */}}
+          - name: phase2b-script
+            mountPath: /phase2b
             readOnly: true
           {{- /* #5593 — Phase 2c of the step script, `.`-sourced from here. */}}
           - name: phase2c-script
@@ -1189,6 +1342,14 @@ data:
             assert_region_a_pivot() {
               ra_label="$1"
               ra_budget="${2:-0}"
+              {{- /*
+               #6293 — $3 = the word this prints when offenders remain, so the
+               ONE non-gating caller (the Phase-1.5 diagnostic, which runs
+               before Phase-2/2b has written the durable source) cannot print
+               "FATAL" on a condition it does not fail on. Defaults to FATAL:
+               every caller that omits it is a gate, and stays one.
+              */}}
+              ra_severity="${3:-FATAL}"
               ra_deadline=$(( $(date +%s) + ra_budget ))
               ra_left=0
               while : ; do
@@ -1228,7 +1389,7 @@ data:
                 sleep 15
               done
               if [ "${ra_left}" -ne 0 ]; then
-                echo "[helmrepository-patches] FATAL: ${ra_label}: ${ra_left} region-A HelmRepository(ies) are STILL on ${UPSTREAM_PREFIX} after the pivot — the Sovereign would record a SUCCESSFUL cutover step while its charts resolve to the mothership; refusing to succeed (#5436)" >&2
+                echo "[helmrepository-patches] ${ra_severity}: ${ra_label}: ${ra_left} region-A HelmRepository(ies) are STILL on ${UPSTREAM_PREFIX} after the pivot — the Sovereign would record a SUCCESSFUL cutover step while its charts resolve to the mothership; refusing to succeed (#5436)" >&2
                 sed 's/^/  STILL-UPSTREAM /' /tmp/.ra-offenders.txt >&2 || true
                 return 1
               fi
@@ -1331,7 +1492,37 @@ data:
              and now, or one whose patch silently no-op'd, fails HERE
              instead of shipping a green step on a half-pivoted Sovereign.
             */}}
-            assert_region_a_pivot "Phase-1.5 read-back" 0 || exit 1
+            {{- /*
+             #6293 — this call is a DIAGNOSTIC, not the gate. It used to be
+             `|| exit 1`, and that is what terminal-failed the hw296 cutover at
+             step 6 with five STILL-UPSTREAM org-tenant HelmRepositories.
+
+             The reason it cannot be the gate is stated, wrongly, in the block
+             comment above assert_region_a_pivot: "the Phase-1.5 call is
+             single-shot: Phase-1's patches are synchronous API writes, so there
+             is nothing to converge." True of the WRITE, false of the OBJECT.
+             Five of these HelmRepositories are owned by the org-tenants
+             Kustomization (1m interval, prune=true), so Flux reverts them
+             asynchronously — and Phase-1 issues up to two kubectl calls per
+             name across ~66 names, which comfortably outruns a 1m reconcile.
+             The durable rewrite that makes the pivot stick is Phase-2/2b,
+             THREE phases further down. Failing closed here asserts an invariant
+             the script has not yet established, and no retry can converge it:
+             every re-run re-enters the same order.
+
+             #5436 is NOT weakened. Its enforcing call is the one at the head of
+             Phase 3 — `assert_region_a_pivot "Phase-3 pre-strip read-back"` with
+             HELMREPO_READBACK_BUDGET_SECONDS and reconcile re-pokes, still
+             `|| exit 1`. That call is deliberately placed so it runs on EVERY
+             exit path including the MOTHERSHIP_AUTHS_TO_STRIP-empty early
+             return, and it runs AFTER the durable Gitea rewrite — the only
+             point in this step where a green result means what it says. An HR
+             the Phase-0.9 enumeration missed, or a patch that silently no-op'd,
+             is still caught there, and again by step-08's wider `-A` scan.
+            */}}
+            if ! assert_region_a_pivot "Phase-1.5 read-back" 0 "DIAGNOSTIC"; then
+              echo "[helmrepository-patches] Phase-1.5: the offenders above are NOT yet a failure — their durable source is rewritten by Phase-2/2b below and asserted, fail-closed, by the Phase-3 pre-strip read-back (#6293 #5436)"
+            fi
 
             {{- /*
              ---- Phase 1.6: parent HelmRelease values override for openova-catalog (TBD-C19) ----
@@ -1543,31 +1734,39 @@ data:
             echo "[helmrepository-patches] sed edited ${edited} bootstrap-kit file(s)"
 
             {{- /*
-             ---- Phase 2b (#4885): pivot the per-Org TENANT shared HelmRepositories ----
+             ---- Phase 2b: MOVED to /phase2b/phase2b.sh (#6293) ----
 
-             The catalyst-api org-tenant pipeline writes the shared bp-* tenant
-             HelmRepositories to clusters/<sov-fqdn>/org-tenants/helmrepositories.yaml
-             (+ per-tenant overlay files under .../org-tenants/<org-id>/), in THIS
-             same openova/openova gitops repo, reconciled by the org-tenants PARENT
-             Flux Kustomization — a DIFFERENT durable source than the bootstrap-kit
-             slots above. So the Phase-1 live patch of these HRs is REVERTED ~1
-             reconcile later unless their Gitea source is rewritten here too (the
-             exact #970/#3526 revert-race, one directory over). Rewrite every
-             org-tenants YAML that still declares the upstream url
-             (bp-agenity / bp-openclaw / bp-stalwart-tenant / bp-wordpress-tenant /
-             bp-keycloak / bp-cnpg / bp-newapi) to the local Harbor prefix so
-             step-08's `-A` offender scan converges durably. Guarded on the tree
-             existing (a Sovereign with no customer Orgs has no org-tenants dir →
-             0 edits, harmless no-op).
+             #4885 put the org-tenants rewrite HERE, inside the working tree of
+             a clone this same block opens with `--branch main`. It could never
+             match a file. The catalyst-api org-tenant pipeline
+             (organization_gitops.go writeParentTenantsIndex) pushes
+             clusters/<fqdn>/org-tenants/helmrepositories.yaml to `HEAD:org-tenants`
+             — a DEDICATED branch (TBD-C18e; products/catalyst/chart/templates/
+             org-services/org-repo-gitrepository.yaml `ref.branch: org-tenants`),
+             precisely so the step-01 mirror's force-push of main cannot clobber
+             per-Org overlays. `main` therefore has no clusters/<fqdn>/org-tenants
+             tree at all, and this repo proves it: `find clusters -type d -name
+             org-tenants` returns nothing.
+
+             So the loop's `grep -rl … | grep '/org-tenants/'` returned empty on
+             every Sovereign that ever ran it, printed "sed edited 0 org-tenant
+             HelmRepository file(s)", and read as a clean no-op. Underneath, the
+             org-tenants Kustomization (1m interval, prune=true, sourceRef
+             openova-org-tenants) kept re-applying the ghcr URLs over Phase-1's
+             live patch — the five offenders #5436's read-back FATALs on
+             (bp-agenity / bp-keycloak / bp-openclaw / bp-stalwart-tenant /
+             bp-wordpress-tenant; bp-newapi is the sixth, tolerated via
+             readbackExcludeNames).
+
+             A second defect sat behind it: even with a match, the commit below
+             stages `git add "${target_dir}"` = clusters/_template/bootstrap-kit
+             ONLY, and pushes `origin main`. Tenant edits would have been counted
+             into ${edited}, logged as edited, then dropped unstaged — the
+             "git diff empty after sed" path, which reads as success.
+
+             The rewrite now runs against its OWN branch in its own clone, with
+             its own add/commit/push, sourced after the main-branch push below.
             */}}
-            tenant_edited=0
-            for f in $(grep -rlE "^[[:space:]]*url:[[:space:]]*${UPSTREAM_PREFIX}[[:space:]]*$" clusters 2>/dev/null | grep '/org-tenants/' || true); do
-              sed -i -E "s,^([[:space:]]*url:[[:space:]]*)${UPSTREAM_PREFIX}([[:space:]]*)$,\1${local_prefix}\2," "${f}"
-              tenant_edited=$((tenant_edited+1))
-              edited=$((edited+1))
-              echo "[helmrepository-patches] edited tenant-HR ${f}"
-            done
-            echo "[helmrepository-patches] sed edited ${tenant_edited} org-tenant HelmRepository file(s)"
 
             {{- /*
              Phase-2 trust durability (Refs #3379): inject `certSecretRef:`
@@ -1581,22 +1780,19 @@ data:
              pivoted url line has no matching certSecretRef immediately after.
              Only runs when a trust secret was actually built (Phase-0.5).
             */}}
-            if [ -n "${trust_secret}" ]; then
-              trust_edited=0
-              {{- /*
-               #4885: union the bootstrap-kit slot files with the org-tenants HR
-               files (Phase-2b) so the pivoted TENANT HelmRepositories carry the
-               source-controller trust ref too — else they x509-fail pulling the
-               LE-staging in-cluster Harbor once the org-tenants Kustomization
-               reconciles the durable local url. Collect both into a temp file
-               (avoids an unindented continuation line inside this YAML block scalar).
-              */}}
-              trust_list=/tmp/cutover-trust-targets.txt
-              : > "${trust_list}"
-              grep -lE "^[[:space:]]*url:[[:space:]]*${local_prefix}([[:space:]]*|/.*)$" "${target_dir}"/*.yaml 2>/dev/null >> "${trust_list}" || true
-              grep -rlE "^[[:space:]]*url:[[:space:]]*${local_prefix}([[:space:]]*|/.*)$" clusters 2>/dev/null | grep '/org-tenants/' >> "${trust_list}" || true
-              for f in $(awk 'NF' "${trust_list}" | sort -u); do
-                awk -v ref="${trust_secret}" -v lp="${local_prefix}" '
+            {{- /*
+             #6293 — the injector is a FUNCTION defined UNCONDITIONALLY, not an
+             inline awk inside the trust_secret branch, because phase2b.sh needs
+             the identical transform on the org-tenants branch. A pasted second
+             copy is the #5646 shape: the two drift and only one gets fixed.
+             `.`-sourced phase2b.sh runs in THIS shell, so it just calls this.
+             The two markers are `#` comments on purpose — chart/tests/
+             step06-org-tenants-source.sh awk-slices this region out of the
+             RENDERED manifest so it exercises these bytes, not a copy.
+            */}}
+            # ---- inject_trust_ref (#3379 #6293) ----
+            inject_trust_ref() {
+              awk -v ref="${trust_secret}" -v lp="${local_prefix}" '
                   {{- /*
                    Match a pivoted `url:` line (local Harbor prefix). Capture
                    its leading whitespace so the injected block aligns with the
@@ -1637,7 +1833,29 @@ data:
                     injected_here=0
                     print line
                   }
-                ' "${f}" > "${f}.trust" && mv "${f}.trust" "${f}"
+                ' "$1" > "$1.trust" && mv "$1.trust" "$1"
+            }
+            # ---- end inject_trust_ref ----
+
+            if [ -n "${trust_secret}" ]; then
+              trust_edited=0
+              {{- /*
+               Collected into a temp file (avoids an unindented continuation
+               line inside this YAML block scalar).
+
+               #6293: the second collector line — a `grep -rl … clusters | grep
+               '/org-tenants/'` added by #4885 — is REMOVED, not relocated by
+               accident. This clone is `--branch main`; the org-tenants tree
+               lives on the `org-tenants` branch, so it matched nothing here.
+               The tenant HelmRepositories get their certSecretRef from this
+               same injector, called inside phase2b.sh in a clone that actually
+               holds them.
+              */}}
+              trust_list=/tmp/cutover-trust-targets.txt
+              : > "${trust_list}"
+              grep -lE "^[[:space:]]*url:[[:space:]]*${local_prefix}([[:space:]]*|/.*)$" "${target_dir}"/*.yaml 2>/dev/null >> "${trust_list}" || true
+              for f in $(awk 'NF' "${trust_list}" | sort -u); do
+                inject_trust_ref "${f}"
                 trust_edited=$((trust_edited+1))
                 echo "[helmrepository-patches] trust-injected certSecretRef -> ${f}"
               done
@@ -1789,6 +2007,18 @@ data:
                   "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null || true
               fi
             fi
+
+            {{- /*
+             Phase 2b (#6293) — the org-tenants branch pivot, `.`-sourced from
+             file for the same #5593 budget reason as Phase-2c. It runs HERE,
+             after the main-branch commit/push, on purpose: it operates on a
+             different branch in its own clone, so entangling it with the
+             ${target_dir}-scoped `git add` above is what produced the original
+             silent drop. Sourced (not `sh`) so ${push_url}, ${local_prefix},
+             ${trust_secret}, ${redacted} and inject_trust_ref() are in scope
+             and its `exit 1` FATALs the whole step.
+            */}}
+            . /phase2b/phase2b.sh
 
             {{- /*
              ====================================================================
@@ -2756,6 +2986,13 @@ data:
           items:
             - key: extract-pins.sh
               path: extract-pins.sh
+      {{- /* #6293 — the same step-06 ConfigMap, exposing ONLY the phase2b.sh key. */}}
+      - name: phase2b-script
+        configMap:
+          name: cutover-step-06-helmrepository-patches
+          items:
+            - key: phase2b.sh
+              path: phase2b.sh
       {{- /* #5593 — the same step-06 ConfigMap, exposing ONLY the phase2c.sh key. */}}
       - name: phase2c-script
         configMap:

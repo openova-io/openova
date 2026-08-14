@@ -701,11 +701,28 @@ if ! grep -q "grep '/org-tenants/'" "$TMP/render.yaml"; then
   echo "FAIL: Step-06 Phase-2b does not rewrite the clusters/<fqdn>/org-tenants HelmRepository files — the tenant-HR pivot is non-durable and reverts (#4885)" >&2
   exit 1
 fi
-if ! grep -q 'org-tenant HelmRepository file(s)' "$TMP/render.yaml"; then
-  echo "FAIL: Step-06 Phase-2b org-tenant durable-edit log line missing (#4885)" >&2
+# #6293 — the two checks that used to sit here were the defect's own camouflage.
+# They grepped the render for the collector expression and for a log line, and
+# BOTH were present in a code path that ran inside a `git clone --branch main`
+# working tree. The org-tenants tree lives on the dedicated `org-tenants`
+# branch, so the collector matched nothing, the log line printed "0 file(s)",
+# and this case stayed green from #4885 until hw296 terminal-failed step 6 with
+# five reverted HelmRepositories. A render-text assertion cannot see a wrong
+# branch; what follows asserts the branch, and chart/tests/
+# step06-org-tenants-source.sh asserts the BEHAVIOUR against real git repos.
+if ! grep -q -- '--branch "${ot_branch}"' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase-2b does not clone the org-tenants BRANCH — the rewrite runs in a tree that cannot contain clusters/<fqdn>/org-tenants (#6293)" >&2
   exit 1
 fi
-echo "  PASS (Step-06 pivots tenant HelmRepositories live + durably)"
+if ! grep -q 'git push origin "HEAD:${ot_branch}"' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase-2b does not push to the org-tenants branch — the per-Org HelmRepositories keep reverting on every 1m reconcile (#6293)" >&2
+  exit 1
+fi
+if ! grep -q 'Phase-2b OK: pushed' "$TMP/render.yaml"; then
+  echo "FAIL: Step-06 Phase-2b durable-push log line missing (#6293)" >&2
+  exit 1
+fi
+echo "  PASS (Step-06 pivots tenant HelmRepositories live + durably, on their own branch)"
 
 echo "[cutover-contract] Case 18: Step-06 Phase-0 probe is escape-free + has wait-loop (Fix #77, Gap A)"
 # 0.1.24 used kubectl jsonpath `{.data['.dockerconfigjson']}` which
