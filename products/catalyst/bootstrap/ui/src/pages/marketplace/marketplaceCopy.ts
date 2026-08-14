@@ -130,15 +130,24 @@ export const FAMILY_COPY: Record<string, FamilyCopy> = {
       'INSIGHTS unifies metrics, logs, and traces in a single observability ' +
         'pipeline. OpenTelemetry collects, Alloy ships, Mimir, Loki, and Tempo ' +
         'store, and Grafana visualises.',
-      'Specter closes the loop — anomaly detection and correlation over the same ' +
-        'telemetry, drawing on the CORTEX inference stack to surface incidents ' +
-        'before pagers fire.',
+      // The second paragraph used to read "Specter closes the loop — anomaly
+      // detection and correlation over the same telemetry…". This page lists
+      // the family's INSTALLABLE components, so that sentence told a reader
+      // that picking INSIGHTS gets them an AIOps brain. It did not: there is
+      // no bp-specter, and the card was removed under UAT row W5 / #6183.
+      // Restore the paragraph with the card at #6318.
+      'OpenSearch adds full-text and vector-hybrid retrieval over the same ' +
+        'signals; Litmus exercises the stack with scheduled chaos experiments ' +
+        'and OpenMeter turns usage into billable events.',
     ],
     capabilities: [
       'Unified metrics, logs, and traces over OpenTelemetry',
       'Long-term storage on the Sovereign’s own SeaweedFS pool',
       'Curated Grafana dashboards for every Catalyst component',
-      'AIOps anomaly detection and root-cause correlation',
+      // 'AIOps anomaly detection and root-cause correlation' removed with the
+      // Specter card (UAT row W5 / #6183) — no remaining INSIGHTS member
+      // delivers it, so the bullet promised a capability the family cannot
+      // install.
       'Chaos engineering via Litmus and usage metering via OpenMeter',
     ],
     chip: { bg: 'rgba(56,189,248,0.16)', fg: '#38BDF8', border: 'rgba(56,189,248,0.35)' },
@@ -839,22 +848,12 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
     upstreamUrl: 'https://openmeter.io',
     upstreamLabel: 'openmeter.io',
   },
-  specter: {
-    positioning:
-      'Specter is the AIOps brain. It correlates metrics, logs, and traces with the embeddings and ' +
-      'inference services in CORTEX to surface incidents before they manifest as outages.',
-    integration:
-      'Specter consumes the observability pipeline and uses the CORTEX stack (BGE for embeddings, ' +
-      'Milvus for vector search, vLLM for inference, LangFuse for traces) to score anomalies and ' +
-      'attribute root causes.',
-    highlights: [
-      'Anomaly detection across metrics, logs, and traces',
-      'Root-cause correlation with vector retrieval',
-      'Native integration with CORTEX inference and observability',
-    ],
-    upstreamUrl: 'https://openova.io/catalyst/components/specter',
-    upstreamLabel: 'openova.io',
-  },
+  // `specter` removed with its catalog card — UAT row W5 / #6183. This map
+  // keys the /marketplace/product/<id> detail page, which carries a
+  // Select CTA wired straight into the wizard store — so a copy entry here
+  // is an INSTALL OFFER, not prose. It also advertised an upstream link
+  // (openova.io/catalyst/components/specter) for a component with no
+  // Blueprint behind it. Restore alongside the card at #6318.
 
   /* ── FABRIC ────────────────────────────────────────────────────── */
   cnpg: {

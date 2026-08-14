@@ -54,8 +54,8 @@
  * (`IconFallback` in StepComponents.tsx). Reserved for components with
  * no upstream brand mark suitable for a square card tile (e.g. PowerDNS,
  * BGE — a model-family identifier rather than a branded product — and
- * the OpenOva-internal Axon / Continuum / Specter components whose
- * brand marks are not yet finalized).
+ * the OpenOva-internal Axon / Continuum components whose brand marks are
+ * not yet finalized).
  */
 
 import { path as basePath } from '@/shared/config/urls'
@@ -102,8 +102,15 @@ export interface ComponentDef {
    * component's resolved `dependencies`, so the existing cascade / removal
    * resolvers pick it up unchanged.
    *
-   * Currently one user: Specter (issue #175 — "when Specter is selected all
-   * the Cortex family is required").
+   * NO COMPONENT DECLARES IT TODAY. Its only user was Specter (issue #175
+   * — "when Specter is selected all the Cortex family is required"), whose
+   * card was removed under UAT row W5 / #6183 because no `bp-specter`
+   * exists to install. The mechanism is retained rather than deleted with
+   * its last user: it is the ONLY layer a product-family selection rule can
+   * live in (a `dependencies` literal is overwritten from Flux at module
+   * load and silently discarded — that is precisely how the #175 rule
+   * stopped working the first time). `resolveCatalogDependencies` is
+   * exported so the expansion stays under test with no user declaring it.
    */
   familyRequires?: string[]
   /**
@@ -289,24 +296,27 @@ export const GROUPS: GroupDef[] = [
       { id: 'opensearch',    name: 'OpenSearch',    desc: 'Full-text search and analytics with vector hybrid retrieval',  tier: 'recommended', dependencies: [] },
       { id: 'litmus',        name: 'Litmus',        desc: 'Cron-driven chaos experiments across pod, node, network failure', tier: 'optional', dependencies: [] },
       { id: 'openmeter',     name: 'OpenMeter',     desc: 'High-throughput event metering for billing and analytics',     tier: 'optional',    dependencies: ['cnpg'], logoUrl: basePath('component-logos/openmeter.png') },
-      // Specter — AIOps brain (anomaly + correlation). Per operator's
-      // dependency-model feedback (issue #175): Specter requires the
-      // entire CORTEX family at runtime — vector store (Milvus),
-      // embeddings (BGE), LLM observability (LangFuse), serving (KServe),
-      // inference (vLLM). Result: selecting Specter adds the full CORTEX
-      // family even if the user never opens the CORTEX chip.
+      // UAT row W5 / #3969 / #5575 / #6183 — `specter` was removed from
+      // this family. It resolved to NO Blueprint source of any kind: no
+      // platform/specter, no products/specter, no bp-specter blueprint.yaml,
+      // no bootstrap-kit slot. `bp-specter` is in fact unpublishable —
+      // .github/workflows/blueprint-release.yaml enumerates release
+      // candidates by scanning for `(platform|products)/<name>/(chart/|
+      // blueprint.yaml)`, so a name with no such directory can never yield
+      // an OCI artifact (#6114 settled this; Specter is a deliverable
+      // SERVICE, not a Blueprint in this layout).
       //
-      // Declared as `familyRequires: ['cortex']`, NOT as a `dependencies`
-      // literal. There is no bp-specter HelmRelease, so `depsFor('specter')`
-      // returns [] and any `dependencies` literal here is discarded at
-      // module load — which is exactly how this rule silently stopped
-      // working: the catalog kept documenting it while the wizard
-      // installed Specter alone, an AIOps brain with no AI runtime under
-      // it. `familyRequires` expands from PRODUCTS at load time, so the
-      // member list can never drift from the CORTEX family definition.
-      // Specter is an OpenOva-internal component without a finalized
-      // upstream brand mark — render the letter-mark fallback (#173).
-      { id: 'specter',       name: 'Specter',       desc: 'Anomaly detection and root-cause correlation over telemetry', tier: 'optional', familyRequires: ['cortex'], logoUrl: null },
+      // This card was the sharpest of the #5575 phantoms even at
+      // `tier: 'optional'`, because it did not merely install nothing —
+      // it carried `familyRequires: ['cortex']`, so ticking a card that
+      // deploys nothing cascaded NINE real CORTEX components (kserve,
+      // knative, axon, neo4j, vllm, milvus, bge, langfuse, librechat)
+      // into the operator's footprint. Actively harmful, not inert debt.
+      //
+      // Reversible by construction: when a real `bp-specter` ships (#6318)
+      // the card comes back with a Blueprint behind it, and
+      // `familyRequires` — kept alive above — restores the #175 cascade
+      // unchanged. Building it is NOT this removal's job.
     ],
   },
   /* ── À LA CARTE ───────────────────────────────────────────────── */
@@ -473,13 +483,17 @@ export const PRODUCTS: Product[] = [
     subtitle: 'AIOps & Observability',
     description: 'Unified metrics, logs, traces, dashboards, and AI-powered operations',
     tier: 'recommended',
-    components: ['grafana', 'opentelemetry', 'alloy', 'loki', 'mimir', 'tempo', 'opensearch', 'litmus', 'openmeter', 'specter'],
+    components: ['grafana', 'opentelemetry', 'alloy', 'loki', 'mimir', 'tempo', 'opensearch', 'litmus', 'openmeter'],
     cascadeOnMemberSelection: false,
-    // INSIGHTS as a family does not pull CORTEX — only Specter (a member
-    // of INSIGHTS) needs CORTEX, and that's encoded via Specter's
-    // component-level deps + CORTEX's family-level cascade. Selecting the
-    // INSIGHTS product as a whole brings in Specter, which in turn pulls
-    // CORTEX through the component->product cascade chain.
+    // INSIGHTS as a family does not pull CORTEX. It used to reach CORTEX
+    // through exactly one member — Specter, via its `familyRequires:
+    // ['cortex']` — and that card was removed under UAT row W5 / #6183
+    // because no bp-specter exists to install. With it gone no INSIGHTS
+    // member has any CORTEX requirement, so the empty value below is now
+    // the literal truth rather than a routing decision. When bp-specter
+    // ships (#6318) the edge returns on the Specter card, not here: a
+    // family-level dep would drag CORTEX in for an operator who only
+    // wanted Grafana.
     familyDependencies: [],
   },
   {
@@ -588,8 +602,17 @@ const CATALOG_COMPONENT_IDS: ReadonlySet<string> = new Set(
  *   Flux install-ordering edges (canonical, from HelmRelease.dependsOn)
  *   ∪ the members of every product named in `familyRequires`
  *   minus self-references and ids with no card in the catalog.
+ *
+ * EXPORTED for test only. No component in GROUPS declares `familyRequires`
+ * since the Specter card left (UAT row W5 / #6183), so the family-expansion
+ * branch below has no live caller and would otherwise be unreachable from
+ * any assertion — a mechanism nobody exercises is a mechanism that has
+ * already broken once (#175, where the rule lived in a `dependencies`
+ * literal the Flux override silently discarded). The test calls this
+ * directly with a synthetic ComponentDef so the branch keeps its coverage
+ * until #6318 gives it a real user again.
  */
-function resolveCatalogDependencies(c: ComponentDef): string[] {
+export function resolveCatalogDependencies(c: ComponentDef): string[] {
   const familyMembers = (c.familyRequires ?? []).flatMap(
     productId => PRODUCTS.find(p => p.id === productId)?.components ?? [],
   )

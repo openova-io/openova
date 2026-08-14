@@ -51,34 +51,72 @@ const ROOT = repoRoot()
 // built YET. The map value is the reason, so the list can be argued with
 // rather than grown by reflex.
 //
-// UAT row W5 promoted this row to a determinate FAIL on 2026-08-10 with a
-// precise complaint about this very list: it held SIX ids, one of them
-// (`envoy`) at `tier: 'mandatory'`, and the first test below is written as
-// `unresolved === [...KNOWN_UNBUILT]`. A debt list that can absorb a
-// MANDATORY entry makes that test unable to fail for the case that matters
-// most — the operator cannot deselect a mandatory card, so every single
-// deployment emitted an id nothing could install, and the suite stayed
-// green. Five of the six are now REMOVED from the catalog outright
-// (componentGroups.ts carries the reasoning per family). `specter` stays
-// because it is not a phantom third-party card: it is an OpenOva product
-// with copy in the marketplace, an entry in the deployment store and a
-// documented `familyRequires: ['cortex']` cascade. Deleting it would be a
-// product decision; declaring it as bounded, non-mandatory debt is not.
+// IT IS NOW EMPTY, and that is the point of UAT row W5 (#3969).
 //
-// The bound is enforced, not merely written down — see the mandatory-tier
-// test below. That is the rule this row was actually failing on.
-const KNOWN_UNBUILT: ReadonlyMap<string, string> = new Map([
-  [
-    'specter',
-    'OpenOva AIOps component; componentGroups.ts already records "there is ' +
-      'no bp-specter HelmRelease". Optional tier, so an operator can decline ' +
-      'it. Refs #5575.',
-  ],
-])
+// History, because an empty allowlist invites someone to re-open it. The row
+// promoted to a determinate FAIL on 2026-08-10 against this very list: it
+// held SIX ids, one of them (`envoy`) at `tier: 'mandatory'`. The first test
+// below reads `unresolved === [...KNOWN_UNBUILT]`, so a debt list able to
+// absorb a MANDATORY entry made that test unable to fail for the case that
+// mattered most — the operator cannot deselect a mandatory card, so every
+// deployment emitted an id nothing could install while the suite stayed
+// green. Five of the six were removed from the catalog outright.
+//
+// The sixth, `specter`, was kept on the argument that it is an OpenOva
+// product rather than a phantom third-party card. That argument does not
+// survive contact with what the card DID: at `tier: 'optional'` with
+// `familyRequires: ['cortex']`, ticking a card that deploys nothing
+// cascaded NINE real CORTEX components into the operator's footprint. And
+// the two ways out are not symmetric — removal empties this map with no
+// guard change, whereas disabling the card would require teaching the test
+// to skip disabled cards, i.e. weakening a guard so a row can pass. It was
+// removed under #6183; building the real thing is #6318.
+//
+// Adding an entry here is therefore a deliberate act with two costs, both
+// enforced below rather than merely written down: it must carry a reason,
+// and it may never name a mandatory-tier component.
+const KNOWN_UNBUILT: ReadonlyMap<string, string> = new Map([])
 
 // dependsOn targets that are legitimate infra edges but not selectable
 // components (e.g. the gateway-api bootstrap-kit slot). Tracked, Refs #5575.
 const KNOWN_INFRA_DEPS: ReadonlySet<string> = new Set(['gateway-api'])
+
+/* ── The three debt-list rules, as predicates over an arbitrary map ───
+ *
+ * They take the map as a PARAMETER rather than closing over KNOWN_UNBUILT
+ * for one reason: KNOWN_UNBUILT is empty now, so a rule written as a loop
+ * over it cannot fail — `for (const x of []) expect(…)` is green whatever
+ * the rule says. That is the dominant defect class in this repo's guards
+ * (a check whose subject cannot fail), and emptying the list is exactly
+ * the moment it would have been introduced.
+ *
+ * Each rule is therefore asserted TWICE below: once against the real map
+ * (must be clean) and once against a synthetic map built to violate it
+ * (must be caught). The second call is what proves the first one measured
+ * anything.
+ */
+
+type DebtMap = ReadonlyMap<string, string>
+
+/** Debt ids whose catalog tier is `mandatory` — never allowed. */
+function mandatoryDebt(debt: DebtMap): string[] {
+  const byId = new Map(ALL_COMPONENTS.map(c => [c.id, c]))
+  return [...debt.keys()].filter(id => byId.get(id)?.tier === 'mandatory').sort()
+}
+
+/** Debt ids whose reason is missing or too thin to argue with. */
+function unreasonedDebt(debt: DebtMap): string[] {
+  return [...debt.entries()]
+    .filter(([, reason]) => reason.trim().length <= 20)
+    .map(([id]) => id)
+    .sort()
+}
+
+/** Debt ids that are not offered components at all (typos, stale names). */
+function debtIdsNotInCatalog(debt: DebtMap): string[] {
+  const idSet = new Set(ALL_COMPONENTS.map(c => c.id))
+  return [...debt.keys()].filter(id => !idSet.has(id)).sort()
+}
 
 function ls(dir: string): string[] {
   try {
@@ -135,24 +173,44 @@ describe('#5575 wizard component catalog integrity (fail-closed)', () => {
     expect(unresolved).toEqual(expected)
   })
 
+  it('the debt list is EMPTY — every offered component resolves (UAT row W5)', () => {
+    // Stated as its own assertion rather than left implicit in the
+    // bidirectional test above, because "unresolved equals the allowlist" is
+    // satisfied by ANY consistent pair. This is the row's actual clause:
+    // every component id resolves to a real Blueprint, with no exception
+    // carried on the side. Refs #3969.
+    expect([...KNOWN_UNBUILT.keys()]).toEqual([])
+    expect(ids.filter(id => !resolvesToBlueprint(id))).toEqual([])
+    // …and the sweep really examined the catalog.
+    expect(ids.length).toBeGreaterThan(50)
+  })
+
   it('no MANDATORY component may be tracked as unbuilt debt (UAT row W5)', () => {
-    // The rule the row was failing on, now enforced rather than described.
+    // The rule the row was failing on, enforced rather than described.
     // `mandatory` means the operator cannot deselect the card, so a mandatory
     // id with no Blueprint behind it is emitted by EVERY deployment this
     // wizard produces. There is no tier of debt that makes that acceptable,
     // and allowing it is what let the suite stay green while `envoy` shipped
     // as an uninstallable mandatory card.
-    const byId = new Map(ALL_COMPONENTS.map(c => [c.id, c]))
-    const mandatoryDebt = [...KNOWN_UNBUILT.keys()]
-      .filter(id => byId.get(id)?.tier === 'mandatory')
-      .sort()
-    expect(mandatoryDebt).toEqual([])
+    expect(mandatoryDebt(KNOWN_UNBUILT)).toEqual([])
+
+    // The rule can still FIRE now that the real list is empty. `flux` is
+    // mandatory in the live catalog, so a debt map naming it must be caught.
+    const mandatoryId = ALL_COMPONENTS.find(c => c.tier === 'mandatory')!.id
+    expect(
+      mandatoryDebt(new Map([[mandatoryId, 'synthetic entry, long enough to pass the reason rule']])),
+    ).toEqual([mandatoryId])
   })
 
   it('every debt entry states a reason (the list is argued with, not grown)', () => {
-    for (const [id, reason] of KNOWN_UNBUILT) {
-      expect(reason.trim().length, `${id} carries no reason`).toBeGreaterThan(20)
-    }
+    expect(unreasonedDebt(KNOWN_UNBUILT)).toEqual([])
+
+    // Fires on a real violation — a one-word reason is not an argument.
+    expect(unreasonedDebt(new Map([['grafana', 'later']]))).toEqual(['grafana'])
+    // …and does NOT fire on a reason that genuinely says something.
+    expect(
+      unreasonedDebt(new Map([['grafana', 'a reason long enough to be an actual argument']])),
+    ).toEqual([])
   })
 
   it('every component dependency references a real component or tracked infra dep', () => {
@@ -167,8 +225,13 @@ describe('#5575 wizard component catalog integrity (fail-closed)', () => {
   })
 
   it('every debt entry is a real offered component (no typos)', () => {
-    const idSet = new Set(ids)
-    for (const id of KNOWN_UNBUILT.keys()) expect(idSet.has(id)).toBe(true)
+    expect(debtIdsNotInCatalog(KNOWN_UNBUILT)).toEqual([])
+
+    // Fires on an id that is not in the catalog — the shape a rename or a
+    // typo leaves behind, and the shape `specter` itself now has.
+    expect(debtIdsNotInCatalog(new Map([['specter', 'removed under #6183']]))).toEqual(['specter'])
+    // …and passes a real one, so it is not simply rejecting everything.
+    expect(debtIdsNotInCatalog(new Map([['grafana', 'a real catalog id']]))).toEqual([])
   })
 
   it('the DEFAULT/profile selection tables only name real components', () => {

@@ -154,7 +154,7 @@ const TOPOLOGIES: TopoConfig[] = [
       'DP regions (top): DMZ and RTZ clusters fully isolated from control plane',
       'CP regions (bottom): two dedicated MGMT-only regions — zero workload co-location',
       'MGMT is HA across geographically separate sites — no single point of control',
-      'One vCluster per physical cluster — uniform interface for Catalyst and Specter',
+      'One vCluster per physical cluster — uniform interface for Catalyst across all four regions',
     ],
   },
   {
@@ -309,7 +309,7 @@ function AirgapAddon() {
               <span style={{ fontSize: 12, fontWeight: 700, color: enabled ? '#F59E0B' : 'var(--wiz-text-md)', letterSpacing: '0.03em' }}>AIR-GAP</span>
               <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: '#F59E0B', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 4, padding: '1px 6px' }}>Ransomware Recovery</span>
             </div>
-            <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', marginTop: 2 }}>+1 isolated region · +1 cluster · pull-only replication · Specter forensic mode</div>
+            <div style={{ fontSize: 10, color: 'var(--wiz-text-sub)', marginTop: 2 }}>+1 isolated region · +1 cluster · pull-only replication</div>
           </div>
           <div style={{ display: 'flex', gap: 10, flexShrink: 0 }}>
             {[{ val: '+1', lbl: 'reg' }, { val: '+1', lbl: 'cls' }, { val: '+1', lbl: 'vC' }].map(({ val, lbl }) => (

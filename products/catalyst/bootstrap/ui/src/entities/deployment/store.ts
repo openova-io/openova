@@ -589,9 +589,11 @@ export const useWizardStore = create<WizardStore>()(
               // its component-level deps). For each, if its owning
               // product has `cascadeOnMemberSelection: true`, pull in
               // the rest of that product (and every product reached via
-              // familyDependencies). Iterates so a chain like Specter →
-              // BGE → CORTEX (BGE belongs to CORTEX, which cascades the
-              // rest of CORTEX) resolves in one pass.
+              // familyDependencies). Iterates so a chain like
+              // <out-of-family seed> → BGE → CORTEX (BGE belongs to
+              // CORTEX, which cascades the rest of CORTEX) resolves in
+              // one pass. Specter was that seed until its card was
+              // removed under UAT row W5 / #6183.
               //
               // Restricting to NEWLY-added ids avoids spurious cascades
               // from mandatory cross-product members that were already
@@ -601,9 +603,7 @@ export const useWizardStore = create<WizardStore>()(
               //
               // Per operator intent (issue #175) CORTEX is the only
               // product flagged for member-selection cascade today: "BGE
-              // alone doesn't have much meaning unless we have Cortex.
-              // [...] Or when Specter is selected all the Cortex family
-              // is required."
+              // alone doesn't have much meaning unless we have Cortex."
               const before = new Set(s.selectedComponents)
               const queue: string[] = [...next].filter((cid) => !before.has(cid))
               while (queue.length > 0) {
@@ -925,8 +925,21 @@ export const useWizardStore = create<WizardStore>()(
             const migrated: Record<string, string[]> = {}
             for (const [k, v] of Object.entries(p.componentGroups)) {
               if (validGroupIds.includes(k)) {
-                // Migrate minio → seaweedfs
-                migrated[k] = (v as string[]).map(id => id === 'minio' ? 'seaweedfs' : id)
+                // Migrate minio → seaweedfs, then drop any id with no
+                // ComponentDef — the SAME rule the selectedComponents block
+                // above already applies, which this map was missing.
+                //
+                // StepReview reads BOTH: `selectedComponentEntries` resolves
+                // each id through findComponent() and skips the misses, while
+                // the section header counts the raw array length. So a
+                // retired id survives here as a count with no card behind it
+                // — the exact counter-vs-cards inconsistency UAT row W5
+                // asserts against, arriving from localStorage rather than
+                // from source. Live for every id #5575 retired (envoy, frpc,
+                // strongswan, superset, ntfy) and for `specter` from #6183.
+                migrated[k] = (v as string[])
+                  .map(id => id === 'minio' ? 'seaweedfs' : id)
+                  .filter(id => !!findComponent(id))
               }
             }
             // Ensure vcluster is in pilot defaults
