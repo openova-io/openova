@@ -1451,7 +1451,7 @@ spec:
       #   staged commit and push, and makes the Phase-3 pre-strip read-back the
       #   single fail-closed gate (#5436 relocated, not weakened). Lockstep w/
       #   products/catalyst/chart/Chart.yaml.
-      version: 1.4.1486
+      version: 1.4.1493
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

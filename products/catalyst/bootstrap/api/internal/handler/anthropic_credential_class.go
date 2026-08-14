@@ -27,8 +27,19 @@
 //	red; nothing in between reconciled the two.
 //
 //	Expiry is not a rare edge here. The seeded blob is a claudeAiOauth pair
-//	whose accessToken lives HOURS and nothing in this repo refreshes it, so an
-//	unrotated credential spends most of its life in the INVALID class.
+//	whose accessToken lives HOURS, and until #6317 nothing in this repo
+//	refreshed it, so an unrotated credential spent most of its life in the
+//	INVALID class.
+//
+//	#6317 gave that sentence an owner: sovereign_anthropic_refresh.go renews
+//	the credential 2h before expiry, on the same reconcile pass that seeds it.
+//	This classifier did not become decorative — it became the TRIGGER. The
+//	refresh asks it what the stored bytes are worth, and the seed reconciler
+//	still asks it whether to propagate them. What changed is the meaning of an
+//	`expired` verdict reaching an operator: it is no longer the expected steady
+//	state of a credential nobody rotated, it is evidence that the RENEWAL CHAIN
+//	is broken — a spent or absent refresh token, or an unreachable OAuth
+//	endpoint. The [ANTHROPIC-REFRESH] lines name which.
 //
 // WHAT THIS FILE PROVIDES
 //
@@ -110,9 +121,11 @@ func anthropicCredentialRemediation(c anthropicCredentialClass) string {
 			"Set it to the full {\"claudeAiOauth\":{\"accessToken\":…,\"refreshToken\":…,\"expiresAt\":…}} JSON on " +
 			"catalyst-system/sovereign-anthropic-credentials (#4111)."
 	case anthropicCredExpired:
-		return "the credential is the right SHAPE but its accessToken has expired, and nothing in this platform refreshes it. " +
-			"ROTATE catalyst-system/sovereign-anthropic-credentials with a fresh credentialsJson; the next seed pass picks it " +
-			"up live with no catalyst-api roll (#6163)."
+		return "the credential is the right SHAPE but its accessToken has expired. Since #6317 the platform RENEWS this itself 2h before " +
+			"expiry, so an expired credential reaching here means the renewal chain is broken — check the [ANTHROPIC-REFRESH] log lines " +
+			"first: they name whether the refresh token is absent, spent/revoked, or the OAuth endpoint is unreachable. " +
+			"If the refresh token is gone, ROTATE catalyst-system/sovereign-anthropic-credentials with a fresh credentialsJson; the next " +
+			"seed pass picks it up live with no catalyst-api roll (#6163)."
 	case anthropicCredAbsent:
 		return seedRemediation["anthropic"]
 	}

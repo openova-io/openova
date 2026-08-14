@@ -1,5 +1,31 @@
 apiVersion: v2
 name: bp-agenity
+# 0.5.29 (#6317): DELIVER a refreshed credential to a RUNNING workspace, and
+# stop waiting an hour for it. 0.5.26/0.5.27 taught this chart to diagnose an
+# expired credential honestly; neither could do anything about one, because
+# nothing anywhere renewed it. catalyst-api now does (sovereign_anthropic_refresh
+# .go, renewing 2h before expiry), which moves the remaining gap into this
+# chart: the renewal has to ARRIVE. Two changes, one per broken hop.
+#   (1) anthropic.externalSecret.refreshInterval 1h -> 15m. The accessToken
+#       lives ~5h, so an hour of the 2h renewal margin spent waiting for an ESO
+#       poll leaves nothing for the hops below it. R19's own stamp said so:
+#       "without [force-sync] the credential is correct but up to an hour late
+#       — worth a shorter interval on a credential whose accessToken lives ~5h."
+#   (2) a `creds-resync` sidecar (templates/statefulset.yaml, values
+#       anthropic.credentialResync). THE HOP NOTHING COVERED: the init container
+#       copies the credential ONCE into the shared emptyDir, and the main
+#       container mounts that emptyDir — not the Secret — so a running Pod has
+#       no live view of /creds at all. Renew upstream all you like; the agent
+#       kept reading the frozen file and answering "401 OAuth access token has
+#       been revoked" (measured, hw296 2026-08-14). The sidecar copies a NEWER
+#       credential forward every 2m with NO pod restart, so in-flight agent
+#       sessions survive the rotation. NEWER-ONLY: it copies only when the
+#       Secret's expiresAt strictly exceeds the file's, so a credential
+#       claude-code rotated for itself is never clobbered, an equal expiry is a
+#       no-op, and an absent/empty Secret never destroys a working credential.
+#       Proven in chart/tests/credential-resync-6317.sh, which also fails if the
+#       predicate under test stops matching the one this chart renders.
+# Template + values change; appVersion (image) UNCHANGED.
 # 0.5.28 (#6314): the per-Org gate's BROWSER-facing Keycloak issuer is now its
 # own knob, `oidcGate.issuerHost`, defaulting to `.Values.sovereignFqdn` so
 # every existing values set renders byte-identically. It had to split because
@@ -241,7 +267,7 @@ type: application
 # same gateway bp-wordpress-tenant + the org console route attach to, #4054).
 # The old default rendered Accepted=False/InvalidHTTPRoute and the host 404'd
 # until the parentRef was hand-overridden. appVersion (image) unchanged.
-version: 0.5.28
+version: 0.5.29
 # 0.5.22 (#5617): the per-Org oidc-gate companion gains its EGRESS
 # CiliumNetworkPolicy (templates/oidc-gate.yaml `oidc-gate-<cid>-egress`).
 # The gate shipped an ingress-only gateway CNP into a DEFAULT-DENY per-Org

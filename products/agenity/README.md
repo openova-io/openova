@@ -221,22 +221,46 @@ diagnose this without exec'ing into the pod:
 ```
 
 (A valid token instead logs `claude-code OAuth token valid (~Nh remaining).`)
-The check is **diagnostic-only** — it never blocks the pod (the dashboard must
-keep serving) and never mutates the blob (`claude-code` owns rotation).
+Since #6163 FREEZE 3 the check is **no longer diagnostic-only**: an expired
+credential takes the same verdict as an absent one under
+`anthropic.onExpiredCredential` (`fail`|`continue`, default `fail`). It still
+never mutates the blob.
 
-**When the agent reports offline, re-seed:** mint a **fresh**
-`credentialsJson` (a current `claude` login on a workstation writes
-`~/.claude/.credentials.json`; copy that whole blob), `bao kv put
-secret/catalyst/anthropic/token credentialsJson='…'` as above (or rotate the
-`sovereign-anthropic-credentials` Secret so the next Org-create re-seeds it),
-force-sync the ExternalSecret
-(`kubectl annotate externalsecret agenity-anthropic-token
-force-sync=$(date +%s) --overwrite`), and restart the StatefulSet pod (or wait
-for the next restart) so the init container re-seeds the new blob. The next
-spawn then authenticates. This is the standing **operator activation cost** of
-the OAuth journey until upstream `claude-code` gains a reliable
-non-interactive refresh — track it as a recurring per-Sovereign chore, not a
-one-time seed.
+### ✅ The platform now REFRESHES that credential automatically (#6317)
+
+The manual re-seed described above was, until chart `0.5.29` /
+`bp-catalyst-platform 1.4.1493`, a **standing per-Sovereign chore on a ~5h
+timer**. It is no longer. `catalyst-api`'s seed reconciler renews the
+credential itself, and three links were closed to make the renewal actually
+reach a running agent:
+
+| Link | What changed |
+|---|---|
+| **Renew** | `refreshAnthropicCredential` (`sovereign_anthropic_refresh.go`) exchanges the `refreshToken` at `console.anthropic.com/v1/oauth/token` when **less than 2h** of the accessToken's life remains — and also when it has already expired, since the refresh token outlives it by weeks. It runs on every 10m seed-reconcile pass, **before** the seed leg, so the same pass propagates the renewed value. |
+| **Store** | The renewed pair is written to the **root Secret first** (`catalyst-system/sovereign-anthropic-credentials`) and then to OpenBao. Order matters: the exchange **rotates** the refresh token, so a value that reached OpenBao but not the root would leave the root holding spent material the reconciler could later re-apply. |
+| **Deliver** | The ExternalSecret `refreshInterval` is **15m** (was `1h`), and a `creds-resync` sidecar copies a **newer** credential from `/creds` into the running Pod's `~/.claude/.credentials.json` every 2m — so a rotation reaches live agent spawns **with no pod restart** and no killed sessions. It copies only when the Secret's `expiresAt` is strictly greater, so a credential `claude-code` rotated for itself is never clobbered. |
+
+Budget: a ~5h token, renewed with 2h to spare, against ~18m of worst-case
+propagation (15m ESO + ~1m kubelet re-projection + 2m re-sync) — and twelve
+renewal attempts inside the window at the 10m cadence.
+
+`apiKey` is rewritten **only when it is byte-identical to the access token**
+(which is how the seeded pair is issued). An independent long-lived
+`sk-ant-api03-…` key an operator supplied on purpose is left alone.
+
+**Failures are loud, never silent.** A refresh that cannot proceed logs at
+ERROR with its remediation — `anthropic refresh IMPOSSIBLE` (no `refreshToken`
+in the blob), `anthropic refresh FAILED` (the exchange), or
+`anthropic refresh FAILED TO PERSIST` (the write, which also names that the old
+refresh token has already been spent). A silent no-op leaving an expired token
+in place is the one outcome the design forbids.
+
+**Manual re-seed is still the remedy for the cases refresh cannot cover:** a
+blob with no `refreshToken`, a malformed document, or a refresh token that has
+itself expired or been revoked. Mint a **fresh** `credentialsJson` (a current
+`claude` login on a workstation writes `~/.claude/.credentials.json`; copy that
+whole blob) and rotate `catalyst-system/sovereign-anthropic-credentials` — the
+#6163 live read picks it up on the next pass with **no catalyst-api roll**.
 
 ### The Sovereign-side verdict: absent, unusable and valid are three states (#6250)
 

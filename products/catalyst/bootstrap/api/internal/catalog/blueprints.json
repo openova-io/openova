@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T22:59:24.881Z",
+  "generatedAt": "2026-08-14T09:13:17.985Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -11,7 +11,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.5.28",
+      "version": "0.5.29",
       "section": "pts-7-org-tenant",
       "depends": [
         "bp-external-secrets"
