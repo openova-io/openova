@@ -624,6 +624,14 @@ networkPolicy:
     operatorNamespace: cnpg-system
     operatorStatusPort: 8000
     operatorMetricsPort: 9187
+    # Cluster-DNS namespace for the policy's egress half (#5617 / #4437 class,
+    # enforced by scripts/check-netpol-egress-completeness.py). Naming an
+    # egress section makes the selected endpoint deny-by-default on egress
+    # outside the union, and a per-Org namespace's CiliumNetworkPolicy already
+    # constrains egress WITHOUT naming DNS — so a workload that ships no DNS
+    # egress of its own cannot resolve anything. Additive: this can only widen
+    # what allow-same-org and the per-Org CNP already permit.
+    dnsNamespace: kube-system
 # ─── ServiceMonitor ─────────────────────────────────────────────────────
 # Default false per docs/BLUEPRINT-AUTHORING.md §11.2 (Observability
 # toggles must default false). Operator opts in via per-cluster overlay

@@ -35,7 +35,14 @@
 
 set -euo pipefail
 
-CHART_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
+# ABSOLUTE, resolved BEFORE any `cd`. The release gate and chart-tests-pr both
+# invoke `bash <script> <chart_dir>` with a chart_dir RELATIVE to the repo root,
+# and this script cd's into it — so a relative path left every later
+# `$CHART_DIR/...` reference resolving against the new cwd. That is how the
+# first CI run died on
+#   FileNotFoundError: platform/wordpress-tenant/chart/../image/Dockerfile
+# while passing locally, where the default argument is already absolute.
+CHART_DIR="$(cd "${1:-$(dirname "$0")/..}" && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 

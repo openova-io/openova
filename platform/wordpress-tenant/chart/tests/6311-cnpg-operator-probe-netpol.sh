@@ -24,7 +24,11 @@
 
 set -euo pipefail
 
-CHART_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
+# ABSOLUTE, resolved BEFORE any `cd` — see the note in
+# 6311-no-install-time-egress.sh. CI invokes `bash <script> <chart_dir>` with a
+# chart_dir relative to the repo root, and this script cd's into it, so a
+# relative path would make the repo-root computation below silently wrong.
+CHART_DIR="$(cd "${1:-$(dirname "$0")/..}" && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -41,9 +45,10 @@ CNPG_API=(--api-versions "postgresql.cnpg.io/v1")
 # proof honest: a mutation cannot pass because the check drifted.
 # ──────────────────────────────────────────────────────────────────────────
 assert_carveout() {  # $1 = rendered manifest path
-  python3 - "$1" <<'PYEOF'
-import sys, yaml
+  python3 - "$1" "$CHART_DIR" <<'PYEOF'
+import sys, os, yaml, importlib.util
 docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+REPO = os.path.abspath(os.path.join(sys.argv[2], "..", "..", ".."))
 
 nps = [d for d in docs if d.get('kind') == 'NetworkPolicy']
 probe = next((d for d in nps
@@ -83,18 +88,60 @@ ports = {p['port'] for rule in ing for p in (rule.get('ports') or [])}
 assert 8000 in ports, f"A4 operator status port 8000 not opened (got {sorted(ports)})"
 assert 9187 in ports, f"A4 operator metrics port 9187 not opened (got {sorted(ports)})"
 
-# A5 — Ingress only, and NARROW. The carve-out must not become a blanket
-#      allow: no `namespaceSelector: {}`, and no 5432 (the bp-postgres #4442
-#      sharedConsumers shape is wrong here — this Cluster's only consumers
-#      are same-namespace and allow-same-org already admits them).
-assert probe['spec'].get('policyTypes') == ['Ingress'], (
-    f"A5 carve-out must be Ingress-only, got {probe['spec'].get('policyTypes')!r}")
+# A5 — NARROW. The carve-out must not become a blanket allow: no
+#      `namespaceSelector: {}` on the ingress half, and no 5432 (the
+#      bp-postgres #4442 sharedConsumers shape is wrong here — this Cluster's
+#      only consumers are same-namespace and allow-same-org already admits
+#      them).
 assert not any(p.get('namespaceSelector') == {} for p in peers), (
     "A5 carve-out must not open every namespace (namespaceSelector: {})")
 assert 5432 not in ports, (
     "A5 carve-out must not open 5432 — same-namespace consumers are already "
     "admitted by allow-same-org; a broad 5432 rule is the #4442 shared-engine "
     "shape and does not apply to a per-Org install")
+
+# A7 — the #5617 / #4437 CLASS invariant: a policy that names an egress half
+#      makes the selected endpoint deny-by-default on egress outside the
+#      union, and a per-Org namespace's CiliumNetworkPolicy already constrains
+#      egress WITHOUT naming DNS. So this group MUST carry cluster DNS on both
+#      53/UDP and 53/TCP, or the CNPG instance manager's first name lookup
+#      times out (live: hw292 Org `uatco`, #5617).
+#
+#      The predicate is IMPORTED from the class guard rather than re-written
+#      here. Re-hand-rolling a guard's condition is how a check silently stops
+#      matching the guard it claims to mirror — the guard already rejects five
+#      near-miss shapes (hollow `egress: []`, 53 pointed at the policy's own
+#      namespace, UDP without TCP, DNS via ipBlock 0.0.0.0/0 which cannot
+#      match a pod identity under Cilium) and this test inherits all of them.
+spec = importlib.util.spec_from_file_location(
+    "netpol_guard",
+    os.path.join(REPO, "scripts", "check-netpol-egress-completeness.py"))
+guard = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(guard)
+
+assert probe['spec'].get('policyTypes') == ['Ingress', 'Egress'], (
+    "A7 carve-out must name BOTH halves — an ingress-only policy in a per-Org "
+    "namespace is the #5617 shape; got "
+    f"{probe['spec'].get('policyTypes')!r}")
+dns_ns = guard.dns_namespace()
+egress_rules = [('NetworkPolicy', r) for r in (probe['spec'].get('egress') or [])]
+ok, reason = guard.group_allows_dns(egress_rules, dns_ns)
+assert ok, f"A7 carve-out egress does not reach cluster DNS: {reason}"
+
+# A8 — the egress half is DNS-ONLY. This is a database engine; a blanket
+#      egress peer would be the over-broad "fix" the guard's own fixtures
+#      reject, and it would let the instance dial arbitrary destinations.
+egress_ports = {p['port'] for r in (probe['spec'].get('egress') or [])
+                for p in (r.get('ports') or [])}
+assert egress_ports == {53}, (
+    f"A8 carve-out egress must be DNS-only, got ports {sorted(egress_ports)}")
+egress_peers = [p for r in (probe['spec'].get('egress') or []) for p in (r.get('to') or [])]
+assert egress_peers, "A8 egress rule names no destination — it selects nothing"
+assert not any(p.get('namespaceSelector') == {} or 'ipBlock' in p
+               for p in egress_peers), (
+    "A8 carve-out egress must not use a blanket namespaceSelector or an "
+    "ipBlock (a CIDR never matches an in-cluster pod identity under Cilium, "
+    "#4360 — it would not be DNS coverage at all)")
 
 # A6 — ADDITIVE. The chart must not have weakened or replaced the pod-level
 #      policy it already ships; the WordPress app policy must still be there
@@ -105,8 +152,9 @@ app_np = next((d for d in nps
 assert app_np, ("A6 the chart's own WordPress NetworkPolicy disappeared — the "
                 "carve-out must be additive, never a replacement")
 
-print("  carve-out: podSelector=%s ns=cnpg-system ports=%s policyTypes=%s"
-      % (want, sorted(ports), probe['spec']['policyTypes']))
+print("  carve-out: podSelector=%s ns=cnpg-system ingress-ports=%s "
+      "policyTypes=%s egress=%s"
+      % (want, sorted(ports), probe['spec']['policyTypes'], reason))
 PYEOF
 }
 
@@ -210,16 +258,31 @@ mutate_must_fail "A4 status port 8000 missing" \
 # A4 — and the converse.
 mutate_must_fail "A4 metrics port 9187 missing" \
   "probe()['spec']['ingress'][0]['ports'] = [{'port': 8000, 'protocol': 'TCP'}]; dump()"
-# A5 — widen policyTypes (an Egress policyType on the DB Pods would default-deny
-#      the instance's own outbound traffic).
-mutate_must_fail "A5 policyTypes widened to Ingress+Egress" \
-  "probe()['spec']['policyTypes'] = ['Ingress', 'Egress']; dump()"
-# A5 — blanket namespaceSelector: {} (the over-broad 'fix').
-mutate_must_fail "A5 blanket namespaceSelector: {} added" \
+# A5 — blanket namespaceSelector: {} on ingress (the over-broad 'fix').
+mutate_must_fail "A5 blanket namespaceSelector: {} added to ingress" \
   "probe()['spec']['ingress'].append({'from': [{'namespaceSelector': {}}], 'ports': [{'port': 8000, 'protocol': 'TCP'}]}); dump()"
 # A5 — the #4442 shared-consumer 5432 rule, which does not apply per-Org.
 mutate_must_fail "A5 broad 5432 consumer rule added" \
   "probe()['spec']['ingress'].append({'from': [{'namespaceSelector': {}}], 'ports': [{'port': 5432, 'protocol': 'TCP'}]}); dump()"
+# A7 — drop the egress half entirely: the ingress-only #5617 shape the class
+#      guard rejects, and the shape this policy shipped before the guard bit.
+mutate_must_fail "A7 egress half dropped (the #5617 ingress-only shape)" \
+  "p = probe(); p['spec']['policyTypes'] = ['Ingress']; p['spec'].pop('egress', None); dump()"
+# A7 — hollow `egress: []` (the #5639 shape: `grep -q egress` would pass).
+mutate_must_fail "A7 hollow egress: [] (grep-passes, resolves nothing)" \
+  "probe()['spec']['egress'] = []; dump()"
+# A7 — 53/UDP only, no TCP fallback for truncated answers.
+mutate_must_fail "A7 53/UDP only, no TCP" \
+  "probe()['spec']['egress'][0]['ports'] = [{'port': 53, 'protocol': 'UDP'}]; dump()"
+# A7 — DNS pointed at the policy's OWN namespace instead of cluster DNS.
+mutate_must_fail "A7 DNS pointed at the Org namespace, not cluster DNS" \
+  "probe()['spec']['egress'][0]['to'] = [{'podSelector': {}}]; dump()"
+# A7 — DNS via ipBlock 0.0.0.0/0, which never matches a pod identity (#4360).
+mutate_must_fail "A7 DNS via ipBlock 0.0.0.0/0 (#4360 — matches no pod)" \
+  "probe()['spec']['egress'][0]['to'] = [{'ipBlock': {'cidr': '0.0.0.0/0'}}]; dump()"
+# A8 — a blanket egress destination on a database engine.
+mutate_must_fail "A8 blanket egress destination added" \
+  "probe()['spec']['egress'].append({'to': [{'namespaceSelector': {}}], 'ports': [{'port': 443, 'protocol': 'TCP'}]}); dump()"
 # A6 — the carve-out REPLACES the chart's own app policy instead of adding to it.
 mutate_must_fail "A6 chart's own WordPress NetworkPolicy removed" \
   "docs[:] = [d for d in docs if not (d.get('kind') == 'NetworkPolicy' and d['spec'].get('policyTypes') == ['Ingress', 'Egress'])]; dump()"

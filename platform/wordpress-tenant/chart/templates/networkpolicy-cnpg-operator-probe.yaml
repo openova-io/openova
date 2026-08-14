@@ -76,7 +76,7 @@ spec:
   podSelector:
     matchLabels:
       cnpg.io/cluster: {{ .Values.database.cnpgClusterName | quote }}
-  policyTypes: [Ingress]
+  policyTypes: [Ingress, Egress]
   ingress:
     # CNPG operator status + metrics probe. Without this the operator
     # cannot extract instance status from the per-Org default-deny
@@ -91,6 +91,42 @@ spec:
         - port: {{ .Values.networkPolicy.cnpgOperator.operatorStatusPort }}
           protocol: TCP
         - port: {{ .Values.networkPolicy.cnpgOperator.operatorMetricsPort }}
+          protocol: TCP
+  egress:
+    # CLUSTER DNS — the #5617 / #4437 class invariant, enforced by
+    # scripts/check-netpol-egress-completeness.py.
+    #
+    # A per-Org `<slug>` namespace carries a CiliumNetworkPolicy
+    # `allow-gateway-and-apiserver` with `endpointSelector: {}` and an EGRESS
+    # section naming kube-apiserver + same-namespace endpoints and NOTHING
+    # else — no DNS. Cilium unions every policy selecting an endpoint, and the
+    # moment ANY of them carries an egress section that endpoint's egress is
+    # deny-by-default outside the union. So in a per-Org namespace a workload
+    # that ships no DNS egress of its own is mute on its first name lookup.
+    # That is exactly how #5617 bit live on hw292 Org `uatco`: bp-oidc-gate
+    # shipped an ingress-only policy and every OAuth callback 500'd on
+    # `lookup keycloak.keycloak.svc.cluster.local on 10.96.0.10:53: i/o
+    # timeout` AFTER a successful login.
+    #
+    # The CNPG instance manager resolves service names constantly (the `-rw` /
+    # `-r` Services, its peers, the operator), so this group must carry DNS.
+    # The rule is purely ADDITIVE: NetworkPolicies union, so naming an egress
+    # half here can only ADD `53 -> kube-system` to what `allow-same-org` and
+    # the per-Org CNP already permit — it removes nothing from the instance's
+    # existing reach. Both UDP and TCP: a truncated UDP answer falls back to
+    # TCP, and a UDP-only rule is one of the shapes the class guard rejects.
+    #
+    # DNS-ONLY on purpose. This is a database engine; it has no business
+    # dialling arbitrary destinations, and a blanket egress peer here would be
+    # the over-broad "fix" the guard's own fixtures reject.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.cnpgOperator.dnsNamespace }}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
           protocol: TCP
 {{- end }}
 {{- end }}
