@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-14T03:00:03Z` |
+| Last refreshed | `2026-08-14T03:15:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -314,6 +314,7 @@ flowchart LR
 | 2026-08-14T02:16 | [#6291](https://github.com/openova-io/openova/pull/6291) | #6287 | feat(catalyst-api): write the per-Org standby HelmRelease in |
 | 2026-08-14T01:23 | [#6290](https://github.com/openova-io/openova/pull/6290) | #6287 | docs(uat): row 60 — record #6287 as merged, and that it is N |
 | 2026-08-14T01:16 | [#6287](https://github.com/openova-io/openova/pull/6287) | #6271 | fix(application-controller): a hot standby must not be rende |
+| 2026-08-14T03:07 | [#6286](https://github.com/openova-io/openova/pull/6286) | #4347 | fix(row222): bp-alloy could never satisfy our own probes pol |
 | 2026-08-14T00:52 | [#6285](https://github.com/openova-io/openova/pull/6285) | #6271 | docs(uat): row 60 — the fix is live, and the standby leg nev |
 | 2026-08-14T00:41 | [#6284](https://github.com/openova-io/openova/pull/6284) | #4482 | docs(uat): the Anthropic credential had two missing writers  |
 | 2026-08-14T00:37 | [#6283](https://github.com/openova-io/openova/pull/6283) | #6282 | docs(uat): rows 63/212/213 walked green on hw296 after insta |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-13T19:54 | [#6257](https://github.com/openova-io/openova/pull/6257) | #4293 | fix(catalyst): four unowned UAT rows — G7 plan door, row 60  |
 | 2026-08-13T19:08 | [#6256](https://github.com/openova-io/openova/pull/6256) | #4290 | docs(uat): hw296 seven-row walk — the funnel completes end t |
 | 2026-08-13T19:09 | [#6254](https://github.com/openova-io/openova/pull/6254) | #6246 | fix(cutover): a hollow chart pin is TERMINAL, not "wait for  |
-| 2026-08-13T18:22 | [#6252](https://github.com/openova-io/openova/pull/6252) | #6246 | fix(guards): the expected bootstrap DAG never learned the tw |
 
 ---
 
