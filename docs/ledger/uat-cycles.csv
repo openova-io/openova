@@ -15,3 +15,4 @@ cycle_ts,env,dep,milestone,denominator,PASS,FAIL,PARTIAL,NOTRUN,SUPERSEDED,PENDI
 2026-08-13T16:44:11Z,hw296,e689e3b34a75fdec,fresh prov hw296 fired 16:14:44Z; hw295 wiped 16:12:43Z,286,228,18,14,26,0,0,79.7
 2026-08-13T23:25:21Z,hw296,e689e3b34a75fdec,25 SSO rows re-proven + G7/234 closed; funnel+vcluster mail defect #6278 found,286,254,5,12,7,0,8,88.8
 2026-08-14 09:22:00,hw296,e689e3b34a75fdec,,286,278,6,0,2,0,0,97.2
+2026-08-14 10:44:53,hw296,e689e3b34a75fdec,"hw296 wiped — pre-fire, train at cutover 0.1.188 / umbrella 1.4.1496",286,278,6,0,2,0,0,97.2
