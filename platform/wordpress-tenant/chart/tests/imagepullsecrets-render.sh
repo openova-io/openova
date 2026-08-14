@@ -85,14 +85,36 @@ if ! grep -q "name: ghcr-pull" <<<"$admin_job"; then
 fi
 echo "[bp-wordpress-tenant] Case 2: PASS"
 
-# ── Case 3: oidc-config Job (PUBLIC cli image) has NO imagePullSecrets ────
-echo "[bp-wordpress-tenant] Case 3: oidc-config Job — no imagePullSecrets (public cli image)"
+# ── Case 3: oidc-config Job carries ghcr-pull — its wp-artifacts init runs
+#            the PRIVATE runtime image (#6311, supersedes the pre-0.4.24
+#            "public cli image only" assumption) ────────────────────────────
+# Until #6311 this Job ran ONLY the public dockerhub `wordpress:cli-*` image,
+# so it deliberately carried no pull secret. It now also runs a `wp-artifacts`
+# initContainer on the PRIVATE `wordpress-tenant-pg` runtime image — that is
+# where the baked pg4wp + openid-connect-generic artifacts live, and the whole
+# point of #6311 is that they are never fetched over the network. Without the
+# pull secret that initContainer ImagePullBackOffs, the post-install hook never
+# runs, Helm times out and the HelmRelease sticks Ready=False.
+#
+# The requirement is DERIVED, not asserted by fiat: the case first proves the
+# Job actually references the private image, then requires the secret.
+echo "[bp-wordpress-tenant] Case 3: oidc-config Job — imagePullSecrets present (private artifact image)"
 oidc_job=$(job_by_name "$out" "-oidc-config")
 if [ -z "$oidc_job" ]; then
   echo "FAIL: oidc-config Job did not render"; exit 1
 fi
-if grep -q "imagePullSecrets:" <<<"$oidc_job"; then
-  echo "FAIL: oidc-config Job (public wordpress:cli-* image) must not carry imagePullSecrets"; exit 1
+if ! grep -q "wordpress-tenant-pg" <<<"$oidc_job"; then
+  echo "FAIL: oidc-config Job does not reference the private wordpress-tenant-pg image;"
+  echo "      the #6311 wp-artifacts initContainer must run it (nothing else carries"
+  echo "      the baked pg4wp + OIDC plugin bytes)"; exit 1
+fi
+if ! grep -q "imagePullSecrets:" <<<"$oidc_job"; then
+  echo "FAIL: oidc-config Job references the PRIVATE wordpress-tenant-pg image but"
+  echo "      carries no imagePullSecrets — the wp-artifacts initContainer will"
+  echo "      ImagePullBackOff and the post-install hook will never run (#6311)"; exit 1
+fi
+if ! grep -q "name: ghcr-pull" <<<"$oidc_job"; then
+  echo "FAIL: oidc-config Job imagePullSecrets does not reference ghcr-pull"; exit 1
 fi
 echo "[bp-wordpress-tenant] Case 3: PASS"
 
@@ -136,6 +158,13 @@ if ! grep -q "name: my-private-registry-creds" <<<"$deployment_block6"; then
 fi
 if grep -q "name: ghcr-pull" <<<"$deployment_block6"; then
   echo "FAIL: custom override leaked default ghcr-pull reference"; exit 1
+fi
+# #6311: the override must reach the oidc-config Job too — it is now a private-
+# image consumer, so a Sovereign that renames the secret must not be left with
+# one workload pointing at a Secret that does not exist there.
+oidc_job6=$(job_by_name "$out6" "-oidc-config")
+if ! grep -q "name: my-private-registry-creds" <<<"$oidc_job6"; then
+  echo "FAIL: custom imagePullSecret name not propagated to the oidc-config Job (#6311)"; exit 1
 fi
 echo "[bp-wordpress-tenant] Case 5: PASS"
 

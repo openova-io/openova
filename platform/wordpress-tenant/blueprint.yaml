@@ -6,7 +6,11 @@ metadata:
     catalyst.openova.io/category: organization-app
     catalyst.openova.io/section: pts-7-org-tenant
 spec:
-  version: 0.4.23
+  # 0.4.24 (#6311, Refs #3988): CNPG-operator status-probe carve-out for the
+  # per-Org default-deny namespace + zero install-time third-party egress
+  # (artifacts baked into the runtime image). Lockstep with
+  # platform/wordpress-tenant/chart/Chart.yaml.
+  version: 0.4.24
   card:
     title: WordPress (per-Organization)
     summary: |

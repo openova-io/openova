@@ -345,7 +345,84 @@ name: bp-wordpress-tenant
 #   values file. Singleton installs render byte-identical (no annotation, no
 #   declaration required). Catalog-wide enforcement:
 #   scripts/check-dr-pairs-declare-promotion.sh.
-version: 0.4.23
+# 0.4.24 (#6311, Refs #3988 #4282 #3379): bp-wordpress-tenant could not
+#   converge in ANY Organization. Two independent defects, both fixed here.
+#
+#   DEFECT 1 — no cnpg-system carve-out, so our own NetworkPolicy blinds the
+#   CNPG operator. This chart renders its Cluster into the Organization's own
+#   namespace, which carries the `default-deny-all` + `allow-same-org` pair
+#   stamped by the Organization controller's GitOps tree. `allow-same-org`
+#   re-opens SAME-NAMESPACE traffic only, so the cnpg-system operator — a
+#   different namespace — is denied the instance Pod's :8000/pg/status probe.
+#   The database is UP and serving while the operator is blind, and CNPG parks
+#   the Cluster at `Instance Status Extraction Error: HTTP communication issue`
+#   / readyInstances 1/1 / ConsistentSystemID=False → Ready=False → the HR
+#   never converges → the customer's purchased WordPress never comes up.
+#   MEASURED on hw296 with quota eliminated as a variable: the identical
+#   blueprint installed into an Org with headroom ran the exact Pods #5393
+#   rejects elsewhere (`wordpress-db-1-initdb` Completed, `wordpress-db-1` 1/1
+#   Running, zero quota rejections) and STILL landed Ready=False. Control
+#   sharing the suspect property: `walkone/postgres` — same deny pair, but
+#   carrying the #4282 carve-out — read `Cluster in healthy state` 3/3; 11 CNPG
+#   Clusters cluster-wide were healthy and this was the only one in the error
+#   phase.
+#   FIX — templates/networkpolicy-cnpg-operator-probe.yaml, the proven #4282
+#   shape from platform/postgres (whose header predicts this phase string
+#   verbatim). Opens ONLY :8000 + :9187 from ONLY `cnpg-system`. Additive:
+#   default-deny-all and allow-same-org are untouched. No broad 5432 rule (the
+#   #4442 `sharedConsumers` shape) — this Cluster's only consumers are
+#   same-namespace and allow-same-org already admits them. SINGLETON ONLY, like
+#   #4282: in active-hot-standby the replica streams WAL cross-cluster over
+#   ClusterMesh and an Ingress policyType selecting the Cluster Pods would
+#   default-deny that stream, while a remote-cluster peer cannot be expressed
+#   in a k8s NetworkPolicy at all (an ipBlock never matches a ClusterMesh
+#   remote endpoint identity — bp-postgres needs a dedicated identity-based
+#   CiliumNetworkPolicy for it). Rendering nothing in AHS keeps that path
+#   byte-identical rather than trading one break for another; the AHS carve-out
+#   stays open on #6311.
+#   SCOPE — 8 charts render a CNPG Cluster with no carve-out, but the deny pair
+#   exists only in per-Org namespaces. The load-bearing property is "can this
+#   chart's Cluster land in a namespace carrying that pair", and only two
+#   charts can: bp-postgres (routed per-Org by #4398, already carries the
+#   #4282 carve-out) and this one. The other 7 (bp-gitea, bp-guacamole,
+#   bp-llm-gateway, bp-openova-flow-server, bp-powerdns, bp-powerdns-admin,
+#   bp-temporal) are bootstrap-kit components in platform namespaces where no
+#   such pair is stamped — and where an unconditional probe NetworkPolicy would
+#   REGRESS them, because policyTypes:[Ingress] makes the Cluster Pods
+#   default-deny for every unlisted peer and their consumers live in OTHER
+#   namespaces (the #4442 regression, verbatim). They are deliberately
+#   untouched.
+#
+#   DEFECT 2 — install-time github.com fetch, which contradicts Pillar 5.
+#   The post-install oidc-config Job CrashLoopBackOff'd on
+#   `curl: (28) Connection timed out after 120001 milliseconds`. Cutover
+#   step-08 (`egress-block-test`) holds a 10-minute deny-egress NetworkPolicy
+#   against github.com / ghcr.io / harbor.openova.io and requires the cluster
+#   to reconcile green through it — that hold IS the sovereignty proof
+#   (ADR-0002). A customer Application that reaches GitHub to install cannot
+#   exist on a sovereign Sovereign. FOUR install-time fetch sites existed, not
+#   two: deployment.yaml's wp-plugin-install init (downloads.wordpress.org +
+#   github.com), oidc-config-job.yaml step 0 (github.com) and step 4
+#   (github.com), and step 7's `wp theme install` fallback — always reachable,
+#   because the Job's emptyDir masks the image's bundled themes.
+#   SEAM REUSED, NOT INVENTED — this repo mirrors exactly two artifact classes
+#   into a post-cutover Sovereign's Harbor: OCI container images and Helm
+#   charts (cutover step-03 `harbor-prewarm`). There is NO mirroring path for
+#   plain file artifacts. So the bytes now travel as layers of an image already
+#   in the prewarm set: `wordpress-tenant-pg`, which
+#   platform/self-sovereign-cutover/chart/Chart.yaml already names verbatim as
+#   a tag+digest-pinned prewarm source.
+#   FIX — image/Dockerfile bakes pinned pg4wp + openid-connect-generic into
+#   /usr/src/openova-wp-artifacts with build-time assertions (including a uid-33
+#   read/copy probe); both consumers copy from there and FAIL CLOSED if it is
+#   absent, with no network fallback; core's bundled themes are seeded into the
+#   Job so step 7 never fetches. The plugin slug is now the bare
+#   `openid-connect-generic` in BOTH places — the pre-existing mismatch (Job
+#   activated `openid-connect-generic`, PVC held `daggerhart-openid-connect-
+#   generic`) left active_plugins pointing at a file the runtime PVC never had.
+#   The oidc-config Job also gains imagePullSecrets: its new wp-artifacts init
+#   runs the PRIVATE ghcr image, and without them it ImagePullBackOffs.
+version: 0.4.24
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one

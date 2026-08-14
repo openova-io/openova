@@ -598,6 +598,32 @@ networkPolicy:
     # namespace; operator overrides if it lives elsewhere.
     keycloakNamespaceLabel: "keycloak"
     keycloakPort: 8443
+  # ─── CNPG-operator status-probe carve-out (#6311, Refs #3988 #4282) ────
+  # This chart lands its CNPG Cluster in the Organization's OWN namespace,
+  # which carries the `default-deny-all` + `allow-same-org` pair stamped by
+  # the Organization controller's GitOps tree. `allow-same-org` re-opens
+  # SAME-NAMESPACE traffic only, so the cnpg-system OPERATOR (a different
+  # namespace) cannot reach the instance Pod's :8000/pg/status probe — the
+  # Cluster then parks at "Instance Status Extraction Error: HTTP
+  # communication issue" / Ready=False while Postgres is 1/1 Running and
+  # serving SQL (measured on hw296 walktwo/wordpress-db with quota
+  # eliminated as a variable; the control walkone/postgres, which carries
+  # the #4282 carve-out, read "Cluster in healthy state" 3/3).
+  #
+  # templates/networkpolicy-cnpg-operator-probe.yaml opens ONLY those two
+  # operator ports from ONLY the operator namespace — additive; it does not
+  # weaken default-deny-all or allow-same-org. No broad consumer 5432 rule
+  # (the bp-postgres #4442 `sharedConsumers` shape) is needed here: this
+  # Cluster's only consumers are the WordPress Deployment + hook Jobs in the
+  # SAME namespace, already admitted by allow-same-org.
+  #
+  # Set false only on a cluster whose per-Org namespaces carry NO
+  # default-deny baseline (then the carve-out is inert anyway).
+  cnpgOperator:
+    enabled: true
+    operatorNamespace: cnpg-system
+    operatorStatusPort: 8000
+    operatorMetricsPort: 9187
 # ─── ServiceMonitor ─────────────────────────────────────────────────────
 # Default false per docs/BLUEPRINT-AUTHORING.md §11.2 (Observability
 # toggles must default false). Operator opts in via per-cluster overlay

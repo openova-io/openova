@@ -70,12 +70,15 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
-    # ── HTTPS egress (Keycloak realm URL if external, plugin/theme
-    #    fetches at first install) ────────────────────────────────
-    # The cluster's egress-gateway enforces destination policy
-    # globally; this rule just opens the wire. Used by the WP plugin
-    # installer initContainer to pull `openid-connect-generic` +
-    # `pg4wp` zips from wordpress.org / GitHub. Cloud-egress IPs
+    # ── HTTPS egress (an EXTERNAL Keycloak realm URL; User-initiated
+    #    plugin/theme installs from /wp-admin) ────────────────────
+    # NOT used at install time any more (#6311): pg4wp, the OIDC plugin
+    # and core's bundled themes now travel inside the runtime image and
+    # are copied locally, so a fresh Organization converges with this
+    # rule denied — which is what cutover step-08's deny-egress hold
+    # requires. The rule stays for the two remaining legitimate uses
+    # above; the cluster's egress-gateway enforces destination policy
+    # globally and this rule just opens the wire. Cloud-egress IPs
     # only — internal RFC1918 ranges are excluded so this rule
     # cannot accidentally reach intra-cluster services on :443.
     - to:
