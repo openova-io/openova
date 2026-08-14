@@ -1323,6 +1323,24 @@ if [ "$C_FAIL" -gt 0 ]; then
   echo "════════════════════════════════════════════════════════════════════════"
   exit 1
 fi
+# A PARTIAL run must never issue a full run's verdict.
+#
+# --no-ghcr skips check 1b (open-PR claims) and all of check 3 (does the pin
+# actually resolve). What remains is real and worth having — it is the whole
+# structural half — but "no failures among the checks I ran" is not "safe to
+# fire", and printing the same green sentence for both is how a fast mode
+# quietly becomes the mode everyone uses. Same discipline as refusing to let a
+# failed read read as a pass: say what was measured.
+if [ "$DO_GHCR" = 0 ]; then
+  echo " VERDICT: PARTIAL PASS — no failures in the checks that ran."
+  echo
+  echo " NOT a fire clearance. --no-ghcr skipped:"
+  echo "   · check 1b — whether two open PRs claim the same chart version"
+  echo "   · check 3  — whether the delivery pins resolve on GHCR at all"
+  echo " Both need the GitHub API. Re-run without --no-ghcr before firing."
+  echo "════════════════════════════════════════════════════════════════════════"
+  exit 0
+fi
 echo " VERDICT: COHERENT — the train is safe to fire."
 echo "════════════════════════════════════════════════════════════════════════"
 exit 0
