@@ -1115,6 +1115,79 @@ helmRepositories:
     gitRepositoryName: "openova-org-tenants"
     gitRepositoryNamespace: "flux-system"
 
+  # ── #6309: per-Org `<slug>/catalyst-tenant` DURABLE-SOURCE pivot (Phase-2d) ─
+  #
+  # THE THIRD REPO CLASS. Three kinds of GitOps repo carry HelmRepository URLs
+  # on a Sovereign; before 0.1.188 the cutover pivoted two of them:
+  #
+  #   clusters/_template/bootstrap-kit  committed in-repo    step-05 / step-06
+  #   clusters/<fqdn>/org-tenants       catalyst-api         Phase-2b (#6293)
+  #   <slug>/catalyst-tenant            org-services/        NOTHING
+  #                                       provisioning
+  #
+  # The third is one repo PER ORGANIZATION, written by GeneratePerOrgAppsTree
+  # into `vcluster/apps/` + `vcluster/host-apps/`, and reconciled onto the host
+  # `<slug>` namespace by the org-controller's `catalyst-tenant-<slug>-apps` /
+  # `-host-apps` Kustomizations. Because the per-Org Kustomization carries
+  # `targetNamespace: <slug>`, those HelmRepositories land OUTSIDE
+  # helmRepositories.namespace — which is why assert_region_a_pivot (scoped to
+  # flux-system) structurally cannot see them and step-11's cluster-wide `-A`
+  # scan is what caught them on hw296:
+  #
+  #   walkfour/bp-stalwart-tenant = oci://ghcr.io/openova-io
+  #   walkfive/bp-stalwart-tenant = oci://ghcr.io/openova-io
+  #
+  # THE COUNT SCALES WITH THE NUMBER OF ORGANIZATIONS. That is the whole reason
+  # this must be a cutover step and not a manual repair: the more the platform
+  # is used, the more offenders a cutover inherits. The scan is therefore driven
+  # from the LIVE Organization list — Organization CRs UNION the live
+  # `catalyst-tenant-*` Flux GitRepositories — and never from a curated set. An
+  # Org created five minutes before the cutover is scanned like any other.
+  #
+  # The generator itself is already correct: #5629/#5527 resolveCatalogOCIBase
+  # reads the step-07 CATALYST_LOCAL_REGISTRY_URL stamp as its FIRST branch, so
+  # every per-Org tree written after the cutover is born pivoted. This leg is for
+  # the trees written before it, whose only other trigger is a day-2 app install.
+  perOrgTenantSource:
+    enabled: true
+    # MUST track the org-controller's perOrgTenantRepoName constant
+    # (core/controllers/organization/internal/controller/per_org_flux.go) and
+    # org-services/provisioning's TENANT_GITOPS_REPO. One naming decision seen
+    # from three sides; a mismatch is a silent no-op.
+    repoName: "catalyst-tenant"
+    branch: "main"
+    # Where the per-Org GitRepository + Kustomizations live (per_org_flux.go
+    # creates them in flux-system, not in the Org namespace).
+    fluxNamespace: "flux-system"
+    # The trees the per-Org Kustomizations actually reconcile
+    # (gitops/perorg_apps_tree.go PerOrgAppsDir + PerOrgHostAppsDir). Both sit
+    # under `vcluster/`, so one entry covers them; rewriting anything outside a
+    # reconciled path would be divergence with no reconciler behind it.
+    treePaths:
+      - "vcluster"
+    # Suffixes of the HR-owning per-Org Kustomizations, appended to
+    # `<repoName>-<slug>-`. These are the objects whose re-apply the Stage-2
+    # read-back waits to OBSERVE (status.lastHandledReconcileAt == the poked
+    # token) before certifying the pivot durable.
+    kustomizationSuffixes:
+      - "apps"
+      - "host-apps"
+    # Presence is probed before listing, and ABSENCE must be established from a
+    # NotFound — `kubectl get crd` exits non-zero for both "not installed" and
+    # "forbidden", and treating a refusal as an absence would silently drop
+    # every Organization from the scan.
+    organizationCRD: "organizations.orgs.openova.io"
+    # Read-back budget, per stage. Stage 1 waits for the durable rewrite to
+    # reach the live objects; Stage 2 waits for the owning Kustomization to
+    # HANDLE a token minted after Stage 1 went clean. Both are inside
+    # stepTimeouts.helmRepositoryPatchesSeconds (2400s) alongside the region-A
+    # read-back and the Phase-3a strip-readiness worst case.
+    readbackBudgetSeconds: 300
+    # Consecutive clean samples required in Stage 2, the last of which must land
+    # at or after the observed re-apply.
+    readbackSettleSamples: 2
+    readbackIntervalSeconds: 10
+
   # ── #5650: vcluster loft chart-source pivot (step-06 Phase-2c) ──────────
   #
   # The ONE Flux source the URL-pivot above cannot reach. The

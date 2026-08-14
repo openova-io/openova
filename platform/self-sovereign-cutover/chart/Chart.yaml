@@ -3868,7 +3868,120 @@ name: bp-self-sovereign-cutover
 # push-target assertions. Slot-06a pin + blueprint.yaml + catalog-seed
 # spec.version + source.version + the API blueprints.json + the generated UI
 # catalog move to 0.1.187 in lockstep (Inviolable Principle #13).
-version: 0.1.187
+#
+# 0.1.188 (#6309) — THE CUTOVER PIVOTED TWO OF THE THREE GITOPS REPO CLASSES
+# THAT HOLD HelmRepository URLs, SO G11 (#3379) COULD NOT CLOSE EVEN ON A
+# SOVEREIGN THAT RECEIVED 0.1.187. Confirmed two ways before a line was written:
+# `grep -rn catalyst-tenant platform/self-sovereign-cutover/` returned 0 hits
+# across the entire chart, and `git show 5447fa8e7 | grep catalyst-tenant` (the
+# 0.1.187 commit itself) returned 0 hits.
+#
+#   class                          writer                     pivoted by
+#   ─────────────────────────────  ─────────────────────────  ─────────────────
+#   clusters/_template/bootstrap-  committed in this repo     step-05 / step-06
+#     kit slots
+#   clusters/<fqdn>/org-tenants    catalyst-api               Phase 2b (#6293)
+#     (branch org-tenants)           writeParentTenantsIndex
+#   <slug>/catalyst-tenant@main    org-services/provisioning  NOTHING
+#
+# Live on hw296 AFTER 0.1.187 pivoted the org-tenants class at source, step-11's
+# #3526 pre-hold assert still failed on exactly two offenders — down from six,
+# never to zero:
+#
+#   walkfour/bp-stalwart-tenant = oci://ghcr.io/openova-io
+#   walkfive/bp-stalwart-tenant = oci://ghcr.io/openova-io
+#
+# whose durable source is the third class:
+#
+#   walkfour/catalyst-tenant@main : vcluster/host-apps/app-stalwart-mail.yaml:20
+#   walkfive/catalyst-tenant@main : vcluster/apps/app-stalwart-mail.yaml:20
+#
+# Region B was clean, 65/65 on the local registry, so this is not a per-region
+# split — it is a repo class nothing walked.
+#
+# THE COUNT SCALES WITH THE NUMBER OF ORGANIZATIONS. One `catalyst-tenant` repo
+# exists per Org, written by GeneratePerOrgAppsTree into `vcluster/apps/` and
+# `vcluster/host-apps/` and reconciled onto the host `<slug>` namespace by the
+# org-controller's `catalyst-tenant-<slug>-apps` / `-host-apps` Kustomizations.
+# The more the platform is used, the more offenders a cutover inherits — which
+# is why the fix is a cutover step and not a repair, and why Phase-2d's scan is
+# driven from the LIVE Organization list (Organization CRs UNION the live
+# `catalyst-tenant-*` Flux GitRepositories) rather than any curated set. A
+# hardcoded list is wrong the moment the next Org is created; that is the same
+# drift #4573 F4 already fixed for the Phase-1 name list.
+#
+# WHY assert_region_a_pivot COULD NOT SEE THEM. The generated HelmRepository doc
+# says `namespace: flux-system`, but the per-Org Kustomization carries
+# `targetNamespace: <slug>`, which wins — so these objects live in the Org's own
+# namespace. assert_region_a_pivot is scoped to HELMREPO_NAMESPACE and is
+# therefore structurally blind to them; step-11's cluster-wide `-A` scan is what
+# found them. Phase-2d's read-back enumerates `-A` and narrows to the Orgs it
+# pivoted.
+#
+# THE READ-BACK DOES NOT REPEAT 0.1.186. That release's Phase-1.5 read-back
+# logged `ok=6` and `read-back OK`, and all six HelmRepositories reverted within
+# 60s under a 1m/prune=true Kustomization. It could pass because it sampled ONCE,
+# right after the write, with no requirement that the actor which would revert
+# the write had run at all. Phase-2d is two-stage:
+#   Stage 1 CONVERGE — poll to zero offenders across the pivoted Orgs, re-poking
+#     each cycle. A durable rewrite has to be fetched and re-applied before the
+#     live objects settle, so this stage may start dirty; never reaching zero is
+#     FATAL and names its offenders.
+#   Stage 2 SURVIVE — mint a token AFTER Stage 1 is clean, poke every per-Org
+#     HR-owning Kustomization with it, and refuse to certify an Org until one of
+#     ITS Kustomizations reports `status.lastHandledReconcileAt` EQUAL to that
+#     token. That field means the re-apply HAPPENED, not that a reconcile was
+#     requested. Offenders must be zero on EVERY sample in that window.
+# So the gate cannot return green until the exact reconciler that reverted the
+# 0.1.186 pivot has run against the rewritten source and left it standing. Two
+# exemptions, both EXPLICIT and both logged (the #5596 discipline): an Org with
+# no per-Org Kustomization has nothing that re-applies its HelmRepositories, and
+# a SUSPENDED Kustomization never handles a reconcile request and can never
+# re-apply — so neither can revert the pivot, and requiring either to handle the
+# token would time the assert out on a healthy Sovereign. The suite's D9b control
+# runs the identical fixture WITHOUT suspension and requires it to FAIL, so the
+# exemption cannot widen into "durability is never actually required".
+#
+# FAIL-CLOSED ENUMERATION. A FAILED GitRepository listing is not an empty Org
+# list (FATAL). The Organization CRD being INSTALLED but unlistable — the shape a
+# missing RBAC grant produces — is FATAL, never "this Sovereign has no Orgs". CRD
+# ABSENCE must be established from a NotFound, because `kubectl get crd` exits
+# non-zero for both "not installed" and "forbidden". Repo existence is decided by
+# an HTTP status code (404 = absent, anything else non-200 = FATAL), because
+# `git ls-remote` fails identically for a missing repo and a bad credential.
+# A repo that EXISTS but carries no branch yet is a real, benign state — the
+# org-controller creates the per-Org repo before anything seeds a tree into it,
+# so an Org created shortly before the cutover is legitimately empty and
+# `git clone --branch main` fails there. That is separated from a credential
+# fault the same way: ls-remote SUCCEEDING with no matching ref is an absent
+# branch and skips; ls-remote FAILING against a repo the API just reported
+# present is fatal. Without that split, one fresh Organization would stop the
+# whole cutover.
+#
+# GUARDS. chart/tests/step06-perorg-tenant-source.sh — 47 assertions, exit 0 —
+# runs the RENDERED phase2d.sh bytes against REAL local git repositories and
+# reads every verdict out of the BARE origin. Section L is the property that
+# matters beyond hw296: the fixture carries an Org present ONLY as an
+# Organization CR (no Flux source), one present ONLY as a Flux source (no CR),
+# and one introduced by the fixture and named nowhere in the chart — all three
+# must be scanned, so a suite that fed the code the list the code already knows
+# would fail. Ten single-behaviour mutants prove each case individually; M6 is
+# the headline — deleting Stage 2 makes the D2 revert fixture PASS, which is what
+# turns D2 into a proof of the anti-race property rather than a lucky sample. The
+# new `orgs.openova.io/organizations` grant is asserted DIRECTLY against the
+# rendered ClusterRole with no stub in the path (a stubbed kubectl can never be
+# RBAC-refused — the #6280 blind spot) and R4b deletes the rule to prove the
+# assertion can go red. Slot-06a pin + blueprint.yaml + catalog-seed
+# spec.version + source.version + the API blueprints.json + the generated UI
+# catalog move to 0.1.188 in lockstep (Inviolable Principle #13).
+#
+# NOT FIXED HERE, RECORDED: step 11 has ~8 further gates that have never executed
+# on hw296 — catalyst-api CATALYST_GITOPS_REPO_URL, offline-mirror completeness,
+# workload image-host lint, per-region Flux source-host lint, source convergence
+# on gitrepositories/ocirepositories, Crossplane provider-package host lint, and
+# org-tenants Kustomization Ready. Clearing these offenders unblocks step-11's
+# #3526 pre-hold assert; it does not imply the step passes.
+version: 0.1.188
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
