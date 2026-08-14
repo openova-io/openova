@@ -133,6 +133,9 @@ rules:
   - apiGroups: ["catalyst.openova.io"]
     resources: ["blueprints"]   # step 03 (#5443) Phase A2-catalog enumerates the LIVE Blueprint CRs — what the marketplace OFFERS — so harbor-prewarm mirrors the catalog's chart set, not only the charts something already installed. Cluster-scoped CRD; read-only.
     verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["namespaces"]   # step 03 (#6280) Phase A0 partitions settled-roll offenders by OWNERSHIP: Organization namespaces are read by the openova.io/organization label the org-controller stamps, so a customer's failed Application warns instead of fail-closing the cutover (#6273). Cluster-scoped; read-only. WITHOUT this grant the partition cannot list and the gate — correctly refusing to fail open — stops the cutover at the same step it was meant to unblock.
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["cilium.io"]
     resources: ["ciliumnetworkpolicies"]
     verbs: ["get", "list", "watch"]

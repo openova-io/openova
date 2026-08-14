@@ -1431,7 +1431,15 @@ spec:
       #   openova.io/organization namespace label: platform namespaces stay
       #   FATAL, Organization namespaces warn and proceed. Lockstep w/
       #   products/catalyst/chart/Chart.yaml.
-      version: 1.4.1473
+      # 1.4.1474 — #6280: catalog-seed advances bp-self-sovereign-cutover
+      #   0.1.185 -> 0.1.186. 0.1.185 shipped the Phase A0 ownership partition
+      #   above but NOT the RBAC it needs: the runner ServiceAccount has no
+      #   `namespaces` rule, so `kubectl get namespaces -l
+      #   openova.io/organization` was refused and the gate — correctly
+      #   refusing to fail open on a roll state it cannot read — stopped the
+      #   cutover at the same step it was meant to unblock. Measured on hw296.
+      #   Lockstep w/ products/catalyst/chart/Chart.yaml.
+      version: 1.4.1474
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
