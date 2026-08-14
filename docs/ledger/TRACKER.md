@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-14T01:15:03Z` |
+| Last refreshed | `2026-08-14T01:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-14T01:23 | [#6290](https://github.com/openova-io/openova/pull/6290) | #6287 | docs(uat): row 60 — record #6287 as merged, and that it is N |
+| 2026-08-14T01:16 | [#6287](https://github.com/openova-io/openova/pull/6287) | #6271 | fix(application-controller): a hot standby must not be rende |
 | 2026-08-14T00:52 | [#6285](https://github.com/openova-io/openova/pull/6285) | #6271 | docs(uat): row 60 — the fix is live, and the standby leg nev |
 | 2026-08-14T00:41 | [#6284](https://github.com/openova-io/openova/pull/6284) | #4482 | docs(uat): the Anthropic credential had two missing writers  |
 | 2026-08-14T00:37 | [#6283](https://github.com/openova-io/openova/pull/6283) | #6282 | docs(uat): rows 63/212/213 walked green on hw296 after insta |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-13T17:38 | [#6248](https://github.com/openova-io/openova/pull/6248) | #6243 | docs(uat): hw296 live walk — 26 rows stamped; the env carrie |
 | 2026-08-13T17:16 | [#6247](https://github.com/openova-io/openova/pull/6247) | #6246 | fix(bootstrap-kit): slot 13 carries unresolved conflict mark |
 | 2026-08-13T17:12 | [#6246](https://github.com/openova-io/openova/pull/6246) | #6230 | fix(bp-k8s-ws-proxy,bp-guacamole): the seeded Guacamole conn |
-| 2026-08-13T17:01 | [#6245](https://github.com/openova-io/openova/pull/6245) | #4482 | fix(anthropic-seed): a credential that cannot authenticate i |
-| 2026-08-13T16:50 | [#6244](https://github.com/openova-io/openova/pull/6244) | #6240 | docs(ledger): convergence capture 2026-08-13T16:44:11Z — hw2 |
 
 ---
 
