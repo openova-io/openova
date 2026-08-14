@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-14T04:00:03Z` |
+| Last refreshed | `2026-08-14T04:15:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-14T04:04 | [#6303](https://github.com/openova-io/openova/pull/6303) | #5436 | fix(cutover): step-06 pivots the org-tenants HelmRepository  |
 | 2026-08-14T03:26 | [#6302](https://github.com/openova-io/openova/pull/6302) | #6301 | docs(uat): row 60 — the second producer gap is FIXED and mer |
 | 2026-08-14T03:21 | [#6301](https://github.com/openova-io/openova/pull/6301) | #6291 | fix(catalyst-api): resolve the DR standby half ACROSS region |
 | 2026-08-14T02:24 | [#6299](https://github.com/openova-io/openova/pull/6299) | #6291 | docs(uat): row 60 — the missing producer is built and merged |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-13T20:18 | [#6261](https://github.com/openova-io/openova/pull/6261) | #6255 | docs(uat): hw296 first-measurement walk — 28 SSO + Jobs Re-r |
 | 2026-08-13T21:51 | [#6259](https://github.com/openova-io/openova/pull/6259) | #6255 | fix(cilium): the Gateway-API controller must survive a slow  |
 | 2026-08-13T19:46 | [#6258](https://github.com/openova-io/openova/pull/6258) | #6250 | fix(uat): carry-forward outranks the flush rule it replaced  |
-| 2026-08-13T19:54 | [#6257](https://github.com/openova-io/openova/pull/6257) | #4293 | fix(catalyst): four unowned UAT rows — G7 plan door, row 60  |
 
 ---
 
