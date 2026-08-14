@@ -31,7 +31,7 @@ M2,apps,4477,newapi admin-token seeded into OpenBao at provision (was unseeded �
 M3,network,4475,vcluster-tier CNP applied host-side — the per-Org vcluster tier carries its split CNP.
 M4,apps,4111,agenity image-pull half — fresh-install ghcr-pull path.
 G1,adoption,4488,crossplane provider-opentofu Observe-only adoption populates on the fresh prov.
-G2,apps,4477,newapi ES-sync drives the admin token into a fresh per-Org newapi (seed merged in M2).
+G2,apps,4477,"newapi admin-token ES-sync is **Sovereign-scoped by design**: the ExternalSecret + PushSecret pair reconciles green in ns `newapi` and the produced Secret is reflector-mirrored into `catalyst-system` for its one consumer, and any per-Organization `bp-newapi` release renders `catalystIntegration.enabled: false` so it can never clobber the Sovereign-wide bearer (#5987, #6074)."
 G3,dr,"4486,6111","On a two-region Sovereign every `continuums.dr.openova.io` CR declares a standby and every cnpgPair-backed one proves it reachable: `spec.hotStandbyRegions` is non-empty on ALL of them, and `StandbyAvailable=True` on every Continuum that carries a `spec.cnpgPair` binding (a `dr-spine` Continuum has no cnpgPair and correctly carries no such condition) — the DR model never silently degrades to a standby-less pair on the topology the DoD actually ships. VACUITY GUARD: ZERO Continuum CRs on the Sovereign is a FAIL, not a pass — a DR model that never mints the CR is the exact silent degradation this row exists to catch; and an empty listing taken from the wrong API group is indistinguishable from a real absence, so the group MUST be `dr.openova.io`."
 G4,adoption,4431,A janitor pass with the destructive gate CLOSED reports its cloud sweeps under a `…WouldReap` key and NEVER under a `…Deleted` key — a dry run must not report deletions that did not happen (#5545).
 G5,janitor,4466,janitor log-only live proof (the dry-run full-cycle observation).
@@ -150,7 +150,7 @@ G12,dr,4275,"region-kill (Pillar-3) — kill a region, prove failover + recovery
 106,placement,3642,"Every Organization owns EXACTLY ONE host namespace labelled `openova.io/organization=<slug>` — org-labelled namespace count equals the count of Organization CRs, at every tier; no orphan namespace, no missing one."
 107,placement,3642,Deleting an Organization removes its vCluster StatefulSet — no orphaned vCluster survives the delete cascade.
 108,placement,3642,"Placement is read from RUNTIME (the observed pod/namespace), not from the Application CR's declared field — a declared value that disagrees with reality must lose."
-109,sso,688,"(a) the console `/settings` profile renders the owner with no second login; (b) if the Keycloak account console is reached directly it fails loud and legibly, and NO console navigation links a User to it."
+109,sso,688,"(a) the console `/settings` profile renders the owner with no second login; (b) reaching the Keycloak account console directly leaves the User on a working surface rather than stranded — both SPA entry paths 302 in ONE hop to `/settings`, which renders the owner's profile at 200, while the account REST surface keeps answering; and NO console navigation links a User to it."
 110,sso,3374,"Gitea opens already signed in (avatar/menu shows the SSO user), repo list renders — no Gitea login form."
 111,sso,3374,"Harbor opens signed in, the projects list renders — no Harbor login form, no gateway error page."
 112,sso,3374,"Grafana opens signed in (no Grafana login), the home dashboard renders."
