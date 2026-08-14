@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-14T02:15:03Z` |
+| Last refreshed | `2026-08-14T02:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5895](https://github.com/openova-io/openova/issues/5895) | P1: first visit to a per-Org console dead-ends on a BLANK page — prompt=none s | Other |
-| [#5910](https://github.com/openova-io/openova/issues/5910) | Row 95: a purchased app silently vanishes — resolveAppSlugs substitutes the ra | Other |
 | [#5919](https://github.com/openova-io/openova/issues/5919) | hw292 cut over on chart 0.1.159 — twelve versions before the #5710 durable piv | Other |
 | [#5920](https://github.com/openova-io/openova/issues/5920) | Marketplace still sells 'Sandbox' — a concept retired 2026-06-30 — and a sou | Other |
 | [#5921](https://github.com/openova-io/openova/issues/5921) | P0 sovereignty: post-cutover Sovereign sends customer sign-in mail via mail.open | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#6289](https://github.com/openova-io/openova/issues/6289) | The cutover engine has no Lease — an outgoing catalyst-api Pod can drive the s | Other |
 | [#6293](https://github.com/openova-io/openova/issues/6293) | Cutover step 6 patches HelmRepositories owned by the org-tenants Kustomization � | Other |
 | [#6294](https://github.com/openova-io/openova/issues/6294) | harbor-prewarm enumerates the same destination twice and the redundant push fail | Other |
+| [#6297](https://github.com/openova-io/openova/issues/6297) | bp-alloy slot 21: the Sovereign's own telemetry DaemonSet is denied on re-admiss | Other |
+| [#6298](https://github.com/openova-io/openova/issues/6298) | Seven workflows run an unpinned azure/setup-helm — including check-no-nodeport | Other |
 
 ---
 
@@ -307,7 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-14T02:24 | [#6299](https://github.com/openova-io/openova/pull/6299) | #6291 | docs(uat): row 60 — the missing producer is built and merged |
+| 2026-08-14T02:23 | [#6295](https://github.com/openova-io/openova/pull/6295) | #6280 | docs(uat): the cutover was DRIVEN on hw296 and died at step  |
 | 2026-08-14T02:03 | [#6292](https://github.com/openova-io/openova/pull/6292) | #6258 | docs(uat): walk the 8 withheld pending rows live on hw296 —  |
+| 2026-08-14T02:16 | [#6291](https://github.com/openova-io/openova/pull/6291) | #6287 | feat(catalyst-api): write the per-Org standby HelmRelease in |
 | 2026-08-14T01:23 | [#6290](https://github.com/openova-io/openova/pull/6290) | #6287 | docs(uat): row 60 — record #6287 as merged, and that it is N |
 | 2026-08-14T01:16 | [#6287](https://github.com/openova-io/openova/pull/6287) | #6271 | fix(application-controller): a hot standby must not be rende |
 | 2026-08-14T00:52 | [#6285](https://github.com/openova-io/openova/pull/6285) | #6271 | docs(uat): row 60 — the fix is live, and the standby leg nev |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-13T19:09 | [#6254](https://github.com/openova-io/openova/pull/6254) | #6246 | fix(cutover): a hollow chart pin is TERMINAL, not "wait for  |
 | 2026-08-13T18:22 | [#6252](https://github.com/openova-io/openova/pull/6252) | #6246 | fix(guards): the expected bootstrap DAG never learned the tw |
 | 2026-08-13T18:13 | [#6251](https://github.com/openova-io/openova/pull/6251) | #3537 | fix(sovereign-api): the /apps estate is Application-keyed, n |
-| 2026-08-13T18:05 | [#6250](https://github.com/openova-io/openova/pull/6250) | #6236 | fix(uat): the drift guard and reset-uat encoded two founder  |
-| 2026-08-13T17:38 | [#6248](https://github.com/openova-io/openova/pull/6248) | #6243 | docs(uat): hw296 live walk — 26 rows stamped; the env carrie |
-| 2026-08-13T17:16 | [#6247](https://github.com/openova-io/openova/pull/6247) | #6246 | fix(bootstrap-kit): slot 13 carries unresolved conflict mark |
 
 ---
 
