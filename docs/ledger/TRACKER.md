@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-14T13:15:05Z` |
+| Last refreshed | `2026-08-14T13:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5945](https://github.com/openova-io/openova/issues/5945) | Placement editor offers retired vCluster names (host/mgmt/dmz/rtz) and preselect | Other |
 | [#5955](https://github.com/openova-io/openova/issues/5955) | P1: Application reports Ready=True over a database with ZERO ready instances — | Other |
 | [#5956](https://github.com/openova-io/openova/issues/5956) | P0: the Anthropic credential in openbao is REVOKED — every health surface repo | Other |
 | [#5975](https://github.com/openova-io/openova/issues/5975) | check-release-lockstep-writer.py leaks multi-GB scratch clones, then reports the | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6318](https://github.com/openova-io/openova/issues/6318) | Build bp-specter — realize the AIOps component the wizard catalog used to offe | Other |
 | [#6319](https://github.com/openova-io/openova/issues/6319) | PIN sign-in is dead program-wide: an app_ready event storm NAKs against a 25/hou | Other |
 | [#6324](https://github.com/openova-io/openova/issues/6324) | Per-Org bp-newapi quota guards model one 500m container; the ResourceQuota admit | Other |
+| [#6336](https://github.com/openova-io/openova/issues/6336) | Fresh prov wedges at 0 HelmReleases: bootstrap GitRepository clones 938MB of his | Other |
 
 ---
 
