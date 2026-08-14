@@ -228,11 +228,7 @@ export const logo_openmeter = Badge('#7C3AED', '#fff',
     <path d="M4 13h11" stroke="#fff" strokeWidth="1" strokeLinecap="round"/></>
 )
 
-export const logo_specter = Badge('#818CF8', '#fff',
-  // Specter (OpenOva AI): eye / radar
-  <><ellipse cx="9" cy="9" rx="5" ry="3.5" stroke="#fff" strokeWidth="1.3" fill="none"/>
-    <circle cx="9" cy="9" r="1.5" fill="#fff"/></>
-)
+// logo_specter removed with the Specter catalog card — UAT row W5 / #6183.
 
 // ── FABRIC ─────────────────────────────────────────────────────────
 export const logo_cnpg = Badge('#336791', '#fff',
@@ -427,7 +423,6 @@ export const COMPONENT_LOGOS: Record<string, React.ReactNode> = {
   opensearch:       logo_opensearch,
   litmus:           logo_litmus,
   openmeter:        logo_openmeter,
-  specter:          logo_specter,
   cnpg:             logo_cnpg,
   valkey:           logo_valkey,
   strimzi:          logo_strimzi,

@@ -896,7 +896,9 @@ export function StepComponents() {
       // product whose entire member set was just added (i.e. the product
       // whose cascadeOnMemberSelection flag fired through the store's
       // walk). This is robust whether the seed was a CORTEX member (BGE)
-      // or an INSIGHTS member (Specter) whose deps reach into CORTEX.
+      // or an out-of-family member whose `familyRequires` reaches into
+      // CORTEX — the shape Specter had before its card was removed under
+      // UAT row W5 / #6183, and the shape it regains at #6318.
       const afterSet = new Set(afterSel)
       const triggeredFamily = PRODUCTS.find((p) =>
         p.cascadeOnMemberSelection &&

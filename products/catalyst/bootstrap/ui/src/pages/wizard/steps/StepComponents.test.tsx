@@ -48,6 +48,7 @@ import {
   resolveTransitiveDependencies,
   resolveTransitiveDependents,
   resolveProductComponentClosure,
+  resolveCatalogDependencies,
   findComponent,
   findProduct,
   componentsByProduct,
@@ -272,10 +273,11 @@ describe('component catalog', () => {
   })
 
   it('components flagged with logoUrl: null fall back to the letter-mark', () => {
-    // PowerDNS, BGE, and the OpenOva-internal Axon / Continuum / Specter
-    // components have no upstream brand mark suitable for the card — they
-    // render via IconFallback, not an <img> element.
-    for (const id of ['powerdns', 'bge', 'axon', 'continuum', 'specter']) {
+    // PowerDNS, BGE, and the OpenOva-internal Axon / Continuum components
+    // have no upstream brand mark suitable for the card — they render via
+    // IconFallback, not an <img> element. (`specter` left this list with
+    // its card — UAT row W5 / #6183.)
+    for (const id of ['powerdns', 'bge', 'axon', 'continuum']) {
       const entry = findComponent(id)
       expect(entry).toBeTruthy()
       expect(entry!.logoUrl).toBeNull()
@@ -1029,43 +1031,65 @@ describe('product-family model (issue #175 fix B)', () => {
   })
 
   /**
-   * Regression guard — this WAS red on `main`. Do NOT relax it, and do
-   * NOT "fix" it by deleting the expectation.
+   * `familyRequires` — the product-family SELECTION layer, tested with no
+   * component declaring it.
    *
-   * The Specter → CORTEX product rule is operator-requested (issue #175:
-   * "when Specter is selected all the Cortex family is required") and is
-   * documented in the catalog in two places:
-   *   the Specter ComponentDef — "Specter requires the entire CORTEX
-   *     family at runtime … selecting Specter adds the full CORTEX family
-   *     even if the user never opens the CORTEX chip."
-   *   the INSIGHTS Product entry — "Selecting the INSIGHTS product as a
-   *     whole brings in Specter, which in turn pulls CORTEX through the
-   *     component->product cascade chain."
-   * It used to be written as a literal
+   * History it exists to protect (issue #175, "when Specter is selected all
+   * the Cortex family is required"). The rule was first written as a literal
    *   dependencies: ['bge','milvus','langfuse','vllm','kserve']
-   * which was DEAD: RAW_COMPONENTS replaces `dependencies` with
-   * `depsFor('specter')`, and there is no bp-specter HelmRelease, so
-   * Specter's dependencies resolved to `[]`. Specter belongs to INSIGHTS
-   * (cascadeOnMemberSelection: false), so nothing else fired either.
+   * on the Specter ComponentDef, and that was DEAD on arrival: RAW_COMPONENTS
+   * replaces `dependencies` wholesale with `depsFor(id)` from the Flux graph,
+   * and no bp-specter HelmRelease exists, so the literal was discarded at
+   * module load and the deps resolved to `[]`. The catalog kept documenting a
+   * cascade the wizard had stopped performing — ticking the AIOps brain
+   * installed it alone, with no AI runtime under it.
    *
-   * Operator-visible symptom was: ticking Specter (the AIOps brain)
-   * installed Specter alone — no vLLM, no Milvus, no BGE, no LangFuse, no
-   * KServe — i.e. an AIOps component with no AI runtime under it.
+   * The fix was to move the rule into the one layer the Flux override cannot
+   * reach, because Flux has no opinion on it: `familyRequires: ['<product>']`,
+   * expanded from the PRODUCTS table by `resolveCatalogDependencies()` at
+   * module load, so the member list can never drift from the family
+   * definition and no per-component id list is hand-maintained.
    *
-   * This is NOT the same class as the other #652 casualties: those were
-   * install-ordering edges the founder ruled Flux owns. This is a
-   * product-family SELECTION rule, which Flux has no opinion on. It now
-   * lives in the layer that survives the Flux override: the Specter
-   * ComponentDef declares `familyRequires: ['cortex']`, and
-   * `resolveCatalogDependencies()` expands it from the PRODUCTS table at
-   * module load — so the member list can never drift from the CORTEX
-   * family definition, and no per-component id list is hand-maintained.
+   * Specter's card is gone (UAT row W5 / #6183), so NO component declares
+   * `familyRequires` today. This test therefore drives the resolver directly
+   * with a synthetic def rather than through a card — otherwise the mechanism
+   * would sit in the source with nothing exercising it, which is the state it
+   * was in when it broke the first time. Restored to a real user at #6318.
    */
-  it('Specter component-level deps cover the major CORTEX runtime members', () => {
-    const specter = findComponent('specter')!
-    for (const dep of ['bge', 'milvus', 'langfuse', 'vllm', 'kserve']) {
-      expect(specter.dependencies).toContain(dep)
+  it('familyRequires expands to the named product’s members (mechanism outlives its last user)', () => {
+    const withFamily = resolveCatalogDependencies({
+      id: 'synthetic-family-requires-probe',
+      name: 'Synthetic',
+      desc: 'Not a card — exercises the familyRequires expansion directly.',
+      tier: 'optional',
+      familyRequires: ['cortex'],
+    })
+    // Every CORTEX member, read from PRODUCTS — not a hardcoded twin list.
+    const cortexMembers = componentsByProduct('cortex').map((c) => c.id)
+    expect(cortexMembers.length).toBeGreaterThan(5)
+    for (const id of cortexMembers) {
+      expect(withFamily).toContain(id)
     }
+
+    // CONTROL — the same def WITHOUT familyRequires must expand to nothing.
+    // Without this the assertion above would also pass on a resolver that
+    // returned the whole catalog for every input.
+    const withoutFamily = resolveCatalogDependencies({
+      id: 'synthetic-family-requires-probe',
+      name: 'Synthetic',
+      desc: 'Not a card — control for the expansion above.',
+      tier: 'optional',
+    })
+    expect(withoutFamily).toEqual([])
+  })
+
+  it('no component declares familyRequires today (its last user was the Specter card)', () => {
+    // Pins the premise of the test above. If someone re-adds a
+    // `familyRequires` user, this fails and points them at the real
+    // cascade tests rather than leaving the synthetic probe as the only
+    // coverage of a mechanism that now has a live caller.
+    const declarers = RAW_COMPONENTS.filter((c) => (c.familyRequires ?? []).length > 0).map((c) => c.id)
+    expect(declarers).toEqual([])
   })
 
   it('LibreChat has no Flux-canonical deps (no bp-librechat HelmRelease)', () => {
@@ -1218,37 +1242,40 @@ describe('addComponent → product family cascade (CORTEX)', () => {
     }
   })
 
-  // Regression guard — pins the Specter → CORTEX defect documented in
-  // full above the "Specter component-level deps" test. The cascade
-  // MECHANISM was always fine (the BGE test directly above proves it
-  // fires); the Specter → CORTEX edge is what had gone missing.
-  it('selecting Specter cascades to every CORTEX component', () => {
-    useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
-    useWizardStore.getState().addComponent('specter')
-    const sel = useWizardStore.getState().selectedComponents
-    for (const c of componentsByProduct('cortex')) {
-      expect(sel).toContain(c.id)
-    }
-  })
+  // The former 'selecting Specter cascades to every CORTEX component' test
+  // was DELETED here with the Specter card (UAT row W5 / #6183). It seeded
+  // `addComponent('specter')`, which now returns the state unchanged
+  // (store.ts:581 — `if (!comp) return s`), so every assertion in it would
+  // have flipped from a cascade proof to a claim about an id that does not
+  // exist. What it actually guarded — that a member-selection cascade
+  // reaches the whole CORTEX family — is covered by 'selecting BGE cascades
+  // to every CORTEX component' directly above, and the `familyRequires`
+  // expansion it depended on is covered by the synthetic-probe test in the
+  // product-family block.
 
   // Audit 2026-04: user-reported defect — "if I select spectoer it is
   // bringing the entire fabric family as well, I dont think there is
-  // such depenency in reality". Ground truth: Specter (AIOps brain)
-  // needs the CORTEX runtime members it lists in `dependencies`. It
-  // does NOT need Strimzi/Kafka, Debezium/CDC, Flink, Temporal,
-  // ClickHouse, Iceberg, or Superset. The previous CORTEX
-  // `familyDependencies: ['fabric']` was over-broad and is removed in
-  // this commit.
-  // ⚠️ CURRENTLY VACUOUS, deliberately kept. This guards the 2026-04
-  // over-cascade regression (CORTEX `familyDependencies: ['fabric']`).
-  // While the Specter → CORTEX defect above is open Specter cascades
-  // NOTHING, so this passes trivially; it regains its teeth the moment
-  // that defect is fixed. Left in place rather than deleted so the
-  // regression stays guarded — do not treat its green as coverage today.
-  it('selecting Specter does NOT auto-select the FABRIC family (regression)', () => {
+  // such depenency in reality". The over-broad cause was CORTEX's
+  // `familyDependencies: ['fabric']`, removed at #0b6bb3ea. CORTEX's real
+  // cross-family needs are cnpg (LangFuse) and a Mongo-compat store
+  // (LibreChat → FerretDB) — component-level edges, not a family pull.
+  //
+  // RETARGETED from `specter` to `bge` (UAT row W5 / #6183). The Specter
+  // seed was already flagged in this file as vacuous — Specter cascaded
+  // nothing while the #175 defect was open — and with the card gone it
+  // would have been vacuous permanently: `addComponent` on an unknown id
+  // is a no-op, so a `not.toContain` sweep after it can never fail. BGE is
+  // a live CORTEX member whose selection DOES fire the family cascade
+  // (proved by the test above), so the exclusion is measured against a
+  // cascade that really ran.
+  it('selecting BGE does NOT auto-select the FABRIC family (regression)', () => {
     useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })
-    useWizardStore.getState().addComponent('specter')
+    useWizardStore.getState().addComponent('bge')
     const sel = useWizardStore.getState().selectedComponents
+    // Vacuity control — the cascade must actually have fired, or the
+    // exclusions below are assertions about an unchanged store.
+    expect(sel).toContain('bge')
+    expect(sel).toContain('librechat')
     for (const id of [
       // 'superset' left this list with its catalog card (UAT row W5 /
       // #5575). A not.toContain on an id that no longer exists can never
@@ -1262,13 +1289,12 @@ describe('addComponent → product family cascade (CORTEX)', () => {
   })
 
   // The former 'selecting Specter does NOT auto-select FerretDB' test was
-  // DELETED here. Its title asserted Specter must not pull FerretDB while
+  // DELETED earlier. Its title asserted Specter must not pull FerretDB while
   // its body asserted the opposite (`toContain('ferretdb')`) — the 2026-04
   // audit inverted the body and left the title behind. Both of its
-  // assertions were duplicates: the `librechat` half restates
-  // 'selecting Specter cascades to every CORTEX component' above, and the
-  // `ferretdb` half restates the LibreChat dependency test in the
-  // product-family block. Nothing it covered is now uncovered.
+  // assertions were duplicates: the `librechat` half restates the CORTEX
+  // cascade test above, and the `ferretdb` half restates the LibreChat
+  // dependency test in the product-family block.
 
   it('selecting clickhouse (FABRIC à-la-carte) does NOT cascade FABRIC', () => {
     useWizardStore.setState({ selectedComponents: [...MANDATORY_COMPONENT_IDS].sort() })

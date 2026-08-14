@@ -24,7 +24,7 @@
  * wizard theme (`--wiz-bg-input`); only the LOGO TILE is brand-locked.
  *
  * Convention for the few OpenOva-internal letter-mark components
- * (axon, bge, continuum, specter, powerdns) without a finalized
+ * (axon, bge, continuum, powerdns) without a finalized
  * upstream brand mark: each is assigned a distinct slate / navy tone
  * from the OpenOva platform palette so the letter mark reads cleanly
  * and the tile doesn't visually clash with any neighbouring brand
@@ -136,8 +136,7 @@ export const LOGO_SURFACE: Record<string, LogoSurface> = {
   litmus:       { background: '#878EDE', border: 'rgba(255,255,255,0.18)', text: '#ffffff' },
   // OpenMeter — magenta on dark ; openmeter.io uses `#1F1F1F` with `#F23173` accent.
   openmeter:    { background: '#1F1F1F', border: 'rgba(255,255,255,0.10)', text: '#F23173' },
-  // Specter — internal letter-mark ; muted indigo from OpenOva INSIGHTS palette.
-  specter:      { background: '#1E1B4B', border: 'rgba(255,255,255,0.10)', text: '#C7D2FE' },
+  // specter removed with its catalog card — UAT row W5 / #6183.
 
   /* ── FABRIC ────────────────────────────────────────────────────── */
   // CloudNative PG — PostgreSQL blue elephant on white ; cloudnative-pg.io uses `#336791` mark on white.

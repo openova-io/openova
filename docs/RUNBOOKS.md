@@ -205,7 +205,7 @@ The wizard's canonical step order (from `STEPS` in `products/catalyst/bootstrap/
 | 2. Topology | Regions, building blocks, HA toggle, CP + worker SKU, worker count | Per #176 SKU pickers driven by `PROVIDER_NODE_SIZES[provider]` |
 | 3. Provider | Hetzner (today); AWS / GCP / Azure / OCI / Huawei design-only | |
 | 4. Credentials | Provider API token + project ID, SSH public key | Validated read-only via `POST /api/v1/credentials/validate`; token redacted from SSE stream |
-| 5. Components | Single flat marketplace card grid (#162) with family chips + search + product-family chip filter | Per #175 dependency-aware cascades pull transitive deps automatically (Specter → BGE/Milvus/LangFuse/vLLM/KServe; Harbor → cnpg/seaweedfs/valkey) |
+| 5. Components | Single flat marketplace card grid (#162) with family chips + search + product-family chip filter | Per #175 dependency-aware cascades pull transitive deps automatically (BGE → the whole CORTEX family; Harbor → cnpg/seaweedfs/valkey). The Specter → CORTEX example this row used to give is gone with the card — UAT row W5 / #6183, no `bp-specter` to install; the `familyRequires` mechanism it used is retained for #6318 |
 | 6. Domain | Pool subdomain OR BYO (manual NS / registrar API) + sovereign-admin email | Pool = PDM `/v1/reserve`. BYO byo-api = registrar token (Cloudflare/Namecheap/GoDaddy/OVH/Dynadot, #170) |
 | 7. Review | Show every captured value, **Provision** button | Click → catalyst-api accepts the request and starts streaming |
 
