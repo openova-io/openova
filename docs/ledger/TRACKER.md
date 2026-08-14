@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-14T02:00:05Z` |
+| Last refreshed | `2026-08-14T02:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5887](https://github.com/openova-io/openova/issues/5887) | Console does not silently re-authenticate from a live Keycloak realm session — | Other |
-| [#5894](https://github.com/openova-io/openova/issues/5894) | P1: per-Org consoles flap ~50% on TLS handshake reset — affects BOTH customer  | Other |
 | [#5895](https://github.com/openova-io/openova/issues/5895) | P1: first visit to a per-Org console dead-ends on a BLANK page — prompt=none s | Other |
 | [#5910](https://github.com/openova-io/openova/issues/5910) | Row 95: a purchased app silently vanishes — resolveAppSlugs substitutes the ra | Other |
 | [#5919](https://github.com/openova-io/openova/issues/5919) | hw292 cut over on chart 0.1.159 — twelve versions before the #5710 durable piv | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#6280](https://github.com/openova-io/openova/issues/6280) | Phase A0 cannot list Organization namespaces — the #6273 partition ships witho | Other |
 | [#6288](https://github.com/openova-io/openova/issues/6288) | A catalyst-api roll rewinds an in-flight cutover to step 1 — safe only if the  | Other |
 | [#6289](https://github.com/openova-io/openova/issues/6289) | The cutover engine has no Lease — an outgoing catalyst-api Pod can drive the s | Other |
+| [#6293](https://github.com/openova-io/openova/issues/6293) | Cutover step 6 patches HelmRepositories owned by the org-tenants Kustomization � | Other |
+| [#6294](https://github.com/openova-io/openova/issues/6294) | harbor-prewarm enumerates the same destination twice and the redundant push fail | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-14T02:03 | [#6292](https://github.com/openova-io/openova/pull/6292) | #6258 | docs(uat): walk the 8 withheld pending rows live on hw296 —  |
 | 2026-08-14T01:23 | [#6290](https://github.com/openova-io/openova/pull/6290) | #6287 | docs(uat): row 60 — record #6287 as merged, and that it is N |
 | 2026-08-14T01:16 | [#6287](https://github.com/openova-io/openova/pull/6287) | #6271 | fix(application-controller): a hot standby must not be rende |
 | 2026-08-14T00:52 | [#6285](https://github.com/openova-io/openova/pull/6285) | #6271 | docs(uat): row 60 — the fix is live, and the standby leg nev |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-13T18:05 | [#6250](https://github.com/openova-io/openova/pull/6250) | #6236 | fix(uat): the drift guard and reset-uat encoded two founder  |
 | 2026-08-13T17:38 | [#6248](https://github.com/openova-io/openova/pull/6248) | #6243 | docs(uat): hw296 live walk — 26 rows stamped; the env carrie |
 | 2026-08-13T17:16 | [#6247](https://github.com/openova-io/openova/pull/6247) | #6246 | fix(bootstrap-kit): slot 13 carries unresolved conflict mark |
-| 2026-08-13T17:12 | [#6246](https://github.com/openova-io/openova/pull/6246) | #6230 | fix(bp-k8s-ws-proxy,bp-guacamole): the seeded Guacamole conn |
 
 ---
 
