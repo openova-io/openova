@@ -30,6 +30,18 @@
 //	                       (default: flux-system)
 //	HELMRELEASE_INTERVAL   per-HelmRelease reconcile interval seconds
 //	                       (default: 600)
+//	HELMRELEASE_TIMEOUT_SECONDS
+//	                       HelmRelease spec.timeout — the deadline for ONE
+//	                       Helm install/upgrade (default: 900). #3988: left
+//	                       unset, helm-controller applies 5m and a per-Org
+//	                       Application that needs longer fails with
+//	                       `context deadline exceeded`.
+//	HELMRELEASE_INSTALL_RETRIES
+//	HELMRELEASE_UPGRADE_RETRIES
+//	                       spec.{install,upgrade}.remediation.retries
+//	                       (default: 3; negative = retry forever). #3988: 0
+//	                       means the FIRST failure sets Stalled=True /
+//	                       RetriesExceeded and the release never self-heals.
 //	CATALOG_SOURCE_REF     Flux source ref name when Blueprint omits one
 //	                       (default: openova-catalog)
 //	REQUEUE_AFTER_SECONDS  background re-queue interval (default: 300)
@@ -174,8 +186,15 @@ func loadConfigFromEnv() controller.Config {
 		CommitAuthorEmail:          env("COMMIT_AUTHOR_EMAIL", "application-controller@openova.io"),
 		SourceNamespace:            env("SOURCE_NAMESPACE", "flux-system"),
 		HelmReleaseIntervalSeconds: envInt("HELMRELEASE_INTERVAL", 600),
-		CatalogSourceRef:           env("CATALOG_SOURCE_REF", "openova-catalog"),
-		RequeueAfter:               time.Duration(envInt("REQUEUE_AFTER_SECONDS", 300)) * time.Second,
+		// #3988 (UAT row 222) — spec.timeout + install/upgrade remediation
+		// on every rendered HelmRelease. Unset, helm-controller applies a
+		// 5m timeout and retries=0, so the first `context deadline exceeded`
+		// stalls the release permanently and the Application never converges.
+		HelmReleaseTimeoutSeconds: envInt("HELMRELEASE_TIMEOUT_SECONDS", 900),
+		HelmReleaseInstallRetries: envInt("HELMRELEASE_INSTALL_RETRIES", 3),
+		HelmReleaseUpgradeRetries: envInt("HELMRELEASE_UPGRADE_RETRIES", 3),
+		CatalogSourceRef:          env("CATALOG_SOURCE_REF", "openova-catalog"),
+		RequeueAfter:              time.Duration(envInt("REQUEUE_AFTER_SECONDS", 300)) * time.Second,
 		// qa-loop iter-8 Fix #42 bug 3: host-side Flux bootstrap so the
 		// per-Application manifests we commit to Gitea actually get
 		// pulled by Flux on the host cluster. Without these the

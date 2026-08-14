@@ -1600,7 +1600,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.2"
+  version: "1.0.3"
   visibility: listed
   card:
     title: "Alloy"
@@ -1619,7 +1619,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-alloy
-    version: "1.0.2"
+    version: "1.0.3"
   topology:
     supported:
     - singleton

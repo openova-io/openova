@@ -83,6 +83,16 @@ spec:
               value: openova-catalog
             - name: HELMRELEASE_INTERVAL
               value: "600"
+            # #3988 (UAT row 222) — spec.timeout + remediation.retries on the
+            # rendered per-Org HelmRelease. Left unset these are Flux's 5m /
+            # 0, and a per-Org Application that needs longer than 5m fails
+            # once with `context deadline exceeded` then stalls forever.
+            - name: HELMRELEASE_TIMEOUT_SECONDS
+              value: "900"
+            - name: HELMRELEASE_INSTALL_RETRIES
+              value: "3"
+            - name: HELMRELEASE_UPGRADE_RETRIES
+              value: "3"
             - name: REQUEUE_AFTER_SECONDS
               value: "300"
           ports:

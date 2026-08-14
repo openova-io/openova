@@ -789,3 +789,129 @@ func nestedSliceHelper(obj map[string]interface{}, fields ...string) ([]interfac
 	}
 	return nil, false, nil
 }
+
+// ── #3988 (UAT row 222) — install deadline + remediation ──────────────────
+//
+// The fan-out renderer is the path a User's (or the Agenity agent's)
+// `create_application` lands on. Before #3988 it emitted no `spec.timeout`
+// and no `spec.install` block at all, so every per-Org HelmRelease inherited
+// helm-controller's 5m timeout and retries=0. Measured on hw296 2026-08-14,
+// ns walkthree: `uat-agent-wp-rtz-a` lastDeployed 00:24:21Z → InstallFailed
+// 00:29:21Z (exactly 300s) `context deadline exceeded`, then
+// `Stalled=True reason=RetriesExceeded "Failed to install after 1
+// attempt(s)"` — permanently, with no self-heal. The Org's pre-existing
+// platform-installed bp-wordpress-tenant carried the identical error, so the
+// defect is in this renderer and not in anything the caller did.
+
+func TestFanoutHRs_StampsTimeoutAndRemediation(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpSingleton]
+	installRetries := 3
+	upgradeRetries := 3
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:        "obs-prod",
+		AppNamespace:   "acme",
+		Topology:       bpv1alpha1.BcpSingleton,
+		Variant:        &variant,
+		Chart:          "grafana",
+		TimeoutSeconds: 900,
+		InstallRetries: &installRetries,
+		UpgradeRetries: &upgradeRetries,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hrs) != 1 {
+		t.Fatalf("singleton should fan out 1 HR; got %d", len(hrs))
+	}
+	spec, ok := hrs[0].Object["spec"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("hr has no spec map")
+	}
+
+	// spec.timeout — without it Flux uses 5m and bp-wordpress-tenant dies
+	// at exactly 300s.
+	if got := spec["timeout"]; got != "900s" {
+		t.Fatalf("spec.timeout = %v, want \"900s\" — an unset timeout is "+
+			"helm-controller's 5m default, which is the #3988 wound", got)
+	}
+
+	// install/upgrade remediation.retries — without it Flux stalls the
+	// release permanently on the FIRST failure.
+	for _, action := range []string{"install", "upgrade"} {
+		block, ok := spec[action].(map[string]interface{})
+		if !ok {
+			t.Fatalf("spec.%s absent — retries default to 0 and the first "+
+				"failed %s stalls the release forever (RetriesExceeded)", action, action)
+		}
+		rem, ok := block["remediation"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("spec.%s.remediation absent", action)
+		}
+		// int64 specifically: `unstructured` DeepCopy panics on a bare int,
+		// so a renderer that stamped `int` would pass a loose assertion here
+		// and then panic at upsert time against a live cluster.
+		got, ok := rem["retries"].(int64)
+		if !ok {
+			t.Fatalf("spec.%s.remediation.retries is %T, want int64 — "+
+				"unstructured.DeepCopy panics on a bare int", action, rem["retries"])
+		}
+		if got != 3 {
+			t.Fatalf("spec.%s.remediation.retries = %d, want 3", action, got)
+		}
+	}
+}
+
+// #4246 disableWait was honoured only by the legacy per-region generator,
+// which `fanoutOwnsInstall` suppresses — so on the fan-out path a Blueprint
+// declaring it (bp-agenity does, live on hw296) had it silently dropped.
+func TestFanoutHRs_DisableWaitStampedOnBothActions(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpSingleton]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "obs-prod",
+		AppNamespace: "acme",
+		Topology:     bpv1alpha1.BcpSingleton,
+		Variant:      &variant,
+		Chart:        "grafana",
+		DisableWait:  true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	spec := hrs[0].Object["spec"].(map[string]interface{})
+	for _, action := range []string{"install", "upgrade"} {
+		block, ok := spec[action].(map[string]interface{})
+		if !ok {
+			t.Fatalf("spec.%s absent — DisableWait was dropped", action)
+		}
+		if block["disableWait"] != true {
+			t.Fatalf("spec.%s.disableWait = %v, want true", action, block["disableWait"])
+		}
+	}
+}
+
+// CONTROL — a caller that passes none of the new knobs must render exactly
+// what it rendered before #3988. Without this, the two assertions above
+// could be satisfied by a renderer that unconditionally stamps the blocks,
+// which would silently change every other caller's output.
+func TestFanoutHRs_NoTimeoutKnobs_OmitsBlocksEntirely(t *testing.T) {
+	bp := fixtureGrafanaTopology()
+	variant := bp.PerTopology[bpv1alpha1.BcpSingleton]
+	hrs, err := FanoutHRs(FanoutInputs{
+		AppName:      "obs-prod",
+		AppNamespace: "acme",
+		Topology:     bpv1alpha1.BcpSingleton,
+		Variant:      &variant,
+		Chart:        "grafana",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	spec := hrs[0].Object["spec"].(map[string]interface{})
+	for _, field := range []string{"timeout", "install", "upgrade"} {
+		if _, present := spec[field]; present {
+			t.Fatalf("spec.%s stamped with no knob set: %v", field, spec[field])
+		}
+	}
+}
