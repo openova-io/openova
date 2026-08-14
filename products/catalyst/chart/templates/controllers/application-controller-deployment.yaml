@@ -77,6 +77,19 @@ spec:
               value: {{ .Values.controllers.application.catalogSourceRef | default "openova-catalog" | quote }}
             - name: HELMRELEASE_INTERVAL
               value: {{ .Values.controllers.application.helmReleaseIntervalSeconds | default 600 | quote }}
+            # #3988 (UAT row 222) — spec.timeout + install/upgrade
+            # remediation.retries on the rendered per-Org HelmRelease.
+            # Unset, helm-controller applies a 5m timeout and retries=0:
+            # a per-Org Application that needs longer than 5m fails once
+            # with `context deadline exceeded` and is then Stalled /
+            # RetriesExceeded forever, never self-healing. Measured on
+            # hw296 2026-08-14 (bp-wordpress-tenant, 00:24:21Z→00:29:21Z).
+            - name: HELMRELEASE_TIMEOUT_SECONDS
+              value: {{ .Values.controllers.application.helmReleaseTimeoutSeconds | default 900 | quote }}
+            - name: HELMRELEASE_INSTALL_RETRIES
+              value: {{ .Values.controllers.application.helmReleaseInstallRetries | default 3 | quote }}
+            - name: HELMRELEASE_UPGRADE_RETRIES
+              value: {{ .Values.controllers.application.helmReleaseUpgradeRetries | default 3 | quote }}
             - name: REQUEUE_AFTER_SECONDS
               value: {{ .Values.controllers.application.requeueAfterSeconds | default 300 | quote }}
             # qa-loop iter-8 Fix #42 bug 3 — host-side Flux bootstrap.

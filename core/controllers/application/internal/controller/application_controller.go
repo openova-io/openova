@@ -294,6 +294,26 @@ type Config struct {
 	// stamped on the rendered manifests. Defaults to 600s.
 	HelmReleaseIntervalSeconds int
 
+	// HelmReleaseTimeoutSeconds is `spec.timeout` on every rendered
+	// HelmRelease — the deadline for ONE Helm install/upgrade operation.
+	// Defaults to 900s (15m), matching every other HelmRelease writer in
+	// this repo. #3988 (UAT row 222): left unset, helm-controller applies
+	// 5m, which is not enough for a per-Org Application on a cold Sovereign
+	// — bp-wordpress-tenant failed at exactly 300s with `context deadline
+	// exceeded` on hw296, for the platform's own install as well as an
+	// agent-created one.
+	HelmReleaseTimeoutSeconds int
+
+	// HelmReleaseInstallRetries / HelmReleaseUpgradeRetries are
+	// `spec.{install,upgrade}.remediation.retries`. Default 3, matching the
+	// legacy per-region generator (core/controllers/pkg/render/
+	// manifests.go:415) so the two renderers for the same concept agree.
+	// #3988: unset means 0, and 0 means the first failure sets
+	// Stalled=True/RetriesExceeded and the release NEVER self-heals.
+	// Negative = retry forever (Flux semantics).
+	HelmReleaseInstallRetries int
+	HelmReleaseUpgradeRetries int
+
 	// CatalogSourceRef is the default Flux source ref the controller
 	// stamps on rendered HelmReleases when the Blueprint doesn't
 	// supply one.
@@ -514,6 +534,19 @@ func (c Config) Defaults() Config {
 	}
 	if out.HelmReleaseIntervalSeconds <= 0 {
 		out.HelmReleaseIntervalSeconds = 600
+	}
+	if out.HelmReleaseTimeoutSeconds <= 0 {
+		out.HelmReleaseTimeoutSeconds = 900
+	}
+	// #3988: 0 is treated as unset and defaulted to 3 rather than passed
+	// through, because retries=0 IS the defect — it makes the first failed
+	// install permanent (Stalled/RetriesExceeded, never reconciled again).
+	// A negative value is Flux's "retry forever" and IS passed through.
+	if out.HelmReleaseInstallRetries == 0 {
+		out.HelmReleaseInstallRetries = 3
+	}
+	if out.HelmReleaseUpgradeRetries == 0 {
+		out.HelmReleaseUpgradeRetries = 3
 	}
 	if out.CatalogSourceRef == "" {
 		out.CatalogSourceRef = "openova-catalog"
@@ -1173,6 +1206,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 			// fan-out path reads it from the Blueprint object directly here.
 			fanoutManifestsValues, _, _ := unstructured.NestedMap(bp.Object, "spec", "manifests", "values")
 
+			// #3988 — same "declared later in non-fanout scope" situation as
+			// fanoutManifestsValues above: the Blueprint's #4246 disableWait
+			// opt-out was read only by the legacy per-region generator, which
+			// fanoutOwnsInstall suppresses, so on this path it was dropped.
+			fanoutDisableWait, _, _ := unstructured.NestedBool(bp.Object, "spec", "manifests", "helmRelease", "disableWait")
+			fanoutInstallRetries := r.Cfg.HelmReleaseInstallRetries
+			fanoutUpgradeRetries := r.Cfg.HelmReleaseUpgradeRetries
+
 			hrs, ferr := topo.FanoutHRs(topo.FanoutInputs{
 				AppName:        app.GetName(),
 				AppNamespace:   app.GetNamespace(),
@@ -1195,7 +1236,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 				KubeConfigSecretKey: "config",
 				DependsOnFor:        fanoutDependsOnFor,
 				IntervalSeconds:     r.Cfg.HelmReleaseIntervalSeconds,
-				OwnerLabels:         fanoutOwnerLabels(envSpec, app),
+				// #3988 (UAT row 222) — without these three the rendered HR
+				// inherits helm-controller's 5m timeout and retries=0, so a
+				// per-Org Application that needs longer than 5m to install
+				// fails once with `context deadline exceeded` and is then
+				// Stalled/RetriesExceeded forever. Measured live on hw296.
+				TimeoutSeconds: r.Cfg.HelmReleaseTimeoutSeconds,
+				InstallRetries: &fanoutInstallRetries,
+				UpgradeRetries: &fanoutUpgradeRetries,
+				DisableWait:    fanoutDisableWait,
+				OwnerLabels:    fanoutOwnerLabels(envSpec, app),
 				// #4589 — per-Org params (httpRoute.hostnames, sovereignFqdn,
 				// oidcGate, …) merged OVER the Blueprint manifests.values,
 				// mirroring the non-fanout path so the fan-out HR is

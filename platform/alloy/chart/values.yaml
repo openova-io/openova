@@ -41,7 +41,35 @@ alloy:
     pullPolicy: IfNotPresent
   # Config-reloader sidecar (upstream default quay.io/prometheus-operator/
   # prometheus-config-reloader) — same harbor-proxy-glob fix as the main image.
+  #
+  # #3988 (UAT row 222) — DISABLED. This is not a preference; the upstream
+  # sidecar CANNOT satisfy the platform's own `probes-present` ClusterPolicy.
+  # That policy is `Enforce` by default (platform/kyverno-policies/chart/
+  # values.yaml compliancePolicies.probesPresent.action) and requires BOTH a
+  # livenessProbe AND a readinessProbe on EVERY container of a Deployment /
+  # StatefulSet / DaemonSet. The upstream watch-container template
+  # (`alloy/templates/containers/_watch.yaml`, define "alloy.watch-container")
+  # emits NO probe fields at all and exposes NO values knob for them —
+  # verified against the pinned 1.8.0 AND against the newest published 1.11.1,
+  # so this is not fixable by a chart bump. With the sidecar enabled the
+  # rendered DaemonSet is therefore admission-DENIED in every namespace that
+  # is not in probesPresent.excludeNamespaces, which is every per-Organization
+  # namespace — i.e. bp-alloy was uninstallable as an Application by anyone.
+  # Measured live on hw296 2026-08-14: all six `uat-agent-alloy-*`
+  # HelmReleases in ns `walkthree` failed with
+  #   admission webhook "validate.kyverno.svc-fail" denied the request:
+  #   resource DaemonSet/walkthree/uat-agent-alloy-mgmt-a was blocked ...
+  #   probes-present: containers-must-have-liveness-and-readiness
+  #
+  # Disabling the sidecar is the UPSTREAM-DESIGNED alternative, not a
+  # capability loss: `alloy/templates/controllers/_pod.yaml` stamps a
+  # `checksum/config` pod annotation EXACTLY WHEN `configReloader.enabled` is
+  # false and a configMap content is set, so a config change rolls the pods
+  # instead of hot-reloading them. Per-Sovereign overlays that would rather
+  # keep hot-reload must ALSO add `alloy` (and their Org namespaces) to
+  # probesPresent.excludeNamespaces — do not flip this back on alone.
   configReloader:
+    enabled: false
     image:
       registry: "harbor.openova.io"
       repository: proxy-quay/prometheus-operator/prometheus-config-reloader
@@ -60,6 +88,38 @@ alloy:
 
     clustering:
       enabled: false
+
+    # ─── Probes — #3988 (UAT row 222), the same shape as #4347 on bp-loki ──
+    # The upstream alloy container template renders a readinessProbe
+    # unconditionally (httpGet /-/ready on `listenPort`) but leaves
+    # `livenessProbe: {}` empty, so the rendered DaemonSet carries readiness
+    # WITHOUT liveness and the `probes-present` Enforce ClusterPolicy denies
+    # it. bp-loki (platform/loki/chart/values.yaml) and bp-mimir carry the
+    # identical fix; bp-alloy was simply missed by that sweep.
+    #
+    # `/-/healthy` is Alloy's OWN liveness endpoint — it is deliberately NOT
+    # a copy of the readiness path, because a liveness probe on `/-/ready`
+    # would restart the pod every time a config load is merely slow.
+    # Verified against the live collector on hw296 (alloy v1.16.0, pod
+    # alloy-788mp, ns alloy): GET /-/healthy → 200, GET /-/ready → 200.
+    #
+    # The port is a literal because the upstream template renders this block
+    # with a verbatim `toYaml` and cannot interpolate `listenPort` into it.
+    # 12345 is the upstream `alloy.listenPort` default, which this chart does
+    # not override; scripts/check-chart-probes-satisfy-policy.py asserts the
+    # probe port matches a declared containerPort so the two cannot drift.
+    livenessProbe:
+      httpGet:
+        path: /-/healthy
+        port: 12345
+        scheme: HTTP
+      initialDelaySeconds: 30
+      periodSeconds: 20
+      timeoutSeconds: 5
+      # 6 × 20s = tolerate ~2min of unresponsiveness before a restart. A
+      # cold-start config load on a high-cardinality cluster can exceed one
+      # period; restarting mid-load would loop.
+      failureThreshold: 6
 
     # Storage path — emptyDir by default; per-Sovereign overlays MAY pin a
     # PVC for persistent WAL.

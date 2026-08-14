@@ -20,7 +20,25 @@ type: application
 # harbor-proxy-pull ClusterPolicy (the #3296/#3380-D delayed self-inflicted
 # wound). Values-only image-registry change; the chart was never swept by
 # #3380-D. Added to scripts/check-kyverno-proxy-images.sh to guard regressions.
-version: 1.0.2
+#
+# 1.0.3 (#3988, UAT row 222): make the chart INSTALLABLE AT ALL. The rendered
+# DaemonSet could never satisfy the platform's OWN `probes-present` Kyverno
+# ClusterPolicy (Enforce by default) — the alloy container carried readiness
+# but no liveness, and the config-reloader sidecar carried neither. Every
+# per-Organization namespace is outside that policy's exclude list, so
+# bp-alloy was admission-DENIED for anyone installing it as an Application,
+# agent or human. Measured live on hw296: all six `uat-agent-alloy-*`
+# HelmReleases in ns `walkthree` failed with
+#   validate.kyverno.svc-fail denied ... probes-present:
+#   containers-must-have-liveness-and-readiness
+# Fix is values-only: populate `alloy.alloy.livenessProbe` (httpGet
+# /-/healthy — Alloy's own liveness endpoint, verified 200 against the live
+# collector) and disable the config-reloader sidecar, whose upstream
+# template emits NO probe fields and offers no knob at ANY published chart
+# version (checked 1.8.0 and 1.11.1). Guarded by
+# scripts/check-chart-probes-satisfy-policy.py, which renders this chart and
+# evaluates the policy's own JMESPath predicate against the output.
+version: 1.0.3
 appVersion: "v1.16.0"
 keywords: [catalyst, blueprint, alloy, observability, otlp, telemetry, collector]
 maintainers:

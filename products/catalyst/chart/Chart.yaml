@@ -3968,7 +3968,22 @@ name: bp-catalyst-platform
 #   file's 1.4.1325 entry records as permanently burned. The republish
 #   therefore lands on 1.4.1468 — ahead of main's 1.4.1467, absent from GHCR,
 #   and claimed by no open PR.)
-version: 1.4.1477
+version: 1.4.1478
+# 1.4.1478 — #3988 (UAT row 222): republish so the bp-alloy 1.0.3 catalog-seed
+#   pin is actually carried by a published OCI artifact. On a pre-cutover
+#   Sovereign the catalog Gitea Orgs are empty, so every catalog GetVersion
+#   falls through to the in-cluster Blueprint CRs — which are whatever THIS
+#   template rendered at the last published umbrella version. Without the
+#   republish, `POST /applications` keeps installing bp-alloy 1.0.2, the
+#   version whose rendered DaemonSet the `probes-present` Enforce policy
+#   denies. Same commit also carries the application-controller change that
+#   stamps spec.timeout + install/upgrade remediation on every per-Org
+#   HelmRelease (products/catalyst/chart/templates/controllers/
+#   application-controller-deployment.yaml).
+#   (Re-taken from 1.4.1476 -> 1.4.1478 on rebase: deploy-bot published 1.4.1477
+#   while this PR was settling, so 1.4.1476 was both behind main and never
+#   published. Verified free immediately before push — absent from the GHCR tag
+#   list and carried by 0 of 36 open PR heads.)
 # 1.4.1229 — #5389: catalog-seed bp-newapi declares its `ui` endpoint
 #   (newapi.<fqdn>, ssoEnabled, launchDefault, ssoInitPath "/") instead of
 #   `endpoints: []`. The empty list made userUIGatePasses fail closed, which

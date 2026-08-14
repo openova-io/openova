@@ -142,6 +142,23 @@ jobs:
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
+        with:
+          # PINNED (#3988 follow-up, 2026-08-14). This was the only
+          # azure/setup-helm in the repo with no `version:` — every other one
+          # pins (blueprint-release.yaml v3.18.4, check-helm-release-payload-
+          # size.yaml v3.18.4, check-image-pins-resolvable.yaml v3.16.2, and
+          # chart-tests-pr.yaml derives its pin from blueprint-release and
+          # asserts there is exactly one). Unpinned, this job silently followed
+          # Helm's latest release: it was on v4.2.3 at 00:28Z and v4.2.4 at
+          # 01:22Z on 2026-08-14. 4.2.4 emits two blank lines before each `---`
+          # document separator, which broke the #6255 Case F extraction on main
+          # and on every open PR simultaneously — a red gate caused by an
+          # upstream release, with no commit anywhere to blame for it.
+          #
+          # v3.18.4 is the version blueprint-release.yaml publishes with, so the
+          # two chart-rendering steps below now measure the bytes the publish
+          # path actually produces rather than whatever Helm shipped this hour.
+          version: v3.18.4
 
       - name: newapi session-secret carrier active in the SHIPPING slot (#5612)
         # #5612 ("newapi session expires in under an hour") is not a TTL —

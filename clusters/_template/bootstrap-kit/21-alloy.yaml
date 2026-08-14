@@ -62,7 +62,15 @@ spec:
       # Harbor proxy — the alloy DaemonSet runs in the un-excluded `alloy`
       # namespace, so the upstream docker.io/quay.io defaults were post-handover
       # harbor-proxy-pull Enforce-deniable (the #3296/#3380-D shape).
-      version: 1.0.2
+      #
+      # 1.0.3 (#3988, UAT row 222): livenessProbe on the alloy container +
+      # config-reloader sidecar disabled, so the rendered DaemonSet satisfies
+      # the `probes-present` Enforce ClusterPolicy. Before this, bp-alloy
+      # admitted here ONLY because Phase-1 bootstrapMode still forces Audit —
+      # the next admission (a per-Org install, a node replacement, a cutover
+      # image roll) was denied. This slot now renders a ONE-container
+      # DaemonSet; that is expected, not a regression.
+      version: 1.0.3
       sourceRef:
         kind: HelmRepository
         name: bp-alloy

@@ -188,7 +188,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "section": "pts-3-observability",
     "depends": [],
     "shareable": false,

@@ -118,6 +118,67 @@ type FanoutInputs struct {
 	// (helm-controller default ~10m applies).
 	IntervalSeconds int
 
+	// TimeoutSeconds — HR.spec.timeout, the deadline for a single Helm
+	// install/upgrade operation. 0 means leave unset, which lands on
+	// helm-controller's default of 5 MINUTES.
+	//
+	// #3988 (UAT row 222): 5 minutes is not enough for a per-Org
+	// Application on a cold Sovereign. Measured on hw296 2026-08-14, ns
+	// walkthree: `uat-agent-wp-rtz-a` (bp-wordpress-tenant@0.4.23)
+	// lastDeployed 00:24:21Z, InstallFailed 00:29:21Z — exactly 300s —
+	// with `context deadline exceeded`. The Org's pre-existing
+	// `bp-wordpress-tenant`, installed by the platform's own per-Org stack
+	// 173 minutes earlier with no agent involved, carried the identical
+	// error, so this is the delivery path and not anything the caller did.
+	//
+	// Every OTHER HelmRelease writer in this repo already pins a real
+	// timeout — core/controllers/organization/internal/gitops/manifests.go
+	// (10m), core/services/provisioning/gitops/helmrelease_apps.go (15m),
+	// products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
+	// (15m). Only the topology fan-out — the path a User's own
+	// `create_application` lands on — inherited the 5m default.
+	TimeoutSeconds int
+
+	// InstallRetries / UpgradeRetries — HR.spec.{install,upgrade}.
+	// remediation.retries. nil means OMIT the block, which lands on
+	// helm-controller's default of 0.
+	//
+	// #3988: retries=0 is not "retry never", it is "STALL FOREVER". On the
+	// first failed install Flux sets `Stalled=True reason=RetriesExceeded
+	// "Failed to install after 1 attempt(s)"` and stops reconciling the
+	// release entirely — a transient (cold image pull, a dependency not yet
+	// Ready, an in-flight webhook) becomes permanent and the Application can
+	// never self-heal. Observed verbatim on every failing HR in ns
+	// walkthree on hw296. The same wound is already documented in-tree at
+	// core/controllers/organization/internal/gitops/manifests.go:252.
+	//
+	// This is a SEPARATE defect from TimeoutSeconds and neither fix
+	// subsumes the other: a longer timeout still stalls permanently on the
+	// first failure, and retries alone would just re-hit the same 5m
+	// deadline. Both are required.
+	//
+	// The legacy per-region generator (core/controllers/pkg/render/
+	// manifests.go:415) already stamps `retries: 3` on install AND upgrade.
+	// The fan-out path suppresses that generator (`fanoutOwnsInstall`) and
+	// never carried the field over, so the two renderers for the same
+	// concept silently disagreed. Defaulting to 3 makes them agree.
+	InstallRetries *int
+	UpgradeRetries *int
+
+	// DisableWait — stamps `install.disableWait` + `upgrade.disableWait`.
+	// Sourced from the Blueprint's `spec.manifests.helmRelease.disableWait`
+	// (#4246), for charts whose workload Pod gates on a value written by one
+	// of the chart's own post-install Helm hooks — with Flux's default
+	// --wait those deadlock the install.
+	//
+	// #3988: the legacy per-region generator honours this
+	// (core/controllers/pkg/render/manifests.go:412) but FanoutInputs had no
+	// field for it, so on the fan-out path a Blueprint declaring
+	// disableWait: true had it silently dropped. bp-agenity declares it
+	// (live Blueprint CR on hw296: spec.manifests.helmRelease.disableWait =
+	// true) — exactly the class of chart that then times out.
+	DisableWait bool
+
 	// OwnerLabels — extra labels merged onto every HR. The
 	// reconciler typically passes org / env-type / app-uid here
 	// for traceability + cascade-delete (matches
@@ -290,6 +351,23 @@ func renderOneHR(in FanoutInputs, cluster string) *unstructured.Unstructured {
 		spec["interval"] = fmt.Sprintf("%ds", in.IntervalSeconds)
 	}
 
+	// #3988 (UAT row 222) — install/upgrade deadline + remediation.
+	// Without these the rendered HR inherits helm-controller's 5m timeout
+	// AND retries=0, so the FIRST `context deadline exceeded` puts the
+	// release in Stalled/RetriesExceeded permanently. See the field docs on
+	// FanoutInputs for the live measurement that separates the two causes.
+	if in.TimeoutSeconds > 0 {
+		spec["timeout"] = fmt.Sprintf("%ds", in.TimeoutSeconds)
+	}
+	// `unstructured` only accepts int64 for integers — an `int` here panics
+	// the DeepCopy the dynamic client performs on upsert.
+	if install := remediationBlock(in.DisableWait, in.InstallRetries); len(install) > 0 {
+		spec["install"] = install
+	}
+	if upgrade := remediationBlock(in.DisableWait, in.UpgradeRetries); len(upgrade) > 0 {
+		spec["upgrade"] = upgrade
+	}
+
 	// Values — `values` is `in.Values` for active/singleton, or the
 	// standby-overlaid copy for a passive cluster (#3375 DoD-2).
 	if len(values) > 0 {
@@ -352,6 +430,24 @@ func renderOneHR(in FanoutInputs, cluster string) *unstructured.Unstructured {
 	_ = metav1.ObjectMeta{}
 
 	return hr
+}
+
+// remediationBlock builds one `spec.install` / `spec.upgrade` map. Returns
+// an EMPTY map when neither knob is set, so the caller can omit the field
+// entirely and keep the pre-#3988 render byte-identical for callers that
+// pass nothing.
+func remediationBlock(disableWait bool, retries *int) map[string]interface{} {
+	block := map[string]interface{}{}
+	if disableWait {
+		block["disableWait"] = true
+	}
+	if retries != nil {
+		// int64: `unstructured` rejects a bare int at DeepCopy time.
+		block["remediation"] = map[string]interface{}{
+			"retries": int64(*retries),
+		}
+	}
+	return block
 }
 
 // HRNameFor composes the per-cluster HR name. K8s DNS-1123 caps names
