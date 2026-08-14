@@ -3981,7 +3981,87 @@ name: bp-self-sovereign-cutover
 # on gitrepositories/ocirepositories, Crossplane provider-package host lint, and
 # org-tenants Kustomization Ready. Clearing these offenders unblocks step-11's
 # #3526 pre-hold assert; it does not imply the step passes.
-version: 0.1.188
+# 0.1.189 (#6309, Refs #5359 #3379 #3647 #3678) — THE SOVEREIGNTY PROOF COULD
+# REPORT PASS WITHOUT EVER APPLYING ITS HOLD, AND STEP 07's DEADLINE WAS SMALLER
+# THAN ITS OWN INTERNAL BUDGET.
+#
+# NAMING, BECAUSE THE FILENAME LIES. templates/08-egress-block-test-job.yaml
+# carries `bp.openova.io/cutover-order: "11"`. The "08-" is historical; the step
+# runs ELEVENTH and strictly last (cutover-contract.sh #6214 pins that relation).
+# Everything below says step 11 and means that file.
+#
+# DEFECT 1 — A FALSE PASS, ASSEMBLED FROM THREE PIECES THAT WERE EACH DEFENSIBLE
+# ALONE. The hold is a CiliumClusterwideNetworkPolicy named cutover-egress-block.
+#
+#   (a) rbac.yaml granted `ciliumclusterwidenetworkpolicies` create/delete/get in
+#       the create rule, and the update/patch rule listed `ciliumnetworkpolicies`
+#       ONLY. Clusterwide was absent from the write rule.
+#   (b) The region-A leg applied the manifest with a bare `kubectl apply`, no
+#       delete-before-apply — while the #5359 secondary-region leg in the SAME
+#       file already deleted first, with a comment saying why ("clears a stale
+#       hold policy leaked by a SIGKILLed prior run"). Region A, the primary, was
+#       the lenient one.
+#   (c) `kubectl apply` over an EXISTING object is a PATCH, not a POST. So on any
+#       re-run — or any run following a SIGKILLed one that leaked the policy —
+#       the apply was refused 403, and the failure branch logged
+#       `WARN — egressDeny apply failed; assertion-only fallback (fail-safe)`
+#       and CONTINUED.
+#
+# What "continued" meant: POLICY_APPLIED stayed empty, which SKIPS the #3678
+# call-home assertion and the #3647 fresh-pull proof (both gated on it), and the
+# survival loop then ran and printed `sovereignty proof PASSED`. A survival loop
+# with no hold applied measures a cluster with full internet access — already-
+# running pods stay Ready, so it passes by construction. "I could not apply the
+# hold" and "the hold held" arrived at the same verdict and the same
+# cutoverComplete=true. ADR-0002 admits no cutover claim without the egress-block
+# proof, so that fallback was not fail-SAFE, it was fail-QUIET.
+#
+# FIXED THREE WAYS, because any one of them alone still leaves a route to a PASS
+# nobody earned: (1) the write rule now grants clusterwide too; (2) region A
+# deletes before it applies, identically to the secondary leg; (3) the apply
+# failure is FATAL — it prints the apiserver's own refusal and exits non-zero —
+# AND the final verdict refuses to print PASSED whenever POLICY_APPLIED is empty.
+# The verdict guard is the one that matters long-term: it covers every route to
+# an empty POLICY_APPLIED, including ones written later, not only the route
+# measured today. The explicit `egressTest.enforceCIDRBlock=false` opt-out still
+# exits 0 — what it can no longer do is call its result a sovereignty proof.
+#
+# DEFECT 2 — STEP 07's activeDeadlineSeconds WAS 600 WHILE ITS OWN BOUNDED WAITS
+# SUM TO 2220. Measured from the shipped values and the actual call sites:
+# image-warmed gate 240s + roll_and_wait_catalyst_api 630s CALLED TWICE (lines
+# 964 and 1008; rollBudgetSeconds 600 plus its final blocking 30s status check)
+# + Phase 3d 180s + Phase 3e 180s over THREE Deployments — before the unbounded
+# Phase 4 pod-spec sweep. ONE slow roll consumed the whole deadline before Phase 3
+# began, and the Job died DeadlineExceeded mid-pivot, leaving catalyst-api split
+# between local and mothership endpoints. Every comparable step is sized
+# generously (harborPrewarm 9600, egressBlockTest 7200, helmRepositoryPatches
+# 2400); 07 was the outlier. Now 3600 — the bounded worst case plus ~62% headroom.
+# This is a Job deadline only: no cpu/memory request, limit or quota is touched
+# (#5393 surface untouched).
+#
+# GUARDS. chart/tests/egress-hold-invariant.sh — new, 14 assertions, exit 0 — is
+# the first suite in this chart to assert on a VERB rather than a resource:
+# tests/rbac-coverage.sh compares the resources the scripts read against the
+# resources the ClusterRole grants and never looks at a verb, so a resource
+# granted `create` but not `patch` reads as fully covered there. It then EXECUTES
+# the rendered apply block and the rendered verdict block under a stub kubectl,
+# in BOTH directions, and carries mutation controls that replay the pre-fix text
+# of each and require it to reproduce the swallow and the false PASS. Run against
+# the 0.1.188 tree it reports RESULT: FAIL (8), naming the false PASS directly.
+#
+# The executed blocks run under `set -eu` — the SAME options this Job sets at
+# 08-egress-block-test-job.yaml line 390 — and that is not decoration. The first
+# draft of the FATAL captured the apply as a bare `_eb_apply_out=$(kubectl apply
+# …)`, which under errexit dies AT the assignment: the operator would have got
+# the raw kubectl error and none of the diagnosis written below it. The shipped
+# form puts the capture in an `if` condition, where errexit is suspended (the
+# same reason the pre-fix `if kubectl apply …; then` reached its WARN branch at
+# all), and the suite's errexit control runs the bare-assignment shape and
+# requires it to LOSE the message — so that choice is guarded, not remembered.
+# Slot-06a pin + blueprint.yaml + catalog-seed spec.version + source.version +
+# the API blueprints.json + the generated UI catalog move to 0.1.189 in lockstep
+# (Inviolable Principle #13).
+version: 0.1.189
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
