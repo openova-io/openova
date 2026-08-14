@@ -209,10 +209,10 @@ without a session. Rows asserting a signed-in view need a browser.
 
 | bucket | rows | what it needs |
 |---|--:|---|
-| **WALKABLE NOW** | 8 | a walk on THIS env can change the verdict |
-| **total** | **8** | |
+| **WALKABLE NOW** | 6 | a walk on THIS env can change the verdict |
+| **total** | **6** | |
 
-- **WALKABLE NOW (8)** — 60 219 220 221 222 W1 W5 G11
+- **WALKABLE NOW (6)** — 60 219 220 221 222 G11
 
 ## 2. The D-34, clustered by root cause
 
