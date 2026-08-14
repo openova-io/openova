@@ -136,6 +136,19 @@ jobs:
       - name: umbrella sibling-build gate (#6262)
         run: python3 scripts/check-sibling-chart-builds.py --self-test
 
+      # #6326 — the train-coherence pre-flight. Written as a `check-*.sh` ON
+      # PURPOSE rather than as Python: the meta-gate above globs
+      # `scripts/check-*.sh`, so a bash guard is visible to it and a Python one
+      # is not. Two entries in this file are hand-wired for exactly that blind
+      # spot; this one does not need to be, and choosing bash is what keeps it
+      # that way. Its --self-test builds its own fixtures and proves all four
+      # checks can go RED, including the two narrowing CONTROLS (the umbrella's
+      # self-referential seed card, and a healed historical version dip) that a
+      # future "assert every site always moves" tightening would break here
+      # instead of in production.
+      - name: train-coherence pre-flight (#6326)
+        run: bash scripts/check-train-coherent.sh --self-test
+
       # The 6-hourly convergence report is only as honest as this renderer.
       # It grouped cycles by DATE, so four cycles a day collapsed to one and a
       # lost green could go unnamed while the output looked confident. Not a
