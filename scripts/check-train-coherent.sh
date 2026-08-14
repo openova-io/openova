@@ -883,14 +883,34 @@ else
       esac
       name="${CHART_NAME[$d]:-}"; ver="${MAIN_VER[$d]:-}"
       [ -n "$name" ] && [ -n "$ver" ] || continue
+      # Two-stage on purpose. bp-catalyst-platform carries ~1500 versions, so a
+      # blind `--paginate` costs minutes for that one chart, and a pre-flight
+      # nobody is willing to run is worth nothing. The versions API returns
+      # NEWEST FIRST, so one page settles the healthy case outright: a hit on
+      # page 1 is a definitive PUBLISHED. Only a MISS escalates to the full
+      # paginated sweep — because "the tag is absent" is precisely the verdict
+      # that must never be reached from a partial read.
+      : > "$TMP/tags"
       prev="$(tc_errexit_state)"; set +e
-      tags_json="$(gh api "/orgs/$GHCR_ORG/packages/container/$name/versions" --paginate 2>/dev/null)"
+      tags_json="$(gh api "/orgs/$GHCR_ORG/packages/container/$name/versions?per_page=100" 2>/dev/null)"
       grc=$?
       tc_errexit_restore "$prev"
-      : > "$TMP/tags"
       if [ "$grc" -eq 0 ] && [ -n "$tags_json" ]; then
         printf '%s' "$tags_json" | jq -r '.[].metadata.container.tags[]?' 2>/dev/null \
           | grep -vE '^sha256-' | sort -u > "$TMP/tags" || true
+      fi
+      first_hit="$(grep -cx -- "$ver" "$TMP/tags" 2>/dev/null || true)"
+      if [ "${first_hit:-0}" -eq 0 ]; then
+        note "3 $name:$ver absent from the newest page — escalating to a full paginated sweep before saying anything"
+        prev="$(tc_errexit_state)"; set +e
+        tags_json="$(gh api "/orgs/$GHCR_ORG/packages/container/$name/versions" --paginate 2>/dev/null)"
+        grc=$?
+        tc_errexit_restore "$prev"
+        : > "$TMP/tags"
+        if [ "$grc" -eq 0 ] && [ -n "$tags_json" ]; then
+          printf '%s' "$tags_json" | jq -r '.[].metadata.container.tags[]?' 2>/dev/null \
+            | grep -vE '^sha256-' | sort -u > "$TMP/tags" || true
+        fi
       fi
       ntags="$(wc -l < "$TMP/tags")"
       if [ "$ntags" -eq 0 ]; then
