@@ -1269,7 +1269,12 @@ if [ "$DO_FIRE" = 1 ]; then
     printf ' %-28s %-12s %-12s %-16s\n' "$n" "$v" "$kp" "${PIN_STATE[$d]:-unchecked}"
   done
   echo
-  echo " ON MAIN is read from $BASELINE_REF @ $(git rev-parse --short "$BASELINE_REF" 2>/dev/null || echo '?')."
+  echo " ON MAIN is read from $BASELINE_REF @ $(git rev-parse --short "$BASELINE_REF" 2>/dev/null || echo '?')"
+  echo " AT THE MOMENT THIS TABLE WAS PRINTED. The GHCR column is the verdict"
+  echo " check 3 reached for the version it measured minutes earlier — on a busy"
+  echo " repo main can move in between (it did, mid-run, more than once while"
+  echo " this was being written). If a row's ON MAIN is newer than what check 3"
+  echo " named above, the GHCR cell describes the OLDER version: re-run."
   if [ "$fire_divergent" -gt 0 ]; then
     echo " NOTE: $fire_divergent chart(s) differ between this working tree and"
     echo " $BASELINE_REF. The KIT PIN column is read from THIS TREE, so on a"
