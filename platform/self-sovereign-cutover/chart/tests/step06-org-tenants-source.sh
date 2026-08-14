@@ -169,6 +169,10 @@ run_phase2b() {
   : >"${TMP}/kubectl.log"
   mkdir -p "${TMP}/t/repo"
   cat >"${TMP}/driver.sh" <<DRIVER
+# The step container runs the whole script under \`set -eu\` (line 1 of the
+# rendered args). Sourcing phase2b.sh without it would let an unset variable or
+# an unguarded non-zero command pass here and kill the step in production.
+set -eu
 push_url='$2'
 redacted='gitea.example.invalid/openova/openova.git'
 UPSTREAM_PREFIX='${UPSTREAM}'
