@@ -8,15 +8,34 @@ name: Test — Bootstrap API (Go)
 #
 # The job is fast and runs on every push that touches the bootstrap module.
 
+# TRIGGERS MUST COVER WHAT THE TESTS READ, not only where they live (#6324).
+# The #6324 Pod-quota guard in internal/handler derives its assertions from
+# files OUTSIDE this module. Scoped to this module's own path, a chart-only PR
+# would move a term the guard asserts on and never run the guard — green by
+# absence of measurement, the same fail-open shape as the go-test cache trap
+# #6235 closes. The added paths are the ones that guard reads:
+#   platform/newapi/chart/**                          sidecar + CNPG limits
+#   platform/openclaw/chart/**                        the controller's 250m term
+#   core/controllers/organization/internal/gitops/**  planQuotaTable["s"] — the cap
+#   core/services/provisioning/gitops/**              the OTHER per-Org producer,
+#                                                     cross-checked door-to-door
 on:
   push:
     paths:
       - 'products/catalyst/bootstrap/api/**'
+      - 'platform/newapi/chart/**'
+      - 'platform/openclaw/chart/**'
+      - 'core/controllers/organization/internal/gitops/**'
+      - 'core/services/provisioning/gitops/**'
       - '.github/workflows/test-bootstrap-api.yaml'
     branches: [main]
   pull_request:
     paths:
       - 'products/catalyst/bootstrap/api/**'
+      - 'platform/newapi/chart/**'
+      - 'platform/openclaw/chart/**'
+      - 'core/controllers/organization/internal/gitops/**'
+      - 'core/services/provisioning/gitops/**'
       - '.github/workflows/test-bootstrap-api.yaml'
   workflow_dispatch:
 

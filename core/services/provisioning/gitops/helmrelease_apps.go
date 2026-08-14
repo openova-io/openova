@@ -527,6 +527,26 @@ spec:
     # request far below the limit would let this pod in and then starve its
     # neighbours out of the quota it is not accounted against.
     #
+    # ── WHAT THIS BLOCK DOES *NOT* SIZE (#6324) ─────────────────────────────
+    # It pins ONE of the THREE quota-counted containers in this release's Pod,
+    # and a ResourceQuota admits the POD:
+    #
+    #   sandbox-bridge    200m  chart default; a NATIVE sidecar (initContainers
+    #                           entry with restartPolicy: Always, #3374), so its
+    #                           limits count toward the Pod on k8s 1.29+
+    #   newapi            500m  pinned below
+    #   metering-sidecar  500m  chart default
+    #   ------------------------
+    #   POD limits.cpu   1200m
+    #
+    # So the Org bundle is 1200m + openclaw 250m + CNPG 500m = 1950m of the
+    # 2000m smallest-plan cap: 50m of real headroom, not the 750m the
+    # single-container reading suggests. Raising EITHER sidecar by 100m puts the
+    # Org over the cap. The two guards now compute this Pod-level total from the
+    # chart rather than from the one term pinned here — see
+    # newapi_pod_quota_arithmetic_6324_test.go. Sizing the Pod itself is a
+    # plan-capacity decision and belongs to #5393; nothing here changes a value.
+    #
     # Overridden HERE rather than in the chart so the Sovereign-level default is
     # untouched — no chart bump, no five-site lockstep.
     newapi:
@@ -689,7 +709,14 @@ spec:
 // Living here rather than as a literal in main.go is what makes the guard test
 // the value main.go actually ships — a copy in the test would pass while the
 // binary shipped something else.
-const DefaultHRAppChartVersions = "openclaw=0.2.18,stalwart-mail=0.1.15,newapi=1.4.153"
+// 2026-08-14: openclaw 0.2.18 -> 0.2.19. f7961510f bumped platform/openclaw/
+// chart/Chart.yaml and the catalog seed to 0.2.19 and did not bump this pin, so
+// main went red on hrAppPinSeedDrift. The guard was already correct; what let
+// the drift LAND is that its workflow was path-scoped to
+// core/services/provisioning/** while the value it asserts on lives in
+// products/catalyst/chart/templates/catalog-seed/ — the guard never ran on the
+// commit that broke it. Those paths are now in the trigger (#6324).
+const DefaultHRAppChartVersions = "openclaw=0.2.19,stalwart-mail=0.1.15,newapi=1.4.153"
 
 // ParseHRAppVersions parses the CATALYST_HR_APP_CHART_VERSIONS wire format
 // ("slug=version,slug=version") into the HelmReleaseAppVersions map (#4706).
