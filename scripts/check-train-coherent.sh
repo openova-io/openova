@@ -137,6 +137,7 @@ UI_DIR_REL="products/catalyst/bootstrap/ui"
 KIT_REL="clusters/_template/bootstrap-kit"
 
 GHCR_ORG="openova-io"
+REPO_SLUG="openova-io/openova"
 UMBRELLA_DIR="products/catalyst"
 UMBRELLA_CHART="bp-catalyst-platform"
 
@@ -282,12 +283,21 @@ tc_site3() { # <root> <chart_name>
   # its two version fields.
   awk -v want="$2" '
     function flush() {
+      # NOTE: no apostrophes in this awk body — it is inside a single-quoted
+      # shell string, and one stray quote silently ends the program.
+      # `exit` still runs the END block, which calls flush() a second time, so
+      # without this guard the value is printed twice. That happened to survive
+      # the caller substring-split, which is exactly the sort of accident that
+      # stops being harmless the moment someone reads the whole value (the
+      # __ABSENT__ comparison does).
+      if (printed) return
       if (name == want) {
         s = (spec == "" ? "__ABSENT__" : spec)
         r = (src  == "" ? "__ABSENT__" : src)
         if (s ~ /\{\{/) s = "__TEMPLATED__"
         if (r ~ /\{\{/) r = "__TEMPLATED__"
         print s "|" r
+        printed = 1
         exit
       }
       name=""; spec=""; src=""; inspec=0; insrc=0
@@ -307,7 +317,7 @@ tc_site3() { # <root> <chart_name>
     insrc && /^    version:[[:space:]]/ {
       v=$0; sub(/^    version:[[:space:]]*/,"",v); gsub(/["'"'"']/,"",v); if (src=="") src=v
     }
-    END { flush(); if (name != want) print "__ABSENT__" }
+    END { flush(); if (!printed) print "__ABSENT__" }
   ' "$f"
 }
 
@@ -420,6 +430,65 @@ tc_classify_pin() { # <version> <tags-file> <on_main:yes|no> <wf_state>
     completed|concluded) echo "MISSING" ;;
     *)                   echo "PENDING-PUBLISH" ;;
   esac
+}
+
+# ── check 3, part two: is there actually a release run? ───────────────────
+#
+# WHY THIS EXISTS AT ALL. The first cut of this script passed a hardcoded
+# wf_state="unknown" into tc_classify_pin, which maps to PENDING-PUBLISH. The
+# self-test proved the classifier CAN return MISSING — and the real run could
+# never reach it, for any input. That is the dominant defect class in this
+# repo (a guard testing a surface that cannot fail), committed inside the very
+# check written to prevent it. A branch only a fixture can enter is decoration.
+#
+# So the state is now MEASURED: find the commit that set the version, ask the
+# API for blueprint-release runs at that SHA, and map the answer.
+#
+# "No run found" is deliberately NOT benign. The TBD-A26 loss (versions
+# 1.4.180/181) happened exactly that way: blueprint-release.yaml failed with
+# `startup_failure / jobs: []` — no run to observe — while the pin bumped
+# normally. Silence there means the publish never started, which is the failure,
+# not the absence of one. It is forgiven only inside a short grace window, since
+# a commit pushed 30 seconds ago legitimately has no run yet.
+GRACE_SECONDS=1800
+
+# Pure, fixture-testable: JSON in, state out.
+tc_run_state_from_json() { # <json-file> <commit_age_seconds>
+  local f="$1" age="$2" n st
+  if [ ! -s "$f" ]; then
+    # Unreadable is not "no run" — say so rather than guessing either way.
+    echo "unreadable"; return 0
+  fi
+  n="$(jq -r '.workflow_runs | length' "$f" 2>/dev/null || echo "")"
+  if [ -z "$n" ]; then echo "unreadable"; return 0; fi
+  if [ "$n" -eq 0 ]; then
+    if [ "$age" -lt "$GRACE_SECONDS" ]; then echo "none-young"; else echo "none-old"; fi
+    return 0
+  fi
+  # completed only if EVERY run at this SHA has finished; one still in flight
+  # means the publish may yet land.
+  st="$(jq -r '[.workflow_runs[].status] | if any(. != "completed") then "running" else "completed" end' "$f" 2>/dev/null || echo "")"
+  if [ -z "$st" ]; then echo "unreadable"; else echo "$st"; fi
+}
+
+# Map a measured run-state onto the vocabulary tc_classify_pin speaks.
+tc_wf_state_word() { # <state-from-json>
+  case "$1" in
+    completed|none-old) echo "completed" ;;   # the publish had its chance
+    running|none-young) echo "running"   ;;   # still may land
+    *)                  echo "unreadable";;
+  esac
+}
+
+# The commit on <ref> that first carried <version> in <chart_dir>. Walks the
+# path's history newest-first and returns the OLDEST commit still holding it.
+tc_setting_commit() { # <ref> <chart_dir> <version>
+  local ref="$1" d="$2" ver="$3" sha last=""
+  while IFS= read -r sha; do
+    [ -n "$sha" ] || continue
+    if [ "$(tc_version_at_ref "$sha" "$d")" = "$ver" ]; then last="$sha"; else break; fi
+  done < <(git rev-list --max-count=60 "$ref" -- "$d/chart/Chart.yaml" 2>/dev/null)
+  echo "$last"
 }
 
 # ── check 4 decision helper (pure — fixture-testable) ──────────────────────
@@ -645,6 +714,23 @@ run_self_test() {
   st_case "3 aggregate: a MISSING pin makes the run RED"       1 st_agg_class MISSING
   st_case "3 aggregate: PENDING-MERGE does NOT make it red"    0 st_agg_class PENDING-MERGE
   st_case "3 aggregate: UNREADABLE is CANNOT READ, never pass" 2 st_agg_class UNREADABLE
+
+  # The run-state reader. Without this the MISSING branch above is reachable
+  # only from a fixture — which is what the first cut of this script actually
+  # shipped, and the reason these cases exist.
+  printf '{"workflow_runs":[{"status":"completed"}]}\n'                       > "$T/runs-done"
+  printf '{"workflow_runs":[{"status":"completed"},{"status":"in_progress"}]}\n' > "$T/runs-live"
+  printf '{"workflow_runs":[]}\n'                                            > "$T/runs-none"
+  : > "$T/runs-empty"
+  st_case "3 runstate: all runs finished → completed"          0 st_expect_run completed  "$T/runs-done"  99999
+  st_case "3 runstate: one still in flight → running"          0 st_expect_run running    "$T/runs-live"  99999
+  st_case "3 runstate: NO run + past grace → none-old"         0 st_expect_run none-old   "$T/runs-none"  99999
+  st_case "3 runstate: NO run + inside grace → none-young"     0 st_expect_run none-young "$T/runs-none"  10
+  st_case "3 runstate: unreadable body is NOT 'no run'"        0 st_expect_run unreadable "$T/runs-empty" 99999
+  # and the mapping that makes MISSING reachable from a REAL measurement
+  st_case "3 runstate→word: none-old means the publish had its chance" 0 st_expect_word completed  none-old
+  st_case "3 runstate→word: none-young is still pending"               0 st_expect_word running    none-young
+  st_case "3 END-TO-END: a real none-old measurement yields MISSING"   0 st_missing_reachable "$T/runs-none" "$T/tags"
   echo
 
   # ── CHECK 4 — the five lockstep sites ───────────────────────────────────
@@ -714,6 +800,26 @@ st_expect_class() { # <want> <version> <tags> <on_main> <wf>
   local want="$1"; shift
   local got; got="$(tc_classify_pin "$@")"
   [ "$got" = "$want" ]
+}
+
+st_expect_run() { # <want> <json> <age>
+  local want="$1"; shift
+  [ "$(tc_run_state_from_json "$1" "$2")" = "$want" ]
+}
+
+st_expect_word() { # <want> <raw-state>
+  [ "$(tc_wf_state_word "$2")" = "$1" ]
+}
+
+# The case that proves the chain, not just its links: a MEASURED "no run, past
+# grace" must travel all the way through tc_wf_state_word into tc_classify_pin
+# and come out MISSING. If any link regresses to a benign default, this fails.
+st_missing_reachable() { # <runs-json> <tags-file>
+  local raw word got
+  raw="$(tc_run_state_from_json "$1" 99999)"
+  word="$(tc_wf_state_word "$raw")"
+  got="$(tc_classify_pin "9.9.9" "$2" yes "$word")"
+  [ "$got" = "MISSING" ]
 }
 
 st_agg_class() { # <state> → the aggregate verdict that state must produce
@@ -920,6 +1026,8 @@ echo
 # ───────────────────────────── CHECK 3 ─────────────────────────────────────
 echo "── CHECK 3 — every delivery pin resolves on GHCR ───────────────────────"
 declare -A PIN_STATE=()
+N_PENDING=0
+N_MISSING=0
 if [ "$DO_GHCR" = 0 ]; then
   note "skipped (--no-ghcr)"
 else
@@ -961,18 +1069,6 @@ else
           | grep -vE '^sha256-' | sort -u > "$TMP/tags" || true
       fi
       first_hit="$(grep -cx -- "$ver" "$TMP/tags" 2>/dev/null || true)"
-      if [ "${first_hit:-0}" -eq 0 ]; then
-        note "3 $name:$ver absent from the newest page — escalating to a full paginated sweep before saying anything"
-        prev="$(tc_errexit_state)"; set +e
-        tags_json="$(gh api "/orgs/$GHCR_ORG/packages/container/$name/versions" --paginate 2>/dev/null)"
-        grc=$?
-        tc_errexit_restore "$prev"
-        : > "$TMP/tags"
-        if [ "$grc" -eq 0 ] && [ -n "$tags_json" ]; then
-          printf '%s' "$tags_json" | jq -r '.[].metadata.container.tags[]?' 2>/dev/null \
-            | grep -vE '^sha256-' | sort -u > "$TMP/tags" || true
-        fi
-      fi
       ntags="$(wc -l < "$TMP/tags")"
       if [ "$ntags" -eq 0 ]; then
         unread "3 $name: GHCR returned 0 usable tags — treating as unreadable, NOT as 'nothing published'"
@@ -986,17 +1082,75 @@ else
           | awk '/^version:[[:space:]]/ { gsub(/^version:[[:space:]]*/,""); gsub(/["'"'"']/,""); print; exit }')"
         [ "$mv_on_main" = "$ver" ] && on_main=yes
       fi
-      # release-run state for the commit that set it (best effort; unknown =>
-      # PENDING-PUBLISH, which is the non-alarming side — a run we cannot see
-      # is not evidence of a lost publish)
-      wf_state="unknown"
+      # ORDER MATTERS HERE, and the first cut had it backwards.
+      #
+      # It escalated straight from "not on the newest page" to a full paginated
+      # sweep — ~3000 version objects for bp-catalyst-platform, minutes per
+      # chart — and only then asked why. But "absent from GHCR" is the SYMPTOM;
+      # the release run is the CAUSE, it costs one API call, and it is the thing
+      # that actually decides the verdict. Measured live: bp-agenity 0.5.28 and
+      # bp-catalyst-platform 1.4.1486 both merged 45 minutes earlier with the
+      # release run still `queued`. Enumerating three thousand tags to explain
+      # that is backwards, and it made the common case — a train with a fresh
+      # merge on it, i.e. every train this script exists for — the slow one.
+      #
+      # So: cheap and direct first, expensive and exhaustive only when the cheap
+      # answer says the publish already had its chance. Absence is still never
+      # asserted from a partial read; it is just no longer the FIRST thing paid
+      # for.
+      wf_state="running"
+      if [ "${first_hit:-0}" -eq 0 ] && [ "$on_main" = "yes" ]; then
+        setter="$(tc_setting_commit "$BASELINE_REF" "$d" "$ver")"
+        if [ -z "$setter" ]; then
+          unread "3 $name:$ver — cannot locate the commit that set this version; refusing to rule on the publish"
+          PIN_STATE["$d"]="UNREADABLE"
+          continue
+        fi
+        age=$(( $(date -u +%s) - $(git show -s --format=%ct "$setter") ))
+        : > "$TMP/runs.json"
+        prev="$(tc_errexit_state)"; set +e
+        gh api "/repos/$REPO_SLUG/actions/workflows/blueprint-release.yaml/runs?head_sha=$setter&per_page=20" \
+          > "$TMP/runs.json" 2>/dev/null
+        tc_errexit_restore "$prev"
+        raw_state="$(tc_run_state_from_json "$TMP/runs.json" "$age")"
+        wf_state="$(tc_wf_state_word "$raw_state")"
+        note "3 $name:$ver — release run at ${setter:0:9} (age ${age}s): $raw_state"
+        if [ "$wf_state" = "unreadable" ]; then
+          unread "3 $name:$ver — could not read blueprint-release runs for ${setter:0:9}"
+          PIN_STATE["$d"]="UNREADABLE"
+          continue
+        fi
+        # Only now, with the run reported finished, is exhaustive proof of
+        # absence worth its cost — and it is REQUIRED, because MISSING is the
+        # verdict that must never come from a partial read. A hit here means
+        # page 1 was merely out of publication order (the b76f3ca7b shape).
+        if [ "$wf_state" = "completed" ]; then
+          note "3 $name:$ver — release run finished and the tag is not on the newest page; sweeping all pages to prove absence"
+          prev="$(tc_errexit_state)"; set +e
+          tags_json="$(gh api "/orgs/$GHCR_ORG/packages/container/$name/versions" --paginate 2>/dev/null)"
+          grc=$?
+          tc_errexit_restore "$prev"
+          if [ "$grc" -eq 0 ] && [ -n "$tags_json" ]; then
+            : > "$TMP/tags"
+            printf '%s' "$tags_json" | jq -r '.[].metadata.container.tags[]?' 2>/dev/null \
+              | grep -vE '^sha256-' | sort -u > "$TMP/tags" || true
+          else
+            unread "3 $name:$ver — full sweep failed; refusing to call a tag absent from a partial read"
+            PIN_STATE["$d"]="UNREADABLE"
+            continue
+          fi
+        fi
+      fi
       state="$(tc_classify_pin "$ver" "$TMP/tags" "$on_main" "$wf_state")"
       PIN_STATE["$d"]="$state"
       case "$state" in
         PUBLISHED)       ok   "3 $name:$ver PUBLISHED on ghcr.io/$GHCR_ORG" ;;
-        PENDING-MERGE)   note "3 $name:$ver PENDING-MERGE — not on main; blueprint-release is on:push→main so it CANNOT be published yet" ;;
-        PENDING-PUBLISH) note "3 $name:$ver PENDING-PUBLISH — on main, release run not yet observed concluded" ;;
-        MISSING)         fail "3 $name:$ver MISSING — on main, run concluded, tag absent (lost publish)" ;;
+        PENDING-MERGE)   note "3 $name:$ver PENDING-MERGE — not on main; blueprint-release is on:push→main so it CANNOT be published yet"
+                         N_PENDING=$((N_PENDING+1)) ;;
+        PENDING-PUBLISH) note "3 $name:$ver PENDING-PUBLISH — on main, release run still in flight. Remedy: WAIT and re-run. Do NOT re-fire blueprint-release."
+                         N_PENDING=$((N_PENDING+1)) ;;
+        MISSING)         fail "3 $name:$ver MISSING — on main, release run finished, tag absent after a full sweep (lost publish). Remedy: re-fire blueprint-release on ${setter:0:9}."
+                         N_MISSING=$((N_MISSING+1)) ;;
         UNREADABLE)      unread "3 $name:$ver — tag list unreadable" ;;
       esac
     done
@@ -1047,15 +1201,30 @@ if [ "$DO_FIRE" = 1 ]; then
   echo "════════════════════════════════════════════════════════════════════════"
   printf ' %-28s %-12s %-12s %-16s\n' "CHART" "ON MAIN" "KIT PIN" "GHCR"
   printf ' %-28s %-12s %-12s %-16s\n' "----------------------------" "------------" "------------" "----------------"
+  fire_divergent=0
   for d in "${TRAIN_DIRS[@]}"; do
     case "$d" in
       products/catalyst|products/agenity|platform/wordpress-tenant|platform/self-sovereign-cutover) ;;
       *) continue ;;
     esac
-    n="${CHART_NAME[$d]:-?}"; v="${MAIN_VER[$d]:-?}"
+    n="${CHART_NAME[$d]:-?}"
+    # "ON MAIN" must mean ON MAIN. A fresh prov installs what main carries, not
+    # what happens to be checked out in whoever ran this — and the two diverge
+    # the moment anything merges. Reading the working tree here would let the
+    # statement an operator fires on describe a branch nobody is deploying.
+    v="$(tc_version_at_ref "$BASELINE_REF" "$d")"
+    if [ -z "$v" ]; then v="(unreadable @ $BASELINE_REF)"; fi
+    if [ "$v" != "${MAIN_VER[$d]:-}" ]; then fire_divergent=$((fire_divergent+1)); fi
     kp="$(tc_kit_pin "$REPO_ROOT" "$n")"; [ -n "$kp" ] || kp="(no slot)"
     printf ' %-28s %-12s %-12s %-16s\n' "$n" "$v" "$kp" "${PIN_STATE[$d]:-unchecked}"
   done
+  echo
+  echo " ON MAIN is read from $BASELINE_REF @ $(git rev-parse --short "$BASELINE_REF" 2>/dev/null || echo '?')."
+  if [ "$fire_divergent" -gt 0 ]; then
+    echo " NOTE: $fire_divergent chart(s) differ between this working tree and"
+    echo " $BASELINE_REF. The KIT PIN column is read from THIS TREE, so on a"
+    echo " divergent checkout the two columns are not describing the same commit."
+  fi
   echo
   echo " The fresh Sovereign installs the KIT PIN column. A chart is safe to"
   echo " fire on when ON MAIN == KIT PIN and GHCR == PUBLISHED."
@@ -1086,6 +1255,21 @@ if [ "$C_READ" -gt 0 ]; then
 fi
 if [ "$C_FAIL" -gt 0 ]; then
   echo " VERDICT: INCOHERENT — $C_FAIL check failure(s). Do NOT fire a fresh prov."
+  # Both of these mean "do not fire yet", and the exit code is the same — but
+  # the REMEDY is opposite, so the two must never be reported as one thing.
+  if [ "$N_MISSING" -gt 0 ]; then
+    echo
+    echo " $N_MISSING pin(s) are a LOST PUBLISH: the release run finished and the tag"
+    echo " is still absent after a full sweep. Waiting will not fix these — re-fire"
+    echo " blueprint-release.yaml on the commit that bumped the chart."
+  fi
+  if [ "$N_PENDING" -gt 0 ] && [ "$N_MISSING" -eq 0 ]; then
+    echo
+    echo " $N_PENDING pin(s) are simply NOT PUBLISHED YET — the release run is still"
+    echo " in flight, or the bump has not merged. Nothing is broken; the train is"
+    echo " mid-flight. Re-run this pre-flight once the run finishes. Re-firing"
+    echo " blueprint-release now would be the wrong move."
+  fi
   echo "════════════════════════════════════════════════════════════════════════"
   exit 1
 fi
