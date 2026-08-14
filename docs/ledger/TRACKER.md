@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-14T02:30:09Z` |
+| Last refreshed | `2026-08-14T02:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-08-14T02:24 | [#6299](https://github.com/openova-io/openova/pull/6299) | #6291 | docs(uat): row 60 — the missing producer is built and merged |
+| 2026-08-14T02:32 | [#6296](https://github.com/openova-io/openova/pull/6296) | #6236 | fix(cutover-contract): remove the SIGPIPE-under-pipefail rea |
 | 2026-08-14T02:23 | [#6295](https://github.com/openova-io/openova/pull/6295) | #6280 | docs(uat): the cutover was DRIVEN on hw296 and died at step  |
 | 2026-08-14T02:03 | [#6292](https://github.com/openova-io/openova/pull/6292) | #6258 | docs(uat): walk the 8 withheld pending rows live on hw296 —  |
 | 2026-08-14T02:16 | [#6291](https://github.com/openova-io/openova/pull/6291) | #6287 | feat(catalyst-api): write the per-Org standby HelmRelease in |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-13T19:08 | [#6256](https://github.com/openova-io/openova/pull/6256) | #4290 | docs(uat): hw296 seven-row walk — the funnel completes end t |
 | 2026-08-13T19:09 | [#6254](https://github.com/openova-io/openova/pull/6254) | #6246 | fix(cutover): a hollow chart pin is TERMINAL, not "wait for  |
 | 2026-08-13T18:22 | [#6252](https://github.com/openova-io/openova/pull/6252) | #6246 | fix(guards): the expected bootstrap DAG never learned the tw |
-| 2026-08-13T18:13 | [#6251](https://github.com/openova-io/openova/pull/6251) | #3537 | fix(sovereign-api): the /apps estate is Application-keyed, n |
 
 ---
 
