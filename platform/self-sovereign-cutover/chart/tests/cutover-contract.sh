@@ -51,16 +51,38 @@ SELF_SRC="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]:-$0}")"
 # ── SIGPIPE-safe pipeline readers (#6235) ─────────────────────────────────────
 #
 # This script runs under `set -euo pipefail` (line 37). A pipeline whose LAST
-# stage stops reading before EOF — `grep -q`, `head -1` — kills its producer
-# with SIGPIPE the moment it exits. The producer's status becomes 141, pipefail
-# promotes 141 to the PIPELINE status, and the `if` therefore sees NON-ZERO for
-# input that DID contain the match. Which way that lands is decided by nothing
-# more than how the caller phrased the test, and both phrasings are wrong:
+# stage stops reading before EOF — `grep -q`, `head -1` — leaves its producer
+# writing into a closed pipe, and the producer then fails. Pipefail promotes
+# that failure to the PIPELINE status, so the `if` sees NON-ZERO for input that
+# DID contain the match.
+#
+# THE PRODUCER FAILS IN ONE OF TWO WAYS, and which one is a property of the
+# RUNNER, not of this script:
+#
+#   SIGPIPE ignored (SIG_IGN inherited)  →  the write returns EPIPE, the
+#       producer prints e.g. `cat: write error: Broken pipe` and exits 1.
+#       This is what GitHub Actions does: the runner is Node-based, Node sets
+#       SIGPIPE to SIG_IGN, and every step's shell and its children inherit
+#       that disposition. Measured on this PR's own CI job (run 31763168689):
+#       `cat big | grep -q <present-pattern>` returned rc=1.
+#   SIGPIPE default                      →  the producer is killed, status 141.
+#       This is what a normal workstation shell does, and it is the rc the
+#       #6235 investigation measured.
+#
+# The 141 case is the FRIENDLIER of the two. 141 is conspicuous; rc=1 is
+# byte-identical to an honest "no match", so on the runner that actually gates
+# merges this defect is invisible even to someone reading the exit code. Any
+# check written against the literal 141 therefore under-detects exactly where it
+# matters most — which is why the vacuity check below tests for "the raw form
+# did not answer 0", never for a specific status.
+#
+# Which way the damage lands is then decided by nothing more than how the caller
+# phrased the test, and both phrasings are wrong:
 #
 #   if   producer | grep -q X   →  FAIL-OPEN. A present X reads as absent, so an
 #                                  assertion of ABSENCE can never fire. This is
 #                                  #6235 on Case 40: all three ranges that DID
-#                                  contain the string returned 141, and a
+#                                  contain the string answered non-zero, and a
 #                                  genuine `helm.sh/resource-policy: keep`
 #                                  planted on step-05 was reported PASS.
 #   if ! producer | grep -q X   →  SPURIOUS FAIL. `exit 1` runs on a satisfied
@@ -107,17 +129,28 @@ echo "[cutover-contract] Case 0: the pipeline readers cannot SIGPIPE their produ
 # producer is guaranteed to still be writing when an early-exiting reader quits.
 { echo "C0-MATCH-FIRST-LINE"; seq 1 200000; } > "$TMP/c0-stream.txt"
 
-# VACUITY CHECK, and it runs FIRST. If the raw forms do not die of SIGPIPE on
-# this runner, everything below passes for a reason unrelated to the defect and
-# would be a guard that cannot fail — the exact shape #6235 was.
+# VACUITY CHECK, and it runs FIRST. The pattern IS on line 1, so a reader that
+# tells the truth answers 0. If the raw forms answer 0 here, this runner does not
+# have the hazard and everything below would pass for a reason unrelated to the
+# defect — a guard that cannot fail, the exact shape #6235 was.
+#
+# Asserted as "not 0", never as "141". The status is 141 only where SIGPIPE runs
+# at its default disposition; under the SIG_IGN that GitHub Actions hands every
+# step it is 1 instead, and an `-ne 141` test would have declared the CI runner
+# hazard-free while that same runner was gating every merge. `2>/dev/null` mutes
+# the producer's own `write error: Broken pipe` — it is expected here.
 set +e
-cat "$TMP/c0-stream.txt" | grep -q 'C0-MATCH-FIRST-LINE'; c0_raw_grep=$?   # c0-raw-control
-cat "$TMP/c0-stream.txt" | head -1 >/dev/null;            c0_raw_head=$?   # c0-raw-control
+cat "$TMP/c0-stream.txt" 2>/dev/null | grep -q 'C0-MATCH-FIRST-LINE'; c0_raw_grep=$?   # c0-raw-control
+cat "$TMP/c0-stream.txt" 2>/dev/null | head -1 >/dev/null;            c0_raw_head=$?   # c0-raw-control
 set -e
-if [ "$c0_raw_grep" -ne 141 ] || [ "$c0_raw_head" -ne 141 ]; then
-  echo "FAIL: Case 0 is vacuous — the raw pipeline forms did NOT die of SIGPIPE on this runner (grep -q rc=${c0_raw_grep}, head -1 rc=${c0_raw_head}; 141 expected for both). Everything this Case asserts below would then pass for a reason unrelated to #6235, and the drift guard would be policing a hazard this runner does not have. Re-measure before weakening it: raise the stream size, or if SIGPIPE genuinely no longer reaches the producer here, say so in the PR rather than deleting the check." >&2
+if [ "$c0_raw_grep" -eq 0 ] || [ "$c0_raw_head" -eq 0 ]; then
+  echo "FAIL: Case 0 is vacuous — a raw early-exiting pipeline reader answered 0 on this runner (grep -q rc=${c0_raw_grep}, head -1 rc=${c0_raw_head}; both expected NON-ZERO on a 1.3 MB stream). The producer is evidently surviving the closed pipe intact here, so nothing below proves anything about #6235 and the drift guard is policing a hazard this runner does not have. Re-measure before weakening it: raise the stream size first, and if the producer genuinely no longer fails on a closed pipe here, say so in the PR rather than deleting the check." >&2
   exit 1
 fi
+case "$c0_raw_grep" in
+  141) c0_mech="SIGPIPE kills the producer (rc=141)" ;;
+  *)   c0_mech="SIGPIPE is ignored, so the producer fails its write with EPIPE and exits ${c0_raw_grep} — a status indistinguishable from an honest 'no match'" ;;
+esac
 
 set +e
 cat "$TMP/c0-stream.txt" | grep_q 'C0-MATCH-FIRST-LINE'; c0_hit=$?
@@ -163,7 +196,7 @@ if [ -n "$c0_raw_sites" ]; then
   printf '%s\n' "$c0_raw_sites" >&2
   exit 1
 fi
-echo "  PASS (raw \`grep -q\`/\`head -1\` both reproduce rc=141 on a 1.3 MB stream here, so the hazard is real; grep_q reports hit/miss/empty correctly and forwards -x; head1 is a drop-in for head -1; no executable line in this file still uses the raw forms)"
+echo "  PASS (hazard reproduced on this runner — ${c0_mech}; raw \`grep -q\` rc=${c0_raw_grep} and raw \`head -1\` rc=${c0_raw_head} on a 1.3 MB stream whose pattern is on line 1; grep_q reports hit/miss/empty correctly and forwards -x; head1 is a drop-in for head -1; no executable line in this file still uses the raw forms)"
 
 cd "$CHART_DIR"
 
