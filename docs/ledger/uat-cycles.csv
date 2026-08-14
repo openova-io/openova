@@ -14,3 +14,4 @@ cycle_ts,env,dep,milestone,denominator,PASS,FAIL,PARTIAL,NOTRUN,SUPERSEDED,PENDI
 2026-08-13T10:43:13Z,hw295,952c564cab38d320,,286,252,18,15,1,0,0,88.1
 2026-08-13T16:44:11Z,hw296,e689e3b34a75fdec,fresh prov hw296 fired 16:14:44Z; hw295 wiped 16:12:43Z,286,228,18,14,26,0,0,79.7
 2026-08-13T23:25:21Z,hw296,e689e3b34a75fdec,25 SSO rows re-proven + G7/234 closed; funnel+vcluster mail defect #6278 found,286,254,5,12,7,0,8,88.8
+2026-08-14T04:43:07Z,hw296,e689e3b34a75fdec,25 SSO rows re-proven live (zero regressions); cutover attempt 9 fired with the step-6 fix (chart 0.1.187) — G11 still open,286,269,3,12,2,0,0,94.1
