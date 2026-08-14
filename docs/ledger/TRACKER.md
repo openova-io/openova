@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-14T07:30:04Z` |
+| Last refreshed | `2026-08-14T07:45:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5940](https://github.com/openova-io/openova/issues/5940) | Owner opening a voucher-redeem link is shown a signup form — the marketplace c | Other |
 | [#5943](https://github.com/openova-io/openova/issues/5943) | Organization DELETE resolves a different identifier than GET — the console's o | Other |
 | [#5945](https://github.com/openova-io/openova/issues/5945) | Placement editor offers retired vCluster names (host/mgmt/dmz/rtz) and preselect | Other |
 | [#5955](https://github.com/openova-io/openova/issues/5955) | P1: Application reports Ready=True over a database with ZERO ready instances — | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6314](https://github.com/openova-io/openova/issues/6314) | bp-agenity per-Org oidc-gate points the browser at auth.<slug>.<pool>, a host wi | Other |
 | [#6317](https://github.com/openova-io/openova/issues/6317) | Agenity Anthropic credential expires every ~5h and nothing refreshes it — rows | Other |
 | [#6318](https://github.com/openova-io/openova/issues/6318) | Build bp-specter — realize the AIOps component the wizard catalog used to offe | Other |
+| [#6319](https://github.com/openova-io/openova/issues/6319) | PIN sign-in is dead program-wide: an app_ready event storm NAKs against a 25/hou | Other |
 
 ---
 
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-08-14T06:55 | [#6315](https://github.com/openova-io/openova/pull/6315) | #6090 | docs(uat): close four hw296 partials — 242 proven by live PO |
+| 2026-08-14T07:38 | [#6313](https://github.com/openova-io/openova/pull/6313) | #6153 | fix(wizard): step 1 still pre-fills the fabricated company's |
 | 2026-08-14T07:11 | [#6310](https://github.com/openova-io/openova/pull/6310) | #3988 | docs(uat): row 222 — quota is NOT the only obstacle; a secon |
 | 2026-08-14T05:05 | [#6308](https://github.com/openova-io/openova/pull/6308) | #3526 | docs(uat): hw296 cutover driven to step 11 — G11 refuted the |
 | 2026-08-14T04:30 | [#6305](https://github.com/openova-io/openova/pull/6305) | #6197 | docs(uat): re-walk the 26 invalidated SSO rows live on hw296 |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-13T22:50 | [#6269](https://github.com/openova-io/openova/pull/6269) | #3379 | fix(cutover): stamp a carried-over step failure with the Job |
 | 2026-08-13T22:14 | [#6267](https://github.com/openova-io/openova/pull/6267) | #4292 | docs(uat): walk 16 rows live on hw296 — 8 green, and row 60  |
 | 2026-08-13T21:09 | [#6265](https://github.com/openova-io/openova/pull/6265) | #6236 | ci: run chart/tests/*.sh at PR time under the release-pinned |
-| 2026-08-13T21:19 | [#6264](https://github.com/openova-io/openova/pull/6264) | #6245 | fix(agenity): the Anthropic credential had no producer, and  |
 
 ---
 
