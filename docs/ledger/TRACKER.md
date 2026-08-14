@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-14T00:30:07Z` |
+| Last refreshed | `2026-08-14T00:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-14T00:41 | [#6284](https://github.com/openova-io/openova/pull/6284) | #4482 | docs(uat): the Anthropic credential had two missing writers  |
+| 2026-08-14T00:37 | [#6283](https://github.com/openova-io/openova/pull/6283) | #6282 | docs(uat): rows 63/212/213 walked green on hw296 after insta |
 | 2026-08-14T00:17 | [#6282](https://github.com/openova-io/openova/pull/6282) | #6068 | docs(uat): rows 212/213 have no Org-context MCP door at all, |
 | 2026-08-14T00:27 | [#6281](https://github.com/openova-io/openova/pull/6281) | #6273 | fix(cutover): grant Phase A0 the namespaces read its #6273 p |
 | 2026-08-13T23:30 | [#6279](https://github.com/openova-io/openova/pull/6279) | #6259 | docs(ledger): convergence cycle 2026-08-13T23:25:21Z — 254/2 |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-13T17:01 | [#6245](https://github.com/openova-io/openova/pull/6245) | #4482 | fix(anthropic-seed): a credential that cannot authenticate i |
 | 2026-08-13T16:50 | [#6244](https://github.com/openova-io/openova/pull/6244) | #6240 | docs(ledger): convergence capture 2026-08-13T16:44:11Z — hw2 |
 | 2026-08-13T16:50 | [#6243](https://github.com/openova-io/openova/pull/6243) | #4290 | fix(funnel): a lost settlement-launch strands a PAID Org for |
-| 2026-08-13T16:18 | [#6241](https://github.com/openova-io/openova/pull/6241) | #6122 | test(openova-mcp): pin UAT row 213 as indistinguishability,  |
-| 2026-08-13T15:52 | [#6240](https://github.com/openova-io/openova/pull/6240) | #5844 | walk(hw295): SSO bare-URL rows 33/34/36/37 — measured, then  |
 
 ---
 
