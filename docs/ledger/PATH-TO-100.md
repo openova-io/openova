@@ -96,7 +96,7 @@ a re-walk, or a fresh prov that keeps the same mother.
 |---|---|---|---|
 | **A1** region-B kubeconfig never forwarded → Sovereign observes 1 of 2 regions | 55, 62, 64, 65, 66, 187, 188, 189 | `products/catalyst/bootstrap/api/internal/handler/deployment_handover_export.go:588` `runSecondaryKubeconfigDelivery`, spawned at `phase1_watch.go:1476` | post-handover hook; mother-side; handover never fired (A4) |
 | **A2** crossplane adoption never parameterised | G1, G6, 206, 207, 208, 239 | `post_handover_adoption_apply.go:88` `runPostHandoverAdoptionApply`, spawned at `phase1_watch.go:1587` | same hook, same gate |
-| **A3** deployment wizard is MOTHERSHIP-served | W1, W2 | `products/catalyst/bootstrap/ui/src/pages/wizard/steps/` | mother `catalyst-ui` is `fad88bd` (2026-08-02) |
+| **A3** ~~deployment wizard is MOTHERSHIP-served~~ **REFUTED 2026-08-14 — it is served on the Sovereign too** | W1, W2, W5 | `products/catalyst/bootstrap/ui/src/pages/wizard/steps/` | NOT gated. `console.hw296.omani.works/wizard` renders `Step 1 of 8` with the full 8-step stepper under an authed owner session (anonymous bounces to `/login`, which is why a `curl` probe reads as "no wizard"). All three rows were walked live there on hw296 against `catalyst-ui:031db43` — see their UAT Evidence cells |
 | **A4** handover never fired — Phase-1 latched `failed` | G11, 166, 227 | `phase1_watch.go` `markPhase1Done` / `fireHandover` / `shouldConvergedLateRescue` | the #6082/#6083 repair (`c50f2a57f`) + #6101 (`e4c14ad86`) are in the Sovereign image, NOT in `b2294fd` |
 | **A5** region-B consumer-hub Secrets never delivered | R13, 32, 36, 67, 69, 70, 111, 235, 236 | `products/catalyst/bootstrap/api/internal/handler/clustermesh.go:2139` `syncSharedPGConsumerHubSecrets`, called at `clustermesh.go:1158` | fix #6073 (`b89d0d621`) re-bases the readiness gate onto the replica's mesh alias — in the Sovereign image, NOT in `b2294fd` |
 | **A6** cnpg-pair flip never happens → zero CnpgPairs | 60, 71 | `clustermesh.go:1583` `enableCNPGPairAfterFullMesh`, gated on `countFullyMeshedRegions` (`clustermesh.go:3887`) | mother-side; live region-A HR reads `topology.crossRegion:false`, `mode:singleton`, `instances:1` |
@@ -320,8 +320,16 @@ rather than inferred:
    (Catalyst-Zero) or `/deployments` (**Sovereign build, though that build never
    exposes the wizard**, so this route is effectively Catalyst-Zero only)"* — and
    `:39` keys `isCatalystZero` on `window.location.hostname === 'console.openova.io'`.
-   The wizard is served by the mother, whose `catalyst-ui` is `fad88bd`
-   (2026-08-02). W5 is therefore gated exactly as W1/W2 are, by cluster A.
+   🛑 **THAT INFERENCE IS REFUTED — measured 2026-08-14, do not re-derive it.**
+   The comment is about the *deployments* route, not the wizard route, and the
+   wizard route is `anonymous-first` rather than absent: on the Sovereign it
+   bounces an unauthenticated visitor to `/login`, so a `curl` reads "no
+   wizard" while an authed browser gets the real thing. Walked live:
+   `console.hw296.omani.works/wizard` renders `Step 1 of 8` and the full
+   `Organisation → Topology → Provider → Components → Marketplace → Domain →
+   Credentials → Review` stepper under an owner session, served by
+   `catalyst-ui:031db43`. W1, W2 and W5 are therefore **not** gated by cluster
+   A; all three carry live hw296 evidence in `UAT.md`, and W2 went green there.
 2. **The residue is a PRODUCT DECISION, not an unwritten fix.** #5979
    (`05d3f639c`, ⊂ live `28b532a`) already removed five of the six phantom ids
    and, more importantly, added the bound that matters: `KNOWN_UNBUILT` may no
