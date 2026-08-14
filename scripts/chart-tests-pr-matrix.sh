@@ -140,6 +140,11 @@ if [ "$SELF_TEST" -eq 1 ]; then
   g init -q -b main
   g config user.email t@t.t
   g config user.name t
+  # A global commit.gpgsign=true would make every fixture commit fail on a
+  # machine that has one, and the self-test would read as a code defect rather
+  # than an environment difference. Pin it off for the fixture repo only.
+  g config commit.gpgsign false
+  g config tag.gpgsign false
   mkdir -p "$T/platform/alpha/chart/templates" "$T/platform/alpha/chart/tests" \
            "$T/products/umbrella/chart/templates" "$T/products/umbrella/chart/tests" \
            "$T/platform/notests/chart/templates"
