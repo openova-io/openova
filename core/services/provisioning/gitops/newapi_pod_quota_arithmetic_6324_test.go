@@ -347,6 +347,30 @@ func TestNewAPIPodCPU_6324_TermsCoverEveryChartContainer(t *testing.T) {
 	for _, term := range newapiPodCPUTerms {
 		modelled[term.container] = true
 	}
+
+	// BOTH DIRECTIONS. The check below (rendered ⊆ modelled ∪ {plainInit}) is
+	// satisfied vacuously by a scanner that found only ONE container, so assert
+	// the other inclusion first: every term this file models must actually
+	// appear in the template. That is what makes the len()>0 check above more
+	// than a formality.
+	renderedSet := map[string]bool{}
+	for _, name := range rendered {
+		renderedSet[name] = true
+	}
+	for _, term := range newapiPodCPUTerms {
+		if !renderedSet[term.container] {
+			t.Fatalf("newapiPodCPUTerms models a container %q that the scanner did not find in "+
+				"templates/deployment.yaml. Either the chart dropped it — in which case the Pod "+
+				"total is now overstated — or this scanner stopped matching, in which case the "+
+				"coverage check below is vacuous.\nrendered: %v", term.container, rendered)
+		}
+	}
+	if !renderedSet[plainInit] {
+		t.Fatalf("the scanner did not find the %q plain initContainer, which "+
+			"TestNewAPIPodCPU_6324_PlainInitDoesNotDominate depends on being present.\nrendered: %v",
+			plainInit, rendered)
+	}
+
 	for _, name := range rendered {
 		if name == plainInit || modelled[name] {
 			continue
