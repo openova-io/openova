@@ -373,7 +373,11 @@ func ensureOrgAppStandbyHelmRelease(ctx context.Context, dyn dynamic.Interface, 
 	// pivot into — strip it rather than carry a dangling secretRef.
 	delete(spec, "kubeConfig")
 
-	spec["values"] = standbyValuesFor(spec, leg.Topology)
+	values, verr := standbyValuesFor(ctx, dyn, spec, leg.Topology)
+	if verr != nil {
+		return verr
+	}
+	spec["values"] = values
 
 	labels := orgConsoleTLSStringLabels(names, rec, orgAppStandbyComponent)
 	for k, v := range leg.HR.GetLabels() {
@@ -441,17 +445,138 @@ func ensureOrgAppStandbyHelmRelease(ctx context.Context, dyn dynamic.Interface, 
 //
 // The source map is never mutated — it belongs to the object listed from the
 // host region's apiserver.
-func standbyValuesFor(spec map[string]any, topology string) map[string]any {
+// It additionally stamps the SPLIT-SIDE contract when the chart has shown it
+// speaks that vocabulary — see standbySideOverlay, and read its doc before
+// changing anything here, because omitting it is not a cosmetic gap: it renders
+// a second PRIMARY.
+//
+// Returns an error rather than a best-effort map when the side cannot be
+// resolved. Fail-closed is the only safe direction: an unresolved side writes a
+// primary into the standby's region.
+func standbyValuesFor(ctx context.Context, dyn dynamic.Interface, spec map[string]any, topology string) (map[string]any, error) {
 	src, _, _ := unstructured.NestedMap(spec, "values")
 	out := make(map[string]any, len(src)+1)
 	for k, v := range src {
 		out[k] = v
 	}
-	if strings.TrimSpace(topology) == bcpActiveHotStandby {
+	hot := strings.TrimSpace(topology) == bcpActiveHotStandby
+	if hot {
 		delete(out, replicasKey)
 	}
 	out[standbyMarker] = true
-	return out
+	if err := standbySideOverlay(ctx, dyn, out, hot); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// standbySideOverlay stamps the split-side contract onto the values of a leg
+// being delivered to a secondary region.
+//
+// WHY THIS IS NOT OPTIONAL. `_openova_standby` is NOT what selects a follower.
+// bp-postgres picks its half from `topology.side` (`_helpers.tpl`
+// bp-postgres.side / .renderReplicaHalf) and `cluster.yaml` hardcodes
+// `openova.io/cnpg-role: primary` on the half it renders. So a leg projected
+// with the source values verbatim renders a SECOND PRIMARY in the standby's
+// region — and one pinned by required nodeAffinity to
+// `topology.primary.region`, which no node in that region carries, so it is
+// unschedulable forever while the HelmRelease reports install succeeded. That
+// is the #5639 shape exactly, arrived at from a new direction.
+//
+// WHERE THE REGION COMES FROM. `topology.replica.region` is a `required` in the
+// chart and its value is the `openova.io/region` NODE LABEL the follower's
+// nodeAffinity pins on. It is therefore read from the TARGET region's OWN
+// nodes — the cluster the follower will actually be scheduled on. Deriving it
+// from a name (the bridge Secret's region key, a deployment record's cloud
+// region) would be a guess against a label, and a wrong guess is not visible:
+// it renders `openova.io/region In [""]` or a region no node has, and the
+// install still reports success. A label read off a live node cannot produce
+// that shape, because the node it came from satisfies it by construction.
+//
+// SCOPE. Only applied when the source values ALREADY carry a `topology` map
+// declaring `mode: active-hot-standby`. That is the chart telling us it speaks
+// this vocabulary; stamping `topology.side` onto a chart that has said nothing
+// about topology would be inventing a contract on its behalf. A cold
+// (`active-passive`) leg is not touched either — it renders no follower.
+func standbySideOverlay(ctx context.Context, dyn dynamic.Interface, values map[string]any, hot bool) error {
+	if !hot {
+		return nil
+	}
+	topo, found, _ := unstructured.NestedMap(values, "topology")
+	if !found {
+		return nil
+	}
+	if mode, _, _ := unstructured.NestedString(topo, "mode"); strings.TrimSpace(mode) != bcpActiveHotStandby {
+		return nil
+	}
+
+	region, err := regionNodeLabel(ctx, dyn)
+	if err != nil {
+		return fmt.Errorf("resolve the secondary region's openova.io/region node label, which topology.replica.region must equal: %w", err)
+	}
+
+	// COPY — `topo` is a NestedMap of the source object's values and must not
+	// be mutated in place; the same source leg is projected once per region.
+	next := make(map[string]any, len(topo)+2)
+	for k, v := range topo {
+		next[k] = v
+	}
+	next["side"] = "replica"
+	replica := map[string]any{}
+	if cur, ok := next["replica"].(map[string]any); ok {
+		for k, v := range cur {
+			replica[k] = v
+		}
+	}
+	replica["region"] = region
+	next["replica"] = replica
+	values["topology"] = next
+	return nil
+}
+
+// regionNodeLabel returns the `openova.io/region` value carried by the nodes of
+// the cluster `dyn` addresses. Every node must agree — a cluster whose nodes
+// disagree is not one region, and picking one would make the pick
+// authoritative. An unlabelled cluster is an error, not a default: the chart's
+// `required` exists precisely because an empty region renders an
+// unschedulable-forever follower under a successful install.
+func regionNodeLabel(ctx context.Context, dyn dynamic.Interface) (string, error) {
+	nodes, err := dyn.Resource(orgAppStandbyNodesGVR()).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return "", fmt.Errorf("list nodes: %w", err)
+	}
+	if nodes == nil || len(nodes.Items) == 0 {
+		return "", fmt.Errorf("the cluster reports no nodes")
+	}
+	region := ""
+	for i := range nodes.Items {
+		v := strings.TrimSpace(nodes.Items[i].GetLabels()[regionNodeLabelKey])
+		if v == "" {
+			continue
+		}
+		if region == "" {
+			region = v
+			continue
+		}
+		if v != region {
+			return "", fmt.Errorf("nodes disagree on %s (%q vs %q), so this cluster is not one region",
+				regionNodeLabelKey, region, v)
+		}
+	}
+	if region == "" {
+		return "", fmt.Errorf("no node carries the %s label", regionNodeLabelKey)
+	}
+	return region, nil
+}
+
+// regionNodeLabelKey is the canonical region node label the split-side charts
+// pin their required nodeAffinity on (platform/postgres/chart/templates/
+// cluster.yaml, replica-cluster.yaml, dr-promoter.yaml).
+const regionNodeLabelKey = "openova.io/region"
+
+// orgAppStandbyNodesGVR — core/v1 Nodes, cluster-scoped.
+func orgAppStandbyNodesGVR() schema.GroupVersionResource {
+	return schema.GroupVersionResource{Group: "", Version: "v1", Resource: "nodes"}
 }
 
 // ensureStandbyChartSource projects the HelmRepository the standby leg's chart

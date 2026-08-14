@@ -68,7 +68,13 @@ var (
 	standbyHRGVR   = schema.GroupVersionResource{Group: "helm.toolkit.fluxcd.io", Version: "v2", Resource: "helmreleases"}
 	standbyRepoGVR = schema.GroupVersionResource{Group: "source.toolkit.fluxcd.io", Version: "v1", Resource: "helmrepositories"}
 	standbySvcGVR  = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}
+	standbyNodeGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "nodes"}
 )
+
+// standbyNodeRegion is the region the SECONDARY region's nodes carry — the
+// value hw296 region B's nodes actually have, and the value the chart's
+// required `topology.replica.region` must equal.
+const standbyNodeRegion = "hw-me-east-215-b-rtz-prod"
 
 const (
 	standbyOrgSlug   = "walkfour"
@@ -96,6 +102,7 @@ func fakeDynForOrgAppStandby(t *testing.T, orgs ...*unstructured.Unstructured) *
 			standbySvcGVR:     "ServiceList",
 			standbyHRGVR:      "HelmReleaseList",
 			standbyRepoGVR:    "HelmRepositoryList",
+			standbyNodeGVR:    "NodeList",
 		})
 	ctx := context.Background()
 	gw := &unstructured.Unstructured{Object: map[string]any{
@@ -185,6 +192,26 @@ func seedCatalogChartSource(t *testing.T, dyn *dynamicfake.FakeDynamicClient) {
 	}
 }
 
+// seedRegionNodes gives a fake region cluster nodes carrying the canonical
+// `openova.io/region` label — the label the split-side charts pin their
+// required nodeAffinity on, and the only honest source for
+// `topology.replica.region`.
+func seedRegionNodes(t *testing.T, dyn *dynamicfake.FakeDynamicClient, region string, names ...string) {
+	t.Helper()
+	for _, n := range names {
+		node := &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "v1", "kind": "Node",
+			"metadata": map[string]any{
+				"name":   n,
+				"labels": map[string]any{"openova.io/region": region},
+			},
+		}}
+		if _, err := dyn.Resource(standbyNodeGVR).Create(context.Background(), node, metav1.CreateOptions{}); err != nil {
+			t.Fatalf("seed Node %s: %v", n, err)
+		}
+	}
+}
+
 func seedFanoutHR(t *testing.T, dyn *dynamicfake.FakeDynamicClient, hr *unstructured.Unstructured) {
 	t.Helper()
 	if _, err := dyn.Resource(standbyHRGVR).Namespace(hr.GetNamespace()).
@@ -254,6 +281,9 @@ func TestReconcileOrgAppStandby_SecondaryRegionCarriesTheHotStandbyLeg(t *testin
 	secDyn := fakeDynForOrgAppStandby(t, org)
 
 	seedCatalogChartSource(t, hostDyn)
+	// Region B's own nodes carry the canonical region label — the only honest
+	// source for the follower's required nodeAffinity region (see lock 8).
+	seedRegionNodes(t, secDyn, standbyNodeRegion, "b-cp1", "b-w1")
 	seedFanoutHR(t, hostDyn, fanoutHR(standbyActiveHR, standbyOrgSlug, standbyAppName,
 		"rtz-A", "active", "active-hot-standby", map[string]any{
 			"topology": map[string]any{"mode": "active-hot-standby"},
@@ -571,6 +601,143 @@ func TestReconcileOrgAppStandby_DeliveredLegCarriesNoKubeConfig(t *testing.T) {
 	if chart, found, _ := unstructured.NestedString(hr.Object, "spec", "chart", "spec", "chart"); !found || chart != "bp-postgres" {
 		t.Errorf("#6268: the delivered standby leg %s/vcapp-rtz-b lost its chart (%q found=%v) — "+
 			"only the kubeConfig block may be removed", standbyOrgSlug, chart, found)
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// lock 8 / lock 9 — the split-side contract, and what happens when it cannot
+// be satisfied.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestReconcileOrgAppStandby_DeliveredLegRendersTheReplicaHalf.
+//
+// `_openova_standby` is NOT what selects a follower. bp-postgres picks its half
+// from `topology.side` (`_helpers.tpl` bp-postgres.side / .renderReplicaHalf),
+// and `cluster.yaml` hardcodes `openova.io/cnpg-role: primary` on the half it
+// renders. So a leg delivered with the source values verbatim renders a SECOND
+// PRIMARY in the standby's region — pinned by required nodeAffinity to
+// `topology.primary.region`, which no node there carries, so it is
+// unschedulable forever while the HelmRelease reports install succeeded. That
+// is the #5639 shape reached from a new direction, and it is strictly worse
+// than the leg being absent.
+//
+// `topology.replica.region` must equal the `openova.io/region` NODE LABEL of
+// the region the follower runs in, so it is read off that region's OWN nodes.
+// A name-derived value (a bridge region key, a deployment record's cloud
+// region) would be a guess against a label, and a wrong guess is invisible.
+//
+// RED on origin/main, and RED against a producer that copies values verbatim.
+func TestReconcileOrgAppStandby_DeliveredLegRendersTheReplicaHalf(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "hw296.omani.works")
+
+	org := standbyOrgCR(standbyOrgSlug, standbyOrgParent)
+	hostDyn := fakeDynForOrgAppStandby(t, org)
+	secDyn := fakeDynForOrgAppStandby(t, org)
+
+	seedCatalogChartSource(t, hostDyn)
+	seedRegionNodes(t, secDyn, standbyNodeRegion, "b-cp1", "b-w1")
+	seedFanoutHR(t, hostDyn, fanoutHR(standbyActiveHR, standbyOrgSlug, standbyAppName,
+		"rtz-A", "active", "active-hot-standby", nil))
+	seedFanoutHR(t, hostDyn, fanoutHR(standbyPassiveHR, standbyOrgSlug, standbyAppName,
+		"rtz-B", "passive", "active-hot-standby", map[string]any{
+			"_openova_standby": true,
+			"replicas":         int64(0),
+			// The live shape: mode + primary region, and NO side.
+			"topology": map[string]any{
+				"mode":    "active-hot-standby",
+				"primary": map[string]any{"region": "hw-me-east-215-a-rtz-prod"},
+			},
+		}))
+
+	h := newStandbyHandler(t, hostDyn, secDyn)
+	h.reconcileOrgConsoleTLSOnce(context.Background())
+
+	hr, ok := getHR(t, secDyn, standbyOrgSlug, standbyPassiveHR)
+	if !ok {
+		t.Fatalf("#6268: the secondary region carries NO HelmRelease %s/%s",
+			standbyOrgSlug, standbyPassiveHR)
+	}
+	// 1. SUBSTANTIVE — the leg renders the REPLICA half, not a second primary.
+	if side, _, _ := unstructured.NestedString(hr.Object, "spec", "values", "topology", "side"); side != "replica" {
+		t.Errorf("#6268: the delivered standby leg %s/%s carries topology.side=%q, want %q — "+
+			"bp-postgres selects its half from this key and cluster.yaml hardcodes "+
+			"openova.io/cnpg-role: primary on the half it renders, so without it this leg is a "+
+			"SECOND PRIMARY in the standby's region",
+			standbyOrgSlug, standbyPassiveHR, side, "replica")
+	}
+	// 2. and it pins on a region that a node in THAT cluster actually carries.
+	if got, _, _ := unstructured.NestedString(hr.Object, "spec", "values", "topology", "replica", "region"); got != standbyNodeRegion {
+		t.Errorf("#6268: the delivered standby leg %s/%s carries topology.replica.region=%q, "+
+			"want %q (read off that region's own nodes) — the chart pins the follower's "+
+			"required nodeAffinity on this value, and a region no node carries renders a "+
+			"follower that is unschedulable forever under a successful install (#5639)",
+			standbyOrgSlug, standbyPassiveHR, got, standbyNodeRegion)
+	}
+	// 3. the primary half of the declaration is carried through untouched — the
+	//    overlay must ADD the side, not rewrite the topology block.
+	if got, _, _ := unstructured.NestedString(hr.Object, "spec", "values", "topology", "primary", "region"); got != "hw-me-east-215-a-rtz-prod" {
+		t.Errorf("#6268: the delivered standby leg %s/%s lost topology.primary.region (%q) — the "+
+			"follower needs it to know what it is following", standbyOrgSlug, standbyPassiveHR, got)
+	}
+	// 4. the HOST region's copy is NOT given a side. It is undelivered and must
+	//    stay inert; making it a follower would have it pin on a region its own
+	//    cluster does not carry.
+	src, ok := getHR(t, hostDyn, standbyOrgSlug, standbyPassiveHR)
+	if !ok {
+		t.Fatalf("#6268: the host region's own standby leg %s/%s disappeared",
+			standbyOrgSlug, standbyPassiveHR)
+	}
+	if side, found, _ := unstructured.NestedString(src.Object, "spec", "values", "topology", "side"); found {
+		t.Errorf("#6268: the projection mutated the HOST region's leg %s/%s (topology.side=%q) — "+
+			"it must be additive in the secondary region only",
+			standbyOrgSlug, standbyPassiveHR, side)
+	}
+}
+
+// TestReconcileOrgAppStandby_RefusesToDeliverWhenTheReplicaRegionIsUnknowable.
+//
+// The secondary region's nodes carry no `openova.io/region` label, so
+// `topology.replica.region` cannot be resolved. The chart marks it `required`
+// precisely because rendering it empty emits `openova.io/region In [""]`, which
+// no node can satisfy — an unschedulable-forever follower under a successful
+// install.
+//
+// Fail-closed is the only safe direction: writing the leg anyway would put a
+// primary-shaped object in the standby's region. So nothing is written, and the
+// failure is logged rather than smoothed over.
+//
+// PASSES on origin/main (nothing is written there either) — this is a
+// constraint on the fix, not a description of the defect.
+func TestReconcileOrgAppStandby_RefusesToDeliverWhenTheReplicaRegionIsUnknowable(t *testing.T) {
+	t.Setenv("SOVEREIGN_FQDN", "hw296.omani.works")
+
+	org := standbyOrgCR(standbyOrgSlug, standbyOrgParent)
+	hostDyn := fakeDynForOrgAppStandby(t, org)
+	secDyn := fakeDynForOrgAppStandby(t, org)
+
+	seedCatalogChartSource(t, hostDyn)
+	// Deliberately NO seedRegionNodes: the region label is unknowable.
+	seedFanoutHR(t, hostDyn, fanoutHR(standbyActiveHR, standbyOrgSlug, standbyAppName,
+		"rtz-A", "active", "active-hot-standby", nil))
+	seedFanoutHR(t, hostDyn, fanoutHR(standbyPassiveHR, standbyOrgSlug, standbyAppName,
+		"rtz-B", "passive", "active-hot-standby", map[string]any{
+			"_openova_standby": true,
+			"topology": map[string]any{
+				"mode":    "active-hot-standby",
+				"primary": map[string]any{"region": "hw-me-east-215-a-rtz-prod"},
+			},
+		}))
+
+	h := newStandbyHandler(t, hostDyn, secDyn)
+	h.reconcileOrgConsoleTLSOnce(context.Background())
+
+	if hr, ok := getHR(t, secDyn, standbyOrgSlug, standbyPassiveHR); ok {
+		region, _, _ := unstructured.NestedString(hr.Object, "spec", "values", "topology", "replica", "region")
+		t.Errorf("#6268: a standby leg was delivered into a region whose own nodes carry no "+
+			"openova.io/region label (topology.replica.region=%q) — the chart pins the "+
+			"follower's required nodeAffinity on that value, so this renders a follower no "+
+			"node can ever schedule while the HelmRelease reports install succeeded. Refusing "+
+			"to write is the only safe direction", region)
 	}
 }
 
