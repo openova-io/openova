@@ -48,6 +48,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+
+	bpv1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
 )
 
 // crossClusterStandbyState is the resolved standby posture of a cnpg
@@ -66,11 +68,17 @@ type crossClusterStandbyState struct {
 	// PrimaryCluster / ReplicaCluster are the k8scache cluster ids each half
 	// was observed in. They are surfaced in the health-gate message so an
 	// operator can tell a cross-region verification from the controller-probe
-	// relay that produces the same Pass otherwise.
+	// relay that produces the same Pass otherwise, and they are the `cluster`
+	// value the placement projection emits (the same identifier
+	// derivePlacementTargets uses, so both surfaces name clusters alike).
 	PrimaryCluster string
 	ReplicaCluster string
 
-	// ReplicaName / ReplicaRegion identify the standby half itself.
+	// PrimaryName / PrimaryRegion identify the primary half; ReplicaName /
+	// ReplicaRegion the standby half. The regions come from each half's
+	// `openova.io/region` label — live cluster placement, not config.
+	PrimaryName   string
+	PrimaryRegion string
 	ReplicaName   string
 	ReplicaRegion string
 
@@ -208,16 +216,65 @@ func (h *Handler) crossClusterCNPGPairStandby(
 		return crossClusterStandbyState{}, false
 	}
 
-	replica := hv.replica.obj
+	primary, replica := hv.primary.obj, hv.replica.obj
 	replicaEnabled, _, _ := unstructured.NestedBool(replica.Object, "spec", "replica", "enabled")
 	return crossClusterStandbyState{
 		PairName:       chosen,
 		PrimaryCluster: hv.primary.cluster,
 		ReplicaCluster: hv.replica.cluster,
+		PrimaryName:    primary.GetName(),
+		PrimaryRegion:  primary.GetLabels()[cnpgRegionLabel],
 		ReplicaName:    replica.GetName(),
 		ReplicaRegion:  replica.GetLabels()[cnpgRegionLabel],
 		Available:      cnpgStandbyAvailable(replica),
 		Following:      cnpgClusterReady(replica) && replicaEnabled,
 		LagSeconds:     cnpgClusterLag(replica),
 	}, true
+}
+
+// mergeCrossClusterPairIntoTargets folds a pair resolved ACROSS clusters into
+// the occupancy-derived placement target list, adding only the legs occupancy
+// did not already supply.
+//
+// WHY THE PLACEMENT PATH NEEDS THIS TOO. `derivePlacementTargets` keys on the
+// component's OWN Pods, and for an app whose stateful identity IS its CNPG pair
+// those Pods carry the DATABASE's labels: measured on hw296, the Pods behind
+// Catalog app `r60fresh` in `walkfour` are labelled
+// `app.kubernetes.io/instance=postgres` / `app.kubernetes.io/name=postgresql`,
+// so `podBelongsToComponent(p, "r60fresh", …)` is false for every one of them
+// and occupancy yields NO Primary. (`shared-pg` only escapes this because its
+// app name happens to equal its CNPG instance label.) #6271 added the
+// Primary-emitting term for exactly this case, but gated it on
+// findCNPGPairForApp — which needs both halves out of the REGION-A list and so
+// can never fire for a genuinely 2-region pair. Same seam, same swap.
+//
+// Pure by design, mirroring mergeCNPGPairIntoTargets: the decision is which
+// legs get emitted, so keeping it free of the client makes it directly testable.
+//
+// The `cluster` field carries the k8scache CLUSTER ID (not the CNPG Cluster CR
+// name), which is what `derivePlacementTargets` puts there — so a projected leg
+// and an occupancy-derived leg name their cluster the same way.
+//
+// Callers must have already established that `xs` holds two DISTINCT non-empty
+// regions — the same invariant deriveLiveContinuumRecord enforces.
+func mergeCrossClusterPairIntoTargets(targets []bpv1.PlacementTarget, xs crossClusterStandbyState) []bpv1.PlacementTarget {
+	// Already represented as a Standby in the replica region — nothing to add.
+	for _, t := range targets {
+		if t.Role == bpv1.DataRoleStandby && t.Region == xs.ReplicaRegion {
+			return targets
+		}
+	}
+	if !hasPrimaryTarget(targets) {
+		targets = append(targets, bpv1.PlacementTarget{
+			Region:  xs.PrimaryRegion,
+			Cluster: xs.PrimaryCluster,
+			Role:    bpv1.DataRolePrimary,
+		})
+	}
+	return append(targets, bpv1.PlacementTarget{
+		Region:      xs.ReplicaRegion,
+		Cluster:     xs.ReplicaCluster,
+		Role:        bpv1.DataRoleStandby,
+		StandbyType: bpv1.StandbyHot,
+	})
 }

@@ -394,6 +394,29 @@ func (h *Handler) augmentWithCNPGStandby(
 		return mergeCNPGPairIntoTargets(targets, st)
 	}
 
+	// #6268 — CROSS-REGION pair resolution, before the region-name-only
+	// fallback below.
+	//
+	// The branch above needs BOTH halves out of the REGION-A list, so it can
+	// never fire for a genuinely 2-region pair — which is the only shape that
+	// can produce an active-hot-standby placement in the first place. Measured
+	// on hw296: `walkfour` holds one cnpg Cluster in region A
+	// (`openova.io/cnpg-role=primary`) and its follower in region B, and the
+	// endpoint answered with a lone Standby carrying an empty `cluster`,
+	// `unresolvedPrimary: true` — which the Topology tab renders as
+	// `Pattern: not reported` with one card.
+	//
+	// h.k8sCache caches `cnpgcluster` across every registered cluster, so the
+	// SAME pair resolves here with both halves and both cluster ids. Same
+	// isolation rules as the region-A path (namespace-scoped, deployment-scoped)
+	// and the same two-DISTINCT-non-empty-regions invariant, so it can only ever
+	// emit a real cross-region pair — never a same-region "standby", and never
+	// anything at all when the pair does not resolve.
+	if xs, ok := h.crossClusterCNPGPairStandby(urlID, ns, "", name); ok &&
+		xs.PrimaryRegion != "" && xs.ReplicaRegion != "" && xs.PrimaryRegion != xs.ReplicaRegion {
+		return mergeCrossClusterPairIntoTargets(targets, xs)
+	}
+
 	// Continuum-CR fallback (the #4551 render-gate fix). The cnpg-pair path
 	// could not surface a cross-region standby (replica Cluster half lives on
 	// the other region's apiserver). Read the standby region straight off the
@@ -786,7 +809,7 @@ func (h *Handler) derivePlacementTargets(name, ns, primaryID string, clusterRegi
 // returned `{"targets":[]}` while `…/applications/grafana/placement`
 // returned a target). We normalise the same way every other handler does
 // (`strings.TrimPrefix(name, "bp-")`, mirroring LogsTab's
-// `blueprint.replace(/^bp-/, '')` and the resource-list path) and accept
+// `blueprint.replace(/^bp-/, ”)` and the resource-list path) and accept
 // EITHER form, so a wizard-installed app named without the prefix AND a
 // bootstrap-kit `bp-`-routed app both resolve to the same pods the Resources
 // tab shows. Deduped, non-empty entries only.
