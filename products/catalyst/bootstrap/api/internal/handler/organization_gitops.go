@@ -2006,6 +2006,21 @@ spec:
     oidcGate:
       enabled: true
       clientId: agenity-{{.Subdomain}}
+      # #6314 — the gate's BROWSER-facing Keycloak issuer is auth.<issuerHost>,
+      # and it must name the SOVEREIGN, not this Org's zone. Without this key
+      # the chart falls back to sovereignFqdn (set two lines above to
+      # <slug>.<pool> so the MCP catalyst-api URL reaches the ORG console), and
+      # the gate rendered --oidc-issuer-url/--login-url against
+      # auth.<slug>.<pool> — a host with NO HTTPRoute on any Sovereign. Measured
+      # on hw296 2026-08-14: auth.walkthree.omani.trade → envoy 404 (bare, no
+      # Keycloak body) while auth.hw296.omani.works → 200, so the User's
+      # agenity console login dead-ended at the redirect and the workspace was
+      # unreachable in a browser (UAT row 219). The gate's BACK-channel already
+      # dials the sovereign Keycloak Service + the sovereign realm, so this makes
+      # the two channels agree. Proven live by the Application-CR install path,
+      # which stamps the Sovereign FQDN (stampAgenitySovereignFqdn) and whose
+      # gate reached the real catalyst-pin broker on the same hostname.
+      issuerHost: {{.OTECHFQDN}}
     # HTTPRoute exposure for the per-Org dashboard. When oidcGate.enabled (the
     # default), the gate OWNS {{.AgenityHost}} and the chart's own HTTPRoute is
     # suppressed (two routes on one host is undefined routing); these
