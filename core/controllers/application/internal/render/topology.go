@@ -75,6 +75,37 @@ const LabelApp = "catalyst.openova.io/app"
 // continuum-switchover reconciler.
 const LabelCluster = "catalyst.openova.io/cluster"
 
+// LabelStandbyDelivery is the HelmRelease label that records WHERE a
+// passive (standby) leg was actually delivered. It is stamped ONLY on
+// passive HRs — an active / singleton HR has no standby leg to place.
+//
+// It exists because the fan-out can render a standby HR that never
+// leaves the primary region: `KubeConfigSecretFor` resolves a
+// cross-region cluster ID to the empty string whenever no remote-region
+// kubeconfig is wired (clusterregistry's documented split-side default),
+// and the renderer then omits `spec.kubeConfig` — so the HR applies
+// LOCALLY, beside its own active peer. That is a real, measured shape
+// (#6268: `walkfour/r60fresh-rtz-b` on hw296 carried cluster `rtz-B`,
+// role `passive`, and no `spec.kubeConfig` at all, while region B's
+// `walkfour` namespace did not exist). Nothing on the object recorded
+// the difference, so an undelivered standby was indistinguishable from
+// a delivered one to every reader downstream.
+//
+// The label makes that difference legible without changing where the HR
+// lands: `remote` = the leg carries a kubeConfig pivot into its own
+// cluster; `local-undelivered` = it does not, and the region named by
+// LabelCluster has no presence from this Application.
+const LabelStandbyDelivery = "catalyst.openova.io/standby-delivery"
+
+// StandbyDeliveryRemote / StandbyDeliveryLocal are the canonical
+// LabelStandbyDelivery values. `local-undelivered` is deliberately not
+// spelled "local": a standby that shares a cluster with its active peer
+// is not a placement choice, it is an unmet one.
+const (
+	StandbyDeliveryRemote = "remote"
+	StandbyDeliveryLocal  = "local-undelivered"
+)
+
 // RoleActive / RolePassive / RoleSingleton are the canonical strings
 // the application-controller stamps on the HR `LabelRole` value. They
 // mirror the Blueprint topology PlacementSpec.Roles map shape (locked

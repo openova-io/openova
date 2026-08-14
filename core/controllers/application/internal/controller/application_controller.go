@@ -1201,13 +1201,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, app *unstructured.Unstructur
 						hrNamespace = ns
 					}
 				}
-				perClusterStatus = append(perClusterStatus, map[string]interface{}{
+				pcs := map[string]interface{}{
 					"cluster":   s.Cluster,
 					"role":      s.Role,
 					"hr":        s.HR,
 					"namespace": hrNamespace,
 					"status":    PhaseProvisioning,
-				})
+				}
+				// #6268 — carry the standby leg's DELIVERY through to
+				// status so a reader can tell a standby that reached its
+				// own region from one that installed beside its active
+				// peer. Empty for active / singleton legs, so the key's
+				// presence is itself the signal.
+				if s.StandbyDelivery != "" {
+					pcs["standbyDelivery"] = s.StandbyDelivery
+				}
+				perClusterStatus = append(perClusterStatus, pcs)
 			}
 		}
 	}
