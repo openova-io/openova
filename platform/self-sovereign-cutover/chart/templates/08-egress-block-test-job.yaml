@@ -258,6 +258,33 @@ data:
           - name: FLUX_SOURCE_HEALTH_LINT
             value: {{ eq (toString .Values.egressTest.fluxSourceHealthLint.enabled) "true" | quote }}
           {{- /*
+           #5439 — pre-hold per-Organization HelmRelease VALUES registry lint.
+           The THIRD blind spot in the same family, and the one that let a live
+           mothership tether coexist with cutoverComplete=true on hw292:
+
+             PODSPEC_REFHOST_LINT   walks pod specs, and EXEMPTS
+                                    harbor.openova.io as step-04-redirect-
+                                    covered. True of the pull; silent about the
+                                    declaration that produced it.
+             FLUX_SOURCE_HOST_LINT  walks spec.url on HelmRepository /
+                                    GitRepository / OCIRepository. A
+                                    HelmRelease's spec.values is not a source
+                                    URL and is never read.
+
+           So `uatco/vcluster` sat there with
+           spec.values.controlPlane.statefulSet.image.registry =
+           harbor.openova.io, re-applied by its own Kustomization on every
+           reconcile, and passed both. Step-09 Phase-3 pivots it; this is what
+           proves the pivot held — and what catches the NEXT Organization
+           created by a control-plane that somehow lost the stamp.
+          */}}
+          - name: PERORG_HR_VALUES_LINT
+            value: {{ eq (toString .Values.egressTest.perOrgHelmReleaseValuesLint.enabled) "true" | quote }}
+          - name: PERORG_HR_MOTHERSHIP_HOSTS
+            value: {{ .Values.egressTest.perOrgHelmReleaseValuesLint.mothershipHosts | default (list) | join " " | quote }}
+          - name: PERORG_HR_ALLOW_RELEASES
+            value: {{ .Values.egressTest.perOrgHelmReleaseValuesLint.allowReleases | default (list) | join " " | quote }}
+          {{- /*
            #5650 — pre-hold Crossplane Provider PACKAGE host lint. Same class
            as FLUX_SOURCE_HOST_LINT, different controller: Crossplane's
            package manager fetches `Provider.spec.package` directly from the
@@ -1233,6 +1260,140 @@ data:
               return 0
             }
             {{- /*
+             ── #5439 PRE-HOLD PER-ORG HELMRELEASE VALUES REGISTRY LINT ────
+
+             WHAT IT ASSERTS: no per-Organization HelmRelease may carry a
+             MOTHERSHIP registry host anywhere in spec.values.
+
+             WHY spec.values AND NOT THE RENDERED POD. A pod is a snapshot; the
+             HelmRelease is the DECLARATION, re-applied by its owning
+             Kustomization forever. On hw292 the pods were fine — they pulled
+             through the step-04 containerd redirect — while
+             `uatco/vcluster` spec.values kept naming harbor.openova.io. Delete
+             the redirect, or roll the pod after the mothership is gone, and the
+             Organization's whole vCluster stops. That is a live dependency, and
+             it is invisible to a lint that reads pod specs (which exempts the
+             host) or Flux source URLs (which never reads values).
+
+             WHY IT IS SCOPED TO PER-ORG RELEASES. The four PLATFORM image HRs
+             are asserted by step-09's own Phase-1c residual check against a
+             FIXED list, which is adequate precisely because that list is fixed.
+             The per-Org shape has no fixed list — one HelmRelease per
+             Organization, in the Organization's own namespace — so it needs a
+             LIVE predicate, and `openova.io/organization` is the one the
+             org-controller already stamps (pinned by
+             org_namespace_invariant_4292_test.go, and the same selector
+             step-03 Phase A0 and the provisioning kubeconfig reconciler use).
+             Nothing new is invented here and there is nothing to keep in sync.
+
+             ARGS: $1 = region label, $2 = kubeconfig path ("" = this Job's own
+             in-cluster context). The `_pv_kubectl` shim is written on ONE line
+             on purpose — chart/tests/perorg-vcluster-registry-pivot.sh extracts
+             this function out of the RENDER with an awk range that terminates
+             on the first bare `}` line, so a nested multi-line function would
+             silently truncate the function under test (#5646).
+            */}}
+            run_perorg_hr_values_registry_lint() {
+              _pv_region="${1:-primary}"
+              _PV_KUBECONFIG="${2:-}"
+              _pv_kubectl() { if [ -n "${_PV_KUBECONFIG:-}" ]; then kubectl --kubeconfig="${_PV_KUBECONFIG}" "$@"; else kubectl "$@"; fi; }
+              echo "[egress-block-test] #5439: PRE-HOLD per-Org HelmRelease values lint [region=${_pv_region}] — no HelmRelease belonging to an Organization may name a mothership registry host (${PERORG_HR_MOTHERSHIP_HOSTS:-}) anywhere in spec.values. Neither the pod-spec ref-host lint (which EXEMPTS that host as redirect-covered) nor the Flux source lint (which reads only source URLs) can see this."
+              {{- /*
+               The `: >` MUST be checked. If the scratch file cannot be created
+               every later append silently no-ops, `-s` is false, and the lint
+               returns PASS having examined nothing — the fail-OPEN shape this
+               whole family of lints exists to eliminate.
+              */}}
+              _pv_off="${WORK_DIR:-/work}/perorghr-offenders.$$"
+              if ! : > "${_pv_off}" 2>/dev/null; then
+                echo "  FAIL — cannot create ${_pv_off}; refusing to report PASS from a lint that cannot record an offender (fail-closed)"
+                return 1
+              fi
+              _pv_raw="${WORK_DIR:-/work}/perorghr-raw.$$"
+              _pv_err="${WORK_DIR:-/work}/perorghr-err.$$"
+              _pv_ns="${WORK_DIR:-/work}/perorghr-ns.$$"
+              {{- /*
+               The Organization-namespace set. A FAILED listing is not an empty
+               one: unreadable here would shrink the per-Org predicate to "the HR
+               carries the label itself" and silently under-scan. Fail closed.
+              */}}
+              if ! _pv_kubectl get namespaces -l openova.io/organization \
+                -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' >"${_pv_ns}" 2>"${_pv_err}"; then
+                echo "  FAIL — region ${_pv_region}: cannot list Organization namespaces ($(head -1 "${_pv_err}" 2>/dev/null)). Refusing to report PASS for an estate that could not be measured (fail-closed)"
+                rm -f "${_pv_off}" "${_pv_ns}" "${_pv_err}"
+                return 1
+              fi
+              if ! _pv_kubectl get helmreleases.helm.toolkit.fluxcd.io -A \
+                -o jsonpath='{range .items[*]}{.metadata.namespace}{"|"}{.metadata.name}{"|"}{.metadata.labels.openova\.io/organization}{"|"}{.spec.values}{"\n"}{end}' >"${_pv_raw}" 2>"${_pv_err}"; then
+                {{- /*
+                 A kind that is not INSTALLED is zero rows, not a tether. Any
+                 other failure (auth, TLS, connection) means the region was not
+                 measured and the verdict must be FAIL.
+                */}}
+                if grep -qiE "server doesn't have a resource type|could not find the requested resource|no matches for kind|the server could not find the requested resource" "${_pv_err}" 2>/dev/null; then
+                  echo "  PASS — region ${_pv_region}: the HelmRelease kind is not installed here; there are no per-Org HelmReleases to tether (positive absence, not an unread list)"
+                  rm -f "${_pv_off}" "${_pv_raw}" "${_pv_err}" "${_pv_ns}"
+                  return 0
+                fi
+                echo "  FAIL — region ${_pv_region}: cannot enumerate helmreleases ($(head -1 "${_pv_err}" 2>/dev/null)). Refusing to report PASS for a region that could not be measured (fail-closed, #5359)"
+                rm -f "${_pv_off}" "${_pv_raw}" "${_pv_err}" "${_pv_ns}"
+                return 1
+              fi
+              {{- /*
+               ── THE ANTI-VACUITY WITNESS ──────────────────────────────────
+               The enumeration EXITED 0 and returned zero rows. On a Catalyst
+               cluster in any region that cannot be true: the bootstrap-kit
+               installs dozens of HelmReleases and this Job is running inside
+               the result. Zero total therefore means the reader is not looking
+               at the cluster it believes it is, and "no offenders" drawn from it
+               would be a verdict from absent evidence — the exact shape #5359
+               fixed for a FAILING read, here for a SUCCEEDING but empty one.
+              */}}
+              _pv_total=$(grep -c . "${_pv_raw}" || true)
+              if [ "${_pv_total}" -eq 0 ]; then
+                echo "  FAIL — region ${_pv_region}: the HelmRelease CRD is installed and the listing succeeded, but it returned ZERO HelmReleases. A Catalyst region always carries the bootstrap-kit's releases, so this is an unread estate, not a clean one; refusing to certify 'no per-Org tether' from it (#5439)"
+                rm -f "${_pv_off}" "${_pv_raw}" "${_pv_err}" "${_pv_ns}"
+                return 1
+              fi
+              _pv_scanned=0
+              while IFS='|' read -r _pvns _pvname _pvlabel _pvvals; do
+                [ -n "${_pvns}" ] && [ -n "${_pvname}" ] || continue
+                {{- /*
+                 PER-ORG predicate: the HelmRelease's own label, OR its namespace
+                 being an Organization namespace. Either is sufficient; the union
+                 keeps a generator that stops stamping the label on the HR (but
+                 still lands it in the Org namespace) inside the scope.
+                */}}
+                _pvperorg=0
+                [ -n "${_pvlabel}" ] && _pvperorg=1
+                if [ "${_pvperorg}" = "0" ] && grep -qx "${_pvns}" "${_pv_ns}" 2>/dev/null; then
+                  _pvperorg=1
+                fi
+                [ "${_pvperorg}" = "1" ] || continue
+                _pv_scanned=$((_pv_scanned+1))
+                _pvex=0
+                for _pva in ${PERORG_HR_ALLOW_RELEASES:-}; do
+                  [ "${_pvns}/${_pvname}" = "${_pva}" ] && { _pvex=1; break; }
+                done
+                [ "${_pvex}" = "1" ] && continue
+                for _pvh in ${PERORG_HR_MOTHERSHIP_HOSTS:-}; do
+                  case "${_pvvals}" in
+                    *"${_pvh}"*) printf '%s/%s (host:%s)\n' "${_pvns}" "${_pvname}" "${_pvh}" >> "${_pv_off}" ;;
+                  esac
+                done
+              done <"${_pv_raw}"
+              rm -f "${_pv_raw}" "${_pv_err}" "${_pv_ns}"
+              if [ -s "${_pv_off}" ]; then
+                echo "  FAIL — region ${_pv_region}: these per-Organization HelmReleases still name a mothership registry host in spec.values. Each is a Flux-owned DECLARATION, re-applied on every reconcile long after the 600s hold is torn down, so the hold cannot see it and a containerd redirect does not remove the dependency (fix = re-run step-09's vcluster-registry-pivot Phase-3, which rewrites the durable <slug>/catalyst-tenant source, or declare a reviewed exception in egressTest.perOrgHelmReleaseValuesLint.allowReleases):"
+                sort -u "${_pv_off}" | while IFS= read -r _o; do echo "    PERORG-MOTHERSHIP-REGISTRY [${_pv_region}] ${_o}"; done
+                rm -f "${_pv_off}"
+                return 1
+              fi
+              rm -f "${_pv_off}"
+              echo "  PASS — region ${_pv_region}: ${_pv_scanned} per-Organization HelmRelease(s) examined out of ${_pv_total} total; none names a mothership registry host in spec.values (#5439)"
+              return 0
+            }
+            {{- /*
              ── #5359 PER-REGION DRIVER ────────────────────────────────────
              Every region is evaluated — no short-circuit — so one run names
              every offender in the fleet instead of stopping at the first. The
@@ -1241,7 +1402,7 @@ data:
              unable to be set while ANY region has an off-Sovereign or
              unconverged Flux source.
             */}}
-            if [ "${FLUX_SOURCE_HOST_LINT}" = "true" ] || [ "${FLUX_SOURCE_HEALTH_LINT}" = "true" ] || [ "${PROVIDER_PACKAGE_HOST_LINT}" = "true" ]; then
+            if [ "${FLUX_SOURCE_HOST_LINT}" = "true" ] || [ "${FLUX_SOURCE_HEALTH_LINT}" = "true" ] || [ "${PROVIDER_PACKAGE_HOST_LINT}" = "true" ] || [ "${PERORG_HR_VALUES_LINT}" = "true" ]; then
               _fs_verdict=0
               for _fs_target in "primary=" $(for _k in /secondary-kubeconfigs/*.yaml; do [ -e "${_k}" ] && printf '%s=%s ' "$(basename "${_k}" .yaml)" "${_k}"; done); do
                 _fs_rlabel="${_fs_target%%=*}"
@@ -1257,11 +1418,22 @@ data:
                 if [ "${PROVIDER_PACKAGE_HOST_LINT}" = "true" ]; then
                   run_provider_package_host_lint "${_fs_rlabel}" "${_fs_rkc}" || { _fs_verdict=1; _pp_rstate="failed"; }
                 fi
+                {{- /*
+                 #5439 — same driver, same AND-across-regions verdict, same
+                 "an unreadable region is a FAIL, not a skip" rule. A per-Org
+                 tether in a secondary region is exactly as live as one in the
+                 primary, and #5359 is the record of what measuring one region
+                 and reporting a fleet property costs.
+                */}}
+                _pv_rstate="pass"
+                if [ "${PERORG_HR_VALUES_LINT}" = "true" ]; then
+                  run_perorg_hr_values_registry_lint "${_fs_rlabel}" "${_fs_rkc}" || { _fs_verdict=1; _pv_rstate="failed"; }
+                fi
                 [ "${_fs_rlabel}" = "primary" ] || kubectl -n "${CUTOVER_NAMESPACE:-catalyst}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
-                  -p "{\"data\":{\"step.egress-block-test.region.${_fs_rlabel}.fluxSourceLint\":\"${_fs_rstate}\",\"step.egress-block-test.region.${_fs_rlabel}.providerPackageLint\":\"${_pp_rstate}\"}}" >/dev/null 2>&1 || true
+                  -p "{\"data\":{\"step.egress-block-test.region.${_fs_rlabel}.fluxSourceLint\":\"${_fs_rstate}\",\"step.egress-block-test.region.${_fs_rlabel}.providerPackageLint\":\"${_pp_rstate}\",\"step.egress-block-test.region.${_fs_rlabel}.perOrgHelmReleaseLint\":\"${_pv_rstate}\"}}" >/dev/null 2>&1 || true
               done
               if [ "${_fs_verdict}" != "0" ]; then
-                echo "[egress-block-test] Flux source / Provider package lint FAILED before the hold — sovereignty proof FAILED (cutoverComplete stays false). This is the dependency half of Pillar 5: surviving a 600s isolation window is necessary but not sufficient when a source keeps fetching from the public internet on its own interval once the policy is gone (#5650), and it proves nothing at all about a region the hold never measured (#5359)"
+                echo "[egress-block-test] Flux source / Provider package / per-Org HelmRelease lint FAILED before the hold — sovereignty proof FAILED (cutoverComplete stays false). This is the dependency half of Pillar 5: surviving a 600s isolation window is necessary but not sufficient when a source keeps fetching from the public internet on its own interval once the policy is gone (#5650), when a Flux-owned HelmRelease keeps DECLARING a mothership registry the hold's containerd redirect merely papered over (#5439), and it proves nothing at all about a region the hold never measured (#5359)"
                 exit 1
               fi
             fi

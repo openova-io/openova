@@ -2076,6 +2076,45 @@ egressTest:
   providerPackageHostLint:
     enabled: true
     allowHosts: []
+  # #5439 — PRE-HOLD per-Organization HelmRelease VALUES registry lint.
+  #
+  # THE BLIND SPOT IT CLOSES, stated as the two lints that could not see it:
+  #   * the pod-spec ref-host lint (#5026) EXEMPTS harbor.openova.io outright,
+  #     as a host step-04's containerd redirect covers. For an IMAGE PULL that
+  #     is true. It says nothing about the DECLARATION that produced the ref.
+  #   * the Flux source-host lint (#5650) reads spec.url on HelmRepository /
+  #     GitRepository / OCIRepository. A HelmRelease's spec.values is not a
+  #     source URL and is never examined.
+  # So a per-Org vCluster HelmRelease carrying
+  # `spec.values.controlPlane.statefulSet.image.registry: harbor.openova.io`
+  # passed BOTH, on a Sovereign with cutoverComplete=true (hw292, uatco).
+  #
+  # WHY spec.values AND NOT THE RENDERED POD. Because the declaration outlives
+  # the pod: a mothership host sitting in a Flux-owned HelmRelease is re-applied
+  # on every reconcile and re-resolved on every image pull for the life of the
+  # Sovereign, long after the 600s hold is torn down. That is the same argument
+  # #5650 makes for source URLs, one field over.
+  #
+  # SCOPE. Per-Organization HelmReleases only — the HR itself carrying
+  # `openova.io/organization`, or living in a namespace that does. The four
+  # PLATFORM image HRs are already asserted by step-09's own Phase-1c residual
+  # check, so this lint deliberately does not restate them; it covers the shape
+  # that scales with the number of Organizations and therefore has no fixed
+  # list anywhere to keep in sync.
+  #
+  # allowHosts is EMPTY by default, same rationale as the two lints above: a
+  # mothership host in a Flux-owned declaration is a tether until a human
+  # declares otherwise here, in Git, under review.
+  perOrgHelmReleaseValuesLint:
+    enabled: true
+    # The registry hosts whose presence in a per-Org HelmRelease's spec.values
+    # IS the defect. Space-joined into the Job env; the mothership Harbor is
+    # the only shipped entry, and it is the exact literal every generator in
+    # this program defaults to pre-cutover.
+    mothershipHosts:
+      - "harbor.openova.io"
+    # Reviewed exceptions, by `<namespace>/<helmrelease>`. Empty by default.
+    allowReleases: []
   # #3678 — TRUE deny-egress shape. defaultDenyEgress flips the Step-08
   # CCNP from a SUBTRACTIVE 4-CIDR block (default-allow, deny only the
   # listed hosts — which left console.openova.io + every un-enumerated
@@ -2836,6 +2875,87 @@ vclusterRegistryPivot:
   # self-documenting. Override via per-Sovereign overlay if you've
   # pinned a different upstream vCluster version.
   imageTag: "0.20.0"
+
+  # ── Phase 3 (#5439): the per-Organization `<slug>/catalyst-tenant` leg ──
+  #
+  # THE GAP THIS CLOSES. Phases 1/1b/1d/2 above pivot exactly FOUR named
+  # HelmReleases in ONE namespace (bp-mgmt/rtz/dmz-vcluster + bp-sso-bridge,
+  # flux-system). The per-Organization vCluster HelmRelease is a FIFTH shape
+  # they structurally cannot reach: it is named `vcluster`, it lives in the
+  # Org's OWN namespace, there is one PER ORGANIZATION, and its durable source
+  # is a THIRD repo class — `<slug>/catalyst-tenant@main:vcluster/vcluster.yaml`
+  # — written by core/controllers/organization/internal/gitops (Render) and
+  # reconciled by the `catalyst-tenant-<slug>-vcluster` Kustomization
+  # (prune=true). Measured live on hw292 with cutoverComplete=true since
+  # 2026-08-03T08:12:04Z:
+  #
+  #   kubectl -n uatco get hr vcluster -o json | jq -r .spec.values
+  #     "image":{"registry":"harbor.openova.io"
+  #     "statefulSet":{"image":{"registry":"harbor.openova.io"
+  #     "coredns":{...:"harbor.openova.io/proxy-dockerhub/coredns/..."}
+  #
+  # A live tether to the MOTHERSHIP Harbor, surviving a cutover that reported
+  # success. It did not fail the run because nothing looked: step-11's pod-spec
+  # ref-host lint EXEMPTS harbor.openova.io as step-04-redirect-covered, and the
+  # Flux source lint reads only HelmRepository/GitRepository/OCIRepository URLs
+  # — never a HelmRelease's spec.values. `cutoverComplete=true` with a live
+  # mothership tether is worse than a red: it is a green that overstates.
+  #
+  # WHY THIS LEG RUNS AT ORDER 9 AND NOT IN STEP-06 (order 6). The generator is
+  # made cutover-aware by step-07 Phase 3e (order 7), which stamps
+  # CATALYST_LOCAL_IMAGE_REGISTRY_HOST onto the org-controller / provisioning /
+  # catalyst-api Deployments and rolls them. Rewriting the repos BEFORE that
+  # stamp lands would race the org-controller: any Organization reconcile
+  # between the rewrite and the stamp re-renders the mothership literal straight
+  # back into the Flux-owned source. At order 9 the stamp is already in the pod
+  # template, so a regeneration after this leg reproduces the SAME local host
+  # and Flux has nothing to drift-correct.
+  #
+  # WHY NOT A LIVE `kubectl patch` ON THE PER-ORG HR. The per-Org boundary tree
+  # is owned by a prune=true Kustomization; a live patch is reverted on its next
+  # reconcile. That is the #6293/#6309 finding, restated one field over. This
+  # leg is durable-source-then-verify: rewrite the repo, push, then poll the
+  # LIVE HelmReleases until the rewrite has been fetched and re-applied.
+  perOrgTenant:
+    # Default true — on any Sovereign that sold an Organization before the
+    # operator fired the cutover, the tether is present by construction. Set
+    # false only on a Sovereign with no per-Org gitops trees at all.
+    enabled: true
+    # The per-Organization Gitea repo name. Fixed contract with
+    # core/controllers/organization/internal/controller/per_org_flux.go
+    # (perOrgTenantRepoName) — the same literal step-06 Phase-2d walks.
+    repo: "catalyst-tenant"
+    branch: "main"
+    # Namespace holding the per-Org `catalyst-tenant-<slug>` GitRepositories
+    # (SOURCE 1 of the Organization enumeration).
+    fluxNamespace: "flux-system"
+    # The Organization CRD probed for SOURCE 2 of the enumeration. Its ABSENCE
+    # is a real state (a pre-org-controller cluster) but must be established by
+    # POSITIVE NotFound evidence — `kubectl get crd` exits non-zero for BOTH
+    # "not installed" and "forbidden", and collapsing those is how a missing
+    # grant reads as "this Sovereign has no Organizations".
+    organizationCRD: "organizations.orgs.openova.io"
+    # Space-separated top-level directories of the per-Org repo to rewrite.
+    # `vcluster` is the tree the `catalyst-tenant-<slug>-vcluster` /
+    # `-apps` / `-host-apps` Kustomizations reconcile (PerOrgAppsDir /
+    # PerOrgHostAppsDir live under it), so it covers vcluster.yaml AND the app
+    # manifests. Anything outside it has no reconciler behind it, so rewriting
+    # it would be divergence with nothing to apply it.
+    trees: "vcluster"
+    # Bound on the post-push live read-back (Stage CONVERGE). The per-Org
+    # Kustomizations reconcile on the org-controller's FluxIntervalSeconds, so
+    # this must comfortably exceed one interval. Reaching the deadline with
+    # offenders still live is FATAL — a durable rewrite that the owning
+    # reconciler never applied is a pivot that does not exist.
+    readbackDeadlineSeconds: 300
+    # The host literal whose presence in a per-Org tree IS the defect. This is
+    # the bootstrap default every generator in this program ships
+    # (core/controllers/organization/internal/gitops/cutover_aware_vcluster_5439.go
+    # mothershipHarborHost, and the chart env CATALYST_VCLUSTER_IMAGE_REGISTRY
+    # `| default "harbor.openova.io"`), which is why it is the live value on
+    # every Sovereign from birth. Threaded as a value rather than inlined so
+    # the chart test can drive the block with a host of its own.
+    mothershipHarborHost: "harbor.openova.io"
 
 # Step 11 (crossplane-provider-pivot, TBD-V24 MISS-3, issue #2034) —
 # pivot every `pkg.crossplane.io/v1.Provider` CR's `spec.package` host

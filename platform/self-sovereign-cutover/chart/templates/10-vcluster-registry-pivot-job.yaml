@@ -191,6 +191,29 @@ data:
             value: {{ .Values.gitea.repo | quote }}
           - name: IMAGE_TAG
             value: {{ .Values.vclusterRegistryPivot.imageTag | quote }}
+          {{- /*
+           #5439 Phase 3 — the per-Organization `<slug>/catalyst-tenant` leg.
+           Every knob is threaded as env (never re-templated inside the script)
+           so chart/tests/perorg-vcluster-registry-pivot.sh can drive the SAME
+           rendered bytes with its own values — the #5646 discipline: the test
+           executes the shipped block, it does not validate a copy of it.
+          */}}
+          - name: PERORG_PIVOT_ENABLED
+            value: {{ eq (toString .Values.vclusterRegistryPivot.perOrgTenant.enabled) "true" | quote }}
+          - name: PERORG_TENANT_REPO
+            value: {{ .Values.vclusterRegistryPivot.perOrgTenant.repo | quote }}
+          - name: PERORG_BRANCH
+            value: {{ .Values.vclusterRegistryPivot.perOrgTenant.branch | quote }}
+          - name: PERORG_FLUX_NAMESPACE
+            value: {{ .Values.vclusterRegistryPivot.perOrgTenant.fluxNamespace | quote }}
+          - name: PERORG_ORG_CRD
+            value: {{ .Values.vclusterRegistryPivot.perOrgTenant.organizationCRD | quote }}
+          - name: PERORG_TREES
+            value: {{ .Values.vclusterRegistryPivot.perOrgTenant.trees | quote }}
+          - name: PERORG_READBACK_DEADLINE
+            value: {{ .Values.vclusterRegistryPivot.perOrgTenant.readbackDeadlineSeconds | quote }}
+          - name: MOTHERSHIP_HARBOR_HOST
+            value: {{ .Values.vclusterRegistryPivot.perOrgTenant.mothershipHarborHost | quote }}
         volumeMounts:
           - name: tmp
             mountPath: /tmp
@@ -822,32 +845,392 @@ data:
             done
 
             echo "[vcluster-registry-pivot] edited ${edited} files (yq merge / sed fallback)"
+            {{- /*
+             #5439 — these two "nothing to do" outcomes used to `exit 0` and END
+             THE STEP. That was correct while the bootstrap-kit push was the last
+             thing this step did; with Phase 3 below it would mean a Sovereign
+             whose bootstrap-kit slots are ALREADY pivoted (every re-run, and
+             every cutover re-fire) silently skips the per-Org leg entirely. The
+             skip is now scoped to the PUSH, which is what has nothing to do —
+             never to the rest of the step.
+            */}}
             if [ "${edited}" -eq 0 ]; then
-              echo "[vcluster-registry-pivot] no edits required — already pivoted in Gitea or files absent"
-              {{- /* Phase 1 already succeeded; nothing to push. */}}
-              exit 0
-            fi
+              echo "[vcluster-registry-pivot] no bootstrap-kit edits required — already pivoted in Gitea or files absent"
+            else
+              git add "${target_dir}"
+              if git diff --staged --quiet; then
+                echo "[vcluster-registry-pivot] git diff empty after sed — nothing to commit"
+              else
+                git commit -m "cutover: pivot vCluster + sso-bridge image.repository + global.registryMirror to harbor.${SOVEREIGN_FQDN}" >/dev/null
+                push_err=$(git push origin main 2>&1) || {
+                  echo "[vcluster-registry-pivot] FATAL: git push failed" >&2
+                  printf '%s\n' "$push_err" >&2
+                  exit 1
+                }
+                echo "[vcluster-registry-pivot] pushed to ${redacted}"
 
-            git add "${target_dir}"
-            if git diff --staged --quiet; then
-              echo "[vcluster-registry-pivot] git diff empty after sed — nothing to commit"
-              exit 0
+                {{- /*
+                 Trigger an immediate Flux reconciliation so the new YAML
+                 lands without waiting for the polling interval.
+                */}}
+                kubectl annotate --overwrite gitrepository openova \
+                  -n flux-system \
+                  "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null || true
+              fi
             fi
-            git commit -m "cutover: pivot vCluster + sso-bridge image.repository + global.registryMirror to harbor.${SOVEREIGN_FQDN}" >/dev/null
-            push_err=$(git push origin main 2>&1) || {
-              echo "[vcluster-registry-pivot] FATAL: git push failed" >&2
-              printf '%s\n' "$push_err" >&2
-              exit 1
-            }
-            echo "[vcluster-registry-pivot] pushed to ${redacted}"
 
             {{- /*
-             Trigger an immediate Flux reconciliation so the new YAML
-             lands without waiting for the polling interval.
+             ══ Phase 3 (#5439): per-Organization `<slug>/catalyst-tenant` ══
+                 vCluster image-registry durable pivot.
+
+             Everything above this line pivots FOUR named HelmReleases in ONE
+             namespace. This phase pivots the shape whose count scales with the
+             number of Organizations, and whose durable source is a repo class
+             no cutover step touched: `<slug>/catalyst-tenant@main`, tree
+             `vcluster/` (vcluster.yaml + apps/ + host-apps/), reconciled by the
+             `catalyst-tenant-<slug>-{vcluster,apps,host-apps}` Kustomizations
+             with prune=true.
+
+             THE ENUMERATION IS THE DESIGN. A hardcoded slug list is wrong the
+             moment the next Organization is sold, so the list is built LIVE and
+             from the SAME two sources step-06 Phase-2d already uses (#6309) —
+             deliberately the same, so the two legs can never disagree about
+             which Organizations exist:
+
+               SOURCE 1 (mandatory) the `catalyst-tenant-<slug>` GitRepositories
+                 — per_org_flux.go creates exactly one per Org, and it is the
+                 object that FEEDS the reverting Kustomization.
+               SOURCE 2 (union) the Organization CRs — catches an Org whose Flux
+                 source has not been created yet.
+
+             Neither read may fail quietly: a refused list and an empty estate
+             render identically, and here that would leave an unknown number of
+             Organizations tethered while this step recorded success.
             */}}
-            kubectl annotate --overwrite gitrepository openova \
-              -n flux-system \
-              "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null || true
+            # ---- perorg-vcluster-pivot BEGIN (extraction anchor — chart/tests/perorg-vcluster-registry-pivot.sh awk-slices this region out of the render and EXECUTES it under a stubbed kubectl/curl with real git) ----
+            if [ "${PERORG_PIVOT_ENABLED:-true}" != "true" ]; then
+              echo "[vcluster-registry-pivot] Phase-3 SKIP: vclusterRegistryPivot.perOrgTenant.enabled=false"
+            else
+              {{- /*
+               Scratch root. Production keeps /tmp (the Job's emptyDir, the
+               only writable path under readOnlyRootFilesystem). It is a
+               variable so chart/tests/perorg-vcluster-registry-pivot.sh can
+               execute these exact bytes in its own sandbox instead of
+               writing into the runner's real /tmp — a test that has to share
+               mutable global paths cannot run beside another copy of itself.
+              */}}
+              pv_scratch="${PERORG_SCRATCH_DIR:-/tmp}"
+              pv_repo="${PERORG_TENANT_REPO:-catalyst-tenant}"
+              pv_branch="${PERORG_BRANCH:-main}"
+              pv_ns="${PERORG_FLUX_NAMESPACE:-flux-system}"
+              pv_crd="${PERORG_ORG_CRD:-organizations.orgs.openova.io}"
+              pv_api_base="${GITEA_INTERNAL_URL%/}/api/v1/repos"
+              pv_slugs="${pv_scratch}/.pv-slugs.txt"
+              pv_touched="${pv_scratch}/.pv-touched.txt"
+              : > "${pv_slugs}"
+              : > "${pv_touched}"
+
+              {{- /*
+               SOURCE 1 + the ANTI-VACUITY WITNESS.
+
+               `pv_grs_total` is the count of ALL GitRepositories the listing
+               returned, kept separately from the count that MATCHED the
+               `catalyst-tenant-` prefix. It exists because "zero Organizations"
+               and "I read nothing" are the same output otherwise, and the
+               fail-closed branch below only covers the case where kubectl
+               EXITS non-zero. A listing that exits 0 and returns zero rows is
+               the residual hole — and on a Sovereign it cannot be honest: this
+               very step annotates `gitrepository openova -n flux-system` a few
+               lines above, so at least ONE GitRepository is present in this
+               namespace by construction. Zero total therefore means the reader
+               is not looking at the cluster it thinks it is (wrong namespace,
+               wrong context, a stub that answers everything with silence), and
+               a "no Organizations, nothing to do" verdict drawn from it would
+               be a fabrication. It is FATAL, and it is the witness that makes a
+               genuine zero trustworthy.
+              */}}
+              if kubectl get gitrepositories.source.toolkit.fluxcd.io -n "${pv_ns}" \
+                  -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
+                  > "${pv_scratch}/.pv-grs.txt" 2>"${pv_scratch}/.pv-grs.err"; then
+                pv_grs_total=$(awk 'NF' "${pv_scratch}/.pv-grs.txt" | grep -c . || true)
+                if [ "${pv_grs_total}" -eq 0 ]; then
+                  echo "[vcluster-registry-pivot] FATAL: Phase-3: listing GitRepositories in ${pv_ns} SUCCEEDED but returned ZERO objects. This step annotated gitrepository/openova in that namespace moments ago, so zero is not a state this Sovereign can be in — the read is hollow (wrong namespace or context), and concluding 'no Organizations' from it would report a pivot over an estate that was never examined (#5439)" >&2
+                  exit 1
+                fi
+                awk -v p="${pv_repo}-" 'index($0,p)==1 && length($0)>length(p) {print substr($0,length(p)+1)}' \
+                  "${pv_scratch}/.pv-grs.txt" >> "${pv_slugs}"
+              else
+                echo "[vcluster-registry-pivot] FATAL: Phase-3: listing GitRepositories in ${pv_ns} FAILED — the live Organization list cannot be built, and pivoting a PARTIAL list would leave an unknown number of per-Org vCluster HelmReleases on the mothership Harbor while this step recorded success (#5439)" >&2
+                sed 's/^/  KUBECTL-STDERR /' "${pv_scratch}/.pv-grs.err" >&2 || true
+                exit 1
+              fi
+
+              {{- /*
+               SOURCE 2. CRD absence must be POSITIVE evidence: `kubectl get crd`
+               exits non-zero for BOTH "not installed" and "forbidden", so the
+               NotFound string is required before absence may be concluded.
+               Without that, a missing RBAC grant reads as "this Sovereign has
+               no Organizations" and the leg no-ops on exactly the environments
+               that need it.
+              */}}
+              pv_org_present=0
+              if kubectl get customresourcedefinitions "${pv_crd}" >/dev/null 2>"${pv_scratch}/.pv-crd.err"; then
+                pv_org_present=1
+                pv_org_state="crd-present"
+              elif grep -q 'NotFound' "${pv_scratch}/.pv-crd.err"; then
+                pv_org_state="crd-absent(NotFound-confirmed)"
+                echo "[vcluster-registry-pivot] Phase-3: ${pv_crd} is not installed on this Sovereign — the live Org list comes from the per-Org Flux sources alone"
+              else
+                echo "[vcluster-registry-pivot] FATAL: Phase-3: could not determine whether ${pv_crd} exists — that is NOT the same as it being absent, and treating it as absent silently drops every Organization from the pivot (#5439)" >&2
+                sed 's/^/  KUBECTL-STDERR /' "${pv_scratch}/.pv-crd.err" >&2 || true
+                exit 1
+              fi
+              if [ "${pv_org_present}" -eq 1 ]; then
+                if kubectl get "${pv_crd}" \
+                    -o jsonpath='{range .items[*]}{.spec.slug}{"\n"}{end}' \
+                    > "${pv_scratch}/.pv-orgs.txt" 2>"${pv_scratch}/.pv-orgs.err"; then
+                  pv_org_state="crd-present,listed=$(awk 'NF' "${pv_scratch}/.pv-orgs.txt" | grep -c . || true)"
+                  awk 'NF' "${pv_scratch}/.pv-orgs.txt" >> "${pv_slugs}"
+                else
+                  echo "[vcluster-registry-pivot] FATAL: Phase-3: the ${pv_crd} CRD IS installed but listing Organizations failed — refusing to pivot a partial Organization list (#5439)" >&2
+                  sed 's/^/  KUBECTL-STDERR /' "${pv_scratch}/.pv-orgs.err" >&2 || true
+                  exit 1
+                fi
+              fi
+
+              awk 'NF' "${pv_slugs}" | sort -u > "${pv_scratch}/.pv-slugs.sorted"
+              mv "${pv_scratch}/.pv-slugs.sorted" "${pv_slugs}"
+              pv_total=$(grep -c . "${pv_slugs}" || true)
+              {{- /*
+               The witness is PRINTED, not merely computed. An operator reading
+               `orgs=0` must be able to see, on the same line, the two positive
+               reads that establish it — never infer it from silence.
+              */}}
+              echo "[vcluster-registry-pivot] Phase-3: ${pv_total} live Organization slug(s) (Organization CRs ∪ ${pv_repo}-* Flux sources) [witness: gitrepositories-read-ok total=${pv_grs_total}, org-crd=${pv_org_state}]"
+
+              pv_absent=0
+              pv_pushed=0
+              pv_nodiff=0
+              for pv_slug in $(awk 'NF' "${pv_slugs}"); do
+                {{- /*
+                 Existence decided by HTTP STATUS, not by whether a git command
+                 failed: `git ls-remote` exits non-zero both for a repo that does
+                 not exist and for one we cannot authenticate to, and collapsing
+                 those is how a credential fault presents as "this Org simply has
+                 no repo". 404 is legitimately absent; anything neither 200 nor
+                 404 is unreadable and fails closed.
+                */}}
+                pv_code=$(curl -s -o "${pv_scratch}/.pv-repo.json" -w '%{http_code}' \
+                  -u "${GITEA_USERNAME}:${GITEA_PAT}" \
+                  "${pv_api_base}/${pv_slug}/${pv_repo}" 2>/dev/null || echo "000")
+                case "${pv_code}" in
+                  200) : ;;
+                  404)
+                    echo "[vcluster-registry-pivot] Phase-3 ${pv_slug}: no ${pv_repo} repo (HTTP 404) — this Org has no per-Org gitops tree, so nothing re-applies a vCluster HelmRelease from one"
+                    pv_absent=$((pv_absent+1))
+                    continue
+                    ;;
+                  *)
+                    echo "[vcluster-registry-pivot] FATAL: Phase-3 ${pv_slug}: HTTP ${pv_code} probing ${pv_slug}/${pv_repo} — an unreadable repo is NOT an absent repo, and guessing leaves this Org's vCluster on the mothership Harbor (#5439)" >&2
+                    exit 1
+                    ;;
+                esac
+
+                pv_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PAT}@,")"/${pv_slug}/${pv_repo}.git"
+
+                {{- /*
+                 A repo that EXISTS but carries no branch is a real, benign state
+                 (the org-controller creates the repo before anything seeds it).
+                 Separated from an AUTH failure exactly as the probe separates
+                 404 from 500: ls-remote SUCCEEDING with no matching ref is an
+                 absent branch; ls-remote FAILING against a repo the API just
+                 reported present is a credential fault and stays fatal.
+                */}}
+                if ! git ls-remote --heads "${pv_url}" "${pv_branch}" > "${pv_scratch}/.pv-heads.txt" 2>"${pv_scratch}/.pv-heads.err"; then
+                  echo "[vcluster-registry-pivot] FATAL: Phase-3 ${pv_slug}: git ls-remote ${pv_branch} failed against a repo the API just reported present — that is a credential fault, not an empty repo (#5439)" >&2
+                  sed -e 's,://[^@]*@,://***@,g' "${pv_scratch}/.pv-heads.err" >&2 || true
+                  exit 1
+                fi
+                if ! grep -q "refs/heads/${pv_branch}" "${pv_scratch}/.pv-heads.txt"; then
+                  echo "[vcluster-registry-pivot] Phase-3 ${pv_slug}: ${pv_repo} exists but has no ${pv_branch} branch — the per-Org tree has not been seeded yet"
+                  pv_absent=$((pv_absent+1))
+                  continue
+                fi
+
+                cd "${pv_scratch}"
+                rm -rf repo-perorg-vc
+                if ! git clone --depth 1 --branch "${pv_branch}" "${pv_url}" repo-perorg-vc >/dev/null 2>"${pv_scratch}/.pv-clone.err"; then
+                  echo "[vcluster-registry-pivot] FATAL: Phase-3 ${pv_slug}: clone of ${pv_slug}/${pv_repo} branch ${pv_branch} failed (#5439)" >&2
+                  sed -e 's,://[^@]*@,://***@,g' "${pv_scratch}/.pv-clone.err" >&2 || true
+                  exit 1
+                fi
+                cd repo-perorg-vc
+
+                {{- /*
+                 THE REWRITE is a HOST-literal substitution, not a rewrite of
+                 three named YAML paths. The generator renders every one of its
+                 image references off ONE variable (VClusterImageRegistry), but
+                 it renders them into DIFFERENT shapes — a bare `registry:`
+                 scalar for the distro and syncer images, and a fully-qualified
+                 `host/path:tag` for coredns — and it has gained fields before
+                 (that is how #5439 came to exist one field over from #5527).
+                 Replacing the HOST wherever it appears covers the shapes that
+                 exist, the shapes that will be added, and the app manifests in
+                 the same tree, while preserving every path and tag verbatim.
+                 Idempotent by construction: after a successful run the literal
+                 is gone, so a re-run matches nothing and produces no diff.
+                */}}
+                pv_list="${pv_scratch}/.pv-targets.txt"
+                : > "${pv_list}"
+                for pv_tree in ${PERORG_TREES:-vcluster}; do
+                  [ -d "${pv_tree}" ] || continue
+                  grep -rl "${MOTHERSHIP_HARBOR_HOST}" "${pv_tree}" 2>/dev/null >> "${pv_list}" || true
+                done
+                pv_edited=0
+                for pvf in $(awk 'NF' "${pv_list}" | sort -u); do
+                  sed -i "s,${MOTHERSHIP_HARBOR_HOST},${target_host},g" "${pvf}"
+                  pv_edited=$((pv_edited+1))
+                  echo "[vcluster-registry-pivot] Phase-3 edited ${pv_slug}/${pv_repo}@${pv_branch}:${pvf}"
+                done
+
+                {{- /*
+                 Post-condition on the FILES, before anything is committed — the
+                 RESULT of the rewrite, never the count of loop iterations that
+                 were supposed to produce it.
+                */}}
+                pv_left_file="${pv_scratch}/.pv-left.txt"
+                : > "${pv_left_file}"
+                for pv_tree in ${PERORG_TREES:-vcluster}; do
+                  [ -d "${pv_tree}" ] || continue
+                  grep -rl "${MOTHERSHIP_HARBOR_HOST}" "${pv_tree}" 2>/dev/null >> "${pv_left_file}" || true
+                done
+                pv_left=$(grep -c . "${pv_left_file}" || true)
+                if [ "${pv_left}" -ne 0 ]; then
+                  echo "[vcluster-registry-pivot] FATAL: Phase-3 ${pv_slug}: ${pv_left} file(s) still reference ${MOTHERSHIP_HARBOR_HOST} after the rewrite — pushing now would record a durable pivot that does not exist (#5439)" >&2
+                  sed 's,^,  STILL-MOTHERSHIP ,' "${pv_left_file}" >&2 || true
+                  exit 1
+                fi
+
+                {{- /*
+                 Commit on ACTUAL tree state, never on ${pv_edited}: a re-run
+                 legitimately visits files and produces no diff, and gating on
+                 the counter would turn that no-op into a hard failure on every
+                 second run (the #6293 Phase-2b lesson).
+                */}}
+                if git diff --quiet; then
+                  echo "[vcluster-registry-pivot] Phase-3 ${pv_slug}: already pivoted (${pv_edited} file-visit(s), no diff) — nothing to push"
+                  pv_nodiff=$((pv_nodiff+1))
+                else
+                  git add -A .
+                  if git diff --staged --quiet; then
+                    echo "[vcluster-registry-pivot] FATAL: Phase-3 ${pv_slug}: the working tree has changes but the index is empty — \`git add\` is mis-scoped and this push would carry none of the rewrite (#5439)" >&2
+                    exit 1
+                  fi
+                  git commit -m "cutover: pivot ${pv_edited} per-Org file(s) off ${MOTHERSHIP_HARBOR_HOST} to ${target_host}" >/dev/null
+                  if ! pv_push_err=$(git push origin "HEAD:${pv_branch}" 2>&1); then
+                    echo "[vcluster-registry-pivot] FATAL: Phase-3 ${pv_slug}: push to ${pv_branch} failed — this Org's vCluster keeps reverting to ${MOTHERSHIP_HARBOR_HOST} on every reconcile (#5439)" >&2
+                    printf '%s\n' "${pv_push_err}" | sed -e 's,://[^@]*@,://***@,g' >&2
+                    exit 1
+                  fi
+                  echo "[vcluster-registry-pivot] Phase-3 OK: pushed ${pv_edited} edit(s) to ${pv_slug}/${pv_repo} branch ${pv_branch}"
+                  pv_pushed=$((pv_pushed+1))
+                fi
+                printf '%s\n' "${pv_slug}" >> "${pv_touched}"
+                cd "${pv_scratch}"
+              done
+
+              pv_with_repo=$(grep -c . "${pv_touched}" || true)
+              echo "[vcluster-registry-pivot] Phase-3: orgs=${pv_total} with-repo=${pv_with_repo} pushed=${pv_pushed} already-pivoted=${pv_nodiff} no-repo=${pv_absent}"
+
+              {{- /*
+               ── THE READ-BACK (Stage CONVERGE) ───────────────────────────────
+               A durable rewrite is a CLAIM until the reconciler that owns the
+               object has fetched it and re-applied it. Poll the LIVE per-Org
+               HelmReleases until none carries the mothership host in
+               spec.values, re-poking each cycle. Reaching the deadline with an
+               offender still live is FATAL: a rewrite the owning Kustomization
+               never applied is a pivot that does not exist, and this is exactly
+               the leg where "pushed" would otherwise be mistaken for "pivoted".
+
+               Scoped to the Orgs THIS phase touched, so an unrelated namespace
+               is never this leg's failure. An enumeration that FAILS is not a
+               clean sample — it returns non-zero and the poll keeps waiting,
+               and the deadline then reports honestly that convergence was never
+               OBSERVED rather than silently certifying it.
+              */}}
+              if [ "${pv_with_repo}" -eq 0 ]; then
+                echo "[vcluster-registry-pivot] Phase-3 read-back SKIP: no Organization had a seeded ${pv_repo} tree, so there is no per-Org HelmRelease this phase could have changed (witness above shows the estate WAS read)"
+              else
+                pv_offenders() {
+                  if ! kubectl get helmreleases.helm.toolkit.fluxcd.io -A \
+                      -o jsonpath='{range .items[*]}{.metadata.namespace}{"/"}{.metadata.name}{"="}{.spec.values}{"\n"}{end}' \
+                      > "${pv_scratch}/.pv-hrs.txt" 2>"${pv_scratch}/.pv-hrs.err"; then
+                    return 2
+                  fi
+                  : > "${pv_scratch}/.pv-offenders.txt"
+                  while IFS= read -r pv_line; do
+                    [ -n "${pv_line}" ] || continue
+                    pv_key="${pv_line%%=*}"
+                    pv_vals="${pv_line#*=}"
+                    case "${pv_vals}" in
+                      *"${MOTHERSHIP_HARBOR_HOST}"*) : ;;
+                      *) continue ;;
+                    esac
+                    pv_hrns="${pv_key%%/*}"
+                    {{- /* Only the Orgs this phase pivoted. */}}
+                    if grep -qx "${pv_hrns}" "${pv_touched}"; then
+                      printf '%s\n' "${pv_key}" >> "${pv_scratch}/.pv-offenders.txt"
+                    fi
+                  done < "${pv_scratch}/.pv-hrs.txt"
+                  {{- /*
+                   Explicit if, never `[ -s f ] && return 1`: this whole script
+                   runs under `set -eu`, and an AND-OR list is precisely the
+                   shape whose exit-status semantics people get wrong. Spelling
+                   it out costs two lines and removes the question.
+                  */}}
+                  if [ -s "${pv_scratch}/.pv-offenders.txt" ]; then
+                    return 1
+                  fi
+                  return 0
+                }
+
+                pv_deadline="${PERORG_READBACK_DEADLINE:-300}"
+                pv_start=$(date +%s)
+                pv_converged=0
+                pv_lastrc=9
+                while [ $(($(date +%s) - pv_start)) -lt "${pv_deadline}" ]; do
+                  {{- /*
+                   `set -e` is ON. A bare `pv_offenders` call would TERMINATE the
+                   step the first time it legitimately reports offenders — i.e.
+                   the poll would die on the very state it exists to wait out.
+                   The `&& rc=0 || rc=$?` form keeps the non-zero returns as
+                   DATA, which is what they are here.
+                  */}}
+                  pv_offenders && pv_lastrc=0 || pv_lastrc=$?
+                  if [ "${pv_lastrc}" -eq 0 ]; then
+                    pv_converged=1
+                    break
+                  fi
+                  if [ "${pv_lastrc}" -eq 2 ]; then
+                    echo "  [vcluster-registry-pivot] Phase-3 read-back: HelmRelease enumeration failed ($(head -1 "${pv_scratch}/.pv-hrs.err" 2>/dev/null)) — a failed read is NOT a clean sample; retrying in 15s"
+                  else
+                    echo "  [vcluster-registry-pivot] Phase-3 read-back: $(grep -c . "${pv_scratch}/.pv-offenders.txt" || true) per-Org HelmRelease(s) still on ${MOTHERSHIP_HARBOR_HOST} at $(($(date +%s) - pv_start))s; re-poking the owning sources, re-checking in 15s (bounded ${pv_deadline}s)"
+                  fi
+                  for pv_slug in $(awk 'NF' "${pv_touched}"); do
+                    kubectl annotate --overwrite "gitrepository/${pv_repo}-${pv_slug}" -n "${pv_ns}" \
+                      "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null 2>&1 || true
+                  done
+                  sleep 15
+                done
+                if [ "${pv_converged}" -ne 1 ]; then
+                  echo "[vcluster-registry-pivot] FATAL: Phase-3 read-back did not converge within ${pv_deadline}s (last enumeration rc=${pv_lastrc}) — the durable rewrite was pushed but the owning Kustomization has not re-applied it, so the per-Org vCluster image registry is still the mothership Harbor. Pillar 5 independence not met (#5439)" >&2
+                  sed 's,^,  RESIDUAL-PERORG-TETHER ,' "${pv_scratch}/.pv-offenders.txt" >&2 2>/dev/null || true
+                  exit 1
+                fi
+                echo "[vcluster-registry-pivot] Phase-3 read-back PASS: 0 per-Org HelmRelease(s) on ${MOTHERSHIP_HARBOR_HOST} across ${pv_with_repo} pivoted Organization(s) — the rewrite was fetched and re-applied by the owning reconciler"
+              fi
+            fi
+            # ---- perorg-vcluster-pivot END ----
 
             echo "[vcluster-registry-pivot] step complete"
         resources:
