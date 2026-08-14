@@ -46,6 +46,157 @@ CHART_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+SELF_SRC="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]:-$0}")"
+
+# ── SIGPIPE-safe pipeline readers (#6235) ─────────────────────────────────────
+#
+# This script runs under `set -euo pipefail` (line 37). A pipeline whose LAST
+# stage stops reading before EOF — `grep -q`, `head -1` — leaves its producer
+# writing into a closed pipe, and the producer then fails. Pipefail promotes
+# that failure to the PIPELINE status, so the `if` sees NON-ZERO for input that
+# DID contain the match.
+#
+# THE PRODUCER FAILS IN ONE OF TWO WAYS, and which one is a property of the
+# RUNNER, not of this script:
+#
+#   SIGPIPE ignored (SIG_IGN inherited)  →  the write returns EPIPE, the
+#       producer prints e.g. `cat: write error: Broken pipe` and exits 1.
+#       This is what GitHub Actions does: the runner is Node-based, Node sets
+#       SIGPIPE to SIG_IGN, and every step's shell and its children inherit
+#       that disposition. Measured on this PR's own CI job (run 31763168689):
+#       `cat big | grep -q <present-pattern>` returned rc=1.
+#   SIGPIPE default                      →  the producer is killed, status 141.
+#       This is what a normal workstation shell does, and it is the rc the
+#       #6235 investigation measured.
+#
+# The 141 case is the FRIENDLIER of the two. 141 is conspicuous; rc=1 is
+# byte-identical to an honest "no match", so on the runner that actually gates
+# merges this defect is invisible even to someone reading the exit code. Any
+# check written against the literal 141 therefore under-detects exactly where it
+# matters most — which is why the vacuity check below tests for "the raw form
+# did not answer 0", never for a specific status.
+#
+# Which way the damage lands is then decided by nothing more than how the caller
+# phrased the test, and both phrasings are wrong:
+#
+#   if   producer | grep -q X   →  FAIL-OPEN. A present X reads as absent, so an
+#                                  assertion of ABSENCE can never fire. This is
+#                                  #6235 on Case 40: all three ranges that DID
+#                                  contain the string answered non-zero, and a
+#                                  genuine `helm.sh/resource-policy: keep`
+#                                  planted on step-05 was reported PASS.
+#   if ! producer | grep -q X   →  SPURIOUS FAIL. `exit 1` runs on a satisfied
+#                                  contract. That half is not merely noisy: this
+#                                  script stops at the FIRST failure, so a Case
+#                                  that fires wrongly deletes every Case after it
+#                                  from the run, silently. Both blueprint-release
+#                                  runs that ever failed this suite prove the
+#                                  shape — 31717773092 (0e1d1000b) and
+#                                  31734398570 (129f40f33), each printed 42 Case
+#                                  headers, stopped at Case 40, and never
+#                                  executed Cases 41-95 at all. Those two failed
+#                                  for the #6262 yq reason rather than SIGPIPE,
+#                                  but the amputation is identical whatever trips
+#                                  the first `exit 1`.
+#
+# Whether a given site fires TODAY is only a function of how much the producer
+# still has to write when the reader quits. Measured here: 0/10 runs at 24 KB of
+# producer output, 10/10 at 589 KB (`head -1` already 10/10 at 109 KB).
+#
+# So the honest reading of the audit is NOT "90 live bugs". Every raw-form site
+# was replayed against its own bytes on the default render: 94 executed sites,
+# largest producer 13 KB, none of them currently mis-reporting. The one site that
+# WAS hot — Case 40's `awk` range over a whole ConfigMap document, 1535 lines —
+# is exactly the one #6236 had already converted. Latent is not safe: 13 KB is
+# one step-script away from 64 KB, the render only ever grows, and the failure
+# mode when it crosses is a gate that reports PASS on the defect it exists to
+# catch. So the conversion is total rather than targeted: 78 `| grep -q` and
+# 13 `| head -1` sites, plus the two readers below and the drift guard that
+# keeps them.
+#
+# Both readers below drain stdin to EOF before deciding, so no consumer in this
+# file can SIGPIPE a producer again. `grep_q` forwards its arguments unchanged,
+# so `grep_q -E …` / `-x` / `-F` behave exactly as the `grep -qE` / `-qx` / `-qF`
+# they replaced; a here-string is a FILE, not a pipe, so there is no second
+# process for pipefail to observe. Case 0 proves both readers report the truth,
+# proves the raw forms still do NOT, and refuses to run if it cannot reproduce
+# the hazard.
+grep_q() { local _in; _in="$(cat)"; grep -q "$@" <<<"$_in"; }
+head1()  { awk 'NR==1'; }
+
+echo "[cutover-contract] Case 0: the pipeline readers cannot SIGPIPE their producer (#6235 self-test)"
+# ~1.3 MB, matching on the FIRST line — far above the 64 KB pipe buffer, so the
+# producer is guaranteed to still be writing when an early-exiting reader quits.
+{ echo "C0-MATCH-FIRST-LINE"; seq 1 200000; } > "$TMP/c0-stream.txt"
+
+# VACUITY CHECK, and it runs FIRST. The pattern IS on line 1, so a reader that
+# tells the truth answers 0. If the raw forms answer 0 here, this runner does not
+# have the hazard and everything below would pass for a reason unrelated to the
+# defect — a guard that cannot fail, the exact shape #6235 was.
+#
+# Asserted as "not 0", never as "141". The status is 141 only where SIGPIPE runs
+# at its default disposition; under the SIG_IGN that GitHub Actions hands every
+# step it is 1 instead, and an `-ne 141` test would have declared the CI runner
+# hazard-free while that same runner was gating every merge. `2>/dev/null` mutes
+# the producer's own `write error: Broken pipe` — it is expected here.
+set +e
+cat "$TMP/c0-stream.txt" 2>/dev/null | grep -q 'C0-MATCH-FIRST-LINE'; c0_raw_grep=$?   # c0-raw-control
+cat "$TMP/c0-stream.txt" 2>/dev/null | head -1 >/dev/null;            c0_raw_head=$?   # c0-raw-control
+set -e
+if [ "$c0_raw_grep" -eq 0 ] || [ "$c0_raw_head" -eq 0 ]; then
+  echo "FAIL: Case 0 is vacuous — a raw early-exiting pipeline reader answered 0 on this runner (grep -q rc=${c0_raw_grep}, head -1 rc=${c0_raw_head}; both expected NON-ZERO on a 1.3 MB stream). The producer is evidently surviving the closed pipe intact here, so nothing below proves anything about #6235 and the drift guard is policing a hazard this runner does not have. Re-measure before weakening it: raise the stream size first, and if the producer genuinely no longer fails on a closed pipe here, say so in the PR rather than deleting the check." >&2
+  exit 1
+fi
+case "$c0_raw_grep" in
+  141) c0_mech="SIGPIPE kills the producer (rc=141)" ;;
+  *)   c0_mech="SIGPIPE is ignored, so the producer fails its write with EPIPE and exits ${c0_raw_grep} — a status indistinguishable from an honest 'no match'" ;;
+esac
+
+set +e
+cat "$TMP/c0-stream.txt" | grep_q 'C0-MATCH-FIRST-LINE'; c0_hit=$?
+cat "$TMP/c0-stream.txt" | grep_q 'C0-NO-SUCH-STRING';   c0_miss=$?
+cat "$TMP/c0-stream.txt" | head1 >/dev/null;             c0_head=$?
+printf '' | grep_q .;                                    c0_empty=$?
+printf 'true\n' | grep_q -x true;                        c0_flag=$?
+# Captured INSIDE the `set +e` region on purpose: if head1 ever regains an early
+# exit, this very substitution is the pipeline that dies of SIGPIPE, and under
+# `set -e` the script would vanish with rc=141 and print no reason at all —
+# a silent death where a named FAIL belongs. Measured: a `head1() { head -1; }`
+# mutant exits 141 with no message when this line sits after `set -e`.
+c0_head_line="$(cat "$TMP/c0-stream.txt" | head1)"
+set -e
+
+if [ "$c0_hit" -ne 0 ]; then
+  echo "FAIL: grep_q returned ${c0_hit} for a stream that DOES contain the pattern — the same fail-open verdict the raw form gives (#6235). Every assertion of ABSENCE in this file is dead while this is true." >&2
+  exit 1
+fi
+if [ "$c0_miss" -ne 1 ]; then
+  echo "FAIL: grep_q returned ${c0_miss} (want 1) for a stream that does NOT contain the pattern — it would report a match that is not there, and every assertion of PRESENCE in this file becomes decorative." >&2
+  exit 1
+fi
+if [ "$c0_head" -ne 0 ] || [ "$c0_head_line" != "C0-MATCH-FIRST-LINE" ]; then
+  echo "FAIL: head1 returned rc=${c0_head} / first line '${c0_head_line}' (want rc=0 and 'C0-MATCH-FIRST-LINE') — it is not a drop-in for \`head -1\`, so the line-number probes that feed the ordering Cases are wrong." >&2
+  exit 1
+fi
+if [ "$c0_empty" -ne 1 ]; then
+  echo "FAIL: grep_q . returned ${c0_empty} (want 1) on EMPTY input — the drained here-string is being read as one blank line, which turns 'no output' into a match." >&2
+  exit 1
+fi
+if [ "$c0_flag" -ne 0 ]; then
+  echo "FAIL: grep_q -x true returned ${c0_flag} (want 0) — argument forwarding is broken, so every converted \`grep -qE\` / \`-qx\` / \`-qF\` site now asserts something other than what it says." >&2
+  exit 1
+fi
+
+# DRIFT GUARD — no executable line in THIS file may go back to the raw forms.
+# Deliberate uses above are tagged `c0-raw-control`; comment lines are exempt
+# because several of them quote the forbidden form on purpose.
+c0_raw_sites="$(grep -nE '\|[[:space:]]*(grep[[:space:]]+-q|head[[:space:]]+-1)' "$SELF_SRC" | grep -v 'c0-raw-control' | grep -vE '^[0-9]+:[[:space:]]*#' || true)"   # c0-raw-control
+if [ -n "$c0_raw_sites" ]; then
+  echo "FAIL: an executable line re-introduced a SIGPIPE-exposed pipeline reader (#6235). Use grep_q / head1 — they drain stdin, so the producer is never killed and a found match can never read as not-found. Offenders:" >&2
+  printf '%s\n' "$c0_raw_sites" >&2
+  exit 1
+fi
+echo "  PASS (hazard reproduced on this runner — ${c0_mech}; raw \`grep -q\` rc=${c0_raw_grep} and raw \`head -1\` rc=${c0_raw_head} on a 1.3 MB stream whose pattern is on line 1; grep_q reports hit/miss/empty correctly and forwards -x; head1 is a drop-in for head -1; no executable line in this file still uses the raw forms)"
 
 cd "$CHART_DIR"
 
@@ -97,11 +248,11 @@ fi
 echo "  PASS (data keys present on every step)"
 
 echo "[cutover-contract] Case 5: step 04 is mode=daemonset-wait"
-if ! grep -B5 'bp.openova.io/cutover-order: "4"' "$TMP/render.yaml" | grep -q 'cutover-mode: "daemonset-wait"'; then
+if ! grep -B5 'bp.openova.io/cutover-order: "4"' "$TMP/render.yaml" | grep_q 'cutover-mode: "daemonset-wait"'; then
   # `grep -B5 cutover-order:"4"` finds the metadata block that has the order
   # label; the mode label appears below order, not above. Switch to a forward
   # search.
-  if ! grep -A3 'bp.openova.io/cutover-order: "4"' "$TMP/render.yaml" | grep -q 'cutover-mode: "daemonset-wait"'; then
+  if ! grep -A3 'bp.openova.io/cutover-order: "4"' "$TMP/render.yaml" | grep_q 'cutover-mode: "daemonset-wait"'; then
     echo "FAIL: step 04 must have bp.openova.io/cutover-mode=daemonset-wait" >&2
     exit 1
   fi
@@ -109,14 +260,14 @@ fi
 echo "  PASS (step 04 daemonset-wait)"
 
 echo "[cutover-contract] Case 6: status ConfigMap has helm.sh/resource-policy: keep"
-if ! awk '/kind: ConfigMap/,/^---$/' "$TMP/render.yaml" | grep -B2 'name: self-sovereign-cutover-status' | grep -q 'self-sovereign-cutover-status' ; then
+if ! awk '/kind: ConfigMap/,/^---$/' "$TMP/render.yaml" | grep -B2 'name: self-sovereign-cutover-status' | grep_q 'self-sovereign-cutover-status' ; then
   echo "FAIL: self-sovereign-cutover-status ConfigMap not found" >&2
   exit 1
 fi
-if ! grep -B5 'name: self-sovereign-cutover-status' "$TMP/render.yaml" | grep -q 'helm.sh/resource-policy: keep'; then
+if ! grep -B5 'name: self-sovereign-cutover-status' "$TMP/render.yaml" | grep_q 'helm.sh/resource-policy: keep'; then
   # Resource-policy annotation may render after the metadata block; do a
   # post-block sweep.
-  if ! awk '/name: self-sovereign-cutover-status/,/^---$/' "$TMP/render.yaml" | grep -q 'helm.sh/resource-policy: keep' ; then
+  if ! awk '/name: self-sovereign-cutover-status/,/^---$/' "$TMP/render.yaml" | grep_q 'helm.sh/resource-policy: keep' ; then
     echo "FAIL: status ConfigMap missing helm.sh/resource-policy: keep" >&2
     exit 1
   fi
@@ -229,11 +380,11 @@ echo "[cutover-contract] Case 12: harbor.adminSecretRef.name is harbor-admin (#9
 # `secret "harbor-core" not found` indefinitely on otech113. 0.1.17
 # uses the Catalyst-curated `harbor-admin` Secret which bp-harbor 1.2.14
 # emits with Reflector annotations into the `catalyst` namespace.
-if ! grep -A3 'name: HARBOR_PASSWORD' "$TMP/render.yaml" | grep -q 'name: harbor-admin'; then
+if ! grep -A3 'name: HARBOR_PASSWORD' "$TMP/render.yaml" | grep_q 'name: harbor-admin'; then
   echo "FAIL: Step 02 PodSpec does NOT reference the Reflector-mirrored harbor-admin Secret" >&2
   exit 1
 fi
-if grep -A3 'name: HARBOR_PASSWORD' "$TMP/render.yaml" | grep -q 'name: harbor-core$'; then
+if grep -A3 'name: HARBOR_PASSWORD' "$TMP/render.yaml" | grep_q 'name: harbor-core$'; then
   echo "FAIL: Step 02 PodSpec still references harbor-core (the broken cross-ns Secret)" >&2
   exit 1
 fi
@@ -385,8 +536,8 @@ fi
 #     non-comment `del(.auths[` occurrence sits AFTER the Phase-3 header.
 #     (Comment lines mentioning del() are fine; the executable jq filter
 #     line `jq_filter="... | del(.auths[$s...` is the one that matters.)
-phase3_line=$(grep -n 'Phase 3 — readiness-gated mothership-auth STRIP' "$TMP/render.yaml" | head -1 | cut -d: -f1)
-del_exec_line=$(grep -n 'jq_filter=.*del(.auths\[' "$TMP/render.yaml" | head -1 | cut -d: -f1)
+phase3_line=$(grep -n 'Phase 3 — readiness-gated mothership-auth STRIP' "$TMP/render.yaml" | head1 | cut -d: -f1)
+del_exec_line=$(grep -n 'jq_filter=.*del(.auths\[' "$TMP/render.yaml" | head1 | cut -d: -f1)
 if [ -z "${del_exec_line}" ]; then
   echo "FAIL: Step-06 has no executable del(.auths[...]) jq filter — the strip was dropped entirely (Refs #3379 #3526)" >&2
   exit 1
@@ -640,7 +791,7 @@ fi
 # land LAST, which stopped being true the moment steps 10 and 11 were added
 # after it; and by its own reasoning the position is free — no other step
 # reads the token. The isolation proof is what must be last (Case 91).
-if ! grep -A15 'cutover-step-09-gitea-token-mint' "$TMP/render.yaml" | grep -q 'bp.openova.io/cutover-order: "8"'; then
+if ! grep -A15 'cutover-step-09-gitea-token-mint' "$TMP/render.yaml" | grep_q 'bp.openova.io/cutover-order: "8"'; then
   echo "FAIL: Step-09 not labelled bp.openova.io/cutover-order=8 (TBD-C18, renumbered by #6214)" >&2
   exit 1
 fi
@@ -686,7 +837,7 @@ fi
 # RBAC: ClusterRole must allow get/list/watch on
 # gateway.networking.k8s.io/gateways so the in-Job poll resolves.
 if ! grep -B0 -A2 'apiGroups: \["gateway.networking.k8s.io"\]' "$TMP/render.yaml" \
-     | grep -q 'resources: \["gateways"\]'; then
+     | grep_q 'resources: \["gateways"\]'; then
   echo "FAIL: ClusterRole missing gateway.networking.k8s.io.gateways read verbs (#1871)" >&2
   exit 1
 fi
@@ -718,7 +869,7 @@ if ! grep -q 'cutover-step-10-vcluster-registry-pivot' "$TMP/render.yaml"; then
   echo "FAIL: Step-10 vcluster-registry-pivot ConfigMap missing (TBD-V24 MISS-1)" >&2
   exit 1
 fi
-if ! grep -A20 'cutover-step-10-vcluster-registry-pivot' "$TMP/render.yaml" | grep -q 'bp.openova.io/cutover-order: "9"'; then
+if ! grep -A20 'cutover-step-10-vcluster-registry-pivot' "$TMP/render.yaml" | grep_q 'bp.openova.io/cutover-order: "9"'; then
   echo "FAIL: Step-10 not labelled bp.openova.io/cutover-order=9 (TBD-V24 MISS-1, renumbered by #6214)" >&2
   exit 1
 fi
@@ -813,7 +964,7 @@ if ! grep -q 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml"; the
   echo "FAIL: Step-11 crossplane-provider-pivot ConfigMap missing (TBD-V24 MISS-3)" >&2
   exit 1
 fi
-if ! grep -A20 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml" | grep -q 'bp.openova.io/cutover-order: "10"'; then
+if ! grep -A20 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml" | grep_q 'bp.openova.io/cutover-order: "10"'; then
   echo "FAIL: Step-11 not labelled bp.openova.io/cutover-order=10 (TBD-V24 MISS-3, renumbered by #6214)" >&2
   exit 1
 fi
@@ -823,13 +974,13 @@ fi
 # self-heal initContainer prepended to this step's podSpec adds ~84 lines
 # before the main container's env; 160 still lands well inside the single
 # step-11 ConfigMap (~456 lines), so the scope stays step-11-only.
-if ! grep -A160 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml" | grep -q 'value: "xpkg.upbound.io"'; then
+if ! grep -A160 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml" | grep_q 'value: "xpkg.upbound.io"'; then
   echo "FAIL: Step-11 missing UPSTREAM_HOST=xpkg.upbound.io env (TBD-V24 MISS-3)" >&2
   exit 1
 fi
 # Default registry path must be proxy-xpkg (the Harbor proxy-cache
 # project that mirrors xpkg.upbound.io — created by Step 02).
-if ! grep -A160 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml" | grep -q 'value: "proxy-xpkg"'; then
+if ! grep -A160 'cutover-step-11-crossplane-provider-pivot' "$TMP/render.yaml" | grep_q 'value: "proxy-xpkg"'; then
   echo "FAIL: Step-11 missing REGISTRY_PATH=proxy-xpkg env (TBD-V24 MISS-3)" >&2
   exit 1
 fi
@@ -854,7 +1005,7 @@ fi
 # RBAC: ClusterRole must permit get/list/watch on
 # apiextensions.k8s.io.customresourcedefinitions (CRD-presence probe).
 if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" \
-     | grep -B1 -A3 '"customresourcedefinitions"' | grep -q 'verbs:.*"get"'; then
+     | grep -B1 -A3 '"customresourcedefinitions"' | grep_q 'verbs:.*"get"'; then
   echo "FAIL: ClusterRole missing apiextensions.k8s.io.customresourcedefinitions read verbs (TBD-V24 MISS-3)" >&2
   exit 1
 fi
@@ -964,7 +1115,7 @@ if ! grep -q 'minting under unique name' "$TMP/render.yaml"; then
   echo "FAIL: Step-09 missing the unique per-run token name (#2938)" >&2
   exit 1
 fi
-if grep -A20 'gitea-token-mint' "$TMP/render.yaml" | grep -q 'X DELETE.*tokens/'; then
+if grep -A20 'gitea-token-mint' "$TMP/render.yaml" | grep_q 'X DELETE.*tokens/'; then
   echo "FAIL: Step-09 still DELETEs the active token (#2938 regression)" >&2
   exit 1
 fi
@@ -1121,7 +1272,7 @@ for plane_ns in gitea harbor openbao; do
     exit 1
   fi
   # …and the policy MUST land IN the plane namespace (not catalyst).
-  if ! grep -A1 "name: bp-self-sovereign-cutover-allow-cutover-to-${plane_ns}$" "$TMP/render.yaml" | grep -q "namespace: \"${plane_ns}\""; then
+  if ! grep -A1 "name: bp-self-sovereign-cutover-allow-cutover-to-${plane_ns}$" "$TMP/render.yaml" | grep_q "namespace: \"${plane_ns}\""; then
     echo "FAIL: the '${plane_ns}' carve-out NetworkPolicy is not emitted into the '${plane_ns}' namespace (#4325)" >&2
     exit 1
   fi
@@ -1130,7 +1281,7 @@ done
 # release namespace — `catalyst` via slot-06a `targetNamespace: catalyst`). The
 # release namespace at smoke-render is `default`, so assert the namespaceSelector
 # matches kubernetes.io/metadata.name of the release namespace.
-if ! grep -A30 "name: bp-self-sovereign-cutover-allow-cutover-to-gitea$" "$TMP/render.yaml" | grep -q "kubernetes.io/metadata.name:"; then
+if ! grep -A30 "name: bp-self-sovereign-cutover-allow-cutover-to-gitea$" "$TMP/render.yaml" | grep_q "kubernetes.io/metadata.name:"; then
   echo "FAIL: the gitea carve-out NetworkPolicy does not allow ingress from the cutover release namespace via a kubernetes.io/metadata.name namespaceSelector (#4325)" >&2
   exit 1
 fi
@@ -1176,7 +1327,7 @@ if ! grep -q 'name: PREWARM_DEST_TLS_VERIFY' "$TMP/render.yaml"; then
   echo "FAIL: Step-03 does not project the PREWARM_DEST_TLS_VERIFY env (from .Values.prewarm.destTLSVerify) (#4529)" >&2
   exit 1
 fi
-if ! grep -A1 'name: PREWARM_DEST_TLS_VERIFY' "$TMP/render.yaml" | grep -q 'value: "false"'; then
+if ! grep -A1 'name: PREWARM_DEST_TLS_VERIFY' "$TMP/render.yaml" | grep_q 'value: "false"'; then
   echo "FAIL: PREWARM_DEST_TLS_VERIFY does not default to \"false\" — the in-cluster Harbor copy would still public-CA-verify on a fresh prov (#4529)" >&2
   exit 1
 fi
@@ -1189,7 +1340,7 @@ fi
 # Operator overlay MUST be able to re-enable dest verification (true) when the
 # internal cert is public-CA-trusted.
 helm template smoke-desttls . --set 'prewarm.destTLSVerify=true' > "$TMP/render-desttls.yaml"
-if ! grep -A1 'name: PREWARM_DEST_TLS_VERIFY' "$TMP/render-desttls.yaml" | grep -q 'value: "true"'; then
+if ! grep -A1 'name: PREWARM_DEST_TLS_VERIFY' "$TMP/render-desttls.yaml" | grep_q 'value: "true"'; then
   echo "FAIL: prewarm.destTLSVerify=true overlay does not flip PREWARM_DEST_TLS_VERIFY to \"true\" — operators cannot opt into dest verification (#4529)" >&2
   exit 1
 fi
@@ -1515,11 +1666,11 @@ if ! grep -q 'run_offline_mirror_completeness' "$TMP/render.yaml"; then
 fi
 # (g) step-08 LOCAL_REGISTRY_SUBSTR is DERIVED from the local Harbor host, NOT
 #     the old literal "harbor." (which excluded the mothership tether).
-if grep -A1 'name: LOCAL_REGISTRY_SUBSTR' "$TMP/render.yaml" | grep -q 'value: "harbor."'; then
+if grep -A1 'name: LOCAL_REGISTRY_SUBSTR' "$TMP/render.yaml" | grep_q 'value: "harbor."'; then
   echo "FAIL: LOCAL_REGISTRY_SUBSTR still defaults to the buggy \"harbor.\" (excludes the mothership tether from the roll-set) (#4975)" >&2
   exit 1
 fi
-if ! grep -A1 'name: LOCAL_REGISTRY_SUBSTR' "$TMP/render.yaml" | grep -q 'value: "registry\.'; then
+if ! grep -A1 'name: LOCAL_REGISTRY_SUBSTR' "$TMP/render.yaml" | grep_q 'value: "registry\.'; then
   echo "FAIL: LOCAL_REGISTRY_SUBSTR is not derived from the local Harbor host (registry.<fqdn>) (#4975)" >&2
   exit 1
 fi
@@ -1569,7 +1720,7 @@ echo "[cutover-contract] Case 39: Step-03 Phase A container-image skopeo copy ca
 awk '/cutover-step-03-harbor-prewarm/{c=1} c{print} c&&/cutover-order: "4"/{exit}' "$TMP/render.yaml" > "$TMP/prewarm_ma_block.txt"
 [ -s "$TMP/prewarm_ma_block.txt" ] || cp "$TMP/render.yaml" "$TMP/prewarm_ma_block.txt"
 # (a) The Phase A container-image copy routes through the multi-arch decision.
-if ! awk '/prewarm_skopeo_copy\(\) \{/,/^[[:space:]]*\}[[:space:]]*$/' "$TMP/prewarm_ma_block.txt" | grep -q 'prewarm_multiarch_flags'; then
+if ! awk '/prewarm_skopeo_copy\(\) \{/,/^[[:space:]]*\}[[:space:]]*$/' "$TMP/prewarm_ma_block.txt" | grep_q 'prewarm_multiarch_flags'; then
   echo "FAIL: Step-03 prewarm_skopeo_copy() does not consult prewarm_multiarch_flags — the Phase A container-image copy no longer makes a multi-arch decision at all, so a manifest-list image uploads only a single-arch manifest and Harbor rejects it 'digest invalid' (#4975 #5468)" >&2
   exit 1
 fi
@@ -1822,14 +1973,14 @@ if ! grep -q 'name: SETTLED_ROLL_PREFLIGHT' "$TMP/prewarm_a0_block.txt"; then
 fi
 # The pre-flight MUST run BEFORE the Phase A image enumeration so a fail leaves the
 # env pre-pivot (nothing mirrored/pivoted yet).
-a0_line=$(grep -n 'Phase A0: settled-roll pre-flight' "$TMP/prewarm_a0_block.txt" | head -1 | cut -d: -f1)
-enum_line=$(grep -n 'enumerating ALL images across cluster' "$TMP/prewarm_a0_block.txt" | head -1 | cut -d: -f1)
+a0_line=$(grep -n 'Phase A0: settled-roll pre-flight' "$TMP/prewarm_a0_block.txt" | head1 | cut -d: -f1)
+enum_line=$(grep -n 'enumerating ALL images across cluster' "$TMP/prewarm_a0_block.txt" | head1 | cut -d: -f1)
 if [ -z "${a0_line}" ] || [ -z "${enum_line}" ] || [ "${a0_line}" -ge "${enum_line}" ]; then
   echo "FAIL: Phase A0 settled-roll pre-flight must run BEFORE Phase A image enumeration (fail-closed while still pre-pivot) (#4982)" >&2
   exit 1
 fi
 # Default posture is ENABLED (fail-closed): the rendered toggle env is "true".
-if ! grep -A1 'name: SETTLED_ROLL_PREFLIGHT' "$TMP/prewarm_a0_block.txt" | grep -q 'value: "true"'; then
+if ! grep -A1 'name: SETTLED_ROLL_PREFLIGHT' "$TMP/prewarm_a0_block.txt" | grep_q 'value: "true"'; then
   echo "FAIL: settled-roll pre-flight must DEFAULT to enabled (SETTLED_ROLL_PREFLIGHT rendered value != \"true\") (#4982)" >&2
   exit 1
 fi
@@ -1886,7 +2037,7 @@ if ! grep -q 'touch "${cpdir}/.hb_stop"' "$TMP/prewarm_4994.txt"; then
   echo "FAIL: Step-03 does not stop the heartbeat via the .hb_stop sentinel — a bare wait would deadlock on it (#4994)" >&2
   exit 1
 fi
-if ! grep -A1 'name: PREWARM_SKIP_IF_PRESENT' "$TMP/prewarm_4994.txt" | grep -q 'value: "true"'; then
+if ! grep -A1 'name: PREWARM_SKIP_IF_PRESENT' "$TMP/prewarm_4994.txt" | grep_q 'value: "true"'; then
   echo "FAIL: PREWARM_SKIP_IF_PRESENT must DEFAULT to enabled (rendered value != \"true\") (#4994)" >&2
   exit 1
 fi
@@ -1940,11 +2091,11 @@ if ! grep -q 'name: EVS_CSI_ZONE_LABEL' "$TMP/step07_4996.txt"; then
   exit 1
 fi
 # RBAC: the runner must be able to delete VolumeAttachments + patch nodes (cordon).
-if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" | grep -A3 '"volumeattachments"' | grep -q '"delete"'; then
+if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" | grep -A3 '"volumeattachments"' | grep_q '"delete"'; then
   echo "FAIL: ClusterRole missing storage.k8s.io/volumeattachments delete — the detach-gate will 403 (#4996)" >&2
   exit 1
 fi
-if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" | grep -A3 'resources: \["nodes"\]' | grep -q '"patch"'; then
+if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" | grep -A3 'resources: \["nodes"\]' | grep_q '"patch"'; then
   echo "FAIL: ClusterRole missing nodes patch — kubectl cordon will 403 (#4996)" >&2
   exit 1
 fi
@@ -1993,7 +2144,7 @@ if ! grep -q 'name: HOST_IP' "$TMP/render.yaml"; then
   exit 1
 fi
 # (6) default enabled (fail-safe robustness posture).
-if ! grep -A1 'name: LOCAL_REGISTRY_PIN_ENABLED' "$TMP/render.yaml" | grep -q 'value: "true"'; then
+if ! grep -A1 'name: LOCAL_REGISTRY_PIN_ENABLED' "$TMP/render.yaml" | grep_q 'value: "true"'; then
   echo "FAIL: LOCAL_REGISTRY_PIN_ENABLED must DEFAULT to enabled (rendered value != \"true\") (#5007)" >&2
   exit 1
 fi
@@ -2053,7 +2204,7 @@ if ! grep -q 'bp.openova.io/cutover-podspec-preimage' "$TMP/step07_sweep.txt"; t
 fi
 # (7) default enabled (fail-safe robustness posture — the deny-egress proof cannot
 # go green while any pod-spec still carries a non-local ref).
-if ! grep -A1 'name: PODSPEC_SWEEP$' "$TMP/step07_sweep.txt" | grep -q 'value: "true"'; then
+if ! grep -A1 'name: PODSPEC_SWEEP$' "$TMP/step07_sweep.txt" | grep_q 'value: "true"'; then
   echo "FAIL: PODSPEC_SWEEP must DEFAULT to enabled (rendered value != \"true\") (#4973 #4975 #4961)" >&2
   exit 1
 fi
@@ -2066,11 +2217,11 @@ for _e in HOST_PROJECT_MAP LOCAL_REGISTRY_HOST EXCLUDED_HOSTS EXCLUDED_SUBSTRING
 done
 # (9) RBAC: the runner must patch deployments + daemonsets + statefulsets (the sweep
 # strategic-merges the pod-spec image). Already granted (step-08 rolls them).
-if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" | grep -A3 '"daemonsets", "statefulsets"' | grep -q '"patch"'; then
+if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" | grep -A3 '"daemonsets", "statefulsets"' | grep_q '"patch"'; then
   echo "FAIL: ClusterRole missing apps/daemonsets+statefulsets patch — the pod-spec sweep will 403 (#4973 #4975 #4961)" >&2
   exit 1
 fi
-if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" | grep -A3 'resources: \["deployments"\]' | grep -q '"patch"'; then
+if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" | grep -A3 'resources: \["deployments"\]' | grep_q '"patch"'; then
   echo "FAIL: ClusterRole missing apps/deployments patch — the pod-spec sweep will 403 (#4973 #4975 #4961)" >&2
   exit 1
 fi
@@ -2130,13 +2281,13 @@ echo "[cutover-contract] Case 47: Step-08 deny-egress CCNP allows the IaaS provi
 # Job env AND the CCNP writer must emit each entry under the allow toCIDR.
 helm template smoke-providercidr . --set 'egressTest.allowProviderCIDRs={212.72.2.0/24}' > "$TMP/render-providercidr.yaml"
 # (1) the Job env carries the provider CIDR (space-joined list).
-if ! grep -A1 'name: PROVIDER_API_CIDRS' "$TMP/render-providercidr.yaml" | grep -q 'value: "212.72.2.0/24"'; then
+if ! grep -A1 'name: PROVIDER_API_CIDRS' "$TMP/render-providercidr.yaml" | grep_q 'value: "212.72.2.0/24"'; then
   echo "FAIL: egressTest.allowProviderCIDRs does not reach the Step-08 Job env PROVIDER_API_CIDRS (#5017)" >&2
   exit 1
 fi
 # (2) default render → env EMPTY (providers without a pinnable API range are a
 # no-op; the allow-list never silently widens).
-if ! grep -A1 'name: PROVIDER_API_CIDRS' "$TMP/render.yaml" | grep -q 'value: ""'; then
+if ! grep -A1 'name: PROVIDER_API_CIDRS' "$TMP/render.yaml" | grep_q 'value: ""'; then
   echo "FAIL: PROVIDER_API_CIDRS must default to empty (chart default allowProviderCIDRs: []) (#5017)" >&2
   exit 1
 fi
@@ -2150,9 +2301,9 @@ if ! grep -q 'for cidr in ${PROVIDER_API_CIDRS}' <<<"$step08_block"; then
 fi
 # Line-order anchors: the PROVIDER loop must sit after the ALLOW_CIDRS loop
 # and before the EMITTED toEntities line (not a comment mention of it).
-a_ln="$(grep -n 'for cidr in ${ALLOW_CIDRS}' <<<"$step08_block" | head -1 | cut -d: -f1)"
-p_ln="$(grep -n 'for cidr in ${PROVIDER_API_CIDRS}' <<<"$step08_block" | head -1 | cut -d: -f1)"
-e_ln="$(grep -n 'echo "    - toEntities:"' <<<"$step08_block" | head -1 | cut -d: -f1)"
+a_ln="$(grep -n 'for cidr in ${ALLOW_CIDRS}' <<<"$step08_block" | head1 | cut -d: -f1)"
+p_ln="$(grep -n 'for cidr in ${PROVIDER_API_CIDRS}' <<<"$step08_block" | head1 | cut -d: -f1)"
+e_ln="$(grep -n 'echo "    - toEntities:"' <<<"$step08_block" | head1 | cut -d: -f1)"
 if [ -z "$a_ln" ] || [ -z "$p_ln" ] || [ -z "$e_ln" ] || [ "$a_ln" -ge "$p_ln" ] || [ "$p_ln" -ge "$e_ln" ]; then
   echo "FAIL: PROVIDER_API_CIDRS loop must emit inside the CCNP toCIDR allow-list (after ALLOW_CIDRS at line ${a_ln:-?}, before the toEntities emit at line ${e_ln:-?}; got PROVIDER at line ${p_ln:-?}) (#5017)" >&2
   exit 1
@@ -2166,11 +2317,11 @@ echo "[cutover-contract] Case 48: Step-08 fresh-pull budget — 600s default + p
 # env; (2) the DS per-node budget env renders (default 120); (3) the script
 # computes a daemonset-scaled roll_timeout from desiredNumberScheduled and
 # uses it for `kubectl rollout status`.
-if ! grep -A1 'name: FRESH_PULL_TIMEOUT' "$TMP/render.yaml" | grep -q 'value: "600"'; then
+if ! grep -A1 'name: FRESH_PULL_TIMEOUT' "$TMP/render.yaml" | grep_q 'value: "600"'; then
   echo "FAIL: freshPullProof.timeoutSeconds default must be 600 (multi-node DS sequential pulls blew 240s live) (#5022)" >&2
   exit 1
 fi
-if ! grep -A1 'name: FRESH_PULL_DS_PER_NODE' "$TMP/render.yaml" | grep -q 'value: "120"'; then
+if ! grep -A1 'name: FRESH_PULL_DS_PER_NODE' "$TMP/render.yaml" | grep_q 'value: "120"'; then
   echo "FAIL: FRESH_PULL_DS_PER_NODE env missing or default != 120 (#5022)" >&2
   exit 1
 fi
@@ -2191,7 +2342,7 @@ echo "[cutover-contract] Case 49: Step-08 roll-set NEVER includes the registry-p
 # fresh pulls are being proven on that node, and its readiness gate
 # (first-reconcile-pass) was already asserted by the step-04
 # daemonset-wait + per-node v2 ACKs.
-if ! grep -A1 'name: FRESH_PULL_EXCLUDE_WORKLOADS' "$TMP/render.yaml" | grep -qE 'value: "[^"]*catalyst/registry-pivot'; then
+if ! grep -A1 'name: FRESH_PULL_EXCLUDE_WORKLOADS' "$TMP/render.yaml" | grep_q -E 'value: "[^"]*catalyst/registry-pivot'; then
   echo "FAIL: FRESH_PULL_EXCLUDE_WORKLOADS default must carry catalyst/registry-pivot (#5022)" >&2
   exit 1
 fi
@@ -2235,7 +2386,7 @@ if [ "$_pivot_out" != "registry.t99.omani.works/proxy-dockerhub/velero/velero:v1
 fi
 # The rendered HOST_PROJECT_MAP env in step-08 MUST carry harbor.openova.io so
 # the guarantee (helpers.tpl) is regression-proof against a values-overlay drop.
-if ! grep -A1 'name: HOST_PROJECT_MAP' "$TMP/render.yaml" | grep -q 'harbor.openova.io:'; then
+if ! grep -A1 'name: HOST_PROJECT_MAP' "$TMP/render.yaml" | grep_q 'harbor.openova.io:'; then
   echo "FAIL: rendered HOST_PROJECT_MAP does not carry the mothership host harbor.openova.io: (host-swap) (#5026)" >&2
   exit 1
 fi
@@ -2506,7 +2657,7 @@ echo "  PASS (#5007 contract: 200-branch splits on .spec.type — LB uses VIP-or
 # every non-local-registry workload rolls, including infra DaemonSets.
 echo "[cutover-contract] Case 56: step-08 roll-set mode — minimal excludes infra-ns DaemonSets by RULE + rolls the representative sample; full mode legacy-unchanged (#5074 #5065 #5059)"
 # Static: the mode + rule knobs must reach the Job env with the new defaults.
-if ! grep -A1 'name: FRESH_PULL_ROLL_SET_MODE' "$TMP/render.yaml" | grep -q 'value: "minimal"'; then
+if ! grep -A1 'name: FRESH_PULL_ROLL_SET_MODE' "$TMP/render.yaml" | grep_q 'value: "minimal"'; then
   echo "FAIL: freshPullProof.rollSetMode default must be \"minimal\" (#5074 #5065 #5059)" >&2
   exit 1
 fi
@@ -2517,7 +2668,7 @@ for _ns in kube-system huawei-evs-csi catalyst; do
     exit 1
   fi
 done
-if ! grep -A1 'name: FRESH_PULL_MIN_REPS_PER_REGION' "$TMP/render.yaml" | grep -q 'value: "12"'; then
+if ! grep -A1 'name: FRESH_PULL_MIN_REPS_PER_REGION' "$TMP/render.yaml" | grep_q 'value: "12"'; then
   echo "FAIL: freshPullProof.minRepresentativesPerRegion default must be 12 (#5065)" >&2
   exit 1
 fi
@@ -2637,15 +2788,15 @@ echo "  PASS (minimal: infra-ns DaemonSets + non-allowlisted infra workloads exc
 # top-up, so the top-up draws only stateless workloads).
 echo "[cutover-contract] Case 59: step-08 rule c — a stateful RWO-EVS singleton (gitea evs-ssd / keycloak-postgresql evs.csi driver) is SKIPPED; stateless representatives still roll; floor met from the stateless pool (#5091 Refs #5081 #4975)"
 # Static: the rule-c knobs must reach the Job env with the new defaults.
-if ! grep -A1 'name: FRESH_PULL_RWO_EVS_EXCLUDE' "$TMP/render.yaml" | grep -q 'value: "true"'; then
+if ! grep -A1 'name: FRESH_PULL_RWO_EVS_EXCLUDE' "$TMP/render.yaml" | grep_q 'value: "true"'; then
   echo "FAIL: freshPullProof.rwoEvsExclusion.enabled default must be true (#5091)" >&2
   exit 1
 fi
-if ! grep -A1 'name: FRESH_PULL_RWO_EVS_STORAGECLASSES' "$TMP/render.yaml" | grep -q 'evs-ssd'; then
+if ! grep -A1 'name: FRESH_PULL_RWO_EVS_STORAGECLASSES' "$TMP/render.yaml" | grep_q 'evs-ssd'; then
   echo "FAIL: FRESH_PULL_RWO_EVS_STORAGECLASSES default must carry evs-ssd (#5091)" >&2
   exit 1
 fi
-if ! grep -A1 'name: FRESH_PULL_RWO_EVS_CSIDRIVERS' "$TMP/render.yaml" | grep -q 'evs.csi.huaweicloud.com'; then
+if ! grep -A1 'name: FRESH_PULL_RWO_EVS_CSIDRIVERS' "$TMP/render.yaml" | grep_q 'evs.csi.huaweicloud.com'; then
   echo "FAIL: FRESH_PULL_RWO_EVS_CSIDRIVERS default must carry evs.csi.huaweicloud.com (#5091)" >&2
   exit 1
 fi
@@ -2745,9 +2896,9 @@ _run59() { # $1 = FRESH_PULL_RWO_EVS_EXCLUDE
 _on_out=$(_run59 true)
 grep -q 'RC=0' <<<"$_on_out" || { printf 'FAIL: rule-c sweep did not PASS; output:\n%s\n' "$_on_out" >&2; exit 1; }
 # gitea (storageClass leg) + keycloak-postgresql (bound-PV driver leg) SKIPPED by rule c.
-grep 'skip (rule c: RWO-EVS stateful singleton' <<<"$_on_out" | grep -q 'deployment gitea/gitea' \
+grep 'skip (rule c: RWO-EVS stateful singleton' <<<"$_on_out" | grep_q 'deployment gitea/gitea' \
   || { printf 'FAIL: rule c did not skip the RWO-EVS gitea Deployment (storageClass leg); output:\n%s\n' "$_on_out" >&2; exit 1; }
-grep 'skip (rule c: RWO-EVS stateful singleton' <<<"$_on_out" | grep -q 'statefulset keycloak/keycloak-postgresql' \
+grep 'skip (rule c: RWO-EVS stateful singleton' <<<"$_on_out" | grep_q 'statefulset keycloak/keycloak-postgresql' \
   || { printf 'FAIL: rule c did not skip the RWO-EVS keycloak-postgresql StatefulSet (bound-PV driver leg); output:\n%s\n' "$_on_out" >&2; exit 1; }
 grep -q 'gitea-shared-storage sc=evs-ssd' <<<"$_on_out" \
   || { printf 'FAIL: rule-c skip line did not name the offending claim/storageClass; output:\n%s\n' "$_on_out" >&2; exit 1; }
@@ -2825,7 +2976,7 @@ fi
 # #5593: indent-agnostic — the script moved from inline args (12-space) to the
 # run.sh CM key (4-space); match the bare invocation line at any indentation.
 _pin_ln=$(grep -nE '^[[:space:]]+install_coredns_registry_pin$' "$TMP/s03pin.yaml" | tail -1 | cut -d: -f1)
-_probe_ln=$(grep -n 'public-dest readiness probe' "$TMP/s03pin.yaml" | head -1 | cut -d: -f1)
+_probe_ln=$(grep -n 'public-dest readiness probe' "$TMP/s03pin.yaml" | head1 | cut -d: -f1)
 if [ -z "$_pin_ln" ] || [ -z "$_probe_ln" ] || [ "$_pin_ln" -ge "$_probe_ln" ]; then
   echo "FAIL: step-03 install_coredns_registry_pin is not invoked BEFORE the public-dest readiness probe (pin@${_pin_ln:-none} probe@${_probe_ln:-none}) — a push could race an unpinned registry.<fqdn> (#5007)" >&2
   exit 1
@@ -2893,7 +3044,7 @@ if ! grep -qF 'name: PREWARM_PROXY_COPY_ATTEMPTS' "$TMP/s03pin.yaml"; then
   echo "FAIL: step-03 does not project PREWARM_PROXY_COPY_ATTEMPTS (from .Values.prewarm.proxyCopyAttempts) — proxy-sourced copies share the narrow 3-attempt budget a 35-min transit flap exhausts (#5095)" >&2
   exit 1
 fi
-if ! grep -A1 'name: PREWARM_PROXY_COPY_ATTEMPTS' "$TMP/s03pin.yaml" | grep -q 'value: "6"'; then
+if ! grep -A1 'name: PREWARM_PROXY_COPY_ATTEMPTS' "$TMP/s03pin.yaml" | grep_q 'value: "6"'; then
   echo "FAIL: PREWARM_PROXY_COPY_ATTEMPTS does not default to \"6\" — the proxy budget cannot span a routine transit flap (#5095)" >&2
   exit 1
 fi
@@ -2995,7 +3146,7 @@ fi
 # Disabling the toggle must fall back to the pre-#5194 immediate-fail path —
 # no self-heal invocation gated behind it.
 helm template smoke-noselfheal . --set offlineMirror.selfHeal.enabled=false > "$TMP/render-noselfheal.yaml"
-if ! grep -A2 'name: MIRROR_SELF_HEAL_ENABLED' "$TMP/render-noselfheal.yaml" | grep -q 'value: "false"'; then
+if ! grep -A2 'name: MIRROR_SELF_HEAL_ENABLED' "$TMP/render-noselfheal.yaml" | grep_q 'value: "false"'; then
   echo "FAIL: offlineMirror.selfHeal.enabled=false did not render MIRROR_SELF_HEAL_ENABLED=\"false\" — the operator override is not wired (#5194)" >&2
   exit 1
 fi
@@ -3027,12 +3178,12 @@ if command -v yq >/dev/null 2>&1; then
   # (parsed by catalyst-api); re-parse that string and assert the init exists.
   for step in $consumers; do
     if ! yq "select(.kind==\"ConfigMap\" and .metadata.name==\"$step\") | .data.podSpec" "$TMP/render-selfheal.yaml" \
-         | yq '[.initContainers[]?.name] | contains(["ensure-gitea-admin-secret"])' - | grep -qx true; then
+         | yq '[.initContainers[]?.name] | contains(["ensure-gitea-admin-secret"])' - | grep_q -x true; then
       echo "FAIL: consuming step $step missing the #5214 gitea-admin-secret self-heal initContainer" >&2; sh_fail=1
     fi
   done
   # 4th consumer: the mirror-resync CronJob (a real resource).
-  if ! yq 'select(.kind=="CronJob" and .metadata.name=="gitea-mirror-resync") | [.spec.jobTemplate.spec.template.spec.initContainers[]?.name] | contains(["ensure-gitea-admin-secret"])' "$TMP/render-selfheal.yaml" | grep -qx true; then
+  if ! yq 'select(.kind=="CronJob" and .metadata.name=="gitea-mirror-resync") | [.spec.jobTemplate.spec.template.spec.initContainers[]?.name] | contains(["ensure-gitea-admin-secret"])' "$TMP/render-selfheal.yaml" | grep_q -x true; then
     echo "FAIL: mirror-resync CronJob missing the #5214 gitea-admin-secret self-heal initContainer" >&2; sh_fail=1
   fi
   # Anti over-application: steps that read harbor/ghcr (or no) secret — and
@@ -3040,7 +3191,7 @@ if command -v yq >/dev/null 2>&1; then
   # self-heal init.
   for step in $non_consumers; do
     if yq "select(.kind==\"ConfigMap\" and .metadata.name==\"$step\") | .data.podSpec" "$TMP/render-selfheal.yaml" \
-         | yq '[.initContainers[]?.name] | contains(["ensure-gitea-admin-secret"])' - | grep -qx true; then
+         | yq '[.initContainers[]?.name] | contains(["ensure-gitea-admin-secret"])' - | grep_q -x true; then
       echo "FAIL: non-consuming step $step unexpectedly carries the gitea-admin-secret self-heal init (over-application)" >&2; sh_fail=1
     fi
   done
@@ -3079,16 +3230,16 @@ fi
 # ...but the exclude guard MUST render bp-huawei-evs-csi (the exclusion is
 # auditable in the rendered manifest, not just absent).
 if ! grep -q 'NEVER pivoted here' "$TMP/r07_5215.yaml" \
-   || ! grep -A3 'NEVER pivoted here' "$TMP/r07_5215.yaml" | grep -q 'bp-huawei-evs-csi'; then
+   || ! grep -A3 'NEVER pivoted here' "$TMP/r07_5215.yaml" | grep_q 'bp-huawei-evs-csi'; then
   echo "FAIL: step-07 excludeHelmReleases guard comment does not render bp-huawei-evs-csi (#5215)" >&2; c64_fail=1
 fi
 # (2) Phase 4 pod-spec sweep env MUST carry the CSI driver "<ns>/<name>" set.
 if ! grep -A1 'name: PODSPEC_SWEEP_EXCLUDE_WORKLOADS$' "$TMP/r07_5215.yaml" \
-     | grep -q 'huawei-evs-csi/csi-evs-node'; then
+     | grep_q 'huawei-evs-csi/csi-evs-node'; then
   echo "FAIL: step-07 PODSPEC_SWEEP_EXCLUDE_WORKLOADS env missing huawei-evs-csi/csi-evs-node (#5215)" >&2; c64_fail=1
 fi
 for _csi in huawei-evs-csi/csi-evs-controller kube-system/hcloud-csi-node kube-system/hcloud-csi-controller; do
-  if ! grep -A1 'name: PODSPEC_SWEEP_EXCLUDE_WORKLOADS$' "$TMP/r07_5215.yaml" | grep -q "$_csi"; then
+  if ! grep -A1 'name: PODSPEC_SWEEP_EXCLUDE_WORKLOADS$' "$TMP/r07_5215.yaml" | grep_q "$_csi"; then
     echo "FAIL: step-07 PODSPEC_SWEEP_EXCLUDE_WORKLOADS env missing $_csi (#5215)" >&2; c64_fail=1
   fi
 done
@@ -3153,13 +3304,13 @@ if ! grep -qF 'kubectl get providers.pkg.crossplane.io' "$TMP/s03pin.yaml"; then
 fi
 # (b) the routing literals come from the SAME crossplaneProviderPivot values
 #     step-11 reads (no second hand-list that can drift).
-if ! grep -A1 'name: XPKG_REGISTRY_PATH' "$TMP/s03pin.yaml" | grep -q 'value: "proxy-xpkg"'; then
+if ! grep -A1 'name: XPKG_REGISTRY_PATH' "$TMP/s03pin.yaml" | grep_q 'value: "proxy-xpkg"'; then
   echo "FAIL: step-03 does not project XPKG_REGISTRY_PATH=proxy-xpkg from crossplaneProviderPivot.registryPath (#5204)" >&2; c65_fail=1
 fi
-if ! grep -A1 'name: XPKG_UPSTREAM_HOST' "$TMP/s03pin.yaml" | grep -q 'value: "xpkg.upbound.io"'; then
+if ! grep -A1 'name: XPKG_UPSTREAM_HOST' "$TMP/s03pin.yaml" | grep_q 'value: "xpkg.upbound.io"'; then
   echo "FAIL: step-03 does not project XPKG_UPSTREAM_HOST from crossplaneProviderPivot.upstreamHost (#5204)" >&2; c65_fail=1
 fi
-if ! grep -A1 'name: XPKG_MOTHERSHIP_PROXY_PREFIX' "$TMP/s03pin.yaml" | grep -q 'value: "harbor.openova.io/proxy-xpkg"'; then
+if ! grep -A1 'name: XPKG_MOTHERSHIP_PROXY_PREFIX' "$TMP/s03pin.yaml" | grep_q 'value: "harbor.openova.io/proxy-xpkg"'; then
   echo "FAIL: step-03 does not project XPKG_MOTHERSHIP_PROXY_PREFIX from crossplaneProviderPivot.mothershipProxyPrefix — the Huawei fresh-prov package shape (#4488) would go unwarmed (#5204)" >&2; c65_fail=1
 fi
 # (c) the warm is a FULL pull-THROUGH of the exact local ref step-11 pivots to
@@ -3226,22 +3377,22 @@ if grep -Eq 'api/v2\.0/projects/.*/artifacts/' "$TMP/s03_a4.yaml"; then
   echo "FAIL: step-03 Phase A4 still calls the Harbor artifact-management API (/api/v2.0/.../artifacts/) — it 404s on a multi-arch OCI index by digest; the xpkg leg must verify via the registry v2 manifest API only (#5232)" >&2; c65_fail=1
 fi
 # (d4) #5232: both steps project the SAME values-driven digest-map CM name.
-if ! grep -A1 'name: XPKG_DIGEST_CM' "$TMP/s03pin.yaml" | grep -q 'value: "self-sovereign-cutover-xpkg-digests"'; then
+if ! grep -A1 'name: XPKG_DIGEST_CM' "$TMP/s03pin.yaml" | grep_q 'value: "self-sovereign-cutover-xpkg-digests"'; then
   echo "FAIL: step-03 does not project XPKG_DIGEST_CM from prewarm.xpkgPackages.digestMapConfigMapName (#5232)" >&2; c65_fail=1
 fi
 # (e) xpkg.upbound.io STAYS excluded from the generic offline mirror — the
 #     Phase A push route targets push-mode projects and cannot serve the
 #     proxy-cache proxy-xpkg; Phase A4 is the dedicated leg.
-if ! grep -A1 'name: EXCLUDED_HOSTS' "$TMP/s03pin.yaml" | grep -q 'xpkg.upbound.io'; then
+if ! grep -A1 'name: EXCLUDED_HOSTS' "$TMP/s03pin.yaml" | grep_q 'xpkg.upbound.io'; then
   echo "FAIL: xpkg.upbound.io left offlineMirror.excludedHosts — the generic Phase A push would target the proxy-cache proxy-xpkg project, which Harbor rejects (#5204)" >&2; c65_fail=1
 fi
 # (f) the Phase A4 toggle + the very-early-handover CRD guard exist, and the
 #     toggle is operator-wired.
-if ! grep -A1 'name: XPKG_PREWARM_ENABLED' "$TMP/s03pin.yaml" | grep -q 'value: "true"'; then
+if ! grep -A1 'name: XPKG_PREWARM_ENABLED' "$TMP/s03pin.yaml" | grep_q 'value: "true"'; then
   echo "FAIL: XPKG_PREWARM_ENABLED does not default to \"true\" (prewarm.xpkgPackages.enabled) (#5204)" >&2; c65_fail=1
 fi
 helm template smoke-noxpkg . --show-only templates/03-harbor-prewarm-job.yaml --set prewarm.xpkgPackages.enabled=false > "$TMP/r03_5204_off.yaml"
-if ! grep -A1 'name: XPKG_PREWARM_ENABLED' "$TMP/r03_5204_off.yaml" | grep -q 'value: "false"'; then
+if ! grep -A1 'name: XPKG_PREWARM_ENABLED' "$TMP/r03_5204_off.yaml" | grep_q 'value: "false"'; then
   echo "FAIL: prewarm.xpkgPackages.enabled=false did not render XPKG_PREWARM_ENABLED=\"false\" — the operator override is not wired (#5204)" >&2; c65_fail=1
 fi
 # (g) step-11: the verify gate exists, is DIGEST-addressed, fires BEFORE the
@@ -3265,7 +3416,7 @@ fi
 if ! grep -qF 'lookup_pkg_digest' "$TMP/r11_5204.yaml"; then
   echo "FAIL: step-11 lost the lookup into the step-03 tag->digest map — without it every pivot ref stays tag-form and 404s post-severance (#5232)" >&2; c65_fail=1
 fi
-if ! grep -A1 'name: XPKG_DIGEST_CM' "$TMP/r11_5204.yaml" | grep -q 'value: "self-sovereign-cutover-xpkg-digests"'; then
+if ! grep -A1 'name: XPKG_DIGEST_CM' "$TMP/r11_5204.yaml" | grep_q 'value: "self-sovereign-cutover-xpkg-digests"'; then
   echo "FAIL: step-11 does not project XPKG_DIGEST_CM from prewarm.xpkgPackages.digestMapConfigMapName — the two steps can drift onto different maps (#5232)" >&2; c65_fail=1
 fi
 if ! grep -qF 'verify_local_pkg_artifact "${REGISTRY_PATH}/${pkg_repo}@${pkg_digest}"' "$TMP/r11_5204.yaml"; then
@@ -3294,11 +3445,11 @@ fi
 if ! grep -qF '_f_new="${target_prefix}/${_f_repo}@${_f_digest}"' "$TMP/r11_5204.yaml"; then
   echo "FAIL: step-11 Phase 2 does not rewrite the Gitea YAML package literal to the digest form — the bootstrap-kit reconcile would revert the live digest patch to a tag ref within minutes (#5232)" >&2; c65_fail=1
 fi
-if ! grep -A1 'name: VERIFY_LOCAL_ARTIFACT' "$TMP/r11_5204.yaml" | grep -q 'value: "true"'; then
+if ! grep -A1 'name: VERIFY_LOCAL_ARTIFACT' "$TMP/r11_5204.yaml" | grep_q 'value: "true"'; then
   echo "FAIL: VERIFY_LOCAL_ARTIFACT does not default to \"true\" (crossplaneProviderPivot.verifyLocalArtifact.enabled) (#5204)" >&2; c65_fail=1
 fi
 helm template smoke-noverify . --show-only templates/11-crossplane-provider-pivot-job.yaml --set crossplaneProviderPivot.verifyLocalArtifact.enabled=false > "$TMP/r11_5204_off.yaml"
-if ! grep -A1 'name: VERIFY_LOCAL_ARTIFACT' "$TMP/r11_5204_off.yaml" | grep -q 'value: "false"'; then
+if ! grep -A1 'name: VERIFY_LOCAL_ARTIFACT' "$TMP/r11_5204_off.yaml" | grep_q 'value: "false"'; then
   echo "FAIL: crossplaneProviderPivot.verifyLocalArtifact.enabled=false did not render VERIFY_LOCAL_ARTIFACT=\"false\" — the operator override is not wired (#5204)" >&2; c65_fail=1
 fi
 if [ "$c65_fail" -ne 0 ]; then exit 1; fi
@@ -3320,7 +3471,7 @@ echo "  PASS (#5204 #5232: step-03 Phase A4 enumerates the Provider spec.package
 echo "[cutover-contract] Case 66: step-06 Phase-3a top-up-warms a catalog-latest chart that drifted ahead of step-03 prewarm from the still-reachable upstream, instead of stalling (#5237 Refs #5007)"
 c66_fail=0
 # (a) the gate env defaults to "true".
-if ! grep -A1 'name: UNION_WARM_ON_DRIFT' "$STEP06_F" | grep -q 'value: "true"'; then
+if ! grep -A1 'name: UNION_WARM_ON_DRIFT' "$STEP06_F" | grep_q 'value: "true"'; then
   echo "FAIL: step-06 UNION_WARM_ON_DRIFT does not default to \"true\" (helmReadinessProbe.unionWarmOnDrift) — a drifted catalog-latest would stall the strip-readiness gate (#5237)" >&2; c66_fail=1
 fi
 # (b) the warm helper exists AND is invoked from the local-pull fail branch —
@@ -3341,7 +3492,7 @@ if ! grep -qF 'helm push "${w_tgz}" "oci://${harbor_endpoint}/openova-io"' "$STE
 fi
 # (d) the upstream pull keeps TLS verify ON (public-CA-signed ghcr) — the
 #     in-cluster LE-staging skip flag must NOT be applied to the external pull.
-if grep -F 'helm pull "oci://${up_host}' "$STEP06_F" | grep -q 'HELM_PULL_INSECURE_FLAG'; then
+if grep -F 'helm pull "oci://${up_host}' "$STEP06_F" | grep_q 'HELM_PULL_INSECURE_FLAG'; then
   echo "FAIL: step-06 union-warm applies the in-cluster TLS-skip flag to the EXTERNAL upstream pull — ghcr.io is public-CA-signed and MUST be verified (#5237)" >&2; c66_fail=1
 fi
 # (e) fail-loud preserved: a bounded attempt cap + the REFUSE-to-strip FATAL
@@ -3355,7 +3506,7 @@ if ! grep -qF 'REFUSING to strip' "$STEP06_F"; then
 fi
 # (f) the toggle is operator-wired: disabling it renders UNION_WARM_ON_DRIFT="false".
 helm template smoke-nounionwarm . --show-only templates/06-helmrepository-patches-job.yaml --set helmReadinessProbe.unionWarmOnDrift=false > "$TMP/r06_5237_off.yaml"
-if ! grep -A1 'name: UNION_WARM_ON_DRIFT' "$TMP/r06_5237_off.yaml" | grep -q 'value: "false"'; then
+if ! grep -A1 'name: UNION_WARM_ON_DRIFT' "$TMP/r06_5237_off.yaml" | grep_q 'value: "false"'; then
   echo "FAIL: helmReadinessProbe.unionWarmOnDrift=false did not render UNION_WARM_ON_DRIFT=\"false\" — the operator override is not wired (#5237)" >&2; c66_fail=1
 fi
 if [ "$c66_fail" -ne 0 ]; then exit 1; fi
@@ -3382,13 +3533,13 @@ for tpl in 10-vcluster-registry-pivot-job.yaml 11-crossplane-provider-pivot-job.
   helm template smoke . --show-only "templates/${tpl}" > "$TMP/r_5262_${tpl%%-*}.yaml"
   F="$TMP/r_5262_${tpl%%-*}.yaml"
   # (a) PAT source env triple.
-  if ! grep -A1 'name: PAT_SOURCE_NAMESPACE' "$F" | grep -q 'value: "catalyst-system"'; then
+  if ! grep -A1 'name: PAT_SOURCE_NAMESPACE' "$F" | grep_q 'value: "catalyst-system"'; then
     echo "FAIL: ${tpl} missing PAT_SOURCE_NAMESPACE=catalyst-system env (#5262)" >&2; c67_fail=1
   fi
-  if ! grep -A1 'name: PAT_SOURCE_SECRET_NAME' "$F" | grep -q 'value: "catalyst-gitea-token"'; then
+  if ! grep -A1 'name: PAT_SOURCE_SECRET_NAME' "$F" | grep_q 'value: "catalyst-gitea-token"'; then
     echo "FAIL: ${tpl} missing PAT_SOURCE_SECRET_NAME=catalyst-gitea-token env (#5262)" >&2; c67_fail=1
   fi
-  if ! grep -A1 'name: PAT_SOURCE_KEY' "$F" | grep -q 'value: "token"'; then
+  if ! grep -A1 'name: PAT_SOURCE_KEY' "$F" | grep_q 'value: "token"'; then
     echo "FAIL: ${tpl} missing PAT_SOURCE_KEY=token env (#5262)" >&2; c67_fail=1
   fi
   # (b) runtime PAT read + fail-loud FATAL on an empty token byte.
@@ -3406,7 +3557,7 @@ for tpl in 10-vcluster-registry-pivot-job.yaml 11-crossplane-provider-pivot-job.
     echo "FAIL: ${tpl} still references GITEA_PASSWORD — the gitea admin password can rotate out from under the DB and 401 the clone (#5262 regression)" >&2; c67_fail=1
   fi
   # (d) username is a plain value, not an admin-secret secretKeyRef.
-  if grep -A3 'name: GITEA_USERNAME' "$F" | grep -q 'secretKeyRef'; then
+  if grep -A3 'name: GITEA_USERNAME' "$F" | grep_q 'secretKeyRef'; then
     echo "FAIL: ${tpl} GITEA_USERNAME still sourced from a secretKeyRef — must be the plain gitRepositorySecretRef.username value (#5262)" >&2; c67_fail=1
   fi
 done
@@ -3456,7 +3607,7 @@ done
 #     the LOCAL Gitea mirror (contents + raw API with the PAT read path steps
 #     01/05 use), unions the pins into the chart-mirror work list, and is
 #     FAIL-LOUD on an unprovable pin set.
-if ! grep -A1 'name: PREWARM_BOOTSTRAP_KIT_PINS' "$TMP/r03_5237.yaml" | grep -q 'value: "true"'; then
+if ! grep -A1 'name: PREWARM_BOOTSTRAP_KIT_PINS' "$TMP/r03_5237.yaml" | grep_q 'value: "true"'; then
   echo "FAIL: step-03 PREWARM_BOOTSTRAP_KIT_PINS does not default to \"true\" (prewarm.bootstrapKitPins.enabled) — the frozen pin union is off by default (#5237)" >&2; c68_fail=1
 fi
 if ! grep -qF '/contents/${bk_path}?ref=${UPSTREAM_BRANCH}' "$TMP/r03_5237.yaml"; then
@@ -3482,7 +3633,7 @@ if [ "$c68_fatal_ok" -ne 1 ]; then
   echo "FAIL: step-03 Phase A2-pins lost one of its FAIL-LOUD exits (PAT/list/fetch/zero-pins) — an enumeration failure would silently narrow the mirror (#5237)" >&2; c68_fail=1
 fi
 helm template smoke-nopins . --show-only templates/03-harbor-prewarm-job.yaml --set prewarm.bootstrapKitPins.enabled=false > "$TMP/r03_5237_off.yaml"
-if ! grep -A1 'name: PREWARM_BOOTSTRAP_KIT_PINS' "$TMP/r03_5237_off.yaml" | grep -q 'value: "false"'; then
+if ! grep -A1 'name: PREWARM_BOOTSTRAP_KIT_PINS' "$TMP/r03_5237_off.yaml" | grep_q 'value: "false"'; then
   echo "FAIL: prewarm.bootstrapKitPins.enabled=false did not render PREWARM_BOOTSTRAP_KIT_PINS=\"false\" — the emergency override is not wired (#5237)" >&2; c68_fail=1
 fi
 
@@ -3491,7 +3642,7 @@ fi
 #     never-pull-through probe), top-up-warms a missing pin via the #5237
 #     union-warm helper, FATALs with the full missing list BEFORE the strip,
 #     and re-arms the sample-probe deadline.
-if ! grep -A1 'name: PIN_PRESENCE_GATE' "$TMP/r06_5237.yaml" | grep -q 'value: "true"'; then
+if ! grep -A1 'name: PIN_PRESENCE_GATE' "$TMP/r06_5237.yaml" | grep_q 'value: "true"'; then
   echo "FAIL: step-06 PIN_PRESENCE_GATE does not default to \"true\" (helmReadinessProbe.pinPresenceGate) (#5237)" >&2; c68_fail=1
 fi
 if ! grep -qF 'pin_src_dir=/tmp/repo/clusters/_template/bootstrap-kit' "$TMP/r06_5237.yaml"; then
@@ -3500,7 +3651,7 @@ fi
 if ! grep -qF '/api/v2.0/projects/openova-io/repositories/$1/artifacts/$2' "$TMP/r06_5237.yaml"; then
   echo "FAIL: step-06's pin gate does not probe durable presence via the Harbor artifact API — a pull-through probe would false-pass a cold artifact (#5030 discipline) (#5237)" >&2; c68_fail=1
 fi
-if ! grep -A1 'name: HARBOR_INTERNAL_URL' "$TMP/r06_5237.yaml" | grep -q 'value:'; then
+if ! grep -A1 'name: HARBOR_INTERNAL_URL' "$TMP/r06_5237.yaml" | grep_q 'value:'; then
   echo "FAIL: step-06 lost the HARBOR_INTERNAL_URL env — the artifact-API probe has no in-cluster endpoint (#5237)" >&2; c68_fail=1
 fi
 if ! grep -qF 'warm_chart_from_upstream "${pg_chart}" "${pg_ver}"' "$TMP/r06_5237.yaml"; then
@@ -3513,7 +3664,7 @@ if ! grep -q 'Re-arm the sample-probe deadline' "$TMP/r06_5237.yaml"; then
   echo "FAIL: step-06 no longer re-arms strip_wait_deadline after the pin gate — a warm-heavy gate pass would eat the sampled pull-probe's budget (#5237)" >&2; c68_fail=1
 fi
 helm template smoke-nopingate . --show-only templates/06-helmrepository-patches-job.yaml --set helmReadinessProbe.pinPresenceGate=false > "$TMP/r06_5237_off.yaml"
-if ! grep -A1 'name: PIN_PRESENCE_GATE' "$TMP/r06_5237_off.yaml" | grep -q 'value: "false"'; then
+if ! grep -A1 'name: PIN_PRESENCE_GATE' "$TMP/r06_5237_off.yaml" | grep_q 'value: "false"'; then
   echo "FAIL: helmReadinessProbe.pinPresenceGate=false did not render PIN_PRESENCE_GATE=\"false\" — the emergency override is not wired (#5237)" >&2; c68_fail=1
 fi
 
@@ -3541,12 +3692,12 @@ if [ -d "$CORPUS_DIR" ]; then
     c68_fail=1
   fi
   # Cross-parser check: the keystone umbrella pin must round-trip exactly.
-  kp_ver=$(grep -E '^      version: [0-9]' "$CORPUS_DIR/13-bp-catalyst-platform.yaml" | awk '{print $2}' | head -1)
+  kp_ver=$(grep -E '^      version: [0-9]' "$CORPUS_DIR/13-bp-catalyst-platform.yaml" | awk '{print $2}' | head1)
   if [ -n "$kp_ver" ] && ! grep -qF "$(printf 'bp-catalyst-platform\t%s' "$kp_ver")" "$TMP/corpus-pins.tsv"; then
     echo "FAIL: the extractor did not recover bp-catalyst-platform:${kp_ver} from slot 13 — the chart/version pairing broke (#5237)" >&2; c68_fail=1
   fi
   # Purity: every emitted line is exactly "<chart>\t<concrete-version>".
-  if grep -vE "^[A-Za-z0-9._-]+$(printf '\t')[0-9][A-Za-z0-9._+-]*$" "$TMP/corpus-pins.tsv" | grep -q .; then
+  if grep -vE "^[A-Za-z0-9._-]+$(printf '\t')[0-9][A-Za-z0-9._+-]*$" "$TMP/corpus-pins.tsv" | grep_q .; then
     echo "FAIL: the extractor emitted a malformed pin line (must be chart<TAB>concrete-version):" >&2
     grep -vE "^[A-Za-z0-9._-]+$(printf '\t')[0-9][A-Za-z0-9._+-]*$" "$TMP/corpus-pins.tsv" | sed 's/^/    /' >&2
     c68_fail=1
@@ -3580,7 +3731,7 @@ echo "  PASS (#5237 round 2: step-03 Phase A2-pins unions the FROZEN local-Gitea
 echo "[cutover-contract] Case 69: step-03 proxy-DOWN direct-first routing eliminates the per-image proxy timeout tax when the mothership proxy is unreachable (#5095 round 2)"
 [ -s "$TMP/s03pin.yaml" ] || awk '/name: cutover-step-03-harbor-prewarm/{c=1} /name: cutover-step-04-registry-pivot/{c=0} c' "$TMP/render.yaml" > "$TMP/s03pin.yaml"
 # (a) the toggle + probe knobs project from values with the right defaults.
-if ! grep -A1 'name: PROXY_DIRECT_FIRST_ENABLED' "$TMP/s03pin.yaml" | grep -q 'value: "true"'; then
+if ! grep -A1 'name: PROXY_DIRECT_FIRST_ENABLED' "$TMP/s03pin.yaml" | grep_q 'value: "true"'; then
   echo "FAIL: step-03 does not project PROXY_DIRECT_FIRST_ENABLED default \"true\" (prewarm.proxyDownDirectFirst.enabled) — the proxy-DOWN direct-first routing is off by default (#5095 round 2)" >&2
   exit 1
 fi
@@ -4133,7 +4284,7 @@ fi
 # (c) EXECUTE the rendered derivation line both directions so a re-worded but
 #     broken sed cannot pass: https scheme + trailing slash must normalise to
 #     oci://<host>/openova-io, and a bare host must pass through unchanged.
-d74=$(grep -F 'LOCAL_OCI_BASE="oci://' "$TMP/s07.yaml" | head -1 | sed 's/^ *//')
+d74=$(grep -F 'LOCAL_OCI_BASE="oci://' "$TMP/s07.yaml" | head1 | sed 's/^ *//')
 if [ -z "$d74" ]; then
   echo "FAIL: cannot extract the LOCAL_OCI_BASE derivation from the step-07 render (#5527 vacuity check)" >&2
   exit 1
@@ -4336,7 +4487,7 @@ if ! grep -qF '_fs_verdict=1' "$C76_08"; then
 fi
 # The exit must be INSIDE the verdict branch: a lint whose failure does not
 # stop the step leaves cutoverComplete free to be set anyway.
-if ! grep -A3 'if \[ "${_fs_verdict}" != "0" \]; then' "$C76_08" | grep -qF 'exit 1'; then
+if ! grep -A3 'if \[ "${_fs_verdict}" != "0" \]; then' "$C76_08" | grep_q -F 'exit 1'; then
   echo "FAIL: a failing per-region source lint does not exit non-zero — cutoverComplete could still be set over a tethered region (#5359)" >&2
   c76_fail=1
 fi
@@ -4402,13 +4553,13 @@ if ! grep -qF 'did not CONVERGE (observedGeneration==generation with Ready=True)
   echo "FAIL: step-05 does not fail loudly when no candidate URL converges (#5359)" >&2
   c76_fail=1
 fi
-if ! grep -A8 'if \[ -z "${sg_ready}" \]; then' "$C76_05" | grep -qF 'exit 1'; then
+if ! grep -A8 'if \[ -z "${sg_ready}" \]; then' "$C76_05" | grep_q -F 'exit 1'; then
   echo "FAIL: step-05's no-candidate-converged branch does not exit 1 (#5359)" >&2
   c76_fail=1
 fi
 # The fallback candidate must be ON-Sovereign, or the "fix" would trade a dead
 # URL for a real tether.
-c76_fb=$(grep -A1 'name: SECONDARY_GITEA_FALLBACK_URL' "$C76_05" | grep 'value:' | head -1)
+c76_fb=$(grep -A1 'name: SECONDARY_GITEA_FALLBACK_URL' "$C76_05" | grep 'value:' | head1)
 case "${c76_fb}" in
   *'gitea.'*) : ;;
   *) echo "FAIL: SECONDARY_GITEA_FALLBACK_URL does not render the Sovereign's own gitea door (got: ${c76_fb}) (#5359)" >&2; c76_fail=1 ;;
@@ -4461,7 +4612,7 @@ fi
 # sized AND end at the END anchor, or the harness would execute the whole
 # prewarm script (or nothing).
 c77_lines=$(wc -l < "$TMP/c77/gate.sh")
-if [ "${c77_lines}" -lt 40 ] || ! tail -1 "$TMP/c77/gate.sh" | grep -q 'settled-roll-preflight END'; then
+if [ "${c77_lines}" -lt 40 ] || ! tail -1 "$TMP/c77/gate.sh" | grep_q 'settled-roll-preflight END'; then
   echo "FAIL: extracted gate block is malformed (${c77_lines} lines; END anchor not last) — Case 77 would not be executing what production executes (#5391)" >&2
   exit 1
 fi
@@ -4785,13 +4936,13 @@ fi
 #     Phase 3e pivots the GENERATED per-Org source. If they disagree, Flux
 #     drift-corrects one against the other forever. Extract BOTH from their own
 #     rendered templates rather than restating either here.
-d78=$(grep -F 'LOCAL_IMAGE_HOST="harbor.${SOVEREIGN_FQDN}"' "$TMP/s07e.yaml" | head -1 | sed 's/^ *//')
+d78=$(grep -F 'LOCAL_IMAGE_HOST="harbor.${SOVEREIGN_FQDN}"' "$TMP/s07e.yaml" | head1 | sed 's/^ *//')
 if [ -z "$d78" ]; then
   echo "FAIL: cannot extract the LOCAL_IMAGE_HOST derivation from the step-07 render (#5439 vacuity check)" >&2
   exit 1
 fi
 awk '/name: cutover-step-10-vcluster-registry-pivot/{c=1} /name: cutover-step-11-crossplane-provider-pivot/{c=0} c' "$TMP/render.yaml" > "$TMP/s10e.yaml"
-d78b=$(grep -F 'target_host="harbor.${SOVEREIGN_FQDN}"' "$TMP/s10e.yaml" | head -1 | sed 's/^ *//')
+d78b=$(grep -F 'target_host="harbor.${SOVEREIGN_FQDN}"' "$TMP/s10e.yaml" | head1 | sed 's/^ *//')
 if [ -z "$d78b" ]; then
   echo "FAIL: cannot extract step-10's target_host derivation — the cross-step consistency check would pass vacuously (#5439)" >&2
   exit 1
