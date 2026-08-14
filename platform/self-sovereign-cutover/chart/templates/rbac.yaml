@@ -133,6 +133,9 @@ rules:
   - apiGroups: ["catalyst.openova.io"]
     resources: ["blueprints"]   # step 03 (#5443) Phase A2-catalog enumerates the LIVE Blueprint CRs — what the marketplace OFFERS — so harbor-prewarm mirrors the catalog's chart set, not only the charts something already installed. Cluster-scoped CRD; read-only.
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["orgs.openova.io"]
+    resources: ["organizations"]   # step 06 (#6309) Phase 2d builds the LIVE Organization list the per-Org `<slug>/catalyst-tenant` pivot walks — Organization CRs UNIONed with the live `catalyst-tenant-*` Flux GitRepositories, never a curated set, because the offender count scales with the number of Orgs. Cluster-scoped CRD; read-only. WITHOUT this grant the list is REFUSED, and Phase-2d fails closed by design rather than silently scanning nothing (the #6280 shape: a stub kubectl can never be RBAC-refused, so only tests/rbac-coverage.sh sees this class).
+    verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["namespaces"]   # step 03 (#6280) Phase A0 partitions settled-roll offenders by OWNERSHIP: Organization namespaces are read by the openova.io/organization label the org-controller stamps, so a customer's failed Application warns instead of fail-closing the cutover (#6273). Cluster-scoped; read-only. WITHOUT this grant the partition cannot list and the gate — correctly refusing to fail open — stops the cutover at the same step it was meant to unblock.
     verbs: ["get", "list", "watch"]

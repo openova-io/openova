@@ -215,6 +215,470 @@ data:
     fi
     # ---- end Phase 2b (#6293) ----
   {{- /*
+   #6309 — Phase 2d, the THIRD GitOps repo class. Same `.`-source discipline and
+   the same reason to live in its own ConfigMap key as phase2b/phase2c: step-06
+   renders within a few hundred bytes of the 110000-byte MAX_ARG_STRLEN budget
+   (#5593), and chart/tests/step06-perorg-tenant-source.sh awk-slices this region
+   out of the RENDERED manifest and runs THESE bytes against real git
+   repositories — never a copy kept in the test.
+
+   WHAT IT FIXES. There are THREE repo classes carrying HelmRepository URLs on a
+   Sovereign, and before this the cutover knew about two:
+
+     class                          writer                     pivoted by
+     ─────────────────────────────  ─────────────────────────  ────────────
+     clusters/_template/bootstrap-  committed in this repo     step-05/06
+       kit slots
+     clusters/<fqdn>/org-tenants    catalyst-api               Phase 2b
+       (branch org-tenants)           writeParentTenantsIndex    (#6293)
+     <slug>/catalyst-tenant@main    org-services/provisioning  NOTHING
+
+   The third is written by GeneratePerOrgAppsTree into `vcluster/apps/` and
+   `vcluster/host-apps/` of a per-Org Gitea repo, one repo PER ORGANIZATION, and
+   reconciled onto the host `<slug>` namespace by the org-controller's
+   `catalyst-tenant-<slug>-apps` / `-host-apps` Kustomizations (per_org_flux.go).
+   Measured on hw296 after Phase-2b landed: step-11's #3526 pre-hold assert still
+   failed on exactly two offenders — walkfour/bp-stalwart-tenant and
+   walkfive/bp-stalwart-tenant, both oci://ghcr.io/openova-io — whose durable
+   source is walkfour/catalyst-tenant@main:vcluster/host-apps/app-stalwart-mail.yaml
+   and walkfive/catalyst-tenant@main:vcluster/apps/app-stalwart-mail.yaml.
+
+   THE OFFENDER COUNT SCALES WITH THE NUMBER OF ORGANIZATIONS, which is why the
+   scan below is driven from the LIVE Organization list (Organization CRs UNION
+   the live per-Org Flux GitRepositories) and never from a curated set. A
+   hardcoded list is silently wrong the moment the next Org is created — the
+   exact drift #4573 F4 already fixed for the Phase-1 name list.
+
+   WHY NOT A LIVE `kubectl patch`. The per-Org HelmRepositories are owned by a
+   Kustomization with prune=true. A live patch is reverted on its next reconcile
+   — that is the whole #6293 finding, restated one class down. This leg is
+   durable-source-then-verify: rewrite the repo, then prove the rewrite survived
+   the owning reconciler actually running.
+
+   NB the generator is already correct (#5629 / #5527 resolveCatalogOCIBase reads
+   the step-07 CATALYST_LOCAL_REGISTRY_URL stamp first), so every tree written
+   AFTER the cutover is born pivoted. This leg exists for the trees written
+   BEFORE it, whose only other trigger is a day-2 app install.
+  */}}
+  phase2d.sh: |
+    {{- /* The `# ----` markers stay `#` comments ON PURPOSE — they are the
+    region delimiters chart/tests/step06-perorg-tenant-source.sh awk-slices out
+    of the render. Prose lives in Helm block comments so it is stripped before
+    the release Secret (#6004); a marker a test navigates by is not prose. */}}
+    # ---- Phase 2d (#6309): per-Org catalyst-tenant durable-source pivot ----
+    if [ "${PERORG_PIVOT_ENABLED:-true}" != "true" ]; then
+      echo "[helmrepository-patches] Phase-2d SKIP: helmRepositories.perOrgTenantSource.enabled=false"
+    else
+      pd_repo="${PERORG_TENANT_REPO:-catalyst-tenant}"
+      pd_branch="${PERORG_BRANCH:-main}"
+      pd_ns="${PERORG_FLUX_NAMESPACE:-flux-system}"
+      pd_api_base="${GITEA_INTERNAL_URL%/}/api/v1/repos"
+      pd_slugs=/tmp/.pd-slugs.txt
+      pd_touched=/tmp/.pd-touched.txt
+      : > "${pd_slugs}"
+      : > "${pd_touched}"
+
+      {{- /*
+       ── SOURCE 1 (mandatory): the live per-Org Flux GitRepositories ──
+       per_org_flux.go creates exactly one `catalyst-tenant-<slug>` GitRepository
+       per Organization, pointing at that Org's Gitea repo. It is the object that
+       FEEDS the reverting Kustomization, so it is the most direct live evidence
+       that a per-Org tree exists and is reconciled. A FAILED listing is not an
+       empty one: an unreadable API is the "verdict from absent evidence" shape,
+       and here it would silently under-scan every Org on the Sovereign.
+      */}}
+      if kubectl get gitrepositories.source.toolkit.fluxcd.io -n "${pd_ns}" \
+          -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
+          > /tmp/.pd-grs.txt 2>/tmp/.pd-grs.err; then
+        awk -v p="${pd_repo}-" 'index($0,p)==1 && length($0)>length(p) {print substr($0,length(p)+1)}' \
+          /tmp/.pd-grs.txt >> "${pd_slugs}"
+      else
+        echo "[helmrepository-patches] FATAL: Phase-2d: listing GitRepositories in ${pd_ns} FAILED — the live Organization list cannot be built, and scanning a PARTIAL list would leave an unknown number of per-Org HelmRepositories on ${UPSTREAM_PREFIX} while this step recorded success (#6309)" >&2
+        sed 's/^/  KUBECTL-STDERR /' /tmp/.pd-grs.err >&2 || true
+        exit 1
+      fi
+
+      {{- /*
+       ── SOURCE 2 (union): the live Organization CRs ──
+       Catches an Org whose per-Org Flux source has not been created yet. ABSENCE
+       of the CRD is a real state (a Catalyst-Zero / pre-org-controller cluster)
+       and must be established by POSITIVE evidence — `kubectl get crd` exits
+       non-zero for BOTH "not installed" and "forbidden", so the NotFound string
+       is required before absence may be concluded. Without that, a missing RBAC
+       grant would read as "this Sovereign has no Organizations" and this whole
+       leg would no-op on the environments that need it most.
+      */}}
+      pd_org_crd="${PERORG_ORG_CRD:-organizations.orgs.openova.io}"
+      pd_org_present=0
+      if kubectl get customresourcedefinitions "${pd_org_crd}" >/dev/null 2>/tmp/.pd-crd.err; then
+        pd_org_present=1
+      elif grep -q 'NotFound' /tmp/.pd-crd.err; then
+        echo "[helmrepository-patches] Phase-2d: ${pd_org_crd} is not installed on this Sovereign — the live Org list comes from the per-Org Flux sources alone"
+      else
+        echo "[helmrepository-patches] FATAL: Phase-2d: could not determine whether ${pd_org_crd} exists — that is NOT the same as it being absent, and treating it as absent silently drops every Organization from the scan (#6309)" >&2
+        sed 's/^/  KUBECTL-STDERR /' /tmp/.pd-crd.err >&2 || true
+        exit 1
+      fi
+      if [ "${pd_org_present}" -eq 1 ]; then
+        if kubectl get organizations.orgs.openova.io \
+            -o jsonpath='{range .items[*]}{.spec.slug}{"\n"}{end}' \
+            > /tmp/.pd-orgs.txt 2>/tmp/.pd-orgs.err; then
+          awk 'NF' /tmp/.pd-orgs.txt >> "${pd_slugs}"
+        else
+          echo "[helmrepository-patches] FATAL: Phase-2d: the ${pd_org_crd} CRD IS installed but listing Organizations failed — refusing to scan a partial Organization list (#6309)" >&2
+          sed 's/^/  KUBECTL-STDERR /' /tmp/.pd-orgs.err >&2 || true
+          exit 1
+        fi
+      fi
+
+      awk 'NF' "${pd_slugs}" | sort -u > /tmp/.pd-slugs.sorted
+      mv /tmp/.pd-slugs.sorted "${pd_slugs}"
+      pd_total=$(grep -c . "${pd_slugs}" || true)
+      echo "[helmrepository-patches] Phase-2d: ${pd_total} live Organization slug(s) (Organization CRs ∪ ${pd_repo}-* Flux sources)"
+
+      pd_absent=0
+      pd_pushed=0
+      pd_nodiff=0
+      for pd_slug in $(awk 'NF' "${pd_slugs}"); do
+        {{- /*
+         Existence is decided by an HTTP STATUS CODE, not by whether a git
+         command failed: `git ls-remote` against a repo that does not exist and
+         against a repo we cannot authenticate to both exit non-zero, and
+         collapsing those two is how a credential fault presents as "this Org
+         simply has no repo" — the #6293 shape one class down. 404 is absent
+         (legitimate: the Org was created but never installed an app); anything
+         that is neither 200 nor 404 is unreadable and fails closed.
+        */}}
+        pd_code=$(curl -s -o /tmp/.pd-repo.json -w '%{http_code}' \
+          -u "${GITEA_USERNAME}:${GITEA_PASSWORD}" \
+          "${pd_api_base}/${pd_slug}/${pd_repo}" 2>/dev/null || echo "000")
+        case "${pd_code}" in
+          200) : ;;
+          404)
+            echo "[helmrepository-patches] Phase-2d ${pd_slug}: no ${pd_repo} repo (HTTP 404) — this Org has no per-Org gitops tree, so nothing re-applies HelmRepositories from one"
+            pd_absent=$((pd_absent+1))
+            continue
+            ;;
+          *)
+            echo "[helmrepository-patches] FATAL: Phase-2d ${pd_slug}: HTTP ${pd_code} probing ${pd_slug}/${pd_repo} — an unreadable repo is NOT an absent repo, and guessing leaves this Org's HelmRepositories on ${UPSTREAM_PREFIX} (#6309)" >&2
+            exit 1
+            ;;
+        esac
+
+        pd_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${pd_slug}/${pd_repo}.git"
+
+        {{- /*
+         A repo that EXISTS (the probe above returned 200) but carries no branch
+         yet is a real, benign state: the org-controller creates the per-Org repo
+         before anything seeds a tree into it, so an Org created shortly before
+         the cutover can legitimately be empty. `git clone --branch main` against
+         it fails with "Remote branch main not found", and treating that as fatal
+         would stop the whole cutover on a Sovereign whose only sin is a fresh
+         Organization. It is separated from an AUTH failure the same way the repo
+         probe separates 404 from 500: ls-remote SUCCEEDING with no matching ref
+         is an absent branch; ls-remote FAILING against a repo we just proved
+         exists is a credential fault and stays fatal.
+        */}}
+        if ! git ls-remote --heads "${pd_url}" "${pd_branch}" > /tmp/.pd-heads.txt 2>/tmp/.pd-heads.err; then
+          echo "[helmrepository-patches] FATAL: Phase-2d ${pd_slug}: git ls-remote ${pd_branch} failed against a repo the API just reported present — that is a credential fault, not an empty repo, and guessing leaves this Org's HelmRepositories on ${UPSTREAM_PREFIX} (#6309)" >&2
+          sed -e 's,://[^@]*@,://***@,g' /tmp/.pd-heads.err >&2 || true
+          exit 1
+        fi
+        if ! grep -q "refs/heads/${pd_branch}" /tmp/.pd-heads.txt; then
+          echo "[helmrepository-patches] Phase-2d ${pd_slug}: ${pd_repo} exists but has no ${pd_branch} branch — the per-Org tree has not been seeded yet, so nothing re-applies HelmRepositories from one"
+          pd_absent=$((pd_absent+1))
+          continue
+        fi
+
+        cd /tmp
+        rm -rf repo-perorg
+        if ! git clone --depth 1 --branch "${pd_branch}" "${pd_url}" repo-perorg >/dev/null 2>/tmp/.pd-clone.err; then
+          echo "[helmrepository-patches] FATAL: Phase-2d ${pd_slug}: clone of ${pd_slug}/${pd_repo} branch ${pd_branch} failed (#6309)" >&2
+          sed -e 's,://[^@]*@,://***@,g' /tmp/.pd-clone.err >&2 || true
+          exit 1
+        fi
+        cd repo-perorg
+
+        {{- /*
+         Scoped to the trees the org-controller's per-Org Kustomizations actually
+         reconcile (vcluster/apps + vcluster/host-apps, gitops/perorg_apps_tree.go
+         PerOrgAppsDir / PerOrgHostAppsDir). Anything else in the repo is not
+         re-applied by a per-Org Kustomization, so rewriting it would be
+         divergence with no reconciler behind it.
+        */}}
+        pd_list=/tmp/.pd-targets.txt
+        : > "${pd_list}"
+        for pd_tree in ${PERORG_TREES:-vcluster}; do
+          [ -d "${pd_tree}" ] || continue
+          grep -rlE "^[[:space:]]*url:[[:space:]]*${UPSTREAM_PREFIX}[[:space:]]*$" "${pd_tree}" 2>/dev/null >> "${pd_list}" || true
+        done
+        pd_edited=0
+        for pdf in $(awk 'NF' "${pd_list}" | sort -u); do
+          sed -i -E "s,^([[:space:]]*url:[[:space:]]*)${UPSTREAM_PREFIX}([[:space:]]*)$,\1${local_prefix}\2," "${pdf}"
+          pd_edited=$((pd_edited+1))
+          echo "[helmrepository-patches] Phase-2d edited ${pd_slug}/${pd_repo}@${pd_branch}:${pdf}"
+        done
+
+        {{- /*
+         Same certSecretRef durability the bootstrap-kit and org-tenants files
+         get, via the SHARED injector defined in the step args — never a second
+         copy (#5646: two copies drift and only one gets fixed).
+        */}}
+        if [ -n "${trust_secret}" ]; then
+          pd_trust_list=/tmp/.pd-trust-targets.txt
+          : > "${pd_trust_list}"
+          for pd_tree in ${PERORG_TREES:-vcluster}; do
+            [ -d "${pd_tree}" ] || continue
+            grep -rlE "^[[:space:]]*url:[[:space:]]*${local_prefix}([[:space:]]*|/.*)$" "${pd_tree}" 2>/dev/null >> "${pd_trust_list}" || true
+          done
+          for pdf in $(awk 'NF' "${pd_trust_list}" | sort -u); do
+            inject_trust_ref "${pdf}"
+            pd_edited=$((pd_edited+1))
+            echo "[helmrepository-patches] Phase-2d trust-injected certSecretRef -> ${pd_slug}:${pdf}"
+          done
+        fi
+
+        {{- /*
+         Post-condition on the FILES before anything is committed — the result of
+         the rewrite, never the count of loop iterations that were supposed to
+         produce it (#5436's discipline applied to a working tree).
+        */}}
+        pd_left_file=/tmp/.pd-left.txt
+        : > "${pd_left_file}"
+        for pd_tree in ${PERORG_TREES:-vcluster}; do
+          [ -d "${pd_tree}" ] || continue
+          grep -rlE "^[[:space:]]*url:[[:space:]]*${UPSTREAM_PREFIX}[[:space:]]*$" "${pd_tree}" 2>/dev/null >> "${pd_left_file}" || true
+        done
+        pd_left=$(grep -c . "${pd_left_file}" || true)
+        if [ "${pd_left}" -ne 0 ]; then
+          echo "[helmrepository-patches] FATAL: Phase-2d ${pd_slug}: ${pd_left} file(s) still declare ${UPSTREAM_PREFIX} after the rewrite — pushing now would record a durable pivot that does not exist (#6309)" >&2
+          sed 's,^,  STILL-UPSTREAM ,' "${pd_left_file}" >&2 || true
+          exit 1
+        fi
+
+        {{- /*
+         Commit on ACTUAL tree state, never on ${pd_edited}: the trust injector is
+         idempotent, so a re-run legitimately reports edits and produces no diff.
+         Gating on the counter turns that no-op into a hard failure every second
+         run (the #6293 Phase-2b lesson).
+        */}}
+        if git diff --quiet; then
+          echo "[helmrepository-patches] Phase-2d ${pd_slug}: already pivoted (${pd_edited} file-visit(s), no diff) — nothing to push"
+          pd_nodiff=$((pd_nodiff+1))
+        else
+          git add -A .
+          if git diff --staged --quiet; then
+            echo "[helmrepository-patches] FATAL: Phase-2d ${pd_slug}: the working tree has changes but the index is empty — \`git add\` is mis-scoped and this push would carry none of the rewrite (#6309)" >&2
+            exit 1
+          fi
+          git commit -m "cutover: pivot ${pd_edited} per-Org HelmRepository URL(s) to local Harbor" >/dev/null
+          if ! pd_push_err=$(git push origin "HEAD:${pd_branch}" 2>&1); then
+            echo "[helmrepository-patches] FATAL: Phase-2d ${pd_slug}: push to ${pd_branch} failed — this Org's HelmRepositories keep reverting to ${UPSTREAM_PREFIX} on every reconcile (#6309)" >&2
+            printf '%s\n' "${pd_push_err}" >&2
+            exit 1
+          fi
+          echo "[helmrepository-patches] Phase-2d OK: pushed ${pd_edited} edit(s) to ${pd_slug}/${pd_repo} branch ${pd_branch}"
+          pd_pushed=$((pd_pushed+1))
+        fi
+        printf '%s\n' "${pd_slug}" >> "${pd_touched}"
+        cd /tmp/repo
+      done
+
+      echo "[helmrepository-patches] Phase-2d: orgs=${pd_total} with-repo=$(grep -c . "${pd_touched}" || true) pushed=${pd_pushed} already-pivoted=${pd_nodiff} no-repo=${pd_absent}"
+
+      {{- /*
+       ── The read-back ──────────────────────────────────────────────────────
+       #6309 — WHY THIS IS NOT THE PHASE-1.5 SHAPE. Step-06's 0.1.186 read-back
+       logged `ok=6` and `read-back OK` and all six HelmRepositories reverted
+       within 60s under a 1m/prune=true Kustomization. It could pass because it
+       sampled ONCE, immediately after the write, with no requirement that the
+       actor which would revert the write had run at all. Step-11's cluster-wide
+       scan is what caught it; #6303 moved the gate after the durable rewrite.
+
+       This assert is two-stage and neither stage can be satisfied by a lucky
+       sample:
+
+         Stage 1 CONVERGE — poll until zero offenders across the pivoted Orgs'
+           namespaces, re-poking each cycle. A durable rewrite has to be fetched
+           and re-applied before the live objects settle, so this stage is
+           allowed to start dirty. Never reaching zero is FATAL.
+
+         Stage 2 SURVIVE — mint a token AFTER stage 1 is clean, poke every
+           per-Org HR-owning Kustomization with it, and refuse to certify an Org
+           until one of ITS Kustomizations reports
+           status.lastHandledReconcileAt == that token. That field means the
+           re-apply HAPPENED, not that a reconcile was requested. Offenders must
+           be zero on EVERY sample taken during that window. So the gate cannot
+           return green until the exact reconciler that reverted the 0.1.186
+           pivot has run against the rewritten source and left it standing.
+
+       An Org with no per-Org Kustomization has nothing that re-applies its
+       HelmRepositories from a durable source; it is exempted EXPLICITLY and the
+       exemption is logged, rather than being an unremarked hole (#5596).
+      */}}
+      perorg_offenders() {
+        {{- /*
+         `-A` because per-Org HelmRepositories land in the Org's OWN namespace:
+         the docs the generator emits say `namespace: flux-system`, and the
+         per-Org Kustomization's `targetNamespace: <slug>` overrides it. That is
+         why assert_region_a_pivot — scoped to HELMREPO_NAMESPACE — structurally
+         cannot see these, and why hw296 needed step-11's `-A` scan to find them.
+         Scope is then narrowed to the Orgs THIS leg pivoted, so an unrelated
+         namespace is never this leg's failure.
+        */}}
+        if ! kubectl get helmrepositories.source.toolkit.fluxcd.io -A \
+            -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}={.spec.url}{"\n"}{end}' \
+            > /tmp/.pd-hrs.txt 2>/tmp/.pd-hrs.err; then
+          return 1
+        fi
+        : > /tmp/.pd-offenders.txt
+        while IFS= read -r po_line; do
+          [ -n "${po_line}" ] || continue
+          po_key="${po_line%%=*}"
+          po_url="${po_line#*=}"
+          po_ns="${po_key%%/*}"
+          po_name="${po_key#*/}"
+          case "${po_url}" in
+            "${UPSTREAM_PREFIX}"*) : ;;
+            *) continue ;;
+          esac
+          {{- /*
+           Same toleration set as assert_region_a_pivot and step-08's
+           count_offenders, so this gate is never STRICTER than the step it
+           unblocks — a cutover that step-08 would pass must not die here.
+          */}}
+          case ",${HELMREPO_READBACK_EXCLUDE:-}," in
+            *",${po_name},"*) continue ;;
+          esac
+          if grep -qx "${po_ns}" /tmp/.pd-touched.txt; then
+            printf '%s=%s\n' "${po_key}" "${po_url}" >> /tmp/.pd-offenders.txt
+          fi
+        done < /tmp/.pd-hrs.txt
+        return 0
+      }
+
+      perorg_poke() {
+        {{- /*
+         $1 = token. Pokes each pivoted Org's GitRepository + every HR-owning
+         Kustomization that EXISTS, and (re)writes /tmp/.pd-ks.txt as
+         `<slug> <kustomization>` rows. Only existing objects are listed: an
+         absence must never be something the assert then waits forever on.
+        */}}
+        pk_token="$1"
+        : > /tmp/.pd-ks.txt
+        for pk_slug in $(awk 'NF' /tmp/.pd-touched.txt); do
+          kubectl annotate --overwrite gitrepository "${pd_repo}-${pk_slug}" -n "${pd_ns}" \
+            "reconcile.fluxcd.io/requestedAt=${pk_token}" >/dev/null 2>&1 || true
+          for pk_sfx in ${PERORG_KS_SUFFIXES:-apps host-apps}; do
+            pk_ks="${pd_repo}-${pk_slug}-${pk_sfx}"
+            if kubectl get kustomization "${pk_ks}" -n "${pd_ns}" >/dev/null 2>&1; then
+              {{- /*
+               A SUSPENDED Kustomization never handles a reconcile request, so
+               requiring it to would time the assert out on a Sovereign whose
+               only sin is a paused per-Org reconciler. It also cannot re-apply,
+               which means it cannot revert this pivot — the same reason an
+               ABSENT Kustomization is exempt. Recorded as an explicit exemption
+               with a log line rather than an unremarked hole (#5596).
+              */}}
+              pk_susp=$(kubectl get kustomization "${pk_ks}" -n "${pd_ns}" \
+                -o jsonpath='{.spec.suspend}' 2>/dev/null || echo "")
+              if [ "${pk_susp}" = "true" ]; then
+                echo "[helmrepository-patches] Phase-2d ${pk_slug}: Kustomization ${pk_ks} is SUSPENDED — it cannot re-apply, so it cannot revert this pivot; not requiring it to handle the poke"
+              else
+                printf '%s %s\n' "${pk_slug}" "${pk_ks}" >> /tmp/.pd-ks.txt
+                kubectl annotate --overwrite kustomization "${pk_ks}" -n "${pd_ns}" \
+                  "reconcile.fluxcd.io/requestedAt=${pk_token}" >/dev/null 2>&1 || true
+              fi
+            fi
+          done
+        done
+      }
+
+      assert_perorg_pivot_durable() {
+        pa_budget="${PERORG_READBACK_BUDGET_SECONDS:-300}"
+        pa_samples="${PERORG_READBACK_SETTLE_SAMPLES:-2}"
+        pa_interval="${PERORG_READBACK_INTERVAL_SECONDS:-10}"
+        pa_want=$(grep -c . /tmp/.pd-touched.txt || true)
+
+        pa_deadline=$(( $(date +%s) + pa_budget ))
+        while : ; do
+          if ! perorg_offenders; then
+            echo "[helmrepository-patches] FATAL: Phase-2d: cannot enumerate HelmRepositories cluster-wide — an unreadable cluster is NOT a pivoted one; refusing to record success (#6309)" >&2
+            sed 's/^/  KUBECTL-STDERR /' /tmp/.pd-hrs.err >&2 || true
+            return 1
+          fi
+          pa_left=$(grep -c . /tmp/.pd-offenders.txt || true)
+          if [ "${pa_left}" -eq 0 ]; then break; fi
+          if [ "$(date +%s)" -ge "${pa_deadline}" ]; then
+            echo "[helmrepository-patches] FATAL: Phase-2d Stage-1: ${pa_left} per-Org HelmRepository(ies) are STILL on ${UPSTREAM_PREFIX} after ${pa_budget}s — the durable rewrite did not reach the live objects, so step-11's #3526 pre-hold assert would fail on exactly these (#6309)" >&2
+            sed 's/^/  STILL-UPSTREAM /' /tmp/.pd-offenders.txt >&2 || true
+            return 1
+          fi
+          echo "[helmrepository-patches] Phase-2d Stage-1: ${pa_left} per-Org HelmRepository(ies) still on ${UPSTREAM_PREFIX}; re-poking their sources + Kustomizations, re-checking in ${pa_interval}s"
+          perorg_poke "$(date +%s)"
+          sleep "${pa_interval}"
+        done
+        echo "[helmrepository-patches] Phase-2d Stage-1 OK: zero per-Org HelmRepositories on ${UPSTREAM_PREFIX} across ${pa_want} Org(s)"
+
+        pa_token=$(date +%s)
+        perorg_poke "${pa_token}"
+        : > /tmp/.pd-handled.txt
+        for pa_slug in $(awk 'NF' /tmp/.pd-touched.txt); do
+          pa_n=$(awk -v s="${pa_slug}" '$1==s' /tmp/.pd-ks.txt | wc -l | tr -d ' ')
+          if [ "${pa_n}" -eq 0 ]; then
+            echo "[helmrepository-patches] Phase-2d ${pa_slug}: no HR-owning Kustomization exists (${PERORG_KS_SUFFIXES:-apps host-apps}) — nothing re-applies its HelmRepositories from a durable source, so the read-back alone is the whole truth here"
+            printf '%s\n' "${pa_slug}" >> /tmp/.pd-handled.txt
+          fi
+        done
+        echo "[helmrepository-patches] Phase-2d Stage-2: poked $(grep -c . /tmp/.pd-ks.txt || true) per-Org Kustomization(s) with reconcile token ${pa_token}; the pivot must survive their re-apply"
+
+        pa_clean=0
+        pa_deadline=$(( $(date +%s) + pa_budget ))
+        while : ; do
+          if ! perorg_offenders; then
+            echo "[helmrepository-patches] FATAL: Phase-2d Stage-2: cannot enumerate HelmRepositories cluster-wide — refusing to certify a cluster this Job could not read (#6309)" >&2
+            sed 's/^/  KUBECTL-STDERR /' /tmp/.pd-hrs.err >&2 || true
+            return 1
+          fi
+          pa_left=$(grep -c . /tmp/.pd-offenders.txt || true)
+          if [ "${pa_left}" -ne 0 ]; then
+            echo "[helmrepository-patches] FATAL: Phase-2d Stage-2: ${pa_left} per-Org HelmRepository(ies) went BACK to ${UPSTREAM_PREFIX} while their owning Kustomization re-applied — the rewrite did not reach the durable source Flux actually consumes, which is precisely the 0.1.186 revert this stage exists to catch (#6309 #6293)" >&2
+            sed 's/^/  REVERTED /' /tmp/.pd-offenders.txt >&2 || true
+            return 1
+          fi
+          pa_clean=$((pa_clean+1))
+          while IFS= read -r pa_row; do
+            [ -n "${pa_row}" ] || continue
+            pa_s="${pa_row%% *}"
+            pa_k="${pa_row#* }"
+            if grep -qx "${pa_s}" /tmp/.pd-handled.txt; then continue; fi
+            pa_h=$(kubectl get kustomization "${pa_k}" -n "${pd_ns}" \
+              -o jsonpath='{.status.lastHandledReconcileAt}' 2>/dev/null || echo "")
+            if [ "${pa_h}" = "${pa_token}" ]; then
+              printf '%s\n' "${pa_s}" >> /tmp/.pd-handled.txt
+              echo "[helmrepository-patches] Phase-2d ${pa_s}: Kustomization ${pa_k} handled reconcile token ${pa_token} — its re-apply has run and the pivot is still standing"
+            fi
+          done < /tmp/.pd-ks.txt
+          pa_got=$(sort -u /tmp/.pd-handled.txt | grep -c . || true)
+          if [ "${pa_got}" -ge "${pa_want}" ] && [ "${pa_clean}" -ge "${pa_samples}" ]; then
+            echo "[helmrepository-patches] Phase-2d DURABLE: ${pa_want} Org(s) clean across ${pa_clean} sample(s) spanning their own re-apply (tolerated: ${HELMREPO_READBACK_EXCLUDE:-<none>})"
+            return 0
+          fi
+          if [ "$(date +%s)" -ge "${pa_deadline}" ]; then break; fi
+          sleep "${pa_interval}"
+        done
+        echo "[helmrepository-patches] FATAL: Phase-2d Stage-2: the pivot read back CLEAN but could not be proven DURABLE within ${pa_budget}s — only ${pa_got:-0} of ${pa_want} Org(s) had a Kustomization handle reconcile token ${pa_token}, so their next re-apply lands AFTER this Job exits and nothing downstream re-reads them. A read-back that can pass before the owning reconciler has run is not a read-back (#6309 #6293)" >&2
+        return 1
+      }
+
+      if [ "$(grep -c . "${pd_touched}" || true)" -eq 0 ]; then
+        echo "[helmrepository-patches] Phase-2d: no Organization on this Sovereign has a ${pd_repo} repo — nothing re-applies per-Org HelmRepositories from one (${pd_total} Org(s) scanned, ${pd_absent} without a repo)"
+      else
+        assert_perorg_pivot_durable || exit 1
+      fi
+    fi
+    # ---- end Phase 2d (#6309) ----
+  {{- /*
    #5593 — Phase 2c of the step script, mounted and exec (`.`-sourced) FROM
    FILE. Step-06 renders within a few hundred bytes of the 110000-byte inline
    arg budget, so this block MUST NOT move back into podSpec.args. Its
@@ -788,6 +1252,35 @@ data:
           - name: ORG_TENANTS_GITREPO_NAMESPACE
             value: {{ .Values.helmRepositories.orgTenantsSource.gitRepositoryNamespace | quote }}
           {{- /*
+           #6309 — Phase-2d per-Org `<slug>/catalyst-tenant` durable-source pivot.
+           `repoName` MUST track the org-controller's perOrgTenantRepoName
+           constant (per_org_flux.go) and org-services/provisioning's
+           TENANT_GITOPS_REPO; `kustomizationSuffixes` MUST track the per-Org
+           Kustomization names the same file derives (`-apps` / `-host-apps`).
+           They are one naming decision seen from three sides, and a mismatch
+           degrades this leg into the silent no-op #6309 exists to remove.
+          */}}
+          - name: PERORG_PIVOT_ENABLED
+            value: {{ eq (toString .Values.helmRepositories.perOrgTenantSource.enabled) "true" | quote }}
+          - name: PERORG_TENANT_REPO
+            value: {{ .Values.helmRepositories.perOrgTenantSource.repoName | quote }}
+          - name: PERORG_BRANCH
+            value: {{ .Values.helmRepositories.perOrgTenantSource.branch | quote }}
+          - name: PERORG_FLUX_NAMESPACE
+            value: {{ .Values.helmRepositories.perOrgTenantSource.fluxNamespace | quote }}
+          - name: PERORG_TREES
+            value: {{ join " " .Values.helmRepositories.perOrgTenantSource.treePaths | quote }}
+          - name: PERORG_KS_SUFFIXES
+            value: {{ join " " .Values.helmRepositories.perOrgTenantSource.kustomizationSuffixes | quote }}
+          - name: PERORG_ORG_CRD
+            value: {{ .Values.helmRepositories.perOrgTenantSource.organizationCRD | quote }}
+          - name: PERORG_READBACK_BUDGET_SECONDS
+            value: {{ .Values.helmRepositories.perOrgTenantSource.readbackBudgetSeconds | quote }}
+          - name: PERORG_READBACK_SETTLE_SAMPLES
+            value: {{ .Values.helmRepositories.perOrgTenantSource.readbackSettleSamples | quote }}
+          - name: PERORG_READBACK_INTERVAL_SECONDS
+            value: {{ .Values.helmRepositories.perOrgTenantSource.readbackIntervalSeconds | quote }}
+          {{- /*
            #5596 — SECONDARY-region DURABLE pivot assert inputs. The #5359
            read-back was single-shot and fired seconds after the patch loop,
            so it measured the PATCH and never the PIVOT: region-B's own
@@ -848,6 +1341,10 @@ data:
           {{- /* #6293 — Phase 2b of the step script, `.`-sourced from here. */}}
           - name: phase2b-script
             mountPath: /phase2b
+            readOnly: true
+          {{- /* #6309 — Phase 2d of the step script, `.`-sourced from here. */}}
+          - name: phase2d-script
+            mountPath: /phase2d
             readOnly: true
           {{- /* #5593 — Phase 2c of the step script, `.`-sourced from here. */}}
           - name: phase2c-script
@@ -2021,6 +2518,23 @@ data:
             . /phase2b/phase2b.sh
 
             {{- /*
+             Phase 2d (#6309) — the THIRD repo class: every live Organization's
+             `<slug>/catalyst-tenant` repo. Sourced (not `sh`) for the same
+             reason as 2b/2c: ${GITEA_INTERNAL_URL}, ${UPSTREAM_PREFIX},
+             ${local_prefix}, ${trust_secret} and inject_trust_ref() are in
+             scope, and its `exit 1` FATALs the whole step.
+
+             It runs AFTER Phase-2b and BEFORE the secondary-region legs and
+             Phase 3. Before 2b would be wrong: both legs clone into /tmp and
+             `cd /tmp/repo` on the way out, and interleaving them buys nothing.
+             After Phase 3 would be catastrophic — Phase 3 strips the mothership
+             auth, and the per-Org HelmRepositories this leg pivots must be
+             pullable from local Harbor before that fallback is removed (the
+             hw139 half-pivot lesson).
+            */}}
+            . /phase2d/phase2d.sh
+
+            {{- /*
              ====================================================================
              #5359 — SECONDARY-REGION HelmRepository pivot legs
              ====================================================================
@@ -2993,6 +3507,13 @@ data:
           items:
             - key: phase2b.sh
               path: phase2b.sh
+      {{- /* #6309 — the same step-06 ConfigMap, exposing ONLY the phase2d.sh key. */}}
+      - name: phase2d-script
+        configMap:
+          name: cutover-step-06-helmrepository-patches
+          items:
+            - key: phase2d.sh
+              path: phase2d.sh
       {{- /* #5593 — the same step-06 ConfigMap, exposing ONLY the phase2c.sh key. */}}
       - name: phase2c-script
         configMap:
