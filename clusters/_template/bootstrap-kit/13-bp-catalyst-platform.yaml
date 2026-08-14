@@ -1439,7 +1439,19 @@ spec:
       #   refusing to fail open on a roll state it cannot read — stopped the
       #   cutover at the same step it was meant to unblock. Measured on hw296.
       #   Lockstep w/ products/catalyst/chart/Chart.yaml.
-      version: 1.4.1480
+      # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
+      #   0.1.186 -> 0.1.187. Step-06 patched the five per-Org tenant
+      #   HelmRepositories LIVE, then read them back three phases before the
+      #   durable Gitea rewrite that would make the patch stick — and that
+      #   rewrite targeted a `--branch main` clone, while the org-tenants tree
+      #   lives on the dedicated `org-tenants` branch (TBD-C18e). The
+      #   org-tenants Kustomization (1m, prune=true) reverted every patch, and
+      #   hw296's cutover terminal-failed at 6/11 with five STILL-UPSTREAM.
+      #   0.1.187 moves the rewrite onto the org-tenants branch with its own
+      #   staged commit and push, and makes the Phase-3 pre-strip read-back the
+      #   single fail-closed gate (#5436 relocated, not weakened). Lockstep w/
+      #   products/catalyst/chart/Chart.yaml.
+      version: 1.4.1481
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

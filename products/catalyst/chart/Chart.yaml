@@ -3968,7 +3968,24 @@ name: bp-catalyst-platform
 #   file's 1.4.1325 entry records as permanently burned. The republish
 #   therefore lands on 1.4.1468 — ahead of main's 1.4.1467, absent from GHCR,
 #   and claimed by no open PR.)
-version: 1.4.1480
+version: 1.4.1481
+# 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
+#   0.1.186 -> 0.1.187, the release that stops step-06 from patching five
+#   HelmRepositories it does not own and then grading itself on whether they
+#   stuck. bp-agenity / bp-keycloak / bp-openclaw / bp-stalwart-tenant /
+#   bp-wordpress-tenant belong to the `org-tenants` Kustomization (1m,
+#   prune=true) whose source is the `org-tenants` BRANCH; step-06's durable
+#   rewrite for them ran in a `--branch main` clone where that tree does not
+#   exist, and the read-back that judged the result ran three phases before the
+#   rewrite. hw296 terminal-failed at 6/11 on exactly this. The seed pin is the
+#   delivery half — without this republish a pinned Sovereign resolves 0.1.186
+#   and repeats the wedge. This chart's own templates are unchanged apart from
+#   the seed entry. Lockstep w/ clusters/_template/bootstrap-kit/
+#   13-bp-catalyst-platform.yaml.
+#   (Rebase note: authored as 1.4.1480; main's deploy-bot published 1.4.1480
+#   while this branch's checks ran, so landing it would have moved `version:`
+#   BACKWARD — the shape the 1.4.1325 entry above records as permanently
+#   burned. Re-taken at 1.4.1481.)
 # 1.4.1478 — #3988 (UAT row 222): republish so the bp-alloy 1.0.3 catalog-seed
 #   pin is actually carried by a published OCI artifact. On a pre-cutover
 #   Sovereign the catalog Gitea Orgs are empty, so every catalog GetVersion
