@@ -277,21 +277,48 @@ fixture_huawei() {
           ' >/dev/null 2>&1 &
         fi
     PRE
+    # #6339 — this MIRRORS the real primary-region block in
+    # infra/providers/huawei/main.tf (the `%{ if idx == 0 }` arm). It had drifted
+    # badly: no primary/secondary split, 6 attempts instead of 12, no hostname
+    # gate — so this lint has never once parsed the shell the CP actually runs.
+    # scripts/check-cloudinit-primary-kubeconfig-capture.sh renders the REAL
+    # heredoc and FAILS if this copy loses the block's load-bearing tokens, so
+    # the drift is now caught by CI instead of by a lost provision.
     kubeconfig_put_block = <<-PUT
       - |
         HOSTNAME=$(hostname)
-        if [ -n "test-dep-0001" ] && [ -n "kubeconfigTESTbearer0001" ]; then
+        PRIMARY_HOST='catalyst-t99-omani-works-testdep0-test-region-a-cp1-abc123'
+        if [ -n "test-dep-0001" ] && [ -n "kubeconfigTESTbearer0001" ] && [ "$${HOSTNAME}" = "$${PRIMARY_HOST}" ]; then
           sed "s|server: https://127.0.0.1:6443|server: https://203.0.113.10:6443|" /etc/rancher/k3s/k3s.yaml > /tmp/kubeconfig-rewritten.yaml
-          for attempt in 1 2 3 4 5 6; do
-            HTTP_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X PUT \
+          LAST_CODE=000
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            LAST_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X PUT \
               -H "Authorization: Bearer kubeconfigTESTbearer0001" \
+              -H "Content-Type: application/x-yaml" \
               --data-binary @/tmp/kubeconfig-rewritten.yaml \
               --max-time 15 \
               "https://console.openova.io/sovereign/api/v1/deployments/test-dep-0001/kubeconfig" || echo "000")
-            echo "kubeconfig PUT-back attempt $attempt -> HTTP $HTTP_CODE"
-            if [ "$HTTP_CODE" = "204" ] || [ "$HTTP_CODE" = "200" ]; then break; fi
+            echo "primary kubeconfig PUT-back attempt $${attempt} -> HTTP $${LAST_CODE}"
+            case "$${LAST_CODE}" in 2*) break;; esac
             sleep 30
           done
+          case "$${LAST_CODE}" in
+            2*) ;;
+            *)
+              echo "PRIMARY-KUBECONFIG-CAPTURE-FAILED region=test-region-a lastHTTP=$${LAST_CODE} after 12 attempts; GET /api/v1/deployments/test-dep-0001/kubeconfig stays 409 until this is repaired"
+              export MY_NODE_IP=$(ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1)
+              python3 -c "import json,os; print(json.dumps({'deploymentId':'test-dep-0001','regionKey':'test-region-a','kubeconfigYaml':open('/tmp/kubeconfig-rewritten.yaml').read(),'nodeInternalIp':os.environ.get('MY_NODE_IP','')}))" > /tmp/primary-kubeconfig-body.json
+              FALLBACK_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X POST \
+                -H "Authorization: Bearer kubeconfigTESTbearer0001" \
+                -H "Content-Type: application/json" \
+                --data-binary @/tmp/primary-kubeconfig-body.json \
+                --max-time 15 \
+                "https://console.openova.io/sovereign/api/v1/sovereign/secondary-kubeconfig" || echo "000")
+              echo "PRIMARY-KUBECONFIG-FALLBACK per-region-channel regionKey=test-region-a -> HTTP $${FALLBACK_CODE}"
+              rm -f /tmp/primary-kubeconfig-body.json
+              sh /var/lib/catalyst/mark kubeconfig-put-FAILED || true
+              ;;
+          esac
         fi
     PUT
 HCL

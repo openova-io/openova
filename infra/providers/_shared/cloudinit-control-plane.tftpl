@@ -400,7 +400,11 @@ write_files:
   # kom4dc VPC would otherwise dial the AAAA and the push dies silently
   # (#5068). 0700 root-only — the body embeds the bearer token. Callers append
   # `||true` so a helper failure can never mask the leg's own fail-loud exit
-  # code (no `|| true` inside — the caller guards). WHOLLY HUAWEI-GATED — a
+  # code (no `|| true` inside — the caller guards). #6339: the push carries
+  # `?node=$(hostname)` so a multi-region Sovereign keeps EVERY CP's log
+  # instead of one node's — the shared `<id>-cloudinit.log` key was
+  # last-writer-wins across regions and destroyed the primary's forensics.
+  # WHOLLY HUAWEI-GATED — a
   # hard cloud dependency, same class as the prelude uploader: Hetzner keeps
   # sshd + a console API for forensics AND its three_region CP render sits
   # ~200 B under the 32512 guardrail — these bytes would tip it (the 32768
@@ -415,7 +419,7 @@ write_files:
       echo "CLOUDINIT-SENTINEL: $1"
 %{ if deployment_id != "" && kubeconfig_bearer_token != "" && catalyst_api_url != "" ~}
       sleep 1
-      curl -4 -sk -X PUT -H "Authorization: Bearer ${kubeconfig_bearer_token}" -H "Content-Type: text/plain" --data-binary @/var/log/cloud-init-output.log --max-time 20 "${catalyst_api_url}/api/v1/deployments/${deployment_id}/cloudinit-log" >/dev/null 2>&1
+      curl -4 -sk -X PUT -H "Authorization: Bearer ${kubeconfig_bearer_token}" -H "Content-Type: text/plain" --data-binary @/var/log/cloud-init-output.log --max-time 20 "${catalyst_api_url}/api/v1/deployments/${deployment_id}/cloudinit-log?node=$(hostname)" >/dev/null 2>&1
 %{ endif ~}
 %{ endif ~}
 
