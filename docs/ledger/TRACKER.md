@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-15T12:15:04Z` |
+| Last refreshed | `2026-08-15T12:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-15T12:22 | [#6342](https://github.com/openova-io/openova/pull/6342) | #5246 | fix(infra,catalyst-api): primary region captures its kubecon |
 | 2026-08-14T14:25 | [#6338](https://github.com/openova-io/openova/pull/6338) | #6336 | fix(cloud-init): give the bootstrap GitRepository a clone bu |
 | 2026-08-14T13:11 | [#6335](https://github.com/openova-io/openova/pull/6335) | #6330 | docs: UAT carry-forward runs after the env is live + append  |
 | 2026-08-14T12:53 | [#6334](https://github.com/openova-io/openova/pull/6334) | #6309 | fix(cutover): pivot the per-Organization vCluster HelmReleas |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-14T01:23 | [#6290](https://github.com/openova-io/openova/pull/6290) | #6287 | docs(uat): row 60 — record #6287 as merged, and that it is N |
 | 2026-08-14T01:16 | [#6287](https://github.com/openova-io/openova/pull/6287) | #6271 | fix(application-controller): a hot standby must not be rende |
 | 2026-08-14T03:07 | [#6286](https://github.com/openova-io/openova/pull/6286) | #4347 | fix(row222): bp-alloy could never satisfy our own probes pol |
-| 2026-08-14T00:52 | [#6285](https://github.com/openova-io/openova/pull/6285) | #6271 | docs(uat): row 60 — the fix is live, and the standby leg nev |
 
 ---
 
