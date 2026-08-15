@@ -248,39 +248,19 @@ func (h *Handler) resolveComponentWorkloadIdentity(primaryID, name, ns string) c
 	}
 
 	// (1) The Application CR, when the route id names one.
-	//
-	// 🔒 Organization isolation: the CR is selected the way getApplicationCR
-	// already selects it — an EXACT (name, namespace) match when the caller
-	// scoped the request (the console passes the CR's own namespace), and a
-	// cluster-wide name match only when it did not. Accepting any namespace on
-	// a scoped request would let one Organization's `wordpress` answer for
-	// another's.
-	crNS := strings.TrimSpace(ns)
 	var hrName, hrNS string
-	if apps, _, err := h.k8sCache.List(primaryID, "application", labels.Everything()); err == nil {
-		for _, a := range apps {
-			if a == nil {
-				continue
-			}
-			if _, ok := route[a.GetName()]; !ok {
-				continue
-			}
-			if crNS != "" && a.GetNamespace() != crNS {
-				continue
-			}
-			if rn, _, _ := unstructured.NestedString(a.Object, "spec", "releaseName"); rn != "" {
-				id.addRelease(rn)
-			}
-			if tn, _, _ := unstructured.NestedString(a.Object, "spec", "targetNamespace"); tn != "" {
-				id.addNamespace(tn)
-			}
-			if n, _, _ := unstructured.NestedString(a.Object, "spec", "helmRelease", "name"); n != "" {
-				hrName = n
-				hrNS, _, _ = unstructured.NestedString(a.Object, "spec", "helmRelease", "namespace")
-			} else if adopted := strings.TrimSpace(a.GetLabels()[spineAdoptsHelmReleaseLabel]); adopted != "" {
-				hrName = adopted
-			}
-			break
+	if a := h.applicationCRForComponent(primaryID, id.route, ns); a != nil {
+		if rn, _, _ := unstructured.NestedString(a.Object, "spec", "releaseName"); rn != "" {
+			id.addRelease(rn)
+		}
+		if tn, _, _ := unstructured.NestedString(a.Object, "spec", "targetNamespace"); tn != "" {
+			id.addNamespace(tn)
+		}
+		if n, _, _ := unstructured.NestedString(a.Object, "spec", "helmRelease", "name"); n != "" {
+			hrName = n
+			hrNS, _, _ = unstructured.NestedString(a.Object, "spec", "helmRelease", "namespace")
+		} else if adopted := strings.TrimSpace(a.GetLabels()[spineAdoptsHelmReleaseLabel]); adopted != "" {
+			hrName = adopted
 		}
 	}
 
@@ -307,6 +287,51 @@ func (h *Handler) resolveComponentWorkloadIdentity(primaryID, name, ns string) c
 	}
 
 	return id
+}
+
+// applicationCRForComponent is THE selector for "which Application CR does this
+// route id name" — one function, so every consumer of that CR (the workload
+// identity above, the declared placement in #6347, anything added later) reads
+// the SAME object under the SAME isolation rule. Re-hand-rolling this loop is
+// how two surfaces start answering "which app is this" differently, which is
+// the #5827 / #6344 shape all over again.
+//
+// 🔒 Organization isolation: the CR is selected the way getApplicationCR already
+// selects it — an EXACT (name, namespace) match when the caller scoped the
+// request (the console passes the CR's own namespace), and a cluster-wide name
+// match only when it did not. Accepting any namespace on a scoped request would
+// let one Organization's `wordpress` answer for another's.
+//
+// Returns nil on every miss: no cache, no primary cluster, no candidates, an
+// unlistable Application kind, or simply no CR by that name.
+func (h *Handler) applicationCRForComponent(primaryID string, routeCandidates []string, ns string) *unstructured.Unstructured {
+	if h.k8sCache == nil || strings.TrimSpace(primaryID) == "" || len(routeCandidates) == 0 {
+		return nil
+	}
+	route := make(map[string]struct{}, len(routeCandidates))
+	for _, c := range routeCandidates {
+		if c = strings.TrimSpace(c); c != "" {
+			route[c] = struct{}{}
+		}
+	}
+	apps, _, err := h.k8sCache.List(primaryID, "application", labels.Everything())
+	if err != nil {
+		return nil
+	}
+	crNS := strings.TrimSpace(ns)
+	for _, a := range apps {
+		if a == nil {
+			continue
+		}
+		if _, ok := route[a.GetName()]; !ok {
+			continue
+		}
+		if crNS != "" && a.GetNamespace() != crNS {
+			continue
+		}
+		return a
+	}
+	return nil
 }
 
 // helmReleaseNamesComponent reports whether this HelmRelease is the one backing
