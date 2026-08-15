@@ -59,6 +59,7 @@ var helmReleaseAppSlugs = map[string]bool{
 	"openclaw":      true, // #4272 — bp-openclaw HelmRelease overlay
 	"stalwart-mail": true, // #4307 — bp-stalwart-tenant HelmRelease overlay
 	"newapi":        true, // #4739 — bp-newapi HelmRelease (openclaw's LLM gateway + row225 funnel parity with the BSS-door orgTenantBPNewAPI)
+	"agenity":       true, // #6352 — bp-agenity HelmRelease (DoD Pillar 4 per-Org Agenity workspace; funnel parity with the BSS-door orgTenantBPAgenity)
 }
 
 // isHelmReleaseApp reports whether the catalog slug is rendered as a
@@ -192,6 +193,8 @@ func generateHelmReleaseApp(appSlug string, opt helmReleaseAppOpts) string {
 		out = generateStalwartHR(opt)
 	case "newapi":
 		out = generateNewAPIHR(opt)
+	case "agenity":
+		out = generateAgenityHR(opt)
 	default:
 		return ""
 	}
@@ -716,7 +719,7 @@ spec:
 // core/services/provisioning/** while the value it asserts on lives in
 // products/catalyst/chart/templates/catalog-seed/ — the guard never ran on the
 // commit that broke it. Those paths are now in the trigger (#6324).
-const DefaultHRAppChartVersions = "openclaw=0.2.19,stalwart-mail=0.1.15,newapi=1.4.153"
+const DefaultHRAppChartVersions = "openclaw=0.2.19,stalwart-mail=0.1.15,newapi=1.4.153,agenity=0.5.28"
 
 // ParseHRAppVersions parses the CATALYST_HR_APP_CHART_VERSIONS wire format
 // ("slug=version,slug=version") into the HelmReleaseAppVersions map (#4706).
@@ -733,4 +736,116 @@ func ParseHRAppVersions(raw string) map[string]string {
 		}
 	}
 	return out
+}
+
+// sovereignHostFromRealmIssuer extracts `<sovereign-fqdn>` from a shared-realm
+// issuer of the form `https://auth.<sovereign-fqdn>/realms/<realm>`. Returns ""
+// when the issuer is empty or not in that shape, so callers fall back rather
+// than stamp a malformed host.
+//
+// This exists because the Sovereign FQDN is NOT a field on helmReleaseAppOpts:
+// the funnel generator is per-Org and carries the Org zone (slug+parentDomain).
+// sharedRealmIssuer is the one opt that already names the Sovereign, and the
+// browser-facing OIDC issuer must be the SOVEREIGN host, never the Org zone.
+func sovereignHostFromRealmIssuer(issuer string) string {
+	iss := strings.TrimSpace(issuer)
+	if iss == "" {
+		return ""
+	}
+	iss = strings.TrimPrefix(strings.TrimPrefix(iss, "https://"), "http://")
+	host, _, found := strings.Cut(iss, "/")
+	if !found || !strings.HasPrefix(host, "auth.") {
+		return ""
+	}
+	return strings.TrimPrefix(host, "auth.")
+}
+
+// generateAgenityHR mirrors the BSS-door orgTenantBPAgenity
+// (products/catalyst/bootstrap/api/internal/handler/organization_gitops.go)
+// for the generic funnel path — DoD Pillar 4, the per-Organization Agenity
+// workspace served at https://agenity.<slug>.<parent>/app/.
+//
+// WHY THIS EXISTS (#6352): agenity had NO render path in this generator, so
+// helmReleaseAppSlugs never claimed it, DeployableAppSlugs() flagged it
+// Deployable=false, the marketplace drew "COMING SOON" and funnel
+// cart-placement skipped it. Measured live on hw298: a real funnel Organization
+// (`chepherd`, tenantPublic omani.rest) converged Ready=True with its per-Org
+// Kustomizations green — and agenity inventory entries across ALL SEVEN org
+// Kustomizations were ZERO. The legacy BSS overlay is the only emitter of
+// bp-agenity in the repo (organization_gitops.go's own #5425 header says so),
+// and it is gated off for per-Org-GitOps Sovereigns. Exactly the #4272/#4307
+// gap shape, for the Pillar-4 app.
+//
+// NO dependsOn — deliberate, and the same reasoning the BSS-door template
+// records: the dashboard SPA renders independent of keycloak and cnpg, and a
+// dependsOn on a never-rendered bp-keycloak wedges the release in
+// DependencyNotReady forever (the divergence this file's header describes).
+//
+// oidcGate.issuerHost is the SOVEREIGN host, not the Org zone (#6314). The
+// browser-facing issuer is auth.<sovereign-fqdn>; the Org zone would render
+// auth.<slug>.<parent>, a host with no HTTPRoute — envoy 404 at sign-in. That
+// bug was fixed in the chart (bp-agenity 0.5.28, oidcGate.issuerHost) and this
+// generator carries the fix forward rather than reintroducing it. Falls back to
+// omitting the key when the Sovereign host is not derivable, which restores the
+// chart default (issuerHost | default .Values.sovereignFqdn).
+func generateAgenityHR(opt helmReleaseAppOpts) string {
+	host := fmt.Sprintf("agenity.%s.%s", opt.slug, opt.parentDomain)
+	orgZone := fmt.Sprintf("%s.%s", opt.slug, opt.parentDomain)
+	issuerHostLine := ""
+	if sov := sovereignHostFromRealmIssuer(opt.sharedRealmIssuer); sov != "" {
+		issuerHostLine = fmt.Sprintf("\n      issuerHost: %s", sov)
+	}
+	return fmt.Sprintf(`# bp-agenity (#4180, #6352) — the per-Organization agentic dashboard, rendered
+# by the generic funnel generator. Mirrors the BSS-door orgTenantBPAgenity; see
+# generateAgenityHR for why there is no dependsOn and why issuerHost is the
+# Sovereign host.
+%s
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-agenity
+  namespace: %s
+  labels:
+    catalyst.openova.io/app: agenity
+    openova.io/category: customer-facing-capability
+spec:
+  interval: 10m
+  releaseName: agenity
+  targetNamespace: %s%s
+  chart:
+    spec:
+      chart: bp-agenity
+      version: "*"
+      sourceRef:
+        kind: HelmRepository
+        name: bp-agenity
+        namespace: flux-system
+  install:
+    timeout: 15m
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 15m
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  values:
+    # Per-Org identity zone — openova-MCP derives https://console.<fqdn> from it.
+    sovereignFqdn: %s
+    oidcGate:
+      enabled: true
+      clientId: agenity-%s%s
+    httpRoute:
+      enabled: true
+      hostnames:
+        - %s
+      parentRefs:
+        - name: cilium-gateway-console
+          namespace: kube-system
+    networkPolicy:
+      ingress:
+        allowGatewayEntity: true
+`, helmRepoBlock("bp-agenity"), opt.slug, opt.slug, opt.kubeConfigBlock(),
+		orgZone, opt.slug, issuerHostLine, host)
 }
