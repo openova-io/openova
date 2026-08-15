@@ -159,7 +159,14 @@ func (h *Handler) HandleApplicationPlacement(w http.ResponseWriter, r *http.Requ
 	// widen which Pods are looked at, never invent one that is not there.
 	ident := h.resolveComponentWorkloadIdentity(primaryID, name, ns)
 
-	targets, cov := h.derivePlacementTargets(ident, primaryID, clusterRegion, depID, fqdn)
+	// #6347 — what the Application DECLARES about its own posture, read off the
+	// same CR through the same selector. It is consulted for ONE thing: the role
+	// of a leg the runtime observed but could not classify, because occupancy
+	// alone cannot tell a writer from a follower for a workload that carries no
+	// role marker. It never invents a leg and never overrules one that does.
+	declared := h.declaredPlacementForComponent(primaryID, name, ns)
+
+	targets, cov := h.derivePlacementTargets(ident, declared, primaryID, clusterRegion, depID, fqdn)
 
 	// #4551 — Standby discovery for cross-region CNPG-backed components.
 	//
@@ -509,9 +516,12 @@ func (h *Handler) augmentWithContinuumStandby(
 	if region == "" {
 		return targets
 	}
-	// Don't double-list a region already represented as a Standby.
+	// Don't double-list a region already represented as a Standby. The compare
+	// is spelling-tolerant (#6347): the CR and the runtime leg name the same
+	// place in two different vocabularies, and a raw `==` reads "not listed
+	// yet" for a region that is already on the list.
 	for _, t := range targets {
-		if t.Role == bpv1.DataRoleStandby && t.Region == region {
+		if t.Role == bpv1.DataRoleStandby && samePlacementRegion(t.Region, region) {
 			return targets
 		}
 	}
@@ -548,10 +558,20 @@ func (h *Handler) continuumStandbyRegion(
 	// The set of Primary regions the runtime derivation already surfaced —
 	// a "standby" that equals a live Primary region is not an honest
 	// cross-region standby (single-region prov, or label mismatch).
-	primaryRegions := map[string]struct{}{}
+	//
+	// #6347 — the comparison is NORMALIZED, because the two sides speak
+	// different region vocabularies and a raw `==` could never match: the
+	// per-app `dr-<app>` Continuum carries the bare cloud region
+	// (`me-east-215-b`, taken from spec.regions[]) while a runtime leg carries
+	// the `openova.io/region` node label (`hw-me-east-215-b-rtz-prod`). On
+	// hw298 that mismatch is what appended a THIRD target, `cluster: ""`, over
+	// a region two live legs already covered — and in the one-region-occupied
+	// case it produced a "pair" whose two legs were the SAME region spelled two
+	// ways. The guard was there; it just could not see.
+	primaryRegions := make([]string, 0, len(targets))
 	for _, t := range targets {
 		if t.Role == bpv1.DataRolePrimary && t.Region != "" {
-			primaryRegions[t.Region] = struct{}{}
+			primaryRegions = append(primaryRegions, t.Region)
 		}
 	}
 	for _, s := range standbys {
@@ -559,7 +579,14 @@ func (h *Handler) continuumStandbyRegion(
 		if s == "" {
 			continue
 		}
-		if _, isPrimary := primaryRegions[s]; isPrimary {
+		isPrimary := false
+		for _, pr := range primaryRegions {
+			if samePlacementRegion(pr, s) {
+				isPrimary = true
+				break
+			}
+		}
+		if isPrimary {
 			continue
 		}
 		return s
@@ -683,7 +710,9 @@ type placementOccupancy struct {
 // #6344: it takes a RESOLVED componentWorkloadIdentity rather than a raw
 // (name, ns) pair, so the Pods it keeps are the ones the Application actually
 // installs — not the ones whose labels happen to spell the route id.
-func (h *Handler) derivePlacementTargets(ident componentWorkloadIdentity, primaryID string, clusterRegion map[string]string, depID, fqdn string) ([]bpv1.PlacementTarget, placementRuntimeCoverage) {
+// #6347: it also takes the app's DECLARED posture, which decides the role of a
+// leg no runtime signal can classify. See the role switch below.
+func (h *Handler) derivePlacementTargets(ident componentWorkloadIdentity, declared declaredPlacement, primaryID string, clusterRegion map[string]string, depID, fqdn string) ([]bpv1.PlacementTarget, placementRuntimeCoverage) {
 	// Fan out across primary + every secondary region cluster.
 	clusterIDs := []string{primaryID}
 	seen := map[string]struct{}{primaryID: {}}
@@ -753,8 +782,9 @@ func (h *Handler) derivePlacementTargets(ident componentWorkloadIdentity, primar
 	// CNPG path: if ANY occupancy carried a cnpg-role label, the component
 	// is a stateful pair — the occupancy(ies) that hold the primary
 	// instance are Primary; the rest are Standby·Hot (the pair streams).
-	// Stateless path: every region the component runs in is a Primary
-	// (multi-region stateless = active-active; single region = singleton).
+	// Stateless path: the occupancy carries NO role signal, so the role comes
+	// from the app's own declaration when it makes one (#6347), and otherwise
+	// from the pre-#6347 reading: every occupied region is a Primary.
 	anyCNPG := false
 	for _, o := range occ {
 		if o.anyCNPG {
@@ -783,8 +813,25 @@ func (h *Handler) derivePlacementTargets(ident componentWorkloadIdentity, primar
 			t.Role = bpv1.DataRoleStandby
 			t.StandbyType = bpv1.StandbyHot
 		default:
-			// Stateless: every occupied region serves traffic → Primary.
+			// Stateless: nothing on these Pods says which region serves
+			// writes. Pre-#6347 the answer was "all of them", which is a fair
+			// reading for a bootstrap component that declares nothing — and
+			// the wrong one for an app that declares `active-hot-standby`,
+			// where it produced the TWO Primaries hw298 measured and a
+			// `DerivePattern` of `active-active` over a primary+standby app.
+			//
+			// So the declaration decides the ROLE of a leg the runtime already
+			// established the PRESENCE of. It cannot reach the CNPG arms above
+			// (those carry positive per-leg evidence and keep it, so a
+			// failed-over pair still reports its live primary), it cannot add
+			// or remove an occupancy, and it stays silent unless the app names
+			// two distinct regions under an asymmetric mode — in which case a
+			// leg in a declared standby region is a follower, and a leg in a
+			// region the declaration never mentions keeps the reading below.
 			t.Role = bpv1.DataRolePrimary
+			if role, standbyType, ok := declared.roleForRegion(o.region); ok {
+				t.Role, t.StandbyType = role, standbyType
+			}
 		}
 		targets = append(targets, t)
 	}
