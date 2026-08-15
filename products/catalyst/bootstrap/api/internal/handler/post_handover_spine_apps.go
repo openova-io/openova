@@ -503,7 +503,7 @@ func renderSpineApplicationCR(sc spineComponent, envRef, orgRef string, regions 
 	// CR apart from an Org install, and the adopt label names the existing
 	// HelmRelease this CR ENROLLS (never re-renders).
 	lbls["catalyst.openova.io/spine"] = "true"
-	lbls["catalyst.openova.io/adopts-helmrelease"] = sc.HRName
+	lbls[spineAdoptsHelmReleaseLabel] = sc.HRName
 	obj.SetLabels(lbls)
 
 	rgs := make([]interface{}, 0, len(regions))
