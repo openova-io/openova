@@ -148,7 +148,18 @@ func (h *Handler) HandleApplicationPlacement(w http.ResponseWriter, r *http.Requ
 	// "the cache can only see one region" that looks identical downstream.
 	depID, fqdn, declaredRegions := h.placementDeploymentIdentity(urlID)
 
-	targets, cov := h.derivePlacementTargets(name, ns, primaryID, clusterRegion, depID, fqdn)
+	// #6344 — resolve WHAT this component's workload is called before asking
+	// where it runs. The route id is what the console addresses, not what the
+	// chart labelled: `spine-gitea` is an Application CR adopting HelmRelease
+	// `flux-system/bp-gitea`, whose Pods are `instance=gitea` in ns `gitea`.
+	// Matching the route id against pod labels made occupancy miss every one of
+	// them, so no Primary was ever produced and the Continuum augmentation's
+	// lone `cluster: ""` Standby became the whole answer (hw298). Resolution
+	// only ADDS identities a live Application CR / HelmRelease names — it can
+	// widen which Pods are looked at, never invent one that is not there.
+	ident := h.resolveComponentWorkloadIdentity(primaryID, name, ns)
+
+	targets, cov := h.derivePlacementTargets(ident, primaryID, clusterRegion, depID, fqdn)
 
 	// #4551 — Standby discovery for cross-region CNPG-backed components.
 	//
@@ -669,7 +680,10 @@ type placementOccupancy struct {
 // DATA while the caller keeps asserting `derivedFromRuntime: true` is what
 // turned a blind cache into a fabricated singleton. The coverage report is how
 // the caller can tell the two apart.
-func (h *Handler) derivePlacementTargets(name, ns, primaryID string, clusterRegion map[string]string, depID, fqdn string) ([]bpv1.PlacementTarget, placementRuntimeCoverage) {
+// #6344: it takes a RESOLVED componentWorkloadIdentity rather than a raw
+// (name, ns) pair, so the Pods it keeps are the ones the Application actually
+// installs — not the ones whose labels happen to spell the route id.
+func (h *Handler) derivePlacementTargets(ident componentWorkloadIdentity, primaryID string, clusterRegion map[string]string, depID, fqdn string) ([]bpv1.PlacementTarget, placementRuntimeCoverage) {
 	// Fan out across primary + every secondary region cluster.
 	clusterIDs := []string{primaryID}
 	seen := map[string]struct{}{primaryID: {}}
@@ -707,7 +721,7 @@ func (h *Handler) derivePlacementTargets(name, ns, primaryID string, clusterRegi
 		nodeByName := indexByName(nodes)
 
 		for _, p := range pods {
-			if !podBelongsToComponent(p, name, ns) {
+			if !podBelongsToIdentity(p, ident) {
 				continue
 			}
 			region := podRegion(p, nsByName, nodeByName, clusterRegion[cid])
@@ -840,37 +854,14 @@ func componentNameCandidates(name string) []string {
 // as `grafana-…-x-grafana-x-mgmt-vcluster` in host ns `mgmt` but still
 // labelled `app.kubernetes.io/{instance,name}=grafana` — resolve instead of
 // yielding a false singleton.
+//
+// #6344 — this is now a thin projection onto podBelongsToIdentity with the
+// UNRESOLVED (route-only) identity, i.e. byte-for-byte the behaviour above.
+// The placement path passes a RESOLVED identity instead; keeping both on one
+// predicate is what stops the two surfaces answering "does this component
+// exist" and "where does it run" from different joins again (#5827).
 func podBelongsToComponent(p *unstructured.Unstructured, name, ns string) bool {
-	if p == nil || name == "" {
-		return false
-	}
-	if ns != "" && !objectInAppNamespace(p, ns) {
-		return false
-	}
-	// nil ReplicaSet index: this join has no cache handle, so a Pod owned
-	// by a ReplicaSet keeps the ReplicaSet name (pre-#5485 behavior). The
-	// instance/name labels below carry the match in the cases this
-	// function is called for.
-	appKey := applicationKey(p, nil)
-	chartName := p.GetLabels()["app.kubernetes.io/name"]
-	// The de-mangled in-vCluster object name (loft annotation), e.g. a host
-	// Pod `grafana-…-x-grafana-x-mgmt-vcluster` carries object-name
-	// `grafana-…`. The instance/name labels match in the common case; this
-	// resolves charts that omit the instance label via the synced
-	// Deployment/StatefulSet owner name prefix.
-	displayName := vClusterSyncedDisplayName(p)
-	for _, cand := range componentNameCandidates(name) {
-		if appKey == cand {
-			return true
-		}
-		if chartName == cand {
-			return true
-		}
-		if displayName != "" && strings.HasPrefix(displayName, cand) {
-			return true
-		}
-	}
-	return false
+	return podBelongsToIdentity(p, routeWorkloadIdentity(name, ns))
 }
 
 // podRegion derives the region a Pod runs in: pod label → namespace label →
