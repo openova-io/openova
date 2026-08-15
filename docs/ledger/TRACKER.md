@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-15T17:15:03Z` |
+| Last refreshed | `2026-08-15T17:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-15T17:21 | [#6350](https://github.com/openova-io/openova/pull/6350) | #6314 | docs(uat): rows 219 / G11 / 166 re-walked on hw298 — evidenc |
 | 2026-08-15T15:18 | [#6348](https://github.com/openova-io/openova/pull/6348) | #6345 | fix(placement): one Primary for an active-hot-standby app, a |
 | 2026-08-15T14:00 | [#6345](https://github.com/openova-io/openova/pull/6345) | #6268 | fix(placement): join Pods to an Application by its RESOLVED  |
 | 2026-08-15T12:22 | [#6342](https://github.com/openova-io/openova/pull/6342) | #5246 | fix(infra,catalyst-api): primary region captures its kubecon |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-14T02:23 | [#6295](https://github.com/openova-io/openova/pull/6295) | #6280 | docs(uat): the cutover was DRIVEN on hw296 and died at step  |
 | 2026-08-14T02:03 | [#6292](https://github.com/openova-io/openova/pull/6292) | #6258 | docs(uat): walk the 8 withheld pending rows live on hw296 —  |
 | 2026-08-14T02:16 | [#6291](https://github.com/openova-io/openova/pull/6291) | #6287 | feat(catalyst-api): write the per-Org standby HelmRelease in |
-| 2026-08-14T01:23 | [#6290](https://github.com/openova-io/openova/pull/6290) | #6287 | docs(uat): row 60 — record #6287 as merged, and that it is N |
 
 ---
 
