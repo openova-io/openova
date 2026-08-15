@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-15T19:45:04Z` |
+| Last refreshed | `2026-08-15T20:00:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5981](https://github.com/openova-io/openova/issues/5981) | harbor host answers 301 on half of fresh connections and envoy 404 on the other  | Other |
 | [#5982](https://github.com/openova-io/openova/issues/5982) | DR runbook preflight reports Pass for surfaces it never probes — cnpgpair-stre | Other |
 | [#5984](https://github.com/openova-io/openova/issues/5984) | guacamole.properties renders the DB password in plaintext — fine on our own in | Other |
 | [#5986](https://github.com/openova-io/openova/issues/5986) | sso-uat-flip destroyed 13 correct verdicts on a commit that cannot affect an SSO | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6344](https://github.com/openova-io/openova/issues/6344) | placement projection joins Pods to an Application by NAME COINCIDENCE — apps w | Other |
 | [#6347](https://github.com/openova-io/openova/issues/6347) | placement projection emits TWO Primaries for an active-hot-standby app, plus a d | Other |
 | [#6352](https://github.com/openova-io/openova/issues/6352) | per-Org GitOps tree is missing four emitters — bp-agenity (Pillar 4), bp-keycl | Other |
+| [#6354](https://github.com/openova-io/openova/issues/6354) | P0: check-walk-respects-scheduler.sh is FAIL-OPEN — accepts a green flip on a  | Other |
 
 ---
 
@@ -309,6 +309,7 @@ flowchart LR
 |---|---|---|---|
 | 2026-08-15T18:06 | [#6351](https://github.com/openova-io/openova/pull/6351) | #6314 | docs(uat): row 219 re-walked on a real customer Organization |
 | 2026-08-15T17:21 | [#6350](https://github.com/openova-io/openova/pull/6350) | #6314 | docs(uat): rows 219 / G11 / 166 re-walked on hw298 — evidenc |
+| 2026-08-15T19:57 | [#6349](https://github.com/openova-io/openova/pull/6349) | #5921 | docs(ledger): convergence capture 2026-08-15T16:43Z — hw298  |
 | 2026-08-15T15:18 | [#6348](https://github.com/openova-io/openova/pull/6348) | #6345 | fix(placement): one Primary for an active-hot-standby app, a |
 | 2026-08-15T14:00 | [#6345](https://github.com/openova-io/openova/pull/6345) | #6268 | fix(placement): join Pods to an Application by its RESOLVED  |
 | 2026-08-15T12:22 | [#6342](https://github.com/openova-io/openova/pull/6342) | #5246 | fix(infra,catalyst-api): primary region captures its kubecon |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-14T02:24 | [#6299](https://github.com/openova-io/openova/pull/6299) | #6291 | docs(uat): row 60 — the missing producer is built and merged |
 | 2026-08-14T02:32 | [#6296](https://github.com/openova-io/openova/pull/6296) | #6236 | fix(cutover-contract): remove the SIGPIPE-under-pipefail rea |
 | 2026-08-14T02:23 | [#6295](https://github.com/openova-io/openova/pull/6295) | #6280 | docs(uat): the cutover was DRIVEN on hw296 and died at step  |
-| 2026-08-14T02:03 | [#6292](https://github.com/openova-io/openova/pull/6292) | #6258 | docs(uat): walk the 8 withheld pending rows live on hw296 —  |
 
 ---
 
