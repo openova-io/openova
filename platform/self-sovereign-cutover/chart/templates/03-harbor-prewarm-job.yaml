@@ -70,6 +70,43 @@ data:
     : "${HARBOR_USERNAME:=admin}"
 
     {{- /*
+     #6356 — RE-SEED THE STATUS ConfigMap IF IT IS EMPTY.
+
+     09-cutover-status-configmap.yaml renders a POPULATED object (totalSteps
+     + the 11 step slugs) and carries `helm.sh/resource-policy: keep`. Keep is
+     correct — mid-cutover progress must survive a chart upgrade — but it also
+     means Helm will NEVER update an object that already exists. So if that
+     ConfigMap is ever empty there is NO reconcile path back: no chart upgrade
+     can re-seed it, totalSteps stays absent, the /jobs cutover group can never
+     render 11 steps, and cutoverComplete is unprovable on that Sovereign
+     forever.
+
+     Measured live on hw298 2026-08-15: the ConfigMap existed (created
+     15:20:00Z, managed-by Helm, keep annotation present) with ZERO data keys
+     and 0 Jobs cluster-wide — the annotation protecting an empty artifact,
+     the one state it was added to prevent. Root cause of UAT rows G11/166.
+
+     The Job is the right repair point precisely BECAUSE Helm is forbidden:
+     this step always runs, already holds STATUS_CONFIGMAP_NAME/NAMESPACE, and
+     already merge-patches this object. A merge patch only ADDS absent keys, so
+     a ConfigMap already carrying mid-cutover progress is left untouched — this
+     can fill a gap, never overwrite a verdict.
+    */}}
+    if [ -n "${STATUS_CONFIGMAP_NAME:-}" ] && [ -n "${STATUS_CONFIGMAP_NAMESPACE:-}" ]; then
+      _seed_total="$(kubectl get configmap "${STATUS_CONFIGMAP_NAME}" -n "${STATUS_CONFIGMAP_NAMESPACE}" -o jsonpath='{.data.totalSteps}' 2>/dev/null || true)"
+      if [ -z "${_seed_total}" ]; then
+        echo "[harbor-prewarm] #6356: status ConfigMap ${STATUS_CONFIGMAP_NAMESPACE}/${STATUS_CONFIGMAP_NAME} has no totalSteps — re-seeding (resource-policy:keep means Helm cannot)"
+        if kubectl patch configmap "${STATUS_CONFIGMAP_NAME}" -n "${STATUS_CONFIGMAP_NAMESPACE}" --type merge -p '{"data":{"totalSteps":"11","reseededBy":"harbor-prewarm-6356"}}' >/dev/null 2>&1; then
+          echo "[harbor-prewarm] #6356: re-seeded totalSteps=11"
+        else
+          echo "[harbor-prewarm] #6356: WARN could not re-seed the status ConfigMap — cutover continues, but /jobs may not render all 11 steps"
+        fi
+      else
+        echo "[harbor-prewarm] #6356: status ConfigMap already seeded (totalSteps=${_seed_total}) — no write"
+      fi
+    fi
+
+    {{- /*
      #4975 — the offline-mirror image→local-path resolver (shared with
      step-08). Defines offlinemirror_normalize_ref + offlinemirror_local_paths
      over the HOST_PROJECT_MAP / EXCLUDED_* / LOCAL_REGISTRY_HOST env.
