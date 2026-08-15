@@ -965,6 +965,15 @@ locals {
   #      output API + no reachable sshd, so /var/log/cloud-init-output.log can
   #      only be PUSHED. Backgrounded EARLY so it keeps uploading even if a
   #      later step aborts cloud-init — the founder's capture-before-wipe guard.
+  #      #6339: the push now carries `?node=$(hostname)`. Without it EVERY CP in
+  #      EVERY region wrote the SAME `<id>-cloudinit.log` key every 30s for ~50
+  #      min, so a 2-region Sovereign kept exactly ONE node's log — last writer
+  #      wins — and the other region's was gone for good. Measured across the 13
+  #      archived logs in docs/sessions/**/prov-diagnostics/ that carry a
+  #      PUT-back line: every one holds exactly ONE hostname, 7 region-a and 6
+  #      region-b, never both. That is why "the primary never PUT its
+  #      kubeconfig" could not be root-caused on hw297/hw298 — the surviving log
+  #      was region-b's and the primary's outcome is echoed only into region-a's.
   #
   # NOTE (#4682 / #4690): the former iptables DNAT (443→30443 / 80→30080) is
   # GONE. The Cilium Gateway is served as a Service type=LoadBalancer on the
@@ -993,7 +1002,7 @@ locals {
               -H "Content-Type: text/plain" \
               --data-binary @/var/log/cloud-init-output.log \
               --max-time 20 \
-              "${var.catalyst_api_url}/api/v1/deployments/${var.deployment_id}/cloudinit-log" >/dev/null 2>&1 || true
+              "${var.catalyst_api_url}/api/v1/deployments/${var.deployment_id}/cloudinit-log?node=$(hostname)" >/dev/null 2>&1 || true
             n=$$((n+1))
             sleep 30
           done
@@ -1241,63 +1250,124 @@ locals {
       # runtime. Used for k3s --node-ip + cilium k8sServiceHost substitution.
       node_ip_cmd = "ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1"
 
-      # kubeconfig PUT-back — Huawei. Each CP decides at RUNTIME by hostname:
-      #   primary CP (hostname == primary_cp_hostname) → PUT to /kubeconfig.
-      #   secondary CP                                 → POST to /sovereign/secondary-kubeconfig.
+      # kubeconfig PUT-back — Huawei. #6339: the primary-vs-secondary choice is
+      # made at RENDER time from `idx` (this map is ALREADY built per region),
+      # not by a runtime `[ "$HOSTNAME" = "$PRIMARY_HOST" ]` compare.
+      #
+      # What the old shape cost. BOTH branches shipped in EVERY region's
+      # user_data and the hostname compare picked one at boot:
+      #   - Any drift between the ECS `name` formula and the booted hostname
+      #     flipped region 0 into the SECONDARY branch — the primary region
+      #     would register under a bare region key instead of being captured at
+      #     <id>.yaml, so `GET /deployments/{id}/kubeconfig` keeps answering
+      #     409. That drift is reachable, not theoretical: the CP resource below
+      #     carries `lifecycle.ignore_changes=[name]` precisely so an ACTIVE CP
+      #     KEEPS its old name when a retry_attempt bump changes the formula,
+      #     while PRIMARY_HOST here is recomputed from the CURRENT
+      #     retry_attempt.
+      #   - A region-0 REPLICA CP (huawei_control_plane_count > 1) matched
+      #     `!= PRIMARY_HOST` and POSTed ITS kubeconfig under the PRIMARY
+      #     region's own key — the primary region registered as a secondary.
+      #   - CI could not assert "the primary region's cloud-init carries the
+      #     primary PUT-back", because which branch fired was a runtime fact.
+      #     It is a render-time fact now, and
+      #     scripts/check-cloudinit-primary-kubeconfig-capture.sh asserts it.
+      # The cp1-only restriction inside region 0 is KEPT as a hostname test, but
+      # a region-0 replica now does NOTHING instead of mis-registering.
+      #
+      # The SECONDARY branch is byte-identical to the pre-#6339 one, including
+      # its `!= PRIMARY_HOST` gate: in a secondary region's render PRIMARY_HOST
+      # names region-0's cp1, which no node here can ever equal, so the gate
+      # stays trivially true and the measured-working path is untouched.
+      #
+      # Fail-loud (#6339 (c)): the primary loop no longer falls through in
+      # silence. On exhaustion it prints PRIMARY-KUBECONFIG-CAPTURE-FAILED with
+      # the last HTTP code, retries ONCE through the per-region channel the
+      # secondaries prove works (POST /sovereign/secondary-kubeconfig under this
+      # region's own key) so `GET .../kubeconfig?region=<primary>` yields a
+      # working kubeconfig instead of a second 409, and drops the
+      # kubeconfig-put-FAILED sentinel — which also force-pushes THIS node's
+      # cloud-init log. Deliberately NOT fatal: trading a forensics gap for a
+      # dead provision is the wrong trade.
+      #
       # Server URL rewritten to this region's EIP (cross-cloud reachability).
-      # Both gated so only the right CP fires; runcmd 0-indent items.
+      # runcmd 0-indent items (the shared template re-indents via indent(2,…)).
+      # Content sits at column 0 on purpose: `<<-` dedent does NOT apply to a
+      # heredoc carrying %{ … } directives (measured with tofu 1.12), so an
+      # indented body would emit indented runcmd items and break the YAML.
       kubeconfig_put_block = <<-PUT
-        - |
-          HOSTNAME=$(hostname)
-          PRIMARY_HOST='${local.name_prefix}-${local.region_keys[0]}-cp1-${substr(sha256("${var.deployment_id}-${local.region_keys[0]}-cp0-${var.retry_attempt}"), 0, 6)}'
-          if [ -n "${var.deployment_id}" ] && [ -n "${var.kubeconfig_bearer_token}" ] && [ "$${HOSTNAME}" = "$${PRIMARY_HOST}" ]; then
-            sed "s|server: https://127.0.0.1:6443|server: https://${huaweicloud_vpc_eip.cp[local.region_keys[0]].publicip.0.ip_address}:6443|" /etc/rancher/k3s/k3s.yaml > /tmp/kubeconfig-rewritten.yaml
-            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-              HTTP_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X PUT \
-                -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \
-                -H "Content-Type: application/x-yaml" \
-                --data-binary @/tmp/kubeconfig-rewritten.yaml \
-                --max-time 15 \
-                "${var.catalyst_api_url}/api/v1/deployments/${var.deployment_id}/kubeconfig" || echo "000")
-              echo "primary kubeconfig PUT-back attempt $${attempt} -> HTTP $${HTTP_CODE}"
-              case "$${HTTP_CODE}" in 2*) break;; esac
-              sleep 30
-            done
-          fi
-        - |
-          HOSTNAME=$(hostname)
-          PRIMARY_HOST='${local.name_prefix}-${local.region_keys[0]}-cp1-${substr(sha256("${var.deployment_id}-${local.region_keys[0]}-cp0-${var.retry_attempt}"), 0, 6)}'
-          MY_REGION='${idx == 0 ? r.code : "${r.code}-${idx}"}'
-          MY_EIP='${huaweicloud_vpc_eip.cp[r.code].publicip.0.ip_address}'
-          # #3991 — this CP's PRIVATE eth0 IP (same detection as --node-ip).
-          # The kubeconfig keeps MY_EIP as `server:` so the EXTERNAL mothership
-          # can reach this region. We ALSO ship the private IP so the IN-CLUSTER
-          # catalyst-api (chroot), which sits inside region-a's VPC and cannot
-          # route to this region's DNAT'd EIP, can rewrite the server host to
-          # this VPC-peered private IP it CAN reach (over the cross-VPC peering
-          # routes provisioned above). The k3s apiserver lists NODE_IP as a TLS
-          # SAN, so the pinned-CA handshake still validates after the swap.
-          export MY_NODE_IP=$(ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1)
-          if [ -n "${var.deployment_id}" ] && [ -n "${var.kubeconfig_bearer_token}" ] && [ "$${HOSTNAME}" != "$${PRIMARY_HOST}" ] && [ -n "$${MY_REGION}" ] && [ -n "$${MY_EIP}" ]; then
-            sed "s|server: https://127.0.0.1:6443|server: https://$${MY_EIP}:6443|" /etc/rancher/k3s/k3s.yaml > /tmp/kubeconfig-secondary.yaml
-            python3 -c "import json,os; print(json.dumps({'deploymentId':'${var.deployment_id}','regionKey':'$${MY_REGION}','kubeconfigYaml':open('/tmp/kubeconfig-secondary.yaml').read(),'nodeInternalIp':os.environ.get('MY_NODE_IP','')}))" > /tmp/secondary-kubeconfig-body.json
-            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-              HTTP_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X POST \
-                -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \
-                -H "Content-Type: application/json" \
-                --data-binary @/tmp/secondary-kubeconfig-body.json \
-                --max-time 15 \
-                "${var.catalyst_api_url}/api/v1/sovereign/secondary-kubeconfig" || echo "000")
-              echo "secondary kubeconfig PUT-back attempt $${attempt} -> HTTP $${HTTP_CODE}"
-              # #5012 hw255: the secondary endpoint answers 201 Created — the old
-              # 204|200-only check never broke, so every healthy secondary burned
-              # 12 attempts x sleep 30 (~6 min) HERE, pushing flux-install past the
-              # mothership's flux-CRD probe budget. Accept ANY 2xx.
-              case "$${HTTP_CODE}" in 2*) break;; esac
-              sleep 30
-            done
-            rm -f /tmp/secondary-kubeconfig-body.json
-          fi
+%{~if idx == 0~}
+- |
+  HOSTNAME=$(hostname)
+  PRIMARY_HOST='${local.name_prefix}-${local.region_keys[0]}-cp1-${substr(sha256("${var.deployment_id}-${local.region_keys[0]}-cp0-${var.retry_attempt}"), 0, 6)}'
+  if [ -n "${var.deployment_id}" ] && [ -n "${var.kubeconfig_bearer_token}" ] && [ "$${HOSTNAME}" = "$${PRIMARY_HOST}" ]; then
+    sed "s|server: https://127.0.0.1:6443|server: https://${huaweicloud_vpc_eip.cp[local.region_keys[0]].publicip.0.ip_address}:6443|" /etc/rancher/k3s/k3s.yaml > /tmp/kubeconfig-rewritten.yaml
+    LAST_CODE=000
+    for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+      LAST_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X PUT \
+        -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \
+        -H "Content-Type: application/x-yaml" \
+        --data-binary @/tmp/kubeconfig-rewritten.yaml \
+        --max-time 15 \
+        "${var.catalyst_api_url}/api/v1/deployments/${var.deployment_id}/kubeconfig" || echo "000")
+      echo "primary kubeconfig PUT-back attempt $${attempt} -> HTTP $${LAST_CODE}"
+      case "$${LAST_CODE}" in 2*) break;; esac
+      sleep 30
+    done
+    case "$${LAST_CODE}" in
+      2*) ;;
+      *)
+        echo "PRIMARY-KUBECONFIG-CAPTURE-FAILED region=${local.region_keys[0]} lastHTTP=$${LAST_CODE} after 12 attempts; GET /api/v1/deployments/${var.deployment_id}/kubeconfig stays 409 until this is repaired"
+        export MY_NODE_IP=$(ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1)
+        python3 -c "import json,os; print(json.dumps({'deploymentId':'${var.deployment_id}','regionKey':'${local.region_keys[0]}','kubeconfigYaml':open('/tmp/kubeconfig-rewritten.yaml').read(),'nodeInternalIp':os.environ.get('MY_NODE_IP','')}))" > /tmp/primary-kubeconfig-body.json
+        FALLBACK_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X POST \
+          -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \
+          -H "Content-Type: application/json" \
+          --data-binary @/tmp/primary-kubeconfig-body.json \
+          --max-time 15 \
+          "${var.catalyst_api_url}/api/v1/sovereign/secondary-kubeconfig" || echo "000")
+        echo "PRIMARY-KUBECONFIG-FALLBACK per-region-channel regionKey=${local.region_keys[0]} -> HTTP $${FALLBACK_CODE}"
+        rm -f /tmp/primary-kubeconfig-body.json
+        sh /var/lib/catalyst/mark kubeconfig-put-FAILED || true
+        ;;
+    esac
+  fi
+%{~else~}
+- |
+  HOSTNAME=$(hostname)
+  PRIMARY_HOST='${local.name_prefix}-${local.region_keys[0]}-cp1-${substr(sha256("${var.deployment_id}-${local.region_keys[0]}-cp0-${var.retry_attempt}"), 0, 6)}'
+  MY_REGION='${idx == 0 ? r.code : "${r.code}-${idx}"}'
+  MY_EIP='${huaweicloud_vpc_eip.cp[r.code].publicip.0.ip_address}'
+  # #3991 — this CP's PRIVATE eth0 IP (same detection as --node-ip).
+  # The kubeconfig keeps MY_EIP as `server:` so the EXTERNAL mothership
+  # can reach this region. We ALSO ship the private IP so the IN-CLUSTER
+  # catalyst-api (chroot), which sits inside region-a's VPC and cannot
+  # route to this region's DNAT'd EIP, can rewrite the server host to
+  # this VPC-peered private IP it CAN reach (over the cross-VPC peering
+  # routes provisioned above). The k3s apiserver lists NODE_IP as a TLS
+  # SAN, so the pinned-CA handshake still validates after the swap.
+  export MY_NODE_IP=$(ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1)
+  if [ -n "${var.deployment_id}" ] && [ -n "${var.kubeconfig_bearer_token}" ] && [ "$${HOSTNAME}" != "$${PRIMARY_HOST}" ] && [ -n "$${MY_REGION}" ] && [ -n "$${MY_EIP}" ]; then
+    sed "s|server: https://127.0.0.1:6443|server: https://$${MY_EIP}:6443|" /etc/rancher/k3s/k3s.yaml > /tmp/kubeconfig-secondary.yaml
+    python3 -c "import json,os; print(json.dumps({'deploymentId':'${var.deployment_id}','regionKey':'$${MY_REGION}','kubeconfigYaml':open('/tmp/kubeconfig-secondary.yaml').read(),'nodeInternalIp':os.environ.get('MY_NODE_IP','')}))" > /tmp/secondary-kubeconfig-body.json
+    for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+      HTTP_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X POST \
+        -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \
+        -H "Content-Type: application/json" \
+        --data-binary @/tmp/secondary-kubeconfig-body.json \
+        --max-time 15 \
+        "${var.catalyst_api_url}/api/v1/sovereign/secondary-kubeconfig" || echo "000")
+      echo "secondary kubeconfig PUT-back attempt $${attempt} -> HTTP $${HTTP_CODE}"
+      # #5012 hw255: the secondary endpoint answers 201 Created — the old
+      # 204|200-only check never broke, so every healthy secondary burned
+      # 12 attempts x sleep 30 (~6 min) HERE, pushing flux-install past the
+      # mothership's flux-CRD probe budget. Accept ANY 2xx.
+      case "$${HTTP_CODE}" in 2*) break;; esac
+      sleep 30
+    done
+    rm -f /tmp/secondary-kubeconfig-body.json
+  fi
+%{~endif~}
       PUT
     }), "/(?m)^[ ]*#( |$).*\n/", "")
   }
