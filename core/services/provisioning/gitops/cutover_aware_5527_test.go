@@ -173,13 +173,19 @@ func TestHelmRepoBlock_PreCutover_ByteIdentical(t *testing.T) {
 kind: HelmRepository
 metadata:
   name: bp-openclaw
-  namespace: flux-system
 spec:
   type: oci
   interval: 15m
   url: oci://ghcr.io/openova-io
   secretRef:
     name: ghcr-pull`
+	// #6367: `namespace: flux-system` was REMOVED from this template on purpose.
+	// The per-Org Kustomization carries targetNamespace, which rewrites
+	// metadata.namespace on every object in the tree, so that line never took
+	// effect — it only told the reader a falsehood about where the object lives,
+	// while the HelmRelease's sourceRef.namespace (a spec field, NOT rewritten)
+	// kept pointing at flux-system and never resolved. This template is still
+	// byte-pinned; the pinned bytes now match what actually gets applied.
 	if got != want {
 		t.Fatalf("pre-cutover helmRepoBlock drifted from the historical template:\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}

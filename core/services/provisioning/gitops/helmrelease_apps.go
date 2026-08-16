@@ -251,7 +251,6 @@ func helmRepoBlock(name string) string {
 kind: HelmRepository
 metadata:
   name: %s
-  namespace: flux-system
 spec:
   type: oci
   interval: 15m
@@ -319,7 +318,6 @@ spec:
       sourceRef:
         kind: HelmRepository
         name: bp-openclaw
-        namespace: flux-system
   install:
     timeout: 15m
     remediation:
@@ -456,7 +454,6 @@ spec:
       sourceRef:
         kind: HelmRepository
         name: bp-newapi
-        namespace: flux-system
   # #4246 — disableWait: the Deployment gates on a non-empty SQL_DSN via a
   # wait-for-sql-dsn initContainer PATCHed by the chart's post-install db-dsn-
   # sync hook. With wait enabled Helm blocks on Ready BEFORE hooks run → the
@@ -647,7 +644,6 @@ spec:
       sourceRef:
         kind: HelmRepository
         name: bp-stalwart-tenant
-        namespace: flux-system
   install:
     timeout: 15m
     disableWait: true
@@ -820,7 +816,6 @@ spec:
       sourceRef:
         kind: HelmRepository
         name: bp-agenity
-        namespace: flux-system
   install:
     timeout: 15m
     remediation:
