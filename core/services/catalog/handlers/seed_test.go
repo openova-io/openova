@@ -1,6 +1,11 @@
 package handlers
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	"github.com/openova-io/openova/core/services/catalog/store"
+)
 
 // TestExpectedSandboxPlans_Shape locks the Sandbox plan triple shipped
 // alongside PR #1633's Sandbox seedApp. Marketplace checkout dies with
@@ -162,6 +167,50 @@ func TestDeployableAppSlugs_StableShape(t *testing.T) {
 		if !found {
 			t.Errorf("unexpected %q in deployable map — add it to `expected` "+
 				"deliberately, or it is an accidental re-listing", slug)
+		}
+	}
+}
+
+// TestAgenitySellable — UAT rows 219 / G9.
+//
+// The Blueprint and the storefront are two independent lists, and nothing
+// reconciles them. bp-agenity was `visibility: listed` in the platform catalog
+// while being absent from seedAppRows, so a customer could never select it —
+// the walk's words were "there is no path, customer-selected or
+// platform-injected, by which a User obtains the Agenity workspace this row
+// asserts".
+//
+// This pins the storefront half. It deliberately asserts on the VALUE a
+// customer acts on (the slug that reaches the cart and the provisioner), not
+// on a count, because a count passes for any 28 rows.
+func TestAgenitySellable(t *testing.T) {
+	rows := seedAppRows(time.Now().UTC())
+
+	var got *store.App
+	for i := range rows {
+		if rows[i].Slug == "agenity" {
+			got = &rows[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatal("agenity is not in seedAppRows — the storefront cannot offer the Agenity workspace (UAT rows 219/G9)")
+	}
+	// A row that exists but carries no chart is still unsellable: the
+	// provisioner has nothing to install.
+	if got.HelmChart == "" {
+		t.Errorf("agenity is seeded but HelmChart is empty — the funnel would sell an app the provisioner cannot render")
+	}
+	if got.Name == "" || got.Tagline == "" {
+		t.Errorf("agenity is seeded without customer-facing copy (Name=%q Tagline=%q) — it would render as a blank card", got.Name, got.Tagline)
+	}
+
+	// CONTROL: the assertion must be capable of failing. A slug that is NOT
+	// seeded has to come back nil through the same lookup, otherwise the loop
+	// above would "find" anything.
+	for i := range rows {
+		if rows[i].Slug == "definitely-not-a-seeded-app" {
+			t.Fatal("CONTROL FAILED: the lookup matched a slug that is not seeded")
 		}
 	}
 }
