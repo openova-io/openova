@@ -67,7 +67,7 @@ func vclusterRoleNamespaceClient(t *testing.T, vclusterName string) dynamic.Inte
 	// panicking — that lets the Namespace-role fallback path run, which is
 	// the production vCluster-discovery path this test exercises.
 	gvrToListKind := map[schema.GroupVersionResource]string{
-		{Group: "vcluster.io", Version: "v1alpha1", Resource: "vclusters"}: "VClusterList",
+		{Group: "vcluster.com", Version: "v1alpha1", Resource: "vclusters"}: "VClusterList",
 		// #4739: loadVClusters' third source enumerates app=vcluster
 		// StatefulSets. Register the list-kind so the fake returns an empty
 		// list (production: this Sovereign's Namespace-role vclusters win the
