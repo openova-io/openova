@@ -148,6 +148,54 @@ spec:
                   NOEXP)    echo "claude-code credentials.json has no expiresAt — assuming a non-expiring credential." ;;
                   *)        echo "could not parse claude-code OAuth expiry from credentials.json (non-fatal)." ;;
                 esac
+                # ── REVOCATION pre-flight (#6365, UAT rows 220/221/G8) ───────
+                # The expiry check above reads the CLOCK. A REVOKED token can
+                # carry a future expiresAt and still be dead, so it passes every
+                # check here and then 401s at first use. Measured live: the
+                # agent's own terminal returned
+                #   "● Please run /login · API Error: 401 OAuth access token has
+                #    been revoked."
+                # while the workspace reported healthy and the seed printed
+                # "token valid (~Nh remaining)". Presence + unexpiry are not
+                # validity; only the issuer can say.
+                #
+                # UNREACHABLE IS NOT REVOKED, and that distinction is the whole
+                # point. An air-gapped or egress-restricted Sovereign cannot
+                # reach api.anthropic.com, and treating that silence as a bad
+                # credential would refuse to start a workspace whose token is
+                # perfectly good. So ONLY a definitive HTTP 401 is a verdict;
+                # a connection failure is reported as NOT MEASURED and start
+                # continues.
+                {{- /* Resolved by key PRESENCE, never `default`. `false | default true`
+                       yields TRUE — sprig substitutes on FALSY — so a `default`
+                       here would make validateByUse:false unturnoffable. That is
+                       the same trap this repo just fixed in bp-guacamole's
+                       database.enabled, and I reproduced it here on the first
+                       write; the render control caught it. */ -}}
+                {{- $vbu := true -}}
+                {{- if hasKey .Values.anthropic "validateByUse" }}{{- $vbu = .Values.anthropic.validateByUse -}}{{- end -}}
+                if [ "{{ $vbu }}" = "true" ]; then
+                  _tok=$(python3 -c 'import json;print(json.load(open("/claudehome/.claude/.credentials.json")).get("claudeAiOauth",{}).get("accessToken",""))' 2>/dev/null || true)
+                  if [ -n "$_tok" ]; then
+                    _code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+                              -H "Authorization: Bearer $_tok" \
+                              -H "anthropic-version: 2023-06-01" \
+                              https://api.anthropic.com/v1/models 2>/dev/null || echo 000)
+                    case "$_code" in
+                      401) echo "🛑 FATAL (#6365): the issuer REJECTED this credential — api.anthropic.com answered 401. The token is present and unexpired but revoked or otherwise invalid; every agent spawn will fail with 'OAuth access token has been revoked'. Re-seed openbao catalyst/anthropic/token with a fresh credentialsJson (README §Seeding)."
+                           if [ "$_cw_onexpired" = "continue" ]; then
+                             echo "🛑 anthropic.onExpiredCredential=continue — starting anyway; the dashboard will serve but chat will 401."
+                           else
+                             echo "🛑 refusing to start, so this surfaces in kubectl get pod rather than as a healthy Pod that cannot answer."
+                             exit 1
+                           fi ;;
+                      000) echo "credential NOT VALIDATED BY USE — api.anthropic.com was unreachable from this pod (air-gap or egress policy). This is absence of MEASUREMENT, not a bad credential; starting." ;;
+                      *)   echo "credential accepted by the issuer (api.anthropic.com answered ${_code}, i.e. not 401)." ;;
+                    esac
+                  else
+                    echo "credential NOT VALIDATED BY USE — no accessToken field in credentials.json (key-only or non-OAuth credential)."
+                  fi
+                fi
               else
                 # #6163 FREEZE 2. This branch is NOT "key-only mode" — this init
                 # container only renders when `anthropic.credentialsKey` is set,
