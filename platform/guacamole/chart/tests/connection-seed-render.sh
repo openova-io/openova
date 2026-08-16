@@ -45,10 +45,17 @@ if [[ ! -d charts ]] || [[ -z "$(ls -A charts 2>/dev/null)" ]]; then
   }
 fi
 
-# --api-versions is REQUIRED: the seed Job + enroll CronJob are gated on
-# `.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1"`, and without it the
-# render is silently empty and every assertion below "fails" for a reason that
-# has nothing to do with the chart. The vacuity check at the end catches that.
+# --api-versions is still passed here so this file exercises the same shape a
+# converged cluster reports.
+#
+# IT IS NO LONGER REQUIRED, and that is the whole point of case 7 below. The
+# seed Job used to be gated on `.Capabilities.APIVersions.Has
+# "postgresql.cnpg.io/v1"` and THIS FILE ALWAYS SUPPLIED THAT CAPABILITY — so
+# the suite could not observe the one condition under which the producer
+# disappeared. That is a guard testing a surface that cannot fail: every
+# assertion below passed while live hw298 had zero connections, because the
+# render under test was never the render that shipped. The gate is gone
+# (#5991); case 7 pins its absence.
 render() { # render <outfile> [extra --set args…]
   local out="$1"; shift
   helm template bp-guacamole . \
@@ -396,6 +403,48 @@ if grep -q 'catalyst.openova.io/component: jdbc-seed' "${TMP}/default.yaml"; the
   pass "vacuity: the default render did contain the jdbc-seed Job"
 else
   fail "vacuity: no jdbc-seed Job in the default render — assertions above were empty-string comparisons"
+fi
+
+echo "[connection-seed] 7/7 — the producer survives WITHOUT the CNPG api-version"
+# THE CASE THIS SUITE COULD NOT HAVE HAD. `.Capabilities` is evaluated at
+# RENDER time, so when the chart rendered before the CNPG CRD was visible the
+# Job was not skipped-at-runtime — it was ABSENT FROM THE MANIFEST. Being a
+# post-install/post-upgrade hook, no later reconcile re-ran it, so the gap was
+# permanent. Measured on hw298: chart 0.2.41, NEWER than the 0.2.38 that
+# shipped the producer, with an empty ALL CONNECTIONS list.
+helm template bp-guacamole . \
+  --set guacamole.enabled=true \
+  --set guacamole.httproute.hostname=guacamole.test \
+  --set guacamole.oidc.issuer=https://kc.test/realms/c \
+  >"${TMP}/nocap.yaml" 2>"${TMP}/nocap.yaml.err" \
+  || { echo "helm template failed:"; cat "${TMP}/nocap.yaml.err"; exit 1; }
+
+if grep -q 'catalyst.openova.io/component: jdbc-seed' "${TMP}/nocap.yaml"; then
+  pass "seed Job renders without postgresql.cnpg.io/v1 declared"
+else
+  fail "seed Job VANISHES without the CNPG api-version — the #5991 render-time gate is back"
+fi
+for target in sovereign-node cluster-shell; do
+  if grep -q "${target}" "${TMP}/nocap.yaml"; then
+    pass "connection target '${target}' present without the api-version"
+  else
+    fail "connection target '${target}' missing without the api-version"
+  fi
+done
+# CONTROL: the master switch must still suppress it, so case 7 cannot be
+# satisfied by a chart that simply always renders. This also pins the sprig
+# trap — `default true $db.enabled` returns TRUE for an explicit false, so the
+# switch was inert until it was resolved by hasKey.
+helm template bp-guacamole . \
+  --set guacamole.enabled=true \
+  --set guacamole.database.enabled=false \
+  --set guacamole.httproute.hostname=guacamole.test \
+  --set guacamole.oidc.issuer=https://kc.test/realms/c \
+  >"${TMP}/dboff.yaml" 2>/dev/null || true
+if grep -q 'catalyst.openova.io/component: jdbc-seed' "${TMP}/dboff.yaml"; then
+  fail "CONTROL: database.enabled=false still rendered the seed Job — the master switch is inert"
+else
+  pass "CONTROL: database.enabled=false suppresses the seed Job"
 fi
 
 if [[ "${fails}" -gt 0 ]]; then

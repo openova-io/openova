@@ -136,7 +136,19 @@ helm template bp-guacamole . \
 # in ALL CONNECTIONS and then hang on click. tests/connection-seed-
 # render.sh asserts that policy's CONTENT and carries the control that
 # it does NOT render when no mTLS connection is declared.
-expect_total=14
+# 14 -> 17 (#5991). The three added objects are the jdbc-seed ConfigMap + Job
+# and the admin-enroll CronJob. They were ALWAYS meant to be in this bundle;
+# they were absent because the whole seed template was gated on a RENDER-TIME
+# `.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1"`, and this script does
+# not pass --api-versions. So the old expectation of 14 was calibrated against
+# the buggy render — the count encoded the defect, which is why a guard that
+# counts can ratify a bug as the norm.
+#
+# The live consequence of that gate: a Sovereign whose chart rendered before
+# the CNPG CRD was visible got NO seed Job at all, and since it is a
+# post-install hook it never re-ran, so `guacamole_connection` stayed empty
+# forever while the admin looked healthy (UAT row 115).
+expect_total=17
 got_total="$(grep -cE '^kind:' "$render_on")"
 if [[ "$got_total" != "$expect_total" ]]; then
   echo "FAIL: full-ON (header mode) rendered $got_total resources, want $expect_total"
@@ -224,7 +236,8 @@ helm template bp-guacamole . \
 # 14 → 15 in 0.2.40 (#5991): the guacd egress NetworkPolicy. It is keyed
 # on the mTLS connection being declared, NOT on the SSO mode, so it
 # renders in both modes — guacd dials bp-k8s-ws-proxy either way.
-expect_legacy=15
+# 15 -> 18 (#5991): same three seed objects as the full-ON case above.
+expect_legacy=18
 got_legacy="$(grep -cE '^kind:' "$render_legacy")"
 if [[ "$got_legacy" != "$expect_legacy" ]]; then
   echo "FAIL: legacy openid mode rendered $got_legacy resources, want $expect_legacy"
