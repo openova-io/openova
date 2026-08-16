@@ -42,14 +42,44 @@ DB-direct via the CNPG <cluster>-app Secret (host/port/dbname/user/password).
 enableSuperuserAccess on the Cluster is for the schema DDL; the app owner here
 owns the objects it creates, so the app credential suffices for the seed.
 
-Skip-render: guacamole.enabled=false, database.enabled=false, or the
-postgresql.cnpg.io CRD absent.
+Skip-render: guacamole.enabled=false, or database.enabled=false.
+
+NOT skip-render, deliberately: the presence of the postgresql.cnpg.io CRD.
+That probe used to be a third condition here and it silently deleted this
+whole file — schema seed, admin group, AND the connection producer — whenever
+the chart happened to render before the CNPG CRD was visible. Measured on
+hw298 (UAT row 115, #5991): guacamole came up Ready on chart 0.2.41, which is
+NEWER than the 0.2.38 that shipped the producer, and `guacamole_connection`
+was still empty. `.Capabilities` is evaluated at RENDER time, so a bootstrap
+ordering race does not produce a Job that waits — it produces no Job at all.
+Because these objects are `post-install,post-upgrade` HOOKS, a later reconcile
+that changes nothing never re-runs them, so the gap is permanent rather than
+self-healing.
+
+Reproduced deterministically before removing it:
+  helm template … --api-versions "postgresql.cnpg.io/v1"  -> seed Job renders
+  helm template …                                          -> ZERO seed lines
+
+The probe also bought nothing: the CNPG CRD is a bootstrap-kit invariant, and
+when it is genuinely late the seeder already waits — wait_for_db() retries
+until the CNPG `<cluster>-app` Secret and the database answer. Losing the
+manifest is strictly worse than waiting for the database.
 */ -}}
 {{- $db := .Values.guacamole.database | default dict -}}
 {{- $cl := $db.cluster | default dict -}}
+{{- /* The database master switch, resolved the SAFE way. `default true
+   $db.enabled` is wrong for an explicit false: sprig's `default` substitutes
+   whenever the value is FALSY, and `false` is falsy, so `default true false`
+   yields TRUE and `database.enabled: false` never disabled anything. That
+   latent bug sat masked behind the CNPG capability probe removed above — with
+   the probe gone it became load-bearing, so it is resolved by key PRESENCE
+   here, matching how this same file already resolves the connection switches
+   below (`hasKey $conn "enabled"`). */ -}}
+{{- $dbEnabled := true -}}
+{{- if hasKey $db "enabled" }}{{- $dbEnabled = $db.enabled -}}{{- end -}}
 {{- /* #5358: seeds + enrols against the local CNPG store, which only the
    crossRegion `primary` region renders. */ -}}
-{{- if and (include "bp-guacamole.renderWorkloads" .) (default true $db.enabled) (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
+{{- if and (include "bp-guacamole.renderWorkloads" .) $dbEnabled }}
 {{- $name := $cl.name | default "guacamole-pg" -}}
 {{- $appSecret := $db.appSecretName | default (printf "%s-app" $name) -}}
 {{- $adminGroup := $db.adminGroup | default "sovereign-admins" -}}
