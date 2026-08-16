@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-16T15:30:04Z` |
+| Last refreshed | `2026-08-16T15:45:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-16T15:32 | [#6371](https://github.com/openova-io/openova/pull/6371) | #6370 | fix(topology): loadVClusters queried the non-existent group  |
+| 2026-08-16T15:32 | [#6368](https://github.com/openova-io/openova/pull/6368) | #6367 | fix(provisioning): every purchased app sat at SourceNotReady |
+| 2026-08-16T15:32 | [#6366](https://github.com/openova-io/openova/pull/6366) | #6360 | feat(catalog): sell bp-agenity in the storefront — a Bluepri |
 | 2026-08-16T12:15 | [#6363](https://github.com/openova-io/openova/pull/6363) | #5991 | fix(bp-guacamole): connection producer was deleted at render |
 | 2026-08-16T07:22 | [#6361](https://github.com/openova-io/openova/pull/6361) | #6357 | docs(uat): re-walk 15 hw296-carried rows on live hw298 — 8 h |
 | 2026-08-16T04:43 | [#6358](https://github.com/openova-io/openova/pull/6358) | #6356 | docs(ledger): convergence capture 2026-08-16T00:29Z — hw298  |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-08-14T08:37 | [#6316](https://github.com/openova-io/openova/pull/6316) | #6314 | fix(agenity): per-Org oidc-gate issuer must name the Soverei |
 | 2026-08-14T06:55 | [#6315](https://github.com/openova-io/openova/pull/6315) | #6090 | docs(uat): close four hw296 partials — 242 proven by live PO |
 | 2026-08-14T07:38 | [#6313](https://github.com/openova-io/openova/pull/6313) | #6153 | fix(wizard): step 1 still pre-fills the fabricated company's |
-| 2026-08-14T07:11 | [#6310](https://github.com/openova-io/openova/pull/6310) | #3988 | docs(uat): row 222 — quota is NOT the only obstacle; a secon |
-| 2026-08-14T05:05 | [#6308](https://github.com/openova-io/openova/pull/6308) | #3526 | docs(uat): hw296 cutover driven to step 11 — G11 refuted the |
-| 2026-08-14T04:30 | [#6305](https://github.com/openova-io/openova/pull/6305) | #6197 | docs(uat): re-walk the 26 invalidated SSO rows live on hw296 |
 
 ---
 
