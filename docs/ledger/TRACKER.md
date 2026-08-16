@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-16T07:45:02Z` |
+| Last refreshed | `2026-08-16T08:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -309,6 +309,7 @@ flowchart LR
 |---|---|---|---|
 | 2026-08-16T07:22 | [#6361](https://github.com/openova-io/openova/pull/6361) | #6357 | docs(uat): re-walk 15 hw296-carried rows on live hw298 — 8 h |
 | 2026-08-16T04:43 | [#6358](https://github.com/openova-io/openova/pull/6358) | #6356 | docs(ledger): convergence capture 2026-08-16T00:29Z — hw298  |
+| 2026-08-16T07:49 | [#6357](https://github.com/openova-io/openova/pull/6357) | #6356 | fix(cutover): re-seed the status ConfigMap when empty — reso |
 | 2026-08-15T20:29 | [#6355](https://github.com/openova-io/openova/pull/6355) | #6354 | docs(uat): switch ledger to hw298 + stamp 227/G2/109/W5 on m |
 | 2026-08-15T20:43 | [#6353](https://github.com/openova-io/openova/pull/6353) | #6352 | fix(provisioning): funnel path can now render bp-agenity — D |
 | 2026-08-15T18:06 | [#6351](https://github.com/openova-io/openova/pull/6351) | #6314 | docs(uat): row 219 re-walked on a real customer Organization |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-14T05:05 | [#6308](https://github.com/openova-io/openova/pull/6308) | #3526 | docs(uat): hw296 cutover driven to step 11 — G11 refuted the |
 | 2026-08-14T04:30 | [#6305](https://github.com/openova-io/openova/pull/6305) | #6197 | docs(uat): re-walk the 26 invalidated SSO rows live on hw296 |
 | 2026-08-14T04:04 | [#6303](https://github.com/openova-io/openova/pull/6303) | #5436 | fix(cutover): step-06 pivots the org-tenants HelmRepository  |
-| 2026-08-14T03:26 | [#6302](https://github.com/openova-io/openova/pull/6302) | #6301 | docs(uat): row 60 — the second producer gap is FIXED and mer |
 
 ---
 
