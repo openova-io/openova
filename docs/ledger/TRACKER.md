@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-16T07:15:02Z` |
+| Last refreshed | `2026-08-16T07:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -299,7 +299,7 @@ flowchart LR
 | [#6352](https://github.com/openova-io/openova/issues/6352) | per-Org GitOps tree is missing four emitters — bp-agenity (Pillar 4), bp-keycl | Other |
 | [#6356](https://github.com/openova-io/openova/issues/6356) | helm.sh/resource-policy: keep makes the cutover status ConfigMap unrepairable � | Other |
 | [#6360](https://github.com/openova-io/openova/issues/6360) | Post-cutover Sovereign sells marketplace apps it cannot install — proxy-docker | Other |
-| [#6362](https://github.com/openova-io/openova/issues/6362) | MCP accepts no identity on a converged Sovereign — owner's own OIDC token reje | Other |
+| [#6362](https://github.com/openova-io/openova/issues/6362) | MCP accepts only handover-signed bearers — a signed-in User cannot reach it; r | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-16T07:22 | [#6361](https://github.com/openova-io/openova/pull/6361) | #6357 | docs(uat): re-walk 15 hw296-carried rows on live hw298 — 8 h |
 | 2026-08-16T04:43 | [#6358](https://github.com/openova-io/openova/pull/6358) | #6356 | docs(ledger): convergence capture 2026-08-16T00:29Z — hw298  |
 | 2026-08-15T20:29 | [#6355](https://github.com/openova-io/openova/pull/6355) | #6354 | docs(uat): switch ledger to hw298 + stamp 227/G2/109/W5 on m |
 | 2026-08-15T20:43 | [#6353](https://github.com/openova-io/openova/pull/6353) | #6352 | fix(provisioning): funnel path can now render bp-agenity — D |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-14T04:30 | [#6305](https://github.com/openova-io/openova/pull/6305) | #6197 | docs(uat): re-walk the 26 invalidated SSO rows live on hw296 |
 | 2026-08-14T04:04 | [#6303](https://github.com/openova-io/openova/pull/6303) | #5436 | fix(cutover): step-06 pivots the org-tenants HelmRepository  |
 | 2026-08-14T03:26 | [#6302](https://github.com/openova-io/openova/pull/6302) | #6301 | docs(uat): row 60 — the second producer gap is FIXED and mer |
-| 2026-08-14T03:21 | [#6301](https://github.com/openova-io/openova/pull/6301) | #6291 | fix(catalyst-api): resolve the DR standby half ACROSS region |
 
 ---
 
