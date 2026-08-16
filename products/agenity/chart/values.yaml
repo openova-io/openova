@@ -87,6 +87,25 @@ anthropic:
   # solo agent can call Claude. Empty = key-only mode (only works for a real
   # sk-ant-api03 API key, which the OAuth journey does not use).
   credentialsKey: credentialsJson
+  # ── Validate the credential BY USE, not just by presence + clock (#6365) ──
+  # The seed already waits for the credential (#6163 FREEZE 2) and refuses an
+  # EXPIRED one (FREEZE 3). Neither catches a REVOKED token: revocation leaves
+  # expiresAt in the future, so the blob is present, non-empty and unexpired,
+  # and the workspace comes up healthy while every agent spawn answers
+  # "401 OAuth access token has been revoked" (measured live, UAT rows
+  # 220/221/G8 — the agent said it in its own terminal while the seed logged
+  # "token valid").
+  #
+  # With this on, the seed asks the ONLY authority that can answer — the issuer
+  # — with one cheap authenticated GET. A definitive 401 is a verdict and is
+  # handled by anthropic.onExpiredCredential (fail|continue). An UNREACHABLE
+  # api.anthropic.com is explicitly NOT a verdict: an air-gapped Sovereign
+  # reports "NOT VALIDATED BY USE" and starts, because silence is absence of
+  # measurement, not evidence of a bad credential.
+  #
+  # Set false on a Sovereign that mirrors Anthropic behind an in-cluster proxy
+  # where the probe URL would not resolve.
+  validateByUse: true
   # #6163 FREEZE 2 — the seed init container WAITS for the credential instead
   # of reading the mount once and asserting whatever it saw.
   #
