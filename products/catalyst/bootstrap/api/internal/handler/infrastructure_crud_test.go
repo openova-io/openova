@@ -68,12 +68,12 @@ func xrcListKinds() map[schema.GroupVersionResource]string {
 		mk("pvcclaims"):        "PVCClaimList",
 	}
 	// The DELETE handler calls infrastructure.Load to compute the
-	// cascade preview, which queries vcluster.io/v1alpha1/vclusters
+	// cascade preview, which queries vcluster.com/v1alpha1/vclusters
 	// and core/v1/persistentvolumeclaims. Register those kinds with
 	// the fake client so List doesn't panic on "unregistered list
 	// kind". Production hits a real apiserver that either has the
 	// CRD or returns 404 — both code paths return gracefully.
-	out[schema.GroupVersionResource{Group: "vcluster.io", Version: "v1alpha1", Resource: "vclusters"}] = "VClusterList"
+	out[schema.GroupVersionResource{Group: "vcluster.com", Version: "v1alpha1", Resource: "vclusters"}] = "VClusterList"
 	out[schema.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumeclaims"}] = "PersistentVolumeClaimList"
 	return out
 }

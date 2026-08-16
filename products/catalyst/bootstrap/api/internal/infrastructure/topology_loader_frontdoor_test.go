@@ -54,7 +54,7 @@ func liveNodeClient(t *testing.T, providerID string) dynamic.Interface {
 		Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}},
 	}
 	gvrToListKind := map[schema.GroupVersionResource]string{
-		{Group: "vcluster.io", Version: "v1alpha1", Resource: "vclusters"}: "VClusterList",
+		{Group: "vcluster.com", Version: "v1alpha1", Resource: "vclusters"}: "VClusterList",
 	}
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, cp, worker)
 }

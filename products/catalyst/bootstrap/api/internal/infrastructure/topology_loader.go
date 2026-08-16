@@ -8,7 +8,7 @@
 //
 //  2. The live Sovereign cluster's dynamic informer cache — populated
 //     by the helmwatch.Watcher attached to this deployment. Reads
-//     vcluster.io/v1alpha1 VClusters when the operator is installed
+//     vcluster.com/v1alpha1 VClusters when the operator is installed
 //     plus core/v1 PVCs from the live cluster.
 //
 //  3. The Crossplane managed-resource list — surfaces XRCs the
@@ -899,7 +899,7 @@ func buildNetworks(ctx context.Context, in LoaderInput, rs provisioner.RegionSpe
 	}}
 }
 
-// loadVClusters — query the Sovereign cluster's vcluster.io/v1alpha1
+// loadVClusters — query the Sovereign cluster's vcluster.com/v1alpha1
 // CRs. Returns an empty slice when the operator isn't installed
 // (Crd doesn't exist) or when no vclusters have been provisioned.
 //
@@ -918,14 +918,33 @@ func loadVClusters(ctx context.Context, in LoaderInput) (out []VCluster) {
 		return out
 	}
 
-	// First-source: vcluster.io/v1alpha1 VCluster CRs. Returned when the
+	// First-source: vcluster.com/v1alpha1 VCluster CRs. Returned when the
 	// vcluster-platform / loft-platform operator is installed (provides
 	// a VCluster CRD that aggregates pod+service+secret behind a single
-	// resource). Our bootstrap topology ships loft-sh/vcluster as a
-	// plain Helm chart (StatefulSet+Service, no CRD), so the CR list
-	// is empty on a converged Sovereign.
+	// resource).
+	//
+	// #6370 — the group here read `vcluster.io`, which exists NOWHERE. The
+	// CRD actually installed is `vclusters.vcluster.com` (measured on hw299:
+	// 374 CRDs, `vclusters.vcluster.com` present), and k8scache/kinds.go has
+	// always registered the correct `vcluster.com`. This lister therefore
+	// queried a group that does not exist and got an empty list every time,
+	// on every Sovereign, forever.
+	//
+	// What made it survive review is the comment that used to sit here: it
+	// asserted the chart ships "no CRD", so an empty list looked like the
+	// expected result and nobody questioned the group. That claim is false —
+	// the CRD IS installed. What is true is narrower: our bootstrap ships
+	// loft-sh/vcluster as a plain Helm chart (StatefulSet+Service), so no
+	// VCluster CRs are CREATED and the list is legitimately empty today.
+	//
+	// Both facts matter. The empty list is currently correct, but it was
+	// correct by accident: with the wrong group this lister could never report
+	// a vcluster even once the platform operator starts creating CRs. Callers
+	// must keep treating an empty CR list as "no CRs", NOT as "no vclusters" —
+	// a running vcluster is a StatefulSet (hw299: `mailwalk/vcluster` ready
+	// 1/1 while this list was empty).
 	gvr := schema.GroupVersionResource{
-		Group:    "vcluster.io",
+		Group:    "vcluster.com",
 		Version:  "v1alpha1",
 		Resource: "vclusters",
 	}
@@ -955,7 +974,7 @@ func loadVClusters(ctx context.Context, in LoaderInput) (out []VCluster) {
 	// per vCluster instance — name = label value (mgmt/dmz/rtz).
 	// Caught on t129 2026-05-16: canvas chip showed `vCluster 0/0`
 	// despite vCluster Pods Running because the CR-first path returned
-	// empty (no vcluster.io CRD) and there was no fallback. Refs DoD D15.
+	// empty (no VCluster CRs) and there was no fallback. Refs DoD D15.
 	nsGVR := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "namespaces"}
 	nsCtx, nsCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer nsCancel()

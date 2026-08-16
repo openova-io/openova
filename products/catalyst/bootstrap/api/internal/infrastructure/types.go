@@ -127,7 +127,7 @@ type Cluster struct {
 	Nodes         []Node         `json:"nodes"`
 }
 
-// VCluster — a vcluster.io v1alpha1 virtual cluster running on the
+// VCluster — a vcluster.com v1alpha1 virtual cluster running on the
 // host cluster. Used by Catalyst's DMZ / RTZ / MGMT building-block
 // layout. Populated only when the vcluster operator is installed AND
 // at least one VCluster CR exists; otherwise the slice is empty.

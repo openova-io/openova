@@ -837,7 +837,7 @@ func (h *Handler) PatchInfrastructureCluster(w http.ResponseWriter, r *http.Requ
 
 // PatchInfrastructureVCluster — PATCH .../vclusters/{id}
 //
-// vClusters are K8s-native (vcluster.io/v1alpha1/vclusters) per
+// vClusters are K8s-native (vcluster.com/v1alpha1/vclusters) per
 // ADR-0001 §9.2 row B3. catalyst-api still wraps the call through
 // the same submitMutation pipe, but the XRC kind it submits is the
 // VClusterClaim — the third-sibling Composition is the one that
