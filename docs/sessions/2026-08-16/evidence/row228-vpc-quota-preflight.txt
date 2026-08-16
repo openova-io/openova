@@ -1,0 +1,37 @@
+UAT row 228 — re-prov AFTER a wipe does not false-fail on orphaned catalyst-* VPCs
+Walked 2026-08-16 on hw299.omantel.biz (dep e13300fc41a33a57).
+
+The prior 2-region deployment (dep 2540d866403f1f7c) was wiped to status=wiped,
+then this deployment was fired immediately on the same region me-east-215-a.
+
+Verbatim, from the provisioner's own event stream:
+
+  HCS VPC quota: used 1 / 5, requesting 2
+
+  huaweicloud_vpc.region["me-east-215-a"]: Creation complete after 7s
+      [id=5b10aaf6-0304-43fe-9443-4d3f30995f54]
+  huaweicloud_vpc.region["me-east-215-b"]: Creation complete after 6s
+      [id=0018438a-c7f8-45e8-b5c6-777ff751c8ba]
+
+  "phase1Outcome":"ready"
+  "status":"ready"        (09:03:30Z)
+
+WHY used=1 IS THE PROOF. The wiped deployment held TWO VPCs. Had they leaked,
+the pre-flight would have read used 3/5 and the request for 2 more would have
+collided against the 5-VPC ceiling. It read 1/5 — the orphans were swept BEFORE
+this prov allocated its network, which is precisely what the row asserts.
+
+Searched the whole stream for the failure shapes the row names:
+  "VPC already exists"   0 matches
+  quota-conflict         0 matches
+
+ONE error-shaped line exists and is named rather than filtered: a transient
+Flux helmrelease reconciler retry on powerdns at 08:35:28Z ("failed to wait for
+object to sync in-cache after patching"). That is convergence noise, not a
+provisioning failure; the deployment reached ready regardless.
+
+Doors at walk time, all 200:
+  https://console.hw299.omantel.biz/
+  https://marketplace.hw299.omantel.biz/
+  https://api.hw299.omantel.biz/healthz
+TLS leaf: subject=CN=hw299.omantel.biz  issuer=C=US, O=Let's Encrypt, CN=YR1
