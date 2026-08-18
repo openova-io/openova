@@ -393,11 +393,34 @@ func handleNATSMsg(ctx context.Context, msg jetstream.Msg, handler func(*Event) 
 	_ = hctx
 
 	if err := handler(&event); err != nil {
+		// #6464 — a FIXED 5s nak is what turns one refusal into a storm.
+		//
+		// MEASURED on the mothership 2026-08-18: Stalwart logged
+		// smtp.rate-limit-exceeded (id="sender", limit=[25, 3600000ms]) for
+		// noreply@openova.io continuously, with send attempts landing every
+		// 2-3 seconds. A 25/hour budget is consumed in about a minute and then
+		// stays exhausted, so PIN sign-in was dead FLEET-WIDE — no customer
+		// could obtain a code on any Sovereign.
+		//
+		// Mechanism: every mail handler here returns the send error, this nak
+		// re-queues at a CONSTANT 5s, and the stream's MaxDeliver is -1
+		// (infinite). A message that can never succeed — an "app is ready"
+		// notification whose recipient quota is spent — therefore retries
+		// forever at a fixed rate, and a handful of them in flight aggregate
+		// into the 2-3s cadence observed. The retry rate never decays no
+		// matter how long the downstream stays refusing.
+		//
+		// Exponential backoff off NumDelivered lets a genuinely transient blip
+		// still recover fast (first retry still ~5s) while a sustained refusal
+		// decays to minutes instead of hammering. Capped so redelivery stays
+		// well inside any operator's patience for a real transient.
+		delay := nakBackoff(msg)
 		slog.Warn("multi-subscriber: handler returned error — nak for retry",
 			"group", group, "subject", subject,
 			"event_id", event.ID, "event_type", event.Type,
+			"nak_delay", delay.String(),
 			"error", err)
-		if nakErr := msg.NakWithDelay(5 * time.Second); nakErr != nil {
+		if nakErr := msg.NakWithDelay(delay); nakErr != nil {
 			slog.Error("multi-subscriber: nak failed",
 				"group", group, "subject", subject, "error", nakErr)
 		}
@@ -443,4 +466,42 @@ func (m *MultiSubscriber) Close() {
 	if m.kafka != nil {
 		m.kafka.Close()
 	}
+}
+
+// nakBackoff returns the redelivery delay for a failed handler, growing
+// exponentially with JetStream's own delivery counter (#6464).
+//
+//	attempt 1 -> 5s    2 -> 10s   3 -> 20s   4 -> 40s   5 -> 80s ... capped
+//
+// WHY THIS IS NOT A CONSTANT. A fixed delay means the retry rate never
+// decays, so a downstream that is refusing for a structural reason — a
+// spent per-sender mail quota, an expired credential — is hammered at the
+// same cadence forever. Combined with MaxDeliver:-1 that is an unbounded
+// hot loop with a 5-second period, which is exactly what held the
+// noreply@ 25/hour budget at zero and killed PIN sign-in fleet-wide.
+//
+// The first retry is unchanged at 5s, so a genuine transient blip still
+// recovers as quickly as before; only sustained failure decays.
+//
+// If the metadata cannot be read we fall back to the base delay rather
+// than to zero. An unreadable counter must not silently reinstate the
+// constant-rate behaviour this function exists to remove — and it must
+// never produce a TIGHTER loop than the old code.
+func nakBackoff(msg jetstream.Msg) time.Duration {
+	const (
+		base = 5 * time.Second
+		max  = 5 * time.Minute
+	)
+	md, err := msg.Metadata()
+	if err != nil || md == nil || md.NumDelivered < 1 {
+		return base
+	}
+	d := base
+	for i := uint64(1); i < md.NumDelivered; i++ {
+		d *= 2
+		if d >= max {
+			return max
+		}
+	}
+	return d
 }
