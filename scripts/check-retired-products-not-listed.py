@@ -29,6 +29,7 @@ REPO = Path(__file__).resolve().parent.parent
 # when something is withdrawn — the guard then enforces it across every catalog.
 RETIRED = {
     "sandbox": "Sandbox concept removed 2026-06-30; superseded by agenity + openova-mcp",
+    "qa-app": "QA fixture — never customer-facing; was listed AND unseeded (#6475)",
 }
 
 # The catalogs the storefront and console actually read. The catalog-seed is

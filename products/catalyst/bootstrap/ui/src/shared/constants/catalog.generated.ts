@@ -4404,7 +4404,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "category": "testing",
     "tagline": null,
     "tags": [],
-    "visibility": "listed",
+    "visibility": "unlisted",
     "version": "0.1.0",
     "section": "pts-qa",
     "depends": [],
