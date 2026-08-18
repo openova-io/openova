@@ -288,7 +288,31 @@ data:
                 continue ;;
             esac
             printf '%s\n' "${_ci_ref}"
-          done | sort -u
+          done | sort -u > "${_ci_dir}/.catalog-images.$$"
+      {{- /*
+       #6360 — a chart that renders CLEANLY and declares ZERO images is the
+       silent case. Every rejection above `continue`s with a WARN, so a skipped
+       ref is visible; a chart that simply contributes nothing is not. It
+       returns success and adds no rows, which is indistinguishable downstream
+       from a chart whose images were all already cached.
+
+       That is how a post-cutover Sovereign came to SELL uptime-kuma and then
+       fail to install it: prewarm reported no missing images because it had
+       enumerated none. A marketplace Blueprint chart that renders an
+       Application/HelmRelease CR rather than a pod spec legitimately has no
+       `image:` scalar — the workload ref only materialises when the app's own
+       chart renders later, which is after the upstream has been severed.
+
+       This does not guess at the missing ref. It makes the zero VISIBLE, so
+       the A3 guard and the operator can tell "nothing to mirror" apart from
+       "nothing was measured" — the distinction the deny-set and catalog-seed
+       defects both turned on.
+      */}}
+      if [ ! -s "${_ci_dir}/.catalog-images.$$" ]; then
+        echo "[catalog-set] WARN: ${_ci_tgz##*/} rendered OK but declared ZERO addressable images — nothing will be prewarmed for it. If this chart is a customer-visible (visibility: listed) Blueprint, its workload image is composed downstream and prewarm cannot see it; the app will ImagePullBackOff once upstream is severed (#6360)." >&2
+      fi
+      cat "${_ci_dir}/.catalog-images.$$"
+      rm -f "${_ci_dir}/.catalog-images.$$"
       rm -f "${_ci_out}" "${_ci_err}"
       return 0
     }
