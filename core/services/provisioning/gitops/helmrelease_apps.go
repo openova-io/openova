@@ -841,6 +841,36 @@ spec:
     networkPolicy:
       ingress:
         allowGatewayEntity: true
+    # ── #6372 — the credential the solo agent cannot start without ──────────
+    # MEASURED on hw299: bp-agenity-0 sat Pending indefinitely on its
+    # seed-claude-creds init container, which waits up to
+    # credentialWait.timeoutSeconds for /creds/<credentialsKey> to be
+    # non-empty and then fails by design (#6163). The Secret behind that
+    # mount is declared optional:true, so the pod schedules, the mount stays
+    # empty, and the workspace never comes up.
+    #
+    # This generator emitted NO anthropic block at all, so nothing ever
+    # materialised the Secret on the FUNNEL path. The BSS door has always
+    # shipped it (organization_gitops.go orgTenantBPAgenity) — the two doors
+    # simply disagreed, which is why a funnel-born Org could never run the
+    # agent even though a BSS-born Org was wired for it.
+    #
+    # Mirrored verbatim from the BSS door so the doors cannot drift again.
+    # The chart's externalsecret-anthropic.yaml reads
+    # secret/catalyst/anthropic/token — the path the catalyst-api producer
+    # (seedAnthropicToken, #4277) writes at Org-create. It MUST stay under
+    # the catalyst/ prefix: that is the only KV sub-tree a Sovereign can
+    # WRITE (catalyst-api-write policy); the external-secrets role used by
+    # vault-region1 is read-only. The path is cluster-shared — one seed
+    # serves every Org's agenity install.
+    anthropic:
+      externalSecret:
+        enabled: true
+        secretStoreRef: vault-region1
+        secretStoreKind: ClusterSecretStore
+        remoteKey: catalyst/anthropic/token
+        remoteProperty: apiKey
+        remoteCredentialsProperty: credentialsJson
 `, helmRepoBlock("bp-agenity"), opt.slug, opt.slug, opt.kubeConfigBlock(),
 		orgZone, opt.slug, issuerHostLine, host)
 }
