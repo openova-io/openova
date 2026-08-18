@@ -90,8 +90,25 @@ spec:
               # still running — that is what lets a late credential land with no
               # restart. Retrying here also survives an init-container restart,
               # because each attempt re-reads the mount rather than a snapshot.
-              _cw_timeout={{ (.Values.anthropic.credentialWait).timeoutSeconds | default 300 }}
-              _cw_interval={{ (.Values.anthropic.credentialWait).intervalSeconds | default 5 }}
+              {{- /* #6374 — these two are NUMBERS, so `default` is the wrong
+                     resolver: sprig substitutes on any FALSY value and 0 is
+                     falsy, so `timeoutSeconds: 0` rendered as 300 and
+                     `intervalSeconds: 0` rendered as 5. An operator asking for
+                     "do not wait, fail immediately if the credential is absent"
+                     silently got a 5-minute wait instead — the value was
+                     accepted, echoed back in the log line below as 300, and
+                     never applied. Same trap as the bp-guacamole render gate
+                     (#5991): `false | default true` yields true.
+                     Resolve by KEY PRESENCE. onTimeout stays on `default`
+                     because "" is not a meaningful setting for it — an empty
+                     verdict SHOULD fall back to fail. */ -}}
+              {{- $cw := .Values.anthropic.credentialWait | default dict -}}
+              {{- $cwTimeout := 300 -}}
+              {{- if hasKey $cw "timeoutSeconds" }}{{- $cwTimeout = $cw.timeoutSeconds -}}{{- end -}}
+              {{- $cwInterval := 5 -}}
+              {{- if hasKey $cw "intervalSeconds" }}{{- $cwInterval = $cw.intervalSeconds -}}{{- end }}
+              _cw_timeout={{ $cwTimeout }}
+              _cw_interval={{ $cwInterval }}
               _cw_ontimeout='{{ (.Values.anthropic.credentialWait).onTimeout | default "fail" }}'
               # #6163 FREEZE 3 — verdict for a credential that IS present but is
               # already expired. Same fail|continue vocabulary as onTimeout,
