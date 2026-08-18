@@ -25,7 +25,7 @@ spec:
     tags: [qa, test, nginx, fixture]
     documentation: https://docs.openova.io/qa/qa-app
     license: Apache-2.0
-  visibility: listed
+  visibility: unlisted
   owner:
     team: platform
     contact: catalyst@openova.io
