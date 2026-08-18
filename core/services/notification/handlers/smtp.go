@@ -437,23 +437,61 @@ func (m *Mailer) nowFn() time.Time {
 	return time.Now()
 }
 
-// isRateLimit reports whether err is Stalwart's "503 5.5.1" rate-limit
-// response. net/smtp surfaces SMTP-level errors as *textproto.Error,
-// but legacy code paths (and some auth-failure branches in net/smtp
-// itself) wrap the wire response in a plain error.New, so we also fall
-// back to a substring match against the canonical 5.5.1 enhanced code.
+// isRateLimit reports whether err is a Stalwart rate-limit response.
+// net/smtp surfaces SMTP-level errors as *textproto.Error, but legacy
+// code paths (and some auth-failure branches in net/smtp itself) wrap
+// the wire response in a plain error.New, so we also fall back to
+// substring matches against the canonical enhanced codes.
+//
+// #6464 — this used to match ONLY "503 5.5.1", which is the code
+// Stalwart returns when submission is refused BEFORE authentication.
+// The per-sender quota trips a DIFFERENT code:
+//
+//	Rate limit exceeded (smtp.rate-limit-exceeded)
+//	  id = "sender"  limit = [25, 3600000ms]
+//	  accountName = "noreply@openova.io"
+//
+// which reaches the client as **452** ("insufficient system storage",
+// RFC 5321 §4.2.1 — the transient mailbox-side refusal Stalwart reuses
+// for throttling). A 452 therefore failed isRateLimit, took the
+// "non-rate-limit errors are not retried" branch, and returned to the
+// caller immediately — bypassing BOTH the exponential backoff AND the
+// circuit breaker that exist precisely to stop this.
+//
+// The consumer then re-queued and re-sent, producing a sustained
+// 2-3 second storm (measured on the mothership 2026-08-18T09:42Z:
+// attempts at :04 :08 :10 :13 :15 :19 :21 :23). A 25/hour budget is
+// consumed in about a minute and then stays exhausted, so PIN sign-in
+// was dead fleet-wide — no customer could obtain a code anywhere.
+//
+// Matching 452 restores the intended behaviour: back off exponentially,
+// and open the breaker after defaultBreakerTrip consecutive refusals
+// instead of hammering an upstream that has already said "slow down".
 func isRateLimit(err error) bool {
 	if err == nil {
 		return false
 	}
 	var te *textproto.Error
 	if errors.As(err, &te) {
+		// 503 5.5.1 — refused before AUTH (pre-existing case).
 		if te.Code == 503 && strings.Contains(te.Msg, "5.5.1") {
+			return true
+		}
+		// 452 — per-sender / per-recipient quota exhausted (#6464).
+		// Match on the code alone: Stalwart's message text for this
+		// path is not stable across versions, and every 452 is by
+		// definition a TRANSIENT refusal that must be retried with
+		// backoff rather than surfaced as a hard failure.
+		if te.Code == 452 {
 			return true
 		}
 	}
 	msg := err.Error()
 	// Match both "503 5.5.1 ..." and "503-5.5.1 ..." (multiline reply
-	// continuation form per RFC 5321).
-	return strings.Contains(msg, "503 5.5.1") || strings.Contains(msg, "503-5.5.1")
+	// continuation form per RFC 5321), plus the 452 equivalents for
+	// the wrapped-in-plain-error paths.
+	return strings.Contains(msg, "503 5.5.1") ||
+		strings.Contains(msg, "503-5.5.1") ||
+		strings.Contains(msg, "452 ") ||
+		strings.Contains(msg, "452-")
 }
