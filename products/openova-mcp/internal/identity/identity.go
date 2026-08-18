@@ -417,6 +417,30 @@ func (r *Resolver) fromClaims(claims *sharedauth.Claims) (*Identity, error) {
 		if r.pinnedCtx == ContextSovereign && id.Context == ContextOrganization {
 			return nil, fmt.Errorf("identity: this Sovereign-mode MCP instance requires a sovereign-admin session; the caller's token is scoped to organization %q — use that Organization's own MCP instance instead", id.OrgID)
 		}
+		// #6369 — the guard ABOVE asserts "requires a sovereign-admin
+		// session" but only ever tested CONTEXT, never admin-ness, and
+		// context is not a proxy for it. deriveContext returns
+		// ContextSovereign for ANY token whose issuer ends /realms/sovereign
+		// once org_id is absent — tier is never consulted on that branch. So
+		// an ordinary signed-in console session (tier=owner,
+		// sovereign_admin=false, org_id="") derived ContextSovereign, passed
+		// the check whose message promised admin-only, and reached the
+		// Sovereign-wide tool surface.
+		//
+		// MEASURED on hw299 with exactly such a session: list_applications
+		// returned 11 applications across 6 namespaces including another
+		// Organization's; get_application read that Org's app in full; and
+		// create_application CREATED an Application inside it (HTTP 201).
+		// Nothing downstream denied, because with org_id empty every
+		// org-scoping comparison has no left-hand side and cannot fail.
+		//
+		// Assert the property the message already claims. A Sovereign-mode
+		// instance serves sovereign-admins only; everything else is refused
+		// here rather than being handed a fleet-wide surface it can never be
+		// scoped out of.
+		if r.pinnedCtx == ContextSovereign && id.Tier != TierSovereignAdmin {
+			return nil, fmt.Errorf("identity: this Sovereign-mode MCP instance requires a sovereign-admin session; the caller's tier is %q and carries no sovereign-admin signal (org_id=%q)", id.Tier, id.OrgID)
+		}
 		id.Context = r.pinnedCtx
 	}
 
