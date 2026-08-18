@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-18T19:00:03Z` |
+| Last refreshed | `2026-08-18T19:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,8 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#6004](https://github.com/openova-io/openova/issues/6004) | P0: fresh prov fails Phase 1 — bp-self-sovereign-cutover Helm release Secret e | Other |
+| [#6015](https://github.com/openova-io/openova/issues/6015) | catalyst-api is region-b-blind on a 2-region Sovereign — empty kubeconfigs dir | Other |
 | [#6016](https://github.com/openova-io/openova/issues/6016) | region-b wedged at 57/65 — keycloak-database-secret never materialised in regi | Other |
 | [#6027](https://github.com/openova-io/openova/issues/6027) | Per-Org console listeners still absent from region B with #5957 deployed — the | Other |
 | [#6028](https://github.com/openova-io/openova/issues/6028) | Region B serves 503 on half of all Sovereign front-door connections — HTTPRout | Other |
@@ -295,9 +297,7 @@ flowchart LR
 | [#6362](https://github.com/openova-io/openova/issues/6362) | MCP accepts only handover-signed bearers — a signed-in User cannot reach it; r | Other |
 | [#6364](https://github.com/openova-io/openova/issues/6364) | No vcluster is ever installed — bootstrap-kit slots 54/58/59 that the controll | Other |
 | [#6367](https://github.com/openova-io/openova/issues/6367) | Per-Org HelmRelease can never resolve its own HelmRepository — targetNamespace | Other |
-| [#6369](https://github.com/openova-io/openova/issues/6369) | MCP cross-Org isolation fails on BOTH read and write — a caller with empty org | Other |
 | [#6370](https://github.com/openova-io/openova/issues/6370) | loadVClusters queries API group vcluster.io which exists nowhere — the install | Other |
-| [#6372](https://github.com/openova-io/openova/issues/6372) | Per-Org agenity never starts: nothing seeds the Anthropic credential Secret, so  | Other |
 | [#6374](https://github.com/openova-io/openova/issues/6374) | bp-agenity credentialWait: 0 silently renders as 300/5 via sprig default — 'fa | Other |
 | [#6464](https://github.com/openova-io/openova/issues/6464) | PIN sign-in dead program-wide: a 2-3s retry storm pins the noreply@ 25/hr sender | Other |
 
