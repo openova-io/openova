@@ -32,7 +32,7 @@ Measured source-side on `origin/main`, no live env required.
 
 | Rows | Correction |
 |---|---|
-| **218, 223** | Evidence says "`bp-agenity` is ABSENT from the catalog". On `origin/main` bp-agenity IS present and `visibility: listed` in the generated catalog, and appears 8× in the catalog-seed. Source-present and runtime-absent are both possible; only a walk separates them. Do not "fix" the catalog on the strength of this row. |
+| **218, 223** | **CORRECTION to my first note here.** I read these as a storefront-catalog question and checked `visibility: listed` — the wrong surface. The rows are about the **per-Org GitOps emitter**: `bp-agenity` was never emitted into any Org Kustomization. That is fixed and ON main (`helmrelease_apps.go:196` `case "agenity"`, merged `8f95895cb`, verified an ancestor of origin/main). They fail on hw298 only because it is POST-CUTOVER and severed from GitHub, so a merged fix cannot reach it — the #6352 delivery wall. Now stamped ⛔ (delivery-gated); re-walk on an env that can receive main. |
 
 ### Related source defect found while classifying (#6475)
 
