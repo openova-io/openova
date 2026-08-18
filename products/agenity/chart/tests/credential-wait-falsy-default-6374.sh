@@ -46,3 +46,8 @@ expect "onTimeout=continue honoured" "_cw_ontimeout='continue'" \
   helm template ag "$CHART" --set anthropic.credentialWait.onTimeout=continue
 
 [ "$fail" -eq 0 ] && echo "PASS: credentialWait resolves by key presence, not sprig default." || { echo "FAIL"; exit 1; }
+
+# Re-trigger note (#6374): the version-collision gate reads the OPEN-PR set at
+# trigger time, so it needs a fresh synchronize event to observe that #6375 was
+# closed and no longer claims 0.5.30. An empty commit does not work here — every
+# gate is paths-filtered, so a commit touching no files runs no checks at all.
