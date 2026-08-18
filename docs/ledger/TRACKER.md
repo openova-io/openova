@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-18T04:00:05Z` |
+| Last refreshed | `2026-08-18T04:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,65 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6015](https://github.com/openova-io/openova/issues/6015) | catalyst-api is region-b-blind on a 2-region Sovereign — empty kubeconfigs dir | Other |
-| [#6016](https://github.com/openova-io/openova/issues/6016) | region-b wedged at 57/65 — keycloak-database-secret never materialised in regi | Other |
-| [#6027](https://github.com/openova-io/openova/issues/6027) | Per-Org console listeners still absent from region B with #5957 deployed — the | Other |
-| [#6028](https://github.com/openova-io/openova/issues/6028) | Region B serves 503 on half of all Sovereign front-door connections — HTTPRout | Other |
-| [#6031](https://github.com/openova-io/openova/issues/6031) | UAT row 57 has no fix anywhere — bp-cnpg-pair ships cnpgPair.enabled=false, so | Other |
-| [#6032](https://github.com/openova-io/openova/issues/6032) | Application reports Ready over ANOTHER release's datastore — a second bp-postg | Other |
-| [#6033](https://github.com/openova-io/openova/issues/6033) | active-hot-standby Application reports phase=Ready across 1 region with perClust | Other |
-| [#6040](https://github.com/openova-io/openova/issues/6040) | hw293: region-B ClusterMesh never established — a dormant chart's census failu | Other |
-| [#6043](https://github.com/openova-io/openova/issues/6043) | bp-catalyst-platform cannot publish: unresolved merge-conflict markers on main f | Other |
-| [#6045](https://github.com/openova-io/openova/issues/6045) | hw293: four live defects surfaced by the 2026-08-11 UAT partition — an unpubli | Other |
-| [#6058](https://github.com/openova-io/openova/issues/6058) | Flaky required gate: TestSecondaryKubeconfigDelivery_RunsOnFailedDeployment_6015 | Other |
-| [#6060](https://github.com/openova-io/openova/issues/6060) | UAT row 63: TopologyTab returns on the status.perCluster rung and never reads st | Other |
-| [#6062](https://github.com/openova-io/openova/issues/6062) | UAT row 8: GET /sovereign/parent-domains offers no org-pool parents — the list | Other |
-| [#6071](https://github.com/openova-io/openova/issues/6071) | Continuum never reports a standby: leaseClient resolvers are hardcoded to 10.43. | Other |
-| [#6072](https://github.com/openova-io/openova/issues/6072) | shared-pg consumer-hub sync: the -mesh-rw readiness gate tests a string that can | Other |
-| [#6075](https://github.com/openova-io/openova/issues/6075) | Org detail never renders the purchased plan: spec.planSlug dropped at four layer | Other |
-| [#6076](https://github.com/openova-io/openova/issues/6076) | Organizations parent row has an unstable identity: link target flips between /or | Other |
-| [#6077](https://github.com/openova-io/openova/issues/6077) | Job re-run on a collapsed scanner identity row 422s and fails invisibly: syft-sb | Other |
-| [#6079](https://github.com/openova-io/openova/issues/6079) | mothership GitOps loop dead: containerd's ghcr pull carries a credential GHCR de | Other |
-| [#6081](https://github.com/openova-io/openova/issues/6081) | Per-Org console: the install wizard's Organization list is empty because the dir | Other |
-| [#6082](https://github.com/openova-io/openova/issues/6082) | Cutover can never start on hw293: a repaired defect latched the record failed, a | Other |
-| [#6084](https://github.com/openova-io/openova/issues/6084) | Silent re-auth on a per-Org console targets auth.<orgslug>.<parent>, which the g | Other |
-| [#6085](https://github.com/openova-io/openova/issues/6085) | Reconciliation tab never offers Resume: suspended read is stale after its own ac | Other |
-| [#6087](https://github.com/openova-io/openova/issues/6087) | catalyst-pin IdP dials catalyst-api over the Sovereign's own public EIP, so the  | Other |
-| [#6090](https://github.com/openova-io/openova/issues/6090) | The Keycloak account console hangs forever on 'Loading the Account Console' inst | Other |
-| [#6091](https://github.com/openova-io/openova/issues/6091) | converged-late census counts tenant HelmReleases: a customer app install can vet | Other |
-| [#6093](https://github.com/openova-io/openova/issues/6093) | Jobs cutover projection orders the 11 sovereignty steps ALPHABETICALLY — every | Other |
-| [#6106](https://github.com/openova-io/openova/issues/6106) | catalyst-pin broker back-channel netpol gap: keycloak cannot reach catalyst-api. | Other |
-| [#6107](https://github.com/openova-io/openova/issues/6107) | org-controller counts an UNUSABLE secondary kubeconfig as wired — a contextles | Other |
-| [#6108](https://github.com/openova-io/openova/issues/6108) | secondary-kubeconfig delivery ships a torn read: non-atomic write + a non-empty- | Other |
-| [#6109](https://github.com/openova-io/openova/issues/6109) | openova-mcp masks the authoritative /whoami verdict behind a stale 'signature is | Other |
-| [#6111](https://github.com/openova-io/openova/issues/6111) | UAT adjudication: three clauses assert objects the platform does not have (Conti | Other |
-| [#6114](https://github.com/openova-io/openova/issues/6114) | UAT ❌ residue on hw293: 61 rows in 8 root-cause clusters — 30 behind one dea | Other |
-| [#6122](https://github.com/openova-io/openova/issues/6122) | UAT row 213: cross-Org get_application answers not-found, not 403 — #5522 move | Other |
-| [#6131](https://github.com/openova-io/openova/issues/6131) | Cutover execution tree still has no root: the true first step gitea-mirror keeps | Other |
-| [#6135](https://github.com/openova-io/openova/issues/6135) | The Organization create door accepts a declared isolation it never honours: 202  | Other |
-| [#6140](https://github.com/openova-io/openova/issues/6140) | hw293: a console-gateway hostname probed on the SHARED gateway's host port retur | Other |
-| [#6148](https://github.com/openova-io/openova/issues/6148) | Region-kill failback: recovered region-A returns as an UNFENCED TL=1 primary and | Other |
-| [#6149](https://github.com/openova-io/openova/issues/6149) | bp-postgres DR pairs ship a dr-promoter but NO dr-failback — region-A return l | Other |
-| [#6155](https://github.com/openova-io/openova/issues/6155) | Showback bills an Organization the CR model does not contain — the join reads  | Other |
-| [#6156](https://github.com/openova-io/openova/issues/6156) | DR preflight-02 cannot Fail on a 2-region Sovereign — the standby outage that  | Other |
-| [#6163](https://github.com/openova-io/openova/issues/6163) | Agenity credential chain has TWO one-shot freezes: the init container reads once | Other |
-| [#6166](https://github.com/openova-io/openova/issues/6166) | catalyst-ui has no priorityClassName, so it loses the slot #6157 freed — mothe | Other |
-| [#6169](https://github.com/openova-io/openova/issues/6169) | Funnel-serving + singles residue (#6114 rows 87/90/95/115/218/228/232/234/241):  | Other |
-| [#6172](https://github.com/openova-io/openova/issues/6172) | Fresh prov hw294 wedges Phase 1 at 51/67: bp-keycloak 1.5.9 post-install realm i | Other |
-| [#6183](https://github.com/openova-io/openova/issues/6183) | specter residue + UAT row W5: remove the phantom wizard component id and the non | Other |
-| [#6187](https://github.com/openova-io/openova/issues/6187) | bp-keycloak 1.5.10: the #6172 backchannel anchor is not gated to Sovereign mode, | Other |
-| [#6189](https://github.com/openova-io/openova/issues/6189) | P0: mothership owner sign-in dead — Keycloak scaled to 0 behind a green HelmRe | Other |
-| [#6191](https://github.com/openova-io/openova/issues/6191) | hw295 reports status=ready while its console gateway EIP (212.72.24.8, the wiped | Other |
-| [#6192](https://github.com/openova-io/openova/issues/6192) | Per-app Overview prints stale PLACEMENT 'singleton' while Topology reads runtime | Other |
-| [#6194](https://github.com/openova-io/openova/issues/6194) | Wizard StepOrg still says "All fields are pre-filled" after #5401 emptied them � | Other |
-| [#6197](https://github.com/openova-io/openova/issues/6197) | P0: mothership Stalwart is killed by its own liveness probe every ~15min — mai | Other |
-| [#6200](https://github.com/openova-io/openova/issues/6200) | active-hot-standby preview renders BOTH regions as primary — the role switch m | Other |
-| [#6202](https://github.com/openova-io/openova/issues/6202) | Cutover engine re-adopts a prior attempt's FAILED step Job instead of recreating | Other |
-| [#6211](https://github.com/openova-io/openova/issues/6211) | harbor-prewarm PUSHes into a Harbor proxy-cache project — the first pass alway | Other |
-| [#6214](https://github.com/openova-io/openova/issues/6214) | P0 Pillar-5: step-08's pre-hold Crossplane lint requires step-11's pivot — the | Other |
-| [#6225](https://github.com/openova-io/openova/issues/6225) | Re-prov after a wipe false-fails on orphaned catalyst-* VPCs when the post-recla | Other |
-| [#6229](https://github.com/openova-io/openova/issues/6229) | /api/v1/version reports a sha from a Deployment env var that a roll never update | Other |
-| [#6231](https://github.com/openova-io/openova/issues/6231) | Topology choice does not survive the round trip: the status endpoint flattens th | Other |
 | [#6238](https://github.com/openova-io/openova/issues/6238) | main is red: the bp-guacamole auto-bump workflow bumps Chart.yaml without the ca | Other |
 | [#6242](https://github.com/openova-io/openova/issues/6242) | fix(funnel): a settled order whose launch call is lost strands the paid Organiza | Other |
 | [#6249](https://github.com/openova-io/openova/issues/6249) | Sovereign /apps estate grid renders 11 cards against 10 Application CRs — a He | Other |
@@ -300,6 +241,65 @@ flowchart LR
 | [#6370](https://github.com/openova-io/openova/issues/6370) | loadVClusters queries API group vcluster.io which exists nowhere — the install | Other |
 | [#6372](https://github.com/openova-io/openova/issues/6372) | Per-Org agenity never starts: nothing seeds the Anthropic credential Secret, so  | Other |
 | [#6374](https://github.com/openova-io/openova/issues/6374) | bp-agenity credentialWait: 0 silently renders as 300/5 via sprig default — 'fa | Other |
+| [#6376](https://github.com/openova-io/openova/issues/6376) | [backfill] fix(ui): D17 — /cloud?view=list&kind=<X> no longer redirects to /da | Other |
+| [#6377](https://github.com/openova-io/openova/issues/6377) | [backfill] feat(ui): Family F — BSS in Sovereign Console (/console/bss/*) (fou | Other |
+| [#6378](https://github.com/openova-io/openova/issues/6378) | [backfill] fix(catalyst-api+ui): Family D — treemap fan-out for cluster/region | Other |
+| [#6379](https://github.com/openova-io/openova/issues/6379) | [backfill] fix(ui): Family C — ResourceDetailPage real data + tab nav (founder | Other |
+| [#6380](https://github.com/openova-io/openova/issues/6380) | [backfill] fix(multi): Family G — 6 singletons (C8-001/C8-005/C9-006/C10-002/C | Other |
+| [#6381](https://github.com/openova-io/openova/issues/6381) | [backfill] feat(ui+api): Family E — Compliance UI (Kyverno + Falco + SBOM + fr | Other |
+| [#6382](https://github.com/openova-io/openova/issues/6382) | [backfill] fix(catalyst-api+ui): Family B — AppDetail status sync (HR→UI wir | Other |
+| [#6383](https://github.com/openova-io/openova/issues/6383) | [backfill] chore(release): chart 1.4.153→1.4.154 — Wave 2 collector (B/C/D/E | Other |
+| [#6384](https://github.com/openova-io/openova/issues/6384) | [backfill] feat(ui): Wave 5 — UX polish (sidebar reorder + BSS icon + marketpl | Other |
+| [#6385](https://github.com/openova-io/openova/issues/6385) | [backfill] feat(ui): Wave 6 PR 1 — BSS native landing (Option B step 1) | Other |
+| [#6386](https://github.com/openova-io/openova/issues/6386) | [backfill] feat(ui): Wave 6 PR 3 — BSS Orders native (drops iframe) | Other |
+| [#6387](https://github.com/openova-io/openova/issues/6387) | [backfill] feat(ui): Wave 6 PR 3 — BSS Orders native (drops iframe) | Other |
+| [#6388](https://github.com/openova-io/openova/issues/6388) | [backfill] feat(ui): Wave 6 PR 5 — BSS Vouchers native (drops iframe, table +  | Other |
+| [#6389](https://github.com/openova-io/openova/issues/6389) | [backfill] fix(bootstrap-kit): remove bp-hcloud-csi slot 17a — chicken-and-egg | Other |
+| [#6390](https://github.com/openova-io/openova/issues/6390) | [backfill] feat(ui): Wave 6 PR 4 — BSS Revenue native (drops iframe, KPI+chart | Other |
+| [#6391](https://github.com/openova-io/openova/issues/6391) | [backfill] feat(ui): Wave 6 PR 2 — BSS Billing native (drops iframe) | Other |
+| [#6392](https://github.com/openova-io/openova/issues/6392) | [backfill] feat(ui): Wave 6 PR 4 — BSS Revenue native (drops iframe, KPI+chart | Other |
+| [#6393](https://github.com/openova-io/openova/issues/6393) | [backfill] feat(ui): Wave 6 PR 6 — BSS Tenants native (drops iframe, native ta | Other |
+| [#6394](https://github.com/openova-io/openova/issues/6394) | [backfill] feat(sandbox): Wave 1 — CRD + controller + chart scaffold (no pty/M | Other |
+| [#6395](https://github.com/openova-io/openova/issues/6395) | [backfill] fix(ui): Wave 8 critical-path hotfix — CloudPage kindCounts adds po | Other |
+| [#6396](https://github.com/openova-io/openova/issues/6396) | [backfill] chore(release): chart 1.4.155→1.4.156 — Wave 9 collector republis | Other |
+| [#6397](https://github.com/openova-io/openova/issues/6397) | [backfill] feat(sandbox): Wave 2 — pty-server + openova-sandbox-mcp scaffold | Other |
+| [#6398](https://github.com/openova-io/openova/issues/6398) | [backfill] feat(sandbox+auth+newapi): Wave 1b — newapi proxy + BYOS + org-scop | Other |
+| [#6399](https://github.com/openova-io/openova/issues/6399) | [backfill] feat(ui): Wave 3 — Sandbox UI (landing + session host + BYOS settin | Other |
+| [#6400](https://github.com/openova-io/openova/issues/6400) | [backfill] feat(sandbox): Wave 1 controller + chart scaffold | Other |
+| [#6401](https://github.com/openova-io/openova/issues/6401) | [backfill] fix(marketplace): persist subdomain TLD across wizard steps (.omani.h | Other |
+| [#6402](https://github.com/openova-io/openova/issues/6402) | [backfill] fix(bootstrap-kit): install vcluster CRDs + controller on Sovereign ( | Other |
+| [#6403](https://github.com/openova-io/openova/issues/6403) | [backfill] fix(catalyst-api): wire /api/v1/sme/billing/vouchers/{list,issue,revo | Other |
+| [#6404](https://github.com/openova-io/openova/issues/6404) | [backfill] fix(sme): wire tenant + billing event dispatchers to NATS (was Redpan | Other |
+| [#6405](https://github.com/openova-io/openova/issues/6405) | [backfill] fix(marketplace): post-purchase redirect to Sovereign-local console ( | Other |
+| [#6406](https://github.com/openova-io/openova/issues/6406) | [backfill] fix(billing): skip Stripe when voucher covers 100% of total (unblocks | Other |
+| [#6407](https://github.com/openova-io/openova/issues/6407) | [backfill] fix(domain): per-tenant DNS reconciler — <slug>.<pool-domain> resol | Other |
+| [#6408](https://github.com/openova-io/openova/issues/6408) | [backfill] fix(catalyst-api): mint HS256 token on SME proxy calls (was forwardin | Other |
+| [#6409](https://github.com/openova-io/openova/issues/6409) | [backfill] feat(sandbox+bootstrap-kit): newapi Sovereign install (Bank Dhofar Qw | Other |
+| [#6410](https://github.com/openova-io/openova/issues/6410) | [backfill] ci(sandbox): build workflows for controller + pty-server + mcp-server | Other |
+| [#6411](https://github.com/openova-io/openova/issues/6411) | [backfill] feat(sandbox): Wave 4 — marketplace catalog entry (customer can pic | Other |
+| [#6412](https://github.com/openova-io/openova/issues/6412) | [backfill] feat(sandbox+bootstrap-kit): slot 61 bp-sandbox HR (deploys sandbox-c | Other |
+| [#6413](https://github.com/openova-io/openova/issues/6413) | [backfill] docs: session 2026-05-17/18 convergence report + DoD D32-D35 + Sandbo | Other |
+| [#6414](https://github.com/openova-io/openova/issues/6414) | [backfill] fix(sme): wire provisioning/notification/domain consumers to NATS (wa | Other |
+| [#6415](https://github.com/openova-io/openova/issues/6415) | [backfill] feat(catalyst-api): /api/v1/sandbox/sessions CRUD + sandboxes GVR in  | Other |
+| [#6416](https://github.com/openova-io/openova/issues/6416) | [backfill] feat(newapi): real /admin/tokens/sandbox mint impl (was stub from #16 | Other |
+| [#6417](https://github.com/openova-io/openova/issues/6417) | [backfill] feat(sandbox): orchestrator listens tenant.sandbox_requested → Sand | Other |
+| [#6418](https://github.com/openova-io/openova/issues/6418) | [backfill] fix(sovereign-tls): cilium-gateway listeners per parentZone (was only | Other |
+| [#6419](https://github.com/openova-io/openova/issues/6419) | [backfill] feat(sandbox): controller spawns pty-server + MCP Pods (was just name | Other |
+| [#6420](https://github.com/openova-io/openova/issues/6420) | [backfill] feat(catalog+billing): Sandbox Free/Pro/Ent plans + quota wire (was n | Other |
+| [#6421](https://github.com/openova-io/openova/issues/6421) | [backfill] feat(sandbox-controller): call newapi /admin/tokens/sandbox + write S | Other |
+| [#6422](https://github.com/openova-io/openova/issues/6422) | [backfill] fix(org-controller): render per-tenant HTTPRoute so <slug>.omani.home | Other |
+| [#6423](https://github.com/openova-io/openova/issues/6423) | [backfill] feat(sandbox): real impls for gitea.* + k8s.read.* MCP tools (was not | Other |
+| [#6424](https://github.com/openova-io/openova/issues/6424) | [backfill] test(sandbox-ui): Playwright e2e for landing + settings + session nav | Other |
+| [#6425](https://github.com/openova-io/openova/issues/6425) | [backfill] fix(provisioning): set Organization.spec.tenantPublic on product-inst | Other |
+| [#6426](https://github.com/openova-io/openova/issues/6426) | [backfill] feat(sandbox-controller): IdleScaler scales pty-server replicas to 0  | Other |
+| [#6427](https://github.com/openova-io/openova/issues/6427) | [backfill] fix(bootstrap-kit): bp-sandbox slot move/remove to break harbor chick | Other |
+| [#6428](https://github.com/openova-io/openova/issues/6428) | [backfill] feat(sandbox-mcp): sandbox.db.* real impl (CNPG provision/list/get/dr | Other |
+| [#6429](https://github.com/openova-io/openova/issues/6429) | [backfill] fix(newapi): gate channel render on attestation present (was blocking | Other |
+| [#6430](https://github.com/openova-io/openova/issues/6430) | [backfill] test(marketplace): codified customer-journey regression (17 steps) | Other |
+| [#6431](https://github.com/openova-io/openova/issues/6431) | [backfill] feat(sandbox-mcp): gitea.pr.create/merge + issue.* + k8s.read.logs (w | Other |
+| [#6432](https://github.com/openova-io/openova/issues/6432) | [backfill] feat(sandbox): sandbox.<sov-fqdn> public URL — DNS + Gateway listen | Other |
+| [#6433](https://github.com/openova-io/openova/issues/6433) | [backfill] feat(sandbox-mcp): sandbox.auth.* + sandbox.secrets.* real impls (Key | Other |
+| [#6434](https://github.com/openova-io/openova/issues/6434) | [backfill] feat(sandbox-mcp): rag.search + skills.list/get (lean stubs) | Other |
 
 ---
 
