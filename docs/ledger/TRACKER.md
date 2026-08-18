@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-18T21:30:04Z` |
+| Last refreshed | `2026-08-18T21:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#5987](https://github.com/openova-io/openova/issues/5987) | Per-Org bp-newapi cannot install: the funnel HR supplies no catalystIntegration. | Other |
 | [#5991](https://github.com/openova-io/openova/issues/5991) | Guacamole connections list is empty by construction: no producer exists, and the | Other |
 | [#5993](https://github.com/openova-io/openova/issues/5993) | pod-truth reconciler is vcluster-only: host-tier (plan free/S) pods are invisibl | Other |
 | [#6004](https://github.com/openova-io/openova/issues/6004) | P0: fresh prov fails Phase 1 — bp-self-sovereign-cutover Helm release Secret e | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6364](https://github.com/openova-io/openova/issues/6364) | No vcluster is ever installed — bootstrap-kit slots 54/58/59 that the controll | Other |
 | [#6374](https://github.com/openova-io/openova/issues/6374) | bp-agenity credentialWait: 0 silently renders as 300/5 via sprig default — 'fa | Other |
 | [#6475](https://github.com/openova-io/openova/issues/6475) | Storefront sells four Blueprints the catalog-seed does not carry — purchasable | Other |
+| [#6477](https://github.com/openova-io/openova/issues/6477) | G8/G9/220/221 are INPUT-gated: the Anthropic credential is founder-supplied and  | Other |
 
 ---
 
