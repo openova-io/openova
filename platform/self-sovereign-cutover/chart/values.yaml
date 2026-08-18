@@ -2217,6 +2217,30 @@ egressTest:
   # The FULL host registry.<fqdn> classifies correctly in every case. An
   # operator on a non-registry.<fqdn> local registry name overrides here.
   localRegistryHostSubstr: ""
+# ── step-07a smtp-relay-pivot (#5921) ────────────────────────────────────
+# Repoints catalyst-system/sovereign-smtp-credentials at the Sovereign's own
+# Stalwart so customer sign-in mail stops traversing mail.openova.io. Must run
+# BEFORE step-08, which now denies that host.
+#
+# targetHost matches the chart default in products/catalyst/chart/values.yaml —
+# the seed overrode it with the mothership relay because at Phase 1 no local
+# mail server existed yet (#4748). By this step it does.
+smtpRelayPivot:
+  enabled: true
+  targetHost: "stalwart-web.stalwart.svc.cluster.local"
+  targetPort: "587"
+  secretNamespace: "catalyst-system"
+  secretName: "sovereign-smtp-credentials"
+  # Refuse to pivot onto a relay that is not answering — a dead target would
+  # trade a sovereignty defect for a total sign-in outage.
+  probeTimeoutSeconds: 120
+  rolloutTimeout: "300s"
+  backoffLimit: 2
+  # Consumers cache smtp-host at start; without a roll the pivot sits in a
+  # Secret nothing has re-read.
+  consumerDeployments:
+    - "catalyst-system/marketplace-api"
+
   blockedDomains:
     - "github.com"
     - "ghcr.io"
