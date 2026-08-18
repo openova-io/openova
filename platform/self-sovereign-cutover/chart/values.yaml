@@ -2227,6 +2227,17 @@ egressTest:
     # blocked by omission from the allow-list; this entry drives the active
     # call-home assertion that PROVES it is unreachable.
     - "console.openova.io"
+    # mail.openova.io (#5921): the 9th tether, and the only one on the PURCHASE
+    # path. catalyst-system/marketplace-api sends the customer sign-in code via
+    # smtp-host=mail.openova.io from Secret/sovereign-smtp-credentials, so a
+    # Sovereign with cutoverComplete=true still depends on OUR mail server for
+    # every customer login. ADR-0002 enumerates eight tethers and outbound
+    # customer-auth SMTP is not among them, so no step pivots it. It was also
+    # invisible to this very proof: the hold only ever denied the hosts it was
+    # told about, and no reconcile needs SMTP, so the 600s window stayed green
+    # with the tether fully live. Same shape as the ghcr.io HelmRepositories in
+    # #5919 — sovereignty asserted from the absence of a host nobody listed.
+    - "mail.openova.io"
     # mail.openova.io (#5921): the NINTH tether, and the only one on the
     # PURCHASE path. catalyst-system/marketplace-api sends every customer
     # sign-in code through the mothership SMTP host, so on a post-cutover

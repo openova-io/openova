@@ -1074,7 +1074,7 @@ spec:
       # chart/tests/ left the package via .helmignore: 757,264 bytes, 72.2%.
       # The rendered manifest is byte-identical modulo comments — no step,
       # value or RBAC change, still 11 steps.
-      version: 0.1.191
+      version: 0.1.192
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

@@ -4153,7 +4153,7 @@ name: bp-self-sovereign-cutover
 # load-bearing. Slot-06a pin + blueprint.yaml + catalog-seed spec.version +
 # source.version + the API blueprints.json + the generated UI catalog move to
 # 0.1.190 in lockstep (Inviolable Principle #13).
-version: 0.1.191
+version: 0.1.192
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
