@@ -51,3 +51,10 @@ expect "onTimeout=continue honoured" "_cw_ontimeout='continue'" \
 # trigger time, so it needs a fresh synchronize event to observe that #6375 was
 # closed and no longer claims 0.5.30. An empty commit does not work here — every
 # gate is paths-filtered, so a commit touching no files runs no checks at all.
+
+# Pre-flight note (#6374): before rebuilding any fix, assert the target state is
+# ABSENT from origin/main first. Two changes were duplicated this session by
+# skipping that check — one rebuilt another session's merged work, one rebuilt an
+# earlier PR of my own. Verified for this branch:
+#   git show origin/main:products/agenity/chart/templates/statefulset.yaml | grep -c hasKey  -> 0
+#   grep -c hasKey products/agenity/chart/templates/statefulset.yaml                         -> 2
