@@ -7,6 +7,49 @@
 
 ---
 
+## 2026-08-19 — row classification: the ❌ set is NOT 18 open defects
+
+**Scope.** `UAT.md` on `origin/main` reads **18 ❌**. Every one carries an
+`hw296` or `hw298` timestamp, and both environments are gone. So the set is a
+mix of stale measurements, rows whose code has since landed, and rows blocked on
+a provisioning INPUT. Sorting them changes what the next prov has to do.
+
+Measured source-side on `origin/main`, no live env required.
+
+### Already fixed in code — needs only a re-walk
+
+| Row | Evidence |
+|---|---|
+| **213** | `orgScopedNotFound` ships in `internal/tools/catalogue.go`, and `internal/tools/org_read_class_213_test.go` passes (`rc=0`). The test generalises past the row: it enumerates EVERY Org-reachable tool in `catalogue()`, and `TestOrgReadClass_TableCoversEveryOrgReachableTool` fails if a tool is added without a row. The class is closed, not just the instance. |
+
+### INPUT-gated — a prov without the input re-fails them (#6477)
+
+| Rows | Gate |
+|---|---|
+| **G8, G9, 220, 221** | `values.yaml:152-154` sets `sovereign.anthropic.apiKey: ""` and `credentialsJson: ""` — the template's own comment reads *"empty by default → founder-supplied"*. Downstream is correct and merged (`seedAnthropicToken` → OpenBao, `generateAgenityHR` ExternalSecret, #6372 `e299dc7e4`); the chain simply has nothing at its head. **Supply the credential in the deployment POST body, or pre-create `sovereign-anthropic-credentials`, BEFORE walking these four.** Walking them without it measures a known-empty input. |
+
+### Evidence conflates runtime with source — re-read before re-fixing
+
+| Rows | Correction |
+|---|---|
+| **218, 223** | **CORRECTION to my first note here.** I read these as a storefront-catalog question and checked `visibility: listed` — the wrong surface. The rows are about the **per-Org GitOps emitter**: `bp-agenity` was never emitted into any Org Kustomization. That is fixed and ON main (`helmrelease_apps.go:196` `case "agenity"`, merged `8f95895cb`, verified an ancestor of origin/main). They fail on hw298 only because it is POST-CUTOVER and severed from GitHub, so a merged fix cannot reach it — the #6352 delivery wall. Now stamped ⛔ (delivery-gated); re-walk on an env that can receive main. |
+
+### Related source defect found while classifying (#6475)
+
+Four Blueprints are `visibility: listed` but absent from the catalog-seed under
+any key — `anthropic-adapter`, `librechat`, `netbird`, `stalwart-sovereign`
+(plus `qa-app`, a QA fixture that should never be customer-visible, and
+`sandbox`, being unlisted in #6472). A customer can buy them; the Sovereign has
+no Blueprint to install. Guard in PR #6476, deliberately unwired from CI until
+the four are dispositioned.
+
+### What this means for the next cycle
+
+Merging code does not move these rows, and neither does editing this file. A
+prov re-measures all 18 at once — and of them, 213 should flip on the strength
+of code already on main, while G8/G9/220/221 will NOT flip unless the Anthropic
+credential is supplied at provision time.
+
 ## 2026-08-11 — the ❌ RESIDUE on hw293, partitioned by ROOT CAUSE (61 rows)
 
 **Scope.** `UAT.md` on `origin/main` reads **186 ✅ · 86 ❌ · 14 ☐ = 286** (parsed
