@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-19T14:30:05Z` |
+| Last refreshed | `2026-08-19T14:45:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-19T14:31 | [#6491](https://github.com/openova-io/openova/pull/6491) | #5596 | fix(cutover): mirror to each secondary region's own in-clust |
 | 2026-08-19T12:45 | [#6489](https://github.com/openova-io/openova/pull/6489) | #6483 | fix(stalwart-tenant): self-signed TLS fallback in CRD-less v |
 | 2026-08-19T12:14 | [#6488](https://github.com/openova-io/openova/pull/6488) | #6487 | fix(cutover): gitea-mirror survives the grown 472MB monorepo |
 | 2026-08-19T07:26 | [#6484](https://github.com/openova-io/openova/pull/6484) | #4466 | fix(catalyst): wire CATALYST_JANITOR_DESTRUCTIVE into the ra |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-14T11:18 | [#6333](https://github.com/openova-io/openova/pull/6333) | #6331 | docs(uat): rows 219-222 record the merged quota fix and STAY |
 | 2026-08-14T11:58 | [#6332](https://github.com/openova-io/openova/pull/6332) | #3678 | fix(cutover): the sovereignty proof could report PASS withou |
 | 2026-08-14T10:59 | [#6331](https://github.com/openova-io/openova/pull/6331) | #6114 | fix(quota): model the bp-newapi POD, not one container, in b |
-| 2026-08-14T10:03 | [#6329](https://github.com/openova-io/openova/pull/6329) | #6323 | fix(ci): close the fail-open test-gate class outside the cut |
 
 ---
 
