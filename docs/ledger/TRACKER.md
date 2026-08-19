@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-19T22:30:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-08-19T22:45:07Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-19T22:40 | [#6496](https://github.com/openova-io/openova/pull/6496) | #6495 | fix(wipe): handed-over Huawei Sovereign un-wipeable — infer  |
 | 2026-08-19T19:00 | [#6494](https://github.com/openova-io/openova/pull/6494) | #6493 | fix(cutover): label the secondary gitea-mirror Job managed-b |
 | 2026-08-19T14:48 | [#6492](https://github.com/openova-io/openova/pull/6492) | #6491 | chore: remove scratch files accidentally merged by #6491 |
 | 2026-08-19T14:31 | [#6491](https://github.com/openova-io/openova/pull/6491) | #5596 | fix(cutover): mirror to each secondary region's own in-clust |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-14T14:25 | [#6338](https://github.com/openova-io/openova/pull/6338) | #6336 | fix(cloud-init): give the bootstrap GitRepository a clone bu |
 | 2026-08-14T13:11 | [#6335](https://github.com/openova-io/openova/pull/6335) | #6330 | docs: UAT carry-forward runs after the env is live + append  |
 | 2026-08-14T12:53 | [#6334](https://github.com/openova-io/openova/pull/6334) | #6309 | fix(cutover): pivot the per-Organization vCluster HelmReleas |
-| 2026-08-14T11:18 | [#6333](https://github.com/openova-io/openova/pull/6333) | #6331 | docs(uat): rows 219-222 record the merged quota fix and STAY |
 
 ---
 
