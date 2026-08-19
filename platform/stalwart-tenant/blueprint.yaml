@@ -69,7 +69,7 @@ spec:
   # splan_bundle_sizing.md's "cannot be upgraded in place" finding. Switched
   # the PVC template to a new stableLabels helper carrying only
   # version-independent labels. Refs #5615 #960.
-  version: 0.1.15
+  version: 0.1.16
   card:
     title: Stalwart (per-Organization)
     summary: |

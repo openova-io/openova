@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-19T12:12:33.390Z",
+  "generatedAt": "2026-08-19T12:44:38.938Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -4960,7 +4960,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.1.15",
+      "version": "0.1.16",
       "section": "pts-4-5-communication",
       "depends": [
         "bp-keycloak",
