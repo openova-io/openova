@@ -1452,7 +1452,7 @@ spec:
       #   single fail-closed gate (#5436 relocated, not weakened). Lockstep w/
       #   products/catalyst/chart/Chart.yaml.
       # 1.4.1531 — lockstep for bp-self-sovereign-cutover 0.1.193 (#6490).
-      version: 1.4.1532
+      version: 1.4.1533
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
