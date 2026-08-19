@@ -1079,7 +1079,7 @@ spec:
       #   pivots the secondary at its in-cluster gitea-http svc). Render-gated on
       #   secondaryRegions.mirrorToSecondaryGitea, wired below from
       #   SOVEREIGN_ENABLE_CNPG_PAIR so single-region provs are untouched.
-      version: 0.1.193
+      version: 0.1.194
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
