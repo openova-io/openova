@@ -42,3 +42,18 @@ the ~15-min release lag, and a PRE-FLIGHT PASS line below.
 - **PRE-FLIGHT PASS** vpc=1/5 evs=2/400 eip=bastion-only obs=48/100 — all gates green at 06:55Z (cooldown leg re-run: "last wiped/failed 16min ago >= 15min"); zero active deployments re-confirmed immediately pre-fire.
 - **FIRED 2026-08-19T06:55Z**: POST /sovereign/api/v1/deployments -> **201**, dep `c16642c6b17f1721`, status=provisioning. Body as manifested (2-region, omani.works, no fireCutoverOnHandover -> pre-cutover env for the walk).
 - Baseline expectation: ready ~51 min (hw285 record); reset-uat hw300 fires ONLY at ready per RUNBOOKS §0.3.
+
+### Post-fire outcome (session close, ~07:20Z by the stepped clock)
+
+- Apply created all 13 ECS (verified via kom4dc API, zero duplicates); kubeconfigs posted back
+  (staged for walkers at `~/.kube/sovereigns/hw300-a.yaml` + the region-b copy on the PVC).
+- FIRST pass converged fully — record `ready`, 47/47 components, kustomizations 4/4, all three
+  doors 200 behind LE (3 consecutive stability checks) — and was then UNDONE by a cyclic
+  re-bootstrap: k3s reinstalls on the SAME VMs (node AGE resets, ~20-30 min cadence, ≥3 cycles
+  observed), with a PROVEN ~2h backward clock step on the mothership mid-prov. Full evidence +
+  hypotheses: **#6485**. Each ready window is real; the env has not yet HELD ready.
+- `reset-uat hw300` deliberately NOT run — RUNBOOKS §0.3 rotation needs a STABLE live env.
+  The UAT header on main still carries the DO-NOT-WALK state from the hw299 destruction, which
+  remains the honest instruction until hw300 holds ready through ~5 consecutive checks; then:
+  `python3 scripts/reset-uat.py hw300 && python3 scripts/uat-confidence.py --due --env hw300`,
+  guards, push, walk.
