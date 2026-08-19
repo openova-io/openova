@@ -4169,7 +4169,20 @@ name: bp-self-sovereign-cutover
 #   gitea-http svc using THAT region's own gitea-admin-secret. RENDER-GATED on
 #   secondaryRegions.mirrorToSecondaryGitea (default false, overlay wires it from
 #   SOVEREIGN_ENABLE_CNPG_PAIR) so single-region provs render byte-identical.
-version: 0.1.195
+# 0.1.196 (#6493) — the secondary gitea-mirror Job carries app.kubernetes.io/managed-by: flux.
+#   ns gitea (UNLIKE ns catalyst) is matched by the cluster kyverno ClusterPolicy
+#   flux-managed (rule workload-must-be-flux-managed): the policy matches kind Job
+#   and excludes ns catalyst, so the PRIMARY step-01 Job passes, but the SECONDARY
+#   Job (introduced by #6491 for the #6490 cross-region leg) — stamped into ns
+#   gitea in each secondary region — carried none of the accepted labels, so
+#   step-01's `set -e` kubectl apply of it was DENIED at admission and the whole
+#   cutover halted at step-01 (live-confirmed on hw301). The Job now carries the
+#   managed-by: flux label the policy's own deny message names as the escape,
+#   which is truthful since the Job ships in the flux-delivered
+#   bp-self-sovereign-cutover HelmRelease; the label sits on the Job metadata only
+#   (the policy matches kind Job, not the Pod). The API blueprints.json + the
+#   generated UI catalog move to 0.1.196 in lockstep.
+version: 0.1.196
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

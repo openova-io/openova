@@ -168,6 +168,21 @@ data:
       name: cutover-gitea-mirror-secondary-__REGION__
       namespace: {{ .Values.secondaryRegions.secondaryGiteaNamespace | quote }}
       labels:
+        {{- /*
+        #6493 — ns gitea (UNLIKE ns catalyst) is matched by the cluster kyverno
+        ClusterPolicy flux-managed (rule workload-must-be-flux-managed): the
+        policy matches kind Job and excludes ns catalyst, so the PRIMARY step-01
+        Job passes, but ns gitea is NOT excluded. The policy's own deny message
+        names app.kubernetes.io/managed-by: flux as an accepted escape, and this
+        Job IS part of the flux-delivered bp-self-sovereign-cutover HelmRelease,
+        so the label is truthful. This secondary Job (introduced by #6491 for the
+        #6490 cross-region leg) carried none of the accepted labels, so step-01's
+        `set -e` kubectl apply of it into the secondary's gitea ns was DENIED at
+        admission and the whole cutover halted at step-01 (live-confirmed on
+        hw301). The label sits on the Job metadata ONLY — the policy matches kind
+        Job, not the Pod, so the pod-template labels below deliberately omit it.
+        */}}
+        app.kubernetes.io/managed-by: flux
         app.kubernetes.io/part-of: self-sovereign-cutover
         app.kubernetes.io/component: secondary-gitea-mirror
         catalyst.openova.io/secondary-region: "__REGION__"
