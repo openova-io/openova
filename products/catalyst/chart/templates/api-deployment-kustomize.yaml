@@ -344,6 +344,24 @@ spec:
             # credentials redacted; see internal/store/store.go.
             - name: CATALYST_DEPLOYMENTS_DIR
               value: /var/lib/catalyst/deployments
+            # CATALYST_JANITOR_DESTRUCTIVE — parity with the Helm sibling
+            # (api-deployment.yaml:527). The self-reap janitor is an
+            # in-process goroutine (cmd/api/main.go -> internal/handler/
+            # janitor.go); every cloud sweep runs LOG-ONLY unless this env
+            # reads "true" (janitor.go:136). The Helm sibling emits it
+            # ALWAYS so a running Pod is READABLE ("log-only" vs "chart
+            # cannot express it"); this raw-Kustomize file — applied
+            # verbatim, Helm directives NOT rendered — emitted NOTHING, so
+            # a Kustomize-mode catalyst-api could never leave log-only in
+            # any configuration, and row 228's "janitor log shows the
+            # orphaned VPC(s) swept" half was unsatisfiable by construction.
+            # Emitted "false" here (safe default): arming to "true" is a
+            # deliberate per-deployment overlay decision that MUST carry a
+            # CATALYST_JANITOR_ACTIVE_DEPLOYMENT_IDS protect-list — never
+            # hardcoded on in this shared base (#4466, after the b9f9590b
+            # self-reap took all 12 ECS nodes ~2.5 min post-convergence).
+            - name: CATALYST_JANITOR_DESTRUCTIVE
+              value: "false"
             # CATALYST_PHASE1_MIN_BOOTSTRAP_KIT_HRS — defensive floor
             # only. The load-bearing termination gate is now the
             # informer's HasSynced signal (after WaitForCacheSync the
