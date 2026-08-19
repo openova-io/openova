@@ -142,6 +142,17 @@ if grep -qF 'namespace: "gitea"' "${TMP}/secjob.yaml"; then
 else
   fail "secondary mirror Job namespace is not the gitea namespace"
 fi
+# #6493 — ns gitea (unlike ns catalyst) is matched by the cluster kyverno
+# ClusterPolicy flux-managed (rule workload-must-be-flux-managed). The Job MUST
+# carry app.kubernetes.io/managed-by: flux (the escape the policy's own deny
+# message names) or step-01's `set -e` apply into that ns is DENIED at admission
+# and the whole cutover halts. This greps the REAL rendered Job (secjob.yaml
+# sliced from the ON render above), so removing the label turns it red.
+if grep -qF 'app.kubernetes.io/managed-by: flux' "${TMP}/secjob.yaml"; then
+  pass "secondary mirror Job carries app.kubernetes.io/managed-by: flux — the kyverno flux-managed escape (#6493)"
+else
+  fail "secondary mirror Job lacks app.kubernetes.io/managed-by: flux — ns gitea's kyverno flux-managed ClusterPolicy DENIES step-01's set -e apply and the cutover halts (#6493)"
+fi
 if grep -qF 'git push --force' "${TMP}/secmirror.sh"; then
   pass "secondary-mirror.sh force-pushes the bare clone to the region-local Gitea"
 else

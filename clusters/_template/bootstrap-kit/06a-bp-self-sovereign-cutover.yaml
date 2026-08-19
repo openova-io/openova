@@ -1079,7 +1079,11 @@ spec:
       #   pivots the secondary at its in-cluster gitea-http svc). Render-gated on
       #   secondaryRegions.mirrorToSecondaryGitea, wired below from
       #   SOVEREIGN_ENABLE_CNPG_PAIR so single-region provs are untouched.
-      version: 0.1.195
+      # 0.1.196 (#6493): the secondary gitea-mirror Job carries
+      #   app.kubernetes.io/managed-by: flux so ns gitea's kyverno flux-managed
+      #   ClusterPolicy admits step-01's set -e apply (it excludes ns catalyst but
+      #   not ns gitea); without it the cutover halted at step-01 (hw301).
+      version: 0.1.196
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

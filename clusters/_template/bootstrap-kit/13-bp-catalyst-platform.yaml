@@ -1452,7 +1452,9 @@ spec:
       #   single fail-closed gate (#5436 relocated, not weakened). Lockstep w/
       #   products/catalyst/chart/Chart.yaml.
       # 1.4.1531 — lockstep for bp-self-sovereign-cutover 0.1.193 (#6490).
-      version: 1.4.1533
+      # 1.4.1534 — lockstep for bp-self-sovereign-cutover 0.1.196 (#6493:
+      #   kyverno flux-managed managed-by label on the secondary mirror Job).
+      version: 1.4.1534
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
