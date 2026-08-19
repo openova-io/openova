@@ -1,8 +1,0 @@
-bd3d96f37aee8040f789b4280c22069f0ebdf37e  bump-values-image-tag.sh
-b030a9d15bfa54380ffe27c7d6dcd2ac988f40ad  check-image-pin-writer-targets.sh
-1f687665c9e1de1533e37bb892d2d888918e859c  test-image-pin-writer-targets.sh
-90013ace539bf2adc0294f913081b83ee56573bd  check-controller-image-tag-freshness.sh
-a7a4f598d0f4fdc26d35717f15f7a5f6f96e6155  check-image-pin-writer-targets.yaml
-36cbedaeb6807d1d210d00bf4ab8f57459b8e843  console-build.yaml
-a9de1df1a0e8a2270a3d0ab4375c6a52ecb96c17  admin-build.yaml
-3ba3a3983418e3840aa2682e87cc6a3270a58b07  marketplace-api-build.yaml
