@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-19T20:15:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-08-19T20:30:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6028](https://github.com/openova-io/openova/issues/6028) | Region B serves 503 on half of all Sovereign front-door connections — HTTPRout | Other |
 | [#6031](https://github.com/openova-io/openova/issues/6031) | UAT row 57 has no fix anywhere — bp-cnpg-pair ships cnpgPair.enabled=false, so | Other |
 | [#6032](https://github.com/openova-io/openova/issues/6032) | Application reports Ready over ANOTHER release's datastore — a second bp-postg | Other |
 | [#6033](https://github.com/openova-io/openova/issues/6033) | active-hot-standby Application reports phase=Ready across 1 region with perClust | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6487](https://github.com/openova-io/openova/issues/6487) | Cutover step-01 gitea-mirror wedges: full clone of grown monorepo fails + error  | Other |
 | [#6490](https://github.com/openova-io/openova/issues/6490) | cutover step-06 fatal on 2-region kom4dc: region-B Flux GitRepository can't ls-r | Other |
 | [#6493](https://github.com/openova-io/openova/issues/6493) | cutover step-01 secondary-gitea-mirror Job denied by kyverno flux-managed (missi | Other |
+| [#6495](https://github.com/openova-io/openova/issues/6495) | wipe.go: handed-over Huawei Sovereign is un-wipeable (provHint defaults to hetzn | Other |
 
 ---
 
