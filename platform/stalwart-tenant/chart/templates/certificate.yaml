@@ -29,7 +29,15 @@ set `stalwart.tls.certificate.enabled=false` and point
 {{- if and .Values.stalwart.enabled .Values.stalwart.tls.certificate.enabled }}
 {{- $domain := include "bp-stalwart-tenant.tenantDomain" . -}}
 {{- $host := include "bp-stalwart-tenant.webmailHost" . -}}
-{{- if and $domain $host }}
+{{- /*
+ #6483: only emit the cert-manager Certificate where the CRDs exist. A per-Org
+ tenant deployed INTO a vcluster has no cert-manager.io CRDs, and an
+ unconditional Certificate fails the whole Helm install ("no matches for kind
+ Certificate") → no mail surface. When cert-manager is absent, the sibling
+ certificate-fallback-secret.yaml renders a self-signed leaf at the same
+ secretName so the StatefulSet still mounts a cert.
+*/}}
+{{- if and $domain $host ($.Capabilities.APIVersions.Has "cert-manager.io/v1/Certificate") }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:

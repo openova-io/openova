@@ -5095,7 +5095,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.15",
+    "version": "0.1.16",
     "section": "pts-4-5-communication",
     "depends": [
       "bp-keycloak",

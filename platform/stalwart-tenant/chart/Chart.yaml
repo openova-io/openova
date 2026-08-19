@@ -214,7 +214,15 @@ name: bp-stalwart-tenant
 #   tests/volumeclaimtemplate-stable-labels.sh renders the chart at two
 #   different versions and asserts the volumeClaimTemplates block is
 #   byte-identical. Refs #5615 #960.
-version: 0.1.15
+#
+# 0.1.16 (#6483): render the cert-manager Certificate only where its CRD is
+#   installed (`.Capabilities.APIVersions.Has "cert-manager.io/v1/Certificate"`)
+#   and ship a self-signed TLS fallback Secret at `stalwart.tls.secretName`
+#   when the CRD is absent, so the StatefulSet's `/etc/stalwart/tls` mount is
+#   satisfied and the pod starts in a CRD-less per-Org vcluster instead of the
+#   release failing to render ("no matches for kind Certificate in version
+#   cert-manager.io/v1"). Refs #6483.
+version: 0.1.16
 appVersion: "0.15.5"
 description: |
   Catalyst Blueprint scratch chart for a per-Org (per-vcluster) dedicated
