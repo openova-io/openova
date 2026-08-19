@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-19T12:00:04Z` |
+| Last refreshed | `2026-08-19T12:15:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-19T12:14 | [#6488](https://github.com/openova-io/openova/pull/6488) | #6487 | fix(cutover): gitea-mirror survives the grown 472MB monorepo |
 | 2026-08-19T07:26 | [#6484](https://github.com/openova-io/openova/pull/6484) | #4466 | fix(catalyst): wire CATALYST_JANITOR_DESTRUCTIVE into the ra |
 | 2026-08-18T23:34 | [#6478](https://github.com/openova-io/openova/pull/6478) | #6477 | docs(ledger): classify the 18 remaining UAT failures by what |
 | 2026-08-18T13:53 | [#6469](https://github.com/openova-io/openova/pull/6469) | #6464 | fix(events): constant 5s nak + MaxDeliver:-1 is an unbounded |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-14T10:59 | [#6331](https://github.com/openova-io/openova/pull/6331) | #6114 | fix(quota): model the bp-newapi POD, not one container, in b |
 | 2026-08-14T10:03 | [#6329](https://github.com/openova-io/openova/pull/6329) | #6323 | fix(ci): close the fail-open test-gate class outside the cut |
 | 2026-08-14T09:36 | [#6328](https://github.com/openova-io/openova/pull/6328) | #6325 | docs(ledger): convergence cycle 2026-08-14T09:22Z — 278/286  |
-| 2026-08-14T09:35 | [#6327](https://github.com/openova-io/openova/pull/6327) | #6307 | feat(ci): train-coherence pre-flight — is this train safe to |
 
 ---
 
