@@ -36,3 +36,9 @@ the ~15-min release lag, and a PRE-FLIGHT PASS line below.
 | Fires today | 1 of max 2 (RT-8) — the 06:3x hw299 destroy was not a fire |
 
 ## Evidence appendix (appended at execution)
+
+### Execution evidence
+
+- **PRE-FLIGHT PASS** vpc=1/5 evs=2/400 eip=bastion-only obs=48/100 — all gates green at 06:55Z (cooldown leg re-run: "last wiped/failed 16min ago >= 15min"); zero active deployments re-confirmed immediately pre-fire.
+- **FIRED 2026-08-19T06:55Z**: POST /sovereign/api/v1/deployments -> **201**, dep `c16642c6b17f1721`, status=provisioning. Body as manifested (2-region, omani.works, no fireCutoverOnHandover -> pre-cutover env for the walk).
+- Baseline expectation: ready ~51 min (hw285 record); reset-uat hw300 fires ONLY at ready per RUNBOOKS §0.3.
