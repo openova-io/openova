@@ -18,7 +18,7 @@ spec:
     tags: [chat, llm, ui, openid, rag, application]
     documentation: https://www.librechat.ai/docs
     license: MIT
-  visibility: listed
+  visibility: unlisted
   owner:
     team: ai-platform
     contact: ai-platform@openova.io
