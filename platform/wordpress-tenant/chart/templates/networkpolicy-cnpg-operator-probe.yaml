@@ -1,0 +1,48 @@
+{{- /*
+#6360 / #4282-class — CNPG operator status/metrics probe carve-out.
+
+This chart renders a Cluster.postgresql.cnpg.io (templates/cnpg-cluster.yaml)
+into the Application's own per-Organization namespace, where the host
+cnpg-system operator does NOT run. That namespace carries `default-deny-all`
+(Ingress+Egress) + `allow-same-org` (same-namespace podSelector + DNS only),
+both stamped by the catalyst-tenant-<slug>-apps kustomization. That pair
+denies the cnpg-system OPERATOR (a DIFFERENT namespace) from reaching the
+instance Pod's `:8000/pg/status` + `:9187` metrics probe — so, even though the
+postgres Pod is Running 1/1 and serving SQL, the operator cannot extract
+status and the Cluster phase stalls at "Instance Status Extraction Error:
+HTTP communication issue" / Ready=False (CNPG's own phaseReason names
+NetworkPolicy as the cause). Live-confirmed on walktwo/wordpress-db, UAT row
+222; the identical fix ships in platform/postgres #4282
+(networkpolicy-singleton-operator-probe.yaml).
+
+podSelector matches EVERY CNPG instance Pod in this namespace via the
+operator-stamped `cnpg.io/cluster` label (Exists) — covering the singleton
+primary AND any active-hot-standby replica (`<cnpgClusterName>-replica`) — and
+opens ONLY the operator's two probe ports to ONLY the cnpg-system namespace.
+Gated on the CNPG CRD being present so it no-ops on a non-CNPG cluster.
+*/ -}}
+{{- if and .Values.wordpress.enabled .Values.networkPolicy.enabled (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "bp-wordpress-tenant.fullname" . }}-cnpg-operator-probe
+  namespace: {{ include "bp-wordpress-tenant.cnpgNamespace" . | quote }}
+  labels:
+    {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: cnpg.io/cluster
+        operator: Exists
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.cnpgOperator.namespace | default "cnpg-system" }}
+      ports:
+        - port: {{ .Values.networkPolicy.cnpgOperator.statusPort | default 8000 }}
+          protocol: TCP
+        - port: {{ .Values.networkPolicy.cnpgOperator.metricsPort | default 9187 }}
+          protocol: TCP
+{{- end }}

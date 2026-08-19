@@ -598,6 +598,20 @@ networkPolicy:
     # namespace; operator overrides if it lives elsewhere.
     keycloakNamespaceLabel: "keycloak"
     keycloakPort: 8443
+  # ─── CNPG operator status/metrics probe (#6360 / #4282-class) ──────────
+  # The chart renders a Cluster.postgresql.cnpg.io into this per-Org
+  # namespace, which carries `default-deny-all` + `allow-same-org`
+  # (same-namespace podSelector). That pair denies the cnpg-system OPERATOR
+  # (a DIFFERENT namespace) from reaching the instance Pod's :8000/pg/status
+  # + :9187 metrics probe, so the Cluster stalls at "Instance Status
+  # Extraction Error" / Ready=False even though the postgres Pod serves SQL —
+  # live-confirmed on walktwo/wordpress-db (UAT row 222). The additive
+  # operator-probe NetworkPolicy (templates/networkpolicy-cnpg-operator-probe
+  # .yaml) restores that one reach; mirrors platform/postgres #4282.
+  cnpgOperator:
+    namespace: cnpg-system
+    statusPort: 8000
+    metricsPort: 9187
 # ─── ServiceMonitor ─────────────────────────────────────────────────────
 # Default false per docs/BLUEPRINT-AUTHORING.md §11.2 (Observability
 # toggles must default false). Operator opts in via per-cluster overlay
