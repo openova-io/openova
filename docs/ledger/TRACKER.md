@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-19T10:15:04Z` |
+| Last refreshed | `2026-08-19T10:30:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6015](https://github.com/openova-io/openova/issues/6015) | catalyst-api is region-b-blind on a 2-region Sovereign — empty kubeconfigs dir | Other |
 | [#6016](https://github.com/openova-io/openova/issues/6016) | region-b wedged at 57/65 — keycloak-database-secret never materialised in regi | Other |
 | [#6027](https://github.com/openova-io/openova/issues/6027) | Per-Org console listeners still absent from region B with #5957 deployed — the | Other |
 | [#6028](https://github.com/openova-io/openova/issues/6028) | Region B serves 503 on half of all Sovereign front-door connections — HTTPRout | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6482](https://github.com/openova-io/openova/issues/6482) | bp-harbor + bp-powerdns: chart-default images route through the Harbor they serv | Other |
 | [#6483](https://github.com/openova-io/openova/issues/6483) | bp-stalwart-tenant 0.1.15: install fails in vcluster Orgs — no matches for kin | Other |
 | [#6485](https://github.com/openova-io/openova/issues/6485) | hw300 (dep c16642c6b17f1721): cyclic re-bootstrap after fire — reaches ready+2 | Other |
+| [#6487](https://github.com/openova-io/openova/issues/6487) | Cutover step-01 gitea-mirror wedges: full clone of grown monorepo fails + error  | Other |
 
 ---
 
