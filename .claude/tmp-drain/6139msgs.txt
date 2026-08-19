@@ -1,0 +1,4 @@
+docs(guard): record the green-run evidence that no red-run canary could catch this (Refs #5451)
+deploy(bp-catalyst-platform): lockstep bootstrap-kit slot-13 pin -> 1.4.1373 (Refs #5451)
+chore(chart): re-serialize to 1.4.1373 past main's 1.4.1372 (Refs #5451)
+fix(delivery): the per-Organization console pin had no writer for 3.5 months

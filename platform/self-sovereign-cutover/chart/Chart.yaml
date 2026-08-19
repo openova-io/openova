@@ -4169,7 +4169,7 @@ name: bp-self-sovereign-cutover
 #   gitea-http svc using THAT region's own gitea-admin-secret. RENDER-GATED on
 #   secondaryRegions.mirrorToSecondaryGitea (default false, overlay wires it from
 #   SOVEREIGN_ENABLE_CNPG_PAIR) so single-region provs render byte-identical.
-version: 0.1.194
+version: 0.1.195
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
