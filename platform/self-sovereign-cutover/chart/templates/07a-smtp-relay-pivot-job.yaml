@@ -1,0 +1,139 @@
+{{- /*
+Step 07a — smtp-relay-pivot: repoint customer sign-in mail at the Sovereign's
+own Stalwart (#5921, the 9th tether).
+
+catalyst-system/sovereign-smtp-credentials carries smtp-host = mail.openova.io.
+marketplace-api reads it to send the customer sign-in code, so a Sovereign with
+cutoverComplete=true still depends on the OpenOva mothership for every customer
+login — on the PURCHASE path.
+
+Why this is a PIVOT and not a seed-default fix. The seed writes that host
+deliberately: products/catalyst/bootstrap/api/internal/handler/sovereign_smtp_seed.go
+defaults relayHost to mail.openova.io because at Phase 1 the Sovereign has NO
+mail server of its own yet, and the in-cluster Stalwart host resolved to
+`no such host` and broke operator PIN-login on every fresh prov (#4748). The
+tether is CORRECT at bootstrap and only becomes a sovereignty violation here,
+once the Sovereign's own Stalwart is serving. Changing the seed default would
+reintroduce the #4748 outage.
+
+That is also why no ADR-0002 step pivots it: the eight enumerated tethers are all
+wrong from the start, and this one is not.
+
+Ordering: this MUST run before step-08. Step-08 now denies mail.openova.io
+(#6471), so a Sovereign that has not pivoted fails the hold — which is the
+intended behaviour, not a regression.
+
+Fail-loud: the step verifies Stalwart actually ANSWERS on 587 before rewriting
+the Secret, and re-reads the Secret afterwards to confirm the new value landed.
+A step that rewrites the Secret and reports success without either check is the
+"reads clean because nothing was measured" shape this defect was found by.
+
+Image phase: post.
+*/ -}}
+{{- if .Values.smtpRelayPivot.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cutover-step-07a-smtp-relay-pivot
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    cutover.openova.io/step: "07a"
+spec:
+  backoffLimit: {{ .Values.smtpRelayPivot.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "bp-self-sovereign-cutover.labels" . | nindent 8 }}
+        cutover.openova.io/step: "07a"
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
+      containers:
+      - name: smtp-relay-pivot
+        image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.kubectl.repository "tag" .Values.images.kubectl.tag "cutoverPhase" "post" "Values" .Values) }}
+        env:
+        - name: TARGET_HOST
+          value: {{ .Values.smtpRelayPivot.targetHost | quote }}
+        - name: TARGET_PORT
+          value: {{ .Values.smtpRelayPivot.targetPort | quote }}
+        - name: SECRET_NS
+          value: {{ .Values.smtpRelayPivot.secretNamespace | quote }}
+        - name: SECRET_NAME
+          value: {{ .Values.smtpRelayPivot.secretName | quote }}
+        - name: PROBE_TIMEOUT
+          value: {{ .Values.smtpRelayPivot.probeTimeoutSeconds | quote }}
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -eu
+
+          echo "step-07a: pivoting ${SECRET_NS}/${SECRET_NAME} smtp-host -> ${TARGET_HOST}:${TARGET_PORT}"
+
+          current=$(kubectl -n "${SECRET_NS}" get secret "${SECRET_NAME}" \
+            -o jsonpath='{.data.smtp-host}' 2>/dev/null | base64 -d || true)
+          if [ -z "${current}" ]; then
+            echo "FATAL: ${SECRET_NS}/${SECRET_NAME} has no smtp-host key."
+            echo "       Nothing to pivot means the tether is somewhere this step"
+            echo "       does not know about — failing loud rather than reporting"
+            echo "       a green no-op."
+            exit 1
+          fi
+          echo "step-07a: current smtp-host = ${current}"
+
+          if [ "${current}" = "${TARGET_HOST}" ]; then
+            echo "step-07a: already pivoted; verifying it still answers before exiting 0."
+          fi
+
+          # Gate 1 — the Sovereign-local relay must ANSWER before we cut to it.
+          # Pivoting to a dead host would trade a sovereignty defect for a total
+          # sign-in outage, which is strictly worse for the customer.
+          echo "step-07a: probing ${TARGET_HOST}:${TARGET_PORT} ..."
+          probed=""
+          i=0
+          while [ "${i}" -lt "${PROBE_TIMEOUT}" ]; do
+            if nc -z -w 2 "${TARGET_HOST}" "${TARGET_PORT}" 2>/dev/null; then
+              probed="yes"; break
+            fi
+            i=$((i+3)); sleep 3
+          done
+          if [ -z "${probed}" ]; then
+            echo "FATAL: ${TARGET_HOST}:${TARGET_PORT} did not answer within ${PROBE_TIMEOUT}s."
+            echo "       Refusing to pivot customer sign-in mail onto a relay that"
+            echo "       is not serving. The mothership tether stays live and"
+            echo "       step-08 will fail on it — that is the correct outcome:"
+            echo "       an unpivoted Sovereign is not sovereign."
+            exit 1
+          fi
+          echo "step-07a: ${TARGET_HOST}:${TARGET_PORT} answered."
+
+          patch=$(printf '{"stringData":{"smtp-host":"%s","smtp-port":"%s"}}' \
+            "${TARGET_HOST}" "${TARGET_PORT}")
+          kubectl -n "${SECRET_NS}" patch secret "${SECRET_NAME}" \
+            --type=merge -p "${patch}"
+
+          # Gate 2 — re-read. A patch that reports success and does not land is
+          # the exact failure this step exists to prevent.
+          after=$(kubectl -n "${SECRET_NS}" get secret "${SECRET_NAME}" \
+            -o jsonpath='{.data.smtp-host}' | base64 -d)
+          if [ "${after}" != "${TARGET_HOST}" ]; then
+            echo "FATAL: readback mismatch — wanted ${TARGET_HOST}, Secret holds ${after}."
+            exit 1
+          fi
+          echo "step-07a: readback OK, smtp-host = ${after}"
+
+          # Consumers cache the value at start; roll them so the pivot takes
+          # effect rather than sitting in a Secret nothing has re-read.
+          for d in {{ .Values.smtpRelayPivot.consumerDeployments | join " " }}; do
+            ns="${d%%/*}"; name="${d##*/}"
+            if kubectl -n "${ns}" get deploy "${name}" >/dev/null 2>&1; then
+              echo "step-07a: rolling ${ns}/${name}"
+              kubectl -n "${ns}" rollout restart "deploy/${name}"
+              kubectl -n "${ns}" rollout status "deploy/${name}" --timeout={{ .Values.smtpRelayPivot.rolloutTimeout }}
+            else
+              echo "step-07a: ${ns}/${name} absent, skipping"
+            fi
+          done
+
+          echo "step-07a: DONE — customer sign-in mail no longer leaves the Sovereign."
+{{- end }}
