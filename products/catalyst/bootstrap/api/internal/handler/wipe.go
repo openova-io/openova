@@ -352,7 +352,25 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 	// status=wiping and blocking the one-environment-at-a-time gate.
 	provHint := strings.ToLower(strings.TrimSpace(dep.Request.Provider))
 	if provHint == "" {
-		provHint = "hetzner"
+		// #6495 — dep.Request.Provider is GC'd on a handed-over Sovereign
+		// (FinaliseHandover clears the in-memory Request) and after a
+		// catalyst-api Pod roll. Defaulting straight to "hetzner" then
+		// demands a hetznerToken and 400s forever, stranding a Huawei
+		// deployment as un-wipeable (its EIPs/VPCs leak and block the next
+		// one-environment-at-a-time prov on EIP-allocation conflict). Infer
+		// "huawei" when the caller supplied huawei creds, or the huawei
+		// operator-creds env is present — the same signals the huawei branch
+		// already consumes below. Only fall back to hetzner when neither is.
+		switch {
+		case strings.TrimSpace(body.HuaweiAccessKey) != "" || strings.TrimSpace(body.HuaweiSecretKey) != "":
+			provHint = "huawei"
+		default:
+			if _, ok := huaweiOperatorCredsFromEnv(); ok {
+				provHint = "huawei"
+			} else {
+				provHint = "hetzner"
+			}
+		}
 	}
 	switch provHint {
 	case "huawei":
