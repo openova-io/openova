@@ -3347,3 +3347,60 @@ secondaryRegions:
   # Sovereign's own infrastructure, not a mothership tether). Cloud-init
   # overlays may add e.g. the peer region's node CIDR.
   extraEgressAllowCIDRs: []
+  # #6490 — mirror openova/openova into EACH secondary region's OWN in-cluster
+  # Gitea and pivot that region's Flux GitRepository at its in-cluster
+  # gitea-http Service, instead of the Sovereign's external gateway door.
+  #
+  # WHY (hw300, 2-region kom4dc). The external door https://gitea.<fqdn> serves
+  # region-A's Gitea; a secondary reaching it cross-region truncates the large
+  # (~472MB) git-upload-pack ref advertisement at pkt-line 3, so region-B's
+  # GitRepository is Ready=False/GitOperationFailed and its Kustomization reverts
+  # step-06's HelmRepository pivot (the #6490 refined RCA). The secondary's OWN
+  # in-cluster Gitea is never populated by the primary-only step-01 mirror, so
+  # pointing the secondary there also fails. This flips step-01 + step-11 to ALSO
+  # push the bare clone into each secondary's OWN in-cluster Gitea — executed IN
+  # that region, via the secondaryRegions kubeconfig (the headless gitea-http
+  # Service makes a cross-region push impossible; the mirror runs as a Job in the
+  # secondary), with the #6488 large-clone robustness (http.postBuffer + lowSpeed
+  # guards + 3x retry) — and step-05 to pivot each secondary at its in-cluster
+  # gitea-http Service (the URL region-A uses successfully). Each secondary mirror
+  # ends with a `git ls-remote` self-verify, so step-05 (cutover-order 5) only
+  # pivots a secondary whose Gitea already serves a COMPLETE ref advertisement
+  # (step-01 is cutover-order 1; catalyst-api runs steps in ascending order).
+  #
+  # Each secondary runs its OWN bp-gitea with a per-install-random admin password
+  # (platform/gitea/chart/templates/admin-secret.yaml randAlphaNum), so the
+  # region-B mirror Job authenticates with region-B's OWN gitea-admin-secret
+  # (reflected into the release namespace by bp-gitea), and step-05 wires
+  # region-B's OWN credential into region-B's Flux secretRef — region-A's PAT is
+  # a DB row on region-A's Gitea and never authenticates region-B's.
+  #
+  # RENDER-GATED (default false) so a single-region Sovereign renders BYTE-
+  # IDENTICAL and every new block is a complete no-op. The per-Sovereign overlay
+  # flips it true only on a multi-region topology (clusters/_template/bootstrap-
+  # kit/06a-bp-self-sovereign-cutover.yaml wires it from SOVEREIGN_ENABLE_CNPG_
+  # PAIR, the same signal cnpg-pair / newapi / harbor use). Belt-and-suspenders:
+  # even when true, every secondary block is ALSO runtime-gated on a non-empty
+  # /secondary-kubeconfigs mount, so a single-region Sovereign that set the flag
+  # still no-ops.
+  mirrorToSecondaryGitea: false
+  # Namespace, IN each secondary region, that runs bp-gitea and therefore holds
+  # that region's OWN gitea-admin-secret. The per-secondary mirror Job is stamped
+  # HERE (not the cutover release namespace) because the cutover chart is
+  # SECONDARY_HR_SUSPEND'd on a secondary — so its runner SA / RBAC / namespace
+  # do not exist there — whereas bp-gitea does run in every region. The mirror
+  # Job makes NO Kubernetes API calls (only git + curl over the network), so the
+  # namespace `default` SA is sufficient and no RBAC is required; being in the
+  # gitea namespace also lets it reach the same-namespace gitea-http Service past
+  # bp-plane-isolation's default-deny and mount gitea-admin-secret natively.
+  secondaryGiteaNamespace: "gitea"
+  # activeDeadlineSeconds for the per-secondary mirror Job stamped into each
+  # secondary region by step-01 / step-11 — must exceed a ~472MB bare clone over
+  # throttled egress (mirrors stepTimeouts.giteaMirrorSeconds intent).
+  mirrorJobTimeoutSeconds: 1800
+  # Bounded wall-clock (seconds) step-01 / step-11 poll for the per-secondary
+  # mirror Job to reach Succeeded before failing loud. Must exceed
+  # mirrorJobTimeoutSeconds plus scheduling/pull margin.
+  mirrorJobWaitSeconds: 2100
+  # Poll cadence (seconds) for the mirror-Job wait loop above.
+  mirrorJobPollSeconds: 10
