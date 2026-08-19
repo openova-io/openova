@@ -345,6 +345,24 @@ name: bp-wordpress-tenant
 #   values file. Singleton installs render byte-identical (no annotation, no
 #   declaration required). Catalog-wide enforcement:
 #   scripts/check-dr-pairs-declare-promotion.sh.
+# 0.4.24 (#6360): the per-Org CNPG Cluster this chart renders (templates/cnpg-
+#   cluster.yaml) lands in the Application's own Organization namespace, which
+#   the catalyst-tenant-<slug>-apps kustomization stamps with `default-deny-all`
+#   (Ingress+Egress) + `allow-same-org` (same-namespace podSelector + DNS). That
+#   pair denies the cnpg-system OPERATOR (a DIFFERENT namespace) from reaching
+#   the instance Pod's :8000/pg/status status probe + :9187 metrics endpoint, so
+#   even though the postgres Pod is Running 1/1 and serving SQL the operator
+#   cannot extract status and the Cluster phase stalls at "Instance Status
+#   Extraction Error: HTTP communication issue" / Ready=False (CNPG's phaseReason
+#   names NetworkPolicy). Live-confirmed on walktwo/wordpress-db, UAT row 222.
+#   FIX — NEW templates/networkpolicy-cnpg-operator-probe.yaml: an additive
+#   Ingress NetworkPolicy in the CNPG namespace whose podSelector matches every
+#   instance Pod via the operator-stamped `cnpg.io/cluster` label (Exists) and
+#   opens ONLY :8000 + :9187 to ONLY the cnpg-system namespace. Gated on the
+#   CNPG CRD being present (`.Capabilities.APIVersions.Has "postgresql.cnpg.io/
+#   v1"`) so it no-ops on a non-CNPG cluster; toggled by networkPolicy.enabled.
+#   New `networkPolicy.cnpgOperator.{namespace,statusPort,metricsPort}` values
+#   block. Identical shape to platform/postgres #4282's operator-probe policy.
 version: 0.4.24
 appVersion: "6"
 description: |

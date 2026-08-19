@@ -1,5 +1,15 @@
 apiVersion: v2
 name: bp-catalyst-platform
+# 1.4.1536 — #6360: catalog-seed bp-wordpress-tenant pin 0.4.23 -> 0.4.24 (and
+#   the bp-wordpress bare-slug alias, same chart bytes). Adds the additive
+#   cnpg-system operator-probe NetworkPolicy so the per-Org CNPG Cluster the
+#   wordpress-tenant chart renders into a default-deny namespace reaches Ready —
+#   the operator's :8000/pg/status + :9187 probe was denied by
+#   default-deny-all + allow-same-org, so the Cluster stalled at "Instance
+#   Status Extraction Error" / Ready=False over a healthy DB (UAT row 222;
+#   mirrors platform/postgres #4282). Seed-pin bump only on this side; no
+#   bootstrap-kit slot pins bp-wordpress-tenant (opt-in per-Org Application
+#   Blueprint), so the pin-sync gate has nothing to move.
 # KNOWN-BAD, SUPERSEDED ARTIFACT — 1.4.1325 (Refs #5743). A push race between
 #   two independent deploy-bots (catalyst-build.yaml + services-build.yaml,
 #   see scripts/bump-chart-version.sh's header for the mechanism) put
@@ -3975,7 +3985,7 @@ name: bp-catalyst-platform
 #   (kyverno flux-managed managed-by label on the secondary mirror Job so
 #   step-01's set -e apply into ns gitea is admitted; without it the cutover
 #   halted at step-01). Umbrella tracks its sub-charts per Inviolable Principle #13.
-version: 1.4.1534
+version: 1.4.1536
 # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
 #   0.1.186 -> 0.1.187, the release that stops step-06 from patching five
 #   HelmRepositories it does not own and then grading itself on whether they
@@ -4162,7 +4172,7 @@ version: 1.4.1534
 # scripts/check-chart-version-forward.sh (#5743) fails unless the two match —
 # main was carrying a pre-existing 1.4.1330/1.4.1329 split, so this bump heals
 # it in the same commit, exactly as the documented self-heal contract does.
-appVersion: 1.4.1534
+appVersion: 1.4.1536
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +

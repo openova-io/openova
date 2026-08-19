@@ -75,7 +75,13 @@ spec:
   # byte-identical. Enforced catalog-wide by
   # scripts/check-dr-pairs-declare-promotion.sh. Lockstep with
   # platform/wordpress-tenant/blueprint.yaml + the bare-slug alias entry below.
-  version: "0.4.23"
+  # #6360: →0.4.24 — additive cnpg-system operator-probe NetworkPolicy so the
+  # per-Org CNPG Cluster the chart renders into a default-deny namespace reaches
+  # Ready (the operator's :8000/pg/status + :9187 probe was denied → "Instance
+  # Status Extraction Error" / Ready=False over a healthy DB, UAT row 222;
+  # mirrors platform/postgres #4282). Lockstep with
+  # platform/wordpress-tenant/blueprint.yaml + the bare-slug alias entry below.
+  version: "0.4.24"
   visibility: listed
   card:
     title: "WordPress (per-Organization)"
@@ -104,7 +110,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: "0.4.23"
+    version: "0.4.24"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/wordpress-tenant/blueprint.yaml. Uses {{.AppName}} so
   # multi-instance tenants get distinct hostnames per Application.
@@ -217,7 +223,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.4.23"
+  version: "0.4.24"
   visibility: listed
   card:
     title: "WordPress"
@@ -239,7 +245,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: "0.4.23"
+    version: "0.4.24"
   # Lockstep with the bp-wordpress-tenant entry above + platform/wordpress-tenant/
   # blueprint.yaml. Same chart bytes; this is the bare-slug entrypoint only.
   topology:

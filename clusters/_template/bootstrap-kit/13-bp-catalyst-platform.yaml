@@ -1454,7 +1454,10 @@ spec:
       # 1.4.1531 — lockstep for bp-self-sovereign-cutover 0.1.193 (#6490).
       # 1.4.1534 — lockstep for bp-self-sovereign-cutover 0.1.196 (#6493:
       #   kyverno flux-managed managed-by label on the secondary mirror Job).
-      version: 1.4.1534
+      # 1.4.1536 — lockstep for catalog-seed bp-wordpress-tenant 0.4.23 -> 0.4.24
+      #   (#6360: additive cnpg-system operator-probe NetworkPolicy so the per-Org
+      #   CNPG Cluster reaches Ready; UAT row 222).
+      version: 1.4.1536
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
