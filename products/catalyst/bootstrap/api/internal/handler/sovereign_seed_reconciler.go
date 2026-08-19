@@ -193,6 +193,21 @@ func (h *Handler) runSeedReconcilePass(ctx context.Context) {
 	//   credential spends most of its life in exactly that state. The usable
 	//   predicate asks of the stored bytes the same question the workspace pod
 	//   asks of them one layer down.
+	//
+	// #6317 — RENEW BEFORE SEEDING. Until this call existed, the two comments
+	// above described a condition nothing could fix: the predicate correctly
+	// judged an expired blob unhealthy, the producer re-applied the same
+	// expired blob from the root Secret, and the pass logged "self-heal did NOT
+	// take" every ten minutes for the life of the credential. The refresh runs
+	// FIRST so the seed leg below reads the renewed value in the SAME pass
+	// rather than propagating the dead one for another interval.
+	//
+	// Non-fatal by construction, like every other leg: refreshAnthropicCredential
+	// folds each failure into a loud ERROR and returns an outcome, so a provider
+	// outage degrades to "the credential expires on schedule, loudly" — exactly
+	// the pre-#6317 behaviour — and never starves the mcp-bearer leg below.
+	h.refreshAnthropicCredential(ctx)
+
 	h.reconcileGlobalSeed(ctx,
 		"anthropic",
 		anthropicSeedMountPath, anthropicSeedSecretPath,

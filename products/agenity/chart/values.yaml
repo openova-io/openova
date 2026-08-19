@@ -138,9 +138,18 @@ anthropic:
   # signal other than "runtime offline · 0 workers".
   #
   # The seeded blob is a claudeAiOauth pair whose accessToken lives HOURS, and
-  # nothing in this repo refreshes it (headless claude-code does not reliably
-  # refresh from the refreshToken — see the template comment). So expiry is the
-  # EXPECTED steady state of a credential nobody rotated, not a rare edge.
+  # headless claude-code does not reliably refresh it from the refreshToken —
+  # see the template comment. Until #6317 nothing else did either, which made
+  # expiry the EXPECTED steady state of a credential nobody rotated rather than
+  # a rare edge.
+  #
+  # #6317 changed the odds but NOT the need for this verdict. catalyst-api now
+  # renews the credential 2h before expiry and the resync sidecar below carries
+  # a renewal into a running Pod, so a healthy Sovereign should never present an
+  # expired blob here. When one arrives anyway the renewal chain is broken —
+  # a spent refresh token, a blob without one, an unreachable OAuth endpoint —
+  # and that is exactly when this branch must still fail loudly instead of
+  # starting a workspace whose every spawn 401s.
   #
   #   fail     — exit non-zero, same as the absent branch. Init:Error surfaces
   #              in `kubectl get pod` instead of a Running Pod that 401s.
@@ -148,9 +157,41 @@ anthropic:
   #              diagnostic-only posture for anyone who wants the dashboard to
   #              serve over an honest error.
   onExpiredCredential: fail
+  # ── #6317 — keep a RUNNING Pod's credential current ──────────────────────
+  # The init container copies the credential once, at pod start, into the
+  # shared emptyDir; the main container mounts that emptyDir and not the
+  # Secret, so a running workspace has no live view of /creds. With a ~5h
+  # accessToken and a long-running StatefulSet, the file every agent spawn
+  # reads goes stale on a timer — and no amount of renewing upstream reaches
+  # it. This sidecar copies a NEWER credential forward with no pod restart, so
+  # in-flight agent sessions survive the rotation.
+  #
+  # Disable only where the workspace is expected to be short-lived enough that
+  # its start-time copy outlives it.
+  credentialResync:
+    enabled: true
+    # 2m. Small next to the 2h renewal margin catalyst-api works with, and the
+    # check is a single cheap stat+parse, so a tighter interval buys nothing.
+    intervalSeconds: 120
+    resources:
+      requests:
+        cpu: 5m
+        memory: 16Mi
+      limits:
+        cpu: 50m
+        memory: 64Mi
   externalSecret:
     enabled: true
-    refreshInterval: 1h
+    # #6317 — 15m, not 1h. The accessToken this Secret carries lives ~5h and
+    # catalyst-api now renews it 2h before expiry, so the ESO sync is what
+    # decides whether the renewal ARRIVES in time. At 1h the R19 walk had to
+    # add a force-sync annotation to see a correct credential land inside the
+    # walk, and its own stamp names the cost: "without it the credential is
+    # correct but up to an hour late — worth a shorter interval on a credential
+    # whose accessToken lives ~5h." An hour of the 2h renewal margin spent
+    # waiting for a poll leaves no room for the kubelet re-projection and the
+    # in-Pod re-sync below it.
+    refreshInterval: 15m
     # ClusterSecretStore that fronts the Org's openbao (region1 default).
     secretStoreRef: vault-region1
     secretStoreKind: ClusterSecretStore

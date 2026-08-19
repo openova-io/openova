@@ -149,6 +149,34 @@ rules:
     verbs: ["get", "update", "patch", "delete"]
 
   # ───────────────────────────────────────────────────────────────
+  # #6317 — Anthropic OAuth credential REFRESH write-back.
+  #
+  # The seeded credential is a claudeAiOauth pair whose accessToken lives
+  # ~5h, and until #6317 nothing renewed it: every producer in the chain
+  # faithfully re-applied whatever this Secret held, so the steady state
+  # was "deliver an expired credential, correctly, forever" and every
+  # Organization's Agenity workspace agent 401'd within hours of a walk.
+  #
+  # refreshAnthropicCredential exchanges the refresh token and writes the
+  # renewed pair back HERE FIRST — this Secret is the durable copy that
+  # survives a catalyst-api restart and is what the producer re-reads on
+  # every seed pass. The exchange ROTATES the refresh token, so without
+  # this grant the renewed material could reach OpenBao but not the root,
+  # leaving the root holding SPENT refresh material that the seed
+  # reconciler would later re-apply over a working OpenBao path.
+  #
+  # `get` is already granted by the k8scache read rule above (the #6163
+  # live read uses it); only the mutating verbs are added, name-scoped to
+  # the ONE operator-rotatable credential Secret. `create` is deliberately
+  # NOT extended — this Secret is operator- or provision-created, and a
+  # refresh must never conjure one that was never seeded.
+  # ───────────────────────────────────────────────────────────────
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["sovereign-anthropic-credentials"]
+    verbs: ["get", "update", "patch"]
+
+  # ───────────────────────────────────────────────────────────────
   # TokenReview — required by HandleCutoverInternalTrigger to
   # validate the in-cluster auto-trigger Job's projected SA token
   # against the apiserver's authentication chain (issue #957

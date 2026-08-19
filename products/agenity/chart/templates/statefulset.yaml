@@ -442,6 +442,55 @@ spec:
               port: http
             initialDelaySeconds: 15
             periodSeconds: 15
+        {{- if and .Values.anthropic.credentialsKey (.Values.anthropic.credentialResync).enabled }}
+        # ── Keep the seeded credential CURRENT while the Pod runs (#6317) ────
+        # THE GAP THIS CLOSES. The init container above copies the credential
+        # ONCE, at pod start, into the shared emptyDir. The main container below
+        # mounts that emptyDir — NOT the Secret — so once the Pod is running it
+        # has no live view of /creds at all. The accessToken lives ~5h and this
+        # StatefulSet is long-running, so the copy every agent spawn reads goes
+        # stale on a timer and nothing upstream can reach it: catalyst-api can
+        # renew the credential, ESO can deliver it to the Secret, kubelet can
+        # re-project it into /creds, and the running agent would still read the
+        # frozen file and answer "401 OAuth access token has been revoked".
+        # That is precisely what was measured on hw296 2026-08-14.
+        #
+        # Restarting the Pod would also fix it, and is what the Axon CronJob
+        # does (`kubectl rollout restart`). Not here: a restart kills every
+        # in-flight agent session in the workspace. This copies instead.
+        #
+        # NEWER-ONLY, never blind. claude-code owns its own credential file and
+        # may rotate it in place; clobbering that would be a regression. So the
+        # copy happens only when the Secret's expiresAt is STRICTLY GREATER than
+        # the file's — a stale file is always upgraded, a self-refreshed one is
+        # never overwritten, and identical content is a no-op.
+        - name: creds-resync
+          image: {{ include "agenity.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              # Single-line python3 -c (no heredoc) so the YAML block scalar
+              # stays whitespace-robust across Helm renders, matching the
+              # init container's expiry parser above.
+              _rs_interval={{ (.Values.anthropic.credentialResync).intervalSeconds | default 120 }}
+              echo "[creds-resync] watching /creds/{{ .Values.anthropic.credentialsKey }} every ${_rs_interval}s; copies forward ONLY when the Secret carries a LATER expiresAt than ~/.claude/.credentials.json (#6317)"
+              while true; do
+                python3 -c 'import json,os,shutil,sys;s="/creds/{{ .Values.anthropic.credentialsKey }}";d="/claudehome/.claude/.credentials.json";e=lambda p:int((json.load(open(p)).get("claudeAiOauth",{}) or {}).get("expiresAt",0) or 0) if os.path.exists(p) and os.path.getsize(p)>0 else -1;se=e(s);de=e(d);sys.exit(0) if se<0 or se<=de else (shutil.copyfile(s,d),os.chmod(d,0o600),print("[creds-resync] adopted a NEWER credential from the Secret: expiresAt %d -> %d (%d bytes)"%(de,se,os.path.getsize(d)),flush=True))' 2>&1 || echo "[creds-resync] 🛑 re-sync attempt FAILED — the running agent keeps the credential it already has and will 401 once that expires (#6317)"
+                sleep "$_rs_interval"
+              done
+          volumeMounts:
+            - name: claude-home
+              mountPath: /claudehome
+            - name: anthropic-creds
+              mountPath: /creds
+              readOnly: true
+          resources:
+            {{- toYaml ((.Values.anthropic.credentialResync).resources | default dict) | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+        {{- end }}
       volumes:
         {{- if not .Values.persistence.enabled }}
         - name: state
