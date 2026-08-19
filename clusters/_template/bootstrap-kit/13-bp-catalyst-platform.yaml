@@ -1454,7 +1454,7 @@ spec:
       # 1.4.1531 — lockstep for bp-self-sovereign-cutover 0.1.193 (#6490).
       # 1.4.1534 — lockstep for bp-self-sovereign-cutover 0.1.196 (#6493:
       #   kyverno flux-managed managed-by label on the secondary mirror Job).
-      version: 1.4.1534
+      version: 1.4.1535
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
