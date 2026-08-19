@@ -54,3 +54,16 @@ Follow-up (source-side): the mothership manifests carrying the self-referencing 
 - mailwalk `bp-stalwart-tenant@0.1.15`: real defect — `no matches for kind "Certificate" in version cert-manager.io/v1` inside the vcluster (cert-manager CRD not replicated). Needs an issue + fix; blocks row 234's mail leg on that Org (a fresh funnel Org may hit the same).
 - G8/G9/220/221: `catalyst-system/sovereign-anthropic-credentials` EXISTS on hw299 (auto-seeded at postback 2026-08-16) but the OAuth blob is 3 days stale (~4 h life) — PATH B re-seed with a FRESH founder blob immediately before the agentic walk.
 - PR #6468 ("no live env") is refuted by the above and should be closed, not merged.
+
+---
+
+## ADDENDUM (written ~07:30Z): hw299 was destroyed out-of-band ~30 minutes after the doors were re-verified
+
+The keep-decision above was correct on the evidence at decision time — and was then overtaken:
+
+- ~06:30–06:35Z: live Huawei ECS listing dropped from 12 hw299 nodes to bastion-only; both CP EIPs and all doors went dark (ELBs still answered ICMP). The deployment record still read `ready`; the janitor's 06:39:40Z pass still skipped hw299's VPCs as "active deployment".
+- 06:37Z / 06:39Z: `wipe-destroy.log` + `wipe-destroy2.log` appeared in the deployment's mothership tofu workdir. **No wipe POST exists in the catalyst-api HTTP/audit log for that window, and no code on origin/main writes those filenames** — the destroy was executed by an out-of-band actor with mothership access running tofu directly in the workdir (an L2-class violation of the canonical-wipe rule; the actor's retry loop died on ELB listener-delete conflicts and left the record stale-`ready` over empty cloud). Most probable actor: a parallel session executing the 8h-plan's "wipe the prior env" step against the only record in the store.
+- 06:49Z: this session re-fired the CANONICAL wipe (`POST /api/v1/deployments/e13300fc41a33a57/wipe`, owner bearer, 202) to finish teardown honestly; DNS records deleted 06:52Z; record flipped `wiped` ~07:25Z.
+- 07:2xZ: `prov-preflight.sh hw300.omani.works` = 13/14 PASS with only the 15-min post-wipe cooldown pending; fire follows on full PASS. Create body mirrors hw299's request (2-region me-east-215-a/-b), TLD rotated to omani.works, `fireCutoverOnHandover` intentionally ABSENT so the env stays pre-cutover for the SSO-reclaim walk (cutover remains the H7:30 stretch, manually triggered).
+
+Lesson (goes with the #6482 postmortem): a live env's strongest protection is the canonical store+cloud agreeing; here they disagreed for 50 minutes because the destroyer bypassed the endpoint. Any future "wipe the prior env" instruction must name the dep-id it means and re-verify against the live store at execution time — the id in a 3-day-old brief is not the id in the store.
