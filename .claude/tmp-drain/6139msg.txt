@@ -1,0 +1,21 @@
+fix(delivery): the per-Organization console pin had no writer for 3.5 months
+
+`images.console`, `images.admin` and `images.marketplaceApi` were frozen at
+`3c2f7e4` (2026-04-28) for three and a half months. Their build workflows
+sed-ed the `image:` line of the chart template; PR #580 (83ec889f0,
+2026-05-02) turned those lines into Helm expressions and moved the mutable
+SHA into values.yaml, so the seds matched zero lines, exited 0, and every
+run reported success against an empty diff.
+
+Adds `scripts/bump-values-image-tag.sh` (fails closed if the pin field is
+reshaped, asserts the write landed), `scripts/check-image-pin-writer-targets.sh`
++ its test matrix, and extends `check-controller-image-tag-freshness.sh` to
+cover these three pins. console-build / admin-build / marketplace-api-build
+now write through the new writer.
+
+Rebased onto main and flattened; chart re-serialized to 1.4.1382 through
+`scripts/bump-chart-version.sh` (main baseline 1.4.1379, skipping the
+1.4.1380/1.4.1381 claims held by open PRs). `images.catalystUi.tag` keeps
+main's deploy-bot value.
+
+Refs #5451

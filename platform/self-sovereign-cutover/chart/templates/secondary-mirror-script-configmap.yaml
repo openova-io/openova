@@ -1,0 +1,232 @@
+{{- /*
+#6490 — the SECONDARY-region gitea-mirror script, carried as a ConfigMap so
+step-01 (gitea-mirror) and step-11 (mirror-resync) share ONE copy (no #5646
+drift class) and so the region-A cutover Job can copy it verbatim into each
+secondary region and run it there as a Job.
+
+WHY a Job in the secondary, not a cross-region push. Both regions' gitea-http
+Services are HEADLESS (clusterIP: None) and Cilium ClusterMesh global-services
+cannot span them — CoreDNS answers `gitea-http.gitea.svc` straight from the
+LOCAL EndpointSlice — so from region-A the name can only ever resolve to
+region-A's own Gitea. The only way to populate a secondary's OWN in-cluster
+Gitea is to run the clone+push INSIDE that region. step-01/step-11 stamp this
+script as a batch/v1 Job through the secondary's kubeconfig; the Job reads that
+region's OWN gitea-admin-secret (bp-gitea reflects it into the release
+namespace) and pushes to its OWN gitea-http.
+
+The script is INTENTIONALLY the union of step-01's org/repo-create + bare-clone
++ explicit-refspec force-push (never mirror mode, which would prune the
+sovereign-local refs #5011) and the #6488 large-clone robustness, plus a
+closing `git ls-remote` self-verify — the #6490 ordering gate: this region's
+Gitea must serve a COMPLETE ref advertisement before step-05 pivots its Flux
+GitRepository at it.
+
+Auth is BasicAuth with the secondary's OWN gitea-admin-secret (username +
+password env, from a secretKeyRef the stamping Job wires). A secondary does NOT
+run bp-catalyst-platform (SECONDARY_HR_SUSPEND), so the `catalyst-gitea-token`
+PAT step-01 uses on the primary does not exist there; admin BasicAuth is the
+credential available in-region. curl calls carry --max-time so a converging
+login source cannot hang the step.
+
+RENDER-GATED: emitted only when secondaryRegions.mirrorToSecondaryGitea is true,
+so a single-region Sovereign renders byte-identical (this whole object absent).
+*/ -}}
+{{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-secondary-mirror-script
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: secondary-gitea-mirror-script
+data:
+  secondary-mirror.sh: |
+    #!/bin/sh
+    set -eu
+    export HOME=/tmp
+    echo "[secondary-mirror] region-local mirror of ${UPSTREAM_REPO_URL} -> ${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git"
+
+    gitea_host="$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E 's|^https?://||' | cut -d: -f1 | cut -d/ -f1)"
+    if [ -n "${gitea_host}" ]; then
+      dns_ready="false"
+      for i in $(seq 1 30); do
+        if nslookup "${gitea_host}" >/dev/null 2>&1; then dns_ready="true"; break; fi
+        sleep 5
+      done
+      if [ "${dns_ready}" != "true" ]; then
+        echo "[secondary-mirror] FATAL: ${gitea_host} did not resolve within 150s" >&2
+        exit 1
+      fi
+    fi
+
+    api_url="${GITEA_INTERNAL_URL}/api/v1"
+    # BasicAuth header, base64 of user:pass — never echoed. --max-time bounds a
+    # converging login source so it fails fast instead of hanging the step.
+    basic_auth=$(printf '%s' "${GITEA_USERNAME}:${GITEA_PASSWORD}" | base64 -w0 2>/dev/null || printf '%s' "${GITEA_USERNAME}:${GITEA_PASSWORD}" | base64 | tr -d '\n')
+
+    # 1. ensure the org exists (idempotent).
+    if curl -fsS -o /dev/null --max-time 60 \
+        -H "Authorization: Basic ${basic_auth}" -H "Accept: application/json" \
+        "${api_url}/orgs/${GITEA_ORG}" 2>/dev/null; then
+      echo "[secondary-mirror] org already present"
+    else
+      echo "[secondary-mirror] creating org ${GITEA_ORG}"
+      curl -fsS -o /dev/null --max-time 60 -X POST \
+        -H "Authorization: Basic ${basic_auth}" -H "Content-Type: application/json" \
+        -d "{\"username\":\"${GITEA_ORG}\",\"visibility\":\"public\"}" \
+        "${api_url}/orgs" 2>/dev/null || true
+    fi
+
+    # 2. ensure the repo exists as a REGULAR (non-mirror) repo (idempotent).
+    if curl -fsS -o /dev/null --max-time 60 \
+        -H "Authorization: Basic ${basic_auth}" -H "Accept: application/json" \
+        "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null; then
+      echo "[secondary-mirror] repo already present (idempotent re-run); refreshing content"
+    else
+      echo "[secondary-mirror] creating empty repo ${GITEA_ORG}/${GITEA_REPO}"
+      create_payload=$(printf '{"name":"%s","auto_init":false,"private":false,"description":"Secondary-region self-hosted clone of %s (#6490)"}' \
+        "${GITEA_REPO}" "${UPSTREAM_REPO_URL}")
+      curl -fsS -o /dev/null --max-time 60 -X POST \
+        -H "Authorization: Basic ${basic_auth}" -H "Content-Type: application/json" \
+        -d "${create_payload}" \
+        "${api_url}/orgs/${GITEA_ORG}/repos" 2>&1 || true
+      if ! curl -fsS -o /dev/null --max-time 60 \
+          -H "Authorization: Basic ${basic_auth}" -H "Accept: application/json" \
+          "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null; then
+        echo "[secondary-mirror] FATAL: repo create failed — not visible after POST" >&2
+        exit 1
+      fi
+    fi
+
+    # 3. bare-clone upstream and force-push explicit refspecs (never mirror mode
+    #    #5011) with the #6488 large-clone robustness.
+    git config --global user.name "self-sovereign-cutover-secondary"
+    git config --global user.email "cutover@${gitea_host}"
+    git config --global advice.detachedHead false
+    git config --global http.postBuffer 1048576000
+    git config --global http.lowSpeedLimit 1000
+    git config --global http.lowSpeedTime 600
+
+    local_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
+    workdir=$(mktemp -d)
+    cd "${workdir}"
+    echo "[secondary-mirror] cloning ${UPSTREAM_REPO_URL} (bare)"
+    clone_err=""
+    for _attempt in 1 2 3; do
+      if clone_err=$(git clone --bare "${UPSTREAM_REPO_URL}" upstream.git 2>&1); then
+        clone_err=""
+        break
+      fi
+      echo "[secondary-mirror] clone attempt ${_attempt} failed: $(printf '%s' "${clone_err}" | tail -3)" >&2
+      rm -rf upstream.git
+      [ "${_attempt}" = 3 ] || sleep 10
+    done
+    if [ -n "${clone_err}" ]; then
+      echo "[secondary-mirror] FATAL: git clone of ${UPSTREAM_REPO_URL} failed after 3 attempts" >&2
+      exit 1
+    fi
+    cd upstream.git
+    echo "[secondary-mirror] pushing upstream branches + tags to the region-local Gitea"
+    push_err=$(git push --force "${local_url}" 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*' 2>&1) || {
+      echo "[secondary-mirror] FATAL: git push to the region-local Gitea failed" >&2
+      printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PASSWORD}+,REDACTED,g" >&2
+      exit 1
+    }
+    echo "[secondary-mirror] pushed all upstream branches + tags"
+
+    # 4. ls-remote self-verify — the #6490 ordering gate. The region's Gitea must
+    #    serve a COMPLETE ref advertisement (the class that truncated at pkt-line
+    #    3 cross-region); prove it locally before step-05 pivots Flux at it.
+    if ! git ls-remote --heads "${local_url}" >/tmp/.lsr 2>/tmp/.lsr.err; then
+      echo "[secondary-mirror] FATAL: git ls-remote of the pushed repo failed — its ref advertisement is not servable (the pkt-line 3 EOF class, #6490)" >&2
+      sed -E "s,${GITEA_PASSWORD}+,REDACTED,g" /tmp/.lsr.err >&2 || true
+      exit 1
+    fi
+    if ! grep -q "refs/heads/${UPSTREAM_BRANCH}" /tmp/.lsr; then
+      echo "[secondary-mirror] FATAL: pushed repo advertises no refs/heads/${UPSTREAM_BRANCH} — mirror incomplete" >&2
+      exit 1
+    fi
+    echo "[secondary-mirror] ls-remote OK — ${GITEA_ORG}/${GITEA_REPO} serves a complete ref advertisement in this region"
+  {{- /*
+   The per-secondary mirror Job manifest, Helm-rendered so every static value is
+   baked at chart-render time and the ONLY runtime substitution is the region key
+   (__REGION__, replaced by a plain `sed` in step-01/step-11). Rendering the
+   manifest here — rather than emitting it from a runtime heredoc inside the
+   podSpec `|` block — avoids the indentation corruption a heredoc body inherits
+   from the surrounding YAML literal block, and keeps the manifest one authored
+   copy both steps reuse.
+
+   It runs in secondaryRegions.secondaryGiteaNamespace with the `default` SA (no
+   Kubernetes API calls) and reads that region's OWN gitea-admin-secret via
+   secretKeyRef (resolved in the Job's own namespace = the gitea namespace).
+  */}}
+  secondary-mirror-job.yaml: |
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: cutover-gitea-mirror-secondary-__REGION__
+      namespace: {{ .Values.secondaryRegions.secondaryGiteaNamespace | quote }}
+      labels:
+        app.kubernetes.io/part-of: self-sovereign-cutover
+        app.kubernetes.io/component: secondary-gitea-mirror
+        catalyst.openova.io/secondary-region: "__REGION__"
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: {{ .Values.secondaryRegions.mirrorJobTimeoutSeconds }}
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/part-of: self-sovereign-cutover
+            app.kubernetes.io/component: secondary-gitea-mirror
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: secondary-gitea-mirror
+              image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.kubectl.repository "tag" .Values.images.kubectl.tag "cutoverPhase" "pre" "Values" .Values) }}
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "/secondary-mirror/secondary-mirror.sh"]
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: UPSTREAM_REPO_URL
+                  value: {{ .Values.upstream.repoURL | quote }}
+                - name: UPSTREAM_BRANCH
+                  value: {{ .Values.upstream.branch | quote }}
+                - name: GITEA_INTERNAL_URL
+                  value: {{ .Values.sovereign.giteaInternalURL | quote }}
+                - name: GITEA_ORG
+                  value: {{ .Values.gitea.org | quote }}
+                - name: GITEA_REPO
+                  value: {{ .Values.gitea.repo | quote }}
+                - name: GITEA_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.gitea.adminSecretRef.name | quote }}
+                      key: {{ .Values.gitea.adminSecretRef.usernameKey | quote }}
+                - name: GITEA_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.gitea.adminSecretRef.name | quote }}
+                      key: {{ .Values.gitea.adminSecretRef.passwordKey | quote }}
+              volumeMounts:
+                - name: secondary-mirror
+                  mountPath: /secondary-mirror
+                  readOnly: true
+              resources:
+                requests: { cpu: 100m, memory: 256Mi }
+                limits:   { memory: 1Gi }
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: secondary-mirror
+              configMap:
+                name: cutover-secondary-mirror-script
+                defaultMode: 0755
+{{- end }}

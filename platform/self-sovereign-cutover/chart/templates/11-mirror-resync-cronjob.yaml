@@ -147,7 +147,12 @@ spec:
             {{- include "bp-self-sovereign-cutover.giteaSecretSelfHealInitContainer" (dict "ctx" . "phase" "pre") | nindent 12 }}
           containers:
             - name: gitea-mirror-resync
-              image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.git.repository "tag" .Values.images.git.tag "cutoverPhase" "pre" "Values" .Values) }}
+              {{- /*
+               #6490 — when the secondary-mirror leg is on it runs `kubectl`, so
+               the container needs alpine/k8s (kubectl + git + curl), not
+               alpine/git. When off, the image is unchanged (byte-identical).
+              */}}
+              image: {{ if .Values.secondaryRegions.mirrorToSecondaryGitea }}{{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.kubectl.repository "tag" .Values.images.kubectl.tag "cutoverPhase" "pre" "Values" .Values) }}{{ else }}{{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.git.repository "tag" .Values.images.git.tag "cutoverPhase" "pre" "Values" .Values) }}{{ end }}
               imagePullPolicy: IfNotPresent
               env:
                 - name: UPSTREAM_REPO_URL
@@ -170,6 +175,16 @@ spec:
                     secretKeyRef:
                       name: {{ .Values.gitea.adminSecretRef.name }}
                       key: {{ .Values.gitea.adminSecretRef.passwordKey }}
+                {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+                {{- /* #6490 — inputs for the secondary-region resync leg (same
+                   shape as step-01's leg). */}}
+                - name: SECONDARY_GITEA_NAMESPACE
+                  value: {{ .Values.secondaryRegions.secondaryGiteaNamespace | quote }}
+                - name: MIRROR_JOB_WAIT_SECONDS
+                  value: {{ .Values.secondaryRegions.mirrorJobWaitSeconds | quote }}
+                - name: MIRROR_JOB_POLL_SECONDS
+                  value: {{ .Values.secondaryRegions.mirrorJobPollSeconds | quote }}
+                {{- end }}
               command: ["/bin/sh", "-c"]
               args:
                 - |
@@ -243,6 +258,47 @@ spec:
                     exit 1
                   }
                   echo "[mirror-resync] pushed all refs successfully"
+                  {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+                  {{- /*
+                   ── #6490: keep EACH secondary region's OWN in-cluster Gitea in
+                   sync too ── same in-region Job mechanism as step-01's leg (a
+                   secondary's headless gitea-http is unreachable cross-region).
+                   /secondary-kubeconfigs is optional; empty => no-op.
+                  */}}
+                  echo "[mirror-resync] #6490 secondary-region resync leg"
+                  sec_any="false"
+                  for skc in /secondary-kubeconfigs/*.yaml; do
+                    [ -e "${skc}" ] || continue
+                    sec_any="true"
+                    region=$(basename "${skc}" .yaml)
+                    jobname=$(printf 'cutover-gitea-mirror-secondary-%s' "${region}" | cut -c1-63)
+                    echo "[mirror-resync] #6490 secondary region ${region}: stamping in-region resync Job ${jobname} (ns ${SECONDARY_GITEA_NAMESPACE})"
+                    kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" create configmap cutover-secondary-mirror-script \
+                      --from-file=secondary-mirror.sh=/secondary-mirror/secondary-mirror.sh \
+                      --dry-run=client -o yaml | kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply -f -
+                    kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" delete job "${jobname}" --ignore-not-found=true >/dev/null 2>&1 || true
+                    sed "s/__REGION__/${region}/g" /secondary-mirror/secondary-mirror-job.yaml >/tmp/secjob.yaml
+                    kubectl --kubeconfig "${skc}" apply -f /tmp/secjob.yaml
+                    sec_deadline=$(( $(date +%s) + ${MIRROR_JOB_WAIT_SECONDS} ))
+                    sec_done=""
+                    while [ "$(date +%s)" -lt "${sec_deadline}" ]; do
+                      sec_ok=$(kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" get job "${jobname}" -o jsonpath='{.status.succeeded}' 2>/dev/null || echo "")
+                      sec_fail=$(kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" get job "${jobname}" -o jsonpath='{.status.failed}' 2>/dev/null || echo "")
+                      if [ "${sec_ok}" = "1" ]; then sec_done="ok"; break; fi
+                      if [ -n "${sec_fail}" ] && [ "${sec_fail}" -ge 3 ] 2>/dev/null; then sec_done="fail"; break; fi
+                      sleep "${MIRROR_JOB_POLL_SECONDS}"
+                    done
+                    if [ "${sec_done}" != "ok" ]; then
+                      echo "[mirror-resync] #6490 WARN secondary region ${region}: resync Job ${jobname} did not succeed within ${MIRROR_JOB_WAIT_SECONDS}s — this region's Gitea may be behind upstream; next fire retries" >&2
+                      kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" logs "job/${jobname}" --tail=40 2>/dev/null || true
+                    else
+                      echo "[mirror-resync] #6490 secondary region ${region}: resync Job ${jobname} succeeded"
+                    fi
+                  done
+                  if [ "${sec_any}" != "true" ]; then
+                    echo "[mirror-resync] #6490: no secondary-region kubeconfigs mounted — single-region, secondary resync is a no-op"
+                  fi
+                  {{- end }}
                   echo "[mirror-resync] done"
               resources:
                 requests: { cpu: 50m, memory: 128Mi }
@@ -254,4 +310,31 @@ spec:
                 readOnlyRootFilesystem: false
                 capabilities:
                   drop: ["ALL"]
+              {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+              volumeMounts:
+                - name: secondary-kubeconfigs
+                  mountPath: /secondary-kubeconfigs
+                  readOnly: true
+                - name: secondary-mirror
+                  mountPath: /secondary-mirror
+                  readOnly: true
+              {{- end }}
+          {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+          {{- /*
+           #6490 — optional secondary-region kubeconfigs (catalyst-api
+           materialises cutover-secondary-kubeconfigs; empty on single-region so
+           the leg no-ops) + the shared mirror script this leg distributes into
+           each secondary. Rendered ONLY when the flag is set so single-region
+           provs (and the default mirrorResync=disabled path) stay byte-identical.
+          */}}
+          volumes:
+            - name: secondary-kubeconfigs
+              secret:
+                secretName: {{ .Values.secondaryRegions.kubeconfigSecretName }}
+                optional: true
+            - name: secondary-mirror
+              configMap:
+                name: cutover-secondary-mirror-script
+                defaultMode: 0755
+          {{- end }}
 {{- end }}

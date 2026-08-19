@@ -4156,7 +4156,20 @@ name: bp-self-sovereign-cutover
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # 0.1.192 (#6487) — gitea-mirror survives the grown 472MB monorepo clone (tuned http.postBuffer + 3x retry).
-version: 0.1.192
+# 0.1.193 (#6490) — the mirror reaches EACH SECONDARY region's OWN in-cluster Gitea.
+#   On a 2-region Sovereign step-01/step-11 mirrored region-A only; step-05 then
+#   repointed region-B's Flux at the external gateway door, a cross-region hop
+#   that truncated the ~472MB git-upload-pack ref advertisement at pkt-line 3, so
+#   region-B had no reachable complete source, its Kustomization reverted step-06's
+#   HelmRepository pivot and step-06 fail-loud'd (#5596). Fix: step-01 + step-11
+#   ALSO mirror into each secondary's OWN in-cluster Gitea (a Job run IN that
+#   region via its kubeconfig, the headless gitea-http Service being unreachable
+#   cross-region; #6488 large-clone robustness on every push; a git ls-remote
+#   self-verify gates it), and step-05 pivots each secondary at its in-cluster
+#   gitea-http svc using THAT region's own gitea-admin-secret. RENDER-GATED on
+#   secondaryRegions.mirrorToSecondaryGitea (default false, overlay wires it from
+#   SOVEREIGN_ENABLE_CNPG_PAIR) so single-region provs render byte-identical.
+version: 0.1.195
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

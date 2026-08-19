@@ -1074,7 +1074,12 @@ spec:
       # chart/tests/ left the package via .helmignore: 757,264 bytes, 72.2%.
       # The rendered manifest is byte-identical modulo comments — no step,
       # value or RBAC change, still 11 steps.
-      version: 0.1.192
+      # 0.1.193 (#6490): the mirror reaches EACH secondary region's OWN
+      #   in-cluster Gitea (step-01/step-11 push there via its kubeconfig, step-05
+      #   pivots the secondary at its in-cluster gitea-http svc). Render-gated on
+      #   secondaryRegions.mirrorToSecondaryGitea, wired below from
+      #   SOVEREIGN_ENABLE_CNPG_PAIR so single-region provs are untouched.
+      version: 0.1.195
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover
@@ -1243,6 +1248,18 @@ spec:
     # #4669 level-triggered reconciler once the operator flips the flag).
     trigger:
       fireCutoverOnHandover: ${FIRE_CUTOVER_ON_HANDOVER:-false}
+    # #6490 — mirror openova/openova into EACH secondary region's OWN in-cluster
+    # Gitea and pivot that region's Flux GitRepository at its in-cluster gitea-http
+    # svc, instead of the cross-region external door that truncates the ~472MB ref
+    # advertisement at pkt-line 3 (hw300). Wired from SOVEREIGN_ENABLE_CNPG_PAIR —
+    # the SAME multi-region signal cnpg-pair (16b/16c) + newapi (80) + harbor (19)
+    # read, stamped `true` on BOTH regions of a 2-region BCP Sovereign and false on
+    # a single-region prov — so single-region Sovereigns leave the whole leg
+    # render-gated OFF (byte-identical to pre-#6490) while every multi-region prov
+    # inherits the fix zero-touch. See platform/self-sovereign-cutover/chart
+    # values.yaml secondaryRegions.mirrorToSecondaryGitea.
+    secondaryRegions:
+      mirrorToSecondaryGitea: ${SOVEREIGN_ENABLE_CNPG_PAIR:=false}
     # #5640 (Refs #5265) — POST-CUTOVER artifact delivery. Made explicit here
     # rather than left to the chart default so the posture of every fresh prov
     # is readable in the slot the operator actually reviews.

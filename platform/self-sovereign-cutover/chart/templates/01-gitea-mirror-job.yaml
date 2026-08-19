@@ -85,6 +85,20 @@ data:
             value: {{ .Values.gitRepositorySecretRef.patSourceSecretName | quote }}
           - name: PAT_SOURCE_KEY
             value: {{ .Values.gitRepositorySecretRef.patSourceKey | quote }}
+          {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+          {{- /*
+           #6490 — inputs for the secondary-region mirror leg. The per-secondary
+           mirror Job manifest is fully rendered in the cutover-secondary-mirror-
+           script ConfigMap (mounted at /secondary-mirror); this leg only needs
+           to know WHERE in each secondary to stamp it and HOW LONG to wait.
+          */}}
+          - name: SECONDARY_GITEA_NAMESPACE
+            value: {{ .Values.secondaryRegions.secondaryGiteaNamespace | quote }}
+          - name: MIRROR_JOB_WAIT_SECONDS
+            value: {{ .Values.secondaryRegions.mirrorJobWaitSeconds | quote }}
+          - name: MIRROR_JOB_POLL_SECONDS
+            value: {{ .Values.secondaryRegions.mirrorJobPollSeconds | quote }}
+          {{- end }}
         command: ["/bin/sh", "-c"]
         args:
           - |
@@ -315,6 +329,64 @@ data:
               echo "[gitea-mirror] verified: mirror=false on ${GITEA_ORG}/${GITEA_REPO} (writable for cutover step-06)"
             fi
 
+            {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+            {{- /*
+             ── #6490: mirror to EACH secondary region's OWN in-cluster Gitea ──
+             The primary push above populated region-A only. A secondary's own
+             gitea-http is HEADLESS and unreachable cross-region, so we run the
+             mirror IN each secondary: distribute the shared cutover-secondary-
+             mirror-script ConfigMap into the region's gitea namespace, then stamp
+             the Helm-rendered mirror Job (only __REGION__ is sed-substituted). The
+             Job clones upstream + force-pushes to the region-local Gitea using
+             THAT region's OWN gitea-admin-secret + ls-remote self-verifies. It
+             lands in the gitea namespace with the default SA because the cutover
+             chart is SECONDARY_HR_SUSPEND'd on a secondary (no runner SA there)
+             and the mirror makes no Kubernetes API calls. /secondary-kubeconfigs
+             is the optional cutover-secondary-kubeconfigs mount; empty (single-
+             region) makes this whole block a runtime no-op.
+            */}}
+            echo "[gitea-mirror] #6490 secondary-region mirror leg (mirrorToSecondaryGitea=true)"
+            sec_any="false"
+            for skc in /secondary-kubeconfigs/*.yaml; do
+              [ -e "${skc}" ] || continue
+              sec_any="true"
+              region=$(basename "${skc}" .yaml)
+              jobname=$(printf 'cutover-gitea-mirror-secondary-%s' "${region}" | cut -c1-63)
+              echo "[gitea-mirror] #6490 secondary region ${region}: distributing mirror script + stamping in-region Job ${jobname} (ns ${SECONDARY_GITEA_NAMESPACE})"
+              {{- /*
+               Distribute the shared script ConfigMap into the secondary's gitea
+               namespace, then (re)create the Job (delete a prior attempt first —
+               a Job's pod template is immutable). The Job manifest is rendered in
+               the mounted ConfigMap; only __REGION__ is substituted here.
+              */}}
+              kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" create configmap cutover-secondary-mirror-script \
+                --from-file=secondary-mirror.sh=/secondary-mirror/secondary-mirror.sh \
+                --dry-run=client -o yaml | kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply -f -
+              kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" delete job "${jobname}" --ignore-not-found=true >/dev/null 2>&1 || true
+              sed "s/__REGION__/${region}/g" /secondary-mirror/secondary-mirror-job.yaml >/tmp/secjob.yaml
+              kubectl --kubeconfig "${skc}" apply -f /tmp/secjob.yaml
+              echo "[gitea-mirror] #6490 secondary region ${region}: waiting up to ${MIRROR_JOB_WAIT_SECONDS}s for ${jobname}"
+              sec_deadline=$(( $(date +%s) + ${MIRROR_JOB_WAIT_SECONDS} ))
+              sec_done=""
+              while [ "$(date +%s)" -lt "${sec_deadline}" ]; do
+                sec_ok=$(kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" get job "${jobname}" -o jsonpath='{.status.succeeded}' 2>/dev/null || echo "")
+                sec_fail=$(kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" get job "${jobname}" -o jsonpath='{.status.failed}' 2>/dev/null || echo "")
+                if [ "${sec_ok}" = "1" ]; then sec_done="ok"; break; fi
+                if [ -n "${sec_fail}" ] && [ "${sec_fail}" -ge 3 ] 2>/dev/null; then sec_done="fail"; break; fi
+                sleep "${MIRROR_JOB_POLL_SECONDS}"
+              done
+              if [ "${sec_done}" != "ok" ]; then
+                echo "[gitea-mirror] FATAL: #6490 secondary region ${region} mirror Job ${jobname} did not succeed within ${MIRROR_JOB_WAIT_SECONDS}s — its in-cluster Gitea has no complete ${GITEA_ORG}/${GITEA_REPO} and step-05 would pivot this region's Flux at an empty source (the pkt-line 3 EOF class, #6490)" >&2
+                kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" logs "job/${jobname}" --tail=40 2>/dev/null || true
+                exit 1
+              fi
+              echo "[gitea-mirror] #6490 secondary region ${region}: mirror Job ${jobname} SUCCEEDED (region-local Gitea serves a complete ref advertisement)"
+            done
+            if [ "${sec_any}" != "true" ]; then
+              echo "[gitea-mirror] #6490: no secondary-region kubeconfigs mounted — single-region Sovereign, secondary mirror is a no-op"
+            fi
+            {{- end }}
+
             {{- /*
              G75 #2622 (2026-05-31): SEVER UPSTREAM GIT TETHER (ADR-0002
              Pillar 5 contract). gitea-mirror-resync CronJob runs every
@@ -386,3 +458,30 @@ data:
           readOnlyRootFilesystem: false
           capabilities:
             drop: ["ALL"]
+        {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+        {{- /*
+         #6490 — optional secondary-region kubeconfigs (the cutover-secondary-
+         kubeconfigs Secret catalyst-api materialises at run start; empty on a
+         single-region Sovereign so the leg no-ops) + the shared mirror script
+         this leg distributes into each secondary. Rendered ONLY when the flag is
+         set so single-region provs stay byte-identical.
+        */}}
+        volumeMounts:
+          - name: secondary-kubeconfigs
+            mountPath: /secondary-kubeconfigs
+            readOnly: true
+          - name: secondary-mirror
+            mountPath: /secondary-mirror
+            readOnly: true
+        {{- end }}
+    {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+    volumes:
+      - name: secondary-kubeconfigs
+        secret:
+          secretName: {{ .Values.secondaryRegions.kubeconfigSecretName }}
+          optional: true
+      - name: secondary-mirror
+        configMap:
+          name: cutover-secondary-mirror-script
+          defaultMode: 0755
+    {{- end }}
