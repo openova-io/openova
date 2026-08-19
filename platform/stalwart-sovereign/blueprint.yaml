@@ -52,7 +52,7 @@ spec:
     tags: [mail, smtp, sovereign, console, pin, dkim, spf, dmarc]
     documentation: https://stalw.art/
     license: AGPL-3.0
-  visibility: listed
+  visibility: unlisted
   owner:
     team: platform
     contact: catalyst@openova.io

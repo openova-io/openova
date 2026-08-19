@@ -19,7 +19,7 @@ spec:
     tags: [llm, anthropic, claude, openai, adapter, proxy]
     documentation: https://docs.anthropic.com/en/api/messages
     license: Apache-2.0
-  visibility: listed
+  visibility: unlisted
   owner:
     team: ai-platform
     contact: ai-platform@openova.io

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-16T12:22:07.309Z",
+  "generatedAt": "2026-08-19T02:28:01.547Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -106,7 +106,7 @@
       "category": "ai-runtime",
       "tagline": null,
       "tags": [],
-      "visibility": "listed",
+      "visibility": "unlisted",
       "version": "1.0.0",
       "section": "pts-4-6-llm-serving",
       "depends": [
@@ -2607,7 +2607,7 @@
       "category": "application",
       "tagline": null,
       "tags": [],
-      "visibility": "listed",
+      "visibility": "unlisted",
       "version": "1.1.0",
       "section": "pts-4-7-application-tier-chat-ui",
       "depends": [
@@ -3357,7 +3357,7 @@
       "category": "platform",
       "tagline": null,
       "tags": [],
-      "visibility": "listed",
+      "visibility": "unlisted",
       "version": "0.1.2",
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [
@@ -4269,7 +4269,7 @@
       "category": "testing",
       "tagline": null,
       "tags": [],
-      "visibility": "listed",
+      "visibility": "unlisted",
       "version": "0.1.0",
       "section": "pts-qa",
       "depends": [],
@@ -4464,7 +4464,7 @@
       "category": "devtools",
       "tagline": null,
       "tags": [],
-      "visibility": "listed",
+      "visibility": "unlisted",
       "version": "0.3.12",
       "section": "pts-4-sandbox",
       "depends": [
@@ -4919,7 +4919,7 @@
       "category": "communication",
       "tagline": null,
       "tags": [],
-      "visibility": "listed",
+      "visibility": "unlisted",
       "version": "0.1.1",
       "section": "pts-4-5-communication",
       "depends": [

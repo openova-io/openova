@@ -241,7 +241,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "category": "ai-runtime",
     "tagline": null,
     "tags": [],
-    "visibility": "listed",
+    "visibility": "unlisted",
     "version": "1.0.0",
     "section": "pts-4-6-llm-serving",
     "depends": [
@@ -2742,7 +2742,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "category": "application",
     "tagline": null,
     "tags": [],
-    "visibility": "listed",
+    "visibility": "unlisted",
     "version": "1.1.0",
     "section": "pts-4-7-application-tier-chat-ui",
     "depends": [
@@ -3492,7 +3492,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "category": "platform",
     "tagline": null,
     "tags": [],
-    "visibility": "listed",
+    "visibility": "unlisted",
     "version": "0.1.2",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
@@ -4404,7 +4404,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "category": "testing",
     "tagline": null,
     "tags": [],
-    "visibility": "listed",
+    "visibility": "unlisted",
     "version": "0.1.0",
     "section": "pts-qa",
     "depends": [],
@@ -4599,7 +4599,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "category": "devtools",
     "tagline": null,
     "tags": [],
-    "visibility": "listed",
+    "visibility": "unlisted",
     "version": "0.3.12",
     "section": "pts-4-sandbox",
     "depends": [
@@ -5054,7 +5054,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "category": "communication",
     "tagline": null,
     "tags": [],
-    "visibility": "listed",
+    "visibility": "unlisted",
     "version": "0.1.1",
     "section": "pts-4-5-communication",
     "depends": [

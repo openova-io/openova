@@ -12,7 +12,7 @@ spec:
     summary: WireGuard-based zero-trust mesh + remote-access overlay. Operators / engineers / customer admins enroll devices via Keycloak SSO and reach Sovereign-internal services from any laptop. Includes management + signal + coturn (TURN/STUN). One NetBird per Sovereign per ADR-0001 §11.
     icon: netbird.svg
     category: platform
-  visibility: listed
+  visibility: unlisted
   configSchema:
     type: object
     properties:
