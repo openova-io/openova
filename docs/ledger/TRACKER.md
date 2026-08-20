@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-20T22:30:07Z` |
+| Last refreshed | `2026-08-20T22:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-20T22:44 | [#6537](https://github.com/openova-io/openova/pull/6537) | #997 | docs(uat): refresh EVIDENCE-GAP — 204/286 screenshotted, acc |
+| 2026-08-20T22:33 | [#6536](https://github.com/openova-io/openova/pull/6536) | #997 | docs(uat): hw302 live screenshots for reachable rows 104/115 |
 | 2026-08-20T22:28 | [#6535](https://github.com/openova-io/openova/pull/6535) | #6499 | docs(uat): harvest reachable re-walk batch (194->201) |
 | 2026-08-20T22:17 | [#6534](https://github.com/openova-io/openova/pull/6534) | #6499 | docs(uat): harvest R8/R15 re-walk (192->194) |
 | 2026-08-20T22:07 | [#6533](https://github.com/openova-io/openova/pull/6533) | #6499 | docs(uat): harvest R1/M1/G5 janitor re-walk (189->192) |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-20T05:27 | [#6503](https://github.com/openova-io/openova/pull/6503) | #6490 | fix(cutover): region-local gitea-mirror uses a header, not a |
 | 2026-08-20T01:26 | [#6502](https://github.com/openova-io/openova/pull/6502) | #6372 | fix(gitops): funnel door emits the openova-MCP bearer + veri |
 | 2026-08-20T01:27 | [#6500](https://github.com/openova-io/openova/pull/6500) | #6320 | fix(wordpress-tenant): CNPG-operator carve-out + zero instal |
-| 2026-08-20T11:40 | [#6499](https://github.com/openova-io/openova/pull/6499) | #3376 | docs(uat): rows 90 + 234 PASS on hw301 — funnel Org serves W |
-| 2026-08-20T00:19 | [#6498](https://github.com/openova-io/openova/pull/6498) | #6317 | fix(agenity): renew the Anthropic OAuth credential before it |
 
 ---
 
