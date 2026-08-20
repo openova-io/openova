@@ -80,7 +80,7 @@ spec:
   # (pg4wp + openid-connect-generic baked into the runtime image). Rebase of
   # PR #6320 onto current main; 0.4.24 is claimed by the still-open #6320, so
   # this republish takes the next free patch.
-  version: "0.4.25"
+  version: "0.4.26"
   visibility: listed
   card:
     title: "WordPress (per-Organization)"
@@ -109,7 +109,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: "0.4.25"
+    version: "0.4.26"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/wordpress-tenant/blueprint.yaml. Uses {{.AppName}} so
   # multi-instance tenants get distinct hostnames per Application.
@@ -222,7 +222,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.4.25"
+  version: "0.4.26"
   visibility: listed
   card:
     title: "WordPress"
@@ -244,7 +244,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: "0.4.25"
+    version: "0.4.26"
   # Lockstep with the bp-wordpress-tenant entry above + platform/wordpress-tenant/
   # blueprint.yaml. Same chart bytes; this is the bare-slug entrypoint only.
   topology:

@@ -11,7 +11,7 @@ spec:
   # (artifacts baked into the runtime image). Rebase of PR #6320 onto current
   # main; #6320 already claims 0.4.24 as an open PR, so this republish takes
   # the next free patch. Lockstep with platform/wordpress-tenant/chart/Chart.yaml.
-  version: 0.4.25
+  version: 0.4.26
   card:
     title: WordPress (per-Organization)
     summary: |
