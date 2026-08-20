@@ -108,7 +108,14 @@ data:
     git config --global http.lowSpeedLimit 1000
     git config --global http.lowSpeedTime 600
 
-    local_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
+    # Authenticate the git push/ls-remote over HTTP with the SAME BasicAuth
+    # header the curl API calls above use — NOT URL-injected credentials. A
+    # region-local Gitea admin password containing a URL-special char
+    # (/ @ : & % …) breaks either the sed replacement or git's URL parse, so
+    # the API calls succeed (header-authenticated) while the push FATALs with
+    # "Could not read from remote repository" (#6490, live-confirmed hw301
+    # region-B). The push URL carries NO credentials.
+    push_url="${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git"
     workdir=$(mktemp -d)
     cd "${workdir}"
     echo "[secondary-mirror] cloning ${UPSTREAM_REPO_URL} (bare)"
@@ -128,7 +135,7 @@ data:
     fi
     cd upstream.git
     echo "[secondary-mirror] pushing upstream branches + tags to the region-local Gitea"
-    push_err=$(git push --force "${local_url}" 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*' 2>&1) || {
+    push_err=$(git -c http.extraHeader="Authorization: Basic ${basic_auth}" push --force "${push_url}" 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*' 2>&1) || {
       echo "[secondary-mirror] FATAL: git push to the region-local Gitea failed" >&2
       printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PASSWORD}+,REDACTED,g" >&2
       exit 1
@@ -138,7 +145,7 @@ data:
     # 4. ls-remote self-verify — the #6490 ordering gate. The region's Gitea must
     #    serve a COMPLETE ref advertisement (the class that truncated at pkt-line
     #    3 cross-region); prove it locally before step-05 pivots Flux at it.
-    if ! git ls-remote --heads "${local_url}" >/tmp/.lsr 2>/tmp/.lsr.err; then
+    if ! git -c http.extraHeader="Authorization: Basic ${basic_auth}" ls-remote --heads "${push_url}" >/tmp/.lsr 2>/tmp/.lsr.err; then
       echo "[secondary-mirror] FATAL: git ls-remote of the pushed repo failed — its ref advertisement is not servable (the pkt-line 3 EOF class, #6490)" >&2
       sed -E "s,${GITEA_PASSWORD}+,REDACTED,g" /tmp/.lsr.err >&2 || true
       exit 1

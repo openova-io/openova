@@ -1083,7 +1083,13 @@ spec:
       #   app.kubernetes.io/managed-by: flux so ns gitea's kyverno flux-managed
       #   ClusterPolicy admits step-01's set -e apply (it excludes ns catalyst but
       #   not ns gitea); without it the cutover halted at step-01 (hw301).
-      version: 0.1.196
+      # 0.1.197 (#6490): the region-local gitea-mirror git push/ls-remote (secondary
+      #   mirror + primary resync) authenticate with an http.extraHeader
+      #   Authorization: Basic — the same header the API calls use — instead of
+      #   URL-injecting ${GITEA_USERNAME}:${GITEA_PASSWORD}@, which FATALed the push
+      #   when the region-local Gitea admin password held a URL-special char (hw301
+      #   region-B: API basic-auth succeeded, git push "Could not read from remote").
+      version: 0.1.197
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

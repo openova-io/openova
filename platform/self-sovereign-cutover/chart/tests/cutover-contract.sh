@@ -5484,4 +5484,48 @@ fi
 grep -q 'names a HEALTHY HelmRelease' "$TMP/c95/out.txt" || { echo "FAIL: CONTROL — the platform stale-override rejection lost its class name (#5391/#6273)" >&2; exit 1; }
 echo "  PASS (#6273: BOTH Phase A0 passes partition by ownership — the HelmRelease pass and the override-free wl_pending pass each WARN-and-proceed on Organization namespaces with every offender named, its TERMINAL tag intact and the re-install cost stated; platform offenders stay FATAL, named and classified, are counted alone in the headline, and the VACUITY CONTROL proves that FATAL flips to a warning when the one discriminating input flips; leak controls: identical workloads in harbor still fatal, unlabelled namespaces still fatal, stale override on a platform release still rejected)"
 
+echo "[cutover-contract] Case 96: the region-local gitea-mirror git push/ls-remote authenticate with an Authorization header, NEVER URL-injected credentials — a Gitea admin password holding a URL-special char breaks URL-injection but not the header (#6490, Refs #3379, UAT row 166)"
+# Live hw301 region-B (me-east-215-b-1): the secondary-mirror's curl API calls
+# (base64 Authorization: Basic header) SUCCEEDED — "org already present", "repo
+# already present" — while `git push` FATALed "Could not read from remote
+# repository", because the push path is different: it injected
+# ${GITEA_USERNAME}:${GITEA_PASSWORD}@ into the URL, and the region-local Gitea
+# admin password held a URL-special char (/ @ : & % …) that broke either the sed
+# replacement or git's URL parse. The durable fix: git push + git ls-remote
+# carry the SAME `http.extraHeader="Authorization: Basic ${basic_auth}"` the curl
+# API calls use, and the remote URL carries NO credentials. This guards the two
+# admin-BasicAuth mirror sites; the PAT-authed primary step-01 (01-gitea-mirror)
+# is a separate contract (#5262 — a hex PAT is immune to URL-special chars).
+c96_fail=0
+# (a) the SECONDARY-region mirror ConfigMap (render-gated on mirrorToSecondaryGitea).
+helm template smoke-secmirror . --set secondaryRegions.mirrorToSecondaryGitea=true \
+  --show-only templates/secondary-mirror-script-configmap.yaml > "$TMP/r_6490_secondary.yaml"
+F="$TMP/r_6490_secondary.yaml"
+if ! grep -qF 'git -c http.extraHeader="Authorization: Basic ${basic_auth}" push --force "${push_url}"' "$F"; then
+  echo "FAIL: secondary-mirror push does not carry the Authorization: Basic http.extraHeader (#6490)" >&2; c96_fail=1
+fi
+if ! grep -qF 'git -c http.extraHeader="Authorization: Basic ${basic_auth}" ls-remote --heads "${push_url}"' "$F"; then
+  echo "FAIL: secondary-mirror ls-remote does not carry the Authorization: Basic http.extraHeader (#6490)" >&2; c96_fail=1
+fi
+if ! grep -qF 'push_url="${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git"' "$F"; then
+  echo "FAIL: secondary-mirror push_url is not the credential-free remote URL (#6490)" >&2; c96_fail=1
+fi
+# anti-regression (non-vacuous — TRUE on the old URL-injection script, FALSE now):
+# no credential-in-URL injection may survive anywhere in the script.
+if grep -qF '${GITEA_USERNAME}:${GITEA_PASSWORD}@' "$F"; then
+  echo "FAIL: secondary-mirror still URL-injects the admin password — breaks on a URL-special-char password (#6490 regression)" >&2; c96_fail=1
+fi
+# (b) the PRIMARY-region resync CronJob's own push (same admin-BasicAuth site).
+helm template smoke-resync . --set mirrorResync.enabled=true \
+  --show-only templates/11-mirror-resync-cronjob.yaml > "$TMP/r_6490_resync.yaml"
+G="$TMP/r_6490_resync.yaml"
+if ! grep -qF 'git -c http.extraHeader="Authorization: Basic ${basic_auth}" push --mirror --force "${push_url}"' "$G"; then
+  echo "FAIL: mirror-resync push does not carry the Authorization: Basic http.extraHeader (#6490)" >&2; c96_fail=1
+fi
+if grep -qF '${GITEA_USERNAME}:${GITEA_PASSWORD}@' "$G"; then
+  echo "FAIL: mirror-resync still URL-injects the admin password — breaks on a URL-special-char password (#6490 regression)" >&2; c96_fail=1
+fi
+if [ "$c96_fail" -ne 0 ]; then exit 1; fi
+echo "  PASS (#6490: the secondary-mirror + primary resync git push/ls-remote authenticate via an http.extraHeader Authorization: Basic — the same header the curl API calls use — against a credential-free remote URL; zero admin-password URL-injection survives, so a URL-special-char Gitea admin password no longer FATALs the push)"
+
 echo "[cutover-contract] All gates green."
