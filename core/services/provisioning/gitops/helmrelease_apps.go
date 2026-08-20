@@ -785,6 +785,13 @@ func sovereignHostFromRealmIssuer(issuer string) string {
 // dependsOn on a never-rendered bp-keycloak wedges the release in
 // DependencyNotReady forever (the divergence this file's header describes).
 //
+// It carries BOTH per-Org credential blocks the BSS door does: the anthropic
+// ExternalSecret (#6372) and the openovaMCP bearer + RS256 verify-pubkey wiring
+// (#4276 hop 7/7b). The latter was the residual door-drift #6372 left behind —
+// without it a funnel Org's openova-mcp boots DEGRADED (no bearer, no verify
+// key) and the agent has no create_application tool, even after Anthropic is
+// seeded (measured hw301 Org acme).
+//
 // oidcGate.issuerHost is the SOVEREIGN host, not the Org zone (#6314). The
 // browser-facing issuer is auth.<sovereign-fqdn>; the Org zone would render
 // auth.<slug>.<parent>, a host with no HTTPRoute — envoy 404 at sign-in. That
@@ -879,6 +886,60 @@ spec:
         remoteKey: catalyst/anthropic/token
         remoteProperty: apiKey
         remoteCredentialsProperty: credentialsJson
+    # ── #4276 hop 7/7b — the openova-MCP bearer + RS256 verify pubkey ────────
+    # THE SAME DOOR-PARITY DEFECT #6372 fixed one block up, one hop deeper.
+    # #6372 taught this funnel generator to emit the anthropic block the BSS
+    # door always had; it did NOT teach it the openovaMCP block the BSS door
+    # (organization_gitops.go orgTenantBPAgenity) ALSO always had, so a
+    # funnel-born Org still could not run the agentic path even once its
+    # Anthropic credential was seeded.
+    #
+    # Without this block the StatefulSet leaves openovaMCP.bearerSecret unset
+    # and rs256PubkeySecret at the chart default (catalyst-handover-jwt, a host
+    # catalyst-system Secret that is ABSENT in the per-Org namespace and
+    # optional:true), so the openova-mcp boots DEGRADED — verify=rs256 with no
+    # pubkey env → tools/list empty, tools/call 401 — and every spawned agent
+    # reaches the MCP with NO bearer (-32001 unauthenticated). MEASURED on
+    # hw301 Org acme: OPENOVA_MCP_RS256_PUBKEY_PEM resolved from the absent
+    # catalyst-handover-jwt and the agent had no create_application tool.
+    #
+    # The producer already writes what this reads: the catalyst-api org-pipeline
+    # seedMCPBearer (sovereign_mcp_bearer_seed.go) mints an Org-scoped session
+    # JWT (tier=org-admin, org_id=<slug>, role=openova-user, typ=session,
+    # RS256-signed by the Sovereign handover signer) PLUS the matching RS256
+    # verify pubkey (PKIX PEM) and writes BOTH to the per-Org OpenBao path
+    # secret/catalyst/agenity/<slug>/mcp-bearer (properties bearer + pubkeyPem)
+    # on every Org reconcile. The chart's externalsecret-mcp-bearer.yaml pulls
+    # them into the per-Org Secret agenity-mcp-bearer; bearerSecret +
+    # rs256PubkeySecret point the StatefulSet at it so it projects
+    # OPENOVA_MCP_BEARER + OPENOVA_MCP_RS256_PUBKEY_PEM. The bearer and the key
+    # that verifies it are the mint + public half of the SAME handover signer,
+    # so seeding them through one path sidesteps the JWK-vs-PEM cross-namespace
+    # mismatch (#4228). Path MUST stay under catalyst/ — the only KV sub-tree a
+    # Sovereign can WRITE (catalyst-api-write); vault-region1's role is
+    # read-only. Mirrored from the BSS door so the two doors cannot drift again.
+    openovaMCP:
+      # The ORG console host the MCP forwards as X-Tenant-Host on the org-scoped
+      # install path (#4610). The catalyst-api URL host (console.<sovereignFqdn>)
+      # is NOT a registered tenant, so a Sovereign-host X-Tenant-Host 404s
+      # tenant-not-registered on every agent create_application. Pinned to the
+      # Org host, byte-identical with the BSS door's {{.ConsoleHost}}.
+      tenantHost: console.%s.%s
+      bearerSecret:
+        name: agenity-mcp-bearer
+        key: bearer
+      rs256PubkeySecret:
+        name: agenity-mcp-bearer
+        key: pubkeyPem
+      mcpBearer:
+        externalSecret:
+          enabled: true
+          secretStoreRef: vault-region1
+          secretStoreKind: ClusterSecretStore
+          remoteKey: catalyst/agenity/%s/mcp-bearer
+          remoteBearerProperty: bearer
+          remotePubkeyProperty: pubkeyPem
 `, helmRepoBlock("bp-agenity"), opt.slug, opt.slug, opt.kubeConfigBlock(),
-		orgZone, opt.slug, issuerHostLine, host)
+		orgZone, opt.slug, issuerHostLine, host,
+		opt.slug, opt.parentDomain, opt.slug)
 }
