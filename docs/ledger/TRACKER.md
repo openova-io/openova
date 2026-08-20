@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-20T11:30:04Z` |
+| Last refreshed | `2026-08-20T11:45:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -314,6 +314,7 @@ flowchart LR
 | 2026-08-20T05:27 | [#6503](https://github.com/openova-io/openova/pull/6503) | #6490 | fix(cutover): region-local gitea-mirror uses a header, not a |
 | 2026-08-20T01:26 | [#6502](https://github.com/openova-io/openova/pull/6502) | #6372 | fix(gitops): funnel door emits the openova-MCP bearer + veri |
 | 2026-08-20T01:27 | [#6500](https://github.com/openova-io/openova/pull/6500) | #6320 | fix(wordpress-tenant): CNPG-operator carve-out + zero instal |
+| 2026-08-20T11:40 | [#6499](https://github.com/openova-io/openova/pull/6499) | #3376 | docs(uat): rows 90 + 234 PASS on hw301 — funnel Org serves W |
 | 2026-08-20T00:19 | [#6498](https://github.com/openova-io/openova/pull/6498) | #6317 | fix(agenity): renew the Anthropic OAuth credential before it |
 | 2026-08-19T22:40 | [#6496](https://github.com/openova-io/openova/pull/6496) | #6495 | fix(wipe): handed-over Huawei Sovereign un-wipeable — infer  |
 | 2026-08-19T19:00 | [#6494](https://github.com/openova-io/openova/pull/6494) | #6493 | fix(cutover): label the secondary gitea-mirror Job managed-b |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-16T07:49 | [#6357](https://github.com/openova-io/openova/pull/6357) | #6356 | fix(cutover): re-seed the status ConfigMap when empty — reso |
 | 2026-08-15T20:29 | [#6355](https://github.com/openova-io/openova/pull/6355) | #6354 | docs(uat): switch ledger to hw298 + stamp 227/G2/109/W5 on m |
 | 2026-08-15T20:43 | [#6353](https://github.com/openova-io/openova/pull/6353) | #6352 | fix(provisioning): funnel path can now render bp-agenity — D |
-| 2026-08-15T18:06 | [#6351](https://github.com/openova-io/openova/pull/6351) | #6314 | docs(uat): row 219 re-walked on a real customer Organization |
 
 ---
 
