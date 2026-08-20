@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-20T16:00:03Z` |
+| Last refreshed | `2026-08-20T16:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-20T16:07 | [#6521](https://github.com/openova-io/openova/pull/6521) | #6499 | docs(uat): screenshot in its own always-visible column (vali |
 | 2026-08-20T14:21 | [#6520](https://github.com/openova-io/openova/pull/6520) | #6499 | docs(uat): remove stray empty table above the 4-col ledger |
 | 2026-08-20T14:19 | [#6519](https://github.com/openova-io/openova/pull/6519) | #6499 | docs(uat): 4-column layout so the screenshot/Evidence column |
 | 2026-08-20T13:54 | [#6518](https://github.com/openova-io/openova/pull/6518) | #6499 | docs(uat): move fallback screenshots in-row + add hw302 thum |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-18T10:57 | [#6373](https://github.com/openova-io/openova/pull/6373) | #6369 | fix(mcp): Sovereign-mode admitted NON-admins — the guard pro |
 | 2026-08-16T15:32 | [#6371](https://github.com/openova-io/openova/pull/6371) | #6370 | fix(topology): loadVClusters queried the non-existent group  |
 | 2026-08-16T15:32 | [#6368](https://github.com/openova-io/openova/pull/6368) | #6367 | fix(provisioning): every purchased app sat at SourceNotReady |
-| 2026-08-16T15:32 | [#6366](https://github.com/openova-io/openova/pull/6366) | #6360 | feat(catalog): sell bp-agenity in the storefront — a Bluepri |
 
 ---
 
