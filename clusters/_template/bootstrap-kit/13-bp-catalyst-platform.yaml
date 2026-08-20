@@ -1456,7 +1456,7 @@ spec:
       #   kyverno flux-managed managed-by label on the secondary mirror Job).
       # 1.4.1537 — lockstep for bp-agenity 0.5.31 (#6317: server-side Anthropic
       #   OAuth credential renewal + resync sidecar).
-      version: 1.4.1537
+      version: 1.4.1538
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
