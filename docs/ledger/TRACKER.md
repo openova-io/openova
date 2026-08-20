@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-20T09:15:03Z` |
+| Last refreshed | `2026-08-20T09:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-20T09:21 | [#6510](https://github.com/openova-io/openova/pull/6510) | #6504 | fix(keycloak): register concrete per-Org console redirectUri |
 | 2026-08-20T05:59 | [#6507](https://github.com/openova-io/openova/pull/6507) | #6464 | fix(events): bound JetStream MaxDeliver so a doomed notifica |
 | 2026-08-20T06:26 | [#6505](https://github.com/openova-io/openova/pull/6505) | #6504 | fix(provisioning): thread org-pool/tenant parent domain into |
 | 2026-08-20T04:12 | [#6504](https://github.com/openova-io/openova/pull/6504) | #4 | fix(keycloak): per-Org console login 400s Invalid parameter: |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-15T20:29 | [#6355](https://github.com/openova-io/openova/pull/6355) | #6354 | docs(uat): switch ledger to hw298 + stamp 227/G2/109/W5 on m |
 | 2026-08-15T20:43 | [#6353](https://github.com/openova-io/openova/pull/6353) | #6352 | fix(provisioning): funnel path can now render bp-agenity — D |
 | 2026-08-15T18:06 | [#6351](https://github.com/openova-io/openova/pull/6351) | #6314 | docs(uat): row 219 re-walked on a real customer Organization |
-| 2026-08-15T17:21 | [#6350](https://github.com/openova-io/openova/pull/6350) | #6314 | docs(uat): rows 219 / G11 / 166 re-walked on hw298 — evidenc |
 
 ---
 
