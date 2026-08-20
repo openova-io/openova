@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-20T18:30:04Z` |
+| Last refreshed | `2026-08-20T18:45:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-20T18:45 | [#6525](https://github.com/openova-io/openova/pull/6525) | #6499 | docs(uat): +9 rows agenity/billing/app-detail hw302 views |
+| 2026-08-20T18:41 | [#6524](https://github.com/openova-io/openova/pull/6524) | #6499 | docs(uat): live hw302 console-view screenshots (+46 rows, 78 |
 | 2026-08-20T17:30 | [#6523](https://github.com/openova-io/openova/pull/6523) | #6499 | docs(uat): G11 + 166 cutover rows -> current hw302 live-test |
 | 2026-08-20T16:27 | [#6522](https://github.com/openova-io/openova/pull/6522) | #6499 | docs(uat): live hw302 browser proof in the 8 agenity ❌ rows |
 | 2026-08-20T16:07 | [#6521](https://github.com/openova-io/openova/pull/6521) | #6499 | docs(uat): screenshot in its own always-visible column (vali |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-18T23:34 | [#6478](https://github.com/openova-io/openova/pull/6478) | #6477 | docs(ledger): classify the 18 remaining UAT failures by what |
 | 2026-08-18T13:53 | [#6469](https://github.com/openova-io/openova/pull/6469) | #6464 | fix(events): constant 5s nak + MaxDeliver:-1 is an unbounded |
 | 2026-08-18T10:57 | [#6466](https://github.com/openova-io/openova/pull/6466) | #6372 | fix(provisioning): funnel-born Orgs got no Anthropic credent |
-| 2026-08-18T10:36 | [#6465](https://github.com/openova-io/openova/pull/6465) | #6464 | fix(notification): 452 quota refusal bypassed backoff and th |
-| 2026-08-18T10:57 | [#6373](https://github.com/openova-io/openova/pull/6373) | #6369 | fix(mcp): Sovereign-mode admitted NON-admins — the guard pro |
 
 ---
 
