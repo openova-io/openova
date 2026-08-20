@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-20T13:45:03Z` |
+| Last refreshed | `2026-08-20T14:00:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-20T13:54 | [#6518](https://github.com/openova-io/openova/pull/6518) | #6499 | docs(uat): move fallback screenshots in-row + add hw302 thum |
 | 2026-08-20T13:09 | [#6517](https://github.com/openova-io/openova/pull/6517) | #6499 | docs(uat): HTML-table ledger — wrapping cells + in-row click |
 | 2026-08-20T12:43 | [#6516](https://github.com/openova-io/openova/pull/6516) | #6499 | docs(uat): screenshots as clickable in-row thumbnails |
 | 2026-08-20T12:14 | [#6515](https://github.com/openova-io/openova/pull/6515) | #6499 | docs(uat): live hw302 screenshots for 65 rows (console + SSO |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-16T15:32 | [#6366](https://github.com/openova-io/openova/pull/6366) | #6360 | feat(catalog): sell bp-agenity in the storefront — a Bluepri |
 | 2026-08-16T12:15 | [#6363](https://github.com/openova-io/openova/pull/6363) | #5991 | fix(bp-guacamole): connection producer was deleted at render |
 | 2026-08-16T07:22 | [#6361](https://github.com/openova-io/openova/pull/6361) | #6357 | docs(uat): re-walk 15 hw296-carried rows on live hw298 — 8 h |
-| 2026-08-16T04:43 | [#6358](https://github.com/openova-io/openova/pull/6358) | #6356 | docs(ledger): convergence capture 2026-08-16T00:29Z — hw298  |
 
 ---
 
