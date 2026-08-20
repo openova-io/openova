@@ -1,5 +1,25 @@
 apiVersion: v2
 name: bp-agenity
+# 0.5.32 (#6513): give the creds-resync sidecar a livenessProbe AND a
+# readinessProbe. 0.5.31 shipped the sidecar (below) with NEITHER, and the
+# kyverno probes-present ClusterPolicy (platform/kyverno-policies K1) DENIES a
+# StatefulSet unless EVERY container declares both — so the per-Org agenity
+# StatefulSet was rejected at admission and the workspace never came up (proven
+# live on hw302; the bp-openova-mcp per-Org install uses the SAME image but has
+# no such sidecar, so it installed fine — isolating the sidecar's missing probes
+# as the sole blocker). The sidecar is a headless copy-forward loop with no HTTP
+# port, so both probes are exec and chosen so neither can regress a running
+# workspace: readiness checks that the OPTIONAL /creds Secret mount is visible
+# (always present, so it can never false-fail the pod NotReady and hide the
+# dashboard), and liveness is a trivial `true` (a dead loop = container exit, so
+# container-alive == loop-alive). It deliberately does NOT probe credential-file
+# freshness — a healthy sidecar leaves the file untouched whenever no newer
+# expiresAt has arrived, so that would kill a working sidecar. The sidecar's
+# copy-forward function and the credentialResync default are UNCHANGED. Pinned by
+# chart/tests/creds-resync-probes.sh, which renders the chart and asserts BOTH
+# probes on creds-resync AND the kyverno invariant that every container carries
+# both, with a vacuity control. Template + test change; appVersion (image)
+# UNCHANGED.
 # 0.5.31 (#6317): DELIVER a refreshed credential to a RUNNING workspace, and
 # stop waiting an hour for it. 0.5.26/0.5.27 taught this chart to diagnose an
 # expired credential honestly; neither could do anything about one, because
@@ -267,7 +287,7 @@ type: application
 # same gateway bp-wordpress-tenant + the org console route attach to, #4054).
 # The old default rendered Accepted=False/InvalidHTTPRoute and the host 404'd
 # until the parentRef was hand-overridden. appVersion (image) unchanged.
-version: 0.5.31
+version: 0.5.32
 # 0.5.22 (#5617): the per-Org oidc-gate companion gains its EGRESS
 # CiliumNetworkPolicy (templates/oidc-gate.yaml `oidc-gate-<cid>-egress`).
 # The gate shipped an ingress-only gateway CNP into a DEFAULT-DENY per-Org

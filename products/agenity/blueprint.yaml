@@ -18,7 +18,11 @@ spec:
   # Keycloak backchannel + upstream) — the per-Org namespace is default-deny
   # and the gate's ingress-only CNP left the OAuth callback 500ing on a DNS
   # timeout. Lockstep with products/agenity/chart + the catalog-seed pin.
-  version: 0.5.31
+  # 0.5.32 (#6513): the creds-resync sidecar gains a liveness + readiness probe
+  # so the StatefulSet passes the kyverno probes-present policy — 0.5.31 shipped
+  # it probe-less and every per-Org install was DENIED at admission (proven live
+  # hw302). Lockstep with products/agenity/chart/Chart.yaml + the catalog-seed pin.
+  version: 0.5.32
   card:
     title: Agenity
     summary: |
