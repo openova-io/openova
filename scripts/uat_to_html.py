@@ -106,9 +106,16 @@ def main() -> int:
         elif not in_table:
             pre.append(line)
 
-    head = ("<thead><tr>" + "".join(f"<th>{h}</th>" for h in COLS)
+    # Explicit per-column widths so the wide Test-case column cannot squeeze the
+    # Evidence/screenshot column off the right edge. GitHub honours width on
+    # <th>/<td> (verified against its render API); width on the header row sets
+    # the whole column.
+    widths = ["6%", "44%", "10%", "40%"]
+    head = ("<thead><tr>"
+            + "".join(f'<th width="{w}">{h}</th>' for h, w in zip(COLS, widths))
             + "</tr></thead>")
-    table = "<table>\n" + head + "\n<tbody>\n" + "\n".join(rows) + "\n</tbody>\n</table>"
+    table = ('<table width="100%">\n' + head + "\n<tbody>\n"
+             + "\n".join(rows) + "\n</tbody>\n</table>")
     out = "\n".join(pre).rstrip() + "\n\n" + table + "\n"
     if gallery:
         out += "\n" + "\n".join(gallery).rstrip() + "\n"
