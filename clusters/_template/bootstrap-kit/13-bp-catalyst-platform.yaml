@@ -1459,7 +1459,7 @@ spec:
       # 1.4.1540 — lockstep for bp-wordpress-tenant 0.4.25 (#6311, Refs #4307:
       #   CNPG-operator status-probe carve-out + zero install-time egress; rebase
       #   of PR #6320 onto current main).
-      version: 1.4.1541
+      version: 1.4.1542
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
