@@ -300,4 +300,4 @@
 
 These rows were last validated on a PRIOR env, so the anti-fake-snapshot guard blocks stapling a fresh hw302 screenshot into the row itself until the row is re-walked on hw302. The genuine hw302 capture is shown here meanwhile (click to enlarge).
 
-**Row 5** [<img src="screenshots/hw302-row120-org-detail.png" width="150">](screenshots/hw302-row120-org-detail.png)
+**Row 5** [<img src="screenshots/hw302-row120-org-detail.png" width="150">](screenshots/hw302-row120-org-detail.png) — NOT movable in-row on hw302: this row asserts a customer Org directory row with ISOLATION=**vcluster**, but hw302 only carries **namespace**-isolated customer Orgs (UAT Beta / UAT Co, plan S — the #4292 tier gate maps s/free to namespace). No M+/flexi customer Org exists here to prove the vcluster clause, so the row stays ✅-carried rather than being re-stamped on a surface that doesn't satisfy it. (The shot shown is the org-detail surface, which confirms Kind=Customer / Isolation=Namespace.)
