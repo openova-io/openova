@@ -719,7 +719,11 @@ spec:
 // chart/Chart.yaml + the catalog seed to 0.1.16 (self-signed TLS fallback in
 // CRD-less vclusters) and did not bump this funnel pin, so main went red on
 // hrAppPinSeedDrift — a purchase would install 0.1.15 while the seed served 0.1.16.
-const DefaultHRAppChartVersions = "openclaw=0.2.19,stalwart-mail=0.1.16,newapi=1.4.153,agenity=0.5.28"
+// 2026-08-20: agenity 0.5.28 -> 0.5.31. #6317 bumped products/agenity/chart +
+// the catalog seed to 0.5.31 (server-side Anthropic OAuth credential renewal +
+// resync sidecar); this funnel pin moves in lockstep so a purchase installs the
+// renewing chart, not the one whose credential dies every ~5h.
+const DefaultHRAppChartVersions = "openclaw=0.2.19,stalwart-mail=0.1.16,newapi=1.4.153,agenity=0.5.31"
 
 // ParseHRAppVersions parses the CATALYST_HR_APP_CHART_VERSIONS wire format
 // ("slug=version,slug=version") into the HelmReleaseAppVersions map (#4706).
