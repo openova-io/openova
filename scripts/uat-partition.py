@@ -30,9 +30,13 @@ being read already.
 """
 import argparse
 import collections
+import os
 import re
 import sys
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from uat_html_compat import to_pipe  # HTML-<table> ledger -> markdown rows
 
 ROOT = Path(__file__).resolve().parent.parent
 UAT = ROOT / "docs" / "ledger" / "UAT.md"
@@ -298,7 +302,7 @@ def main():
     if args.self_test:
         return self_test()
 
-    derived = derive(UAT.read_text(encoding="utf-8"))
+    derived = derive(to_pipe(UAT.read_text(encoding="utf-8")))
     if not derived:
         print("no ❌ rows parsed from UAT.md — the row regex is not reading the "
               "ledger", file=sys.stderr)

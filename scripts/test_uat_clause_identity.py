@@ -84,9 +84,13 @@ false bijection failure — it did on the first hand-measurement of this row.
 """
 import argparse
 import csv
+import os
 import re
 import sys
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from uat_html_compat import to_pipe  # HTML-<table> ledger -> markdown rows
 
 REPO = Path(__file__).resolve().parent.parent
 UAT = REPO / "docs" / "ledger" / "UAT.md"
@@ -229,7 +233,7 @@ def main() -> int:
 
 
 def check() -> int:
-    uat_rows = list(parse_uat(UAT.read_text()))
+    uat_rows = list(parse_uat(to_pipe(UAT.read_text())))
     canon = {r["row_id"]: normalise(r["test_case"]) for r in csv.DictReader(CANON.open())}
 
     failures = []
@@ -450,7 +454,7 @@ def self_test() -> int:
     tmp.mkdir(exist_ok=True)
     ok = True
     try:
-        uat_text = real_uat.read_text()
+        uat_text = to_pipe(real_uat.read_text())
         canon_rows = list(csv.DictReader(real_canon.open()))
         ret_text = real_ret.read_text()
 

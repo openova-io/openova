@@ -22,9 +22,13 @@ a future stray pipe in an EARLY column would silently shift `Result` and
 corrupt the score. That is the failure this guard is really here to prevent;
 the render damage is the visible half.
 """
+import os
 import re
 import sys
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from uat_html_compat import to_pipe  # HTML-<table> ledger -> markdown rows
 
 UAT = Path(__file__).resolve().parent.parent / "docs" / "ledger" / "UAT.md"
 
@@ -47,7 +51,7 @@ def rows(text):
 
 
 def main():
-    text = UAT.read_text()
+    text = to_pipe(UAT.read_text())
     parsed = list(rows(text))
 
     # Vacuity control first. Every assertion below is of the form "no row is

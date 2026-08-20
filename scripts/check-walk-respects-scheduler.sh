@@ -79,9 +79,14 @@ die() { echo "$*" >&2; exit 1; }
 # prose legitimately contains escaped pipes, and a bare split lands the offsets
 # in the wrong column.
 verdicts() {
-  python3 -c '
-import re,sys
-for line in sys.stdin:
+  UAT_SCRIPTS="${BASH_SOURCE[0]%/*}" python3 -c '
+import re,sys,os
+sys.path.insert(0, os.environ.get("UAT_SCRIPTS",""))
+try:
+    from uat_html_compat import to_pipe   # HTML-<table> ledger -> markdown rows
+except Exception:
+    to_pipe = lambda s: s
+for line in to_pipe(sys.stdin.read()).split("\n"):
     if re.match(r"^\|\s*(R?\d+|[GWM]\d+)\s*\|", line):
         f = re.split(r"(?<!\\)\|", line.rstrip())
         if len(f) >= 8:
