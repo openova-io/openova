@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-20T12:00:04Z` |
+| Last refreshed | `2026-08-20T12:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-20T12:14 | [#6515](https://github.com/openova-io/openova/pull/6515) | #6499 | docs(uat): live hw302 screenshots for 65 rows (console + SSO |
 | 2026-08-20T09:21 | [#6510](https://github.com/openova-io/openova/pull/6510) | #6504 | fix(keycloak): register concrete per-Org console redirectUri |
 | 2026-08-20T05:59 | [#6507](https://github.com/openova-io/openova/pull/6507) | #6464 | fix(events): bound JetStream MaxDeliver so a doomed notifica |
 | 2026-08-20T06:26 | [#6505](https://github.com/openova-io/openova/pull/6505) | #6504 | fix(provisioning): thread org-pool/tenant parent domain into |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-16T04:43 | [#6358](https://github.com/openova-io/openova/pull/6358) | #6356 | docs(ledger): convergence capture 2026-08-16T00:29Z — hw298  |
 | 2026-08-16T07:49 | [#6357](https://github.com/openova-io/openova/pull/6357) | #6356 | fix(cutover): re-seed the status ConfigMap when empty — reso |
 | 2026-08-15T20:29 | [#6355](https://github.com/openova-io/openova/pull/6355) | #6354 | docs(uat): switch ledger to hw298 + stamp 227/G2/109/W5 on m |
-| 2026-08-15T20:43 | [#6353](https://github.com/openova-io/openova/pull/6353) | #6352 | fix(provisioning): funnel path can now render bp-agenity — D |
 
 ---
 
