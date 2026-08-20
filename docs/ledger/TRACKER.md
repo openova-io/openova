@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-20T05:15:04Z` |
+| Last refreshed | `2026-08-20T05:30:12Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-08-20T04:12 | [#6504](https://github.com/openova-io/openova/pull/6504) | #4 | fix(keycloak): per-Org console login 400s Invalid parameter: |
+| 2026-08-20T05:27 | [#6503](https://github.com/openova-io/openova/pull/6503) | #6490 | fix(cutover): region-local gitea-mirror uses a header, not a |
 | 2026-08-20T01:26 | [#6502](https://github.com/openova-io/openova/pull/6502) | #6372 | fix(gitops): funnel door emits the openova-MCP bearer + veri |
 | 2026-08-20T01:27 | [#6500](https://github.com/openova-io/openova/pull/6500) | #6320 | fix(wordpress-tenant): CNPG-operator carve-out + zero instal |
 | 2026-08-20T00:19 | [#6498](https://github.com/openova-io/openova/pull/6498) | #6317 | fix(agenity): renew the Anthropic OAuth credential before it |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-15T17:21 | [#6350](https://github.com/openova-io/openova/pull/6350) | #6314 | docs(uat): rows 219 / G11 / 166 re-walked on hw298 — evidenc |
 | 2026-08-15T19:57 | [#6349](https://github.com/openova-io/openova/pull/6349) | #5921 | docs(ledger): convergence capture 2026-08-15T16:43Z — hw298  |
 | 2026-08-15T15:18 | [#6348](https://github.com/openova-io/openova/pull/6348) | #6345 | fix(placement): one Primary for an active-hot-standby app, a |
-| 2026-08-15T14:00 | [#6345](https://github.com/openova-io/openova/pull/6345) | #6268 | fix(placement): join Pods to an Application by its RESOLVED  |
 
 ---
 
