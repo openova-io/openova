@@ -75,6 +75,11 @@ def main() -> int:
             continue
         if re.match(r"^\|[\s:|-]+\|\s*$", line):    # md separator row
             continue
+        # Drop any table-wrapper line from a PRIOR HTML render so it is not
+        # re-emitted as a stray/empty table above the freshly built one.
+        if re.match(r"^\s*</?(table|thead|tbody)\b", line):
+            in_table = True
+            continue
         if ROW.match(line):
             c = [x for x in UNESC.split(line)][1:8]
             c = (c + [""] * 7)[:7]
