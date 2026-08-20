@@ -1468,7 +1468,7 @@ spec:
       #   (sovereign realm catalyst-ui registers the per-Org console callback
       #   https://console.*.<zone>/* for role==org-pool zones; live hw301
       #   console.acme.omani.homes 400'd `Invalid parameter: redirect_uri`).
-      version: 1.4.1549
+      version: 1.4.1550
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
