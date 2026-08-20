@@ -745,3 +745,137 @@ func TestDefaultRegistrarKindFromEnv(t *testing.T) {
 		t.Errorf("empty env should fall back to default: got %q, want %q", got, defaultRegistrarKind)
 	}
 }
+
+// TestWriteTfvars_ThreadsEveryOrgPoolZoneIntoParentZones is the
+// regression guard for the per-Org console login P0 (#3374 #3988,
+// Refs #6504, live hw301 console.acme.omani.homes → HTTP 400 "Invalid
+// parameter: redirect_uri").
+//
+// bp-keycloak #6504 (chart 1.5.11) taught the sovereign realm's
+// catalyst-ui client to register a per-Org console callback
+// https://console.*.<zone>/* for every parentZones entry whose
+// role==org-pool — but it can only act on the zones that actually reach
+// the umbrella's parentZones substitute. parentZones is fed from
+// ${PARENT_DOMAINS_YAML}, which is fed from the parent_domains_yaml tofu
+// var this function writes. So the necessary-and-load-bearing precondition
+// for #6504 is: a deployment carrying a primary + N org-pool TLDs MUST
+// render parent_domains_yaml with exactly one role==org-pool entry per
+// pool TLD. This test locks that contract at N==3.
+func TestWriteTfvars_ThreadsEveryOrgPoolZoneIntoParentZones(t *testing.T) {
+	dir, err := os.MkdirTemp("", "writeTfvars-orgpool-n-*")
+	if err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	poolTLDs := []string{"omani.homes", "omani.rest", "omani.trade"}
+	req := Request{
+		SovereignFQDN:    "hw301.omantel.biz",
+		OrgName:          "Omantel",
+		OrgEmail:         "ops@omantel.biz",
+		HetznerToken:     "tok",
+		HetznerProjectID: "p1",
+		Region:           "fsn1",
+		WorkerCount:      2,
+		ParentDomains: []ParentDomain{
+			{Name: "omantel.biz", Role: ParentDomainRolePrimary, RegistrarKind: "dynadot"},
+			{Name: "omani.homes", Role: ParentDomainRoleOrgPool, RegistrarKind: "dynadot"},
+			{Name: "omani.rest", Role: ParentDomainRoleOrgPool, RegistrarKind: "dynadot"},
+			{Name: "omani.trade", Role: ParentDomainRoleOrgPool, RegistrarKind: "dynadot"},
+		},
+	}
+	if err := writeTfvars(dir, req); err != nil {
+		t.Fatalf("writeTfvars: %v", err)
+	}
+	raw, err := os.ReadFile(dir + "/tofu.auto.tfvars.json")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	got, _ := parsed["parent_domains_yaml"].(string)
+	if got == "" {
+		t.Fatalf("parent_domains_yaml MUST carry the org-pool zones; empty drops them and bp-keycloak #6504 has no org-pool zone to render console callbacks for")
+	}
+	var entries []map[string]any
+	if err := json.Unmarshal([]byte(got), &entries); err != nil {
+		t.Fatalf("parent_domains_yaml must be JSON-flow / YAML-decodable: %v\nRaw: %s", err, got)
+	}
+	// Exactly one role==org-pool entry per pool TLD, plus the primary.
+	if len(entries) != 4 {
+		t.Fatalf("parent_domains_yaml should carry 4 entries (primary + 3 org-pool), got %d. Raw: %s", len(entries), got)
+	}
+	seenPool := map[string]bool{}
+	for _, e := range entries {
+		name, _ := e["name"].(string)
+		role, _ := e["role"].(string)
+		if role == ParentDomainRoleOrgPool {
+			seenPool[name] = true
+		}
+	}
+	for _, tld := range poolTLDs {
+		if !seenPool[tld] {
+			t.Errorf("parent_domains_yaml is missing a role==org-pool entry for pool TLD %q — bp-keycloak #6504 will not render console.*.%s/*. Raw: %s", tld, tld, got)
+		}
+	}
+	if len(seenPool) != len(poolTLDs) {
+		t.Errorf("parent_domains_yaml carried %d org-pool entries, want exactly %d (one per pool TLD). Raw: %s", len(seenPool), len(poolTLDs), got)
+	}
+}
+
+// TestTenantParentDomain_DerivesFirstOrgPool proves the tenantParentDomain
+// half of the same #3374/#3988 threading: the org-pool TLD new Organizations
+// default to (bootstrap-kit slot-13
+// orgServices.provisioning.tenantParentDomain ← ${TENANT_PARENT_DOMAIN}) is
+// the FIRST role==org-pool parent domain, and "" when the Sovereign brought
+// none (single-zone → byte-identical render, empty default). This is the Go
+// mirror of the cloud-init TENANT_PARENT_DOMAIN derivation; keeping the two in
+// lockstep is why the helper exists.
+func TestTenantParentDomain_DerivesFirstOrgPool(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []ParentDomain
+		want string
+	}{
+		{
+			name: "no org-pool zone → empty (single-zone Sovereign)",
+			in: []ParentDomain{
+				{Name: "solo.example.io", Role: ParentDomainRolePrimary},
+			},
+			want: "",
+		},
+		{
+			name: "nil slice → empty",
+			in:   nil,
+			want: "",
+		},
+		{
+			name: "first org-pool wins (primary skipped)",
+			in: []ParentDomain{
+				{Name: "omantel.biz", Role: ParentDomainRolePrimary},
+				{Name: "omani.homes", Role: ParentDomainRoleOrgPool},
+				{Name: "omani.rest", Role: ParentDomainRoleOrgPool},
+				{Name: "omani.trade", Role: ParentDomainRoleOrgPool},
+			},
+			want: "omani.homes",
+		},
+		{
+			name: "name is lowercased + trimmed",
+			in: []ParentDomain{
+				{Name: "omantel.biz", Role: ParentDomainRolePrimary},
+				{Name: "  OMANI.REST  ", Role: ParentDomainRoleOrgPool},
+			},
+			want: "omani.rest",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Request{ParentDomains: tc.in}.TenantParentDomain()
+			if got != tc.want {
+				t.Errorf("TenantParentDomain() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
