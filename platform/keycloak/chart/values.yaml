@@ -40,6 +40,21 @@ catalystBlueprint:
 # Per-Sovereign bootstrap-kit HelmRelease overlay supplies this.
 sovereignFQDN: ""
 
+# parentZones: the Sovereign's parent-domain pool, threaded from the same
+# ${PARENT_DOMAINS_YAML} Flux substitute that powerdns (slot 11), external-dns
+# (slot 12) and sovereign-tls-vars (slot 12a) consume. A YAML list of
+# {name, role} maps, e.g.
+#   [{name: "omantel.biz", role: "primary"}, {name: "omani.homes", role: "org-pool"}]
+# configmap-sovereign-realm.yaml reads this to register the per-Org console
+# callback https://console.*.<zone>/* on the catalyst-ui client for every
+# role==org-pool zone — the per-Org operator console (console.<slug>.<pool-tld>)
+# discovers OIDC against the sovereign realm with client_id=catalyst-ui and
+# otherwise 400s `Invalid parameter: redirect_uri` (#3374 #3988; live hw301
+# console.acme.omani.homes). Empty default → single-zone Sovereigns render the
+# catalyst-ui client byte-identically (no pool callbacks added). Selection keys
+# only off the zone role (data, not code), so it is generic for any pool TLD.
+parentZones: []
+
 # catalystAPIInternalURL — the in-cluster base URL for the catalyst-pin
 # identity provider's BACKCHANNEL legs (#6087, UAT row 219).
 #

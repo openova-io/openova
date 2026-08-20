@@ -248,7 +248,15 @@ spec:
       #   ClusterIP resolves with zero endpoints and routes to catalyst-api once
       #   slot 13 lands. Also: the config-cli Job now prints the SERVER's error
       #   body on a failed import instead of a bare 400.
-      version: 1.5.10
+      # 1.5.11 — #3374 #3988: the sovereign realm's catalyst-ui client now
+      #   registers the per-Org console callback https://console.*.<zone>/* for
+      #   every role==org-pool parent zone (threaded via the new `parentZones`
+      #   value from ${PARENT_DOMAINS_YAML} above). Without it a customer login
+      #   at console.<slug>.<pool-tld> 400'd `Invalid parameter: redirect_uri`
+      #   against the shared sovereign realm (live hw301 console.acme.omani.homes),
+      #   blocking every per-Org login AND the Pillar-4 agentic walk. Single-zone
+      #   Sovereigns (no org-pool zone) render byte-identical.
+      version: 1.5.11
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
@@ -318,6 +326,19 @@ spec:
         name: bp-keycloak
         namespace: flux-system
     sovereignFQDN: ${SOVEREIGN_FQDN}
+    # parentZones (#3374 #3988): the Sovereign's parent-domain pool, the SAME
+    # ${PARENT_DOMAINS_YAML} substitute powerdns (slot 11) / external-dns
+    # (slot 12) / sovereign-tls-vars (slot 12a) already consume. The sovereign
+    # realm import reads this to register the per-Org console callback
+    # https://console.*.<zone>/* on the catalyst-ui client for every
+    # role==org-pool zone — without it the per-Org operator console
+    # (console.<slug>.<pool-tld>) OIDC login 400s `Invalid parameter:
+    # redirect_uri` against the shared sovereign realm (live hw301
+    # console.acme.omani.homes). cloud-init always pre-renders the substitute
+    # (single-entry primary array in the zero-touch flow) so it is never unset;
+    # a single-zone Sovereign has no org-pool zone → catalyst-ui renders
+    # byte-identically.
+    parentZones: ${PARENT_DOMAINS_YAML}
     # sovereignRealm.ownerEmail (founder NS-3 #3263): the deployment owner's
     # email — cloud-init threads tofu's org_email into the bootstrap-kit
     # Kustomization substitute map as SOVEREIGN_OWNER_EMAIL. The realm import

@@ -556,7 +556,33 @@ name: bp-keycloak
 # client secrets. The happy path pays nothing and the Job still exits with the
 # original code.
 #   Guarded by tests/catalyst-pin-backchannel-resolvable-6172.sh.
-version: 1.5.10
+# 1.5.11 (#3374 #3988): per-Org console login 400'd `Invalid parameter:
+# redirect_uri`. On a shared-realm Sovereign the per-Org operator console
+# (org-console SPA) is served at console.<slug>.<pool-tld> and discovers OIDC
+# against the sovereign realm with client_id=catalyst-ui (bp-catalyst-platform
+# slot wires .Values.sso realm=sovereign clientId=catalyst-ui; tenant_discover.go
+# returns the same), so its browser redirect_uri is
+# https://console.<slug>.<pool-tld>/auth/callback. The sovereign realm's
+# catalyst-ui client listed ONLY the sovereign-admin host
+# (https://console.<sovereignFQDN>/*), so every pool-domain login was rejected
+# by Keycloak -- LIVE on hw301 console.acme.omani.homes: the customer cannot
+# reach their console, which also blocks the Pillar-4 agentic walk that needs
+# the org session. The sovereign-admin console (console.<sovereignFQDN>) was
+# unaffected because its host matched.
+#   Fix: for every parent zone with role==org-pool, the sovereign realm import
+# now registers the analogous host-wildcard console callback
+# https://console.*.<zone>/* (+ matching webOrigin + post-logout) on the
+# catalyst-ui client -- mirroring the tenant realm's catalyst-ui host-wildcard
+# (configmap-tenant-realm.yaml) and reusing the SAME role==org-pool selection
+# sovereign-tls-vars uses for the pool listeners (data, not code, generic for
+# any pool TLD). Threaded via the new top-level `parentZones` value from the
+# ${PARENT_DOMAINS_YAML} substitute powerdns/external-dns/sovereign-tls-vars
+# already consume; empty on a single-zone Sovereign -> catalyst-ui renders
+# byte-identical, so no non-pool Sovereign changes.
+#   Guarded by tests/per-org-console-pool-redirect-3374.sh (Case A asserts the
+# pool callbacks present -- FAILS on the pre-fix template; Case B/C assert the
+# single-zone / primary-only render is unchanged).
+version: 1.5.11
 description: |
   1.5.2 (#4246): the per-tenant `openclaw-oidc-client-secret` Secret now
   emits BOTH `client-secret` AND `OIDC_CLIENT_SECRET` keys (it previously
