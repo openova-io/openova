@@ -1082,7 +1082,46 @@ func (r *Reconciler) reconcileConsoleServing(ctx context.Context, org *orgapi.Or
 		log.Error(err, "tenant console HTTPRoute reconcile (transient — requeue)")
 		degraded = true
 	}
+	// #6509 — register the CONCRETE per-Org console callback
+	// `https://console.<slug>.<poolTLD>/*` on the sovereign realm's
+	// catalyst-ui client. Without this the per-Org console login 400s
+	// `invalid_redirect_uri` at Keycloak: the browser redirects with
+	// client_id=catalyst-ui and Keycloak validates redirect_uri against that
+	// client's redirectUris, but #6504's mid-host wildcard
+	// (`console.*.<pool>/*`) is INERT on Keycloak 26.3 (only a trailing `*`
+	// is honored). Best-effort + degraded-requeue, sibling of the DNS/TLS/route
+	// trio above: a Keycloak blip retries on the 30s cadence and must not block
+	// the Org's other outputs. No-op when the Org has no pool parentDomain.
+	if err := r.reconcileConsoleRedirectURI(ctx, org); err != nil {
+		log.Error(err, "per-Org console redirectUri registration (transient — requeue)")
+		degraded = true
+	}
 	return degraded
+}
+
+// reconcileConsoleRedirectURI registers the concrete per-Org console callback
+// on the sovereign realm's catalyst-ui client (#6509). No-op when the Org has
+// not engaged the tenant-networking up-path (no pool parentDomain) — such an
+// Org signs in on the Sovereign-admin host, already covered by the static
+// `https://console.<sovereignFQDN>/*` redirectUri. The console subdomain
+// defaults to spec.slug, matching reconcileTenantRoute's host derivation, so a
+// custom spec.tenantPublic.subdomain registers the host actually served.
+func (r *Reconciler) reconcileConsoleRedirectURI(ctx context.Context, org *orgapi.Organization) error {
+	if r.Keycloak == nil {
+		// No Keycloak wired (Catalyst-Zero / a unit test exercising only the
+		// console-serving trio) — nothing to register.
+		return nil
+	}
+	tp := org.Spec.TenantPublic
+	parentDomain := strings.TrimSpace(tp.ParentDomain)
+	if parentDomain == "" {
+		return nil
+	}
+	subdomain := strings.TrimSpace(tp.Subdomain)
+	if subdomain == "" {
+		subdomain = org.Spec.Slug
+	}
+	return r.Keycloak.RegisterOrgConsoleRedirectURI(ctx, subdomain, parentDomain)
 }
 
 // readyOrgMessage words the Organization's Ready=True condition message off the

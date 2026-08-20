@@ -67,6 +67,12 @@ type fakeKeycloak struct {
 	idpEnsureCalls    int
 	idpDeleteCalls    int
 	mapperEnsureCalls int
+
+	// Per-Org console redirectUri surface (#6509).
+	consoleRedirects       map[string]bool // registered concrete redirect URIs
+	consoleRegisterCalls   int
+	consoleDeregisterCalls int
+	consoleRegisterErr     error // when set, RegisterOrgConsoleRedirectURI returns it
 }
 
 func (f *fakeKeycloak) EnsureRealm(ctx context.Context, slug string) (string, error) {
@@ -147,6 +153,32 @@ func (f *fakeKeycloak) DeleteIdentityProvider(ctx context.Context, alias string)
 	}
 	if f.mappers != nil {
 		delete(f.mappers, alias)
+	}
+	return nil
+}
+
+func (f *fakeKeycloak) RegisterOrgConsoleRedirectURI(ctx context.Context, slug, poolTLD string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.consoleRegisterCalls++
+	if f.consoleRegisterErr != nil {
+		return f.consoleRegisterErr
+	}
+	if f.consoleRedirects == nil {
+		f.consoleRedirects = map[string]bool{}
+	}
+	redirect, _ := orgConsoleRedirectURI(slug, poolTLD)
+	f.consoleRedirects[redirect] = true
+	return nil
+}
+
+func (f *fakeKeycloak) DeregisterOrgConsoleRedirectURI(ctx context.Context, slug, poolTLD string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.consoleDeregisterCalls++
+	if f.consoleRedirects != nil {
+		redirect, _ := orgConsoleRedirectURI(slug, poolTLD)
+		delete(f.consoleRedirects, redirect)
 	}
 	return nil
 }

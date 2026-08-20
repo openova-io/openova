@@ -82,6 +82,44 @@ type KeycloakClient interface {
 	// reconciler calls this best-effort when the Org drops its
 	// federation config — absent-as-success is the contract.
 	DeleteIdentityProvider(ctx context.Context, alias string) error
+
+	// RegisterOrgConsoleRedirectURI appends the CONCRETE per-Org console
+	// callback `https://console.<slug>.<poolTLD>/*` (+ the matching web
+	// origin `https://console.<slug>.<poolTLD>`) to the sovereign realm's
+	// `catalyst-ui` client. Idempotent + dedup: a callback already present
+	// makes zero writes.
+	//
+	// #6509 — this REPLACES the inert mid-host wildcard #6504 emitted into
+	// the static realm import (`https://console.*.<pool>/*`). Keycloak 26.3
+	// only honors a TRAILING `*` — a `*` in the HOST segment is matched
+	// literally, so the wildcard never matched a real per-Org subdomain and
+	// every per-Org console login 400'd `invalid_redirect_uri`. Registering
+	// each Org's concrete host on reconcile is the only mechanism Keycloak
+	// actually honors.
+	RegisterOrgConsoleRedirectURI(ctx context.Context, slug, poolTLD string) error
+
+	// DeregisterOrgConsoleRedirectURI removes the concrete per-Org console
+	// callback (+ web origin) from the `catalyst-ui` client. The reconciler
+	// calls this from the tenant-networking teardown when the Organization
+	// is deleted so dead callbacks do not accumulate on the shared client.
+	// Absent-as-success (a missing callback / absent client returns nil).
+	DeregisterOrgConsoleRedirectURI(ctx context.Context, slug, poolTLD string) error
+}
+
+// catalystUIClientID is the OIDC clientId of the public PKCE SPA client the
+// per-Org operator console (console.<slug>.<poolTLD>) discovers + redirects
+// against in the SOVEREIGN realm. Its redirectUris gate whether Keycloak
+// accepts the per-Org console callback (#6509).
+const catalystUIClientID = "catalyst-ui"
+
+// orgConsoleRedirectURI builds the CONCRETE per-Org console callback + web
+// origin for an Org's console host `console.<slug>.<poolTLD>`. The redirectUri
+// carries a TRAILING `/*` (the ONLY wildcard position Keycloak 26.3 honors —
+// #6509); the web origin is the bare scheme+host. Shared by the reconciler and
+// the register/deregister methods so both sides compute the identical strings.
+func orgConsoleRedirectURI(slug, poolTLD string) (redirect, origin string) {
+	host := fmt.Sprintf("console.%s.%s", slug, poolTLD)
+	return "https://" + host + "/*", "https://" + host
 }
 
 // KCIdentityProvider mirrors the F1 catalyst-api IdentityProvider type
@@ -793,6 +831,232 @@ func (k *LiveKeycloak) putIdentityProviderMapper(ctx context.Context, tok, alias
 	default:
 		return fmt.Errorf("keycloak: PUT mapper %d: %s", resp.StatusCode, respBody)
 	}
+}
+
+// ── catalyst-ui per-Org console redirectUri registration (#6509) ─────────
+//
+// The per-Org operator console (console.<slug>.<poolTLD>) discovers OIDC
+// against the SOVEREIGN realm with client_id=catalyst-ui. Keycloak validates
+// the browser redirect_uri against that client's redirectUris list, and 26.3
+// only honors a TRAILING `*` — so the concrete per-Org host must be appended
+// to the client at reconcile time. Register + deregister GET the client's FULL
+// representation (as a raw-message map so every untouched attribute round-trips
+// byte-for-byte), edit only redirectUris + webOrigins, and PUT it back. Both
+// short-circuit write-free when the client is already in the desired state.
+
+// RegisterOrgConsoleRedirectURI appends the concrete per-Org console callback.
+func (k *LiveKeycloak) RegisterOrgConsoleRedirectURI(ctx context.Context, slug, poolTLD string) error {
+	if slug == "" || poolTLD == "" {
+		return errors.New("keycloak.RegisterOrgConsoleRedirectURI: empty slug or poolTLD")
+	}
+	redirect, origin := orgConsoleRedirectURI(slug, poolTLD)
+
+	tok, err := k.serviceAccountToken(ctx)
+	if err != nil {
+		return fmt.Errorf("keycloak.RegisterOrgConsoleRedirectURI: %w", err)
+	}
+	rep, id, err := k.getClientByClientID(ctx, tok, catalystUIClientID)
+	if err != nil {
+		return fmt.Errorf("keycloak.RegisterOrgConsoleRedirectURI: get client: %w", err)
+	}
+	if rep == nil {
+		// The catalyst-ui client is authored by the realm import; if it is
+		// not present yet Keycloak is still importing. Surface as an error so
+		// the reconcile requeues and retries once the import lands.
+		return fmt.Errorf("keycloak.RegisterOrgConsoleRedirectURI: client %q not found in realm %q", catalystUIClientID, k.realm)
+	}
+
+	redirects, err := rawStringSlice(rep["redirectUris"])
+	if err != nil {
+		return fmt.Errorf("keycloak.RegisterOrgConsoleRedirectURI: decode redirectUris: %w", err)
+	}
+	origins, err := rawStringSlice(rep["webOrigins"])
+	if err != nil {
+		return fmt.Errorf("keycloak.RegisterOrgConsoleRedirectURI: decode webOrigins: %w", err)
+	}
+
+	newRedirects, addedR := appendDedup(redirects, redirect)
+	newOrigins, addedO := appendDedup(origins, origin)
+	if !addedR && !addedO {
+		// Already registered — steady state makes zero writes.
+		return nil
+	}
+	if err := setRawStringSlice(rep, "redirectUris", newRedirects); err != nil {
+		return err
+	}
+	if err := setRawStringSlice(rep, "webOrigins", newOrigins); err != nil {
+		return err
+	}
+	if err := k.putClient(ctx, tok, id, rep); err != nil {
+		return fmt.Errorf("keycloak.RegisterOrgConsoleRedirectURI: put client: %w", err)
+	}
+	return nil
+}
+
+// DeregisterOrgConsoleRedirectURI removes the concrete per-Org console callback.
+func (k *LiveKeycloak) DeregisterOrgConsoleRedirectURI(ctx context.Context, slug, poolTLD string) error {
+	if slug == "" || poolTLD == "" {
+		// Nothing addressable to remove — treat as success (mirrors the
+		// finalizer-teardown absent-as-success contract).
+		return nil
+	}
+	redirect, origin := orgConsoleRedirectURI(slug, poolTLD)
+
+	tok, err := k.serviceAccountToken(ctx)
+	if err != nil {
+		return fmt.Errorf("keycloak.DeregisterOrgConsoleRedirectURI: %w", err)
+	}
+	rep, id, err := k.getClientByClientID(ctx, tok, catalystUIClientID)
+	if err != nil {
+		return fmt.Errorf("keycloak.DeregisterOrgConsoleRedirectURI: get client: %w", err)
+	}
+	if rep == nil {
+		// Absent client → nothing to clean up (absent-as-success).
+		return nil
+	}
+
+	redirects, err := rawStringSlice(rep["redirectUris"])
+	if err != nil {
+		return fmt.Errorf("keycloak.DeregisterOrgConsoleRedirectURI: decode redirectUris: %w", err)
+	}
+	origins, err := rawStringSlice(rep["webOrigins"])
+	if err != nil {
+		return fmt.Errorf("keycloak.DeregisterOrgConsoleRedirectURI: decode webOrigins: %w", err)
+	}
+
+	newRedirects, removedR := removeString(redirects, redirect)
+	newOrigins, removedO := removeString(origins, origin)
+	if !removedR && !removedO {
+		return nil
+	}
+	if err := setRawStringSlice(rep, "redirectUris", newRedirects); err != nil {
+		return err
+	}
+	if err := setRawStringSlice(rep, "webOrigins", newOrigins); err != nil {
+		return err
+	}
+	if err := k.putClient(ctx, tok, id, rep); err != nil {
+		return fmt.Errorf("keycloak.DeregisterOrgConsoleRedirectURI: put client: %w", err)
+	}
+	return nil
+}
+
+// getClientByClientID resolves a client by its OIDC clientId and returns its
+// FULL representation as a raw-message map (so untouched fields round-trip
+// verbatim on PUT) plus the internal Keycloak UUID needed for the PUT URL. A
+// missing client returns (nil, "", nil) — absent, not an error.
+func (k *LiveKeycloak) getClientByClientID(ctx context.Context, tok, clientID string) (map[string]json.RawMessage, string, error) {
+	u := fmt.Sprintf("%s/admin/realms/%s/clients?clientId=%s",
+		k.addr, url.PathEscape(k.realm), url.QueryEscape(clientID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := k.http.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("keycloak: GET clients: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("keycloak: GET clients %d: %s", resp.StatusCode, body)
+	}
+	var reps []map[string]json.RawMessage
+	if err := json.Unmarshal(body, &reps); err != nil {
+		return nil, "", fmt.Errorf("keycloak: decode clients: %w", err)
+	}
+	if len(reps) == 0 {
+		return nil, "", nil
+	}
+	rep := reps[0]
+	var id string
+	if raw, ok := rep["id"]; ok {
+		if err := json.Unmarshal(raw, &id); err != nil {
+			return nil, "", fmt.Errorf("keycloak: decode client id: %w", err)
+		}
+	}
+	if id == "" {
+		return nil, "", errors.New("keycloak: client representation missing id")
+	}
+	return rep, id, nil
+}
+
+// putClient PUTs the (edited) full client representation back.
+func (k *LiveKeycloak) putClient(ctx context.Context, tok, id string, rep map[string]json.RawMessage) error {
+	body, err := json.Marshal(rep)
+	if err != nil {
+		return err
+	}
+	u := fmt.Sprintf("%s/admin/realms/%s/clients/%s",
+		k.addr, url.PathEscape(k.realm), url.PathEscape(id))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, u, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := k.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("keycloak: PUT client: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	switch resp.StatusCode {
+	case http.StatusNoContent, http.StatusOK:
+		return nil
+	default:
+		return fmt.Errorf("keycloak: PUT client %d: %s", resp.StatusCode, respBody)
+	}
+}
+
+// rawStringSlice decodes a raw JSON value into []string. A nil/absent key
+// decodes to an empty slice (not an error) so a client with no redirectUris
+// yet is handled cleanly.
+func rawStringSlice(raw json.RawMessage) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var out []string
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// setRawStringSlice re-marshals a []string back onto the raw-message map.
+func setRawStringSlice(rep map[string]json.RawMessage, key string, vals []string) error {
+	b, err := json.Marshal(vals)
+	if err != nil {
+		return fmt.Errorf("keycloak: encode %s: %w", key, err)
+	}
+	rep[key] = b
+	return nil
+}
+
+// appendDedup appends want to vals only if absent, returning (result, added).
+func appendDedup(vals []string, want string) ([]string, bool) {
+	for _, v := range vals {
+		if v == want {
+			return vals, false
+		}
+	}
+	return append(vals, want), true
+}
+
+// removeString drops every occurrence of want from vals, returning (result,
+// removed). The result is a fresh slice so the caller never aliases the input.
+func removeString(vals []string, want string) ([]string, bool) {
+	out := make([]string, 0, len(vals))
+	removed := false
+	for _, v := range vals {
+		if v == want {
+			removed = true
+			continue
+		}
+		out = append(out, v)
+	}
+	return out, removed
 }
 
 // idpDrift compares the slice of IdP fields the controller writes.

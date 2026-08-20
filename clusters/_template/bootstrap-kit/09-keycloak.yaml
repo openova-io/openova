@@ -256,7 +256,14 @@ spec:
       #   against the shared sovereign realm (live hw301 console.acme.omani.homes),
       #   blocking every per-Org login AND the Pillar-4 agentic walk. Single-zone
       #   Sovereigns (no org-pool zone) render byte-identical.
-      version: 1.5.11
+      # 1.5.12 — #6509: the 1.5.11 mid-host wildcard `console.*.<zone>/*` was
+      #   INERT — Keycloak 26.3 only honors a TRAILING `*`, so a `*` in the HOST
+      #   segment matched literally and pool-domain logins STILL 400'd
+      #   `invalid_redirect_uri` (proven live hw302). catalyst-ui now keeps ONLY
+      #   the sovereign-admin host; the organization-controller registers each
+      #   Org's CONCRETE callback https://console.<slug>.<pool-tld>/* at reconcile
+      #   time (the only shape Keycloak honors for an unbounded Org set).
+      version: 1.5.12
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
