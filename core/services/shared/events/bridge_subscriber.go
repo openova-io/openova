@@ -44,6 +44,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -102,6 +104,15 @@ type MultiSubscriber struct {
 	// constructor surface mirrors what the existing call sites
 	// (events.NewConsumer(brokers, group, topics)) already know.
 	subjects []string
+
+	// maxDeliver bounds JetStream redelivery of a persistently-failing
+	// envelope (#6464 residual). Resolved once at construction from
+	// EVENTS_NATS_MAX_DELIVER (default defaultNATSMaxDeliver). MUST be a
+	// positive, finite integer — a value of -1 (JetStream's "infinite")
+	// is exactly the unbounded hot loop that held the noreply@ 25/hour
+	// send budget at zero and killed PIN sign-in fleet-wide; see
+	// resolveMaxDeliver + runNATS.
+	maxDeliver int
 
 	mu     sync.Mutex
 	closed bool
@@ -231,9 +242,10 @@ func NewMultiSubscriber(cfg MultiSubscriberConfig) (*MultiSubscriber, error) {
 	}
 
 	m := &MultiSubscriber{
-		group:    cfg.Group,
-		stream:   cfg.StreamName,
-		subjects: subs,
+		group:      cfg.Group,
+		stream:     cfg.StreamName,
+		subjects:   subs,
+		maxDeliver: resolveMaxDeliver(),
 	}
 	if natsEnabled {
 		m.nats = cfg.NATS
@@ -339,7 +351,20 @@ func (m *MultiSubscriber) runNATS(ctx context.Context, handler func(*Event) erro
 			AckWait:       30 * time.Second,
 			FilterSubject: subj,
 			DeliverPolicy: jetstream.DeliverAllPolicy,
-			MaxDeliver:    -1,
+			// #6464 residual — MaxDeliver was -1 (infinite). #6469 slowed the
+			// nak cadence (constant 5s -> exponential, capped 5m) but a
+			// message that can NEVER succeed still redelivered forever: an
+			// "app is ready" notification whose recipient quota is spent naks,
+			// backs off to the 5m cap, and retries every 5m for the life of
+			// the stream. With MaxDeliver:-1 the drain never stops, and the
+			// 5m spacing keeps the mailer's circuit breaker (3 refusals / 90s)
+			// from ever tripping, so every redelivery reaches the wire and the
+			// noreply@ 25/hour budget stays pinned at zero — PIN sign-in dead
+			// fleet-wide. Bounding MaxDeliver caps the total budget a single
+			// stuck envelope can burn: after m.maxDeliver attempts JetStream
+			// stops redelivering (MAX_DELIVERIES advisory), the drain becomes
+			// finite, and the send budget self-heals within the rolling hour.
+			MaxDeliver: m.maxDeliver,
 		})
 		if err != nil {
 			// Stop anything we already started so we don't leak.
@@ -466,6 +491,41 @@ func (m *MultiSubscriber) Close() {
 	if m.kafka != nil {
 		m.kafka.Close()
 	}
+}
+
+// maxDeliverEnv overrides the bounded JetStream redelivery ceiling per
+// docs/PRINCIPLES.md Inviolable Principle #4 (every knob runtime-
+// configurable at the Deployment level, no rebuild). A positive integer
+// wins; anything else (unset, empty, non-numeric, or <= 0 — which
+// includes JetStream's "-1 = infinite", the very value this fix exists
+// to forbid by default) falls back to defaultNATSMaxDeliver.
+const maxDeliverEnv = "EVENTS_NATS_MAX_DELIVER"
+
+// defaultNATSMaxDeliver is the bounded redelivery ceiling for a
+// persistently-failing envelope (#6464 residual). Paired with nakBackoff
+// (5s,10s,20s,40s,80s,160s,300s,300s,...) 10 attempts span ~20 minutes of
+// retries before JetStream stops redelivering — ample headroom for a real
+// transient (a Stalwart restart is 1-2 minutes) while guaranteeing a
+// structurally-doomed notification can burn at most 10 sends, not an
+// unbounded stream, of the shared noreply@ budget.
+const defaultNATSMaxDeliver = 10
+
+// resolveMaxDeliver reads the bounded redelivery ceiling from
+// maxDeliverEnv, defaulting to defaultNATSMaxDeliver. It NEVER returns a
+// non-positive value: -1 (infinite) is exactly the unbounded hot loop
+// that killed PIN sign-in fleet-wide (#6464), so an operator cannot
+// silently reinstate it through a stray env value — an explicit infinite
+// retry is not a supported configuration.
+func resolveMaxDeliver() int {
+	raw := strings.TrimSpace(os.Getenv(maxDeliverEnv))
+	if raw == "" {
+		return defaultNATSMaxDeliver
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return defaultNATSMaxDeliver
+	}
+	return n
 }
 
 // nakBackoff returns the redelivery delay for a failed handler, growing

@@ -91,3 +91,64 @@ func TestNakBackoff_UnreadableMetadataFallsBackToBase(t *testing.T) {
 		}
 	}
 }
+
+// #6464 RESIDUAL — decaying the nak RATE (nakBackoff, #6469) is only half
+// the fix. With MaxDeliver:-1 (infinite) a message that can NEVER succeed
+// still redelivers forever: an "app is ready" notification whose recipient
+// quota is spent naks, backs off to the 5m cap, and retries every 5m for
+// the life of the stream. Worse, that 5m spacing keeps the mailer's
+// circuit breaker (3 refusals / 90s) from ever tripping, so every
+// redelivery reaches the wire and the noreply@ 25/hour budget stays pinned
+// at zero — PIN sign-in dead fleet-wide. The redelivery COUNT must be
+// bounded, not just its rate.
+func TestResolveMaxDeliver_DefaultIsBoundedNeverInfinite(t *testing.T) {
+	t.Setenv(maxDeliverEnv, "") // force the default path
+	got := resolveMaxDeliver()
+	if got != defaultNATSMaxDeliver {
+		t.Fatalf("default MaxDeliver is %d, want %d", got, defaultNATSMaxDeliver)
+	}
+	if got <= 0 {
+		t.Fatalf("default MaxDeliver is %d — a non-positive value is JetStream 'infinite', the exact unbounded loop that killed PIN sign-in (#6464)", got)
+	}
+}
+
+// CONTROL 1 — a valid positive override is honoured (Inviolable Principle
+// #4: the knob is runtime-configurable at the Deployment level).
+func TestResolveMaxDeliver_PositiveOverrideHonoured(t *testing.T) {
+	t.Setenv(maxDeliverEnv, "25")
+	if got := resolveMaxDeliver(); got != 25 {
+		t.Fatalf("override 25 gave %d — a valid positive ceiling must win", got)
+	}
+}
+
+// CONTROL 2 — the escape hatch must NOT let a stray value reinstate the
+// unbounded loop. -1 (JetStream infinite), 0, and garbage all fall back to
+// the safe bounded default; an explicit infinite retry is not supported.
+func TestResolveMaxDeliver_NonPositiveAndGarbageFallBackToDefault(t *testing.T) {
+	for _, raw := range []string{"-1", "0", "-1000", "abc", "  ", "1.5", "12x"} {
+		t.Setenv(maxDeliverEnv, raw)
+		got := resolveMaxDeliver()
+		if got != defaultNATSMaxDeliver {
+			t.Errorf("EVENTS_NATS_MAX_DELIVER=%q gave %d, want the bounded default %d — a stray value must never re-enable infinite redelivery (#6464)", raw, got, defaultNATSMaxDeliver)
+		}
+		if got <= 0 {
+			t.Fatalf("EVENTS_NATS_MAX_DELIVER=%q produced non-positive %d — that IS the infinite loop", raw, got)
+		}
+	}
+}
+
+// The bounded ceiling paired with nakBackoff must give a real transient
+// (e.g. a 1-2 minute Stalwart restart) room to recover before the message
+// is abandoned. Sum the nakBackoff delays across the default attempt
+// budget and assert the retry window comfortably exceeds a couple of
+// minutes — otherwise the cap trades the storm for dropped notifications
+// on every routine mail-server bounce.
+func TestMaxDeliver_RetryWindowSurvivesRoutineTransient(t *testing.T) {
+	var window time.Duration
+	for n := uint64(1); n < uint64(defaultNATSMaxDeliver); n++ {
+		window += nakBackoff(msgWithDelivered(n))
+	}
+	if window < 10*time.Minute {
+		t.Fatalf("default retry window is %v — too short to ride out a routine Stalwart restart without dropping the notification", window)
+	}
+}
