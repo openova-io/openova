@@ -77,12 +77,12 @@ wordpress:
     # digest of the published image; the human-readable tag is kept alongside
     # for forensics.
     repository: ghcr.io/openova-io/openova/wordpress-tenant-pg
-    tag: "b513b45"
+    tag: "28d6575"
     # Pushed manifest digest of `wordpress-tenant-pg:<tag>` — populated by the
     # build workflow's build-push-action `outputs.digest` on first build.
     # Empty until then; the helper omits `@digest` when empty so the chart
     # still renders + pulls by tag during the bootstrap window.
-    digest: "sha256:4c80995efad75400ef4a3ca34666cdac421abf4c9285b21cdaf33c85241c0b6c"
+    digest: "sha256:b1f15f9e1786e64136f64b56ec9bc17fda247408adc9d78daa873adbd39a576d"
     pullPolicy: IfNotPresent
     # ─── Image pull secrets (#4152, Refs #3858) ──────────────────────────
     # Since #4153 the runtime image is the CUSTOM
@@ -225,11 +225,11 @@ database:
         memory: 256Mi
       limits:
         memory: 512Mi
-  # #4936: `database.secretName` is REMOVED. WordPress + the hook Jobs now
-  # read WORDPRESS_DB_PASSWORD straight from the CNPG-generated
-  # `<cluster>-app` Secret (name derived from `cnpgClusterName`, resolved by
-  # _helpers.tpl `cnpgAppSecret`). There is no separate reflector-mirrored
-  # wrapper Secret to name.
+        # #4936: `database.secretName` is REMOVED. WordPress + the hook Jobs now
+        # read WORDPRESS_DB_PASSWORD straight from the CNPG-generated
+        # `<cluster>-app` Secret (name derived from `cnpgClusterName`, resolved by
+        # _helpers.tpl `cnpgAppSecret`). There is no separate reflector-mirrored
+        # wrapper Secret to name.
 # ─── Postgres topology (D31 active-hot-standby) ─────────────────────────
 # Sovereign DoD D31 — tenants subscribing to an HA-capable marketplace
 # app (catalog Tags include `ha` + `cnpg-pair`) may opt into a cross-

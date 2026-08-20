@@ -426,7 +426,7 @@ name: bp-wordpress-tenant
 #   generic`) left active_plugins pointing at a file the runtime PVC never had.
 #   The oidc-config Job also gains imagePullSecrets: its new wp-artifacts init
 #   runs the PRIVATE ghcr image, and without them it ImagePullBackOffs.
-version: 0.4.25
+version: 0.4.26
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one
