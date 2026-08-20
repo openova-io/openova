@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-20T23:15:03Z` |
+| Last refreshed | `2026-08-20T23:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-20T23:24 | [#6538](https://github.com/openova-io/openova/pull/6538) | #997 | docs(uat): hw302 live screenshots for catalog Edit-IaC rows  |
 | 2026-08-20T22:44 | [#6537](https://github.com/openova-io/openova/pull/6537) | #997 | docs(uat): refresh EVIDENCE-GAP — 204/286 screenshotted, acc |
 | 2026-08-20T22:33 | [#6536](https://github.com/openova-io/openova/pull/6536) | #997 | docs(uat): hw302 live screenshots for reachable rows 104/115 |
 | 2026-08-20T22:28 | [#6535](https://github.com/openova-io/openova/pull/6535) | #6499 | docs(uat): harvest reachable re-walk batch (194->201) |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-20T04:12 | [#6504](https://github.com/openova-io/openova/pull/6504) | #4 | fix(keycloak): per-Org console login 400s Invalid parameter: |
 | 2026-08-20T05:27 | [#6503](https://github.com/openova-io/openova/pull/6503) | #6490 | fix(cutover): region-local gitea-mirror uses a header, not a |
 | 2026-08-20T01:26 | [#6502](https://github.com/openova-io/openova/pull/6502) | #6372 | fix(gitops): funnel door emits the openova-MCP bearer + veri |
-| 2026-08-20T01:27 | [#6500](https://github.com/openova-io/openova/pull/6500) | #6320 | fix(wordpress-tenant): CNPG-operator carve-out + zero instal |
 
 ---
 
