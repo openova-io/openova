@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-20T05:45:03Z` |
+| Last refreshed | `2026-08-20T06:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6032](https://github.com/openova-io/openova/issues/6032) | Application reports Ready over ANOTHER release's datastore — a second bp-postg | Other |
 | [#6033](https://github.com/openova-io/openova/issues/6033) | active-hot-standby Application reports phase=Ready across 1 region with perClust | Other |
 | [#6040](https://github.com/openova-io/openova/issues/6040) | hw293: region-B ClusterMesh never established — a dormant chart's census failu | Other |
 | [#6043](https://github.com/openova-io/openova/issues/6043) | bp-catalyst-platform cannot publish: unresolved merge-conflict markers on main f | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6493](https://github.com/openova-io/openova/issues/6493) | cutover step-01 secondary-gitea-mirror Job denied by kyverno flux-managed (missi | Other |
 | [#6495](https://github.com/openova-io/openova/issues/6495) | wipe.go: handed-over Huawei Sovereign is un-wipeable (provHint defaults to hetzn | Other |
 | [#6501](https://github.com/openova-io/openova/issues/6501) | FUNNEL/agenity: funnel door omits the openova-MCP bearer + RS256 verify-pubkey w | Other |
+| [#6506](https://github.com/openova-io/openova/issues/6506) | PIN storm residual: MultiSubscriber MaxDeliver:-1 still redelivers a doomed app_ | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-20T05:59 | [#6507](https://github.com/openova-io/openova/pull/6507) | #6464 | fix(events): bound JetStream MaxDeliver so a doomed notifica |
 | 2026-08-20T04:12 | [#6504](https://github.com/openova-io/openova/pull/6504) | #4 | fix(keycloak): per-Org console login 400s Invalid parameter: |
 | 2026-08-20T05:27 | [#6503](https://github.com/openova-io/openova/pull/6503) | #6490 | fix(cutover): region-local gitea-mirror uses a header, not a |
 | 2026-08-20T01:26 | [#6502](https://github.com/openova-io/openova/pull/6502) | #6372 | fix(gitops): funnel door emits the openova-MCP bearer + veri |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-15T18:06 | [#6351](https://github.com/openova-io/openova/pull/6351) | #6314 | docs(uat): row 219 re-walked on a real customer Organization |
 | 2026-08-15T17:21 | [#6350](https://github.com/openova-io/openova/pull/6350) | #6314 | docs(uat): rows 219 / G11 / 166 re-walked on hw298 — evidenc |
 | 2026-08-15T19:57 | [#6349](https://github.com/openova-io/openova/pull/6349) | #5921 | docs(ledger): convergence capture 2026-08-15T16:43Z — hw298  |
-| 2026-08-15T15:18 | [#6348](https://github.com/openova-io/openova/pull/6348) | #6345 | fix(placement): one Primary for an active-hot-standby app, a |
 
 ---
 
