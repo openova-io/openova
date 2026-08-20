@@ -1478,7 +1478,12 @@ spec:
       #   per-Org agenity StatefulSet passes kyverno probes-present (0.5.31
       #   shipped it probe-less → DENIED at admission, install never came up,
       #   hw302; blocked the Pillar-4 agentic walk).
-      version: 1.4.1557
+      # 1.4.1558 — lockstep for bp-self-sovereign-cutover 0.1.198 (#6511, Refs #6508:
+      #   step-01 gitea-mirror activeDeadlineSeconds raised 1200 -> 2700 so the
+      #   ~470 MB monorepo bare-clone + force-push over a throttled egress finishes
+      #   inside budget; the old 20-min ceiling reaped the Job as DeadlineExceeded
+      #   and wedged the cutover at step-01 on hw302).
+      version: 1.4.1558
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
