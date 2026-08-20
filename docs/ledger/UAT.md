@@ -52,10 +52,10 @@
 | 1 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | Console bare URL → lands `/dashboard` signed-in as the owner (no PIN/login form). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 2 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | Full sidebar renders (Dashboard / Cloud / Apps / Catalog / Agenity / Jobs / Compliance / Users / Organizations / Settings). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 3 | model | [#3687](https://github.com/openova-io/openova/issues/3687) [#4546](https://github.com/openova-io/openova/issues/4546) | The voucher-redeem URL opened in an AUTHED OWNER browser session bounces to `/dashboard` CLIENT-side and leaves NO redeem form rendered for the owner (the marketplace is a static build with client-side auth — the #4546 contract written for this row). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
-| 4 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | App page tab strip generality: open ≥2 archetypes (a DB `shared-pg`, a consumer `harbor`) → identical tab strip; consumer Dependencies shows `Depends on: shared-pg / db:<ctx>`. | hw296-2026-08-13 | ✅ | hw296-2026-08-13T17:23Z ✅ Two archetypes opened. /app/shared-pg… |
+| 4 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | App page tab strip generality: open ≥2 archetypes (a DB `shared-pg`, a consumer `harbor`) → identical tab strip; consumer Dependencies shows `Depends on: shared-pg / db:<ctx>`. | hw296-2026-08-13 | ✅ | hw296-2026-08-13T17:23Z ✅ Two archetypes opened. /app/shared-pg… [📷](screenshots/hw302-row24-app-sharedpg-tabstrip.png) |
 | 5 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | Organizations directory: the customer Org row shows KIND=customer, TIER=org (the #4292 isolation class - the purchased plan is carried separately as planSlug), BILLING=real, ISOLATION=vcluster, STATUS=active. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 6 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | The customer Org is present as a real Organization in the operator directory (same record dashboard + showback read). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
-| 7 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | Org detail renders canonical fields: slug `acme` (NOT `sme-<uuid>`), kind customer, tier `org` + planSlug `m` (the #4292 split: tier is the isolation class, the purchased plan is a separate field), billing real, isolation vcluster, owner, console URL. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ Org detail canonical fields —… |
+| 7 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | Org detail renders canonical fields: slug `acme` (NOT `sme-<uuid>`), kind customer, tier `org` + planSlug `m` (the #4292 split: tier is the isolation class, the purchased plan is a separate field), billing real, isolation vcluster, owner, console URL. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ Org detail canonical fields —… [📷](screenshots/hw302-row120-org-detail.png) |
 | 8 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | The Create-organization form renders fully (kind picker, slug, Company name, Admin email, parent-domain). | hw296-2026-08-13 | ✅ | hw296-2026-08-13T17:26Z ✅ /organizations -> Create organization ->… |
 | 9 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | Org detail Status = active, backed by a real `vcluster` isolation (the create→Provision loop produced a live backing, not a fake-green). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 10 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | The customer Org is present + ACTIVE backed by a real `vcluster` isolation (Lane B convergence read). **[plan qualifier added 2026-07-30]** `isolationForTier` (organization_provisioning.go) maps a **customer** Org on plan `s`/`free`/`""` to **namespace** isolation by design (#4292 tier gate, `allTiersVcluster=false`). So this row is only walkable against an **M+/flexi** Org; against an S-plan Org the `vcluster` expectation is inapplicable, not failed. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
@@ -63,11 +63,11 @@
 | 12 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | On re-load the Org detail consistently reports active + `vcluster` (stable, no false flicker). **[plan qualifier added 2026-07-30]** same #4292 tier gate as row 10 — requires an M+/flexi Org. Note the stability clause itself is separable and was proven stable. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 13 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | Catalog grid renders the Blueprint cards; `bp-postgres` detail has a **+ New instance** button. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 14 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | The shared-PG reuse model is LIVE: the `shared-pg` app **Contexts** tab shows multiple consumers sharing ONE PostgreSQL. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
-| 15 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | Apps list renders one card per Application (all Platform/BOOTSTRAP-… a customer-launched app card would appear under its Org. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED per-Org console… |
+| 15 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | Apps list renders one card per Application (all Platform/BOOTSTRAP-… a customer-launched app card would appear under its Org. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED per-Org console… [📷](screenshots/hw302-row15-apps-grid.png) |
 | 16 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | A customer app page (`/app/<name>`) → Settings/Topology → change topology → Save persists; the canonical tab strip includes a Topology tab. | hw296-2026-08-13 | ✅ | hw296-2026-08-13T21:55Z ✅ THE FULL LIVE ROUND TRIP RAN — open the tab, change the… |
 | 17 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | Dashboard treemap is a meaningful drill-down surface (Organization → vCluster → Application selectable & drillable, NOT a raw infra-pod utilisation treemap); default layer stack per founder verdict. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 18 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | Scan every treemap cell: NO ephemeral Job-pod cell appears (no `cutover-*`, scan-vulnerabilityr… `*-snapshot-save-*`). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
-| 19 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | Count the ESTATE cards on /apps — `[data-card-kind="instance"]` inside `sov-apps-grid` (#6056): exactly one per `Application` CR, NOT one per HelmRelease/pod, and two Applications sharing one Blueprint render TWO cards. The same grid also carries the install catalog as `[data-card-kind="catalog"]` — Blueprint SLOTS, deduped against every Blueprint that already has a running Application — so a RAW all-card count is not the assertion and never was. Bootstrap apps carry a Platform/Bootstrap badge. Adjudicated 2026-08-11 (#5867): the grid answers both what IS running and what CAN be installed, disambiguated by `data-card-kind`; the estate half is Application-keyed already. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED per-Org console (uatco.omani.homes; served bundle). ESTATE… |
+| 19 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | Count the ESTATE cards on /apps — `[data-card-kind="instance"]` inside `sov-apps-grid` (#6056): exactly one per `Application` CR, NOT one per HelmRelease/pod, and two Applications sharing one Blueprint render TWO cards. The same grid also carries the install catalog as `[data-card-kind="catalog"]` — Blueprint SLOTS, deduped against every Blueprint that already has a running Application — so a RAW all-card count is not the assertion and never was. Bootstrap apps carry a Platform/Bootstrap badge. Adjudicated 2026-08-11 (#5867): the grid answers both what IS running and what CAN be installed, disambiguated by `data-card-kind`; the estate half is Application-keyed already. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED per-Org console (uatco.omani.homes; served bundle). ESTATE… [📷](screenshots/hw302-row15-apps-grid.png) |
 | 20 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | With a customer Org present, the customer estate is visually distinct from platform pods on the treemap. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 21 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | Organizations Showback panel: the **Application** column for a selected Org lists only that Org's real apps (no cluster-wide infra/Job pods). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 22 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | Showback shows a single visually-distinct **Platform overhead** roll-up line holding all control-plane/Job workloads. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
@@ -76,45 +76,45 @@
 | 25 | model | [#3687](https://github.com/openova-io/openova/issues/3687) | One consistent model across surfaces: `/organizations` shows the Orgs that `/apps`, the dashboard and showback all agree on. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ One consistent model across surfaces — the Organizations… |
 | 26 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Console bare URL → lands on the dashboard signed-in as the owner; no PIN/login/"Sign in with…" button. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
 | 27 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Avatar (top-right) menu reads "Signed in as the owner" with a Sign-out item. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
-| 28 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Users page renders the pre-seeded owner row the owner (tier=owner UserAccess CR), signed-in admin. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
+| 28 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Users page renders the pre-seeded owner row the owner (tier=owner UserAccess CR), signed-in admin. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… [📷](screenshots/hw302-row45-users.png) |
 | 29 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Re-open the bare console URL after the session TTL → lands signed-in again, no PIN re-prompt. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED owner console (served bundle). Re-open of the bare console… |
-| 30 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Grafana bare URL → lands on Grafana Home, full UI, no login form; left nav shows Administration; user menu = the owner. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
-| 31 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Gitea bare URL → lands on the gitea dashboard titled "emrah.baysal — Dashboard", no login; profile menu exposes Site Administration; stays on :443. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
-| 32 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Harbor bare URL → lands on `/harbor/projects`, no login form; user dropdown the owner with Administration menus. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
-| 33 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | OpenBao bare UI → lands in an authenticated Vault session (Secrets engines / dashboard), NO token-entry form (an in-transit "Signing in…" shim is allowed). | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
+| 30 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Grafana bare URL → lands on Grafana Home, full UI, no login form; left nav shows Administration; user menu = the owner. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… [📷](screenshots/hw302-row30-grafana-sso.png) |
+| 31 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Gitea bare URL → lands on the gitea dashboard titled "emrah.baysal — Dashboard", no login; profile menu exposes Site Administration; stays on :443. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… [📷](screenshots/hw302-row31-gitea-sso.png) |
+| 32 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Harbor bare URL → lands on `/harbor/projects`, no login form; user dropdown the owner with Administration menus. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… [📷](screenshots/hw302-row32-harbor-sso.png) |
+| 33 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | OpenBao bare UI → lands in an authenticated Vault session (Secrets engines / dashboard), NO token-entry form (an in-transit "Signing in…" shim is allowed). | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… [📷](screenshots/hw302-row33-openbao-sso.png) |
 | 34 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Keycloak admin console for the **sovereign** realm → lands inside the admin console (realm overview / Users / Clients), no master-realm login. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
 | 35 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Guacamole bare URL → lands on the Guacamole connections list, signed-in; no Tomcat 404, no `/guacamole/` login page. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
 | 36 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | PowerDNS-Admin bare URL → lands on the dashboard signed-in; no redirect loop, no OAuth error, no `Log In` page. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
 | 37 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) [#3858](https://github.com/openova-io/openova/issues/3858) [#4136](https://github.com/openova-io/openova/issues/4136) | newapi bare URL (1st hit) → lands on `/console` signed-in as admin (role 100); no "Unknown OAuth provider", no login page. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
 | 38 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) [#3858](https://github.com/openova-io/openova/issues/3858) [#4136](https://github.com/openova-io/openova/issues/4136) | newapi bare URL (2nd hit, re-entry) → lands on `/console` again signed-in; NOT an "already bound" / re-link error / `/setup` wizard. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
 | 39 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Hubble bare URL → lands on the Hubble UI, authenticated (not an anonymous/unauth view, no login page). | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
-| 40 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Marketplace bare URL → renders the anonymous storefront (public, by design); confirm no spurious login UI is forced. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ `marketplace.hw302.omani.works/` → **200** behind… |
+| 40 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Marketplace bare URL → renders the anonymous storefront (public, by design); confirm no spurious login UI is forced. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ `marketplace.hw302.omani.works/` → **200** behind… [📷](screenshots/hw302-row40-marketplace-storefront.png) |
 | 41 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Keycloak sovereign realm → Users lists the single owner principal the owner (enabled). | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
 | 42 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Owner user → Groups tab shows membership in `/sovereign-admins` (alongside `/openova-users`) — the source of admin authority. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
 | 43 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Owner user → Role mapping tab: effective realm roles include `catalyst-admin` (not only default-roles/uma/o… | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
 | 44 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Groups → `/sovereign-admins` → Role mapping: group confers `catalyst-admin` (console) and realm-management `realm-admin` (KC console) — one source, both grants. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
-| 45 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Console Users panel: owner row + the ability to view/manage users renders — proving console admin nav is driven by the realm principal, not a self-signed constant. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
+| 45 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Console Users panel: owner row + the ability to view/manage users renders — proving console admin nav is driven by the realm principal, not a self-signed constant. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… [📷](screenshots/hw302-row45-users.png) |
 | 46 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | `bp-postgres` catalog detail renders; click **New instance** → the create dialog opens with a topology `<select>`. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 47 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) [#3856](https://github.com/openova-io/openova/issues/3856) | Topology `<select>` options read exactly the ONE canonical vocabulary: `singleton`, `active-passive`, `active-hot-standby`, `active-active` (no `single-region`/`act…). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 48 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | `active-passive` is a selectable option in the create `<select>` (not folded away). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 49 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | `singleton` is a separate selectable option (single-region single-instance), distinct from the multi-region modes. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 50 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | Pick `active-hot-standby`, name the instance, Provision → the create succeeds (toast/redirect to the new app card), NOT a red `topology not in supported [...]` error. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
-| 51 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | `shared-pg` Topology tab renders a per-region placement view listing region-a (active) and region-b (standby) as ONE placement, not two separate instances. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED owner console walk (passwordless-PIN, tier=owner), served… |
+| 51 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | `shared-pg` Topology tab renders a per-region placement view listing region-a (active) and region-b (standby) as ONE placement, not two separate instances. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED owner console walk (passwordless-PIN, tier=owner), served… [📷](screenshots/hw302-row51-app-sharedpg-topology.png) |
 | 52 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | `shared-pg` Topology tab renders ROLE asymmetry across the pair: the region-a card reads `● PRIMARY / serves writes` and the region-b card reads `○ STANDBY · Hot / live replica`, visually distinct and joined by a `──▶ repl` arrow — the standby is never rendered as a second co-equal Primary. Count parity (3+3) is correct and expected under ADR-0004 synchronous replication; no replica-count render is required. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED owner console (served bundle index-Dg8eOKi4.js). shared-pg… |
 | 53 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | Open a per-app Topology tab and read its placement view (singleton apps note no per-region/standby surface). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 54 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) [#3856](https://github.com/openova-io/openova/issues/3856) | `shared-pg` Topology tab declared-topology strip renders the canonical mode in ONE vocabulary — header dialect and picker dialect MATCH (no `singleton` header over an `active-hotstandby` chip). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
-| 55 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | `shared-pg` Topology tab renders EXACTLY ONE topology value, runtime-derived (`derivedFromRuntime:true`) not a build-time constant — and NO contradictory second value appears anywhere on the app's screen, including the Overview tab's Placement field (#3969: a mismatch is NEVER a second contradictory value). | hw296-2026-08-14 | ✅ | hw296-2026-08-14T01:44-01:55Z LIVE WALK… |
+| 55 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | `shared-pg` Topology tab renders EXACTLY ONE topology value, runtime-derived (`derivedFromRuntime:true`) not a build-time constant — and NO contradictory second value appears anywhere on the app's screen, including the Overview tab's Placement field (#3969: a mismatch is NEVER a second contradictory value). | hw296-2026-08-14 | ✅ | hw296-2026-08-14T01:44-01:55Z LIVE WALK… [📷](screenshots/hw302-row51-app-sharedpg-topology.png) |
 | 56 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | `shared-pg` Topology tab per-region placement + replication block: region-a primary, region-b replica, and a live replication-lag in seconds (not a hardcoded `—`). | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED owner console (served bundle index-Dg8eOKi4.js). shared-pg… |
-| 57 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | `shared-pg` Topology tab Switchover button is present and armed because a live 2-region cnpg-pair backs the app. | hw296-2026-08-14 | ✅ | hw296-2026-08-14T01:44-01:55Z LIVE WALK… |
+| 57 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | `shared-pg` Topology tab Switchover button is present and armed because a live 2-region cnpg-pair backs the app. | hw296-2026-08-14 | ✅ | hw296-2026-08-14T01:44-01:55Z LIVE WALK… [📷](screenshots/hw302-row51-app-sharedpg-topology.png) |
 | 58 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | A **singleton** app (cilium) Topology tab: the DR section / Switchover button does NOT render (honestly hidden, not armed against a phantom region). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 59 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | Catalog New instance → pick `singleton` → Provision → that app's Topology tab shows single-region placement (no region-b standby, no Switchover). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 60 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | Catalog New instance → pick `active-hot-standby` → Provision → that app's Topology tab shows a 2-region pair (region-a primary + region-b replica + armed Switchover). | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ Catalog New-instance → **active-hot-standby** → Provision created… |
 | 61 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | Apps grid shows newly-provisioned postgres instances as their own cards, each carrying a topology badge matching the mode picked at create time. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 62 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | On an app WITH a live pair, the Topology DR section shows the live Continuum status (Ready / lease holder / standby) from the live API, not a static badge. | hw296-2026-08-14 | ✅ | hw296-2026-08-14T01:44-01:55Z LIVE WALK… |
 | 63 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | An Application declaring **active-hot-standby** with NO Continuum backing renders an honest no-backing DR section: "Switchover unavailable" copy, the control **disabled**, and NO synthesized lag / standby / target-region values. | hw296-2026-08-14 | ✅ | hw296-2026-08-14T00:30Z ✅ LIVE PLAYWRIGHT WALK against a negative control this pass… [📷](screenshots/uat63-topology-unbacked.png) |
-| 64 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | `shared-pg` Topology tab replication-lag field shows a live numeric seconds value (or explicit "no replica"), never a hardcoded `—`. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED owner console (served bundle index-Dg8eOKi4.js). shared-pg… |
-| 65 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | Cloud/regions view shows the true region count — a healthy 2-region prov reads `Cluster 2/2` with no phantom region-B bubble. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED owner console (served bundle index-Dg8eOKi4.js)… |
-| 66 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | Cloud→Clusters renders 2/2 HEALTHY clusters, one per region (me-east-215-a + me-east-215-b), no phantom region. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED owner console (served bundle index-Dg8eOKi4.js)… |
+| 64 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | `shared-pg` Topology tab replication-lag field shows a live numeric seconds value (or explicit "no replica"), never a hardcoded `—`. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED owner console (served bundle index-Dg8eOKi4.js). shared-pg… [📷](screenshots/hw302-row51-app-sharedpg-topology.png) |
+| 65 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | Cloud/regions view shows the true region count — a healthy 2-region prov reads `Cluster 2/2` with no phantom region-B bubble. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED owner console (served bundle index-Dg8eOKi4.js)… [📷](screenshots/hw302-row65-cloud-regions-graph.png) |
+| 66 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | Cloud→Clusters renders 2/2 HEALTHY clusters, one per region (me-east-215-a + me-east-215-b), no phantom region. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED owner console (served bundle index-Dg8eOKi4.js)… [📷](screenshots/hw302-row66-cloud-clusters-list.png) |
 | 67 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | grafana status/overview reports Healthy/Running in both regions — no "cannot resolve write host" crashloop in the app health panel. | hw296-2026-08-14 | ✅ | hw296-2026-08-14T01:44-01:55Z LIVE WALK… |
 | 68 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | powerdns-admin status reports Healthy/Running — the CNPG-minted DB host resolved (no "could not translate host"). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 69 | topology | [#3375](https://github.com/openova-io/openova/issues/3375) | keycloak status reports Healthy/Running in both regions — JGroups DB-host resolves, no UnknownHostException in the health panel. | hw296-2026-08-14 | ✅ | hw296-2026-08-14T01:44-01:55Z LIVE WALK… |
@@ -158,10 +158,10 @@
 | 107 | placement | [#3642](https://github.com/openova-io/openova/issues/3642) | Deleting an Organization removes its vCluster StatefulSet — no orphaned vCluster survives the delete cascade. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 108 | placement | [#3642](https://github.com/openova-io/openova/issues/3642) | Placement is read from RUNTIME (the observed pod/namespace), not from the Application CR's declared field — a declared value that disagrees with reality must lose. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 109 | sso | [#688](https://github.com/openova-io/openova/issues/688) | (a) the console `/settings` profile renders the owner with no second login; (b) reaching the Keycloak account console directly leaves the User on a working surface rather than stranded — both SPA entry paths 302 in ONE hop to `/settings`, which renders the owner's profile at 200, while the account REST surface keeps answering; and NO console navigation links a User to it. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
-| 110 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Gitea opens already signed in (avatar/menu shows the SSO user), repo list renders — no Gitea login form. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
-| 111 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Harbor opens signed in, the projects list renders — no Harbor login form, no gateway error page. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
-| 112 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Grafana opens signed in (no Grafana login), the home dashboard renders. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
-| 113 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | The OpenBao UI renders signed in via OIDC — no manual token/unseal prompt blocking the landing. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
+| 110 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Gitea opens already signed in (avatar/menu shows the SSO user), repo list renders — no Gitea login form. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… [📷](screenshots/hw302-row31-gitea-sso.png) |
+| 111 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Harbor opens signed in, the projects list renders — no Harbor login form, no gateway error page. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… [📷](screenshots/hw302-row32-harbor-sso.png) |
+| 112 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | Grafana opens signed in (no Grafana login), the home dashboard renders. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… [📷](screenshots/hw302-row30-grafana-sso.png) |
+| 113 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) | The OpenBao UI renders signed in via OIDC — no manual token/unseal prompt blocking the landing. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… [📷](screenshots/hw302-row33-openbao-sso.png) |
 | 114 | sso | [#3374](https://github.com/openova-io/openova/issues/3374) [#4136](https://github.com/openova-io/openova/issues/4136) | newapi opens signed in, its main console renders — no login form, no upstream-connect error. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ silent-SSO landing… |
 | 115 | apps | [#5991](https://github.com/openova-io/openova/issues/5991) | The Guacamole connections list is NON-EMPTY for a signed-in sovereign-admin — `guacamole_connection` holds at least one row and the ALL CONNECTIONS list renders it. VACUITY GUARD: the admin group's `CREATE_*` system permissions are the RIGHT to create a connection, not a connection — a permission-only check is a FAIL. | hw301-2026-08-20 | ✅ | hw301-2026-08-20 ✅ NON-EMPTY on this env — the #5991/#6363 defect… |
 | 116 | orgs | [#3383](https://github.com/openova-io/openova/issues/3383) | Organizations directory: the page title / heading reads "Organizations", never "Tenants"/"SME Tenants". | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
@@ -210,7 +210,7 @@
 | 159 | cutover | [#3379](https://github.com/openova-io/openova/issues/3379) | Settings → Sovereignty section renders a "Cluster sovereignty" panel with a "TETHERED" badge + an "Achieve True Sovereignty" cutover CTA (runs the 11-step cutover + 10-min egress-block self-test). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 160 | cutover | [#3379](https://github.com/openova-io/openova/issues/3379) | Console nav + Settings sidebar expose a dedicated "Sovereignty" anchor (`#sovereignty`) that scrolls to + highlights the Cluster-sovereignty panel — the cutover trigger is a first-class surface. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 161 | cutover | [#3379](https://github.com/openova-io/openova/issues/3379) | Open `/jobs` (zero-login, signed in as owner) → the canvas table renders a populated activity list (not a spinner, empty state, or login redirect). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
-| 162 | cutover | [#3379](https://github.com/openova-io/openova/issues/3379) | Find the `cutover` group row and expand it → it renders the 11 `cutover-step-*` rows (gitea-mirror, harbor-projects, harbor-prewarm, registry-pivot, … vcluster-registry-p… — the 11-step execution tree. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED owner console (served bundle index-Dg8eOKi4.js) + jobs… |
+| 162 | cutover | [#3379](https://github.com/openova-io/openova/issues/3379) | Find the `cutover` group row and expand it → it renders the 11 `cutover-step-*` rows (gitea-mirror, harbor-projects, harbor-prewarm, registry-pivot, … vcluster-registry-p… — the 11-step execution tree. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED owner console (served bundle index-Dg8eOKi4.js) + jobs… [📷](screenshots/hw302-row162-jobs-cutover-11-steps.png) |
 | 163 | cutover | [#3379](https://github.com/openova-io/openova/issues/3379) | Each `cutover-step-*` row reads an honest per-step status (Succeeded / Running / Failed / Pending), never a premature green. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 164 | cutover | [#3379](https://github.com/openova-io/openova/issues/3379) | The cutover group status reflects its real children (a group with a failed child reads failed, not a fake Succeeded). | hw296-2026-08-14 | ✅ | hw296-2026-08-14T00:00Z ✅ VERIFIED on a REAL failed child, not a contrived one… |
 | 165 | cutover | [#3379](https://github.com/openova-io/openova/issues/3379) | Every `cutover-step-*` row on the Jobs page renders its actions cell PRESENT and deliberately EMPTY - each carries `data-testid="jobs-cell-actions-empty-<id>"` and none carries `jobs-retry-<id>` - proving the per-row Re-run control is GATED to Failed rather than missing from the table; the gate is pinned in both directions by `JobsTable.cutoverRerun.test.tsx` (present + labelled "Re-run" at status=failed, absent at succeeded/running/pending). | hw295-2026-08-13 | ⏳ | ⏳ CARRIED, awaiting re-confirmation here — the stamp that follows is the ORIGINAL… |
@@ -220,7 +220,7 @@
 | 169 | jobs | [#3646](https://github.com/openova-io/openova/issues/3646) | The Kind column is present in the header and each row shows its kind; full header = Name·Kind·App·Deps·… | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 170 | jobs | [#3646](https://github.com/openova-io/openova/issues/3646) | Scroll/search to the `install-openbao` row → it renders green / Succeeded (the install is honestly green). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 171 | jobs | [#3646](https://github.com/openova-io/openova/issues/3646) | Every rendered row maps to a real HelmRelease install / terraform stage (no placeholder, no synthetic/fabricated entry). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
-| 172 | jobs | [#3646](https://github.com/openova-io/openova/issues/3646) | Set the Status filter to `failed` → the table shows the genuinely-failing rows, each with an honest failed status (the Status filter works). | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED owner console (served bundle index-Dg8eOKi4.js). Jobs page… |
+| 172 | jobs | [#3646](https://github.com/openova-io/openova/issues/3646) | Set the Status filter to `failed` → the table shows the genuinely-failing rows, each with an honest failed status (the Status filter works). | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ AUTHED owner console (served bundle index-Dg8eOKi4.js). Jobs page… [📷](screenshots/hw302-row172-jobs-failed-filter.png) |
 | 173 | jobs | [#3646](https://github.com/openova-io/openova/issues/3646) | Leave the table on screen ~30s → rows update live (tail) as reconciliation progresses; a status badge changes in place without a manual reload. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 174 | jobs | [#3646](https://github.com/openova-io/openova/issues/3646) | On a Failed row (Status=failed), a Re-run / Retry-reconcile button is present on the row (visible on the row or on hover). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 175 | jobs | [#3646](https://github.com/openova-io/openova/issues/3646) | On a Succeeded / healthy / Confirming row, NO Re-run button renders — the control is gated to Failed rows only. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
@@ -235,12 +235,12 @@
 | 184 | meta | [#3581](https://github.com/openova-io/openova/issues/3581) | The frozen denominator is INTACT and no clause changes silently: `docs/ledger/UAT.md` holds exactly 286 rows whose row-ID set is in BIJECTION with `docs/ledger/uat-testcases.csv`, every row's clause text MATCHES its canon entry so a clause cannot be edited in one file only, and every row whose Evidence says RETIRED AND REPLACED has a `docs/ledger/uat-retirements.csv` entry carrying its old clause, its new clause and the ground. VACUITY GUARD: a scan that parses fewer than 250 rows is a FAIL, not a pass. | hw296-2026-08-13 | ✅ | hw296-2026-08-13T17:20Z ✅ DETERMINISTIC (env-independent repo check)… |
 | 185 | meta | [#3581](https://github.com/openova-io/openova/issues/3581) | No ✅ row cites evidence from a wiped env — the ledger never presents a dead env's artifact as current proof. (Non-green rows legitimately retain their predecessor env: reset-uat.py flushes ✅ evidence and deliberately PRESERVES ⛔/❌/⏳/☐, whose env cells record where the failure was last observed.) | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ LEDGER SELF-CHECK. The ledger presents no dead environment's… |
 | 186 | mcp | [#3581](https://github.com/openova-io/openova/issues/3581) | **bp-openova-mcp** answers a JSON-RPC 2.0 `tools/list` over HTTPS with a NON-EMPTY tool set for an authenticated caller, and an empty set for an unauthenticated one. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
-| 187 | topology | [#6108](https://github.com/openova-io/openova/issues/6108) | Per-app Topology for a multi-region app (grafana) shows **Pattern: active-active** with 2 PRIMARY region cards — NOT singleton. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ ADJUDICATED (obsolete-assertion, #6108). grafana is a… |
+| 187 | topology | [#6108](https://github.com/openova-io/openova/issues/6108) | Per-app Topology for a multi-region app (grafana) shows **Pattern: active-active** with 2 PRIMARY region cards — NOT singleton. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ ADJUDICATED (obsolete-assertion, #6108). grafana is a… [📷](screenshots/hw302-row51-app-sharedpg-topology.png) |
 | 188 | topology | [#6108](https://github.com/openova-io/openova/issues/6108) | A genuine single-region app (catalyst-api) correctly shows **singleton** (no false multi-region). | hw296-2026-08-14 | ✅ | hw296-2026-08-14T01:44-01:55Z LIVE WALK… |
 | 189 | topology | [#6108](https://github.com/openova-io/openova/issues/6108) | Region-b kubeconfig self-heals EIP→private-IP **zero-touch** on restart (topology survives a fresh prov). | hw295-2026-08-13 | ⏳ | ⏳ CARRIED, awaiting re-confirmation here — the stamp that follows is the ORIGINAL… |
 | 190 | jobs | [#3916](https://github.com/openova-io/openova/issues/3916) | `/jobs` lists **ONLY finite jobs** (provision/cutover steps, batch Jobs, CronJob runs) — ZERO continuous-reconciler rows. **[assertion qualified 2026-07-30]** the parenthetical enumeration omits `install`, which #5019 DELIBERATELY re-admitted as finite work. Read the assertion as "zero continuous-reconciler rows", which is what it is testing; do not fail the row for the presence of `install`. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 191 | jobs | [#3916](https://github.com/openova-io/openova/issues/3916) | Continuous reconcilers (HelmRelease/Kustomization) do **NOT** appear in `/jobs` (they live in the recon lens). **[assertion qualified 2026-07-30]** the HelmRelease half of this clause is OBSOLETE — #5019 deliberately re-admitted HR installs as finite work, and it contradicts row 171 which passes on an exact 134<->134 bijection. Only the **Kustomization** clause stands. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
-| 192 | recon | [#3925](https://github.com/openova-io/openova/issues/3925) [#3996](https://github.com/openova-io/openova/issues/3996) | The convergence **Reconciliation** link opens the cloud **RECON lens** (`view=graph&lens=reconciliation`), not the default cloud lens. | hw296-2026-08-13 | ✅ | hw296-2026-08-13T17:27Z ✅ The dashboard Reconciliation link carries… |
+| 192 | recon | [#3925](https://github.com/openova-io/openova/issues/3925) [#3996](https://github.com/openova-io/openova/issues/3996) | The convergence **Reconciliation** link opens the cloud **RECON lens** (`view=graph&lens=reconciliation`), not the default cloud lens. | hw296-2026-08-13 | ✅ | hw296-2026-08-13T17:27Z ✅ The dashboard Reconciliation link carries… [📷](screenshots/hw302-row192-cloud-recon-lens.png) |
 | 193 | recon | [#3996](https://github.com/openova-io/openova/issues/3996) | Clicking a reconciler opens the **ArgoCD-like management surface** (drill-in). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 194 | recon | [#3996](https://github.com/openova-io/openova/issues/3996) | Recon surface lists Flux reconcilers with live status (Reconciled/Reconciling/Degraded/Suspended). | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 195 | recon | [#3996](https://github.com/openova-io/openova/issues/3996) | Drill a reconciler → its controller **logs** render. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
@@ -257,8 +257,8 @@
 | 206 | adoption | [#4002](https://github.com/openova-io/openova/issues/4002) | `kubectl get managed` is non-empty — Crossplane observes the OpenTofu-built infra. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ region-A LIVE READ (dep 9b16ad632b906d9b). `kubectl get managed… |
 | 207 | adoption | [#4002](https://github.com/openova-io/openova/issues/4002) | A `CloudAdoption` for the real ELB reaches Synced+Ready (Observe), `external-name` = the real ELB id. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ region-A LIVE READ (dep 9b16ad632b906d9b). CloudAdoption for the… |
 | 208 | adoption | [#4002](https://github.com/openova-io/openova/issues/4002) | Adoption is **Observe-only** — the live ELB/nodes are untouched (no re-provision). | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ region-A LIVE READ (dep 9b16ad632b906d9b). Adoption is… |
-| 209 | storage | [#3971](https://github.com/openova-io/openova/issues/3971) | PVCs land on a real **CSI storageclass** (not k3s local-path). | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ region-A LIVE READ (dep 9b16ad632b906d9b). PVCs land on a REAL… |
-| 210 | storage | [#3971](https://github.com/openova-io/openova/issues/3971) | `local-path` is **FORBIDDEN** (k3s `--disable=local-storage`). | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ region-A LIVE READ (dep 9b16ad632b906d9b). `local-path` is… |
+| 209 | storage | [#3971](https://github.com/openova-io/openova/issues/3971) | PVCs land on a real **CSI storageclass** (not k3s local-path). | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ region-A LIVE READ (dep 9b16ad632b906d9b). PVCs land on a REAL… [📷](screenshots/hw302-row209-cloud-storage-classes.png) |
+| 210 | storage | [#3971](https://github.com/openova-io/openova/issues/3971) | `local-path` is **FORBIDDEN** (k3s `--disable=local-storage`). | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ region-A LIVE READ (dep 9b16ad632b906d9b). `local-path` is… [📷](screenshots/hw302-row209-cloud-storage-classes.png) |
 | 211 | mcp | [#3988](https://github.com/openova-io/openova/issues/3988) | MCP **sovereign-admin** token → `list_applications` returns all apps. | — | ✅ | CARRIED from hw293 — a wipe is not a failure. The code that passed there is the code… |
 | 212 | mcp | [#3988](https://github.com/openova-io/openova/issues/3988) [#5516](https://github.com/openova-io/openova/issues/5516) | MCP **Org-scoped** token → `list_applications` returns ONLY that Org's apps (RBAC parity). | hw296-2026-08-14 | ✅ | hw296-2026-08-14T00:29Z ✅ LIVE WALK against a per-Org MCP door this pass INSTALLED… |
 | 213 | mcp | [#3988](https://github.com/openova-io/openova/issues/3988) [#6122](https://github.com/openova-io/openova/issues/6122) | MCP cross-Org `get_application` is REFUSED as **not found** — `-32000`, and the message names only the caller's OWN Organization, never the other one. The cross-Org **403** is asserted on the WRITE path: `create_application` naming another Organization → `-32003 forbidden` / `status: 403`, nothing created. Own-Org `get_application` succeeds, as the control that the refusal is about the Org boundary. Adjudicated 2026-08-11 (ADR-0013 / #6122): deny-by-LOOKUP answers not-found because a 403 would confirm the Application exists in another Organization; deny-by-ASSERTION answers 403 because the caller named that Organization themselves. The former **403 (UI-parity)** wording read a path-level 403 as a resource-level one — an Org console session has no Sovereign-wide by-name read at all. | hw302-2026-08-20 | ✅ | hw302-2026-08-20 ✅ LIVE MCP cross-Org RBAC walk on TWO funnel-born Orgs created this… |
@@ -311,3 +311,201 @@ Live walk screenshots referenced by the 📷 rows above.
 ### Row 221 ❌ — The user **chats with the chepherd solo agent…
 <img src="screenshots/hw296-row221-agent-created-apps-in-user-apps-view.png" alt="row 221" width="820">
 
+
+### Row 1 ✅ — Console bare URL → lands `/dashboard` signed-in as the owner…
+<img src="screenshots/hw302-row167-dashboard.png" alt="row 1" width="820">
+
+### Row 2 ✅ — Full sidebar renders (Dashboard / Cloud / Apps / Catalog / A…
+<img src="screenshots/hw302-row167-dashboard.png" alt="row 2" width="820">
+
+### Row 4 ✅ — App page tab strip generality: open ≥2 archetypes (a DB `sha…
+<img src="screenshots/hw302-row24-app-sharedpg-tabstrip.png" alt="row 4" width="820">
+
+### Row 5 ✅ — Organizations directory: the customer Org row shows KIND=cus…
+<img src="screenshots/hw302-row120-org-detail.png" alt="row 5" width="820">
+
+### Row 7 ✅ — Org detail renders canonical fields: slug `acme` (NOT `sme-<…
+<img src="screenshots/hw302-row120-org-detail.png" alt="row 7" width="820">
+
+### Row 13 ✅ — Catalog grid renders the Blueprint cards; `bp-postgres` deta…
+<img src="screenshots/hw302-row13-catalog-grid.png" alt="row 13" width="820">
+
+### Row 14 ✅ — The shared-PG reuse model is LIVE: the `shared-pg` app **Con…
+<img src="screenshots/hw302-row14-app-sharedpg-contexts.png" alt="row 14" width="820">
+
+### Row 15 ✅ — Apps list renders one card per Application (all Platform/BOO…
+<img src="screenshots/hw302-row15-apps-grid.png" alt="row 15" width="820">
+
+### Row 17 ✅ — Dashboard treemap is a meaningful drill-down surface (Organi…
+<img src="screenshots/hw302-row167-dashboard.png" alt="row 17" width="820">
+
+### Row 19 ✅ — Count the ESTATE cards on /apps — `[data-card-kind="instance…
+<img src="screenshots/hw302-row15-apps-grid.png" alt="row 19" width="820">
+
+### Row 21 ✅ — Organizations Showback panel: the **Application** column for…
+<img src="screenshots/hw302-row116-organizations-directory.png" alt="row 21" width="820">
+
+### Row 22 ✅ — Showback shows a single visually-distinct **Platform overhea…
+<img src="screenshots/hw302-row116-organizations-directory.png" alt="row 22" width="820">
+
+### Row 24 ✅ — `shared-pg` renders the canonical tab strip Overview · Conte…
+<img src="screenshots/hw302-row24-app-sharedpg-tabstrip.png" alt="row 24" width="820">
+
+### Row 28 ✅ — Users page renders the pre-seeded owner row the owner (tier=…
+<img src="screenshots/hw302-row45-users.png" alt="row 28" width="820">
+
+### Row 30 ✅ — Grafana bare URL → lands on Grafana Home, full UI, no login…
+<img src="screenshots/hw302-row30-grafana-sso.png" alt="row 30" width="820">
+
+### Row 31 ✅ — Gitea bare URL → lands on the gitea dashboard titled "emrah.…
+<img src="screenshots/hw302-row31-gitea-sso.png" alt="row 31" width="820">
+
+### Row 32 ✅ — Harbor bare URL → lands on `/harbor/projects`, no login form…
+<img src="screenshots/hw302-row32-harbor-sso.png" alt="row 32" width="820">
+
+### Row 33 ✅ — OpenBao bare UI → lands in an authenticated Vault session (S…
+<img src="screenshots/hw302-row33-openbao-sso.png" alt="row 33" width="820">
+
+### Row 40 ✅ — Marketplace bare URL → renders the anonymous storefront (pub…
+<img src="screenshots/hw302-row40-marketplace-storefront.png" alt="row 40" width="820">
+
+### Row 45 ✅ — Console Users panel: owner row + the ability to view/manage…
+<img src="screenshots/hw302-row45-users.png" alt="row 45" width="820">
+
+### Row 51 ✅ — `shared-pg` Topology tab renders a per-region placement view…
+<img src="screenshots/hw302-row51-app-sharedpg-topology.png" alt="row 51" width="820">
+
+### Row 55 ✅ — `shared-pg` Topology tab renders EXACTLY ONE topology value,…
+<img src="screenshots/hw302-row51-app-sharedpg-topology.png" alt="row 55" width="820">
+
+### Row 57 ✅ — `shared-pg` Topology tab Switchover button is present and ar…
+<img src="screenshots/hw302-row51-app-sharedpg-topology.png" alt="row 57" width="820">
+
+### Row 64 ✅ — `shared-pg` Topology tab replication-lag field shows a live…
+<img src="screenshots/hw302-row51-app-sharedpg-topology.png" alt="row 64" width="820">
+
+### Row 65 ✅ — Cloud/regions view shows the true region count — a healthy 2…
+<img src="screenshots/hw302-row65-cloud-regions-graph.png" alt="row 65" width="820">
+
+### Row 66 ✅ — Cloud→Clusters renders 2/2 HEALTHY clusters, one per region…
+<img src="screenshots/hw302-row66-cloud-clusters-list.png" alt="row 66" width="820">
+
+### Row 76 ✅ — Open the redeem page with a junk code → a generic "voucher n…
+<img src="screenshots/hw302-row76-marketplace-redeem-invalid.png" alt="row 76" width="820">
+
+### Row 78 ✅ — Click "Sign up to redeem" → the browser lands on the plan pi…
+<img src="screenshots/hw302-row79-marketplace-plans.png" alt="row 78" width="820">
+
+### Row 79 ✅ — Plans grid shows the tiers (S/M/L/XL/Flexi) with price/CPU/m…
+<img src="screenshots/hw302-row79-marketplace-plans.png" alt="row 79" width="820">
+
+### Row 80 ✅ — App catalog grid (served from THIS Sovereign's catalog) → pi…
+<img src="screenshots/hw302-row80-marketplace-app-catalog.png" alt="row 80" width="820">
+
+### Row 82 ✅ — BCP topology step shows BOTH Single-region and Active-hot-st…
+<img src="screenshots/hw302-row82-marketplace-bcp-topology.png" alt="row 82" width="820">
+
+### Row 110 ✅ — Gitea opens already signed in (avatar/menu shows the SSO use…
+<img src="screenshots/hw302-row31-gitea-sso.png" alt="row 110" width="820">
+
+### Row 111 ✅ — Harbor opens signed in, the projects list renders — no Harbo…
+<img src="screenshots/hw302-row32-harbor-sso.png" alt="row 111" width="820">
+
+### Row 112 ✅ — Grafana opens signed in (no Grafana login), the home dashboa…
+<img src="screenshots/hw302-row30-grafana-sso.png" alt="row 112" width="820">
+
+### Row 113 ✅ — The OpenBao UI renders signed in via OIDC — no manual token/…
+<img src="screenshots/hw302-row33-openbao-sso.png" alt="row 113" width="820">
+
+### Row 116 ✅ — Organizations directory: the page title / heading reads "Org…
+<img src="screenshots/hw302-row116-organizations-directory.png" alt="row 116" width="820">
+
+### Row 120 ✅ — Organization-detail view: heading "Acme Corp", breadcrumb "←…
+<img src="screenshots/hw302-row120-org-detail.png" alt="row 120" width="820">
+
+### Row 124 ✅ — Catalog grid renders Blueprint cards in a tile grid, each wi…
+<img src="screenshots/hw302-row13-catalog-grid.png" alt="row 124" width="820">
+
+### Row 125 ✅ — Click the Alloy card → the detail page renders: a hero (icon…
+<img src="screenshots/hw302-row125-catalog-alloy-detail.png" alt="row 125" width="820">
+
+### Row 152 ✅ — The catalog detail page renders (hero · About · Instances) a…
+<img src="screenshots/hw302-row125-catalog-alloy-detail.png" alt="row 152" width="820">
+
+### Row 159 ✅ — Settings → Sovereignty section renders a "Cluster sovereignt…
+<img src="screenshots/hw302-row159-cluster-sovereignty-panel.png" alt="row 159" width="820">
+
+### Row 159 ✅ — Settings → Sovereignty section renders a "Cluster sovereignt…
+<img src="screenshots/hw302-row159-settings-sovereignty.png" alt="row 159" width="820">
+
+### Row 160 ✅ — Console nav + Settings sidebar expose a dedicated "Sovereign…
+<img src="screenshots/hw302-row159-cluster-sovereignty-panel.png" alt="row 160" width="820">
+
+### Row 161 ✅ — Open `/jobs` (zero-login, signed in as owner) → the canvas t…
+<img src="screenshots/hw302-row168-jobs-list.png" alt="row 161" width="820">
+
+### Row 162 ✅ — Find the `cutover` group row and expand it → it renders the…
+<img src="screenshots/hw302-row162-jobs-cutover-11-steps.png" alt="row 162" width="820">
+
+### Row 167 ✅ — Open the console root in a fresh tab → land on the operator…
+<img src="screenshots/hw302-row167-dashboard.png" alt="row 167" width="820">
+
+### Row 168 ✅ — Open `/jobs` → the canvas table renders a populated list of…
+<img src="screenshots/hw302-row168-jobs-list.png" alt="row 168" width="820">
+
+### Row 169 ✅ — The Kind column is present in the header and each row shows…
+<img src="screenshots/hw302-row168-jobs-list.png" alt="row 169" width="820">
+
+### Row 172 ✅ — Set the Status filter to `failed` → the table shows the genu…
+<img src="screenshots/hw302-row172-jobs-failed-filter.png" alt="row 172" width="820">
+
+### Row 180 ✅ — Grafana bare URL → lands on Grafana Home ("Welcome to Grafan…
+<img src="screenshots/hw302-row30-grafana-sso.png" alt="row 180" width="820">
+
+### Row 181 ✅ — Harbor (registry) bare URL → lands on `/harbor/projects` (pr…
+<img src="screenshots/hw302-row32-harbor-sso.png" alt="row 181" width="820">
+
+### Row 182 ✅ — Gitea bare URL → lands on the gitea dashboard titled "emrah.…
+<img src="screenshots/hw302-row31-gitea-sso.png" alt="row 182" width="820">
+
+### Row 183 ✅ — OpenBao bare UI → final rendered screen is the authenticated…
+<img src="screenshots/hw302-row33-openbao-sso.png" alt="row 183" width="820">
+
+### Row 187 ✅ — Per-app Topology for a multi-region app (grafana) shows **Pa…
+<img src="screenshots/hw302-row51-app-sharedpg-topology.png" alt="row 187" width="820">
+
+### Row 192 ✅ — The convergence **Reconciliation** link opens the cloud **RE…
+<img src="screenshots/hw302-row192-cloud-recon-lens.png" alt="row 192" width="820">
+
+### Row 194 ✅ — Recon surface lists Flux reconcilers with live status (Recon…
+<img src="screenshots/hw302-row192-cloud-recon-lens.png" alt="row 194" width="820">
+
+### Row 198 ✅ — `/cloud` per-kind **helmreleases** page shows the real count…
+<img src="screenshots/hw302-row198-cloud-helmreleases.png" alt="row 198" width="820">
+
+### Row 199 ✅ — Cloud **Gateway** page shows the live cilium Gateways (2: `c…
+<img src="screenshots/hw302-row199-cloud-gateways.png" alt="row 199" width="820">
+
+### Row 200 ✅ — Cloud **HTTPRoutes** page shows 15. **[expected count re-bas…
+<img src="screenshots/hw302-row200-cloud-httproutes.png" alt="row 200" width="820">
+
+### Row 201 ✅ — Cloud **NetworkPolicies** page shows the live policies (30 l…
+<img src="screenshots/hw302-row201-cloud-networkpolicies.png" alt="row 201" width="820">
+
+### Row 202 ✅ — Cloud **CiliumNetworkPolicies** page shows the live policies…
+<img src="screenshots/hw302-row202-cloud-ciliumnetworkpolicies.png" alt="row 202" width="820">
+
+### Row 203 ✅ — Cloud **Load Balancers** page shows the real LoadBalancer Sv…
+<img src="screenshots/hw302-row203-cloud-loadbalancers.png" alt="row 203" width="820">
+
+### Row 204 ✅ — Cloud **Worker Nodes** page shows the real nodes, not 0.…
+<img src="screenshots/hw302-row204-cloud-worker-nodes.png" alt="row 204" width="820">
+
+### Row 205 ✅ — `/fleet/applications` returns the real app count (non-zero),…
+<img src="screenshots/hw302-row205-cloud-applications.png" alt="row 205" width="820">
+
+### Row 209 ✅ — PVCs land on a real **CSI storageclass** (not k3s local-path…
+<img src="screenshots/hw302-row209-cloud-storage-classes.png" alt="row 209" width="820">
+
+### Row 210 ✅ — `local-path` is **FORBIDDEN** (k3s `--disable=local-storage`…
+<img src="screenshots/hw302-row209-cloud-storage-classes.png" alt="row 210" width="820">
