@@ -12,10 +12,13 @@ Boot sequence (per docs/INVIOLABLE-PRINCIPLES.md #2 — ship target-state shape,
      those bytes. The init container detects an unseeded PVC by looking
      for `themes/` and seeds it from the image once, idempotently.
 
-  2. initContainer `wp-oidc-plugin-install`: downloads + extracts
-     `openid-connect-generic` (latest stable) from
-     downloads.wordpress.org into `wp-content/plugins/` on the PVC.
-     Idempotent — skips if the plugin dir already exists.
+  2. initContainer `wp-plugin-install`: copies `openid-connect-generic`
+     + the `pg4wp` Postgres adapter from the runtime image's baked
+     `/usr/src/openova-wp-artifacts/` into `wp-content/` on the PVC.
+     Idempotent — skips if the target dir already exists. #6311: this
+     used to download them from downloads.wordpress.org + github.com at
+     install time, which contradicts cutover step-08's deny-egress hold
+     (Pillar 5). There is deliberately NO network fallback.
 
   3. main container `wordpress`: the official image starts; its
      entrypoint writes `wp-config.php` from WORDPRESS_DB_* env vars,
@@ -133,19 +136,34 @@ spec:
           volumeMounts:
             - name: wp-content
               mountPath: /pvc
-        # ── 2. Install plugins from wordpress.org / GitHub onto the PVC ─
-        # Two plugins are pre-installed at boot, both idempotent
+        # ── 2. Seed plugins onto the PVC FROM THE IMAGE (#6311) ─────────
+        # Two artifacts are pre-installed at boot, both idempotent
         # (skip if already present on the PVC):
         #
-        #   a) `openid-connect-generic` — the SSO plugin that drives
-        #      Keycloak OIDC login flow. Source: wordpress.org plugin
-        #      registry.
-        #   b) `pg4wp` (mu-plugin) — translates WordPress's MySQL
-        #      queries to PostgreSQL so the official `wordpress:*`
-        #      image runs against bp-cnpg without a MySQL footprint
-        #      in the Organization tenant namespace. Source: PostgreSQL-For-
-        #      Wordpress on GitHub. Installed under wp-content/pg4wp
-        #      and chain-loaded via wp-content/db.php drop-in.
+        #   a) `openid-connect-generic` — the SSO plugin that drives the
+        #      Keycloak OIDC login flow.
+        #   b) `pg4wp` — translates WordPress's MySQL queries to PostgreSQL
+        #      so the WordPress image runs against bp-cnpg without a MySQL
+        #      footprint in the Organization's namespace. Installed under
+        #      wp-content/pg4wp and chain-loaded via the wp-content/db.php
+        #      drop-in.
+        #
+        # SOURCE — the RUNTIME IMAGE, never the network (#6311, Refs #3988).
+        # Until 0.4.24 this initContainer curl'd (a) from
+        # downloads.wordpress.org and (b) from github.com AT INSTALL TIME.
+        # Cutover step-08 (`egress-block-test`) exists precisely to hold a
+        # 10-minute deny-egress NetworkPolicy against github.com / ghcr.io /
+        # harbor.openova.io and require the cluster to reconcile green
+        # through it — a customer Application that reaches GitHub to install
+        # cannot exist on a sovereign Sovereign (Pillar 5, ADR-0002).
+        #
+        # Both artifacts are now baked into
+        # `/usr/src/openova-wp-artifacts/` by
+        # platform/wordpress-tenant/image/Dockerfile and travel to a
+        # post-cutover Sovereign inside the image itself — the ONLY artifact
+        # classes cutover step-03 (`harbor-prewarm`) mirrors are OCI images
+        # and Helm charts, and `wordpress-tenant-pg` is already in that
+        # prewarm set by name. No new mirroring mechanism was introduced.
         - name: wp-plugin-install
           image: {{ include "bp-wordpress-tenant.wordpressImage" . | quote }}
           imagePullPolicy: {{ .Values.wordpress.image.pullPolicy }}
@@ -161,41 +179,50 @@ spec:
             - -c
             - |
               set -eu
-              # Extract plugin/adapter zips with PHP's bundled ZipArchive
-              # instead of the `unzip` binary. The wordpress:*-php* image
-              # already ships the `zip` PHP extension (a WordPress core
-              # requirement), so NO package install is needed.
+              # #6311: the artifacts are BAKED INTO THIS IMAGE. There is no
+              # download step and no zip extraction here any more — the two
+              # `curl` calls this block used to run (downloads.wordpress.org
+              # for the OIDC plugin, github.com for pg4wp) were install-time
+              # egress and contradicted the cutover step-08 deny-egress hold.
+              # Everything below is a local `cp` from the image's read-only
+              # /usr/src/openova-wp-artifacts onto the wp-content PVC.
               #
-              # This supersedes the earlier `apt-get install unzip`, which is
-              # fatally fragile on locked-down Sovereigns for TWO independent
-              # reasons (both observed live on kom4dc / omantel.biz demo Org):
-              #   1. apt's http transport drops privileges to the `_apt` user
-              #      via setgroups/setegid/seteuid — forbidden under the
-              #      dropped-ALL-capabilities containerSecurityContext
-              #      ("setgroups 65534 failed - Operation not permitted" →
-              #      "Method http has died" code 112 → init CrashLoopBackOff);
-              #   2. egress-restricted clusters cannot reach deb.debian.org at
-              #      all ("Ign … trixie InRelease" → "Unable to locate package
-              #      unzip"), so the package index never loads.
-              # PHP ZipArchive sidesteps both — no apt, no extra Linux caps,
-              # no Debian-mirror egress. Stacks on #4147 (runAsUser:0).
-              php_unzip() {  # $1=zip  $2=destdir
-                php -r '$z=new ZipArchive(); $r=$z->open($argv[1]); if($r!==true){fwrite(STDERR,"ZipArchive open failed (".$r."): ".$argv[1]."\n");exit(1);} if(!$z->extractTo($argv[2])){fwrite(STDERR,"ZipArchive extractTo failed: ".$argv[2]."\n");exit(1);} $z->close();' "$1" "$2"
-              }
+              # FAIL CLOSED, never fall back to the network: if the baked
+              # directory is absent, the running image predates chart 0.4.25
+              # and the values.yaml image pin is hollow. Surfacing that as a
+              # loud init failure is correct — a silent network fallback is
+              # exactly the sovereignty violation this change removes.
+              WP_ARTIFACTS=/usr/src/openova-wp-artifacts
+              if [ ! -d "${WP_ARTIFACTS}" ]; then
+                echo "FATAL: ${WP_ARTIFACTS} missing from the runtime image." >&2
+                echo "  The chart requires the baked pg4wp + openid-connect-generic" >&2
+                echo "  artifacts (#6311). Check wordpress.image.{tag,digest} in" >&2
+                echo "  values.yaml against platform/wordpress-tenant/image/." >&2
+                exit 1
+              fi
               # ── (a) openid-connect-generic plugin ──────────────────
-              OIDC_DIR=/pvc/plugins/daggerhart-openid-connect-generic
+              # Slug is the BARE `openid-connect-generic` — the same directory
+              # name the oidc-config hook Job's `wp plugin activate` writes
+              # into WordPress's `active_plugins` option row. The pre-#6311
+              # wordpress.org slug (`daggerhart-openid-connect-generic`) did
+              # NOT match it, so that option row pointed at a path this PVC
+              # never contained and the plugin never loaded at runtime.
+              OIDC_DIR=/pvc/plugins/openid-connect-generic
               if [ -d "${OIDC_DIR}" ]; then
                 echo "openid-connect-generic already installed — skipping."
               else
-                echo "Downloading openid-connect-generic..."
-                cd /tmp
-                # Plugin slug on WordPress.org is `daggerhart-openid-connect-generic`
-                # (the bare `openid-connect-generic` slug 404s).
-                curl -fsSL -o oidc.zip \
-                  https://downloads.wordpress.org/plugin/daggerhart-openid-connect-generic.latest-stable.zip
+                echo "Seeding openid-connect-generic from the image..."
                 mkdir -p /pvc/plugins
-                php_unzip oidc.zip /pvc/plugins/
-                rm -f /tmp/oidc.zip
+                # `cp -R`, NOT `cp -a`: the baked source is root-owned in the
+                # image, while this init runs as uid 33 and the PVC copy must
+                # end up owned by uid 33 (WordPress writes into wp-content).
+                # `-a` implies `-p`, which asks to preserve ROOT ownership —
+                # either denied outright under the dropped-ALL-capabilities
+                # securityContext, or "successful" and leaving a root-owned
+                # tree the runtime user cannot write. `cp -R` copies content
+                # and lets the new files take the copying uid. Verified by the
+                # uid-33 build-time probe in image/Dockerfile.
+                cp -R "${WP_ARTIFACTS}/plugins/openid-connect-generic" "${OIDC_DIR}"
                 echo "openid-connect-generic installed."
               fi
               # ── (b) pg4wp drop-in (Postgres adapter) ───────────────
@@ -203,30 +230,17 @@ spec:
               # Postgres (per ticket #800 scope). pg4wp ships a
               # `wp-content/db.php` drop-in + `pg4wp/` library that
               # together intercept `wpdb` at the PHP level and map
-              # MySQL queries to Postgres. Repo:
-              # https://github.com/PostgreSQL-For-Wordpress/postgresql-for-wordpress
+              # MySQL queries to Postgres.
               PG4WP_DIR=/pvc/pg4wp
               if [ -d "${PG4WP_DIR}" ] && [ -f /pvc/db.php ]; then
                 echo "pg4wp already installed — skipping."
               else
-                echo "Downloading pg4wp..."
-                cd /tmp
-                # Pin to a stable tag, not main, per
-                # docs/INVIOLABLE-PRINCIPLES.md #4 (no floating refs).
-                # v3.3.1 is the latest published release/tag (the prior pin
-                # v3.7.0 does not exist → archive 404).
-                curl -fsSL -o pg4wp.zip \
-                  https://github.com/PostgreSQL-For-Wordpress/postgresql-for-wordpress/archive/refs/tags/v3.3.1.zip
-                php_unzip pg4wp.zip /tmp/
-                # Extracted layout:
-                #   /tmp/postgresql-for-wordpress-3.3.1/pg4wp/
-                #   /tmp/postgresql-for-wordpress-3.3.1/pg4wp/db.php
-                # Copy `pg4wp/` into wp-content/ and the `db.php`
-                # drop-in alongside it (WP looks for db.php at
-                # wp-content/db.php).
-                cp -a /tmp/postgresql-for-wordpress-3.3.1/pg4wp /pvc/
-                cp /tmp/postgresql-for-wordpress-3.3.1/pg4wp/db.php /pvc/db.php
-                rm -rf /tmp/postgresql-for-wordpress-3.3.1 /tmp/pg4wp.zip
+                echo "Seeding pg4wp from the image..."
+                # rm -rf first so a half-seeded PVC (pg4wp/ present, db.php
+                # absent) cannot make `cp` nest the copy at /pvc/pg4wp/pg4wp.
+                rm -rf "${PG4WP_DIR}"
+                cp -R "${WP_ARTIFACTS}/pg4wp" "${PG4WP_DIR}"
+                cp "${WP_ARTIFACTS}/db.php" /pvc/db.php
                 echo "pg4wp installed."
               fi
               # No chown needed: this init runs as uid 33 (the chart's
