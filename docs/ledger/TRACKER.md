@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-20T21:30:04Z` |
+| Last refreshed | `2026-08-20T21:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-20T21:43 | [#6532](https://github.com/openova-io/openova/pull/6532) | #6499 | docs(uat): per-row evidence-gap breakdown (98 un-screenshott |
 | 2026-08-20T21:10 | [#6531](https://github.com/openova-io/openova/pull/6531) | #6499 | docs(uat): live hw302 console screenshots for em-dash rows ( |
 | 2026-08-20T21:03 | [#6530](https://github.com/openova-io/openova/pull/6530) | #6499 | docs(uat): harvest live hw302 wire/policy captures (161->183 |
 | 2026-08-20T20:30 | [#6529](https://github.com/openova-io/openova/pull/6529) | #6499 | docs(uat): live hw302 screenshots for catalog summary-edit p |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-19T22:40 | [#6496](https://github.com/openova-io/openova/pull/6496) | #6495 | fix(wipe): handed-over Huawei Sovereign un-wipeable — infer  |
 | 2026-08-19T19:00 | [#6494](https://github.com/openova-io/openova/pull/6494) | #6493 | fix(cutover): label the secondary gitea-mirror Job managed-b |
 | 2026-08-19T14:48 | [#6492](https://github.com/openova-io/openova/pull/6492) | #6491 | chore: remove scratch files accidentally merged by #6491 |
-| 2026-08-19T14:31 | [#6491](https://github.com/openova-io/openova/pull/6491) | #5596 | fix(cutover): mirror to each secondary region's own in-clust |
 
 ---
 
