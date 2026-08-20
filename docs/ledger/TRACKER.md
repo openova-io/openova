@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-20T19:30:04Z` |
+| Last refreshed | `2026-08-20T19:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-20T19:40 | [#6526](https://github.com/openova-io/openova/pull/6526) | #6499 | docs(uat): re-walk 5 catalog rows live on hw302 (126/130/131 |
 | 2026-08-20T18:45 | [#6525](https://github.com/openova-io/openova/pull/6525) | #6499 | docs(uat): +9 rows agenity/billing/app-detail hw302 views |
 | 2026-08-20T18:41 | [#6524](https://github.com/openova-io/openova/pull/6524) | #6499 | docs(uat): live hw302 console-view screenshots (+46 rows, 78 |
 | 2026-08-20T17:30 | [#6523](https://github.com/openova-io/openova/pull/6523) | #6499 | docs(uat): G11 + 166 cutover rows -> current hw302 live-test |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-19T07:26 | [#6484](https://github.com/openova-io/openova/pull/6484) | #4466 | fix(catalyst): wire CATALYST_JANITOR_DESTRUCTIVE into the ra |
 | 2026-08-18T23:34 | [#6478](https://github.com/openova-io/openova/pull/6478) | #6477 | docs(ledger): classify the 18 remaining UAT failures by what |
 | 2026-08-18T13:53 | [#6469](https://github.com/openova-io/openova/pull/6469) | #6464 | fix(events): constant 5s nak + MaxDeliver:-1 is an unbounded |
-| 2026-08-18T10:57 | [#6466](https://github.com/openova-io/openova/pull/6466) | #6372 | fix(provisioning): funnel-born Orgs got no Anthropic credent |
 
 ---
 
