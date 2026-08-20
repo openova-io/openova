@@ -1473,7 +1473,7 @@ spec:
       #   is honored); pool-domain logins STILL 400'd (proven live hw302). The
       #   organization-controller now registers each Org's CONCRETE console
       #   callback https://console.<slug>.<pool-tld>/* at reconcile time.
-      version: 1.4.1551
+      version: 1.4.1552
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
