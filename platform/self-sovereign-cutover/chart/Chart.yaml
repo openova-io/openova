@@ -4182,7 +4182,7 @@ name: bp-self-sovereign-cutover
 #   bp-self-sovereign-cutover HelmRelease; the label sits on the Job metadata only
 #   (the policy matches kind Job, not the Pod). The API blueprints.json + the
 #   generated UI catalog move to 0.1.196 in lockstep.
-version: 0.1.196
+version: 0.1.197
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

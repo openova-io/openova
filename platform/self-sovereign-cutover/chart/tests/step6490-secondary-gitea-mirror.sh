@@ -72,13 +72,32 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
   if [ -d "${MAIN_CHART}" ]; then
     helm template ssc "${MAIN_CHART}" --set sovereign.fqdn="${FQDN}" --set mirrorResync.enabled=true \
       >"${TMP}/main.yaml" 2>/dev/null
-    # Normalise the chart-version baked into helm.sh/chart labels — the 0.1.19x
-    # bump is expected and unrelated to the secondary leg; everything ELSE must
-    # match to the byte.
-    sed -E 's/bp-self-sovereign-cutover-[0-9]+\.[0-9]+\.[0-9]+/bp-self-sovereign-cutover-VERSION/g' "${TMP}/main.yaml" >"${TMP}/main.norm"
-    sed -E 's/bp-self-sovereign-cutover-[0-9]+\.[0-9]+\.[0-9]+/bp-self-sovereign-cutover-VERSION/g' "${TMP}/off.yaml"  >"${TMP}/off.norm"
+    # Normalise TWO axes that are EXPECTED to differ from origin/main and are NOT
+    # the secondary-leg leak this byte-check guards:
+    #   1. the chart-version baked into helm.sh/chart labels (the 0.1.19x bump);
+    #   2. the #6490 git-auth MECHANISM on the ALWAYS-rendered primary resync push
+    #      (11-mirror-resync-cronjob.yaml) — origin/main URL-injects
+    #      ${GITEA_USERNAME}:${GITEA_PASSWORD}@ into the remote while this branch
+    #      carries the Authorization: Basic http.extraHeader. That push renders in
+    #      single-region too, so it is NOT part of the secondaryRegions leg;
+    #      canonicalising BOTH forms (and BOTH url-var names) to one token keeps
+    #      this check able to catch any OTHER single-region drift while
+    #      accommodating the intended fix, which cutover-contract Case 96 verifies.
+    #      The regex keys on GITEA_PASSWORD / --mirror so it never touches step-01's
+    #      PAT-authed refspec push.
+    norm() {
+      sed -E \
+        -e 's#bp-self-sovereign-cutover-[0-9]+\.[0-9]+\.[0-9]+#bp-self-sovereign-cutover-VERSION#g' \
+        -e 's#^ *local_url=.*GITEA_PASSWORD.*$#                  MIRROR_URL_DEF#' \
+        -e 's#^ *push_url="\$\{GITEA_INTERNAL_URL\}/\$\{GITEA_ORG\}/\$\{GITEA_REPO\}\.git"$#                  MIRROR_URL_DEF#' \
+        -e 's#git -c http\.extraHeader="Authorization: Basic \$\{basic_auth\}" push --mirror#git push --mirror#' \
+        -e 's#push --mirror --force "\$\{(local_url|push_url)\}"#push --mirror --force "MIRROR_URL"#' \
+        "$1"
+    }
+    norm "${TMP}/main.yaml" >"${TMP}/main.norm"
+    norm "${TMP}/off.yaml"  >"${TMP}/off.norm"
     if diff -q "${TMP}/main.norm" "${TMP}/off.norm" >/dev/null; then
-      pass "the ENTIRE single-region render is byte-identical to origin/main (modulo the expected chart-version bump)"
+      pass "the ENTIRE single-region render is byte-identical to origin/main (modulo the chart-version bump and the #6490 resync git-auth mechanism, which Case 96 verifies)"
     else
       fail "single-region render DIFFERS from origin/main beyond the version bump — see diff:"
       diff "${TMP}/main.norm" "${TMP}/off.norm" | head -40
@@ -153,15 +172,26 @@ if grep -qF 'app.kubernetes.io/managed-by: flux' "${TMP}/secjob.yaml"; then
 else
   fail "secondary mirror Job lacks app.kubernetes.io/managed-by: flux — ns gitea's kyverno flux-managed ClusterPolicy DENIES step-01's set -e apply and the cutover halts (#6493)"
 fi
-if grep -qF 'git push --force' "${TMP}/secmirror.sh"; then
-  pass "secondary-mirror.sh force-pushes the bare clone to the region-local Gitea"
+# #6490 header-auth: the push + ls-remote authenticate with the SAME
+# Authorization: Basic http.extraHeader the curl API calls use — NOT a
+# URL-injected admin password, which FATALs ("Could not read from remote
+# repository") when the region-local Gitea password holds a URL-special char.
+if grep -qF 'http.extraHeader="Authorization: Basic ${basic_auth}" push --force' "${TMP}/secmirror.sh"; then
+  pass "secondary-mirror.sh force-pushes via the Authorization: Basic http.extraHeader (#6490)"
 else
-  fail "secondary-mirror.sh does not force-push to the region-local Gitea"
+  fail "secondary-mirror.sh does not header-authenticate the force-push (#6490)"
 fi
-if grep -qF 'git ls-remote --heads' "${TMP}/secmirror.sh"; then
-  pass "secondary-mirror.sh ls-remote self-verifies (the #6490 ordering gate)"
+if grep -qF 'http.extraHeader="Authorization: Basic ${basic_auth}" ls-remote --heads' "${TMP}/secmirror.sh"; then
+  pass "secondary-mirror.sh ls-remote self-verifies via the header (the #6490 ordering gate)"
 else
-  fail "secondary-mirror.sh lacks the git ls-remote success gate"
+  fail "secondary-mirror.sh lacks the header-authed git ls-remote success gate (#6490)"
+fi
+# anti-regression (non-vacuous — TRUE on the pre-#6490 URL-injection script):
+# zero URL-injected credentials may survive in the region-local push.
+if grep -qF '${GITEA_USERNAME}:${GITEA_PASSWORD}@' "${TMP}/secmirror.sh"; then
+  fail "secondary-mirror.sh still URL-injects the admin password — breaks on a URL-special-char password (#6490 regression)"
+else
+  pass "secondary-mirror.sh URL-injects no credentials — auth rides the header (#6490)"
 fi
 if grep -qF 'http.postBuffer 1048576000' "${TMP}/secmirror.sh"; then
   pass "secondary-mirror.sh carries the #6488 large-clone robustness (http.postBuffer + retry)"

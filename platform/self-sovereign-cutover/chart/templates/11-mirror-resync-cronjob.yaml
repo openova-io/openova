@@ -193,7 +193,9 @@ spec:
                    Credential hygiene mirrors 01-gitea-mirror-job.yaml:
                    never echo $GITEA_PASSWORD on stdout. The BasicAuth
                    header is base64-encoded into a single env-local
-                   variable; git push uses URL embedding only.
+                   variable; git push/ls-remote authenticate with that same
+                   `http.extraHeader` — NOT URL embedding, which breaks when
+                   the admin password holds a URL-special char (#6490).
                   */}}
                   redacted_url="${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git"
                   echo "[mirror-resync] upstream=${UPSTREAM_REPO_URL} branch=${UPSTREAM_BRANCH}"
@@ -242,7 +244,7 @@ spec:
                   git config --global user.email "mirror-resync@${gitea_host}"
                   git config --global advice.detachedHead false
 
-                  local_url=$(printf '%s' "${GITEA_INTERNAL_URL}" | sed -E "s,^(https?://),\1${GITEA_USERNAME}:${GITEA_PASSWORD}@,")"/${GITEA_ORG}/${GITEA_REPO}.git"
+                  push_url="${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git"
                   workdir=$(mktemp -d)
                   cd "${workdir}"
                   echo "[mirror-resync] cloning ${UPSTREAM_REPO_URL} (bare)"
@@ -252,7 +254,7 @@ spec:
                   fi
                   cd upstream.git
                   echo "[mirror-resync] pushing all refs to ${redacted_url}"
-                  push_err=$(git push --mirror --force "${local_url}" 2>&1) || {
+                  push_err=$(git -c http.extraHeader="Authorization: Basic ${basic_auth}" push --mirror --force "${push_url}" 2>&1) || {
                     echo "[mirror-resync] git push to local Gitea failed" >&2
                     printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PASSWORD}+,REDACTED,g" >&2
                     exit 1
