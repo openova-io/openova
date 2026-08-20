@@ -688,6 +688,27 @@ write_files:
 %{ if length(distinct([for z in yamldecode(parent_domains_yaml) : z.name])) > 1 ~}
             PARENT_DOMAINS_FILTER: '${jsonencode(distinct([for z in yamldecode(parent_domains_yaml) : z.name]))}'
 %{ endif ~}
+            # TENANT_PARENT_DOMAIN (#3374 #3988, Refs #6504) — the single
+            # org-pool TLD new Organizations default to for their per-Org
+            # console + app subdomains (console.<slug>.<pool-tld>). bootstrap-kit
+            # slot-13 threads this into bp-catalyst-platform's
+            # orgServices.provisioning.tenantParentDomain ($${TENANT_PARENT_DOMAIN:-});
+            # the per-Org provisioning consumer stamps spec.tenantPublic ONLY when
+            # it is set, so WITHOUT it every customer Org mints with NO public
+            # route and the customer console + purchased app return
+            # ERR_CONNECTION_REFUSED — the funnel-terminal failure #3859 fixed the
+            # chart wiring for, but the $${TENANT_PARENT_DOMAIN} substitute itself
+            # was never emitted, so the value stayed empty on every Sovereign.
+            # Derived from the FIRST role==org-pool zone in the SAME
+            # parent_domains_yaml the parentZones substitute uses (single source →
+            # tenantParentDomain can never diverge from the zones bp-keycloak #6504
+            # renders console.*.<zone>/* catalyst-ui callbacks for). Emitted ONLY
+            # when an org-pool zone exists, so a single-zone Sovereign renders
+            # byte-identically (slot-13 default $${TENANT_PARENT_DOMAIN:-} → "").
+            # Go mirror: provisioner.Request.TenantParentDomain().
+%{ if length([for z in yamldecode(parent_domains_yaml) : z.name if z.role == "org-pool"]) > 0 ~}
+            TENANT_PARENT_DOMAIN: '${[for z in yamldecode(parent_domains_yaml) : z.name if z.role == "org-pool"][0]}'
+%{ endif ~}
             SOVEREIGN_CNPG_INSTANCES: "${sovereign_cnpg_instances}"
             CONTINUUM_ENABLED: "${continuum_enabled}"
             CLUSTER_MESH_NAME: "${cluster_mesh_name}"

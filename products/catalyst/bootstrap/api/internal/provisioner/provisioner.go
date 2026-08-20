@@ -3642,6 +3642,34 @@ func (r Request) OrgPoolParentDomains() []ParentDomain {
 	return out
 }
 
+// TenantParentDomain returns the single org-pool TLD new Organizations
+// default to for their per-Org console + app subdomains
+// (console.<slug>.<pool-tld>, <app>.<slug>.<pool-tld>) — the FIRST entry in
+// r.ParentDomains carrying ParentDomainRoleOrgPool, lower-cased + trimmed, or
+// "" when the Sovereign brought no org-pool zone (single-zone / BYO).
+//
+// This is the Go mirror of the cloud-init TENANT_PARENT_DOMAIN substitute
+// (infra/providers/_shared/cloudinit-control-plane.tftpl, bootstrap-kit
+// block), which derives the same "first org-pool zone" from
+// var.parent_domains_yaml. bootstrap-kit slot-13 threads that substitute into
+// bp-catalyst-platform's orgServices.provisioning.tenantParentDomain, and the
+// per-Org provisioning consumer stamps spec.tenantPublic ONLY when it is set —
+// so the value MUST come from the same ParentDomains source that feeds the
+// parentZones substitute (and therefore bp-keycloak #6504's
+// console.*.<zone>/* catalyst-ui callbacks), or the two diverge and a
+// customer login at console.<slug>.<pool-tld> 400s Invalid parameter:
+// redirect_uri against the shared sovereign realm (#3374 #3988, live hw301).
+// Kept in lockstep with that template; both derive from ParentDomains by
+// construction.
+func (r Request) TenantParentDomain() string {
+	for _, pd := range r.ParentDomains {
+		if pd.Role == ParentDomainRoleOrgPool {
+			return strings.ToLower(strings.TrimSpace(pd.Name))
+		}
+	}
+	return ""
+}
+
 // defaultRegistrarKindFromEnv returns the registrar adapter id used
 // when synthesising a Day-1 ParentDomain entry from the legacy
 // single-FQDN payload. Reads CATALYST_DEFAULT_REGISTRAR_KIND with
