@@ -2370,7 +2370,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.5.10",
+    "version": "1.5.11",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-postgres"
