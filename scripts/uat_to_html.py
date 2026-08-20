@@ -25,10 +25,11 @@ UNESC = re.compile(r"(?<!\\)\|")
 LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 THUMB_MD = re.compile(r"\[<img[^\]]*\]\((screenshots/[^)]+)\)")   # inline thumb md
 CAM_MD = re.compile(r"\[📷\]\((screenshots/[^)]+)\)")             # 📷 link md
-# Four VISIBLE columns so the Evidence column (with its screenshot) never gets
-# pushed off the right edge; the id/epic/issue metadata folds into column 1 and
-# env folds under the verdict in column 3.
-COLS = ["#", "Test case", "Result", "Evidence"]
+# Screenshot gets its OWN column right after '#', so it is always visible even
+# when GitHub's table-layout:auto lets the Test-case column expand (GitHub strips
+# table-layout:fixed, so width attrs are only hints). Order:
+#   #  |  📷 Shot  |  Result  |  Test case  |  Evidence
+COLS = ["#", "📷", "Result", "Test case", "Evidence"]
 
 
 def esc(s: str) -> str:
@@ -85,18 +86,31 @@ def main() -> int:
             c = (c + [""] * 7)[:7]
             rid, epic, ticket, clause, env, verdict, evidence = (x.strip() for x in c)
             # ticket markdown -> inline <a> links (keep the exact issue URLs)
-            issue = LINK.sub(lambda m: f'<a href="{esc(m.group(2))}">{esc(m.group(1))}</a>',
-                             esc(ticket)) if "](" not in ticket else \
-                    " ".join(f'<a href="{u}">{esc(t)}</a>'
-                             for t, u in LINK.findall(ticket))
-            col_a = (f'<strong>{esc(rid)}</strong><br>'
-                     f'<sub>{esc(epic)}'
-                     + (f' · {issue}' if issue else "") + '</sub>')
+            issue = " ".join(f'<a href="{u}">{esc(t)}</a>' for t, u in LINK.findall(ticket)) \
+                if "](" in ticket else esc(ticket)
+            # pull the screenshot thumbnail OUT of the evidence text into its own column
+            shots = THUMB_MD.findall(evidence) + CAM_MD.findall(evidence)
+            ev_text = CAM_MD.sub("", THUMB_MD.sub("", evidence)).strip()
+            shot_html = "".join(
+                f'<a href="{esc(p)}" title="click to enlarge"><img src="{esc(p)}" width="150"></a>'
+                for p in shots
+            )
+            if shot_html:
+                # A non-breaking caption holds the column's min-content width open
+                # (~150px) so GitHub's table-layout:auto can't starve it and shrink
+                # the image via the max-width:100% it forces on every <img>.
+                nb_env = esc(env).replace("-", "‑")
+                shot_html += f"<br><sub>{nb_env}</sub>"
+            else:
+                shot_html = "—"
+            col_a = (f'<strong>{esc(rid)}</strong><br><sub>{esc(epic)}'
+                     + (f' · {issue}' if issue else "") + "</sub>")
             col_c = f'{esc(verdict)}<br><sub>{esc(env)}</sub>'
-            tds = (f"<td>{col_a}</td>"
-                   f"<td>{cell_html(clause, False)}</td>"
-                   f"<td>{col_c}</td>"
-                   f"<td>{cell_html(evidence, True)}</td>")
+            tds = (f"<td>{col_a}</td>"          # #  (id/epic/issue)
+                   f"<td>{shot_html}</td>"      # 📷  screenshot — its own column
+                   f"<td>{col_c}</td>"          # Result (verdict/env)
+                   f"<td>{cell_html(clause, False)}</td>"   # Test case
+                   f"<td>{cell_html(ev_text, False)}</td>") # Evidence text
             rows.append(f'<tr id="row-{rid}">{tds}</tr>')
             continue
         if line.strip().startswith("## Screenshot evidence"):
@@ -106,9 +120,16 @@ def main() -> int:
         elif not in_table:
             pre.append(line)
 
-    head = ("<thead><tr>" + "".join(f"<th>{h}</th>" for h in COLS)
+    # Explicit per-column widths so the wide Test-case column cannot squeeze the
+    # Evidence/screenshot column off the right edge. GitHub honours width on
+    # <th>/<td> (verified against its render API); width on the header row sets
+    # the whole column.
+    widths = ["6%", "16%", "9%", "35%", "34%"]   # #, 📷, Result, Test case, Evidence
+    head = ("<thead><tr>"
+            + "".join(f'<th width="{w}">{h}</th>' for h, w in zip(COLS, widths))
             + "</tr></thead>")
-    table = "<table>\n" + head + "\n<tbody>\n" + "\n".join(rows) + "\n</tbody>\n</table>"
+    table = ('<table width="100%">\n' + head + "\n<tbody>\n"
+             + "\n".join(rows) + "\n</tbody>\n</table>")
     out = "\n".join(pre).rstrip() + "\n\n" + table + "\n"
     if gallery:
         out += "\n" + "\n".join(gallery).rstrip() + "\n"

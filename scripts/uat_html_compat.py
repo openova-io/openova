@@ -67,20 +67,43 @@ def _plain(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
-def _fold_to_pipe(cells):
-    A, B, C, D = cells
+def _id_epic_ticket(A):
     m = _A_ID.search(A)
     row_id = _plain(m.group(1)) if m else _plain(A)
-    tickets = " ".join(
-        "[%s](%s)" % (_plain(lbl), url) for url, lbl in _A_LINK.findall(A)
-    )
+    tickets = " ".join("[%s](%s)" % (_plain(lbl), url) for url, lbl in _A_LINK.findall(A))
     sm = _A_SUB.search(A)
     epic = _plain(_A_LINK.sub("", sm.group(1))).strip(" ·").strip() if sm else ""
-    clause = _cell_to_md(B)                              # exact canon reconstruction
+    return row_id, epic, tickets
+
+
+def _verdict_env(C):
     cm = _A_SUB.search(C)
     env = _plain(cm.group(1)) if cm else ""
-    verdict = _plain(_A_SUB.sub("", C))
-    evidence = _cell_to_md(D)                            # keeps the 📷 png ref
+    return _plain(_A_SUB.sub("", C)), env
+
+
+def _fold_to_pipe(cells):
+    """Unfold the visible columns back to the 7 markdown fields.
+
+    5 cols (current):  #(id/epic/ticket) | 📷 shot | Result(verdict/env) | Test case | Evidence
+    4 cols (legacy):   #(id/epic/ticket) | Test case | Result(verdict/env) | Evidence
+    """
+    if len(cells) == 5:
+        A, shot, C, D, E = cells
+        row_id, epic, tickets = _id_epic_ticket(A)
+        verdict, env = _verdict_env(C)
+        clause = _cell_to_md(D)
+        # the screenshot lives in its own column -> fold ONLY its png back into
+        # Evidence (ignore the width-holding caption) so the guards still see it.
+        ev = _cell_to_md(E)
+        mpng = re.search(r"screenshots/[^\"')]+\.png", shot)
+        evidence = (ev + " [📷](%s)" % mpng.group(0)).strip() if mpng else ev
+    else:  # 4-col legacy
+        A, B, C, D = cells
+        row_id, epic, tickets = _id_epic_ticket(A)
+        clause = _cell_to_md(B)
+        verdict, env = _verdict_env(C)
+        evidence = _cell_to_md(D)
     return "| %s | %s | %s | %s | %s | %s | %s |" % (
         row_id, epic, tickets, clause, env, verdict, evidence
     )
@@ -99,7 +122,7 @@ def to_pipe(text: str) -> str:
     for line in text.split("\n"):
         if _TR.match(line):
             cells = _CELL.findall(line)
-            if len(cells) == 4:
+            if len(cells) in (4, 5):
                 line = _fold_to_pipe(cells)
             elif cells:
                 line = "| " + " | ".join(_cell_to_md(c) for c in cells) + " |"
