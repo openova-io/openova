@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-20T14:15:03Z` |
+| Last refreshed | `2026-08-20T14:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-20T14:21 | [#6520](https://github.com/openova-io/openova/pull/6520) | #6499 | docs(uat): remove stray empty table above the 4-col ledger |
+| 2026-08-20T14:19 | [#6519](https://github.com/openova-io/openova/pull/6519) | #6499 | docs(uat): 4-column layout so the screenshot/Evidence column |
 | 2026-08-20T13:54 | [#6518](https://github.com/openova-io/openova/pull/6518) | #6499 | docs(uat): move fallback screenshots in-row + add hw302 thum |
 | 2026-08-20T13:09 | [#6517](https://github.com/openova-io/openova/pull/6517) | #6499 | docs(uat): HTML-table ledger — wrapping cells + in-row click |
 | 2026-08-20T12:43 | [#6516](https://github.com/openova-io/openova/pull/6516) | #6499 | docs(uat): screenshots as clickable in-row thumbnails |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-16T15:32 | [#6371](https://github.com/openova-io/openova/pull/6371) | #6370 | fix(topology): loadVClusters queried the non-existent group  |
 | 2026-08-16T15:32 | [#6368](https://github.com/openova-io/openova/pull/6368) | #6367 | fix(provisioning): every purchased app sat at SourceNotReady |
 | 2026-08-16T15:32 | [#6366](https://github.com/openova-io/openova/pull/6366) | #6360 | feat(catalog): sell bp-agenity in the storefront — a Bluepri |
-| 2026-08-16T12:15 | [#6363](https://github.com/openova-io/openova/pull/6363) | #5991 | fix(bp-guacamole): connection producer was deleted at render |
-| 2026-08-16T07:22 | [#6361](https://github.com/openova-io/openova/pull/6361) | #6357 | docs(uat): re-walk 15 hw296-carried rows on live hw298 — 8 h |
 
 ---
 
