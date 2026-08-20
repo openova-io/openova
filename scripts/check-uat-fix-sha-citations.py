@@ -51,10 +51,14 @@ fixture, against real commits in this repository resolved at runtime.
     python3 scripts/check-uat-fix-sha-citations.py --self-test
 """
 import argparse
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from uat_html_compat import to_pipe  # HTML-<table> ledger -> markdown rows
 
 ROOT = Path(__file__).resolve().parent.parent
 UAT = ROOT / "docs" / "ledger" / "UAT.md"
@@ -288,7 +292,7 @@ def main():
               file=sys.stderr)
         return 1
 
-    rc, report = run(UAT.read_text(encoding="utf-8"), main_ref)
+    rc, report = run(to_pipe(UAT.read_text(encoding="utf-8")), main_ref)
     for line in report:
         print(line)
     if rc:

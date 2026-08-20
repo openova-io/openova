@@ -82,6 +82,9 @@ Usage:
 """
 import sys, os, re, glob, argparse, tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from uat_html_compat import to_pipe  # HTML-<table> ledger -> markdown rows
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 UAT_REL = os.path.join("docs", "ledger", "UAT.md")
 WALK_REL_GLOB = os.path.join("docs", "ledger", "uat-walkthrough", "*.md")
@@ -344,7 +347,7 @@ def guard(current_env, root=REPO_ROOT, quiet=False):
 
     # Resolve current env from the header if not supplied.
     if current_env is None and os.path.exists(uat):
-        current_env = header_env(open(uat, encoding="utf-8").read())
+        current_env = header_env(to_pipe(open(uat, encoding="utf-8").read()))
 
     # Which rows the scheduler is holding as legitimately carried onto this env.
     # Resolved ONCE: it reads the whole observation log and scores 286 rows.
@@ -355,7 +358,7 @@ def guard(current_env, root=REPO_ROOT, quiet=False):
     for p in paths:
         if os.path.basename(p) in SKIP_BASENAMES:
             continue
-        text = open(p, encoding="utf-8").read()
+        text = to_pipe(open(p, encoding="utf-8").read())
         # Consent applies to the MASTER ledger only. The scheduler keys its
         # observations on UAT.md's row IDs, and the uat-walkthrough tables number
         # their own steps from 1 — so walkthrough step "51" and ledger row "51"
