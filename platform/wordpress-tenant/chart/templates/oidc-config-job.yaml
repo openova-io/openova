@@ -82,8 +82,113 @@ spec:
         catalyst.openova.io/blueprint: bp-wordpress-tenant
     spec:
       restartPolicy: OnFailure
+      {{- with .Values.wordpress.image.pullSecrets }}
+      # #6311: this Job's MAIN container runs the PUBLIC dockerhub
+      # `wordpress:cli-*` image, but its `wp-artifacts` initContainer runs the
+      # PRIVATE `wordpress-tenant-pg` runtime image (that is where the baked
+      # pg4wp + OIDC-plugin artifacts live). Without these pull secrets the
+      # initContainer ImagePullBackOffs, the post-install hook never runs, Helm
+      # times out and the HelmRelease sticks Ready=False — the same failure
+      # shape #4154 fixed for the Deployment and admin-user Job.
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         {{- toYaml .Values.wordpress.podSecurityContext | nindent 8 }}
+      initContainers:
+        # ── Seed the baked third-party artifacts into the ephemeral
+        #    wp-content (#6311, Refs #3988) ────────────────────────────────
+        # This Job mounts its OWN emptyDir (#4220), so the artifacts the
+        # runtime Deployment seeds onto the persistent PVC are not visible
+        # here — it used to `curl` them at install time instead, from
+        # github.com, and CrashLoopBackOff'd on
+        #   curl: (28) Connection timed out after 120001 milliseconds
+        # Cutover step-08 (`egress-block-test`) holds a 10-minute deny-egress
+        # NetworkPolicy against exactly github.com / ghcr.io /
+        # harbor.openova.io, so an install-time GitHub fetch is a Pillar-5
+        # violation regardless of whether a given cluster happens to have
+        # egress (ADR-0002).
+        #
+        # This initContainer runs the RUNTIME image (the one that carries the
+        # baked artifacts — the wp-cli image is upstream and does not) and
+        # copies them into the shared emptyDir. The main container then finds
+        # `wp-content/db.php` and `wp-content/plugins/openid-connect-generic`
+        # already present and its idempotent guards short-circuit.
+        - name: wp-artifacts
+          image: {{ include "bp-wordpress-tenant.wordpressImage" . | quote }}
+          imagePullPolicy: {{ .Values.wordpress.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.wordpress.containerSecurityContext | nindent 12 }}
+          env:
+            # Provenance only (#6311). The BYTES come from the image; these
+            # declare which version the chart EXPECTS the image to carry, so a
+            # drift between `oidc.plugin.version` and the image's baked
+            # VERSIONS file surfaces in the Job log instead of silently
+            # shipping a different plugin build. Warn, never fail: the image
+            # is the source of truth and a lagging values pin must not block
+            # a customer's install.
+            - name: OIDC_PLUGIN_REPO
+              value: {{ .Values.oidc.plugin.repo | quote }}
+            - name: OIDC_PLUGIN_VERSION
+              value: {{ .Values.oidc.plugin.version | quote }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -eu
+              WP_ARTIFACTS=/usr/src/openova-wp-artifacts
+              # FAIL CLOSED — never fall back to the network. An absent
+              # directory means the running image predates chart 0.4.25 and
+              # the values.yaml image pin is hollow; that must be loud.
+              if [ ! -d "${WP_ARTIFACTS}" ]; then
+                echo "FATAL: ${WP_ARTIFACTS} missing from the runtime image (#6311)." >&2
+                echo "  Check wordpress.image.{tag,digest} in values.yaml." >&2
+                exit 1
+              fi
+              echo "[wp-artifacts] baked artifact versions:"
+              cat "${WP_ARTIFACTS}/VERSIONS" || true
+              if ! grep -q "openid-connect-generic=${OIDC_PLUGIN_VERSION} " \
+                     "${WP_ARTIFACTS}/VERSIONS" 2>/dev/null; then
+                echo "[wp-artifacts] WARN: chart declares openid-connect-generic" \
+                     "${OIDC_PLUGIN_VERSION} (${OIDC_PLUGIN_REPO}) but the image" \
+                     "carries a different build — the IMAGE wins. Re-bake" \
+                     "platform/wordpress-tenant/image/Dockerfile to realign."
+              fi
+              # `cp -R`, NOT `cp -a`: the baked source is root-owned in the
+              # image while this container runs as uid 33 and the copies must
+              # be uid-33-owned for wp-cli to use them. `-a` implies `-p`,
+              # which asks to preserve ROOT ownership — denied under the
+              # dropped-ALL-capabilities securityContext, or "successful" and
+              # leaving a tree the wp-cli container cannot write.
+              mkdir -p /wp-content/plugins
+              cp "${WP_ARTIFACTS}/db.php" /wp-content/db.php
+              rm -rf /wp-content/pg4wp
+              cp -R "${WP_ARTIFACTS}/pg4wp" /wp-content/pg4wp
+              rm -rf /wp-content/plugins/openid-connect-generic
+              cp -R "${WP_ARTIFACTS}/plugins/openid-connect-generic" \
+                    /wp-content/plugins/openid-connect-generic
+              # Themes — the THIRD install-time egress site (#6311). This Job's
+              # emptyDir masks the image's own wp-content, so `wp theme
+              # is-installed` in step 7 was always false and the fallback
+              # `wp theme install <theme>` fetched the theme zip from
+              # wordpress.org. Seeding core's bundled themes from the image
+              # makes that branch unreachable on the default theme.
+              if [ ! -d /wp-content/themes ] && [ -d /usr/src/wordpress/wp-content/themes ]; then
+                cp -R /usr/src/wordpress/wp-content/themes /wp-content/themes
+              fi
+              echo "[wp-artifacts] pg4wp + openid-connect-generic + core themes seeded from the image"
+          volumeMounts:
+            - name: wp-content
+              mountPath: /wp-content
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              # Kept well inside the per-Org `plan-quota` headroom (#4951) —
+              # this is a short `cp` of a few MiB.
+              cpu: 100m
+              memory: 128Mi
       containers:
         - name: oidc-config
           image: {{ include "bp-wordpress-tenant.wpCliImage" . | quote }}
@@ -133,17 +238,10 @@ spec:
             # surface in observability immediately.
             - name: OIDC_IDP_HINT
               value: {{ .Values.ssoIdpHint | default "" | quote }}
-            # Refs #4322: openid-connect-generic plugin source. The Job
-            # VENDORS the plugin from this pinned GitHub release archive
-            # into its ephemeral wp-content (step 4 below) instead of
-            # running `wp plugin install` (which fetches from wordpress.org
-            # over egress and hangs the hook → HR Ready=False on an
-            # air-gapped / slow-egress Sovereign). Same deterministic,
-            # version-pinned mechanism as the pg4wp seed in step 0.
-            - name: OIDC_PLUGIN_REPO
-              value: {{ .Values.oidc.plugin.repo | quote }}
-            - name: OIDC_PLUGIN_VERSION
-              value: {{ .Values.oidc.plugin.version | quote }}
+            # #6311: `oidc.plugin.{repo,version}` moved to the `wp-artifacts`
+            # initContainer, which is where they are now meaningful — it
+            # compares them against the image's baked VERSIONS file. This
+            # container no longer fetches anything, so it no longer needs them.
           command:
             - /bin/sh
             - -c
@@ -170,42 +268,27 @@ spec:
               # pg4wp db.php drop-in for Postgres connectivity, seeded below.
               cd /var/www/html
 
-              # 0. Seed the pg4wp Postgres adapter drop-in into THIS Job's
-              #    ephemeral wp-content (same source + version as the
-              #    deployment's wp-plugin-install initContainer). WordPress
-              #    chain-loads wp-content/db.php on every boot; without it
-              #    wp-cli speaks MySQL and `wp db check` fails against the
-              #    bp-cnpg Postgres backend.
+              # 0. Verify the pg4wp Postgres adapter drop-in is present.
+              #    WordPress chain-loads wp-content/db.php on every boot;
+              #    without it wp-cli speaks MySQL and `wp db check` fails
+              #    against the bp-cnpg Postgres backend.
+              #
+              #    #6311: the drop-in is placed here by the `wp-artifacts`
+              #    initContainer, copied from the runtime image's baked
+              #    /usr/src/openova-wp-artifacts. This step used to `curl`
+              #    the pg4wp release archive from github.com AT INSTALL TIME
+              #    and CrashLoopBackOff on
+              #      curl: (28) Connection timed out after 120001 milliseconds
+              #    — an install-time GitHub dependency that cutover step-08's
+              #    deny-egress hold is designed to forbid (Pillar 5, ADR-0002).
+              #    There is deliberately NO network fallback: a missing
+              #    drop-in means a hollow image pin and must fail loudly.
               if [ ! -f wp-content/db.php ]; then
-                echo "[oidc-config] seeding pg4wp db.php drop-in (Postgres adapter)"
-                mkdir -p wp-content
-                # The release tag is `v3.3.1` — the GitHub archive path keeps
-                # the `v` prefix (this is the SAME URL the deployment's
-                # wp-plugin-install initContainer uses). The bare `3.3.1.zip`
-                # (no `v`) returns HTTP 404, which left this Job FATAL
-                # ("curl: (22) The requested URL returned error: 404") on the
-                # FIRST post-install/post-upgrade hook of a fresh Org — the hook
-                # never seeded db.php, `wp` could not reach the bp-cnpg Postgres
-                # backend, the hook errored, Helm timed out and the HelmRelease
-                # stuck Ready=False (root-caused live on the tkt0625 fresh Org,
-                # omantel.biz region-a). GitHub still extracts the archive to
-                # `postgresql-for-wordpress-3.3.1` (the `v` is stripped from the
-                # top-level directory name), so the cp paths below are unchanged.
-                # --max-time bounds the fetch (mirrors the OIDC-plugin
-                # vendor in step 4): a black-holed GitHub egress route can
-                # then only FAIL FAST (→ OnFailure retry within backoffLimit)
-                # instead of hanging the hook indefinitely → Helm timeout.
-                curl -fsSL --max-time 120 -o /tmp/pg4wp.zip \
-                  https://github.com/PostgreSQL-For-Wordpress/postgresql-for-wordpress/archive/refs/tags/v3.3.1.zip
-                # wp-cli's bundled PHP can unzip without a system `unzip`.
-                php -r '$z=new ZipArchive();$z->open("/tmp/pg4wp.zip");$z->extractTo("/tmp/");$z->close();'
-                cp -a /tmp/postgresql-for-wordpress-3.3.1/pg4wp wp-content/
-                cp /tmp/postgresql-for-wordpress-3.3.1/pg4wp/db.php wp-content/db.php
-                rm -rf /tmp/postgresql-for-wordpress-3.3.1 /tmp/pg4wp.zip
-                echo "[oidc-config] pg4wp db.php seeded"
-              else
-                echo "[oidc-config] pg4wp db.php already present"
+                echo "[oidc-config] FATAL: wp-content/db.php absent — the wp-artifacts" >&2
+                echo "  initContainer did not seed the baked pg4wp drop-in (#6311)." >&2
+                exit 1
               fi
+              echo "[oidc-config] pg4wp db.php present (seeded from the image)"
 
               # 1. Materialise wp-config.php — same contract as the
               #    runtime container's WORDPRESS_CONFIG_EXTRA so the
@@ -290,52 +373,46 @@ spec:
               #    HelmRelease Ready=False (root-caused live on the tkt0626
               #    fresh Org, omantel.biz, chart 0.4.17).
               #
-              #    Fix: VENDOR the plugin from a pinned GitHub release
-              #    archive into THIS Job's wp-content — exactly the
-              #    deterministic, version-pinned mechanism step 0 uses for
-              #    pg4wp. No wordpress.org runtime fetch. GitHub archives
-              #    extract to `<name>-<version>` (un-prefixed tag), so we
-              #    copy from `openid-connect-generic-<version>/`.
+              #    #6311 fix: the plugin files are placed in this Job's
+              #    wp-content by the `wp-artifacts` initContainer, copied
+              #    from the runtime image's baked
+              #    /usr/src/openova-wp-artifacts/plugins. The previous code
+              #    `curl`ed a pinned GitHub release archive here AT INSTALL
+              #    TIME, which is the same Pillar-5 violation as step 0's
+              #    pg4wp fetch — cutover step-08 holds a deny-egress
+              #    NetworkPolicy against github.com for 10 minutes and
+              #    requires the cluster to reconcile green through it.
+              #    This step now only ACTIVATES what is already on disk.
               #
               #    Activation only flips the `active_plugins` option row,
               #    which lives in POSTGRES (not on the ephemeral PVC) — so
               #    once the plugin dir exists here, `wp plugin activate`
-              #    persists the activation for the runtime Pod (whose
-              #    initContainer seeds the real plugin files onto the
-              #    persistent PVC).
+              #    persists the activation for the runtime Pod, whose
+              #    `wp-plugin-install` initContainer seeds the SAME slug
+              #    (`openid-connect-generic`) onto the persistent PVC from
+              #    the SAME baked source. The slugs must match or the option
+              #    row points at a file the runtime PVC does not contain.
               #
-              #    The whole step is WRAPPED so a fetch/activate failure
-              #    LOGS and CONTINUES — it MUST NOT fail the release. A
-              #    fully air-gapped Sovereign with no egress at all still
-              #    reaches Ready (the OIDC settings written in step 5 live
-              #    in Postgres; the runtime initContainer handles the files).
+              #    The step is WRAPPED so an activate failure LOGS and
+              #    CONTINUES — it MUST NOT fail the release, because the
+              #    OIDC settings written in step 5 live in Postgres and the
+              #    runtime initContainer owns the persistent files.
               OIDC_SLUG="openid-connect-generic"
               install_oidc_plugin() {
                 if wp plugin is-installed "${OIDC_SLUG}" --allow-root >/dev/null 2>&1; then
-                  echo "[oidc-config] ${OIDC_SLUG} already present — activating"
+                  echo "[oidc-config] ${OIDC_SLUG} present — activating"
                   wp plugin activate "${OIDC_SLUG}" --allow-root >/dev/null
                   return 0
                 fi
-                # NEVER `wp plugin install` (wordpress.org egress fetch that
-                # hangs the hook). Vendor the pinned GitHub release instead.
-                OIDC_URL="https://github.com/${OIDC_PLUGIN_REPO}/archive/refs/tags/${OIDC_PLUGIN_VERSION}.zip"
-                OIDC_DIR="openid-connect-generic-${OIDC_PLUGIN_VERSION}"
-                echo "[oidc-config] vendoring ${OIDC_SLUG} from ${OIDC_URL}"
-                # --max-time bounds the fetch so a black-holed egress route
-                # can NEVER stall the hook — it fails fast and we continue.
-                if ! curl -fsSL --max-time 120 -o /tmp/oidc.zip "${OIDC_URL}"; then
-                  echo "[oidc-config] WARN: could not fetch ${OIDC_SLUG} from GitHub" \
-                       "(air-gapped / egress blocked?) — the runtime Pod's" \
-                       "wp-plugin-install initContainer seeds it onto the" \
-                       "persistent PVC; continuing without failing the release"
-                  return 0
-                fi
-                php -r '$z=new ZipArchive();$z->open("/tmp/oidc.zip");$z->extractTo("/tmp/");$z->close();'
-                mkdir -p wp-content/plugins
-                cp -a "/tmp/${OIDC_DIR}" "wp-content/plugins/${OIDC_SLUG}"
-                rm -rf "/tmp/${OIDC_DIR}" /tmp/oidc.zip
-                wp plugin activate "${OIDC_SLUG}" --allow-root >/dev/null
-                echo "[oidc-config] ${OIDC_SLUG} vendored + activated"
+                # NEVER `wp plugin install` and NEVER a network fetch — the
+                # bytes come from the image (#6311). Reaching here means the
+                # wp-artifacts initContainer did not seed them.
+                echo "[oidc-config] WARN: ${OIDC_SLUG} not on disk — the wp-artifacts" \
+                     "initContainer did not seed it; the runtime Pod's" \
+                     "wp-plugin-install initContainer still seeds the persistent" \
+                     "PVC from the same baked source. Continuing without failing" \
+                     "the release."
+                return 0
               }
               if ! install_oidc_plugin; then
                 echo "[oidc-config] WARN: ${OIDC_SLUG} install/activate failed —" \
@@ -391,13 +468,31 @@ spec:
               wp option update default_role "${OIDC_DEFAULT_ROLE}" --allow-root >/dev/null
               echo "[oidc-config] default_role set to ${OIDC_DEFAULT_ROLE}"
 
-              # 7. Theme activation — install + activate idempotently.
+              # 7. Theme activation.
+              #
+              #    #6311: the fallback used to be `wp theme install
+              #    <theme> --activate`, which fetches the theme zip from
+              #    wordpress.org. It was ALWAYS reachable, not a rare edge:
+              #    this Job's emptyDir masks the image's bundled themes, so
+              #    `wp theme is-installed` was false on every fresh Org and
+              #    the fetch fired every time. The `wp-artifacts`
+              #    initContainer now seeds core's bundled themes from the
+              #    runtime image, so the default theme is present locally.
+              #
+              #    No network fallback remains. A `defaultTheme` the image
+              #    does not bundle is an operator misconfiguration — WARN and
+              #    leave WordPress on its own default rather than reaching
+              #    out to wordpress.org mid-install (Pillar 5, cutover
+              #    step-08 deny-egress hold).
               if wp theme is-installed "${WP_DEFAULT_THEME}" --allow-root >/dev/null 2>&1; then
                 wp theme activate "${WP_DEFAULT_THEME}" --allow-root >/dev/null
+                echo "[oidc-config] theme ${WP_DEFAULT_THEME} active"
               else
-                wp theme install "${WP_DEFAULT_THEME}" --activate --allow-root
+                echo "[oidc-config] WARN: theme ${WP_DEFAULT_THEME} is not bundled in" \
+                     "the runtime image — leaving the WordPress default active." \
+                     "Bake the theme into platform/wordpress-tenant/image/ or set" \
+                     "defaultTheme to a bundled theme; this Job will NOT fetch it."
               fi
-              echo "[oidc-config] theme ${WP_DEFAULT_THEME} active"
 
               # 8. siteurl + home — overwrite the WP install defaults so
               #    links resolve through the ingress host.

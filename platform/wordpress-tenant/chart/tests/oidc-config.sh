@@ -231,42 +231,57 @@ mount = next((m for m in mounts if m['name'] == 'wp-content'), None)
 assert mount, "wp-content volume not mounted into container"
 assert mount['mountPath'] == '/var/www/html/wp-content', \
   f"unexpected mountPath: {mount['mountPath']}"
-# The Job's command MUST self-seed the pg4wp db.php drop-in (so wp-cli
-# speaks Postgres without depending on the runtime PVC's seeded copy).
+# The Job MUST still end up with the pg4wp db.php drop-in in its OWN
+# wp-content (so wp-cli speaks Postgres without depending on the runtime
+# PVC's copy) — the requirement #4220 established is unchanged.
 cmd = "\n".join(spec['containers'][0].get('command') or []) \
     + "\n".join(spec['containers'][0].get('args') or [])
-assert 'pg4wp' in cmd and 'db.php' in cmd, \
-  "oidc-config Job command must self-seed the pg4wp db.php drop-in"
-# 0.4.17 (Refs #4220): the pg4wp GitHub archive tag is `v3.3.1` — the bare
-# `tags/3.3.1.zip` (no `v`) 404s, which left a fresh Org's HR Ready=False
-# (the hook errored on its first run). Assert the `v`-prefixed URL and reject
-# the un-prefixed form so the regression cannot recur.
-assert 'archive/refs/tags/v3.3.1.zip' in cmd, \
-  "oidc-config Job must fetch pg4wp from the v-prefixed tag (v3.3.1.zip), not a 404 path"
-assert 'archive/refs/tags/3.3.1.zip' not in cmd, \
-  "oidc-config Job must NOT use the un-prefixed pg4wp tag (3.3.1.zip 404s)"
-print(f"  emptyDir wp-content -> {mount['mountPath']}; pg4wp db.php self-seeded (v3.3.1)")
+assert 'pg4wp' in cmd or 'db.php' in cmd, \
+  "oidc-config Job must still depend on the pg4wp db.php drop-in"
+# #6311 supersedes the 0.4.17/#4220 URL assertion. That assertion pinned the
+# `v`-prefixed GitHub archive tag because the Job FETCHED pg4wp at install
+# time; it no longer does — cutover step-08 holds a deny-egress NetworkPolicy
+# against github.com, so an install-time fetch is a Pillar-5 violation and the
+# Job was CrashLoopBackOff'ing on `curl: (28) Connection timed out`. The bytes
+# now arrive from the runtime image's baked /usr/src/openova-wp-artifacts via
+# the `wp-artifacts` initContainer; the version pin moved to the Dockerfile's
+# PG4WP_VERSION ARG, where tests/6311-no-install-time-egress.sh asserts it.
+seed = next((c for c in (spec.get('initContainers') or [])
+             if c['name'] == 'wp-artifacts'), None)
+assert seed, "oidc-config Job must carry the wp-artifacts seeding initContainer (#6311)"
+seed_cmd = "\n".join(seed.get('command') or []) + "\n".join(seed.get('args') or [])
+assert '/usr/src/openova-wp-artifacts' in seed_cmd, \
+  "wp-artifacts initContainer must seed from the image's baked artifact path"
+assert 'db.php' in seed_cmd, "wp-artifacts initContainer must seed the pg4wp db.php drop-in"
+assert 'archive/refs/tags' not in cmd and 'archive/refs/tags' not in seed_cmd, \
+  "the Job must NOT fetch a release archive at install time (#6311)"
+print(f"  emptyDir wp-content -> {mount['mountPath']}; pg4wp db.php seeded from the image")
 PYEOF
 echo "  PASS"
 
-echo "[oidc-config] Case 8: oidc plugin is VENDORED from a pinned GitHub release — the hook never depends on a wordpress.org fetch (#4322)"
-# #4322: this Job mounts an EPHEMERAL emptyDir (Case 7), so the plugin the
-# runtime Deployment seeds onto the persistent PVC is NOT visible here. The
-# previous `wp plugin install openid-connect-generic --activate` therefore
-# ALWAYS fetched the plugin zip from wordpress.org over egress and HUNG the
-# hook until its deadline on a slow-egress / air-gapped Sovereign → the
-# post-upgrade hook timed out → HelmRelease Ready=False. The fix VENDORS the
-# plugin from a pinned GitHub release archive (same mechanism as the pg4wp
-# db.php seed) and TOLERATES a fetch failure (logs + continues) so the release
-# reaches Ready WITHOUT any external plugin download.
+echo "[oidc-config] Case 8: oidc plugin comes from the IMAGE — the hook fetches nothing at install time (#6311, supersedes #4322)"
+# #4322 removed the `wp plugin install` wordpress.org fetch by VENDORING the
+# plugin from a pinned GitHub release archive at install time. #6311 removes
+# that too: cutover step-08 (`egress-block-test`) holds a 10-minute deny-egress
+# NetworkPolicy against github.com / ghcr.io / harbor.openova.io and requires
+# the cluster to reconcile green through it, so an install-time GitHub fetch is
+# a Pillar-5 violation — and it was CrashLoopBackOff'ing live on
+# `curl: (28) Connection timed out after 120001 milliseconds`.
 #
-# Assert (on the rendered oidc-config Job command):
-#   - NO `wp plugin install` (the wordpress.org egress fetch that hangs).
-#   - NO `wordpress.org` / `downloads.wordpress.org` reference at all.
-#   - The plugin is vendored from the pinned GitHub release archive whose
-#     repo + version come from oidc.plugin.{repo,version}.
-#   - The step is fetch-bounded (`--max-time`) and tolerant (a fetch failure
-#     does not abort the script — it continues so the HR reaches Ready).
+# The plugin + pg4wp bytes now travel INSIDE the runtime image
+# (/usr/src/openova-wp-artifacts, baked by platform/wordpress-tenant/image/
+# Dockerfile) and are copied into this Job's ephemeral wp-content by the
+# `wp-artifacts` initContainer. That reuses the ONLY artifact-mirroring seam
+# this repo has — cutover step-03 `harbor-prewarm` mirrors OCI images and Helm
+# charts, and `wordpress-tenant-pg` is already in that set.
+#
+# Assert (on the rendered oidc-config Job):
+#   - NO `wp plugin install`, NO `wordpress.org`, NO `github.com` on ANY
+#     executable line of ANY container in the Job.
+#   - A `wp-artifacts` initContainer runs the RUNTIME image and copies from
+#     /usr/src/openova-wp-artifacts into the shared wp-content volume.
+#   - The main container still ACTIVATES the plugin, and still tolerates a
+#     missing plugin (logs + continues) so the HR reaches Ready.
 python3 - "$TMP/canonical.yaml" <<'PYEOF'
 import sys, yaml
 docs = list(yaml.safe_load_all(open(sys.argv[1])))
@@ -281,43 +296,65 @@ container = spec['containers'][0]
 cmd = "\n".join(container.get('command') or []) \
     + "\n".join(container.get('args') or [])
 
-# (1) The hook MUST NOT INVOKE `wp plugin install` (the wordpress.org egress
-#     fetch that hangs the hook). We check command LINES, not prose — the
-#     surrounding comments legitimately explain why we avoid that command, so a
-#     naive substring match would false-positive on `# ... wp plugin install`.
-invocation_lines = [
-    ln.lstrip() for ln in cmd.splitlines()
-    if ln.lstrip() and not ln.lstrip().startswith('#')
-]
+# Executable lines across EVERY container in the Job (init + main). Comments are
+# excluded on purpose: the surrounding prose legitimately names the commands and
+# hosts we are forbidding, so a naive substring match would false-positive on
+# its own explanation. Scanning only the main container would also have missed
+# a fetch reintroduced in an initContainer — the seam this case now guards.
+def exec_lines(c):
+    text = "\n".join(c.get('command') or []) + "\n" + "\n".join(c.get('args') or [])
+    return [ln.strip() for ln in text.splitlines()
+            if ln.strip() and not ln.strip().startswith('#')]
+
+all_containers = (spec.get('initContainers') or []) + spec['containers']
+invocation_lines = [ln for c in all_containers for ln in exec_lines(c)]
+assert invocation_lines, "no executable lines found — the scan would pass vacuously"
+
+# (1) No `wp plugin install` (the wordpress.org egress fetch that hangs).
 assert not any(ln.startswith('wp plugin install') for ln in invocation_lines), \
   "oidc-config hook must NOT run `wp plugin install` (it fetches from " \
   "wordpress.org over egress and hangs the hook → HR Ready=False)"
 
-# (2) No command line may fetch from wordpress.org (air-gapped Sovereigns cannot
-#     reach it — a runtime fetch from there is structurally wrong).
-assert not any('wordpress.org' in ln for ln in invocation_lines), \
-  "oidc-config hook must not depend on a wordpress.org plugin fetch"
+# (2) No install-time fetch from ANY external artifact host — this is the
+#     Pillar-5 contract cutover step-08 enforces at runtime (#6311).
+for host in ('wordpress.org', 'github.com'):
+    offenders = [ln for ln in invocation_lines if host in ln]
+    assert not offenders, (
+        f"oidc-config Job must not fetch from {host} at install time "
+        f"(cutover step-08 deny-egress hold, Pillar 5) — offending line(s): "
+        f"{offenders[:3]}")
 
-# (3) The plugin MUST be vendored from a PINNED GitHub release archive, with
-#     repo + version threaded from oidc.plugin.{repo,version} via env.
-env = {e['name']: e.get('value') for e in (container.get('env') or [])}
+# (3) The artifacts MUST arrive via a `wp-artifacts` initContainer running the
+#     RUNTIME image (the wp-cli image is upstream and carries nothing baked),
+#     copying from the baked path into the shared wp-content volume.
+inits = {c['name']: c for c in (spec.get('initContainers') or [])}
+art = inits.get('wp-artifacts')
+assert art, "oidc-config Job must carry a `wp-artifacts` initContainer (#6311)"
+assert 'wordpress-tenant-pg' in art['image'], \
+  ("the wp-artifacts initContainer must run the RUNTIME image that carries the "
+   f"baked artifacts, got {art['image']}")
+art_cmd = "\n".join(art.get('command') or []) + "\n".join(art.get('args') or [])
+assert '/usr/src/openova-wp-artifacts' in art_cmd, \
+  "wp-artifacts initContainer must copy from the image's baked artifact path"
+assert any(m['name'] == 'wp-content' for m in (art.get('volumeMounts') or [])), \
+  "wp-artifacts initContainer must mount the shared wp-content volume"
+
+# (4) The main container still activates, and still tolerates absence so a
+#     partially-seeded Pod cannot fail the release.
+assert 'wp plugin activate' in cmd, \
+  "oidc-config hook must `wp plugin activate` the image-seeded plugin"
+assert 'continuing without failing' in cmd or 'continuing so the release' in cmd, \
+  "the OIDC plugin activate must LOG + CONTINUE on failure (never fail the " \
+  "release) so the HR reaches Ready"
+
+# (5) Provenance env stays threaded from oidc.plugin.{repo,version} — the
+#     wp-artifacts initContainer compares it against the image's baked VERSIONS
+#     file and warns on drift.
+env = {e['name']: e.get('value') for e in (art.get('env') or [])}
 assert env.get('OIDC_PLUGIN_REPO'), "OIDC_PLUGIN_REPO env not rendered from oidc.plugin.repo"
 assert env.get('OIDC_PLUGIN_VERSION'), "OIDC_PLUGIN_VERSION env not rendered from oidc.plugin.version"
-assert 'github.com/${OIDC_PLUGIN_REPO}/archive/refs/tags/${OIDC_PLUGIN_VERSION}.zip' in cmd, \
-  "oidc-config hook must vendor the OIDC plugin from the pinned GitHub release archive"
-assert 'wp plugin activate' in cmd, \
-  "oidc-config hook must `wp plugin activate` the vendored plugin"
-
-# (4) The fetch MUST be time-bounded AND the step MUST be tolerant (continue on
-#     failure) so a black-holed egress route can never stall/fail the release.
-assert '--max-time' in cmd, \
-  "the OIDC plugin fetch must be --max-time bounded so a black-holed egress " \
-  "route cannot stall the hook"
-assert 'continuing without failing the release' in cmd or 'continuing so the release' in cmd, \
-  "the OIDC plugin install must LOG + CONTINUE on failure (never fail the " \
-  "release) so the HR reaches Ready without an external plugin download"
-print(f"  OIDC plugin vendored from GitHub ({env['OIDC_PLUGIN_REPO']} "
-      f"{env['OIDC_PLUGIN_VERSION']}); no wordpress.org fetch; tolerant + bounded")
+print(f"  OIDC plugin seeded from the image ({env['OIDC_PLUGIN_REPO']} "
+      f"{env['OIDC_PLUGIN_VERSION']} declared); zero install-time egress")
 PYEOF
 echo "  PASS"
 

@@ -3981,7 +3981,14 @@ name: bp-catalyst-platform
 #   RUNNING workspace (creds-resync sidecar + 15m ESO refreshInterval), so rows
 #   219/220/221/G8/G9 stop flapping on an expired token. Umbrella tracks its
 #   sub-charts per Inviolable Principle #13.
-version: 1.4.1539
+# 1.4.1540 — #6311 (Refs #4307): catalog-seed advances bp-wordpress-tenant
+#   0.4.23 -> 0.4.25 — the CNPG-operator status-probe carve-out for the per-Org
+#   default-deny namespace + zero install-time third-party egress (pg4wp +
+#   openid-connect-generic baked into the runtime image). Rebase of PR #6320
+#   onto current main; 0.4.24 is claimed by the still-open #6320 so this republish
+#   takes the next free patch. Umbrella tracks its sub-charts per Inviolable
+#   Principle #13.
+version: 1.4.1540
 # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
 #   0.1.186 -> 0.1.187, the release that stops step-06 from patching five
 #   HelmRepositories it does not own and then grading itself on whether they
@@ -4168,7 +4175,7 @@ version: 1.4.1539
 # scripts/check-chart-version-forward.sh (#5743) fails unless the two match —
 # main was carrying a pre-existing 1.4.1330/1.4.1329 split, so this bump heals
 # it in the same commit, exactly as the documented self-heal contract does.
-appVersion: 1.4.1539
+appVersion: 1.4.1540
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +

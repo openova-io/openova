@@ -1,0 +1,133 @@
+{{- /*
+CNPG-operator status-probe carve-out for the per-Org WordPress database
+(#6311, Refs #3988; the proven shape is platform/postgres/chart/templates/
+networkpolicy-singleton-operator-probe.yaml, #4282 root-cause-D).
+
+WHY THIS EXISTS — measured on hw296, quota eliminated as a variable
+────────────────────────────────────────────────────────────────────
+This chart renders its CNPG `Cluster` INTO the Organization's own
+namespace. Every per-Org namespace carries the `default-deny-all` +
+`allow-same-org` NetworkPolicy pair stamped by the Organization
+controller's GitOps tree (core/controllers/organization/internal/gitops/
+manifests.go `networkPolicyTemplate`). `allow-same-org` re-opens
+SAME-NAMESPACE pod-to-pod only — the cnpg-system OPERATOR lives in a
+DIFFERENT namespace, so its `:8000/pg/status` probe against the instance
+Pod is denied.
+
+The database is UP and serving the whole time; only the operator is
+blinded. CNPG then parks the Cluster at exactly:
+
+    Instance Status Extraction Error: HTTP communication issue
+    readyInstances 1/1
+    ConsistentSystemID=False (NotFound)
+
+which is Ready=False → the HelmRelease never converges → the customer's
+purchased WordPress never comes up. Live evidence: hw296 `walktwo/
+wordpress-db` in that phase with `wordpress-db-1-initdb` Completed and
+`wordpress-db-1` 1/1 Running and ZERO quota rejections, while the control
+`walkone/postgres` — same deny pair, but carrying the #4282 carve-out —
+read `Cluster in healthy state` 3/3. Cluster-wide 11 CNPG Clusters were
+healthy; this was the only one in the error phase.
+
+WHAT IT OPENS — additive and narrow
+───────────────────────────────────
+ONLY the cnpg-system operator's status (:8000) + metrics (:9187) ports,
+and only from the operator namespace. `default-deny-all` and
+`allow-same-org` are NOT weakened — NetworkPolicies union, so this adds
+a peer and removes nothing.
+
+No broad consumer 5432 rule is rendered (the #4442 `sharedConsumers`
+shape in bp-postgres): the only consumer of this Cluster is the WordPress
+Deployment + hook Jobs in the SAME namespace, which `allow-same-org`
+already admits.
+
+SINGLETON ONLY — deliberate, mirroring #4282
+────────────────────────────────────────────
+Renders only when `database.mode` resolves to `singleton` (the chart
+DEFAULT, and the mode the defect was measured in). In
+`active-hot-standby` the replica streams WAL from the primary across
+Cilium ClusterMesh from ANOTHER cluster; a `policyTypes: [Ingress]`
+policy selecting the Cluster Pods would default-deny that stream, and a
+remote-cluster peer CANNOT be expressed in a k8s NetworkPolicy — an
+`ipBlock` never matches a ClusterMesh remote endpoint's identity
+(bp-postgres needs a dedicated identity-based CiliumNetworkPolicy,
+`topology.networkPolicy.crossRegionPeerClusters`, for exactly this).
+Rendering nothing in AHS mode leaves that path byte-identical to today
+rather than trading a status-probe fix for a broken replication stream.
+The AHS carve-out is tracked separately in #6311.
+
+Gated additionally on the `postgresql.cnpg.io/v1` capability + the same
+`wordpress.enabled` / `database.cluster.enabled` pair as cnpg-cluster.yaml,
+so this template can never render a policy selecting a Cluster that was
+not itself rendered.
+*/ -}}
+{{- if and .Values.wordpress.enabled .Values.database.cluster.enabled .Values.networkPolicy.enabled .Values.networkPolicy.cnpgOperator.enabled }}
+{{- if .Capabilities.APIVersions.Has "postgresql.cnpg.io/v1" }}
+{{- if ne (include "bp-wordpress-tenant.dbMode" .) "active-hot-standby" }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ printf "%s-allow-cnpg-operator-probe" .Values.database.cnpgClusterName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-wordpress-tenant.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ .Values.database.cnpgClusterName | quote }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # CNPG operator status + metrics probe. Without this the operator
+    # cannot extract instance status from the per-Org default-deny
+    # namespace and the Cluster parks at "Instance Status Extraction
+    # Error: HTTP communication issue" / Ready=False while the Postgres
+    # Pod is 1/1 Running and serving SQL (#6311, #4282).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.cnpgOperator.operatorNamespace }}
+      ports:
+        - port: {{ .Values.networkPolicy.cnpgOperator.operatorStatusPort }}
+          protocol: TCP
+        - port: {{ .Values.networkPolicy.cnpgOperator.operatorMetricsPort }}
+          protocol: TCP
+  egress:
+    # CLUSTER DNS — the #5617 / #4437 class invariant, enforced by
+    # scripts/check-netpol-egress-completeness.py.
+    #
+    # A per-Org `<slug>` namespace carries a CiliumNetworkPolicy
+    # `allow-gateway-and-apiserver` with `endpointSelector: {}` and an EGRESS
+    # section naming kube-apiserver + same-namespace endpoints and NOTHING
+    # else — no DNS. Cilium unions every policy selecting an endpoint, and the
+    # moment ANY of them carries an egress section that endpoint's egress is
+    # deny-by-default outside the union. So in a per-Org namespace a workload
+    # that ships no DNS egress of its own is mute on its first name lookup.
+    # That is exactly how #5617 bit live on hw292 Org `uatco`: bp-oidc-gate
+    # shipped an ingress-only policy and every OAuth callback 500'd on
+    # `lookup keycloak.keycloak.svc.cluster.local on 10.96.0.10:53: i/o
+    # timeout` AFTER a successful login.
+    #
+    # The CNPG instance manager resolves service names constantly (the `-rw` /
+    # `-r` Services, its peers, the operator), so this group must carry DNS.
+    # The rule is purely ADDITIVE: NetworkPolicies union, so naming an egress
+    # half here can only ADD `53 -> kube-system` to what `allow-same-org` and
+    # the per-Org CNP already permit — it removes nothing from the instance's
+    # existing reach. Both UDP and TCP: a truncated UDP answer falls back to
+    # TCP, and a UDP-only rule is one of the shapes the class guard rejects.
+    #
+    # DNS-ONLY on purpose. This is a database engine; it has no business
+    # dialling arbitrary destinations, and a blanket egress peer here would be
+    # the over-broad "fix" the guard's own fixtures reject.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.cnpgOperator.dnsNamespace }}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+{{- end }}
+{{- end }}
+{{- end }}
