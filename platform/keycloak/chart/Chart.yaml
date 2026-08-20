@@ -582,7 +582,28 @@ name: bp-keycloak
 #   Guarded by tests/per-org-console-pool-redirect-3374.sh (Case A asserts the
 # pool callbacks present -- FAILS on the pre-fix template; Case B/C assert the
 # single-zone / primary-only render is unchanged).
-version: 1.5.11
+# 1.5.12 (#6509 #3374 #3988): the 1.5.11 mid-host wildcard was INERT. Keycloak
+# 26.3 only honors a TRAILING `*` in a redirectUri; a `*` in the HOST segment
+# (`https://console.*.<zone>/*`) is matched LITERALLY, so it never covered a
+# real per-Org subdomain and every pool-domain login STILL 400'd
+# `invalid_redirect_uri` -- proven live on hw302 (a CONCRETE
+# `console.uatprobe.omani.homes/*` on catalyst-ui -> 303 login redirect; the
+# wildcard-covered `console.testorg.omani.homes` -> 400; a bogus `evil.example`
+# -> 400). A static realm import also cannot enumerate the unbounded, dynamic
+# set of Orgs a Sovereign hosts.
+#   Fix: the sovereign realm's catalyst-ui client keeps ONLY the sovereign-admin
+# host (https://console.<sovereignFQDN>/* -- a trailing `*`, which works); the
+# inert per-zone `console.*.<zone>/*` redirectUris/webOrigins/post-logout
+# appends are REMOVED. The organization-controller now registers each Org's
+# CONCRETE console callback https://console.<slug>.<pool-tld>/* onto that same
+# catalyst-ui client at reconcile time (RegisterOrgConsoleRedirectURI) and
+# removes it on Org delete -- the only mechanism Keycloak actually honors.
+# `parentZones` is retained for the powerdns/external-dns/sovereign-tls-vars
+# slots that still consume it but no longer feeds catalyst-ui.
+#   Guarded by tests/per-org-console-pool-redirect-3374.sh (Case A now asserts
+# the inert mid-host wildcard is ABSENT -- FAILS on the 1.5.11 template) +
+# core/controllers organization keycloak_console_redirect_6509_test.go.
+version: 1.5.12
 description: |
   1.5.2 (#4246): the per-tenant `openclaw-oidc-client-secret` Secret now
   emits BOTH `client-secret` AND `OIDC_CLIENT_SECRET` keys (it previously

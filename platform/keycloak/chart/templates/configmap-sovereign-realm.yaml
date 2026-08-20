@@ -184,43 +184,37 @@ tenant emit; tenant takes precedence here.
     )
 -}}
 {{- $userProfileConfigJSON := toJson $userProfileDoc -}}
-{{- /* ── Per-Org console pool-domain callbacks for catalyst-ui (#3374 #3988) ──
+{{- /* ── Per-Org console pool-domain callbacks for catalyst-ui (#3374 #3988 #6509) ──
      The per-Org operator console (org-console SPA) is served at
      console.<slug>.<pool-tld> and — on a shared-realm Sovereign — discovers
      OIDC against THIS sovereign realm with client_id=catalyst-ui (the
      bp-catalyst-platform slot wires .Values.sso realm=sovereign
      clientId=catalyst-ui; tenant_discover.go returns the same). Its browser
-     redirect_uri is https://console.<slug>.<pool-tld>/auth/callback. The
-     catalyst-ui client below only lists the sovereign-admin host
-     (https://console.<sovereignFQDN>/*), so a pool-domain login 400s
-     `Invalid parameter: redirect_uri` — LIVE on hw301 console.acme.omani.homes,
-     blocking every customer login (standalone P0) and the Pillar-4 agentic walk.
+     redirect_uri is https://console.<slug>.<pool-tld>/auth/callback.
 
-     Fix: for each parent zone with role==org-pool, register the analogous
-     host-wildcard console callback https://console.*.<zone>/* (+ matching web
-     origin). This mirrors the tenant realm's catalyst-ui host-wildcard
-     (`https://*.<zone>/*`, configmap-tenant-realm.yaml) and reuses the SAME
-     role==org-pool selection sovereign-tls-vars uses for the pool listeners
-     (data, not code — generic for any pool TLD). parentZones is threaded from
-     ${PARENT_DOMAINS_YAML} (same source powerdns/external-dns/sovereign-tls-vars
-     consume); empty on a single-zone Sovereign → catalyst-ui renders
-     byte-identical to before, so no non-pool Sovereign changes. */ -}}
-{{- $poolConsoleRedirects := list -}}
-{{- $poolConsoleOrigins := list -}}
-{{- range $z := (default (list) .Values.parentZones) -}}
-  {{- if and $z.name (eq (default "primary" $z.role) "org-pool") -}}
-    {{- $poolConsoleRedirects = append $poolConsoleRedirects (printf "https://console.*.%s/*" $z.name) -}}
-    {{- $poolConsoleOrigins = append $poolConsoleOrigins (printf "https://console.*.%s" $z.name) -}}
-  {{- end -}}
-{{- end -}}
-{{- /* post.logout.redirect.uris is a `##`-delimited list in Keycloak; keep the
-     sovereign-admin host first (byte-identical when no org-pool zones) and
-     append each pool console pattern so a customer can also log OUT to their
-     own console host. */ -}}
+     #6509 — the pool console callback is NO LONGER registered here as a
+     mid-host wildcard. #6504 emitted `https://console.*.<zone>/*` into this
+     static realm import, but Keycloak 26.3 ONLY honors a TRAILING `*` — a `*`
+     in the HOST segment is matched LITERALLY, so the wildcard never matched a
+     real per-Org subdomain and every pool-domain login still 400'd
+     `invalid_redirect_uri` (proven live on hw302: a CONCRETE
+     `console.uatprobe.omani.homes/*` on the client → 303 login redirect;
+     the wildcard-covered `console.testorg.omani.homes` → 400). Because a Sovereign
+     hosts an unbounded, dynamic set of Orgs, no static import line can enumerate
+     them. The organization-controller now registers each Org's CONCRETE console
+     callback `https://console.<slug>.<pool-tld>/*` on this same catalyst-ui
+     client at reconcile time (RegisterOrgConsoleRedirectURI) and removes it on
+     Org delete — the only mechanism Keycloak actually honors.
+
+     This template therefore keeps ONLY the sovereign-admin host below
+     (https://console.<sovereignFQDN>/* — a trailing `*`, which DOES work); the
+     per-Org hosts are appended at runtime. parentZones is retained for the
+     other slots that consume it but no longer feeds catalyst-ui. */ -}}
+{{- /* post.logout.redirect.uris is a `##`-delimited list in Keycloak. Only the
+     sovereign-admin host is listed statically; the org-controller does not
+     currently manage per-Org post-logout entries (the pool logout returns to
+     the sovereign host, then the SPA re-discovers), so no wildcard leaks here. */ -}}
 {{- $postLogout := printf "https://console.%s/*" .Values.sovereignFQDN -}}
-{{- range $u := $poolConsoleRedirects -}}
-  {{- $postLogout = printf "%s##%s" $postLogout $u -}}
-{{- end -}}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -561,17 +555,17 @@ data:
           "directAccessGrantsEnabled": false,
           "implicitFlowEnabled": false,
           "serviceAccountsEnabled": false,
+          {{- /* #6509 — sovereign-admin host ONLY (a trailing `*`, which Keycloak
+             26.3 honors). Per-Org pool console callbacks
+             (https://console.<slug>.<pool>/*) are registered at reconcile time
+             by the organization-controller onto THIS client, not enumerated
+             here — a static import cannot list the unbounded, dynamic set of
+             Orgs, and the former mid-host wildcard was inert. */}}
           "redirectUris": [
             "https://console.{{ .Values.sovereignFQDN }}/*"
-            {{- range $u := $poolConsoleRedirects }},
-            {{ $u | quote }}
-            {{- end }}
           ],
           "webOrigins": [
             "https://console.{{ .Values.sovereignFQDN }}"
-            {{- range $o := $poolConsoleOrigins }},
-            {{ $o | quote }}
-            {{- end }}
           ],
           "defaultClientScopes": [
             "web-origins",

@@ -132,5 +132,38 @@ func (r *Reconciler) teardownTenantNetworking(ctx context.Context, org *orgapi.O
 		r.Log.Error(err, "tenant-networking teardown: pool DNS", "organization", org.Name)
 		note(err)
 	}
+	// 5. Concrete per-Org console callback on the sovereign realm's catalyst-ui
+	// client (#6509). The up-path (reconcileConsoleRedirectURI) appended
+	// `https://console.<slug>.<parent>/*` to that SHARED client's redirectUris;
+	// like the Gateway listener pair it carries no ownerRef the GC follows, so
+	// without an explicit deregister dead callbacks accumulate on catalyst-ui on
+	// every Org delete. Best-effort + absent-as-success, same subdomain
+	// derivation as the up-path.
+	if err := r.teardownConsoleRedirectURI(ctx, org); err != nil {
+		r.Log.Error(err, "tenant-networking teardown: console redirectUri", "organization", org.Name)
+		note(err)
+	}
 	return firstErr
+}
+
+// teardownConsoleRedirectURI removes the concrete per-Org console callback the
+// up-path registered on the catalyst-ui client (#6509). No-op when the Org
+// engaged no pool parentDomain. Best-effort + absent-as-success (handled inside
+// DeregisterOrgConsoleRedirectURI).
+func (r *Reconciler) teardownConsoleRedirectURI(ctx context.Context, org *orgapi.Organization) error {
+	if r.Keycloak == nil {
+		// No Keycloak wired (Catalyst-Zero / a unit test exercising only the
+		// networking teardown) — nothing to deregister.
+		return nil
+	}
+	tp := org.Spec.TenantPublic
+	parentDomain := strings.TrimSpace(tp.ParentDomain)
+	if parentDomain == "" {
+		return nil
+	}
+	subdomain := strings.TrimSpace(tp.Subdomain)
+	if subdomain == "" {
+		subdomain = org.Spec.Slug
+	}
+	return r.Keycloak.DeregisterOrgConsoleRedirectURI(ctx, subdomain, parentDomain)
 }
