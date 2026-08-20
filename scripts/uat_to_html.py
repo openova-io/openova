@@ -25,7 +25,10 @@ UNESC = re.compile(r"(?<!\\)\|")
 LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 THUMB_MD = re.compile(r"\[<img[^\]]*\]\((screenshots/[^)]+)\)")   # inline thumb md
 CAM_MD = re.compile(r"\[📷\]\((screenshots/[^)]+)\)")             # 📷 link md
-COLS = ["#", "Epic", "Issue", "Test case", "Env", "Result", "Evidence"]
+# Four VISIBLE columns so the Evidence column (with its screenshot) never gets
+# pushed off the right edge; the id/epic/issue metadata folds into column 1 and
+# env folds under the verdict in column 3.
+COLS = ["#", "Test case", "Result", "Evidence"]
 
 
 def esc(s: str) -> str:
@@ -75,10 +78,21 @@ def main() -> int:
         if ROW.match(line):
             c = [x for x in UNESC.split(line)][1:8]
             c = (c + [""] * 7)[:7]
-            tds = "".join(
-                f"<td>{cell_html(c[i], i == 6)}</td>" for i in range(7)
-            )
-            rows.append(f'<tr id="row-{c[0].strip()}">{tds}</tr>')
+            rid, epic, ticket, clause, env, verdict, evidence = (x.strip() for x in c)
+            # ticket markdown -> inline <a> links (keep the exact issue URLs)
+            issue = LINK.sub(lambda m: f'<a href="{esc(m.group(2))}">{esc(m.group(1))}</a>',
+                             esc(ticket)) if "](" not in ticket else \
+                    " ".join(f'<a href="{u}">{esc(t)}</a>'
+                             for t, u in LINK.findall(ticket))
+            col_a = (f'<strong>{esc(rid)}</strong><br>'
+                     f'<sub>{esc(epic)}'
+                     + (f' · {issue}' if issue else "") + '</sub>')
+            col_c = f'{esc(verdict)}<br><sub>{esc(env)}</sub>'
+            tds = (f"<td>{col_a}</td>"
+                   f"<td>{cell_html(clause, False)}</td>"
+                   f"<td>{col_c}</td>"
+                   f"<td>{cell_html(evidence, True)}</td>")
+            rows.append(f'<tr id="row-{rid}">{tds}</tr>')
             continue
         if line.strip().startswith("## Screenshot evidence"):
             seen_gallery = True

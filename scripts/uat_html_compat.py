@@ -39,19 +39,69 @@ def _cell_to_md(cell: str) -> str:
     return cell.replace("|", "\\|")               # a literal pipe must stay escaped
 
 
+# ── 4-column compact layout ─────────────────────────────────────────────────
+# To keep the Evidence column (with its screenshot) on-screen without a
+# horizontal scroll, the ledger folds the seven logical fields into FOUR visible
+# columns:
+#   A  <strong>ID</strong><br><sub>EPIC · <a>#N</a> …</sub>
+#   B  the test-case clause
+#   C  VERDICT<br><sub>ENV</sub>
+#   D  the evidence + screenshot thumbnail
+# _fold_to_pipe reconstructs the exact seven-field markdown row the guards read,
+# so clause/ticket/epic identity is preserved byte-for-byte.
+import html as _htmlmod  # noqa: E402
+
+_A_ID = re.compile(r"<strong>(.*?)</strong>", re.I | re.S)
+_A_SUB = re.compile(r"<sub>(.*?)</sub>", re.I | re.S)
+_A_LINK = re.compile(r'<a\s+href="([^"]+)"\s*>(.*?)</a>', re.I | re.S)
+_A_TAGS = re.compile(r"<[^>]+>")
+
+
+def _plain(s: str) -> str:
+    """Inner HTML -> markdown TEXT (code/emphasis kept, other tags dropped)."""
+    s = _CODE.sub(r"`\1`", s)
+    s = _STRONG.sub(r"**\1**", s)
+    s = _EM.sub(r"*\1*", s)
+    s = _A_TAGS.sub("", s)
+    s = _htmlmod.unescape(s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _fold_to_pipe(cells):
+    A, B, C, D = cells
+    m = _A_ID.search(A)
+    row_id = _plain(m.group(1)) if m else _plain(A)
+    tickets = " ".join(
+        "[%s](%s)" % (_plain(lbl), url) for url, lbl in _A_LINK.findall(A)
+    )
+    sm = _A_SUB.search(A)
+    epic = _plain(_A_LINK.sub("", sm.group(1))).strip(" ·").strip() if sm else ""
+    clause = _cell_to_md(B)                              # exact canon reconstruction
+    cm = _A_SUB.search(C)
+    env = _plain(cm.group(1)) if cm else ""
+    verdict = _plain(_A_SUB.sub("", C))
+    evidence = _cell_to_md(D)                            # keeps the 📷 png ref
+    return "| %s | %s | %s | %s | %s | %s | %s |" % (
+        row_id, epic, tickets, clause, env, verdict, evidence
+    )
+
+
 def to_pipe(text: str) -> str:
     """Return `text` with every HTML <tr> row rewritten as a markdown pipe row.
 
-    Non-<tr> lines (headings, the <table> wrapper, gallery <img> lines, and any
-    line that is already a markdown pipe row) pass through untouched, so the
-    function is a no-op on the legacy markdown ledger and safe for the guards'
-    string-built self-tests.
+    A 7-cell row maps positionally (legacy layout); a 4-cell row is unfolded to
+    the same seven fields. Non-<tr> lines (headings, the <table> wrapper, gallery
+    <img> lines, and any line that is already a markdown pipe row) pass through
+    untouched, so the function is a no-op on the legacy markdown ledger and safe
+    for the guards' string-built self-tests.
     """
     out = []
     for line in text.split("\n"):
         if _TR.match(line):
             cells = _CELL.findall(line)
-            if cells:
+            if len(cells) == 4:
+                line = _fold_to_pipe(cells)
+            elif cells:
                 line = "| " + " | ".join(_cell_to_md(c) for c in cells) + " |"
         out.append(line)
     return "\n".join(out)
