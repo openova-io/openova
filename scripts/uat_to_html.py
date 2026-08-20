@@ -94,7 +94,15 @@ def main() -> int:
             shot_html = "".join(
                 f'<a href="{esc(p)}" title="click to enlarge"><img src="{esc(p)}" width="150"></a>'
                 for p in shots
-            ) or "—"
+            )
+            if shot_html:
+                # A non-breaking caption holds the column's min-content width open
+                # (~150px) so GitHub's table-layout:auto can't starve it and shrink
+                # the image via the max-width:100% it forces on every <img>.
+                nb_env = esc(env).replace("-", "‑")
+                shot_html += f"<br><sub>{nb_env}</sub>"
+            else:
+                shot_html = "—"
             col_a = (f'<strong>{esc(rid)}</strong><br><sub>{esc(epic)}'
                      + (f' · {issue}' if issue else "") + "</sub>")
             col_c = f'{esc(verdict)}<br><sub>{esc(env)}</sub>'

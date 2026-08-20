@@ -93,10 +93,11 @@ def _fold_to_pipe(cells):
         row_id, epic, tickets = _id_epic_ticket(A)
         verdict, env = _verdict_env(C)
         clause = _cell_to_md(D)
-        # the screenshot lives in its own column -> fold its png back into Evidence
+        # the screenshot lives in its own column -> fold ONLY its png back into
+        # Evidence (ignore the width-holding caption) so the guards still see it.
         ev = _cell_to_md(E)
-        shot_ref = _cell_to_md(shot)            # <a><img></a> -> [📷](png)
-        evidence = (ev + " " + shot_ref).strip() if "screenshots/" in shot_ref else ev
+        mpng = re.search(r"screenshots/[^\"')]+\.png", shot)
+        evidence = (ev + " [📷](%s)" % mpng.group(0)).strip() if mpng else ev
     else:  # 4-col legacy
         A, B, C, D = cells
         row_id, epic, tickets = _id_epic_ticket(A)
