@@ -1478,7 +1478,7 @@ spec:
       #   per-Org agenity StatefulSet passes kyverno probes-present (0.5.31
       #   shipped it probe-less → DENIED at admission, install never came up,
       #   hw302; blocked the Pillar-4 agentic walk).
-      version: 1.4.1553
+      version: 1.4.1554
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
