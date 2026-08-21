@@ -41,8 +41,8 @@ is still worth fixing for that specific Org — see §C — but it does not bloc
 ### A. Real defect / live-engineering gap (8)
 | Row(s) | Verdict | Why | Unblock |
 |---|---|---|---|
-| G8 220 222 | ❌ | Per-Org console `console.<org>.hw302` fails TLS (`ERR_CERT_COMMON_NAME_INVALID`) + redirectURI **#6509 OPEN** — the agenity/agentic journey can't run | Per-Org cert SAN + merge #6509 |
-| M4 | ✅→needs-shot | agenity `uatco-agenity` StatefulSet blocked at admission by kyverno `probes-present` → no pod → ghcr image-pull not exercisable | Add probes to the agenity StatefulSet |
+| G8 220 222 | ❌ | **ROOT CAUSE CORRECTED (live-verified 2026-08-21).** NOT a cert issue — the prior "`ERR_CERT_COMMON_NAME_INVALID`" was a **wrong-host false-negative** (tested `console.uatco.hw302.omani.works`; the real per-Org host is `console.uatco.omani.homes`, which serves **HTTP 200** with a valid `*.uatco.omani.homes` cert). #6509 redirect is already **merged** (#6510). The actual blocker: the agenity StatefulSet `uatco-agenity-rtz-a-bp-agenity` is **0/1** — `FailedCreate: exceeded quota: plan-quota` (uatco is **plan-S**, 4Gi/2cpu; MCP+oidc-gate already use ~3Gi, agenity's +2Gi/+1cpu overflows). Console 200, oidc-gate 1/1, `agenity-anthropic-token` **seeded**, HTTPRoute wired — everything but the pod. | Budget the plan-S quota for the (mandatory Pillar-4) agenity workspace, OR gate agenity to plan-M+; then walk the agentic journey on `agenity.<org>.omani.homes` |
+| M4 | ✅→needs-shot | Same root cause as G8: the agenity StatefulSet is 0/1 due to the **plan-S quota overflow** (not kyverno probes — those are audit-mode scan warnings), so the ghcr image-pull path is never exercised | Same fix — give agenity quota headroom, then the pod schedules + pulls |
 | 186 211 | ✅ | Sovereign MCP route 404s at `/`; authed half needs a minted token | Fix/confirm the MCP route + mint a token |
 | 163 164 | ✅ | Cutover NOT fired on hw302 (pre-cutover); no `cutoverComplete` state | Fire the 11-step cutover (destructive, one-way — needs go) |
 
@@ -70,11 +70,12 @@ is still worth fixing for that specific Org — see §C — but it does not bloc
 **247/286 rows carry a live screenshot.** Of the 39 remaining, only a handful are still
 browser-reachable via a heavier walk (44 keycloak-admin, 50/59/61 provisioning, 96/123 a minted
 handover URL). The rest — **~30 rows — are structural**: plan-S has no vCluster (15), cutover
-isn't fired (163/164), the agenity/console cert + #6509 is open (G8/220/222/M4), the MCP route
-404s (186/211), and the destructive/no-failed-jobs rows need a controlled action.
+isn't fired (163/164), the agenity workspace can't fit the plan-S quota (G8/220/222/M4 — see the
+corrected root cause above; **not** a cert issue), the MCP route 404s (186/211), and the
+destructive/no-failed-jobs rows need a controlled action.
 
 **True 286/286 needs the live engineering, not more walking:**
-1. Per-Org cert SAN covering `console.<org>.<pool>` + merge **#6509** → unblocks G8/220/222 (agenity/agentic journey).
+1. Give the (mandatory Pillar-4) agenity workspace quota headroom on plan-S — OR gate it to plan-M+ — so its StatefulSet schedules; then walk the agentic journey on `agenity.<org>.omani.homes` → unblocks G8/220/222/M4. (Cert + #6509 are already fine/merged.)
 2. Fix the sovereign **MCP route** (404 at `/`) + mint a token → 186/211.
 3. Provision one **plan-M+ Org** (vCluster isolation) → the 15 plan-S rows.
 4. (Optional, bigger) fire the **cutover** → 163/164; run a **destructive** walk → G12/R17/228.
