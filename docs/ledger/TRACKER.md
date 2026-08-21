@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-21T18:30:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-08-21T18:45:06Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-21T18:33 | [#6569](https://github.com/openova-io/openova/pull/6569) | #6568 | docs(uat): self-document why the 8 thumbnail-less rows have  |
 | 2026-08-21T18:00 | [#6568](https://github.com/openova-io/openova/pull/6568) | #6509 | docs(uat): re-verify 8 agentic ❌ rows live on hw302 (2026-08 |
 | 2026-08-21T15:55 | [#6567](https://github.com/openova-io/openova/pull/6567) | #4278 | docs(path-to-100): correct row-225 classification — real liv |
 | 2026-08-21T15:23 | [#6566](https://github.com/openova-io/openova/pull/6566) | #3379 | docs(uat): record the specific 2026-08-21 gate on the 4 ⏳ ro |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-20T23:53 | [#6541](https://github.com/openova-io/openova/pull/6541) | #997 | docs(uat): hw302 funnel screenshots rows 74/75/77 |
 | 2026-08-20T23:39 | [#6540](https://github.com/openova-io/openova/pull/6540) | #997 | docs(uat): refresh EVIDENCE-GAP — 226/286 screenshotted, §A  |
 | 2026-08-20T23:36 | [#6539](https://github.com/openova-io/openova/pull/6539) | #997 | docs(uat): hw302 screenshots WordPress catalog 147-153 + wiz |
-| 2026-08-20T23:24 | [#6538](https://github.com/openova-io/openova/pull/6538) | #997 | docs(uat): hw302 live screenshots for catalog Edit-IaC rows  |
 
 ---
 
