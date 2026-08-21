@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-21T13:30:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-08-21T13:45:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-21T13:35 | [#6564](https://github.com/openova-io/openova/pull/6564) | #4706 | docs(uat): row 243 ⏳→✅ tenant DNS split-horizon re-confirmed |
 | 2026-08-21T12:45 | [#6563](https://github.com/openova-io/openova/pull/6563) | docs(uat): 101 ⏳→✅ — org-detail isolation derived from backi |  |
 | 2026-08-21T12:26 | [#6562](https://github.com/openova-io/openova/pull/6562) | docs(uat): 171 — authed /jobs HR-install mapping (fresh 2026 |  |
 | 2026-08-21T11:33 | [#6561](https://github.com/openova-io/openova/pull/6561) | docs(uat): G7 — authed /organizations Isolation column (vclu |  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-20T22:33 | [#6536](https://github.com/openova-io/openova/pull/6536) | #997 | docs(uat): hw302 live screenshots for reachable rows 104/115 |
 | 2026-08-20T22:28 | [#6535](https://github.com/openova-io/openova/pull/6535) | #6499 | docs(uat): harvest reachable re-walk batch (194->201) |
 | 2026-08-20T22:17 | [#6534](https://github.com/openova-io/openova/pull/6534) | #6499 | docs(uat): harvest R8/R15 re-walk (192->194) |
-| 2026-08-20T22:07 | [#6533](https://github.com/openova-io/openova/pull/6533) | #6499 | docs(uat): harvest R1/M1/G5 janitor re-walk (189->192) |
 
 ---
 
