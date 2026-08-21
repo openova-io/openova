@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-21T11:30:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-08-21T11:45:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-21T11:33 | [#6561](https://github.com/openova-io/openova/pull/6561) | docs(uat): G7 — authed /organizations Isolation column (vclu |  |
 | 2026-08-21T10:55 | [#6560](https://github.com/openova-io/openova/pull/6560) | docs(uat): re-verify 185 — wiped-env-never-green is guard-en |  |
 | 2026-08-21T10:54 | [#6559](https://github.com/openova-io/openova/pull/6559) | docs(uat): re-derive R20 at HEAD — deploy-bot per-line pin b |  |
 | 2026-08-21T09:04 | [#6558](https://github.com/openova-io/openova/pull/6558) | #6509 | docs(uat): refresh agentic G8/G9/218-223 ❌ — cert+404 proof  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-20T22:07 | [#6533](https://github.com/openova-io/openova/pull/6533) | #6499 | docs(uat): harvest R1/M1/G5 janitor re-walk (189->192) |
 | 2026-08-20T21:43 | [#6532](https://github.com/openova-io/openova/pull/6532) | #6499 | docs(uat): per-row evidence-gap breakdown (98 un-screenshott |
 | 2026-08-20T21:10 | [#6531](https://github.com/openova-io/openova/pull/6531) | #6499 | docs(uat): live hw302 console screenshots for em-dash rows ( |
-| 2026-08-20T21:03 | [#6530](https://github.com/openova-io/openova/pull/6530) | #6499 | docs(uat): harvest live hw302 wire/policy captures (161->183 |
 
 ---
 
