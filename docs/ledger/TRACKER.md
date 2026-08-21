@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-21T01:30:04Z` |
+| Last refreshed | `2026-08-21T01:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-21T01:31 | [#6545](https://github.com/openova-io/openova/pull/6545) | #997 | docs(uat): correct agenity ❌ root cause — plan-S quota overf |
 | 2026-08-21T00:34 | [#6544](https://github.com/openova-io/openova/pull/6544) | #997 | docs(uat): EVIDENCE-GAP final — 247/286 screenshotted, §B fu |
 | 2026-08-21T00:32 | [#6543](https://github.com/openova-io/openova/pull/6543) | #997 | docs(uat): hw302 funnel generality rows 93/94/95 (2nd Org wa |
 | 2026-08-21T00:29 | [#6542](https://github.com/openova-io/openova/pull/6542) | #997 | docs(uat): hw302 funnel E2E screenshots rows 81-233 (15 rows |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-20T13:54 | [#6518](https://github.com/openova-io/openova/pull/6518) | #6499 | docs(uat): move fallback screenshots in-row + add hw302 thum |
 | 2026-08-20T13:09 | [#6517](https://github.com/openova-io/openova/pull/6517) | #6499 | docs(uat): HTML-table ledger — wrapping cells + in-row click |
 | 2026-08-20T12:43 | [#6516](https://github.com/openova-io/openova/pull/6516) | #6499 | docs(uat): screenshots as clickable in-row thumbnails |
-| 2026-08-20T12:14 | [#6515](https://github.com/openova-io/openova/pull/6515) | #6499 | docs(uat): live hw302 screenshots for 65 rows (console + SSO |
 
 ---
 
