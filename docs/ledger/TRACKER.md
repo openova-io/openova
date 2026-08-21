@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-21T02:30:06Z` |
+| Last refreshed | `2026-08-21T02:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-21T02:40 | [#6548](https://github.com/openova-io/openova/pull/6548) | #997 | docs(uat): hw302 row 238 — per-Org postgres-in-vcluster CNPG |
+| 2026-08-21T02:32 | [#6547](https://github.com/openova-io/openova/pull/6547) | #934 | docs(uat): hw302 treemap-adjudication + provisioning rows 18 |
 | 2026-08-21T02:20 | [#6546](https://github.com/openova-io/openova/pull/6546) | #997 | docs(uat): hw302 vcluster-isolation + MCP rows 5/9/10/11/12/ |
 | 2026-08-21T01:31 | [#6545](https://github.com/openova-io/openova/pull/6545) | #997 | docs(uat): correct agenity ❌ root cause — plan-S quota overf |
 | 2026-08-21T00:34 | [#6544](https://github.com/openova-io/openova/pull/6544) | #997 | docs(uat): EVIDENCE-GAP final — 247/286 screenshotted, §B fu |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-20T16:07 | [#6521](https://github.com/openova-io/openova/pull/6521) | #6499 | docs(uat): screenshot in its own always-visible column (vali |
 | 2026-08-20T14:21 | [#6520](https://github.com/openova-io/openova/pull/6520) | #6499 | docs(uat): remove stray empty table above the 4-col ledger |
 | 2026-08-20T14:19 | [#6519](https://github.com/openova-io/openova/pull/6519) | #6499 | docs(uat): 4-column layout so the screenshot/Evidence column |
-| 2026-08-20T13:54 | [#6518](https://github.com/openova-io/openova/pull/6518) | #6499 | docs(uat): move fallback screenshots in-row + add hw302 thum |
-| 2026-08-20T13:09 | [#6517](https://github.com/openova-io/openova/pull/6517) | #6499 | docs(uat): HTML-table ledger — wrapping cells + in-row click |
 
 ---
 
