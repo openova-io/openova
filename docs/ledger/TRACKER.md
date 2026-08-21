@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-21T03:15:02Z` |
+| Last refreshed | `2026-08-21T03:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-21T03:27 | [#6551](https://github.com/openova-io/openova/pull/6551) | #5393 | docs(uat): EVIDENCE-GAP final — 269/286 screenshotted, 17 ro |
+| 2026-08-21T03:25 | [#6550](https://github.com/openova-io/openova/pull/6550) | #924 | docs(uat): hw302 authorized-action rows 44/96/107/123/231/R1 |
 | 2026-08-21T02:48 | [#6549](https://github.com/openova-io/openova/pull/6549) | #5393 | docs(uat): EVIDENCE-GAP final — 262/286 screenshotted, 24 ro |
 | 2026-08-21T02:40 | [#6548](https://github.com/openova-io/openova/pull/6548) | #997 | docs(uat): hw302 row 238 — per-Org postgres-in-vcluster CNPG |
 | 2026-08-21T02:32 | [#6547](https://github.com/openova-io/openova/pull/6547) | #934 | docs(uat): hw302 treemap-adjudication + provisioning rows 18 |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-20T18:41 | [#6524](https://github.com/openova-io/openova/pull/6524) | #6499 | docs(uat): live hw302 console-view screenshots (+46 rows, 78 |
 | 2026-08-20T17:30 | [#6523](https://github.com/openova-io/openova/pull/6523) | #6499 | docs(uat): G11 + 166 cutover rows -> current hw302 live-test |
 | 2026-08-20T16:27 | [#6522](https://github.com/openova-io/openova/pull/6522) | #6499 | docs(uat): live hw302 browser proof in the 8 agenity ❌ rows |
-| 2026-08-20T16:07 | [#6521](https://github.com/openova-io/openova/pull/6521) | #6499 | docs(uat): screenshot in its own always-visible column (vali |
-| 2026-08-20T14:21 | [#6520](https://github.com/openova-io/openova/pull/6520) | #6499 | docs(uat): remove stray empty table above the 4-col ledger |
 
 ---
 
