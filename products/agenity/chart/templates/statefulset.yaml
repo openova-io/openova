@@ -490,6 +490,28 @@ spec:
             {{- toYaml ((.Values.anthropic.credentialResync).resources | default dict) | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
+          # The cluster's kyverno `probes-present` policy is ENFORCE and requires
+          # EVERY container (not just the main one) to declare both probes, else
+          # the whole StatefulSet is denied at admission (measured on hw302: the
+          # bp-agenity HR latched Ready=False "validate.kyverno.svc-fail denied …
+          # containers-must-have-liveness-and-readiness", so agenity never ran —
+          # UAT G8/220/222/M4). This sidecar is a PID-1 `sh` copy-loop with no
+          # HTTP surface, so both probes are cheap exec checks that its two
+          # mounts (the claude-home it writes + the /creds it reads) are present.
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "test -d /claudehome && test -d /creds"]
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "test -d /claudehome && test -d /creds"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
         {{- end }}
       volumes:
         {{- if not .Values.persistence.enabled }}
