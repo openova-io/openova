@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-21T15:45:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-08-21T16:00:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-21T15:55 | [#6567](https://github.com/openova-io/openova/pull/6567) | #4278 | docs(path-to-100): correct row-225 classification — real liv |
 | 2026-08-21T15:23 | [#6566](https://github.com/openova-io/openova/pull/6566) | #3379 | docs(uat): record the specific 2026-08-21 gate on the 4 ⏳ ro |
 | 2026-08-21T15:08 | [#6565](https://github.com/openova-io/openova/pull/6565) | #6509 | docs(path-to-100): refresh to live hw302 — map the 15 non-gr |
 | 2026-08-21T13:35 | [#6564](https://github.com/openova-io/openova/pull/6564) | #4706 | docs(uat): row 243 ⏳→✅ tenant DNS split-horizon re-confirmed |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-20T23:36 | [#6539](https://github.com/openova-io/openova/pull/6539) | #997 | docs(uat): hw302 screenshots WordPress catalog 147-153 + wiz |
 | 2026-08-20T23:24 | [#6538](https://github.com/openova-io/openova/pull/6538) | #997 | docs(uat): hw302 live screenshots for catalog Edit-IaC rows  |
 | 2026-08-20T22:44 | [#6537](https://github.com/openova-io/openova/pull/6537) | #997 | docs(uat): refresh EVIDENCE-GAP — 204/286 screenshotted, acc |
-| 2026-08-20T22:33 | [#6536](https://github.com/openova-io/openova/pull/6536) | #997 | docs(uat): hw302 live screenshots for reachable rows 104/115 |
 
 ---
 
