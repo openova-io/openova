@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-21T09:00:05Z` |
+| Last refreshed | `2026-08-21T09:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-21T09:04 | [#6558](https://github.com/openova-io/openova/pull/6558) | #6509 | docs(uat): refresh agentic G8/G9/218-223 ❌ — cert+404 proof  |
 | 2026-08-21T08:33 | [#6557](https://github.com/openova-io/openova/pull/6557) | #6509 | docs(uat): refresh G8/220/222 ❌ evidence — fresh per-Org cer |
 | 2026-08-21T08:00 | [#6556](https://github.com/openova-io/openova/pull/6556) | #3376 | docs(uat): re-walk rows 88/89/90/91 on hw302 — per-Org conso |
 | 2026-08-21T04:42 | [#6554](https://github.com/openova-io/openova/pull/6554) | #5393 | docs(uat): EVIDENCE-GAP final — 272/286 (95%), 14 root-cause |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-20T21:03 | [#6530](https://github.com/openova-io/openova/pull/6530) | #6499 | docs(uat): harvest live hw302 wire/policy captures (161->183 |
 | 2026-08-20T20:30 | [#6529](https://github.com/openova-io/openova/pull/6529) | #6499 | docs(uat): live hw302 screenshots for catalog summary-edit p |
 | 2026-08-20T20:26 | [#6528](https://github.com/openova-io/openova/pull/6528) | #6499 | docs(uat): harvest live hw302 re-walk batch (138->157 screen |
-| 2026-08-20T19:53 | [#6527](https://github.com/openova-io/openova/pull/6527) | #6499 | docs(uat): applications cloud-list view (row 212) |
 
 ---
 
