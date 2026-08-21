@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-21T00:30:05Z` |
+| Last refreshed | `2026-08-21T00:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-21T00:34 | [#6544](https://github.com/openova-io/openova/pull/6544) | #997 | docs(uat): EVIDENCE-GAP final — 247/286 screenshotted, §B fu |
+| 2026-08-21T00:32 | [#6543](https://github.com/openova-io/openova/pull/6543) | #997 | docs(uat): hw302 funnel generality rows 93/94/95 (2nd Org wa |
 | 2026-08-21T00:29 | [#6542](https://github.com/openova-io/openova/pull/6542) | #997 | docs(uat): hw302 funnel E2E screenshots rows 81-233 (15 rows |
 | 2026-08-20T23:53 | [#6541](https://github.com/openova-io/openova/pull/6541) | #997 | docs(uat): hw302 funnel screenshots rows 74/75/77 |
 | 2026-08-20T23:39 | [#6540](https://github.com/openova-io/openova/pull/6540) | #997 | docs(uat): refresh EVIDENCE-GAP — 226/286 screenshotted, §A  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-20T13:09 | [#6517](https://github.com/openova-io/openova/pull/6517) | #6499 | docs(uat): HTML-table ledger — wrapping cells + in-row click |
 | 2026-08-20T12:43 | [#6516](https://github.com/openova-io/openova/pull/6516) | #6499 | docs(uat): screenshots as clickable in-row thumbnails |
 | 2026-08-20T12:14 | [#6515](https://github.com/openova-io/openova/pull/6515) | #6499 | docs(uat): live hw302 screenshots for 65 rows (console + SSO |
-| 2026-08-20T09:21 | [#6510](https://github.com/openova-io/openova/pull/6510) | #6504 | fix(keycloak): register concrete per-Org console redirectUri |
-| 2026-08-20T05:59 | [#6507](https://github.com/openova-io/openova/pull/6507) | #6464 | fix(events): bound JetStream MaxDeliver so a doomed notifica |
 
 ---
 
