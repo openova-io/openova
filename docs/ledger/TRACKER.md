@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-21T18:00:03Z` |
+| Last refreshed | `2026-08-21T18:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-21T18:00 | [#6568](https://github.com/openova-io/openova/pull/6568) | #6509 | docs(uat): re-verify 8 agentic ❌ rows live on hw302 (2026-08 |
 | 2026-08-21T15:55 | [#6567](https://github.com/openova-io/openova/pull/6567) | #4278 | docs(path-to-100): correct row-225 classification — real liv |
 | 2026-08-21T15:23 | [#6566](https://github.com/openova-io/openova/pull/6566) | #3379 | docs(uat): record the specific 2026-08-21 gate on the 4 ⏳ ro |
 | 2026-08-21T15:08 | [#6565](https://github.com/openova-io/openova/pull/6565) | #6509 | docs(path-to-100): refresh to live hw302 — map the 15 non-gr |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-20T23:39 | [#6540](https://github.com/openova-io/openova/pull/6540) | #997 | docs(uat): refresh EVIDENCE-GAP — 226/286 screenshotted, §A  |
 | 2026-08-20T23:36 | [#6539](https://github.com/openova-io/openova/pull/6539) | #997 | docs(uat): hw302 screenshots WordPress catalog 147-153 + wiz |
 | 2026-08-20T23:24 | [#6538](https://github.com/openova-io/openova/pull/6538) | #997 | docs(uat): hw302 live screenshots for catalog Edit-IaC rows  |
-| 2026-08-20T22:44 | [#6537](https://github.com/openova-io/openova/pull/6537) | #997 | docs(uat): refresh EVIDENCE-GAP — 204/286 screenshotted, acc |
 
 ---
 
