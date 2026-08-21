@@ -1,64 +1,56 @@
 # UAT evidence gap — what still lacks a live hw302 screenshot
 
-_Generated from `docs/ledger/UAT.md` on hw302 (dep `9b16ad632b906d9b`). **269 of 286 rows now carry a live hw302 in-row screenshot; 17 do not.** Tally: 269 ✅ · 10 ❌ · 1 ⚠️ · 6 ⏳._
+_Generated from `docs/ledger/UAT.md` on hw302 (dep `9b16ad632b906d9b`). **272 of 286 rows now carry a live hw302 in-row screenshot; 14 do not.** Tally: 269 ✅ · 10 ❌ · 1 ⚠️ · 6 ⏳._
 
-This session moved **205 → 269 rows evidenced** across five walks (console/wire re-walks · §A catalog+wizard ·
-§B customer funnel E2E on two Orgs · the re-triage that recovered vcluster-isolation + MCP · the authorized-action
-walk: handover-token mint, KC-admin, throwaway-Org delete cascade, gitea pod-restart, helm render). **Every merged
-screenshot was independently re-verified against live cluster state** (vClusters 1/1, CNPG clusters Ready, MCP
-`list_applications`=14 apps=14 CRs, Org-delete cascade confirmed by `kubectl … NotFound`, handover `/dashboard`
-landing confirmed by the PNG). No fabrication survived; no genuinely-failing row was forced green.
+This session moved **205 → 272 rows evidenced** across seven walks. **Every merged screenshot was independently
+re-verified against live cluster state** (vClusters 1/1, CNPG Ready, MCP `list_applications`=14 apps=14 CRs,
+Org-delete cascade `kubectl … NotFound`, handover `/dashboard` PNG, Jobs Re-run gating PNG+kubectl, cutover
+group-status PNG+configmap). No fabrication survived; three separate "blocked" mis-categorisations were caught and
+corrected by actually looking (vcluster/MCP, then 174/175, then 164) and one honest defect was surfaced (163).
 
-The 17 that remain are genuinely blocked — a deploy-gated fix, a destructive/one-way action, or a real UI limitation.
+The 14 that remain need a deploy-gated fix, a destructive/one-way action, or a real UI defect fix.
 
 ---
 
-## The 17 remaining — final root-caused map
+## The 14 remaining — final root-caused map
 
 ### A. Real defect / live-engineering gap (8)
-| Row(s) | Verdict | Why | Unblock |
+| Row(s) | V | Why | Unblock |
 |---|---|---|---|
-| G8 220 222 | ❌ | agenity StatefulSet 0/1 — `exceeded quota: plan-quota` (uatco is **plan-S** 4Gi/2cpu; per-Org keycloak 2Gi + MCP + oidc-gate fill it). **NOT a cert issue** (wrong-host false-negative; `console.uatco.omani.homes` serves 200, `agenity-anthropic-token` seeded, oidc-gate 1/1). Tracked **#5393**. | Budget plan-S quota for the mandatory Pillar-4 agenity workspace (or gate agenity to plan-M+), then walk `agenity.<org>.omani.homes` |
-| M4 | ✅→needs-shot | Same plan-S quota block — the agenity pod never schedules, so ghcr image-pull is never exercised | Same fix (#5393) |
-| 20 98 102 105 | ✅ | The `/dashboard` treemap is fed **solely** by `/api/v1/deployments/<id>/jobs?inventory=full` — job-execution records with **no vcluster/org/workload attribution**, so Layer-1=vCluster/Organization collapses to a single host bucket and cannot render per-Org blocks or a distinct customer estate. Isolation is real (proven by 5/9/99/103/M3/238); this surface just can't render it. | Feed the treemap a workload/placement source with org+vcluster attribution (relates #3642/#3687) |
+| G8 220 222 | ❌ | agenity StatefulSet 0/1 — `exceeded quota: plan-quota` (plan-S 4Gi/2cpu; per-Org keycloak 2Gi + MCP + oidc-gate fill it) AND a kyverno webhook denial on the 0.5.31 Helm upgrade. **Not a cert issue.** Tracked **#5393** (fix now scoped there: 3 options — raise plan-S quota / shrink-or-share the per-Org keycloak / gate agenity to plan-M+). | #5393 fix + a fresh prov |
+| M4 | ✅ | Same block — agenity pod never schedules, ghcr pull not exercised | #5393 |
+| 20 98 102 105 | ✅ | The `/dashboard` treemap is fed only by `jobs?inventory=full` (job-execution records, **no vcluster/org attribution**), so it can't render per-Org blocks. Isolation is real (proven 5/9/99/103/M3/238). | treemap org-attributed data source (#3642/#3687) |
+| **163** | ✅ | **NEW defect (this session):** the `/jobs` JobsTable paints the 10 **never-ran** cutover steps FAILED (`result=""`, no Job) — a dishonest per-step status. The Settings→Sovereignty panel renders them correctly (pending). Posted to **#6093** (same JobsTable cutover projection). | Fix the JobsTable per-step status derivation (never-run → Pending), then re-walk |
 
-### B. Needs a destructive / one-way action on this env (7)
+### B. Needs a destructive / one-way action on this env (3)
 | Row(s) | Why | Unblock |
 |---|---|---|
-| G12 228 | region-kill (Pillar-3) / wipe+re-prov orphan-VPC check — destructive, not run for a screenshot (G12 was proven e2e on hw292) | Authorize + run |
-| 163 164 | Cutover NOT fired on hw302 (pre-cutover); no `cutoverComplete` state | Fire the 11-step cutover (one-way) |
-| 174 175 | hw302 has zero failed job rows → the Re-run-on-Failed control can't be shown without a vacuous absent-button pass | Inject a genuinely failed job |
-| G7 | vcluster dual-door: funnel door → vcluster Org proven (walkstrangertwo); the admin-create door needs a full new-Org provisioning cycle (already ✅ hw301-2026-08-20, deprioritized as stretch) | Walk the admin-create door to a vcluster Org |
+| G12 228 | region-kill (Pillar-3) / wipe+re-prov orphan-VPC check — destructive (G12 proven e2e on hw292) | authorize + run |
+| G7 | vcluster dual-door: funnel door proven (walkstrangertwo); the admin-create door needs a full new-Org provisioning cycle (already ✅ hw301-2026-08-20, deprioritized) | walk the admin-create door |
 
 ### C. Deeper source / pod-restart (2)
 | Row(s) | Why |
 |---|---|
-| R18 R20 | R18 = handover-key self-publish guard (Sovereign doesn't re-publish its handover key on restart); R20 = deploy-bot bumps image pins per-line — both need a restart/source-level investigation, not a single-screenshot surface. |
+| R18 R20 | R18 = handover-key self-publish guard (no re-publish on restart); R20 = deploy-bot per-line pin bump — restart/source-level investigations, not single-screenshot surfaces. |
 
 ---
 
-## Finding surfaced by the authorized-action walk (worth a fix)
-
-**Org-delete leaves external identity residue (delete-cascade gap).** Deleting `organization walkstrangerone`
-cascaded the K8s surfaces cleanly (ns/app/DNS/vCluster-sts all `NotFound` — R17/107 clauses pass, kubectl-verified),
-but the Org CR carried **only** the `orgs.openova.io/tenant-networking` finalizer, so **two external identity tethers
-persist as orphans**: the gitea org dir `/walkstrangerone` and the Keycloak group `/walkstrangerone`. This is a
-sibling of the org-controller delete-cascade leak (#924/#4250) — the CR-delete path should also sweep the gitea org +
-KC group. Stamped transparently into row R17's Evidence; the residue is harmless on our own env but the finalizer
-should be extended.
+## Findings surfaced this session (for follow-up fixes)
+1. **#5393** (agenity plan-S quota) — scoped with the exact overflow arithmetic + 3 fix options + the kyverno-denial refinement. Blocks G8/220/222/M4.
+2. **#6093** (JobsTable cutover projection) — added the 163 status-derivation defect (never-ran steps → FAILED instead of Pending).
+3. **Org-delete identity residue** (sibling #924/#4250) — Org CR delete cascades K8s cleanly but leaves the gitea org + KC group (only the tenant-networking finalizer). Recorded in row R17's evidence.
 
 ---
 
 ### The honest ceiling — reached
 
-**269/286 rows (94%) carry a live hw302 screenshot.** The 17 remaining are not screenshot-able on this env's
-current state without engineering or a destructive/one-way action:
-- **§A (8):** the agenity plan-S quota (#5393 → G8/220/222/M4) and the treemap's missing org-attribution (20/98/102/105).
-- **§B (7):** region-kill/wipe, cutover-not-fired, no-failed-jobs, the admin-door dual-walk.
-- **§C (2):** handover-key-republish + deploy-bot source walks.
+**272/286 rows (95%) carry a live hw302 screenshot.** The 14 remaining need engineering or a one-way action:
+- **§A (8):** agenity plan-S quota (#5393 → G8/220/222/M4), treemap org-attribution (20/98/102/105), the JobsTable status defect (163).
+- **§B (3):** destructive region-kill/wipe (G12/228), the admin-door dual-walk (G7).
+- **§C (2):** handover-key-republish + deploy-bot source walks (R18/R20).
 
 **True 286/286 needs the live engineering**, ICE-ordered:
-1. Fix the plan-S quota for agenity (#5393) → the 3 genuine ❌ (G8/220/222).
-2. Give the treemap an org/vcluster-attributed data source → 20/98/102/105 (#3642/#3687).
-3. Fire the cutover → 163/164; run a controlled destructive walk → G12/228/174/175.
-4. (Bonus) extend the org-delete finalizer to sweep gitea/KC identity tethers (#924/#4250 sibling).
+1. **#5393** plan-S quota fix (pick option 1/2/3) + reprov → the 3 genuine ❌ (G8/220/222) + M4.
+2. **#6093** JobsTable per-step status fix → 163.
+3. Treemap org-attributed data source (#3642/#3687) → 20/98/102/105.
+4. Fire the cutover to completion / a controlled destructive walk → G12/228; the admin-door provision → G7.
