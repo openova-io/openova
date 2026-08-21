@@ -12,7 +12,7 @@
 | **228** | 1 | Orphan-VPC janitor sweep on a re-prov AFTER a wipe. No console surface. | A **wipe + re-prov** cycle. |
 | **189** | 1 | Region-b kubeconfig self-heals EIP→private-IP on node **restart**. No console surface; region-b kubectl (212.72.24.43) firewalled from here. | A region-b node restart + region-b cluster access. |
 | **235** | 1 | grafana SSO **3/3** fresh logins → 200 (per-tick sso-bridge secret refresh). Needs 3 **independent** sessions; a single shared owner session can't produce them (bare curl → 302 to keycloak). Mechanism half already proven. | Three independent fresh logins on a fresh prov. |
-| **225** | 1 | ⚠️ — asserts a per-Org **newapi**, which does not exist in the current per-Org app set. | Adjudicate (obsolete-clause) or provision a per-Org newapi. |
+| **225** | 1 | ⚠️ — **real live defect, NOT obsolete.** Per-Org `bp-newapi` HR reads Unknown 'reconciliation in progress' on both Orgs (uatco+uatbeta) after ~10h; the admin-**seed** post-install hook is not Completing. The #4278 SA-vanish bug (admin-promote CronJob borrowing the seed's HOOK SA) is ALREADY fixed on main — the CronJob now has a dedicated release-managed `$cronName` SA — so the current cause is env-specific and needs live Job logs. | **Live-diagnose** the seed-hook failure on hw302 (kubectl-gated); the clause is valid and per-Org bp-newapi is a real feature (`helmrelease_apps.go:61`, in DefaultHRAppChartVersions). NOT an adjudication. |
 
 **Banked this session (2026-08-21):** row **243** ⏳→✅ (PR #6564) — tenant DNS split-horizon re-confirmed by live hw302 dig (7 wildcard/app hosts + apex → primary ELB `212.72.24.85`; console + marketplace → distinct console ELB `212.72.24.1`).
 
