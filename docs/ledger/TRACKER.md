@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-21T04:30:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-08-21T04:45:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-21T04:42 | [#6554](https://github.com/openova-io/openova/pull/6554) | #5393 | docs(uat): EVIDENCE-GAP final — 272/286 (95%), 14 root-cause |
+| 2026-08-21T04:40 | [#6553](https://github.com/openova-io/openova/pull/6553) | #997 | docs(uat): hw302 row 164 — cutover group reflects failed chi |
 | 2026-08-21T04:26 | [#6552](https://github.com/openova-io/openova/pull/6552) | #997 | docs(uat): hw302 Jobs Re-run gating rows 174/175 |
 | 2026-08-21T03:27 | [#6551](https://github.com/openova-io/openova/pull/6551) | #5393 | docs(uat): EVIDENCE-GAP final — 269/286 screenshotted, 17 ro |
 | 2026-08-21T03:25 | [#6550](https://github.com/openova-io/openova/pull/6550) | #924 | docs(uat): hw302 authorized-action rows 44/96/107/123/231/R1 |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-20T19:53 | [#6527](https://github.com/openova-io/openova/pull/6527) | #6499 | docs(uat): applications cloud-list view (row 212) |
 | 2026-08-20T19:40 | [#6526](https://github.com/openova-io/openova/pull/6526) | #6499 | docs(uat): re-walk 5 catalog rows live on hw302 (126/130/131 |
 | 2026-08-20T18:45 | [#6525](https://github.com/openova-io/openova/pull/6525) | #6499 | docs(uat): +9 rows agenity/billing/app-detail hw302 views |
-| 2026-08-20T18:41 | [#6524](https://github.com/openova-io/openova/pull/6524) | #6499 | docs(uat): live hw302 console-view screenshots (+46 rows, 78 |
-| 2026-08-20T17:30 | [#6523](https://github.com/openova-io/openova/pull/6523) | #6499 | docs(uat): G11 + 166 cutover rows -> current hw302 live-test |
 
 ---
 
