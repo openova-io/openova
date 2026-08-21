@@ -490,6 +490,40 @@ spec:
             {{- toYaml ((.Values.anthropic.credentialResync).resources | default dict) | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
+          # ── kyverno probes-present (#6513) ───────────────────────────────
+          # The probes-present ClusterPolicy (platform/kyverno-policies K1)
+          # DENIES a StatefulSet unless EVERY container declares BOTH a
+          # livenessProbe AND a readinessProbe — that is exactly what blocked
+          # this sidecar's first install: 0.5.31 shipped creds-resync with no
+          # probes, so a per-Org agenity StatefulSet was rejected at admission
+          # and the Pod never came up (proven live, hw302). The sidecar is a
+          # headless copy-forward loop with no HTTP port, so both probes are
+          # exec — one per rung, and neither can regress the running workspace:
+          #   • readiness — the Secret mount it watches is visible. `/creds` is
+          #     ALWAYS present (the anthropic-creds volume is an OPTIONAL secret
+          #     that still mounts an empty dir when the Secret is absent), so
+          #     this can never false-fail the pod NotReady and hide the
+          #     dashboard the main container must keep serving. It confirms the
+          #     sidecar can see the very thing it is here to watch.
+          #   • liveness — the container can still exec. The resync is a single
+          #     `sh -c` process, so if that loop dies the container exits; while
+          #     it runs, `true` succeeds. We deliberately do NOT probe the
+          #     freshness of /claudehome/.claude/.credentials.json: a HEALTHY
+          #     sidecar correctly leaves that file untouched whenever the Secret
+          #     carries no newer expiresAt (the NEWER-ONLY predicate above), so
+          #     a freshness probe would kill a working sidecar. Probe handler
+          #     only — the copy-forward function is unchanged. These render
+          #     under the SAME gate as the container, so they exist iff it does.
+          readinessProbe:
+            exec:
+              command: ["test", "-d", "/creds"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          livenessProbe:
+            exec:
+              command: ["true"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
         {{- end }}
       volumes:
         {{- if not .Values.persistence.enabled }}

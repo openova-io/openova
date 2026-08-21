@@ -6040,7 +6040,11 @@ spec:
   # 0.5.22 (#5617): the oidc-gate companion gains its egress CNP — the per-Org
   # namespace is default-deny and the gate's ingress-only CNP left DNS + the
   # Keycloak token exchange dropped, 500ing every OAuth callback after login.
-  version: "0.5.31"
+  # 0.5.32 (#6513): the creds-resync sidecar gains liveness + readiness probes
+  # so the per-Org agenity StatefulSet passes kyverno probes-present (0.5.31
+  # shipped it probe-less → DENIED at admission, install never came up, hw302).
+  # Lockstep with products/agenity/chart + blueprint.yaml.
+  version: "0.5.32"
   visibility: listed
   card:
     title: "Agenity"
@@ -6070,7 +6074,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-agenity
-    version: 0.5.31
+    version: 0.5.32
   topology:
     supported:
       - singleton
