@@ -1,3 +1,25 @@
+# PATH TO 100% — **hw302 live** (re-measured 2026-08-21)
+
+> **CURRENT env = hw302** (`hw302.omani.works`). `UAT.md` on `origin/main`: **271/286 green (94.8%)**, every green backed by live evidence. This partition maps the **15 non-green rows** to their EXACT unblock as measured live on hw302 2026-08-21. Everything below the `---` after this section is hw292/hw293/hw296/hw298-era history — those envs are wiped; read this partition first. **merge ≠ green** (founder rule): a fix on main only clears a row after a walk on an env that booted it.
+
+### The 15 non-green rows on hw302, by unblock
+
+| Rows | Count | Gate (measured live 2026-08-21) | Unblock |
+|---|---|---|---|
+| **G8, G9, 218, 219, 220, 221, 222, 223** | 8 | **Per-Org two-label-host cert-SAN.** The agentic runtime is served at `<app>.<slug>.hw302.omani.works` (two labels below the pool), but the issued cert is the apex `*.hw302.omani.works` (one label, RFC 6125 → cannot match). Live: `curl https://chepherd.uatco.hw302.omani.works` → `(60) SSL no-SAN-match`. Root-caused this session — the per-Org wildcard-cert emitter (`tenant_console_tls.go::reconcileOrgWildcardCert`) is gated on `spec.TenantPublic.ParentDomain`, which internal orgs never set, while the app routes use `TENANT_PARENT_DOMAIN`. Documented on **#6509** (cert-leg comment) alongside the Keycloak-redirect leg. Secondary for G8/G9/220/221: anthropic credential input (#6477). | Land #6509 two-leg fix (emit the per-Org app-zone `*.<slug>.<appParent>` cert unconditionally + `EnsureConsoleRedirect`) → **fresh prov** + supply the anthropic credential. |
+| **G11, 166** | 2 | hw302 is **pre-cutover** (`cutoverComplete` not set). Both assert post-cutover sovereignty facts. | A **cutover run** on hw302 → `cutoverComplete=true`. (Proven on prior envs hw291/hw292.) |
+| **165** | 1 | Cutover-step Jobs empty-actions cell. Live /jobs has 64 jobs, all `Install …` lifecycle with `jobs-cell-actions-empty-<id>` present — but **zero `cutover-step-*` rows** (pre-cutover), so the clause is vacuous here, not walkable. | Same cutover run (creates the cutover-step Jobs the clause scopes to). |
+| **228** | 1 | Orphan-VPC janitor sweep on a re-prov AFTER a wipe. No console surface. | A **wipe + re-prov** cycle. |
+| **189** | 1 | Region-b kubeconfig self-heals EIP→private-IP on node **restart**. No console surface; region-b kubectl (212.72.24.43) firewalled from here. | A region-b node restart + region-b cluster access. |
+| **235** | 1 | grafana SSO **3/3** fresh logins → 200 (per-tick sso-bridge secret refresh). Needs 3 **independent** sessions; a single shared owner session can't produce them (bare curl → 302 to keycloak). Mechanism half already proven. | Three independent fresh logins on a fresh prov. |
+| **225** | 1 | ⚠️ — asserts a per-Org **newapi**, which does not exist in the current per-Org app set. | Adjudicate (obsolete-clause) or provision a per-Org newapi. |
+
+**Banked this session (2026-08-21):** row **243** ⏳→✅ (PR #6564) — tenant DNS split-horizon re-confirmed by live hw302 dig (7 wildcard/app hosts + apex → primary ELB `212.72.24.85`; console + marketplace → distinct console ELB `212.72.24.1`).
+
+**Net:** 12 of the 15 need one of two infra actions — a **cutover run** (clears 165/166/G11) or **landing #6509 + a fresh prov** (clears the 8 agentic rows). 189/228/235 need restart/wipe/independent-session cycles. None is a console screenshot; none is fabricatable.
+
+---
+
 # PATH TO 100% — **hw292 live, cc=true** (delivery-state re-measured 2026-08-08)
 
 > ⚠️ **The sections below the 2026-08-11 partition are hw292-era and hw292 is WIPED.** The live env is **hw293** (`hw293.omantel.biz`, dep `a0077ba47e3720e5`). Read the 2026-08-11 partition first; treat everything after it as history until re-measured.
