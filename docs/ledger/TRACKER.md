@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-21T20:00:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-08-21T20:15:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-21T20:06 | [#6571](https://github.com/openova-io/openova/pull/6571) | #6509 | docs(sessions): operator exemption request for the 13 no-thu |
 | 2026-08-21T18:49 | [#6570](https://github.com/openova-io/openova/pull/6570) | #6564 | docs(sessions): honest UAT evidence-completeness report (hw3 |
 | 2026-08-21T18:33 | [#6569](https://github.com/openova-io/openova/pull/6569) | #6568 | docs(uat): self-document why the 8 thumbnail-less rows have  |
 | 2026-08-21T18:00 | [#6568](https://github.com/openova-io/openova/pull/6568) | #6509 | docs(uat): re-verify 8 agentic ❌ rows live on hw302 (2026-08 |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-21T00:32 | [#6543](https://github.com/openova-io/openova/pull/6543) | #997 | docs(uat): hw302 funnel generality rows 93/94/95 (2nd Org wa |
 | 2026-08-21T00:29 | [#6542](https://github.com/openova-io/openova/pull/6542) | #997 | docs(uat): hw302 funnel E2E screenshots rows 81-233 (15 rows |
 | 2026-08-20T23:53 | [#6541](https://github.com/openova-io/openova/pull/6541) | #997 | docs(uat): hw302 funnel screenshots rows 74/75/77 |
-| 2026-08-20T23:39 | [#6540](https://github.com/openova-io/openova/pull/6540) | #997 | docs(uat): refresh EVIDENCE-GAP — 226/286 screenshotted, §A  |
 
 ---
 
