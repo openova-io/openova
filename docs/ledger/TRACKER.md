@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-22T16:00:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-08-22T16:15:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-22T16:14 | [#6575](https://github.com/openova-io/openova/pull/6575) | #6574 | docs(uat): honest hw304 reset + stamp rows 23/84/85 on live  |
+| 2026-08-22T16:06 | [#6574](https://github.com/openova-io/openova/pull/6574) | #6573 | fix: make reset-uat.py HTML-aware so carry-forward demotes r |
 | 2026-08-21T20:53 | [#6572](https://github.com/openova-io/openova/pull/6572) | #6513 | docs(path-to-100): agentic rows are a 4-defect deploy-gated  |
 | 2026-08-21T20:06 | [#6571](https://github.com/openova-io/openova/pull/6571) | #6509 | docs(sessions): operator exemption request for the 13 no-thu |
 | 2026-08-21T18:49 | [#6570](https://github.com/openova-io/openova/pull/6570) | #6564 | docs(sessions): honest UAT evidence-completeness report (hw3 |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-21T02:20 | [#6546](https://github.com/openova-io/openova/pull/6546) | #997 | docs(uat): hw302 vcluster-isolation + MCP rows 5/9/10/11/12/ |
 | 2026-08-21T01:31 | [#6545](https://github.com/openova-io/openova/pull/6545) | #997 | docs(uat): correct agenity ❌ root cause — plan-S quota overf |
 | 2026-08-21T00:34 | [#6544](https://github.com/openova-io/openova/pull/6544) | #997 | docs(uat): EVIDENCE-GAP final — 247/286 screenshotted, §B fu |
-| 2026-08-21T00:32 | [#6543](https://github.com/openova-io/openova/pull/6543) | #997 | docs(uat): hw302 funnel generality rows 93/94/95 (2nd Org wa |
-| 2026-08-21T00:29 | [#6542](https://github.com/openova-io/openova/pull/6542) | #997 | docs(uat): hw302 funnel E2E screenshots rows 81-233 (15 rows |
 
 ---
 
