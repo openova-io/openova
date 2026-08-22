@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-22T18:45:04Z` |
+| Last refreshed | `2026-08-22T19:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-22T18:54 | [#6589](https://github.com/openova-io/openova/pull/6589) | #3668 | docs(uat): re-walk 151 (Alloy+Postgres identical edit chrome |
+| 2026-08-22T18:46 | [#6588](https://github.com/openova-io/openova/pull/6588) | #3379 | docs(uat): re-walk 159/160/130 render rows live on hw304 |
 | 2026-08-22T18:35 | [#6587](https://github.com/openova-io/openova/pull/6587) | #3383 | docs(uat): re-walk 116/118/119/124 render rows live on hw304 |
 | 2026-08-22T18:19 | [#6586](https://github.com/openova-io/openova/pull/6586) | #6573 | docs(uat): re-walk — new-org wizard no-prefill (W1) + avatar |
 | 2026-08-22T18:14 | [#6585](https://github.com/openova-io/openova/pull/6585) | #6573 | docs(uat): re-walk — Alloy detail+iconpicker (125/137) + job |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-21T10:55 | [#6560](https://github.com/openova-io/openova/pull/6560) | docs(uat): re-verify 185 — wiped-env-never-green is guard-en |  |
 | 2026-08-21T10:54 | [#6559](https://github.com/openova-io/openova/pull/6559) | docs(uat): re-derive R20 at HEAD — deploy-bot per-line pin b |  |
 | 2026-08-21T09:04 | [#6558](https://github.com/openova-io/openova/pull/6558) | #6509 | docs(uat): refresh agentic G8/G9/218-223 ❌ — cert+404 proof  |
-| 2026-08-21T08:33 | [#6557](https://github.com/openova-io/openova/pull/6557) | #6509 | docs(uat): refresh G8/220/222 ❌ evidence — fresh per-Org cer |
-| 2026-08-21T08:00 | [#6556](https://github.com/openova-io/openova/pull/6556) | #3376 | docs(uat): re-walk rows 88/89/90/91 on hw302 — per-Org conso |
 
 ---
 
