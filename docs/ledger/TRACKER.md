@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-22T19:45:05Z` |
+| Last refreshed | `2026-08-22T20:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-22T19:50 | [#6594](https://github.com/openova-io/openova/pull/6594) | #3383 | docs(uat): re-walk 117 (org directory columns/labels) live o |
 | 2026-08-22T19:37 | [#6593](https://github.com/openova-io/openova/pull/6593) | #3985 | docs(uat): re-walk 214 (no SME/tenant banned-term leak) live |
 | 2026-08-22T19:33 | [#6592](https://github.com/openova-io/openova/pull/6592) | #4546 | docs(uat): re-walk 1/3/97/122/167 authed-session nav rows li |
 | 2026-08-22T19:21 | [#6591](https://github.com/openova-io/openova/pull/6591) | #3668 | docs(uat): re-walk 141/146 catalog inline-edit rows live on  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-21T15:08 | [#6565](https://github.com/openova-io/openova/pull/6565) | #6509 | docs(path-to-100): refresh to live hw302 — map the 15 non-gr |
 | 2026-08-21T13:35 | [#6564](https://github.com/openova-io/openova/pull/6564) | #4706 | docs(uat): row 243 ⏳→✅ tenant DNS split-horizon re-confirmed |
 | 2026-08-21T12:45 | [#6563](https://github.com/openova-io/openova/pull/6563) | docs(uat): 101 ⏳→✅ — org-detail isolation derived from backi |  |
-| 2026-08-21T12:26 | [#6562](https://github.com/openova-io/openova/pull/6562) | docs(uat): 171 — authed /jobs HR-install mapping (fresh 2026 |  |
 
 ---
 
