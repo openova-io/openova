@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-22T21:45:03Z` |
+| Last refreshed | `2026-08-22T22:00:16Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-22T22:00 | [#6602](https://github.com/openova-io/openova/pull/6602) | #3376 | docs(uat): re-walk 74 (voucher auto-generate) live on hw304 |
+| 2026-08-22T21:56 | [#6601](https://github.com/openova-io/openova/pull/6601) | #3383 | docs(uat): re-walk 120 (org-detail heading/breadcrumb/labels |
+| 2026-08-22T21:49 | [#6600](https://github.com/openova-io/openova/pull/6600) | #3376 | docs(uat): re-walk redeem 76 (junk-code reject) + 77 (source |
+| 2026-08-22T21:46 | [#6599](https://github.com/openova-io/openova/pull/6599) | #3376 | docs(uat): re-walk funnel 75/78/80/81/82/W4 live on hw304 (c |
 | 2026-08-22T20:53 | [#6598](https://github.com/openova-io/openova/pull/6598) | #3998 | docs(uat): re-walk 199 (cloud Gateway page → 2 cilium Gatewa |
 | 2026-08-22T20:31 | [#6597](https://github.com/openova-io/openova/pull/6597) | #3668 | docs(uat): re-walk 126 (inline Edit-IaC) + 73 (voucher weak- |
 | 2026-08-22T20:25 | [#6596](https://github.com/openova-io/openova/pull/6596) | #4290 | docs(uat): re-walk 243 (tenant DNS split-horizon) live on hw |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-08-22T16:06 | [#6574](https://github.com/openova-io/openova/pull/6574) | #6573 | fix: make reset-uat.py HTML-aware so carry-forward demotes r |
 | 2026-08-21T20:53 | [#6572](https://github.com/openova-io/openova/pull/6572) | #6513 | docs(path-to-100): agentic rows are a 4-defect deploy-gated  |
 | 2026-08-21T20:06 | [#6571](https://github.com/openova-io/openova/pull/6571) | #6509 | docs(sessions): operator exemption request for the 13 no-thu |
-| 2026-08-21T18:49 | [#6570](https://github.com/openova-io/openova/pull/6570) | #6564 | docs(sessions): honest UAT evidence-completeness report (hw3 |
-| 2026-08-21T18:33 | [#6569](https://github.com/openova-io/openova/pull/6569) | #6568 | docs(uat): self-document why the 8 thumbnail-less rows have  |
-| 2026-08-21T18:00 | [#6568](https://github.com/openova-io/openova/pull/6568) | #6509 | docs(uat): re-verify 8 agentic ❌ rows live on hw302 (2026-08 |
-| 2026-08-21T15:55 | [#6567](https://github.com/openova-io/openova/pull/6567) | #4278 | docs(path-to-100): correct row-225 classification — real liv |
 
 ---
 
