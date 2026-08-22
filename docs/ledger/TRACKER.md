@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-22T23:00:07Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-08-22T23:15:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-22T23:02 | [#6604](https://github.com/openova-io/openova/pull/6604) | #3642 | docs(uat): hw304 authed re-walk — rows 53 + 108 → ✅ (186/286 |
 | 2026-08-22T22:50 | [#6603](https://github.com/openova-io/openova/pull/6603) | #3985 | docs(uat): hw304 authed re-walk — rows 215 + 203 → ✅ (184/28 |
 | 2026-08-22T22:00 | [#6602](https://github.com/openova-io/openova/pull/6602) | #3376 | docs(uat): re-walk 74 (voucher auto-generate) live on hw304 |
 | 2026-08-22T21:56 | [#6601](https://github.com/openova-io/openova/pull/6601) | #3383 | docs(uat): re-walk 120 (org-detail heading/breadcrumb/labels |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-22T16:25 | [#6576](https://github.com/openova-io/openova/pull/6576) | #6575 | docs(uat): re-walk batch — 5 console rows confirmed live on  |
 | 2026-08-22T16:14 | [#6575](https://github.com/openova-io/openova/pull/6575) | #6574 | docs(uat): honest hw304 reset + stamp rows 23/84/85 on live  |
 | 2026-08-22T16:06 | [#6574](https://github.com/openova-io/openova/pull/6574) | #6573 | fix: make reset-uat.py HTML-aware so carry-forward demotes r |
-| 2026-08-21T20:53 | [#6572](https://github.com/openova-io/openova/pull/6572) | #6513 | docs(path-to-100): agentic rows are a 4-defect deploy-gated  |
 
 ---
 
