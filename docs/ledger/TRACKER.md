@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-22T17:45:03Z` |
+| Last refreshed | `2026-08-22T18:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-22T17:50 | [#6584](https://github.com/openova-io/openova/pull/6584) | #3987 | docs(uat): re-walk — 5 Cloud per-kind rows (198/200/201/202/ |
 | 2026-08-22T17:44 | [#6583](https://github.com/openova-io/openova/pull/6583) | #6573 | docs(uat): re-walk — treemap drill-down (17) + funnel plans  |
 | 2026-08-22T17:16 | [#6581](https://github.com/openova-io/openova/pull/6581) | #6573 | docs(uat): re-walk — cilium Topology no-DR (row 58) on hw304 |
 | 2026-08-22T17:13 | [#6580](https://github.com/openova-io/openova/pull/6580) | #6573 | docs(uat): re-walk — shared-pg Contexts+Topology (14/24/54)  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-21T04:42 | [#6554](https://github.com/openova-io/openova/pull/6554) | #5393 | docs(uat): EVIDENCE-GAP final — 272/286 (95%), 14 root-cause |
 | 2026-08-21T04:40 | [#6553](https://github.com/openova-io/openova/pull/6553) | #997 | docs(uat): hw302 row 164 — cutover group reflects failed chi |
 | 2026-08-21T04:26 | [#6552](https://github.com/openova-io/openova/pull/6552) | #997 | docs(uat): hw302 Jobs Re-run gating rows 174/175 |
-| 2026-08-21T03:27 | [#6551](https://github.com/openova-io/openova/pull/6551) | #5393 | docs(uat): EVIDENCE-GAP final — 269/286 screenshotted, 17 ro |
 
 ---
 
