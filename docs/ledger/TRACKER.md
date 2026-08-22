@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-22T18:15:03Z` |
+| Last refreshed | `2026-08-22T18:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-22T18:19 | [#6586](https://github.com/openova-io/openova/pull/6586) | #6573 | docs(uat): re-walk — new-org wizard no-prefill (W1) + avatar |
 | 2026-08-22T18:14 | [#6585](https://github.com/openova-io/openova/pull/6585) | #6573 | docs(uat): re-walk — Alloy detail+iconpicker (125/137) + job |
 | 2026-08-22T17:50 | [#6584](https://github.com/openova-io/openova/pull/6584) | #3987 | docs(uat): re-walk — 5 Cloud per-kind rows (198/200/201/202/ |
 | 2026-08-22T17:44 | [#6583](https://github.com/openova-io/openova/pull/6583) | #6573 | docs(uat): re-walk — treemap drill-down (17) + funnel plans  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-21T08:33 | [#6557](https://github.com/openova-io/openova/pull/6557) | #6509 | docs(uat): refresh G8/220/222 ❌ evidence — fresh per-Org cer |
 | 2026-08-21T08:00 | [#6556](https://github.com/openova-io/openova/pull/6556) | #3376 | docs(uat): re-walk rows 88/89/90/91 on hw302 — per-Org conso |
 | 2026-08-21T04:42 | [#6554](https://github.com/openova-io/openova/pull/6554) | #5393 | docs(uat): EVIDENCE-GAP final — 272/286 (95%), 14 root-cause |
-| 2026-08-21T04:40 | [#6553](https://github.com/openova-io/openova/pull/6553) | #997 | docs(uat): hw302 row 164 — cutover group reflects failed chi |
 
 ---
 
