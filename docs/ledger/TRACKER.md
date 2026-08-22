@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-22T20:30:05Z` |
+| Last refreshed | `2026-08-22T20:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-22T20:31 | [#6597](https://github.com/openova-io/openova/pull/6597) | #3668 | docs(uat): re-walk 126 (inline Edit-IaC) + 73 (voucher weak- |
 | 2026-08-22T20:25 | [#6596](https://github.com/openova-io/openova/pull/6596) | #4290 | docs(uat): re-walk 243 (tenant DNS split-horizon) live on hw |
 | 2026-08-22T20:22 | [#6595](https://github.com/openova-io/openova/pull/6595) | #3375 | docs(uat): re-walk 47/48/49 topology-select rows live on hw3 |
 | 2026-08-22T19:50 | [#6594](https://github.com/openova-io/openova/pull/6594) | #3383 | docs(uat): re-walk 117 (org directory columns/labels) live o |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-21T18:00 | [#6568](https://github.com/openova-io/openova/pull/6568) | #6509 | docs(uat): re-verify 8 agentic ❌ rows live on hw302 (2026-08 |
 | 2026-08-21T15:55 | [#6567](https://github.com/openova-io/openova/pull/6567) | #4278 | docs(path-to-100): correct row-225 classification — real liv |
 | 2026-08-21T15:23 | [#6566](https://github.com/openova-io/openova/pull/6566) | #3379 | docs(uat): record the specific 2026-08-21 gate on the 4 ⏳ ro |
-| 2026-08-21T15:08 | [#6565](https://github.com/openova-io/openova/pull/6565) | #6509 | docs(path-to-100): refresh to live hw302 — map the 15 non-gr |
 
 ---
 
