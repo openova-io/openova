@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-22T17:15:04Z` |
+| Last refreshed | `2026-08-22T17:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-22T17:16 | [#6581](https://github.com/openova-io/openova/pull/6581) | #6573 | docs(uat): re-walk — cilium Topology no-DR (row 58) on hw304 |
 | 2026-08-22T17:13 | [#6580](https://github.com/openova-io/openova/pull/6580) | #6573 | docs(uat): re-walk — shared-pg Contexts+Topology (14/24/54)  |
 | 2026-08-22T17:03 | [#6579](https://github.com/openova-io/openova/pull/6579) | #6573 | docs(uat): re-walk — Billing/Vouchers form (row 72) confirme |
 | 2026-08-22T16:59 | [#6578](https://github.com/openova-io/openova/pull/6578) | #6577 | docs(uat): re-walk batch — 4 Catalog rows confirmed live on  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-21T04:26 | [#6552](https://github.com/openova-io/openova/pull/6552) | #997 | docs(uat): hw302 Jobs Re-run gating rows 174/175 |
 | 2026-08-21T03:27 | [#6551](https://github.com/openova-io/openova/pull/6551) | #5393 | docs(uat): EVIDENCE-GAP final — 269/286 screenshotted, 17 ro |
 | 2026-08-21T03:25 | [#6550](https://github.com/openova-io/openova/pull/6550) | #924 | docs(uat): hw302 authorized-action rows 44/96/107/123/231/R1 |
-| 2026-08-21T02:48 | [#6549](https://github.com/openova-io/openova/pull/6549) | #5393 | docs(uat): EVIDENCE-GAP final — 262/286 screenshotted, 24 ro |
 
 ---
 
