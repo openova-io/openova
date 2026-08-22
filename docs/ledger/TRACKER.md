@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-22T15:45:02Z` |
+| Last refreshed | `2026-08-22T16:00:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6058](https://github.com/openova-io/openova/issues/6058) | Flaky required gate: TestSecondaryKubeconfigDelivery_RunsOnFailedDeployment_6015 | Other |
 | [#6060](https://github.com/openova-io/openova/issues/6060) | UAT row 63: TopologyTab returns on the status.perCluster rung and never reads st | Other |
 | [#6062](https://github.com/openova-io/openova/issues/6062) | UAT row 8: GET /sovereign/parent-domains offers no org-pool parents — the list | Other |
 | [#6071](https://github.com/openova-io/openova/issues/6071) | Continuum never reports a standby: leaseClient resolvers are hardcoded to 10.43. | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6509](https://github.com/openova-io/openova/issues/6509) | per-Org console login still 400s on fresh prov: #6504 mid-host wildcard console. | Other |
 | [#6511](https://github.com/openova-io/openova/issues/6511) | cutover step-01 gitea-mirror halts with DeadlineExceeded on the ~470MB monorepo  | Other |
 | [#6513](https://github.com/openova-io/openova/issues/6513) | bp-agenity 0.5.31 creds-resync sidecar lacks liveness/readiness probes — kyver | Other |
+| [#6573](https://github.com/openova-io/openova/issues/6573) | reset-uat.py carry-forward silently no-ops on HTML UAT.md (scans raw HTML with a | Other |
 
 ---
 
