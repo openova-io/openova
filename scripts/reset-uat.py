@@ -132,6 +132,16 @@ docs/sessions/<date>/evidence/. Only the live UAT tables are cleared.
 """
 import sys, os, re, glob, datetime
 
+# UAT.md is now an HTML <table> — rows are `<tr id="row-N">…</tr>` — and the drift
+# guard (scripts/uat-drift-guard.py) reads it by routing the file text through
+# `uat_html_compat.to_pipe()` before scanning. This script MUST be symmetric with
+# the guard or it demotes nothing: `scan_text`/`CELL_SPLIT` expect pipe-delimited
+# markdown and match ZERO rows on raw HTML. So it identifies stale rows from the
+# SAME to_pipe() projection the guard scans, then writes the demotion back into the
+# ORIGINAL HTML. Imported the same way the guard imports it (scripts/ on sys.path).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from uat_html_compat import to_pipe  # noqa: E402
+
 USAGE = "Usage: reset-uat.py [<env-label>]      e.g.  reset-uat.py hwNNN"
 
 # A flag-shaped argv[1] is NEVER an env label. Before this guard, `reset-uat.py
@@ -414,6 +424,76 @@ def carry_row(cells, guard):
     return changed
 
 
+# --------------------------------------------------------------------------- #
+# HTML-<table> ledger support. The demotion above rewrites a markdown pipe row;  #
+# the one below rewrites the equivalent `<tr>` block IN PLACE. They are the two   #
+# writers of the SAME semantics — flip the Result verdict to ⏳, prefix Evidence  #
+# with CARRY_PREFIX, keep every proof character, never touch the assertion.       #
+# --------------------------------------------------------------------------- #
+
+# Detect the HTML ledger by the presence of a `<tr` tag (the guard's to_pipe is a
+# no-op on legacy pipe markdown, so a file with no `<tr` stays on the pipe path).
+_HTML_TR = re.compile(r"<tr\b", re.I)
+
+# One <td>/<th> as (open-tag, inner-html, close-tag) so a rewrite can swap ONLY
+# the inner html and keep the tag + its attributes byte-for-byte.
+_HTML_TD = re.compile(r"(<t[dh]\b[^>]*>)(.*?)(</t[dh]>)", re.I | re.S)
+
+# The Result <td> opens on the verdict glyph, optionally wrapped in <strong>/<em>;
+# flip ONLY that leading positive glyph and keep the trailing <sub>env-date</sub>.
+# Mirrors the guard's POS_EVIDENCE (✅ or the literal word PASS) in HTML terms.
+_HTML_RESULT_POS = re.compile(r"^(\s*(?:<(?:strong|b|em|i)>\s*)*)(✅|PASS\b)")
+
+
+def _is_html_ledger(text):
+    """True for the HTML-<table> ledger, False for legacy pipe markdown."""
+    return bool(_HTML_TR.search(text))
+
+
+def _sub_cells(line, replacements):
+    """Rebuild an HTML <tr> line swapping ONLY the inner html of the cells named in
+    `replacements` ({cell_index: new_inner}). The <tr …>, each <td …> open tag and
+    its attributes, and all inter-cell whitespace are preserved byte-for-byte."""
+    out, last, idx = [], 0, 0
+    for m in _HTML_TD.finditer(line):
+        if idx in replacements:
+            out.append(line[last:m.start()])
+            out.append(m.group(1) + replacements[idx] + m.group(3))
+            last = m.end()
+        idx += 1
+    out.append(line[last:])
+    return "".join(out)
+
+
+def carry_tr(line):
+    """Demote ONE HTML `<tr>` row, symmetric with carry_row on the pipe path.
+
+    Flips the Result cell's leading verdict glyph (✅ / any POS glyph) to `⏳`
+    while KEEPING its `<sub>env-date</sub>`, and prefixes the Evidence cell's inner
+    text with `CARRY_PREFIX` — preserving every character of the original proof
+    (founder rule 2026-08-11: a wipe CARRIES evidence forward, never zeroes it).
+
+    Returns the new line, or None if the row is not a 4/5-cell data row whose
+    Result opens on a positive verdict (so a ❌/⏳/⚠️ row, or the header, is left
+    untouched). The Result cell is index 2 and the Evidence cell is the LAST cell
+    under BOTH the current 5-column and the legacy 4-column HTML layouts; the
+    Test-case (assertion) cell is never in that set — it is the row's identity.
+    """
+    cells = _HTML_TD.findall(line)
+    if len(cells) not in (4, 5):
+        return None
+    result_inner = cells[2][1]
+    m = _HTML_RESULT_POS.match(result_inner)
+    if not m:
+        return None
+    new_result = result_inner[:m.start(2)] + CARRIED_VERDICT + result_inner[m.end(2):]
+    ev_idx = len(cells) - 1
+    ev_inner = cells[ev_idx][1]
+    new_ev = (ev_inner if ev_inner.lstrip().startswith(CARRIED_VERDICT)
+              else CARRY_PREFIX + ev_inner)
+    return _sub_cells(line, {2: new_result, ev_idx: new_ev})
+
+
 def carry_forward_text(text, env, guard, is_master, carried=frozenset()):
     """Return (new_text, n_rows_carried) for one ledger file.
 
@@ -425,14 +505,29 @@ def carry_forward_text(text, env, guard, is_master, carried=frozenset()):
     does not supply it gets the strict re-mark-everything behaviour rather than
     accidentally leaving stale rows green.
     """
+    # Identify stale rows from the projection the guard actually scans. On the
+    # HTML ledger that is `to_pipe(text)`; on legacy pipe markdown it is the text
+    # itself (to_pipe is a no-op there). to_pipe is line-preserving — one output
+    # line per input line — so a violation's line number indexes straight back
+    # into the ORIGINAL file, and the demotion is written there, in whichever
+    # format the row is stored.
+    is_html = _is_html_ledger(text)
+    scan_src = to_pipe(text) if is_html else text
     lines = text.split("\n")
-    stale_lines = {ln for ln, _stale, _exc in guard.scan_text(text, env, carried=carried)}
+    stale_lines = {ln for ln, _stale, _exc in guard.scan_text(scan_src, env, carried=carried)}
     n = 0
     for lineno in sorted(stale_lines):
-        cells = CELL_SPLIT.split(lines[lineno - 1])
-        if carry_row(cells, guard):
-            lines[lineno - 1] = "|".join(cells)
-            n += 1
+        orig = lines[lineno - 1]
+        if is_html:
+            new = carry_tr(orig)
+            if new is not None and new != orig:
+                lines[lineno - 1] = new
+                n += 1
+        else:
+            cells = CELL_SPLIT.split(orig)
+            if carry_row(cells, guard):
+                lines[lineno - 1] = "|".join(cells)
+                n += 1
     out = "\n".join(lines)
 
     if is_master and env:
@@ -520,6 +615,40 @@ _SELFTEST_UAT = """# UAT — ground reality on `hw900.omani.works` (2026-06-17)
 | 3 | net | [#3](u) | MTU is consistent | — | ❌ | hw800-2026-06-15: DF-drop at 1400 on the cross-node path (docs/sessions/2026-06-15/evidence/hw800-mtu.txt) |
 | 4 | jan | [#4](u) | sweep protects a live env | hw800-2026-06-15 | ✅ | hw800-2026-06-15T02:3xZ LIVE OBSERVATION — 65 passes, evidence/hw800-jan.txt
 """
+
+
+# The regression this PR exists to prevent: on the HTML-<table> ledger (rows are
+# `<tr id="row-N">…</tr>`) the pipe-format scan matched ZERO rows, so a reset
+# demoted NOTHING and then failed its own end-of-run assert. This fixture is the
+# real ledger's 5-column shape (# / 📷 / Result / Test case / Evidence). Each <tr>
+# is ONE line, because to_pipe() is line-preserving and the demotion is written
+# back by line number. Row 1 is a ✅ citing a PREDECESSOR (hw800) with a
+# screenshot — it MUST demote to ⏳ with its proof intact. Row 2 is a ✅ on the
+# CURRENT env (hw900) and Row 3 is a ❌ — both CONTROLS that must be left alone.
+_SELFTEST_HTML = (
+    "# UAT — ground reality on `hw900.omani.works` (2026-06-17)\n"
+    "\n"
+    '<table width="100%">\n'
+    "<thead><tr><th>#</th><th>📷</th><th>Result</th><th>Test case</th><th>Evidence</th></tr></thead>\n"
+    "<tbody>\n"
+    '<tr id="row-1"><td><strong>1</strong><br><sub>sso · <a href="https://x/1">#1</a></sub></td>'
+    '<td><a href="screenshots/hw800-1.png" title="click to enlarge"><img src="screenshots/hw800-1.png" width="150"></a><br><sub>hw800-2026-06-15</sub></td>'
+    "<td>✅<br><sub>hw800-2026-06-15</sub></td>"
+    "<td>lands signed-in on the predecessor</td>"
+    '<td>hw800-2026-06-15T02:1xZ LIVE WALK — 302 to realms/sovereign (<a href="../sessions/2026-06-15/evidence/hw800-09.png">shot</a>)</td></tr>\n'
+    '<tr id="row-2"><td><strong>2</strong><br><sub>dr · <a href="https://x/2">#2</a></sub></td>'
+    '<td><a href="screenshots/hw900-2.png" title="click to enlarge"><img src="screenshots/hw900-2.png" width="150"></a><br><sub>hw900-2026-06-17</sub></td>'
+    "<td>✅<br><sub>hw900-2026-06-17</sub></td>"
+    "<td>RTO under 10s on the current env</td>"
+    '<td>hw900-2026-06-17T09:0xZ LIVE WALK — RTO 4s (<a href="../sessions/2026-06-17/evidence/hw900-ns4.txt">ns</a>)</td></tr>\n'
+    '<tr id="row-3"><td><strong>3</strong><br><sub>net · <a href="https://x/3">#3</a></sub></td>'
+    "<td><sub>—</sub></td>"
+    "<td>❌<br><sub>hw800-2026-06-15</sub></td>"
+    "<td>MTU is consistent</td>"
+    '<td>hw800-2026-06-15: DF-drop at 1400 on the cross-node path (<a href="../sessions/2026-06-15/evidence/hw800-mtu.txt">mtu</a>)</td></tr>\n'
+    "</tbody>\n"
+    "</table>\n"
+)
 
 
 def _selftest():
@@ -651,6 +780,69 @@ def _selftest():
              f"CONTROL — the row the scheduler owes a walk IS re-marked (carried {total}, want 1)")
         emit(guard.guard(current_env="hw900", root=d, quiet=True) == 0,
              "the guard is green on the mixed ledger (one carried, one re-marked)")
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+    # ----------------------------------------------------------------------- #
+    # THE HTML-LEDGER REGRESSION. Before this PR, reset-uat scanned the raw     #
+    # HTML with a pipe parser, matched ZERO <tr> rows, demoted nothing, and     #
+    # then failed its own end-of-run assert. This fixture proves the demotion   #
+    # ACTUALLY fires on `<tr>` rows and preserves evidence — no live confidence  #
+    # data consulted (no observation log is written, so consent is empty and    #
+    # the stale ✅ carries).                                                     #
+    # ----------------------------------------------------------------------- #
+    d = tempfile.mkdtemp()
+    try:
+        uat = os.path.join(d, "docs", "ledger", "UAT.md")
+        os.makedirs(os.path.dirname(uat))
+        open(uat, "w", encoding="utf-8").write(_SELFTEST_HTML)
+
+        # VACUITY first: the guard reads the SAME HTML via to_pipe, so it must be
+        # RED before carry-forward — row-1 is a ✅ citing hw800 on an hw900 ledger.
+        emit(guard.guard(current_env="hw900", root=d, quiet=True) == 1,
+             "HTML — VACUITY: the guard is RED before carry-forward (a <tr> ✅ cites hw800)")
+
+        total, _t = carry_forward("hw900", root=d)
+        emit(total == 1, f"HTML — exactly the stale <tr> row carried (got {total}, want 1)")
+
+        after = open(uat, encoding="utf-8").read()
+        rows = {}
+        for line in after.split("\n"):
+            m = re.match(r'\s*<tr id="row-([^"]+)">', line)
+            if m:
+                rows[m.group(1)] = [inner for _o, inner, _c in _HTML_TD.findall(line)]
+
+        def _glyph(inner):
+            return re.sub(r"<[^>]+>", "", inner).strip()[:1]
+
+        emit(guard.guard(current_env="hw900", root=d, quiet=True) == 0,
+             "HTML — the guard is GREEN after carry-forward")
+        emit(_glyph(rows["1"][2]) == CARRIED_VERDICT,
+             f"HTML — stale <tr> ✅ became {CARRIED_VERDICT} (got {_glyph(rows['1'][2])!r})")
+        # The Result cell KEEPS its <sub>env-date</sub> — only the glyph flipped.
+        emit("<sub>hw800-2026-06-15</sub>" in rows["1"][2],
+             "HTML — the Result cell keeps its <sub>env-date</sub> (only the glyph flipped)")
+        # Founder rule 2026-08-11, asserted on HTML: nothing is zeroed.
+        ev1 = rows["1"][4]
+        emit("hw800-09.png" in ev1 and "hw800-2026-06-15T02:1xZ" in ev1,
+             "HTML — evidence PRESERVED verbatim (artifact link and env stamp both survive)")
+        emit(_glyph(ev1) == CARRIED_VERDICT and CARRY_PREFIX.strip()[:20] in ev1,
+             "HTML — Evidence cell OPENS on the carry marker (verdict and prose agree)")
+        emit("hw900" not in ev1,
+             "HTML — the carry marker names NO env (or uat-confidence would invent a walk)")
+        # The assertion (Test case) cell is the row's identity — never touched.
+        emit(rows["1"][3] == "lands signed-in on the predecessor",
+             "HTML — the Test-case (assertion) cell is untouched")
+        # CONTROLS. Without these the function could re-mark every row.
+        emit(_glyph(rows["2"][2]) == "✅",
+             "HTML — CONTROL: a ✅ already on the CURRENT env is untouched")
+        emit(_glyph(rows["3"][2]) == "❌",
+             "HTML — CONTROL: a ❌ is untouched (a wipe never invents a pass)")
+
+        # Idempotence on HTML: the reset runs on every fire, including re-fires.
+        again, _ = carry_forward("hw900", root=d)
+        emit(again == 0 and open(uat, encoding="utf-8").read() == after,
+             "HTML — re-running is a no-op (idempotent)")
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
