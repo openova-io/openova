@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-22T17:00:04Z` |
+| Last refreshed | `2026-08-22T17:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-22T17:13 | [#6580](https://github.com/openova-io/openova/pull/6580) | #6573 | docs(uat): re-walk — shared-pg Contexts+Topology (14/24/54)  |
+| 2026-08-22T17:03 | [#6579](https://github.com/openova-io/openova/pull/6579) | #6573 | docs(uat): re-walk — Billing/Vouchers form (row 72) confirme |
 | 2026-08-22T16:59 | [#6578](https://github.com/openova-io/openova/pull/6578) | #6577 | docs(uat): re-walk batch — 4 Catalog rows confirmed live on  |
 | 2026-08-22T16:32 | [#6577](https://github.com/openova-io/openova/pull/6577) | #6576 | docs(uat): re-walk batch — 6 Jobs-page rows confirmed live o |
 | 2026-08-22T16:25 | [#6576](https://github.com/openova-io/openova/pull/6576) | #6575 | docs(uat): re-walk batch — 5 console rows confirmed live on  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-21T03:27 | [#6551](https://github.com/openova-io/openova/pull/6551) | #5393 | docs(uat): EVIDENCE-GAP final — 269/286 screenshotted, 17 ro |
 | 2026-08-21T03:25 | [#6550](https://github.com/openova-io/openova/pull/6550) | #924 | docs(uat): hw302 authorized-action rows 44/96/107/123/231/R1 |
 | 2026-08-21T02:48 | [#6549](https://github.com/openova-io/openova/pull/6549) | #5393 | docs(uat): EVIDENCE-GAP final — 262/286 screenshotted, 24 ro |
-| 2026-08-21T02:40 | [#6548](https://github.com/openova-io/openova/pull/6548) | #997 | docs(uat): hw302 row 238 — per-Org postgres-in-vcluster CNPG |
-| 2026-08-21T02:32 | [#6547](https://github.com/openova-io/openova/pull/6547) | #934 | docs(uat): hw302 treemap-adjudication + provisioning rows 18 |
 
 ---
 
