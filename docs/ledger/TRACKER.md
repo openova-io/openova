@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-22T19:15:01Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-08-22T19:30:09Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-22T19:21 | [#6591](https://github.com/openova-io/openova/pull/6591) | #3668 | docs(uat): re-walk 141/146 catalog inline-edit rows live on  |
+| 2026-08-22T19:17 | [#6590](https://github.com/openova-io/openova/pull/6590) | #3668 | docs(uat): re-walk 131/136/138 catalog icon-editor rows live |
 | 2026-08-22T18:54 | [#6589](https://github.com/openova-io/openova/pull/6589) | #3668 | docs(uat): re-walk 151 (Alloy+Postgres identical edit chrome |
 | 2026-08-22T18:46 | [#6588](https://github.com/openova-io/openova/pull/6588) | #3379 | docs(uat): re-walk 159/160/130 render rows live on hw304 |
 | 2026-08-22T18:35 | [#6587](https://github.com/openova-io/openova/pull/6587) | #3383 | docs(uat): re-walk 116/118/119/124 render rows live on hw304 |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-21T12:26 | [#6562](https://github.com/openova-io/openova/pull/6562) | docs(uat): 171 — authed /jobs HR-install mapping (fresh 2026 |  |
 | 2026-08-21T11:33 | [#6561](https://github.com/openova-io/openova/pull/6561) | docs(uat): G7 — authed /organizations Isolation column (vclu |  |
 | 2026-08-21T10:55 | [#6560](https://github.com/openova-io/openova/pull/6560) | docs(uat): re-verify 185 — wiped-env-never-green is guard-en |  |
-| 2026-08-21T10:54 | [#6559](https://github.com/openova-io/openova/pull/6559) | docs(uat): re-derive R20 at HEAD — deploy-bot per-line pin b |  |
-| 2026-08-21T09:04 | [#6558](https://github.com/openova-io/openova/pull/6558) | #6509 | docs(uat): refresh agentic G8/G9/218-223 ❌ — cert+404 proof  |
 
 ---
 
