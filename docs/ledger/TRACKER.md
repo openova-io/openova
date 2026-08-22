@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-22T20:15:03Z` |
+| Last refreshed | `2026-08-22T20:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-22T20:25 | [#6596](https://github.com/openova-io/openova/pull/6596) | #4290 | docs(uat): re-walk 243 (tenant DNS split-horizon) live on hw |
+| 2026-08-22T20:22 | [#6595](https://github.com/openova-io/openova/pull/6595) | #3375 | docs(uat): re-walk 47/48/49 topology-select rows live on hw3 |
 | 2026-08-22T19:50 | [#6594](https://github.com/openova-io/openova/pull/6594) | #3383 | docs(uat): re-walk 117 (org directory columns/labels) live o |
 | 2026-08-22T19:37 | [#6593](https://github.com/openova-io/openova/pull/6593) | #3985 | docs(uat): re-walk 214 (no SME/tenant banned-term leak) live |
 | 2026-08-22T19:33 | [#6592](https://github.com/openova-io/openova/pull/6592) | #4546 | docs(uat): re-walk 1/3/97/122/167 authed-session nav rows li |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-21T15:55 | [#6567](https://github.com/openova-io/openova/pull/6567) | #4278 | docs(path-to-100): correct row-225 classification — real liv |
 | 2026-08-21T15:23 | [#6566](https://github.com/openova-io/openova/pull/6566) | #3379 | docs(uat): record the specific 2026-08-21 gate on the 4 ⏳ ro |
 | 2026-08-21T15:08 | [#6565](https://github.com/openova-io/openova/pull/6565) | #6509 | docs(path-to-100): refresh to live hw302 — map the 15 non-gr |
-| 2026-08-21T13:35 | [#6564](https://github.com/openova-io/openova/pull/6564) | #4706 | docs(uat): row 243 ⏳→✅ tenant DNS split-horizon re-confirmed |
-| 2026-08-21T12:45 | [#6563](https://github.com/openova-io/openova/pull/6563) | docs(uat): 101 ⏳→✅ — org-detail isolation derived from backi |  |
 
 ---
 
