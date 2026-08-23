@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T08:00:06Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-08-23T08:15:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T08:08 | [#6631](https://github.com/openova-io/openova/pull/6631) | #3380 | docs(uat): R5/R8/M2/68 → ✅ — robustness rows via live read-o |
+| 2026-08-23T08:04 | [#6630](https://github.com/openova-io/openova/pull/6630) | #3376 | docs(uat): rows 96/123/178 → ✅ — signed handover URL lands o |
 | 2026-08-23T07:40 | [#6628](https://github.com/openova-io/openova/pull/6628) | #4442 | fix(bp-postgres): singleton shared-pg admits region-B keyclo |
 | 2026-08-23T07:06 | [#6626](https://github.com/openova-io/openova/pull/6626) | #3376 | docs(uat): rows 93 + 94 → ✅ — 2nd funnel Org, zero-click con |
 | 2026-08-23T06:20 | [#6625](https://github.com/openova-io/openova/pull/6625) | #3376 | docs(uat): row 88 → ✅ — per-Org console zero-click signed-in |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-22T22:00 | [#6602](https://github.com/openova-io/openova/pull/6602) | #3376 | docs(uat): re-walk 74 (voucher auto-generate) live on hw304 |
 | 2026-08-22T21:56 | [#6601](https://github.com/openova-io/openova/pull/6601) | #3383 | docs(uat): re-walk 120 (org-detail heading/breadcrumb/labels |
 | 2026-08-22T21:49 | [#6600](https://github.com/openova-io/openova/pull/6600) | #3376 | docs(uat): re-walk redeem 76 (junk-code reject) + 77 (source |
-| 2026-08-22T21:46 | [#6599](https://github.com/openova-io/openova/pull/6599) | #3376 | docs(uat): re-walk funnel 75/78/80/81/82/W4 live on hw304 (c |
-| 2026-08-22T20:53 | [#6598](https://github.com/openova-io/openova/pull/6598) | #3998 | docs(uat): re-walk 199 (cloud Gateway page → 2 cilium Gatewa |
 
 ---
 
