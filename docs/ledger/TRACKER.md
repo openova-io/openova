@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T18:00:04Z` |
+| Last refreshed | `2026-08-23T18:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T18:13 | [#6657](https://github.com/openova-io/openova/pull/6657) | docs(uat): hw305 Walk D → ✅256 (12 console-render/voucher/to |  |
 | 2026-08-23T17:49 | [#6656](https://github.com/openova-io/openova/pull/6656) | docs(uat): confirm hw305 as live env in H1 header (greens dr |  |
 | 2026-08-23T17:32 | [#6655](https://github.com/openova-io/openova/pull/6655) | #3998 | docs(uat): hw305 rows 1/47/72/203 → ✅244 (Walk C authed cons |
 | 2026-08-23T17:07 | [#6654](https://github.com/openova-io/openova/pull/6654) | #4180 | docs(uat): hw305 218 → ✅ (240) — chepherd installable |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-23T07:40 | [#6628](https://github.com/openova-io/openova/pull/6628) | #4442 | fix(bp-postgres): singleton shared-pg admits region-B keyclo |
 | 2026-08-23T07:06 | [#6626](https://github.com/openova-io/openova/pull/6626) | #3376 | docs(uat): rows 93 + 94 → ✅ — 2nd funnel Org, zero-click con |
 | 2026-08-23T06:20 | [#6625](https://github.com/openova-io/openova/pull/6625) | #3376 | docs(uat): row 88 → ✅ — per-Org console zero-click signed-in |
-| 2026-08-23T05:59 | [#6624](https://github.com/openova-io/openova/pull/6624) | #3375 | docs(uat): row 61 → ✅ — apps grid shows new postgres with ma |
 
 ---
 
