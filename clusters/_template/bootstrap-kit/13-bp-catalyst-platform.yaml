@@ -1483,7 +1483,7 @@ spec:
       #   ~470 MB monorepo bare-clone + force-push over a throttled egress finishes
       #   inside budget; the old 20-min ceiling reaped the Job as DeadlineExceeded
       #   and wedged the cutover at step-01 on hw302).
-      version: 1.4.1558
+      version: 1.4.1559
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
