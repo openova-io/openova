@@ -1089,7 +1089,12 @@ spec:
       #   URL-injecting ${GITEA_USERNAME}:${GITEA_PASSWORD}@, which FATALed the push
       #   when the region-local Gitea admin password held a URL-special char (hw301
       #   region-B: API basic-auth succeeded, git push "Could not read from remote").
-      version: 0.1.197
+      # 0.1.198 (#6511, Refs #6508): step-01 gitea-mirror activeDeadlineSeconds raised
+      #   1200 -> 2700 (45m). The ~470 MB monorepo bare-clone + force-push over a
+      #   throttled IPv4-only egress runs ~19 min, and the 20-min ceiling plus the
+      #   DNS/PAT readiness waits reaped the Job as DeadlineExceeded before the mirror
+      #   landed (hw302), wedging the cutover at step-01 (G11 / UAT row 166).
+      version: 0.1.198
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

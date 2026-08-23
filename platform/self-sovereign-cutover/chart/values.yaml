@@ -2681,7 +2681,27 @@ helmReadinessProbe:
 # Per-step Job-stamp tuning. Each value lands inside the corresponding
 # PodSpec ConfigMap; catalyst-api copies it onto the stamped Job.
 stepTimeouts:
-  giteaMirrorSeconds: 1200
+  # #6511 step-01 DeadlineExceeded (hw302, 2026-08-20): raised 1200 -> 2700 (45m).
+  # Step-01 bare-clones the openova monorepo — now ~470 MB packed history (the
+  # 01-gitea-mirror script already documents "472 MB bare, ~19 min over the
+  # kom4dc IPv4-only egress" at #6487) — from github.com and force-pushes every
+  # branch + tag into the local Gitea. The old 1200s (20m) ceiling was blown by
+  # the DNS-readiness wait (<=150s) + PAT-read wait (<=150s) + that ~19-min
+  # clone + the push, so the Job was reaped as DeadlineExceeded before the
+  # mirror landed (Job condition FailureTarget/Failed, reason DeadlineExceeded)
+  # and the cutover never reached step-02+ (G11 / UAT row 166 wedged). Same
+  # large-repo cause as #6508 (the Flux GitRepository clone stall), here hitting
+  # the cutover Job's own deadline. 2700s (45m) leaves comfortable headroom for
+  # a worst-case ~470 MB clone+push over a throttled link. The clone stays
+  # --bare on purpose: step-01 pushes ALL refs, so it needs full history + all
+  # blobs — a --depth / --filter=blob:none clone would only move the blob
+  # transfer to push time (or break the mirror push), so it is NOT a safe
+  # transfer-cost cut here; the deadline bump is the safe, sufficient fix.
+  # catalyst-api stamps this same value onto BOTH the K8s Job activeDeadlineSeconds
+  # AND its own watch context (cutover.go createCutoverJob / watchJobToCompletion),
+  # and the step stays event-driven (a fast run returns in minutes and never waits
+  # out the ceiling). Operators on a slower link can raise it further via overlay.
+  giteaMirrorSeconds: 2700
   harborProjectsSeconds: 600
   # #3379 step-03 DeadlineExceeded (hw139, 2026-06-15): Step-03 skopeo-
   # native-pushes ~29 multi-layer PRIVATE openova-io images ghcr.io→local

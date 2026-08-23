@@ -4182,7 +4182,16 @@ name: bp-self-sovereign-cutover
 #   bp-self-sovereign-cutover HelmRelease; the label sits on the Job metadata only
 #   (the policy matches kind Job, not the Pod). The API blueprints.json + the
 #   generated UI catalog move to 0.1.196 in lockstep.
-version: 0.1.197
+# 0.1.198 (#6511, Refs #6508) — step-01 gitea-mirror activeDeadlineSeconds raised
+#   1200 -> 2700 (stepTimeouts.giteaMirrorSeconds). Step-01 bare-clones the ~470 MB
+#   openova monorepo from github.com and force-pushes every ref into the local
+#   Gitea; over a throttled IPv4-only egress that clone+push runs ~19 min, and the
+#   20-min ceiling plus the DNS/PAT readiness waits reaped the Job as
+#   DeadlineExceeded before the mirror landed (hw302), wedging the cutover at
+#   step-01 (G11 / UAT row 166). 45 min gives comfortable headroom; the clone stays
+#   --bare (it needs all refs+blobs to push). Chart-test Case 97 pins the raised
+#   deadline. Catalog + bootstrap-kit slot 06a move to 0.1.198 in lockstep.
+version: 0.1.198
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

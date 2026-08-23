@@ -5528,4 +5528,46 @@ fi
 if [ "$c96_fail" -ne 0 ]; then exit 1; fi
 echo "  PASS (#6490: the secondary-mirror + primary resync git push/ls-remote authenticate via an http.extraHeader Authorization: Basic — the same header the curl API calls use — against a credential-free remote URL; zero admin-password URL-injection survives, so a URL-special-char Gitea admin password no longer FATALs the push)"
 
+echo "[cutover-contract] Case 97: Step-01 gitea-mirror activeDeadlineSeconds must cover the ~470MB monorepo clone+push over a throttled link (#6511, Refs #6508 #3379, UAT row 166)"
+# hw302 live (2026-08-20): step-01 bare-clones the openova monorepo — now ~470 MB
+# packed history — from github.com and force-pushes every branch + tag into the
+# local Gitea. Over the throttled IPv4-only egress that clone+push runs ~19 min
+# on its own (the 01-gitea-mirror script documents "472 MB bare, ~19 min over the
+# kom4dc IPv4-only egress" at #6487). The old stepTimeouts.giteaMirrorSeconds=1200
+# (20m) was blown by the DNS wait (<=150s) + PAT wait (<=150s) + that clone + the
+# push, so the Job was reaped as DeadlineExceeded before the mirror landed and the
+# cutover never reached step-02+ (G11 / UAT row 166 wedged). Same large-repo cause
+# as #6508. catalyst-api stamps this same value onto BOTH the K8s Job
+# activeDeadlineSeconds AND its own watch context, so an undersized ceiling kills a
+# still-progressing mirror. Locks: (1) the step-01 Job carries a deadline of AT
+# LEAST 2700s (45m); (2) it is NOT the old, insufficient 1200s; (3) the deadline
+# threads from stepTimeouts.giteaMirrorSeconds (a tunable chart value), proven by a
+# control that overrides it — so the assertion pins the real, operator-tunable
+# field, not a hardcoded literal or some other step's deadline.
+awk '/cutover-step-01-gitea-mirror/{c=1} c{print} c&&/cutover-order: "2"/{exit}' "$TMP/render.yaml" > "$TMP/step01_deadline.txt"
+[ -s "$TMP/step01_deadline.txt" ] || { echo "FAIL: Step-01 gitea-mirror ConfigMap did not render — cannot assert its deadline (#6511)" >&2; exit 1; }
+c97_dl=$(grep -E 'activeDeadlineSeconds:[[:space:]]*[0-9]+' "$TMP/step01_deadline.txt" | head1 | grep -oE '[0-9]+')
+if [ -z "$c97_dl" ]; then
+  echo "FAIL: Step-01 gitea-mirror carries NO numeric activeDeadlineSeconds — the Job would inherit a default/unbounded deadline, not the sized clone budget (#6511)" >&2
+  exit 1
+fi
+if [ "$c97_dl" -lt 2700 ]; then
+  echo "FAIL: Step-01 gitea-mirror activeDeadlineSeconds is ${c97_dl}s, below the 2700s (45m) floor sized for the ~470MB clone+push over a throttled link — the ~19-min clone + DNS/PAT waits can exceed it and reap the Job as DeadlineExceeded (#6511, hw302)" >&2
+  exit 1
+fi
+if [ "$c97_dl" = "1200" ]; then
+  echo "FAIL: Step-01 gitea-mirror activeDeadlineSeconds is still the old 1200s that DeadlineExceeded on hw302 (#6511)" >&2
+  exit 1
+fi
+# (3) control — the deadline is the tunable stepTimeouts.giteaMirrorSeconds, not a
+# literal: overriding it must move step-01's rendered deadline in lockstep.
+helm template smoke-giteadl . --set stepTimeouts.giteaMirrorSeconds=3600 > "$TMP/render-giteadl.yaml"
+awk '/cutover-step-01-gitea-mirror/{c=1} c{print} c&&/cutover-order: "2"/{exit}' "$TMP/render-giteadl.yaml" > "$TMP/step01_giteadl.txt"
+c97_override=$(grep -E 'activeDeadlineSeconds:[[:space:]]*[0-9]+' "$TMP/step01_giteadl.txt" | head1 | grep -oE '[0-9]+')
+if [ "$c97_override" != "3600" ]; then
+  echo "FAIL: overriding stepTimeouts.giteaMirrorSeconds=3600 rendered step-01 deadline '${c97_override}', not 3600 — the deadline is not threaded from the tunable value (#6511)" >&2
+  exit 1
+fi
+echo "  PASS (Step-01 gitea-mirror deadline is ${c97_dl}s >= 2700s and threads from stepTimeouts.giteaMirrorSeconds — the ~470MB clone+push fits inside budget; a --set override moves it in lockstep)"
+
 echo "[cutover-contract] All gates green."
