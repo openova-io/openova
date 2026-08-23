@@ -1094,7 +1094,13 @@ spec:
       #   throttled IPv4-only egress runs ~19 min, and the 20-min ceiling plus the
       #   DNS/PAT readiness waits reaped the Job as DeadlineExceeded before the mirror
       #   landed (hw302), wedging the cutover at step-01 (G11 / UAT row 166).
-      version: 0.1.198
+      # 0.1.199 (#6645, Refs #6490): the SECONDARY-region gitea-mirror leg mints a
+      #   region-local Gitea PAT and git-auths the push/ls-remote WITH IT (mirroring
+      #   the PRIMARY step-01). hw305 region-B: the curl API accepted the admin
+      #   password but Gitea's git-over-HTTP refuses a password under an external
+      #   login source, so the header-authed PASSWORD push FATALed "Could not read
+      #   from remote repository" and wedged the cutover at step-01.
+      version: 0.1.199
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

@@ -172,19 +172,48 @@ if grep -qF 'app.kubernetes.io/managed-by: flux' "${TMP}/secjob.yaml"; then
 else
   fail "secondary mirror Job lacks app.kubernetes.io/managed-by: flux — ns gitea's kyverno flux-managed ClusterPolicy DENIES step-01's set -e apply and the cutover halts (#6493)"
 fi
-# #6490 header-auth: the push + ls-remote authenticate with the SAME
-# Authorization: Basic http.extraHeader the curl API calls use — NOT a
-# URL-injected admin password, which FATALs ("Could not read from remote
-# repository") when the region-local Gitea password holds a URL-special char.
-if grep -qF 'http.extraHeader="Authorization: Basic ${basic_auth}" push --force' "${TMP}/secmirror.sh"; then
-  pass "secondary-mirror.sh force-pushes via the Authorization: Basic http.extraHeader (#6490)"
+# #6645 push-auth parity with the PRIMARY: the git push + ls-remote authenticate
+# with a freshly MINTED region-local PAT (token_auth header), NOT the admin
+# password (basic_auth). Gitea's git-over-HTTP BasicAuth refuses an account
+# password when an external login source (openova-sso OAuth2) is configured, so
+# the pre-#6645 basic_auth-password push FATALed ("Could not read from remote
+# repository") on the secondary even though the curl API accepted the same
+# password. The push URL still carries NO credentials (#6490 safety preserved).
+if grep -qF 'users/${GITEA_USERNAME}/tokens' "${TMP}/secmirror.sh" \
+   && grep -qF 'GITEA_PAT=$(printf' "${TMP}/secmirror.sh" \
+   && grep -qF '"sha1":' "${TMP}/secmirror.sh"; then
+  pass "secondary-mirror.sh mints a region-local PAT via the admin BasicAuth API and captures its sha1 (#6645)"
 else
-  fail "secondary-mirror.sh does not header-authenticate the force-push (#6490)"
+  fail "secondary-mirror.sh does not mint a region-local PAT for the push (#6645)"
 fi
-if grep -qF 'http.extraHeader="Authorization: Basic ${basic_auth}" ls-remote --heads' "${TMP}/secmirror.sh"; then
-  pass "secondary-mirror.sh ls-remote self-verifies via the header (the #6490 ordering gate)"
+if grep -qF 'token_auth=$(printf' "${TMP}/secmirror.sh" \
+   && grep -qF '${GITEA_USERNAME}:${GITEA_PAT}' "${TMP}/secmirror.sh"; then
+  pass "secondary-mirror.sh builds the token_auth header from user:PAT (#6645)"
 else
-  fail "secondary-mirror.sh lacks the header-authed git ls-remote success gate (#6490)"
+  fail "secondary-mirror.sh does not build a user:PAT BasicAuth header (#6645)"
+fi
+if grep -qF 'http.extraHeader="Authorization: Basic ${token_auth}" push --force' "${TMP}/secmirror.sh"; then
+  pass "secondary-mirror.sh force-pushes via the MINTED-PAT http.extraHeader (#6645 push-auth parity)"
+else
+  fail "secondary-mirror.sh does not PAT-authenticate the force-push (#6645)"
+fi
+if grep -qF 'http.extraHeader="Authorization: Basic ${token_auth}" ls-remote --heads' "${TMP}/secmirror.sh"; then
+  pass "secondary-mirror.sh ls-remote self-verifies via the minted-PAT header (the #6490 ordering gate, #6645 auth)"
+else
+  fail "secondary-mirror.sh lacks the PAT-authed git ls-remote success gate (#6645)"
+fi
+# anti-regression (non-vacuous — TRUE on the pre-#6645 basic_auth-password push):
+# the git push/ls-remote must NOT authenticate with the admin-password header.
+if grep -qE 'http\.extraHeader="Authorization: Basic \$\{basic_auth\}" (push|ls-remote)' "${TMP}/secmirror.sh"; then
+  fail "secondary-mirror.sh still git-auths with the admin password (basic_auth) — Gitea git-HTTP refuses a password under an external login source (#6645 regression)"
+else
+  pass "secondary-mirror.sh git-auths with the minted PAT, never the admin password (#6645)"
+fi
+# #6645 mirror=false guard — a pull-mirror repo is read-only; the push cannot land.
+if grep -qF '"mirror":true' "${TMP}/secmirror.sh"; then
+  pass "secondary-mirror.sh guards against a read-only pull-mirror repo before pushing (#6645)"
+else
+  fail "secondary-mirror.sh lacks the mirror=false guard (#6645)"
 fi
 # anti-regression (non-vacuous — TRUE on the pre-#6490 URL-injection script):
 # zero URL-injected credentials may survive in the region-local push.
