@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T05:15:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-08-23T05:30:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T05:18 | [#6621](https://github.com/openova-io/openova/pull/6621) | #3375 | docs(uat): row 59 → ✅ — singleton create → Topology tab sing |
 | 2026-08-23T05:08 | [#6620](https://github.com/openova-io/openova/pull/6620) | #3375 | docs(uat): row 50 → ✅ — catalog create accepts active-hot-st |
 | 2026-08-23T04:46 | [#6619](https://github.com/openova-io/openova/pull/6619) | #3969 | docs(uat): G10 → ✅ — every Application CR carries a canonica |
 | 2026-08-23T03:56 | [#6618](https://github.com/openova-io/openova/pull/6618) | #4475 | docs(uat): M3 → ✅ vcluster-tier CNP host-side (199/286) |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-22T19:50 | [#6594](https://github.com/openova-io/openova/pull/6594) | #3383 | docs(uat): re-walk 117 (org directory columns/labels) live o |
 | 2026-08-22T19:37 | [#6593](https://github.com/openova-io/openova/pull/6593) | #3985 | docs(uat): re-walk 214 (no SME/tenant banned-term leak) live |
 | 2026-08-22T19:33 | [#6592](https://github.com/openova-io/openova/pull/6592) | #4546 | docs(uat): re-walk 1/3/97/122/167 authed-session nav rows li |
-| 2026-08-22T19:21 | [#6591](https://github.com/openova-io/openova/pull/6591) | #3668 | docs(uat): re-walk 141/146 catalog inline-edit rows live on  |
 
 ---
 
