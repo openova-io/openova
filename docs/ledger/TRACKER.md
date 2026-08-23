@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T22:00:05Z` |
+| Last refreshed | `2026-08-23T22:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T22:05 | [#6662](https://github.com/openova-io/openova/pull/6662) | #4272 | docs(uat): hw305 row 224 → ✅263 (per-Org bp-openclaw control |
 | 2026-08-23T21:54 | [#6661](https://github.com/openova-io/openova/pull/6661) | #4292 | docs(uat): hw305 row 100 → ✅262 (#4292 tier gate) |
 | 2026-08-23T21:40 | [#6660](https://github.com/openova-io/openova/pull/6660) | #4459 | docs(uat): hw305 R17 + 107 → ✅261 (Org-delete cascade, fault |
 | 2026-08-23T21:26 | [#6659](https://github.com/openova-io/openova/pull/6659) | #4354 | docs(uat): hw305 R11 → ✅259 (gitea data survives pod restart |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-23T12:18 | [#6634](https://github.com/openova-io/openova/pull/6634) | #6040 | docs(uat): reset-uat hw305 carry-forward + 181/182 re-confir |
 | 2026-08-23T09:49 | [#6633](https://github.com/openova-io/openova/pull/6633) | #3646 | docs(uat): 8 rows → ✅ on hw304 — reconciler /cloud surface + |
 | 2026-08-23T09:19 | [#6632](https://github.com/openova-io/openova/pull/6632) | #6629 | docs(uat): 9 customer-org rows → ✅ on hw304 (post-Harbor rec |
-| 2026-08-23T08:08 | [#6631](https://github.com/openova-io/openova/pull/6631) | #3380 | docs(uat): R5/R8/M2/68 → ✅ — robustness rows via live read-o |
 
 ---
 
