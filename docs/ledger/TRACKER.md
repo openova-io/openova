@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T23:00:05Z` |
+| Last refreshed | `2026-08-23T23:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T23:00 | [#6664](https://github.com/openova-io/openova/pull/6664) | docs(uat): hw305 row 108 → ✅265 (placement-from-runtime, #36 |  |
 | 2026-08-23T22:37 | [#6663](https://github.com/openova-io/openova/pull/6663) | #5940 | docs(uat): hw305 row 3 → ✅264 (redeem→/dashboard owner bounc |
 | 2026-08-23T22:05 | [#6662](https://github.com/openova-io/openova/pull/6662) | #4272 | docs(uat): hw305 row 224 → ✅263 (per-Org bp-openclaw control |
 | 2026-08-23T21:54 | [#6661](https://github.com/openova-io/openova/pull/6661) | #4292 | docs(uat): hw305 row 100 → ✅262 (#4292 tier gate) |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-23T12:41 | [#6636](https://github.com/openova-io/openova/pull/6636) | docs(uat): re-confirm G6/R7 on hw305 |  |
 | 2026-08-23T12:29 | [#6635](https://github.com/openova-io/openova/pull/6635) | #3969 | docs(uat): re-confirm G10/228/68 on hw305 (kubectl-verified) |
 | 2026-08-23T12:18 | [#6634](https://github.com/openova-io/openova/pull/6634) | #6040 | docs(uat): reset-uat hw305 carry-forward + 181/182 re-confir |
-| 2026-08-23T09:49 | [#6633](https://github.com/openova-io/openova/pull/6633) | #3646 | docs(uat): 8 rows → ✅ on hw304 — reconciler /cloud surface + |
 
 ---
 
