@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T14:30:03Z` |
+| Last refreshed | `2026-08-23T14:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T14:33 | [#6646](https://github.com/openova-io/openova/pull/6646) | #3380 | docs(uat): hw305 R4/R5/214 → ✅ (166) |
 | 2026-08-23T14:08 | [#6644](https://github.com/openova-io/openova/pull/6644) | #3374 | docs(uat): hw305 SSO+MCP 180/183/R9/186/211 → ✅ (163) |
 | 2026-08-23T14:02 | [#6643](https://github.com/openova-io/openova/pull/6643) | #3380 | docs(uat): hw305 R10+M3 → ✅ (158) |
 | 2026-08-23T13:53 | [#6642](https://github.com/openova-io/openova/pull/6642) | #5019 | docs(uat): hw305 customer-org detail 9/10/11/12/101 + 191 →  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-23T03:48 | [#6616](https://github.com/openova-io/openova/pull/6616) | #4444 | docs(uat): R7 → ✅ plane-isolation org-services->gitea ingres |
 | 2026-08-23T03:46 | [#6615](https://github.com/openova-io/openova/pull/6615) | #4458 | docs(uat): R4 → ✅ sso-bridge egress CNP openbao+keycloak (19 |
 | 2026-08-23T03:43 | [#6614](https://github.com/openova-io/openova/pull/6614) | #4471 | docs(uat): R10 → ✅ org-controller RBAC update/patch (source- |
-| 2026-08-23T03:15 | [#6613](https://github.com/openova-io/openova/pull/6613) | #4432 | docs(uat): R21 → ⚠️ — 6 inert placeholder seed pins (seed de |
 
 ---
 
