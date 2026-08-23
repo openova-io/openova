@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T01:00:07Z` |
+| Last refreshed | `2026-08-23T01:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T01:03 | [#6606](https://github.com/openova-io/openova/pull/6606) | #3376 | docs(uat): hw304 funnel — row 83 → ⚠️ partial (Review 3/5) |
 | 2026-08-22T23:33 | [#6605](https://github.com/openova-io/openova/pull/6605) | #4003 | docs(uat): hw304 authed re-walk — row 205 fleet app count →  |
 | 2026-08-22T23:02 | [#6604](https://github.com/openova-io/openova/pull/6604) | #3642 | docs(uat): hw304 authed re-walk — rows 53 + 108 → ✅ (186/286 |
 | 2026-08-22T22:50 | [#6603](https://github.com/openova-io/openova/pull/6603) | #3985 | docs(uat): hw304 authed re-walk — rows 215 + 203 → ✅ (184/28 |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-22T16:59 | [#6578](https://github.com/openova-io/openova/pull/6578) | #6577 | docs(uat): re-walk batch — 4 Catalog rows confirmed live on  |
 | 2026-08-22T16:32 | [#6577](https://github.com/openova-io/openova/pull/6577) | #6576 | docs(uat): re-walk batch — 6 Jobs-page rows confirmed live o |
 | 2026-08-22T16:25 | [#6576](https://github.com/openova-io/openova/pull/6576) | #6575 | docs(uat): re-walk batch — 5 console rows confirmed live on  |
-| 2026-08-22T16:14 | [#6575](https://github.com/openova-io/openova/pull/6575) | #6574 | docs(uat): honest hw304 reset + stamp rows 23/84/85 on live  |
 
 ---
 
