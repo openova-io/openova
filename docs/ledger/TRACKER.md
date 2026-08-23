@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T16:45:02Z` |
+| Last refreshed | `2026-08-23T17:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T16:59 | [#6653](https://github.com/openova-io/openova/pull/6653) | #3376 | docs(uat): hw305 2nd-org funnel + per-Org console → ✅ (239) |
 | 2026-08-23T16:24 | [#6652](https://github.com/openova-io/openova/pull/6652) | #3375 | docs(uat): hw305 console-render + reconcile-button batch → ✅ |
 | 2026-08-23T16:03 | [#6650](https://github.com/openova-io/openova/pull/6650) | #3376 | docs(uat): hw305 233 → ✅ (217) |
 | 2026-08-23T16:00 | [#6649](https://github.com/openova-io/openova/pull/6649) | #3646 | docs(uat): hw305 edit-IaC + org-rename batch (41 rows) → ✅ ( |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-23T05:40 | [#6622](https://github.com/openova-io/openova/pull/6622) | #3687 | docs(uat): row 18 → ✅ — treemap has no ephemeral Job-pod cel |
 | 2026-08-23T05:18 | [#6621](https://github.com/openova-io/openova/pull/6621) | #3375 | docs(uat): row 59 → ✅ — singleton create → Topology tab sing |
 | 2026-08-23T05:08 | [#6620](https://github.com/openova-io/openova/pull/6620) | #3375 | docs(uat): row 50 → ✅ — catalog create accepts active-hot-st |
-| 2026-08-23T04:46 | [#6619](https://github.com/openova-io/openova/pull/6619) | #3969 | docs(uat): G10 → ✅ — every Application CR carries a canonica |
 
 ---
 
