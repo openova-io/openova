@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T17:30:03Z` |
+| Last refreshed | `2026-08-23T17:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T17:32 | [#6655](https://github.com/openova-io/openova/pull/6655) | #3998 | docs(uat): hw305 rows 1/47/72/203 → ✅244 (Walk C authed cons |
 | 2026-08-23T17:07 | [#6654](https://github.com/openova-io/openova/pull/6654) | #4180 | docs(uat): hw305 218 → ✅ (240) — chepherd installable |
 | 2026-08-23T16:59 | [#6653](https://github.com/openova-io/openova/pull/6653) | #3376 | docs(uat): hw305 2nd-org funnel + per-Org console → ✅ (239) |
 | 2026-08-23T16:24 | [#6652](https://github.com/openova-io/openova/pull/6652) | #3375 | docs(uat): hw305 console-render + reconcile-button batch → ✅ |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-23T05:59 | [#6624](https://github.com/openova-io/openova/pull/6624) | #3375 | docs(uat): row 61 → ✅ — apps grid shows new postgres with ma |
 | 2026-08-23T05:53 | [#6623](https://github.com/openova-io/openova/pull/6623) | #3958 | docs(uat): Edit-IaC cluster 127-158 + row 194 → ✅ (23 rows,  |
 | 2026-08-23T05:40 | [#6622](https://github.com/openova-io/openova/pull/6622) | #3687 | docs(uat): row 18 → ✅ — treemap has no ephemeral Job-pod cel |
-| 2026-08-23T05:18 | [#6621](https://github.com/openova-io/openova/pull/6621) | #3375 | docs(uat): row 59 → ✅ — singleton create → Topology tab sing |
 
 ---
 
