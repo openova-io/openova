@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T12:30:05Z` |
+| Last refreshed | `2026-08-23T12:45:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T12:41 | [#6636](https://github.com/openova-io/openova/pull/6636) | docs(uat): re-confirm G6/R7 on hw305 |  |
 | 2026-08-23T12:29 | [#6635](https://github.com/openova-io/openova/pull/6635) | #3969 | docs(uat): re-confirm G10/228/68 on hw305 (kubectl-verified) |
 | 2026-08-23T12:18 | [#6634](https://github.com/openova-io/openova/pull/6634) | #6040 | docs(uat): reset-uat hw305 carry-forward + 181/182 re-confir |
 | 2026-08-23T09:49 | [#6633](https://github.com/openova-io/openova/pull/6633) | #3646 | docs(uat): 8 rows → ✅ on hw304 — reconciler /cloud surface + |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-23T01:35 | [#6607](https://github.com/openova-io/openova/pull/6607) | #887 | docs(uat): hw304 — rows 193/195 → ⚠️ partial (reconciler dri |
 | 2026-08-23T01:03 | [#6606](https://github.com/openova-io/openova/pull/6606) | #3376 | docs(uat): hw304 funnel — row 83 → ⚠️ partial (Review 3/5) |
 | 2026-08-22T23:33 | [#6605](https://github.com/openova-io/openova/pull/6605) | #4003 | docs(uat): hw304 authed re-walk — row 205 fleet app count →  |
-| 2026-08-22T23:02 | [#6604](https://github.com/openova-io/openova/pull/6604) | #3642 | docs(uat): hw304 authed re-walk — rows 53 + 108 → ✅ (186/286 |
 
 ---
 
