@@ -190,7 +190,13 @@ spec:
       # CiliumNetworkPolicy denying :5432 to everything but the pair's own Pods and
       # itself, and removes it on every fail-safe path — so the 120s hold no longer
       # accepts consumer writes it is about to discard. Lockstep 16a/16c/16d.
-      version: 0.2.23
+      # 0.2.24 (#6627, Refs #4846 #6106): SINGLETON cross-region shared-consumer
+      #   admission CNP. The singleton operator-probe netpol opened :5432 via a
+      #   k8s-NetworkPolicy namespaceSelector:{} (LOCAL identities only), so a
+      #   region-B keycloak reaching this region-A primary over ClusterMesh was
+      #   DROPPED → JDBC acquisition timeout → ~50% of per-app SSO /auth 500 (hw304).
+      #   Adds the singleton mirror of #4846's identity CNP. Lockstep 16a/16c/16d.
+      version: 0.2.24
       sourceRef:
         kind: HelmRepository
         name: bp-postgres

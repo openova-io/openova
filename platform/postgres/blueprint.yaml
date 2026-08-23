@@ -47,7 +47,11 @@ spec:
   # Kustomization-substitute seam and re-clones it onto region B's line, and
   # both DR actors render off ONE side-independent gate so a promoter without a
   # failback is not expressible. New: topology.demoted, topology.failback.*.
-  version: 0.2.23
+  # 0.2.24 — #6627 (Refs #4846 #6106): SINGLETON cross-region shared-consumer
+  #   admission CNP — the region-B keycloak → region-A shared-pg primary cross-mesh
+  #   DROP that 500'd ~50% of per-app SSO /auth on hw304 (the singleton mirror of
+  #   #4846's active-hot-standby carve-out; identity-based, gated on sharedConsumers).
+  version: 0.2.24
   card:
     title: PostgreSQL
     summary: |

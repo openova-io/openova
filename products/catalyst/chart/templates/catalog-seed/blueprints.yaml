@@ -5818,7 +5818,11 @@ spec:
   # + the `-replica-mesh` reverse alias + the topology.demoted rejoin shape, AND the
   # pairing invariant that renders promoter and failback off ONE gate. hw293 shipped
   # 4 promoters against 1 failback and left shared-pg/-b permanently dual-writable.
-  version: "0.2.23"
+  # 0.2.24 (#6627, Refs #4846 #6106): SINGLETON cross-region shared-consumer admission
+  # CNP — region-B keycloak → region-A shared-pg primary was DROPPED cross-mesh (the
+  # singleton netpol's k8s namespaceSelector:{} can't match a remote identity),
+  # 500'ing ~50% of per-app SSO /auth on hw304; adds the singleton mirror of #4846.
+  version: "0.2.24"
   visibility: listed
   # Shareability + Contexts (#3370) — seeded verbatim from
   # platform/postgres/blueprint.yaml (lockstep-guarded). One instance
@@ -5946,7 +5950,10 @@ spec:
     # `-replica-mesh` reverse alias + the topology.demoted rejoin shape) AND the
     # pairing invariant — promoter and failback now ride ONE gate, so a pair that
     # can be promoted can always fail back. hw293 left shared-pg/-b dual-writable.
-    version: "0.2.23"
+    # 0.2.24 (#6627, Refs #4846 #6106): SINGLETON cross-region shared-consumer
+    # admission CNP — region-B keycloak → region-A shared-pg primary DROPPED
+    # cross-mesh, 500'ing ~50% of per-app SSO /auth on hw304 (singleton mirror of #4846).
+    version: "0.2.24"
   # Seeded verbatim from platform/postgres/blueprint.yaml spec.topology.
   # singleton = single-instance Cluster; active-hot-standby = sync
   # replication across regions (ADR-0004 Pillar-3 zero-tx-loss) via the

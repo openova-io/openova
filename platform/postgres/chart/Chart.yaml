@@ -1,5 +1,22 @@
 apiVersion: v2
 name: bp-postgres
+# 0.2.24 — #6627 (Refs #4846 #6106): SINGLETON cross-region shared-consumer
+#   admission. networkpolicy-singleton-operator-probe.yaml (#4442) opened `:5432`
+#   to consumers via a k8s-NetworkPolicy `namespaceSelector:{}`, which a
+#   k8s-NetworkPolicy resolves to LOCAL-cluster identities only. On a 2-region
+#   Sovereign shared-pg is a SINGLETON primary in region A while keycloak (no
+#   SECONDARY_HR_SUSPEND) also runs in region B and shares ONE DB (#4915); the
+#   region-B Pod reaches the region-A primary over ClusterMesh with a
+#   remote-cluster identity the k8s-netpol cannot match → DROP → keycloak-0 JDBC
+#   `Acquisition timeout` → HTTP 500 on every region-B-served /auth → ~50% of
+#   per-app SSO logins fail (measured hw304, dep 438d9077bc2d83e1). Adds the
+#   SINGLETON mirror of #4846's active-hot-standby `-crossregion-dr-primary` CNP:
+#   an identity CiliumNetworkPolicy admitting `:5432` from any-cluster /
+#   any-namespace endpoints (io.cilium.k8s.policy.cluster: Exists — the #6106
+#   idiom, since a singleton is never stamped a peer ClusterMesh name), gated on
+#   sharedConsumers + the cilium.io/v2 capability. Purely additive; the
+#   single-region / per-Org-singleton / active-hot-standby renders are unchanged.
+#   tests/postgres-render.sh Case 5b added.
 # 0.2.23 — #6149 (Refs #5623 #5245 #5331 #5388 #6148): region-A AUTOMATIC DR
 #   FAILBACK, the PAIRING INVARIANT that makes it non-optional, and the #6148
 #   write-guard that fences the hold window.
@@ -415,8 +432,8 @@ name: bp-postgres
 #   honoured — sprig's `default` swallows boolean false). Primary render is
 #   byte-identical. Lockstep slot pins 16a/16c/16d → 0.2.20.
 #   tests/postgres-render.sh Case 21 added.
-version: 0.2.23
-appVersion: 0.2.23
+version: 0.2.24
+appVersion: 0.2.24
 description: |
   Catalyst-authored data-instance Blueprint for a shareable, reusable
   PostgreSQL engine. Each install of bp-postgres = ONE
