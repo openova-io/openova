@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T04:45:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-08-23T05:00:08Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T04:46 | [#6619](https://github.com/openova-io/openova/pull/6619) | #3969 | docs(uat): G10 → ✅ — every Application CR carries a canonica |
 | 2026-08-23T03:56 | [#6618](https://github.com/openova-io/openova/pull/6618) | #4475 | docs(uat): M3 → ✅ vcluster-tier CNP host-side (199/286) |
 | 2026-08-23T03:52 | [#6617](https://github.com/openova-io/openova/pull/6617) | #4448 | docs(uat): R3 → ✅ openbao admits sso-bridge ingress (198/286 |
 | 2026-08-23T03:48 | [#6616](https://github.com/openova-io/openova/pull/6616) | #4444 | docs(uat): R7 → ✅ plane-isolation org-services->gitea ingres |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-22T19:33 | [#6592](https://github.com/openova-io/openova/pull/6592) | #4546 | docs(uat): re-walk 1/3/97/122/167 authed-session nav rows li |
 | 2026-08-22T19:21 | [#6591](https://github.com/openova-io/openova/pull/6591) | #3668 | docs(uat): re-walk 141/146 catalog inline-edit rows live on  |
 | 2026-08-22T19:17 | [#6590](https://github.com/openova-io/openova/pull/6590) | #3668 | docs(uat): re-walk 131/136/138 catalog icon-editor rows live |
-| 2026-08-22T18:54 | [#6589](https://github.com/openova-io/openova/pull/6589) | #3668 | docs(uat): re-walk 151 (Alloy+Postgres identical edit chrome |
 
 ---
 
