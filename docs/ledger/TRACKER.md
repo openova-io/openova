@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T02:00:07Z` |
+| Last refreshed | `2026-08-23T02:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T02:09 | [#6609](https://github.com/openova-io/openova/pull/6609) | #3581 | docs(uat): hw304 MCP — rows 186 + 211 → ✅ (191/286) |
 | 2026-08-23T01:50 | [#6608](https://github.com/openova-io/openova/pull/6608) | #890 | docs(uat): hw304 — rows 196/197 → ⚠️ partial (reconcile/susp |
 | 2026-08-23T01:35 | [#6607](https://github.com/openova-io/openova/pull/6607) | #887 | docs(uat): hw304 — rows 193/195 → ⚠️ partial (reconciler dri |
 | 2026-08-23T01:03 | [#6606](https://github.com/openova-io/openova/pull/6606) | #3376 | docs(uat): hw304 funnel — row 83 → ⚠️ partial (Review 3/5) |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-22T17:16 | [#6581](https://github.com/openova-io/openova/pull/6581) | #6573 | docs(uat): re-walk — cilium Topology no-DR (row 58) on hw304 |
 | 2026-08-22T17:13 | [#6580](https://github.com/openova-io/openova/pull/6580) | #6573 | docs(uat): re-walk — shared-pg Contexts+Topology (14/24/54)  |
 | 2026-08-22T17:03 | [#6579](https://github.com/openova-io/openova/pull/6579) | #6573 | docs(uat): re-walk — Billing/Vouchers form (row 72) confirme |
-| 2026-08-22T16:59 | [#6578](https://github.com/openova-io/openova/pull/6578) | #6577 | docs(uat): re-walk batch — 4 Catalog rows confirmed live on  |
 
 ---
 
