@@ -621,6 +621,80 @@ if grep -q 'key: openova.io/region' "$TMP/shared.yaml"; then
   fail "singleton render leaked region node-affinity (active-hot-standby only)"
 fi
 
+# ── Case 5b: #6627 — sharedConsumers singleton → cross-region consumer CNP ─────
+# The singleton operator-probe netpol opens :5432 to consumers via a k8s-netpol
+# `namespaceSelector:{}`, which a k8s-NetworkPolicy resolves to LOCAL-cluster
+# identities only. On a 2-region Sovereign a region-B keycloak reaches THIS
+# region-A singleton primary over ClusterMesh with a REMOTE-cluster identity the
+# k8s-netpol cannot match → DROP → JDBC acquisition timeout → ~50% of per-app SSO
+# /auth 500 (measured hw304). The fix is the singleton mirror of Case 4e's #4846
+# identity CNP: admit :5432 from ANY cluster + ANY namespace by identity. Gated on
+# sharedConsumers + the cilium.io/v2 capability.
+echo "[render] Case 5b: #6627 sharedConsumers singleton + cilium.io/v2 → identity CNP admitting cross-region :5432 consumers, NO ipBlock"
+cat > "$TMP/sc.values.yaml" <<'YAML'
+instance: { name: shared-pg, namespace: shared-data }
+topology:
+  mode: singleton
+  instances: 1
+  networkPolicy:
+    sharedConsumers: true
+databases:
+  - name: registry
+    owner: harbor
+    reflect: { secretName: harbor-database-secret, namespaces: [harbor] }
+YAML
+helm template shared-pg . -f "$TMP/sc.values.yaml" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 --api-versions cilium.io/v2 > "$TMP/sc.yaml" 2>&1 \
+  || fail "#6627 sharedConsumers singleton render errored"
+# Exactly ONE CiliumNetworkPolicy, named -crossregion-shared-consumers.
+[ "$(grep -cE '^kind: CiliumNetworkPolicy$' "$TMP/sc.yaml")" = "1" ] \
+  || fail "#6627 expected exactly 1 CiliumNetworkPolicy on the sharedConsumers singleton"
+grep -qE '^  name: shared-pg-crossregion-shared-consumers$' "$TMP/sc.yaml" \
+  || fail "#6627 CNP name != shared-pg-crossregion-shared-consumers"
+# It selects the singleton primary Cluster's Pods (endpointSelector).
+grep -qE '^      cnpg.io/cluster: shared-pg$' "$TMP/sc.yaml" \
+  || fail "#6627 CNP endpointSelector must select cnpg.io/cluster: shared-pg"
+# Identity-based admission matching BOTH the local cluster and every peer:
+# io.cilium.k8s.policy.cluster Exists (NOT an In-list — a singleton is never
+# stamped a peer ClusterMesh name), + namespace Exists to reach consumers in every
+# namespace (the cross-cluster mirror of the k8s namespaceSelector:{}).
+grep -q 'key: io.cilium.k8s.policy.cluster' "$TMP/sc.yaml" \
+  || fail "#6627 CNP missing the io.cilium.k8s.policy.cluster identity match"
+grep -q 'operator: Exists' "$TMP/sc.yaml" \
+  || fail "#6627 CNP must use operator: Exists (local + every peer), not an In-list"
+grep -qE '^ +- port: "5432"$' "$TMP/sc.yaml" \
+  || fail "#6627 CNP must admit port 5432 (identity, cross-cluster)"
+# NEVER an ipBlock — inert for ClusterMesh remote endpoints (the reverted #4846
+# first attempt). Match a real `ipBlock:` YAML key, not the prose comment.
+if grep -qE '^[[:space:]]*-?[[:space:]]*ipBlock:' "$TMP/sc.yaml"; then
+  fail "#6627 render leaked an ipBlock rule (inert for ClusterMesh — must be identity CNP)"
+fi
+# The k8s operator-probe netpol AND its broad LOCAL :5432 carve-out remain intact
+# (the CNP is purely additive — it does not replace the local half).
+grep -qE '^  name: shared-pg-allow-cnpg-operator-probe$' "$TMP/sc.yaml" \
+  || fail "#6627 must not drop the CNPG-operator status-probe NetworkPolicy"
+grep -qE '^ +- port: 5432$' "$TMP/sc.yaml" \
+  || fail "#6627 must keep the local k8s namespaceSelector:{} :5432 consumer rule"
+# VACUITY 1 — no cilium.io/v2 capability (kind CI): the CNP MUST NOT render so a
+# CRD-less cluster still installs (#2988/#3102); the k8s netpol still does.
+helm template shared-pg . -f "$TMP/sc.values.yaml" --namespace shared-data \
+  --api-versions postgresql.cnpg.io/v1 > "$TMP/sc-nocilium.yaml" 2>&1 \
+  || fail "#6627 sharedConsumers singleton (no cilium cap) render errored"
+if grep -q 'CiliumNetworkPolicy' "$TMP/sc-nocilium.yaml"; then
+  fail "#6627 CNP rendered without the cilium.io/v2 capability (breaks CRD-less kind CI)"
+fi
+grep -qE '^  name: shared-pg-allow-cnpg-operator-probe$' "$TMP/sc-nocilium.yaml" \
+  || fail "#6627 k8s operator-probe netpol must still render on a CRD-less cluster"
+# VACUITY 2 — sharedConsumers UNSET (per-Org singleton) + cilium.io/v2: NO CNP.
+# The cross-region admission is for the shared-data HOST instances only; a per-Org
+# singleton keeps no broad rule (Case 5 pins the default-render side).
+helm template shared-pg . --set instance.name=shared-pg --set topology.mode=singleton \
+  --namespace shared-data --api-versions postgresql.cnpg.io/v1 --api-versions cilium.io/v2 \
+  > "$TMP/sc-perorg.yaml" 2>&1 || fail "#6627 per-Org singleton render errored"
+if grep -q 'CiliumNetworkPolicy' "$TMP/sc-perorg.yaml"; then
+  fail "#6627 CNP rendered for a per-Org singleton (sharedConsumers=false) — must be host-instance only"
+fi
+
 # ── Case 6: master gate OFF → ZERO resources (#3188 safe-by-default) ──
 # `enabled=false` must render an EMPTY release even with the CNPG CRD
 # present and bindings declared — so the bootstrap-kit slot 16a HR is a

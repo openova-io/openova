@@ -74,4 +74,67 @@ spec:
         - port: 5432
           protocol: TCP
     {{- end }}
+{{- if and .Values.topology.networkPolicy.sharedConsumers (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+---
+# CROSS-REGION SHARED-PG CONSUMERS (#6627): the k8s-NetworkPolicy `:5432`
+# carve-out above uses `namespaceSelector:{}`, which a k8s-NetworkPolicy resolves
+# to LOCAL-cluster identities ONLY — Cilium implicitly ANDs
+# `io.cilium.k8s.policy.cluster=<local>`. On a 2-region Sovereign a HOST
+# shared-data instance is a SINGLETON primary in region A while its consumers
+# (keycloak first among them — bp-keycloak carries no SECONDARY_HR_SUSPEND, so it
+# renders in BOTH regions and shares ONE keycloak DB, #4915) ALSO run in region B
+# and dial `<instance>-mesh-rw` / `<instance>-rw` over ClusterMesh. A region-B Pod
+# arrives at the region-A primary carrying a REMOTE-CLUSTER identity that neither
+# k8s-netpol rule can match → `Policy denied` DROP at the primary's bpf_lxc → an
+# 8s TCP black-hole → keycloak-0 `GenericJDBCException: Unable to acquire JDBC
+# Connection [Acquisition timeout]` → HTTP 500 `unknown_error` on every
+# region-B-served /auth → ~50% of per-app SSO logins fail (measured live on hw304,
+# dep 438d9077bc2d83e1, 2026-08-23; region-A keycloak with its LOCAL identity
+# passes, so the ELB coin-flip is the ~50%). This is the SINGLETON mirror of the
+# active-hot-standby `-crossregion-dr-primary` carve-out (#4846, networkpolicy.yaml);
+# that fix is gated on active-hot-standby and does NOT render for a singleton
+# shared-pg, so this template re-introduced the local-only trap for the
+# shared-data host instances.
+#
+# The admission MUST be identity-based: an `ipBlock`/`toCIDR` NEVER matches a
+# ClusterMesh remote pod (Cilium assigns a CIDR identity only to IPs that are NOT
+# known endpoints — proven inert on hw228), and a k8s-netpol label selector is
+# implicitly local-scoped. `io.cilium.k8s.policy.cluster: Exists` matches the
+# LOCAL cluster AND every peer, so this ONE rule covers a region-A consumer and
+# the region-B one alike — the cross-cluster mirror of `namespaceSelector:{}`.
+# `k8s:io.kubernetes.pod.namespace: Exists` suppresses the implicit same-namespace
+# AND a namespaced CNP would otherwise apply (#4854), so consumers in EVERY
+# namespace (keycloak, gitea, harbor, grafana, powerdns, newapi …) are admitted —
+# the exact breadth the local rule already grants. Scoped to the single data-tier
+# port 5432. Purely additive: Cilium evaluates the UNION of every policy selecting
+# the endpoint, so the operator-probe default-deny is unchanged. Uses
+# `cluster: Exists` (not the #4846 `In [crossRegionPeerClusters]`) because a
+# singleton shared-pg is never a cnpg-pair and so is never stamped with a peer
+# ClusterMesh name — the #6106 catalyst-api-backchannel idiom. Gated on
+# `sharedConsumers` (host shared-data instances only — a per-Org singleton keeps
+# NO broad rule, its consumers are same-Org) and the cilium.io/v2 capability (so a
+# CRD-less kind CI still installs — #2988/#3102).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "bp-postgres.instanceName" . }}-crossregion-shared-consumers
+  namespace: {{ include "bp-postgres.namespace" . }}
+  labels:
+    {{- include "bp-postgres.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ include "bp-postgres.instanceName" . }}
+  ingress:
+    - fromEndpoints:
+        - matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: Exists
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+{{- end }}
 {{- end }}
