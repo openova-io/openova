@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T16:15:03Z` |
+| Last refreshed | `2026-08-23T16:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T16:24 | [#6652](https://github.com/openova-io/openova/pull/6652) | #3375 | docs(uat): hw305 console-render + reconcile-button batch → ✅ |
 | 2026-08-23T16:03 | [#6650](https://github.com/openova-io/openova/pull/6650) | #3376 | docs(uat): hw305 233 → ✅ (217) |
 | 2026-08-23T16:00 | [#6649](https://github.com/openova-io/openova/pull/6649) | #3646 | docs(uat): hw305 edit-IaC + org-rename batch (41 rows) → ✅ ( |
 | 2026-08-23T15:21 | [#6648](https://github.com/openova-io/openova/pull/6648) | #3376 | docs(uat): hw305 public marketplace funnel 75-82 → ✅ (175) |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-23T05:18 | [#6621](https://github.com/openova-io/openova/pull/6621) | #3375 | docs(uat): row 59 → ✅ — singleton create → Topology tab sing |
 | 2026-08-23T05:08 | [#6620](https://github.com/openova-io/openova/pull/6620) | #3375 | docs(uat): row 50 → ✅ — catalog create accepts active-hot-st |
 | 2026-08-23T04:46 | [#6619](https://github.com/openova-io/openova/pull/6619) | #3969 | docs(uat): G10 → ✅ — every Application CR carries a canonica |
-| 2026-08-23T03:56 | [#6618](https://github.com/openova-io/openova/pull/6618) | #4475 | docs(uat): M3 → ✅ vcluster-tier CNP host-side (199/286) |
 
 ---
 
