@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T12:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-08-23T12:30:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T12:29 | [#6635](https://github.com/openova-io/openova/pull/6635) | #3969 | docs(uat): re-confirm G10/228/68 on hw305 (kubectl-verified) |
+| 2026-08-23T12:18 | [#6634](https://github.com/openova-io/openova/pull/6634) | #6040 | docs(uat): reset-uat hw305 carry-forward + 181/182 re-confir |
 | 2026-08-23T09:49 | [#6633](https://github.com/openova-io/openova/pull/6633) | #3646 | docs(uat): 8 rows → ✅ on hw304 — reconciler /cloud surface + |
 | 2026-08-23T09:19 | [#6632](https://github.com/openova-io/openova/pull/6632) | #6629 | docs(uat): 9 customer-org rows → ✅ on hw304 (post-Harbor rec |
 | 2026-08-23T08:08 | [#6631](https://github.com/openova-io/openova/pull/6631) | #3380 | docs(uat): R5/R8/M2/68 → ✅ — robustness rows via live read-o |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-23T01:03 | [#6606](https://github.com/openova-io/openova/pull/6606) | #3376 | docs(uat): hw304 funnel — row 83 → ⚠️ partial (Review 3/5) |
 | 2026-08-22T23:33 | [#6605](https://github.com/openova-io/openova/pull/6605) | #4003 | docs(uat): hw304 authed re-walk — row 205 fleet app count →  |
 | 2026-08-22T23:02 | [#6604](https://github.com/openova-io/openova/pull/6604) | #3642 | docs(uat): hw304 authed re-walk — rows 53 + 108 → ✅ (186/286 |
-| 2026-08-22T22:50 | [#6603](https://github.com/openova-io/openova/pull/6603) | #3985 | docs(uat): hw304 authed re-walk — rows 215 + 203 → ✅ (184/28 |
-| 2026-08-22T22:00 | [#6602](https://github.com/openova-io/openova/pull/6602) | #3376 | docs(uat): re-walk 74 (voucher auto-generate) live on hw304 |
 
 ---
 
