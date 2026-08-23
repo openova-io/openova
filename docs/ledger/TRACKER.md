@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T14:00:03Z` |
+| Last refreshed | `2026-08-23T14:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6072](https://github.com/openova-io/openova/issues/6072) | shared-pg consumer-hub sync: the -mesh-rw readiness gate tests a string that can | Other |
 | [#6075](https://github.com/openova-io/openova/issues/6075) | Org detail never renders the purchased plan: spec.planSlug dropped at four layer | Other |
 | [#6076](https://github.com/openova-io/openova/issues/6076) | Organizations parent row has an unstable identity: link target flips between /or | Other |
 | [#6077](https://github.com/openova-io/openova/issues/6077) | Job re-run on a collapsed scanner identity row 422s and fails invisibly: syft-sb | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6582](https://github.com/openova-io/openova/issues/6582) | bp-postgres@0.2.23 HR upgrade times out (context deadline exceeded) → 16-app c | Other |
 | [#6627](https://github.com/openova-io/openova/issues/6627) | Singleton shared-pg netpol: region-B keycloak cross-mesh :5432 DROP → JDBC acq | Other |
 | [#6629](https://github.com/openova-io/openova/issues/6629) | Customer-org (vcluster/plan-M) provisioning wedges at bp_charts_installed — CN | Other |
+| [#6645](https://github.com/openova-io/openova/issues/6645) | cutover step-01 wedge on hw305: #6490 secondary-region gitea-mirror push fails ' | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T14:08 | [#6644](https://github.com/openova-io/openova/pull/6644) | #3374 | docs(uat): hw305 SSO+MCP 180/183/R9/186/211 → ✅ (163) |
+| 2026-08-23T14:02 | [#6643](https://github.com/openova-io/openova/pull/6643) | #3380 | docs(uat): hw305 R10+M3 → ✅ (158) |
 | 2026-08-23T13:53 | [#6642](https://github.com/openova-io/openova/pull/6642) | #5019 | docs(uat): hw305 customer-org detail 9/10/11/12/101 + 191 →  |
 | 2026-08-23T13:47 | [#6641](https://github.com/openova-io/openova/pull/6641) | #3378 | docs(uat): hw305 customer-org 99+226 → ✅ (150) |
 | 2026-08-23T13:40 | [#6640](https://github.com/openova-io/openova/pull/6640) | #3646 | docs(uat): hw305 console/cloud/jobs walk — 20 rows → ✅ (148) |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-23T03:46 | [#6615](https://github.com/openova-io/openova/pull/6615) | #4458 | docs(uat): R4 → ✅ sso-bridge egress CNP openbao+keycloak (19 |
 | 2026-08-23T03:43 | [#6614](https://github.com/openova-io/openova/pull/6614) | #4471 | docs(uat): R10 → ✅ org-controller RBAC update/patch (source- |
 | 2026-08-23T03:15 | [#6613](https://github.com/openova-io/openova/pull/6613) | #4432 | docs(uat): R21 → ⚠️ — 6 inert placeholder seed pins (seed de |
-| 2026-08-23T02:39 | [#6612](https://github.com/openova-io/openova/pull/6612) | #4325 | docs(uat): hw304 — row 104 → ✅ 7 bootstrap components under  |
-| 2026-08-23T02:31 | [#6611](https://github.com/openova-io/openova/pull/6611) | #3646 | docs(uat): hw304 — row 170 → ✅ install-openbao Succeeded (19 |
 
 ---
 
