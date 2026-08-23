@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T15:15:03Z` |
+| Last refreshed | `2026-08-23T15:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T15:21 | [#6648](https://github.com/openova-io/openova/pull/6648) | #3376 | docs(uat): hw305 public marketplace funnel 75-82 → ✅ (175) |
 | 2026-08-23T15:08 | [#6647](https://github.com/openova-io/openova/pull/6647) | #3374 | docs(uat): hw305 R3 → ✅ (167) |
 | 2026-08-23T14:33 | [#6646](https://github.com/openova-io/openova/pull/6646) | #3380 | docs(uat): hw305 R4/R5/214 → ✅ (166) |
 | 2026-08-23T14:08 | [#6644](https://github.com/openova-io/openova/pull/6644) | #3374 | docs(uat): hw305 SSO+MCP 180/183/R9/186/211 → ✅ (163) |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-23T03:56 | [#6618](https://github.com/openova-io/openova/pull/6618) | #4475 | docs(uat): M3 → ✅ vcluster-tier CNP host-side (199/286) |
 | 2026-08-23T03:52 | [#6617](https://github.com/openova-io/openova/pull/6617) | #4448 | docs(uat): R3 → ✅ openbao admits sso-bridge ingress (198/286 |
 | 2026-08-23T03:48 | [#6616](https://github.com/openova-io/openova/pull/6616) | #4444 | docs(uat): R7 → ✅ plane-isolation org-services->gitea ingres |
-| 2026-08-23T03:46 | [#6615](https://github.com/openova-io/openova/pull/6615) | #4458 | docs(uat): R4 → ✅ sso-bridge egress CNP openbao+keycloak (19 |
 
 ---
 
