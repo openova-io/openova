@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T06:15:03Z` |
+| Last refreshed | `2026-08-23T06:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T06:20 | [#6625](https://github.com/openova-io/openova/pull/6625) | #3376 | docs(uat): row 88 → ✅ — per-Org console zero-click signed-in |
 | 2026-08-23T05:59 | [#6624](https://github.com/openova-io/openova/pull/6624) | #3375 | docs(uat): row 61 → ✅ — apps grid shows new postgres with ma |
 | 2026-08-23T05:53 | [#6623](https://github.com/openova-io/openova/pull/6623) | #3958 | docs(uat): Edit-IaC cluster 127-158 + row 194 → ✅ (23 rows,  |
 | 2026-08-23T05:40 | [#6622](https://github.com/openova-io/openova/pull/6622) | #3687 | docs(uat): row 18 → ✅ — treemap has no ephemeral Job-pod cel |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-22T20:53 | [#6598](https://github.com/openova-io/openova/pull/6598) | #3998 | docs(uat): re-walk 199 (cloud Gateway page → 2 cilium Gatewa |
 | 2026-08-22T20:31 | [#6597](https://github.com/openova-io/openova/pull/6597) | #3668 | docs(uat): re-walk 126 (inline Edit-IaC) + 73 (voucher weak- |
 | 2026-08-22T20:25 | [#6596](https://github.com/openova-io/openova/pull/6596) | #4290 | docs(uat): re-walk 243 (tenant DNS split-horizon) live on hw |
-| 2026-08-22T20:22 | [#6595](https://github.com/openova-io/openova/pull/6595) | #3375 | docs(uat): re-walk 47/48/49 topology-select rows live on hw3 |
 
 ---
 
