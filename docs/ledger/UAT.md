@@ -1,4 +1,4 @@
-# UAT — Sovereign acceptance walk (RESET 2026-08-23 — pending hw305)
+# UAT — Sovereign acceptance walk on `hw305.omantel.biz` (walked from 2026-08-23)
 
 **Tally (286 rows):** ✅ 244 · ❌ 9 · ⚠️ 2 · ⏳ 31
 
