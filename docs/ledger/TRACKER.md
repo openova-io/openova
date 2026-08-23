@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T13:45:06Z` |
+| Last refreshed | `2026-08-23T14:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T13:53 | [#6642](https://github.com/openova-io/openova/pull/6642) | #5019 | docs(uat): hw305 customer-org detail 9/10/11/12/101 + 191 →  |
+| 2026-08-23T13:47 | [#6641](https://github.com/openova-io/openova/pull/6641) | #3378 | docs(uat): hw305 customer-org 99+226 → ✅ (150) |
 | 2026-08-23T13:40 | [#6640](https://github.com/openova-io/openova/pull/6640) | #3646 | docs(uat): hw305 console/cloud/jobs walk — 20 rows → ✅ (148) |
 | 2026-08-23T13:36 | [#6639](https://github.com/openova-io/openova/pull/6639) | #3985 | docs(uat): hw305 kubectl batch — R8/215/M2 → ✅ (128), R21 li |
 | 2026-08-23T13:13 | [#6638](https://github.com/openova-io/openova/pull/6638) | docs(uat): 8 funnel rows → ✅ on hw305 (wpwalk305) |  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-23T03:15 | [#6613](https://github.com/openova-io/openova/pull/6613) | #4432 | docs(uat): R21 → ⚠️ — 6 inert placeholder seed pins (seed de |
 | 2026-08-23T02:39 | [#6612](https://github.com/openova-io/openova/pull/6612) | #4325 | docs(uat): hw304 — row 104 → ✅ 7 bootstrap components under  |
 | 2026-08-23T02:31 | [#6611](https://github.com/openova-io/openova/pull/6611) | #3646 | docs(uat): hw304 — row 170 → ✅ install-openbao Succeeded (19 |
-| 2026-08-23T02:27 | [#6610](https://github.com/openova-io/openova/pull/6610) | #3374 | docs(uat): hw304 — rows 217 + G6 + 173 → ✅ (192/286) |
-| 2026-08-23T02:09 | [#6609](https://github.com/openova-io/openova/pull/6609) | #3581 | docs(uat): hw304 MCP — rows 186 + 211 → ✅ (191/286) |
 
 ---
 
