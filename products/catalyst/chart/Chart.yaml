@@ -4014,7 +4014,7 @@ name: bp-catalyst-platform
 #   the workspace never came up (proven live hw302, blocking the Pillar-4 agentic
 #   walk). 0.5.32 adds both exec probes to the sidecar. Umbrella tracks its
 #   sub-charts per Inviolable Principle #13.
-version: 1.4.1555
+version: 1.4.1556
 # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
 #   0.1.186 -> 0.1.187, the release that stops step-06 from patching five
 #   HelmRepositories it does not own and then grading itself on whether they
