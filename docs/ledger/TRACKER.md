@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T05:45:03Z` |
+| Last refreshed | `2026-08-23T06:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T05:59 | [#6624](https://github.com/openova-io/openova/pull/6624) | #3375 | docs(uat): row 61 → ✅ — apps grid shows new postgres with ma |
+| 2026-08-23T05:53 | [#6623](https://github.com/openova-io/openova/pull/6623) | #3958 | docs(uat): Edit-IaC cluster 127-158 + row 194 → ✅ (23 rows,  |
 | 2026-08-23T05:40 | [#6622](https://github.com/openova-io/openova/pull/6622) | #3687 | docs(uat): row 18 → ✅ — treemap has no ephemeral Job-pod cel |
 | 2026-08-23T05:18 | [#6621](https://github.com/openova-io/openova/pull/6621) | #3375 | docs(uat): row 59 → ✅ — singleton create → Topology tab sing |
 | 2026-08-23T05:08 | [#6620](https://github.com/openova-io/openova/pull/6620) | #3375 | docs(uat): row 50 → ✅ — catalog create accepts active-hot-st |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-22T20:31 | [#6597](https://github.com/openova-io/openova/pull/6597) | #3668 | docs(uat): re-walk 126 (inline Edit-IaC) + 73 (voucher weak- |
 | 2026-08-22T20:25 | [#6596](https://github.com/openova-io/openova/pull/6596) | #4290 | docs(uat): re-walk 243 (tenant DNS split-horizon) live on hw |
 | 2026-08-22T20:22 | [#6595](https://github.com/openova-io/openova/pull/6595) | #3375 | docs(uat): re-walk 47/48/49 topology-select rows live on hw3 |
-| 2026-08-22T19:50 | [#6594](https://github.com/openova-io/openova/pull/6594) | #3383 | docs(uat): re-walk 117 (org directory columns/labels) live o |
-| 2026-08-22T19:37 | [#6593](https://github.com/openova-io/openova/pull/6593) | #3985 | docs(uat): re-walk 214 (no SME/tenant banned-term leak) live |
 
 ---
 
