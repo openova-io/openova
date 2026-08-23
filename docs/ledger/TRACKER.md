@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T03:45:03Z` |
+| Last refreshed | `2026-08-23T04:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T03:56 | [#6618](https://github.com/openova-io/openova/pull/6618) | #4475 | docs(uat): M3 → ✅ vcluster-tier CNP host-side (199/286) |
+| 2026-08-23T03:52 | [#6617](https://github.com/openova-io/openova/pull/6617) | #4448 | docs(uat): R3 → ✅ openbao admits sso-bridge ingress (198/286 |
+| 2026-08-23T03:48 | [#6616](https://github.com/openova-io/openova/pull/6616) | #4444 | docs(uat): R7 → ✅ plane-isolation org-services->gitea ingres |
+| 2026-08-23T03:46 | [#6615](https://github.com/openova-io/openova/pull/6615) | #4458 | docs(uat): R4 → ✅ sso-bridge egress CNP openbao+keycloak (19 |
 | 2026-08-23T03:43 | [#6614](https://github.com/openova-io/openova/pull/6614) | #4471 | docs(uat): R10 → ✅ org-controller RBAC update/patch (source- |
 | 2026-08-23T03:15 | [#6613](https://github.com/openova-io/openova/pull/6613) | #4432 | docs(uat): R21 → ⚠️ — 6 inert placeholder seed pins (seed de |
 | 2026-08-23T02:39 | [#6612](https://github.com/openova-io/openova/pull/6612) | #4325 | docs(uat): hw304 — row 104 → ✅ 7 bootstrap components under  |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-08-22T19:21 | [#6591](https://github.com/openova-io/openova/pull/6591) | #3668 | docs(uat): re-walk 141/146 catalog inline-edit rows live on  |
 | 2026-08-22T19:17 | [#6590](https://github.com/openova-io/openova/pull/6590) | #3668 | docs(uat): re-walk 131/136/138 catalog icon-editor rows live |
 | 2026-08-22T18:54 | [#6589](https://github.com/openova-io/openova/pull/6589) | #3668 | docs(uat): re-walk 151 (Alloy+Postgres identical edit chrome |
-| 2026-08-22T18:46 | [#6588](https://github.com/openova-io/openova/pull/6588) | #3379 | docs(uat): re-walk 159/160/130 render rows live on hw304 |
-| 2026-08-22T18:35 | [#6587](https://github.com/openova-io/openova/pull/6587) | #3383 | docs(uat): re-walk 116/118/119/124 render rows live on hw304 |
-| 2026-08-22T18:19 | [#6586](https://github.com/openova-io/openova/pull/6586) | #6573 | docs(uat): re-walk — new-org wizard no-prefill (W1) + avatar |
-| 2026-08-22T18:14 | [#6585](https://github.com/openova-io/openova/pull/6585) | #6573 | docs(uat): re-walk — Alloy detail+iconpicker (125/137) + job |
 
 ---
 
