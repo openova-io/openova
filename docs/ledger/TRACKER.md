@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T21:15:03Z` |
+| Last refreshed | `2026-08-23T21:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T21:26 | [#6659](https://github.com/openova-io/openova/pull/6659) | #4354 | docs(uat): hw305 R11 → ✅259 (gitea data survives pod restart |
 | 2026-08-23T19:56 | [#6658](https://github.com/openova-io/openova/pull/6658) | docs(uat): hw305 rows 104 + 148 → ✅258 (Walk F correct-surfa |  |
 | 2026-08-23T18:13 | [#6657](https://github.com/openova-io/openova/pull/6657) | docs(uat): hw305 Walk D → ✅256 (12 console-render/voucher/to |  |
 | 2026-08-23T17:49 | [#6656](https://github.com/openova-io/openova/pull/6656) | docs(uat): confirm hw305 as live env in H1 header (greens dr |  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-23T08:08 | [#6631](https://github.com/openova-io/openova/pull/6631) | #3380 | docs(uat): R5/R8/M2/68 → ✅ — robustness rows via live read-o |
 | 2026-08-23T08:04 | [#6630](https://github.com/openova-io/openova/pull/6630) | #3376 | docs(uat): rows 96/123/178 → ✅ — signed handover URL lands o |
 | 2026-08-23T07:40 | [#6628](https://github.com/openova-io/openova/pull/6628) | #4442 | fix(bp-postgres): singleton shared-pg admits region-B keyclo |
-| 2026-08-23T07:06 | [#6626](https://github.com/openova-io/openova/pull/6626) | #3376 | docs(uat): rows 93 + 94 → ✅ — 2nd funnel Org, zero-click con |
 
 ---
 
