@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T07:30:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-08-23T07:45:06Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6071](https://github.com/openova-io/openova/issues/6071) | Continuum never reports a standby: leaseClient resolvers are hardcoded to 10.43. | Other |
 | [#6072](https://github.com/openova-io/openova/issues/6072) | shared-pg consumer-hub sync: the -mesh-rw readiness gate tests a string that can | Other |
 | [#6075](https://github.com/openova-io/openova/issues/6075) | Org detail never renders the purchased plan: spec.planSlug dropped at four layer | Other |
 | [#6076](https://github.com/openova-io/openova/issues/6076) | Organizations parent row has an unstable identity: link target flips between /or | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6573](https://github.com/openova-io/openova/issues/6573) | reset-uat.py carry-forward silently no-ops on HTML UAT.md (scans raw HTML with a | Other |
 | [#6582](https://github.com/openova-io/openova/issues/6582) | bp-postgres@0.2.23 HR upgrade times out (context deadline exceeded) → 16-app c | Other |
 | [#6627](https://github.com/openova-io/openova/issues/6627) | Singleton shared-pg netpol: region-B keycloak cross-mesh :5432 DROP → JDBC acq | Other |
+| [#6629](https://github.com/openova-io/openova/issues/6629) | Customer-org (vcluster/plan-M) provisioning wedges at bp_charts_installed — CN | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T07:40 | [#6628](https://github.com/openova-io/openova/pull/6628) | #4442 | fix(bp-postgres): singleton shared-pg admits region-B keyclo |
 | 2026-08-23T07:06 | [#6626](https://github.com/openova-io/openova/pull/6626) | #3376 | docs(uat): rows 93 + 94 → ✅ — 2nd funnel Org, zero-click con |
 | 2026-08-23T06:20 | [#6625](https://github.com/openova-io/openova/pull/6625) | #3376 | docs(uat): row 88 → ✅ — per-Org console zero-click signed-in |
 | 2026-08-23T05:59 | [#6624](https://github.com/openova-io/openova/pull/6624) | #3375 | docs(uat): row 61 → ✅ — apps grid shows new postgres with ma |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-22T21:49 | [#6600](https://github.com/openova-io/openova/pull/6600) | #3376 | docs(uat): re-walk redeem 76 (junk-code reject) + 77 (source |
 | 2026-08-22T21:46 | [#6599](https://github.com/openova-io/openova/pull/6599) | #3376 | docs(uat): re-walk funnel 75/78/80/81/82/W4 live on hw304 (c |
 | 2026-08-22T20:53 | [#6598](https://github.com/openova-io/openova/pull/6598) | #3998 | docs(uat): re-walk 199 (cloud Gateway page → 2 cilium Gatewa |
-| 2026-08-22T20:31 | [#6597](https://github.com/openova-io/openova/pull/6597) | #3668 | docs(uat): re-walk 126 (inline Edit-IaC) + 73 (voucher weak- |
 
 ---
 
