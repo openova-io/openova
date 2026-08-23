@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T07:15:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-08-23T07:30:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6062](https://github.com/openova-io/openova/issues/6062) | UAT row 8: GET /sovereign/parent-domains offers no org-pool parents — the list | Other |
 | [#6071](https://github.com/openova-io/openova/issues/6071) | Continuum never reports a standby: leaseClient resolvers are hardcoded to 10.43. | Other |
 | [#6072](https://github.com/openova-io/openova/issues/6072) | shared-pg consumer-hub sync: the -mesh-rw readiness gate tests a string that can | Other |
 | [#6075](https://github.com/openova-io/openova/issues/6075) | Org detail never renders the purchased plan: spec.planSlug dropped at four layer | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6513](https://github.com/openova-io/openova/issues/6513) | bp-agenity 0.5.31 creds-resync sidecar lacks liveness/readiness probes — kyver | Other |
 | [#6573](https://github.com/openova-io/openova/issues/6573) | reset-uat.py carry-forward silently no-ops on HTML UAT.md (scans raw HTML with a | Other |
 | [#6582](https://github.com/openova-io/openova/issues/6582) | bp-postgres@0.2.23 HR upgrade times out (context deadline exceeded) → 16-app c | Other |
+| [#6627](https://github.com/openova-io/openova/issues/6627) | Singleton shared-pg netpol: region-B keycloak cross-mesh :5432 DROP → JDBC acq | Other |
 
 ---
 
