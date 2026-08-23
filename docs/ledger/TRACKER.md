@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T02:30:07Z` |
+| Last refreshed | `2026-08-23T02:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T02:39 | [#6612](https://github.com/openova-io/openova/pull/6612) | #4325 | docs(uat): hw304 — row 104 → ✅ 7 bootstrap components under  |
+| 2026-08-23T02:31 | [#6611](https://github.com/openova-io/openova/pull/6611) | #3646 | docs(uat): hw304 — row 170 → ✅ install-openbao Succeeded (19 |
 | 2026-08-23T02:27 | [#6610](https://github.com/openova-io/openova/pull/6610) | #3374 | docs(uat): hw304 — rows 217 + G6 + 173 → ✅ (192/286) |
 | 2026-08-23T02:09 | [#6609](https://github.com/openova-io/openova/pull/6609) | #3581 | docs(uat): hw304 MCP — rows 186 + 211 → ✅ (191/286) |
 | 2026-08-23T01:50 | [#6608](https://github.com/openova-io/openova/pull/6608) | #890 | docs(uat): hw304 — rows 196/197 → ⚠️ partial (reconcile/susp |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-22T18:14 | [#6585](https://github.com/openova-io/openova/pull/6585) | #6573 | docs(uat): re-walk — Alloy detail+iconpicker (125/137) + job |
 | 2026-08-22T17:50 | [#6584](https://github.com/openova-io/openova/pull/6584) | #3987 | docs(uat): re-walk — 5 Cloud per-kind rows (198/200/201/202/ |
 | 2026-08-22T17:44 | [#6583](https://github.com/openova-io/openova/pull/6583) | #6573 | docs(uat): re-walk — treemap drill-down (17) + funnel plans  |
-| 2026-08-22T17:16 | [#6581](https://github.com/openova-io/openova/pull/6581) | #6573 | docs(uat): re-walk — cilium Topology no-DR (row 58) on hw304 |
-| 2026-08-22T17:13 | [#6580](https://github.com/openova-io/openova/pull/6580) | #6573 | docs(uat): re-walk — shared-pg Contexts+Topology (14/24/54)  |
 
 ---
 
