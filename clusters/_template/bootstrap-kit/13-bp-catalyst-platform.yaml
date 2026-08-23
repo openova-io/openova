@@ -1483,7 +1483,12 @@ spec:
       #   ~470 MB monorepo bare-clone + force-push over a throttled egress finishes
       #   inside budget; the old 20-min ceiling reaped the Job as DeadlineExceeded
       #   and wedged the cutover at step-01 on hw302).
-      version: 1.4.1559
+      # 1.4.1560 — lockstep for bp-self-sovereign-cutover 0.1.199 (#6645, Refs #6490:
+      #   the SECONDARY-region gitea-mirror leg mints a region-local Gitea PAT and
+      #   git-auths the push WITH IT — Gitea git-over-HTTP refuses the admin password
+      #   under an external login source, wedging the cutover at step-01 on hw305
+      #   region-B). Umbrella tracks its sub-charts per Inviolable Principle #13.
+      version: 1.4.1560
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

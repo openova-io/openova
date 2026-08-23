@@ -5484,33 +5484,44 @@ fi
 grep -q 'names a HEALTHY HelmRelease' "$TMP/c95/out.txt" || { echo "FAIL: CONTROL — the platform stale-override rejection lost its class name (#5391/#6273)" >&2; exit 1; }
 echo "  PASS (#6273: BOTH Phase A0 passes partition by ownership — the HelmRelease pass and the override-free wl_pending pass each WARN-and-proceed on Organization namespaces with every offender named, its TERMINAL tag intact and the re-install cost stated; platform offenders stay FATAL, named and classified, are counted alone in the headline, and the VACUITY CONTROL proves that FATAL flips to a warning when the one discriminating input flips; leak controls: identical workloads in harbor still fatal, unlabelled namespaces still fatal, stale override on a platform release still rejected)"
 
-echo "[cutover-contract] Case 96: the region-local gitea-mirror git push/ls-remote authenticate with an Authorization header, NEVER URL-injected credentials — a Gitea admin password holding a URL-special char breaks URL-injection but not the header (#6490, Refs #3379, UAT row 166)"
+echo "[cutover-contract] Case 96: the region-local gitea-mirror git push/ls-remote authenticate with an Authorization header, NEVER URL-injected credentials; and the SECONDARY-region push presents a freshly MINTED PAT (not the admin password), which Gitea git-over-HTTP requires under an external login source (#6645, Refs #6490 #3379, UAT row 166)"
 # Live hw301 region-B (me-east-215-b-1): the secondary-mirror's curl API calls
 # (base64 Authorization: Basic header) SUCCEEDED — "org already present", "repo
 # already present" — while `git push` FATALed "Could not read from remote
-# repository", because the push path is different: it injected
-# ${GITEA_USERNAME}:${GITEA_PASSWORD}@ into the URL, and the region-local Gitea
-# admin password held a URL-special char (/ @ : & % …) that broke either the sed
-# replacement or git's URL parse. The durable fix: git push + git ls-remote
-# carry the SAME `http.extraHeader="Authorization: Basic ${basic_auth}"` the curl
-# API calls use, and the remote URL carries NO credentials. This guards the two
-# admin-BasicAuth mirror sites; the PAT-authed primary step-01 (01-gitea-mirror)
-# is a separate contract (#5262 — a hex PAT is immune to URL-special chars).
+# repository". The #6490 pass moved the push OFF URL-injection onto the SAME
+# admin-password http.extraHeader the API uses. But hw305 region-B (dep
+# b2b00ce4c833badf) then showed that is still insufficient: Gitea's git-over-HTTP
+# BasicAuth REFUSES an account password when an external login source (bp-gitea's
+# openova-sso OAuth2) is configured, even though /api/v1 accepts that same
+# password — so the header-authed PASSWORD push still FATALed the same way. The
+# durable #6645 fix mirrors the PRIMARY step-01 push-auth: mint a region-local
+# PAT via the admin BasicAuth API (the proven-working path) and git-auth the
+# push/ls-remote WITH THE PAT (token_auth header) against a credential-free
+# remote URL. The PRIMARY resync push (part b) keeps the admin-BasicAuth header —
+# region-A works and the resync is a separate, post-cutover, default-severed site.
 c96_fail=0
 # (a) the SECONDARY-region mirror ConfigMap (render-gated on mirrorToSecondaryGitea).
 helm template smoke-secmirror . --set secondaryRegions.mirrorToSecondaryGitea=true \
   --show-only templates/secondary-mirror-script-configmap.yaml > "$TMP/r_6490_secondary.yaml"
 F="$TMP/r_6490_secondary.yaml"
-if ! grep -qF 'git -c http.extraHeader="Authorization: Basic ${basic_auth}" push --force "${push_url}"' "$F"; then
-  echo "FAIL: secondary-mirror push does not carry the Authorization: Basic http.extraHeader (#6490)" >&2; c96_fail=1
+if ! grep -qF 'git -c http.extraHeader="Authorization: Basic ${token_auth}" push --force "${push_url}"' "$F"; then
+  echo "FAIL: secondary-mirror push does not carry the MINTED-PAT Authorization: Basic http.extraHeader (#6645)" >&2; c96_fail=1
 fi
-if ! grep -qF 'git -c http.extraHeader="Authorization: Basic ${basic_auth}" ls-remote --heads "${push_url}"' "$F"; then
-  echo "FAIL: secondary-mirror ls-remote does not carry the Authorization: Basic http.extraHeader (#6490)" >&2; c96_fail=1
+if ! grep -qF 'git -c http.extraHeader="Authorization: Basic ${token_auth}" ls-remote --heads "${push_url}"' "$F"; then
+  echo "FAIL: secondary-mirror ls-remote does not carry the MINTED-PAT Authorization: Basic http.extraHeader (#6645)" >&2; c96_fail=1
+fi
+if ! grep -qF 'users/${GITEA_USERNAME}/tokens' "$F"; then
+  echo "FAIL: secondary-mirror does not mint a region-local PAT via /api/v1/users/.../tokens for the push (#6645)" >&2; c96_fail=1
 fi
 if ! grep -qF 'push_url="${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git"' "$F"; then
   echo "FAIL: secondary-mirror push_url is not the credential-free remote URL (#6490)" >&2; c96_fail=1
 fi
-# anti-regression (non-vacuous — TRUE on the old URL-injection script, FALSE now):
+# anti-regression (non-vacuous — TRUE on the pre-#6645 basic_auth-password push):
+# the push/ls-remote must NOT git-auth with the admin-password header.
+if grep -qE 'http\.extraHeader="Authorization: Basic \$\{basic_auth\}" (push|ls-remote)' "$F"; then
+  echo "FAIL: secondary-mirror still git-auths with the admin password (basic_auth) — Gitea git-HTTP refuses a password under an external login source (#6645 regression)" >&2; c96_fail=1
+fi
+# anti-regression (non-vacuous — TRUE on the pre-#6490 URL-injection script, FALSE now):
 # no credential-in-URL injection may survive anywhere in the script.
 if grep -qF '${GITEA_USERNAME}:${GITEA_PASSWORD}@' "$F"; then
   echo "FAIL: secondary-mirror still URL-injects the admin password — breaks on a URL-special-char password (#6490 regression)" >&2; c96_fail=1
@@ -5526,7 +5537,7 @@ if grep -qF '${GITEA_USERNAME}:${GITEA_PASSWORD}@' "$G"; then
   echo "FAIL: mirror-resync still URL-injects the admin password — breaks on a URL-special-char password (#6490 regression)" >&2; c96_fail=1
 fi
 if [ "$c96_fail" -ne 0 ]; then exit 1; fi
-echo "  PASS (#6490: the secondary-mirror + primary resync git push/ls-remote authenticate via an http.extraHeader Authorization: Basic — the same header the curl API calls use — against a credential-free remote URL; zero admin-password URL-injection survives, so a URL-special-char Gitea admin password no longer FATALs the push)"
+echo "  PASS (#6645: the SECONDARY-region mirror mints a region-local PAT and git-auths the push/ls-remote WITH IT — Gitea git-over-HTTP requires a token, not the admin password, under an external login source — against a credential-free remote URL; the PRIMARY resync keeps its admin-BasicAuth header [region-A works]; zero admin-password URL-injection survives on either site)"
 
 echo "[cutover-contract] Case 97: Step-01 gitea-mirror activeDeadlineSeconds must cover the ~470MB monorepo clone+push over a throttled link (#6511, Refs #6508 #3379, UAT row 166)"
 # hw302 live (2026-08-20): step-01 bare-clones the openova monorepo — now ~470 MB

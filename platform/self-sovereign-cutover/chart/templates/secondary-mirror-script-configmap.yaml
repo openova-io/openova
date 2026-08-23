@@ -21,12 +21,18 @@ closing `git ls-remote` self-verify — the #6490 ordering gate: this region's
 Gitea must serve a COMPLETE ref advertisement before step-05 pivots its Flux
 GitRepository at it.
 
-Auth is BasicAuth with the secondary's OWN gitea-admin-secret (username +
-password env, from a secretKeyRef the stamping Job wires). A secondary does NOT
-run bp-catalyst-platform (SECONDARY_HR_SUSPEND), so the `catalyst-gitea-token`
-PAT step-01 uses on the primary does not exist there; admin BasicAuth is the
-credential available in-region. curl calls carry --max-time so a converging
-login source cannot hang the step.
+Auth (#6645): the /api/v1 calls (org/repo create, PAT mint, repo-meta readback)
+use BasicAuth with the secondary's OWN gitea-admin-secret (username + password
+env, from a secretKeyRef the stamping Job wires) — the proven-working API path.
+But the git-over-HTTP push/ls-remote authenticate with a freshly MINTED PAT, not
+that password: Gitea's git-HTTP BasicAuth refuses an account password when an
+external login source (bp-gitea's openova-sso OAuth2) is configured, even though
+the API accepts it — the exact region-B discriminator (API OK, push "Could not
+read from remote repository"). A secondary runs no bp-catalyst-platform, so the
+`catalyst-gitea-token` PAT step-01 uses on the primary does not exist here; we
+mint one in-region via the admin BasicAuth API and use it for the push, mirroring
+the primary's PAT-authed push. curl calls carry --max-time so a converging login
+source cannot hang the step.
 
 RENDER-GATED: emitted only when secondaryRegions.mirrorToSecondaryGitea is true,
 so a single-region Sovereign renders byte-identical (this whole object absent).
@@ -99,7 +105,57 @@ data:
       fi
     fi
 
-    # 3. bare-clone upstream and force-push explicit refspecs (never mirror mode
+    # 2b. #6645 — mirror=false guard. A Gitea PULL-MIRROR repo is READ-ONLY: the
+    #     force-push below is rejected and git surfaces only the opaque
+    #     "Could not read from remote repository". Gitea 1.22 cannot convert a
+    #     pull-mirror to a standalone repo via API (same constraint step-01/PR
+    #     #1029 designed around on the primary), so we FATAL naming the exact
+    #     cause instead of failing opaquely inside the push. The create path
+    #     above makes a REGULAR repo (auto_init:false, never /repos/migrate), so
+    #     this only fires if something else seeded a pull-mirror in this region.
+    repo_meta=$(curl -fsS --max-time 60 \
+        -H "Authorization: Basic ${basic_auth}" -H "Accept: application/json" \
+        "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null || echo "{}")
+    if printf '%s' "${repo_meta}" | grep -q '"mirror":true'; then
+      echo "[secondary-mirror] FATAL: ${GITEA_ORG}/${GITEA_REPO} is a Gitea PULL-MIRROR (read-only) in this region — the region-local force-push cannot land (#6645). A pull-mirror cannot be converted to standalone via the Gitea API; recreate it as a regular (non-mirror) repo before re-triggering." >&2
+      exit 1
+    fi
+
+    # 3. #6645 — mint a fresh region-local PAT and authenticate the git-over-HTTP
+    #    push/ls-remote WITH IT, exactly as the PRIMARY (region-A) mirror does
+    #    (01-gitea-mirror-job.yaml uses the bootstrap-minted catalyst-gitea-token
+    #    PAT). WHY NOT the admin password: Gitea's git-over-HTTP BasicAuth REFUSES
+    #    an account password when an external login source (bp-gitea's openova-sso
+    #    OAuth2) is configured — it demands a token — EVEN THOUGH the /api/v1 calls
+    #    above accept that same password. That is the exact region-B discriminator
+    #    (#6645, hw305 dep b2b00ce4c833badf): the curl API BasicAuth succeeds
+    #    ("repo already present") while the header-authed push FATALs with
+    #    "Could not read from remote repository". The earlier http.extraHeader
+    #    BasicAuth-password variant (#6490) only dodged a URL-special-char parse
+    #    bug — it still presents a PASSWORD, so it does not clear this rejection.
+    #    A secondary runs no bp-catalyst-platform, so the primary's
+    #    catalyst-gitea-token PAT does not exist here; we MINT one via the admin
+    #    BasicAuth API (the proven-working path) and use it — a PAT is accepted as
+    #    the git-HTTP password under any username. Delete-then-create keeps it
+    #    idempotent: a token's sha1 is only returned at creation.
+    pat_name="cutover-secondary-mirror"
+    curl -fsS -o /dev/null --max-time 60 -X DELETE \
+      -H "Authorization: Basic ${basic_auth}" \
+      "${api_url}/users/${GITEA_USERNAME}/tokens/${pat_name}" 2>/dev/null || true
+    mint_resp=$(curl -fsS --max-time 60 -X POST \
+      -H "Authorization: Basic ${basic_auth}" -H "Content-Type: application/json" \
+      -d "{\"name\":\"${pat_name}\",\"scopes\":[\"write:repository\",\"read:repository\"]}" \
+      "${api_url}/users/${GITEA_USERNAME}/tokens" 2>/dev/null || echo "")
+    GITEA_PAT=$(printf '%s' "${mint_resp}" | sed -n 's/.*"sha1":"\([0-9a-fA-F]*\)".*/\1/p')
+    if [ -z "${GITEA_PAT}" ]; then
+      echo "[secondary-mirror] FATAL: could not mint a region-local Gitea PAT (POST ${api_url}/users/${GITEA_USERNAME}/tokens returned no sha1) — git-over-HTTP will not accept the admin password when an external login source is configured (#6645)" >&2
+      exit 1
+    fi
+    # token BasicAuth header (user:PAT) — THIS is what git-over-HTTP accepts. The
+    # push URL still carries NO credentials (the #6490 URL-special-char safety).
+    token_auth=$(printf '%s' "${GITEA_USERNAME}:${GITEA_PAT}" | base64 -w0 2>/dev/null || printf '%s' "${GITEA_USERNAME}:${GITEA_PAT}" | base64 | tr -d '\n')
+
+    # 4. bare-clone upstream and force-push explicit refspecs (never mirror mode
     #    #5011) with the #6488 large-clone robustness.
     git config --global user.name "self-sovereign-cutover-secondary"
     git config --global user.email "cutover@${gitea_host}"
@@ -108,13 +164,6 @@ data:
     git config --global http.lowSpeedLimit 1000
     git config --global http.lowSpeedTime 600
 
-    # Authenticate the git push/ls-remote over HTTP with the SAME BasicAuth
-    # header the curl API calls above use — NOT URL-injected credentials. A
-    # region-local Gitea admin password containing a URL-special char
-    # (/ @ : & % …) breaks either the sed replacement or git's URL parse, so
-    # the API calls succeed (header-authenticated) while the push FATALs with
-    # "Could not read from remote repository" (#6490, live-confirmed hw301
-    # region-B). The push URL carries NO credentials.
     push_url="${GITEA_INTERNAL_URL}/${GITEA_ORG}/${GITEA_REPO}.git"
     workdir=$(mktemp -d)
     cd "${workdir}"
@@ -135,19 +184,19 @@ data:
     fi
     cd upstream.git
     echo "[secondary-mirror] pushing upstream branches + tags to the region-local Gitea"
-    push_err=$(git -c http.extraHeader="Authorization: Basic ${basic_auth}" push --force "${push_url}" 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*' 2>&1) || {
+    push_err=$(git -c http.extraHeader="Authorization: Basic ${token_auth}" push --force "${push_url}" 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*' 2>&1) || {
       echo "[secondary-mirror] FATAL: git push to the region-local Gitea failed" >&2
-      printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PASSWORD}+,REDACTED,g" >&2
+      printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PAT}+,REDACTED,g;s,${GITEA_PASSWORD}+,REDACTED,g" >&2
       exit 1
     }
     echo "[secondary-mirror] pushed all upstream branches + tags"
 
-    # 4. ls-remote self-verify — the #6490 ordering gate. The region's Gitea must
+    # 5. ls-remote self-verify — the #6490 ordering gate. The region's Gitea must
     #    serve a COMPLETE ref advertisement (the class that truncated at pkt-line
     #    3 cross-region); prove it locally before step-05 pivots Flux at it.
-    if ! git -c http.extraHeader="Authorization: Basic ${basic_auth}" ls-remote --heads "${push_url}" >/tmp/.lsr 2>/tmp/.lsr.err; then
+    if ! git -c http.extraHeader="Authorization: Basic ${token_auth}" ls-remote --heads "${push_url}" >/tmp/.lsr 2>/tmp/.lsr.err; then
       echo "[secondary-mirror] FATAL: git ls-remote of the pushed repo failed — its ref advertisement is not servable (the pkt-line 3 EOF class, #6490)" >&2
-      sed -E "s,${GITEA_PASSWORD}+,REDACTED,g" /tmp/.lsr.err >&2 || true
+      sed -E "s,${GITEA_PAT}+,REDACTED,g;s,${GITEA_PASSWORD}+,REDACTED,g" /tmp/.lsr.err >&2 || true
       exit 1
     fi
     if ! grep -q "refs/heads/${UPSTREAM_BRANCH}" /tmp/.lsr; then

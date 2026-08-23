@@ -4191,7 +4191,18 @@ name: bp-self-sovereign-cutover
 #   step-01 (G11 / UAT row 166). 45 min gives comfortable headroom; the clone stays
 #   --bare (it needs all refs+blobs to push). Chart-test Case 97 pins the raised
 #   deadline. Catalog + bootstrap-kit slot 06a move to 0.1.198 in lockstep.
-version: 0.1.198
+# 0.1.199 (#6645, Refs #6490 #5262) — the SECONDARY-region gitea-mirror leg
+#   (secondary-mirror.sh) now MINTS a region-local Gitea PAT and git-auths the
+#   push/ls-remote WITH IT, mirroring the PRIMARY step-01 push-auth. Root cause
+#   (hw305 region-B, dep b2b00ce4c833badf): Gitea's git-over-HTTP BasicAuth
+#   REFUSES an account password when an external login source (openova-sso
+#   OAuth2) is configured — the curl API accepts the same password, but the
+#   header-authed PASSWORD push FATALed "Could not read from remote repository",
+#   wedging the cutover at step-01. The #6490 http.extraHeader move only fixed a
+#   URL-special-char parse; a password is still refused for git-HTTP. Fix mints a
+#   PAT via the admin BasicAuth API (proven working) and uses it for the push,
+#   plus a mirror=false guard. Catalog + bootstrap-kit slot 06a move to 0.1.199.
+version: 0.1.199
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),
