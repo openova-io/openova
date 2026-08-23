@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-23T03:30:07Z` |
+| Last refreshed | `2026-08-23T03:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-23T03:43 | [#6614](https://github.com/openova-io/openova/pull/6614) | #4471 | docs(uat): R10 → ✅ org-controller RBAC update/patch (source- |
 | 2026-08-23T03:15 | [#6613](https://github.com/openova-io/openova/pull/6613) | #4432 | docs(uat): R21 → ⚠️ — 6 inert placeholder seed pins (seed de |
 | 2026-08-23T02:39 | [#6612](https://github.com/openova-io/openova/pull/6612) | #4325 | docs(uat): hw304 — row 104 → ✅ 7 bootstrap components under  |
 | 2026-08-23T02:31 | [#6611](https://github.com/openova-io/openova/pull/6611) | #3646 | docs(uat): hw304 — row 170 → ✅ install-openbao Succeeded (19 |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-22T18:35 | [#6587](https://github.com/openova-io/openova/pull/6587) | #3383 | docs(uat): re-walk 116/118/119/124 render rows live on hw304 |
 | 2026-08-22T18:19 | [#6586](https://github.com/openova-io/openova/pull/6586) | #6573 | docs(uat): re-walk — new-org wizard no-prefill (W1) + avatar |
 | 2026-08-22T18:14 | [#6585](https://github.com/openova-io/openova/pull/6585) | #6573 | docs(uat): re-walk — Alloy detail+iconpicker (125/137) + job |
-| 2026-08-22T17:50 | [#6584](https://github.com/openova-io/openova/pull/6584) | #3987 | docs(uat): re-walk — 5 Cloud per-kind rows (198/200/201/202/ |
 
 ---
 
