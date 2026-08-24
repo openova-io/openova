@@ -1,84 +1,90 @@
 # OpenOva / Catalyst — System Design & Onboarding
 
 > **Audience:** an incoming lead developer / CTO taking over the build via harness engineering.
-> **Goal:** understand the whole system top-to-bottom — the domain model, the control plane, how a
-> customer goes from click to running app, how a Sovereign becomes self-hosting, and how we *prove*
-> any of it works. Read this first, then [`ARCHITECTURE.md`](ARCHITECTURE.md) (target state),
-> [`DOD.md`](DOD.md) (Definition of Done), [`PRINCIPLES.md`](PRINCIPLES.md) and [`PROTOCOL.md`](PROTOCOL.md)
-> (how we work), and [`GLOSSARY.md`](GLOSSARY.md) (terms — wins over everything).
+> **Goal:** understand the whole system top-to-bottom — the domain model, **the GitOps engine that is the
+> heart of the platform**, the control plane, the event/streaming layer, how a customer goes from click to
+> running app, how a Sovereign becomes *fully independent*, and how we *prove* any of it works.
+> **Read order:** this doc → [`GLOSSARY.md`](GLOSSARY.md) (terms — wins over everything) →
+> [`STATUS.md`](STATUS.md) (what's actually built) → [`ARCHITECTURE.md`](ARCHITECTURE.md) →
+> [`DOD.md`](DOD.md) → [`PRINCIPLES.md`](PRINCIPLES.md) → [`PROTOCOL.md`](PROTOCOL.md) → [`RUNBOOKS.md`](RUNBOOKS.md).
 
 ---
 
 ## 0. The one-paragraph mental model
 
 **OpenOva** (the company) builds **Catalyst** (the platform). A *deployed* Catalyst is a **Sovereign** —
-a self-contained, multi-region Kubernetes-based cloud that a partner (Omantel, National Cloud, …) runs
-under their own brand. **We** run a reference Sovereign called the **mothership** (`openova`) that also
-acts as the provisioning + billing control plane that *fires* new Sovereigns. Inside a Sovereign,
-customers are **Organizations**, which hold **Environments**, which run **Applications**, which are
-installed from **Blueprints** (versioned OCI artifacts). The endgame (Pillar 5) is **sovereignty
-cutover**: a Sovereign severs all 8 ties to the mothership and runs entirely on its own registry +
-GitOps, proven by a 10-minute egress-block self-test. **Same code in every Sovereign.**
+a self-contained, multi-region Kubernetes cloud that a partner (Omantel, National Cloud, …) runs under
+their own brand, **with its own billing, its own users, its own everything.** We run one reference
+Sovereign, the **mothership** (`openova`), whose *only* cross-Sovereign job is **provisioning** — it
+*fires* new Sovereigns. It does **not** run their billing, hold their data, or serve their traffic. Inside
+a Sovereign, customers are **Organizations**, holding **Environments**, running **Applications**, installed
+from **Blueprints**. The platform is driven **declaratively**: desired state lives in **Git**, **Flux**
+reconciles the cluster toward it, and **Crossplane** turns declarative claims into real cloud infra. The
+endgame (Pillar 5) is **sovereignty cutover** — a Sovereign severs its last tie to us and pulls everything
+from its *own* Git + registry, proven by a 10-minute egress-block self-test. **Same code in every Sovereign.**
 
 ```mermaid
 graph TD
-  subgraph OpenOva["OpenOva (us)"]
-    MS["Mothership 'openova'<br/>control plane + billing + provisioner"]
-    GH["GitHub monorepo<br/>+ ghcr.io Blueprint OCI"]
+  subgraph OpenOva["OpenOva (us) — PROVISIONING ONLY"]
+    MS["Mothership 'openova'<br/>fires Sovereigns (OpenTofu)"]
+    GH["GitHub monorepo + ghcr.io<br/>Blueprint OCI catalog (soft tether, pre-cutover only)"]
   end
-  subgraph Partner["Partner Sovereign (e.g. Omantel)"]
-    SOV["Sovereign = deployed Catalyst<br/>2 regions, own domain"]
-    ORG["Organization (customer)"]
-    ENV["Environment (dev/prod)"]
-    APP["Application (e.g. WordPress)"]
+  subgraph Sov["Partner Sovereign — FULLY INDEPENDENT"]
+    direction TB
+    GIT["Git (Gitea) = desired state"]
+    FLUX["Flux = reconciler"]
+    XP["Crossplane = cloud provisioner"]
+    BSS["own billing / users / data / traffic"]
+    ORG["Organization → Environment → Application"]
   end
-  MS -->|"POST /deployments → OpenTofu → cloud"| SOV
-  GH -->|"daily catalog mirror"| SOV
-  SOV --> ORG --> ENV --> APP
-  BP["Blueprint bp-wordpress<br/>ghcr.io/openova-io/bp-wordpress"] -.->|"Flux HelmRelease"| APP
-  SOV -.->|"cutover: sever all 8 tethers"| SOV
+  MS -->|"POST /deployments → tofu apply → cloud"| Sov
+  GH -.->|"catalog + image mirror (severed at cutover)"| GIT
+  GIT --> FLUX --> ORG
+  FLUX --> XP
+  BSS --- ORG
 ```
+
+> **Two corrections a new lead must internalise immediately:** (1) **billing is per-Sovereign** — the
+> mothership never bills a partner's customers; (2) a Sovereign has **zero runtime dependency** on the
+> mothership. See §4.
 
 ---
 
 ## 1. Domain model (the nouns — learn these cold)
 
-Everything is a strict containment hierarchy. The [`GLOSSARY.md`](GLOSSARY.md) has the banned-terms list;
-use these exact words.
+Strict containment. Use these exact words ([`GLOSSARY.md`](GLOSSARY.md) has the banned-terms list).
 
 ```mermaid
 graph LR
   S["Sovereign<br/><i>a deployed Catalyst</i>"] -->|hosts| O["Organization<br/><i>a customer tenant</i>"]
-  O -->|contains| E["Environment<br/><i>dev / prod</i>"]
+  O -->|contains| E["Environment<br/><i>envType: prod (default) / dev / staging</i>"]
   E -->|runs| A["Application<br/><i>a running instance</i>"]
   B["Blueprint bp-*<br/><i>the installable template</i>"] -->|installs as| A
-  S -->|"is either"| M["mothership (ours)<br/>or a partner Sovereign"]
 ```
 
 | Term | Is | Backed by (runtime) |
 |---|---|---|
-| **Sovereign** | a deployed Catalyst (a whole multi-region cloud) | a set of k3s clusters + the Catalyst control plane |
-| **Organization** | a customer tenant | `Organization` CR (`orgs.openova.io`) + a vCluster (paid tiers) or host namespace (free/S) |
-| **Environment** | a workspace inside an Org (dev/prod) | `Environment` CR + a namespace |
+| **Sovereign** | a deployed Catalyst (a whole multi-region cloud) | k3s clusters × 2 regions + the Catalyst control plane |
+| **Organization** | a customer tenant | `Organization` CR (`orgs.openova.io`) + a vCluster (paid) or host namespace (free/S) |
+| **Environment** | a workspace in an Org | `Environment` CR with an **`envType`** (`prod` is the default; `dev`/`staging` exist but are rarely used — in practice most Orgs run a single `prod`) |
 | **Application** | a running instance | `Application` CR (`apps.openova.io`) → a Flux `HelmRelease` |
 | **Blueprint** | the installable template | `ghcr.io/openova-io/bp-<name>:<semver>` OCI (Helm chart + `blueprint.yaml`) |
 
-**Naming conventions** (full table in [`ARCHITECTURE.md`](ARCHITECTURE.md) §4): cluster
-`{prov}-{reg}-{bb}-{env}` · vcluster `{org}` · Environment `{org}-{env}` · Blueprint `bp-<name>` ·
-Application `<purpose>`.
+Naming: cluster `{prov}-{reg}-{bb}-{env}` · vcluster `{org}` · Environment `{org}-{envType}` (e.g.
+`agwalk305-prod`) · Blueprint `bp-<name>` · Application `<purpose>`. Full table in [`ARCHITECTURE.md`](ARCHITECTURE.md) §4.
 
 ---
 
-## 2. The 5-pillar Definition of Done (the "why" behind every row)
+## 2. The 5-pillar Definition of Done (the "why" behind every acceptance row)
 
-The product is only "done" when an operator can walk a **fresh provision** through all five. This is the
-spine of the acceptance ledger ([`ledger/UAT.md`](ledger/UAT.md), ~286 rows). Full text in [`DOD.md`](DOD.md).
+Done = an operator can walk a **fresh provision** through all five (full text in [`DOD.md`](DOD.md); the walk
+is [`ledger/UAT.md`](ledger/UAT.md), ~286 rows):
 
-1. **Marketplace + voucher onboarding** — a customer buys/redeems and gets a live Org.
+1. **Marketplace + voucher onboarding** — customer buys/redeems → live Org.
 2. **Multi-region BCP topology choice at signup** — active-active / active-hot-standby / singleton.
-3. **Two CNPG clusters + region-kill failover** — kill a region, data + control survive.
+3. **Two CNPG clusters + region-kill failover** — kill a region; data + control survive.
 4. **Per-Org Agenity workspace + `bp-openova-mcp`** — an in-Org AI agent that can `create_application`.
-5. **Sovereign independence post-cutover** — the 11-step `bp-self-sovereign-cutover` chain + egress-block proof.
+5. **Sovereign independence post-cutover** — the 11-step `bp-self-sovereign-cutover` + egress-block proof.
 
 ---
 
@@ -88,241 +94,346 @@ spine of the acceptance ledger ([`ledger/UAT.md`](ledger/UAT.md), ~286 rows). Fu
 graph TD
   ROOT["openova/ (public monorepo)"]
   ROOT --> CORE["core/ — Catalyst control-plane (Go)"]
-  ROOT --> PLAT["platform/ — 105 Component Blueprints<br/>(one per upstream OSS: cilium, cnpg, keycloak…)"]
-  ROOT --> PROD["products/ — 13 Composite Blueprints<br/>(OpenOva's own products)"]
-  ROOT --> DOCS["docs/ — 7 canonical docs + ledger/ + adr/"]
+  ROOT --> PLAT["platform/ — 105 Component Blueprints<br/>(one per upstream OSS)"]
+  ROOT --> PROD["products/ — 13 Composite Blueprints (OpenOva's own)"]
   ROOT --> CLUST["clusters/_template/bootstrap-kit/ — ordered install slots"]
+  ROOT --> DOCS["docs/ — 7 canonical + ledger/ + adr/"]
   CORE --> CTRL["controllers/ — 9 CRD reconcilers"]
   CORE --> SVC["services/ — 11 microservices"]
-  CORE --> CMD["cmd/ — standalone binaries"]
-  CORE --> CONS["console/ — org-console (tenant UI)"]
-  CORE --> MKT["marketplace/ — customer storefront + funnel"]
+  CORE --> CMDX["cmd/ — projector, k8s-ws-proxy, pdm, dns-webhook…"]
+  CORE --> FE["console/ (org-console) · marketplace/ (funnel)"]
   PROD --> CAT["catalyst/ — bootstrap/api (THE brain) + bootstrap/ui (sovereign-admin UI)"]
 ```
 
-**Per-folder isolation:** each `platform/<x>` and `products/<x>` is the *source of one Blueprint*. CI
-fans out to `ghcr.io/openova-io/bp-<name>:<semver>`. There are **no** separate per-Blueprint git repos.
-
-### 3.1 ⚠️ There are FOUR front-end trees — grep all four before saying "the UI doesn't do X"
-
-| Path | package | What it is |
-|---|---|---|
-| `core/console/` | `org-console` | per-**Organization** tenant console (signed-in User) |
-| `core/marketplace/` | `org-marketplace` | **customer storefront + funnel** (signup, catalog, checkout, voucher redeem) |
-| `products/catalyst/console/` | `catalyst-console` | Catalyst-side console assets |
-| `products/catalyst/bootstrap/ui/` | `ui` | **the sovereign-admin console** (`src/pages/sovereign/…`) — apps grid, jobs, topology, cutover |
-
-Most operator-facing acceptance rows live in **`bootstrap/ui`**. Customer-funnel rows live in **`core/marketplace`**.
+**⚠️ FOUR front-end trees** — grep all four before saying "the UI can't do X":
+`core/console` (`org-console`, tenant UI) · `core/marketplace` (`org-marketplace`, customer funnel) ·
+`products/catalyst/console` (`catalyst-console`) · `products/catalyst/bootstrap/ui` (**the sovereign-admin
+console** — apps grid, jobs, topology, cutover). Each `platform|products/<x>` is the source of **one**
+Blueprint published to `ghcr.io/openova-io/bp-<name>`.
 
 ---
 
-## 4. Control plane architecture
+## 4. Independence model — mothership vs Sovereign (read this before anything scary)
 
-The control plane is Go. Two shapes: **the catalyst-api** (a monolith-ish HTTP brain) and **the
-controllers** (Kubernetes reconcilers). It runs *both* on the mothership (to fire Sovereigns) and inside
-each Sovereign (to run that Sovereign).
+**The same binaries run in every Sovereign, including the mothership — as fully independent instances.**
+There is no shared runtime, no shared database, no call-home.
+
+```mermaid
+graph LR
+  subgraph M["Mothership 'openova' (also a reference Sovereign)"]
+    MAPI["catalyst-api (its own)"]:::c --> MDB["its own Git/DB/billing"]
+    MPROV["provisioner: the ONLY cross-Sovereign role"]:::c
+  end
+  subgraph P["Partner Sovereign"]
+    PAPI["catalyst-api (its own, identical code)"]:::c --> PDB["its own Git/DB/billing/users/data"]
+  end
+  MPROV ==>|"fire: POST /deployments (one-time)"| P
+  MREG["our ghcr + GitHub catalog"]:::t -.->|"soft tether: catalog + image PULLS only<br/>(pre-cutover convenience)"| P
+  P ==>|"CUTOVER severs the tether:<br/>local Gitea + Harbor, egress-block proof"| P
+  classDef c fill:#e6f0ff,stroke:#36c;
+  classDef t fill:#fff0e6,stroke:#e80,stroke-dasharray:4 3;
+```
+
+| Concern | Mothership | Partner Sovereign |
+|---|---|---|
+| Provisioning (fire new Sovereigns) | ✅ its job | ❌ never |
+| Billing / vouchers / showback | own customers only | **own, independent** (`core/services/billing` in-cluster) |
+| Users / auth / data | own | **own** (own Keycloak, own Postgres, own S3) |
+| Serving traffic | own | **own** (own gateway, own DNS) |
+| Runtime dependency on the other | none | **none** |
+| Catalog + images | source of the public catalog | **soft tether pre-cutover** (pulls the catalog/images); **zero after cutover** |
+
+- **Pre-cutover:** the only link is a *pull* — the Sovereign mirrors our public Blueprint catalog + images
+  as a convenience. It already serves 100% of its own traffic without us. Losing the mothership at this
+  stage only stops *new catalog updates*, not operation.
+- **Post-cutover:** the Sovereign pulls **exclusively** from its own Gitea + Harbor. The 10-minute
+  egress-block self-test (cutover step 08) *proves* it keeps reconciling green with `github.com`, `ghcr.io`,
+  and `harbor.openova.io` denied. **After cutover a Sovereign is 100% self-sufficient. Full stop.**
+
+---
+
+## 5. The GitOps engine — Git + Flux + Crossplane (the heart of the platform)
+
+Everything the platform does is a **declarative control loop**: the *desired* state is written to Git,
+**Flux** continuously drives the cluster toward it, and **Crossplane** does the same for *cloud* resources.
+Humans and the catalyst-api only ever **write desired state**; the engines converge reality to it.
+
+```mermaid
+graph TB
+  subgraph Desired["DESIRED STATE (source of truth)"]
+    GC["openova-catalog-sovereign<br/><i>the Blueprint catalog</i>"]
+    GT["openova-org-tenants + catalyst-tenant-&lt;org&gt;<br/><i>per-Org manifests (Apps, vClusters, policies)</i>"]
+  end
+  subgraph GitEngine["FLUX — the reconciler (pull-based)"]
+    SRC["source-controller<br/>GitRepository / HelmRepository"]
+    KUST["kustomize-controller<br/>Kustomization → applies YAML"]
+    HELM["helm-controller<br/>HelmRelease → installs Blueprints"]
+  end
+  subgraph CloudEngine["CROSSPLANE — the cloud provisioner"]
+    XRD["Compositions + Claims (XRs)"]
+    XPROV["provider-opentofu / provider-upjet"]
+  end
+  API["catalyst-api + controllers"] -->|"git commit: write Application/Org manifests"| GT
+  US["our CI"] -->|"mirror"| GC
+  GC --> SRC; GT --> SRC
+  SRC --> KUST --> HELM --> RUN["running workloads"]
+  KUST --> XRD --> XPROV -->|"declarative"| CLOUD["Hetzner / Huawei resources"]
+  RUN -->|"status readback"| API
+```
+
+### 5.1 Git = the single source of truth
+Post-cutover Git is the Sovereign's **own Gitea**; pre-cutover it also mirrors our GitHub catalog. Three
+logical repos matter:
+- **`openova-catalog-sovereign`** — the Blueprint catalog (what can be installed).
+- **`openova-org-tenants`** + **`catalyst-tenant-<org>`** — the per-Org desired state (Applications,
+  vCluster wiring, network policies). The catalyst-api *commits here* when an Org creates/edits an app
+  ("git-back the write seams" — #3687); there is no imperative "apply" that bypasses Git.
+
+### 5.2 Flux = the reconciler (pull, not push)
+Flux runs **inside** the cluster and pulls: **`GitRepository`/`HelmRepository`** sources feed
+**`Kustomization`** (raw YAML) and **`HelmRelease`** (Blueprint charts). Nothing is `kubectl apply`-ed by a
+human in normal operation — you change Git, Flux converges. This is why "merged ≠ delivered": a merge only
+becomes real after the pin rolls into Git and Flux reconciles it (and a fresh-prov walk proves it).
+
+### 5.3 Crossplane = the cloud-provisioning arm (the user never sees it)
+Kubernetes can't natively create a Hetzner server or an S3 bucket — **Crossplane** does, declaratively.
+`platform/crossplane` ships **Compositions** (`compositions/`) + **Claims**; `platform/crossplane-claims`
+wires them per-Sovereign. A key pattern is **adoption**: after the mothership's `tofu apply` fires a
+Sovereign, `GenerateAdoptionClaims` (`provisioner/adoption.go`) reads the **OpenTofu state** and emits
+Crossplane Claims that *import* that infra so it's henceforth managed declaratively (Observe-only adoption
+= UAT gate **G1**). `provider-opentofu` / `provider-upjet` are the cloud drivers.
+
+### 5.4 Two IaC layers — don't conflate them
+
+```mermaid
+graph LR
+  subgraph L1["Layer 1: FIRE the Sovereign (one-time, imperative)"]
+    T["mothership catalyst-api runs OpenTofu<br/>per-dep workdir on PVC → servers, VPCs, LB, DNS, S3"]
+  end
+  subgraph L2["Layer 2: RUN the Sovereign (continuous, declarative)"]
+    X["in-Sovereign Crossplane<br/>adopts L1 state + provisions ongoing cloud resources<br/>via Compositions/Claims, reconciled by Flux from Git"]
+  end
+  T -->|"tofu state → adoption Claims"| X
+```
+
+Layer 1 (**OpenTofu**, run by the mothership brain) is a bounded, one-time bootstrap of the cloud
+substrate. Layer 2 (**Crossplane + Flux**, running inside the Sovereign) is the steady-state, Git-driven
+engine that the Sovereign owns forever.
+
+---
+
+## 6. Control plane (Go) — the catalyst-api, the controllers, the services
+
+The control plane **writes desired state and reads status back**; the engines in §5 do the converging.
 
 ```mermaid
 graph TB
   subgraph Brain["catalyst-api  (products/catalyst/bootstrap/api — cmd/api)"]
-    PROV["provisioner<br/>POST /sovereign/api/v1/deployments → OpenTofu → cloud"]
-    HAND["auth_handover / auth<br/>owner + customer session JWTs"]
-    APPS["applications / catalog<br/>create/update Application CRs, edit-IaC"]
-    JAN["janitor<br/>orphan-sweep (fail-closed)"]
-    CUT["cutover trigger + status<br/>self-sovereign-cutover engine"]
-    MESH["clustermesh<br/>region-b kubeconfig + global services"]
+    PROV["provisioner (OpenTofu → cloud)"]; HAND["auth / auth_handover (session JWTs)"]
+    APPS["applications / catalog (write Application CRs, edit-IaC → git commit)"]
+    JAN["janitor (fail-closed orphan-sweep)"]; CUT["cutover trigger + status"]; MESH["clustermesh (region-b kubeconfig, global svc)"]
   end
-  subgraph Controllers["core/controllers  (CRD reconcilers, one Deployment each)"]
-    OC["organization"]
-    EC["environment"]
-    AC["application"]
-    BC["blueprint"]
-    CC["continuum (DR)"]
-    UC["useraccess"]
+  subgraph Controllers["core/controllers — CRD reconcilers (one Deployment each)"]
+    OC["organization"]; EC["environment"]; AC["application"]; BC["blueprint"]; CC["continuum (DR)"]; UC["useraccess"]
   end
-  subgraph Services["core/services  (microservices)"]
-    AUTH["auth"]; BILL["billing"]; CATS["catalog / catalyst-catalog"]
-    DOM["domain"]; GW["gateway"]; NOTIF["notification"]; TEN["tenant"]; MET["metering-sidecar"]
+  subgraph Services["core/services — microservices (all run IN each Sovereign)"]
+    AUTH["auth"]; BILL["billing (own vouchers/showback)"]; CATS["catalog / catalyst-catalog"]
+    DOM["domain"]; GW["gateway"]; NOTIF["notification (PIN mail)"]; TEN["tenant"]; MET["metering-sidecar"]
   end
-  Brain -->|writes CRs| Controllers
-  Controllers -->|reconcile → Flux HR| K8S["Kubernetes / Flux"]
-  Services --- Brain
-  PDM["pool-domain-manager (cmd/pdm)<br/>allocates .omani.* subdomains"] --> DOM
-  PROJ["projector (cmd/projector)<br/>marketplace read model"] --> MKT2["marketplace-api"]
+  Brain -->|write CRs + git commit| Controllers
+  Controllers -->|render HelmRelease, read status back| FLUX["Flux (§5)"]
+  Services -. events .- NATS["NATS JetStream (§7)"]
+  PDM["pool-domain-manager (cmd/pdm) — .omani.* subdomains"] --> DOM
 ```
 
-### 4.1 The 9 controllers (`core/controllers/*`) — the reconcile loops
-`organization` · `environment` · `application` · `blueprint` · `continuum` (DR) · `useraccess` ·
-`sandbox` (legacy) · plus shared `internal/` + `pkg/`. Each owns one CRD kind and drives it to `Ready`
-by rendering a Flux `HelmRelease` and reading its status back (**never** report `Ready` over orphaned bytes — #3687).
-
-### 4.2 The CRD / reconciler model
-
-```mermaid
-graph LR
-  Org["Organization<br/>orgs.openova.io"] -->|org-controller| Ns["namespace + vCluster"]
-  Org --> EnvCR["Environment"]
-  EnvCR -->|environment-controller| Nsp["env namespace"]
-  AppCR["Application<br/>apps.openova.io"] -->|application-controller| HR["Flux HelmRelease"]
-  BpCR["Blueprint<br/>catalyst.openova.io"] -->|blueprint-controller| HRepo["Flux HelmRepository → ghcr/harbor"]
-  Cont["Continuum<br/>dr.openova.io"] -->|continuum-controller| Pair["CNPG active-hot-standby pair"]
-  HR --> Pod["running app pods"]
-```
-
-CRD Go types live in `core/pkg/apis/<kind>/v1alpha1/` (mirrored into `core/controllers/pkg/apis/`).
-
-### 4.3 The 11 microservices (`core/services/*`)
-`auth` (sessions/JWT) · `billing` (BSS/vouchers) · `catalog` + `catalyst-catalog` (Blueprint catalog +
-in-cluster fallback) · `domain` (DNS) · `gateway` (edge) · `metering-sidecar` (showback) ·
-`notification` (mail/PIN) · `provisioning` (fresh-prov + cutover-aware gitops) · `tenant` (per-Org) ·
-`shared` (auth/claims/utilities).
-
-### 4.4 Standalone binaries (`cmd/*`)
-`api` (catalyst-api) · `catalyst-dns` · `verify-purge` · `projector` (marketplace read model) ·
-`k8s-ws-proxy` (terminal/WS) · `cert-manager-dynadot-webhook` (ACME DNS-01 via Dynadot) ·
-`pdm` (pool-domain-manager) · `catalog` · `sandbox-controller` · `openova-flow-server` +
-`openova-flow-adapter-flux` · `openova-mcp` · `evs-csi-plugin` (Huawei).
+- **9 controllers** (`core/controllers/*`): `organization`, `environment`, `application`, `blueprint`,
+  `continuum`, `useraccess` (+ `sandbox` legacy). Each drives one CRD to `Ready` by rendering a `HelmRelease`
+  and **reading its status back** — never reporting `Ready` over orphaned bytes (#3687).
+- **11 microservices** (`core/services/*`): `auth`, **`billing`** (per-Sovereign BSS), `catalog` +
+  `catalyst-catalog`, `domain`, `gateway`, `metering-sidecar` (showback), `notification`, `provisioning`,
+  `tenant`, `shared`.
+- **CRD types** live in `core/pkg/apis/<kind>/v1alpha1/`. Groups: `apps.openova.io` (Application),
+  `orgs.openova.io` (Organization), `catalyst.openova.io` (Blueprint), `dr.openova.io` (Continuum).
 
 ---
 
-## 5. The provisioning lifecycle (click → running app)
+## 7. The streaming / event architecture (NATS JetStream + projector + SSE — CQRS)
 
-Two nested flows: **(A) fire a Sovereign** (mothership → cloud), then **(B) onboard an Org** (funnel → vCluster → apps).
+The control plane is **event-driven**. Services don't poll each other — they publish to and consume from
+**NATS JetStream**. The read side is **CQRS**: a **projector** materialises a live view into **Valkey**,
+and the catalyst-api streams it to the console over **SSE**.
+
+```mermaid
+graph LR
+  K8S["Kubernetes API<br/>(CR + Pod + HR events)"] -->|watch → publish| JS[("NATS JetStream")]
+  BILL["billing"] -->|catalyst.billing.order.placed| JS
+  DOM["domain"] -->|catalyst.domain.verified| JS
+  PROVN["provisioning"] -->|catalyst.provision.app / .completed / .failed| JS
+  AUD["all services"] -->|catalyst.audit| JS
+  JS -->|"catalyst.events (durable consumer)"| PROJ["projector<br/>core/cmd/projector (N replicas)"]
+  PROJ -->|materialise| VALKEY[("Valkey<br/>read model")]
+  VALKEY --> API["catalyst-api"]
+  API -->|"text/event-stream (SSE, ~5s)"| UI["sovereign-admin console<br/>Jobs live-tail · cutover progress · treemap"]
+  JS -->|jetstream events| CONT["continuum (DR)<br/>switchover/health"]
+```
+
+- **Streams/subjects (the bus):** `catalyst.events` (K8s resource events → projector), `catalyst.billing.*`
+  (e.g. `order.placed`), `catalyst.domain.*` (e.g. `verified`), `catalyst.provision.*`
+  (`app`/`completed`/`failed`), `catalyst.audit`, `auth.events`.
+- **Why CQRS:** each catalyst-api replica needs its own SSE view; the projector fans the JetStream into
+  Valkey so every replica serves a consistent, cheap live stream (the "Live state stream re-attached —
+  refreshing every 5s" banner on the Jobs/cutover pages is this pipeline).
+- **Continuum** consumes JetStream too (`continuum/internal/events/jetstream.go`) for DR
+  switchover/health signalling.
+
+---
+
+## 8. Provisioning lifecycle (click → running app)
+
+Two nested flows: **(A) fire a Sovereign** (mothership, one-time), then **(B) onboard an Org** (Git-driven).
 
 ```mermaid
 sequenceDiagram
   autonumber
   participant Op as Operator/Customer
   participant MS as Mothership catalyst-api
-  participant TF as OpenTofu (per-dep workdir on PVC)
-  participant Cloud as Hetzner / Huawei
-  participant BK as bootstrap-kit (Flux)
-  participant Sov as New Sovereign
+  participant TF as OpenTofu (per-dep workdir)
+  participant Cloud as Hetzner/Huawei
+  participant Sov as New Sovereign (Flux + Crossplane)
+  participant Git as Sovereign Git
 
-  Note over Op,Sov: (A) Fire a Sovereign
+  Note over Op,Sov: (A) Fire a Sovereign — Layer-1 IaC (one-time)
   Op->>MS: POST /sovereign/api/v1/deployments (owner session)
-  MS->>TF: write tofu.auto.tfvars.json, tofu apply
-  TF->>Cloud: create servers + VPCs + LB + DNS + S3
-  Cloud-->>Sov: k3s up, cloud-init runs
-  Sov->>BK: install bootstrap-kit slots 01→24 (Flux HelmReleases)
-  BK-->>Sov: cilium→flux→gitea→harbor→keycloak→cnpg→… Ready
+  MS->>TF: tofu apply (servers, VPCs, LB, DNS, S3)
+  TF->>Cloud: create substrate → k3s + cloud-init
+  Sov->>Sov: bootstrap-kit slots converge (Flux) — §9
+  MS->>Sov: GenerateAdoptionClaims (tofu state → Crossplane)
   Sov-->>MS: status=ready
 
-  Note over Op,Sov: (B) Onboard an Organization
+  Note over Op,Sov: (B) Onboard an Org — Layer-2 IaC (declarative, forever)
   Op->>Sov: marketplace: redeem voucher → signup slug+pool → checkout
-  Sov->>Sov: write Organization CR (orgs.openova.io)
-  Sov->>Sov: org-controller: provision vCluster + per-Org realm + apps
+  Sov->>Git: org-controller commits Organization + tenant manifests
+  Git->>Sov: Flux reconciles → vCluster + per-Org realm + Apps
   Op->>Sov: /auth/handover → /dashboard (owner session)
-  Op->>Sov: catalog → New instance (topology) → Application CR → Flux HR → running
+  Op->>Git: catalog → New instance (topology) → Application CR committed
+  Git->>Sov: Flux → HelmRelease → running app
 ```
 
-**Canonical endpoints (memorise):**
-- Create: `POST https://console.openova.io/sovereign/api/v1/deployments` (owner session cookie, **not** the handover JWT).
-- Destroy: `POST .../deployments/{id}/wipe` (tofu destroy + cloud cleanup, atomic). Record-only: `DELETE .../{id}`.
-- Never call `hcloud`/cloud CLIs directly for shared-infra writes (L2 in the root CLAUDE.md).
-
-### 5.1 The bootstrap-kit (`clusters/_template/bootstrap-kit/`) — ordered install on a fresh cluster
-Flux applies slots in a strict dependency order. Learn the shape:
-
-```
-01 cilium → 01a gateway-api → 02 cert-manager (+issuers) → 03 flux → 04 crossplane →
-05 sealed-secrets/reflector → 06 dragonfly → 06a bp-self-sovereign-cutover (dormant) →
-07 nats → 08 openbao → 09 keycloak → 10 gitea → 11 powerdns(+admin) → 12 external-dns →
-13 bp-catalyst-platform (+sso-bridge, oidc-gate, openova-mcp) → 14 crossplane-claims →
-15 external-secrets → 16 cnpg (+shared-pg a/b/c, cnpg-pair) → 17 valkey → 18 seaweedfs →
-19 harbor → 20-24 observability (otel, alloy, loki, mimir, tempo)
-```
-**Slot 06a is the cutover chart, installed dormant** — it arms Pillar 5 but does nothing until triggered.
+Canonical endpoints: create `POST /sovereign/api/v1/deployments` (owner session, **not** the handover JWT);
+destroy `POST .../{id}/wipe`; record-only `DELETE .../{id}`. Never call cloud CLIs directly for shared-infra
+writes.
 
 ---
 
-## 6. The Blueprint system (how software gets delivered)
+## 9. Bootstrap-kit — the dependency DAG (not a list)
+
+`clusters/_template/bootstrap-kit/` is applied by Flux, but the order is a **dependency graph**, not a line.
+The critical edges:
+
+```mermaid
+graph TD
+  cilium["01 cilium (CNI + ClusterMesh + LB-IPAM)"] --> gw["01a gateway-api"]
+  cilium --> everything["everything with pods"]
+  certmgr["02 cert-manager (+ issuers)"] --> tls["all TLS consumers"]
+  flux["03 flux"] --> allhr["ALL HelmReleases (every slot below)"]
+  crossplane["04 crossplane"] --> claims["14 crossplane-claims"]
+  reflector["05 sealed-secrets / reflector"] --> secrets["cross-ns secret mirrors"]
+  openbao["08 openbao (secrets)"] --> sso1["SSO + external-secrets"]
+  keycloak["09 keycloak (IdP)"] --> sso2["oidc-gate + sso-bridge + all app SSO"]
+  gitea["10 gitea (Git)"] --> gitops["Flux GitRepositories + cutover mirror"]
+  powerdns["11 powerdns"] --> extdns["12 external-dns"] --> certdns["ACME DNS-01"]
+  cnpg["16 cnpg (operator)"] --> pg["16a/b/c shared-pg + cnpg-pair"]
+  harbor["19 harbor (registry)"] --> cutovertgt["cutover pivot target"]
+  gw --> catplat["13 bp-catalyst-platform (the console + api)"]
+  keycloak --> catplat
+  openbao --> catplat
+  cutover["06a bp-self-sovereign-cutover (DORMANT)"] -.->|armed, triggered later| pivot["Pillar 5"]
+  catplat --> obs["20-24 observability (otel/alloy/loki/mimir/tempo)"]
+```
+
+Read it as: **cilium is the floor** (no pod networks without it); **cert-manager** gates every TLS surface;
+**flux** must exist before any HelmRelease; **keycloak + openbao** gate all SSO; **cnpg** precedes the
+shared-pg trio; **harbor** lands late (it's the cutover pivot target); **slot 06a is the cutover chart,
+installed dormant** and triggered only for Pillar 5. Lockstep gates
+(`check-bootstrap-kit-pin-sync.sh`) keep a chart's version identical across the slot, the catalog-seed, and
+the generated UI.
+
+---
+
+## 10. Blueprint delivery (source → running cluster)
 
 ```mermaid
 graph LR
-  SRC["platform/<x>/ or products/<x>/<br/>chart/ + blueprint.yaml"] -->|CI on tag| OCI["ghcr.io/openova-io/bp-x:semver<br/>(chart + signature)"]
-  OCI -->|catalog seed| SEED["catalog-seed blueprints.yaml<br/>(pins every bp-* version)"]
-  SEED -->|blueprint-controller| HRepo["Flux HelmRepository (ghcr → harbor after cutover)"]
-  HRepo -->|application-controller| HR["HelmRelease per Application"]
+  SRC["platform/&lt;x&gt; or products/&lt;x&gt;<br/>chart/ + blueprint.yaml"] -->|CI on tag| OCI["ghcr.io/openova-io/bp-x:semver (signed)"]
+  OCI -->|deploy-bot bumps pin LINES (never blanket)| SEED["catalog-seed blueprints.yaml"]
+  SEED -->|mirror to Sovereign Gitea (daily; Harbor after cutover)| GIT["Sovereign Git + registry"]
+  GIT -->|Flux GitRepository/HelmRepository| HR["HelmRelease per Application"]
   HR --> RUN["running workload"]
+  RUN -->|fresh-prov walk + screenshot| PROVE["'delivered' (merged ≠ delivered)"]
 ```
 
-- **Component Blueprints** (`platform/`, ~105): one per upstream OSS (cilium, cnpg, keycloak, harbor…).
-- **Composite Blueprints** (`products/`, 13): OpenOva's own — `agenity`, `axon`, `openova-mcp`,
-  `continuum`, `openova-flow`, `catalyst` (the umbrella), etc.
-- **Lockstep pins:** a chart version lives in *several* places at once (Chart.yaml, blueprint.yaml,
-  catalog-seed, bootstrap-kit slot, generated UI). CI gates enforce they move together
-  (`scripts/check-catalog-seed-lockstep.sh`, `check-bootstrap-kit-pin-sync.sh`). This is a frequent
-  source of "merged but not delivered" bugs — see [`PRINCIPLES.md`](PRINCIPLES.md) anti-patterns.
-- **Delivery:** the `deploy-bot` bumps pins per-line (never blanket), Gitea mirrors the catalog daily,
-  Flux reconciles. **Merged ≠ delivered** until the image/chart rolls and a fresh-prov walk proves it.
+- **Component Blueprints** (`platform/`, ~105): one per upstream OSS. **Composite Blueprints**
+  (`products/`, 13): OpenOva's own (`agenity`, `axon`, `openova-mcp`, `continuum`, `openova-flow`,
+  `catalyst` umbrella).
+- **Lockstep pins** are the #1 "merged-but-not-delivered" trap: a version lives in Chart.yaml,
+  blueprint.yaml, the catalog-seed, the bootstrap-kit slot, and the generated UI — CI gates force them to
+  move together.
 
 ---
 
-## 7. Multi-region & disaster recovery (Pillars 2 + 3)
+## 11. Multi-region & DR (Pillars 2 + 3)
 
-A Sovereign is **two regions** (`me-east-215-a` / `-b`) wired by **Cilium ClusterMesh**. Postgres is
-**CNPG active-hot-standby** pairs; DR is modelled by **Continuum** CRs.
+Two regions wired by **Cilium ClusterMesh**; Postgres is **CNPG active-hot-standby**; DR is modelled by
+**Continuum** CRs (`dr.openova.io`).
 
 ```mermaid
 graph TB
-  subgraph RegionA["Region A (primary)"]
-    APIA["k3s apiserver"]; PGA["CNPG primary<br/>shared-pg-*-mesh-rw"]; APPA["app pods"]
+  subgraph A["Region A (primary)"]
+    APIA["k3s apiserver"]; PGA["CNPG primary → shared-pg-*-mesh-rw"]; APPA["app pods"]
   end
-  subgraph RegionB["Region B (hot standby)"]
-    APIB["k3s apiserver"]; PGB["CNPG replica<br/>-replica-mesh"]; APPB["app pods"]
+  subgraph B["Region B (hot standby)"]
+    APIB["k3s apiserver"]; PGB["CNPG replica → -replica-mesh"]; APPB["app pods"]
   end
-  APIA <-->|Cilium ClusterMesh<br/>global services service.cilium.io/global=true| APIB
+  APIA <-->|"ClusterMesh — global services (service.cilium.io/global=true)"| APIB
   PGA -->|streaming replication| PGB
-  CONT["Continuum CR (dr.openova.io)<br/>hotStandbyRegions + cnpgPair"] --> PGA
-  CONT --> PGB
-  KILL["region-kill test"] -.->|region A down| PROMOTE["dr-promoter promotes B → StandbyAvailable"]
+  CONT["Continuum CR<br/>hotStandbyRegions + cnpgPair"] --> PGA & PGB
+  KILL["region-kill (Pillar 3 / G12)"] -.->|region A down| DR["control-plane-local reconciler (a Deployment, not CronJob)<br/>+ dr-promoter promote B"]
 ```
 
-- **Region-kill (Pillar 3 / gate G12):** kill region A; region B's control-plane-local reconciler +
-  dr-promoter keep the Sovereign serving and promote the standby. The reconciler must be a **Deployment,
-  not a CronJob**, so it survives the kill.
-- **Cross-region gotchas** (banked as memories): global `-mesh-rw` services must *mirror* across the mesh
-  (a broken mirror is exactly UAT row 235 / grafana); `ipBlock` NetworkPolicies never match ClusterMesh
-  remote identities — use `fromEndpoints`.
+Gotchas (banked as hard-won memories): global `-mesh-rw` services **must mirror** across the mesh (a broken
+mirror is exactly UAT row 235 / grafana); `ipBlock` NetworkPolicies never match ClusterMesh remote
+identities — use `fromEndpoints`; the region-local reconciler must be a **Deployment** so it survives the kill.
 
 ---
 
-## 8. Sovereignty cutover (Pillar 5 — the headline)
+## 12. Sovereignty cutover (Pillar 5 — the headline)
 
 `bp-self-sovereign-cutover` (dormant at slot 06a) runs an **11-step chain** that severs all 8 mothership
-tethers and proves independence with a 10-minute egress block.
+tethers and proves independence with a 10-minute egress block. State lives in the
+`catalyst/self-sovereign-cutover-status` ConfigMap.
 
 ```mermaid
 stateDiagram-v2
   [*] --> Tethered
   Tethered --> InFlight: operator clicks "Achieve True Sovereignty"
-  InFlight --> S1: 01 gitea-mirror (public catalog → local Gitea)
-  S1 --> S2: 02 harbor-projects
-  S2 --> S3: 03 harbor-prewarm (skopeo push all images+charts)
-  S3 --> S4: 04 registry-pivot (node containerd certs.d → local Harbor)
-  S4 --> S5: 05 flux-gitrepository-patch → local Gitea
-  S5 --> S6: 06 helmrepository-patches → local Harbor
-  S6 --> S7: 07 catalyst-api-env-patch → local endpoints
-  S7 --> S8: 08 egress-block-test (10-min deny github.com+ghcr.io+harbor.openova.io)
-  S8 --> S9: 09 gitea-token-mint
-  S9 --> S10: 10 vcluster-registry-pivot
-  S10 --> S11: 11 crossplane-provider-pivot
-  S11 --> Sovereign: cutoverComplete=true (only if step-08 held green)
+  InFlight --> S: 01 gitea-mirror → 02 harbor-projects → 03 harbor-prewarm
+  S --> P: 04 registry-pivot (node containerd → local Harbor) → 05 flux-gitrepo-patch → 06 helmrepo-patch → 07 api-env-patch
+  P --> Proof: 08 egress-block-test (10-min deny github.com + ghcr.io + harbor.openova.io)
+  Proof --> Final: 09 gitea-token-mint → 10 vcluster-registry-pivot → 11 crossplane-provider-pivot
+  Final --> Sovereign: cutoverComplete=true (ONLY if step-08 held green)
   Sovereign --> [*]
 ```
 
-State is tracked in the `catalyst/self-sovereign-cutover-status` ConfigMap. **No cutover claim without the
-egress-block proof.** A *mid-cutover* Sovereign cannot receive fixes (registry is pivoting) — merged never
-becomes delivered until it re-fires. Chart: `platform/self-sovereign-cutover/chart`.
+**No cutover claim without the egress-block proof.** A *mid-cutover* Sovereign can't receive fixes (the
+registry is pivoting) — it must re-fire. Chart: `platform/self-sovereign-cutover/chart`.
 
 ---
 
-## 9. Identity & SSO
+## 13. Identity & SSO
 
-One Keycloak per Sovereign; every app is fronted by **`oidc-gate`** (a per-app OIDC reverse proxy) and its
-client secrets are kept in lockstep by the **`sso-bridge`** reconciler. Cross-system owner handoff uses a
-signed **handover JWT**.
+One Keycloak per Sovereign; every app fronted by **`oidc-gate`** (per-app OIDC proxy); client secrets kept
+in lockstep by the **`sso-bridge`** reconciler (re-mints each tick, ~60s, so a stale secret never 401s).
+Cross-system owner handoff = a signed **RS256 handover JWT**.
 
 ```mermaid
 sequenceDiagram
@@ -332,126 +443,94 @@ sequenceDiagram
   participant Sov as Sovereign /auth/handover
   participant KC as Keycloak (sovereign realm)
   participant GATE as oidc-gate + app
-  MS->>Sov: GET /auth/handover?token=<RS256 handover JWT>
-  Note right of Sov: verify iss=console.openova.io, aud=console.<fqdn>,<br/>role=sovereign-admin, email_verified, one-time jti
+  MS->>Sov: GET /auth/handover?token=&lt;RS256 handover JWT&gt;
+  Note right of Sov: verify iss, aud=console.&lt;fqdn&gt;, role=sovereign-admin,<br/>email_verified, one-time jti
   Sov->>KC: EnsureUser + ImpersonateToken
-  Sov-->>U: 302 /dashboard + catalyst_session cookie (tier=owner)
+  Sov-->>U: 302 /dashboard + catalyst_session (tier=owner)
   U->>GATE: open grafana/gitea/…
   GATE->>KC: OIDC code flow (client secret from sso-bridge)
   KC-->>GATE: id_token → app session
 ```
 
-- **`sso-bridge`** re-mints each app's OIDC client secret every tick (~60s) so a stale secret never 401s.
-- **Handover key** is an RS256 keypair distributed at cloud-init; the mothership signs, the Sovereign
-  verifies with its injected pubkey. If the mothership key *rotates* after a prov, that Sovereign's
-  injected pubkey goes stale (compare fingerprints before assuming a handover is broken).
-- Login for end users is a **passwordless PIN** (mailed via the notification service).
+End-user login is a **passwordless PIN** (mailed via the notification service). Handover-key rotation
+gotcha: if the mothership key rotates *after* a prov, that Sovereign's injected verify-pubkey goes stale —
+compare fingerprints before assuming a handover is broken.
 
 ---
 
-## 10. The per-Org agentic layer (Pillar 4)
+## 14. The per-Org agentic layer (Pillar 4)
 
 ```mermaid
 graph LR
   U["Org User"] --> AG["Agenity workspace<br/>products/agenity (per-Org StatefulSet)"]
-  AG -->|Bearer = owner session JWT| MCP["bp-openova-mcp<br/>mcp.<fqdn>/mcp (RBAC-scoped)"]
+  AG -->|Bearer = owner session JWT| MCP["bp-openova-mcp<br/>mcp.&lt;fqdn&gt;/mcp (RBAC-scoped)"]
   MCP -->|create_application, list_applications…| API["catalyst-api"]
-  API --> APPCR["Application CR → Flux HR → running app"]
+  API -->|git commit| GIT["Sovereign Git → Flux → running app"]
   AG -->|LLM| CRED["sovereign-anthropic-credentials secret"]
 ```
 
-`bp-openova-mcp` is an RBAC-scoped MCP server (Go, `products/openova-mcp`) that lets the in-Org agent
-mutate the Org (e.g. `create_application`) *within the caller's RBAC*. The agent's Anthropic credential is
-a shared OAuth token seeded at prov (its expiry is a live operational dependency — the source of the
-"agentic pillar down" class of incidents).
+`bp-openova-mcp` (Go, `products/openova-mcp`) lets the in-Org agent mutate the Org **within the caller's
+RBAC**. The agent's Anthropic credential is seeded at prov — its expiry is a live operational dependency.
 
 ---
 
-## 11. Delivery & GitOps (how a change reaches a running cluster)
+## 15. Harness engineering — how we prove it (this is the job)
 
-```mermaid
-graph LR
-  PR["merged PR on main"] --> BOT["deploy-bot: bump pin lines (per-line, not blanket)"]
-  BOT --> BUILD["catalyst-build → ghcr OCI (chart+image, signed)"]
-  BUILD --> MOTH["mothership: image roll (deploy-bot set-image)"]
-  BUILD --> MIRROR["per-Sovereign Gitea daily catalog mirror"]
-  MIRROR --> FLUX["Flux reconcile in Sovereign"]
-  FLUX --> LIVE["live workload"]
-  LIVE --> PROVE["fresh-prov walk + screenshot ⇒ 'delivered'"]
-```
-
-**Pre-cutover** pulls from GitHub + ghcr; **post-cutover** pulls exclusively from the local Gitea + Harbor.
-A *running* Sovereign absorbs merged fixes by **image roll** — you rarely need to re-provision to ship code
-(the "never wipe a working Sovereign to deploy code" rule). Wipe only for infra-shape changes or a genuinely
-unrecoverable env.
-
----
-
-## 12. Harness engineering — how we prove it (this is the job)
-
-The deliverable is not "PR merged" — it is **"a fresh provision walked through a pillar step produced a
+Deliverable ≠ "PR merged." Deliverable = **"a fresh provision walked through a pillar step produced a
 screenshot + non-empty wire-capture + working artifact."** The acceptance ledger is the north star.
 
 ```mermaid
 graph TD
-  LEDGER["docs/ledger/UAT.md — ~286 frozen rows<br/>(# · 📷 · Result · clause · evidence)"]
-  SCHED["uat-confidence.py — Beta-Bernoulli confidence + Leitner box<br/>computes the DUE work-list per env"]
-  WALK["walk the DUE rows on a LIVE Sovereign (console/kubectl/browser)"]
-  STAMP["stamp ✅/❌/⚠️ with real evidence"]
+  LEDGER["docs/ledger/UAT.md — ~286 frozen rows"]
+  SCHED["uat-confidence.py — Beta-Bernoulli confidence + Leitner box → the DUE work-list"]
+  WALK["walk DUE rows on a LIVE Sovereign (console / kubectl / browser)"]
+  STAMP["stamp ✅/❌/⚠️ with REAL evidence"]
   GUARDS["6 guards: clause-identity · table-shape · drift · walk-respects-scheduler · partition · fix-sha"]
   PR2["PR → CI green → merge"]
   LEDGER --> SCHED --> WALK --> STAMP --> GUARDS --> PR2 --> LEDGER
 ```
 
-**The rules that keep it honest** (full set in [`PRINCIPLES.md`](PRINCIPLES.md) + [`PROTOCOL.md`](PROTOCOL.md)):
-- **Never fabricate** a pass. A ❌ with real evidence beats a forced ✅. Guards fail any green flip the
-  scheduler didn't mark *due* (this is the treadmill-refusal gate) and any ✅ citing a wiped predecessor env.
-- **When a browser walk is blocked, verify the runtime outcome via kubectl** — the CR/Service state is
-  authoritative (how rows 238/93/14 were banked).
-- **15 Inviolable Principles + an anti-pattern catalog** ([`PRINCIPLES.md`](PRINCIPLES.md)): null-guards on
-  empty data, `enabled:false` defaults, `Closes #N` on scaffold-only PRs, `--dry-run=server` as the only
-  validator — these are *clues to investigate*, not approval.
-- **Ledgers of state:** [`ledger/TRUST.md`](ledger/TRUST.md) (per-surface verification),
-  [`ledger/TRACKER.md`](ledger/TRACKER.md) (open work), [`ledger/UAT.md`](ledger/UAT.md) (the acceptance walk),
-  [`ledger/PATH-TO-100.md`](ledger/PATH-TO-100.md) (each non-green row → its exact fix).
+Rules that keep it honest ([`PRINCIPLES.md`](PRINCIPLES.md) + [`PROTOCOL.md`](PROTOCOL.md)): **never
+fabricate a pass** (a ❌ with evidence beats a forced ✅); guards fail any green flip the scheduler didn't
+mark *due* and any ✅ citing a wiped env; when a browser walk is blocked, **the runtime CR/Service state via
+kubectl is authoritative**. State ledgers: [`ledger/TRUST.md`](ledger/TRUST.md),
+[`ledger/TRACKER.md`](ledger/TRACKER.md), [`ledger/UAT.md`](ledger/UAT.md),
+[`ledger/PATH-TO-100.md`](ledger/PATH-TO-100.md).
 
 ---
 
-## 13. Low-level deep-dive: the janitor (worked example)
+## 16. Deep-dive: the janitor (a worked "read one subsystem" example — UAT row R1)
 
-A concrete "read one subsystem end-to-end" example (it's UAT row **R1**).
 **File:** `products/catalyst/bootstrap/api/internal/handler/janitor.go`.
-
 - `StartJanitor()` → after 5 min, `runJanitorPass()` on a timer.
-- **Record reap (the fail-safe):** a `switch status { case "failed": …; case "wiped": … }` — *only* those
-  two statuses become reap-eligible; `ready`/`provisioning`/`active` match no case → **protected by default.**
-- **Two safety layers:** the currently-active deployment IDs are hard-excluded (`buildActivePrefixes` →
-  logs `skipped (active deployment)`), and every cloud sweep is **log-only** unless
-  `CATALYST_JANITOR_DESTRUCTIVE=true` (logs `would-reap`).
-- **Why it exists:** the `b9f9590b` self-reap deleted all 12 ECS nodes ~2.5 min after an ungated sweep.
+- **Fail-safe reap:** `switch status { case "failed": …; case "wiped": … }` — only those two become
+  eligible; `ready`/`provisioning`/`active` match no case → **protected by default.**
+- **Two safety layers:** active deployment IDs are hard-excluded (`buildActivePrefixes` → logs
+  `skipped (active deployment)`); every cloud sweep is **log-only** unless `CATALYST_JANITOR_DESTRUCTIVE=true`
+  (logs `would-reap`).
+- **Why:** the `b9f9590b` self-reap deleted all 12 ECS nodes ~2.5 min after an ungated sweep.
 - **Tests:** `janitor_reap_protection_test.go`, `janitor_wouldreap_5545_test.go`.
 
-Every UAT row can be read this way: clause → the code that implements it → the test that guards it → the
-live evidence that proves it. That is the takeover skill.
+Every UAT row reads this way: **clause → the code that implements it → the test that guards it → the live
+evidence that proves it.** That is the takeover skill.
 
 ---
 
-## 14. Day-1 runbook for the new lead
+## 17. Day-1 runbook for the new lead
 
-1. **Read order:** this doc → GLOSSARY → STATUS (what's actually built) → DOD → PRINCIPLES → PROTOCOL → RUNBOOKS.
-2. **See it live:** get a Sovereign's kubeconfig (via the mothership catalyst-api PVC at
-   `/var/lib/catalyst/kubeconfigs/<dep-id>.yaml`), `kubectl get organizations,applications,continuums -A`.
-3. **Trace one pillar:** pick any UAT ✅ row → read its clause → find the code → run its test → re-verify live.
-4. **Ship one change:** open an issue → branch → fix → PR with `Refs #N` → CI green → merge → verify the roll.
-5. **Fire a fresh prov** (autonomous, our own infra): `POST /deployments` → converge → walk the DUE rows.
-   Everything about lifecycle, credentials, and wipe endpoints is in [`RUNBOOKS.md`](RUNBOOKS.md) +
-   [`PROTOCOL.md`](PROTOCOL.md).
+1. **Read order:** this doc → GLOSSARY → STATUS → DOD → PRINCIPLES → PROTOCOL → RUNBOOKS.
+2. **See it live:** pull a Sovereign's kubeconfig (mothership catalyst-api PVC
+   `/var/lib/catalyst/kubeconfigs/<dep-id>.yaml`) → `kubectl get organizations,applications,continuums -A`,
+   `flux get all -A`, `kubectl get gitrepositories,helmreleases -A`.
+3. **Trace one pillar:** pick a UAT ✅ row → read clause → find code → run its test → re-verify live.
+4. **Ship one change:** issue → branch → fix → PR `Refs #N` → CI green → merge → **verify the roll** (merged ≠ delivered).
+5. **Fire a fresh prov** (autonomous, our infra): `POST /deployments` → converge → walk the DUE rows.
 
-**Golden rules:** same code in every Sovereign · no NodePorts, ever · merged ≠ delivered · prove on a fresh
-prov · never fabricate a result.
+**Golden rules:** same code in every Sovereign · **Sovereigns are 100% independent (zero call-home) —
+cutover proves it** · billing is per-Sovereign · Git is the source of truth, Flux + Crossplane converge ·
+no NodePorts, ever · merged ≠ delivered · never fabricate a result.
 
 ---
 
-*Generated as an onboarding companion to the canonical docs. If any statement here disagrees with
-[`GLOSSARY.md`](GLOSSARY.md) / [`ARCHITECTURE.md`](ARCHITECTURE.md) / [`STATUS.md`](STATUS.md), the canonical
-doc wins — fix this file.*
+*Companion to the canonical docs. On any conflict, [`GLOSSARY.md`](GLOSSARY.md) /
+[`ARCHITECTURE.md`](ARCHITECTURE.md) / [`STATUS.md`](STATUS.md) win — fix this file.*
