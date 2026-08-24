@@ -19,6 +19,21 @@ The §1.2 table is a **snapshot**, not live state, and it has already drifted tw
 
 Any discrepancy between the re-derived state and §1.2 → update §1.2 in the same session (this file is itself under RT-6 lockstep). **Never fire, wipe, walk, or dispatch based on the unverified snapshot.**
 
+The mandatory Step-0 loop — re-derive, reconcile any drift into §1.2, and only then act:
+
+```mermaid
+flowchart TD
+  START["New session — the §1.2 table is a SNAPSHOT, not live state"] --> S1["1. git branch --show-current<br/>+ latest uat-hw&lt;NNN&gt; branch"]
+  S1 --> S2["2. gh issue list --state open<br/>+ gh pr list --state open"]
+  S2 --> S3["3. live cloud inventory<br/>+ GET /sovereign/api/v1/deployments (owner cookie)"]
+  S3 --> S4["4. TRACKER.md + UAT.md heads"]
+  S4 --> Q{"re-derived state == §1.2 snapshot?"}
+  Q -->|"yes"| OK["snapshot verified"]
+  Q -->|"no"| UPD["update §1.2 THIS session (RT-6 lockstep)"]
+  UPD --> OK
+  OK --> GATE(["only now: fire / wipe / walk / dispatch"])
+```
+
 ### 1.1 North star (unchanged, restated)
 
 1. **Keystone**: `cutoverComplete=true` proven **ZERO-TOUCH** on a **fresh 2-region Huawei kom4dc Sovereign** — full 11-step chain (`platform/self-sovereign-cutover/chart`, currently 0.1.126) including the 10-minute deny-egress hold against `github.com`, `ghcr.io`, `harbor.openova.io`.
@@ -68,6 +83,21 @@ CP-2  Converged-env cutover RE-FIRE proving #5038 live — ON THE NAMED ENV,
 CP-3  Release-train fresh prov (next hw<NNN> per Step 0): full zero-touch fire →
       cutoverComplete=true with deny-egress-hold evidence   ← THE KEYSTONE
 CP-4  Post-keystone UAT completion sweep on the SAME env (task #949 pattern)
+```
+
+The same serial chain, with the gating reason on each edge:
+
+```mermaid
+graph TD
+  CP0["CP-0 Bootstrap forensics + retry-class fix<br/>#4752 + #5042 — ONE PR"]
+  CP1["CP-1 Offline 11-step cutover rehearsal harness (CI)"]
+  CP2["CP-2 Converged-env cutover RE-FIRE proving #5038 live<br/>on the NAMED env"]
+  CP3["CP-3 Release-train fresh prov: zero-touch fire →<br/>cutoverComplete=true + deny-egress-hold  ← KEYSTONE"]
+  CP4["CP-4 Post-keystone UAT completion sweep — SAME env"]
+  CP0 -->|"without it every fire is coin-flip-wedged AND forensic-blind"| CP1
+  CP1 -->|"defect discovery: 1 per prov-fire → N per CI-run"| CP2
+  CP2 -->|"GATED on Lane B evidence extracted first (§2.1a, RT-10)"| CP3
+  CP3 --> CP4
 ```
 
 **Why CP-0 before any fire**: hw247 (#5042) proved a prov can wedge at flux-install with a 404 log — the fire is wasted AND teaches nothing. One PR: rt-retry-wrap every network-dependent runcmd stage in `cloudinit-control-plane.tftpl` (the `:1332` #4753 pattern generalized to `:1579`/`:1584` and peers) with FAILED sentinels; "flux never installed" named terminal state in phase1-watch; mirror the #3380 GET decoupling into `PutCloudInitLog` (`cloudinit_log.go:58-62`); replace the 40×30s uploader cap with until-loop + cloud-init failure-trap final push; add `scripts/lint-cloudinit.sh` CI rule rejecting new un-retried network-dependent runcmd items.
@@ -124,6 +154,26 @@ The founder-gated items are exactly the §1.3 register (A1 mandatory, F2 optiona
 
 Every lane below is independent; a single orchestrator with 2–3 sub-agents (cap per `feedback_cap_2_3_business_priority_gate.md`) runs them concurrently. **File-editing sub-agents dispatch in `isolation: worktree`.**
 
+The five lanes and the one hard ordering between them (Lane B extracts evidence BEFORE Lane A's CP-2 trigger); the repo/CI lanes carry zero env contention:
+
+```mermaid
+graph LR
+  subgraph Shared["Shared env — exactly ONE Sovereign (§5.0)"]
+    direction TB
+    LB["Lane B — converged-env UAT sweep<br/>+ evidence-batched closes — RUNS FIRST"]
+    LA["Lane A — keystone CP-0→CP-3 + W7 disposition<br/>ONLY lane that fires provs / cutover"]
+    LB -->|"LANE-B-EXTRACTED: &lt;SHA&gt; gates the CP-2 trigger (RT-10)"| LA
+  end
+  subgraph RepoCI["Pure repo / CI — zero env contention"]
+    direction TB
+    LD["Lane D — enforcement mechanisms<br/>W1, W2, W5 (incl. mass-close sweep)"]
+    LE["Lane E — canon + harness<br/>W3, W4, W6, CP-1 (offline, never waits for a fire)"]
+  end
+  LC["Lane C — Agenity unblock: needs a converged env + credential,<br/>NOT the keystone (anti-serialization)"]
+  LE -.->|"CP-1 harness makes the next fire the last"| LA
+  LD -.->|"reclaim + pre-flight guards protect every fire"| LA
+```
+
 **Lane A — keystone (CP-0 → CP-3) + W7 branch disposition.** Owner: orchestrator. The only lane that fires provs or cutover triggers. On the shared env, Lane A's CP-2 trigger is HARD-GATED behind Lane B's committed evidence (§2.1a, RT-10).
 
 **Lane B — converged-env UAT sweep + evidence-batched closes — RUNS FIRST on the shared env.** On the named env (§2.1a; hw250 per the 2026-07-14 snapshot), walk the 58 ⚠️ code-done rows + re-affirm the 19 SSO re-stamp rows; commit stamps + evidence, then hand the `LANE-B-EXTRACTED` SHA to Lane A. Batch-close issues **with live evidence per close** (#4913 template), consuming the W5 sweep's walk-debt classification (not the raw ~54 LIKELY-DONE list). Includes #4788's 3 Governance rows (206/207/239) — the fix ALREADY shipped (PR #4789, 2026-07-05; the retrospective's "never shipped" line is the error); they are pure walk-evidence debt.
@@ -141,6 +191,28 @@ Every lane below is independent; a single orchestrator with 2–3 sub-agents (ca
 ## 4. Release-train protocol (enforceable checklist)
 
 Every prov fire is a **train departure**. Before ANY `POST /sovereign/api/v1/deployments` (RT-10 additionally covers cutover re-fires):
+
+The departure passes through all eleven gates in order; a failed gate HALTS the train (the checklist below is the authoritative text for each):
+
+```mermaid
+flowchart TD
+  DEP(["A prov fire is a TRAIN DEPARTURE"]) --> RT1["RT-1 Manifest: every PR + merge SHA + deployed-pin proof"]
+  RT1 --> RT2{"RT-2 ≥2 independent passengers?<br/>(exception: keystone fire, full batch aboard)"}
+  RT2 -->|"no"| HALT(["HALT — single-passenger train forbidden"])
+  RT2 -->|"yes"| RT3{"RT-3 What can the current converged env still verify?"}
+  RT3 -->|"empty — no converged env"| COLL["manifest records CP-2-COLLAPSED"]
+  RT3 -->|"only fresh-bootstrap work remains"| RT4
+  COLL --> RT4["RT-4 Harness case merged BEFORE the fire"]
+  RT4 --> RT5["RT-5 No mid-prov merges to catalyst-api / bootstrap"]
+  RT5 --> RT6["RT-6 Every live patch → merged PR same session"]
+  RT6 --> RT7["RT-7 Never wipe a converged env with value left"]
+  RT7 --> RT8["RT-8 Cadence cap: ≤2 fires / day"]
+  RT8 --> RT9["RT-9 Debug-before-wipe: fetch cloud-init log first"]
+  RT9 --> RT10{"RT-10 cutover re-fire only: env NAMED +<br/>LANE-B-EXTRACTED SHA + not on §5.0 protect-list"}
+  RT10 -->|"gate unmet"| HALT
+  RT10 -->|"met / not a cutover re-fire"| RT11["RT-11 Mid-cutover merge-hold: step-03 → step-08"]
+  RT11 --> GO(["Depart: POST /sovereign/api/v1/deployments"])
+```
 
 - [ ] **RT-1 Manifest**: written train manifest in `docs/sessions/<date>/train-<env>.md` listing every fix PR aboard, each with merge SHA **and** proof the deployed pins carry it (`gh api /repos/openova-io/openova/packages/...` chart-pin check — merged ≠ deployed, `feedback_post_merge_dod_chain.md`).
 - [ ] **RT-2 No single-passenger trains**: ≥2 independent fix-verifications aboard, OR the fire is the keystone attempt itself with the full batch aboard (including any CP-2-collapsed passengers per §2.1a-3, named in the manifest).
@@ -183,6 +255,21 @@ Maintenance rule: when the live env changes (wipe→fire cycle completes), updat
 
 ### 5.2 Mechanical enforcement (this closes Cause 4)
 
+The `fire()` pre-flight gate as a decision tree — protect-list first, then refuse-don't-reclaim, then quota headroom with the wipe-release-lag poll, then the grep-auditable evidence line (the wipe endpoint carries its own extra gate, §5.2.5):
+
+```mermaid
+flowchart TD
+  FIRE["fire() called → prov-preflight.sh (hard exit-gate, auto-COOK)"] --> PL{"fire/wipe target on the §5.0 protect-list?<br/>bastion · the single live Sovereign · real-Org / shared infra"}
+  PL -->|"yes"| REFUSE1(["REFUSE — protected resource, named error"])
+  PL -->|"no"| RECLAIM{"over-quota AND a non-wiped deployment exists?"}
+  RECLAIM -->|"yes"| REFUSE2(["REFUSE the fire — reclaim is NEVER in-band at fire time (#4675)"])
+  RECLAIM -->|"no"| QUOTA{"VPC ≥2 free · EVS ≥100 headroom · EIP free?"}
+  QUOTA -->|"no"| POLL["poll-until-headroom (≤20 min — quota frees ~15 min AFTER wipe returns)"]
+  POLL --> QUOTA
+  QUOTA -->|"yes"| EVID["write PRE-FLIGHT PASS vpc=X/5 evs=Y/400 eip=Z line to the session log"]
+  EVID --> GO(["POST /sovereign/api/v1/deployments"])
+```
+
 1. **Wire the gate**: `scripts/sovereign-lifecycle.sh fire()` execs `scripts/prov-preflight.sh` as a hard exit-gate (auto-derive COOK via the existing `_tok()` path — kill the setup-friction excuse). A CI check (`check-no-nodeports.sh` pattern) asserts the wiring never regresses.
 2. **Extend the preflight**: VPC-count, EVS-count, EIP-free checks + a 20-min poll-until-headroom loop codifying the wipe-release lag + a protect-list check (refuse if the fire/wipe target matches §5.0).
 3. **Server-side twins**: `EVSQuotaHook` + `EIPQuotaHook` beside `VPCQuotaHook` in `provisioner.go` — unskippable even when a session bypasses the script.
@@ -209,6 +296,19 @@ Ship as `.github/ISSUE_TEMPLATE/dispatch.md` + labeler rule: **`status/in-progre
 9. **Execution constraints** — worktree isolation, commit identity (`-c user.name=hatiyildiz -c user.email=269457768+hatiyildiz@users.noreply.github.com`), `Refs #N` never `Closes`, lockstep gates (chart bump + blueprint.yaml + pin-sync-audit + `go test -race`), merge policy.
 10. **DoD — ALL boxes binary and founder-walkable**, each with its evidence artifact (screenshot / kubectl output / HTTP code) and where it commits (`docs/sessions/<date>/evidence/` + `docs/ledger/UAT.md` link).
 11. **Explicitly excluded** — scope fence with follow-on pointers.
+
+A dispatch instrument is authored BEFORE work starts; a ticket filed after the fact is a defect-record, not a dispatch instrument, and the labeler refuses `status/in-progress` without a checkable DoD section:
+
+```mermaid
+flowchart TD
+  Q{"authored BEFORE work starts?"}
+  Q -->|"no — filed &lt;60m before its own fix PR"| CHANGELOG["defect-record (#5012 consolidated pattern)<br/>NOT granted dispatch-template authority"]
+  Q -->|"yes"| FIELDS["11 mandatory fields:<br/>1 supersede banner · 2 end goal · 3 the model/law · 4 measured state<br/>5 target state · 6 code-paths-to-cite · 7 history/MUST-PRESERVE<br/>8 access runbook · 9 execution constraints · 10 binary DoD · 11 excluded"]
+  FIELDS --> GATE{"labeler: has a checkable DoD section?"}
+  GATE -->|"no"| REFUSED(["status/in-progress refused"])
+  GATE -->|"yes"| DISPATCH["sub-agent dispatched — asks for nothing"]
+  DISPATCH --> DOD["each DoD box binary + founder-walkable,<br/>evidence → docs/sessions/&lt;date&gt;/evidence/ + UAT link"]
+```
 
 **Anti-changelog rule (Cause 10)**: a ticket filed <60m before its own fix PR is a **defect-record**, not a dispatch instrument — for same-sitting fixes use the consolidated one-issue-per-symptom-wave pattern (#5012), and never grant such records the dispatch template's authority. Dispatch instruments are written BEFORE work starts, by definition.
 
@@ -258,6 +358,25 @@ Ship as `.github/ISSUE_TEMPLATE/dispatch.md` + labeler rule: **`status/in-progre
 ## 9. Evidence-gated Definition of Done per deliverable
 
 **Universal rule**: done = operator-walked live evidence. PR merge is never done. Agent reports are CLAIMS — the orchestrator re-queries live state before propagating any "done". **This rule binds the intermediate CP milestones exactly as it binds D1–D4** — "CP-N done" without its §9.0 artifact is the merge-as-verification pattern C7 forbids.
+
+The issue lifecycle that enforces it: a merge only reaches `status/uat`, and the C7 gate bounces any close whose final comment lacks live evidence back to `status/in-progress`:
+
+```mermaid
+stateDiagram-v2
+  state "status/in-progress" as IP
+  state "status/uat" as UAT
+  state "status/completed" as DONE
+  [*] --> IP: gh issue + branch (BEFORE any code)
+  IP --> UAT: PR merged — Refs #N, never Closes
+  UAT --> DONE: live-evidence close comment lands on the issue
+  UAT --> IP: C7 gate — final comment lacks live evidence, re-open + label
+  DONE --> [*]: agent runs gh issue close (owns the full cycle)
+  note right of DONE
+    Evidence = URL/HTTP code, kubectl output,
+    or a UAT stamp dated AFTER the deploy-bump commit.
+    PR merge is never done; agent reports are CLAIMS.
+  end note
+```
 
 ### 9.0 Milestone evidence gates (CP-0 / CP-1 / CP-2) — NEW
 
