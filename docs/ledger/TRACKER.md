@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-24T04:30:04Z` |
+| Last refreshed | `2026-08-24T04:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-24T04:30 | [#6673](https://github.com/openova-io/openova/pull/6673) | docs(uat): fix ledger table overflow — table-layout:fixed +  |  |
 | 2026-08-24T04:02 | [#6672](https://github.com/openova-io/openova/pull/6672) | #800 | docs(uat): row 14 ⏳→✅ — shared-pg reuse LIVE, multiple consu |
 | 2026-08-24T03:48 | [#6671](https://github.com/openova-io/openova/pull/6671) | #3376 | docs(uat): row 93 ⏳→✅ — 2nd-org funnel generality (walkstran |
 | 2026-08-24T02:39 | [#6670](https://github.com/openova-io/openova/pull/6670) | #4439 | docs(uat): record hw305 diagnostics in the 4 ⏳ rows (14/93/1 |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-23T14:33 | [#6646](https://github.com/openova-io/openova/pull/6646) | #3380 | docs(uat): hw305 R4/R5/214 → ✅ (166) |
 | 2026-08-23T14:08 | [#6644](https://github.com/openova-io/openova/pull/6644) | #3374 | docs(uat): hw305 SSO+MCP 180/183/R9/186/211 → ✅ (163) |
 | 2026-08-23T14:02 | [#6643](https://github.com/openova-io/openova/pull/6643) | #3380 | docs(uat): hw305 R10+M3 → ✅ (158) |
-| 2026-08-23T13:53 | [#6642](https://github.com/openova-io/openova/pull/6642) | #5019 | docs(uat): hw305 customer-org detail 9/10/11/12/101 + 191 →  |
 
 ---
 
