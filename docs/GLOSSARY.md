@@ -24,6 +24,16 @@ Every other document defers to this file. When a term in another doc looks conte
 | **bp-openova-mcp** | The MCP (Model Context Protocol) server auto-mounted into Agenity carrying the full Organization knowledge (Applications, Environments, placement, billing), so the agent acts with complete org context. The `create_application` tool it exposes is the load-bearing Pillar-4 capability. |
 | **Voucher** | A redeemable code that grants billing credit when applied at checkout. Issued by `sovereign-admin` (per-Sovereign campaigns) or `org-admin` (rare; intra-Org credit grants). The user-facing label for what the code calls `PromoCode` (see `core/services/billing/store/store.go`). Vouchers are the user-acquisition surface for franchised Sovereigns: a Franchisee mints codes, distributes them through their marketing channels, and a redeemer's first checkout converts the code into Organization credit. Lives as a row in the per-Sovereign billing Postgres database; soft-delete (`deleted_at`) preserves the audit trail of past redemptions. See [`BUSINESS-STRATEGY.md` §10.8 (Franchise Model — End-to-End Mechanics)](BUSINESS-STRATEGY.md#108-franchise-model--end-to-end-mechanics). |
 
+**Domain-model containment** — the canonical noun hierarchy, using only the approved terms above: a **Sovereign** hosts **Organizations**, each **Organization** contains **Environments**, each **Environment** runs **Applications**, and every **Application** is installed from a **Blueprint**.
+
+```mermaid
+graph LR
+  S["Sovereign<br/><i>a deployed Catalyst</i>"] -->|hosts| O["Organization<br/><i>has billing + Users</i>"]
+  O -->|contains| E["Environment<br/><i>env-typed scope</i>"]
+  E -->|runs| A["Application<br/><i>installed from a Blueprint</i>"]
+  B["Blueprint<br/><i>OCI-signed bp-name</i>"] -->|installs as| A
+```
+
 ---
 
 ## Roles
@@ -38,6 +48,20 @@ Every other document defers to this file. When a term in another doc looks conte
 | **`billing-admin`** | Role with billing/invoice/quota rights. Optional Org-level role. |
 | **`sme-end-user`** | Persona, not a role: an SME owner (Ahmed) for whom Organization onboarding is automatic on first signup. |
 | **`Franchisee`** | Persona, not a role: the legal entity (telco, ISP, hyperscaler reseller, regional cloud operator) that owns and operates a franchised Sovereign under license from OpenOva. Examples: Omantel running `omantel.omani.works`, a regional reseller running `cloud.acme.example`. The Franchisee's staff hold the `sovereign-admin` role on their Sovereign and use the existing admin app (per `core/admin/`) to issue Vouchers, curate the `catalog-sovereign` Gitea Org, set marketplace branding, and pick the per-tier pricing they pass through to their tenant Organizations. Revenue split with OpenOva is governed bilaterally by the franchise contract — not a per-Sovereign config field. See [`BUSINESS-STRATEGY.md` §10.8 (Franchise Model — End-to-End Mechanics)](BUSINESS-STRATEGY.md#108-franchise-model--end-to-end-mechanics). |
+
+**Term-relationship map** — how the core nouns and roles connect. A **sovereign-admin** operates the **Sovereign**; an **Organization** holds **Users** and **Environments** and is credited by redeemed **Vouchers**; an **Application** runs in an **Environment**, is installed from a **Blueprint**, and is spread across regions by its **Placement**.
+
+```mermaid
+graph TD
+  SA["sovereign-admin<br/><i>operating role</i>"] -->|operates| S["Sovereign"]
+  S -->|hosts| O["Organization"]
+  O -->|has| U["User<br/><i>via Keycloak</i>"]
+  O -->|contains| E["Environment"]
+  V["Voucher<br/><i>billing-credit code</i>"] -->|grants credit to| O
+  E -->|runs| A["Application"]
+  B["Blueprint<br/><i>bp-name, OCI-signed</i>"] -->|installs as| A
+  P["Placement<br/><i>regions + building blocks</i>"] -->|realizes| A
+```
 
 ---
 
@@ -122,6 +146,26 @@ This section is the **single source of truth** for forbidden terminology. Cross-
 | Workspace *(as Catalyst scope OR component name)* | Environment / environment-controller | Renamed for industry alignment and to escape collision with VS Code / Slack / Backstage / Terraform workspaces. The controller previously named `workspace-controller` is now `environment-controller`. |
 | Instance *(as user-facing object)* | Application | App Store metaphor. The CRD name remains internal. |
 | Sandbox *(as the user-facing AI-agent product / surface)* | Agenity | The North Star replaced the standalone "Sandbox" concept with the **Agenity** agent (chat → provision) plus the auto-mounted **bp-openova-mcp** (full-org-knowledge MCP). User-facing copy, UI, catalog cards, and docs say **Agenity** / **bp-openova-mcp**, never "Sandbox". The internal `Sandbox` CRD + `sandbox-session` plumbing Agenity is built on remain internal (same rule as Instance→Application); their rename is a tracked migration, not a blocker on user-facing correctness. |
+
+**Banned → correct mapping** — a visual mirror of the table above (each banned term, in red on the left, points to its approved replacement in green on the right). It carries exactly the same twelve mappings; the table remains authoritative.
+
+```mermaid
+graph LR
+  classDef banned fill:#fff0f0,stroke:#c00,stroke-dasharray:4 3;
+  classDef ok fill:#eefbf0,stroke:#2a2;
+  T["Tenant"]:::banned --> ORG["Organization"]:::ok
+  OP["Operator<br/>(person / entity)"]:::banned --> SADM["sovereign-admin"]:::ok
+  CL["Client<br/>(product UX)"]:::banned --> USR["User"]:::ok
+  MOD["Module<br/>(Catalyst sense)"]:::banned --> BP["Blueprint"]:::ok
+  TMPL["Template<br/>(Catalyst sense)"]:::banned --> BP
+  BS["Backstage"]:::banned --> CONS["Catalyst console"]:::ok
+  SYN["Synapse<br/>(OpenOva product)"]:::banned --> AXON["Axon"]:::ok
+  LM["Lifecycle Manager"]:::banned --> CAT["Catalyst"]:::ok
+  BW["Bootstrap wizard"]:::banned --> CAT
+  WS["Workspace"]:::banned --> ENVC["Environment /<br/>environment-controller"]:::ok
+  INST["Instance<br/>(user-facing)"]:::banned --> APP["Application"]:::ok
+  SBX["Sandbox"]:::banned --> AGEN["Agenity"]:::ok
+```
 
 ### Forbidden test domains
 
