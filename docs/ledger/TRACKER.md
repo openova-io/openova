@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-24T07:45:03Z` |
+| Last refreshed | `2026-08-24T08:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-24T07:57 | [#6678](https://github.com/openova-io/openova/pull/6678) | docs(system-design): major rewrite — GitOps engine, streamin |  |
 | 2026-08-24T06:23 | [#6677](https://github.com/openova-io/openova/pull/6677) | docs: SYSTEM-DESIGN.md — comprehensive CTO/lead-dev onboardi |  |
 | 2026-08-24T05:53 | [#6676](https://github.com/openova-io/openova/pull/6676) | docs(uat): kill the ledger table's horizontal scroll (break  |  |
 | 2026-08-24T05:20 | [#6675](https://github.com/openova-io/openova/pull/6675) | #4439 | docs(uat): row 235 — refine ❌ root cause (region-B global-se |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-23T17:45 | [#6651](https://github.com/openova-io/openova/pull/6651) | #6490 | fix(cutover): secondary gitea-mirror mints a region-local PA |
 | 2026-08-23T16:03 | [#6650](https://github.com/openova-io/openova/pull/6650) | #3376 | docs(uat): hw305 233 → ✅ (217) |
 | 2026-08-23T16:00 | [#6649](https://github.com/openova-io/openova/pull/6649) | #3646 | docs(uat): hw305 edit-IaC + org-rename batch (41 rows) → ✅ ( |
-| 2026-08-23T15:21 | [#6648](https://github.com/openova-io/openova/pull/6648) | #3376 | docs(uat): hw305 public marketplace funnel 75-82 → ✅ (175) |
 
 ---
 
