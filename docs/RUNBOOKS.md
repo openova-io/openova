@@ -56,6 +56,23 @@ Production was deleted TWICE by automation (#4614 on 2026-06-28; #4675 on 2026-0
 
 ### 0.3 Pre-fire sequence (mandatory, in order)
 
+The gate below is a hard funnel — every step must pass in order, and a non-zero pre-flight exit or missing quota headroom means **NO fire**:
+
+```mermaid
+flowchart TD
+  Start(["Intent to fire a fresh Sovereign"]) --> Inc["Increment env number<br/>new hwNNN.tld · pick TLD per LE rotation"]
+  Inc --> NoReset["Do NOT reset UAT here<br/>reset-uat runs AFTER env is ready"]
+  NoReset --> Gate["Run prov-preflight.sh<br/>incremented FQDN · zero active deployments<br/>EIP-orphan headroom · no-foreign-Sovereign gate"]
+  Gate --> Quota{"VPC 2+ free<br/>and EVS 100+ free?"}
+  Quota -- "No" --> Poll["Poll until the ~15-min<br/>wipe-release lag clears"]
+  Poll --> Quota
+  Quota -- "Yes" --> Exit{"prov-preflight<br/>exit 0?"}
+  Exit -- "Non-zero" --> Stop["NO fire — fix the gate first"]
+  Exit -- "Zero" --> Evi["Write PRE-FLIGHT PASS line<br/>into docs/sessions/date/"]
+  Evi --> Fire["Fire via canonical endpoint ONLY<br/>POST /sovereign/api/v1/deployments"]
+  Fire --> Ready(["Env reaches ready → reset-uat hwNNN → walk-list"])
+```
+
 1. **Increment the env number** — a NEW `hw<NNN>.<tld>`, never reuse a failed number. Pick the TLD per LE-rate-limit rotation (`omani.works` ↔ `omantel.biz`).
 2. **Do NOT reset UAT evidence here — this step runs AFTER the new env is live.** Its old position, and its old description as a flush, are both stale:
    - `scripts/reset-uat.py` has been **carry-forward, not flush**, since 2026-08-11 (founder: *"that is the whole point not to reset the fucking success results to zero"*). A row proven on a predecessor is re-marked `⏳` and **keeps its evidence verbatim**; failing rows are left untouched, because a wipe does not fix a code gap. `--flush` exists only for a genuinely re-scoped denominator and must be justified where someone will read it.
@@ -97,6 +114,23 @@ kubectl -n catalyst get cm self-sovereign-cutover-status -o yaml   # cutoverComp
 ```
 
 ### 0.6 Debug-before-wipe (founder rule, #3132)
+
+A wipe is the canonical endpoint's job — but only *after* forensics are extracted and the protect-list is cleared:
+
+```mermaid
+flowchart TD
+  Env["A provisioned env"] --> Q{"Did it FAIL,<br/>or is it converged?"}
+  Q -- "FAILED" --> Log["FIRST: GET .../deployments/id/cloudinit-log<br/>(the ONLY Phase-1 forensic on kom4dc)"]
+  Log --> L404{"404 from the endpoint?"}
+  L404 -- "Yes" --> P0["Treat as a P0 defect — not a shrug"]
+  L404 -- "No" --> Extract["Extract the diagnostic value"]
+  Extract --> Protect
+  Q -- "CONVERGED / has verification value" --> Walk["Walk everything walkable<br/>+ commit UAT evidence FIRST"]
+  Walk --> Protect{"On the §0.1<br/>protect-list?"}
+  Protect -- "Yes: prod / bastion / foreign" --> Never["NEVER a wipe target — stop"]
+  Protect -- "No" --> Wipe["Wipe via canonical endpoint ONLY<br/>POST .../deployments/id/wipe"]
+  Wipe --> Lag["tofu destroy + purge + S3 delete<br/>quota frees after the ~15-min lag"]
+```
 
 If an env FAILED, **first** fetch its cloud-init log and extract the diagnostic value — only then wipe:
 
@@ -364,6 +398,20 @@ After wipe, enumerate EVERY Hetzner endpoint with full listing, never substring-
 
 ### 2.4 Chart-version collision (parallel fix-authors)
 
+A single Blueprint bump is never one file — these sites move **in the same commit**, and the lockstep CI gate fails the PR on any drift:
+
+```mermaid
+graph LR
+  Bump(["Blueprint version bump"]) --> CY["chart Chart.yaml<br/>version"]
+  Bump --> BY["blueprint.yaml<br/>spec.version"]
+  Bump --> VY["values.yaml<br/>catalystBlueprint.upstream.version"]
+  Bump --> BK["bootstrap-kit slot pin<br/>clusters/.../NN-name.yaml"]
+  CY -. "drift caught by" .-> CI["lockstep CI gate"]
+  BY -. "drift caught by" .-> CI
+  VY -. "drift caught by" .-> CI
+  BK -. "drift caught by" .-> CI
+```
+
 When parallel fix-authors bump the same chart, version collisions are inevitable:
 
 - Check the latest chart version on `origin/main` BEFORE bumping (don't trust the version cited in the dispatch prompt — it may be stale).
@@ -411,6 +459,23 @@ Local-path is correct for solo-Sovereign target. Multi-node migration to hcloud-
 - `platform/flux/chart/tests/version-pin-replay.sh` — CI gate; replays the catastrophic precondition
 
 To bump Flux safely: pick the target upstream version, find the matching community chart from `https://fluxcd-community.github.io/helm-charts/index.yaml`, update **all four** pin sites in one PR, bump `Chart.yaml` `version`, update every `clusters/<sovereign-fqdn>/bootstrap-kit/03-flux.yaml`, run the replay test locally, push.
+
+The safe-bump procedure, with the replay gate that reproduces the catastrophic precondition before it can ship:
+
+```mermaid
+flowchart TD
+  Start(["Bump Flux safely"]) --> Pick["Pick target upstream Flux release"]
+  Pick --> Match["Find matching community chart<br/>from fluxcd-community helm-charts index"]
+  Match --> Update["Update ALL FOUR pin sites in one PR"]
+  Update --> P1["cloudinit-control-plane.tftpl<br/>install.yaml URL pin"]
+  Update --> P2["platform/flux/chart/Chart.yaml<br/>flux2 subchart dep"]
+  Update --> P3["platform/flux/chart/values.yaml<br/>upstream.version"]
+  Update --> P4["every clusters/.../bootstrap-kit/03-flux.yaml"]
+  P1 & P2 & P3 & P4 --> Replay{"version-pin-replay.sh<br/>passes locally?"}
+  Replay -- "No" --> Fix["Fix drift — a mismatch would DELETE<br/>Flux controllers on next reconcile"]
+  Fix --> Replay
+  Replay -- "Yes" --> Push["Bump Chart.yaml version · push"]
+```
 
 ### 2.8 Phase 1 watch shows 0 HelmReleases
 
@@ -631,6 +696,25 @@ For Sovereigns hosting multiple Organizations with per-Org Keycloak realms (G117
 
 Five distinct token exchanges; six 303/302 redirects. Total wall-clock for a logged-in user with valid PIN session: < 1 s.
 
+Each IDR auto-303 is what makes the chain *silent* — no username/password form appears at any hop:
+
+```mermaid
+sequenceDiagram
+  participant U as User with valid PIN
+  participant App as Tier-3 App
+  participant OrgR as Org realm
+  participant SovR as sovereign realm
+  participant Pin as catalyst-pin IdP
+  participant API as catalyst-api
+  U->>App: open app, OIDC redirect
+  App->>OrgR: hop 1 authorize, iss = realms/org
+  OrgR->>SovR: hop 2 Org IDR auto-303 to sovereign-broker
+  SovR->>Pin: hop 3-4 sovereign IDR auto-303 to catalyst-pin
+  Pin->>API: hop 5 /oidc/auth
+  API-->>U: hop 6 valid session, 302 back with code
+  Note over U,API: 5 token exchanges, 6 redirects, under 1 s, no login form
+```
+
 #### Curl probes per hop (no-cookie, copy-paste)
 
 ```bash
@@ -714,6 +798,21 @@ Reference: G117.5 W2.C4 #2744. Memory: `feedback_g117_per_org_realm_2hop_pitfall
 ## §3 — Blueprint authoring
 
 How to author a **Blueprint** for Catalyst — the unified unit of installable software (replaces what was previously called "module" + "template"). Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the broader model.
+
+The end-to-end path from a source folder to a marketplace card that Flux can install:
+
+```mermaid
+flowchart LR
+  Src["Source folder<br/>platform/name/ or products/name/"] --> BY["blueprint.yaml<br/>CRD: card · configSchema · placement · depends"]
+  Src --> CH["chart/ umbrella<br/>Chart.yaml + values + templates"]
+  BY --> CI["blueprint-release CI<br/>helm dependency build · guards"]
+  CH --> CI
+  CI --> Sign["cosign sign + Syft SBOM"]
+  Sign --> OCI["Publish OCI<br/>ghcr.io/openova-io/bp-name:semver"]
+  OCI --> Mirror["Gitea catalog mirror<br/>per-Sovereign, default daily"]
+  Mirror --> Flux["Flux HelmRelease installs<br/>as an Application"]
+  Flux --> Card["One marketplace card<br/>when visibility: listed"]
+```
 
 ### 3.1 What a Blueprint is
 
@@ -854,6 +953,21 @@ The four post-merge guards remain as belt-and-braces structural verification at 
 
 **Any single guard failing fails the whole publish job.** A hollow Blueprint can never reach a Sovereign through the sanctioned CI path.
 
+The full guard gauntlet — two pre-merge gates, then four structural gates at publish:
+
+```mermaid
+flowchart TD
+  PR(["Chart change in a PR"]) --> G1{"GUARD 1 pre-merge<br/>dependencies: block OR<br/>no-upstream annotation?"}
+  G1 -- "No" --> Rej["Reject before merge"]
+  G1 -- "Yes" --> G2{"GUARD 2 pre-merge<br/>render 5+ lines OR<br/>smoke-render-mode default-off?"}
+  G2 -- "No" --> Rej
+  G2 -- "Yes" --> Merge["Merge → publish job runs 4 structural guards"]
+  Merge --> P["1 dependency-build tgz present<br/>2 package tarball contains the subchart<br/>3 helm pull round-trips the subchart<br/>4 smoke render non-trivial"]
+  P --> Any{"Any of the 4 fail?"}
+  Any -- "Yes" --> Fail["Whole publish job FAILS<br/>hollow Blueprint never reaches a Sovereign"]
+  Any -- "No" --> Ok(["Signed OCI artifact with real upstream payload"])
+```
+
 #### Authoring rule
 
 Every umbrella `Chart.yaml` declares the upstream chart(s) it wraps:
@@ -957,6 +1071,20 @@ CI runs `tests/observability-toggle.sh` (when present under `platform/<name>/cha
 Sharp edges in the chart-authoring workflow that have already cost real outages. Read it before declaring "done" on any chart that mutates a long-lived resource.
 
 ### 4.1 Strategy flips on existing Deployments
+
+The decision that keeps a chart from parking a Kustomization at `Ready=False` — force-annotate only when the resource is recreate-safe:
+
+```mermaid
+flowchart TD
+  Chart["Chart flips a field on a long-lived resource<br/>e.g. strategy.type RollingUpdate to Recreate"] --> SSA["Flux SSA submits the new manifest"]
+  SSA --> Merge{"apiserver validates<br/>the merged object"}
+  Merge -- "Valid" --> Ok(["Applied cleanly"])
+  Merge -- "Invalid: residual field<br/>from another field manager" --> Park["Kustomization parks Ready=False<br/>on every reconcile"]
+  Park --> Fix{"Resource is recreate-safe?<br/>no live traffic / disposable state"}
+  Fix -- "No: PVC / StatefulSet / live RollingUpdate" --> Migrate["DO NOT force-annotate<br/>provision a new name and migrate"]
+  Fix -- "Yes" --> Force["Add kustomize.toolkit.fluxcd.io/force: enabled"]
+  Force --> Recreate["SSA dry-run fails → Flux delete-and-recreates<br/>the single annotated resource → no residual fields"]
+```
 
 **What goes wrong:** chart declares `Deployment.spec.strategy.type: Recreate`. The cluster already runs a Deployment of the same name created earlier with default `RollingUpdate` (so `spec.strategy.rollingUpdate.maxSurge=25%` and `maxUnavailable=25%` exist on the live object). Flux SSA submits the new manifest with the `kustomize-controller` field manager. The API server merges, then validates. Validation rejects:
 
@@ -1124,6 +1252,29 @@ the gateway that *owns* it, and reports a reading from the peer gateway's port a
 
 ### 5.2 The walk — Phase 0 + Phase 1 deterministic test
 
+The three-phase walk, end to end — voucher issuance on the mothership BSS, then customer signup + first Application, then the per-Org Agenity agent:
+
+```mermaid
+sequenceDiagram
+  participant SA as sovereign-admin
+  participant BSS as console /bss
+  participant Cust as Customer User
+  participant MP as marketplace
+  participant Cat as catalyst-api
+  Note over SA,Cat: Phase 0 — voucher issuance + redeem preview
+  SA->>BSS: Billing → Vouchers → New Voucher
+  BSS->>Cat: POST /billing/vouchers/issue
+  Cust->>MP: open /redeem/?code=...
+  MP->>Cat: POST /vouchers/redeem-preview
+  Note over Cust,Cat: Phase 1 — signup + Org + first App
+  Cust->>Cat: sign up via magic-link or Google
+  Cat-->>Cust: auto-create Organization + Environment
+  Cust->>Cat: install first Application (bp-wordpress)
+  Cat-->>Cust: credit consumed, App URL reaches HTTP 200
+  Note over Cust,Cat: Phase 2 — Agenity + bp-openova-mcp (Pillar 4)
+  Cust->>Cat: Agenity agent calls create_application via MCP
+```
+
 Per [`DOD.md`](DOD.md), every walk must move at least one of the 5 inseparable pillars:
 
 1. Marketplace + voucher onboarding (Phase 0 + Phase 1 a–c)
@@ -1223,6 +1374,24 @@ git push origin main
 For multi-region active-hotstandby Sovereigns and Applications (Pillar 3).
 
 ### 6.1 Region-kill canonical test (Pillar 3)
+
+The two load-bearing traps are the **suspend-latch** (an HR-value patch alone is not durable) and the **per-pair census** (a 2-region Sovereign runs four DR pairs — sampling only `cnpg-pair` reports a false GREEN):
+
+```mermaid
+flowchart TD
+  Write["Write into primary CNPG (region A), sync remote_apply"] --> Kill["region-kill-drill.sh kill --arm<br/>HARD os-stop region-A ECS (bastion excluded)"]
+  Kill --> Detect{"region-B dr-promoter, TWO signals:<br/>local walreceiver ABSENT AND<br/>region-A primary-mesh pg_isready UNREACHABLE"}
+  Detect -- "only one signal" --> NoProm["Replication fault — do NOT promote"]
+  Detect -- "both, armed + steady-state seen" --> Hold["Wait primaryDownHoldSeconds (120s)"]
+  Hold --> Promote["Promote: patch region-B HR replica.promoted=true"]
+  Promote --> Latch["LATCH durable: patch spec.suspend=true<br/>(HR-value patch alone is NOT durable)"]
+  Latch --> Census{"Census: dr-promoter count in B<br/>equals 4, one per CNPG pair?"}
+  Census -- "No" --> Gap["#5623 — a shared-pg pair stayed read-only<br/>Pillar 3 is NOT green"]
+  Census -- "Yes, RPO=0" --> Recover["recover --arm os-starts region-A"]
+  Recover --> Failback{"Failback census: dr-failback in A<br/>equals dr-promoter in B?"}
+  Failback -- "No" --> Split["#6149 — dual-writable divergent timelines"]
+  Failback -- "Yes" --> End(["region-B primary, region-A replica, both HRs unsuspended"])
+```
 
 The deterministic failover test for two independent CNPG clusters:
 
@@ -1678,6 +1847,25 @@ Commit message format: `docs(pass-N): <target-doc> <ordinal>-cycle + <component>
 How to provision a new **Sovereign** — a self-sufficient deployed instance of Catalyst — from inputs to Day-2 steady state. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the model. The canonical Huawei kom4dc provisioning gates (protect-list, quotas, pre-fire sequence, cadence cap) are in §0; the operator wizard procedure for the alternate (Hetzner) path is in §1 above; this section is the **complete provider-agnostic phase narrative** with multi-region, air-gap, migration, and decommission.
 
 The implementation reflects the deployed shape — the Go provisioner, OpenTofu module, 12 G2 wrapper Helm charts (the original 11 plus bp-powerdns at [#167](https://github.com/openova-io/openova/issues/167)), the per-Sovereign PowerDNS zone model ([#167](https://github.com/openova-io/openova/issues/167)/[#168](https://github.com/openova-io/openova/issues/168)), and the pool-domain-manager (PDM) with registrar adapters ([#163](https://github.com/openova-io/openova/issues/163)/[#170](https://github.com/openova-io/openova/issues/170)) all exist in this monorepo today (per [`STATUS.md`](STATUS.md) §7). End-to-end DoD against a real Hetzner project tracks Group M of §11 below. Catalyst-Zero (Contabo k3s, namespace `catalyst`) is the running catalyst-provisioner today.
+
+The provider-agnostic lifecycle — bootstrap, hand-off to a self-sufficient Sovereign, day-1 setup, then autonomous steady state:
+
+```mermaid
+stateDiagram-v2
+  [*] --> Phase0
+  Phase0: Phase 0 — Bootstrap
+  Phase0: tofu apply · PDM /commit DNS · k3s + Flux cloud-init · bootstrap-kit (12 charts) · Crossplane adopt
+  Phase0 --> Phase1: every Kustomization Ready=True
+  Phase1: Phase 1 — Hand-off
+  Phase1: Crossplane adopts infra · tofu state archived read-only · provisioner disconnects
+  Phase1 --> Phase2: Sovereign self-sufficient
+  Phase2: Phase 2 — Day-1 setup
+  Phase2: sovereign-admin sets issuers, backups, Harbor, first Organization + Environment
+  Phase2 --> Phase3: first Org + Env live
+  Phase3: Phase 3 — Steady state
+  Phase3: onboard Orgs · add regions · umbrella version bumps via Flux PR
+  Phase3 --> [*]
+```
 
 ### 9.1 Inputs
 
