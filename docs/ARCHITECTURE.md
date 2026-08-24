@@ -999,11 +999,11 @@ sequenceDiagram
   participant GW as Cilium HTTPRoute
   participant PDM as PowerDNS via PDM /v1/commit
   C->>L: validate lease holder is current primary
-  C->>PG: cordon old primary; demote → promote standby
+  C->>PG: cordon old primary, demote then promote standby
   C->>GW: drain traffic (weight → 0 over 10s)
   C->>PDM: flip lua-record probe target (TTL ~30s)
-  C->>L: release old lease; acquire on new primary
-  C->>PG: uncordon new primary; resume traffic
+  C->>L: release old lease, acquire on new primary
+  C->>PG: uncordon new primary, resume traffic
   C->>C: audit event on NATS catalyst.audit
 ```
 

@@ -235,13 +235,13 @@ sequenceDiagram
   Cust->>MP: redeem code → PIN magic-link
   Cust->>MP: pick Postgres-backed bundle + 2-region topology
   MP->>Cat: provision Org + 2 independent CNPG clusters
-  Cat-->>Cust: console.&lt;orgslug&gt;.omani.homes
+  Cat-->>Cust: console.[orgslug].omani.homes
 
   Note over Cust,MCP: Phase 2 — Agenity agent adds an app via MCP
   Cust->>Ag: open Agenity, prompt "add a Postgres-backed app"
   Ag->>MCP: create_application (per-Org bearer)
   MCP->>Cat: POST .../applications install seam
-  Cat-->>Cust: &lt;newapp&gt;.&lt;orgslug&gt;.omani.homes reachable
+  Cat-->>Cust: [newapp].[orgslug].omani.homes reachable
 ```
 
 ### Phase 0 — Operator issues voucher via BSS
@@ -707,7 +707,7 @@ sequenceDiagram
   U->>Ag: "install a Postgres-backed notes app"
   Ag->>MCP: create_application (per-Org bearer)
   MCP->>Cat: forward bearer → install seam
-  Cat-->>U: notes.&lt;orgslug&gt;.omani.homes (trusted TLS)
+  Cat-->>U: notes.[orgslug].omani.homes (trusted TLS)
 ```
 
 The tenant **never** typed a kubeconfig, never opened Git, never copied a DB
