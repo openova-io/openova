@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-24T05:45:02Z` |
+| Last refreshed | `2026-08-24T06:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-24T05:53 | [#6676](https://github.com/openova-io/openova/pull/6676) | docs(uat): kill the ledger table's horizontal scroll (break  |  |
 | 2026-08-24T05:20 | [#6675](https://github.com/openova-io/openova/pull/6675) | #4439 | docs(uat): row 235 — refine ❌ root cause (region-B global-se |
 | 2026-08-24T05:03 | [#6674](https://github.com/openova-io/openova/pull/6674) | docs(uat): fix ledger table overflow properly (remove <style |  |
 | 2026-08-24T04:30 | [#6673](https://github.com/openova-io/openova/pull/6673) | docs(uat): fix ledger table overflow — table-layout:fixed +  |  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-23T16:00 | [#6649](https://github.com/openova-io/openova/pull/6649) | #3646 | docs(uat): hw305 edit-IaC + org-rename batch (41 rows) → ✅ ( |
 | 2026-08-23T15:21 | [#6648](https://github.com/openova-io/openova/pull/6648) | #3376 | docs(uat): hw305 public marketplace funnel 75-82 → ✅ (175) |
 | 2026-08-23T15:08 | [#6647](https://github.com/openova-io/openova/pull/6647) | #3374 | docs(uat): hw305 R3 → ✅ (167) |
-| 2026-08-23T14:33 | [#6646](https://github.com/openova-io/openova/pull/6646) | #3380 | docs(uat): hw305 R4/R5/214 → ✅ (166) |
 
 ---
 
