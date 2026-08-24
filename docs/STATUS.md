@@ -22,6 +22,28 @@ The other architecture docs describe the **target**: where Catalyst is going. Th
 
 Per [`DOD.md`](DOD.md), 🟦 CODE-COMPLETE does NOT mean shipped. A pillar is **shipped** when an operator walks a **fresh prov** through the pillar-relevant steps and produces a screenshot + non-empty wire-capture + working downstream artifact. PR merge ≠ pillar shipped.
 
+*The legend read as a lifecycle: code review alone can carry a surface to 🟦 CODE-COMPLETE; only a fresh-prov walk with screenshot evidence flips it to ✅.*
+
+```mermaid
+graph LR
+  D["📐 Design<br/>doc only, no code"]:::design
+  PA["🚧 Partial<br/>gaps, not prod-ready"]:::partial
+  C["🟦 CODE-COMPLETE<br/>controllers + CRDs + tests"]:::cc
+  I["✅ Implemented<br/>walked on a fresh prov"]:::done
+  DEF["⏸ Deferred<br/>queued for a future chain"]:::deferred
+  D -->|some code lands| PA
+  D -->|controllers + CRDs + tests| C
+  PA -->|gaps closed, tests green| C
+  C -->|"fresh-prov walk + screenshot + wire-capture"| I
+  D -->|explicitly queued| DEF
+  DEF -->|re-enable trigger| PA
+  classDef design fill:#e9ecef,stroke:#868e96,color:#343a40;
+  classDef partial fill:#fff3cd,stroke:#e0a800,color:#7a5c00;
+  classDef cc fill:#d6e4ff,stroke:#3366cc,color:#1a3d7c;
+  classDef done fill:#d4edda,stroke:#28a745,color:#155724;
+  classDef deferred fill:#f1f3f5,stroke:#adb5bd,color:#495057;
+```
+
 ---
 
 ## 1. Repository structure
@@ -38,6 +60,32 @@ Per [`DOD.md`](DOD.md), 🟦 CODE-COMPLETE does NOT mean shipped. A pillar is **
 | `products/agenity/` + `products/openova-mcp/` | 🟦 | The **Pillar 4 pair** (re-scoped — see §2.2 and §9): `bp-agenity` (chart 0.5.20 — per-Org multi-agent runtime + dashboard) + `openova-mcp` (Go MCP server: RBAC-scoped thin facade over live catalyst-api, JSON-RPC over stdio). |
 | `products/catalyst/` umbrella (`bp-catalyst-platform`) | 🟦 | Has `bootstrap/{ui,api}/` (React SPA wizard + Go bootstrap API) + `chart/` with Chart.yaml + Helm templates for the full Catalyst-Zero deployment + `crds/` with the 13 CRDs enumerated in §4. Canonical Helm chart for Catalyst-Zero and every franchised Sovereign. |
 | `products/{cortex,fabric,fingate,relay}/` | 📐 | README only. No charts or manifests. (`products/specter/` does not exist — Specter is a deliverable service, not a Blueprint in this layout, per `README.md` §"What's in this repo" and [`ARCHITECTURE.md`](ARCHITECTURE.md) §3.5, which agreed with this row as of #6114.) |
+
+*Repository areas by status — what carries real code today vs what is still README-only:*
+
+```mermaid
+graph TD
+  subgraph sImpl["✅ Implemented"]
+    PUB["Public monorepo"]:::done
+    OCI["bp-* signed OCI artifacts (SBOM + cosign)"]:::done
+    AXON["products/axon (chart + src + scripts)"]:::done
+  end
+  subgraph sCode["🟦 CODE-COMPLETE"]
+    P4["agenity + openova-mcp — the Pillar-4 pair"]:::cc
+    CATP["catalyst umbrella (bp-catalyst-platform)"]:::cc
+  end
+  subgraph sPart["🚧 Partial"]
+    CORE["core/ console · admin · marketplace · marketplace-api"]:::partial
+    CONV["Per-folder Blueprint convention"]:::partial
+  end
+  subgraph sDes["📐 Design (README only)"]
+    SCAF["cortex · fabric · fingate · relay"]:::design
+  end
+  classDef done fill:#d4edda,stroke:#28a745,color:#155724;
+  classDef cc fill:#d6e4ff,stroke:#3366cc,color:#1a3d7c;
+  classDef partial fill:#fff3cd,stroke:#e0a800,color:#7a5c00;
+  classDef design fill:#e9ecef,stroke:#868e96,color:#343a40;
+```
 
 ---
 
@@ -64,6 +112,33 @@ These run **per-Sovereign** on the management cluster.
 | blueprint-controller | 🚧 | Controller scaffolded with Reconcile at `core/controllers/blueprint/internal/controller/blueprint_controller.go` (post-2026-05-20). Not yet walked on a fresh prov. |
 | billing | 📐 | Designed. No code. |
 
+*User-facing surfaces + backend services, grouped by status:*
+
+```mermaid
+graph TD
+  subgraph sCode["🟦 CODE-COMPLETE"]
+    MKT["marketplace — Pillar 1 card grid"]:::cc
+    CUI["catalyst-ui wizard — Pillar 2"]:::cc
+    CAPI["catalyst-api — Pillar 3 install path"]:::cc
+    PROVS["provisioning service"]:::cc
+  end
+  subgraph sPart["🚧 Partial"]
+    CON["console (Catalyst UI + BSS menu)"]:::partial
+    ADM["admin — sovereign-admin ops UI"]:::partial
+    MAPI["marketplace-api"]:::partial
+    ENVC["environment-controller (scaffolded)"]:::partial
+    BPC["blueprint-controller (scaffolded)"]:::partial
+  end
+  subgraph sDes["📐 Design (no code)"]
+    CSVC["catalog-svc"]:::design
+    PROJ["projector — CQRS read-side"]:::design
+    BILL["billing"]:::design
+  end
+  classDef cc fill:#d6e4ff,stroke:#3366cc,color:#1a3d7c;
+  classDef partial fill:#fff3cd,stroke:#e0a800,color:#7a5c00;
+  classDef design fill:#e9ecef,stroke:#868e96,color:#343a40;
+```
+
 ### 2.2 Per-Sovereign supporting services
 
 | Component | Status | Notes |
@@ -78,6 +153,31 @@ These run **per-Sovereign** on the management cluster.
 | cnpg-pair (Pillar 3) | 🟦 | **CODE-COMPLETE.** `bp-cnpg-pair` ships synchronous replication (`remote_apply`) for zero-tx-loss (PR [#2071](https://github.com/openova-io/openova/pull/2071)). CRD ships in `products/catalyst/chart/crds/cnpgpair.yaml`. D31 acceptance test harness landed: PR [#2075](https://github.com/openova-io/openova/pull/2075). |
 | bp-self-sovereign-cutover (Pillar 5) | 🚧 | Dormant slot 06a in bootstrap-kit. **11-step post-handover chain** ([`platform/self-sovereign-cutover/chart`](../platform/self-sovereign-cutover/chart/), currently **0.1.126**) pivots every mothership tether — step Jobs 01–11: gitea-mirror, harbor-projects, harbor-prewarm (+ offline-mirror-resolver), containerd registry-pivot DaemonSet, flux-gitrepository-patch, helmrepository-patches, catalyst-api-env-patch, egress-block-test, cutover-status + gitea-token-mint, vcluster-registry-pivot + auto-trigger, crossplane-provider-pivot + mirror-resync CronJob. The sovereignty proof is the **10-minute deny-egress hold** against `github.com`, `ghcr.io`, `harbor.openova.io`; `cutoverComplete=true` only if the cluster reconciles green during the hold. **Keystone — zero-touch `cutoverComplete=true` on a fresh 2-region kom4dc prov — is PENDING**: furthest ever hw246 (green through step-7, died at the step-8 pre-hold ref-host lint); the redirect-aware lint ruling merged as #5038 (2026-07-12), not yet proven live. ADR-0002's original "eight sequential Jobs" spec is superseded by this shipped 11-step chain. |
 | Catalyst observability (Grafana stack) | 🚧 | Per-component READMEs exist; not yet wired as a Catalyst-level umbrella. |
+
+*Per-Sovereign supporting services, grouped by status:*
+
+```mermaid
+graph TD
+  subgraph sCode["🟦 CODE-COMPLETE"]
+    AGEN["Agenity workspace + bp-openova-mcp — Pillar 4"]:::cc
+    CONT["Continuum failover orchestrator — Pillar 3"]:::cc
+    CNPG["cnpg-pair sync replication — Pillar 3"]:::cc
+  end
+  subgraph sPart["🚧 Partial — chart + blueprint.yaml shipped"]
+    GIT["Gitea"]:::partial
+    NATS["NATS JetStream"]:::partial
+    BAO["OpenBao"]:::partial
+    KC["Keycloak"]:::partial
+    CUT["bp-self-sovereign-cutover — 11-step, Pillar 5"]:::partial
+    OBS["Catalyst observability (Grafana stack)"]:::partial
+  end
+  subgraph sDef["⏸ Deferred — opt-in only"]
+    SPIRE["SPIRE server + agent"]:::deferred
+  end
+  classDef cc fill:#d6e4ff,stroke:#3366cc,color:#1a3d7c;
+  classDef partial fill:#fff3cd,stroke:#e0a800,color:#7a5c00;
+  classDef deferred fill:#f1f3f5,stroke:#adb5bd,color:#495057;
+```
 
 ---
 
@@ -108,6 +208,33 @@ These run on **every host cluster** (mgt, rtz, dmz).
 | SeaweedFS, Velero, Harbor | 🚧 | READMEs only. |
 | failover-controller | 🚧 | README only. Replaced by `Continuum` controller pattern (EPIC-6 #1101). |
 
+*Per-host-cluster infrastructure by status — three surfaces are walked live today; the rest ship a chart or README and await wiring:*
+
+```mermaid
+graph TD
+  subgraph sImpl["✅ Implemented — deployed + walked live"]
+    PDNS["PowerDNS (bp-powerdns:1.0.6)"]:::done
+    PDM["pool-domain-manager (PDM)"]:::done
+    TOFU["OpenTofu bootstrap IaC — Huawei kom4dc"]:::done
+  end
+  subgraph sPart["🚧 Partial — chart/blueprint shipped or README only"]
+    CIL["Cilium (WireGuard mesh)"]:::partial
+    FLUX["Flux"]:::partial
+    XP["Crossplane"]:::partial
+    CM["cert-manager"]:::partial
+    EDNS["External-DNS"]:::partial
+    ESO["External Secrets Operator"]:::partial
+    KYV["Kyverno"]:::partial
+    SEC["Trivy · Falco · Sigstore · Syft+Grype"]:::partial
+    COR["Coraza"]:::partial
+    OPSX["VPA · KEDA · Reloader"]:::partial
+    STORE["SeaweedFS · Velero · Harbor"]:::partial
+    FOC["failover-controller (superseded by Continuum)"]:::partial
+  end
+  classDef done fill:#d4edda,stroke:#28a745,color:#155724;
+  classDef partial fill:#fff3cd,stroke:#e0a800,color:#7a5c00;
+```
+
 ---
 
 ## 4. CRDs
@@ -131,6 +258,34 @@ All canonical CRD schemas now ship in `products/catalyst/chart/crds/`. Go types 
 | `CNPGPair` *(Pillar 3, new 2026-05-20)* | 🟦 | Schema in `cnpgpair.yaml`. Group `dr.openova.io/v1`. Defines a paired CNPG cluster across two regions over Cilium ClusterMesh with synchronous replication (`remote_apply`, `ReplicaCluster`). Used by `bp-cnpg-pair` (PR [#2071](https://github.com/openova-io/openova/pull/2071)) for zero-tx-loss Pillar 3 walk. D31 acceptance test PR [#2075](https://github.com/openova-io/openova/pull/2075). |
 | `PDM` *(Pool Domain Manager allocations, new 2026-05-20)* | 🚧 | Schema in `pdm.yaml`. Tracks per-Sovereign pool subdomain allocation, parent-zone NS delegation state, and registrar-adapter flow (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot). Consumed by PDM service at `core/pool-domain-manager/`. |
 | `Sandbox` *(internal — REMOVED from Pillar 4 scope)* | 🟦 | Schema in `sandbox.yaml`. Controller + auto-mounted `openova-sandbox-mcp` chain landed (PRs #1615 scaffold, #1618, #1621, #1622, #1626, #1631, #1632) — but per the founder Pillar-4 re-scope the Sandbox surface is **no longer a pillar surface**: Pillar 4 = Agenity + `bp-openova-mcp` (§2.2, §9, [`DOD.md`](DOD.md) §Pillar-4). The CRD + controller are retained as internal machinery, exempt from pillar DoD. |
+
+*All CRD schemas ship in `products/catalyst/chart/crds/`; Go types + reconcilers land per pillar. Status by CRD:*
+
+```mermaid
+graph TD
+  subgraph sCode["🟦 CODE-COMPLETE — schema + wired"]
+    CONT["Continuum (dr.openova.io)"]:::cc
+    CNPG["CNPGPair (dr.openova.io)"]:::cc
+    SBX["Sandbox (internal — removed from Pillar-4 scope)"]:::cc
+  end
+  subgraph sPart["🚧 Partial — schema ships; controller lands per pillar"]
+    ORG["Organization (orgs.openova.io)"]:::partial
+    ENV["Environment"]:::partial
+    APP["Application (apps.openova.io)"]:::partial
+    BP["Blueprint (catalyst.openova.io)"]:::partial
+    EP["EnvironmentPolicy"]:::partial
+    SP["SecretPolicy"]:::partial
+    RB["Runbook"]:::partial
+    PS["ProvisioningState"]:::partial
+    PDMX["PDM (pool allocations)"]:::partial
+  end
+  subgraph sDes["📐 Design — no Go type yet"]
+    SOV["Sovereign (top-level)"]:::design
+  end
+  classDef cc fill:#d6e4ff,stroke:#3366cc,color:#1a3d7c;
+  classDef partial fill:#fff3cd,stroke:#e0a800,color:#7a5c00;
+  classDef design fill:#e9ecef,stroke:#868e96,color:#343a40;
+```
 
 Go types live at `core/pkg/apis/<group>/v1alpha1/` (e.g. `application/v1alpha1/application_types.go`, `blueprint/v1alpha1/topology_types.go`) and at `core/controllers/pkg/apis/`; further types are added as control-plane services are scaffolded (slice C1..C5 of #1095).
 
@@ -210,6 +365,32 @@ Every guard listed here is a pre-merge check that fails the PR if violated. This
 | **Pillar 3** — Two independent CNPG clusters + region-kill failover (zero-tx-loss) | 🟦 CODE-COMPLETE | bp-cnpg-pair synchronous replication via `remote_apply` (PR [#2071](https://github.com/openova-io/openova/pull/2071)); bp-continuum wired (PR [#2072](https://github.com/openova-io/openova/pull/2072)); provisioning generalised beyond WP-only (PR [#2073](https://github.com/openova-io/openova/pull/2073)); the `SMETenantGitOpsWriter` (Go code path) emits a Continuum CR per multi-region Organization Application (PR [#2074](https://github.com/openova-io/openova/pull/2074)); D31 acceptance test harness (PR [#2075](https://github.com/openova-io/openova/pull/2075)); AppConfigs thread into rendered manifests (PR [#2053](https://github.com/openova-io/openova/pull/2053), TBD-V27). Awaits fresh-prov region-kill walk for ✅. |
 | **Pillar 4** — Agenity + `bp-openova-mcp` (re-scoped; Sandbox surface REMOVED from pillar scope) | 🟦 CODE-COMPLETE | `bp-agenity` (chart 0.5.20) + `openova-mcp` RBAC-scoped MCP facade over live catalyst-api; the pillar walk is an application provisioned end-to-end THROUGH Agenity. Proven live twice (dep 91dc0591, 2026-06-28; zero-touch hw220, 2026-07-03). Blocked-on-founder: durable per-Sovereign Anthropic credential + credential-propagation design (#4111/#4277). The walk fires on ANY converged env — it is never keystone-gated. Legacy Sandbox CRD/controller: internal machinery, exempt (§4). |
 | **Pillar 5** — Sovereign independence post-`bp-self-sovereign-cutover` | 🚧 | **11-step chain** at chart **0.1.126** + 10-min deny-egress hold against `github.com`/`ghcr.io`/`harbor.openova.io`. **Keystone — zero-touch `cutoverComplete=true` on a fresh 2-region Huawei kom4dc prov — is PENDING**: furthest ever hw246 (green through step-7, died at the step-8 pre-hold ref-host lint); the redirect-aware ruling merged as #5038 (2026-07-12) and awaits (1) a converged-env cutover re-fire proving it live, then (2) the fresh-prov zero-touch keystone walk for ✅. |
+
+*The five pillars are inseparable — four are 🟦 CODE-COMPLETE and Pillar 5 is 🚧; all five must walk GREEN on the SAME fresh prov to claim DoD:*
+
+```mermaid
+graph LR
+  subgraph sCode["🟦 CODE-COMPLETE — awaits fresh-prov walk for ✅"]
+    P1["Pillar 1<br/>Marketplace + voucher onboarding"]:::cc
+    P2["Pillar 2<br/>Multi-region BCP topology at signup"]:::cc
+    P3["Pillar 3<br/>Two CNPG clusters + region-kill failover"]:::cc
+    P4["Pillar 4<br/>Agenity + bp-openova-mcp (proven live twice)"]:::cc
+  end
+  subgraph sPart["🚧 Partial — keystone pending"]
+    P5["Pillar 5<br/>Sovereign independence post-cutover<br/>11-step chain + deny-egress proof"]:::partial
+  end
+  GATE(["fresh prov: screenshot + wire-capture + downstream artifact"]):::gate
+  P1 --> GATE
+  P2 --> GATE
+  P3 --> GATE
+  P4 --> GATE
+  P5 -.->|"zero-touch cutoverComplete=true still pending"| GATE
+  GATE --> DONE["✅ 5-pillar DoD — all 5 on the SAME fresh prov"]:::done
+  classDef cc fill:#d6e4ff,stroke:#3366cc,color:#1a3d7c;
+  classDef partial fill:#fff3cd,stroke:#e0a800,color:#7a5c00;
+  classDef done fill:#d4edda,stroke:#28a745,color:#155724;
+  classDef gate fill:#fff0e6,stroke:#e8590c,color:#7a3400;
+```
 
 The 5 pillars are inseparable — DoD claim requires all 5 walked on the same fresh prov with screenshot + non-empty wire-capture + working downstream artifact.
 
