@@ -17,6 +17,37 @@ The hard rule: **never do the same violation twice.** If a future task tempts yo
 
 ## Part I — Inviolable Principles (1-15)
 
+The fifteen principles cluster into five themes — deliver-then-verify, architecture fidelity, release-train safety, Sovereign independence, and honesty:
+
+```mermaid
+graph TD
+  subgraph DELIVER["Deliver target-state, then verify"]
+    P1["1 · Waterfall is the contract<br/>no 'for now', no descope"]
+    P5["5 · Continuous execution<br/>commit progress, never summarize-and-stop"]
+    P7["7 · Verify before claiming done<br/>DoD E2E 2-pass GREEN on the deployed SHA"]
+    P9["9 · No ticket-flavored excuses<br/>do the work, name the specific problem"]
+  end
+  subgraph ARCH["Architecture is the contract"]
+    P2["2 · Never compromise quality<br/>solve architecturally, never work around"]
+    P3["3 · Follow the docs exactly<br/>OpenTofu · Crossplane · Flux · Blueprints only"]
+    P4["4 · Never hardcode<br/>runtime config, not literals"]
+    P15["15 · Validate IaC with the real evaluator<br/>tofu validate / helm template, not a sim"]
+  end
+  subgraph RELEASE["Release-train safety"]
+    P13["13 · Pin only tags that exist on GHCR"]
+    P14["14 · Cutover HRs dependsOn Gateway readiness"]
+  end
+  subgraph SOV["Sovereign independence"]
+    P11["11 · Independent after handover<br/>cutover + egress-block proof"]
+  end
+  subgraph HONEST["Honesty and process"]
+    P6["6 · Ticket discipline<br/>issue first, work the list"]
+    P8["8 · Disclose every divergence<br/>same message, every time"]
+    P10["10 · Principles override in-session judgment"]
+    P12["12 · Verify against origin/main, not the working tree"]
+  end
+```
+
 ### 1. The waterfall is the contract
 
 This is a waterfall delivery, not iterative MVP. Every deliverable lands in its full target-state shape, not in an incremental "we'll improve it later" form.
@@ -226,6 +257,20 @@ These are OpenOva-platform-specific anti-patterns — concrete PR / issue receip
 
 **How to use this catalog during PR review:** scan the diff for the *shape* of each anti-pattern below. Defensive-coding patterns are the canary — they almost always mean something upstream is broken and the diff is bandaging the symptom. Per Part IV anti-theater rule 1, defensive-coding patterns trigger investigation, NOT approval.
 
+Every entry below shares one control loop — a defensive or shortcut shape in a diff is a *clue to investigate*, never an approval:
+
+```mermaid
+flowchart TD
+  START["Reviewing a PR diff"] --> SPOT{"Defensive or shortcut<br/>shape in the diff?"}
+  SPOT -->|"no"| READ["Read every line —<br/>reviewer-fatigue defense is dead"]
+  SPOT -->|"null-guard · ?? [] · enabled:false ·<br/>must_contain · dry-run-only ·<br/>Closes #N scaffold · single-region claim"| CLUE["A CLUE, never approval"]
+  CLUE --> ASK{"If the bug were present,<br/>would anything have gone red?"}
+  ASK -->|"no — nothing could catch it"| INVESTIGATE["Investigate the upstream cause —<br/>the empty data / off flag / fake token<br/>IS the defect"]
+  ASK -->|"yes"| INVESTIGATE
+  INVESTIGATE --> SEAM["Fix at the seam that decides the outcome,<br/>not the surface that shows it"]
+  SEAM --> DONE["Approve only after the real fix<br/>+ fresh-prov evidence"]
+```
+
 ### A1 — Null-guard after empty-data crash
 
 | | |
@@ -427,6 +472,18 @@ These are OpenOva-platform-specific anti-patterns — concrete PR / issue receip
 
 **Guard:** `.github/workflows/test-ungated-trees.yaml` runs the nine previously ungated trees at PR time, and carries its own vacuity check — `go test ./...` **exits 0 on a module with no test files**, so the step asserts `--- PASS` count > 0 and fails explicitly otherwise. Verified both directions: a real module reports its executed count; an empty module exits 0 and trips the assertion.
 
+The one question that catches all seven shapes, as a flow:
+
+```mermaid
+flowchart TD
+  G["A check exists and is green"] --> Q{"If the bug were present,<br/>COULD this check have gone red?"}
+  Q -->|"yes — proven"| REAL["Real coverage"]
+  Q -->|"no"| VACUOUS["Vacuous — green means 'did not look'"]
+  VACUOUS --> SHAPES["One of the seven shapes:<br/>scanned-not-enforced · fixture = contract ·<br/>existence-not-identity · product reshaped to pass ·<br/>no gate for the tree · gate argued out of mattering ·<br/>test PINS the fail-open"]
+  SHAPES --> FIX["Make the guard fail on the PRE-fix tree first;<br/>keep a vacuity control so 'assert nothing' can't pass"]
+  FIX --> REAL
+```
+
 ---
 
 ## Cross-cutting flags that trigger a "stop and investigate" pass
@@ -488,6 +545,20 @@ This list is **additive only** — words enter, they do not leave.
 
 ### III.2 — Release train (merged ≠ deployed ≠ verified)
 
+The release train, and where each claim first becomes legal:
+
+```mermaid
+flowchart LR
+  MERGE["merge to main"] --> BUILD["Build-and-Deploy CI<br/>~25 min · rerun on Docker Hub 500s"]
+  BUILD --> PIN["deploy-bot pin commit"]
+  PIN --> FLUX["Flux reconcile<br/>force via requestedAt annotation"]
+  FLUX --> ROLL["pod rolled to new image"]
+  ROLL --> BUNDLE["new bundle served<br/>HARD REFRESH the SPA cache"]
+  BUNDLE --> WALK["WALK the user-visible surface"]
+  ROLL --> D["claim 'deployed' —<br/>only after pod image check"]
+  WALK --> V["claim 'done' —<br/>only after the walk"]
+```
+
 5. **The chain is: merge → Build-&-Deploy CI (~25 min, can fail on upstream Docker Hub 500s — rerun) → deploy-bot pin commit → Flux reconcile (force with `reconcile.fluxcd.io/requestedAt` annotation on gitrepository/openova-public + kustomization/catalyst-platform instead of waiting the poll) → pod rolled to the new image → new bundle served → HARD REFRESH (SPA cache).** Claim "deployed" only after the pod image check; claim "done" only after WALKING the user-visible surface the founder will look at. Image tag + bundle hash is NOT visual verification.
 6. **Sub-agent "already exists / verified finding" claims are not delivery.** #4725 skipped the Dashboard rebuild citing an issue comment; the merge was overclaimed → founder saw zero change. Before merging UI work, demand screenshot/DOM proof of the NEW rendering (the #4726 agent shipped a Playwright screenshot — that is the bar).
 7. **Live env patches (kubectl set env / CM edits) are TEMPORARY** — the next helm upgrade or engine re-stamp reverts them. **Every live patch ships with the durable chart/code fix in the same cycle — the same session** (SMTP → chart values; step-06 gate → chart 0.1.103 class fix). A live patch without its merged durable twin is a defect, not a fix.
@@ -506,6 +577,17 @@ When the same symptom class recurs on **two consecutive prov fires**, another pe
 
 Receipt: the registry-pivot family. #4973 (evs-csi sidecars), #4975 (continuum initContainer), and #4961 (flow-emitter) were three per-workload chases of one root cause — each prov fire surfaced only the *next* un-pivoted image. #5010 ended it by replacing the allowlist with a comprehensive pod-spec image sweep in cutover step-07 that discovers **every** external-registry workload exactly as step-08's roll-set does. The curated-allowlist shape (e.g. a 4-chart lint list behind `allowExistingViolations: true`) is the anti-pattern: it hides the next violator by construction. Enforcement (recurrence trigger, widened lint) lives in [`docs/PROTOCOL.md`](PROTOCOL.md) §8 C5.
 
+The mandated shape when a symptom class recurs:
+
+```mermaid
+flowchart TD
+  SYM["Same symptom class recurs"] --> CNT{"On two consecutive<br/>prov fires?"}
+  CNT -->|"no"| ONE["Fix this occurrence,<br/>watch for recurrence"]
+  CNT -->|"yes"| FORBID["Another per-instance fix is FORBIDDEN"]
+  FORBID --> ENUM["Enumerate the whole class repo-wide:<br/>render every chart · sweep every pod-spec ·<br/>list every consumer of the shared seam"]
+  ENUM --> CLASSFIX["Ship ONE class-fix PR, fail-closed —<br/>replace the allowlist with a full sweep"]
+```
+
 ### III.5 — Sub-agent cap: floor 2, ceiling 3
 
 Founder, 2026-05-20 (verbatim): *"dont exceed 3 slots, because your agent management skills are very poor, you are unnecessarily burning our token by either theater, or even something going in the wrong direction … make sure keeping minimum 2 slots and max 3 slots, use the 3rd slot only when you are 100% sure you'll be able to manage it very effectively."* This supersedes every earlier cap rule ("≥3 always", "max 6").
@@ -519,6 +601,22 @@ Founder, 2026-05-20 (verbatim): *"dont exceed 3 slots, because your agent manage
 
 **Business-priority gate**: while the canonical end-user walk is UNVERIFIED, every slot must advance it — never fill the 3rd slot with cleanup / polish / docs / audit theater. When in doubt, stay at 2. File-editing sub-agents dispatch in `isolation: worktree`.
 
+The slot-count decision, gated on the end-user walk:
+
+```mermaid
+flowchart TD
+  START["Choosing sub-agent slot count"] --> WALK{"Is the canonical end-user<br/>walk still UNVERIFIED?"}
+  WALK -->|"yes"| ADVANCE["Every slot must advance the walk —<br/>no cleanup / polish / docs / audit"]
+  WALK -->|"no"| ADVANCE
+  ADVANCE --> N{"How many slots?"}
+  N -->|"0–1"| REFILL["NEVER — below floor is idling.<br/>Refill from code-shippable work"]
+  N -->|"2"| CRUISE["Default cruising state —<br/>both slots on walk-advancing work"]
+  N -->|"3"| SURE{"100% sure of effective management?<br/>grounding test clears?"}
+  N -->|"4+"| NEVER["NEVER"]
+  SURE -->|"yes"| GO3["Allowed · worktree isolation"]
+  SURE -->|"no"| HOLD["Hold at 2"]
+```
+
 ---
 
 ## Part IV — Generic engineering rules (inlined; formerly user-global `~/.claude/CLAUDE.md`)
@@ -528,6 +626,20 @@ Founder, 2026-05-20 (verbatim): *"dont exceed 3 slots, because your agent manage
 ### IV.1 — Dispatch grounding test (formerly §0)
 
 Before launching any agent: answer *"Which of the 5 pillars does this work move forward, and how?"* + *"Which deterministic step does this advance?"* If you can't answer either — the work is wrong, pick differently. (Pillars + deterministic steps: [`docs/DOD.md`](DOD.md).) Cleanup work is allowed ONLY when it is a SHORT precondition for a pillar walk AND is followed immediately by the walk itself.
+
+The grounding test as a decision tree:
+
+```mermaid
+flowchart TD
+  D["About to launch an agent"] --> P{"Which of the 5 pillars<br/>does this move forward?"}
+  P -->|"none"| STOP["Work is wrong — pick differently"]
+  P -->|"one or more"| S{"Which deterministic<br/>step does it advance?"}
+  S -->|"none"| PRE{"A SHORT precondition<br/>for a pillar walk?"}
+  S -->|"one or more"| DISPATCH["Dispatch — with the pre-dispatch briefing"]
+  PRE -->|"no"| STOP
+  PRE -->|"yes"| FOLLOW["Allowed only if the walk<br/>fires immediately after"]
+  FOLLOW --> DISPATCH
+```
 
 ### IV.2 — Anti-theater rules 1–8 (formerly §3)
 
@@ -558,6 +670,18 @@ Rules: total briefing ≤ 6 lines — don't restate the full agent prompt; one b
 ## Part V — How these relate
 
 Part I (Principles 1-15) defines *what to do*. Part II (anti-patterns A1-A15) is the catalog of *how violations manifest in PRs* — concrete shapes you can grep for during review. Part III (STONE) governs the environment + release lifecycle — when it is legal to fire, wipe, merge, and claim. Part IV holds the inlined generic rules the catalog cites; [`docs/PROTOCOL.md`](PROTOCOL.md) holds the mechanical gates that enforce Part III.
+
+How the four parts and the enforcement gates relate:
+
+```mermaid
+graph LR
+  P1["Part I · Principles 1–15<br/>WHAT to do"] --> P2["Part II · Anti-pattern catalog<br/>HOW violations manifest in PRs"]
+  P2 -->|"each maps back to a principle"| P1
+  P4["Part IV · Generic rules<br/>the rules the catalog cites"] --> P2
+  P1 --- P4
+  P3["Part III · STONE<br/>WHEN it is legal to fire / wipe / merge / claim"]
+  PROTO["docs/PROTOCOL.md<br/>the mechanical gates"] -->|"enforces"| P3
+```
 
 The generic cross-project anti-theater rules (defensive-coding-as-clue, `Refs #N` vs `Closes #N`, no admin-merge through red CI, validate on fresh state, reviewer-fatigue defense is dead, verification agents are READ-ONLY) are inlined above as Part IV §IV.2 rules 1–8. The catalog above is the OpenOva-platform-specific *application* of those generic rules to this codebase's surfaces (Catalyst control plane, Blueprints, Sovereign provisioning, cutover, deterministic test).
 
