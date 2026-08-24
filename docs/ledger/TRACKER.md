@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-24T02:30:05Z` |
+| Last refreshed | `2026-08-24T02:45:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-24T02:39 | [#6670](https://github.com/openova-io/openova/pull/6670) | #4439 | docs(uat): record hw305 diagnostics in the 4 ⏳ rows (14/93/1 |
 | 2026-08-24T02:10 | [#6669](https://github.com/openova-io/openova/pull/6669) | #4439 | docs(sessions): hw305 convergence report 2026-08-24 (✅270/28 |
 | 2026-08-24T01:39 | [#6668](https://github.com/openova-io/openova/pull/6668) | #4439 | docs(uat): row 235 ⏳→❌ — grafana crashloop on hw305 (DSN → a |
 | 2026-08-24T00:56 | [#6667](https://github.com/openova-io/openova/pull/6667) | #3379 | docs(uat): rows 96/123/178 — owner handover URL lands signed |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-23T13:53 | [#6642](https://github.com/openova-io/openova/pull/6642) | #5019 | docs(uat): hw305 customer-org detail 9/10/11/12/101 + 191 →  |
 | 2026-08-23T13:47 | [#6641](https://github.com/openova-io/openova/pull/6641) | #3378 | docs(uat): hw305 customer-org 99+226 → ✅ (150) |
 | 2026-08-23T13:40 | [#6640](https://github.com/openova-io/openova/pull/6640) | #3646 | docs(uat): hw305 console/cloud/jobs walk — 20 rows → ✅ (148) |
-| 2026-08-23T13:36 | [#6639](https://github.com/openova-io/openova/pull/6639) | #3985 | docs(uat): hw305 kubectl batch — R8/215/M2 → ✅ (128), R21 li |
 
 ---
 
