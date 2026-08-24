@@ -112,6 +112,23 @@ are tertiary operator-debugger surfaces and must never displace pillar work.
 | **4** | **Per-Org Agenity workspace + SSO/RBAC-scoped OpenOva MCP with full org knowledge** | The customer launches their per-Org **Agenity** workspace (the Sandbox concept + menu are **removed/replaced**). The chepherd-based solo agent (Claude Opus, OAuth-authenticated from its init-seeded `~/.claude/.credentials.json`) attaches the **`bp-openova-mcp`** server (`dependsOn bp-agenity`) via the per-Org `agenity-mcp-bearer` (SSO/RBAC-scoped, minted into OpenBao). The agent sees every org resource (apps, vClusters, conn-strings via OpenBao, Gitea repos, IAM, region health), pastes zero credentials, answers prompts with full org context, and mutates resources via MCP tool calls (e.g. `create_application`). |
 | **5** | **Sovereign independence post-cutover** | After `bp-self-sovereign-cutover` runs, zero egress to `harbor.openova.io`, `ghcr.io/openova-io`, or `github.com/openova-io` — proved by a 10-minute deny-egress NetworkPolicy hold (Principle #11). |
 
+The five inseparable pillars and the single bar that clears each one:
+
+```mermaid
+graph TD
+  DOD["Definition of Done<br/><i>walk a fresh prov through all five</i>"]
+  DOD --> P1["Pillar 1 — Marketplace + voucher onboarding<br/><i>anon visitor to Organization CR</i>"]
+  DOD --> P2["Pillar 2 — Multi-region BCP choice at signup<br/><i>pick N regions in one pass</i>"]
+  DOD --> P3["Pillar 3 — Two CNPG clusters + region-kill failover<br/><i>ReplicaCluster sync, zero tx lost</i>"]
+  DOD --> P4["Pillar 4 — Per-Org Agenity + OpenOva MCP<br/><i>agent mutates via create_application</i>"]
+  DOD --> P5["Pillar 5 — Sovereign independence post-cutover<br/><i>10-min deny-egress proof</i>"]
+  P1 --> SHIP["Shipped = screenshot + non-empty wire-capture<br/>+ working downstream artifact<br/><i>PR merge is NOT shipped</i>"]
+  P2 --> SHIP
+  P3 --> SHIP
+  P4 --> SHIP
+  P5 --> SHIP
+```
+
 ### Pillar 4 — Per-Org Agenity workspace + `bp-openova-mcp`
 
 > **Terminology correction (founder, 2026-06-30):** the **Sandbox** concept is
@@ -171,12 +188,61 @@ which `cutoverComplete=true` is set is that the cluster reconciles green
 during this hold. **No cutover claim without the egress-block proof.** Full
 choreography in §7 below.
 
+The eight tethers, the cutover that pivots them, and the proof that gates the claim:
+
+```mermaid
+graph LR
+  subgraph T["8 mothership tethers (Phase 0/1/2)"]
+    direction TB
+    t1["Flux GitRepository → github.com/openova-io"]
+    t2["containerd registries.yaml → harbor.openova.io"]
+    t3["OCI HelmRepository → ghcr.io/openova-io"]
+    t4["catalyst-api env fallback → github"]
+    t5["flux-system/ghcr-pull Secret"]
+    t6["Crossplane providers → xpkg.upbound.io"]
+    t7["Catalyst images → ghcr.io/openova-io"]
+    t8["OS package mirrors (cold-start)"]
+  end
+  T -->|"bp-self-sovereign-cutover<br/>8 sequential Jobs, dependency order"| PIVOT["local Gitea + Harbor"]
+  PIVOT --> HOLD["Final Job: 10-min deny-egress hold<br/>github.com · ghcr.io · harbor.openova.io"]
+  HOLD -->|"cluster reconciles green"| DONE["cutoverComplete=true"]
+```
+
 ---
 
 ## §2 — The deterministic test (Phase 0 / 1 / 2)
 
 The test is **deterministic** — one fresh prov, one run, all phases pass in
 order. No retries, no "works if you wait longer."
+
+The three phases end-to-end (detail in the tables below):
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Op as Operator
+  participant Cust as Customer
+  participant MP as Marketplace
+  participant Cat as Catalyst
+  participant Ag as Agenity agent
+  participant MCP as OpenOva MCP
+
+  Note over Op,Cat: Phase 0 — Operator issues voucher via BSS
+  Op->>Cat: BSS menu → issue voucher
+  Cat-->>Cust: voucher email (marketplace redeem URL)
+
+  Note over Cust,Cat: Phase 1 — Redeem → checkout → Org across 2 regions
+  Cust->>MP: redeem code → PIN magic-link
+  Cust->>MP: pick Postgres-backed bundle + 2-region topology
+  MP->>Cat: provision Org + 2 independent CNPG clusters
+  Cat-->>Cust: console.&lt;orgslug&gt;.omani.homes
+
+  Note over Cust,MCP: Phase 2 — Agenity agent adds an app via MCP
+  Cust->>Ag: open Agenity, prompt "add a Postgres-backed app"
+  Ag->>MCP: create_application (per-Org bearer)
+  MCP->>Cat: POST .../applications install seam
+  Cat-->>Cust: &lt;newapp&gt;.&lt;orgslug&gt;.omani.homes reachable
+```
 
 ### Phase 0 — Operator issues voucher via BSS
 
@@ -228,6 +294,21 @@ procedure.
 | Pillar 3 — 2 CNPG clusters + region-kill failover | Phase 1 step 1b (provisioning the 2 clusters), orthogonal D31 (the kill test) |
 | Pillar 4 — Agenity + OpenOva MCP | Phase 2 steps 2a–2e |
 | Pillar 5 — Sovereign independence | Implicit in all of the above; verified separately by the `bp-self-sovereign-cutover` 10-minute deny-egress hold (see §7 + Principle #11) |
+
+The same mapping as a graph — which pillar each deterministic step exercises:
+
+```mermaid
+graph LR
+  P1["Pillar 1<br/>Marketplace + signup"] --> S0["Phase 0 (all)"]
+  P1 --> S1a["Phase 1a — voucher email"]
+  P1 --> S1b["Phase 1b — redeem + checkout"]
+  P1 --> S1c["Phase 1c — post-signup landing"]
+  P2["Pillar 2<br/>Multi-region BCP"] --> S1b
+  P3["Pillar 3<br/>2 CNPG + failover"] --> S1b
+  P3 --> D31["Orthogonal D31 — region-kill"]
+  P4["Pillar 4<br/>Agenity + MCP"] --> S2["Phase 2 — steps 2a-2e"]
+  P5["Pillar 5<br/>Independence"] --> CUT["10-min deny-egress hold (§7)"]
+```
 
 ### What "shipped" means
 
@@ -344,6 +425,26 @@ Before any `tofu apply` or `POST /api/v1/deployments`:
 This section is the **single source of truth** for FQDN patterns used in
 Catalyst test provs and tenant Organizations. Every test, walk, agent
 dispatch, and provisioning request must use the patterns below.
+
+The FQDN families at a glance (exact patterns + notes in the tables that follow):
+
+```mermaid
+graph TD
+  subgraph TestSov["Test-Sovereign FQDNs"]
+    direction TB
+    sv["t&lt;NN&gt;.omani.works<br/><i>fallback t&lt;NN&gt;.omantel.biz on LE rate-limit</i>"]
+    con["console.t&lt;NN&gt;.omani.works"]
+    mkt["marketplace.t&lt;NN&gt;.omani.works"]
+  end
+  subgraph OrgPool["Organization subdomain pool (operator-curated)"]
+    direction TB
+    d1["&lt;orgslug&gt;.omani.homes  — default"]
+    d2["&lt;orgslug&gt;.omani.rest"]
+    d3["&lt;orgslug&gt;.omani.trade  — singular, not trades"]
+  end
+  mkt --> redeem["Voucher redeem URL<br/>marketplace.t&lt;NN&gt;.omani.works/redeem/?code=&lt;CODE&gt;<br/><i>slash before ? is mandatory</i>"]
+  FORB["Forbidden in tests:<br/>openova.io · omantel.openova.io · eventforge.io · Nova Cloud"]
+```
 
 ### Test-Sovereign FQDNs
 
@@ -552,6 +653,25 @@ Day 1 — 14:00
 Day 1 — 14:08 — Ahmed is selling.
 ```
 
+The same journey as a sequence — click to selling in about three minutes:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant A as Ahmed
+  participant MP as Marketplace
+  participant Cat as Catalyst
+  participant KC as Keycloak
+  A->>MP: click voucher link → PIN-login
+  A->>MP: pick Postgres-backed bundle + subdomain + 2-region BCP
+  MP->>Cat: create Organization + Environment + vcluster
+  Cat->>Cat: 2 CNPG clusters, ReplicaCluster sync (Pillar 3)
+  Cat->>Cat: 5 Gitea repos → projector → Flux reconciles
+  Cat-->>A: dashboard — green checkmarks (~3 min)
+  A->>KC: click ERPNext → SSO
+  KC-->>A: signed in, selling
+```
+
 **What he never saw**: Git, kubectl, vcluster, Flux, Blueprint, YAML,
 JetStream. **His mental model**: "I have a Sovereign account. I bought a
 bundle. It works."
@@ -570,6 +690,25 @@ created in §5.5).
 | T3 | Agent prompt | Tenant prompts: *"install a notes app backed by Postgres in my Org, public on `notes.<orgslug>.omani.homes`."* |
 | T4 | Agent action | The agent calls the OpenOva MCP `create_application` tool (Org-pinned, tier-admin-gated), which forwards the per-Org bearer to the catalyst-api install seam. The new app's CNPG cluster + namespace + HelmRelease + Gitea repo materialise. |
 | T5 | New app | Reachable at `https://notes.<orgslug>.omani.homes` with publicly-trusted TLS. |
+
+The Pillar-4 loop — a User's prompt becomes a running app through the MCP, zero credentials typed:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as Org User
+  participant Con as Tenant Console
+  participant Ag as Agenity agent on Opus
+  participant MCP as OpenOva MCP
+  participant Cat as catalyst-api
+  U->>Con: PIN-login → dashboard
+  U->>Ag: open Agenity (OAuth-seeded, no cost leak)
+  Ag->>MCP: attach, RBAC-scoped to User surface
+  U->>Ag: "install a Postgres-backed notes app"
+  Ag->>MCP: create_application (per-Org bearer)
+  MCP->>Cat: forward bearer → install seam
+  Cat-->>U: notes.&lt;orgslug&gt;.omani.homes (trusted TLS)
+```
 
 The tenant **never** typed a kubeconfig, never opened Git, never copied a DB
 connection string. Pillar 4 shipped end-to-end.
@@ -725,6 +864,25 @@ override via per-user preferences within the role permissions allowed.
 D31 is the **region-kill BCP failover** gate — the verifier for Pillar 3. Run
 **in parallel** with Phase 0 / 1 / 2 on the same fresh prov.
 
+The topology and the kill → promote path the counter-test exercises:
+
+```mermaid
+graph TB
+  subgraph RA["Region A — primary"]
+    pgA["CNPG primary"]
+    appA["tenant app pods"]
+  end
+  subgraph RB["Region B — hot standby"]
+    pgB["CNPG ReplicaCluster"]
+    appB["tenant app pods"]
+  end
+  pgA -->|"synchronous ReplicaCluster sync<br/>over Cilium ClusterMesh (DMZ WireGuard)"| pgB
+  KILL["Region-A kill (D31)"] -.->|"unreachable ≤ 5s"| RA
+  FC["failover-controller (Continuum CR)"] -->|"RTO ≤ 30s, zero tx lost"| PROMOTE["Region B replica promotes to primary"]
+  PROMOTE --> pgB
+  WR["monotonic counter writer"] -->|"next id = last_id + 1"| PROMOTE
+```
+
 ### Preconditions
 
 1. Tenant Organization exists (created via §2 Phase 1).
@@ -837,6 +995,20 @@ operate independently of the OpenOva mothership.
 5. `cutoverComplete=true` is set **only if** the cluster reconciles green
    during the full 10-minute hold. Any hiccup = the cutover failed; rollback
    to pre-cutover state, fix the root cause, re-run.
+
+The choreography as a state machine — the egress-block hold is the one gate to `cutoverComplete`:
+
+```mermaid
+stateDiagram-v2
+  [*] --> Dormant
+  Dormant: installed dormant at bootstrap-kit slot 06a
+  Dormant --> Pivoting: operator clicks Achieve-True-Sovereignty CTA
+  Pivoting --> EgressHold: 8 sequential Jobs pivot tethers in dependency order
+  EgressHold --> Complete: 10-min deny-egress hold reconciles green
+  EgressHold --> Rollback: any hiccup during the hold
+  Rollback --> Dormant: fix root cause, re-run
+  Complete --> [*]: cutoverComplete=true, egress-block proof recorded
+```
 
 ### Verification (the only acceptable evidence)
 
