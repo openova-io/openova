@@ -4,6 +4,16 @@
 
 > **One acceptance case per row, walked on the env in the title.** Result: `✅` pass · `❌` fail · `⚠️` partial · `☐` open · `⏳` carried/due · `⛔` blocked. Test-case + Evidence show the gist (full walk history in git); `#NNNN` = issue; 📷 opens the screenshot (also collected in the gallery below the table).
 
+<style>
+/* Keep the ledger table inside the viewport: fixed columns so the width% hints
+   are honoured, and wrap long unbreakable tokens (FQDNs, paths, hashes, URLs)
+   inside their cell instead of forcing the column wide + overflowing off-screen. */
+table { table-layout: fixed; width: 100%; }
+th, td { overflow-wrap: anywhere; word-break: break-word; vertical-align: top; }
+td code, td a { word-break: break-all; overflow-wrap: anywhere; }
+td img { max-width: 100%; height: auto; }
+</style>
+
 <table width="100%">
 <thead><tr><th width="6%">#</th><th width="16%">📷</th><th width="9%">Result</th><th width="35%">Test case</th><th width="34%">Evidence</th></tr></thead>
 <tbody>
