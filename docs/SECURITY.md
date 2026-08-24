@@ -5,6 +5,29 @@
 
 Identity, secrets, rotation, and multi-region credential semantics for Catalyst Sovereigns. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology.
 
+*The trust boundaries this doc defends, at a glance — the mothership only ever fires a Sovereign; it holds no runtime tie:*
+
+```mermaid
+graph TB
+  MS["Mothership 'openova'<br/>provisioning only, no runtime tie"]
+  subgraph Cloud["Cloud provider substrate (Hetzner / Huawei) — untrusted floor"]
+    subgraph Sov["Sovereign — one deployed Catalyst (its own trust domain)"]
+      subgraph CP["Control plane (catalyst ns) — sovereign-admin scope"]
+        API["catalyst-api + controllers"]
+        BAO["OpenBao (region-local Raft)"]
+        KC["Keycloak (IdP)"]
+      end
+      subgraph Org["Organization boundary<br/>vcluster + NATS Account + Keycloak realm (per-Org isolation)"]
+        APP["Application Pods"]
+      end
+    end
+  end
+  MS ==>|"fire: POST /deployments (one-time)"| API
+  API -->|"write desired state, read status"| APP
+  APP -->|"SA bound-token → TokenReview"| BAO
+  APP -->|"User OIDC JWT"| KC
+```
+
 ---
 
 ## 1. Identity: two systems, two purposes
@@ -15,6 +38,28 @@ Identity, secrets, rotation, and multi-region credential semantics for Catalyst 
 | **Users** (every human) | Keycloak | OIDC JWT | 15 min access / 30 day refresh | UI auth, REST/GraphQL API, Gitea, console SSE |
 
 Two systems, never conflated. Workload identity is bound to a Kubernetes ServiceAccount (`spiffe://<sov>/ns/<ns>/sa/<sa>` shape preserved at the namespace+SA granularity, just verified via TokenReview against the K8s API server rather than via SPIRE-issued SVIDs). User identity is bound to a Keycloak realm subject. The two meet only at boundaries where a service acts on behalf of a user (and even then, the workload presents both: its SA token for in-band auth, the WireGuard mesh for transport encryption, and the user's JWT in the request body).
+
+*The split, drawn — two planes that only touch at an on-behalf-of boundary:*
+
+```mermaid
+graph TB
+  subgraph WL["Workload identity — machines"]
+    POD["every Pod / controller"]
+    WG["Cilium WireGuard mesh<br/>kernel transport encryption"]
+    SA["projected SA bound-token<br/>1h TTL, audience-scoped"]
+    TR["K8s TokenReview<br/>→ (namespace, ServiceAccount)"]
+  end
+  subgraph US["User identity — humans"]
+    U["every human User"]
+    OIDC["Keycloak OIDC JWT<br/>15 min access / 30 day refresh"]
+  end
+  POD --> WG
+  POD --> SA --> TR
+  U --> OIDC
+  BND["boundary: a service acts on behalf of a User"]
+  TR -->|"in-band workload auth"| BND
+  OIDC -->|"User JWT in request body"| BND
+```
 
 ---
 
@@ -70,6 +115,23 @@ ns=catalyst-openbao    sa=openbao                  ← OpenBao itself
 
 **Catalyst REST API auth:** workload calls are authenticated by SA bound-token (TokenReview); user calls by Keycloak-issued JWT.
 
+*The authn path, end to end — no long-lived Secret-token, no SVID:*
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Pod as Pod (ns + SA)
+  participant KL as kubelet
+  participant Svc as OpenBao / NATS / catalyst-api
+  participant TR as K8s TokenReview
+  KL->>Pod: project SA bound-token (1h, audience-scoped)
+  Pod->>Svc: request + Authorization Bearer SA-token
+  Svc->>TR: TokenReview(token)
+  TR-->>Svc: valid → (namespace, ServiceAccount)
+  Svc-->>Pod: authorize on the (ns, SA) tuple
+  Note over KL,Pod: kubelet auto-rotates the token hourly
+```
+
 ### 2.1 Node-to-node encryption — the control-plane exclusion is declared, not accidental
 
 **The posture, stated once so nobody has to re-derive it from a ConfigMap:**
@@ -120,6 +182,25 @@ defence in depth rather than credentials in the clear. The envoy hop is the one 
 is post-TLS-termination, and it stays on the per-region private VPC subnet. **Pod-to-pod
 traffic — including every cross-region ClusterMesh pod flow — is unaffected**, because
 that is the base WireGuard feature and not the node-encryption extension.
+
+*The coverage map — pod-to-pod is 100% everywhere; only host-namespace traffic on the excluded control-plane node falls back to its own TLS:*
+
+```mermaid
+graph TB
+  subgraph W["Worker node — labels do NOT match the opt-out selector"]
+    WP["pod-to-pod: 100% WireGuard (kernel)"]
+    WH["host-namespace: WireGuard node-encryption ON"]
+  end
+  subgraph CPN["Control-plane node — node-role.kubernetes.io/control-plane"]
+    CP1["pod-to-pod: 100% WireGuard (unaffected)"]
+    CP2["host-namespace: node-encryption OPTED OUT (upstream default)"]
+    CP3["API :6443 / etcd :2379-:2380 / kubelet :10250<br/>carry their OWN TLS (defence in depth)"]
+    CP4["hostNetwork cilium-envoy gateway hop<br/>post-TLS-termination, stays on private VPC subnet"]
+  end
+  GATE["scripts/check-live-node-encryption.sh<br/>fails closed unless each agent's state matches its node labels"]
+  W --> GATE
+  CPN --> GATE
+```
 
 **The gate.** `scripts/check-live-node-encryption.sh` reads every cilium agent in every
 region given to it and fails closed unless each agent's `NodeEncryption` state is the
@@ -192,6 +273,25 @@ Static secrets (API tokens, passwords, signing keys, OAuth client secrets) live 
    (audit log + telemetry)         Pod mounts the secret
 ```
 
+*The same flow as a graph — the value only ever exists in OpenBao and the rendered K8s Secret, never in Git:*
+
+```mermaid
+graph TB
+  BAO["OpenBao<br/>Raft cluster, region-local"]
+  ES["ExternalSecret CR<br/>in the Application Gitea repo (Git)"]
+  SS["SecretStore CR<br/>→ OpenBao endpoint"]
+  ESO["ESO in vcluster<br/>auth: kubernetes (SA bound-token → TokenReview)"]
+  K8S["K8s Secret<br/>rendered, versioned, base64"]
+  REL["Reloader<br/>watches hash → rolling deploy"]
+  POD["Pod mounts the secret (env / file)"]
+  AUD["Catalyst audit log + telemetry"]
+  ES --> ESO
+  SS --> ESO
+  BAO -->|"read over Cilium WireGuard transport"| ESO
+  ESO --> K8S --> REL --> POD
+  BAO -.-> AUD
+```
+
 **What's in Git** (always):
 
 - `ExternalSecret` CR pointing at an OpenBao path
@@ -256,6 +356,24 @@ Critical: each region runs its **own** Raft cluster. There is no cross-region Ra
                   one-way: primary → secondaries; no cross-region quorum
 ```
 
+*Independent, never stretched — one-way async replication, quorum stays intra-region:*
+
+```mermaid
+graph LR
+  subgraph A["Region A (Muscat) — primary"]
+    RA["OpenBao<br/>3 Raft nodes<br/>independent quorum (2-of-3)"]
+  end
+  subgraph B["Region B (Salalah)"]
+    RB["OpenBao<br/>3 Raft nodes<br/>independent quorum (2-of-3)"]
+  end
+  subgraph C["Region C (Frankfurt DR)"]
+    RC["OpenBao<br/>3 Raft nodes<br/>independent quorum (2-of-3)"]
+  end
+  RA -->|"async log shipping (Performance Replication)"| RB
+  RA -->|"async log shipping"| RC
+  NOTE["one-way: primary → secondaries<br/>NO cross-region quorum; writes → primary, reads → local replica"]
+```
+
 ### 5.1 Fault domain semantics
 
 - **Each region has its own self-contained 3-node Raft cluster.** Quorum is **intra-region only** (need 2-of-3 in the same region).
@@ -291,6 +409,31 @@ Set at Sovereign provisioning time:
 keycloakTopology: per-organization      # SME-style: each Org gets its own
 # OR
 keycloakTopology: shared-sovereign      # Corporate: one Keycloak for the Sovereign
+```
+
+*The two topologies, set once at provisioning:*
+
+```mermaid
+graph TB
+  SPEC["Sovereign CRD: keycloakTopology"]
+  SPEC -->|"per-organization (SME-style)"| PO
+  SPEC -->|"shared-sovereign (corporate)"| SH
+  subgraph PO["per-organization — blast radius per Org"]
+    K1["minimal Keycloak per Org<br/>1 replica, embedded H2, ~150 MB"]
+    R1["realm: muscatpharmacy"]
+    R2["realm: acme-shop"]
+    K1 --> R1
+    K1 --> R2
+  end
+  subgraph SH["shared-sovereign — one perimeter"]
+    K2["ONE Keycloak (HA, 3 replicas, Postgres)<br/>federates corporate Azure AD"]
+    RA["realm: catalyst-admin (sovereign-admin)"]
+    RB["realm: core-banking"]
+    RC["realm: digital-channels"]
+    K2 --> RA
+    K2 --> RB
+    K2 --> RC
+  end
 ```
 
 ### 6.1 SME-style (`per-organization`)
@@ -411,6 +554,20 @@ A `security-officer` sees a **RotationDashboard** view: every credential class, 
 6. Audited:     Every step logged to Catalyst audit log. No plaintext.
 ```
 
+*The same six steps as a lifecycle — the value is generated straight into OpenBao and audited at every hop:*
+
+```mermaid
+stateDiagram-v2
+  [*] --> Generated: OpenBao / Crossplane creates value (never printed)
+  Generated --> Referenced: ExternalSecret CR names the path (no value in Git)
+  Referenced --> Materialized: ESO reads path (SA bound-token + TokenReview, WG transport)
+  Materialized --> Consumed: Pod mounts env/file; Reloader rolls on hash change
+  Consumed --> Rotated: SecretPolicy → new value → replicate → ESO re-read → roll
+  Rotated --> Materialized: old value revoked after 24h grace
+  Consumed --> Audited: every step logged, no plaintext
+  Audited --> [*]
+```
+
 **What never happens:**
 - Plaintext secrets in Git.
 - Plaintext secrets in shell command output.
@@ -450,6 +607,40 @@ Every Sovereign exports its audit log to a customer-specified SIEM. Default: Ope
 | Compromised OpenBao node | 2-of-3 Raft quorum required for writes. Audit log captures every read. Rotate root token + re-shard quarterly. |
 | Region-wide failure | Independent OpenBao Raft per region. PowerDNS lua-records (`ifurlup`) drop the affected regional endpoint from authoritative responses within the health-check window. Apps with `active-active` keep serving from healthy region. |
 | Supply-chain attack on a build | SLSA-3 build provenance, cosign signing, Syft+Grype SBOM scanned in CI and at runtime by Trivy. |
+
+*The same threats, grouped by the control that answers each:*
+
+```mermaid
+graph LR
+  subgraph T["Threats"]
+    T1["stolen SA token / K8s Secret"]
+    T2["compromised Pod"]
+    T3["malicious commit / bad Blueprint"]
+    T4["cross-Org leakage"]
+    T5["compromised sovereign-admin account"]
+    T6["compromised OpenBao node"]
+    T7["region-wide failure"]
+    T8["supply-chain attack"]
+  end
+  subgraph M["Mitigations"]
+    M1["1h audience-scoped bound-tokens<br/>etcd-at-rest + ESO + WireGuard"]
+    M2["Cilium NetworkPolicy + L7<br/>Falco syscall detection"]
+    M3["EnvironmentPolicy PR approvals<br/>Kyverno admission + verify-signatures"]
+    M4["vcluster + NATS Account + Keycloak realm isolation"]
+    M5["MFA + JIT elevation + SIEM audit trail"]
+    M6["2-of-3 Raft quorum + audit + quarterly re-shard"]
+    M7["independent Raft per region<br/>PowerDNS ifurlup drops the bad region"]
+    M8["SLSA-3 provenance + cosign + Syft/Grype/Trivy"]
+  end
+  T1 --> M1
+  T2 --> M2
+  T3 --> M3
+  T4 --> M4
+  T5 --> M5
+  T6 --> M6
+  T7 --> M7
+  T8 --> M8
+```
 
 ---
 
