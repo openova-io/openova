@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-24T01:30:06Z` |
+| Last refreshed | `2026-08-24T01:45:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-24T01:39 | [#6668](https://github.com/openova-io/openova/pull/6668) | #4439 | docs(uat): row 235 ⏳→❌ — grafana crashloop on hw305 (DSN → a |
 | 2026-08-24T00:56 | [#6667](https://github.com/openova-io/openova/pull/6667) | #3379 | docs(uat): rows 96/123/178 — owner handover URL lands signed |
 | 2026-08-24T00:10 | [#6666](https://github.com/openova-io/openova/pull/6666) | #3646 | docs(uat): row 173 — Jobs page live-tail badge changes in pl |
 | 2026-08-24T00:05 | [#6665](https://github.com/openova-io/openova/pull/6665) | #4282 | docs(uat): row 238 — per-Org postgres-in-vCluster host-side  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-23T13:40 | [#6640](https://github.com/openova-io/openova/pull/6640) | #3646 | docs(uat): hw305 console/cloud/jobs walk — 20 rows → ✅ (148) |
 | 2026-08-23T13:36 | [#6639](https://github.com/openova-io/openova/pull/6639) | #3985 | docs(uat): hw305 kubectl batch — R8/215/M2 → ✅ (128), R21 li |
 | 2026-08-23T13:13 | [#6638](https://github.com/openova-io/openova/pull/6638) | docs(uat): 8 funnel rows → ✅ on hw305 (wpwalk305) |  |
-| 2026-08-23T12:45 | [#6637](https://github.com/openova-io/openova/pull/6637) | docs(uat): re-confirm 243 DNS split-horizon on hw305 |  |
 
 ---
 
