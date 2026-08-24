@@ -443,8 +443,8 @@ sequenceDiagram
   participant Sov as Sovereign /auth/handover
   participant KC as Keycloak (sovereign realm)
   participant GATE as oidc-gate + app
-  MS->>Sov: GET /auth/handover?token=&lt;RS256 handover JWT&gt;
-  Note right of Sov: verify iss, aud=console.&lt;fqdn&gt;, role=sovereign-admin,<br/>email_verified, one-time jti
+  MS->>Sov: GET /auth/handover?token=[RS256 handover JWT]
+  Note right of Sov: verify iss, aud=console.[fqdn], role=sovereign-admin,<br/>email_verified, one-time jti
   Sov->>KC: EnsureUser + ImpersonateToken
   Sov-->>U: 302 /dashboard + catalyst_session (tier=owner)
   U->>GATE: open grafana/gitea/…
