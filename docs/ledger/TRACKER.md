@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-24T08:15:05Z` |
+| Last refreshed | `2026-08-24T08:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-24T08:25 | [#6686](https://github.com/openova-io/openova/pull/6686) | docs(runbooks): mermaid enrichment to SYSTEM-DESIGN standard |  |
+| 2026-08-24T08:26 | [#6685](https://github.com/openova-io/openova/pull/6685) | docs(status): mermaid enrichment to SYSTEM-DESIGN standard |  |
+| 2026-08-24T08:22 | [#6684](https://github.com/openova-io/openova/pull/6684) | docs(glossary): mermaid enrichment to SYSTEM-DESIGN standard |  |
+| 2026-08-24T08:20 | [#6683](https://github.com/openova-io/openova/pull/6683) | docs(security): mermaid enrichment to SYSTEM-DESIGN standard |  |
 | 2026-08-24T08:15 | [#6682](https://github.com/openova-io/openova/pull/6682) | docs(architecture): mermaid enrichment to SYSTEM-DESIGN stan |  |
 | 2026-08-24T08:13 | [#6681](https://github.com/openova-io/openova/pull/6681) | docs(protocol): mermaid enrichment to SYSTEM-DESIGN standard |  |
 | 2026-08-24T08:14 | [#6680](https://github.com/openova-io/openova/pull/6680) | docs(principles): mermaid enrichment to SYSTEM-DESIGN standa |  |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-08-23T21:26 | [#6659](https://github.com/openova-io/openova/pull/6659) | #4354 | docs(uat): hw305 R11 → ✅259 (gitea data survives pod restart |
 | 2026-08-23T19:56 | [#6658](https://github.com/openova-io/openova/pull/6658) | docs(uat): hw305 rows 104 + 148 → ✅258 (Walk F correct-surfa |  |
 | 2026-08-23T18:13 | [#6657](https://github.com/openova-io/openova/pull/6657) | docs(uat): hw305 Walk D → ✅256 (12 console-render/voucher/to |  |
-| 2026-08-23T17:49 | [#6656](https://github.com/openova-io/openova/pull/6656) | docs(uat): confirm hw305 as live env in H1 header (greens dr |  |
-| 2026-08-23T17:32 | [#6655](https://github.com/openova-io/openova/pull/6655) | #3998 | docs(uat): hw305 rows 1/47/72/203 → ✅244 (Walk C authed cons |
-| 2026-08-23T17:07 | [#6654](https://github.com/openova-io/openova/pull/6654) | #4180 | docs(uat): hw305 218 → ✅ (240) — chepherd installable |
-| 2026-08-23T16:59 | [#6653](https://github.com/openova-io/openova/pull/6653) | #3376 | docs(uat): hw305 2nd-org funnel + per-Org console → ✅ (239) |
 
 ---
 
