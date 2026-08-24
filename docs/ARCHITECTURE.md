@@ -28,6 +28,16 @@ One or more vClusters per Environment run lightweight Flux watching the appropri
 
 **Same code runs in every Sovereign** — whether it's run by OpenOva (`openova`), Omantel for SMEs (`omantel.omani.works`), or a corporate customer self-hosting under their own private agreement. Customer-hosted Sovereign deployments are intentionally not named in this public catalog. (`omantel.biz` is the LE-rate-limit *test-fallback* TLD per [`DOD.md`](DOD.md) §4, not the franchised Sovereign FQDN.)
 
+The domain model is strict containment — a Sovereign hosts Organizations, which contain Environments, which run Applications installed from Blueprints:
+
+```mermaid
+graph LR
+  S["Sovereign<br/>a deployed Catalyst"] -->|hosts| O["Organization<br/>customer unit: namespace + vCluster"]
+  O -->|contains| E["Environment<br/>{org}-prod / {org}-dev / {org}-stg"]
+  E -->|runs| A["Application<br/>a running deployment"]
+  B["Blueprint bp-*<br/>signed OCI install unit"] -->|installs as| A
+```
+
 ### §1.1 Two scales, one architecture
 
 The model serves two distinct customer shapes through the **same code**:
@@ -113,6 +123,35 @@ Everything else is identical in code.
                     ├── catalyst-config       (Sovereign/Organization/Environment/Policy CRs)
                     ├── policy-bundle         (Kyverno, Falco, RE Scorecard)
                     └── runbooks              (auto-remediation)
+```
+
+The same topology, drawn as the four architectural layers a Sovereign is built from — edge, control plane, the GitOps/IaC engine that drives every cluster, and the data plane:
+
+```mermaid
+graph TB
+  subgraph Edge["DMZ host clusters — edge"]
+    GWE["Cilium Gateway + Coraza WAF"]
+    DNS["PowerDNS authoritative + lua-records"]
+    WG["WireGuard endpoints"]
+  end
+  subgraph Mgt["Management cluster (mgt) — Catalyst control plane"]
+    API["catalyst-api: console · marketplace · projector"]
+    CTRL["controllers: organization / environment / application / blueprint / continuum / useraccess"]
+    IDP["Keycloak · OpenBao · NATS JetStream · Gitea"]
+  end
+  subgraph Engine["GitOps + IaC engine (every cluster)"]
+    FLUX["Flux — source / kustomize / helm"]
+    XP["Crossplane — cloud-only"]
+  end
+  subgraph Data["Workload clusters (rtz) — data plane"]
+    VC["per-Org vClusters — Applications"]
+    PG["CNPG / shared-pg"]
+  end
+  Edge --> Mgt
+  Mgt -->|"write desired state to Git"| Engine
+  Engine -->|"reconcile"| Data
+  Engine -->|"cloud claims"| CLOUD["Hetzner / Huawei / OCI"]
+  Data -->|"events on JetStream"| Mgt
 ```
 
 **Sovereign self-sufficiency**: once a Sovereign is provisioned, it has its own Gitea, its own JetStream, its own OpenBao, its own Keycloak, its own Crossplane. It does not depend on any other Sovereign at runtime. OpenOva's `openova` Sovereign is the publisher of public Blueprints — but those are mirrored locally, so the Sovereign keeps working if `openova.io` disappears. Post `bp-self-sovereign-cutover` (§5.6), the Sovereign also survives `github.com`, `ghcr.io`, and `harbor.openova.io` being unreachable.
@@ -293,6 +332,17 @@ Every name is a **composition of typed dimensions** — never free-text, never d
 | Application DNS | `{app}.{environment}.{sovereign-or-org-domain}` | `marketing-site.acme-prod.<sovereign>.<tld>`, `blog.acme-prod.acme.com` (white-label) |
 | Application Gitea repo | `gitea.{location-code}.{sovereign-domain}/{org}/{app}` | `gitea.hfmp.<sovereign>.<tld>/acme-pharmacy/store-frontend` |
 
+Every name composes typed dimensions; the canonical K8s cluster-context pattern decomposes as:
+
+```mermaid
+graph LR
+  N["hz-fsn-rtz-prod<br/>{prov}-{reg}-{bb}-{env_type}"]
+  N --> P["hz = provider<br/>Hetzner"]
+  N --> R["fsn = region<br/>Falkenstein"]
+  N --> BB["rtz = building block<br/>Restricted Trust Zone"]
+  N --> ET["prod = env type<br/>prod / stg / uat / dev / poc"]
+```
+
 Test Sovereigns and tenant Organizations follow [`docs/DOD.md`](DOD.md):
 
 - Test Sovereign: `t<NN>.omani.works` (or `t<NN>.omantel.biz` if LE-rate-limited)
@@ -400,6 +450,19 @@ These extend [`PRINCIPLES.md`](PRINCIPLES.md) and ADR-0001.
                                               fan out to provider APIs
 ```
 
+The same write path as a graph — every surface writes desired state to a Gitea repo, and Flux (plus Crossplane for cloud) converges reality to it:
+
+```mermaid
+flowchart TB
+  UI["Console UI / REST · GraphQL API"] --> PROV["provisioning service<br/>validates configSchema · resolves deps"]
+  PROV -->|"one repo per Application; commit develop/staging/main"| REPO["Application Gitea repo {org}/{app}"]
+  POL["EnvironmentPolicy<br/>system/catalyst-config/policies"] -.->|"gates"| REPO
+  REPO -->|"Gitea webhook"| FLUX["Flux in vCluster {org}<br/>GitRepository → kustomize → helm"]
+  FLUX --> WL["K8s workloads<br/>Deployments · Services · Secrets via ESO"]
+  FLUX --> XC["Crossplane Claims"]
+  XC --> XCOMP["Crossplane Compositions → provider APIs"]
+```
+
 **Crossplane is the only IaC.** Users never write Compositions in their Application configs. Blueprint authors do — when a Blueprint declares "needs an external Postgres," that becomes a Crossplane Claim. Advanced users can author Compositions as Blueprints. End users see "needs a database, pick existing or new" in the UI.
 
 ### §5.3 Read side — CQRS via JetStream → projector → console
@@ -436,6 +499,21 @@ These extend [`PRINCIPLES.md`](PRINCIPLES.md) and ADR-0001.
                        ┌────────────────────┐
                        │  Catalyst console  │
                        └────────────────────┘
+```
+
+The read side is CQRS — one spine, one read model, one consumer, one stream to the console:
+
+```mermaid
+flowchart LR
+  subgraph Sources["Event sources"]
+    INF["k8s informers<br/>(per vCluster)"]
+    FLX["Flux events"]
+    GIT["Gitea webhooks"]
+  end
+  Sources --> JS[("NATS JetStream<br/>one Account per Organization<br/>subjects ws.&lt;env&gt;.*")]
+  JS -->|"durable consumer per env"| PROJ["projector<br/>rebuilds per-object state"]
+  PROJ -->|"JetStream KV: ws-&lt;env&gt;-state"| KV[("read model")]
+  PROJ -->|"SSE, authorized by JWT claim"| CON["Catalyst console"]
 ```
 
 **One spine (JetStream), one read model (JetStream KV), one consumer (projector), one stream (SSE).** The console never talks to k8s API or Git directly. This is the architectural lock that prevents the "App says installed in one tab, failed in another tab" class of bug.
@@ -493,6 +571,18 @@ All Go binaries under `core/controllers/<name>/cmd/main.go`, `controller-runtime
 
 The `useraccess-controller` replaces the older `XUserAccess` Crossplane Composition (which depended on `provider-kubernetes` — never installed). Phase 0 ships the Go controller; the Composition + orphaned Provider reference are deleted.
 
+Each CRD is driven to `Ready` by exactly one reconciler that renders its downstream objects and reads their status back:
+
+```mermaid
+graph LR
+  ORG["Organization CR"] --> OC["organization-controller"] --> OO["vCluster + Keycloak group + Gitea Org + RBAC"]
+  ENV["Environment CR"] --> EC["environment-controller"] --> EO["per-app repo branches + Flux GitRepository + JetStream subjects"]
+  APP["Application CR"] --> AC["application-controller"] --> AO["per-region Gitea manifests (honors Placement)"]
+  BP["Blueprint CR"] --> BC["blueprint-controller"] --> BO["catalog mirror: public → curated → per-Org"]
+  UA["UserAccess CR"] --> UC["useraccess-controller"] --> UO["RoleBinding + ClusterRoleBinding"]
+  CONT["Continuum CR"] --> CC["continuum-controller"] --> CO["lease · replication health · switchover · lua-record"]
+```
+
 ### §5.6 Phase 2 — Self-Sovereignty Cutover
 
 A franchised Sovereign emerging from Phase 1 is operationally tethered to the OpenOva mothership in **eight** places (audit per [ADR-0002](adr/0002-post-handover-sovereignty-cutover.md) §2.1 and umbrella issue #790): Flux GitRepository url, containerd registry rewrites, 38 OCI HelmRepositories, `catalyst-api` upstream fallback, GHCR pull Secret, Crossplane provider packages, Catalyst-authored image refs, OS package mirrors. Six are operationally hot (P0/P1) and must be pivoted before the customer can claim sovereignty.
@@ -521,6 +611,20 @@ flowchart LR
   P1 --> H[Handover<br/>JWT redirect<br/>operator lands]
   H --> P2[Phase 2<br/>Cutover<br/>8 Jobs + DoD]
   P2 --> D2[Day-2<br/>local Gitea<br/>local Harbor<br/>Crossplane]
+```
+
+The Phase 2 cutover itself is the 8-Job chain that pivots the 8 mothership tethers — the egress-block hold (Job 8) is the DoD proof, and `cutoverComplete=true` is set only if the cluster reconciles green while github.com / ghcr.io / harbor.openova.io are denied:
+
+```mermaid
+stateDiagram-v2
+  [*] --> Tethered: Phase 1 installs cutover chart DORMANT (slot 06a)
+  Tethered --> Mirror: sovereign-admin clicks "Achieve True Sovereignty"
+  Mirror --> Registry: 01 gitea-mirror → 02 harbor-projects → 03 harbor-prewarm
+  Registry --> Patch: 04 registry-pivot → 05 flux-gitrepository-patch
+  Patch --> Local: 06 helmrepo-patches (38 HelmRepositories) → 07 catalyst-api-env-patch
+  Local --> Proof: 08 egress-block-test (deny github.com + ghcr.io + harbor.openova.io, 10 min)
+  Proof --> Sovereign: cutoverComplete=true only if it reconciles green
+  Sovereign --> [*]
 ```
 
 After Phase 2, the Sovereign survives `github.com`, `ghcr.io`, and `harbor.openova.io` being unreachable — and that survival is the DoD proof of franchise independence. The full architectural reasoning lives in [ADR-0002](adr/0002-post-handover-sovereignty-cutover.md). The non-negotiable rule is Principle #11 in [`PRINCIPLES.md`](PRINCIPLES.md).
@@ -569,6 +673,17 @@ Three first-class surfaces. **No fourth.**
 **Git** — direct push or pull-request to the Application's Gitea repo, or to `shared-blueprints` for Org-private Blueprints, or to `catalog-sovereign` for Sovereign-curated private Blueprints. Identical write semantics as the UI. EnvironmentPolicy applies regardless of surface.
 
 **API (REST + GraphQL)** — for **integrations**, not for primary IaC authoring. Use cases: a bank's existing portal queries Catalyst to show Environments and Applications; a change-management tool triggers Application installs; a monitoring tool exports state for compliance.
+
+All three first-class surfaces converge on the same Application Gitea repo, so the write semantics — and the EnvironmentPolicy gate — are identical regardless of how the change was authored:
+
+```mermaid
+graph LR
+  UIs["UI — Catalyst console<br/>Form / Advanced / IaC editor"] --> REPO["Application Gitea repo"]
+  GITs["Git — direct push / pull-request"] --> REPO
+  APIs["API — REST + GraphQL<br/>integrations only"] --> REPO
+  POL["EnvironmentPolicy applies to every surface"] -.-> REPO
+  REPO --> FLUX["Flux reconciles"] --> K8S["running Application"]
+```
 
 **Not surfaces**: `kubectl` (useful for debugging inside one's own vCluster; never a configuration mechanism). Standalone CLI for production changes. Terraform / Pulumi. Crossplane is platform plumbing.
 
@@ -873,6 +988,25 @@ For zero-tx-loss `active-hotstandby`: `bp-cnpg-pair` runs synchronous `remote_ap
 
 Resolver clients within 30–90s observe new primary (lua-record TTL window). Switchover from Application page completes in <60s with <5s write disruption (bank-tier RTO/RPO).
 
+The zero-tx-loss `active-hotstandby` switchover, as the Continuum controller drives it:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Continuum controller
+  participant L as Lease (Cloudflare KV / 3-DNS quorum)
+  participant PG as CNPG pair
+  participant GW as Cilium HTTPRoute
+  participant PDM as PowerDNS via PDM /v1/commit
+  C->>L: validate lease holder is current primary
+  C->>PG: cordon old primary; demote → promote standby
+  C->>GW: drain traffic (weight → 0 over 10s)
+  C->>PDM: flip lua-record probe target (TTL ~30s)
+  C->>L: release old lease; acquire on new primary
+  C->>PG: uncordon new primary; resume traffic
+  C->>C: audit event on NATS catalyst.audit
+```
+
 ### §8.3 K3s installation
 
 ```bash
@@ -951,6 +1085,26 @@ Catalyst is fully autonomous. catalyst-provisioner.openova.io remains
 online indefinitely as the entry point for future Sovereign
 provisioning runs — but the existing Sovereign no longer depends on it
 at runtime.
+```
+
+The four phases as a wire sequence — fire (mothership, one-time) then hand-off, cutover, and steady state (Sovereign-owned, forever):
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Op as Customer / sovereign-admin
+  participant MS as Mothership provisioner
+  participant TF as OpenTofu (Phase 0)
+  participant Sov as New Sovereign (Flux + Crossplane)
+  participant PDM as pool-domain-manager
+  Op->>MS: POST /deployments
+  MS->>TF: provision VPC · nodes · LB · object storage
+  TF->>Sov: k3s + Cilium + bootstrap-kit slots 01-15 + 19
+  MS->>PDM: /v1/commit — zone + 6 records + NS delegation
+  Sov->>Sov: Phase 1 — Crossplane adopts OpenTofu state
+  Sov-->>Op: handover JWT redirect → console (status ready)
+  Op->>Sov: Phase 2 — "Achieve True Sovereignty" (8 Jobs + egress proof)
+  Note over Op,Sov: Phase 3 — steady state, no runtime dependency on mothership
 ```
 
 ### §8.5 Cloud-provider options
@@ -1505,6 +1659,38 @@ Longest chain:
 bp-cilium → bp-cert-manager → bp-openbao → bp-keycloak → bp-gitea → bp-catalyst-platform   (6 hops)
 ```
 
+The slot order is a dependency graph, not a line. The key edges (from the `dependsOn` column in §9.1) — cilium is the floor, cert-manager gates TLS, flux gates every HelmRelease, keycloak + openbao gate the control plane, cnpg precedes the data services, and harbor lands late as the cutover pivot target:
+
+```mermaid
+graph TD
+  cilium["01 bp-cilium (CNI + ClusterMesh + LB-IPAM)"] --> certmgr["02 bp-cert-manager"]
+  cilium --> pods["everything with pods"]
+  certmgr --> flux["03 bp-flux"]
+  certmgr --> nats["07 bp-nats-jetstream"]
+  certmgr --> openbao["08 bp-openbao"]
+  flux --> allhr["ALL HelmReleases"]
+  flux --> crossplane["04 bp-crossplane"]
+  crossplane --> claims["14 bp-crossplane-claims"]
+  flux --> cnpg["16 bp-cnpg"]
+  flux --> seaweedfs["18 bp-seaweedfs"]
+  flux --> cutover["06a bp-self-sovereign-cutover (DORMANT)"]
+  openbao --> keycloak["09 bp-keycloak"]
+  openbao --> eso["15 bp-external-secrets"]
+  cnpg --> keycloak
+  keycloak --> gitea["10 bp-gitea"]
+  certmgr --> powerdns["11 bp-powerdns"]
+  cnpg --> powerdns
+  powerdns --> extdns["12 bp-external-dns"]
+  cnpg --> harbor["19 bp-harbor"]
+  seaweedfs --> harbor
+  gitea --> catplat["13 bp-catalyst-platform"]
+  nats --> catplat
+  openbao --> catplat
+  keycloak --> catplat
+  seaweedfs --> obs["20-25 observability (otel/alloy/loki/mimir/tempo/grafana)"]
+  cnpg --> obs
+```
+
 With `bp-spire` deferred (slot 06 reserved), the longest chain is one shorter than the original 7-hop W1.D estimate. At 1-min Flux reconcile interval the worst-case full bring-up is ~6–10 minutes once images are cached.
 
 ### §9.4 `kustomization.yaml` merge protocol
@@ -1539,6 +1725,20 @@ Six EPICs roll the platform from Foundation contracts → DR. Phase 0 (#1095) is
 | 4 | Cloud Resources | #1099 | k9s-on-web + Guacamole + projector |
 | 5 | Networking | #1100 | default-deny, Hubble, OTel Operator, ClusterMesh, DMZ vCluster, inter-Sovereign mesh |
 | 6 | Multi-cluster + Continuum DR | #1101 | 3 regions, CNPG cluster-pair, Continuum CRD/controller, switchover UI |
+
+EPIC-0 is serial and gates everything; once its Phase 0 acceptance lands, the six Phase 1 EPICs run in parallel:
+
+```mermaid
+graph TB
+  E0["EPIC-0 Foundation (#1095)<br/>CRDs · controllers · label vocab · vCluster · Cilium"]
+  E0 -->|"Phase 0 acceptance gates Phase 1"| P1{"Phase 1 — 6 EPICs in parallel"}
+  P1 --> E1["EPIC-1 Compliance (#1096)<br/>Kyverno + score aggregator"]
+  P1 --> E2["EPIC-2 Applications (#1097)<br/>Application/Blueprint + catalog-svc + topology editor"]
+  P1 --> E3["EPIC-3 RBAC (#1098)<br/>useraccess-controller + 5 tiers"]
+  P1 --> E4["EPIC-4 Cloud Resources (#1099)<br/>k9s-on-web + Guacamole + projector"]
+  P1 --> E5["EPIC-5 Networking (#1100)<br/>default-deny + Hubble + ClusterMesh + DMZ"]
+  P1 --> E6["EPIC-6 Multi-cluster + Continuum DR (#1101)<br/>3 regions + cnpg-pair + switchover"]
+```
 
 ### §10.1 EPIC-0 — Foundation (Phase 0)
 
