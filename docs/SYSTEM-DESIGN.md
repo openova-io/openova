@@ -365,8 +365,8 @@ the generated UI.
 ```mermaid
 graph LR
   SRC["platform/&lt;x&gt; or products/&lt;x&gt;<br/>chart/ + blueprint.yaml"] -->|CI on tag| OCI["ghcr.io/openova-io/bp-x:semver (signed)"]
-  OCI -->|deploy-bot bumps pin LINES (never blanket)| SEED["catalog-seed blueprints.yaml"]
-  SEED -->|mirror to Sovereign Gitea (daily; Harbor after cutover)| GIT["Sovereign Git + registry"]
+  OCI -->|"deploy-bot bumps pin LINES (never blanket)"| SEED["catalog-seed blueprints.yaml"]
+  SEED -->|"mirror to Sovereign Gitea (daily; Harbor after cutover)"| GIT["Sovereign Git + registry"]
   GIT -->|Flux GitRepository/HelmRepository| HR["HelmRelease per Application"]
   HR --> RUN["running workload"]
   RUN -->|fresh-prov walk + screenshot| PROVE["'delivered' (merged ≠ delivered)"]
