@@ -35,6 +35,7 @@ def _cell_to_md(cell: str) -> str:
     cell = _EM.sub(r"*\1*", cell)                 # <em> -> *
     cell = _TAG.sub("", cell)                     # drop any stray tags (e.g. <br>)
     cell = html.unescape(cell)                    # &lt; &amp; … -> < & …
+    cell = cell.replace("\u200b", "")             # drop zero-width wrap breaks (invisible; presentation-only)
     cell = re.sub(r"\s+", " ", cell).strip()      # collapse the pretty-print whitespace
     return cell.replace("|", "\\|")               # a literal pipe must stay escaped
 
