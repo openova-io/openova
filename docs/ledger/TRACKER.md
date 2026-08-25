@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-25T06:15:03Z` |
+| Last refreshed | `2026-08-25T06:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-25T06:22 | [#6690](https://github.com/openova-io/openova/pull/6690) | docs(uat): correct evidence integrity — 52 filler-screenshot |  |
 | 2026-08-24T09:24 | [#6688](https://github.com/openova-io/openova/pull/6688) | docs: fix mermaid sequenceDiagram parse errors (semicolons s |  |
 | 2026-08-24T09:06 | [#6687](https://github.com/openova-io/openova/pull/6687) | docs(system-design): fix mermaid parse error in §10 Blueprin |  |
 | 2026-08-24T08:25 | [#6686](https://github.com/openova-io/openova/pull/6686) | docs(runbooks): mermaid enrichment to SYSTEM-DESIGN standard |  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-23T22:05 | [#6662](https://github.com/openova-io/openova/pull/6662) | #4272 | docs(uat): hw305 row 224 → ✅263 (per-Org bp-openclaw control |
 | 2026-08-23T21:54 | [#6661](https://github.com/openova-io/openova/pull/6661) | #4292 | docs(uat): hw305 row 100 → ✅262 (#4292 tier gate) |
 | 2026-08-23T21:40 | [#6660](https://github.com/openova-io/openova/pull/6660) | #4459 | docs(uat): hw305 R17 + 107 → ✅261 (Org-delete cascade, fault |
-| 2026-08-23T21:26 | [#6659](https://github.com/openova-io/openova/pull/6659) | #4354 | docs(uat): hw305 R11 → ✅259 (gitea data survives pod restart |
 
 ---
 
