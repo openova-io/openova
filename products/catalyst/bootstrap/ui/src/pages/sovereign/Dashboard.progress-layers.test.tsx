@@ -178,8 +178,9 @@ describe('buildJobsTreemapData — progress buckets by STATE (#4731 amend)', () 
     // The Done bucket's kind sub-buckets carry the installs + the healthy
     // reconciler + cron + lifecycle, in stage order.
     const done = bucketByName(data.items, 'Done')
-    expect(done?.children?.map((c) => c.name)).toEqual(['Lifecycle', 'Install', 'Cron', 'Reconciler'])
-    const installs = done?.children?.find((c) => c.name === 'Install')
+    // #6695/re-cut — kind buckets now carry REAL engine names.
+    expect(done?.children?.map((c) => c.name)).toEqual(['OpenTofu', 'HelmRelease', 'CronJob', 'Deployment'])
+    const installs = done?.children?.find((c) => c.name === 'HelmRelease')
     expect(installs?.children).toHaveLength(3)
   })
 
@@ -197,7 +198,7 @@ describe('buildJobsTreemapData — progress buckets by STATE (#4731 amend)', () 
     // Only present kinds appear, in stage order. The 3 dormant cutover
     // steps collapse to ONE Step leaf.
     expect(data.items.map((i) => i.name)).toEqual([
-      'Lifecycle', 'Install', 'Reconcile', 'Step', 'Cron', 'Reconciler',
+      'OpenTofu', 'HelmRelease', 'Kustomization', 'Job (step)', 'CronJob', 'Deployment',
     ])
     expect(KIND_STAGES.lifecycle.order).toBeLessThan(KIND_STAGES.install.order)
   })
@@ -307,7 +308,7 @@ describe('buildJobsTreemapData — upfront expected inventory from t=0', () => {
     // Full expected inventory = 5 planned installs (pending) + 1 lifecycle
     // (running). total_count counts every planned component from the start.
     expect(data.total_count).toBe(6)
-    const pendingInstalls = bucketByName(data.items, 'Pending')?.children?.find((c) => c.name === 'Install')
+    const pendingInstalls = bucketByName(data.items, 'Pending')?.children?.find((c) => c.name === 'HelmRelease')
     expect(pendingInstalls?.children).toHaveLength(5)
     // Every planned install leaf is pending (queued), NOT missing.
     for (const c of pendingInstalls?.children ?? []) {
@@ -324,10 +325,10 @@ describe('buildJobsTreemapData — upfront expected inventory from t=0', () => {
     const data = buildJobsTreemapData(jobs, PROVISIONING_DEFAULT_LAYERS, catalog)
     // No duplicate cilium: it appears ONCE, in Done (the live job wins).
     expect(leafByJobId(data.items, `${DEP}:install-cilium`)?.statusKind).toBe('success')
-    const doneInstalls = bucketByName(data.items, 'Done')?.children?.find((c) => c.name === 'Install')
+    const doneInstalls = bucketByName(data.items, 'Done')?.children?.find((c) => c.name === 'HelmRelease')
     expect(allLeaves(doneInstalls?.children ?? [])).toHaveLength(1)
     // The remaining 4 planned installs are still pending.
-    const pendingInstalls = bucketByName(data.items, 'Pending')?.children?.find((c) => c.name === 'Install')
+    const pendingInstalls = bucketByName(data.items, 'Pending')?.children?.find((c) => c.name === 'HelmRelease')
     expect(pendingInstalls?.children).toHaveLength(4)
     // Total still equals the full expected inventory (5 installs) — never
     // fewer, never doubled.

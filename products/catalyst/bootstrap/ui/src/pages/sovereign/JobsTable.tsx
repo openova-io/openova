@@ -32,7 +32,7 @@
 import { useMemo, useState } from 'react'
 import { Link, useParams } from '@tanstack/react-router'
 import type { Job, JobStatus, JobKind } from '@/lib/jobs.types'
-import { jobKind, isJobRetryable } from '@/lib/jobs.types'
+import { jobKind, isJobRetryable, JOB_ENGINE_LABELS } from '@/lib/jobs.types'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { RetryJobButton } from './RetryJobButton'
 
@@ -468,7 +468,7 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter, deploymentId
               <option value="">All</option>
               {kindOptions.map((k) => (
                 <option key={k} value={k}>
-                  {k}
+                  {JOB_ENGINE_LABELS[k] ?? k}
                 </option>
               ))}
             </select>
