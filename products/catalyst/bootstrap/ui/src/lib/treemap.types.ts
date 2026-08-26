@@ -76,6 +76,28 @@ export function isJobSourcedStack(layers: readonly TreemapDimension[]): boolean 
 }
 
 /**
+ * Default layer stack for a CONVERGED (ready) Sovereign: the real
+ * resource/health map — `namespace` outer, `application` inner. Grounded
+ * entirely in live Kubernetes objects via {@link getDashboardTreemap}
+ * (never the synthetic job tree), so it pairs with `colorBy='health'` +
+ * `sizeBy='cpu_request'` to make DOWN components surface as red tiles
+ * instead of hiding inside a green "Done" block. `cpu_request` (a
+ * constant request, present regardless of pod health) is deliberate: a
+ * fully-down app keeps a visible red tile, whereas sizing by ready-pod
+ * count would collapse it to zero area and vanish it.
+ *
+ * The provisioning-time default stays the job-sourced
+ * `PROVISIONING_DEFAULT_LAYERS` (progress → kind) so a converging env
+ * still shows what is installing; Dashboard.tsx picks between the two on
+ * `status === 'ready'`. Neither stack is hardcoded in the page — both are
+ * exported constants (INVIOLABLE-PRINCIPLES #4).
+ */
+export const RESOURCE_DEFAULT_LAYERS: readonly TreemapDimension[] = [
+  'namespace',
+  'application',
+]
+
+/**
  * What the gradient maps to. The backend stamps every cell with a
  * `percentage` field whose semantics depend on this selector.
  *

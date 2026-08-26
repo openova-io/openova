@@ -56,11 +56,15 @@
  * GET /api/v1/deployments/{id}/jobs (buildJobsTreemapData in the
  * sibling ./dashboardJobsTreemap.ts pure module); every other stack
  * calls getDashboardTreemap exactly as before.
- * While `status != ready` the DEFAULTS are layers=['progress','kind'],
- * colorBy='status', sizeBy='uniform'; on ready they flip to the
- * resource defaults — same pane, same component, a defaults change,
- * not a component swap. Job-leaf clicks deep-link to JobDetail logs
- * via the same convention as JobsTable's useJobLinkBuilder.
+ * The DEFAULT stack is convergence-gated (#6695): while `status != ready`
+ * it is layers=['progress','kind'], colorBy='status', sizeBy='uniform'
+ * (the job-sourced view of what is installing); on ready it flips to the
+ * REAL resource/health map — layers=['namespace','application'],
+ * colorBy='health', sizeBy='cpu_request' (RESOURCE_DEFAULT_LAYERS) — so a
+ * converged Sovereign shows down components as red tiles, not a wall of
+ * "install…". Same pane, same component: a defaults change, not a
+ * component swap. Job-leaf clicks deep-link to JobDetail logs via the
+ * same convention as JobsTable's useJobLinkBuilder.
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the metric
  * options + dimension list live in the controller / types module, not
@@ -98,6 +102,7 @@ import {
   colorFunctionFor,
   getDashboardTreemap,
   isJobSourcedStack,
+  RESOURCE_DEFAULT_LAYERS,
   statusColor,
   walkDrillPath,
   type TreemapColorBy,
@@ -202,22 +207,30 @@ export function Dashboard({
 
   const isReady = (snapshot?.status ?? '').trim().toLowerCase() === 'ready'
 
-  // #4731 amend (founder escalation 2026-07-05): the default layer stack is
-  // [progress, kind] UNCONDITIONALLY — on a provisioning env AND on a
-  // converged (ready) env. The prior code flipped the ready default to
-  // [organization, application] + utilization; the founder rejected that
-  // ("why the second layer is not kind by default"). The one treemap now
-  // reads the FULL platform inventory in BOTH moments: converging fills
-  // Running/Pending, converged is a big green Done block sub-divided by
-  // kind, with the parked cutover tether in Dormant. organization /
-  // application / utilization stay AVAILABLE — one click away in the layer
-  // controller — they are just no longer the default.
+  // #6695 (founder 2026-08-26): the default layer stack is CONVERGENCE-GATED.
+  //   • converging (status != ready) → PROVISIONING_DEFAULT_LAYERS
+  //     ([progress, kind]) — the job-sourced view of what is installing.
+  //   • converged (status == ready)  → RESOURCE_DEFAULT_LAYERS
+  //     ([namespace, application]) coloured by HEALTH, sized by cpu_request
+  //     — the real resource/health map grounded in live pods/HelmReleases,
+  //     so DOWN components surface as red tiles instead of hiding in a
+  //     green "Done" block.
   //
-  // Implementation (same pattern as the old userView): the `user*` states
-  // stay null until the operator touches a control; the effective value is
-  // the user's choice if set, else the [progress, kind] default. No
-  // status-gated flip, no setState-in-effect storm; the user keeps control
-  // once they touch the toolbar.
+  // This restores the ready-flip the #4731 amendment removed, but to a
+  // BETTER real-resource stack than the pre-#4731 one: the founder rejected
+  // [progress, kind]-always as meaningless on a converged env ("install,
+  // install, install… nothing distinguishable"), and the pre-#4731 default
+  // ([organization, application] + utilization) both collapsed most tiles
+  // into a single "Platform overhead" bucket AND coloured by utilisation
+  // (orthogonal to "is it up?"). Namespace grouping keeps every namespace
+  // visible and HEALTH colour makes grafana/powerdns-admin/etc. pop red.
+  // The job-sourced [progress, kind] view stays one click away in the layer
+  // controller.
+  //
+  // Implementation (unchanged pattern): the `user*` states stay null until
+  // the operator touches a control; the effective value is the user's
+  // choice if set, else the convergence-gated default. No setState-in-effect
+  // storm; the user keeps control once they touch the toolbar.
   const [userLayers, setUserLayers] = useState<readonly TreemapDimension[] | null>(
     initialLayers ?? null,
   )
@@ -227,15 +240,20 @@ export function Dashboard({
   const [userSizeBy, setUserSizeBy] = useState<TreemapSizeBy | null>(
     initialSizeBy ?? null,
   )
-  const layers: readonly TreemapDimension[] = userLayers ?? PROVISIONING_DEFAULT_LAYERS
+  const defaultLayers: readonly TreemapDimension[] = isReady
+    ? RESOURCE_DEFAULT_LAYERS
+    : PROVISIONING_DEFAULT_LAYERS
+  const layers: readonly TreemapDimension[] = userLayers ?? defaultLayers
   // The data-source rule (#4731, the only conditional): progress/kind
   // in the stack → Job tree; anything else → getDashboardTreemap.
   const jobSourced = isJobSourcedStack(layers)
-  // Colour/size defaults follow the STACK's nature, not readiness — a
-  // post-ready operator re-adding the Progress layer gets status/uniform
-  // back, and a converging operator pivoting to a resource stack gets
-  // utilisation/cpu_request.
-  const colorBy: TreemapColorBy = userColorBy ?? (jobSourced ? 'status' : 'utilization')
+  // Colour/size defaults follow the STACK's nature: a job-sourced stack →
+  // status/uniform; a resource stack on a CONVERGED env → health/cpu_request
+  // (health so the eye goes to the down components; cpu_request so a fully
+  // down app keeps a visible red tile). A converging operator who manually
+  // pivots to a resource stack keeps the historic utilisation default.
+  const colorBy: TreemapColorBy =
+    userColorBy ?? (jobSourced ? 'status' : isReady ? 'health' : 'utilization')
   const sizeBy: TreemapSizeBy = userSizeBy ?? (jobSourced ? 'uniform' : 'cpu_request')
   const setColorBy = (next: TreemapColorBy) => setUserColorBy(next)
   const setSizeBy = (next: TreemapSizeBy) => setUserSizeBy(next)
