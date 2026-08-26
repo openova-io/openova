@@ -9,7 +9,7 @@ Event-driven horizontal autoscaling, scale-to-zero. Per-host-cluster infrastruct
 ## Overview
 
 KEDA (Kubernetes Event-driven Autoscaling) provides horizontal pod autoscaling based on external metrics and events:
-- Queue-based scaling (Kafka via Strimzi)
+- Queue-based scaling (NATS JetStream — the control-plane event spine; Kafka via Strimzi is opt-in, for Kafka Application Blueprints only)
 - Metric-based scaling (Prometheus, custom metrics)
 - Cron-based scaling
 - Scale-to-zero capability
@@ -26,6 +26,7 @@ flowchart TB
     end
 
     subgraph Sources["Event Sources"]
+        NATS[NATS JetStream]
         Kafka[Kafka]
         Prometheus[Prometheus/Mimir]
         Cron[Cron]
@@ -48,7 +49,8 @@ flowchart TB
 
 | Scaler | Use Case |
 |--------|----------|
-| kafka | Kafka consumer lag |
+| nats-jetstream | NATS JetStream consumer pending count (control-plane event-spine default) |
+| kafka | Kafka consumer lag (opt-in Kafka Application Blueprints only) |
 | prometheus | Custom metrics |
 | cron | Time-based scaling |
 | cpu/memory | Resource utilization |
@@ -57,7 +59,33 @@ flowchart TB
 
 ## Configuration
 
-### ScaledObject
+### ScaledObject — NATS JetStream (control-plane event-spine default)
+
+```yaml
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: <org>-worker
+  namespace: <org>
+spec:
+  scaleTargetRef:
+    name: <org>-worker
+  minReplicaCount: 1
+  maxReplicaCount: 10
+  cooldownPeriod: 300
+  triggers:
+    - type: nats-jetstream
+      metadata:
+        natsServerMonitoringEndpoint: nats.databases.svc:8222
+        account: "$G"
+        stream: <org>-jobs
+        consumer: <org>-workers
+        lagThreshold: "100"
+```
+
+### ScaledObject — Kafka (opt-in Kafka Application Blueprint only)
+
+NATS JetStream is the control-plane event spine; the Kafka scaler applies only where an Organization has installed the opt-in Kafka (Strimzi) Application Blueprint.
 
 ```yaml
 apiVersion: keda.sh/v1alpha1

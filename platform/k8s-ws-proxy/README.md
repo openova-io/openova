@@ -70,7 +70,7 @@ overlay flips on AND populates:
 
 - `k8sWsProxy.image.tag` — SHA-pinned (CI populates)
 - `k8sWsProxy.hmacSecret.name` — name of the SealedSecret holding
-  the shared HMAC key (operator pre-creates with `kubeseal`)
+  the shared HMAC key (sovereign-admin pre-creates with `kubeseal`)
 
 Empty values for either fail the `helm template` render.
 

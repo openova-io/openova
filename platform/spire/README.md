@@ -1,27 +1,27 @@
 # SPIRE
 
-SPIFFE/SPIRE workload identity. **Catalyst control plane component** (per [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §2.3 — Per-Sovereign supporting services). Issues short-lived (5-min auto-rotated) X.509 SVIDs to every Pod across every host cluster a Sovereign owns.
+SPIFFE/SPIRE workload-identity chart — **retained opt-in, NOT the active identity system.** SPIRE/SPIFFE was dropped from the Catalyst bootstrap-kit by founder PR #665 (2026-05-03, "drop bp-spire — Cilium WireGuard is canonical east-west mesh"); the `chart/` here is kept only for possible future re-introduction. The **canonical** workload-identity system today is **Cilium WireGuard mesh + K8s ServiceAccount TokenReview** — see [`docs/SECURITY.md`](../../docs/SECURITY.md) §2. SPIRE does **not** issue SVIDs to Pods today.
 
-**Status:** Accepted. Chart wrapper at `chart/`. **Updated:** 2026-04-28.
+**Status:** Deferred / opt-in — dropped from the bootstrap-kit per PR #665 (bootstrap-kit Slot 06 deleted); re-enable triggers in [`docs/SECURITY.md`](../../docs/SECURITY.md) §2. Chart wrapper at `chart/`. **Updated:** 2026-08-26.
 
 ---
 
-## Why
+## Why (historical design — superseded)
 
-Catalyst's identity model has two systems (per [`docs/SECURITY.md`](../../docs/SECURITY.md) §1):
+Catalyst's identity model has two systems (per [`docs/SECURITY.md`](../../docs/SECURITY.md) §1). SPIRE was the *originally-designed* workload system; it has since been superseded by Cilium WireGuard + K8s SA TokenReview (PR #665):
 
-| Subject | System | Lifetime |
+| Subject | System (canonical today) | Lifetime |
 |---|---|---|
-| **Workloads** (every Pod, every controller) | SPIFFE/SPIRE | 5-min SVID |
+| **Workloads** (every Pod, every controller) | Cilium WireGuard mesh + K8s SA TokenReview (bound-tokens) | WG session-keys per node-pair; SA bound-tokens ~1h, kubelet-rotated |
 | **Users** (every human) | Keycloak | 15-min JWT |
 
-SPIRE issues SVIDs scoped by SPIFFE ID:
+The SPIFFE ID shape below is preserved at namespace+ServiceAccount granularity — but verified via TokenReview, **not** via a SPIRE-issued SVID:
 
 ```
 spiffe://<sovereign>/ns/<namespace>/sa/<service-account>
 ```
 
-OpenBao authenticates clients by SVID. JetStream authenticates clients by SVID. Catalyst REST APIs authenticate workloads by SVID + users by JWT.
+**Auth today (per [`docs/SECURITY.md`](../../docs/SECURITY.md) §2), not by SVID:** OpenBao authenticates clients via the `kubernetes` (TokenReview-backed) auth method; NATS JetStream relies on kernel-level WireGuard transport encryption + Account-level isolation (the `bp-spire` `dependsOn` was removed in PR #665); Catalyst REST APIs authenticate workloads by SA bound-token (TokenReview) and users by Keycloak JWT.
 
 ---
 
@@ -36,7 +36,7 @@ OpenBao authenticates clients by SVID. JetStream authenticates clients by SVID. 
 
 ## Chart
 
-The `chart/` directory wraps the upstream SPIFFE/SPIRE Helm chart with Catalyst-curated values. Installed by the Catalyst bootstrap kit during Phase 0 (per `docs/SOVEREIGN-PROVISIONING.md` §3) — after Cilium, cert-manager, Flux, and Crossplane have come up.
+The `chart/` directory wraps the upstream SPIFFE/SPIRE Helm chart with Catalyst-curated values. It is **not** part of the Catalyst bootstrap-kit — the `bp-spire` slot (Slot 06) was deleted in PR #665, so a fresh Sovereign does not install SPIRE. The chart is retained for opt-in re-introduction only, installed solely under a founder re-enable ruling (see [`docs/SECURITY.md`](../../docs/SECURITY.md) §2 for the re-enable triggers, and the provisioning runbook in [`docs/RUNBOOKS.md`](../../docs/RUNBOOKS.md)).
 
 OCI artifact: `ghcr.io/openova-io/bp-spire:1.0.0`.
 

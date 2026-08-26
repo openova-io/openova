@@ -2,6 +2,8 @@
 
 OpenAI-compatible API gateway backed by Claude. Drop-in replacement for any OpenAI SDK client.
 
+**Role in Catalyst.** Axon is the OpenOva **SaaS LLM Gateway** product (a composite Application Blueprint shipped from `products/axon/`), not control plane. See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) for where products sit in the model.
+
 **Base URL:** `https://api.openova.io/axon/v1`
 
 ---

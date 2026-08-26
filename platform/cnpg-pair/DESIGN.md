@@ -9,7 +9,7 @@ acceptance test)** implementer and the K-Cont-2 reconciler author.
 ```
             ┌──────────────────────────┐         ┌──────────────────────────┐
             │  Region A: primary       │         │  Region B: replica       │
-            │  (e.g. hz-fsn-rtz-prod)  │         │  (e.g. hz-hel-rtz-prod) │
+            │  (e.g. me-east-215-a)    │         │  (e.g. me-east-215-b)   │
             │                          │         │                          │
             │  CNPG Cluster (primary)  │  WAL    │  CNPG Cluster (replica)  │
             │  3 instances             │ ──────► │  replica.enabled=true    │
@@ -57,7 +57,7 @@ surfaces Ready=True.
 
 Why 30s default:
 
-- Hetzner inter-region (FSN ↔ HEL) RTT is ~10ms; sustained 30s lag
+- Huawei kom4dc inter-region (me-east-215-a ↔ -b, two VPCs in one DC) RTT is ~1ms; sustained 30s lag
   means either the replica is partitioned, the primary is under
   WAL-flush pressure, or replication is broken altogether.
 - Bank-tier RPO target per `docs/ARCHITECTURE.md` §9.6
@@ -172,7 +172,7 @@ live walreceiver attached to that connection.
    on primary" signal, not a "promote replica" signal (the replica
    may be behind by more than `targetLagSeconds`).
 2. **Replica slow / WAL lag spike:** every COMMIT on the primary
-   waits for the replica's replay. On Hetzner FSN ↔ HEL (~10 ms
+   waits for the replica's replay. On Huawei kom4dc me-east-215-a ↔ -b (~1 ms
    RTT) the per-commit latency is bounded by the round-trip plus
    the replica's WAL replay time (typically <5 ms for small txs).
    On geographically distant pairs (~100 ms RTT) every commit sees
@@ -201,7 +201,7 @@ the strongest mode.
 #### Bookkeeping
 
 - Companion fix: bp-wordpress-tenant chart (which renders the same
-  pair pattern inline for tenant Postgres) carries the identical
+  pair pattern inline for per-Organization Postgres) carries the identical
   synchronous block, guarded by the same `replication.mode` value
   passed through from the Application spec.
 - Continuum K-Cont-2's switchover sequencer does NOT need to know
@@ -495,7 +495,7 @@ CNPG demotion-token handshake and is follow-up on #5245.
 ### Test fixture
 
 - Provision a fresh bp-cnpg-pair on a 2-region Sovereign (test
-  scenario — `hz-fsn-rtz-prod` + `hz-hel-rtz-prod` in a non-prod
+  scenario — `hw-me-east-215-a-rtz-prod` + `hw-me-east-215-b-rtz-prod` in a non-prod
   namespace).
 - Wait for both Cluster CRs to reach `Ready=True`.
 - Wait for the failover-readiness probe Pod to flip Ready=True

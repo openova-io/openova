@@ -1,6 +1,6 @@
 # Apache Iceberg
 
-Open table format for huge analytic datasets. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.4 — Data lakehouse). Used by `bp-fabric` to organize lakehouse tables on top of SeaweedFS / cloud archival S3 with ACID transactions, time travel, and schema evolution.
+Open table format for huge analytic datasets. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.4 — Data lakehouse). Intended for use by `bp-fabric` (a design-stage scaffold — see [`docs/STATUS.md`](../../docs/STATUS.md)) to organize lakehouse tables on top of SeaweedFS / cloud archival S3 with ACID transactions, time travel, and schema evolution.
 
 **Status:** Accepted | **Updated:** 2026-04-27
 
@@ -10,7 +10,7 @@ Open table format for huge analytic datasets. **Application Blueprint** (see [`d
 
 Apache Iceberg is an open table format designed for petabyte-scale analytic datasets. It brings ACID transactions, schema evolution, and time travel to data lakes, closing the gap between traditional data warehouses and raw object storage. Iceberg has become the de facto standard for modern data lakehouse architecture, supported by every major compute engine in the ecosystem.
 
-Within OpenOva, Iceberg provides the storage layer for the **Fabric** data and integration product. All analytic tables are stored as Iceberg tables on SeaweedFS (S3-compatible object storage), giving customers warehouse-grade reliability without vendor lock-in. Flink writes streaming and batch data into Iceberg tables, and ClickHouse queries them with full SQL for analytics and dashboarding via Grafana.
+Within OpenOva, Iceberg is the planned storage layer for the **Fabric** data and integration product — this is design-stage; `bp-fabric` is a scaffold today (see [`docs/STATUS.md`](../../docs/STATUS.md)), so the pipeline described here is the target design, not a shipped capability. In the target design, all analytic tables are stored as Iceberg tables on SeaweedFS (S3-compatible object storage), giving customers warehouse-grade reliability without vendor lock-in. Flink writes streaming and batch data into Iceberg tables, and ClickHouse queries them with full SQL for analytics and dashboarding via Grafana.
 
 Iceberg's metadata-driven design means that operations like schema changes, partition layout changes, and snapshot isolation happen without rewriting data files. This makes it safe to evolve table structures in production without downtime or data migration scripts.
 

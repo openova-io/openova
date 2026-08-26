@@ -9,6 +9,8 @@ denominator that turned out to be wrong.
 
 ## 1. Where we actually are
 
+> **As-of 2026-08-10 snapshot — point-in-time.** The counts in this section pre-date the hw305 walk and read as current when they are not. The live ledger (`UAT.md`) now stands at **✅246 · ❌12 · ⚠️6 · ⏳22 of 286** (as of 2026-08-25) — read it for current state. The mechanisms in §2 and the durable rules in §4 remain valid.
+
 | | count |
 |---|--:|
 | test cases (frozen canon, `uat-testcases.csv`) | **286** |
@@ -180,5 +182,5 @@ python3 scripts/uat-artifact-audit.py     # per-row artifact coverage
 
 Sources: `uat-raw.csv` (proven observations, one row per test case per cycle, with
 the readable clause) · `uat-testcases.csv` (the frozen 286) ·
-`uat-artifact-audit.csv` (per-row coverage) · `REGRESSION-VERDICT.md` (the 50-row
-audit) · `UAT-TREADMILL-ANALYSIS.md` (the nine resets).
+`uat-artifact-audit.csv` (per-row coverage) · `../archive/REGRESSION-VERDICT.md` (the 50-row
+audit) · `../archive/UAT-TREADMILL-ANALYSIS.md` (the nine resets).

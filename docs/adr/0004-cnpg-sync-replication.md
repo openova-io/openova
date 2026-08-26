@@ -3,6 +3,8 @@
 Status: Accepted
 Date: 2026-05-20
 
+> **Status (2026-08-26) — errata (ADR body is immutable; note only):** the §Consequences RTT example "~10 ms FSN↔HEL" cites the legacy Hetzner regions (Falkenstein↔Helsinki). The current substrate is **Huawei kom4dc** (regions `me-east-215-a` / `me-east-215-b`); FSN↔HEL stands only as a dated, provider-agnostic inter-region example.
+
 ## Context
 
 Pillar 3 of the 5-Pillar DoD requires **zero transactions lost** on region kill. The original `bp-cnpg-pair` Blueprint was configured for asynchronous streaming replication (`blueprint.yaml:161` admitted "asynchronous-streaming"; `DESIGN.md:66` deferred sync to a future Blueprint). Asynchronous replication leaves a window of in-flight transactions unreplicated when the primary region dies — the canonical Pillar-3 claim is unachievable while replication is async.

@@ -40,7 +40,7 @@ Production was deleted TWICE by automation (#4614 on 2026-06-28; #4675 on 2026-0
 | Resource | Identity | Rule |
 |---|---|---|
 | Bastion node | `bastion-openova`, EIP `212.72.24.20` | NEVER wipe/scale/modify without explicit founder say-so (the one founder-protected Huawei resource) |
-| Current production Sovereign | as of 2026-07-14: **hw240** (re-verify against live inventory before acting; #4675's victim was production omantel.biz, dep `2c3f7c34`) | NEVER a wipe target, NEVER a converged-env cutover re-fire target (§0.5), NEVER an in-band quota-reclaim victim |
+| Current production Sovereign | as of 2026-08-26: **hw305** (re-verify against live inventory before acting; #4675's victim was production omantel.biz, dep `2c3f7c34`) | NEVER a wipe target, NEVER a converged-env cutover re-fire target (§0.5), NEVER an in-band quota-reclaim victim |
 | Any Sovereign serving a real Organization / shared infra the platform did not create | per live cloud inventory | protect-by-default — never infra-delete on CI-green; goal-first, walk incrementally |
 
 **Maintenance rule:** when production is promoted to a new env, **updating this table is part of the promotion checklist** — the promotion is not complete until the production row names the new env (keep the execution protocol's copy, `docs/PROTOCOL.md` §5.0, in lockstep). Code-level protect sets (e.g. the provisioner reclaim hook) seed from THIS table and cross-check **live cloud inventory** (Huawei ECS/VPC API) — never the in-memory deployments store alone (#4675).
@@ -590,13 +590,13 @@ Every Sovereign instance carries a `docs/ledger/TRUST.md` ledger of claimed-done
 - VERIFIED-FAIL
 - VERIFIED-PARTIAL
 
-Every new PR against a surface flips it back to UNVERIFIED. Cron-refreshed alongside `docs/ledger/TRACKER.md`.
+A PR invalidates only the rows whose asserted surface it actually touches — not a blanket flip of the whole ledger. Which rows a cycle re-walks is computed by `scripts/uat-confidence.py --due` (Beta-Bernoulli confidence + Leitner boxes), not by flipping every surface back to UNVERIFIED on any PR (that blanket rule was retired 2026-08-11 — see §0.3). Cron-refreshed alongside `docs/ledger/TRACKER.md`.
 
 ### 2.12 Operator setup — customer-managed LLM partner endpoint
 
 The default channel `qwenPartner` exposed by `bp-newapi` (issue [#915](https://github.com/openova-io/openova/issues/915)) proxies to a **customer-managed LLM partner endpoint** that the operator wires per Sovereign. Per Inviolable Principle #4 (never hardcode), neither the endpoint URL nor the API key live in this repo; both are supplied via a Kubernetes Secret at install time.
 
-**Secret schema.** Create a Secret in the namespace where `bp-newapi` is installed (per-tenant SME deployments install in the tenant Organization namespace; non-tenant operator installs are in the `newapi` namespace):
+**Secret schema.** Create a Secret in the namespace where `bp-newapi` is installed (per-Organization SME deployments install in the Organization's namespace; non-Organization operator installs are in the `newapi` namespace):
 
 ```yaml
 apiVersion: v1
@@ -630,7 +630,7 @@ LLM_PARTNER_CONTRACT_REF: "<operator-supplied legal contract reference>"
 
 **Privacy posture.** The partner identity is intentionally NOT stored in any tracked file in this public repo. All references to the partner (endpoint URL, account ID, contract ref) live in operator-supplied Secrets + per-Sovereign overlays that are not part of the public catalog. A CI guard (`.github/workflows/redact-guard.yml`) fails any PR that reintroduces partner-identifying names into tracked files.
 
-### 2.8 GitHub PAT rotation (`ghcr-pull` Secret)
+### 2.14 GitHub PAT rotation (`ghcr-pull` Secret)
 
 Founder-physical action. **Required when** Flux on the mothership OR any Sovereign reports `HelmChart ... is not ready: ... failed to login to OCI registry: ... 401 Unauthorized` — the GitHub PAT that authenticates `oci://ghcr.io/openova-io/bp-*` pulls has expired or been revoked.
 
@@ -1280,7 +1280,7 @@ Per [`DOD.md`](DOD.md), every walk must move at least one of the 5 inseparable p
 1. Marketplace + voucher onboarding (Phase 0 + Phase 1 a–c)
 2. Multi-region BCP topology choice at signup (Phase 1 b)
 3. Two independent CNPG clusters + region-kill failover (Phase 1 b + orthogonal D31)
-4. Sandbox + auto-mounted `openova-sandbox-mcp` with full org knowledge (Phase 2 a–e)
+4. Per-Org **Agenity** workspace (`products/agenity`) + `bp-openova-mcp` with full org knowledge and mutating MCP tools (Phase 2 a–e)
 5. Sovereign independence post-`bp-self-sovereign-cutover` (Principle #11 + ADR-0002)
 
 **Phase 0 — voucher issuance + redeem preview (mothership BSS):**
@@ -1299,19 +1299,19 @@ Per [`DOD.md`](DOD.md), every walk must move at least one of the 5 inseparable p
 
 2. **Redeem preview** — open `https://marketplace.t<NN>.omani.works/redeem/?code=T42-DEMO-100` in a fresh browser session. The unauthenticated page POSTs to `/api/billing/vouchers/redeem-preview` and renders the credit metadata. **Sign up to redeem** routes to `/plans` with the code stashed in localStorage.
 
-**Phase 1 — tenant signup + Org creation + first App (tenant-facing):**
+**Phase 1 — User signup + Org creation + first App (User-facing):**
 
-1. Tenant signs up via email/magic-link or Google OAuth
+1. User signs up via email/magic-link or Google OAuth
 2. Catalyst auto-creates an Organization (default slug `<orgslug>.omani.homes` per [`DOD.md`](DOD.md))
 3. Voucher applied at first checkout via `POST /billing/checkout` with `promo_code` — atomic insert into `promo_redemptions`, increment of `times_redeemed`, positive entry in `credit_ledger`
-4. Tenant lands in marketplace — credit balance shown in top-right wallet
-5. Tenant creates an Environment (e.g. `production`)
-6. Tenant installs first Application (e.g. `bp-wordpress`). The App install consumes from credit_ledger; remaining balance shown
-7. Tenant reaches the App URL (e.g. `https://<orgslug>-production-wordpress.omani.homes`)
+4. User lands in marketplace — credit balance shown in top-right wallet
+5. User creates an Environment (e.g. `production`)
+6. User installs first Application (e.g. `bp-wordpress`). The App install consumes from credit_ledger; remaining balance shown
+7. User reaches the App URL (e.g. `https://<orgslug>-production-wordpress.omani.homes`)
 
-**Phase 2 — Sandbox + MCP (Pillar 4):**
+**Phase 2 — Agenity + bp-openova-mcp (Pillar 4):**
 
-`openova-sandbox-mcp` auto-mounts. Agent is `claude-code` with full Org knowledge. Operator verifies via XHR + screenshot.
+The per-Org **Agenity** workspace (`products/agenity`) auto-attaches `bp-openova-mcp`. The agent (`claude-code`) has full Org knowledge and calls mutating MCP tools such as `create_application`. Operator verifies via XHR + screenshot.
 
 ### 5.3 Verification
 
@@ -1332,7 +1332,9 @@ curl -sI "https://<orgslug>-production-wordpress.omani.homes"
 # Expected: HTTP/2 200 (or 302 to login), Let's Encrypt subject CN matching FQDN
 ```
 
-### 5.4 Final step — append VALIDATION-LOG entry
+### 5.4 Final step — record the walk in the acceptance ledger
+
+> **Canonical acceptance evidence is now [`docs/ledger/UAT.md`](ledger/UAT.md)** (286 rows) + `docs/ledger/uat-observations.csv`, scheduled by `scripts/uat-confidence.py` (§0.3). The `docs/archive/validation-log.md` Pass-N flow below is retained as an **archive-only** historical record — the walk's authoritative stamp is the UAT row + observation, not a new Pass entry.
 
 ```bash
 cd /home/openova/repos/openova
@@ -1808,7 +1810,7 @@ grep -lE '<location-code>\.<sovereign-domain>|<env>\.<sovereign-domain>' \
 
 ### 8.4 Deep-read rotation
 
-After greps, deep-read **one canonical doc + one component README** per pass. Rotate through the canon and the 56 platform components + the 13 `products/` dirs (agenity, axon, catalyst, catalyst-migrator, continuum, cortex, dmz-vcluster, fabric, fingate, openova-flow, openova-mcp, relay, sandbox) over time. The next-most-stale entry should be the target. (`specter` was listed here as a product folder until #6114; there is no `products/specter/` — it is a deliverable service, not a Blueprint. See [`ARCHITECTURE.md`](ARCHITECTURE.md) §3.5.)
+After greps, deep-read **one canonical doc + one component README** per pass. Rotate through the canon and the ~105 platform components (89 chart-bearing) + the 13 `products/` dirs (agenity, axon, catalyst, catalyst-migrator, continuum, cortex, dmz-vcluster, fabric, fingate, openova-flow, openova-mcp, relay, sandbox) over time. The next-most-stale entry should be the target. (`specter` was listed here as a product folder until #6114; there is no `products/specter/` — it is a deliverable service, not a Blueprint. See [`ARCHITECTURE.md`](ARCHITECTURE.md) §3.5.)
 
 The deep-read confirms the doc's known anchors are present and consistent with the rest of the canon. For each:
 
@@ -1819,7 +1821,7 @@ The deep-read confirms the doc's known anchors are present and consistent with t
 
 ### 8.5 Output
 
-Append a numbered Pass entry to `docs/archive/validation-log.md` describing:
+Append a numbered Pass entry to `docs/archive/validation-log.md` (the archive-only historical doc-audit log; DoD acceptance evidence lives in [`docs/ledger/UAT.md`](ledger/UAT.md), see §5.4) describing:
 
 - Date, pass number, target doc + target component
 - Acceptance grep results (clean / drift)
@@ -1846,7 +1848,7 @@ Commit message format: `docs(pass-N): <target-doc> <ordinal>-cycle + <component>
 
 How to provision a new **Sovereign** — a self-sufficient deployed instance of Catalyst — from inputs to Day-2 steady state. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the model. The canonical Huawei kom4dc provisioning gates (protect-list, quotas, pre-fire sequence, cadence cap) are in §0; the operator wizard procedure for the alternate (Hetzner) path is in §1 above; this section is the **complete provider-agnostic phase narrative** with multi-region, air-gap, migration, and decommission.
 
-The implementation reflects the deployed shape — the Go provisioner, OpenTofu module, 12 G2 wrapper Helm charts (the original 11 plus bp-powerdns at [#167](https://github.com/openova-io/openova/issues/167)), the per-Sovereign PowerDNS zone model ([#167](https://github.com/openova-io/openova/issues/167)/[#168](https://github.com/openova-io/openova/issues/168)), and the pool-domain-manager (PDM) with registrar adapters ([#163](https://github.com/openova-io/openova/issues/163)/[#170](https://github.com/openova-io/openova/issues/170)) all exist in this monorepo today (per [`STATUS.md`](STATUS.md) §7). End-to-end DoD against a real Hetzner project tracks Group M of §11 below. Catalyst-Zero (Contabo k3s, namespace `catalyst`) is the running catalyst-provisioner today.
+The implementation reflects the deployed shape — the Go provisioner, OpenTofu module, 11 G2 wrapper Helm charts (bp-spire removed from the bootstrap kit by PR [#665](https://github.com/openova-io/openova/pull/665), bp-powerdns added at [#167](https://github.com/openova-io/openova/issues/167)), the per-Sovereign PowerDNS zone model ([#167](https://github.com/openova-io/openova/issues/167)/[#168](https://github.com/openova-io/openova/issues/168)), and the pool-domain-manager (PDM) with registrar adapters ([#163](https://github.com/openova-io/openova/issues/163)/[#170](https://github.com/openova-io/openova/issues/170)) all exist in this monorepo today (per [`STATUS.md`](STATUS.md) §7). End-to-end DoD against a real Hetzner project tracks Group M of §11 below. Catalyst-Zero (Contabo k3s, namespace `catalyst`) is the running catalyst-provisioner today.
 
 The provider-agnostic lifecycle — bootstrap, hand-off to a self-sufficient Sovereign, day-1 setup, then autonomous steady state:
 
@@ -1854,7 +1856,7 @@ The provider-agnostic lifecycle — bootstrap, hand-off to a self-sufficient Sov
 stateDiagram-v2
   [*] --> Phase0
   Phase0: Phase 0 — Bootstrap
-  Phase0: tofu apply · PDM /commit DNS · k3s + Flux cloud-init · bootstrap-kit (12 charts) · Crossplane adopt
+  Phase0: tofu apply · PDM /commit DNS · k3s + Flux cloud-init · bootstrap-kit (11 charts) · Crossplane adopt
   Phase0 --> Phase1: every Kustomization Ready=True
   Phase1: Phase 1 — Hand-off
   Phase1: Crossplane adopts infra · tofu state archived read-only · provisioner disconnects
@@ -1874,7 +1876,7 @@ stateDiagram-v2
 | Cloud provider | Huawei (kom4dc) / Hetzner / AWS / GCP / Azure / OCI | Huawei kom4dc is the canonical production path (§0). Hetzner is the alternate, most-tested wizard path. |
 | Cloud credentials | Provider API token | Used by OpenTofu (one-shot bootstrap) and Crossplane (ongoing). |
 | Sovereign name | e.g. `omantel`, `acmebank` | Slug, lowercase, 3–32 chars. |
-| Sovereign domain | e.g. `omantel.omani.works`, `acme.bank.com` | Three modes ([#169](https://github.com/openova-io/openova/issues/169)): **pool** (subdomain under `omani.works` / `openova.io`, allocated by pool-domain-manager); **byo-manual** (customer pastes OpenOva NS records into their own registrar UI); **byo-api** (customer pastes a registrar API token, OpenOva flips NS via the registrar adapter). Supported registrars for byo-api: Cloudflare, Namecheap, GoDaddy, OVH, Dynadot ([#170](https://github.com/openova-io/openova/issues/170)). |
+| Sovereign domain | e.g. `omantel.omani.works`, `acme.bank.com` | Three modes ([#169](https://github.com/openova-io/openova/issues/169)): **pool** (subdomain under a canonical pool zone — `omani.works` / `omani.homes` / `omani.rest` / `omani.trade` / `omantel.biz` — allocated by pool-domain-manager); **byo-manual** (customer pastes OpenOva NS records into their own registrar UI); **byo-api** (customer pastes a registrar API token, OpenOva flips NS via the registrar adapter). Supported registrars for byo-api: Cloudflare, Namecheap, GoDaddy, OVH, Dynadot ([#170](https://github.com/openova-io/openova/issues/170)). |
 | Region(s) | 1+ | Single-region simplest for SME; 2+ for regulated/HA. |
 | Building blocks per region | typically `mgt` + `rtz` (+ `dmz`) | At minimum `mgt` + `rtz`. |
 | Keycloak topology | `per-organization` (SME) / `shared-sovereign` (corporate) | Determines Keycloak deployment shape. |
@@ -1901,9 +1903,9 @@ The implementation maps cleanly onto two artifacts in this monorepo:
 | Step | Lives in | What runs |
 |---|---|---|
 | 1. Wizard input → tofu vars | [`products/catalyst/bootstrap/api/internal/provisioner/`](../products/catalyst/bootstrap/api/internal/provisioner/) | Go service writes `tofu.auto.tfvars.json` from validated wizard input, runs `tofu init && tofu plan && tofu apply -auto-approve` against the canonical OpenTofu module, streams stdout/stderr lines to the wizard via SSE. No cloud APIs called from Go (per [`PRINCIPLES.md`](PRINCIPLES.md) #3). |
-| 2. Cloud resources | [`infra/hetzner/main.tf`](../infra/hetzner/main.tf) | OpenTofu provisions: hcloud_network (10.0.0.0/16) + subnet (10.0.1.0/24), hcloud_firewall (80/443/6443/ICMP open; 22 closed by default — sovereign-admin adds source-CIDR rule via Crossplane post-bootstrap), hcloud_ssh_key from wizard input, 1 control-plane server (or 3 if `ha_enabled`) on Ubuntu 24.04 with cloud-init, `worker_count` worker servers, hcloud_load_balancer (lb11) targeting NodePorts 31080/31443. **DNS is authoritative on PowerDNS ([#167](https://github.com/openova-io/openova/issues/167)/[#168](https://github.com/openova-io/openova/issues/168))** — the per-Sovereign PowerDNS zone is created by pool-domain-manager (PDM) `/v1/commit` once the LB IP is known; for pool sovereigns PDM also writes the parent-zone delegation, and for `byo-api` Sovereigns the matching registrar adapter (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot, [#170](https://github.com/openova-io/openova/issues/170)) flips the NS records at the customer's registrar. `byo-manual` Sovereigns instead show the OpenOva NS list in the wizard and poll until the customer's own registrar propagates the delegation. |
+| 2. Cloud resources | [`infra/hetzner/main.tf`](../infra/hetzner/main.tf) | OpenTofu provisions: hcloud_network (10.0.0.0/16) + subnet (10.0.1.0/24), hcloud_firewall (80/443/6443/ICMP open; 22 closed by default — sovereign-admin adds source-CIDR rule via Crossplane post-bootstrap), hcloud_ssh_key from wizard input, 1 control-plane server (or 3 if `ha_enabled`) on Ubuntu 24.04 with cloud-init, `worker_count` worker servers, hcloud_load_balancer (lb11) targeting the node IPs on `:443`/`:80` — the gateway is served DIRECT via hostPort on the hostNetwork cilium-envoy pods (podIP == node IP), never a nodePort. **DNS is authoritative on PowerDNS ([#167](https://github.com/openova-io/openova/issues/167)/[#168](https://github.com/openova-io/openova/issues/168))** — the per-Sovereign PowerDNS zone is created by pool-domain-manager (PDM) `/v1/commit` once the LB IP is known; for pool sovereigns PDM also writes the parent-zone delegation, and for `byo-api` Sovereigns the matching registrar adapter (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot, [#170](https://github.com/openova-io/openova/issues/170)) flips the NS records at the customer's registrar. `byo-manual` Sovereigns instead show the OpenOva NS list in the wizard and poll until the customer's own registrar propagates the delegation. |
 | 3. k3s + Flux bootstrap | [`infra/hetzner/cloudinit-control-plane.tftpl`](../infra/hetzner/cloudinit-control-plane.tftpl) | cloud-init on the control-plane node installs k3s v1.31.4+k3s1 with `--flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --disable=local-storage --tls-san=<sovereign-fqdn>`, then installs Flux v2.4.0 core, then applies the Flux GitRepository + Kustomization pointing at `clusters/<sovereign-fqdn>/` in the public OpenOva monorepo. From this point Flux owns the cluster. Workers join via [`cloudinit-worker.tftpl`](../infra/hetzner/cloudinit-worker.tftpl) using the project-derived k3s_token. |
-| 4. Bootstrap-kit install | `clusters/<sovereign-fqdn>/` (Flux-reconciled) | Flux installs the 12 G2 wrapper Helm charts (each a `bp-<name>:<semver>` OCI artifact published by [`.github/workflows/blueprint-release.yaml`](../.github/workflows/blueprint-release.yaml)) in dependency order: cilium → cert-manager → flux (host-level reconciler for the cluster's own Kustomizations) → crossplane → sealed-secrets (transient) → spire (server + agent; opt-in post PR #665) → nats-jetstream → openbao (3-node Raft) → keycloak (per topology choice) → gitea (with public Blueprint mirror) → bp-powerdns (per-Sovereign authoritative zone, [#167](https://github.com/openova-io/openova/issues/167)) → bp-catalyst-platform (umbrella). |
+| 4. Bootstrap-kit install | `clusters/<sovereign-fqdn>/` (Flux-reconciled) | Flux installs the 11 G2 wrapper Helm charts (each a `bp-<name>:<semver>` OCI artifact published by [`.github/workflows/blueprint-release.yaml`](../.github/workflows/blueprint-release.yaml)) in dependency order: cilium → cert-manager → flux (host-level reconciler for the cluster's own Kustomizations) → crossplane → sealed-secrets (transient) → nats-jetstream → openbao (3-node Raft) → keycloak (per topology choice) → gitea (with public Blueprint mirror) → bp-powerdns (per-Sovereign authoritative zone, [#167](https://github.com/openova-io/openova/issues/167)) → bp-catalyst-platform (umbrella). bp-spire is opt-in only and is NOT installed by the bootstrap-kit — canonical workload identity is Cilium WireGuard + K8s SA TokenReview (PR [#665](https://github.com/openova-io/openova/pull/665)). |
 | 5. Crossplane adoption | Crossplane Compositions in `clusters/<sovereign-fqdn>/` | Crossplane adopts management of all infrastructure created by OpenTofu in step 2; sealed-secrets is decommissioned in favour of ESO + OpenBao for day-2 secret distribution; further DNS records (gitea/admin/api/harbor) are written by `external-dns` against the per-Sovereign PowerDNS zone via the PowerDNS REST API (NOT against the registrar). Phase 1 begins (see §9.4). |
 
 The wizard's progress page polls Flux Kustomizations on the new cluster and renders steady-state to the user when every Kustomization is `Ready=True`.
@@ -1921,9 +1923,9 @@ harbor           A → load balancer IP
 
 The PDM `/v1/commit` endpoint writes the canonical 6-record set into the freshly-created Sovereign zone via the PowerDNS REST API. The wildcard A record covers every additional subdomain a Sovereign might add at runtime (`axon`, `umami`, `langfuse`, etc.) without re-issuing certificates. Per NAMING §5.1 the canonical control-plane DNS pattern is `{component}.{location-code}.{sovereign-domain}` — the wildcard handles per-Application records under per-Environment subdomains.
 
-**OpenTofu state:** kept in the catalyst-api Pod under `/tmp/catalyst/tofu/<sovereign-fqdn>/` — pinned via the `CATALYST_TOFU_WORKDIR` env var on the catalyst-api Deployment (commit `27527e4c`) and backed by the Pod's writable `/tmp` emptyDir (2 Gi sizeLimit; the in-code default `/var/lib/catalyst/...` is unwritable for UID 65534, hence the override). Re-running with the same FQDN is idempotent (`tofu apply` on existing state). For air-gap installs the sovereign-admin MUST configure a remote backend with encryption-at-rest so the Hetzner token isn't carried only on Pod ephemeral storage.
+**OpenTofu state:** kept on the `catalyst-api-deployments` PVC under `/deps/tofu/<deployment-id>/` — pinned via the `CATALYST_TOFU_WORKDIR` env var on the catalyst-api Deployment. Persisting the workdir (and its `tofu.auto.tfvars.json`, mode 0600) on the PVC is what lets a deployment survive a catalyst-api Pod restart; the pre-`418cead0` `/tmp` emptyDir was wiped on every Pod restart — the §7.3 "Deployment not found" bug (§12.6 documents the on-disk tfvars the destroy pass reads). Re-running with the same FQDN is idempotent (`tofu apply` on existing state). For air-gap installs the sovereign-admin MUST configure a remote backend with encryption-at-rest so the cloud-provider token isn't carried only on Pod-local storage.
 
-**Implementation status:** the Go wrapper, OpenTofu module, and 12 G2 wrapper charts (the original 11 + bp-powerdns added at [#167](https://github.com/openova-io/openova/issues/167)) all exist today (verified at [`STATUS.md`](STATUS.md) §7). The pool-domain-manager (`core/pool-domain-manager/`) and its 5 registrar adapters are deployed and running in `openova-system`. End-to-end DoD against a real Hetzner project is pending Group M of §11.
+**Implementation status:** the Go wrapper, OpenTofu module, and 11 G2 wrapper charts (bp-spire removed from the bootstrap-kit by PR [#665](https://github.com/openova-io/openova/pull/665), bp-powerdns added at [#167](https://github.com/openova-io/openova/issues/167)) all exist today (verified at [`STATUS.md`](STATUS.md) §7). The pool-domain-manager (`core/pool-domain-manager/`) and its 5 registrar adapters are deployed and running in `openova-system`. End-to-end DoD against a real Hetzner project is pending Group M of §11.
 
 Total Phase 0 time: 30–60 minutes for a single-region Hetzner Sovereign once DoD lands.
 
@@ -2271,7 +2273,7 @@ Lives in `openova-private/apps/admin/`:
 - `src/lib/api.ts` — voucher API client
 - `src/pages/{billing,catalog,orders,tenants}.astro` — admin pages
 
-This is the **canonical** voucher implementation. Do not redesign. Read what's there, propagate to franchised Sovereigns, document in [`FRANCHISE-MODEL.md`](FRANCHISE-MODEL.md).
+This is the **canonical** voucher implementation. Do not redesign. Read what's there, propagate to franchised Sovereigns, document in [`BUSINESS-STRATEGY.md` §10.8](BUSINESS-STRATEGY.md#108-franchise-model--end-to-end-mechanics) (the franchise model, folded from the former `FRANCHISE-MODEL.md`).
 
 ### 11.4 Architectural agreements (from the design conversation, durable)
 
@@ -2390,7 +2392,7 @@ Each phase produces one or more commits to `openova/`. Each commit is real worki
 
 **What:** The DNS architecture has two layers. **Authoritative DNS** lives on bp-powerdns ([#167](https://github.com/openova-io/openova/issues/167)) — every Sovereign zone (pool: `omantel.omani.works`, BYO: `acme.bank.com`) gets its own PowerDNS zone with DNSSEC + lua-records. **Allocation + registrar control** lives on the pool-domain-manager service ([#163](https://github.com/openova-io/openova/issues/163)), which exposes registrar adapters ([#170](https://github.com/openova-io/openova/issues/170)) for byo-api flow:
 
-- **Pool subdomains** (e.g. `<sub>.omani.works`, `<sub>.openova.io`): PDM `/v1/reserve` checks availability, `/v1/commit` creates the per-Sovereign PowerDNS zone, writes the canonical 6-record set, and updates the parent zone's NS delegation via the OpenOva Dynadot registrar adapter.
+- **Pool subdomains** (e.g. `<sub>.omani.works`, `<sub>.omani.homes`): PDM `/v1/reserve` checks availability, `/v1/commit` creates the per-Sovereign PowerDNS zone, writes the canonical 6-record set, and updates the parent zone's NS delegation via the OpenOva Dynadot registrar adapter.
 - **BYO with manual NS-flip** (`byo-manual`): wizard surfaces the OpenOva NS list; customer pastes them into their own registrar UI; catalyst-api polls until propagation; PDM `/v1/commit` then writes the canonical record set into the new PowerDNS zone (no parent-zone change from OpenOva).
 - **BYO with API NS-flip** (`byo-api`): customer picks their registrar from the supported list (Cloudflare, Namecheap, GoDaddy, OVH, Dynadot — [#170](https://github.com/openova-io/openova/issues/170)), pastes a token; PDM `/v1/validate` confirms scope read-only; on commit, the matching registrar adapter flips the NS records to OpenOva's NS set.
 
@@ -2575,4 +2577,4 @@ If the `roleRef` is weaker than `cluster-admin` (no `secrets/{get,list,update,de
 - `scripts/operator-recover-sovereign.sh` — §2.2 idempotent recovery (Hetzner alternate path)
 - [`docs/runbooks/preflight-sovereign-provision.md`](runbooks/preflight-sovereign-provision.md) — §0 companion GO/NO-GO checklist (#4485)
 - `scripts/prov-preflight.sh` — §0.3 mandatory pre-fire gate (VPC/EIP/foreign-Sovereign checks)
-- `scripts/reset-uat.py` — §0.3 UAT-evidence flush before every fire (founder rule 2026-06-08)
+- `scripts/reset-uat.py` — §0.3 carry-forward UAT re-mark, run AFTER the env reaches `ready` (never pre-fire; carry-forward not flush since 2026-08-11)

@@ -35,7 +35,6 @@ flowchart LR
 
         subgraph Identity["Identity"]
             KC[Keycloak]
-            SPIRE[SPIRE SVID]
         end
 
         subgraph Recording["Session recording"]
@@ -287,7 +286,7 @@ CRD, a controller, or a console surface.
 Session recordings count as **PSD2/DORA/SOX evidence**:
 
 - Every recording has the user's Keycloak `sub` claim, target identity, start/end timestamps, and content hash committed to the Catalyst audit log via OpenSearch SIEM.
-- `bp-specter` Compliance Agent indexes recordings as audit evidence for the Compliance Mappings table (per [`BUSINESS-STRATEGY.md`](../../docs/BUSINESS-STRATEGY.md) §5.3).
+- `bp-specter` Compliance Agent (planned — Blueprint not yet shipped) will index recordings as audit evidence for the Compliance Mappings table (per [`BUSINESS-STRATEGY.md`](../../docs/BUSINESS-STRATEGY.md) §5.3).
 - `EnvironmentPolicy.rules` of kind `recording-required` blocks any unrecorded session attempt to prod targets.
 
 ---

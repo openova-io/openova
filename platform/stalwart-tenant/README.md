@@ -1,6 +1,6 @@
 # bp-stalwart-tenant
 
-Per-Org (per-vcluster) **dedicated** Stalwart mail server. Implements locked decision **[Q3]** of [EPIC #795](https://github.com/openova-io/openova/issues/795) — every Organization on a Sovereign gets its **own** Stalwart in its tenant namespace, with its **own** domain, **own** MTA reputation, and **own** queue.
+Per-Org (per-vcluster) **dedicated** Stalwart mail server. Implements locked decision **[Q3]** of [EPIC #795](https://github.com/openova-io/openova/issues/795) — every Organization on a Sovereign gets its **own** Stalwart in its Organization namespace, with its **own** domain, **own** MTA reputation, and **own** queue.
 
 **Status:** v0.1.0 (Application Blueprint, scratch chart) | **Updated:** 2026-05-04 (#801)
 
@@ -8,7 +8,7 @@ Per-Org (per-vcluster) **dedicated** Stalwart mail server. Implements locked dec
 
 ---
 
-## Why per-tenant (and the trade-off)
+## Why per-Organization (and the trade-off)
 
 Locked in #795: founder explicitly chose this over a shared otech-level multi-domain Stalwart. The trade buys:
 
@@ -16,7 +16,7 @@ Locked in #795: founder explicitly chose this over a shared otech-level multi-do
 - **Per-customer DKIM** — each Organization signs with their own key on their own domain.
 - **Per-customer queue** — bounce-floods, blocklist hits, rate-limit pushes from one Organization stay in their queue.
 
-Cost: **mail-server resources multiply by N tenants**. Each install = 1 small StatefulSet (100m / 256Mi requests) + 1 PVC (default 20Gi). #795 trade-off table tracks this.
+Cost: **mail-server resources multiply by N Organizations**. Each install = 1 small StatefulSet (100m / 256Mi requests) + 1 PVC (default 20Gi). #795 trade-off table tracks this.
 
 ---
 
@@ -66,7 +66,7 @@ sovereign/<sovereign-fqdn>/stalwart/<tenant>/oidc → property OIDC_CLIENT_SECRE
 
 The chart's `oidc-externalsecret.yaml` pulls it down into the Org namespace.
 
-Per-user mailbox provisioning is **event-driven** (per [ADR-0003 §3](../../docs/adr/0003-rbac-newapi-user-create-hook.md)): when the Org admin creates a user via the unified-rbac console, the unified-rbac service POSTs Stalwart's `/api/principal` admin API to create the mailbox. This chart ships only the bootstrap admin principal in the post-install Job — it does **not** loop on the NATS subject by default. Per-tenant overlays may flip `mailboxProvisioner.natsSubscriber.enabled=true` once the Org vcluster's NATS subject is wired.
+Per-user mailbox provisioning is **event-driven** (per [ADR-0003 §3](../../docs/adr/0003-rbac-newapi-user-create-hook.md)): when the Org admin creates a user via the unified-rbac console, the unified-rbac service POSTs Stalwart's `/api/principal` admin API to create the mailbox. This chart ships only the bootstrap admin principal in the post-install Job — it does **not** loop on the NATS subject by default. Per-Organization overlays may flip `mailboxProvisioner.natsSubscriber.enabled=true` once the Org vcluster's NATS subject is wired.
 
 ---
 
@@ -97,9 +97,9 @@ Operator overlay sets `domain.primary: acme.com` and `domain.mode: byo`. The rec
 
 The bootstrap `config.toml` follows the pattern committed by the openova-private contabo-mkt Stalwart, with two memory-recorded gotchas:
 
-1. **`==` not `=`** in expression matchers (queue routing, sieve conditions, send-allow expressions). A single `=` is **assignment** and **silently never matches** (incident 2026-04-14, huawei.com TLS rule). Every comparison in `templates/config-configmap.yaml` uses `==`. Per-tenant overlays adding queue-routing rules MUST follow the same convention. See [stalwart_expression_syntax.md memory](../../../.claude/projects/-home-openova-repos-openova-private/memory/stalwart_expression_syntax.md).
+1. **`==` not `=`** in expression matchers (queue routing, sieve conditions, send-allow expressions). A single `=` is **assignment** and **silently never matches** (incident 2026-04-14, huawei.com TLS rule). Every comparison in `templates/config-configmap.yaml` uses `==`. Per-Organization overlays adding queue-routing rules MUST follow the same convention — Stalwart expression matchers require `==`; a single `=` is assignment and silently never matches.
 
-2. **Group principals need explicit `email-receive`** — Stalwart group principals do NOT inherit `email-receive` from the default `user` role. Without it, every inbound email to the group bounces with `550 5.5.0 This account is not authorized to receive email.` (incident 2026-04-20). The post-install Job's PATCH on the admin principal is the canonical fix; future shared-mailbox additions in tenant overlays MUST PATCH the same field. See [stalwart_send_as.md memory](../../../.claude/projects/-home-openova-repos-openova-private/memory/stalwart_send_as.md).
+2. **Group principals need explicit `email-receive`** — Stalwart group principals do NOT inherit `email-receive` from the default `user` role. Without it, every inbound email to the group bounces with `550 5.5.0 This account is not authorized to receive email.` (incident 2026-04-20). The post-install Job's PATCH on the admin principal is the canonical fix; future shared-mailbox additions in Organization overlays MUST PATCH the same field.
 
 The bootstrap `config.toml` is **applied only once** — when RocksDB is empty (first install). Subsequent runtime config edits via webadmin or `stalwart-cli` persist in RocksDB and do **not** sync back to the ConfigMap. For disaster recovery, snapshot the running configuration via `stalwart-cli server list-config` and re-render this ConfigMap.
 
@@ -107,11 +107,11 @@ The bootstrap `config.toml` is **applied only once** — when RocksDB is empty (
 
 ## Inbound spam filtering
 
-**Disabled by default** per the founder directive on the corp Stalwart ([feedback_no_spam_filtering.md memory](../../../.claude/projects/-home-openova-repos-openova-private/memory/feedback_no_spam_filtering.md)) — accept everything, filter at the client. Per-Org deployments inherit the same posture; individual Organizations may opt in via webadmin runtime config.
+**Disabled by default** per the founder directive on the corp Stalwart — accept everything, filter at the client. Per-Org deployments inherit the same posture; individual Organizations may opt in via webadmin runtime config.
 
 ---
 
-## Required values (per-tenant overlay)
+## Required values (per-Organization overlay)
 
 ```yaml
 # per-Org GitOps overlay: <org-slug>/stalwart.yaml
@@ -146,7 +146,7 @@ dns:
 
 ## Capacity
 
-Default per-tenant: 100m / 256Mi requests, 1 CPU / 1Gi limits, 20Gi PVC. Roughly **50 mailboxes / 5 GB mail spool** comfortably; bump `stalwart.resources` and `persistence.spool.size` per-tenant for larger Organizations. Single replica per tenant — Stalwart RocksDB is single-writer by design at this tier.
+Default per-Organization: 100m / 256Mi requests, 1 CPU / 1Gi limits, 20Gi PVC. Roughly **50 mailboxes / 5 GB mail spool** comfortably; bump `stalwart.resources` and `persistence.spool.size` per-Organization for larger Organizations. Single replica per Organization — Stalwart RocksDB is single-writer by design at this tier.
 
 ---
 

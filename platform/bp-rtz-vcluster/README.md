@@ -1,7 +1,7 @@
 # bp-rtz-vcluster
 
 Bootstrap-kit Blueprint #59. Provisions the **RTZ vCluster** on every
-**secondary** region — the regional tenant-workload vCluster.
+**secondary** region — the regional Organization-workload vCluster.
 
 ## Why this exists — DoD A4
 
@@ -33,7 +33,7 @@ This Blueprint implements the RTZ half of the secondary-region pair.
 ## Topology dependency
 
 ```text
-Phase 0 (cloud-init Hetzner CP per region)
+Phase 0 (cloud-init CP node per region)
    ↓
 bp-cilium             — CNI + Gateway API (slot 01)
    ↓

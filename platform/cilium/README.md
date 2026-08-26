@@ -465,8 +465,8 @@ livenessProbe:
 flowchart TB
     subgraph Options["LoadBalancer Options"]
         subgraph CloudLB["Cloud LB (Recommended)"]
-            HetznerLB[Hetzner LB]
-            OCILB[OCI LB]
+            HuaweiELB[Huawei ELB]
+            OtherLB[other cloud provider LB]
         end
 
         subgraph PdnsLB["PowerDNS lua-records (Free)"]
@@ -583,10 +583,15 @@ The chart ships the ClusterMesh values overlay separately at
 Per-Sovereign overlays at `clusters/<sovereign>/bootstrap-kit/01-cilium.yaml`
 opt in by setting:
 
-- `spec.values.cilium.cluster.name` — peer name (e.g. `omantel-fsn`)
+- `spec.values.cilium.cluster.name` — peer name (e.g. `omantel-me-east-215-a`)
 - `spec.values.cilium.cluster.id` — peer ID (1..255, unique per mesh)
 - `spec.values.cilium.clustermesh.useAPIServer: true`
-- `spec.values.cilium.clustermesh.apiserver.service.{type,nodePort}`
+- `spec.values.cilium.clustermesh.apiserver.service.type: LoadBalancer`
+  (**never** `NodePort` — NodePorts are forbidden platform-wide; see
+  [`docs/SECURITY.md`](../../docs/SECURITY.md) §854). On no-CCM substrates
+  (Huawei kom4dc) also set
+  `spec.values.cilium.clustermesh.apiserver.service.lbIpam.enabled: true` so
+  Cilium LB-IPAM allocates the ExternalIP from a per-region control-plane-node pool.
 
 The cluster.id allocation across the OpenOva fleet is tracked in
 [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §8.7 (ClusterMesh ID

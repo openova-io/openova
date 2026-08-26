@@ -18,7 +18,7 @@ For the unified architecture and the wizard's target shape, see [`docs/ARCHITECT
 
 ## How Catalyst-Zero is deployed today
 
-A Flux Kustomization on the Catalyst-Zero cluster (Contabo k3s) reconciles `products/catalyst/chart/templates/` from this public repo. CI workflows (`.github/workflows/{catalyst,console,admin,marketplace,marketplace-api}-build.yaml`) build and push images on every push to `main`, then the deploy step pins the image SHA into the corresponding manifest in this directory and commits back. Flux picks up the commit and rolls the deployment.
+A Flux Kustomization on the Catalyst-Zero cluster (substrate re-derived live from the deployments API — the 2026-05 "Contabo k3s" claim is superseded, per [`docs/STATUS.md`](../../docs/STATUS.md)) reconciles `products/catalyst/chart/templates/` from this public repo. CI workflows (`.github/workflows/{catalyst,console,admin,marketplace,marketplace-api}-build.yaml`) build and push images on every push to `main`, then the deploy step pins the image SHA into the corresponding manifest in this directory and commits back. Flux picks up the commit and rolls the deployment.
 
 Image registry: `ghcr.io/openova-io/openova/{catalyst-ui,catalyst-api,console,admin,marketplace,marketplace-api}:<sha>`.
 

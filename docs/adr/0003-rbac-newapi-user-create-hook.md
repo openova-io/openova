@@ -11,6 +11,10 @@
 
 ---
 
+> **Status (2026-08-26) — errata (ADR body is immutable; notes-only):**
+> - **Consolidated links:** every `../INVIOLABLE-PRINCIPLES.md` reference below points to a file folded into [`../PRINCIPLES.md`](../PRINCIPLES.md) under the lean-doc strategy — read each "Inviolable Principle N" link as pointing there.
+> - **Terminology predates the GLOSSARY lock:** this ADR uses "tenant" / "SME tenant" throughout; the canonical term is **Organization** (`docs/GLOSSARY.md`). The historical body is left verbatim.
+
 ## 1. Status
 
 Accepted 2026-05-04. This ADR extends [ADR-0001](0001-catalyst-control-plane-architecture.md); it does not contradict it. It is the **contract** to which the SME-tier turnkey-experience epic ([#795](https://github.com/openova-io/openova/issues/795)) binds. Downstream tickets that consume this contract:

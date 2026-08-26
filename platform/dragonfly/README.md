@@ -15,9 +15,7 @@ distribution layer). It replaces two pieces of the legacy image path:
    dfdaemon` path is identical on every cloud, so the cutover becomes a
    one-line upstream flip with zero per-cloud branches.
 
-Canonical design (operator-reviewed):
-[`docs/ideation/dragonfly-p2p-registry-cutover-redesign.md`](../../docs/ideation/dragonfly-p2p-registry-cutover-redesign.md).
-Tracked by **#4639**.
+Canonical design (sovereign-admin-reviewed), tracked by **#4639**.
 
 This Blueprint wraps the **upstream `dragonfly` Helm chart**
 (`dragonflyoss/helm-charts`, `dragonfly@1.7.0`, appVersion 2.5.0 / client
@@ -90,7 +88,7 @@ Two options, gated by `client.dfinit.enable` (default **`false`**):
 
 ## Self-contained per cluster (no cross-plane image path)
 
-Per the operator decision (design §8a, option **(A)**): every cluster — each
+Per the sovereign-admin decision (design §8a, option **(A)**): every cluster — each
 region, each plane (mgmt/dmz/rtz) — runs its **own** Dragonfly mesh and
 **self-seeds from ghcr** through its **own** additively-allow-listed egress.
 There is **no cross-plane or cross-region image path**, so a DMZ compromise

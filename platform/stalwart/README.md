@@ -53,7 +53,7 @@ flowchart TB
 |----------|------|---------|
 | SMTP | 25/465/587 | Sending mail |
 | IMAP | 993 | Mail access |
-| JMAP | 443 | Modern API |
+| JMAP | 8080 (fronted by 443 via Gateway/Service) | Modern API |
 
 ---
 
@@ -73,7 +73,7 @@ spec:
     spec:
       containers:
         - name: stalwart
-          image: stalwartlabs/mail-server:latest
+          image: stalwartlabs/mail-server:v0.15.5
           ports:
             - containerPort: 25
               name: smtp

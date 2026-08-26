@@ -2,7 +2,7 @@
 
 > **Status**: the durable promotion of the transient session audit
 > [`2026-06-02-per-blueprint-topology-audit.md`](sessions/2026-06-02-per-blueprint-topology-audit.md)
-> into the registry **#3375** converges reality to. The agreement table below is
+> into the registry that **#3375** converges reality to. The agreement table below is
 > **verbatim** from the 2026-06-02 audit (the source of truth, per #3375 §2.1);
 > the **convergence columns** (declaration / IaC / class / walk) are added per
 > #3375 §5 and refreshed as each blueprint converges to its row.
@@ -113,7 +113,7 @@ fields sourced from the agreement row + chart citations (never invented):
 | bp-opentelemetry-operator | singleton: mgmt-A,mgmt-B,dmz-A,dmz-B,rtz-A,rtz-B | matches-row + orphan-placementSchema→remove | n/a-singleton | per-cluster infra; Flux-reconciled from Git | pending |
 | bp-network-policies | singleton: mgmt-A,mgmt-B,dmz-A,dmz-B,rtz-A,rtz-B | matches-row + orphan-placementSchema→remove | n/a-singleton | per-cluster infra; Flux-reconciled from Git | pending |
 | bp-netbird | active-hot-standby: mgmt-A,mgmt-B | matches-row + orphan-placementSchema→remove | implements-row(cited:cnpg-pair) | cnpg-pair sync (hw128 PASS pattern) | pending |
-| bp-spire | active-hot-standby: mgmt-A,mgmt-B | matches-row | implements-row(cited:cnpg-pair) | cnpg-pair sync (hw128 PASS pattern) | pending |
+| bp-spire | active-hot-standby: mgmt-A,mgmt-B | deferred (PR #665) | n/a — deferred | **DEFERRED — not part of the shipped control plane.** Workload identity ships as Cilium WireGuard + K8s SA TokenReview; SPIRE/SPIFFE is deferred/opt-in (PR #665). Row retained for the DR design record only | n/a |
 | bp-openclaw | singleton: rtz-A | fixed-this-ticket (amendment applied; founder-adjudicate) | n/a-singleton | scaffold default per ROW-AMENDMENT (was empty supported[]) | pending |
 | bp-ferretdb | active-passive: rtz-A,rtz-B | matches-row | implements-row(cited:cnpg-pair) | cnpg-pair sync (hw128 PASS pattern) | pending |
 | bp-valkey | active-passive: rtz-A,rtz-B | matches-row + orphan-placementSchema→remove | gap(CLASS-B) | row mechanism: sentinel — not yet wired | pending |
@@ -200,8 +200,10 @@ adjudicates. No silent deviation.
 
 ---
 
-_Refreshed by #3375 / #3571. The agreement doc (2026-06-02) + `docs/ARCHITECTURE.md` §3/§8
+_Refreshed by #3375 / #3571 (2026-06-02 vintage). The agreement doc (2026-06-02) + `docs/ARCHITECTURE.md` §3/§8
 + `docs/DOD.md` Pillars 2-3 are the canon this matrix converges to._
+
+> **Point-in-time note (2026-08-26):** the `walk` column is a 2026-06-02 snapshot — every cell still reads `pending` and the only cited proof env is `hw128`. The ledger env has since advanced through hw280 / hw292 / hw302 to **hw305**, and DR / G12 region-kill failover was later proven (hw280 / hw292). These walk cells were never re-refreshed; treat the `walk` column as un-converged, not as current state.
 
 ---
 

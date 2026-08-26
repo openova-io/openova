@@ -47,9 +47,15 @@ flowchart TB
 | Challenge | Use Case | DNS Provider |
 |-----------|----------|--------------|
 | HTTP-01 | Public endpoints | Not required |
-| DNS-01 | Wildcards, internal | Cloudflare, Route53, etc. |
+| DNS-01 | Wildcards, internal | PowerDNS (central) via [`bp-cert-manager-powerdns-webhook`](../cert-manager-powerdns-webhook/README.md) |
 
-**Recommended:** DNS-01 for wildcard certificates
+**Recommended:** DNS-01 for wildcard certificates.
+
+On OpenOva the DNS-01 solver is the **PowerDNS external webhook** shipped by
+[`bp-cert-manager-powerdns-webhook`](../cert-manager-powerdns-webhook/README.md),
+which writes ACME challenge TXT records to the central OpenOva PowerDNS and
+ships the canonical `letsencrypt-dns01-prod-powerdns` ClusterIssuer. Dynadot is
+legacy; Cloudflare/Route53 are not used.
 
 ---
 
@@ -70,10 +76,15 @@ spec:
       name: letsencrypt-prod-key
     solvers:
       - dns01:
-          cloudflare:
-            apiTokenSecretRef:
-              name: cloudflare-api-token
-              key: api-token
+          # DNS-01 is solved by the PowerDNS external webhook shipped by
+          # bp-cert-manager-powerdns-webhook (writes ACME TXT records to the
+          # central OpenOva PowerDNS). See that chart for the canonical
+          # letsencrypt-dns01-prod-powerdns ClusterIssuer.
+          webhook:
+            groupName: acme.powerdns.openova.io
+            solverName: powerdns
+            config:
+              host: https://pdns.openova.io
 ```
 
 ### Certificate

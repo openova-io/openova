@@ -39,7 +39,7 @@ For each declared component host namespace (`values.yaml components[]`):
    gateway→app request is silently dropped → curl 000/503 (the #2940
    hw159–hw165 app-plane wedge). No `world` — only the gateway reaches the
    component. Pure-backend components (loki/mimir/tempo/valkey/seaweedfs/
-   vllm/nats-system/sandbox) set `gatewayIngress: false` so they get NO
+   vllm/nats-system) set `gatewayIngress: false` so they get NO
    `ingress`-entity admit — a tighter posture than the whole-plane policy
    which admitted the entity for every pod in the plane.
 

@@ -10,6 +10,8 @@ Enterprise communication platform with email, video, chat, and WebRTC.
 
 OpenOva Relay bundles self-hosted communication components into a unified enterprise communication product. It provides email, real-time video/audio, team messaging, and WebRTC infrastructure.
 
+Relay is a **Composite Application Blueprint** bundle (currently a scaffold) that composes `platform/` component Blueprints — it is not control-plane code. Its place in the Catalyst model is defined in [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) and [`docs/DOD.md`](../../docs/DOD.md).
+
 ```mermaid
 flowchart TB
     subgraph Email["Email"]

@@ -64,5 +64,5 @@ this chart is a no-op until the operator opts in.
 ## References
 
 - docs/ARCHITECTURE.md §3.9 row 5 + §8.4 (EPIC-5)
-- platform/opentelemetry/README.md — the collector
+- platform/opentelemetry/blueprint.yaml — the collector (bp-opentelemetry ships no README; see its blueprint.yaml + chart/)
 - Upstream: https://github.com/open-telemetry/opentelemetry-operator

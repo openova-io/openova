@@ -28,7 +28,7 @@ Per founder direction 2026-05-20, this repo's docs are consolidated into **7 can
 
 - **7 canonical docs** (the only source of truth): `GLOSSARY.md`, `STATUS.md`, `ARCHITECTURE.md`, `DOD.md`, `PRINCIPLES.md`, `RUNBOOKS.md`, `SECURITY.md`.
 - **`docs/adr/`** — immutable Architecture Decision Records (numbered, additive-only).
-- **`docs/ledger/`** — cron-refreshed live state (`TRUST.md`, `TRACKER.md`, `UAT.md` — the ~281-row acceptance-walk ledger, `PATH-TO-100.md` — per-row fix map).
+- **`docs/ledger/`** — cron-refreshed live state (`TRUST.md`, `TRACKER.md`, `UAT.md` — the ~286-row acceptance-walk ledger, `PATH-TO-100.md` — per-row fix map).
 - **`docs/sessions/`** — date-stamped transient session reports + walk runbooks.
 - **`docs/archive/`** — historical / superseded / one-off documents.
 
@@ -49,7 +49,7 @@ In order:
 
 Plus subdirs:
 - [`docs/adr/`](docs/adr/) — Architecture Decision Records (start at `README.md` index).
-- [`docs/ledger/`](docs/ledger/) — `TRUST.md` (per-surface verification ledger) + `TRACKER.md` (open work) + `UAT.md` (the ~281-row Sovereign acceptance-walk ledger — the north-star evidence deliverable; every stamp carries env + date + evidence) + `PATH-TO-100.md` (maps every non-green UAT row to its exact fix: issue + code path + owner).
+- [`docs/ledger/`](docs/ledger/) — `TRUST.md` (per-surface verification ledger) + `TRACKER.md` (open work) + `UAT.md` (the ~286-row Sovereign acceptance-walk ledger — the north-star evidence deliverable; every stamp carries env + date + evidence) + `PATH-TO-100.md` (maps every non-green UAT row to its exact fix: issue + code path + owner).
 - [`docs/sessions/`](docs/sessions/) — date-stamped walk runbooks and session reports.
 - [`docs/archive/`](docs/archive/) — historical / superseded.
 
@@ -170,9 +170,9 @@ decrease the momentum until you reach to 100% DoD!!!!!!!"*
 
 **`AskUserQuestion` is a HARD BAN under any active autonomy mandate** — same
 class of violation as the closing-phrase patterns documented in memory
-[`feedback_never_pause_for_signal_when_autonomy_granted.md`](https://github.com/openova-io/openova/tree/main/docs)
+`feedback_never_pause_for_signal_when_autonomy_granted.md`
 and the freshly-shipped
-[`feedback_never_askuserquestion_under_autonomy.md`](https://github.com/openova-io/openova/tree/main/docs).
+`feedback_never_askuserquestion_under_autonomy.md`.
 Asking "should I A or B?" halts dispatch and waits for human signal — that IS
 the violation, regardless of how nicely framed by a UI tool call.
 
@@ -355,7 +355,7 @@ row — it can never again be recorded as failure.
 Verification agents are READ-ONLY — they may not ship PRs to make their own walks pass.
 
 The companion live ledger of open work is [`docs/ledger/TRACKER.md`](docs/ledger/TRACKER.md).
-The acceptance-walk evidence ledger is [`docs/ledger/UAT.md`](docs/ledger/UAT.md) (~281 rows —
+The acceptance-walk evidence ledger is [`docs/ledger/UAT.md`](docs/ledger/UAT.md) (~286 rows —
 the north-star deliverable; every stamp carries env + date + evidence), with
 [`docs/ledger/PATH-TO-100.md`](docs/ledger/PATH-TO-100.md) mapping each non-green row to its
 exact fix. All are cron-/walk-refreshed.
@@ -377,7 +377,7 @@ openova/
 ├── core/                   # Catalyst control-plane application (Go)
 │   ├── cmd/                # entry points (main.go per binary)
 │   ├── admin/              # admin tooling
-│   ├── console/            # per-Organization TENANT console (`org-console`, Astro + Svelte).
+│   ├── console/            # per-Organization console (`org-console`, Astro + Svelte).
 │   │                       # NOT the sovereign-admin console — see the note below the tree.
 │   ├── controllers/        # CRD reconcilers: application, blueprint, continuum,
 │   │                       # environment, organization, sandbox, useraccess
@@ -388,7 +388,7 @@ openova/
 │   └── services/           # per-microservice scaffolding
 ├── platform/               # Component Blueprint folders — one folder per upstream OSS project
 │   ├── cilium/  cnpg/  flux/  gitea/  keycloak/  openbao/  ...
-│   └── ...                 # ~56 folders; some chart-bearing, others README-only
+│   └── ...                 # ~105 folders (89 chart-bearing); the rest README-only
 ├── products/               # Composite Blueprint folders OpenOva ships (13 dirs)
 │   ├── agenity/            # bp-agenity — per-Org Agenity workspace (Pillar 4; chart/ + Containerfile)
 │   ├── axon/               # SaaS LLM Gateway                (real code: chart/ src/ scripts/)
@@ -418,7 +418,7 @@ surface is missing. The four trees, by `package.json` name:
 
 | Path | Package | What it is |
 |---|---|---|
-| `core/console/` | `org-console` | per-**Organization** tenant console (the signed-in User's console) |
+| `core/console/` | `org-console` | per-**Organization** console (the signed-in User's console) |
 | `core/marketplace/` | `org-marketplace` | the **customer storefront + funnel** — signup, catalog, checkout, voucher redeem (`src/pages/redeem.astro`, `checkout.astro`) |
 | `products/catalyst/console/` | `catalyst-console` | Catalyst-side console assets |
 | `products/catalyst/bootstrap/ui/` | `ui` | **the sovereign-admin console** — `src/pages/sovereign/…` |
@@ -438,7 +438,7 @@ when the badges were present in `bootstrap/ui` all along (`⛓` 0/0/4,
 `contexts` 0/0/11, `active-passive` 0/2/15 across the three trees). That
 refutation cost two walkers before it was caught.
 
-**Rule:** before claiming a console surface is absent, grep all three paths above
+**Rule:** before claiming a console surface is absent, grep all four paths above
 and say which ones you checked.
 
 For the up-to-date "what's actually built today" inventory (controllers green/yellow/red, microservices status, CRD set) see [`docs/STATUS.md`](docs/STATUS.md).
@@ -538,7 +538,7 @@ component is its own Go module (`core/controllers/`, `core/marketplace-api/`,
 cd core/controllers/     # or any other Go module dir
 go test ./...
 go build ./...
-# Tenant (per-Organization) console UI in core/console/ (Astro + Svelte): npm install, npm run dev
+# Per-Organization console UI in core/console/ (Astro + Svelte): npm install, npm run dev
 # Sovereign-admin console UI in products/catalyst/bootstrap/ui/ — see the three-console-trees note above
 ```
 
@@ -548,7 +548,7 @@ CRD types live in `core/pkg/apis/<kind>/v1alpha1/` (one Go module per kind, mirr
 
 ## Session lessons (2026-05-20) — amnesia anti-patterns to NEVER repeat
 
-The 2026-05-20 session repeatedly tripped over patterns that were already documented in user-global CLAUDE.md, memory files, or canonical docs. Each item below records: **what happened**, **what was already documented**, the **correct path**, and a **pre-flight check** that prevents recurrence. Read before any session that touches mothership / Hetzner / Sovereigns.
+The 2026-05-20 session repeatedly tripped over patterns that were already documented in user-global CLAUDE.md, memory files, or canonical docs. Each item below records: **what happened**, **what was already documented**, the **correct path**, and a **pre-flight check** that prevents recurrence. Read before any session that touches mothership / substrate / Sovereigns. (Substrate note, 2026-08-26: the Hetzner / `hcloud` references in L1–L5 below are the 2026-05-20 historical substrate; the platform now provisions on **Huawei kom4dc** — regions `me-east-215-a` / `me-east-215-b` — via the Huawei AK/SK API. The credential *mechanism* is unchanged: provider tokens live in `tofu.auto.tfvars.json` on the `catalyst-api-deployments` PVC, and the current pre-flight table below is already Huawei-centric.)
 
 ### L1 — "I don't have hcloud creds" when the token is in the cluster
 
@@ -580,7 +580,7 @@ curl -s -H "Authorization: Bearer ${HCLOUD_TOKEN}" 'https://api.hetzner.cloud/v1
 
 **What happened**: When tenant URL `console.<orgslug>.omani.homes` connection-refused, did not recall the canonical playbook of swapping parent-domain TLD when LE rate-limited.
 
-**What was already documented**: Memory `feedback_canonical_end_user_dod.md` + `docs/RUNBOOK-OPERATIONS.md` §C.17. Two TLD pairs are reserved for this purpose:
+**What was already documented**: Memory `feedback_canonical_end_user_dod.md` + [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) (operations runbook section). Two TLD pairs are reserved for this purpose:
 - **Sovereign FQDN**: `omani.works` ↔ `omantel.biz` (swap weekly when LE exhausts 5-certs/week/registered-domain)
 - **Tenant-Org pool**: `omani.homes` / `omani.rest` / `omani.trade` (per-Sovereign-pool assignment)
 

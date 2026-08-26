@@ -102,10 +102,10 @@ Hardcoded values are forbidden. If a value can be picked at runtime, it is confi
 
 | Hardcoded | Right way |
 |---|---|
-| Region pinned to `fsn1` in code | Region passed in from wizard at runtime; OpenTofu variable |
+| Region pinned to `me-east-215-a` in code | Region passed in from wizard at runtime; OpenTofu variable |
 | Helm chart version `1.16.5` literal in install function | Read from `platform/<name>/chart/values.yaml` `catalystBlueprint.upstream.version` field, or from a Crossplane Composition |
 | URL `console.openova.io` baked into source | `src/lib/config.ts`, runtime-loaded |
-| API endpoint `https://api.hetzner.cloud/v1/...` baked in | Provided by a Crossplane provider config — Crossplane is the layer that knows about cloud APIs, never our Go code |
+| API endpoint `https://api.<cloud-provider>/v1/...` baked in | Provided by a Crossplane provider config — Crossplane is the layer that knows about cloud APIs, never our Go code |
 | K3s flags `--disable=traefik --flannel-backend=none` baked in | OpenTofu variable + `templatefile()` + cloud-init template, parameterized for the Sovereign's chosen topology |
 
 ---
@@ -129,7 +129,7 @@ Every piece of work flows through a GitHub issue (`/issue` first — open the is
 
 - A long open-ticket count is not a signal to "scope down" — it is the actual scope.
 - Updating ticket bodies with "committed at SHA <abc>" matters. The Kanban board is the source of truth.
-- Issue lifecycle: `status/in-progress` → `status/uat` → `status/completed`. Only the user closes issues, and only after operator-walk-with-screenshot evidence lands on the issue itself.
+- Issue lifecycle: `status/in-progress` → `status/uat` → `status/completed`. The agent closes the issue itself once verified (operator-walk-with-screenshot evidence on the issue); explicitly-unverified items park at `status/completed`.
 
 If you find yourself writing an executive summary instead of working through the ticket list, that is a violation. The list is the work. Work the list.
 
@@ -140,7 +140,7 @@ If you find yourself writing an executive summary instead of working through the
 DoD E2E 2-pass GREEN on the current deployed SHA is the only valid proof of done. CI-green plus pods-running is not enough.
 
 - "I built X" requires X to actually run end-to-end. Not "X compiles." Not "X is committed." Not "the structure is there."
-- "Real provisioning" requires a real Hetzner project, a real provisioning run, and a working Sovereign at the end of it.
+- "Real provisioning" requires a real Huawei kom4dc project (me-east-215-a/b), a real provisioning run, and a working Sovereign at the end of it.
 - A blueprint claim requires the blueprint to actually install its upstream, apply Catalyst values, and produce a working component.
 
 Before claiming done in any user-visible message, verify the claim is true. If you cannot verify, say "structurally complete, runtime-untested" — never imply working when it is not.
@@ -180,7 +180,7 @@ A franchised Sovereign cannot be operationally tethered to the OpenOva mothershi
 
 **The only acceptable temporary tether is the cold-start window.** During Phase 0 + Phase 1 provisioning, routing image pulls through the mothership Harbor proxy is acceptable (and intentional) — it absorbs `docker.io`'s 100-pull / 6h anonymous rate limit, which would otherwise produce flaky `ImagePullBackOff` failures during the 10–30 minute provisioning window. That cold-start tether is the only sanctioned exception.
 
-**How:** Every Sovereign runs `bp-self-sovereign-cutover` after handover. The chart installs dormant at bootstrap-kit slot 06a during Phase 1 and is triggered post-handover by the sovereign-admin's "Achieve True Sovereignty" button (or by `catalyst-api` auto-fire on first login if explicitly enabled per-customer). Eight sequential Jobs pivot the eight tethers in dependency order; the final step is a 10-minute deny-egress NetworkPolicy hold against `github.com`, `ghcr.io`, and `harbor.openova.io`. **The only condition under which `cutoverComplete=true` is set is that the cluster reconciles green during this hold.** No cutover claim without the egress-block proof.
+**How:** Every Sovereign runs `bp-self-sovereign-cutover` after handover. The chart installs dormant at bootstrap-kit slot 06a during Phase 1 and is triggered post-handover by the sovereign-admin's "Achieve True Sovereignty" button (or by `catalyst-api` auto-fire on first login if explicitly enabled per-customer). An 11-step chain pivots the eight tethers in dependency order; step 08 is a 10-minute deny-egress NetworkPolicy hold (steps 09-11 follow) against `github.com`, `ghcr.io`, and `harbor.openova.io`. **The only condition under which `cutoverComplete=true` is set is that the cluster reconciles green during this hold.** No cutover claim without the egress-block proof.
 
 Full architecture, alternatives considered, and consequences live in [ADR-0002](adr/0002-post-handover-sovereignty-cutover.md). The eight-tether map is in `ARCHITECTURE.md` §11.1.
 
@@ -251,7 +251,7 @@ How to apply:
 
 ---
 
-## Part II — Anti-pattern catalog (A1-A15)
+## Part II — Anti-pattern catalog (A1-A18)
 
 These are OpenOva-platform-specific anti-patterns — concrete PR / issue receipts of failure modes that have shipped, hidden in plain sight in diffs, or compounded into theater. Each entry exists so the *next* review of the same shape catches the bug before it ships.
 
@@ -294,7 +294,7 @@ flowchart TD
 | | |
 |---|---|
 | **Receipt** | PR #1085 (treemap drill-down) |
-| **Shape** | A 100-line diff with a 3-line bug visible in plain context. The `onClick` handler is wired on container cells but not on the leaf cells the operator actually needs to click. PR is approved on the "looks good" of the chrome. |
+| **Shape** | A 100-line diff with a 3-line bug visible in plain context. The `onClick` handler is wired on container cells but not on the leaf cells the sovereign-admin actually needs to click. PR is approved on the "looks good" of the chrome. |
 | **Why this is wrong** | The bug is in the diff. Reviewer-fatigue defense — "this PR is too big to read every line" — is dead. If a PR is too big to review carefully, split it before merging. |
 | **Right fix shape** | Slow down, read every line. Click handlers must terminate at the leaf that triggers the action. |
 
@@ -562,7 +562,7 @@ flowchart LR
 5. **The chain is: merge → Build-&-Deploy CI (~25 min, can fail on upstream Docker Hub 500s — rerun) → deploy-bot pin commit → Flux reconcile (force with `reconcile.fluxcd.io/requestedAt` annotation on gitrepository/openova-public + kustomization/catalyst-platform instead of waiting the poll) → pod rolled to the new image → new bundle served → HARD REFRESH (SPA cache).** Claim "deployed" only after the pod image check; claim "done" only after WALKING the user-visible surface the founder will look at. Image tag + bundle hash is NOT visual verification.
 6. **Sub-agent "already exists / verified finding" claims are not delivery.** #4725 skipped the Dashboard rebuild citing an issue comment; the merge was overclaimed → founder saw zero change. Before merging UI work, demand screenshot/DOM proof of the NEW rendering (the #4726 agent shipped a Playwright screenshot — that is the bar).
 7. **Live env patches (kubectl set env / CM edits) are TEMPORARY** — the next helm upgrade or engine re-stamp reverts them. **Every live patch ships with the durable chart/code fix in the same cycle — the same session** (SMTP → chart values; step-06 gate → chart 0.1.103 class fix). A live patch without its merged durable twin is a defect, not a fix.
-   - **7b — WORSE: `kubectl set env` on a chart-managed `valueFrom` var doesn't just revert — it WEDGES every subsequent helm upgrade AND rollback on that env** (three-way merge renders value+valueFrom → apiserver rejects `may not be specified when value is not empty`; hw220 bp-catalyst-platform stuck UpgradeFailed/RollbackFailed for 12h+, cascading bp-continuum/bp-sandbox — #4739 W-4). Live mitigation for a valueFrom-managed var = patch the CONTRACT SECRET the chart references (e.g. `catalyst-openova-kc-credentials` smtp-* keys), never `set env`. Recovery: seed the secret → `set env VAR-` to strip the literals → force HR reconcile. AND: a successful helm upgrade re-stamps chart-pinned images (reverting UI/API live-patches) and the catalyst-api roll can hit the RWO EVS cross-node detach deadlock — plan for both before unwedging.
+   - **7b — WORSE: `kubectl set env` on a chart-managed `valueFrom` var doesn't just revert — it WEDGES every subsequent helm upgrade AND rollback on that env** (three-way merge renders value+valueFrom → apiserver rejects `may not be specified when value is not empty`; hw220 bp-catalyst-platform stuck UpgradeFailed/RollbackFailed for 12h+, cascading bp-continuum/bp-sandbox (bp-sandbox since removed 2026-06-30) — #4739 W-4). Live mitigation for a valueFrom-managed var = patch the CONTRACT SECRET the chart references (e.g. `catalyst-openova-kc-credentials` smtp-* keys), never `set env`. Recovery: seed the secret → `set env VAR-` to strip the literals → force HR reconcile. AND: a successful helm upgrade re-stamps chart-pinned images (reverting UI/API live-patches) and the catalyst-api roll can hit the RWO EVS cross-node detach deadlock — plan for both before unwedging.
 8. **The Sovereign console UI on a live env does not auto-update** — it runs the chart-pinned image. To show the founder new UI on a live env: patch the catalyst-ui image on that env after the ghcr tag exists (post-cutover pulls route via local Harbor proxy — still reaches upstream).
 
 ### III.3 — Cutover-era gotchas (hw220)
@@ -669,7 +669,7 @@ Rules: total briefing ≤ 6 lines — don't restate the full agent prompt; one b
 
 ## Part V — How these relate
 
-Part I (Principles 1-15) defines *what to do*. Part II (anti-patterns A1-A15) is the catalog of *how violations manifest in PRs* — concrete shapes you can grep for during review. Part III (STONE) governs the environment + release lifecycle — when it is legal to fire, wipe, merge, and claim. Part IV holds the inlined generic rules the catalog cites; [`docs/PROTOCOL.md`](PROTOCOL.md) holds the mechanical gates that enforce Part III.
+Part I (Principles 1-15) defines *what to do*. Part II (anti-patterns A1-A18) is the catalog of *how violations manifest in PRs* — concrete shapes you can grep for during review. Part III (STONE) governs the environment + release lifecycle — when it is legal to fire, wipe, merge, and claim. Part IV holds the inlined generic rules the catalog cites; [`docs/PROTOCOL.md`](PROTOCOL.md) holds the mechanical gates that enforce Part III.
 
 How the four parts and the enforcement gates relate:
 
@@ -708,7 +708,7 @@ Mapping (Anti-pattern → Principle it violates):
 | A17 (ingress-only policy in an egress-constrained namespace) | §2 (no workarounds), §7, Part III.4 (repo-wide enumeration on class recurrence) |
 | A18 (the guard that cannot go red) | §7 (verify before claiming done), §15 (real validators only), Part IV rule 1 (defensive shapes trigger investigation) |
 
-When you catch a new shape of failure in a PR review, add an A16+ entry here with the PR / issue number, the shape, why it's wrong, and the right fix shape. The catalog grows so the next session catches the same shape sooner.
+When you catch a new shape of failure in a PR review, add an A19+ entry here with the PR / issue number, the shape, why it's wrong, and the right fix shape. The catalog grows so the next session catches the same shape sooner.
 
 ---
 
@@ -718,7 +718,7 @@ When you catch a new shape of failure in a PR review, add an A16+ entry here wit
 - Are all values runtime-configurable? (No hardcoded regions, versions, URLs.)
 - Did I disclose any divergence in the commit message?
 - Is the work actually done, or did I write "scaffolding" and call it done?
-- Did I scan the diff for the A1-A15 shapes?
+- Did I scan the diff for the A1-A18 shapes?
 - Is my PR body using `Refs #N` (default) rather than `Closes #N`?
 
 ---

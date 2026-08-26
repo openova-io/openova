@@ -137,16 +137,17 @@ sequenceDiagram
 ```python
 # Model routing logic
 def route_model(request_model: str, tier: str) -> str:
+    # NOTE: model ids below are illustrative, not a live model map.
     routing = {
         "free": {
-            "claude-3-opus": "qwen3-32b",  # Route to internal
-            "claude-3-sonnet": "qwen3-32b",
+            "claude-opus-4": "qwen3-32b",  # Route to internal
+            "claude-sonnet-4": "qwen3-32b",
             "gpt-4": "qwen3-32b"
         },
         "pro": {
-            "claude-3-opus": "claude-3-haiku",  # Downgrade
-            "claude-3-sonnet": "claude-3-haiku",
-            "claude-3-haiku": "claude-3-haiku",  # Pass through
+            "claude-opus-4": "claude-haiku-4",  # Downgrade
+            "claude-sonnet-4": "claude-haiku-4",
+            "claude-haiku-4": "claude-haiku-4",  # Pass through
             "gpt-4": "qwen3-32b"
         },
         "enterprise": {
@@ -183,10 +184,10 @@ async def check_quota(user_id: str, tier: str) -> bool:
 ```bash
 # Configure Claude Code to use gateway
 export ANTHROPIC_API_KEY="your-subscription-token"
-export ANTHROPIC_BASE_URL="https://llm-gateway.<env>.<sovereign-domain>/v1"
+export ANTHROPIC_BASE_URL="https://llm-gateway.<location-code>.<sovereign-domain>/v1"
 
 # Or in claude code config
-claude config set api_base "https://llm-gateway.<env>.<sovereign-domain>/v1"
+claude config set api_base "https://llm-gateway.<location-code>.<sovereign-domain>/v1"
 claude config set api_key "your-subscription-token"
 ```
 

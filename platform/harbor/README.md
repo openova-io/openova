@@ -17,13 +17,13 @@ flowchart TB
         CustCI[Customer CI — Application images]
     end
 
-    subgraph Cluster1["Host cluster A (e.g. hz-fsn-rtz-prod)"]
+    subgraph Cluster1["Host cluster A (kom4dc me-east-215-a)"]
         H1[Harbor — local mirror]
         T1[Trivy Scanner]
         Pods1[Pods pull locally]
     end
 
-    subgraph Cluster2["Host cluster B (e.g. hz-hel-rtz-prod)"]
+    subgraph Cluster2["Host cluster B (kom4dc me-east-215-b)"]
         H2[Harbor — local mirror]
         T2[Trivy Scanner]
         Pods2[Pods pull locally]
@@ -105,8 +105,8 @@ sequenceDiagram
 
 | Backend | Use Case | Notes |
 |---------|----------|-------|
-| PVC (`type: filesystem`) | Dev / contabo / single-node | Default render — no S3 wiring |
-| Cloud-native S3 | Production Sovereigns | Hetzner Object Storage / AWS S3 / GCP / Azure |
+| PVC (`type: filesystem`) | Dev / single-node | Default render — no S3 wiring |
+| Cloud-native S3 | Production Sovereigns | Huawei OBS (kom4dc — current substrate) / AWS S3 / GCP / Azure (Hetzner Object Storage / contabo — legacy) |
 
 ### Recommended: Cloud-native S3 (per ADR-0001 §13)
 
@@ -116,7 +116,7 @@ legacy POSIX-only writers and is NOT in the minimal Sovereign set.
 
 ```mermaid
 flowchart LR
-    Harbor[Harbor] -->|"S3 API (HTTPS)"| Hetzner[Hetzner Object Storage<br/>fsn1.your-objectstorage.com]
+    Harbor[Harbor] -->|"S3 API (HTTPS)"| OBS[Huawei OBS<br/>obs.me-east-215.kom4dc.nationalcloud.om]
 ```
 
 ---

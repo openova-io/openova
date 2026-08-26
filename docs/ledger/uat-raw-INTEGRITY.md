@@ -13,6 +13,8 @@ stamped with that commit's own author date. Days without a commit produce no cyc
 - **286 line items per cycle** (fixed), **16,302 rows**
 - Regenerate: `python3 scripts/uat-backfill.py`
 
+> _As-of 2026-08-09 (last cycle in this series). The cycle count (57), row total (16,302), the 71.7%-populated figure, and the 65.7% headline score below are point-in-time and drift as new cycles are added — regenerate before quoting them. Only the 286 denominator is fixed._
+
 ## Column integrity
 
 | column | source | integrity |

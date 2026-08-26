@@ -23,7 +23,7 @@ The chart's `Chart.yaml` declares a stub `sigstore/common` library subchart **on
 | `chart/templates/networkpolicy.yaml` | Default-deny shell + explicit allows to bp-llm-gateway, bp-bge, FerretDB, bp-keycloak, kube-dns. |
 | `chart/templates/serviceaccount.yaml` | Per-release SA. |
 | `chart/templates/servicemonitor.yaml` | `monitoring.coreos.com/v1` ServiceMonitor — default off, double-gated by `.Values.serviceMonitor.enabled` AND `Capabilities.APIVersions.Has` per [`docs/RUNBOOKS.md` §11.2](../../docs/RUNBOOKS.md). |
-| `chart/templates/hpa.yaml` | HorizontalPodAutoscaler — default off; flipped on by multi-tenant Sovereigns. |
+| `chart/templates/hpa.yaml` | HorizontalPodAutoscaler — default off; flipped on by multi-Org Sovereigns. |
 | `chart/templates/_helpers.tpl` | Standard `bp-librechat.{name,fullname,labels,selectorLabels,serviceAccountName,configMapName}`. |
 | `chart/tests/observability-toggle.sh` | CI gate ([`docs/RUNBOOKS.md` §11.2](../../docs/RUNBOOKS.md)) — proves `serviceMonitor.enabled` defaults false, opt-in renders cleanly, explicit-off renders cleanly. |
 

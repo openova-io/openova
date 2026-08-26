@@ -10,7 +10,7 @@ Day-2 cloud resource provisioning for Catalyst. Per-Sovereign on the management 
 
 ## Overview
 
-Crossplane provides Kubernetes-native cloud resource provisioning for day-2 operations. Terraform handles initial bootstrap; Crossplane manages ongoing infrastructure.
+Crossplane provides Kubernetes-native cloud resource provisioning for day-2 operations. OpenTofu handles initial bootstrap; Crossplane manages ongoing infrastructure.
 
 ---
 
@@ -60,8 +60,8 @@ Catalyst uses **OpenTofu** (the open-source Terraform fork) for bootstrap IaC, n
 
 | Provider | Status | Crossplane Provider |
 |----------|--------|---------------------|
-| Hetzner Cloud | Available | hcloud |
-| Huawei Cloud | Coming | huaweicloud |
+| Huawei Cloud | Available (current substrate — kom4dc) | huaweicloud |
+| Hetzner Cloud | Legacy | hcloud |
 | Oracle Cloud | Coming | oci |
 | AWS | Coming | aws |
 | GCP | Coming | gcp |

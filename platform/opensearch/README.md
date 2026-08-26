@@ -123,7 +123,7 @@ flowchart LR
 ### OpenSearch Cluster (Helm)
 
 ```yaml
-apiVersion: helm.toolkit.fluxcd.io/v2beta1
+apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: opensearch
@@ -187,7 +187,7 @@ spec:
 ### OpenSearch Dashboards
 
 ```yaml
-apiVersion: helm.toolkit.fluxcd.io/v2beta1
+apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: opensearch-dashboards
@@ -353,7 +353,7 @@ outputs:
 - Full-text indexing is storage-intensive compared to label-based systems (Loki)
 - Requires careful capacity planning for shard count and node sizing
 - Two search/analytics systems to operate (OpenSearch + Loki) increases complexity
-- Security plugin configuration can be complex for multi-tenant setups
+- Security plugin configuration can be complex for multi-Organization setups
 
 ---
 

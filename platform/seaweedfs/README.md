@@ -1,6 +1,6 @@
 # SeaweedFS
 
-S3-compatible object storage with native archive tiering. Per-host-cluster infrastructure (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.5) — runs on every host cluster Catalyst manages. **Acts as the unified S3 encapsulation layer in front of cloud archival object storage** (Cloudflare R2 / AWS S3 Glacier / Hetzner Object Storage / etc.), so every Catalyst component sees a single S3 API while SeaweedFS transparently routes hot/warm/cold tiers.
+S3-compatible object storage with native archive tiering. Per-host-cluster infrastructure (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.5) — runs on every host cluster Catalyst manages. **Acts as the unified S3 encapsulation layer in front of cloud archival object storage** (Cloudflare R2 / Huawei OBS / AWS S3 Glacier / Hetzner Object Storage / etc.), so every Catalyst component sees a single S3 API while SeaweedFS transparently routes hot/warm/cold tiers.
 
 **Status:** Accepted | **Updated:** 2026-04-28
 
@@ -52,6 +52,7 @@ flowchart TB
 
     subgraph CloudArchive["Cloud archive backend (chosen at provisioning)"]
         R2[Cloudflare R2]
+        OBS[Huawei OBS]
         S3G[AWS S3 Glacier]
         Hetzner[Hetzner Object Storage]
     end
@@ -75,6 +76,7 @@ flowchart TB
     Volumes --> Hot
     TierMgr --> Warm
     TierMgr --> R2
+    TierMgr --> OBS
     TierMgr --> S3G
     TierMgr --> Hetzner
 ```
@@ -87,11 +89,11 @@ flowchart TB
 |---|---|---|---|
 | Hot | 0–7 days | Local NVMe (in-cluster volume servers) | $$$ |
 | Warm | 7–30 days | Local bulk (in-cluster volume servers) | $$ |
-| Cold | 30d+ | Cloud archive backend (R2 / Glacier / Hetzner) | $ |
+| Cold | 30d+ | Cloud archive backend (R2 / Huawei OBS / Glacier / Hetzner) | $ |
 
 Tiering is **automatic and transparent** — the consumer's S3 GET/PUT call goes to the same endpoint regardless of which tier the object lives in. SeaweedFS resolves the tier transparently, fetching from cloud archive on demand if the object has aged past warm.
 
-Cloudflare R2 is the default cold backend (zero egress cost). AWS S3 Glacier and Hetzner Object Storage are first-class alternatives chosen at Sovereign provisioning time.
+Cloudflare R2 is the default cold backend (zero egress cost). Huawei OBS (on the current Huawei kom4dc substrate) and AWS S3 Glacier are first-class alternatives chosen at Sovereign provisioning time; Hetzner Object Storage remains supported on legacy Hetzner-substrate Sovereigns.
 
 ---
 

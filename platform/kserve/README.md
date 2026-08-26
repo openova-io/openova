@@ -8,7 +8,7 @@ Kubernetes-native model serving. **Application Blueprint** (see [`docs/ARCHITECT
 
 ## Blueprint chart
 
-This folder ships an umbrella Helm chart at `chart/` that wraps the upstream `kserve/kserve` chart (v0.16.0 — latest version published on the official OCI registry as of 2026-04-30) under `dependencies:`. Catalyst-curated overlay templates render alongside:
+This folder ships an umbrella Helm chart at `chart/` that wraps the upstream `kserve/kserve` chart (pinned at v0.16.0) under `dependencies:`. Catalyst-curated overlay templates render alongside:
 
 - `chart/templates/networkpolicy.yaml` — locks the controller-manager namespace down (DEFAULT FALSE).
 - `chart/templates/servicemonitor.yaml` — controller-manager metrics scrape (DEFAULT FALSE per [`docs/RUNBOOKS.md`](../../docs/RUNBOOKS.md) §11.2; Capabilities-gated).
@@ -18,7 +18,7 @@ This folder ships an umbrella Helm chart at `chart/` that wraps the upstream `ks
 - `kserve.controller.deploymentMode: RawDeployment` — KServe writes plain Deployment+Service+HPA per InferenceService (no Knative hop on the hot path).
 - `kserve.controller.gateway.ingressGateway.enableGatewayApi: true` + `className: cilium` — Catalyst's istio-less Cilium native Gateway-API path.
 - `kserve.controller.gateway.disableIstioVirtualHost: true` — Knative-Istio is NOT installed.
-- `bp-knative` is still installed (declared as a hard dependency in `blueprint.yaml`) so per-InferenceService annotation `serving.kserve.io/deploymentMode: Serverless` opts in to scale-to-zero on a per-tenant basis without infra changes.
+- `bp-knative` is still installed (declared as a hard dependency in `blueprint.yaml`) so per-InferenceService annotation `serving.kserve.io/deploymentMode: Serverless` opts in to scale-to-zero on a per-Organization basis without infra changes.
 
 ---
 

@@ -1,6 +1,6 @@
 # OpenOva Business Strategy
 
-> **Status:** Living Document | **Last Updated:** 2026-04-28
+> **Status:** Living Document | **Last Updated:** 2026-08-26
 >
 > This document defines OpenOva's business positioning, product strategy, revenue model, competitive landscape, and go-to-market approach.
 
@@ -33,7 +33,7 @@
 
 We are in an AI gold rush. The companies that extract the most value are the ones with AI-native infrastructure — not AI bolted onto legacy platforms after the fact.
 
-OpenOva is an AI-native infrastructure platform. 56 open-source components on Kubernetes, every one designed to be AI-manageable. Our AI brain — Specter — has pre-built semantic knowledge of every CRD schema, integration dependency, failure mode, health check, upgrade path, and compliance mapping across the entire ecosystem. It doesn't dump logs into an LLM. It sends surgical, structured context. Faster, cheaper, more accurate than anything bolted on.
+OpenOva is an AI-native infrastructure platform. 89 open-source components on Kubernetes, every one designed to be AI-manageable. Our AI brain — Specter — has pre-built semantic knowledge of every CRD schema, integration dependency, failure mode, health check, upgrade path, and compliance mapping across the entire ecosystem. It doesn't dump logs into an LLM. It sends surgical, structured context. Faster, cheaper, more accurate than anything bolted on.
 
 Cloud-native is the foundation. AI-native is the differentiator.
 
@@ -41,11 +41,11 @@ We serve organizations that want the economics and freedom of open source with t
 
 **What makes us different:**
 
-- **AI-native, not AI-bolted.** Specter has pre-built semantic knowledge of the entire 56-component ecosystem — structured CRDs, unified telemetry, declarative GitOps. Token-efficient operations that are 10x faster and cheaper than competitors dumping raw context into LLMs.
-- **Turnkey ecosystem, not a single tool.** 56 curated open-source components tested and certified to work together. What takes 2-3 years to build internally, we deploy instantly.
+- **AI-native, not AI-bolted.** Specter has pre-built semantic knowledge of the entire 89-component ecosystem — structured CRDs, unified telemetry, declarative GitOps. Token-efficient operations that are 10x faster and cheaper than competitors dumping raw context into LLMs.
+- **Turnkey ecosystem, not a single tool.** 89 curated open-source components tested and certified to work together. What takes 2-3 years to build internally, we deploy instantly.
 - **Consultancy and platform from day one.** We meet customers where they are — whether they need a guide, a platform, or both.
 - **Open source, genuinely.** Blueprints are free forever. We charge for support, managed services, and expertise — not for access to code.
-- **56 open-source disciplines, one relationship.** Our expert network spans PostgreSQL, Kafka, Cilium, Keycloak, AI/ML, and dozens more — all under one support contract.
+- **89 open-source disciplines, one relationship.** Our expert network spans PostgreSQL, Kafka, Cilium, Keycloak, AI/ML, and dozens more — all under one support contract.
 
 ---
 
@@ -66,7 +66,7 @@ Give every organization AI-native infrastructure: curated open-source blueprints
 | **Open source is non-negotiable** | Blueprints are free forever. We don't create lock-in through code. |
 | **Confidence, not complexity** | We sell peace of mind, not more tools to manage. |
 | **Journey partnership** | We walk with customers from first cluster to production-grade platform. |
-| **Convergence over components** | The value is in 56 components working together, not any single one. |
+| **Convergence over components** | The value is in 89 components working together, not any single one. |
 | **AI-native, not AI-bolted** | Every component is designed to be AI-manageable. Specter is built in from day one, not added as a feature. |
 | **Token efficiency is economic advantage** | Structured CRDs + unified telemetry = surgical AI context. 10x fewer tokens than competitors dumping raw logs. |
 | **Authenticity** | No corporate buzzwords, no sugar coating. Open source ethos in everything we do. |
@@ -148,11 +148,11 @@ This is the infrastructure layer of the AI gold rush. And it is wide open.
 OpenOva is both a **consultancy** and a **productized platform**. The customer chooses what they need:
 
 ```
-Need AI-native ops?  → Specter manages your infrastructure with pre-built knowledge of all 56 components.
+Need AI-native ops?  → Specter manages your infrastructure with pre-built knowledge of all 89 components.
 Need a guide?        → We consult. Assessment, architecture, AI modernization roadmap, enablement.
-Need a platform?     → We deploy. 56 AI-manageable components, production-grade, instantly.
+Need a platform?     → We deploy. 89 AI-manageable components, production-grade, instantly.
 Need both?           → We do both. And we stay for Day-2 operations.
-Need specialists?    → Our expert network. 56 OSS disciplines, one contract.
+Need specialists?    → Our expert network. 89 OSS disciplines, one contract.
 Need freedom?        → We migrate. From OpenShift, Oracle, Redis, Datadog — to open source.
 ```
 
@@ -196,7 +196,7 @@ OpenOva maintains a minimal, authentic product naming approach. Only genuinely d
 | **OpenOva Axon** | SaaS LLM Gateway. The neural link to Cortex. Provides managed AI inference for customers who don't want to invest in GPU infrastructure. Powers Specter agents by default. Routes to Claude, GPT-4, or self-hosted vLLM. |
 | **OpenOva Fingate** | Open Banking product. PSD2/FAPI-compliant fintech sandbox with Keycloak (FAPI authorization), metering (OpenMeter), and 6 custom banking services. Production-ready open banking in hours. |
 | **OpenOva Specter** | AI-powered SOC/NOC agents. Self-healing ecosystem that monitors, detects, correlates, and remediates issues autonomously. DevOps, DevSecOps, SRE, FinOps, and Compliance agents working 24/7. Core built-in capability - not an add-on. |
-| **OpenOva Catalyst** | The platform itself — the self-sufficient Kubernetes-native control plane that turns any cluster into a **Sovereign**. Composes 56 curated open-source components (security, observability, GitOps, service mesh, policy engine, supply chain security, DR, identity, secrets, event spine) plus the Catalyst control plane (console, marketplace, admin, projector, catalog, blueprint-controller, environment-controller). Provisioning to Day-2 lifecycle to in-cluster IDP — a single integrated platform. Every other OpenOva product runs **on** Catalyst as composite Blueprints. See [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md). |
+| **OpenOva Catalyst** | The platform itself — the self-sufficient Kubernetes-native control plane that turns any cluster into a **Sovereign**. Composes 89 curated open-source components (security, observability, GitOps, service mesh, policy engine, supply chain security, DR, identity, secrets, event spine) plus the Catalyst control plane (console, marketplace, admin, projector, catalog, blueprint-controller, environment-controller). Provisioning to Day-2 lifecycle to in-cluster IDP — a single integrated platform. Every other OpenOva product runs **on** Catalyst as composite Blueprints. See [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md). |
 | **OpenOva Exodus** | Structured migration program from proprietary to open source. Like an airline modernizing its fleet - you keep flying while every component gets upgraded. Not lift-and-shift. True modernization with zero downtime. |
 | **OpenOva Fabric** | Data & Integration product. Event-driven data integration and lakehouse analytics built on Strimzi/Kafka, Flink, Temporal, Debezium, Iceberg, and ClickHouse. |
 | **OpenOva Relay** | Communication product. Enterprise communication platform with email (Stalwart), video/audio (LiveKit), chat (Matrix/Synapse), WebRTC (STUNner), and clientless remote-desktop access (Guacamole — RDP/VNC/SSH/kubectl-exec via browser, Keycloak SSO, full session recording for compliance). |
@@ -225,7 +225,7 @@ OpenOva maintains a minimal, authentic product naming approach. Only genuinely d
 
 ### 5.3 Specter: The AI Brain
 
-Specter is not a bolted-on chatbot. It is the AI brain of the platform — built with pre-built semantic knowledge of the entire 56-component ecosystem.
+Specter is not a bolted-on chatbot. It is the AI brain of the platform — built with pre-built semantic knowledge of the entire 89-component ecosystem.
 
 #### Architecture
 
@@ -271,7 +271,7 @@ Specter's core advantage is pre-built semantic knowledge. It doesn't discover th
 
 | Knowledge Domain | What Specter Knows | How It Uses It |
 |-----------------|-------------------|----------------|
-| **CRD Schemas** | Every field, validation rule, and default across 56 component CRDs | Reads configuration as typed data, not raw text |
+| **CRD Schemas** | Every field, validation rule, and default across 89 component CRDs | Reads configuration as typed data, not raw text |
 | **Integration Graph** | Which components depend on which, data flow paths, failure blast radius | Traces root causes across component boundaries in seconds |
 | **Failure Modes** | Known failure patterns, root causes, and proven remediation steps per component | Matches symptoms to known failures before escalating to LLM |
 | **Health Checks** | What "healthy" means for each component, including edge cases and degraded states | Distinguishes "degraded but functional" from "about to fail" |
@@ -293,7 +293,7 @@ You cannot retrofit this. A platform not designed for AI-manageability will alwa
 
 These are services and capabilities described as what they are:
 
-- **Expert network** - Curated specialists across 56 open-source disciplines
+- **Expert network** - Curated specialists across 89 open-source disciplines
 - **Migration services** - Moving from proprietary to open-source alternatives
 - **Consultancy** - Cloud-native assessment, architecture design, transformation roadmap
 - **Managed operations** - We own the pager, full 24/7 operational responsibility
@@ -306,7 +306,7 @@ These are services and capabilities described as what they are:
 > **Tracking issue:** [#175](https://github.com/openova-io/openova/issues/175).
 > If this narrative disagrees with the code, the code wins; update this section.
 
-This section describes the **two-layer dependency model** that governs how the Sovereign Wizard (`StepComponents`) presents and selects platform components. It records the operator-driven rationale for each relationship so future changes don't quietly drop the constraints.
+This section describes the **two-layer dependency model** that governs how the Sovereign Wizard (`StepComponents`) presents and selects platform components. It records the sovereign-admin-driven rationale for each relationship so future changes don't quietly drop the constraints.
 
 The hard rule, per [`PRINCIPLES.md`](PRINCIPLES.md) #4 (never hardcode): **the only place these relationships are encoded is `componentGroups.ts`.** This narrative is human-readable, derived from the same source.
 
@@ -316,17 +316,17 @@ There are two dependency graphs in the platform:
 
 **1. Component graph.** `ComponentDef.dependencies[]` — *"component X needs component Y at runtime."* Cascading add/remove walks this graph: selecting Harbor pulls in cnpg + seaweedfs + valkey; removing cnpg removes anything that declared it as a dependency. This is the well-known case; every wizard build before #175 used only this graph.
 
-**2. Product graph.** `Product.familyDependencies[]` — *"product P implies product Q."* Used when the components of P only make sense in the presence of Q's full runtime, not just one of Q's primitives. Today **no product declares a family-level dependency** (every entry in PRODUCTS carries `familyDependencies: []`). The early shape (CORTEX → FABRIC) was audited at #0b6bb3ea after operator feedback that *"selecting Specter brings the entire FABRIC family — there is no such dependency in reality"*: CORTEX's only true cross-family needs are cnpg (LangFuse backend) and ferretdb (LibreChat backend), both encoded at the **component** level and resolved by the transitive-mandatory promotion walk + the `librechat → ferretdb → cnpg` dep chain.
+**2. Product graph.** `Product.familyDependencies[]` — *"product P implies product Q."* Used when the components of P only make sense in the presence of Q's full runtime, not just one of Q's primitives. Today **no product declares a family-level dependency** (every entry in PRODUCTS carries `familyDependencies: []`). The early shape (CORTEX → FABRIC) was audited at #0b6bb3ea after sovereign-admin feedback that *"selecting Specter brings the entire FABRIC family — there is no such dependency in reality"*: CORTEX's only true cross-family needs are cnpg (LangFuse backend) and ferretdb (LibreChat backend), both encoded at the **component** level and resolved by the transitive-mandatory promotion walk + the `librechat → ferretdb → cnpg` dep chain.
 
-A second product-level flag, `Product.cascadeOnMemberSelection: boolean`, controls whether selecting a single member of the product implies selecting the entire family. This is the operator's #175 *"Cortex-as-product"* requirement: selecting BGE selects the rest of CORTEX. CORTEX is the only product with the flag set today.
+A second product-level flag, `Product.cascadeOnMemberSelection: boolean`, controls whether selecting a single member of the product implies selecting the entire family. This is the sovereign-admin's #175 *"Cortex-as-product"* requirement: selecting BGE selects the rest of CORTEX. CORTEX is the only product with the flag set today.
 
 #### 5.5.2 Tier classification
 
 | Tier | Semantics | Where it surfaces |
 |------|-----------|-------------------|
-| `mandatory` | Ships on every Sovereign. Operator cannot opt out. | Tab 2 ("Always Included") |
-| `recommended` | Default-on at first wizard run. Operator can opt out. | Tab 1 ("Choose Your Stack") |
-| `optional` | Default-off. Operator opts in. | Tab 1 ("Choose Your Stack") |
+| `mandatory` | Ships on every Sovereign. Sovereign-admin cannot opt out. | Tab 2 ("Always Included") |
+| `recommended` | Default-on at first wizard run. Sovereign-admin can opt out. | Tab 1 ("Choose Your Stack") |
+| `optional` | Default-off. Sovereign-admin opts in. | Tab 1 ("Choose Your Stack") |
 
 **Transitive-mandatory promotion (issue #175 fix A).** The catalog applies a **closure walk at module load time**: every component reachable (via `dependencies[]`) from a `tier: mandatory` seed is itself promoted to mandatory. This means:
 
@@ -335,7 +335,7 @@ A second product-level flag, `Product.cascadeOnMemberSelection: boolean`, contro
 
 Currently promoted: `['cnpg', 'valkey']`. The list is exposed as `TRANSITIVE_MANDATORY_PROMOTIONS` for tests and telemetry.
 
-Without promotion, the operator would see cnpg as opt-in in Tab 1 even though Harbor (mandatory) cannot run without it — a UX bug the operator called out: *"cnpg was showing in the 'choose your stack' part despite always-included ones depending on it."*
+Without promotion, the sovereign-admin would see cnpg as opt-in in Tab 1 even though Harbor (mandatory) cannot run without it — a UX bug the sovereign-admin called out: *"cnpg was showing in the 'choose your stack' part despite always-included ones depending on it."*
 
 #### 5.5.3 Product registry
 
@@ -351,7 +351,7 @@ Without promotion, the operator would see cnpg as opt-in in Tab 1 even though Ha
 | **CORTEX** | optional | **yes** | — | kserve, knative, axon, neo4j, vllm, milvus, bge, langfuse, librechat |
 | **RELAY** | optional | no | — | stalwart, livekit, stunner, matrix, ntfy |
 
-`Cascade on member?` controls whether selecting any single component triggers the full family. Only **CORTEX** has it today, per the operator's explicit request: *"BGE alone doesn't have much meaning unless we have Cortex. [...] when chosen the entire family needs to be selected."*
+`Cascade on member?` controls whether selecting any single component triggers the full family. Only **CORTEX** has it today, per the sovereign-admin's explicit request: *"BGE alone doesn't have much meaning unless we have Cortex. [...] when chosen the entire family needs to be selected."*
 
 #### 5.5.4 Cross-product cascade examples
 
@@ -381,14 +381,14 @@ Net: selecting BGE = selecting CORTEX + cnpg/ferretdb (the runtime backends Lang
 2. Component-deps: cnpg, seaweedfs, valkey added (all mandatory after promotion, so already selected).
 3. Harbor's product is SILO (mandatory). Mandatory products skip the cascade — their members are already selected by default.
 
-Net: no new operator-visible additions because Harbor + its deps are already shipped on every Sovereign.
+Net: no new sovereign-admin-visible additions because Harbor + its deps are already shipped on every Sovereign.
 
 **Selecting ClickHouse (FABRIC, à-la-carte).**
 
 1. `addComponent('clickhouse')` selects ClickHouse.
 2. ClickHouse has no component-level deps.
 3. ClickHouse's product is FABRIC (cascade=**false**).
-4. **No family cascade.** ClickHouse, Strimzi, Temporal, Superset are independent stacks operators pick individually.
+4. **No family cascade.** ClickHouse, Strimzi, Temporal, Superset are independent stacks sovereign-admins pick individually.
 
 Net: only ClickHouse added. À-la-carte products don't drag the rest of the family along.
 
@@ -396,7 +396,7 @@ Net: only ClickHouse added. À-la-carte products don't drag the rest of the fami
 
 Removing a component cascades the **other** way: every component that listed the removed id as a dependency is also removed (recursive closure). Mandatory components are protected — `removeComponent('cnpg')` is a no-op because cnpg is mandatory after promotion.
 
-**Confirmation modal.** When the operator removes a component with dependents, the wizard shows a confirmation modal listing every component that will be cascaded out:
+**Confirmation modal.** When the sovereign-admin removes a component with dependents, the wizard shows a confirmation modal listing every component that will be cascaded out:
 
 > Remove Strimzi?
 >
@@ -421,7 +421,7 @@ Modal copy is centralised in `stepComponentsCopy.ts` so translators can replace 
 **Tab 2: "Always Included"**
 
 - Lists every mandatory component (post-promotion).
-- Grouped by owning product so operators see the full family at a glance. cnpg/valkey appear under FABRIC even though FABRIC's tier is recommended — they're individually mandatory.
+- Grouped by owning product so sovereign-admins see the full family at a glance. cnpg/valkey appear under FABRIC even though FABRIC's tier is recommended — they're individually mandatory.
 - Read-only — no toggle, no selection state.
 - "INFRASTRUCTURE" pill instead of "MANDATORY" so the page reads as platform infra rather than a wizard option.
 
@@ -446,10 +446,10 @@ All toast text comes from `STEP_COMPONENTS_COPY` in `stepComponentsCopy.ts` — 
 
 #### 5.5.7 Open questions / TODOs
 
-(Items the operator should confirm. Filed against #175.)
+(Items the sovereign-admin should confirm. Filed against #175.)
 
-- **INSIGHTS family-dependencies** — currently INSIGHTS does not declare a family-level dep on CORTEX, even though Specter (an INSIGHTS member) relies on CORTEX. We rely on Specter's component-level deps + the CORTEX member-selection cascade to do the right thing. **Operator: confirm this is the intended shape, or set INSIGHTS.familyDependencies to `['cortex']`?**
-- **Product-level tier** — INSIGHTS, FABRIC are `recommended`. CORTEX, RELAY are `optional`. **Operator: confirm INSIGHTS as recommended (it defaults on) vs optional (operator opts in)?**
+- **INSIGHTS family-dependencies** — currently INSIGHTS does not declare a family-level dep on CORTEX, even though Specter (an INSIGHTS member) relies on CORTEX. We rely on Specter's component-level deps + the CORTEX member-selection cascade to do the right thing. **Sovereign-admin: confirm this is the intended shape, or set INSIGHTS.familyDependencies to `['cortex']`?**
+- **Product-level tier** — INSIGHTS, FABRIC are `recommended`. CORTEX, RELAY are `optional`. **Sovereign-admin: confirm INSIGHTS as recommended (it defaults on) vs optional (sovereign-admin opts in)?**
 - **Cross-region replication for transitive-mandatory promotion** — PowerDNS depends on cnpg. cnpg is now mandatory. Multi-region Sovereigns currently run cnpg per-region; the promotion changes nothing operationally but is worth flagging.
 
 ---
@@ -491,7 +491,7 @@ OPENOVA SERVICES
 ├── PLATFORM DEPLOYMENT
 │   │
 │   ├── OpenOva Core Deployment
-│   │   What: Full 56 component platform deployed to customer environment
+│   │   What: Full 89 component platform deployed to customer environment
 │   │   Duration: Hours to days depending on complexity
 │   │   Outcome: Production-grade K8s ecosystem, operational from day 1
 │   │
@@ -654,14 +654,14 @@ Every organization has multiple decision-makers. Each cares about different thin
 
 > You know the stack you want — Kubernetes, GitOps, observability, service mesh. But integrating 40+ CNCF projects into a secure, resilient, production-grade ecosystem takes 2-3 years and a team you cannot hire fast enough.
 >
-> OpenOva delivers the converged ecosystem you would build yourself — if you had the time and the team. But here is what you would not build: Specter has pre-built semantic knowledge of every CRD schema, integration dependency, and failure mode across all 56 components. It sends surgical, structured context to LLMs — not raw log dumps. This is token efficiency as an architectural moat. Your competitors who bolt AI onto unstructured platforms will spend 10x more on inference and get worse results.
+> OpenOva delivers the converged ecosystem you would build yourself — if you had the time and the team. But here is what you would not build: Specter has pre-built semantic knowledge of every CRD schema, integration dependency, and failure mode across all 89 components. It sends surgical, structured context to LLMs — not raw log dumps. This is token efficiency as an architectural moat. Your competitors who bolt AI onto unstructured platforms will spend 10x more on inference and get worse results.
 >
 > Multi-region DR with split-brain protection. Zero-trust security from day one. Full observability. And AI agents that actually understand the infrastructure they manage.
 >
 > We can be your consultant, your platform provider, or both. You choose.
 
 **Key metrics for this persona:**
-- 56 integrated open-source components, every one AI-manageable
+- 89 integrated open-source components, every one AI-manageable
 - Specter's semantic knowledge moat (pre-built, not learned at runtime)
 - Token efficiency: 10x fewer tokens than AI-bolted approaches
 - Multi-region DR with tested failover
@@ -671,7 +671,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 
 **They evaluate the technology. They will operate what we deploy. They care about technical depth, no lock-in, operational reality, and open-source purity.**
 
-> 56 curated, Kustomize-based blueprints. Cilium service mesh with eBPF mTLS. Flux GitOps. Grafana observability stack (Alloy, Loki, Mimir, Tempo). Kyverno policy-as-code with auto-generated PDBs and NetworkPolicies. CNPG for PostgreSQL. Strimzi/Kafka for streaming. Valkey for caching.
+> 89 curated, Kustomize-based blueprints. Cilium service mesh with eBPF mTLS. Flux GitOps. Grafana observability stack (Alloy, Loki, Mimir, Tempo). Kyverno policy-as-code with auto-generated PDBs and NetworkPolicies. CNPG for PostgreSQL. Strimzi/Kafka for streaming. Valkey for caching.
 >
 > Every component exposes structured CRDs. Unified OTel telemetry across the stack. Standardized health endpoints. Declarative GitOps state in Git. This is not just good engineering — it is what makes the platform AI-manageable.
 >
@@ -680,7 +680,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 > Full source access. No proprietary agents. Every blueprint is open source and Kustomize-based. You can read every line, fork if you want, customize what you need.
 
 **Key metrics for this persona:**
-- 56 components, all upstream open source, every one AI-manageable
+- 89 components, all upstream open source, every one AI-manageable
 - Kustomize-based (no proprietary abstraction)
 - Specter decisions are inspectable and auditable
 - Air-gap capable
@@ -692,7 +692,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 
 > Zero-trust from Day 1. Not aspirational — actual.
 >
-> eBPF-enforced network policies via Cilium. Mutual TLS everywhere via service mesh. Kyverno auto-generates PDBs, NetworkPolicies, and security contexts. Trivy scans images in CI/CD, in Harbor registry, and at runtime. Falco for runtime eBPF threat detection. OpenBao runs as an independent Raft cluster in each region with async Performance Replication; ESO syncs secrets to workloads inside the region. SPIFFE/SPIRE issues short-lived (5-minute) workload identities. Coraza WAF with OWASP Core Rule Set.
+> eBPF-enforced network policies via Cilium. Mutual TLS everywhere via service mesh. Kyverno auto-generates PDBs, NetworkPolicies, and security contexts. Trivy scans images in CI/CD, in Harbor registry, and at runtime. Falco for runtime eBPF threat detection. OpenBao runs as an independent Raft cluster in each region with async Performance Replication; ESO syncs secrets to workloads inside the region. Workload identity is enforced via Cilium WireGuard transport encryption plus Kubernetes ServiceAccount TokenReview authentication (SPIFFE/SPIRE-issued SVIDs are a deferred, opt-in follow-up — PR #665). Coraza WAF with OWASP Core Rule Set.
 >
 > Air-gap capable for sovereign deployments. Compliance-ready for PSD2, DORA, NIS2, SOX.
 >
@@ -701,7 +701,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 **Key metrics for this persona:**
 - Zero-trust architecture from day one
 - Continuous compliance posture (not periodic audits)
-- Pre-built compliance mappings across 56 components (PSD2, DORA, NIS2, SOX)
+- Pre-built compliance mappings across 89 components (PSD2, DORA, NIS2, SOX)
 - Automated vulnerability remediation
 - Audit evidence auto-generated
 - All AI operations inspectable and auditable
@@ -760,7 +760,7 @@ Every organization has multiple decision-makers. Each cares about different thin
 |:-----------|:-------:|:-----------------:|:--------------:|:-------:|:---------:|:-----------------:|:---:|
 | **PLATFORM DEPLOYMENT** | | | | | | | |
 | Turnkey K8s platform (hours) | Yes | Partial (weeks) | No | No | No | No (months) | No (years) |
-| Integrated open-source components | 56 | ~15 | ~8 | 1 | 0 | Varies | DIY |
+| Integrated open-source components | 89 | ~15 | ~8 | 1 | 0 | Varies | DIY |
 | Components tested together | Yes | Yes (their stack) | Partial | N/A | N/A | No | No |
 | Blueprints open source & free | Yes | No | Partial | Yes | No | No | N/A |
 | Multi-cloud support | Yes | Yes | Yes | Yes | Yes | Yes | DIY |
@@ -801,13 +801,13 @@ Every organization has multiple decision-makers. Each cares about different thin
 | Predictive failure detection | Yes | No | No | No | No | No | No |
 | Automated remediation | Yes | No | No | No | No | No | No |
 | **AI-NATIVE ARCHITECTURE** | | | | | | | |
-| Pre-built semantic knowledge of ecosystem | Yes (56 components) | No | No | No | No | No | No |
+| Pre-built semantic knowledge of ecosystem | Yes (89 components) | No | No | No | No | No | No |
 | Token-efficient AI operations | Yes (surgical context) | No | No | No | No | No | No |
 | AI-manageable components (structured CRDs + unified telemetry) | Yes (by design) | Partial | No | Partial | No | No | DIY |
 | **SERVICES** | | | | | | | |
 | Transformation consultancy | Yes | Via partners | No | No | No | Yes | No |
 | Managed operations | Yes | Via partners | No | No | No | Yes | No |
-| Expert network (56 OSS) | Yes | RHEL stack only | K3s/RKE only | Crossplane only | No | Generalist | No |
+| Expert network (89 OSS) | Yes | RHEL stack only | K3s/RKE only | Crossplane only | No | Generalist | No |
 | SOW / T&M augmentation | Yes | No | No | No | No | Yes | N/A |
 | Skills transfer & enablement | Yes | Training courses | No | No | No | Yes | N/A |
 | **PRICING & FREEDOM** | | | | | | | |
@@ -819,13 +819,13 @@ Every organization has multiple decision-makers. Each cares about different thin
 ### 9.3 Competitive Advantages by Competitor
 
 **vs. Red Hat OpenShift:**
-OpenShift is a walled garden. Per-core licensing that escalates with scale. A curated but narrow stack (~15 components). Istio sidecars instead of eBPF. No AI-native operations — any AI they add will be bolted onto an architecture not designed for AI-manageability. OpenOva offers broader ecosystem support (56 vs ~15 components), no code lock-in, per-core pricing without the premium markup, and Specter with pre-built semantic knowledge of the entire ecosystem.
+OpenShift is a walled garden. Per-core licensing that escalates with scale. A curated but narrow stack (~15 components). Istio sidecars instead of eBPF. No AI-native operations — any AI they add will be bolted onto an architecture not designed for AI-manageability. OpenOva offers broader ecosystem support (89 vs ~15 components), no code lock-in, per-core pricing without the premium markup, and Specter with pre-built semantic knowledge of the entire ecosystem.
 
 **vs. Rancher / SUSE:**
 Rancher is a cluster management tool, not an integrated platform. It helps you manage Kubernetes, but you still build the platform yourself. No integrated GitOps, no observability stack, no policy engine, no DR automation. No AI-native operations — you would need to build and train AI on an ad-hoc collection of components. OpenOva is the complete AI-native platform, not just the management layer.
 
 **vs. Upbound / Crossplane ecosystem:**
-Upbound focuses on one tool (Crossplane). OpenOva uses Crossplane as one of 56 components. We don't compete with Crossplane - we include it and support it alongside 50+ other projects.
+Upbound focuses on one tool (Crossplane). OpenOva uses Crossplane as one of 89 components. We don't compete with Crossplane - we include it and support it alongside 80+ other projects.
 
 **vs. Humanitec:**
 Humanitec is a platform orchestrator focused on developer experience and the Score specification. It does not provide infrastructure components, security, observability, or operational support. It is complementary in concept but narrow in scope.
@@ -865,7 +865,7 @@ REVENUE STREAMS
 └── FRANCHISE (Recurring, Indirect)
     ├── Per-vCPU subscription on every franchised Sovereign (same per-core
     │   model as direct customers — the franchisee passes it through to
-    │   their tenants and OpenOva's share is computed off the gross)
+    │   their Organizations and OpenOva's share is computed off the gross)
     └── Bilateral revenue-split contract per Franchisee (Omantel,
         regional resellers, hyperscaler partners)
 ```
@@ -881,7 +881,7 @@ Revenue comes from:
 - Managed services (we own the pager)
 - Transformation consulting (the journey)
 
-**All software is free.** We do not charge for any software component. The entire 56 component platform is open source and free to deploy. Revenue is exclusively from per-vCPU-core platform support subscriptions. No per-component charges. No software licensing fees. Ever.
+**All software is free.** We do not charge for any software component. The entire 89 component platform is open source and free to deploy. Revenue is exclusively from per-vCPU-core platform support subscriptions. No per-component charges. No software licensing fees. Ever.
 
 ### 10.3 Pricing Unit: vCPU Cores Under Management
 
@@ -953,7 +953,7 @@ For ongoing embedded engineering:
 
 | Principle | Rationale |
 |-----------|-----------|
-| **Per-core, not per-component** | Customer shouldn't pay more for using more open-source tools. 56 components for the price of one subscription. |
+| **Per-core, not per-component** | Customer shouldn't pay more for using more open-source tools. 89 components for the price of one subscription. |
 | **Minimum ELA cap** | Ensures baseline revenue per customer. Below minimum, PAYG is available. |
 | **True-up, not penalty** | Customer grows freely. True-up at renewal is a conversation, not a surprise bill. |
 | **Expert hours roll over** | Builds trust. Customer doesn't lose unused hours (within 1 quarter). |
@@ -963,7 +963,7 @@ For ongoing embedded engineering:
 
 ### 10.7 Franchise Revenue Model
 
-The per-vCPU subscription is the primary OpenOva revenue surface and applies to every Sovereign — direct (`openova` runs it for SaaS Organizations) or franchised (`omantel`, regional resellers, hyperscaler partners). The voucher is **not** a separate revenue stream; it is the **user-acquisition surface** that Franchisees use to convert their existing customer base into Catalyst tenants.
+The per-vCPU subscription is the primary OpenOva revenue surface and applies to every Sovereign — direct (`openova` runs it for SaaS Organizations) or franchised (`omantel`, regional resellers, hyperscaler partners). The voucher is **not** a separate revenue stream; it is the **user-acquisition surface** that Franchisees use to convert their existing customer base into Catalyst Organizations.
 
 | Surface | Owner | Pricing basis | Revenue flow |
 |---|---|---|---|
@@ -976,7 +976,7 @@ The per-vCPU subscription is the primary OpenOva revenue surface and applies to 
 
 - The Franchisee can market a "100 OMR free credit" promo to drive signups without OpenOva participating in the marketing campaign or bearing the credit cost. The credit comes off the Franchisee's share, not OpenOva's.
 - OpenOva's revenue model stays uniform. There is no "voucher tier" or "promo SKU" to maintain — every voucher resolves to ordinary credit on an ordinary Order, going through the same Stripe pipeline that direct OpenOva customers use.
-- The Franchisee's own Tenants on their Sovereign pay them through the same per-vCPU surface. The Franchisee sets their pass-through rate (e.g. they buy from OpenOva at €X/core, sell to their SMEs at €Y/core where Y ≥ X). This margin is the Franchisee's primary income; vouchers are a discount instrument the Franchisee chooses to deploy.
+- The Franchisee's own Organizations on their Sovereign pay them through the same per-vCPU surface. The Franchisee sets their pass-through rate (e.g. they buy from OpenOva at €X/core, sell to their SMEs at €Y/core where Y ≥ X). This margin is the Franchisee's primary income; vouchers are a discount instrument the Franchisee chooses to deploy.
 - Revenue split between OpenOva and each Franchisee is governed by a bilateral contract. The split is **NOT** encoded as a per-Sovereign config field — it lives in OpenOva's accounting system, not in the Catalyst code. Stripe charges on franchised Sovereigns carry a `sovereign=<fqdn>` metadata tag; OpenOva's billing rollup queries those charges and pays out monthly.
 
 **What does NOT change for franchised Sovereigns:**
@@ -990,7 +990,7 @@ See §10.8 below for the redemption flow end-to-end.
 ### 10.8 Franchise Model — End-to-End Mechanics
 
 > **Source:** previously `docs/FRANCHISE-MODEL.md` (folded here 2026-05-20).
-> **Authority:** authoritative; the voucher mechanism is already implemented in the existing admin app per the canonical agreement *"Existing admin voucher implementation is the source of truth"* (cf. `docs/PROVISIONING-PLAN.md`). This section documents what's there, not what's planned.
+> **Authority:** authoritative; the voucher mechanism is already implemented in the existing admin app per the canonical agreement *"Existing admin voucher implementation is the source of truth"* (cf. [`docs/RUNBOOKS.md`](RUNBOOKS.md) §11.3.4). This section documents what's there, not what's planned.
 
 This subsection describes the **franchise model** — how a Sovereign owner (the Franchisee) acquires customers via voucher codes, redeems them into Catalyst Organizations, and earns revenue alongside OpenOva. §10.7 above covered the revenue split; §10.8 covers the *mechanics* that make the split work.
 
@@ -1001,7 +1001,7 @@ OpenOva (publisher) ── publishes ──▶ Catalyst (the platform)
                                      │
                                      ├── deployed as ──▶ Catalyst-Zero (Contabo)
                                      │                     │
-                                     │                     ├── provisions ──▶ omantel.omani.works (a franchised Sovereign on Hetzner)
+                                     │                     ├── provisions ──▶ omantel.omani.works (a franchised Sovereign on Huawei kom4dc)
                                      │                     │                    │
                                      │                     │                    ├── omantel-admin issues a voucher (PromoCode)
                                      │                     │                    │
@@ -1074,16 +1074,16 @@ The split percentage is **NOT a per-Sovereign config field** — it's negotiated
 **CAN:**
 
 - Issue their own vouchers (any code, any credit amount, any cap)
-- Curate `catalog-sovereign` Gitea Org with their own private Blueprints (e.g. omantel adds `bp-wordpress`, `bp-jitsi`, `bp-cal-com` for their SME tenants — neither in the public catalog nor accessible to other Sovereigns)
+- Curate `catalog-sovereign` Gitea Org with their own private Blueprints (e.g. omantel adds `bp-wordpress`, `bp-jitsi`, `bp-cal-com` for their SME Organizations — neither in the public catalog nor accessible to other Sovereigns)
 - Set their own marketplace branding (logo, colors, hostname, Keycloak themes)
-- Choose their billing tier for their tenants (the per-tier OMR/USD pricing they pass through)
+- Choose their billing tier for their Organizations (the per-tier OMR/USD pricing they pass through)
 
 **CANNOT:**
 
 - Install non-cosigned Blueprints (Kyverno admission policy enforced on every Sovereign denies unsigned manifests)
 - Modify Catalyst's own CRDs (the bp-catalyst-platform umbrella locks the Catalyst CRD group at install time)
 - Bypass the Sovereign-wide `EnvironmentPolicy` (defined by sovereign-admin in the Sovereign's `system` Gitea Org)
-- See data inside their tenants' Organizations (vcluster + Keycloak realm + OpenBao path isolation prevent cross-tenant access)
+- See data inside the Organizations hosted on their Sovereign (vcluster + Keycloak realm + OpenBao path isolation prevent cross-tenant access)
 
 #### 10.8.5 Cross-Sovereign tenancy and migration
 
@@ -1093,9 +1093,9 @@ A customer can have Organizations on **multiple Sovereigns**. For example:
 
 Each Organization is independent (separate Gitea Org, separate vcluster, separate billing balance). The customer's Keycloak identity may federate across, but Apps and Environments do not.
 
-Per `SOVEREIGN-PROVISIONING.md` §10, an Organization can be exported from one Sovereign and imported into another. The voucher trail and redemption history is part of the export bundle (since both are stored in the same per-Sovereign billing database).
+Per [`docs/RUNBOOKS.md`](RUNBOOKS.md) §9.10.1 (Migrating an Organization between Sovereigns), an Organization can be exported from one Sovereign and imported into another. The voucher trail and redemption history is part of the export bundle (since both are stored in the same per-Sovereign billing database).
 
-When a Franchisee winds down (rare but supported), all their tenants can migrate to OpenOva-run Sovereigns or another Franchisee with no loss of state. The franchise contract specifies the SLA for assisted migration.
+When a Franchisee winds down (rare but supported), all their Organizations can migrate to OpenOva-run Sovereigns or another Franchisee with no loss of state. The franchise contract specifies the SLA for assisted migration.
 
 #### 10.8.6 Voucher shape propagates automatically (#118)
 
@@ -1226,7 +1226,7 @@ This propagation invariant is part of the broader Catalyst-as-platform anchor: *
 
 ### 12.1 Purpose
 
-The expert network is one of OpenOva's most important differentiators. Organizations adopting 56 open-source projects need access to specialists who have deep expertise in each technology - not generalists who have surface-level knowledge of everything.
+The expert network is one of OpenOva's most important differentiators. Organizations adopting 89 open-source projects need access to specialists who have deep expertise in each technology - not generalists who have surface-level knowledge of everything.
 
 OpenOva provides a single relationship that connects customers to verified specialists across the entire CNCF ecosystem and beyond.
 

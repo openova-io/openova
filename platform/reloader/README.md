@@ -42,4 +42,20 @@ spec:
 
 ---
 
+## Configuration knobs
+
+Opt-in is annotation-based (`reloader.stakater.com` namespace):
+
+- `reloader.stakater.com/auto: "true"` — watch every ConfigMap/Secret the workload mounts and roll it on change.
+- `configmap.reloader.stakater.com/reload: "<name>[,<name>…]"` — roll only on the named ConfigMaps.
+- `secret.reloader.stakater.com/reload: "<name>[,<name>…]"` — roll only on the named Secrets.
+- `reloader.stakater.com/match: "true"` — restrict `auto` to resources carrying the matching label.
+
+## Operational notes
+
+- Runs as a single, stateless, leader-elected Deployment **per host cluster** — no cross-region coordination and no per-Organization state, so multi-region topology is simply one Reloader per cluster, each watching only its own cluster's ConfigMaps/Secrets.
+- Negligible footprint; horizontal scaling is not required (one replica watches the whole cluster) and backups are N/A (it holds no persistent state).
+
+---
+
 *Part of [OpenOva](https://openova.io)*

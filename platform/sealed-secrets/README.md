@@ -8,13 +8,13 @@ Transient bootstrap-only secret transport. **Catalyst control plane** (per [`doc
 
 ## Why transient
 
-Per `docs/SOVEREIGN-PROVISIONING.md` §3 (Phase 0 Bootstrap kit):
+Per [`docs/RUNBOOKS.md`](../../docs/RUNBOOKS.md) §0 (Phase 0 Bootstrap kit):
 
 ```
 e. Sealed Secrets (transient, only for bootstrap secrets)
 ```
 
-Sealed Secrets is the standard pattern for "secrets in Git for the first 60 seconds of a cluster's life". After Phase 1 hand-off (per §4), the canonical Catalyst secret backend is OpenBao + ExternalSecrets Operator (ESO). Sealed Secrets stays installed but unused — the controller scales to 0 and the kubeseal CLI is no longer used.
+Sealed Secrets is the standard pattern for "secrets in Git for the first 60 seconds of a cluster's life". After Phase 1 hand-off (per [`docs/RUNBOOKS.md`](../../docs/RUNBOOKS.md) §11 phase plan), the canonical Catalyst secret backend is OpenBao + ExternalSecrets Operator (ESO). Sealed Secrets stays installed but unused — the controller scales to 0 and the kubeseal CLI is no longer used.
 
 Long-term cluster secrets follow the OpenBao path of `org/<org>/env/<env_type>/...` and are materialized into K8s Secrets via ESO `ExternalSecret` CRs.
 

@@ -11,6 +11,11 @@
 
 ---
 
+> **Status (2026-08-26) — errata (ADR body is immutable; notes-only):**
+> - **Partially superseded: the cutover is an 11-step chain, not eight.** The shipped chart `platform/self-sovereign-cutover/chart` runs templates 01..11 — the eight in §3.3 plus `09 gitea-token-mint`, `10 vcluster-registry-pivot`, `11 crossplane-provider-pivot`. The 10-minute deny-egress independence proof is **step 08** (steps 09–11 follow it), not the final step. The **eight tethers** in §2.1 remain correct. See `docs/STATUS.md` §2.2 and `docs/ARCHITECTURE.md`.
+> - **Consolidated links:** `INVIOLABLE-PRINCIPLES.md` → [`../PRINCIPLES.md`](../PRINCIPLES.md) (Principle #11); `SOVEREIGN-PROVISIONING.md` → [`../RUNBOOKS.md`](../RUNBOOKS.md). Both were folded in under the lean-doc strategy — read the §3.4 and footer references accordingly.
+> - **Substrate moved:** the §2.1 tether audit cites `infra/hetzner/…`; provisioning IaC now lives under `infra/providers/huawei/` (current substrate is Huawei kom4dc; Hetzner is legacy).
+
 ## 1. Status
 
 Accepted 2026-05-04. This ADR extends ADR-0001; it does not contradict it. Section 4 of ADR-0001 (component layout) and section 11 of `ARCHITECTURE.md` (Catalyst-on-Catalyst) are now read in conjunction with this document. The sovereignty cutover described here is the **canonical** path by which a franchised Sovereign sheds its mothership tether after handover.

@@ -10,7 +10,7 @@ Component technology assessment and strategic forecast for the OpenOva platform.
 
 ## Overview
 
-This document provides a forward-looking assessment of all 56 platform components, evaluating their relevance trajectory through 2027 and 2030 in the context of AI-driven development, regulatory evolution, and cloud-native ecosystem maturation.
+This document provides a forward-looking assessment of the 57 platform components scored below — **29 Mandatory** (28 table rows plus OpenTelemetry, which is mandatory but has no `platform/` directory; note `spire` is now **deferred** per PR #665) plus **28 A La Carte** — evaluating their relevance trajectory through 2027 and 2030 in the context of AI-driven development, regulatory evolution, and cloud-native ecosystem maturation. **This is a 2026-04-28 point-in-time snapshot; the `platform/` tree has since grown to ~105 folders (89 chart-bearing), which this component-relevance forecast does not re-score.**
 
 ---
 
@@ -56,7 +56,7 @@ Factors considered: AI replacement risk, regulatory demand, ecosystem maturity, 
 | reloader | 80 | 80 | 78 | Stable | Simple operator, high value |
 | failover-controller | 82 | 82 | 80 | Stable | Multi-region failover always needed |
 | keycloak | 85 | 85 | 85 | Stable | Catalyst control-plane identity — per-Org realms in SME, per-Sovereign realm in corporate |
-| spire | 88 | 90 | 92 | Rising | SPIFFE/SPIRE workload identity — 5-min rotating SVIDs, root server on mgt + per-host-cluster agent. Zero-trust mTLS substrate beneath Cilium. |
+| spire | — | — | — | Deferred | **DEFERRED — opt-in only per PR [#665](https://github.com/openova-io/openova/pull/665) (2026-05-03).** Canonical workload identity is Cilium WireGuard (kernel-layer east-west encryption) + K8s ServiceAccount TokenReview (audience-scoped 1h projected bound-tokens); the `platform/spire/` chart is retained opt-in. Re-introduction roadmap: TBD-V29 (#2055). |
 | nats-jetstream | 90 | 92 | 92 | Rising | Catalyst control-plane event spine (pub/sub + Streams + KV). Apache 2.0. Replaces Redpanda + Valkey for the control plane only; per-Organization Accounts. |
 | sealed-secrets | 75 | 70 | 60 | Declining | Transient Phase-0 bootstrap-only — used to seal the initial OpenBao unseal keys before ESO + OpenBao take over day-2 secret distribution. Decommissioned after Phase 1. |
 
@@ -159,8 +159,8 @@ OpenTelemetry is mandatory but has no separate platform directory - it is deploy
 | LangServe | 73 | Custom RAG behind KServe (AI generates integration code) |
 | SearXNG | 40 | LLM Gateway tool registry replaces meta-search |
 | Camel K | 20 | AI generates integration code directly |
-| Dapr | 30 | Sidecar overhead unnecessary; Kafka + custom code |
-| RabbitMQ | 25 | Kafka covers event streaming |
+| Dapr | 30 | Sidecar overhead unnecessary; control-plane events ride NATS JetStream, with app-tier streaming via an opt-in Kafka/Strimzi Blueprint + custom code |
+| RabbitMQ | 25 | Control-plane event spine is NATS JetStream; an opt-in Kafka/Strimzi Blueprint covers app-tier streaming only |
 | ActiveMQ | 12 | JMS legacy, no modern use case |
 | Vitess | 15 | MySQL sharding is niche |
 | Lago | 58 | Billing is customer-specific, not platform concern |

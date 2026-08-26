@@ -4,6 +4,8 @@
 >
 > ADR numbering preserves slots 0005-0008 for in-flight EPICs (G92/G105/G108/G112 candidates) — Wave-0 picks 0009 deliberately so this ADR can land without ordering coupling. Wave-1 may renumber if the in-flight ADRs collapse out of scope; renumbering this one is a pure-rename refactor.
 
+> **Status (2026-08-26) — errata (ADR body is immutable; note only):** the Alternatives (#1) and Consequences prose below use "tenant"/"tenants" and "operators" for actors; per `docs/GLOSSARY.md` the canonical terms are **Organization** (not tenant) and **sovereign-admin** (not operator) — as this ADR's §Context already writes "Sovereign-admin". Read the historical wording accordingly.
+
 ## Context
 
 G117 (Application Lifecycle Phase 2) needs every Organization to own a Git repo at `gitea.<sov>/<org>/iac` that stores the Org's declarative state:

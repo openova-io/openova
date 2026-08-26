@@ -12,7 +12,7 @@ NewAPI is the open-source multi-tenant gateway upstream at [github.com/Calcium-I
 
 1. **Multi-tenant primitives are first-class.** Users, credit balances, per-key rate limits, channel routing, billing logs, and admin RBAC are baked in. The blueprint surfaces these via the upstream's HTTP admin API.
 2. **Backend-only deployment is the Catalyst-supported mode.** The upstream NewAPI ships a customer-facing portal UI; in a Catalyst Sovereign, that UI is **not** the customer surface — Catalyst is. NewAPI's UI is reachable on a separate `admin.<host>` virtual host gated by the Sovereign operator's IdP, used by ops staff for channel configuration, balance reconciliation, and audit review.
-3. **Compliance defaults are enforced at the blueprint layer.** Channel provenance attestation, geographic AUP enforcement, and BYOK isolation are configured at install time and cannot be silently bypassed by per-tenant overlays.
+3. **Compliance defaults are enforced at the blueprint layer.** Channel provenance attestation, geographic AUP enforcement, and BYOK isolation are configured at install time and cannot be silently bypassed by per-Organization overlays.
 
 `bp-newapi` is the install unit a Sovereign operator chooses when they intend to **resell LLM capacity** — not when they intend to consume it themselves. For self-consumption (one organisation, one bill), `bp-llm-gateway` (LiteLLM-based) is the simpler answer.
 
@@ -150,7 +150,7 @@ The blueprint enforces these defaults; each is configurable but with explicit wa
 | `audit.retentionDays` | `730` (2 years) | Per-channel audit log of every request (metadata only — not prompt content unless operator opts in) is retained on the bp-cnpg Postgres. |
 | `reseller.disclosureRequired` | `true` | The operator must publish a `/legal/llm-providers` page listing the upstream providers they resell. The blueprint's smoke test asserts the page exists at install time. |
 
-See [`docs/COMPLIANCE-CHANNELS.md`](../../docs/COMPLIANCE-CHANNELS.md) for the channel-attestation form, the AUP-enforcement rule format, and the reseller-disclosure boilerplate.
+See [`docs/PRINCIPLES.md`](../../docs/PRINCIPLES.md) for the channel-attestation form, the AUP-enforcement rule format, and the reseller-disclosure boilerplate.
 
 ---
 
@@ -180,7 +180,7 @@ This checklist is the canonical install path. Anyone picking up this blueprint w
    - **Commercial resale** — `type: openai-compatible`, `endpoint: https://api.<provider>.com/v1`, `existingSecret: <secret-with-provider-key>`, `attestation: { kind: commercial-contract, accountId: <provider-account-id>, contractRef: <doc-link> }`.
    - **BYOK** — `type: byok-passthrough`, `allowedProviders: [anthropic, openai, google]`, `attestation: { kind: byok }`.
 
-3. **Provision external secrets.** For each commercial channel, create an ExternalSecret in the `newapi` namespace pulling from the operator's secret store (OpenBao backed). Required keys depend on provider; see `docs/COMPLIANCE-CHANNELS.md`.
+3. **Provision external secrets.** For each commercial channel, create an ExternalSecret in the `newapi` namespace pulling from the operator's secret store (OpenBao backed). Required keys depend on provider; see `docs/PRINCIPLES.md`.
 
 4. **Provision the Postgres database.** Create a Catalyst Crossplane claim of kind `PostgresqlInstance` in the `newapi` namespace, named `newapi-db`. Bp-cnpg will reconcile it to a managed Postgres cluster. The connection string is exposed as a Kubernetes secret.
 
@@ -196,7 +196,7 @@ This checklist is the canonical install path. Anyone picking up this blueprint w
    - `catalyst.newapi.adminTokenSecret: catalyst-newapi-admin-token`
    - The Catalyst signup hook will begin issuing per-user keys against NewAPI on user signup.
 
-7. **Configure CLI agent preconfiguration.** Build the `acme-cli` launcher (or container image) per `docs/CATALYST-CLI-AGENT.md` and publish it to the operator's GHCR. Customers download from their dashboard.
+7. **Configure CLI agent preconfiguration.** Build the `acme-cli` launcher (or container image) per `docs/RUNBOOKS.md` and publish it to the operator's GHCR. Customers download from their dashboard.
 
 8. **Run the compliance smoke test.** `make test-blueprint-newapi-compliance` verifies that:
    - All enabled channels carry valid attestation
@@ -207,7 +207,7 @@ This checklist is the canonical install path. Anyone picking up this blueprint w
 ### Do not skip
 
 - **Compliance smoke test before customer-facing announcement.** A NewAPI deployment that hasn't passed the smoke test must not be exposed to real customers.
-- **Reseller terms in the customer ToS.** The operator's legal counsel must approve the disclosure language. Boilerplate in `docs/COMPLIANCE-CHANNELS.md`.
+- **Reseller terms in the customer ToS.** The operator's legal counsel must approve the disclosure language. Boilerplate in `docs/PRINCIPLES.md`.
 - **Per-user spending caps as a default policy.** New customers should land with a small initial credit and an explicit top-up flow, not an open-budget key. This protects both the operator and the customer from runaway costs.
 
 ---
@@ -252,8 +252,8 @@ A Sovereign may install **both** when it has internal LLM consumption (via `bp-l
 ## See also
 
 - [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.6 — LLM Serving section
-- [`docs/COMPLIANCE-CHANNELS.md`](../../docs/COMPLIANCE-CHANNELS.md) — channel attestation, AUP enforcement, reseller-disclosure boilerplate
-- [`docs/CATALYST-CLI-AGENT.md`](../../docs/CATALYST-CLI-AGENT.md) — preconfigured CLI agent packaging
+- [`docs/PRINCIPLES.md`](../../docs/PRINCIPLES.md) — channel attestation, AUP enforcement, reseller-disclosure boilerplate
+- [`docs/RUNBOOKS.md`](../../docs/RUNBOOKS.md) — preconfigured CLI agent packaging
 - [`docs/PRINCIPLES.md`](../../docs/PRINCIPLES.md) — non-negotiable platform rules
 - [`platform/llm-gateway/README.md`](../llm-gateway/README.md) — sibling blueprint for self-consumption use cases
 - [`platform/vllm/README.md`](../vllm/README.md) — required dependency for the cheap-tier channel

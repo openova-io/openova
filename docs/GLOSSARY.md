@@ -1,7 +1,7 @@
 # Glossary
 
 > **Status:** Canonical. Single source of truth for OpenOva terminology AND for banned terms forbidden in code/docs/UI.
-> **Updated:** 2026-05-20.
+> **Updated:** 2026-08-26.
 > **Note:** Terms here describe the agreed model. For which terms map to currently-implemented code vs design-stage, see [`STATUS.md`](STATUS.md).
 
 Every other document defers to this file. When a term in another doc looks contested, this file wins. New terminology is proposed here first, then propagated. The Banned-terms section (§Banned terms below) is also authoritative: there is no separate `docs/BANNED-TERMS.md`.
@@ -177,7 +177,7 @@ Test provs and tenant Organizations use the canonical pool zones defined in [`DO
 | `omantel.openova.io` | Hallucinated subdomain — does not exist. | `omantel.omani.works` (real franchised Sovereign FQDN) |
 | `Nova Cloud` *(as a product name)* | "Nova" was the predecessor brand to OpenOva. Never reintroduce as a current product. | `openova` (the Sovereign run by OpenOva) |
 | `eventforge.io` | Hallucinated test app domain — does not exist. | The canonical demo app is **EventForge** installed under a real tenant Org slug, e.g. `eventforge.<orgslug>.omani.homes`. |
-| `admin.<sovereign-fqdn>` *(as the voucher / billing surface)* | The legacy `admin.<fqdn>` URL is dead — BSS (voucher, billing, catalog, orders, tenants) lives inside the operator console at `console.<sovereign-fqdn>/bss`. | `console.<sovereign-fqdn>/bss` |
+| `admin.<sovereign-fqdn>` *(as the voucher / billing surface)* | The legacy `admin.<fqdn>` URL is dead — BSS (voucher, billing, catalog, orders, Organizations) lives inside the sovereign-admin console at `console.<sovereign-fqdn>/bss`. | `console.<sovereign-fqdn>/bss` |
 
 ---
 
