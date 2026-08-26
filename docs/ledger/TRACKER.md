@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-26T07:00:04Z` |
+| Last refreshed | `2026-08-26T07:15:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-26T07:12 | [#6693](https://github.com/openova-io/openova/pull/6693) | #6690 | docs(uat): re-walk the 20 UI-only rows on live hw305 — 7 fli |
 | 2026-08-26T05:56 | [#6692](https://github.com/openova-io/openova/pull/6692) | docs: repair 39 broken cross-references |  |
 | 2026-08-26T05:36 | [#6691](https://github.com/openova-io/openova/pull/6691) | #665 | docs: full-repo integrity pass — 426 fixes across 92 docs +  |
 | 2026-08-25T06:22 | [#6690](https://github.com/openova-io/openova/pull/6690) | docs(uat): correct evidence integrity — 52 filler-screenshot |  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-24T00:05 | [#6665](https://github.com/openova-io/openova/pull/6665) | #4282 | docs(uat): row 238 — per-Org postgres-in-vCluster host-side  |
 | 2026-08-23T23:00 | [#6664](https://github.com/openova-io/openova/pull/6664) | docs(uat): hw305 row 108 → ✅265 (placement-from-runtime, #36 |  |
 | 2026-08-23T22:37 | [#6663](https://github.com/openova-io/openova/pull/6663) | #5940 | docs(uat): hw305 row 3 → ✅264 (redeem→/dashboard owner bounc |
-| 2026-08-23T22:05 | [#6662](https://github.com/openova-io/openova/pull/6662) | #4272 | docs(uat): hw305 row 224 → ✅263 (per-Org bp-openclaw control |
 
 ---
 
