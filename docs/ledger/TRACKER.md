@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-26T10:15:03Z` |
+| Last refreshed | `2026-08-26T10:30:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6076](https://github.com/openova-io/openova/issues/6076) | Organizations parent row has an unstable identity: link target flips between /or | Other |
 | [#6077](https://github.com/openova-io/openova/issues/6077) | Job re-run on a collapsed scanner identity row 422s and fails invisibly: syft-sb | Other |
 | [#6079](https://github.com/openova-io/openova/issues/6079) | mothership GitOps loop dead: containerd's ghcr pull carries a credential GHCR de | Other |
 | [#6081](https://github.com/openova-io/openova/issues/6081) | Per-Org console: the install wizard's Organization list is empty because the dir | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6629](https://github.com/openova-io/openova/issues/6629) | Customer-org (vcluster/plan-M) provisioning wedges at bp_charts_installed — CN | Other |
 | [#6645](https://github.com/openova-io/openova/issues/6645) | cutover step-01 wedge on hw305: #6490 secondary-region gitea-mirror push fails ' | Other |
 | [#6695](https://github.com/openova-io/openova/issues/6695) | dashboard(treemap): converged Sovereign defaults to real resource/health map, no | Other |
+| [#6697](https://github.com/openova-io/openova/issues/6697) | console: index.html served without Cache-Control — rolled deploys invisible un | Other |
 
 ---
 
