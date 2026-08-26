@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-26T18:15:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-08-26T18:30:07Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-26T18:15 | [#6702](https://github.com/openova-io/openova/pull/6702) | #6695 | feat(jobs): distinct Kind-chip colour per engine, grouped by |
 | 2026-08-26T14:06 | [#6701](https://github.com/openova-io/openova/pull/6701) | #6695 | fix(jobs): Kind column badge shows real engine name (re-cut) |
 | 2026-08-26T13:52 | [#6700](https://github.com/openova-io/openova/pull/6700) | #4 | feat(jobs): real engine names in /jobs Kind filter + treemap |
 | 2026-08-26T13:39 | [#6699](https://github.com/openova-io/openova/pull/6699) | #6695 | feat(console): rename Cloud → Resources (Resources/Jobs re-c |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-24T04:02 | [#6672](https://github.com/openova-io/openova/pull/6672) | #800 | docs(uat): row 14 ⏳→✅ — shared-pg reuse LIVE, multiple consu |
 | 2026-08-24T03:48 | [#6671](https://github.com/openova-io/openova/pull/6671) | #3376 | docs(uat): row 93 ⏳→✅ — 2nd-org funnel generality (walkstran |
 | 2026-08-24T02:39 | [#6670](https://github.com/openova-io/openova/pull/6670) | #4439 | docs(uat): record hw305 diagnostics in the 4 ⏳ rows (14/93/1 |
-| 2026-08-24T02:10 | [#6669](https://github.com/openova-io/openova/pull/6669) | #4439 | docs(sessions): hw305 convergence report 2026-08-24 (✅270/28 |
 
 ---
 
