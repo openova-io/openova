@@ -44,7 +44,7 @@ secondary CPs set it to `secondary`. The slot 58 manifest's
 ## Topology dependency
 
 ```text
-Phase 0 (cloud-init Hetzner CP)
+Phase 0 (cloud-init CP node)
    ↓
 bp-cilium             — CNI + Gateway API (slot 01)
    ↓
@@ -66,7 +66,7 @@ bp-rtz-vcluster       — slot 59 (secondary-only)
 ## See also
 
 - `docs/DOD.md` — A4 contract
-- `infra/hetzner/README.md` lines 50-100 — topology diagram
+- `infra/providers/hetzner/README.md` §Phase-2 topology — topology diagram (provider-agnostic DMZ-WG example)
 - `platform/bp-dmz-vcluster/` — companion (every region)
 - `platform/bp-rtz-vcluster/` — companion (secondary regions)
 - `scripts/expected-bootstrap-deps.yaml` slot 58 — dependency-graph audit declaration

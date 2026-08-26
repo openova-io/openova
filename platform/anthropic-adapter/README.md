@@ -1,6 +1,6 @@
 # Anthropic Adapter
 
-OpenAI-compatible proxy for Anthropic Claude API. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.6). Lets Apps written against the OpenAI SDK call Anthropic Claude with no code change. Pairs with the LLM Gateway in `bp-cortex`.
+OpenAI-compatible proxy for Anthropic Claude API. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §7 — Application Blueprints). Lets Apps written against the OpenAI SDK call Anthropic Claude with no code change. Pairs with the LLM Gateway in `bp-cortex`.
 
 **Status:** Accepted | **Updated:** 2026-04-27
 

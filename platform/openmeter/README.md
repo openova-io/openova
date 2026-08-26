@@ -81,4 +81,4 @@ bash platform/openmeter/chart/tests/observability-toggle.sh
 
 ---
 
-*Part of [OpenOva](https://openova.io). Closes #272.*
+*Part of [OpenOva](https://openova.io).*

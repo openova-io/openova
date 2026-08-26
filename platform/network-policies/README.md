@@ -22,7 +22,7 @@ EPIC-5 ships the wiring that turns it on as part of the zero-trust roll-out.
 
 **Pod-to-Pod within the SAME namespace** is intentionally NOT handled here.
 Cilium `CiliumClusterwideNetworkPolicy` cannot express "same namespace as the
-source Pod" without enumerating every namespace explicitly — that's a per-tenant
+source Pod" without enumerating every namespace explicitly — that's a per-Organization
 concern. The `organization-controller` (slice C1 of #1095) renders a
 per-namespace `CiliumNetworkPolicy` (CNP, namespace-scoped) at Organization
 creation time, with implicit same-namespace allow semantics.

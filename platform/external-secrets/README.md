@@ -73,7 +73,7 @@ sequenceDiagram
     TF->>OpenBao: Provision & initialize
     OpenBao->>Wizard: Return unseal keys
     Note over Wizard: sovereign-admin saves unseal keys offline
-    ESO->>OpenBao: Connect via SPIFFE SVID (workload identity)
+    ESO->>OpenBao: Connect via K8s ServiceAccount TokenReview (Cilium WireGuard workload identity, SPIRE/SPIFFE deferred per PR 665)
 ```
 
 ---
@@ -246,7 +246,7 @@ spec:
 |--------|---------|------------|
 | `gitea-token` | Flux access to Gitea | Bootstrap |
 | `cloudflare-credentials` | ExternalDNS | Bootstrap |
-| `hetzner-credentials` | Cloud provider | Bootstrap |
+| `huawei-credentials` | Cloud provider (kom4dc substrate; legacy `hetzner-credentials`) | Bootstrap |
 | `openbao-unseal-keys` | OpenBao auto-unseal | Displayed once |
 | `db-credentials` | Database passwords | ESO Generator |
 

@@ -28,7 +28,7 @@ Per `ARCHITECTURE.md` §11.2 bullet 4:
 
 The `chart/` directory wraps the upstream NATS Helm chart with Catalyst-curated values: 3-node cluster, JetStream enabled, file-store PVC, ServiceMonitor for Prometheus.
 
-Installed by the Catalyst bootstrap kit during Phase 0 (per `docs/SOVEREIGN-PROVISIONING.md` §3) — after SPIRE and before OpenBao (which uses NATS for its own audit log).
+Installed by the Catalyst bootstrap kit during Phase 0 (per [`docs/RUNBOOKS.md`](../../docs/RUNBOOKS.md) §1 — Fresh provisioning) — before OpenBao (which uses NATS for its own audit log). (SPIRE is not a preceding step: SPIFFE/SPIRE is deferred/opt-in per PR #665; canonical workload identity is Cilium WireGuard + K8s SA TokenReview.)
 
 OCI artifact: `ghcr.io/openova-io/bp-nats-jetstream:1.0.0`.
 

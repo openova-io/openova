@@ -11,6 +11,8 @@
 
 > **2026-05-08 amendment (rule 3 clarification)**: Reconciling RoleBindings, Kustomizations, ConfigMaps, and other K8s-to-K8s objects is the responsibility of Flux Kustomizations or thin in-cluster controllers — not Crossplane Compositions. The `useraccess-controller` is the canonical example: it watches `UserAccess` CRs and reconciles RoleBindings/ClusterRoleBindings via the kubernetes Go clientset. The earlier `XUserAccess` Composition that used `provider-kubernetes` is retired in EPIC-0 (#1095).
 
+> **Status (2026-08-26) — errata (immutable body preserved as accepted):** This ADR stays architecturally canonical, but three points are overtaken by later decisions and are corrected here without rewriting the body below. (1) **Cloud substrate** — Hetzner / `provider-hcloud` is now **legacy**; the current substrate is **Huawei kom4dc** (regions `me-east-215-a` / `me-east-215-b`). Read every `Hetzner` / `provider-hcloud` / `Server.hcloud.crossplane.io` mention below (§5 read-path, §7 diagram, §9.1) as a provider-agnostic illustration. (2) **Provisioning seam** — the live Day-2 cloud-provisioning path is **OpenTofu** (per-deployment `tofu.auto.tfvars.json` on the `catalyst-api-deployments` PVC) per **ADR-0011 (opentofu-crossplane-adoption-seam)**; Crossplane is an adoption seam, not the sole Day-2 seam that §2 Principle 2 and §9.1 assert. (3) **Terminology** — "Tenant" / "tenant" throughout this pre-GLOSSARY ADR (including §2 Principle 7 and the §11 glossary row) means what [`GLOSSARY.md`](../GLOSSARY.md) now calls **Organization**. See [`STATUS.md`](../STATUS.md) §2.2.
+
 ---
 
 ## 1. Why this exists

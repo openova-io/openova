@@ -87,7 +87,7 @@ ignores any `namespace:` field on the apiKeySecretRef and reads the
 Secret from cert-manager's cluster-resource-namespace). The Secret's
 `api-key` value MUST match the API key configured on contabo's central
 PowerDNS — provisioned by cloud-init at control-plane boot time
-(infra/hetzner/cloudinit-control-plane.tftpl).
+(infra/providers/_shared/cloudinit-control-plane.tftpl).
 
 Per `docs/PRINCIPLES.md` #4 every URL/zone is operator-
 overridable. No hardcoded `omantel.omani.works` lives in this chart.
@@ -124,6 +124,7 @@ kubectl get certificate,order,challenge -A -w
 
 ## See also
 
+- `docs/ARCHITECTURE.md` — Catalyst architecture; this webhook sits in the cert-issuance / DNS-01 path
 - Upstream: https://github.com/zachomedia/cert-manager-webhook-pdns
 - `platform/cert-manager/chart/templates/clusterissuer-letsencrypt-dns01.yaml` — legacy `letsencrypt-dns01-prod` (now default-disabled; was dynadot-backed)
 - `platform/powerdns/` — the per-Sovereign DNS authority for app-level records (NOT in the cert-issuance path)

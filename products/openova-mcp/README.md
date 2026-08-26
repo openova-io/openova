@@ -13,7 +13,7 @@ This module is the **first concrete, live-testable slice** of the EPIC. It
 ships:
 
 1. **The MCP server core** (`cmd/openova-mcp`) — JSON-RPC 2.0 over stdio,
-   the same proven transport the sandbox MCP uses.
+   the transport the earlier (now-retired) Sandbox MCP prototype used.
 2. **Per-relevant-Keycloak identity resolution** (`internal/identity`) —
    parses the bearer into `auth.Claims`, derives the realm **context**
    (Organization vs Sovereign), the **tier** (viewer<developer<operator<

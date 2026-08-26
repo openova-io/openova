@@ -26,8 +26,8 @@ per-Sovereign overlay paths.
 This `platform/bp-dmz-vcluster` is the **bootstrap topology** piece —
 it lands on every Sovereign region by design (slot 54).
 
-`products/dmz-vcluster` is a **per-tenant marketplace** piece — a
-customer-facing capability operators install via the Sovereign Console
+`products/dmz-vcluster` is a **per-Organization marketplace** piece — a
+customer-facing capability sovereign-admins install via the Sovereign Console
 when a customer requests a DMZ for their workloads. The two charts
 serve different layers and may coexist; this Blueprint takes priority
 for the bootstrap topology.
@@ -36,7 +36,7 @@ for the bootstrap topology.
 > `products/dmz-vcluster` chart's `name:` field is `bp-dmz-vcluster-tenant`
 > (NOT `bp-dmz-vcluster`). They were the same name historically, which
 > made `scripts/check-bootstrap-kit-pin-sync.sh` unable to map each
-> bootstrap-kit pin to exactly one source chart. The per-tenant
+> bootstrap-kit pin to exactly one source chart. The per-Organization
 > marketplace variant was renamed to `bp-dmz-vcluster-tenant`; this
 > chart (the bootstrap topology piece pinned at slot 54) keeps the
 > canonical `bp-dmz-vcluster` name.
@@ -57,8 +57,8 @@ for the bootstrap topology.
 ## See also
 
 - `docs/DOD.md` — A4 + A2 contract
-- `infra/hetzner/README.md` lines 50-100 — topology diagram
+- `infra/providers/hetzner/README.md` §Phase-2 topology — topology diagram (provider-agnostic DMZ-WG example)
 - `platform/bp-mgmt-vcluster/` — companion (primary-only)
 - `platform/bp-rtz-vcluster/` — companion (secondary-only)
-- `products/dmz-vcluster/` — separate per-tenant marketplace artifact
+- `products/dmz-vcluster/` — separate per-Organization marketplace artifact
 - `scripts/expected-bootstrap-deps.yaml` slot 54

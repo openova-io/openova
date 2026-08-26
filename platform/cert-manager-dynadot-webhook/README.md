@@ -48,9 +48,8 @@ webhook via `solvers[].dns01.webhook.groupName + solverName`. The two
 charts MUST be deployed on the same Sovereign and bp-cert-manager-dynadot-
 webhook MUST be Ready before any wildcard `Certificate` is requested.
 
-The `bp-cert-manager` chart now ships with `dns01.enabled: true` by
-default (changed in this PR — was `false` while the webhook was being
-built). The interim `letsencrypt-http01-prod` issuer remains templated
+The `bp-cert-manager` chart ships with `dns01.enabled: true` by
+default. The interim `letsencrypt-http01-prod` issuer remains templated
 as the rollback path; flip `certManager.issuers.dns01.enabled=false` in
 the umbrella values to disable wildcard issuance and continue with
 per-host certs.

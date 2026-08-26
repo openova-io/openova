@@ -3,6 +3,8 @@
 Status: Accepted
 Date: 2026-06-10
 
+> **Status (2026-08-26) — errata (ADR body is immutable; note only):** the Context and Consequences prose uses "operator" for the human actor and "SME tenant" for a customer; per `docs/GLOSSARY.md` the canonical terms are **sovereign-admin** (the person) and **Organization** (not tenant). The software-operator references ("the CNPG operator reconciles", "bp-cnpg (the operator + CRDs)") are correct and unchanged. Read the historical wording accordingly.
+
 ## Context
 
 Today every Postgres-backed Blueprint (`bp-gitea`, `bp-harbor`, `bp-powerdns`,

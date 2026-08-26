@@ -135,7 +135,7 @@ The TypeScript Worker source + tofu deploy module. The Worker exposes
 a small API (acquire / renew / release / read) backed by a CF KV
 namespace + a Durable Object for atomic CAS. Deployed via the existing
 `tofu apply` pattern that already manages our Cloudflare zones
-(MULTI-REGION-DNS.md §3).
+(see the multi-region DNS runbook in [`docs/RUNBOOKS.md`](../../docs/RUNBOOKS.md)).
 
 ## Lease witness API contract — sketch for K-Cont-2
 

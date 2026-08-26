@@ -75,6 +75,8 @@ Everything else is identical in code.
 
 ### §1.2 Topology overview
 
+> The `hz-*` cluster names below are **illustrative naming examples** (the naming grammar in §4). The current operative substrate is **Huawei Cloud kom4dc** (regions `me-east-215-a` / `me-east-215-b`); the same topology is provider-neutral and applies unchanged on Huawei, Hetzner, OCI, or a provider mix.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ Sovereign: <sovereign-fqdn>                                              │
@@ -162,25 +164,30 @@ graph TB
 
 ```
 openova/
-├── core/                   # Catalyst control-plane application (Go)
-│   ├── apps/               # target: console/, projector/, environment-controller/, etc.
-│   │                       # current: empty .gitkeep + legacy bootstrap/manager/ placeholders
-│   ├── internal/           # domain, application, adapters, events
-│   ├── pkg/apis/           # CRD types: Sovereign, Organization, Environment,
-│   │                       # Application, Blueprint, EnvironmentPolicy, SecretPolicy,
-│   │                       # Runbook, Continuum
-│   ├── ui/                 # frontend (Astro 5 + Svelte 5 islands)
-│   └── deploy/             # K8s manifests per control-plane component
+├── core/                   # Catalyst control-plane application (Go — one module per component)
+│   ├── console/            # per-Organization tenant console (`org-console`, Astro + Svelte)
+│   ├── marketplace/        # customer storefront + funnel (`org-marketplace`)
+│   ├── marketplace-api/    # marketplace REST API
+│   ├── controllers/        # CRD reconcilers: organization / environment / application /
+│   │                       # blueprint / continuum / useraccess
+│   ├── pool-domain-manager/# subdomain-pool reconciler (.omani.* etc.)
+│   ├── pkg/apis/           # CRD types: Sovereign, Organization, Environment, Application,
+│   │                       # Blueprint, EnvironmentPolicy, SecretPolicy, Runbook, Continuum
+│   ├── cmd/                # per-binary entry points (main.go)
+│   ├── services/           # per-microservice scaffolding (e.g. catalog)
+│   └── admin/              # admin tooling
 ├── platform/               # Component Blueprint folders — one folder per upstream OSS project
 │   ├── cilium/  cnpg/  cnpg-pair/  continuum/  flux/  gitea/  keycloak/  openbao/  …
-│   └── …                   # ~61 folders total
+│   └── …                   # ~105 folders total (89 chart-bearing)
 ├── products/               # Composite Blueprint folders OpenOva ships
 │   ├── catalyst/           # Target: bp-catalyst-platform umbrella
 │   ├── cortex/             # AI Hub
 │   ├── axon/               # SaaS LLM Gateway
 │   ├── fingate/            # Open Banking
 │   ├── fabric/             # Data & Integration
-│   └── relay/              # Communication
+│   ├── relay/              # Communication
+│   ├── agenity/            # bp-agenity — per-Org Agenity workspace (Pillar 4)
+│   └── openova-mcp/        # bp-openova-mcp — RBAC-scoped OpenOva MCP server (Pillar 4)
 ├── clusters/
 │   └── _template/          # Canonical bootstrap-kit slots 01..48 (§6)
 └── docs/                   # Canonical platform documentation
@@ -260,9 +267,9 @@ Catalyst layers four orthogonal autoscalers, each addressing a different dimensi
 | Workload (vertical) — right-size pod requests/limits | VPA | `bp-vpa` | 29 | "Pod X uses N MB / M mC, change its requests" |
 | Workload (horizontal, metric-driven) — replicas from CPU/mem | Kubernetes built-in | (HPA is a kube primitive) | n/a | "Service Y is hot, run 5 replicas instead of 2" |
 | Workload (horizontal, event-driven) — replicas from queue depth, NATS lag, cron | KEDA | `bp-keda` | (W3) | "JetStream subject Z has 50k pending msgs, scale consumer to 8" |
-| Node (cluster-wide) — add/remove cloud machines | cluster-autoscaler | `bp-cluster-autoscaler-hcloud` | 40 | "5 pods are FailedScheduling, add a worker" |
+| Node (cluster-wide) — add/remove cloud machines | cluster-autoscaler | `bp-cluster-autoscaler` (per-provider variant) | day-2 | "5 pods are FailedScheduling, add a worker" |
 
-Bounds: cluster-autoscaler is bounded by per-Sovereign `min` / `max` in the HelmRelease overlay; `min` ≤ Tofu Phase-0 worker_count ≤ `max`. Scale-down idle: 10 minutes default. The autoscaler runs on the control-plane node only — it is never scheduled onto a worker it could itself terminate. Hetzner project quota is the ultimate cap.
+Bounds: cluster-autoscaler is bounded by per-Sovereign `min` / `max` in the HelmRelease overlay; `min` ≤ Tofu Phase-0 worker_count ≤ `max`. Scale-down idle: 10 minutes default. The autoscaler runs on the control-plane node only — it is never scheduled onto a worker it could itself terminate. The operative provider's project quota (Huawei kom4dc today) is the ultimate cap.
 
 ### §3.4 License posture
 
@@ -293,6 +300,8 @@ Every Catalyst control-plane component carries an open-source license that allow
 | `bp-fingate` | Open Banking — keycloak (FAPI mode), openmeter, ext_authz + 6 banking services |
 | `bp-fabric` | Data & Integration — strimzi, flink, temporal, debezium, iceberg, clickhouse, seaweedfs |
 | `bp-relay` | Communication — stalwart, livekit, stunner, matrix, guacamole |
+| `bp-agenity` | Per-Org **Agenity** workspace (Pillar 4) — auto-attaches `bp-openova-mcp` with full org knowledge |
+| `bp-openova-mcp` | RBAC-scoped OpenOva MCP server with mutating tools (e.g. `create_application`) — Pillar 4 |
 | `bp-self-sovereign-cutover` | 8-tether pivot — see §5.6 |
 
 **Specter (AIOps agents) and Exodus (migration program) are NOT composite Blueprints** — both are deliverable services, and neither appears in the table above. This corrects a long-standing contradiction (#6114): this line previously called Specter "a composite Blueprint typically installed in corporate Sovereigns", while [`README.md`](../README.md) §"What's in this repo" and [`STATUS.md`](STATUS.md) §1 both said the opposite. The code decides, and it is unambiguous: there is no `products/specter/` directory (zero paths in the tree match `specter`), no chart, no `blueprint.yaml`, no `bp-specter` OCI artifact, and no catalog-seed entry. `bp-specter` is in fact *unpublishable* as things stand — `.github/workflows/blueprint-release.yaml` enumerates release candidates by scanning for `(platform|products)/<name>/(chart/|blueprint.yaml)`, so a name with no such directory can never produce an artifact. `specter` used to survive as a **wizard catalog component id** (`products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.ts`), carried by the catalog-integrity gate in an explicit `KNOWN_UNBUILT` debt allowlist. That card was **removed** under UAT row **W5** / [#6183](https://github.com/openova-io/openova/issues/6183): it installed nothing, yet its `familyRequires: ['cortex']` cascaded nine real CORTEX components into any deployment that ticked it. `KNOWN_UNBUILT` is now empty and the gate's assertion is bidirectional, so re-adding a component that resolves to no Blueprint fails CI. Building a real `bp-specter` — which would restore the card — is tracked separately at [#6318](https://github.com/openova-io/openova/issues/6318); an empty `products/specter/` directory created only to satisfy the resolver would be scaffold theater ([`PRINCIPLES.md`](PRINCIPLES.md) §Anti-pattern-catalog), not a fix.
@@ -501,6 +510,8 @@ flowchart TB
                        └────────────────────┘
 ```
 
+> **Note — `ws.` prefix is a legacy remnant.** The `ws.<env>.*` subject prefix and `ws-<env>-state` KV bucket predate the Workspace→**Environment** term change (see [`GLOSSARY.md`](GLOSSARY.md) §Banned-terms). They are retained only for read-side schema stability; new subjects / buckets should use the `env.<env>` form when the schema is next revised.
+
 The read side is CQRS — one spine, one read model, one consumer, one stream to the console:
 
 ```mermaid
@@ -589,10 +600,10 @@ A franchised Sovereign emerging from Phase 1 is operationally tethered to the Op
 
 The cutover follows a **30/70 model**:
 
-- **OpenTofu provisions ~30%** — k3s install, Cilium, the cold-start `registries.yaml` v1 (routing pulls through `harbor.openova.io` to absorb docker.io rate limits), Flux pointed at `github.com/openova-io/openova`, and bootstrap-kit slots 01–15 + 19. The dormant `bp-self-sovereign-cutover` Blueprint is installed at slot 06a — JobTemplate ConfigMaps + RBAC + status ConfigMap are present, but the eight cutover Jobs are NOT created during Phase 1.
-- **The Sovereign's own ecosystem provisions the remaining ~70%** post-cutover. Once the customer's local Gitea and local Harbor have absorbed the mothership tether, every subsequent reconcile (slots 16–50, day-2 Crossplane operations, Catalyst-platform updates, customer Application installs) flows through the Sovereign's own infrastructure.
+- **OpenTofu provisions ~30%** — k3s install, Cilium, the cold-start `registries.yaml` v1 (routing pulls through `harbor.openova.io` to absorb docker.io rate limits), Flux pointed at `github.com/openova-io/openova`, and bootstrap-kit slots 01–15 + 19. The dormant `bp-self-sovereign-cutover` Blueprint is installed at slot 06a — JobTemplate ConfigMaps + RBAC + status ConfigMap are present, but the eleven cutover Jobs are NOT created during Phase 1.
+- **The Sovereign's own ecosystem provisions the remaining ~70%** post-cutover. Once the customer's local Gitea and local Harbor have absorbed the mothership tether, every subsequent reconcile (slots 16–48, day-2 Crossplane operations, Catalyst-platform updates, customer Application installs) flows through the Sovereign's own infrastructure.
 
-The seam is a single Helm chart with eight sequential Jobs, triggered POST-HANDOVER by an operator click on **"Achieve True Sovereignty"** in the admin console (or, optionally, by `catalyst-api` auto-fire on first login). The eight Jobs are the canonical implementation of the eight-tether map:
+The seam is a single Helm chart running an **11-step chain** (templates 01..11), triggered POST-HANDOVER by a sovereign-admin click on **"Achieve True Sovereignty"** in the admin console (or, optionally, by `catalyst-api` auto-fire on first login). The 11 steps are the canonical implementation of the eight-tether map:
 
 | # | Job | Pivots tether |
 |---|---|---|
@@ -601,19 +612,22 @@ The seam is a single Helm chart with eight sequential Jobs, triggered POST-HANDO
 | 3 | `harbor-prewarm` | Pre-pulls all bootstrap-kit images through local Harbor |
 | 4 | `registry-pivot` | DaemonSet rewrites `/etc/rancher/k3s/registries.yaml` (mothership Harbor → local Harbor) |
 | 5 | `flux-gitrepository-patch` | Flips Flux source to local Gitea |
-| 6 | `helmrepo-patches` | Flips 38 HelmRepositories to local Harbor |
+| 6 | `helmrepository-patches` | Flips 38 HelmRepositories to local Harbor |
 | 7 | `catalyst-api-env-patch` | Removes upstream fallback in `catalyst-api` |
-| 8 | `egress-block-test` | NetworkPolicy deny-egress hold for 10 min — DoD proof |
+| 8 | `egress-block-test` | NetworkPolicy deny-egress hold for 10 min — the sovereignty DoD proof (steps 9–11 follow it) |
+| 9 | `gitea-token-mint` | Mints the local Gitea token for the host GitOps loop |
+| 10 | `vcluster-registry-pivot` | Pivots vcluster control-plane images to the local registry |
+| 11 | `crossplane-provider-pivot` | Pivots Crossplane provider packages off `xpkg.upbound.io` |
 
 ```mermaid
 flowchart LR
   P0[Phase 0<br/>OpenTofu<br/>k3s + cold-start] --> P1[Phase 1<br/>Bootstrap-kit<br/>slots 01-15+19]
-  P1 --> H[Handover<br/>JWT redirect<br/>operator lands]
-  H --> P2[Phase 2<br/>Cutover<br/>8 Jobs + DoD]
+  P1 --> H[Handover<br/>JWT redirect<br/>sovereign-admin lands]
+  H --> P2[Phase 2<br/>Cutover<br/>11 steps + DoD]
   P2 --> D2[Day-2<br/>local Gitea<br/>local Harbor<br/>Crossplane]
 ```
 
-The Phase 2 cutover itself is the 8-Job chain that pivots the 8 mothership tethers — the egress-block hold (Job 8) is the DoD proof, and `cutoverComplete=true` is set only if the cluster reconciles green while github.com / ghcr.io / harbor.openova.io are denied:
+The Phase 2 cutover itself is the 11-step chain that pivots the 8 mothership tethers — the egress-block hold (step 08) is the DoD proof, and `cutoverComplete=true` is set only if the cluster reconciles green while github.com / ghcr.io / harbor.openova.io are denied (steps 09–11 run after the hold):
 
 ```mermaid
 stateDiagram-v2
@@ -621,9 +635,10 @@ stateDiagram-v2
   Tethered --> Mirror: sovereign-admin clicks "Achieve True Sovereignty"
   Mirror --> Registry: 01 gitea-mirror → 02 harbor-projects → 03 harbor-prewarm
   Registry --> Patch: 04 registry-pivot → 05 flux-gitrepository-patch
-  Patch --> Local: 06 helmrepo-patches (38 HelmRepositories) → 07 catalyst-api-env-patch
+  Patch --> Local: 06 helmrepository-patches (38 HelmRepositories) → 07 catalyst-api-env-patch
   Local --> Proof: 08 egress-block-test (deny github.com + ghcr.io + harbor.openova.io, 10 min)
-  Proof --> Sovereign: cutoverComplete=true only if it reconciles green
+  Proof --> Pivot: 09 gitea-token-mint → 10 vcluster-registry-pivot → 11 crossplane-provider-pivot
+  Pivot --> Sovereign: cutoverComplete=true only if it reconciled green during the hold
   Sovereign --> [*]
 ```
 
@@ -965,7 +980,7 @@ Each region is its own failure domain. OpenBao Raft is **intra-region only**; cr
 
 ### §8.1 Canonical multi-region rules
 
-- **N regions × 1 cpx52 per region**. Each node is CP **and** worker (untainted), `workerCount=0` in the cluster body. 3 regions = 3 servers, NOT 9. Wrong topology (e.g. N×cpx52×workerCount=2) triggers Hetzner `resource_limit_exceeded`.
+- **N regions × 1 node per region** (e.g. Hetzner `cpx52` or the equivalent Huawei kom4dc flavor). Each node is CP **and** worker (untainted), `workerCount=0` in the cluster body. 3 regions = 3 servers, NOT 9. Wrong topology (e.g. N × node × workerCount=2) triggers the provider's `resource_limit_exceeded` quota error.
 - **ClusterMesh apiserver** via **LoadBalancer** type Service — never `NodePort`. NodePort breaks the WireGuard-encrypted DMZ flow.
 - **Inter-region transport** = **DMZ WireGuard over PUBLIC IPs ALWAYS** (DoD A2 invariant). No RFC1918 tunnels over cloud-provider VPC peering — that locks the Sovereign to one provider.
 - **Provider-mix canonical** — a single Sovereign may span Hetzner + Huawei + OCI + AWS regions; Crossplane providers cover all.
@@ -1069,15 +1084,16 @@ Phase 1  Hand-off (~5 minutes after Phase 0 starts)
 ─────────────────────────────────────────────────────────────────────
 Crossplane in the new Sovereign adopts management of further
 infrastructure. OpenTofu state is archived. Bootstrap kit is no longer
-in the runtime path. Operator JWT redirect lands operator on Sovereign
+in the runtime path. The handover JWT redirect lands the sovereign-admin on Sovereign
 Console at `console.{location-code}.{sovereign-domain}`.
 
-Phase 2  Self-Sovereignty Cutover (operator click "Achieve True Sovereignty")
+Phase 2  Self-Sovereignty Cutover (sovereign-admin click "Achieve True Sovereignty")
 ─────────────────────────────────────────────────────────────────────
-8 sequential Jobs pivot the 8 mothership tethers — see §5.6.
-Egress-block-test (Job 8) holds NetworkPolicy deny-egress against
+An 11-step chain pivots the 8 mothership tethers — see §5.6.
+Egress-block-test (step 08) holds NetworkPolicy deny-egress against
 github.com / ghcr.io / harbor.openova.io for 10 min. The Sovereign
-must reconcile green during this hold; otherwise cutoverComplete=false.
+must reconcile green during this hold (steps 09–11 run after it);
+otherwise cutoverComplete=false.
 
 Phase 3  Steady-state operation
 ─────────────────────────────────────────────────────────────────────
@@ -1103,13 +1119,13 @@ sequenceDiagram
   MS->>PDM: /v1/commit — zone + 6 records + NS delegation
   Sov->>Sov: Phase 1 — Crossplane adopts OpenTofu state
   Sov-->>Op: handover JWT redirect → console (status ready)
-  Op->>Sov: Phase 2 — "Achieve True Sovereignty" (8 Jobs + egress proof)
+  Op->>Sov: Phase 2 — "Achieve True Sovereignty" (11 steps + egress proof)
   Note over Op,Sov: Phase 3 — steady state, no runtime dependency on mothership
 ```
 
 ### §8.5 Cloud-provider options
 
-Hetzner Cloud (most-tested) · AWS · GCP · Azure · Oracle Cloud · Huawei Cloud. Crossplane providers exist for all. The OpenOva Sovereign runs on Hetzner. Region count: 1 (SME) / 2 (recommended for production) / 3+ (regulated tier; adds DR replica region).
+Huawei Cloud (current substrate) · Hetzner Cloud · AWS · GCP · Azure · Oracle Cloud. Crossplane providers exist for all. The OpenOva Sovereign currently runs on **Huawei Cloud** (kom4dc, regions `me-east-215-a` / `me-east-215-b`); Hetzner remains a supported (and historically most-tested) provider option. Region count: 1 (SME) / 2 (recommended for production) / 3+ (regulated tier; adds DR replica region).
 
 ### §8.6 Multi-Sovereign fleet view
 
@@ -1125,7 +1141,7 @@ This subsection is the source of truth for ClusterMesh peer identity across the 
 
 #### §8.7.1 The chart shape
 
-The `bp-cilium` umbrella chart at `platform/cilium/chart/` ships the ClusterMesh values overlay separately at `values-clustermesh.yaml` (see that file's header for rationale). The default `values.yaml` has no ClusterMesh block — it is opt-in per Sovereign so single-region Sovereigns don't pay the LoadBalancer / NodePort cost.
+The `bp-cilium` umbrella chart at `platform/cilium/chart/` ships the ClusterMesh values overlay separately at `values-clustermesh.yaml` (see that file's header for rationale). The default `values.yaml` has no ClusterMesh block — it is opt-in per Sovereign so single-region Sovereigns don't pay the LoadBalancer cost.
 
 When a Sovereign joins a mesh, its overlay merges these values on top of the chart defaults:
 
@@ -1139,16 +1155,16 @@ values:
       useAPIServer: true
       apiserver:
         service:
-          # NodePort for Hetzner / on-prem (avoids per-peer LB quota
-          # on Hetzner projects); LoadBalancer for AWS/GCP if the
-          # provider has free LB quota.
-          type: NodePort
-          nodePort: 32379
+          # LoadBalancer via Cilium LB-IPAM (shared-EIP / VIP) — the
+          # canonical direct-gateway path (§8.1). NodePort is ABSOLUTELY
+          # FORBIDDEN, including for on-prem or quota-constrained providers;
+          # use LB-IPAM or a hostPort-direct stand-in instead.
+          type: LoadBalancer
 ```
 
-> **Note on Service type.** This deployment shape uses NodePort for Hetzner-only meshes to avoid per-peer LB quota. The platform-canonical rule in §8.1 is **LoadBalancer** when the provider has free LB quota — see §8.1 for the canonical multi-region invariants; NodePort is the documented Hetzner-quota exception.
+> **Note on Service type.** The ClusterMesh apiserver is exposed as a **`LoadBalancer`** Service allocated by Cilium LB-IPAM (shared-EIP / VIP) on every provider — see §8.1 for the canonical multi-region invariants. **NodePort is ABSOLUTELY FORBIDDEN** (no exceptions, including on-prem or quota-constrained projects); where a provider lacks a cloud LB, use LB-IPAM or a hostPort-direct stand-in on the hostNetwork cilium-envoy pods, never a nodePort.
 
-NodePort `32379` is the canonical port across the OpenOva fleet (matches upstream Cilium's documented default for self-hosted peering). The Hetzner firewall rules `catalyst-omantel-biz-fw` open 32379/tcp from peer Sovereigns' private CIDRs; analogous rules MUST be added for every new peer.
+The apiserver `LoadBalancer` listens on the standard ClusterMesh apiserver port (`2379`). The per-provider firewall / security-group rules `catalyst-*-fw` must open that port from peer Sovereigns' CIDRs; analogous rules MUST be added for every new peer.
 
 #### §8.7.2 Convention: cluster.name format
 
@@ -1183,13 +1199,13 @@ A mesh is the closed graph of peers connected via `cilium clustermesh connect`. 
 
 When Continuum cross-Sovereign federation goes live, the cross-Sovereign management plane mesh (`hz-nbg-mgt-prod` ↔ data-plane peers) will form a SECOND mesh graph. Allocate cluster.ids in the same table but mark the mesh column distinctly so the duplicate-id check above keeps working.
 
-#### §8.7.5 Operator runbook (per-peer bringup)
+#### §8.7.5 Sovereign-admin runbook (per-peer bringup)
 
 See `platform/cilium/chart/values-clustermesh.yaml` header — the steps are the source of truth. In short:
 
 1. Apply the overlay (HelmRelease reconcile).
-2. `cilium clustermesh enable --service-type NodePort --context <local>`
-3. `cilium clustermesh enable --service-type NodePort --context <remote>`
+2. `cilium clustermesh enable --service-type LoadBalancer --context <local>`
+3. `cilium clustermesh enable --service-type LoadBalancer --context <remote>`
 4. `cilium clustermesh connect --context <local> --destination-context <remote>`
 5. `cilium clustermesh status --context <local>` — assert all peers `connected`.
 6. Spot-check a global service: deploy bp-cnpg-pair on the mesh and assert the replica region's `pg_stat_wal_receiver` shows the primary region's WAL stream.
@@ -1303,7 +1319,7 @@ This separation matters: `external-dns` knows about a single K8s Service or Ingr
 | `single-region` | Plain A record(s) — no lua-record needed |
 | `active-active` | `ifurlup(..., {selector='all'})` (or `selector='pickclosest'` for geo-affinity) |
 | `active-hotstandby` | `ifurlup(..., {selector='pickfirst'})` — primary first, DR second |
-| `active-passive-warm` | `ifurlup(..., {selector='pickfirst'})` + longer TTL (manual operator promotion is the contract; the LUA only flips when the probe fails enough times) |
+| `active-passive-warm` | `ifurlup(..., {selector='pickfirst'})` + longer TTL (manual sovereign-admin promotion is the contract; the LUA only flips when the probe fails enough times) |
 | `weighted-canary` | `pickwhashed({{w1, ip1}, {w2, ip2}})` — adjust weights via Catalyst console (re-emits the lua-record body with new weights) |
 
 #### §8.8.5 Probe target
@@ -1326,7 +1342,7 @@ Lua-records are necessary but not sufficient for split-brain protection during a
 A single-region Sovereign is the SME default. For corporate / regulated tier (and for any Sovereign that signs an SLA strict enough that single-region downtime would breach it), the upgrade path is:
 
 1. **Sovereign provisioned in Region A** (e.g. `hz-fsn-rtz-prod`) — single LB IP, plain A records.
-2. **Operator decides to add Region B** via the Catalyst admin UI: Admin → Infrastructure → Add Region.
+2. **Sovereign-admin decides to add Region B** via the Catalyst admin UI: Admin → Infrastructure → Add Region.
 3. Crossplane provisions Region B's clusters (rtz + dmz) with **the same building blocks** as Region A.
 4. Region B's PowerDNS replicas join the Sovereign's authoritative NS set via SOA NOTIFY + AXFR (PowerDNS-native zone replication; no external sync layer needed).
 5. **catalyst-dns rewrites every Application's lua-record from `single-region` → `active-active`** (or whichever Placement the Application opts into). Old plain A records are replaced with `ifurlup(...)` lua-records pointing at both regional LBs.
@@ -1363,7 +1379,7 @@ dig +short api.acme.com @ns1.openova.io
 # Expected: the affected backend IP is absent from the response.
 ```
 
-When the probe target is restored, the IP returns automatically — no operator action.
+When the probe target is restored, the IP returns automatically — no sovereign-admin action.
 
 Read PowerDNS probe state:
 
@@ -1383,15 +1399,15 @@ This subsection defines the per-Sovereign zone model, DNSSEC posture, REST API c
 
 #### §8.9.1 Per-Sovereign zone model
 
-Every Sovereign — pool (e.g. `omantel.omani.works`, `acme.openova.io`) and BYO (`acme.bank.com`) — gets its own PowerDNS zone. No exceptions.
+Every Sovereign — pool (e.g. `omantel.omani.works`, `acme.omani.works`) and BYO (`acme.bank.com`) — gets its own PowerDNS zone. No exceptions.
 
 ```
 PowerDNS Authoritative (Catalyst-Zero, Contabo-mkt initially)
 ├── openova.io.                               (root pool — admin + console + api)
 ├── omani.works.                              (Oman pool — Huawei + Omantel partners)
 ├── omantel.omani.works.                      (Omantel Sovereign — wildcard records)
-├── acme.openova.io.                          (acme Sovereign — pool subdomain)
-└── acme.bank.com.                            (acme BYO — operator brought their own domain)
+├── acme.omani.works.                         (acme Sovereign — pool subdomain)
+└── acme.bank.com.                            (acme BYO — sovereign-admin brought their own domain)
 ```
 
 Each Sovereign zone holds the canonical 6-record set written by `catalyst-dns`:
@@ -1420,9 +1436,9 @@ The wildcard A record (`*.<sub>.<domain>`) covers every additional subdomain a S
 
 The three public NS endpoints (`ns1`, `ns2`, `ns3`) are anycast Floating IPs across Hetzner regions. The Phase-0 stand-in is a Service of type `LoadBalancer` (see "Anycast deferral" below).
 
-For pool-domain-based Sovereigns (`<sub>.openova.io`, `<sub>.omani.works`) the parent zone `openova.io` / `omani.works` is delegated to the OpenOva PowerDNS NS set via the registrar (Dynadot). Each child Sovereign zone (`<sub>.openova.io`) publishes its own DS in the parent zone for DNSSEC chaining.
+For pool-domain-based Sovereigns (`<sub>.omani.works`, `<sub>.omantel.biz`) the parent zone `omani.works` / `omantel.biz` is delegated to the OpenOva PowerDNS NS set via the registrar (Dynadot). Each child Sovereign zone (`<sub>.omani.works`) publishes its own DS in the parent zone for DNSSEC chaining.
 
-For BYO Sovereigns (`<sub>.acme.com`) the operator's existing registrar publishes the NS delegation pointing at OpenOva's NS endpoints. The operator follows the runbook in [`RUNBOOKS.md`](RUNBOOKS.md) to add the DS record to their parent zone.
+For BYO Sovereigns (`<sub>.acme.com`) the sovereign-admin's existing registrar publishes the NS delegation pointing at OpenOva's NS endpoints. The sovereign-admin follows the runbook in [`RUNBOOKS.md`](RUNBOOKS.md) to add the DS record to their parent zone.
 
 #### §8.9.2 DNSSEC
 
@@ -1440,7 +1456,7 @@ pdnsutil add-zone-key <zone> zsk active ecdsa256
 
 Keys live in the `cryptokeys` table inside the CNPG-managed `pdns-pg` Postgres database. CNPG's WAL archiving + base backup schedule (configured at the bp-cnpg level) is the disaster-recovery anchor — losing the database means losing every zone's keys, so the Postgres backup posture is part of the security story.
 
-**SOA serials**: `default-soa-edit-signed=INCEPTION-EPOCH` keeps SOA serials in sync across replicas after every signed-zone change. Operators don't manually bump SOA on edits — PowerDNS handles it.
+**SOA serials**: `default-soa-edit-signed=INCEPTION-EPOCH` keeps SOA serials in sync across replicas after every signed-zone change. Sovereign-admins don't manually bump SOA on edits — PowerDNS handles it.
 
 **Rotation** — KSK rotation follows RFC 6781 / RFC 7583:
 
@@ -1473,7 +1489,7 @@ This record returns `1.2.3.4` while the FRA backend's `/healthz` returns 200; fa
 
 #### §8.9.4 REST API
 
-Exposed at `https://pdns.openova.io/api`, behind a basicAuth Middleware at the cluster ingress. <!-- TODO verify: this folded Contabo-mkt PowerDNS deployment references a Traefik Middleware, but the canonical K3s stack disables Traefik in favour of the Cilium Gateway (§8.3) — confirm whether the live PowerDNS ingress is Traefik or Cilium Gateway and reconcile. --> The plaintext password is generated per-cluster (random 32 chars per [`PRINCIPLES.md`](PRINCIPLES.md) #4, never hardcode), bcrypt-hashed in-cluster only, and stored in K8s Secret `powerdns-api-basicauth` in the `openova-system` namespace.
+Exposed at `https://pdns.openova.io/api`, behind basic-auth enforced at the **Cilium Gateway** HTTPRoute (the canonical K3s stack disables Traefik in favour of Cilium Gateway per §8.3). The plaintext password is generated per-cluster (random 32 chars per [`PRINCIPLES.md`](PRINCIPLES.md) #4, never hardcode), bcrypt-hashed in-cluster only, and stored in K8s Secret `powerdns-api-basicauth` in the `openova-system` namespace.
 
 The full API surface is documented at https://doc.powerdns.com/authoritative/http-api/. The Catalyst-relevant endpoints:
 
@@ -1496,7 +1512,7 @@ POST   /api/v1/servers/localhost/zones/<zone>/rectify
 
 The API key (`x-api-key` header) is read from K8s Secret `powerdns-api-credentials` (key `api-key`); the same secret is mounted by all three consumers.
 
-**External consumers** — operators may hit `https://pdns.openova.io/api` from a laptop using `curl`-with-basic-auth. The basicAuth middleware terminates at Traefik, so the API key is still required end-to-end:
+**External consumers** — a sovereign-admin may hit `https://pdns.openova.io/api` from a laptop using `curl`-with-basic-auth. Basic-auth terminates at the Cilium Gateway, so the API key is still required end-to-end:
 
 ```
 curl -u operator:<password> -H 'X-API-Key: <api-key>' \
@@ -1517,11 +1533,13 @@ The threshold is configurable via `.Values.dnsdist.ratelimit.qpsPerSource`. Per-
 
 The target state for `ns1.openova.io`, `ns2.openova.io`, `ns3.openova.io` is anycast Hetzner Floating IPs spread across regions. The Crossplane `XHetznerFloatingIP` composite resource definition that would allocate these does not yet exist in `platform/crossplane/compositions/` (the compositions currently authored cover Server, Network, Firewall, LoadBalancer, and Pool-Allocation).
 
-**Phase-0 stand-in**: A Kubernetes `Service` of `type=LoadBalancer` (rendered by `templates/anycast-endpoint.yaml`). On Hetzner-managed Sovereigns the Hetzner cloud-controller-manager allocates a public IPv4 automatically; on Contabo this falls back to NodePort + external-IP routing.
+**Phase-0 stand-in**: A Kubernetes `Service` of `type=LoadBalancer` (rendered by `templates/anycast-endpoint.yaml`). On cloud-LB Sovereigns (Huawei kom4dc, Hetzner, etc.) the cloud-controller-manager allocates a public IPv4 automatically; where no cloud LB exists, Cilium LB-IPAM (shared-EIP / VIP) or a hostPort-direct listener on the hostNetwork cilium-envoy pods provides the external IP — **never a NodePort**.
 
 **Cutover**: Once `xrd-floating-ip.yaml` + `composition-floating-ip.yaml` land in `platform/crossplane/compositions/`, bp-powerdns is bumped to 1.1.0 with `.Values.crossplane.floatingIP.enabled=true` flipped on by default. The placeholder Service stays in the chart but is disabled by setting `.Values.anycast.enabled=false` in cluster overlays. The follow-up issue tracking the composition is referenced from the gap comment in `templates/crossplane-floatingip.yaml`.
 
 #### §8.9.7 Cluster manifests (private repo)
+
+> **Historical example (§8.9.7–§8.9.8).** The `contabo-mkt` / `bp-powerdns:1.0.6` first-deploy below is a point-in-time snapshot from the early Catalyst-Zero bring-up. The current substrate is **Huawei kom4dc** (regions `me-east-215-a` / `me-east-215-b`); treat the provider-neutral zone-model, DNSSEC, and REST-API spec above (§8.9.1–§8.9.6) as canon and this runbook as illustrative only. Provisioning canon lives in [`RUNBOOKS.md`](RUNBOOKS.md) §9.
 
 The Flux-managed deployment lives in `clusters/contabo-mkt/apps/powerdns/` in `openova-private`:
 
@@ -1532,7 +1550,7 @@ clusters/contabo-mkt/apps/powerdns/
 ├── helm-repository.yaml       # OCI HelmRepository pointing at ghcr.io/openova-io
 ├── namespace.yaml             # openova-system (already exists)
 ├── api-credentials-secret.yaml  # ExternalSecret reading from openbao
-└── api-basicauth-secret.yaml    # bcrypt(operator:<pw>) for the Traefik middleware
+└── api-basicauth-secret.yaml    # bcrypt(operator:<pw>) for the Cilium Gateway basic-auth
 ```
 
 The HelmRelease's `values:` block carries cluster-specific overrides (replicaCount, dnsdist threshold, region, etc.). The base chart's defaults are sufficient for Contabo-mkt's first deployment.
@@ -1800,7 +1818,7 @@ Projector (CQRS read-side): subscribes to NATS `catalyst.events`, projects into 
 
 ### §10.6 EPIC-5 Networking
 
-Cilium pinned subchart + values.yaml to one recent stable (1.16.6+ / 1.17.x). Default-deny CCNP baseline + per-namespace allow templates. Hubble relay+UI on; UI behind Cilium Gateway with OIDC. ClusterMesh enabled between `hz-fsn-rtz-prod` ↔ `hz-hel-rtz-prod`; WireGuard transparent encryption on; FQDN pattern `<svc>.<ns>.svc.<cluster>.global` documented for Application authors.
+Cilium pinned subchart + values.yaml to one recent stable (**1.19.x** — the current fleet pin). Default-deny CCNP baseline + per-namespace allow templates. Hubble relay+UI on; UI behind Cilium Gateway with OIDC. ClusterMesh enabled between `hz-fsn-rtz-prod` ↔ `hz-hel-rtz-prod`; WireGuard transparent encryption on; FQDN pattern `<svc>.<ns>.svc.<cluster>.global` documented for Application authors.
 
 OTel auto-instrumentation via OpenTelemetry Operator + default `Instrumentation` CR per Application namespace (Java/.NET/Node/Python first; Go eBPF later). Wire collector exporters: traces → Tempo, logs → Loki, metrics → Mimir. Trace context propagation via Cilium Envoy.
 
@@ -1854,8 +1872,9 @@ Each major Blueprint folder ships a `DESIGN.md` capturing the architectural deci
 |---|---|
 | bp-cnpg-pair | [`platform/cnpg-pair/DESIGN.md`](../platform/cnpg-pair/DESIGN.md) — synchronous `remote_apply` ReplicaCluster, ClusterMesh wiring, pre-merge guards (PRs #2087/#2093) |
 | bp-continuum | [`platform/continuum/DESIGN.md`](../platform/continuum/DESIGN.md) — lease + witness, switchover sequence, PDM integration |
-| bp-self-sovereign-cutover | [`platform/self-sovereign-cutover/DESIGN.md`](../platform/self-sovereign-cutover/DESIGN.md) — 8-tether pivot, 8 Jobs, egress-block DoD test |
-| bp-sandbox | [`platform/sandbox/DESIGN.md`](../platform/sandbox/DESIGN.md) — auto-mounted `openova-sandbox-mcp`, full-org knowledge |
+| bp-self-sovereign-cutover | [`platform/self-sovereign-cutover/DESIGN.md`](../platform/self-sovereign-cutover/DESIGN.md) — 8-tether pivot, 11-step chain, egress-block DoD test |
+| bp-agenity | [`products/agenity/README.md`](../products/agenity/README.md) — per-Org **Agenity** workspace (Pillar 4); auto-attaches `bp-openova-mcp` with full org knowledge |
+| bp-openova-mcp | [`products/openova-mcp/README.md`](../products/openova-mcp/README.md) — RBAC-scoped OpenOva MCP server with mutating tools (e.g. `create_application`) |
 | bp-kyverno | [`platform/kyverno/DESIGN.md`](../platform/kyverno/DESIGN.md) — label-vocab mutate + validate ClusterPolicies, audit ↔ enforce toggle |
 | bp-catalyst-platform | [`products/catalyst/DESIGN.md`](../products/catalyst/DESIGN.md) — umbrella composition; component-by-component bring-up order |
 | bp-cortex | [`products/cortex/DESIGN.md`](../products/cortex/DESIGN.md) — Knative → KServe → vLLM/bge pipeline; OpenMeter metering |

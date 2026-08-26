@@ -1,6 +1,6 @@
 # ExternalDNS
 
-DNS synchronization (registers/deletes records via the PowerDNS REST API and external cloud DNS APIs where applicable). Per-host-cluster infrastructure (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.1) — runs on every host cluster, primarily on the DMZ block. PowerDNS (see [`docs/PLATFORM-POWERDNS.md`](../../docs/PLATFORM-POWERDNS.md)) is the authoritative server for every Sovereign zone; ExternalDNS uses the `webhook` provider (`external-dns-pdns`) to write A/AAAA/CNAME records into PowerDNS. Health-checked geo-failover lives in PowerDNS lua-records — see [`docs/MULTI-REGION-DNS.md`](../../docs/MULTI-REGION-DNS.md).
+DNS synchronization (registers/deletes records via the PowerDNS REST API and external cloud DNS APIs where applicable). Per-host-cluster infrastructure (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.1) — runs on every host cluster, primarily on the DMZ block. PowerDNS (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md)) is the authoritative server for every Sovereign zone; ExternalDNS uses the `webhook` provider (`external-dns-pdns`) to write A/AAAA/CNAME records into PowerDNS. Health-checked geo-failover lives in PowerDNS lua-records — see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md).
 
 **Status:** Accepted | **Updated:** 2026-04-27
 
@@ -43,8 +43,9 @@ flowchart TB
 
 | Provider | Availability |
 |----------|--------------|
+| PowerDNS (webhook) | Always — authoritative for every Sovereign zone |
 | Cloudflare | Always |
-| Hetzner DNS | If Hetzner chosen |
+| Hetzner DNS | Legacy (only if the deprecated Hetzner substrate is used) |
 | AWS Route53 | If AWS chosen |
 | GCP Cloud DNS | If GCP chosen |
 | Azure DNS | If Azure chosen |
@@ -111,7 +112,7 @@ flowchart LR
     ZoneAPI --- Lua
 ```
 
-See [`docs/MULTI-REGION-DNS.md`](../../docs/MULTI-REGION-DNS.md) for the lua-record patterns.
+See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) for the lua-record patterns.
 
 ---
 

@@ -153,7 +153,7 @@ the mothership** — not once per Sovereign:
 - **Per-Sovereign (the escape hatch, and the rotation seam).** Create or edit
   `catalyst-system/sovereign-anthropic-credentials` (keys `apiKey` /
   `credentialsJson`) on that Sovereign directly. The mothership seed **never
-  overwrites an existing Secret**, so operator-supplied bytes always win, and
+  overwrites an existing Secret**, so sovereign-admin-supplied bytes always win, and
   this stays the way to re-seed the EXPIRING OAuth blob without a chart
   upgrade (#6163 reads it live — no catalyst-api roll needed).
 - **Chart floor.** A per-Sovereign overlay setting
@@ -210,7 +210,7 @@ live on omantel.biz 2026-06-24: a blob seeded ~45h earlier was correctly shaped
 401'd because the token had long expired.
 
 The chart's `seed-claude-creds` init container (chart `0.5.6`+) now **parses
-`expiresAt` at pod start** and logs a loud, greppable line so the operator can
+`expiresAt` at pod start** and logs a loud, greppable line so the sovereign-admin can
 diagnose this without exec'ing into the pod:
 
 ```
@@ -246,7 +246,7 @@ renewal attempts inside the window at the 10m cadence.
 
 `apiKey` is rewritten **only when it is byte-identical to the access token**
 (which is how the seeded pair is issued). An independent long-lived
-`sk-ant-api03-…` key an operator supplied on purpose is left alone.
+`sk-ant-api03-…` key a sovereign-admin supplied on purpose is left alone.
 
 **Failures are loud, never silent.** A refresh that cannot proceed logs at
 ERROR with its remediation — `anthropic refresh IMPOSSIBLE` (no `refreshToken`
@@ -266,17 +266,17 @@ whole blob) and rotate `catalyst-system/sovereign-anthropic-credentials` — the
 
 Everything above is the per-Org (workspace) half. The producer half —
 `seedAnthropicToken`, which writes this OpenBao path at Org-create and every ten
-minutes thereafter — used to answer only **two** of the three questions an
-operator can be in, and the missing one is the one a stale Sovereign is
+minutes thereafter — used to answer only **two** of the three questions a
+sovereign-admin can be in, and the missing one is the one a stale Sovereign is
 usually in:
 
-| Sovereign state | catalyst-api verdict | what the operator sees |
+| Sovereign state | catalyst-api verdict | what the sovereign-admin sees |
 |---|---|---|
 | **absent** — no credential configured | `skipped-no-env`, loud ERROR naming the Secret to create | correct, and correct since #4277 |
 | **valid** — a `claudeAiOauth` blob that can authenticate | `seeded` | correct |
 | **unusable** — configured and cannot authenticate | ~~`seeded`~~ → `unusable-credential-seeded` | **was reported as success** |
 
-`unusable` covers three real operator states, each with its own remediation, so
+`unusable` covers three real sovereign-admin states, each with its own remediation, so
 the log line names which one it is:
 
 - **key-only** — `apiKey` is set and `credentialsJson` is empty. `claude-code`
@@ -312,7 +312,7 @@ attached.
 > value forever under the reflector/ESO empty-seed trap (the bp-wordpress-tenant
 > empty-password lesson) — the agent would then hold a permanently-blank
 > credential. Absent-and-unseeded (the ExternalSecret renders, the key is
-> simply missing) is the correct pre-seed state; the operator's one `bao kv put`
+> simply missing) is the correct pre-seed state; the sovereign-admin's one `bao kv put`
 > is the activation.
 
 ## The openova-MCP Catalyst bearer (#4276 hop 7 — the create_application credential)

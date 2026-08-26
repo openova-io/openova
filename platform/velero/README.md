@@ -1,6 +1,6 @@
 # Velero
 
-Kubernetes backup/restore for disaster recovery. Per-host-cluster infrastructure (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.5) — runs on every host cluster Catalyst manages. Backups land in the `velero-backups` bucket on **SeaweedFS**, which is Catalyst's unified S3 encapsulation layer; SeaweedFS's cold-tier policy automatically transitions backup objects to the configured cloud archival backend (Cloudflare R2 / AWS S3 / Hetzner Object Storage / etc.) so backups survive cluster failure without any direct cloud-S3 call from Velero itself.
+Kubernetes backup/restore for disaster recovery. Per-host-cluster infrastructure (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.5) — runs on every host cluster Catalyst manages. Backups land **directly** in the per-Sovereign cloud object store (Huawei OBS on the current kom4dc substrate; any S3-compatible backend on other Sovereigns) via `velero-plugin-for-aws`, wired from the canonical `flux-system/object-storage` Secret. S3-aware apps like Velero write straight to the cloud-provider's native S3 endpoint — SeaweedFS is **NOT** in the Velero backup path (it is reserved as a POSIX→S3 buffer for legacy POSIX-only writers). Because backups live in the cloud object store, they survive total loss of the host cluster.
 
 **Status:** Accepted | **Updated:** 2026-04-28
 
@@ -8,7 +8,7 @@ Kubernetes backup/restore for disaster recovery. Per-host-cluster infrastructure
 
 ## Overview
 
-Velero provides Kubernetes-native backup. **All Velero output goes to the same single S3 endpoint** — `seaweedfs.storage.svc:8333`, bucket `velero-backups`. SeaweedFS handles the rest: hot-tier in-cluster for fast restore of recent backups; cold-tier in cloud archival storage for backups beyond the configured warm-window.
+Velero provides Kubernetes-native backup. **All Velero output goes directly to the per-Sovereign cloud object store** via `velero-plugin-for-aws` — on the current Huawei kom4dc substrate that is Huawei OBS; a future AWS / Azure / GCP / OCI Sovereign uses the same Secret seam and chart-values shape (vendor-agnostic since #425). The `provider` / `bucket` / `region` / `s3Url` fields are populated by the per-Sovereign HelmRelease from the `flux-system/object-storage` Secret, so nothing is hardcoded in the Blueprint.
 
 ```mermaid
 flowchart TB
@@ -18,38 +18,29 @@ flowchart TB
         PVs[Persistent Volumes]
     end
 
-    subgraph SW["SeaweedFS (in-cluster S3 encapsulation)"]
-        Bucket[velero-backups bucket]
-        TierMgr[Tier Manager]
-    end
-
-    subgraph Archival["Cloud archive backend (cold tier)"]
-        R2[Cloudflare R2]
-        S3[AWS S3]
-        GCS[GCP GCS]
-        Hetzner[Hetzner Object Storage]
-        OCI[OCI Object Storage]
+    subgraph Cloud["Per-Sovereign cloud object store, S3-compatible"]
+        OBS[Huawei OBS - current kom4dc substrate]
+        Other[AWS S3 / GCP GCS / Cloudflare R2 / OCI - other Sovereigns]
     end
 
     Apps --> Velero
     PVs --> Velero
-    Velero -->|"Backup"| Bucket
-    Bucket --> TierMgr
-    TierMgr -->|"After warm window"| Archival
+    Velero -->|"Backup via velero-plugin-for-aws"| Cloud
+    Cloud -->|"Restore"| Velero
 ```
 
 ---
 
-## Why route through SeaweedFS
+## Why write direct to cloud S3
 
-| Property | Direct cloud-S3 calls | Through SeaweedFS encapsulation |
-|---|---|---|
-| Number of S3 endpoints in Catalyst components | N (one per consumer × cloud) | **1** (`seaweedfs.storage.svc:8333`) |
-| Hot-restore latency for recent backups | Cloud round-trip | **Near-zero (in-cluster cache)** |
-| Audit / lifecycle / encryption boundary | Per-component | **One central boundary** |
-| Air-gap deployment | Requires direct cloud reachability | **Works with SeaweedFS-only mode** (see SRE §7) |
+Velero speaks S3 natively through `velero-plugin-for-aws`, so it writes straight to the per-Sovereign cloud object store — there is **no** in-cluster proxy in the backup path. SeaweedFS is **not** used here; it is reserved as a POSIX→S3 buffer for legacy POSIX-only writers and is not in the minimal Sovereign set.
 
-**Backups survive cluster failure** because SeaweedFS's cold tier is the cloud archival backend, not the in-cluster volumes. Even if the entire host cluster is destroyed, backups beyond the warm window already live in the cold backend (R2 / Glacier / etc.) and a restoring SeaweedFS can read them through.
+| Property | Detail |
+|---|---|
+| Backup endpoint | Per-Sovereign cloud object store (Huawei OBS on kom4dc; any S3-compatible backend elsewhere) |
+| Plugin | `velero-plugin-for-aws` (every supported cloud's native object store speaks the S3 API) |
+| Credential seam | `flux-system/object-storage` Secret, wired via Flux `valuesFrom` (vendor-agnostic since #425) |
+| Survives cluster loss | Yes — backups live in the cloud object store, not in-cluster volumes |
 
 ---
 
@@ -57,12 +48,12 @@ flowchart TB
 
 | Provider | Availability | Egress Fees | Notes |
 |----------|--------------|-------------|-------|
-| **Cloud Provider Storage** | Default | Varies | Hetzner, OCI, Huawei OBS |
+| **Cloud Provider Storage** | Default | Varies | Huawei OBS (current kom4dc substrate), OCI; Hetzner (legacy) |
 | Cloudflare R2 | Always available | **Free** | Zero egress, multi-cloud friendly |
 | AWS S3 | Available | $0.09/GB | Full featured |
 | GCP GCS | Available | $0.12/GB | Full featured |
 
-**Default:** Cloud provider's object storage (Hetzner Object Storage, OCI Object Storage, etc.)
+**Default:** The per-Sovereign cloud provider's object storage — Huawei OBS on the current kom4dc substrate (Hetzner Object Storage / OCI Object Storage are legacy/optional).
 
 **Alternative:** Cloudflare R2 for zero egress fees, useful for multi-cloud or egress-heavy scenarios.
 
@@ -197,7 +188,7 @@ Both regions can:
 
 ```mermaid
 sequenceDiagram
-    participant Op as Operator
+    participant Op as sovereign-admin
     participant Velero as Velero
     participant S3 as Archival S3
     participant K8s as Kubernetes

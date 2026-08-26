@@ -1,6 +1,6 @@
 # OpenTofu
 
-Bootstrap Infrastructure as Code (one-shot). Used by Catalyst Phase 0 (see [`docs/SOVEREIGN-PROVISIONING.md`](../../docs/SOVEREIGN-PROVISIONING.md) §3) to provision the initial cloud resources for a new Sovereign — VPC, host nodes, load balancers, DNS records, object storage. After Phase 0, OpenTofu state is archived; Crossplane (running inside the new Sovereign) takes over all subsequent infrastructure changes. **OpenTofu is NOT installed on host clusters at runtime** — it lives on the always-on `catalyst-provisioner` only.
+Bootstrap Infrastructure as Code (one-shot). Used by Catalyst Phase 0 (see [`docs/RUNBOOKS.md`](../../docs/RUNBOOKS.md) §0 — Provisioning on Huawei kom4dc) to provision the initial cloud resources for a new Sovereign — VPC, host nodes, load balancers, DNS records, object storage. After Phase 0, OpenTofu state is archived; Crossplane (running inside the new Sovereign) takes over all subsequent infrastructure changes. **OpenTofu is NOT installed on host clusters at runtime** — it lives on the always-on `catalyst-provisioner` only.
 
 Drop-in replacement for Terraform with MPL 2.0 license.
 
@@ -69,7 +69,7 @@ opentofu/
 ├── modules/
 │   ├── <provider>-vm/    # Provider-specific VPS provisioning
 │   ├── k3s-cluster/      # K3s installation
-│   └── dns-failover/     # PowerDNS authoritative + lua-records (see docs/MULTI-REGION-DNS.md)
+│   └── dns-failover/     # PowerDNS authoritative + lua-records (see docs/ARCHITECTURE.md §8.8)
 ├── environments/
 │   ├── <provider>-<region>/  # Per-environment configs
 │   └── ...

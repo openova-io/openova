@@ -2,7 +2,7 @@
 
 Apache Kafka on Kubernetes via the Strimzi operator. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.1 — Data services / event streaming). Replaces Redpanda (which moved to BSL 1.1). Used by `bp-fabric` for event streaming and by the SIEM pipeline as the transport between Falco and OpenSearch.
 
-> **Note**: Strimzi/Kafka is the **Application-tier** event stream. The Catalyst control plane uses NATS JetStream for its own events (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §5). The same upstream-tech-different-tier split that PLATFORM-TECH-STACK §1 establishes also applies here.
+> **Note**: Strimzi/Kafka is the **Application-tier** event stream. The Catalyst control plane uses NATS JetStream for its own events (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §5). The same upstream-tech-different-tier split that [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3 (Tech stack by layer) establishes also applies here.
 
 **Status:** Accepted | **Updated:** 2026-04-27
 

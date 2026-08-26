@@ -1,5 +1,7 @@
 # OpenOva Sandbox
 
+> ⛔ **LEGACY / REMOVED (2026-06-30).** The Sandbox concept was removed and superseded by the per-Org **Agenity** workspace (`products/agenity/`) + **`bp-openova-mcp`** (`products/openova-mcp/`) — Pillar 4. This directory and README are retained only for historical reference; do not build on them. See [`docs/DOD.md`](../../docs/DOD.md) §Pillar-4 and [`GLOSSARY.md`](../../docs/GLOSSARY.md) (Sandbox → Agenity).
+
 **Status:** Wave 1-5 implementation in flight (PRs **#1615 / #1618 / #1619 / #1621 / #1622 / #1632** merged; runtime smoke pending fresh prov). **Created:** 2026-05-15. **Implementation started:** 2026-05-17.
 
 > **Founder TODO:** Register an Anthropic OAuth client_id for the BYOS Claude Code flow per [`docs/claude-code-byos.md`](docs/claude-code-byos.md), and paste it into the Sovereign Console BYOS settings (or set `SANDBOX_ANTHROPIC_OAUTH_CLIENT_ID` on the controller Deployment). The Sandbox controller looks up the value via env-var; everything else around it is already scaffolded.

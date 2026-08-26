@@ -98,7 +98,7 @@ spec:
     spec:
       containers:
         - name: gitea
-          image: gitea/gitea:1.21
+          image: gitea/gitea:<pinned-version>
           env:
             - name: GITEA__database__DB_TYPE
               value: postgres

@@ -226,6 +226,18 @@ neo4j-admin database load neo4j --from-path=/backups/neo4j.dump
 
 ---
 
+## Scaling & Multi-Region
+
+Neo4j Community edition (the default above) is **single-writer, single-instance**
+— it does not cluster. Within the AI Hub it runs **single-region** in the
+`ai-hub` namespace, backing `bp-cortex` retrieval for that Environment; there are
+no per-region graph replicas. A region kill takes the graph offline for that
+Environment until the Pod reschedules — restore from the `neo4j-admin` dump in
+the Backup section above. Causal clustering / read replicas require Enterprise
+edition and are not part of the Community baseline.
+
+---
+
 ## Consequences
 
 **Positive:**

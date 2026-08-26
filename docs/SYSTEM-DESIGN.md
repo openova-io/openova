@@ -56,19 +56,19 @@ Strict containment. Use these exact words ([`GLOSSARY.md`](GLOSSARY.md) has the 
 
 ```mermaid
 graph LR
-  S["Sovereign<br/><i>a deployed Catalyst</i>"] -->|hosts| O["Organization<br/><i>a customer tenant</i>"]
+  S["Sovereign<br/><i>a deployed Catalyst</i>"] -->|hosts| O["Organization<br/><i>the multi-tenancy unit</i>"]
   O -->|contains| E["Environment<br/><i>envType: prod (default) / dev / staging</i>"]
-  E -->|runs| A["Application<br/><i>a running instance</i>"]
-  B["Blueprint bp-*<br/><i>the installable template</i>"] -->|installs as| A
+  E -->|runs| A["Application<br/><i>an App Store-style card</i>"]
+  B["Blueprint bp-*<br/><i>the OCI-signed installable unit</i>"] -->|installs as| A
 ```
 
 | Term | Is | Backed by (runtime) |
 |---|---|---|
 | **Sovereign** | a deployed Catalyst (a whole multi-region cloud) | k3s clusters × 2 regions + the Catalyst control plane |
-| **Organization** | a customer tenant | `Organization` CR (`orgs.openova.io`) + a vCluster (paid) or host namespace (free/S) |
-| **Environment** | a workspace in an Org | `Environment` CR with an **`envType`** (`prod` is the default; `dev`/`staging` exist but are rarely used — in practice most Orgs run a single `prod`) |
-| **Application** | a running instance | `Application` CR (`apps.openova.io`) → a Flux `HelmRelease` |
-| **Blueprint** | the installable template | `ghcr.io/openova-io/bp-<name>:<semver>` OCI (Helm chart + `blueprint.yaml`) |
+| **Organization** | the multi-tenancy unit | `Organization` CR (`orgs.openova.io`) + a vCluster (paid) or host namespace (free/S) |
+| **Environment** | an env-typed scope in an Org | `Environment` CR with an **`envType`** (`prod` is the default; `dev`/`staging` exist but are rarely used — in practice most Orgs run a single `prod`) |
+| **Application** | a running deployment (App Store-style card) | `Application` CR (`apps.openova.io`) → a Flux `HelmRelease` |
+| **Blueprint** | the OCI-signed installable unit | `ghcr.io/openova-io/bp-<name>:<semver>` OCI (Helm chart + `blueprint.yaml`) |
 
 Naming: cluster `{prov}-{reg}-{bb}-{env}` · vcluster `{org}` · Environment `{org}-{envType}` (e.g.
 `agwalk305-prod`) · Blueprint `bp-<name>` · Application `<purpose>`. Full table in [`ARCHITECTURE.md`](ARCHITECTURE.md) §4.
@@ -98,7 +98,7 @@ graph TD
   ROOT --> PROD["products/ — 13 Composite Blueprints (OpenOva's own)"]
   ROOT --> CLUST["clusters/_template/bootstrap-kit/ — ordered install slots"]
   ROOT --> DOCS["docs/ — 7 canonical + ledger/ + adr/"]
-  CORE --> CTRL["controllers/ — 9 CRD reconcilers"]
+  CORE --> CTRL["controllers/ — 7 CRD reconcilers"]
   CORE --> SVC["services/ — 11 microservices"]
   CORE --> CMDX["cmd/ — projector, k8s-ws-proxy, pdm, dns-webhook…"]
   CORE --> FE["console/ (org-console) · marketplace/ (funnel)"]
@@ -177,7 +177,7 @@ graph TB
   US["our CI"] -->|"mirror"| GC
   GC --> SRC; GT --> SRC
   SRC --> KUST --> HELM --> RUN["running workloads"]
-  KUST --> XRD --> XPROV -->|"declarative"| CLOUD["Hetzner / Huawei resources"]
+  KUST --> XRD --> XPROV -->|"declarative"| CLOUD["Huawei resources (legacy Hetzner)"]
   RUN -->|"status readback"| API
 ```
 
@@ -196,7 +196,7 @@ human in normal operation — you change Git, Flux converges. This is why "merge
 becomes real after the pin rolls into Git and Flux reconciles it (and a fresh-prov walk proves it).
 
 ### 5.3 Crossplane = the cloud-provisioning arm (the user never sees it)
-Kubernetes can't natively create a Hetzner server or an S3 bucket — **Crossplane** does, declaratively.
+Kubernetes can't natively create a Huawei ECS server or an S3 bucket — **Crossplane** does, declaratively.
 `platform/crossplane` ships **Compositions** (`compositions/`) + **Claims**; `platform/crossplane-claims`
 wires them per-Sovereign. A key pattern is **adoption**: after the mothership's `tofu apply` fires a
 Sovereign, `GenerateAdoptionClaims` (`provisioner/adoption.go`) reads the **OpenTofu state** and emits
@@ -246,7 +246,7 @@ graph TB
   PDM["pool-domain-manager (cmd/pdm) — .omani.* subdomains"] --> DOM
 ```
 
-- **9 controllers** (`core/controllers/*`): `organization`, `environment`, `application`, `blueprint`,
+- **7 controllers** (`core/controllers/*`): `organization`, `environment`, `application`, `blueprint`,
   `continuum`, `useraccess` (+ `sandbox` legacy). Each drives one CRD to `Ready` by rendering a `HelmRelease`
   and **reading its status back** — never reporting `Ready` over orphaned bytes (#3687).
 - **11 microservices** (`core/services/*`): `auth`, **`billing`** (per-Sovereign BSS), `catalog` +
@@ -260,7 +260,7 @@ graph TB
 ## 7. The streaming / event architecture (NATS JetStream + projector + SSE — CQRS)
 
 The control plane is **event-driven**. Services don't poll each other — they publish to and consume from
-**NATS JetStream**. The read side is **CQRS**: a **projector** materialises a live view into **Valkey**,
+**NATS JetStream**. The read side is **CQRS**: a **projector** materialises a live view into **NATS JetStream KV**,
 and the catalyst-api streams it to the console over **SSE**.
 
 ```mermaid
@@ -271,8 +271,8 @@ graph LR
   PROVN["provisioning"] -->|catalyst.provision.app / .completed / .failed| JS
   AUD["all services"] -->|catalyst.audit| JS
   JS -->|"catalyst.events (durable consumer)"| PROJ["projector<br/>core/cmd/projector (N replicas)"]
-  PROJ -->|materialise| VALKEY[("Valkey<br/>read model")]
-  VALKEY --> API["catalyst-api"]
+  PROJ -->|materialise| JSKV[("JetStream KV<br/>read model")]
+  JSKV --> API["catalyst-api"]
   API -->|"text/event-stream (SSE, ~5s)"| UI["sovereign-admin console<br/>Jobs live-tail · cutover progress · treemap"]
   JS -->|jetstream events| CONT["continuum (DR)<br/>switchover/health"]
 ```
@@ -280,8 +280,8 @@ graph LR
 - **Streams/subjects (the bus):** `catalyst.events` (K8s resource events → projector), `catalyst.billing.*`
   (e.g. `order.placed`), `catalyst.domain.*` (e.g. `verified`), `catalyst.provision.*`
   (`app`/`completed`/`failed`), `catalyst.audit`, `auth.events`.
-- **Why CQRS:** each catalyst-api replica needs its own SSE view; the projector fans the JetStream into
-  Valkey so every replica serves a consistent, cheap live stream (the "Live state stream re-attached —
+- **Why CQRS:** each catalyst-api replica needs its own SSE view; the projector fans JetStream events into
+  a JetStream KV read model so every replica serves a consistent, cheap live stream (the "Live state stream re-attached —
   refreshing every 5s" banner on the Jobs/cutover pages is this pipeline).
 - **Continuum** consumes JetStream too (`continuum/internal/events/jetstream.go`) for DR
   switchover/health signalling.
@@ -298,7 +298,7 @@ sequenceDiagram
   participant Op as Operator/Customer
   participant MS as Mothership catalyst-api
   participant TF as OpenTofu (per-dep workdir)
-  participant Cloud as Hetzner/Huawei
+  participant Cloud as Huawei (legacy Hetzner)
   participant Sov as New Sovereign (Flux + Crossplane)
   participant Git as Sovereign Git
 

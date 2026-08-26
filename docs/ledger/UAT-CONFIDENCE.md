@@ -11,6 +11,10 @@
 
 Environment: **hw294** · denominator STONE at **286**
 
+> **Point-in-time hw294 snapshot (superseded).** The verdict tally and per-row
+> `conf`/`box` below are from the hw294 walk; live = ✅246/286 on hw305 as of
+> 2026-08-25 (PR #6690). Regenerate with the commands above (`--env hw305`).
+
 `conf` is the Beta-Bernoulli posterior over time-discounted evidence.
 `every` is how many cycles pass between walks at this row's Leitner box.
 `proofs` counts DISTINCT OTHER environments the row last passed on — that

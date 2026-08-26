@@ -19,18 +19,18 @@ This handbook covers running a Sovereign in production: multi-region topology, p
 
 Multi-region is **strongly recommended** for production-tier Sovereigns. Two or more independent host clusters across regions provide geographic redundancy with automatic failover.
 
-Clusters are named by **building block** (functional security zone), not by failover role — there is **no "primary" or "DR" designation**. Both clusters run the same building blocks symmetrically; PowerDNS lua-records (`ifurlup`, `pickclosest`) handle traffic distribution authoritatively at the DNS layer. After a failover event, the surviving cluster serves all traffic — its name does not change. See [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md) for the lua-record patterns.
+Clusters are named by **building block** (functional security zone), not by failover role — there is **no "primary" or "DR" designation**. Both clusters run the same building blocks symmetrically; PowerDNS lua-records (`ifurlup`, `pickclosest`) handle traffic distribution authoritatively at the DNS layer. After a failover event, the surviving cluster serves all traffic — its name does not change. See [`ARCHITECTURE.md`](ARCHITECTURE.md) §8.8 for the lua-record / GSLB patterns.
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) §1.3.
 
 ```mermaid
 flowchart TB
-    subgraph RegionA["Region A (e.g. hz-fsn-rtz-prod)"]
+    subgraph RegionA["Region A (e.g. kom4dc me-east-215-a)"]
         K8s1[Restricted Trust Zone Cluster]
         Stack1[Per-Org vclusters + workloads]
     end
 
-    subgraph RegionB["Region B (e.g. hz-hel-rtz-prod)"]
+    subgraph RegionB["Region B (e.g. kom4dc me-east-215-b)"]
         K8s2[Restricted Trust Zone Cluster]
         Stack2[Per-Org vclusters + workloads]
     end
@@ -52,7 +52,7 @@ flowchart TB
 - **No stretched clusters** (avoids split-brain). This applies to OpenBao, JetStream, etcd, and any other quorum-based component.
 - Both clusters are peers — neither is designated primary or DR.
 - Async data replication (eventual consistency).
-- PowerDNS as authoritative DNS for the GSLB zone — `ifurlup` / `ifportup` lua-records remove unhealthy endpoints from the response set automatically. See [`MULTI-REGION-DNS.md`](MULTI-REGION-DNS.md).
+- PowerDNS as authoritative DNS for the GSLB zone — `ifurlup` / `ifportup` lua-records remove unhealthy endpoints from the response set automatically. See [`ARCHITECTURE.md`](ARCHITECTURE.md) §8.8.
 - Cloud witness (lease) for split-brain protection — see §2.4.
 
 ### 2.3 Cross-region networking
@@ -60,7 +60,7 @@ flowchart TB
 | Option | Use case |
 |---|---|
 | WireGuard mesh | Different providers, secure overlay |
-| Native peering | Same provider (lower latency, e.g. Hetzner vSwitch, OCI FastConnect) |
+| Native peering | Same provider (lower latency, e.g. Huawei VPC peering, Hetzner vSwitch, OCI FastConnect) |
 
 ### 2.4 Split-brain protection
 
@@ -121,7 +121,7 @@ When added, Flagger is intended to live as per-host-cluster infrastructure on ea
 
 ### 3.2 Feature flags
 
-[Flipt](https://flipt.io) is the planned feature-flag service (also "components to watch"):
+[Flipt](https://flipt.io) is the planned feature-flag service:
 
 - Self-hosted, zero-cost
 - Simple SDK integration (Go, TypeScript, Python)
@@ -160,7 +160,7 @@ flowchart LR
 | CertificateExpiringSoon | Trigger renewal | Check expiry |
 | HighLatency | Scale service | Check latency |
 | GslbEndpointDown | Check PowerDNS lua-record probe state (`pdnsutil get-meta`) | `dig` the GSLB host and verify the unhealthy backend IP is absent from the response |
-| OpenBaoSealed | Auto-unseal via SPIRE-attested unseal keys | Check unseal status |
+| OpenBaoSealed | Auto-unseal via K8s ServiceAccount TokenReview-attested unseal keys | Check unseal status |
 | JetstreamLagHigh | Add JetStream consumer replica | Check consumer lag |
 
 #### AI Hub (when bp-cortex installed)
@@ -200,7 +200,7 @@ Detailed in [`SECURITY.md`](SECURITY.md) §7. Summary:
 
 | Class | Default frequency | Method |
 |---|---|---|
-| Workload identity (SPIRE SVID) | 5 minutes | Auto |
+| Workload identity (Cilium WireGuard + K8s SA TokenReview) | 1 hour (projected SA token) | Auto |
 | Database credentials (dynamic) | 1 hour | OpenBao DB engine + sidecar |
 | API tokens, OAuth client secrets | 90 days | OpenBao + ESO + Reloader |
 | Signing keys | 365 days | Manual approval (security-officer) |
@@ -489,7 +489,7 @@ route:
 | Console unreachable | P1 | Check Cilium Gateway, console pods, projector pods |
 | Gitea unreachable | P1 | Check Gitea pods, CNPG primary, NetworkPolicy |
 | Environment-controller stuck | P1 | Check controller logs, Crossplane provider auth |
-| OpenBao sealed | P1 | Auto-unseal SPIRE — verify SPIRE server health |
+| OpenBao sealed | P1 | Auto-unseal via K8s SA TokenReview — verify OpenBao unseal status |
 | JetStream consumer lag | P2 | Add consumer replica, check disk pressure |
 | projector lag | P2 | Check JetStream consumer status, projector replicas |
 | Per-Org vcluster down | P2 | Check vcluster pod, host cluster capacity |
@@ -524,7 +524,7 @@ spec:
   triggers:
     - alertName: OpenBaoSealed
   preconditions:
-    - check: spire.server.healthy
+    - check: kube-apiserver.tokenreview.healthy
     - check: openbao.unseal.shamir.shares.available
   steps:
     - run: openbao operator unseal --auto-shamir

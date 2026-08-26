@@ -157,11 +157,11 @@ All components are in `platform/` (flat structure):
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: ai-hub
+  name: cortex
   namespace: flux-system
 spec:
   interval: 10m
-  path: ./ai-hub/deploy
+  path: ./cortex/deploy
   prune: true
   sourceRef:
     kind: GitRepository
@@ -180,7 +180,7 @@ spec:
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `ORGANIZATION` | Catalyst Organization identifier (the multi-tenancy unit per [`docs/GLOSSARY.md`](../../docs/GLOSSARY.md); previously labelled "tenant" — banned term) | Required |
-| `SOVEREIGN_DOMAIN` | Sovereign's base domain (e.g. `omantel.openova.io`, `acme.com`) | Required |
+| `SOVEREIGN_DOMAIN` | Sovereign's base domain (e.g. `omantel.biz`, `acme.com`) | Required |
 | `GPU_NODE_POOL` | GPU node label | Required |
 | `LLM_MODEL` | Default LLM | `qwen3-32b` |
 | `EMBEDDING_MODEL` | Embedding model | `bge-m3` |
@@ -257,7 +257,7 @@ https://chat.<env>.<sovereign-domain>
 
 | Dashboard | Purpose |
 |-----------|---------|
-| AI Hub Overview | Request rates, latencies |
+| Cortex Overview | Request rates, latencies |
 | GPU Metrics | Utilization, memory |
 | RAG Analytics | Retrieval quality, citations |
 | AI Safety | Guardrail activations, blocked prompts |
@@ -271,13 +271,13 @@ https://chat.<env>.<sovereign-domain>
 
 ```bash
 # Check all components
-kubectl get pods -n ai-hub
+kubectl get pods -n cortex
 
 # Check vLLM
-curl http://vllm.ai-hub.svc:8000/health
+curl http://vllm.cortex.svc:8000/health
 
 # Check Milvus
-kubectl exec -it milvus-proxy-0 -n ai-hub -- curl localhost:9091/healthz
+kubectl exec -it milvus-proxy-0 -n cortex -- curl localhost:9091/healthz
 ```
 
 ---

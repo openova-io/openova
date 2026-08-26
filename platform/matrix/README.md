@@ -28,7 +28,7 @@ Synapse is the reference Matrix homeserver. Catalyst pairs it with:
 ## Per-Sovereign tenancy default — federation OFF
 
 Catalyst's per-Sovereign tenancy default keeps each Sovereign's Matrix
-instance private. Operator overlays flip `federation.enabled: true`
+instance private. Sovereign-admin overlays flip `federation.enabled: true`
 per-Organization for cross-Sovereign collaboration. The chart's
 NetworkPolicy template only opens federation port 8448 when
 `federation.enabled` is true (verified by Case 5 of
@@ -38,7 +38,7 @@ NetworkPolicy template only opens federation port 8448 when
 
 Catalyst standard is OIDC-only accounts (registration is handled in
 Keycloak). The wrapper sets `extraConfig.enable_registration: false` by
-default; operator overlays may flip it on for development Sovereigns.
+default; sovereign-admin overlays may flip it on for development Sovereigns.
 
 ## Chart shape
 
@@ -65,7 +65,7 @@ Per [`docs/RUNBOOKS.md`](../../docs/RUNBOOKS.md)
 | Toggle | Default | Why |
 |--------|---------|-----|
 | `serviceMonitor.enabled` | `false` | upstream chart has no ServiceMonitor; Catalyst overlay default off |
-| `networkPolicy.enabled` | `false` | Operator supplies consumer-namespace selectors per-Sovereign |
+| `networkPolicy.enabled` | `false` | The sovereign-admin supplies consumer-namespace selectors per-Sovereign |
 | `hpa.enabled` | `false` | Solo-Sovereign baseline runs Synapse monolithic |
 | `federation.enabled` | `false` | Catalyst per-Sovereign tenancy default (private rooms) |
 | `extraConfig.enable_registration` | `false` | OIDC-only accounts (registration in Keycloak) |
@@ -81,4 +81,4 @@ bash platform/matrix/chart/tests/observability-toggle.sh
 
 ---
 
-*Part of [OpenOva](https://openova.io). Closes #274.*
+*Part of [OpenOva](https://openova.io).*

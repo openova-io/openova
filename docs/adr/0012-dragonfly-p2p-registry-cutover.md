@@ -3,7 +3,7 @@
 - **Status:** Accepted (2026-06-29)
 - **Shipped by:** #4640 (`bp-dragonfly`), #4641 (cutover registry-pivot rewrite), #4642 (auto-cutover wiring)
 - **Supersedes the registry-pivot mechanism in:** ADR-0002 (post-handover sovereignty cutover) — the cutover *contract* is unchanged; only the registry-repoint *mechanism* changes.
-- **Related:** ADR-0001 §9 (ClusterMesh is inter-region, same-plane), ADR-0011 (OpenTofu/Crossplane seam), `docs/ideation/dragonfly-p2p-registry-cutover-redesign.md` (full design + diagrams), issues #4637 / #4639.
+- **Related:** ADR-0001 §9 (ClusterMesh is inter-region, same-plane), ADR-0011 (OpenTofu/Crossplane seam), issues #4637 / #4639.
 
 ## Context
 

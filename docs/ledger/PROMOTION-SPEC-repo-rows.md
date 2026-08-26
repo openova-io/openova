@@ -102,8 +102,6 @@ next (they gate SSO). R6, R9, R14, R18 are independent afterwards.
 
 ## Blocked by, not by effort
 
-Every command above needs a converged Sovereign. As of 2026-08-01 there is none: hw291 is wiped,
-hw292 unfired, and the mothership `catalyst` namespace sits at zero pods with the console 503 and
-zero Catalyst CRDs (three readings across ~3h; see
+Every command above needs a converged Sovereign; run them against the current env (as of 2026-08-26, **hw305** — `hw305.omantel.biz`). The R3-R18 commands are env-agnostic and remain valid as a promotion reference for any converged Sovereign. (Historical note: at authoring on 2026-08-01 no env was live — hw291 wiped, hw292 unfired, the mothership `catalyst` namespace at zero pods with the console 503 and zero Catalyst CRDs; see
 `docs/sessions/2026-08-01/mothership-catalyst-scaled-to-zero.md` and
-`scripts/check-uat-walkability.sh`).
+`scripts/check-uat-walkability.sh`.)

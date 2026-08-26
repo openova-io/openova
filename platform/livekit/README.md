@@ -26,13 +26,15 @@ server's UDP port to the public internet.
 | `bp-valkey` | Signaling-state store when `replicaCount > 1` |
 | `bp-keycloak` | (Optional) JWT identity for WebRTC participants |
 
-## Hetzner firewall
+## Firewall / UDP exposure
 
-LiveKit binds the UDP port range **50000-60000** for RTC traffic. The
-per-Sovereign Hetzner firewall rule (Tofu-managed) opens this range to
-the world. Pod-level NetworkPolicies do NOT cover host-network pods —
-the firewall rule is the load-bearing control. See
-[`docs/SECURITY.md`](../../docs/SECURITY.md) §4.
+LiveKit binds the UDP port range **50000-60000** for RTC traffic. On the
+current Huawei kom4dc substrate (regions me-east-215-a / me-east-215-b)
+the per-Sovereign Huawei security-group rule (Tofu-managed) opens this
+range to the world; on the legacy Hetzner substrate the equivalent
+control was a Hetzner firewall rule. Pod-level NetworkPolicies do NOT
+cover host-network pods — the security-group rule is the load-bearing
+control. See [`docs/SECURITY.md`](../../docs/SECURITY.md) §4.
 
 ## Chart shape
 
@@ -68,7 +70,7 @@ Per [`docs/RUNBOOKS.md`](../../docs/RUNBOOKS.md)
 |--------|---------|-----|
 | `serviceMonitor.enabled` | `false` | `monitoring.coreos.com/v1` CRD ships with kube-prometheus-stack |
 | `livekit-server.serviceMonitor.create` | `false` | upstream toggle — Catalyst restates the contract |
-| `networkPolicy.enabled` | `false` | Operator supplies consumer-namespace selectors per-Sovereign |
+| `networkPolicy.enabled` | `false` | The sovereign-admin supplies consumer-namespace selectors per-Sovereign |
 | `hpa.enabled` | `false` | One LiveKit pod per node (port-range exclusivity) |
 | `livekit-server.autoscaling.enabled` | `false` | Same — upstream HPA off |
 
@@ -83,4 +85,4 @@ bash platform/livekit/chart/tests/observability-toggle.sh
 
 ---
 
-*Part of [OpenOva](https://openova.io). Closes #273.*
+*Part of [OpenOva](https://openova.io).*

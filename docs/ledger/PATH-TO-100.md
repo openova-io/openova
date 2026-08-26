@@ -1,6 +1,6 @@
-# PATH TO 100% — **hw302 live** (re-measured 2026-08-21)
+# PATH TO 100% — **hw302 partition** (re-measured 2026-08-21; SUPERSEDED — current env hw305)
 
-> **CURRENT env = hw302** (`hw302.omani.works`). `UAT.md` on `origin/main`: **271/286 green (94.8%)**, every green backed by live evidence. This partition maps the **15 non-green rows** to their EXACT unblock as measured live on hw302 2026-08-21. Everything below the `---` after this section is hw292/hw293/hw296/hw298-era history — those envs are wiped; read this partition first. **merge ≠ green** (founder rule): a fix on main only clears a row after a walk on an env that booted it.
+> **Point-in-time: hw302 (measured 2026-08-21) — SUPERSEDED. Current env = hw305** (`hw305.omantel.biz`); `UAT.md` on `origin/main` now reads **✅246 · ❌12 · ⚠️6 · ⏳22 of 286** (PR #6690, as of 2026-08-25) — re-measure this partition on hw305. The hw302 figures below (**271/286 green (94.8%)** as measured 2026-08-21, every green backed by live evidence) are retained as history. This partition maps the **15 non-green rows** to their EXACT unblock as measured live on hw302 2026-08-21. Everything below the `---` after this section is hw292/hw293/hw296/hw298-era history — those envs are wiped; read this partition first. **merge ≠ green** (founder rule): a fix on main only clears a row after a walk on an env that booted it.
 
 ### The 15 non-green rows on hw302, by unblock
 
@@ -1094,7 +1094,7 @@ plus `neo4j` (x2), `llm-gateway`, `librechat`, `opensearch` (x2), `stalwart-tena
 
 So the per-Org host is not merely mis-templated in 26 files; it is **inexpressible**. Fixing the blueprints alone cannot work — the resolver needs an Org-pool-domain token and the callers need to supply it.
 
-**It also fails open, which is why this reached a walk instead of a 500.** `strings.NewReplacer` leaves an unrecognised token untouched, the result is then `strings.ToLower`-ed, and `buildLaunchURL` emits it as a URL regardless. An unresolvable template therefore produces a confident-looking dead link rather than an error — the same failure-open shape called out in the [render-guard](reference) and fail-open-CI lessons.
+**It also fails open, which is why this reached a walk instead of a 500.** `strings.NewReplacer` leaves an unrecognised token untouched, the result is then `strings.ToLower`-ed, and `buildLaunchURL` emits it as a URL regardless. An unresolvable template therefore produces a confident-looking dead link rather than an error — the same failure-open shape called out in the render-guard and fail-open-CI lessons.
 
 **Separately, `bp-openclaw` reproduces the row-114 dark-button defect exactly.** `platform/openclaw/blueprint.yaml:25` is `visibility: listed`, the chart ships `platform/openclaw/chart/templates/httproute.yaml`, and the blueprint declares **no `endpoints` key at all** (zero occurrences) — a listed, route-bearing app with nothing for the console to render a launch control from.
 
@@ -1126,7 +1126,7 @@ The 98–108 supersession is **re-anchored to live state 2026-08-06**, not resti
 
 So on a 2-region Sovereign the NodePort ban was *advisory* in half the fleet: region-b would record a NodePort Service, not block it. The §854 literal scan still passes in both regions (0 NodePorts; 176 svc region-a / 159 region-b **as counted on 2026-08-04** — region-a has since grown to 192, see the 2026-08-06 re-measurement below), so nothing was violating it — the gap is that region-b would not have *stopped* one. Root cause is **#5591**: the Wave 5.90 phase-2b `bootstrapMode` flip reached only the primary region. The source fix is merged (`bb8ceec71` #5592, compile-repaired `ef2d59767` #5619), unit-tested (`TestPolicyEnforceFlip_FlipsEveryRegion_5591`), and delivered in published images — but hw292's phase-2b ran *before* delivery, so its region-b remains unflipped until remediated.
 
-The lesson generalizes past this instance and matches the [per-region split class](reference): a security posture verified in one region is not a fleet property. Assert it per-region or do not assert it.
+The lesson generalizes past this instance and matches the per-region split class: a security posture verified in one region is not a fleet property. Assert it per-region or do not assert it.
 
 **Update, 2026-08-06 — the gap is now CAUGHT BY A GUARD, not merely described here.** The correction above stated the split but left nothing enforcing it, so the same drift would have gone unnoticed on the next env. `scripts/check-live-nodeports.sh` gained a **Phase 2 enforcement-posture check** (PR **#5696**, merged `712860075`): it reads `forbid-nodeport-service`'s `spec.validationFailureAction` in the cluster it is pointed at and **fails closed** — `Enforce` → pass, `Audit` → FAIL, policy absent → FAIL, any unrecognised action → FAIL. Its verdict classifier is vacuity-self-tested in-script (`Enforce`→PASS, `Audit`→not-PASS, `""`→ABSENT, `weird`→not-PASS), so a degenerate always-pass cannot survive its own file. Phase 1 (the literal scan) passing no longer implies compliance; the script says so in its own failure text.
 

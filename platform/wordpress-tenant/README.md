@@ -1,7 +1,7 @@
 # platform/wordpress-tenant
 
 Catalyst Blueprint that provisions a turnkey, SSO-pre-wired WordPress
-instance per Organization inside the Org's vcluster. Part of the
+Application per Organization inside the Org's vcluster. Part of the
 `#795 SME-tenant turnkey experience` epic, ticket #800 (SME-5).
 
 ## What's here
@@ -47,7 +47,7 @@ helm install acme-wordpress oci://ghcr.io/openova-io/bp-wordpress-tenant \
   --set adminUser.email=admin@acme.com
 ```
 
-The Sovereign's tenant-provisioning pipeline (#804) wires this Helm
+The Sovereign's Organization-provisioning pipeline (#804) wires this Helm
 release into a Flux `HelmRelease` per Organization, registers the OIDC client
 in the Org realm, seals the client secret into
 `wordpress-oidc`, and renders the per-Org values overlay.

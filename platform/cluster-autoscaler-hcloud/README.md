@@ -5,19 +5,25 @@ Catalyst Blueprint umbrella chart for the Kubernetes
 with the Hetzner Cloud cloud-provider. Adds and removes Hetzner workers
 in response to `FailedScheduling` events on a Sovereign's k3s cluster.
 
+> **Status (2026-08-26): LEGACY / Hetzner-only.** The current OpenOva substrate is
+> **Huawei kom4dc** (regions me-east-215-a / me-east-215-b), which has no Hetzner
+> Cloud provider — so this hcloud-bound autoscaler applies **only to legacy Hetzner
+> Sovereigns** and is inert on Huawei Sovereigns. kom4dc worker right-sizing is
+> handled outside this chart.
+
 ## Why
 
 Per issue #767, a freshly-provisioned Sovereign reaches `FailedScheduling`
 the moment the bootstrap-kit's RAM aggregate exceeds the static worker
-pool the operator picked in the wizard. Live evidence (otech92): two
+pool the sovereign-admin picked in the wizard. Live evidence (otech92): two
 `cpx32` workers couldn't fit the `external-secrets-webhook` Pod because
 the bootstrap-kit consumed the full 16 GB. The fix is two-pronged:
 
 1. **Pre-launch**: the wizard's StepReview surfaces an *estimated*
-   footprint so the operator picks a worker pool that fits.
+   footprint so the sovereign-admin picks a worker pool that fits.
 2. **Runtime**: this blueprint adds `cluster-autoscaler` so the
    Sovereign scales workers up/down on demand, bounded by the
-   `min`/`max` operator chose at launch.
+   `min`/`max` the sovereign-admin chose at launch.
 
 ## How it wires
 
@@ -41,7 +47,7 @@ the bootstrap-kit consumed the full 16 GB. The fix is two-pronged:
   cloud-init the Phase-0 worker fleet booted with.
 - **Node group**: a single canonical pool keyed off the Sovereign's
   worker SKU + region + cloud-init template. The pool's `min` is the
-  operator's chosen worker count; `max` defaults to 10 (overridable
+  sovereign-admin's chosen worker count; `max` defaults to 10 (overridable
   per-Sovereign).
 - **Scale-down**: 10 minutes idle (cost-saving default).
 

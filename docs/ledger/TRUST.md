@@ -2,6 +2,8 @@
 
 **Created 2026-05-19 after founder accountability collapse.** Every claimed-done item lives here with one of four states. Default for everything pre-2026-05-19 is **UNVERIFIED**.
 
+> **Status (2026-08-26):** This ledger is an append-only historical walk log; its dated session sections (2026-05 → 2026-06-27) are point-in-time records, NOT the current platform state. Several cite superseded infrastructure — the legacy **Hetzner** substrate (now Huawei **kom4dc**, regions me-east-215-a/-b), the removed **Sandbox** concept (Pillar 4 is now the per-Org **Agenity** workspace + **bp-openova-mcp**; Sandbox removed 2026-06-30), and a 9-step cutover chain (the shipped `self-sovereign-cutover` chart is an **11-step** chain pivoting the **8** mothership tethers, with the deny-egress hold at step 08). For live per-surface state see the current ledgers **`UAT.md`** + **`PATH-TO-100.md`** (live on hw305: ✅246/286 as of 2026-08-25). The **States** framework below remains canonical.
+
 ## States
 
 | State | Meaning |
@@ -15,7 +17,7 @@
 
 **% of claimed-done items with VERIFIED-PASS on a fresh prov within the last 14 days.**
 
-Today: **83%** (10/12 Tier-1 rows VERIFIED-PASS after t34v3 focused walk 2026-05-19 16:14-16:20Z on chart 1.4.206 flipped Dashboard-treemap-click PARTIAL → PASS via PR #1939, correcting prior walker ad94ebe2's report). One row remains VERIFIED-FAIL-expected (Compliance native scorecard empty per Kyverno 1.1.0 baseline).
+As of 2026-05-19: **83%** (10/12 Tier-1 rows VERIFIED-PASS after t34v3 focused walk 2026-05-19 16:14-16:20Z on chart 1.4.206 flipped Dashboard-treemap-click PARTIAL → PASS via PR #1939, correcting prior walker ad94ebe2's report). One row remains VERIFIED-FAIL-expected (Compliance native scorecard empty per Kyverno 1.1.0 baseline). **(Point-in-time; live = ✅246/286 on hw305 as of 2026-08-25 — see `UAT.md`.)**
 
 **As of 2026-05-19 17:11Z t34 has been wiped and t35 fresh-prov BLOCKED at tofu plan by TBD-A52 / #1977 (PR #1958 cloud-init bloat regression).** Until #1977 fix lands, no fresh-prov verification can run; existing T1-T4 walks against t34 are now stale (t34 no longer exists).
 
@@ -178,7 +180,7 @@ Tier-3 (customer journey end-to-end) walk 2026-05-19 13:52-13:58Z on the same t3
 
 | Date | Sample size | PASS | PARTIAL | FAIL-reopened | Theater rate | Audit doc |
 |---|---|---|---|---|---|---|
-| 2026-05-20 | 15 | 11 | 1 | 3 (#1741, #1819, #1882) | 20% | [`docs/sessions/2026-05-20-trust-audit.md`](trust-audit-2026-05-20.md) |
+| 2026-05-20 | 15 | 11 | 1 | 3 (#1741, #1819, #1882) | 20% | [`docs/sessions/2026-05-20-trust-audit.md`](../sessions/2026-05-20-trust-audit.md) |
 
 **Three theater closures reopened**: all three used the bulk-template "not-on-pillar-path" comment to close issues that either had documented still-failing evidence on the SAME thread minutes earlier (#1741, #1882) or claimed a stable-state observation against the issue's own explicit zero-touch-fresh-prov requirement (#1819). Pattern: canned-template closure overriding live evidence. Plus 1 admin-merge-through-red-CI concern flagged on #1745 (PR #1779) without reopen because the diff logic is sound.
 
@@ -332,7 +334,7 @@ This file is the single source of truth for trust state. Founder may inspect any
 - **#1971** — default MARKETPLACE_ENABLED=true at source (TBD-V4, Closes #1968) — premature, sme ns still empty until t38
 - **#1974** — surface secondary-region jobs in /api/v1/deployments/{id}/jobs (Refs #1942/#1821/TBD-A63)
 
-**Pillar 4 (Sandbox + qwen-code + MCP)**
+**Pillar 4 (per-Org Agenity workspace + bp-openova-mcp)**
 - **#1987** — sandbox-controller emit canonical SANDBOX_* env vars for MCP plugin (Refs #1986 B4)
 - **#1988** — sandbox-pty-server bundle qwen-code + claude-code + aider + opencode (Refs #1986 B1)
 - **#1992** — sandbox-pty-server agent catalogue + lazy-spawn on attach (Refs #1986 B3)
@@ -396,7 +398,7 @@ Companion chart pins: `bp-flux@1.2.3` (PR #1991), `bp-sandbox@0.3.0` (PR #1988 q
 | **1. Marketplace + signup on Sovereign-pool FQDN** | 🟡 INFRA-READY / WALK-BLOCKED-ON-V15 | t38 (1.4.211) was 🟢 PARTIAL-PASS for the `/redeem` + PIN-login slice. Post-#2010 marketplace-slug-redirect + #2017 sandbox-newapi alignment ship in 1.4.220 / 0.3.1 but UNVERIFIED on fresh prov. | Awaiting t40+ fresh prov after #2020 substrate fix. |
 | **2. Multi-region BCP topology choice at signup** | 🟡 INFRA-READY / WALK-BLOCKED-ON-V15 | 3-region substrate proved healthy on t38; wizard step never reached because of cascading GiteaOrgFailed (now fixed by #2004) + #2008 (gitea-user-bootstrap wait). | Fix-forward wave merged; needs fresh-prov walk. |
 | **3. 2 independent CNPG clusters + region-kill failover** | 🟡 CODE-COMPLETE / WALK-BLOCKED-ON-V15 | 2026-05-20 audit (`/tmp/audit-pillar3-cnpg-2026-05-20.md`) found 5 gaps; ALL 5 PRs merged 06:10–06:41Z: #2071 (`7b317364` synchronous replication remote_apply+FIRST 1, bp-cnpg-pair 0.1.2 + bp-wordpress-tenant 0.3.2), #2072 (`53f510b9` bp-continuum bootstrap-kit slot 62), #2074 (`48816921` Continuum CR per tenant, bp-catalyst-platform 1.4.230), #2073 (`05702c60` generic install path beyond WP-only), #2075 (`30d75aa2` D31 acceptance harness Go test + Containerfile + GHCR + workflow). Zero-tx-loss now technically achievable in code. End-to-end region-kill walk has never run on a tenant org. Milestone comments: #1831 + #1094. | Blocks on Pillars 1+2 reaching the wizard-finish step + #2075 harness execution on a fresh prov post-V15 substrate restore. |
-| **4. Sandbox + auto-mounted MCP with full org knowledge** | 🟡 INFRA-READY / WALK-BLOCKED-ON-V15 | sandbox 0.3.1 (PR #2017) corrects `env.newapiBaseURL` to `http://newapi-bp-newapi.newapi.svc.cluster.local:3000` (TBD-V14 / #2015). PR #2007 (Valkey empty-password) addresses TBD-V12 token-mint failure. /sandbox UI still lists 6 agents incl. qwen-code; first qwen-code session on a fresh-prov tenant is the deterministic step that flips this to PASS. | Awaiting fresh-prov. |
+| **4. Per-Org Agenity workspace + bp-openova-mcp (auto-mounted MCP with full org knowledge)** | 🟡 INFRA-READY / WALK-BLOCKED-ON-V15 | sandbox 0.3.1 (PR #2017) corrects `env.newapiBaseURL` to `http://newapi-bp-newapi.newapi.svc.cluster.local:3000` (TBD-V14 / #2015). PR #2007 (Valkey empty-password) addresses TBD-V12 token-mint failure. /sandbox UI still lists 6 agents incl. qwen-code; first qwen-code session on a fresh-prov tenant is the deterministic step that flips this to PASS. | Awaiting fresh-prov. |
 | **5. Sovereign independence post-cutover (10-min deny-egress)** | 🟡 INFRA-READY / WALK-BLOCKED-ON-V15 | Cutover plumbing PR #2018 (TBD-V13 / #2016) makes `bp-self-sovereign-cutover` idempotent on state-resume (records last-attempted phase, can restart mid-pivot). The 10-min deny-egress proof has never run. | Awaiting fresh-prov + tenant + cutover-trigger. |
 
 t38 NOT wiped — left as fixture for the V8-V12 fix-forward wave's fresh-prov verification + GiteaOrgFailed reproduction. Walk agent `a6c19bae` populated the t38 verdicts captured in the section above; this refreshed table supersedes them now that the mothership-substrate blocker is the binding constraint.
@@ -584,10 +586,10 @@ All five pillars remain 🔴 **UNVERIFIED** pending mothership substrate restore
 
 | Pillar | Code-level movement this hour | Verdict |
 |---|---|---|
-| 1 — Marketplace + phone-OTP on Nova Cloud | configSchema rendering + install wiring (#2038, #2043) | 🔴 UNVERIFIED |
+| 1 — Marketplace + phone-OTP on the Sovereign-pool FQDN | configSchema rendering + install wiring (#2038, #2043) | 🔴 UNVERIFIED |
 | 2 — Multi-region BCP wizard choice | none this hour | 🔴 UNVERIFIED |
 | 3 — 2 independent CNPG clusters + region-kill | none this hour | 🔴 UNVERIFIED |
-| 4 — Sandbox + auto-mounted MCP w/ org knowledge | sandbox env vars fixed (#2037); 6 atomic findings catalogued | 🔴 UNVERIFIED |
+| 4 — Per-Org Agenity workspace + bp-openova-mcp | sandbox env vars fixed (#2037); 6 atomic findings catalogued | 🔴 UNVERIFIED |
 | 5 — Sovereignty cutover (deny-egress hold) | MISS-1 + MISS-2 shipped (#2039, #2041); V23 design ready | 🔴 UNVERIFIED |
 
 ### Definition-of-Done reminder (still in force)

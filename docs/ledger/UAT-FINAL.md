@@ -2,6 +2,10 @@
 
 **Generated** by `scripts/gen-uat-final-report.py`. Do not hand-edit — regenerate and diff to prove the numbers were not typed in.
 
+> **Point-in-time hw295 snapshot (superseded).** Every number below is pinned to
+> the hw295 walk; live = ✅246/286 on hw305 as of 2026-08-25 (PR #6690).
+> Regenerate against the current env: `scripts/gen-uat-final-report.py --env hw305`.
+
 Every acceptance case below carries three things: what the last walk **saw**, how much that observation should be **trusted** today, and the **evidence** it rests on. They are separate columns because they answer different questions — a ✅ at confidence 0.31 passed once, long ago, and is due for re-measurement.
 
 ## Headline

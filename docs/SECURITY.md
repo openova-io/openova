@@ -1,6 +1,6 @@
 # Catalyst Security Model
 
-**Status:** Authoritative target architecture. **Updated:** 2026-05-20.
+**Status:** Authoritative target architecture. **Updated:** 2026-08-26.
 **Implementation:** Per-component status tracked in [`STATUS.md`](STATUS.md). OpenBao, ESO, Keycloak component READMEs exist; Catalyst's integration glue is design-stage. SPIRE/SPIFFE was dropped from the bootstrap-kit by founder PR #665 (2026-05-03, "drop bp-spire — Cilium WireGuard is canonical east-west mesh") — the `platform/spire/` chart is retained as opt-in for future re-introduction (see §2 below for re-enable triggers).
 
 Identity, secrets, rotation, and multi-region credential semantics for Catalyst Sovereigns. Defer to [`GLOSSARY.md`](GLOSSARY.md) for terminology.
@@ -10,7 +10,7 @@ Identity, secrets, rotation, and multi-region credential semantics for Catalyst 
 ```mermaid
 graph TB
   MS["Mothership 'openova'<br/>provisioning only, no runtime tie"]
-  subgraph Cloud["Cloud provider substrate (Hetzner / Huawei) — untrusted floor"]
+  subgraph Cloud["Cloud provider substrate (Huawei kom4dc, Hetzner legacy) — untrusted floor"]
     subgraph Sov["Sovereign — one deployed Catalyst (its own trust domain)"]
       subgraph CP["Control plane (catalyst ns) — sovereign-admin scope"]
         API["catalyst-api + controllers"]
@@ -644,18 +644,19 @@ graph LR
 
 ---
 
-## 11. Rotation cadence and operator procedures
+## 11. Rotation cadence and sovereign-admin procedures
 
 > Source: previously `docs/SECRET-ROTATION.md` (merged here on 2026-05-20).
 
-§7 above states the **policy** (cadence + class). This section is the **operator runbook** for executing each rotation and rolling back if it breaks something live.
+§7 above states the **policy** (cadence + class). This section is the **sovereign-admin runbook** for executing each rotation and rolling back if it breaks something live.
 
 The canonical credential set Catalyst handles outside the dynamically-minted classes in §4:
 
 | Credential | Where it lives | Rotation cadence | Rollback window |
 |---|---|---|---|
 | GHCR pull token (`catalyst-ghcr-pull-token`) | K8s Secret in `catalyst` ns, key `token` | **Yearly** | 24 h via 1Password version history |
-| Hetzner Cloud API token (per Sovereign) | Wizard input → catalyst-api memory only | Per Sovereign apply | n/a — single-use, never persisted |
+| Huawei Cloud AK/SK (per Sovereign — kom4dc substrate, current) | Wizard input → catalyst-api memory only | Per Sovereign apply | n/a — single-use, never persisted |
+| Hetzner Cloud API token (per Sovereign — **legacy** substrate) | Wizard input → catalyst-api memory only | Per Sovereign apply | n/a — single-use, never persisted |
 | Dynadot API key + secret (`dynadot-api-credentials`) | K8s Secret in `openova-system` ns, keys `api-key` + `api-secret` | **Yearly** (or on personnel change) | 24 h via 1Password version history |
 | Sovereign Admin SSO client secret (Keycloak `catalyst-admin` realm) | Per-Sovereign K8s Secret in `keycloak` ns | **Yearly** | 1 h — Keycloak supports two active client secrets during rollover |
 | SOPS / SealedSecrets cluster key (per Sovereign) | K8s Secret in `kube-system` ns | **Per Sovereign**, never rotated post-bootstrap | n/a — re-key requires migrating every existing SealedSecret |
@@ -675,7 +676,7 @@ failed to get authentication secret 'flux-system/ghcr-pull':
 
 …and Phase 1 stalls at bp-cilium. The cloud-init template writes the Secret BEFORE `kubectl apply -f flux-bootstrap.yaml`, but the token itself is never in the template — OpenTofu interpolates it at apply time from `var.ghcr_pull_token`, sourced from the catalyst-api Pod's env var `CATALYST_GHCR_PULL_TOKEN`.
 
-**Where the token must NEVER be:** git (any branch, any repo), the bootstrap-kit YAMLs, the catalyst-api Pod logs, the Hetzner project metadata, Slack/email/issue bodies. The provisioner stamps it onto the Request struct in memory, writes `tofu.auto.tfvars.json` (mode 0600), and that file is wiped when the per-deployment workdir is cleared. The `json:"-"` tag on `Request.GHCRPullToken` keeps it out of the persisted deployment records (see `internal/store.Redact`).
+**Where the token must NEVER be:** git (any branch, any repo), the bootstrap-kit YAMLs, the catalyst-api Pod logs, the cloud provider (Huawei kom4dc / Hetzner) project metadata, Slack/email/issue bodies. The provisioner stamps it onto the Request struct in memory, writes `tofu.auto.tfvars.json` (mode 0600), and that file is wiped when the per-deployment workdir is cleared. The `json:"-"` tag on `Request.GHCRPullToken` keeps it out of the persisted deployment records (see `internal/store.Redact`).
 
 #### Generation
 
@@ -699,7 +700,7 @@ Notes field on the 1Password item must record:
 - Generation date.
 - Expiration date.
 - Username paired with this token at the registry: `openova-bot` (the literal string the cloud-init template uses; GitHub validates the token, not the username, but this string lands in audit-trail JSON).
-- Operator who generated it.
+- Sovereign-admin who generated it.
 
 #### Apply (the one-liner)
 
@@ -751,13 +752,15 @@ If the new token does not authenticate (typo, wrong scope, expired):
 
 The previous token remains valid until the next yearly rotation — GitHub does not invalidate replaced fine-grained tokens automatically. **Revoke the broken token in the GitHub UI** as a hygiene step once rollback succeeds.
 
-### 11.2 Hetzner Cloud API token (per Sovereign)
+### 11.2 Cloud provider provisioning credential (per Sovereign)
 
-Captured by the wizard's StepProvider, lives in catalyst-api memory only for the duration of one deployment. NEVER persisted (the `Request.HetznerToken` field is `json:"-"`; `internal/store.Redact` overwrites it with `<redacted>` for any record that ends up on disk).
+**Current substrate — Huawei Cloud AK/SK (kom4dc).** The live substrate is Huawei kom4dc (regions `me-east-215-a` / `me-east-215-b`). Each Sovereign is provisioned with a Huawei Cloud IAM **access key (AK) + secret key (SK)** plus the region-scoped project ID (OpenTofu variables `huawei_access_key`, `huawei_secret_key`, `huawei_project_id` — see `infra/providers/huawei/variables.tf`). They are captured at the wizard's StepCredentials, live in catalyst-api memory only for the duration of one deployment, and are NEVER persisted (the provider-credential fields are `json:"-"`; `internal/store.Redact` overwrites them with `<redacted>` for any record that ends up on disk).
 
-Rotation: per-Sovereign apply. Each `tofu apply` accepts a fresh token; once `tofu apply` returns, catalyst-api drops the value out of memory (the Pod restart on next image roll loses the in-memory copy regardless).
+Rotation: per-Sovereign apply. Each `tofu apply` accepts a fresh AK/SK; once `tofu apply` returns, catalyst-api drops the value out of memory (the Pod restart on next image roll loses the in-memory copy regardless).
 
-If a Hetzner token is suspected of leaking: revoke at https://console.hetzner.cloud/projects → Security → API tokens. The next wizard run will accept a fresh one.
+If a Huawei AK/SK is suspected of leaking: revoke it in the Huawei/National Cloud IAM console (My Credentials → Access Keys) and issue a fresh AK/SK pair. The next wizard run will accept it.
+
+**Legacy substrate — Hetzner Cloud API token.** Hetzner is the retired legacy substrate (`infra/providers/hetzner/`, OpenTofu variable `hcloud_token`); the code still carries the `hetzner` provider path as a NO-REGRESS fallback. Where a Sovereign still runs on Hetzner, the same rules apply — captured at StepProvider, memory-only, `json:"-"`, revoked at `https://console.hetzner.cloud/projects → Security → API tokens`.
 
 ### 11.3 Dynadot API key + secret (`dynadot-api-credentials`)
 

@@ -174,12 +174,12 @@ flowchart TB
         Gitea[Gitea — single instance, K8s-replicated for HA]
     end
 
-    subgraph Region1["Workload region 1 (rtz)"]
+    subgraph Region1["Workload region 1 (me-east-215-a)"]
         Flux1[Per-vcluster Flux]
         K8s1[Org vcluster workloads]
     end
 
-    subgraph Region2["Workload region 2 (rtz)"]
+    subgraph Region2["Workload region 2 (me-east-215-b)"]
         Flux2[Per-vcluster Flux]
         K8s2[Org vcluster workloads]
     end

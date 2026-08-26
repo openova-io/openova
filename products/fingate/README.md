@@ -10,6 +10,8 @@ Fintech sandbox environments with PSD2/FAPI compliance, TPP management, and API 
 
 OpenOva Fingate is a product that provides a complete fintech sandbox environment leveraging existing OpenOva infrastructure (Cilium/Envoy) with purpose-built Open Banking components.
 
+> **Placement & build state:** Fingate is a Composite Application Blueprint under `products/` — see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) and [`docs/DOD.md`](../../docs/DOD.md). This README is a **design/ADR for a scaffold**: no Open Banking implementation ships yet (see [`docs/STATUS.md`](../../docs/STATUS.md)).
+
 ```mermaid
 flowchart TB
     subgraph Gateway["API Gateway (Cilium Envoy)"]
@@ -104,7 +106,7 @@ Backend Services --> Kafka --> OpenMeter
 | Cilium/Envoy | API Gateway (mTLS, routing, rate limiting) |
 | Coraza | WAF (OWASP CRS) |
 | Valkey | Quota cache (real-time credit tracking) |
-| Strimzi/Kafka | Metering event streaming |
+| Strimzi/Kafka | Metering event streaming (opt-in Kafka Application Blueprint this product pulls in for its own metering — NOT the platform control-plane event spine, which is NATS JetStream) |
 | CNPG | Consent and TPP data storage |
 
 ---
@@ -143,7 +145,7 @@ Request --> Access Log --> Kafka --> OpenMeter --> Customer billing system
 
 | Standard | Version | Status |
 |----------|---------|--------|
-| UK Open Banking | 3.1.10 | Supported |
+| UK Open Banking | 3.1.10 | Planned |
 | Berlin Group NextGenPSD2 | 1.3.8 | Planned |
 | STET | 1.4.2 | Planned |
 
@@ -264,7 +266,7 @@ spec:
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `ORGANIZATION` | Catalyst Organization identifier (per [`docs/GLOSSARY.md`](../../docs/GLOSSARY.md); previously labelled "tenant" — banned term) | Required |
-| `SOVEREIGN_DOMAIN` | Sovereign's base domain (e.g. `omantel.openova.io`, `<customer-sovereign>.local`) | Required |
+| `SOVEREIGN_DOMAIN` | Sovereign's base domain (e.g. `omantel.biz`, `<customer-sovereign>.local`) | Required |
 | `OB_STANDARD` | Open Banking standard | `uk-ob-3.1` |
 | `SANDBOX_ENABLED` | Enable sandbox mode | `true` |
 | `KEYCLOAK_REPLICAS` | Keycloak replicas | `2` |

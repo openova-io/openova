@@ -75,7 +75,7 @@ products/continuum/cloudflare-worker/
 - `Authorization: Bearer <token>` is checked on EVERY request (no per-method auth differences). Missing header / wrong scheme / unknown token → 401.
 - The Worker NEVER logs the token value, only the boolean outcome.
 
-## Operator runbook — deploy a new Sovereign
+## Sovereign-admin runbook — deploy a new Sovereign
 
 To deploy the lease witness Worker for a new Sovereign:
 

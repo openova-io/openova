@@ -14,7 +14,7 @@
 > [`ARCHITECTURE.md`](ARCHITECTURE.md) for system shape,
 > [`RUNBOOKS.md`](RUNBOOKS.md) for operator how-tos.
 >
-> **Status**: Authoritative. **Updated**: 2026-05-20.
+> **Status**: Authoritative. **Updated**: 2026-08-26.
 > Supersedes the legacy split 5-PILLAR-DOD + DOMAINS-CANON +
 > SOVEREIGN-MULTI-REGION-DOD + PERSONAS-AND-JOURNEYS —
 > consolidated here per the lean-doc strategy (PR #2076 / PR #2084).
@@ -52,7 +52,7 @@ STATE across six layers at the moment of the check:
 |---|---|
 | L1 | Deployment record: status, handover, CP IP, LB IP |
 | L2 | Both regions' kubeconfigs reachable; ≥ 4 nodes Ready per region |
-| L3 | Every required HR has `status.conditions[type=Ready].status=True` **now**; zero False, zero Unknown (excluding Hetzner-suspended) |
+| L3 | Every required HR has `status.conditions[type=Ready].status=True` **now**; zero False, zero Unknown (excluding intentionally suspended secondary-region control-plane HRs) |
 | L4 | Every catalyst-system control-plane pod is Ready (api, ui, catalog, 4 controllers, marketplace-api) |
 | L5 | HTTPS responds with 2xx/3xx/40x on console / api / auth / gitea / harbor / bao / marketplace / pdns; TLS cert is from REAL Let's Encrypt (not staging) |
 | L6 | **Zero-touch audit**: no `kubectl-set`, `kubectl-patch`, `kubectl-edit` managers on tracked resources; no `kubectl.kubernetes.io/restartedAt` annotations on any tracked Deployment/DaemonSet/StatefulSet (catches `kubectl rollout restart` surgery). |
@@ -166,7 +166,7 @@ looks.
 A franchised Sovereign emerging from Phase 1 is operationally tethered to the
 OpenOva mothership in **eight** places (full map in
 [`adr/0002-post-handover-sovereignty-cutover.md`](adr/0002-post-handover-sovereignty-cutover.md)
-§2.1 and in [`ARCHITECTURE.md`](ARCHITECTURE.md) §11.1):
+§2.1 and in [`ARCHITECTURE.md`](ARCHITECTURE.md) §5.6):
 
 | # | Tether | Phase |
 |---|---|---|
@@ -181,11 +181,13 @@ OpenOva mothership in **eight** places (full map in
 
 `bp-self-sovereign-cutover` installs **dormant** at bootstrap-kit slot 06a
 during Phase 1 and is triggered post-handover by the operator's "Achieve True
-Sovereignty" CTA. Eight sequential Jobs pivot the tethers in dependency order;
-the **final step is a 10-minute deny-egress NetworkPolicy hold** against
-`github.com`, `ghcr.io`, and `harbor.openova.io`. The only condition under
-which `cutoverComplete=true` is set is that the cluster reconciles green
-during this hold. **No cutover claim without the egress-block proof.** Full
+Sovereignty" CTA. An **11-step chain** (templates 01-11) pivots the 8 tethers
+in dependency order; **step 08 is a 10-minute deny-egress NetworkPolicy hold**
+against `github.com`, `ghcr.io`, and `harbor.openova.io` (the sovereignty
+proof), with steps 09-11 (gitea-token-mint, vcluster-registry-pivot,
+crossplane-provider-pivot) running after it. `cutoverComplete=true` is set only
+if all 11 steps succeed AND the cluster reconciles green during the step-08
+hold. **No cutover claim without the egress-block proof.** Full
 choreography in §7 below.
 
 The eight tethers, the cutover that pivots them, and the proof that gates the claim:
@@ -203,8 +205,8 @@ graph LR
     t7["Catalyst images → ghcr.io/openova-io"]
     t8["OS package mirrors (cold-start)"]
   end
-  T -->|"bp-self-sovereign-cutover<br/>8 sequential Jobs, dependency order"| PIVOT["local Gitea + Harbor"]
-  PIVOT --> HOLD["Final Job: 10-min deny-egress hold<br/>github.com · ghcr.io · harbor.openova.io"]
+  T -->|"bp-self-sovereign-cutover<br/>11-step chain, dependency order"| PIVOT["local Gitea + Harbor"]
+  PIVOT --> HOLD["Step 08 of 11: 10-min deny-egress hold<br/>github.com · ghcr.io · harbor.openova.io"]
   HOLD -->|"cluster reconciles green"| DONE["cutoverComplete=true"]
 ```
 
@@ -336,12 +338,12 @@ ruling 2026-05-15: silent compromise from these gates is a quality violation.
 
 | ID | Rule |
 |---|---|
-| A1 | **3 regions minimum.** If a provider has capacity / zone constraints, swap regions — never silently drop to 2. |
+| A1 | **3 regions minimum.** If a provider has capacity / zone constraints, swap regions — never silently drop to 2. (This 3-region floor is the **Sovereign** infra topology; a tenant Organization's CNPG BCP is **2-region** — primary + hot-standby.) |
 | A2 | **Inter-region link = DMZ WireGuard over PUBLIC IPs.** No `hcloud_network` cross-region, no VPC peering, no Huawei VPC — provider-agnostic, always over the DMZ WG endpoint. |
 | A3 | **Cilium ClusterMesh apiserver Service = LoadBalancer** (public IP through DMZ WG). The word `NodePort` must never appear in clustermesh-apiserver Service spec on any Sovereign. |
 | A4 | **vCluster topology**: primary region = MGMT+DMZ; each secondary region = DMZ+RTZ. Cross-vCluster intra-region traffic stays inside host k3s via Cilium. |
 | A5 | **Zero public exposure of K8s control-plane endpoints.** `kubectl get svc -A` on a converged Sovereign returns no NodePort for clustermesh-apiserver, kube-apiserver, or etcd. |
-| A6 | **Provider-mix is the canonical case.** Assume 1 region Hetzner, 1 AWS, 1 Huawei. Code must work for that even when the active test prov is all-Hetzner. |
+| A6 | **Provider-mix is the canonical case.** Assume 1 region Hetzner, 1 AWS, 1 Huawei. Code must work for that even when the active test prov is single-provider (currently Huawei kom4dc). |
 
 ### Gates D0–D35
 
@@ -363,7 +365,7 @@ OPERATOR experience, not just backend convergence.
 | D5 | `/cloud` view: renders **all 3 regions**, no stuck spinners | Playwright MCP |
 | D6 | `/jobs` view: **0 pending, 0 running** — every job in terminal state | Playwright MCP |
 | D7 | Mothership flow Jobs ≡ child Sovereign Jobs (same IDs, same statuses) | Playwright MCP diff |
-| D8 | `kubectl --context <child> get hr -A` shows **all 135 HRs Ready=True** across all clusters | kubectl |
+| D8 | `kubectl --context <child> get hr -A` shows **every required HR Ready=True** across all clusters | kubectl |
 | D9 | clustermesh-apiserver Pod Ready in every region, no restarts, no x509 errors | kubectl |
 | D10 | `cilium clustermesh status` shows OK for every peer cluster | cilium CLI |
 | D11 | Inter-region pod-to-pod packet test passes, hubble-flow shows WireGuard traversal | kubectl + hubble |
@@ -375,7 +377,7 @@ OPERATOR experience, not just backend convergence.
 | **D17** | **Application detail route `/app/<name>` shows the application, not "deployment id malformed".** Clicking any application card in `/apps` MUST navigate to a route where the URL segment is the application name (e.g. `bp-cnpg`) and the renderer treats it as an application reference, NOT as a deployment id. The notifications drawer MUST NOT contain "Deployment id in the URL is malformed" entries for valid app-name segments. | Playwright MCP |
 | **D18** | **Sovereign-side catalyst-api can self-monitor Phase-1 install state.** The chroot Sovereign catalyst-api MUST be able to fetch its own cluster's kubeconfig (or use in-cluster service account) to observe HelmRelease state. The notifications drawer MUST NOT contain "Per-component install monitoring is unavailable for this deployment — the Catalyst API couldn't fetch the new cluster's kubeconfig" entries. Operator should never need to drop to `kubectl get helmrelease` to know per-app install state. | Playwright MCP |
 | **D19** | **Apps + Cloud counter consistency.** Apps page Deployments tab count MUST equal Catalog "INSTALLED" count MUST equal `kubectl get hr -A` Ready count. Cloud canvas kind chips MUST NOT show `N/0` for resources that exist (vCluster, LoadBalancer, Bucket, Volume, PVC). PVC count in graph view MUST equal PVC count in list view. App card hrefs MUST NOT have doubled prefix (`/app/bp-bp-*`). | Playwright MCP |
-| **D20** | **Jobs page surfaces all-region jobs with region filter.** Jobs view MUST show per-region prefixes (`nbg1-1:`, `sin-2:`) for every app on a multi-region Sovereign, plus an App-filter that lets the operator narrow to a single region. Any unexplained `N/M` counter MUST resolve to an actionable filter or be removed. | Playwright MCP |
+| **D20** | **Jobs page surfaces all-region jobs with region filter.** Jobs view MUST show per-region prefixes (`me-east-215-a:`, `me-east-215-b:`) for every app on a multi-region Sovereign, plus an App-filter that lets the operator narrow to a single region. Any unexplained `N/M` counter MUST resolve to an actionable filter or be removed. | Playwright MCP |
 | **D21** | **Operator pre-populated as owner-tier on /users post-handover.** Sovereign Console /users MUST list the operator who completed PIN-login as `tier=owner` with their email. /users MUST NOT render empty on a freshly-converged Sovereign. | Playwright MCP |
 | **D22** | **Settings page shows real values.** /settings MUST render real values for Region, Capacity, ControlPlaneSize, Created (timestamp), DeploymentID, Pool subdomain — NOT `—` placeholders or "API PENDING" badges. Operator MUST be able to see what their Sovereign actually is. | Playwright MCP |
 | **D23** | **Sovereign-side /wizard route does not collide with post-handover landing.** After PIN-login + handover, operator's browser MUST land on `/dashboard` (or the canonical post-handover surface), NEVER on `/wizard` (which is the mothership new-prov flow). | Playwright MCP |
@@ -384,7 +386,7 @@ OPERATOR experience, not just backend convergence.
 | **D26** | **CSP allows fonts or self-hosts woff2.** Operator MUST NOT see system-font fallback on Sovereign Console pages. Either `fonts.googleapis.com` is allowed by CSP, or fonts are self-hosted (no external dependency). | Playwright MCP |
 | **D27** | **Marketplace enabled on the Sovereign.** `MARKETPLACE_ENABLED=true` flows from provision body → bp-catalyst-platform → Sovereign Console: a `/marketplace` route returns 200 with a non-empty catalog page (apps + voucher admin) — NOT 404, NOT a "marketplace disabled" stub. `kubectl get hr -A` shows `bp-marketplace` (or whichever HR backs the marketplace) Ready=True on the chroot. The mothership provision wizard MUST default `marketplace.enabled=true` (zero-touch — operator never toggles a flag). | Playwright MCP + kubectl |
 | **D28** | **Voucher issuance from owner-tier UI.** Owner (the operator who PIN-logged-in per D21) opens Sovereign Console marketplace admin → issues a voucher for tenant onboarding. Voucher artifact MUST persist (CR + DB row), MUST be emailed to the chosen recipient via the Sovereign's outbound SMTP, AND MUST be visible in the admin's voucher list. Issuance must be one-click (no kubectl, no API call). Test recipient: `hatice.yildiz@openova.io` (canonical operator-test address) or any other Sovereign-side mailbox the operator controls. | Playwright MCP |
-| **D29** | **Voucher-based organization (tenant) provisioning is zero-touch.** Recipient opens the voucher email → clicks redeem link → PIN-login as the test recipient (e.g. `hatice.yildiz@openova.io`) → lands on an organization-creation wizard → completes the form → a new `Organization` / Tenant CR is created → tenant namespace + RBAC + bootstrap apps converge → recipient is auto-redirected to their tenant home page. NO operator intervention beyond the voucher email. | Playwright MCP |
+| **D29** | **Voucher-based organization (tenant) provisioning is zero-touch.** Recipient opens the voucher email → clicks redeem link → PIN-login as the test recipient (e.g. `hatice.yildiz@openova.io`) → lands on an organization-creation wizard → completes the form → a new `Organization` CR is created → tenant namespace + RBAC + bootstrap apps converge → recipient is auto-redirected to their tenant home page. NO operator intervention beyond the voucher email. | Playwright MCP |
 | **D30** | **Free-subdomain selection from operator-curated pool.** Organization wizard step MUST present a subdomain picker populated from the configured pool: `omani.homes`, `omani.rest`, `omani.trade` (singular — see §4 below), and any others the operator has provisioned. Tenant chooses a free subdomain (e.g. `acme.omani.homes`) → cert provisions → tenant landing page resolves on the chosen FQDN with publicly-trusted TLS. The pool MUST come from a Sovereign-side CR / config (not hardcoded). | Playwright MCP + dig + curl |
 | **D31** | **Tenant application with CNPG active-hot-standby replication.** Inside the new tenant, user picks a CNPG-backed app from the marketplace (e.g. Ghost or WordPress) → selects "active hot-standby" → app installs with a CNPG `Cluster` that replicates across the Sovereign's regions (primary + at least one replica). `kubectl get cluster.postgresql.cnpg.io -A` in the tenant context shows `instances` distributed across regions (region label / topology spread). Failover test: cordoning the primary region brings the replica to primary, app remains reachable on its FQDN within the documented RTO (≤ 30 s). Full counter-test continuity procedure in §6. | Playwright MCP + kubectl + curl |
 | **D32** | **Agenity workspace installable per Org.** A User installs **`bp-agenity`** (`products/agenity/`) from the catalog into their Organization; its StatefulSet (`chepherd run --headless`), Service, and `agenity.<org>.<fqdn>` HTTPRoute materialise and the pod becomes Ready (`/healthz` 200) within the documented window. `kubectl -n <org>-prod get statefulset,svc,httproute,externalsecret -l catalyst.openova.io/blueprint=bp-agenity` shows all present; the Agenity console loads at `agenity.<org>.<sovereign-fqdn>` behind the Org's Keycloak SSO. Agenity is a single-region per-Org singleton (no Sandbox CRD, no `sandbox-controller` — both are removed). | kubectl + Playwright MCP |
@@ -565,7 +567,7 @@ terminology. The journeys described below use Catalyst surfaces (console / Git
 ### 5.2 Surfaces
 
 The three first-class surfaces (full list and rationale in
-[`ARCHITECTURE.md`](ARCHITECTURE.md) §7):
+[`ARCHITECTURE.md`](ARCHITECTURE.md) §5.8):
 
 - **UI** — Catalyst console. Form / Advanced / IaC editor depths.
 - **Git** — direct push or PR to the Application's Gitea repo (one repo per App; branches `develop` / `staging` / `main` map to dev / stg / prod), or to private Blueprint repos (`shared-blueprints` per-Org or `catalog-sovereign` Sovereign-wide).
@@ -982,18 +984,21 @@ operate independently of the OpenOva mothership.
    pivots active.
 2. Post-handover, the operator clicks the "Achieve True Sovereignty" CTA in
    the Sovereign Console.
-3. The Blueprint runs **eight sequential Jobs**, each pivoting one of the
+3. The Blueprint runs an **11-step chain** (templates 01-11), pivoting the 8
    tethers listed in §1 Pillar 5. Tethers are pivoted in dependency order so
    the cluster never loses its ability to pull what it needs at each step
    (e.g. Harbor proxy-cache is warmed before containerd registries.yaml
    flips).
-4. The **final step is a 10-minute deny-egress NetworkPolicy hold** against
-   `github.com`, `ghcr.io`, and `harbor.openova.io`. During the hold:
+4. **Step 08 is a 10-minute deny-egress NetworkPolicy hold** against
+   `github.com`, `ghcr.io`, and `harbor.openova.io` (the sovereignty proof;
+   steps 09-11 — gitea-token-mint, vcluster-registry-pivot,
+   crossplane-provider-pivot — run after it). During the hold:
    - Flux must continue to reconcile (sources are now local Gitea + Harbor).
    - All HelmReleases must remain Ready=True.
    - No image-pull errors, no Git fetch errors, no upstream registry hits.
-5. `cutoverComplete=true` is set **only if** the cluster reconciles green
-   during the full 10-minute hold. Any hiccup = the cutover failed; rollback
+5. `cutoverComplete=true` is set **only if** all 11 steps succeed AND the
+   cluster reconciles green during the full 10-minute step-08 hold. Any hiccup =
+   the cutover failed; rollback
    to pre-cutover state, fix the root cause, re-run.
 
 The choreography as a state machine — the egress-block hold is the one gate to `cutoverComplete`:
@@ -1003,8 +1008,8 @@ stateDiagram-v2
   [*] --> Dormant
   Dormant: installed dormant at bootstrap-kit slot 06a
   Dormant --> Pivoting: operator clicks Achieve-True-Sovereignty CTA
-  Pivoting --> EgressHold: 8 sequential Jobs pivot tethers in dependency order
-  EgressHold --> Complete: 10-min deny-egress hold reconciles green
+  Pivoting --> EgressHold: steps 01-07 of the 11-step chain pivot tethers in dependency order
+  EgressHold --> Complete: step 08 deny-egress hold green, steps 09-11 finish
   EgressHold --> Rollback: any hiccup during the hold
   Rollback --> Dormant: fix root cause, re-run
   Complete --> [*]: cutoverComplete=true, egress-block proof recorded

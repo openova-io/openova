@@ -1,6 +1,6 @@
 # bp-openclaw — workspace controller + per-user pod
 
-Catalyst Blueprint for OpenClaw: a multi-tenant **workspace controller**
+Catalyst Blueprint for OpenClaw: a multi-Organization **workspace controller**
 deployment plus per-user **runtime pods** spawned on demand. Implements
 locked decision **[A]** of epic [#795](https://github.com/openova-io/openova/issues/795)
 and consumes the per-user `newapi-key-{user-uuid}` Secrets rendered by the
@@ -56,15 +56,15 @@ blind runtime image) is intentionally reusable.
 | `values.yaml` | All operator-tunable values; assertions in `_helpers.tpl` fail render with helpful messages when required values are missing |
 | `templates/_helpers.tpl` | Naming / labels / required-value assertions |
 | `templates/serviceaccount.yaml` | Controller ServiceAccount (release ns) |
-| `templates/controller-rbac.yaml` | Namespaced `Role` + `RoleBinding` in **tenant** ns. `create` verbs split into separate rules WITHOUT `resourceNames` per `feedback_rbac_create_no_resourcenames.md` |
-| `templates/controller-deployment.yaml` | Multi-tenant controller pod |
+| `templates/controller-rbac.yaml` | Namespaced `Role` + `RoleBinding` in **Organization** ns. `create` verbs split into separate rules WITHOUT `resourceNames` per `feedback_rbac_create_no_resourcenames.md` |
+| `templates/controller-deployment.yaml` | Multi-Organization controller pod |
 | `templates/controller-service.yaml` | ClusterIP Service for the controller |
 | `templates/httproute.yaml` | **(Sovereign exposure)** Cilium Gateway API `HTTPRoute` attaching `openclaw.<org>.<pool>` to the dedicated `cilium-gateway-console` (wildcard `*.<pool>` TLS listener ⇒ no per-host cert). Default `httpRoute.enabled: false`; the org-gitops overlay sets enabled + hostnames (#4272) |
 | `templates/controller-ingress.yaml` | **(off-Sovereign only)** Traefik `networking.k8s.io/v1` Ingress with cert-manager auto-issue. Default `ingress.enabled: false` — a Sovereign runs Cilium Gateway, not traefik, so this Ingress is INERT there and its per-host cert never issues (#4272) |
 | `templates/per-user-pod-template.yaml` | ConfigMap holding the pod-spec the controller renders per session |
 | `templates/networkpolicy.yaml` | Controller K8s `NetworkPolicy` (Pod-selectable hops). Egress now includes the public-host `:443` JWKS hairpin the `/readyz` handler needs (#4272). The per-user pod's NetworkPolicy is rendered by the controller at session-start (see "Per-user pod NetworkPolicy" below) |
 | `templates/cilium-ingress-networkpolicy.yaml` | Controller `CiliumNetworkPolicy` `fromEntities:[ingress,host,remote-node]` → `:8080` — admits the Cilium Gateway Envoy (`ingress`) + kubelet readiness/liveness probe (`host`/`remote-node`), reserved entities no K8s `NetworkPolicy` selector can express. Gated on `cilium.io/v2` + `networkPolicy.ingress.allowGatewayEntity` (#4272) |
-| `controller/` | Source for the multi-tenant **controller** container image (separate OCI artifact `openclaw-controller`, built by `.github/workflows/openclaw-controller.yaml`). Validates the Organization end-user's Keycloak JWT (OIDC discovery + JWKS RS256), spawns one identity-blind runtime pod per session from the mounted pod-template ConfigMap, reverse-proxies the user to it, and reaps idle pods. |
+| `controller/` | Source for the multi-Organization **controller** container image (separate OCI artifact `openclaw-controller`, built by `.github/workflows/openclaw-controller.yaml`). Validates the Organization end-user's Keycloak JWT (OIDC discovery + JWKS RS256), spawns one identity-blind runtime pod per session from the mounted pod-template ConfigMap, reverse-proxies the user to it, and reaps idle pods. |
 | `runtime/` | Source for the per-user runtime container image (separate OCI artifact, built by `.github/workflows/openclaw-runtime.yaml`) |
 | `tests/render-toggles.sh` | Helm-template integration test exercised by the blueprint-release CI workflow |
 
@@ -80,7 +80,7 @@ The chart fails to render if any of these are unset (see
 | `oidc.issuerURL` | `https://keycloak.acme.<parent-domain>/realms/org-acme` |
 | `oidc.clientId` | `openclaw` |
 | `oidc.clientSecret.name` | `openclaw-oidc-client-secret` (Secret with key `OIDC_CLIENT_SECRET`) |
-| `llm.baseURL` | `https://api.acme.<parent-domain>/v1` (per-tenant NewAPI OpenAI-compatible endpoint) |
+| `llm.baseURL` | `https://api.acme.<parent-domain>/v1` (per-Organization NewAPI OpenAI-compatible endpoint) |
 | `llm.defaultModel` | `qwen3.6` (NewAPI maps this to a backing channel — e.g. a partner-hosted Qwen) |
 | `tenant.namespace` | `org-acme` |
 | `controller.image.tag` | SHA-pinned tag (Inviolable Principle 4) |
@@ -139,7 +139,7 @@ swap the runtime image without changing this chart.
 
 ## RBAC posture
 
-The controller's `Role` lives in the **tenant** namespace (where the
+The controller's `Role` lives in the **Organization** namespace (where the
 per-user pods and Secrets live), not the release namespace. The
 `RoleBinding` subject is the controller's ServiceAccount in the release
 namespace.
@@ -203,7 +203,7 @@ a same-version mutable-tag overwrite (issue #4257).
 
 ## Related
 
-- Epic [#795](https://github.com/openova-io/openova/issues/795) — SME-tenant turnkey experience
+- Epic [#795](https://github.com/openova-io/openova/issues/795) — SME-Organization turnkey experience
 - ADR-0003 — RBAC ↔ NewAPI user-create hook
 - bp-newapi (`platform/newapi/`) — Sovereign-level metered LLM gateway
 - bp-keycloak (`platform/keycloak/`) — Org-vcluster realm
