@@ -101,7 +101,7 @@ const FLAT_NAV: FlatNavItem[] = [
   },
   {
     id: 'cloud',
-    label: 'Cloud',
+    label: 'Resources',
     to: '/provision/$deploymentId/cloud',
     icon: CLOUD_ICON,
   },

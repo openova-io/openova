@@ -96,10 +96,10 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('CloudPage — shell', () => {
-  it('renders the Cloud title', async () => {
+  it('renders the Resources title', async () => {
     renderShell('d-1', 'architecture')
     const title = await screen.findByTestId('cloud-title')
-    expect(title.textContent).toBe('Cloud')
+    expect(title.textContent).toBe('Resources')
   })
 
   it('mounts inside the PortalShell (sidebar present)', async () => {

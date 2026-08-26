@@ -82,7 +82,7 @@ const FLAT_NAV: FlatNavItem[] = [
   },
   {
     id: 'cloud',
-    label: 'Cloud',
+    label: 'Resources',
     to: '/cloud',
     icon: CLOUD_ICON,
   },
