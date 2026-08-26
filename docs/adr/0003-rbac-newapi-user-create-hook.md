@@ -34,9 +34,9 @@ A Sovereign Marketplace (SME) admin signs into the unified RBAC console (deliver
 
 | # | System | Where | Why it must exist |
 |---|---|---|---|
-| 1 | SME-vcluster Keycloak | Inside the SME tenant's vCluster (per [Inviolable Principle 7](../INVIOLABLE-PRINCIPLES.md), tenancy is K8s-native) | Identity. The user logs into OpenClaw / WordPress / unified RBAC console via OIDC against this realm. |
+| 1 | SME-vcluster Keycloak | Inside the SME tenant's vCluster (per [Inviolable Principle 7](../PRINCIPLES.md), tenancy is K8s-native) | Identity. The user logs into OpenClaw / WordPress / unified RBAC console via OIDC against this realm. |
 | 2 | NewAPI admin API | OTECH control plane, in-cluster only (`http://newapi.newapi.svc`) | Per-user LLM gateway record + per-user API key. NewAPI meters usage by API key; the key's lineage to the SME user is what makes billing reconcile. |
-| 3 | K8s `Secret` in the SME tenant namespace | Tenant ns of the OTECH cluster, name `newapi-key-{sme-user-uuid}` | Credential delivery. The OpenClaw per-user pod ([#803](https://github.com/openova-io/openova/issues/803)) mounts this Secret as `NEWAPI_KEY` env. Per [Inviolable Principle 7](../INVIOLABLE-PRINCIPLES.md), Secret-as-truth is the K8s-native delivery mechanism. |
+| 3 | K8s `Secret` in the SME tenant namespace | Tenant ns of the OTECH cluster, name `newapi-key-{sme-user-uuid}` | Credential delivery. The OpenClaw per-user pod ([#803](https://github.com/openova-io/openova/issues/803)) mounts this Secret as `NEWAPI_KEY` env. Per [Inviolable Principle 7](../PRINCIPLES.md), Secret-as-truth is the K8s-native delivery mechanism. |
 
 ### 2.2 Locked decisions inherited from [#795](https://github.com/openova-io/openova/issues/795)
 
@@ -128,7 +128,7 @@ Idempotent retry path: on `409 Conflict` (`external_id` already exists), follow 
 | | |
 |---|---|
 | **Method** | server-side apply (`Apply` verb, field manager `unified-rbac`) |
-| **API client** | `k8s.io/client-go` against the OTECH cluster's api-server using unified-rbac's pod ServiceAccount token. **Never `exec.Command("kubectl", ...)` — see [Inviolable Principle 3](../INVIOLABLE-PRINCIPLES.md).** |
+| **API client** | `k8s.io/client-go` against the OTECH cluster's api-server using unified-rbac's pod ServiceAccount token. **Never `exec.Command("kubectl", ...)` — see [Inviolable Principle 3](../PRINCIPLES.md).** |
 | **RBAC** | A namespaced `Role` bound to the unified-rbac ServiceAccount in **each** SME tenant namespace, scoped to `secrets:get,list,watch,create,update,patch` on names matching `newapi-key-*`. Provisioned at SME tenant onboarding, not at user-create time. |
 
 Resource:
@@ -192,7 +192,7 @@ pending ──▶ kc_created ──▶ newapi_created ──▶ secret_applied �
 
 A goroutine inside the unified-rbac controller publishes a heartbeat envelope on NATS subject `unified-rbac.reconcile-pending` every 30 s; a consumer in the same service (durable consumer, max-deliver=1, ack-wait=20 s) handles the heartbeat by querying `user_provision_state` for rows in any state other than `done` or `failed` whose `updated_at` is older than the per-state retry interval, and re-runs each.
 
-This is a NATS heartbeat — **not** a Kubernetes `CronJob`, which would violate the architecture's event-driven posture (per [Inviolable Principle 1](../INVIOLABLE-PRINCIPLES.md) and [ADR-0001 §6](0001-catalyst-control-plane-architecture.md)). The advantage of self-publishing on NATS: cross-replica consistency is automatic (whichever unified-rbac replica the consumer message lands on processes the batch), and the heartbeat itself is observable in NATS metrics for ops.
+This is a NATS heartbeat — **not** a Kubernetes `CronJob`, which would violate the architecture's event-driven posture (per [Inviolable Principle 1](../PRINCIPLES.md) and [ADR-0001 §6](0001-catalyst-control-plane-architecture.md)). The advantage of self-publishing on NATS: cross-replica consistency is automatic (whichever unified-rbac replica the consumer message lands on processes the batch), and the heartbeat itself is observable in NATS metrics for ops.
 
 ### 3.6 NATS event emission
 
@@ -292,11 +292,11 @@ A failed state must always carry a structured `last_error` field that:
 
 ### 5.4 Direct `kubectl` shell-out for the Secret apply
 
-**Rejected per [Inviolable Principle 3](../INVIOLABLE-PRINCIPLES.md).** `exec.Command("kubectl", ...)` from a Go service is forbidden — it opaque-wraps the K8s api-server, hides errors, prevents structured handling, and creates dependency on a `kubectl` binary in the container image. `client-go` server-side apply is the canonical path.
+**Rejected per [Inviolable Principle 3](../PRINCIPLES.md).** `exec.Command("kubectl", ...)` from a Go service is forbidden — it opaque-wraps the K8s api-server, hides errors, prevents structured handling, and creates dependency on a `kubectl` binary in the container image. `client-go` server-side apply is the canonical path.
 
 ### 5.5 Kubernetes `CronJob` reconciler
 
-**Rejected per [Inviolable Principle 1](../INVIOLABLE-PRINCIPLES.md) and [ADR-0001 §6](0001-catalyst-control-plane-architecture.md).** A CronJob is a polling pattern; it's also operationally noisy (one Job pod per tick, per replica). The NATS-heartbeat-to-self pattern is event-driven, observable in standard NATS metrics, and naturally cross-replica-consistent.
+**Rejected per [Inviolable Principle 1](../PRINCIPLES.md) and [ADR-0001 §6](0001-catalyst-control-plane-architecture.md).** A CronJob is a polling pattern; it's also operationally noisy (one Job pod per tick, per replica). The NATS-heartbeat-to-self pattern is event-driven, observable in standard NATS metrics, and naturally cross-replica-consistent.
 
 ### 5.6 Synchronous "wait for everything before returning to the admin"
 
@@ -321,4 +321,4 @@ A failed state must always carry a structured `last_error` field that:
 
 ---
 
-*Part of [OpenOva](https://openova.io). Read in conjunction with [ADR-0001](0001-catalyst-control-plane-architecture.md), [ADR-0002](0002-post-handover-sovereignty-cutover.md), and [`INVIOLABLE-PRINCIPLES.md`](../INVIOLABLE-PRINCIPLES.md).*
+*Part of [OpenOva](https://openova.io). Read in conjunction with [ADR-0001](0001-catalyst-control-plane-architecture.md), [ADR-0002](0002-post-handover-sovereignty-cutover.md), and [`INVIOLABLE-PRINCIPLES.md`](../PRINCIPLES.md).*

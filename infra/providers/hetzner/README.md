@@ -2,7 +2,7 @@
 
 Canonical Phase 0 OpenTofu module that provisions a single-region OR multi-region Catalyst Sovereign on Hetzner Cloud and bootstraps it onto Flux-driven GitOps. After `tofu apply` finishes, every subsequent change to the Sovereign goes through Crossplane (cloud resources) and Flux (Kubernetes resources). OpenTofu state is archived and never touched again.
 
-This module is the implementation of [`docs/SOVEREIGN-PROVISIONING.md`](../../docs/SOVEREIGN-PROVISIONING.md) §3 (Phase 0 — Bootstrap) and follows [`docs/PRINCIPLES.md`](../../docs/PRINCIPLES.md) — every value the wizard or operator picks is a variable; nothing is hardcoded.
+This module is the implementation of [`docs/RUNBOOKS.md`](../../../docs/RUNBOOKS.md) §3 (Phase 0 — Bootstrap) and follows [`docs/PRINCIPLES.md`](../../../docs/PRINCIPLES.md) — every value the wizard or operator picks is a variable; nothing is hardcoded.
 
 ---
 
@@ -27,7 +27,7 @@ After Phase 0, the cluster's Flux pulls `clusters/<sovereign_fqdn>/` from the pu
 
 ## Network
 
-**Per [`docs/DOD.md`](../../docs/DOD.md) A2 (founder ruling 2026-05-15): every region has its OWN `hcloud_network`. Provider private networks NEVER span regions — inter-region traffic flows exclusively over Cilium WireGuard (UDP 51871) on each region's public IP through the DMZ vCluster.**
+**Per [`docs/DOD.md`](../../../docs/DOD.md) A2 (founder ruling 2026-05-15): every region has its OWN `hcloud_network`. Provider private networks NEVER span regions — inter-region traffic flows exclusively over Cilium WireGuard (UDP 51871) on each region's public IP through the DMZ vCluster.**
 
 This is the same rule whether the secondary region is Hetzner, AWS, or Huawei (DoD A6). The Hetzner module is provider-mix-friendly: a sister-provider module owns its own regions, and the inter-region link sits ABOVE the provider layer.
 
@@ -104,7 +104,7 @@ The module accepts a `var.regions[]` list-of-objects payload that captures the w
 
 ### EPIC-6 (#1101) example: 3-region Continuum DR shape
 
-Per [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.8 + §11, the EPIC-6 demo brings up one mgmt cluster + two data-plane clusters with Cilium ClusterMesh between them. Slice G1 provisions the cloud substrate; slice G3 wires ClusterMesh.
+Per [`docs/ARCHITECTURE.md`](../../../docs/ARCHITECTURE.md) §3.8 + §11, the EPIC-6 demo brings up one mgmt cluster + two data-plane clusters with Cilium ClusterMesh between them. Slice G1 provisions the cloud substrate; slice G3 wires ClusterMesh.
 
 ```jsonc
 {
@@ -156,7 +156,7 @@ The catalyst-api joins `secondary_region_keys` with `Request.Regions[1+]` to pro
 ### Out of scope for slice G1
 
 - **Cilium ClusterMesh wiring** — slice G3 (joins separate clusters into a single mesh).
-- **Per-cluster GitOps differentiation** — every secondary CP today renders an identical Flux Kustomization pointed at `clusters/<sovereign_fqdn>/`. Per-cluster paths (`clusters/hz-fsn-rtz-prod/`, etc., per [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.1) ship in slice G3 alongside ClusterMesh.
+- **Per-cluster GitOps differentiation** — every secondary CP today renders an identical Flux Kustomization pointed at `clusters/<sovereign_fqdn>/`. Per-cluster paths (`clusters/hz-fsn-rtz-prod/`, etc., per [`docs/ARCHITECTURE.md`](../../../docs/ARCHITECTURE.md) §4.1) ship in slice G3 alongside ClusterMesh.
 - **Non-Hetzner regions** — `var.regions[]` may carry `oci` / `aws` / `huawei` / `azure` entries; the Hetzner overlay filters them out (`if r.provider == "hetzner"`). Sister-provider modules (slice G2 / G4 / …) own their own iteration.
 
 ### Resource address contract
@@ -384,7 +384,7 @@ See [`variables.tf`](variables.tf) for the authoritative source. Highlights:
 | `gitops_repo_url` | public OpenOva monorepo | string |
 | `gitops_branch` | `main` | string |
 
-Every default is the **common case** for a solo Sovereign. The waterfall doctrine ([`docs/PRINCIPLES.md`](../../docs/PRINCIPLES.md) §1) means the defaults must produce a working production-shape Sovereign, not a "demo it first" scaffold.
+Every default is the **common case** for a solo Sovereign. The waterfall doctrine ([`docs/PRINCIPLES.md`](../../../docs/PRINCIPLES.md) §1) means the defaults must produce a working production-shape Sovereign, not a "demo it first" scaffold.
 
 ---
 
@@ -456,7 +456,7 @@ Out of scope by design — these are Crossplane / Flux territory:
 - DNS records beyond the Phase-0 wildcard (handled by External-DNS in the Sovereign once the bootstrap kit comes up).
 - Day-2 cluster ops (node addition/removal — Crossplane Composition).
 
-If you find yourself adding any of these to `main.tf`, you're violating [`docs/PRINCIPLES.md`](../../docs/PRINCIPLES.md) §3 — stop and route the work to Crossplane / Flux instead.
+If you find yourself adding any of these to `main.tf`, you're violating [`docs/PRINCIPLES.md`](../../../docs/PRINCIPLES.md) §3 — stop and route the work to Crossplane / Flux instead.
 
 ---
 
@@ -500,4 +500,4 @@ History: PR #1311 (Fix #73) shipped exactly this bug, broke `tofu plan` immediat
 
 ---
 
-*Part of the public OpenOva Catalyst monorepo. See [`docs/SOVEREIGN-PROVISIONING.md`](../../docs/SOVEREIGN-PROVISIONING.md) for the end-to-end provisioning narrative and [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) for the resource budget that drives the sizing defaults.*
+*Part of the public OpenOva Catalyst monorepo. See [`docs/RUNBOOKS.md`](../../../docs/RUNBOOKS.md) for the end-to-end provisioning narrative and [`docs/ARCHITECTURE.md`](../../../docs/ARCHITECTURE.md) for the resource budget that drives the sizing defaults.*

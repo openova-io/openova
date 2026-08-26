@@ -2,7 +2,7 @@
 
 The user-facing Catalyst control plane modules. **Status:** Consolidated and deployed on Catalyst-Zero (Contabo k3s) as of Pass 105 (2026-04-28).
 
-> **Read first:** [`docs/PROVISIONING-PLAN.md`](../docs/PROVISIONING-PLAN.md), [`docs/GLOSSARY.md`](../docs/GLOSSARY.md), [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md), [`docs/STATUS.md`](../docs/STATUS.md).
+> **Read first:** [`docs/RUNBOOKS.md`](../docs/RUNBOOKS.md), [`docs/GLOSSARY.md`](../docs/GLOSSARY.md), [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md), [`docs/STATUS.md`](../docs/STATUS.md).
 
 ---
 

@@ -20,10 +20,9 @@ The `docs/` tree, in reading order. Every file under `docs/` appears exactly onc
 
 ### Build and operate
 
-- [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) — provisioning, chart bumps, Blueprint authoring, failover recovery, doc-integrity audit cadence, Sovereign bring-up, UI regression catalog, Catalyst-Zero waterfall
+- [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) — provisioning, chart bumps, Blueprint authoring, failover recovery, doc-integrity audit cadence, Sovereign bring-up, UI regression catalog, Catalyst-Zero waterfall, OpenovaFlow multi-region rendering verification (folds the former `docs/lessons-learned/`, `docs/runbooks/`, and `docs/proposals/`)
 - [`docs/SRE.md`](docs/SRE.md) — operate a Sovereign in production (SLOs, incident response, GPU ops)
-- [`docs/SECURITY.md`](docs/SECURITY.md) — identity (Cilium WG + Keycloak), secrets (OpenBao + ESO), threat model
-- [`docs/SECRET-ROTATION.md`](docs/SECRET-ROTATION.md) — credential inventory, rotation schedule, rollback path
+- [`docs/SECURITY.md`](docs/SECURITY.md) — identity (Cilium WG + Keycloak), secrets (OpenBao + ESO), threat model, credential rotation + rollback (folds the former `docs/SECRET-ROTATION.md`)
 
 ### Strategy
 
@@ -51,23 +50,6 @@ The `docs/` tree, in reading order. Every file under `docs/` appears exactly onc
 
 - [`docs/ledger/TRACKER.md`](docs/ledger/TRACKER.md) — open-issue + DoD-gate progress board (15-min refresh)
 - [`docs/ledger/TRUST.md`](docs/ledger/TRUST.md) — verification ledger (UNVERIFIED / VERIFIED-PASS / FAIL / PARTIAL)
-
-### Lessons learned ([`docs/lessons-learned/`](docs/lessons-learned/))
-
-- [`docs/lessons-learned/README.md`](docs/lessons-learned/README.md) — index + contribution rules
-- [`docs/lessons-learned/catalyst-bootstrap-api.md`](docs/lessons-learned/catalyst-bootstrap-api.md) — Phase-0 `tofu destroy` + token-hygiene behavior
-- [`docs/lessons-learned/chi-router-quirks.md`](docs/lessons-learned/chi-router-quirks.md) — go-chi percent-encoding + route-match traps
-- [`docs/lessons-learned/helm-controller-logs.md`](docs/lessons-learned/helm-controller-logs.md) — Flux v2.4 nested-JSON log shape for HelmRelease
-- [`docs/lessons-learned/helm-controller-rbac.md`](docs/lessons-learned/helm-controller-rbac.md) — helm-controller SA needs cluster-admin in `flux-system`
-- [`docs/lessons-learned/helm-hooks-and-crd-ordering.md`](docs/lessons-learned/helm-hooks-and-crd-ordering.md) — `before-hook-creation` deadlocks on subchart-registered CRDs
-
-### Operational runbooks ([`docs/runbooks/`](docs/runbooks/))
-
-- [`docs/runbooks/openova-flow-multi-region-verify.md`](docs/runbooks/openova-flow-multi-region-verify.md) — OpenovaFlow multi-region rendering verification
-
-### Proposals ([`docs/proposals/`](docs/proposals/) — in-flight)
-
-- [`docs/proposals/jobs-dependencies-viz.md`](docs/proposals/jobs-dependencies-viz.md) — Jobs Dependencies tab SVG-DAG visualization
 
 ### Session archives ([`docs/sessions/`](docs/sessions/))
 
