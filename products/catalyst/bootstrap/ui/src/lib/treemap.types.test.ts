@@ -23,8 +23,26 @@ import {
   statusColor,
   aggregateStatusKinds,
   isJobSourcedStack,
+  RESOURCE_DEFAULT_LAYERS,
   type TreemapItem,
 } from './treemap.types'
+
+describe('RESOURCE_DEFAULT_LAYERS (#6695 — converged-Sovereign default)', () => {
+  it('is the real resource/health stack [namespace, application]', () => {
+    // The converged (ready) Dashboard defaults to this stack coloured by
+    // health so DOWN components surface as red tiles instead of hiding in a
+    // green "Done" block. namespace outer / application inner keeps every
+    // namespace visible (unlike the pre-#4731 organization grouping that
+    // collapsed most tiles into "Platform overhead").
+    expect(RESOURCE_DEFAULT_LAYERS).toEqual(['namespace', 'application'])
+  })
+
+  it('is a real-resource stack (NOT job-sourced) so it uses the live backend', () => {
+    // A job-sourced stack builds from the synthetic job tree; the converged
+    // default must instead call getDashboardTreemap against live pods.
+    expect(isJobSourcedStack(RESOURCE_DEFAULT_LAYERS)).toBe(false)
+  })
+})
 
 describe('utilizationColor', () => {
   it('maps 0% → blue', () => {

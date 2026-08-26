@@ -10,9 +10,13 @@
  *      including the HelmRelease installs the finite /jobs view dropped
  *      (the treemap now reads ?inventory=full). See
  *      `renders the full platform inventory as leaves`.
- *   2. "second layer is not kind by default" — the default stack is
- *      [progress, kind] UNCONDITIONALLY, incl. a converged (ready) env.
- *      See `defaults to [progress, kind] even when status=ready`.
+ *   2. "second layer is not kind by default" — the CONVERGING default is
+ *      [progress, kind]. (#6695, founder 2026-08-26: this now applies only
+ *      while status != ready; a CONVERGED env flips to the real
+ *      resource/health map [namespace, application] + health, because the
+ *      "install, install, install…" job stack was meaningless on a
+ *      converged Sovereign. See `converging … defaults to [progress, kind]`
+ *      and `#6695 — converged (status=ready) flips … resource/health map`.)
  *   3. "cutover kinds still showing as pending" — the dormant cutover
  *      steps collapse into ONE `cutover (dormant)` leaf in a Dormant
  *      bucket, coloured dormant-grey, never pending. See
@@ -366,6 +370,16 @@ function stubFetch(jobs: Job[], status: string) {
         json: () => Promise.resolve({ events: [], state: { status }, done: true }),
       } as unknown as Response)
     }
+    // #6695 — a CONVERGED (ready) env defaults to the real resource/health
+    // stack, which fetches this endpoint instead of the job tree. Answer it
+    // with an empty-but-valid TreemapData so the ready-flip render path does
+    // not error (the ready test asserts the CONTROLS, not cell data).
+    if (u.includes('/dashboard/treemap')) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ items: [], total_count: 0 }),
+      } as unknown as Response)
+    }
     return Promise.resolve({
       ok: true,
       json: () => Promise.resolve({}),
@@ -408,9 +422,10 @@ function renderDashboard() {
 describe('Dashboard — job-sourced Progress treemap render', () => {
   beforeEach(() => {
     useWizardStore.setState({ ...INITIAL_WIZARD_STATE })
-    // status=ready: the CONVERGED moment — the map must STILL default to
-    // [progress, kind] (complaint #2) and render the full inventory.
-    stubFetch(fullInventoryJobs(), 'ready')
+    // #6695 — the CONVERGING moment: while status != ready the map defaults
+    // to the job-sourced [progress, kind] stack (what is installing). The
+    // ready-flip to the real resource/health stack has its own test below.
+    stubFetch(fullInventoryJobs(), 'provisioning')
     Object.defineProperty(HTMLDivElement.prototype, 'clientWidth', {
       configurable: true,
       get() {
@@ -432,11 +447,10 @@ describe('Dashboard — job-sourced Progress treemap render', () => {
       SyncResizeObserver
   })
 
-  it('complaint #2 — defaults to [progress, kind] even when status=ready', async () => {
+  it('converging (status != ready) defaults to the job-sourced [progress, kind] stack', async () => {
+    // beforeEach stubs status='provisioning' → the converging moment.
     renderDashboard()
     await screen.findByTestId('dashboard-treemap-frame')
-    // The two default layer selects are Progress + Kind — NOT the old
-    // ready-flip to Organization / Application.
     const layer0 = (await screen.findByTestId('treemap-layer-0-select')) as HTMLSelectElement
     const layer1 = (await screen.findByTestId('treemap-layer-1-select')) as HTMLSelectElement
     expect(layer0.value).toBe('progress')
@@ -444,6 +458,26 @@ describe('Dashboard — job-sourced Progress treemap render', () => {
     // Job-sourced ⇒ Color=Status, Size=Uniform (auto-locked to the job vocab).
     expect((screen.getByTestId('treemap-color-select') as HTMLSelectElement).value).toBe('status')
     expect((screen.getByTestId('treemap-size-select') as HTMLSelectElement).value).toBe('uniform')
+  })
+
+  it('#6695 — converged (status=ready) flips the default to the real resource/health map', async () => {
+    // The founder reversed the #4731 always-[progress,kind] default: on a
+    // CONVERGED Sovereign the "install, install, install…" job stack was
+    // meaningless. It now flips to the real resource/health map so down
+    // components surface as red tiles.
+    stubFetch(fullInventoryJobs(), 'ready')
+    renderDashboard()
+    await screen.findByTestId('dashboard-treemap-frame')
+    const layer0 = (await screen.findByTestId('treemap-layer-0-select')) as HTMLSelectElement
+    const layer1 = (await screen.findByTestId('treemap-layer-1-select')) as HTMLSelectElement
+    // RESOURCE_DEFAULT_LAYERS = [namespace, application] — real k8s objects,
+    // NOT the synthetic [progress, kind] job tree.
+    expect(layer0.value).toBe('namespace')
+    expect(layer1.value).toBe('application')
+    // Resource-sourced on ready ⇒ Color=Health (down components pop red),
+    // Size=cpu_request (a down app keeps a visible tile, never area 0).
+    expect((screen.getByTestId('treemap-color-select') as HTMLSelectElement).value).toBe('health')
+    expect((screen.getByTestId('treemap-size-select') as HTMLSelectElement).value).toBe('cpu_request')
   })
 
   it('renders the /jobs inventory as status-coloured cells + dormant + legend', async () => {
