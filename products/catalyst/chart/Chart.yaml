@@ -4026,7 +4026,7 @@ name: bp-catalyst-platform
 #   under an external login source, so the header-authed PASSWORD push FATALed and
 #   wedged the cutover at step-01 on hw305 region-B). Umbrella tracks its
 #   sub-charts per Inviolable Principle #13.
-version: 1.4.1563
+version: 1.4.1564
 # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
 #   0.1.186 -> 0.1.187, the release that stops step-06 from patching five
 #   HelmRepositories it does not own and then grading itself on whether they
@@ -4213,7 +4213,7 @@ version: 1.4.1563
 # scripts/check-chart-version-forward.sh (#5743) fails unless the two match —
 # main was carrying a pre-existing 1.4.1330/1.4.1329 split, so this bump heals
 # it in the same commit, exactly as the documented self-heal contract does.
-appVersion: 1.4.1563
+appVersion: 1.4.1564
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
