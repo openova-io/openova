@@ -46,7 +46,7 @@
 
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { statusKindOf, type StatusKind } from '@/shared/lib/statusColors'
-import { jobKind, type Job, type JobKind } from '@/lib/jobs.types'
+import { jobKind, JOB_ENGINE_LABELS, type Job, type JobKind } from '@/lib/jobs.types'
 import {
   aggregateStatusKinds,
   colorFunctionFor,
@@ -67,18 +67,11 @@ export const PROVISIONING_DEFAULT_LAYERS: readonly TreemapDimension[] = [
   'kind',
 ]
 
-/** Human label per JobKind for the `kind` dimension buckets. */
-export const JOB_KIND_LABELS: Record<JobKind, string> = {
-  lifecycle: 'Lifecycle',
-  install: 'Install',
-  reconcile: 'Reconcile',
-  mutation: 'Mutation',
-  step: 'Step',
-  task: 'Task',
-  cron: 'Cron',
-  reconciler: 'Reconciler',
-  group: 'Group',
-}
+/** Human label per JobKind for the `kind` dimension buckets — the REAL
+ *  engine names, sourced from the canonical {@link JOB_ENGINE_LABELS} in
+ *  jobs.types.ts (single source of truth, shared with the /jobs Kind
+ *  filter; per INVIOLABLE-PRINCIPLES #4 no per-surface hardcoded map). */
+export const JOB_KIND_LABELS: Record<JobKind, string> = JOB_ENGINE_LABELS
 
 /**
  * Per-kind stage order — used ONLY to sort the `kind` buckets in a stable

@@ -82,6 +82,34 @@ export type JobKind =
   | 'group'
 
 /**
+ * The REAL engine that produces each JobKind — the canonical display label
+ * (founder 2026-08-26: "why dont you show the jobs or recons with their real
+ * engine names"). Replaces the fabricated abstractions (Install / Reconcile /
+ * Step / Task / Lifecycle) with the concrete engine a reader can point at in
+ * the cluster:
+ *
+ *   • Continuous reconciler-ASSETS (also listed in Resources): HelmRelease,
+ *     Kustomization, Deployment.
+ *   • Bounded PROCESSES: Kubernetes Job (step / task), CronJob run, OpenTofu
+ *     run, Crossplane submission.
+ *
+ * Single source of truth — the /jobs Kind filter and the dashboard treemap
+ * `kind` dimension both read this (no per-surface hardcoded label map, per
+ * docs/INVIOLABLE-PRINCIPLES.md #4).
+ */
+export const JOB_ENGINE_LABELS: Record<JobKind, string> = {
+  install: 'HelmRelease',
+  reconcile: 'Kustomization',
+  reconciler: 'Deployment',
+  cron: 'CronJob',
+  step: 'Job (step)',
+  task: 'Job (task)',
+  mutation: 'Crossplane',
+  lifecycle: 'OpenTofu',
+  group: 'Group',
+}
+
+/**
  * One node in the recursive Job tree. The catalyst-api emits exactly
  * this shape on
  *
