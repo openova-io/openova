@@ -1871,17 +1871,17 @@ Each major Blueprint folder ships a `DESIGN.md` capturing the architectural deci
 | Chart | DESIGN.md |
 |---|---|
 | bp-cnpg-pair | [`platform/cnpg-pair/DESIGN.md`](../platform/cnpg-pair/DESIGN.md) — synchronous `remote_apply` ReplicaCluster, ClusterMesh wiring, pre-merge guards (PRs #2087/#2093) |
-| bp-continuum | [`platform/continuum/DESIGN.md`](../platform/continuum/DESIGN.md) — lease + witness, switchover sequence, PDM integration |
-| bp-self-sovereign-cutover | [`platform/self-sovereign-cutover/DESIGN.md`](../platform/self-sovereign-cutover/DESIGN.md) — 8-tether pivot, 11-step chain, egress-block DoD test |
+| bp-continuum | [`products/continuum/DESIGN.md`](../products/continuum/DESIGN.md) — lease + witness, switchover sequence, PDM integration |
+| bp-self-sovereign-cutover | [`platform/self-sovereign-cutover/chart/README.md`](../platform/self-sovereign-cutover/chart/README.md) — 8-tether pivot, 11-step chain, egress-block DoD test |
 | bp-agenity | [`products/agenity/README.md`](../products/agenity/README.md) — per-Org **Agenity** workspace (Pillar 4); auto-attaches `bp-openova-mcp` with full org knowledge |
 | bp-openova-mcp | [`products/openova-mcp/README.md`](../products/openova-mcp/README.md) — RBAC-scoped OpenOva MCP server with mutating tools (e.g. `create_application`) |
-| bp-kyverno | [`platform/kyverno/DESIGN.md`](../platform/kyverno/DESIGN.md) — label-vocab mutate + validate ClusterPolicies, audit ↔ enforce toggle |
-| bp-catalyst-platform | [`products/catalyst/DESIGN.md`](../products/catalyst/DESIGN.md) — umbrella composition; component-by-component bring-up order |
-| bp-cortex | [`products/cortex/DESIGN.md`](../products/cortex/DESIGN.md) — Knative → KServe → vLLM/bge pipeline; OpenMeter metering |
-| bp-axon | [`products/axon/DESIGN.md`](../products/axon/DESIGN.md) — standalone gateway profile + Claude Code subscription proxy |
-| bp-fingate | [`products/fingate/DESIGN.md`](../products/fingate/DESIGN.md) — FAPI-mode Keycloak + ext_authz + 6 banking services |
-| bp-fabric | [`products/fabric/DESIGN.md`](../products/fabric/DESIGN.md) — Strimzi + Flink + Temporal + Debezium + Iceberg + ClickHouse |
-| bp-relay | [`products/relay/DESIGN.md`](../products/relay/DESIGN.md) — Stalwart + LiveKit + Stunner + Matrix + Guacamole |
+| bp-kyverno | [`platform/kyverno/README.md`](../platform/kyverno/README.md) — label-vocab mutate + validate ClusterPolicies, audit ↔ enforce toggle |
+| bp-catalyst-platform | [`products/catalyst/README.md`](../products/catalyst/README.md) — umbrella composition; component-by-component bring-up order |
+| bp-cortex | [`products/cortex/README.md`](../products/cortex/README.md) — Knative → KServe → vLLM/bge pipeline; OpenMeter metering |
+| bp-axon | [`products/axon/README.md`](../products/axon/README.md) — standalone gateway profile + Claude Code subscription proxy |
+| bp-fingate | [`products/fingate/README.md`](../products/fingate/README.md) — FAPI-mode Keycloak + ext_authz + 6 banking services |
+| bp-fabric | [`products/fabric/README.md`](../products/fabric/README.md) — Strimzi + Flink + Temporal + Debezium + Iceberg + ClickHouse |
+| bp-relay | [`products/relay/README.md`](../products/relay/README.md) — Stalwart + LiveKit + Stunner + Matrix + Guacamole |
 
 Where a chart does not yet ship a DESIGN.md, the canonical authoring rule is in [`docs/RUNBOOKS.md`](RUNBOOKS.md). When a chart's DESIGN.md contradicts this document, this document wins; raise a PR to reconcile.
 

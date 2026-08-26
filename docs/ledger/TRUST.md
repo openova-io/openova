@@ -618,7 +618,7 @@ Wave 5.153 + 5.154 + 5.155 + 5.156 + 5.157 — canonical Sovereign wipe cascade 
 
 Reviewer verdict: sub-agent `a0f1a7ecf9826a9ea` 🟢 VERIFIED-PASS on Wave 5.155 with file:line cites — [comment 4554307903](https://github.com/openova-io/openova/issues/2521#issuecomment-4554307903).
 
-Memory: [`feedback_hcs_kom4dc_wipe_cascade_quirks.md`](../../../.claude/projects/-home-openova-repos-openova/memory/feedback_hcs_kom4dc_wipe_cascade_quirks.md) — 5-quirk Kom4DC reference for future sessions.
+Memory: `feedback_hcs_kom4dc_wipe_cascade_quirks.md` — 5-quirk Kom4DC reference for future sessions.
 
 Issues closed: #2520 + #2521 + #2522 + #2523 (all with status/completed).
 

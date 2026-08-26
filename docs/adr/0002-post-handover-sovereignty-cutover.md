@@ -205,4 +205,4 @@ Every cutover step publishes a CloudEvents-shaped envelope on NATS JetStream (`c
 
 ---
 
-*Part of [OpenOva](https://openova.io). Read in conjunction with [ADR-0001](0001-catalyst-control-plane-architecture.md), [`ARCHITECTURE.md`](../ARCHITECTURE.md) §11, and [`INVIOLABLE-PRINCIPLES.md`](../INVIOLABLE-PRINCIPLES.md) Principle #11.*
+*Part of [OpenOva](https://openova.io). Read in conjunction with [ADR-0001](0001-catalyst-control-plane-architecture.md), [`ARCHITECTURE.md`](../ARCHITECTURE.md) §11, and [`INVIOLABLE-PRINCIPLES.md`](../PRINCIPLES.md) Principle #11.*

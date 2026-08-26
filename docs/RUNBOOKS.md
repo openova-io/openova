@@ -2407,7 +2407,7 @@ Each phase produces one or more commits to `openova/`. Each commit is real worki
 
 #### 11.5.7 Phase 7 — Franchise model docs + voucher propagation
 
-**What:** Read existing voucher implementation in admin app. Write [`FRANCHISE-MODEL.md`](FRANCHISE-MODEL.md) documenting it as canonical. Ensure the new Sovereign at `omantel.omani.works` has its own admin surface (the same admin app, deployed inside the Sovereign) where omantel-admin can issue vouchers to omantel's tenants. Update [`GLOSSARY.md`](GLOSSARY.md) with `Voucher` and `Franchisee` definitions if not already present.
+**What:** Read existing voucher implementation in admin app. Write [`BUSINESS-STRATEGY.md` §10.8](BUSINESS-STRATEGY.md#108-franchise-model--end-to-end-mechanics) documenting it as canonical. Ensure the new Sovereign at `omantel.omani.works` has its own admin surface (the same admin app, deployed inside the Sovereign) where omantel-admin can issue vouchers to omantel's tenants. Update [`GLOSSARY.md`](GLOSSARY.md) with `Voucher` and `Franchisee` definitions if not already present.
 
 **Outputs:**
 

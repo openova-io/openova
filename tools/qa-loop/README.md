@@ -17,7 +17,7 @@ Drives a single headless Chromium against every `executor_method ==
 "playwright"` row in a matrix JSON file. Memory-conscious (one
 browser, one context, one page reused across all rows — under
 ~2 GiB RSS so the Coordinator can hold parallel Fix Authors per
-[`feedback_machine_saturation_3rd_violation.md`](../../../.claude/projects/-home-openova-repos-openova-private/memory/feedback_machine_saturation_3rd_violation.md)).
+`feedback_machine_saturation_3rd_violation.md`).
 
 **The key feature is nav-interrupted recovery** (qa-loop iter-11
 Cluster-B fix). The SPA's React route guard often pushes the
