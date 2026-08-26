@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-26T13:30:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-08-26T13:45:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-26T13:39 | [#6699](https://github.com/openova-io/openova/pull/6699) | #6695 | feat(console): rename Cloud → Resources (Resources/Jobs re-c |
 | 2026-08-26T11:37 | [#6698](https://github.com/openova-io/openova/pull/6698) | #6697 | fix(console): serve index.html with Cache-Control no-cache ( |
 | 2026-08-26T09:39 | [#6696](https://github.com/openova-io/openova/pull/6696) | #4731 | feat(dashboard): converged Sovereign treemap defaults to rea |
 | 2026-08-26T07:12 | [#6693](https://github.com/openova-io/openova/pull/6693) | #6690 | docs(uat): re-walk the 20 UI-only rows on live hw305 — 7 fli |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-24T01:39 | [#6668](https://github.com/openova-io/openova/pull/6668) | #4439 | docs(uat): row 235 ⏳→❌ — grafana crashloop on hw305 (DSN → a |
 | 2026-08-24T00:56 | [#6667](https://github.com/openova-io/openova/pull/6667) | #3379 | docs(uat): rows 96/123/178 — owner handover URL lands signed |
 | 2026-08-24T00:10 | [#6666](https://github.com/openova-io/openova/pull/6666) | #3646 | docs(uat): row 173 — Jobs page live-tail badge changes in pl |
-| 2026-08-24T00:05 | [#6665](https://github.com/openova-io/openova/pull/6665) | #4282 | docs(uat): row 238 — per-Org postgres-in-vCluster host-side  |
 
 ---
 
