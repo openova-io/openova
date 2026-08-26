@@ -7,7 +7,7 @@
  * `view=list&kind=…` query.
  *
  * Layout:
- *   • Header: H1 "Cloud" + tagline + per-Sovereign switcher.
+ *   • Header: H1 "Resources" + tagline + per-Sovereign switcher.
  *   • Toolbar: a segmented View toggle (Graph | List) and a Fullscreen
  *     button on the right.
  *   • Content area: when `view=graph` (default) — renders the
@@ -528,7 +528,7 @@ export function CloudPage({
     <PortalShell
       deploymentId={deploymentId}
       sovereignFQDN={sovereignFQDN}
-      pageTitle="Cloud"
+      pageTitle="Resources"
       headerSlotRight={
         <select
           data-testid="cloud-sovereign-switcher"
@@ -552,7 +552,7 @@ export function CloudPage({
          *  toolbar. A hidden testid anchor preserves the legacy
          *  cloud-title selector used by component tests. */}
         <span data-testid="cloud-title" className="sr-only">
-          Cloud
+          Resources
         </span>
 
         {/* Toolbar: View toggle (left) + chip strip (centre, list view
