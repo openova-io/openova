@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-26T16:45:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-08-26T17:00:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -312,6 +312,7 @@ flowchart LR
 | 2026-08-26T13:39 | [#6699](https://github.com/openova-io/openova/pull/6699) | #6695 | feat(console): rename Cloud → Resources (Resources/Jobs re-c |
 | 2026-08-26T11:37 | [#6698](https://github.com/openova-io/openova/pull/6698) | #6697 | fix(console): serve index.html with Cache-Control no-cache ( |
 | 2026-08-26T09:39 | [#6696](https://github.com/openova-io/openova/pull/6696) | #4731 | feat(dashboard): converged Sovereign treemap defaults to rea |
+| 2026-08-26T16:56 | [#6694](https://github.com/openova-io/openova/pull/6694) | #6693 | docs(uat): annotate the 12 pending re-walk rows with per-row |
 | 2026-08-26T07:12 | [#6693](https://github.com/openova-io/openova/pull/6693) | #6690 | docs(uat): re-walk the 20 UI-only rows on live hw305 — 7 fli |
 | 2026-08-26T05:56 | [#6692](https://github.com/openova-io/openova/pull/6692) | docs: repair 39 broken cross-references |  |
 | 2026-08-26T05:36 | [#6691](https://github.com/openova-io/openova/pull/6691) | #665 | docs: full-repo integrity pass — 426 fixes across 92 docs +  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-24T03:48 | [#6671](https://github.com/openova-io/openova/pull/6671) | #3376 | docs(uat): row 93 ⏳→✅ — 2nd-org funnel generality (walkstran |
 | 2026-08-24T02:39 | [#6670](https://github.com/openova-io/openova/pull/6670) | #4439 | docs(uat): record hw305 diagnostics in the 4 ⏳ rows (14/93/1 |
 | 2026-08-24T02:10 | [#6669](https://github.com/openova-io/openova/pull/6669) | #4439 | docs(sessions): hw305 convergence report 2026-08-24 (✅270/28 |
-| 2026-08-24T01:39 | [#6668](https://github.com/openova-io/openova/pull/6668) | #4439 | docs(uat): row 235 ⏳→❌ — grafana crashloop on hw305 (DSN → a |
 
 ---
 
