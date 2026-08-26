@@ -1126,11 +1126,21 @@ const JOBS_TABLE_CSS = `
   background: rgba(148,163,184,0.10); color: var(--color-text-dim);
   border: 1px solid rgba(148,163,184,0.25);
 }
+/* Kind-chip colours grouped by intrinsic temporal nature so finite /
+ * recurring / continuous read at a glance (founder: "jobs (finite) or recons
+ * (infinite)"). COOL = continuous reconciler-assets (HelmRelease / Kustomization
+ * / Deployment). PURPLE = recurring (CronJob). WARM = finite one-shot Jobs
+ * (Job step/task, OpenTofu, Crossplane). Every kind gets a distinct colour —
+ * previously task/mutation/lifecycle fell through to the neutral grey base,
+ * which made a task-heavy list look undifferentiated. */
 .jobs-kind-cron       { color: #C084FC; border-color: rgba(192,132,252,0.35); background: rgba(192,132,252,0.08); }
 .jobs-kind-install    { color: #818CF8; border-color: rgba(129,140,248,0.35); background: rgba(129,140,248,0.08); }
 .jobs-kind-reconcile  { color: #38BDF8; border-color: rgba(56,189,248,0.35);  background: rgba(56,189,248,0.08); }
 .jobs-kind-reconciler { color: #2DD4BF; border-color: rgba(45,212,191,0.35);  background: rgba(45,212,191,0.08); }
 .jobs-kind-step       { color: #FBBF24; border-color: rgba(251,191,36,0.35);  background: rgba(251,191,36,0.08); }
+.jobs-kind-task       { color: #34D399; border-color: rgba(52,211,153,0.35);  background: rgba(52,211,153,0.08); }
+.jobs-kind-mutation   { color: #F472B6; border-color: rgba(244,114,182,0.35); background: rgba(244,114,182,0.08); }
+.jobs-kind-lifecycle  { color: #FB923C; border-color: rgba(251,146,60,0.35);  background: rgba(251,146,60,0.08); }
 /* Retry control (issue #3646 §5c). */
 .jobs-retry-wrap { display: inline-flex; align-items: center; gap: 6px; }
 .jobs-retry-btn {
