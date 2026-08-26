@@ -716,7 +716,7 @@ function JobRow({ job, parentLabel, showRegion, regionUnionByGroupId, deployment
           data-testid={`jobs-cell-kind-${job.id}`}
           data-kind={kind}
         >
-          {kind}
+          {JOB_ENGINE_LABELS[kind] ?? kind}
         </span>
       </td>
       <td className="jobs-cell jobs-cell-app">
