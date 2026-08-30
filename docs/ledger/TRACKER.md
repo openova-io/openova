@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-30T16:45:03Z` |
+| Last refreshed | `2026-08-30T17:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-30T16:58 | [#6722](https://github.com/openova-io/openova/pull/6722) | #6721 | docs(adr): ADR-0014 D2b account-duplication matrix + D11 con |
 | 2026-08-30T16:37 | [#6721](https://github.com/openova-io/openova/pull/6721) | #6720 | docs(adr): ADR-0014 D2 — standalone chargeback app with app- |
 | 2026-08-30T16:26 | [#6720](https://github.com/openova-io/openova/pull/6720) | #6719 | docs(adr): ADR-0014 D2a — per-mode entity matrix (Tenant = O |
 | 2026-08-30T16:10 | [#6719](https://github.com/openova-io/openova/pull/6719) | #6718 | docs(adr): ADR-0014 D2 — billed party = Organization; drop B |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-26T05:36 | [#6691](https://github.com/openova-io/openova/pull/6691) | #665 | docs: full-repo integrity pass — 426 fixes across 92 docs +  |
 | 2026-08-25T06:22 | [#6690](https://github.com/openova-io/openova/pull/6690) | docs(uat): correct evidence integrity — 52 filler-screenshot |  |
 | 2026-08-24T09:24 | [#6688](https://github.com/openova-io/openova/pull/6688) | docs: fix mermaid sequenceDiagram parse errors (semicolons s |  |
-| 2026-08-24T09:06 | [#6687](https://github.com/openova-io/openova/pull/6687) | docs(system-design): fix mermaid parse error in §10 Blueprin |  |
 
 ---
 
