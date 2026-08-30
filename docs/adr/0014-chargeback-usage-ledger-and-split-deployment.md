@@ -37,9 +37,9 @@ tokens are not Crossplane objects.
 
 ## Decision
 
-### D1 — The measurement primitive is a usage ledger keyed by Organization, not Crossplane
+### D1 — The measurement primitive is a usage ledger keyed by `Customer`, not Crossplane
 
-An append-only `usage_records(organization, source, resource_id, kind, sku, quantity, unit,
+An append-only `usage_records(customer, source, resource_id, kind, sku, quantity, unit,
 window_start, window_end, region, labels, raw_ref)`, idempotent on (source, resource, window).
 Facts first; `rated_lines` and `statements` derive from it via an effective-dated price book.
 Crossplane keeps its ADR-0011 role — the inventory/adoption layer that makes cloud resources
@@ -47,21 +47,33 @@ visible as Kubernetes objects — and is one collector's source, never the meter
 meter tied to the provisioning engine is blind to everything it did not provision (Tofu-built
 substrate, Flux-built vClusters, pre-OpenOva tenants) and has no time axis.
 
-### D2 — The billed party is the Organization. No new entity type. (Superseded the `BillingAccount` draft on 2026-08-31 — founder: the model is Sovereign → Organization, nothing else.)
+### D2 — Chargeback is a standalone application with its own `Customer` object; OpenOva is one adapter. The platform entity model is unchanged. (2026-08-31, founder: "hosting it on OpenOva is a coincidence")
 
-| OpenOva entity | National Cloud object |
+Proof by the operator's view: for National Cloud, customer A (running its own Sovereign) and customer B (no OpenOva) are identical — buyers with cloud projects.
+
+| Instance | Operator (seller) | Customers (buyers) | Metered |
+|---|---|---|---|
+| NC central | National Cloud | A, B | A's whole Sovereign footprint + B's VMs = cloud projects |
+| A's own Sovereign | A | A's Organizations | A's internal workloads |
+
+| Object | Where it lives | Platform entity? |
+|---|---|---|
+| `Customer` (buyer; users, cost sources, credentials, rate card, statements) | inside the chargeback application (its own DB) | **no** — app-internal, like posts in WordPress |
+| Sovereign, Organization, Environment, Application, User | platform | unchanged |
+| `Organization.spec.costSources[]` (optional) | platform, GitOps-declared | field only; synced into the app's `Customer` |
+
+| Adapter (OpenOva-hosted profile) | Without OpenOva |
 |---|---|
-| Sovereign | the operator's central instance |
-| Organization (`kind: customer`) | one standalone tenant |
-| Environment / Application | ∅ for a standalone tenant |
-| Users of the Organization | the tenant's users (existing PIN sign-in) |
-| the `platform` Organization | the Sovereign's own cloud footprint (case 3) |
+| `Customer ← Organization` sync, 1:1 by slug | `Customer` from own table / onboarding |
+| platform usage collector (K8s watch) | — |
+| Keycloak PIN identity | own PIN / OIDC |
+| org-controller enforcement hook (D7) | — |
 
-Model delta = **one optional field**: `Organization.spec.costSources[] = {cloudProject, region, credentialRef}`.
-- `costSources = ∅` ⇒ unchanged behaviour on every other instance.
-- zero workloads ∧ `costSources ≠ ∅` ⇒ standalone tenant; controller renders no namespace/quota (`planSlug: none`).
-- migration ⇒ the same Organization gains Environments; identity, history, statements continuous.
-- isolation, RBAC, directory, showback, sign-in ⇒ existing Organization machinery. Nothing new.
+| Relation | Mechanism |
+|---|---|
+| A's admin on A's Sovereign vs on NC | two accounts = seller role vs buyer role; optional SSO later |
+| NC ↔ A's Sovereign | statement exchange only (NC's statement to A = A's cost basis for margin); no shared identity |
+| Hosting on OpenOva | a Blueprint like any other; not structural |
 
 #### D2a — Per-mode entity matrix (2026-08-31)
 
@@ -76,7 +88,7 @@ Modes: **M1** = standard Sovereign (any customer instance) · **M2** = OpenOva-o
 | Environment / Application | present | present or ∅ per Organization | ∅ for cloud-only Organizations |
 | User (PIN sign-in) | present | present | present |
 | **Tenant** | **not an entity → Organization** | **not an entity → Organization** | **not an entity → Organization** |
-| `BillingAccount` | absent | absent | absent |
+| `Customer` (app-internal) | = Organizations (synced) | = Organizations (synced) | = Organizations (synced) or app-onboarded |
 | platform collector | on | on | on (idle for cloud-only Organizations) |
 | cloud collector | off (no costSources) | on | on |
 | enforcement (plan quota) | on | on for Organizations with workloads | on for Organizations with workloads |
@@ -114,7 +126,7 @@ utilisation. `smn` push is a dashboard optimisation, never a billing basis. An o
 metering feed from National Cloud, if it exists, is an optional upgrade layered above the same
 ledger.
 
-### D4 — `bp-chargeback` is a separate multi-tenant application in this monorepo, not a module of catalyst-api/billing
+### D4 — `bp-chargeback` is a standalone multi-tenant application (own `Customer` model, own DB, own API/UI); OpenOva integration is an adapter, not a dependency
 
 `products/chargeback/` (chart + image), own CNPG database, own API and UI, own RBAC (operator-admin ·
 account-admin · viewer) over a **Organization tree** (operator → accounts → cost centres). It
