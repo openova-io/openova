@@ -110,7 +110,8 @@ These run **per-Sovereign** on the management cluster.
 | provisioning service | 🟦 | Pillar 3 logic at `core/marketplace-api/provisioner/`. Multi-region CNPG pair + Continuum emission CODE-COMPLETE post PR #2073 / #2074. |
 | environment-controller | 🚧 | Controller scaffolded with Reconcile at `core/controllers/environment/internal/controller/environment_controller.go` (post-2026-05-20). Not yet walked on a fresh prov. |
 | blueprint-controller | 🚧 | Controller scaffolded with Reconcile at `core/controllers/blueprint/internal/controller/blueprint_controller.go` (post-2026-05-20). Not yet walked on a fresh prov. |
-| billing | 📐 | Designed. No code. |
+| billing | 🚧 | Shipped and walked: `core/services/billing` — vouchers (`promo_codes`), `credit_ledger`, orders, credit-covered checkout, LLM-token metering consumer; BSS pages (Vouchers · Orders · Revenue). Not built: recurring billing, infra metering→rating→statements inside this service — that concern moved to `products/chargeback` (ADR-0014). |
+| chargeback | 🚧 | `products/chargeback` (`bp-chargeback`, ADR-0014, EPIC #6723): standalone customer/usage-ledger/price-book/statements service + Huawei cloud collector — service merged (#6725) and proven live against our own National Cloud tenant (2026-08 statement); UI + chart + kit slot in PR #6726; OpenOva adapter (Organization sync, platform collector) not started. |
 
 *User-facing surfaces + backend services, grouped by status:*
 
@@ -132,7 +133,7 @@ graph TD
   subgraph sDes["📐 Design (no code)"]
     CSVC["catalog-svc"]:::design
     PROJ["projector — CQRS read-side"]:::design
-    BILL["billing"]:::design
+    BILL["billing"]:::partial
   end
   classDef cc fill:#d6e4ff,stroke:#3366cc,color:#1a3d7c;
   classDef partial fill:#fff3cd,stroke:#e0a800,color:#7a5c00;
