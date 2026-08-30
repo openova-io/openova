@@ -118,3 +118,30 @@ describe('JobDependenciesGraph — height clamp', () => {
     expect(wrapper.style.height).toBe('380px')
   })
 })
+
+describe('JobDependenciesGraph — per-instance arrow marker id (P2 multi-graph)', () => {
+  it('gives each rendered graph a UNIQUE marker id and references its own (no duplicate DOM ids across sections)', () => {
+    // P2 renders one graph per orchestration-unit section on the same page.
+    // A hardcoded marker id would repeat → invalid duplicate DOM ids and
+    // url(#id) would resolve only to the first. useId() must namespace it.
+    const { container } = render(
+      <>
+        <JobDependenciesGraph jobs={THREE_NODE_CHAIN} />
+        <JobDependenciesGraph jobs={THREE_NODE_CHAIN} />
+      </>,
+    )
+    const ids = Array.from(container.querySelectorAll('marker')).map((m) => m.getAttribute('id'))
+    expect(ids.length).toBe(2)
+    expect(ids[0]).toBeTruthy()
+    expect(ids[1]).toBeTruthy()
+    expect(ids[0]).not.toBe(ids[1])
+    // Every edge references SOME instance's marker, and both markers are used.
+    const refs = new Set(
+      Array.from(container.querySelectorAll('[data-testid^="jobs-deps-edge-"]')).map((e) =>
+        e.getAttribute('marker-end'),
+      ),
+    )
+    expect(refs.has(`url(#${ids[0]})`)).toBe(true)
+    expect(refs.has(`url(#${ids[1]})`)).toBe(true)
+  })
+})

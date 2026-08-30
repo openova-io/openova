@@ -26,7 +26,7 @@
  *     palette as JobCard's status iconography.
  */
 
-import { useMemo } from 'react'
+import { useId, useMemo } from 'react'
 import {
   depsLayout,
   type LayoutInput,
@@ -101,6 +101,13 @@ export function JobDependenciesGraph({
 }: JobDependenciesGraphProps) {
   const clamped = Math.max(350, Math.min(450, height))
 
+  // Per-instance marker id — the /jobs graph view (P2) renders one
+  // JobDependenciesGraph per orchestration-unit section, so a hardcoded
+  // marker id would repeat across the page (invalid duplicate DOM ids;
+  // url(#id) resolves only to the first). useId() gives each instance a
+  // stable unique id; strip ':' so the SVG url(#...) reference is clean.
+  const arrowMarkerId = `jobs-deps-arrow-${useId().replace(/:/g, '')}`
+
   const layout = useMemo(() => {
     const inputs: LayoutInput[] = jobs.map((j) => ({
       id: j.id,
@@ -170,7 +177,7 @@ export function JobDependenciesGraph({
                 stroke="var(--color-border-strong)"
                 strokeWidth={1.5}
                 opacity={edgeDimmed ? DIM_OPACITY : undefined}
-                markerEnd="url(#jobs-deps-arrow)"
+                markerEnd={`url(#${arrowMarkerId})`}
               />
             )
           })}
@@ -179,7 +186,7 @@ export function JobDependenciesGraph({
         {/* Arrow marker definition. */}
         <defs>
           <marker
-            id="jobs-deps-arrow"
+            id={arrowMarkerId}
             viewBox="0 0 10 10"
             refX="9"
             refY="5"
