@@ -202,6 +202,37 @@ The reverse direction is also allowed (an Organization adds an external cloud pr
 second source) — the tree is symmetric because the account, not the Organization, is the root of
 identity.
 
+### D10 — Deployment profiles: `sovereign` and `operator-central` (recorded 2026-08-30 after the founder's discomfort with the central National Cloud instance)
+
+D5's third placement ("central instance … bare Kubernetes + OIDC") under-specified a genuinely
+different **shell**: National Cloud's central instance meters *all* its customers and lets each
+customer **log in with its own account** to see its own charging. That is not a different engine —
+collectors, ledger, price book, rating, statements, the account tree and the two lenses (D9) are
+identical; it is the operator lens over a tree of Tenant rows at scale. It *is* a different set of
+requirements at the identity, onboarding, branding, RBAC and scale layer. Decision: one chart and
+one code base with two **profiles**, selected by configuration, never by fork.
+
+| Concern | `sovereign` profile | `operator-central` profile |
+|---|---|---|
+| Tenant root | Organization (1:1 by slug, D2) | cloud account (`domain_id`) with its own IAM users |
+| Tenant identity | OpenOva Keycloak (PIN) | **the tenant's own account**, in order of preference: (a) federation from the operator's portal IdP (OIDC/SAML) if exposed; (b) *verify-only* against the cloud IAM — username/password/domain → `POST /v3/auth/tokens` → `domain_id` read from the token, credential never stored; (c) account-linking — the read agency the tenant grants (D8) is proof of ownership, bound to an email PIN |
+| Tenant users → roles | Org RBAC | IAM group/role claims → account-admin / viewer |
+| Onboarding | automatic on Org create | self-service: sign in → "grant this agency" → agency verified → collection starts |
+| Operator identity | sovereign-admin | operator staff via *their* SSO; roles finance / support / admin |
+| Branding, domain, statements | Sovereign | white-label: `billing.<operator-domain>`, operator's statement template, VAT, legal footer |
+| Scale, isolation, audit | tens of Orgs | hundreds of tenants; row-level tenant isolation; per-tenant audit log; per-tenant export/delete |
+| Availability | per-Sovereign | across the operator's regions (stateless app + CNPG pair — the existing DR pattern) |
+| Catalyst dependency | platform collector on | **none** (D5 invariant) |
+
+**API-first, UI optional.** The engine exposes its full surface (accounts, sources, usage, statements,
+price book) as an API; the D9 UI is one client of it. An operator may run the white-labeled UI *or*
+embed the engine behind its own portal. This is the hedge that keeps the operator-central profile
+from becoming a bespoke product.
+
+**Unknowns to verify with the operator, not to design around:** (1) does the operator's portal
+expose an IdP for federation; (2) can the cloud IAM be used for verify-only login from outside
+(option (b) is testable on our own tenant today). Until answered, (c) is the default.
+
 ## Alternatives rejected
 
 - **Module inside `core/services/billing`** — couples chargeback to Org CRs and to a Sovereign;
