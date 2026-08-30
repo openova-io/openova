@@ -204,6 +204,42 @@ function appCoverageKey(appId: string): string {
   return bare.startsWith('bp-') ? bare.slice(3) : bare
 }
 
+/** Load-bearing acronyms/product names the treemap tiles actually show, so a
+ *  humanized component reads the way an operator says it (mirrors the backend
+ *  display.go acronym table for the tokens that appear here). */
+const COMPONENT_ACRONYMS: Record<string, string> = {
+  pg: 'PG', cnpg: 'CNPG', sso: 'SSO', oidc: 'OIDC', dns: 'DNS', api: 'API',
+  mcp: 'MCP', db: 'DB', tls: 'TLS', ca: 'CA', ui: 'UI', ip: 'IP', evs: 'EVS',
+  csi: 'CSI', ccm: 'CCM', dmz: 'DMZ', vcluster: 'vCluster', powerdns: 'PowerDNS',
+}
+
+/** Humanize a component slug → a title-cased, acronym-aware label:
+ *  "bp-shared-pg" → "Shared PG", "cilium" → "Cilium", "openbao" → "Openbao". */
+function humanizeComponent(slug: string): string {
+  const key = appCoverageKey(slug)
+  if (!key) return slug
+  return key
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((t) => COMPONENT_ACRONYMS[t] ?? t.charAt(0).toUpperCase() + t.slice(1))
+    .join(' ')
+}
+
+/** Treemap tile label — leads with the SUBJECT (component), never the action
+ *  verb, because the tile already sits under its engine bucket ("HelmRelease"
+ *  / "Kustomization"). Without this every install tile reads "Install <x>" and
+ *  truncates identically to "Instal…" in the narrow cells, making the ~65
+ *  HelmReleases indistinguishable (founder 2026-08-30). Only install/reconcile
+ *  lead with a verb in DeriveLeafDisplayName; every other kind is already
+ *  subject-first (task/cron/reconciler use a "(…)" suffix), so it passes the
+ *  existing displayName through unchanged. */
+function treemapLeafName(leaf: LeafInfo): string {
+  if ((leaf.kind === 'install' || leaf.kind === 'reconcile') && leaf.appId) {
+    return humanizeComponent(leaf.appId)
+  }
+  return leaf.name
+}
+
 /**
  * isCutoverStep — a leaf that is one step of the bp-self-sovereign-cutover
  * activity (kind=step under the Cutover group). Matches the group ancestry
@@ -348,7 +384,7 @@ export function buildJobsTreemapData(
   function leafItem(leaf: LeafInfo): TreemapItem {
     return {
       id: leaf.jobId,
-      name: leaf.name,
+      name: treemapLeafName(leaf),
       count: leaf.count,
       percentage: null,
       size_value: leaf.count,

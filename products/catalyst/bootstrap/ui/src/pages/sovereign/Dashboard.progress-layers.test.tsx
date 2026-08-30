@@ -203,6 +203,21 @@ describe('buildJobsTreemapData — progress buckets by STATE (#4731 amend)', () 
     expect(KIND_STAGES.lifecycle.order).toBeLessThan(KIND_STAGES.install.order)
   })
 
+  it('treemap tiles lead with the COMPONENT, not the "Install" verb (#leaf-name)', () => {
+    // The narrow tiles truncate; every "Install <x>" collapsed to "Instal…"
+    // and the HelmReleases were indistinguishable (founder 2026-08-30). The
+    // tile now shows the humanized component, acronym-aware.
+    const jobs = [
+      J({ id: `${DEP}:install-keycloak`, jobName: 'install-keycloak', kind: 'install', appId: 'bp-keycloak', displayName: 'Install Keycloak', status: 'succeeded' }),
+      J({ id: `${DEP}:install-shared-pg`, jobName: 'install-shared-pg', kind: 'install', appId: 'bp-shared-pg', displayName: 'Install Shared Pg', status: 'succeeded' }),
+      J({ id: `${DEP}:reconcile-flux`, jobName: 'reconcile-flux-system', kind: 'reconcile', appId: 'flux-system', displayName: 'Reconcile Flux System', status: 'running' }),
+    ]
+    const data = buildJobsTreemapData(jobs, ['kind'])
+    expect(leafByJobId(data.items, `${DEP}:install-keycloak`)?.name).toBe('Keycloak')
+    expect(leafByJobId(data.items, `${DEP}:install-shared-pg`)?.name).toBe('Shared PG') // acronym
+    expect(leafByJobId(data.items, `${DEP}:reconcile-flux`)?.name).toBe('Flux System')
+  })
+
   it('maps every JobStatus to its semantic colour kind, incl. the HEALTH axis', () => {
     const statuses: Array<[JobStatus, string]> = [
       ['succeeded', 'success'],
