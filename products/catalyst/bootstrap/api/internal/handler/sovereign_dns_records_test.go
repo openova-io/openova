@@ -53,6 +53,7 @@ func TestCanonicalSovereignSubdomainsCoversBrowserFacingApps(t *testing.T) {
 		"newapi",       // bp-newapi (LLM gateway) — #3263 row 6
 		"sandbox",      // bp-sandbox per-Sandbox pty-server
 		"mcp",          // bp-openova-mcp sovereign-mode instance — #5206
+		"chargeback",   // bp-chargeback Sovereign BSS placement — #6723 ADR-0014
 	}
 
 	for _, sub := range want {

@@ -245,6 +245,15 @@ spec:
     - {file: 13d-bp-openova-mcp.yaml, hr: bp-openova-mcp, vcluster: host, target: host,
        namespace: catalyst-system,
        justification: "#5114 Refs #3988 — thin facade over catalyst-api; co-located in catalyst-system for the in-cluster upstream + the catalyst-handover-jwt verify-pubkey Secret (#4114); zero-RBAC pod, per-component CNPs in-chart"}
+    # ── bp-chargeback (13f, #6723 ADR-0014) — Sovereign BSS chargeback app ──
+    # Its OWN host namespace: the chart renders a private CNPG Cluster plus
+    # two hook Jobs with namespace-scoped Secret RBAC (the DSN sync + the
+    # create-if-absent APP_ENCRYPTION_KEY); co-locating in catalyst-system
+    # would widen those Roles onto the umbrella's Secrets. Standalone by
+    # design (ADR-0014 D4) — no Catalyst CRD dependency.
+    - {file: 13f-bp-chargeback.yaml, hr: bp-chargeback, vcluster: host, target: host,
+       namespace: chargeback,
+       justification: "#6723 ADR-0014 D4/D5 — standalone BSS application (own CNPG + hook-Job RBAC scoped to its namespace); host-native like every control-plane app; per-component CNPs in-chart"}
 
     # ── §4 PLACEMENT EXCEPTION — host-staying on the pure-OSS Sovereign
     #    stack (a SOVEREIGNTY decision, NOT an unfinished task) ──────────

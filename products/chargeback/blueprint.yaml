@@ -1,0 +1,165 @@
+apiVersion: catalyst.openova.io/v1alpha1
+kind: Blueprint
+metadata:
+  name: bp-chargeback
+  labels:
+    catalyst.openova.io/category: bss
+    catalyst.openova.io/section: pts-4-8-identity-and-metering
+spec:
+  # 0.1.0 (#6723, ADR-0014, lane B): first release — the chargeback
+  # application (usage ledger + rating + statements): Deployment + ClusterIP
+  # Service + Gateway-API HTTPRoute chargeback.<fqdn> + zero-RBAC
+  # ServiceAccount + Cilium CNPs + private CNPG Cluster (placeholder-DSN
+  # Secret + post-install sync Job) + create-if-absent APP_ENCRYPTION_KEY
+  # Job. Lockstep with products/chargeback/chart/Chart.yaml 0.1.0 +
+  # bootstrap-kit slot 13f pin + the catalog-seed (blueprints.yaml) entry.
+  version: 0.1.0
+  card:
+    title: Chargeback
+    summary: Usage ledger, rating and monthly statements for your Organizations and external cloud projects — collect allocation-hours, rate them against a price book, issue statements.
+    icon: chargeback.svg
+    category: bss
+    family: billing
+    tags:
+      - chargeback
+      - showback
+      - usage
+      - rating
+      - statements
+      - bss
+    documentation: https://github.com/openova-io/openova
+    license: Apache-2.0
+  # listed — the per-Organization placement (ADR-0014 D5) installs from the
+  # catalog card; the Sovereign BSS placement is auto-installed by
+  # bootstrap-kit slot 13f and never goes through the card.
+  visibility: listed
+  owner:
+    team: platform
+    contact: platform@openova.io
+  configSchema:
+    type: object
+    properties:
+      config:
+        type: object
+        description: Application configuration (values → env, spec §6).
+        properties:
+          operatorEmails:
+            type: string
+            default: ""
+            description: |
+              Comma-separated addresses that receive the operator role on
+              PIN sign-in (OPERATOR_EMAILS). Everyone else signs in as a
+              customer-admin / customer-viewer of their own customer.
+          publicUrl:
+            type: string
+            default: ""
+            description: |
+              Public base URL used in invite links and mail (PUBLIC_URL).
+              Empty = https://chargeback.<sovereign-fqdn>.
+          huaweiEndpointTemplate:
+            type: string
+            default: "https://%s.%s.kom4dc.nationalcloud.om"
+            description: printf pattern (service, region) for the Huawei HCSO endpoints (HUAWEI_ENDPOINT_TEMPLATE).
+          huaweiInsecureTls:
+            type: boolean
+            default: true
+            description: Skip TLS verification toward the on-prem Huawei CA (HUAWEI_INSECURE_TLS).
+          collectInterval:
+            type: string
+            default: 15m
+            description: Cloud inventory collection interval, Go duration (COLLECT_INTERVAL).
+          ctsPollInterval:
+            type: string
+            default: 5m
+            description: Cloud Trace Service poll interval, Go duration (CTS_POLL_INTERVAL).
+          profile:
+            type: string
+            enum: [sovereign, operator-central]
+            default: sovereign
+            description: Deployment profile (PROFILE) — affects the /auth/me payload and the UI banner.
+      smtp:
+        type: object
+        properties:
+          existingSecret:
+            type: string
+            default: ""
+            description: |
+              Name of a Secret whose keys are SMTP_HOST / SMTP_PORT /
+              SMTP_USER / SMTP_PASS / SMTP_FROM. Empty = dev mode (the PIN
+              and invite URL are logged instead of mailed).
+      replicaCount:
+        type: integer
+        default: 2
+        minimum: 1
+        maximum: 4
+        description: Stateless replicas (all state is in Postgres).
+      cnpg:
+        type: object
+        properties:
+          cluster:
+            type: object
+            properties:
+              instances:
+                type: integer
+                default: 1
+                minimum: 1
+                maximum: 3
+                description: CNPG instances for the private Postgres.
+              storage:
+                type: string
+                default: 5Gi
+                description: PVC size of the private Postgres (durable cloud CSI; never local-path).
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: ./chart
+  # Standalone by design (ADR-0014 D4): no hard dependency on Catalyst
+  # CRDs. bp-cnpg is a bootstrap-kit prerequisite on a Sovereign (the slot's
+  # dependsOn edge), not a catalog dependency.
+  depends: []
+  upgrades:
+    from: ["0.x"]
+  observability:
+    metrics: prometheus
+    logs: stdout
+  topology:
+    supported:
+      - singleton
+    defaults:
+      # A stateless app in front of a single CNPG primary — region-pinned
+      # singleton; both BCP defaults resolve to the single in-region
+      # instance (schema requires both keys; G116).
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          # Host-native (#4325 de-vcluster): tier MUST be '' — a per-Org
+          # install lands in the Org's own namespace on the host; the
+          # Sovereign BSS instance lands in `chargeback` via the
+          # bootstrap-kit slot. `rtz-A` is the region-cluster designator.
+          tier: ''
+          clusters:
+            - rtz-A
+          roles:
+            rtz-A: singleton
+  endpoints:
+    - name: ui
+      hostnameTemplate: "chargeback.{{.SovereignFQDN}}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+  # Sovereign-console sidebar registration (CRD consoleUI, #2370): the BSS
+  # menu gains a "Chargeback" entry between BSS (order 60 hardcoded) and
+  # Settings (99), routed at the console's app dashboard for this Blueprint.
+  consoleUI:
+    sidebarEntry: true
+    sidebarLabel: "Chargeback"
+    sidebarRoute: "/apps/bp-chargeback/dashboard"
+    sidebarOrder: 45
+    sidebarIcon: "M5 21v-16a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v16l-3 -2l-2 2l-2 -2l-2 2l-2 -2l-3 2M9 7h6M9 11h6M9 15h4"
+  multiInstance:
+    enabled: false
