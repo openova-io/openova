@@ -226,7 +226,7 @@ against the tenant's project.
 | **Utilization** | `ces` metrics (`cpu_util`, disk, bandwidth; CES keeps history, so hourly pulls lose nothing) | hourly | usage-based rating later; "stopped ≠ billed?" policy input |
 | **Push (optional)** | `smn` topic → HTTPS subscription to an OpenOva webhook | on event | near-real-time dashboards; needs a topic in the tenant account + National Cloud egress to our endpoint — **unverified** |
 
-**Decision: poll the change log, not the inventory.** That is near-event-driven with zero
+**Decision: poll the change log, not the inventory** (cloud side). Case 1 is event-driven by construction — Kubernetes watch on pods/PVCs/Application CRs with an hourly reconciliation pass; utilisation is sampled everywhere (time series), and threshold alarms (`ces` → `smn` → webhook) are the only true cloud-side event path, for dashboards, never for the bill — see ADR-0014 D3a. That is near-event-driven with zero
 tenant-side configuration and no lost events; the hourly snapshot makes the ledger
 self-correcting. Pure push (SMN) is a dashboard optimisation, not a billing basis — events get
 lost or duplicated, and the cloud's own meter is hourly anyway. Cost is trivial: ~10 calls per

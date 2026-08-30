@@ -59,11 +59,28 @@ contract and map 1:1 to an account by Org slug.
 
 | Case | Collected via | Attributed via | Enforced? |
 |---|---|---|---|
-| Org on an OpenOva Sovereign | **platform collector**: namespace label `openova.io/organization`, plan emitter (plan-hour per Org), hourly pod/PVC sampler on the host cluster (the vCluster syncer mirrors pods into host namespace `<slug>`), token sidecar | Organization CR | yes — plan quota |
+| Org on an OpenOva Sovereign | **platform collector**: namespace label `openova.io/organization`, plan emitter (plan-hour per Org), **Kubernetes watch (informers) on pods / PVCs / Application CRs** on the host cluster (the vCluster syncer mirrors pods into host namespace `<slug>`) with an hourly reconciliation pass, token sidecar | Organization CR | yes — plan quota |
 | Standalone National Cloud tenant | **cloud collector** | project = account (Enterprise Project if granted) | no |
 | Sovereign's own cloud footprint | **cloud collector** (same) | tofu state + deployment record + `CloudAdoption` claims → Sovereign, role, region; name-prefix `catalyst-<slug>-<dep>` fallback | not by us |
 
-The cloud collector **polls the change log, not the inventory**: `cts` traces + `ces` events every
+#### D3a — Collection modes and rationale (recorded 2026-08-30 after the founder's polling-vs-event question)
+
+Two different things change, and they are collected differently:
+
+| What changes | Case 1 (Org on a Sovereign) | Cases 2/3 (National Cloud tenants, Sovereign footprint) |
+|---|---|---|
+| **Resource lifecycle** (create / delete / resize / stop / start) | **event-driven**: Kubernetes watch — the collector is told, it never asks | **pull-based change log**: `cts` audit trail (every tenant API call, timestamped), pulled every ~5 min — near-event, exact timestamps, nothing missed |
+| **Utilisation** (CPU, disk, bandwidth) | sampled — metrics are a time series by nature | sampled — hourly pull of `ces` metrics (CES stores the datapoints, so an hourly pull loses nothing) |
+| **Threshold events** ("bandwidth > 80 % for 1 h", "idle 7 days") | alerting layer | optional **push**: `ces` alarm → `smn` topic → HTTPS webhook — the only true event path on the cloud side, for dashboards/alerts, never for the bill |
+
+Rationale for not pushing on the cloud side: the only push channel is SMN → webhook, which requires a
+topic and subscription *inside each tenant's account* plus National Cloud egress to us —
+configuration we do not control and that a tenant can silently break. Pulling the change log
+needs nothing but the read agency and cannot lose an event; the hourly inventory snapshot
+reconciles the ledger regardless. Utilisation is never "event-driven" anywhere — nobody delivers
+"CPU went from 40 to 41 %"; the event form of utilisation is a threshold alarm.
+
+The cloud collector therefore **polls the change log, not the inventory**: `cts` traces + `ces` events every
 5 min (exact lifecycle hours), hourly list-API snapshot as reconciliation, `ces` metrics for
 utilisation. `smn` push is a dashboard optimisation, never a billing basis. An operator-plane
 metering feed from National Cloud, if it exists, is an optional upgrade layered above the same
