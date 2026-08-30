@@ -6253,4 +6253,99 @@ spec:
   # open. Matches products/openova-mcp/blueprint.yaml, which declares neither.
   multiInstance:
     enabled: false
+---
+# bp-chargeback (#6723, ADR-0014 D4/D5) — the chargeback application: usage
+# ledger + rating + monthly statements for the Sovereign's Organizations and
+# for external cloud projects (Huawei HCSO collector), standalone by design
+# (own CNPG Postgres, own PIN sign-in, own API + UI).
+#
+# Seeded from day one — scripts/check-catalog-seed-source-coverage.py refuses
+# a charted Blueprint with no seed row, which is how bp-openova-mcp (above)
+# sat uninstallable for six releases. The Sovereign BSS placement installs
+# from bootstrap-kit slot 13f (clusters/_template/bootstrap-kit/
+# 13f-bp-chargeback.yaml) and never reads this CR; the per-Organization
+# placement installs through THIS card (visibility: listed — VERBATIM from
+# products/chargeback/blueprint.yaml).
+#
+# Lockstep with products/chargeback/chart/Chart.yaml 0.1.0 + products/
+# chargeback/blueprint.yaml spec.version 0.1.0 + bootstrap-kit slot 13f pin
+# 0.1.0 + the published chart ghcr.io/openova-io/bp-chargeback:0.1.0
+# (blueprint-release.yaml publishes it from the same merge).
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-chargeback
+  labels:
+    catalyst.openova.io/managed-by: catalog-seed
+    catalyst.openova.io/origin: openova-public
+    catalyst.openova.io/curation: openova-public
+    catalyst.openova.io/category: bss
+    catalyst.openova.io/section: pts-4-8-identity-and-metering
+    app.kubernetes.io/managed-by: {{ $managedBy }}
+    app.kubernetes.io/instance: {{ $instance }}
+spec:
+  # 0.1.0 — lockstep with products/chargeback/chart/Chart.yaml (appVersion
+  # 0.1.0): first release, EPIC #6723 lane B.
+  version: "0.1.0"
+  visibility: listed
+  card:
+    title: "Chargeback"
+    category: bss
+    family: billing
+    summary: "Usage ledger, rating and monthly statements for your Organizations and external cloud projects — collect allocation-hours, rate them against a price book, issue statements."
+    description: "Standalone chargeback / showback: PIN sign-in, customers with their own cost sources (Huawei projects via a read-only access key), a price book imported as CSV, allocation-based usage collected every 15 minutes, monthly draft statements issued as JSON or CSV."
+    icon: chargeback.svg
+    license: "Apache-2.0"
+    tags: [chargeback, showback, usage, rating, statements, bss]
+    docs: "https://github.com/openova-io/openova"
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-chargeback
+  source:
+    kind: HelmRepository
+    type: oci
+    url: oci://ghcr.io/openova-io
+    chart: bp-chargeback
+    version: 0.1.0
+  topology:
+    supported:
+      - singleton
+    defaults:
+      # A stateless app in front of a single CNPG primary — region-pinned
+      # singleton; both BCP defaults resolve to the single in-region
+      # instance. VERBATIM from products/chargeback/blueprint.yaml.
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          # tier MUST be '' (host-native, #4325): a per-Org install lands in
+          # the Org's own namespace on the HOST. `rtz-A` is the region
+          # designator, NOT a vCluster.
+          tier: ''
+          clusters: [rtz-A]
+          roles:
+            rtz-A: singleton
+  endpoints:
+    - name: ui
+      # Helm-escape {{.SovereignFQDN}} per the PR #2888 pattern; a per-Org
+      # install overrides httpRoute.hostnames[0] to chargeback.<slug>.<pool>.
+      hostnameTemplate: "chargeback.{{ "{{" }}.SovereignFQDN{{ "}}" }}"
+      port: 443
+      protocol: https
+      tls: true
+      visibility: public
+      launchDefault: true
+  # Sovereign-console sidebar registration (CRD consoleUI, #2370) —
+  # VERBATIM from products/chargeback/blueprint.yaml.
+  consoleUI:
+    sidebarEntry: true
+    sidebarLabel: "Chargeback"
+    sidebarRoute: "/apps/bp-chargeback/dashboard"
+    sidebarOrder: 45
+    sidebarIcon: "M5 21v-16a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v16l-3 -2l-2 2l-2 -2l-2 2l-2 -2l-3 2M9 7h6M9 11h6M9 15h4"
+  multiInstance:
+    enabled: false
 {{- end }}

@@ -170,9 +170,3 @@ unseeded:
       No kit slot and no seed entry. The per-Organization mail Blueprint that
       IS seeded is bp-stalwart-tenant; this Sovereign-scoped sibling has no
       install door today. Enumerated here, not silenced.
-  - chart: bp-chargeback
-    source: products/chargeback
-    reason: >-
-      Seed entry and the umbrella bump it forces land in the immediate follow-up
-      PR to EPIC 6723 lane B, decoupled so the umbrella version cannot race the
-      deploy-bot during this PR's CI window. This row is removed by that follow-up.
