@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-30T22:00:04Z` |
+| Last refreshed | `2026-08-30T22:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-30T22:04 | [#6733](https://github.com/openova-io/openova/pull/6733) | #6723 | feat(chargeback): OpenOva adapter — Organization sync, platf |
 | 2026-08-30T21:41 | [#6732](https://github.com/openova-io/openova/pull/6732) | #6726 | feat(chargeback): catalog-seed entry for bp-chargeback + umb |
 | 2026-08-30T21:23 | [#6731](https://github.com/openova-io/openova/pull/6731) | #6725 | docs(status): billing row is stale ('Designed. No code.') —  |
 | 2026-08-30T19:57 | [#6730](https://github.com/openova-io/openova/pull/6730) | #6723 | docs(adr): ADR-0014 D9a decision→UI-surface map per profile  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-26T18:15 | [#6702](https://github.com/openova-io/openova/pull/6702) | #6695 | feat(jobs): distinct Kind-chip colour per engine, grouped by |
 | 2026-08-26T14:06 | [#6701](https://github.com/openova-io/openova/pull/6701) | #6695 | fix(jobs): Kind column badge shows real engine name (re-cut) |
 | 2026-08-26T13:52 | [#6700](https://github.com/openova-io/openova/pull/6700) | #4 | feat(jobs): real engine names in /jobs Kind filter + treemap |
-| 2026-08-26T13:39 | [#6699](https://github.com/openova-io/openova/pull/6699) | #6695 | feat(console): rename Cloud → Resources (Resources/Jobs re-c |
 
 ---
 
