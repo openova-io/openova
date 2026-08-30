@@ -193,10 +193,11 @@ probe script shredded after use, secrets never printed.
 | `tms /v1.0/predefine_tags` | 401 | 401 `TMS.0003 Unauthorized user` | exists, not granted — why our Huawei tags are disabled |
 | `bss` billing — 10 path variants (`/v2/bills/customer-bills/{monthly-sum,res-fee-records,res-records/query}`, partner-bills, `/v1.0/{domain}/customer/account-mgr/balances`, `/v2/accounts/customer-accounts/balances`, v1.0 monthly-sum, global host, via `iam` host) | 404 | **404 `APIGW.0101`** | **no tenant-facing billing API on National Cloud** |
 | `metering.*`, `aom` metrics path, `ces batch-query-metric-data` | 404 | — | not published (path variants may exist) |
+| **Extended sweep (12:5x, unauthenticated, same controls):** 20 more path families on `bss` (`/v1|v2/billing`, `/v1|v2/metering[/records]`, `subcustomer-bills`, `fee-records`, `res-records/query`, `monthly-break-down`, `products/ratings/…/subscribe-rate`, `orders/customer-orders[/order-details]`, `enterprises/multi-accounts/sub-customers`, `accounts/customer-accounts`, `payments/prepaid-resources/query`, `/v1.0/{pid}/{bills,metering}`, `/v1/{pid}/{billing,usage}`) + 2 families × 9 alternate hosts (`cbc`, `billing`, `metering`, `charging`, `cdr`, `meter`, `bss-intl`, `fee`, `usage`) | **38/38 → 404 `APIGW.0101`** | — | **48 variants total disproven** — no tenant-facing billing/metering API under any conventional host or path family |
 | `oc.*`, `manageone.*` (operator portal hosts) | DNS: no record | — | operator plane not exposed externally |
 
 **Consequences:**
-- Model 1 is **not assumable**. The one question to National Cloud is now narrow: *"Does your
+- Model 1 is **not assumable**. Founder's stronger reading ("they don't have those services at all") is *not* what was measured: what is proven is that no tenant can call one; the operator plane is unreachable from outside, and the HCS product family does ship operator-side metering — so say "not exposed to tenants", not "absent". The one question to National Cloud is now narrow: *"Does your
   operations portal export per-tenant metering (API or scheduled file), and can OpenOva get a
   read account?"* Yes/no.
 - Model 2 is **fully buildable today** — it is the access we already have to our own tenant,
