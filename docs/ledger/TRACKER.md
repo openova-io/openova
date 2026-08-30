@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-30T21:15:02Z` |
+| Last refreshed | `2026-08-30T21:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,9 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-30T21:23 | [#6731](https://github.com/openova-io/openova/pull/6731) | #6725 | docs(status): billing row is stale ('Designed. No code.') —  |
 | 2026-08-30T19:57 | [#6730](https://github.com/openova-io/openova/pull/6730) | #6723 | docs(adr): ADR-0014 D9a decision→UI-surface map per profile  |
 | 2026-08-30T19:38 | [#6729](https://github.com/openova-io/openova/pull/6729) | #6723 | docs(adr): ADR-0014 D8a — customer intake tables (create / i |
 | 2026-08-30T20:05 | [#6728](https://github.com/openova-io/openova/pull/6728) | #6727 | feat(jobs): map phase-gating deps in the /jobs DAG via phase |
+| 2026-08-30T21:22 | [#6726](https://github.com/openova-io/openova/pull/6726) | #6723 | feat(chargeback): UI, chart, blueprint, catalog seed, kit sl |
 | 2026-08-30T19:22 | [#6725](https://github.com/openova-io/openova/pull/6725) | #6723 | feat(chargeback): standalone chargeback service — customers, |
 | 2026-08-30T19:22 | [#6724](https://github.com/openova-io/openova/pull/6724) | #6723 | feat(console): admin-mappable sidebar — per-Sovereign overri |
 | 2026-08-30T16:58 | [#6722](https://github.com/openova-io/openova/pull/6722) | #6721 | docs(adr): ADR-0014 D2b account-duplication matrix + D11 con |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-26T13:52 | [#6700](https://github.com/openova-io/openova/pull/6700) | #4 | feat(jobs): real engine names in /jobs Kind filter + treemap |
 | 2026-08-26T13:39 | [#6699](https://github.com/openova-io/openova/pull/6699) | #6695 | feat(console): rename Cloud → Resources (Resources/Jobs re-c |
 | 2026-08-26T11:37 | [#6698](https://github.com/openova-io/openova/pull/6698) | #6697 | fix(console): serve index.html with Cache-Control no-cache ( |
-| 2026-08-26T09:39 | [#6696](https://github.com/openova-io/openova/pull/6696) | #4731 | feat(dashboard): converged Sovereign treemap defaults to rea |
-| 2026-08-26T16:56 | [#6694](https://github.com/openova-io/openova/pull/6694) | #6693 | docs(uat): annotate the 12 pending re-walk rows with per-row |
 
 ---
 
