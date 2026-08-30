@@ -371,6 +371,28 @@ export function JobsPage({
             storageKey="sov-jobs-hidden-kinds"
           />
         )}
+
+        {/* Schedule affordance (P3, Refs #6703). A contextual "View schedule"
+            link — shown ONLY when the CronJob chip is active in list view —
+            routes to the consolidated 24h Schedule timeline. Chosen over a
+            third List/Graph/Schedule toggle value because a time-of-day
+            schedule is meaningful ONLY for CronJobs; a segmented value that is
+            empty for the other 7 kinds would be noise. It mirrors how the
+            "Jobs timeline" retrospective is also a dedicated route, not a
+            view-toggle value. */}
+        {activeView === 'list' && activeKind === 'cron' ? (
+          <Link
+            to={sovereignPathOrDeployments('jobs', { deploymentId, sub: 'schedule' }) as never}
+            className="jobs-view-schedule-link"
+            data-testid="jobs-cron-view-schedule"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden>
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span>View schedule →</span>
+          </Link>
+        ) : null}
       </div>
 
       <div id="jobs-page-content" className="mt-4" data-testid="sov-jobs-list" data-view={activeView}>
@@ -423,6 +445,28 @@ const JOBS_PAGE_TOOLBAR_CSS = `
   color: var(--color-accent);
   font-weight: 600;
 }
+.jobs-view-schedule-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-dim);
+  background: var(--color-bg-2);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+.jobs-view-schedule-link:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg-2));
+}
+.jobs-view-schedule-link svg { width: 15px; height: 15px; }
 `
 
 /**

@@ -69,6 +69,7 @@ import { InstallPage } from '@/pages/sovereign/InstallPage'
 import { JobsPage } from '@/pages/sovereign/JobsPage'
 import { JobDetail } from '@/pages/sovereign/JobDetail'
 import { JobsTimeline } from '@/pages/sovereign/JobsTimeline'
+import { CronScheduleView } from '@/pages/sovereign/jobs-schedule/CronScheduleView'
 import { Dashboard } from '@/pages/sovereign/Dashboard'
 // #3958 — the standalone /reconciliation page is GONE; reconcilers now
 // merge into the unified Cloud graph (/cloud?view=graph).
@@ -928,6 +929,19 @@ const provisionJobsTimelineRoute = createRoute({
   beforeLoad: provisionAuthGuard,
 })
 
+// Consolidated CronJob Schedule view (P3, Refs #6703). Static segment — MUST
+// be registered BEFORE the dynamic `/jobs/$jobId` route below so TanStack
+// resolves `/jobs/schedule` to this surface, not to JobDetail with
+// jobId="schedule". Sibling parity with provisionJobsTimelineRoute. Reached
+// from the /jobs cron chip's "View schedule" affordance; takes no search
+// params (the run-history drawer selection is ephemeral UI state).
+const provisionJobsScheduleRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/provision/$deploymentId/jobs/schedule',
+  component: CronScheduleView,
+  beforeLoad: provisionAuthGuard,
+})
+
 // Per-Job detail page (epic #204).
 const provisionJobDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -1460,6 +1474,15 @@ const consoleJobsTimelineRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/jobs/timeline',
   component: JobsTimeline,
+})
+// Consolidated CronJob Schedule view (P3, Refs #6703) — chroot Sovereign
+// Console. Registered BEFORE the dynamic $jobId route so `/jobs/schedule`
+// resolves here, not to JobDetail. Sibling parity with the provision tree's
+// provisionJobsScheduleRoute.
+const consoleJobsScheduleRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/jobs/schedule',
+  component: CronScheduleView,
 })
 const consoleJobDetailRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
@@ -2396,6 +2419,7 @@ const routeTree = rootRoute.addChildren([
   provisionInstallBlueprintRoute,
   provisionJobsRoute,
   provisionJobsTimelineRoute,
+  provisionJobsScheduleRoute,
   provisionJobDetailRoute,
   provisionDashboardRoute,
   provisionDecommissionRoute,
@@ -2449,6 +2473,7 @@ const routeTree = rootRoute.addChildren([
     consoleInstallBlueprintRoute,
     consoleJobsRoute,
     consoleJobsTimelineRoute,
+    consoleJobsScheduleRoute,
     consoleJobDetailRoute,
     consoleCloudRoute.addChildren(consoleLegacyCloudRedirectRoutes),
     consoleResourceDetailRoute,
