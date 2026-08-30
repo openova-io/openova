@@ -305,7 +305,7 @@ adoption** layer and becomes one collector's source.
 4. **Is this a Sovereign-level BSS capability on the partner's Sovereign (omantel.biz), or a
    standalone OpenOva service?** The recommendation assumes the former.
 
-### 5.2 For National Cloud (one party; design inputs, not blockers)
+### 5.2 For National Cloud (one party; design inputs — none of them gates the build)
 
 1. **Operator-plane metering:** does the operations portal export per-tenant metering (API or
    scheduled file), and can OpenOva get a read account? (Tenant-facing billing API is already
