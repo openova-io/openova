@@ -127,6 +127,13 @@ var DefaultKinds = []Kind{
 	// The graph adapter chases this hop to attribute Pods to their Deployment.
 	{Name: "replicaset", GVR: schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "replicasets"}, Namespaced: true},
 
+	// Batch (batch/v1). CronJob carries `.spec.schedule` + `.status.lastScheduleTime`
+	// (the consolidated Schedule-timeline surface + "latest run" glyph); Job is the
+	// CronJob's per-fire child (ownerRef CronJob -> the run-history drill-in). Both
+	// GVRs are GA since k8s 1.21 and served on every cluster, so NOT Optional.
+	{Name: "cronjob", GVR: schema.GroupVersionResource{Group: "batch", Version: "v1", Resource: "cronjobs"}, Namespaced: true},
+	{Name: "job", GVR: schema.GroupVersionResource{Group: "batch", Version: "v1", Resource: "jobs"}, Namespaced: true},
+
 	// Networking (networking.k8s.io/v1).
 	{Name: "ingress", GVR: schema.GroupVersionResource{Group: "networking.k8s.io", Version: "v1", Resource: "ingresses"}, Namespaced: true},
 	// EndpointSlice — exact Service→Pod membership without recomputing
