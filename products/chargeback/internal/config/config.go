@@ -31,6 +31,17 @@ type Config struct {
 	CTSPollInterval        time.Duration
 	CESInterval            time.Duration
 	CollectorEnabled       bool
+
+	// OpenOva adapter (ADR-0014 D2 case 1; #6723 lane D). AdapterEnabled
+	// is the raw ADAPTER_ENABLED override: "" = auto (on when the profile
+	// is sovereign AND in-cluster Kubernetes configuration is available),
+	// truthy = force on, falsy = force off — openova.Decide holds the rule.
+	AdapterEnabled string
+	// BillingHookURL is the billing service base URL for the D6 seam;
+	// unset ⇒ the statement-issued hook is off. BillingHookToken is the
+	// superadmin bearer token the metering endpoint requires.
+	BillingHookURL   string
+	BillingHookToken string
 }
 
 // FromEnv builds the configuration; it fails only on values that would make
@@ -54,6 +65,9 @@ func FromEnv() (Config, error) {
 		CTSPollInterval:        durEnv("CTS_POLL_INTERVAL", 5*time.Minute),
 		CESInterval:            durEnv("CES_INTERVAL", time.Hour),
 		CollectorEnabled:       boolEnv("COLLECTOR_ENABLED", true),
+		AdapterEnabled:         strings.ToLower(strings.TrimSpace(os.Getenv("ADAPTER_ENABLED"))),
+		BillingHookURL:         strings.TrimRight(strings.TrimSpace(os.Getenv("BILLING_HOOK_URL")), "/"),
+		BillingHookToken:       strings.TrimSpace(os.Getenv("BILLING_HOOK_TOKEN")),
 	}
 	if c.Profile != "sovereign" && c.Profile != "operator-central" {
 		return c, fmt.Errorf("PROFILE must be sovereign or operator-central, got %q", c.Profile)

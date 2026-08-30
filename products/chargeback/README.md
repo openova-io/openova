@@ -19,6 +19,76 @@ user's AK/SK per customer project.
 is a *customer*; when a customer is a synced Organization the term Organization
 is used in user-facing text.
 
+## OpenOva adapter (lane D — ADR-0014 D2 case 1)
+
+Built into this same binary (`internal/adapter/openova`), running only when
+`PROFILE=sovereign` and in-cluster Kubernetes configuration is available
+(`ADAPTER_ENABLED` overrides in either direction; nothing runs without a
+cluster). The `operator-central` profile never runs any of it — the engine
+keeps its D5 invariant of zero Catalyst dependencies.
+
+**Organization → Customer sync.** A dynamic-client list+watch on
+`organizations.orgs.openova.io/v1` (absence of the CRD is logged once and
+idled on, probing every 5 minutes). Each Organization upserts one customer:
+slug = Org slug, `kind=organization`, `org_slug` set, `admin_email` from the
+owner roster (`role: owner` preferred, blank-pending when the roster is
+empty), `billing_mode` from `spec.billingMode` (real→real,
+chargeback→chargeback, showback→showback), status active. GitOps-declared
+`spec.costSources[]` (see the Organization CRD,
+`products/catalyst/chart/crds/organization.yaml`) become `cost_sources`
+rows; a `credentialRef` is resolved read-only from the named Secret in the
+Organization's host namespace (= slug) — value either JSON
+`{"accessKey","secretKey"}` or `ACCESSKEY:SECRETKEY` — sealed with
+`APP_ENCRYPTION_KEY`, linked, and verified through the Huawei verifier.
+Deleting an Organization SUSPENDS its customer; nothing is ever deleted —
+statements and the usage ledger are billing history.
+
+**Platform collector.** Shared informers on namespaces, pods and PVCs; the
+join key is the `openova.io/organization` namespace label (the same key the
+sovereign-admin dashboard's `buildPodRows` uses;
+`catalyst.openova.io/organization` accepted as the legacy spelling).
+Event-driven with an hourly reconciliation pass (ADR-0014 D3a) and a
+debounced emit for touched Organizations. Usage windows are sliced by the
+same `internal/window` math as the cloud collector — hour-bounded,
+idempotent per `(source, resource, sku, window_start)`:
+
+| SKU | Unit | Quantity per hour |
+|---|---|---|
+| `k8s.vcpu` | vcpu-hour | sum of the pod's container CPU requests (cores) |
+| `k8s.mem_gb` | gib-hour | sum of the pod's container memory requests (GiB) |
+| `k8s.pvc_gb` | gb-hour | PVC capacity (GB), joined to the Organization by namespace |
+
+One `cost_source` of kind `openova-org` is auto-created per Organization;
+records land on it, source kind `openova-org` (the request is the
+entitlement the plan quota enforces, so the request is what is billed).
+
+**Billing hook (D6).** Off unless `BILLING_HOOK_URL` is set. After
+`POST /statements/{id}/issue` for a customer with `kind=organization` and
+`billing_mode=real`, the statement total is posted to
+`<BILLING_HOOK_URL>/billing/metering/record`
+(`core/services/billing/handlers/metering.go`) as a negative micro-OMR
+amount with `metadata.request_id` = the statement id — billing's
+`external_ref` — so a re-issue can never debit twice (billing answers
+`duplicate: true`). Auth is `Authorization: Bearer $BILLING_HOOK_TOKEN`
+(superadmin, per the metering endpoint's contract). A hook failure leaves
+the statement issued; issuing is idempotent, so re-POSTing issue repeats the
+hook.
+
+**RBAC the chart needs (least privilege).** The adapter is read-only against
+the cluster:
+
+| Resource | Verbs | Scope |
+|---|---|---|
+| `organizations.orgs.openova.io` | get, list, watch | ClusterRole (the CRD is cluster-scoped) |
+| `namespaces`, `pods`, `persistentvolumeclaims` | get, list, watch | ClusterRole (Organization namespaces are discovered by label) |
+| `secrets` | get | ONLY the credential Secrets `costSources[].credentialRef` names, in Organization host namespaces — grant per-Organization Roles on the named Secrets (RBAC `resourceNames` works for `get`), never a cluster-wide secrets read |
+
+The bp-chargeback chart today ships a zero-RBAC ServiceAccount; the chart
+change adding this ClusterRole + the per-Organization Secret Roles (plus the
+`ADAPTER_ENABLED` / `BILLING_HOOK_*` env wiring and the image/appVersion
+roll) is the follow-up chart release — until it lands, the adapter decides
+itself off in-cluster because the API calls are forbidden, and logs why.
+
 ## Architecture pointers (one line each; the tables live in ADR-0014)
 
 | Concern | Where it is decided |
@@ -35,8 +105,8 @@ is used in user-facing text.
 | Lane | Content | Status |
 |---|---|---|
 | A (this directory) | Go service: domain + migrations, API, PIN auth, cloud collector (Huawei Cloud Stack Online / Kom4DC), rating, statements, image | shipped |
-| B | React + TypeScript UI built into `ui/dist` and embedded by this binary | separate PR; a placeholder `index.html` is served until then |
-| D | OpenOva adapter (`Customer ← Organization` sync, platform collector) | later |
+| B | React + TypeScript UI built into `ui/dist` and embedded by this binary | shipped |
+| D | OpenOva adapter (`Customer ← Organization` sync, platform collector, billing hook) | shipped |
 
 ## Layout
 
@@ -44,10 +114,13 @@ is used in user-facing text.
 products/chargeback/
 ├── cmd/chargeback/main.go        entry point: config → migrate → collector → HTTP
 ├── internal/
+│   ├── adapter/openova/          OpenOva adapter (lane D): Organization → Customer sync,
+│   │                             platform collector (pods/PVCs → k8s.* usage), billing hook (D6)
 │   ├── api/                      /api/v1 handlers, session + PIN auth, authorization, UI serving
 │   ├── collector/huawei/         SDK-HMAC-SHA256 signer, gateway client, ECS/EVS/EIP/ELB/NAT listers,
-│   │                             inventory→usage window math, CTS change-log poller, CES sampler
+│   │                             CTS change-log poller, CES sampler, kind → SKU mapping
 │   ├── config/                   environment → Config
+│   ├── window/                   the shared hour-slice window math both collectors bill by
 │   ├── crypto/                   envelope encryption (AES-256-GCM, per-secret DEK wrapped by APP_ENCRYPTION_KEY)
 │   ├── mail/                     SMTP sender, or log sender when SMTP_HOST is unset
 │   ├── metrics/                  dependency-free Prometheus text registry
@@ -173,6 +246,9 @@ Price book CSV columns: `sku,unit,annual_price,description` (template at
 | `COLLECT_INTERVAL` / `CTS_POLL_INTERVAL` / `CES_INTERVAL` | `15m` / `5m` / `1h` | collector cadences |
 | `COLLECTOR_ENABLED` | `true` | set `false` on API-only replicas |
 | `PROFILE` | `sovereign` | `sovereign` or `operator-central`; surfaced in `/auth/me` and `/overview` |
+| `ADAPTER_ENABLED` | auto | OpenOva adapter override: unset = on when `PROFILE=sovereign` AND in-cluster Kubernetes configuration exists; `true`/`false` force it |
+| `BILLING_HOOK_URL` | unset | billing service base URL for the D6 statement hook; unset ⇒ hook off |
+| `BILLING_HOOK_TOKEN` | unset | superadmin bearer token `POST /billing/metering/record` requires |
 | `LISTEN_ADDR` | `:8080` | |
 
 ## Development

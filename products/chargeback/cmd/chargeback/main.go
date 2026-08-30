@@ -13,6 +13,11 @@ import (
 	"syscall"
 	"time"
 
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+
+	"github.com/openova-io/openova/products/chargeback/internal/adapter/openova"
 	"github.com/openova-io/openova/products/chargeback/internal/api"
 	"github.com/openova-io/openova/products/chargeback/internal/collector/huawei"
 	"github.com/openova-io/openova/products/chargeback/internal/config"
@@ -76,7 +81,7 @@ func main() {
 		CESInterval:     cfg.CESInterval,
 	}
 
-	handler := api.New(api.Deps{
+	deps := api.Deps{
 		Store:    st,
 		Keys:     keys,
 		Mail:     mail.New(mail.Options{Host: cfg.SMTPHost, Port: cfg.SMTPPort, User: cfg.SMTPUser, Pass: cfg.SMTPPass, From: cfg.SMTPFrom}),
@@ -85,7 +90,14 @@ func main() {
 		Metrics:  reg,
 		UI:       api.UIFromDist(ui.Dist),
 		Version:  version,
-	})
+	}
+	// ADR-0014 D6: statements issued for real-billing Organizations debit
+	// their credit through the billing service. Off when the URL is unset.
+	if cfg.BillingHookURL != "" {
+		deps.StatementHook = &openova.BillingHook{URL: cfg.BillingHookURL, Token: cfg.BillingHookToken, Metrics: reg}
+		slog.Info("billing hook enabled", "url", cfg.BillingHookURL)
+	}
+	handler := api.New(deps)
 
 	if cfg.CollectorEnabled {
 		go collector.Run(ctx)
@@ -94,6 +106,29 @@ func main() {
 		slog.Info("collector disabled by COLLECTOR_ENABLED=false")
 	}
 	go housekeeping(ctx, st)
+
+	// OpenOva adapter (ADR-0014 D2 case 1): Organization → Customer sync +
+	// the platform collector, in this same binary. On by default only for
+	// the sovereign profile with in-cluster access; ADAPTER_ENABLED
+	// overrides (openova.Decide). The operator-central profile and every
+	// off-cluster run keep the standalone engine untouched (D5 invariant).
+	restCfg, restErr := rest.InClusterConfig()
+	adapterOn, why := openova.Decide(cfg.Profile, cfg.AdapterEnabled, restErr == nil)
+	if adapterOn {
+		dyn, derr := dynamic.NewForConfig(restCfg)
+		clientset, cerr := kubernetes.NewForConfig(restCfg)
+		if derr != nil || cerr != nil {
+			slog.Error("openova adapter: build Kubernetes clients", "dynamic_error", derr, "clientset_error", cerr)
+		} else {
+			orgSync := &openova.OrgSync{Dyn: dyn, Core: clientset, Repo: st, Keys: keys, Verifier: collector, Metrics: reg}
+			platform := &openova.PlatformCollector{Client: clientset, Repo: st, Metrics: reg}
+			go orgSync.Run(ctx)
+			go platform.Run(ctx)
+			slog.Info("openova adapter started", "reason", why)
+		}
+	} else {
+		slog.Info("openova adapter off", "reason", why)
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,

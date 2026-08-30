@@ -41,6 +41,14 @@ type Verifier interface {
 	VerifyProject(ctx context.Context, region, projectID, accessKey, secretKey string) error
 }
 
+// StatementHook is notified after a statement is issued (ADR-0014 D6).
+// The OpenOva adapter's billing hook implements it; nil = off. A hook
+// failure never un-issues the statement — issuing is idempotent, so
+// re-POSTing /statements/{id}/issue repeats the (idempotent) hook.
+type StatementHook interface {
+	StatementIssued(ctx context.Context, st store.Statement, c store.Customer) error
+}
+
 // Deps wires the handler.
 type Deps struct {
 	Store    *store.Store
@@ -52,6 +60,9 @@ type Deps struct {
 	UI       fs.FS
 	Now      func() time.Time
 	Version  string
+
+	// StatementHook, when set, receives issued statements (ADR-0014 D6).
+	StatementHook StatementHook
 }
 
 // Handler serves the API.
