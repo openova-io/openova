@@ -595,7 +595,11 @@ func TestConsoleUISidebar_RoundTrip_MergedViewReflectsPut(t *testing.T) {
 }
 
 func TestConsoleUISidebar_OverridesGate(t *testing.T) {
-	h, _ := newConsoleUIRig(t, blueprintCR("bp-agenity", agenityConsoleUI, uiEndpoints))
+	h, _ := newConsoleUIRig(t,
+		blueprintCR("bp-agenity", agenityConsoleUI, uiEndpoints),
+		blueprintCR("bp-grafana", nil, uiEndpoints),
+		applicationCR("grafana", "monitoring", "bp-grafana"),
+	)
 	r := consoleUIRouter(h)
 
 	do := func(claims *auth.Claims, method string) int {
@@ -634,11 +638,48 @@ func TestConsoleUISidebar_OverridesGate(t *testing.T) {
 
 	// The merged view stays readable for any session — the console renders
 	// it on every page load; the gate protects the mapping, not the menu.
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereigns/alpha/console-ui/sidebar-entries", nil)
-	req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey, viewer))
-	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("viewer must still read the merged view: %d", rec.Code)
+	readMerged := func(claims *auth.Claims) sidebarEntriesResponse {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereigns/alpha/console-ui/sidebar-entries", nil)
+		req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey, claims))
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s must read the merged view: %d %s", claims.Email, rec.Code, rec.Body.String())
+		}
+		var resp sidebarEntriesResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return resp
+	}
+	ids := func(resp sidebarEntriesResponse) map[string]bool {
+		out := map[string]bool{}
+		for _, e := range resp.Entries {
+			out[e.ID] = true
+		}
+		return out
+	}
+	if got := ids(readMerged(viewer)); !got["bp-agenity"] || !got["app:grafana"] {
+		t.Fatalf("a Sovereign session sees Blueprint entries AND Application candidates: %v", got)
+	}
+	// Scope follows the SOURCE (#6723 correction): an Org-scoped session keeps
+	// the Blueprint-sourced Agenity entry — exactly as the former static row —
+	// and never sees a Sovereign-level Application candidate.
+	if got := ids(readMerged(orgScoped)); !got["bp-agenity"] || got["app:grafana"] {
+		t.Fatalf("an Org-scoped session must see source=blueprint only: %v", got)
+	}
+	// And the OrgScopeGuard admits exactly that read — not the mapping store.
+	if !requestIsOrgSafe(http.MethodGet, "/api/v1/sovereigns/alpha/console-ui/sidebar-entries") {
+		t.Fatalf("OrgScopeGuard must admit GET sidebar-entries for an Org session")
+	}
+	for _, denied := range []struct{ method, path string }{
+		{http.MethodGet, "/api/v1/sovereigns/alpha/console-ui/sidebar-overrides"},
+		{http.MethodPut, "/api/v1/sovereigns/alpha/console-ui/sidebar-overrides"},
+		{http.MethodPut, "/api/v1/sovereigns/alpha/console-ui/sidebar-entries"},
+		{http.MethodGet, "/api/v1/sovereigns/alpha/console-ui/sidebar-entries/extra"},
+	} {
+		if requestIsOrgSafe(denied.method, denied.path) {
+			t.Fatalf("OrgScopeGuard must deny %s %s for an Org session", denied.method, denied.path)
+		}
 	}
 }

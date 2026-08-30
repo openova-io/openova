@@ -30,7 +30,10 @@
  * that FLAT_NAV item; enabled=false entries are not rendered at all. Agenity
  * itself is the first Blueprint-sourced entry (bp-agenity consoleUI) — the
  * former static `sandbox` FLAT_NAV row is gone; the /sandbox* routes and
- * their redirect to /apps/bp-agenity/dashboard stay in router.tsx.
+ * their redirect to /apps/bp-agenity/dashboard stay in router.tsx. Scope
+ * follows the entry's SOURCE: Blueprint-sourced entries render for every
+ * session (an Org-scoped console keeps Agenity exactly as before); only
+ * Application candidates are Sovereign-level and hidden from Org sessions.
  *
  * Related: GitHub issue #607, #6723
  */
@@ -59,9 +62,9 @@ import {
 // is hidden. Settings is handled separately (rendered after FLAT_NAV) and
 // is allowed for an Org session — it shows only the Org's own settings.
 // (#6723: the static `sandbox` row that used to sit here is now the
-// Blueprint-sourced Agenity entry; mapped entries are Sovereign-level and
-// never render on an Org-scoped console — the merged view also names
-// Applications from every Org, which an Org session must not see.)
+// Blueprint-sourced Agenity entry, which still renders on an Org-scoped
+// console — see the source-based scope rule on visibleEntries below. Only
+// Application candidates (app:<name>) are Sovereign-level and hidden here.)
 const ORG_SCOPED_NAV_IDS: ReadonlySet<FlatNavItem['id']> = new Set([
   'apps',
   'catalog',
@@ -176,20 +179,31 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
   // that FLAT_NAV item; enabled=false entries are hidden. Graceful
   // degradation: empty list on 404/502/network-error leaves the hardcoded
   // nav untouched. Settings → Menu invalidates this key on save.
+  // The Sovereign id the merged view is read under: the console-internal
+  // deployment id when the session resolves one, else the hostname-derived
+  // FQDN (an Org-scoped console may not resolve a deployment record; the
+  // chroot catalyst-api maps either form onto its single cluster).
   const { deploymentId: resolvedDeploymentId } = useResolvedDeploymentId()
+  const sidebarSovereignId = resolvedDeploymentId ?? DETECTED_MODE.sovereignFQDN ?? ''
   const dynamicEntriesQuery = useQuery<SidebarEntry[]>({
-    queryKey: ['console-ui-sidebar-entries', resolvedDeploymentId ?? ''],
-    queryFn: () => getSidebarEntries(resolvedDeploymentId ?? ''),
-    enabled: !!resolvedDeploymentId,
+    queryKey: ['console-ui-sidebar-entries', sidebarSovereignId],
+    queryFn: () => getSidebarEntries(sidebarSovereignId),
+    enabled: sidebarSovereignId !== '',
     staleTime: 60_000,
     placeholderData: (prev) => prev ?? [],
   })
   const dynamicEntries: SidebarEntry[] = dynamicEntriesQuery.data ?? []
-  // #4110: suppressed on an Org-scoped console — these are Sovereign-level
-  // entries (and the merged view names Applications from every Org).
-  const visibleEntries: SidebarEntry[] = orgScoped
-    ? []
-    : dynamicEntries.filter((entry) => entry.enabled !== false)
+  // #4110 + #6723 scope rule, by SOURCE not by session: a Blueprint-sourced
+  // entry (bp-agenity's consoleUI) is not Organization-specific and renders
+  // on an Org-scoped console exactly as the static Agenity row did; an
+  // Application candidate (app:<name>) is a Sovereign-level mapping — the
+  // merged view names Applications from every Organization — and stays
+  // suppressed for an Org session. catalyst-api applies the same rule
+  // server-side (HandleConsoleUISidebarEntries confines an Org-scoped
+  // session to source=blueprint), so this filter is belt-and-braces.
+  const visibleEntries: SidebarEntry[] = dynamicEntries.filter(
+    (entry) => entry.enabled !== false && (!orgScoped || entry.source === 'blueprint'),
+  )
   const flatNavIds = new Set<string>(navItems.map((item) => item.id))
   // A parent the rail does not render (stale mapping, or a FLAT_NAV id this
   // build no longer carries) degrades to top-level rather than vanishing.
@@ -404,7 +418,8 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
             spec.consoleUI defaults such as Agenity, plus any Application the
             sovereign-admin enabled without a parent). Rendered between
             hardcoded FLAT_NAV and pinned Settings; disabled entries never
-            reach this list; Org-scoped consoles see none (#4110). */}
+            reach this list; an Org-scoped console sees the Blueprint-sourced
+            ones only (#4110, source rule above). */}
         {topLevelEntries.map((entry) => (
           <DynamicNavLink key={`bp-${entry.id}`} entry={entry} pathname={pathname} />
         ))}

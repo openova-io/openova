@@ -29,6 +29,8 @@
 //	    → { entries: [MergedEntry…], parents: [flat-nav-id…] }
 //	      The MERGED view (defaults + candidates ⊕ overrides). Every entry
 //	      carries enabled/source/parent; the console hides enabled=false.
+//	      Readable by every session; an Org-scoped session is confined to
+//	      source=blueprint (the Application candidates are Sovereign-level).
 //	GET /api/v1/sovereigns/{id}/console-ui/sidebar-overrides
 //	    → { entries: [Override…], parents, allowedHosts, namespace, name }
 //	      The RAW stored overrides (empty list when none). sovereign-admin.
@@ -217,10 +219,33 @@ func (h *Handler) HandleConsoleUISidebarEntries(w http.ResponseWriter, r *http.R
 		overrides = ov
 	}
 
+	entries := mergeSidebarEntries(defaults, overrides)
+	// Scope follows the entry's SOURCE, not the session (#4110 host-anchored
+	// + #6723): a Blueprint-sourced entry is not Organization-specific and an
+	// Org-scoped console renders it exactly as the former static Agenity row;
+	// an Application candidate names Applications from every Organization and
+	// is a Sovereign-level mapping, so it is stripped here — server-side — for
+	// an Org-scoped request (the OrgScopeGuard admits this GET on the strength
+	// of this confinement).
+	if _, orgScoped := h.orgScopeForRequest(r); orgScoped {
+		entries = blueprintSourcedOnly(entries)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"entries": mergeSidebarEntries(defaults, overrides),
+		"entries": entries,
 		"parents": sidebarParentIDs,
 	})
+}
+
+// blueprintSourcedOnly keeps the entries an Org-scoped session may see.
+func blueprintSourcedOnly(entries []SidebarEntry) []SidebarEntry {
+	out := make([]SidebarEntry, 0, len(entries))
+	for _, e := range entries {
+		if e.Source == sidebarSourceBlueprint {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // collectSidebarDefaults projects the un-overridden entry set: one per
