@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-30T16:15:03Z` |
+| Last refreshed | `2026-08-30T16:30:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-30T16:26 | [#6720](https://github.com/openova-io/openova/pull/6720) | #6719 | docs(adr): ADR-0014 D2a — per-mode entity matrix (Tenant = O |
 | 2026-08-30T16:10 | [#6719](https://github.com/openova-io/openova/pull/6719) | #6718 | docs(adr): ADR-0014 D2 — billed party = Organization; drop B |
 | 2026-08-30T14:39 | [#6718](https://github.com/openova-io/openova/pull/6718) | #6716 | docs(adr): ADR-0014 D8/D10 — read-only IAM user + AK/SK per  |
 | 2026-08-30T15:40 | [#6717](https://github.com/openova-io/openova/pull/6717) | #6703 | fix(sovereign-ui): /jobs list→dropdown, graph chips truly fi |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-24T09:24 | [#6688](https://github.com/openova-io/openova/pull/6688) | docs: fix mermaid sequenceDiagram parse errors (semicolons s |  |
 | 2026-08-24T09:06 | [#6687](https://github.com/openova-io/openova/pull/6687) | docs(system-design): fix mermaid parse error in §10 Blueprin |  |
 | 2026-08-24T08:25 | [#6686](https://github.com/openova-io/openova/pull/6686) | docs(runbooks): mermaid enrichment to SYSTEM-DESIGN standard |  |
-| 2026-08-24T08:26 | [#6685](https://github.com/openova-io/openova/pull/6685) | docs(status): mermaid enrichment to SYSTEM-DESIGN standard |  |
 
 ---
 
