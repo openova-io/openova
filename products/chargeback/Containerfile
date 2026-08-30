@@ -1,0 +1,30 @@
+# chargeback — standalone chargeback service image (ADR-0014, EPIC #6723).
+#
+# Build context = this directory (the module is self-contained; no replace
+# directives into the rest of the monorepo):
+#
+#   docker build -f products/chargeback/Containerfile products/chargeback
+#
+# Stage 1 builds a static binary; ui/dist is embedded at compile time, so a
+# front-end build placed there before this step ships inside the binary.
+# Stage 2 is distroless static: no shell, numeric non-root uid, and nothing
+# is written to the filesystem at runtime (read-only rootfs compatible).
+
+# ─── Stage 1: build ────────────────────────────────────────────────────────
+FROM golang:1.24-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+ARG VERSION=dev
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
+    -ldflags "-s -w -X main.version=${VERSION}" \
+    -o /out/chargeback ./cmd/chargeback
+
+# ─── Stage 2: runtime ──────────────────────────────────────────────────────
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/chargeback /chargeback
+USER 65532:65532
+EXPOSE 8080
+ENV LISTEN_ADDR=:8080
+ENTRYPOINT ["/chargeback"]
