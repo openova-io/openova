@@ -56,13 +56,23 @@
  * `status==ready`. This page is a PURE finite-jobs table.
  */
 
-import { useMemo } from 'react'
-import { Link } from '@tanstack/react-router'
+import { useCallback, useEffect, useMemo } from 'react'
+import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { sovereignPathOrDeployments } from '@/shared/lib/sovereignPaths'
 import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
 import { JobsTable } from './JobsTable'
+import { JobsGraphView } from './JobsGraphView'
+import { JobKindChips } from './jobs-list/JobKindChips'
+import {
+  DEFAULT_JOB_KIND,
+  isValidJobKind,
+  readPersistedJobKind,
+  writePersistedJobKind,
+  type JobChipKind,
+} from './jobs-list/jobKinds'
+import { deriveJobKindCounts } from './jobs-list/jobKindCounts'
 import { resolveApplications } from './applicationCatalog'
 import { useDeploymentEvents } from './useDeploymentEvents'
 import { deriveJobs } from './jobs'
@@ -70,8 +80,28 @@ import { adaptDerivedJobsToFlat } from './jobsAdapter'
 import { useLiveJobsBackfill } from './useLiveJobsBackfill'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import type { Job } from '@/lib/jobs.types'
+import { jobKind } from '@/lib/jobs.types'
 import { HandoverRedirectBanner } from './HandoverRedirectBanner'
 import { HANDOVER_REDIRECT_BANNER_CSS } from './HandoverRedirectBanner.css'
+
+/* ── View mode (List ⇄ Graph toggle, P1b Refs #6703) ─────────────── */
+
+export type JobsView = 'list' | 'graph'
+const DEFAULT_JOBS_VIEW: JobsView = 'list'
+const JOBS_VIEW_STORAGE_KEY = 'sov-jobs-view'
+
+function isValidJobsView(value: unknown): value is JobsView {
+  return value === 'list' || value === 'graph'
+}
+
+function writePersistedJobsView(view: JobsView): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(JOBS_VIEW_STORAGE_KEY, view)
+  } catch {
+    /* noop */
+  }
+}
 
 interface JobsPageProps {
   /** Test seam — disables the live SSE EventSource attach. */
@@ -85,16 +115,22 @@ interface JobsPageProps {
    * or window.location. Production call sites never set this.
    */
   disableHandoverAutoRedirect?: boolean
+  /** Test seam — force the view irrespective of URL/storage (highest
+   *  precedence, mirroring CloudPage.viewOverride). */
+  viewOverride?: JobsView
 }
 
 export function JobsPage({
   disableStream = false,
   disableJobsBackfill = false,
   disableHandoverAutoRedirect = false,
+  viewOverride,
 }: JobsPageProps = {}) {
   const { deploymentId: resolvedId } = useResolvedDeploymentId()
   const deploymentId = resolvedId ?? ''
   const store = useWizardStore()
+  const navigate = useNavigate()
+  const search = useSearch({ strict: false }) as { view?: string; kind?: string }
 
   const applications = useMemo(
     () => resolveApplications(store.selectedComponents),
@@ -145,6 +181,71 @@ export function JobsPage({
   const handoverActive =
     handoverReady !== null && handoverURL !== '' && !isSovereignMode
 
+  /* ── View + kind resolution (P1b — mirror /cloud UX) ───────────── */
+  // Chroot-aware nav target: on the mothership monitor surface every link
+  // MUST stay scoped under /provision/<id>/jobs; on the Sovereign's adult
+  // hostname (DETECTED_MODE === 'sovereign') the id is implicit → /jobs.
+  const jobsPath = (id: string) =>
+    DETECTED_MODE.mode === 'sovereign' || !id ? '/jobs' : `/provision/${id}/jobs`
+
+  // Precedence: viewOverride → URL ?view= → default 'list'. The persisted
+  // value is WRITTEN on change but (like CloudPage) NOT consulted for the
+  // default, so a fresh /jobs load lands on List, never silently on Graph.
+  const activeView: JobsView = useMemo(() => {
+    if (viewOverride) return viewOverride
+    if (isValidJobsView(search.view)) return search.view
+    return DEFAULT_JOBS_VIEW
+  }, [viewOverride, search.view])
+
+  useEffect(() => {
+    writePersistedJobsView(activeView)
+  }, [activeView])
+
+  // Active kind: URL ?kind= → persisted → DEFAULT_JOB_KIND (mirror cloud).
+  const activeKind: JobChipKind = useMemo(() => {
+    if (isValidJobKind(search.kind)) return search.kind
+    return readPersistedJobKind() ?? DEFAULT_JOB_KIND
+  }, [search.kind])
+
+  useEffect(() => {
+    writePersistedJobKind(activeKind)
+  }, [activeKind])
+
+  function setView(next: JobsView) {
+    if (next === activeView) return
+    const target: { view: JobsView; kind?: string } = { view: next }
+    if (next === 'list' && typeof search.kind === 'string') target.kind = search.kind
+    navigate({
+      to: jobsPath(deploymentId) as never,
+      params: { deploymentId } as never,
+      search: target as never,
+      replace: false,
+    })
+  }
+
+  const setKind = useCallback(
+    (next: JobChipKind) => {
+      navigate({
+        to: jobsPath(deploymentId) as never,
+        params: { deploymentId } as never,
+        search: { view: 'list', kind: next } as never,
+        replace: false,
+      })
+    },
+    [navigate, deploymentId],
+  )
+
+  // Per-kind count map behind the chip badges — derived from the SAME
+  // flat list the table/graph render (production path, not a literal).
+  const kindCounts = useMemo(() => deriveJobKindCounts(flatJobs), [flatJobs])
+
+  // List view shows exactly one kind at a time (the /cloud contract).
+  // `jobKind()` reads the backend-stamped kind, never a name prefix.
+  const filteredByKind = useMemo(
+    () => flatJobs.filter((j) => jobKind(j) === activeKind),
+    [flatJobs, activeKind],
+  )
+
   return (
     <PortalShell
       deploymentId={deploymentId}
@@ -165,6 +266,7 @@ export function JobsPage({
       }
     >
       <style>{HANDOVER_REDIRECT_BANNER_CSS}</style>
+      <style>{JOBS_PAGE_TOOLBAR_CSS}</style>
 
       <HandoverRedirectBanner
         handoverURL={handoverURL}
@@ -184,12 +286,112 @@ export function JobsPage({
         </div>
       ) : null}
 
-      <div className="mt-6" data-testid="sov-jobs-list">
-        <JobsTable jobs={flatJobs} deploymentId={deploymentId} />
+      {/* Toolbar — segmented List/Graph toggle + (list view) the job-kind
+          chip strip. Mirrors CloudPage's toolbar (issue #366 / #3978). */}
+      <div className="jobs-page-toolbar mt-6" data-testid="jobs-page-toolbar">
+        <div
+          role="tablist"
+          aria-label="Jobs view"
+          className="jobs-page-view-toggle"
+          data-testid="jobs-page-view-toggle"
+        >
+          <button
+            type="button"
+            role="tab"
+            data-testid="jobs-page-view-list"
+            data-active={activeView === 'list' ? 'true' : 'false'}
+            aria-selected={activeView === 'list'}
+            aria-controls="jobs-page-content"
+            onClick={() => setView('list')}
+            className={`jobs-page-view-tab ${activeView === 'list' ? 'jobs-page-view-tab-active' : ''}`}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden>
+              <line x1="4" y1="6" x2="20" y2="6" strokeLinecap="round" />
+              <line x1="4" y1="12" x2="20" y2="12" strokeLinecap="round" />
+              <line x1="4" y1="18" x2="20" y2="18" strokeLinecap="round" />
+            </svg>
+            <span>List</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            data-testid="jobs-page-view-graph"
+            data-active={activeView === 'graph' ? 'true' : 'false'}
+            aria-selected={activeView === 'graph'}
+            aria-controls="jobs-page-content"
+            onClick={() => setView('graph')}
+            className={`jobs-page-view-tab ${activeView === 'graph' ? 'jobs-page-view-tab-active' : ''}`}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden>
+              <circle cx="6" cy="6" r="2" />
+              <circle cx="18" cy="6" r="2" />
+              <circle cx="12" cy="18" r="2" />
+              <line x1="7.5" y1="7" x2="11" y2="16.5" strokeLinecap="round" />
+              <line x1="16.5" y1="7" x2="13" y2="16.5" strokeLinecap="round" />
+              <line x1="8" y1="6" x2="16" y2="6" strokeLinecap="round" />
+            </svg>
+            <span>Graph</span>
+          </button>
+        </div>
+
+        {activeView === 'list' ? (
+          <JobKindChips activeKind={activeKind} counts={kindCounts} onChange={setKind} />
+        ) : (
+          <span aria-hidden className="jobs-page-toolbar-spacer" />
+        )}
+      </div>
+
+      <div id="jobs-page-content" className="mt-4" data-testid="sov-jobs-list" data-view={activeView}>
+        {activeView === 'list' ? (
+          <JobsTable jobs={filteredByKind} deploymentId={deploymentId} />
+        ) : (
+          <JobsGraphView jobs={flatJobs} deploymentId={deploymentId} />
+        )}
       </div>
     </PortalShell>
   )
 }
+
+const JOBS_PAGE_TOOLBAR_CSS = `
+.jobs-page-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.jobs-page-toolbar-spacer { flex: 1; }
+.jobs-page-toolbar > [data-testid="jobs-kind-chips"] {
+  flex: 1;
+  overflow-x: auto;
+}
+.jobs-page-view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--color-bg-2);
+  flex-shrink: 0;
+}
+.jobs-page-view-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.82rem;
+  color: var(--color-text-dim);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.jobs-page-view-tab:hover { color: var(--color-text); background: var(--color-surface-hover); }
+.jobs-page-view-tab svg { width: 16px; height: 16px; }
+.jobs-page-view-tab + .jobs-page-view-tab { border-left: 1px solid var(--color-border); }
+.jobs-page-view-tab-active {
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+`
 
 /**
  * markProvisional flags reducer-derived rows whose status is still

@@ -64,7 +64,15 @@ function renderJobs(deploymentId: string) {
   ])
   const router = createRouter({
     routeTree: tree,
-    history: createMemoryHistory({ initialEntries: [`/provision/${deploymentId}/jobs`] }),
+    // P1b (Refs #6703): /jobs now mirrors /cloud — list view shows ONE
+    // JobKind at a time (default `install`). The reducer first-paint rows
+    // this harness exercises all classify as `lifecycle` (their titles —
+    // "Install Cilium", "Provision infrastructure — …" — don't match the
+    // `install-` prefix, and groups are `group`), so the row-level
+    // assertions below select the `lifecycle` chip to see them all.
+    history: createMemoryHistory({
+      initialEntries: [`/provision/${deploymentId}/jobs?view=list&kind=lifecycle`],
+    }),
   })
   // Each render gets its own QueryClient so the live-jobs-backfill
   // query cache never bleeds between tests. Even with backfill
