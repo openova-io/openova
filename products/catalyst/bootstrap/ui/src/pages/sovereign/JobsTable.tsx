@@ -288,13 +288,26 @@ interface JobsTableProps {
    * control is hidden (e.g. a preview surface with no live cluster).
    */
   deploymentId?: string
+  /**
+   * When the PARENT already scopes the list to a single JobKind (the
+   * /jobs page's chip strip, P1b), the table's own Kind filter dropdown
+   * and Kind column are redundant — every visible row is that one kind.
+   * Setting kindScope hides both, exactly as `appIdFilter` hides the App
+   * dropdown, so /jobs mirrors the /cloud single-kind list contract with
+   * no double kind selector. Rows are assumed pre-filtered by the caller;
+   * the internal kindFilter stays neutral.
+   */
+  kindScope?: JobKind
 }
 
 const STATUS_VALUES: readonly JobStatus[] = [
   'running', 'pending', 'succeeded', 'failed', 'healthy', 'degraded', 'failing',
 ]
 
-export function JobsTable({ jobs, appIdFilter, initialParentFilter, deploymentId }: JobsTableProps) {
+export function JobsTable({ jobs, appIdFilter, initialParentFilter, deploymentId, kindScope }: JobsTableProps) {
+  // When the parent scopes to one kind (the /jobs chip strip) the Kind
+  // filter + Kind column are redundant; hide both.
+  const showKind = !kindScope
   const [search, setSearch] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<'' | JobStatus>('')
   const [kindFilter, setKindFilter] = useState<'' | JobKind>('')
@@ -455,24 +468,27 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter, deploymentId
 
           {/* Kind filter (issue #3646) — scope the canvas to a single
               activity kind (cron / reconcile / install / task / …). Only
-              the kinds actually present render as options. */}
-          <label className="jobs-filter-label">
-            <span className="jobs-filter-caption">Kind</span>
-            <select
-              value={kindFilter}
-              onChange={(e) => setKindFilter(e.target.value as '' | JobKind)}
-              className="jobs-filter-select"
-              data-testid="jobs-filter-kind"
-              aria-label="Filter by kind"
-            >
-              <option value="">All</option>
-              {kindOptions.map((k) => (
-                <option key={k} value={k}>
-                  {JOB_ENGINE_LABELS[k] ?? k}
-                </option>
-              ))}
-            </select>
-          </label>
+              the kinds actually present render as options. Hidden when the
+              parent already scopes to one kind via the chip strip (P1b). */}
+          {showKind ? (
+            <label className="jobs-filter-label">
+              <span className="jobs-filter-caption">Kind</span>
+              <select
+                value={kindFilter}
+                onChange={(e) => setKindFilter(e.target.value as '' | JobKind)}
+                className="jobs-filter-select"
+                data-testid="jobs-filter-kind"
+                aria-label="Filter by kind"
+              >
+                <option value="">All</option>
+                {kindOptions.map((k) => (
+                  <option key={k} value={k}>
+                    {JOB_ENGINE_LABELS[k] ?? k}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
 
           {appIdFilter ? null : (
             <label className="jobs-filter-label">
@@ -558,8 +574,9 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter, deploymentId
             <tr>
               <th data-col="name">Name</th>
               {/* Kind column (issue #3646) — the typed activity kind, read
-                  from job.kind (never a JobName-prefix string-match). */}
-              <th data-col="kind">Kind</th>
+                  from job.kind (never a JobName-prefix string-match).
+                  Hidden when kindScope is set (every row is that kind). */}
+              {showKind ? <th data-col="kind">Kind</th> : null}
               <th data-col="app">App</th>
               {/* Region column — shown only on a multi-region Sovereign
                   (2+ distinct regions in the job set), matching the
@@ -585,10 +602,10 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter, deploymentId
             {visibleJobs.length === 0 ? (
               <tr>
                 {/* base 8 cols (name,app,deps,parent,status,runs,started,
-                    duration) + Kind (+1) + Region (showRegion) + Actions
-                    (deploymentId). */}
+                    duration) + Kind (showKind) + Region (showRegion) +
+                    Actions (deploymentId). */}
                 <td
-                  colSpan={9 + (showRegion ? 1 : 0) + (deploymentId ? 1 : 0)}
+                  colSpan={8 + (showKind ? 1 : 0) + (showRegion ? 1 : 0) + (deploymentId ? 1 : 0)}
                   className="jobs-empty"
                   data-testid="jobs-table-empty"
                 >
@@ -602,6 +619,7 @@ export function JobsTable({ jobs, appIdFilter, initialParentFilter, deploymentId
                   job={j}
                   parentLabel={parentLabelById.get(j.parentId) ?? j.parentId}
                   showRegion={showRegion}
+                  showKind={showKind}
                   regionUnionByGroupId={regionUnionByGroupId}
                   deploymentId={deploymentId}
                 />
@@ -620,6 +638,9 @@ interface JobRowProps {
   /** Render the Region cell — true only on a multi-region Sovereign so
       a single-region table keeps its original column set. */
   showRegion: boolean
+  /** Render the Kind cell — false when the parent scopes to one kind
+      (the /jobs chip strip), so the constant column is dropped. */
+  showKind: boolean
   /** Distinct region keys per group id (regionUnionOfGroup output) —
       drives the group-row Region cell union and the Parent chip's
       hover title on a multi-region Sovereign. */
@@ -677,7 +698,7 @@ function useJobLinkBuilder(): (jobId: string) => string {
   }
 }
 
-function JobRow({ job, parentLabel, showRegion, regionUnionByGroupId, deploymentId }: JobRowProps) {
+function JobRow({ job, parentLabel, showRegion, showKind, regionUnionByGroupId, deploymentId }: JobRowProps) {
   const started = formatRelative(job.startedAt)
   const jobLink = useJobLinkBuilder()
   const region = regionFromJob(job)
@@ -708,17 +729,19 @@ function JobRow({ job, parentLabel, showRegion, regionUnionByGroupId, deployment
           {job.displayName ?? job.jobName}
         </Link>
       </td>
-      <td className="jobs-cell jobs-cell-kind">
-        {/* Kind chip — read from job.kind (issue #3646), never inferred
-            from a JobName prefix. */}
-        <span
-          className={`jobs-kind-chip jobs-kind-${kind}`}
-          data-testid={`jobs-cell-kind-${job.id}`}
-          data-kind={kind}
-        >
-          {JOB_ENGINE_LABELS[kind] ?? kind}
-        </span>
-      </td>
+      {showKind ? (
+        <td className="jobs-cell jobs-cell-kind">
+          {/* Kind chip — read from job.kind (issue #3646), never inferred
+              from a JobName prefix. */}
+          <span
+            className={`jobs-kind-chip jobs-kind-${kind}`}
+            data-testid={`jobs-cell-kind-${job.id}`}
+            data-kind={kind}
+          >
+            {JOB_ENGINE_LABELS[kind] ?? kind}
+          </span>
+        </td>
+      ) : null}
       <td className="jobs-cell jobs-cell-app">
         {job.appId ? (
           <Chip text={job.appId} testid={`jobs-cell-app-${job.id}`} kind="app" />

@@ -343,7 +343,7 @@ export function JobsPage({
 
       <div id="jobs-page-content" className="mt-4" data-testid="sov-jobs-list" data-view={activeView}>
         {activeView === 'list' ? (
-          <JobsTable jobs={filteredByKind} deploymentId={deploymentId} />
+          <JobsTable jobs={filteredByKind} deploymentId={deploymentId} kindScope={activeKind} />
         ) : (
           <JobsGraphView jobs={flatJobs} deploymentId={deploymentId} />
         )}
