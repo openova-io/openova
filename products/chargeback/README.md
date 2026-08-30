@@ -19,6 +19,17 @@ user's AK/SK per customer project.
 is a *customer*; when a customer is a synced Organization the term Organization
 is used in user-facing text.
 
+## Architecture pointers (one line each; the tables live in ADR-0014)
+
+| Concern | Where it is decided |
+|---|---|
+| Composability + left-menu mapping (an application plugs into the console) | ADR-0014 D9/D9a + `Blueprint.spec.consoleUI` + Settings → Menu (PR #6724) |
+| Entity types per deployment mode | ADR-0014 D2a |
+| Billing source-of-truth per customer type (incl. dual-registered) | ADR-0014 D2b |
+| Customer intake / import without duplication | ADR-0014 D8a |
+| Collection modes (event-driven vs pulled change log vs sampled) | ADR-0014 D3a |
+| Profiles `sovereign` / `operator-central` | ADR-0014 D10 |
+
 ## Lanes
 
 | Lane | Content | Status |
