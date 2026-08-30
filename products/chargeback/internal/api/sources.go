@@ -93,6 +93,9 @@ func (h *Handler) rotateCredential(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.audit(r, &src.CustomerID, "source.credential.rotate", map[string]any{"source_id": src.ID, "verified": allOK})
+	if allOK {
+		h.activateIfPending(r, src.CustomerID)
+	}
 	updated, err := h.Store.GetSource(r.Context(), store.OperatorScope, src.ID)
 	if err != nil {
 		storeErr(w, err)
@@ -102,7 +105,7 @@ func (h *Handler) rotateCredential(w http.ResponseWriter, r *http.Request) {
 	if !allOK {
 		status = http.StatusUnprocessableEntity
 	}
-	writeJSON(w, status, map[string]any{"source": updated, "results": results})
+	writeJSON(w, status, map[string]any{"source": updated, "results": results, "collecting": h.collectingFor(r, updated)})
 }
 
 // verifySource re-runs the activation check with the stored credential.
@@ -130,6 +133,9 @@ func (h *Handler) verifySource(w http.ResponseWriter, r *http.Request) {
 	for i := range sk {
 		sk[i] = 0
 	}
+	if verr == nil {
+		h.activateIfPending(r, src.CustomerID)
+	}
 	updated, err := h.Store.GetSource(r.Context(), store.OperatorScope, src.ID)
 	if err != nil {
 		storeErr(w, err)
@@ -140,7 +146,10 @@ func (h *Handler) verifySource(w http.ResponseWriter, r *http.Request) {
 	if verr != nil {
 		status = http.StatusUnprocessableEntity
 	}
-	writeJSON(w, status, updated)
+	writeJSON(w, status, struct {
+		store.CostSource
+		Collecting bool `json:"collecting"`
+	}{updated, h.collectingFor(r, updated)})
 }
 
 func (h *Handler) deleteSource(w http.ResponseWriter, r *http.Request) {
@@ -171,4 +180,15 @@ func (h *Handler) sourceForWrite(w http.ResponseWriter, r *http.Request) (store.
 		return store.CostSource{}, false
 	}
 	return src, true
+}
+
+// collectingFor derives the collecting flag for one source: its customer is
+// active and the source itself is verified — the exact gate the collector's
+// source listing applies.
+func (h *Handler) collectingFor(r *http.Request, src store.CostSource) bool {
+	if src.Status != "verified" {
+		return false
+	}
+	c, err := h.Store.GetCustomer(r.Context(), store.OperatorScope, src.CustomerID)
+	return err == nil && c.Status == "active"
 }

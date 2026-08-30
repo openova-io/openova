@@ -478,3 +478,87 @@ func TestIntegrationOpsEndpoints(t *testing.T) {
 		t.Fatalf("UI without a bundle should 404, got %d", rec.Code)
 	}
 }
+
+// TestIntegrationOperatorCreatedCustomerCollectsAfterVerification pins the
+// direct (non-invite) onboarding path: an operator-created customer is
+// pending until a source verification succeeds, at which point it activates
+// and the collector's own source listing picks it up on the next tick. A
+// pending customer with no verified source stays pending.
+func TestIntegrationOperatorCreatedCustomerCollectsAfterVerification(t *testing.T) {
+	h, st, mail, _, _ := setupAPI(t)
+	ctx := context.Background()
+	op := &client{t: t, h: h}
+	op.signIn(opEmail, mail)
+
+	// Operator-created customer: pending, not collecting.
+	c := op.mustJSON("POST", "/api/v1/customers", map[string]any{"slug": "direct", "name": "Direct Co", "admin_email": "admin@direct.example", "start_date": "2026-08-01"}, 201)
+	id := c["id"].(string)
+	if c["status"] != "pending" || c["collecting"] != false {
+		t.Fatalf("created customer = %+v", c)
+	}
+	src := op.mustJSON("POST", "/api/v1/customers/"+id+"/sources", map[string]any{"kind": "huawei-project", "region": "me-east-215", "project_id": "ok-direct"}, 201)
+	srcID := src["id"].(string)
+	if got := op.must("GET", "/api/v1/customers/"+id, 200); got["collecting"] != false {
+		t.Fatalf("customer with unverified source = %+v", got)
+	}
+	// Entering a credential verifies the source and activates the customer.
+	rec, out := op.json("POST", "/api/v1/sources/"+srcID+"/credential", map[string]string{"access_key": "AKDIRECT", "secret_key": "DIRECT-" + apiSecret})
+	if rec.Code != 200 || out["collecting"] != true {
+		t.Fatalf("rotate = %d %s", rec.Code, rec.Body.String())
+	}
+	got := op.must("GET", "/api/v1/customers/"+id, 200)
+	if got["status"] != "active" || got["collecting"] != true {
+		t.Fatalf("customer after verification = %+v", got)
+	}
+	audit := op.must("GET", "/api/v1/customers/"+id+"/audit", 200)
+	auditJSON, _ := json.Marshal(audit)
+	if !strings.Contains(string(auditJSON), "source verification") {
+		t.Fatalf("no activation audit entry: %s", auditJSON)
+	}
+	// The collector's gate lists the source now: collected on the next tick.
+	live, err := st.ListVerifiedSources(ctx)
+	if err != nil || len(live) != 1 || live[0].ID != srcID {
+		t.Fatalf("collectable sources = %+v err=%v", live, err)
+	}
+
+	// The explicit verify endpoint activates too (credential attached out of
+	// band so the rotate path is not what fires).
+	c2 := op.mustJSON("POST", "/api/v1/customers", map[string]any{"slug": "direct2", "name": "Direct Two", "admin_email": "admin@direct2.example"}, 201)
+	id2 := c2["id"].(string)
+	src2 := op.mustJSON("POST", "/api/v1/customers/"+id2+"/sources", map[string]any{"kind": "huawei-project", "region": "me-east-215", "project_id": "ok-two"}, 201)
+	src2ID := src2["id"].(string)
+	keys, _ := crypto.NewKeyringFromBytes(bytes.Repeat([]byte{3}, 32))
+	enc, _ := keys.Seal([]byte("throwaway"))
+	cred, err := st.CreateCredential(ctx, id2, "AKTWO", enc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSourceCredential(ctx, src2ID, cred.ID); err != nil {
+		t.Fatal(err)
+	}
+	rec, out = op.do("POST", "/api/v1/sources/"+src2ID+"/verify", "", nil)
+	if rec.Code != 200 || out["status"] != "verified" || out["collecting"] != true {
+		t.Fatalf("verify = %d %s", rec.Code, rec.Body.String())
+	}
+	if got := op.must("GET", "/api/v1/customers/"+id2, 200); got["status"] != "active" || got["collecting"] != true {
+		t.Fatalf("customer after explicit verify = %+v", got)
+	}
+
+	// No verified source: stays pending, collecting false; a failed
+	// verification changes nothing.
+	c3 := op.mustJSON("POST", "/api/v1/customers", map[string]any{"slug": "waiting", "name": "Waiting Co", "admin_email": "admin@waiting.example"}, 201)
+	id3 := c3["id"].(string)
+	op.mustJSON("POST", "/api/v1/customers/"+id3+"/sources", map[string]any{"kind": "huawei-project", "region": "me-east-215", "project_id": "bad-nope"}, 201)
+	if got := op.must("GET", "/api/v1/customers/"+id3, 200); got["status"] != "pending" || got["collecting"] != false {
+		t.Fatalf("customer without verification = %+v", got)
+	}
+	srcs := op.must("GET", "/api/v1/customers/"+id3+"/sources", 200)["sources"].([]any)
+	badSrcID := srcs[0].(map[string]any)["id"].(string)
+	rec, out = op.json("POST", "/api/v1/sources/"+badSrcID+"/credential", map[string]string{"access_key": "AKBAD", "secret_key": "zz"})
+	if rec.Code != 422 || out["collecting"] != false {
+		t.Fatalf("failed rotate = %d %s", rec.Code, rec.Body.String())
+	}
+	if got := op.must("GET", "/api/v1/customers/"+id3, 200); got["status"] != "pending" || got["collecting"] != false {
+		t.Fatalf("customer after failed verification = %+v", got)
+	}
+}

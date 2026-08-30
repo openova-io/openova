@@ -29,6 +29,7 @@ func scanCustomer(row interface{ Scan(...any) error }) (Customer, error) {
 	c.StartDate = datePtr(start)
 	c.LastCollectedAt = timePtr(lastCollected)
 	c.LastStatementPeriod = strPtr(lastPeriod)
+	c.Collecting = c.Status == "active" && c.VerifiedSourceCount > 0
 	return c, nil
 }
 

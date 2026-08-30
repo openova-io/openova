@@ -72,6 +72,11 @@ type Customer struct {
 	VerifiedSourceCount int        `json:"verified_source_count"`
 	LastCollectedAt     *time.Time `json:"last_collected_at,omitempty"`
 	LastStatementPeriod *string    `json:"last_statement_period,omitempty"`
+
+	// Collecting reports whether the collector picks this customer up at
+	// all: the customer is active AND at least one source is verified. It
+	// exists so the UI can say why nothing flows for a pending customer.
+	Collecting bool `json:"collecting"`
 }
 
 // CustomerUser grants an email a role on a customer.

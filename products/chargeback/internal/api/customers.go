@@ -273,3 +273,20 @@ func (h *Handler) customerAudit(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
 }
+
+// activateIfPending flips a pending customer to active after a source
+// verification succeeded outside the invite flow: at that moment the intent
+// to start collecting is unambiguous, and leaving the customer pending would
+// silently keep the collector away from its verified sources. Invite
+// activation keeps its own explicit rule (every project must verify).
+func (h *Handler) activateIfPending(r *http.Request, customerID string) {
+	c, err := h.Store.GetCustomer(r.Context(), store.OperatorScope, customerID)
+	if err != nil || c.Status != "pending" {
+		return
+	}
+	if err := h.Store.SetCustomerStatus(r.Context(), customerID, "active"); err != nil {
+		slog.Error("activate customer after source verification", "customer", customerID, "error", err)
+		return
+	}
+	h.audit(r, &customerID, "customer.activate", map[string]any{"via": "source verification"})
+}

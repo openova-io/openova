@@ -135,6 +135,14 @@ customers' ids answer `404`, writes need `customer-admin`.
 Money and quantities are emitted as exact JSON numbers taken from Postgres
 `numeric` columns; the service never does money math in floating point.
 
+A customer created by the operator starts `pending`; the first successful
+source verification outside the invite flow (`POST /sources/{id}/verify` or a
+credential entry that verifies) activates it, with an audit entry recording
+`activated via source verification` — otherwise its verified sources would
+never be collected. The customer detail and the source verify/rotate responses
+carry `collecting: true|false` (customer active ∧ source verified — the exact
+gate the collector applies), so the UI can say why nothing flows.
+
 Customer import CSV columns: `slug,name,admin_email,region,project_ids(;-separated),price_book,billing_mode,start_date`.
 Price book CSV columns: `sku,unit,annual_price,description` (template at
 `/api/v1/pricebooks/template.csv`; a `unit_price` column may be given instead of
