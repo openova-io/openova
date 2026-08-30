@@ -74,6 +74,11 @@ function renderJobs(initialEntry: string) {
 
 beforeEach(() => {
   useWizardStore.setState({ ...INITIAL_WIZARD_STATE })
+  try {
+    window.localStorage.clear()
+  } catch {
+    /* noop */
+  }
   globalThis.fetch = (() =>
     Promise.resolve({
       ok: true,
@@ -98,12 +103,13 @@ describe('JobsPage — List⇄Graph toggle', () => {
     expect(screen.queryByTestId('jobs-graph-view')).toBeNull()
   })
 
-  it('graph view (?view=graph) renders the graph, not the table or chips', async () => {
+  it('graph view (?view=graph) renders the graph + the shared chip strip (highlight lens), not the table', async () => {
     renderJobs('/provision/d-1/jobs?view=graph')
     expect(await screen.findByTestId('jobs-graph-view')).toBeTruthy()
     expect(screen.queryByTestId('jobs-table')).toBeNull()
-    // Chip strip is list-only.
-    expect(screen.queryByTestId('jobs-kind-chips')).toBeNull()
+    // The SAME chip strip now renders in graph view too (it drives a
+    // HIGHLIGHT lens instead of a filter). On entry nothing is highlighted.
+    expect(screen.getByTestId('jobs-kind-chips')).toBeTruthy()
   })
 
   it('clicking the Graph toggle switches list → graph', async () => {
@@ -112,6 +118,29 @@ describe('JobsPage — List⇄Graph toggle', () => {
     fireEvent.click(screen.getByTestId('jobs-page-view-graph'))
     expect(await screen.findByTestId('jobs-graph-view')).toBeTruthy()
     expect(screen.queryByTestId('jobs-table')).toBeNull()
+    // The chip strip persists across the toggle (list filter → graph lens).
+    expect(screen.getByTestId('jobs-kind-chips')).toBeTruthy()
+  })
+})
+
+describe('JobsPage — graph view: chip selection is a HIGHLIGHT lens', () => {
+  it('selecting a chip sets the highlight (chip becomes active); toggling it clears', async () => {
+    renderJobs('/provision/d-1/jobs?view=graph')
+    await screen.findByTestId('jobs-graph-view')
+    // The reducer first-paint rows classify as `lifecycle`, so the
+    // lifecycle chip is present (count > 0). Nothing highlighted on entry.
+    const chip = await screen.findByTestId('jobs-kind-chip-lifecycle')
+    expect(chip.getAttribute('data-active')).toBe('false')
+    // Click → highlight = lifecycle → the chip reflects the active highlight
+    // (activeKind = graphHighlight is passed to the strip). This is the
+    // signal handed down to JobsGraphView's highlightKind.
+    fireEvent.click(chip)
+    expect(screen.getByTestId('jobs-kind-chip-lifecycle').getAttribute('data-active')).toBe('true')
+    // The graph stays mounted (highlight, never a filter/remove).
+    expect(screen.getByTestId('jobs-graph-view')).toBeTruthy()
+    // Click the active chip again → highlight clears back to null.
+    fireEvent.click(screen.getByTestId('jobs-kind-chip-lifecycle'))
+    expect(screen.getByTestId('jobs-kind-chip-lifecycle').getAttribute('data-active')).toBe('false')
   })
 })
 
