@@ -271,6 +271,13 @@ export interface FlowCanvasOrganicProps {
   nodeActions?: ReadonlyArray<FlowOrganicAction>
   /** Additive — invoked when the operator picks a menu item. */
   onNodeAction?: (jobId: string, actionId: string) => void
+  /** Additive — when set, every node whose `familyId` !== this value is
+   *  rendered with the existing dimmed treatment (grayscale/brightness),
+   *  so a family/kind can be highlighted without removing any node (edges
+   *  stay intact). null/undefined = no family highlight (default; the
+   *  pre-existing render contract is untouched). Used by the /jobs graph
+   *  chip strip to highlight one JobKind. */
+  highlightFamilyId?: string | null
 }
 
 export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
@@ -285,6 +292,7 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
     badgeCounts,
     nodeActions,
     onNodeAction,
+    highlightFamilyId = null,
   } = props
   /* Context-menu state — null = closed. */
   const [menu, setMenu] = useState<{
@@ -1331,7 +1339,11 @@ export function FlowCanvasOrganic(props: FlowCanvasOrganicProps) {
             isOpen={isOpen}
             isHost={isHost}
             isNeighbor={isNeighbor}
-            isDimmed={openJobId !== null && !isNeighbor && !isOpen && !isHost}
+            isDimmed={
+              (openJobId !== null && !isNeighbor && !isOpen && !isHost) ||
+              (highlightFamilyId !== null &&
+                node.familyId !== highlightFamilyId)
+            }
             onClick={(e) => onJobClick(node.id, e)}
             onDoubleClick={() => onJobDoubleClick(node.id)}
             r={R}

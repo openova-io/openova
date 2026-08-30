@@ -56,7 +56,7 @@
  * `status==ready`. This page is a PURE finite-jobs table.
  */
 
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { sovereignPathOrDeployments } from '@/shared/lib/sovereignPaths'
@@ -64,12 +64,13 @@ import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
 import { JobsTable } from './JobsTable'
 import { JobsGraphView } from './JobsGraphView'
-import { JobKindChips } from './jobs-list/JobKindChips'
+import { KindChipStrip } from './shared/KindChipStrip'
 import {
   DEFAULT_JOB_KIND,
   isValidJobKind,
   readPersistedJobKind,
   writePersistedJobKind,
+  JOB_KINDS,
   type JobChipKind,
 } from './jobs-list/jobKinds'
 import { deriveJobKindCounts } from './jobs-list/jobKindCounts'
@@ -201,6 +202,16 @@ export function JobsPage({
     writePersistedJobsView(activeView)
   }, [activeView])
 
+  // Graph-view highlight lens (P1b — the same chip strip drives a HIGHLIGHT
+  // in graph view instead of a filter). Separate local state, default null
+  // = nothing highlighted on entry. It is reset on every view switch (in
+  // setView) so re-entering the graph always starts clean (the spec
+  // default) without a setState-in-effect.
+  const [graphHighlight, setGraphHighlight] = useState<JobChipKind | null>(null)
+  const toggleGraphHighlight = useCallback((next: JobChipKind) => {
+    setGraphHighlight((prev) => (prev === next ? null : next))
+  }, [])
+
   // Active kind: URL ?kind= → persisted → DEFAULT_JOB_KIND (mirror cloud).
   const activeKind: JobChipKind = useMemo(() => {
     if (isValidJobKind(search.kind)) return search.kind
@@ -213,6 +224,9 @@ export function JobsPage({
 
   function setView(next: JobsView) {
     if (next === activeView) return
+    // Reset the transient graph highlight lens on every view switch so
+    // entering the graph always starts with nothing highlighted (spec).
+    setGraphHighlight(null)
     const target: { view: JobsView; kind?: string } = { view: next }
     if (next === 'list' && typeof search.kind === 'string') target.kind = search.kind
     navigate({
@@ -334,10 +348,28 @@ export function JobsPage({
           </button>
         </div>
 
+        {/* One shared chip strip in BOTH views (KindChipStrip). List view:
+            select = FILTER (drives filteredByKind + JobsTable kindScope).
+            Graph view: select = HIGHLIGHT (a transient lens that dims
+            non-matching bubbles; null = nothing highlighted on entry). */}
         {activeView === 'list' ? (
-          <JobKindChips activeKind={activeKind} counts={kindCounts} onChange={setKind} />
+          <KindChipStrip<JobChipKind>
+            catalogue={JOB_KINDS}
+            activeKind={activeKind}
+            counts={kindCounts}
+            onChange={setKind}
+            testidPrefix="jobs-kind"
+            storageKey="sov-jobs-hidden-kinds"
+          />
         ) : (
-          <span aria-hidden className="jobs-page-toolbar-spacer" />
+          <KindChipStrip<JobChipKind>
+            catalogue={JOB_KINDS}
+            activeKind={graphHighlight}
+            counts={kindCounts}
+            onChange={toggleGraphHighlight}
+            testidPrefix="jobs-kind"
+            storageKey="sov-jobs-hidden-kinds"
+          />
         )}
       </div>
 
@@ -345,7 +377,7 @@ export function JobsPage({
         {activeView === 'list' ? (
           <JobsTable jobs={filteredByKind} deploymentId={deploymentId} kindScope={activeKind} />
         ) : (
-          <JobsGraphView jobs={flatJobs} deploymentId={deploymentId} />
+          <JobsGraphView jobs={flatJobs} deploymentId={deploymentId} highlightKind={graphHighlight} />
         )}
       </div>
     </PortalShell>
