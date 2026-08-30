@@ -1,0 +1,49 @@
+{{- /*
+Private CNPG Cluster for chargeback (platform/newapi pattern A, #943/#1834).
+
+CNPG auto-creates the `<cluster>-app` Secret (username + password) and the
+`<cluster>-rw` Service. The chart never reads that Secret at render time:
+templates/db-dsn-secret.yaml renders an EMPTY DATABASE_URL placeholder and
+templates/database-secret-sync-job.yaml (post-install/post-upgrade hook)
+composes the DSN from the CNPG password and PATCHes it in — a Helm `lookup`
+races CNPG on every fresh Sovereign (the source Secret only exists AFTER
+this HelmRelease applies) and committed an empty password on t32 (#1834).
+
+Capabilities gate: the Cluster MUST NOT render on a cluster where bp-cnpg
+has not yet registered `postgresql.cnpg.io/v1` (cold install would fail
+with "no matches for kind Cluster"). The bootstrap-kit slot's dependsOn
+bp-cnpg edge makes the gate pass on a Sovereign; kind CI still renders the
+rest of the chart.
+*/ -}}
+{{- if and .Values.cnpg.enabled (.Capabilities.APIVersions.Has "postgresql.cnpg.io/v1") }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "chargeback.cnpgClusterName" . }}
+  labels:
+    {{- include "chargeback.labels" . | nindent 4 }}
+  annotations:
+    # The ledger is the product — never delete the data store on uninstall.
+    helm.sh/resource-policy: keep
+spec:
+  instances: {{ .Values.cnpg.cluster.instances | default 1 }}
+  imageName: {{ include "chargeback.pivotImage" (dict "repo" (.Values.cnpg.cluster.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16.4") "tag" "" "root" .) | quote }}
+  {{- if ge (int (.Values.cnpg.cluster.instances | default 1)) 2 }}
+  affinity:
+    topologyKey: {{ (default dict .Values.cnpg.cluster.affinity).topologyKey | default "topology.kubernetes.io/region" | quote }}
+    podAntiAffinityType: {{ (default dict .Values.cnpg.cluster.affinity).podAntiAffinityType | default "preferred" | quote }}
+  {{- end }}
+  storage:
+    size: {{ .Values.cnpg.cluster.storage | default "5Gi" | quote }}
+    {{- with .Values.cnpg.cluster.storageClassName }}
+    storageClass: {{ . | quote }}
+    {{- end }}
+  bootstrap:
+    initdb:
+      database: {{ .Values.cnpg.database | default "chargeback" | quote }}
+      owner: {{ .Values.cnpg.cluster.owner | default "chargeback" | quote }}
+  {{- with .Values.cnpg.cluster.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

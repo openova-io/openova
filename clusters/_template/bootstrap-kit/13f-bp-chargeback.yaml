@@ -1,0 +1,126 @@
+# bp-chargeback — Catalyst bootstrap-kit Blueprint slot 13f
+# (catalyst-platform cohort / BSS).
+#
+# The Sovereign BSS placement of the chargeback application (EPIC #6723,
+# ADR-0014 D4/D5): usage ledger + rating + statements for the Sovereign's
+# Organizations and for external cloud accounts, served at
+# chargeback.${SOVEREIGN_FQDN} (Gateway-API HTTPRoute on the canonical
+# Sovereign Gateway — never a Traefik Ingress, never a NodePort, §854) and
+# linked from the console's BSS menu. Standalone by design: its own CNPG
+# Postgres (rendered by the chart in the `chargeback` namespace), its own
+# PIN sign-in, its own API and UI; the OpenOva platform collector is an
+# adapter (lane D), not a dependency. The same chart also installs
+# per-Organization through the catalog (seed entry bp-chargeback) and as a
+# central instance — one chart, three placements.
+#
+# Slot 13f — the catalyst-platform cohort (13 umbrella / 13b sso-bridge /
+# 13c oidc-gate / 13d openova-mcp / 13e secondary-edge): the BSS component
+# is meaningless before the console it is linked from exists.
+#
+# dependsOn:
+#   - bp-cnpg — the chart renders a postgresql.cnpg.io/v1 Cluster behind a
+#     `.Capabilities.APIVersions.Has` gate; installing before the CRD is
+#     registered would render NO Cluster, and the post-install DSN sync
+#     Job would then poll its full budget for a `<cluster>-app` Secret that
+#     never appears and wedge the release.
+#   - bp-catalyst-platform — the console this BSS component is linked from,
+#     and the catalyst-api the lane-D adapter dials.
+#   Namespace-pinned to flux-system on every edge (hw91: a namespace-less
+#   dependsOn resolves in the HR's OWN namespace — the #3191 dangling-dep
+#   wedge shape).
+#
+# Post-cutover: the bp-chargeback HelmRepository is repointed by the
+# step-06 live-discovery union (#4573 F4) and the workload image is pivoted
+# by the step-07 pod-spec sweep (#4973/#4975/#4961) — the chart's image
+# helper ALSO honours global.imageRegistry and this slot carries the
+# 6-space `imageRegistry: ''` seam for the durable Gitea edit.
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-chargeback
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-chargeback
+  namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
+  labels:
+    catalyst.openova.io/slot: "13f"
+    catalyst.openova.io/component: chargeback
+    catalyst.openova.io/region-role: primary
+spec:
+  # PRIMARY-ONLY HR — the same G2 split (#2574) as its cohort siblings
+  # (13 / 13d / 06a / 62): the dependsOn edge bp-catalyst-platform exists
+  # only on the primary (suspended on secondary CPs by design), so on a
+  # secondary this HR could never leave `dependency not ready`.
+  # SECONDARY_HR_SUSPEND renders "true" on every secondary CP's cloud-init
+  # and "false" on the primary.
+  suspend: ${SECONDARY_HR_SUSPEND:=false}
+  interval: 1m
+  releaseName: chargeback
+  # Its own namespace: the chart renders a private CNPG Cluster + two hook
+  # Jobs with namespace-scoped RBAC; co-locating with catalyst-system would
+  # widen those Roles onto the umbrella's Secrets.
+  targetNamespace: chargeback
+  dependsOn:
+    - name: bp-cnpg
+      namespace: flux-system
+    - name: bp-catalyst-platform
+      namespace: flux-system
+  chart:
+    spec:
+      chart: bp-chargeback
+      # 0.1.0 (#6723, lane B): first release — Deployment + ClusterIP
+      # Service + HTTPRoute chargeback.<fqdn> + zero-RBAC ServiceAccount +
+      # Cilium ingress/egress CNPs + private CNPG Cluster (placeholder-DSN
+      # Secret + post-install sync Job) + create-if-absent
+      # APP_ENCRYPTION_KEY Job. Lockstep: products/chargeback/chart/
+      # Chart.yaml + blueprint.yaml + catalog-seed (blueprints.yaml).
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-chargeback
+        namespace: flux-system
+  # Event-driven install: readiness is signalled via Flux dependsOn, never
+  # via spec.timeout watchdogs. The hooks (app-key pre-install, db-dsn-sync
+  # post-install) are the only blocking steps and complete in seconds once
+  # CNPG has minted the `-app` Secret.
+  install:
+    createNamespace: true
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 5
+      remediateLastFailure: true
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  # Per-Sovereign overlay surface. ${SOVEREIGN_FQDN} is interpolated at
+  # Flux apply time via the bootstrap-kit Kustomization's
+  # postBuild.substitute hook.
+  values:
+    # #4885 / #4892: global.imageRegistry override seam for the step-07
+    # cutover image-registry pivot. step-07 patches this HR's
+    # spec.values.global.imageRegistry live AND durably sed-edits THIS
+    # file — the sed matches `^      imageRegistry:`, so the 6-space
+    # indent is REQUIRED. Empty default = verbatim ghcr.io.
+    global:
+      imageRegistry: ''
+    sovereignFqdn: ${SOVEREIGN_FQDN}
+    config:
+      # The Sovereign owner signs in as the operator (spec §4 auth); the
+      # bootstrap-kit substitute carries the owner address every Sovereign
+      # already knows for its handover mail.
+      operatorEmails: ${SOVEREIGN_OWNER_EMAIL:-}
+      profile: sovereign

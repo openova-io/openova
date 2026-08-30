@@ -116,6 +116,13 @@ CHARTS = [
         # The exact pre-#3988 values: no livenessProbe, config-reloader on.
         "break": ["alloy.alloy.livenessProbe=null", "alloy.configReloader.enabled=true"],
     },
+    {
+        # bp-chargeback (#6723): first-party Deployment; probes are authored
+        # in-chart (readiness /readyz, liveness /healthz on the named `http`
+        # port). No `break` — the probes have no values gate to switch off.
+        "path": "products/chargeback/chart",
+        "set": [],
+    },
 ]
 
 

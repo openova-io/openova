@@ -98,6 +98,14 @@ resources:
   # registered here or Flux never creates the HR (the #3191 forgotten-slot
   # wedge class); on single-region / primary CPs the HR is suspended (inert).
   - 13e-bp-catalyst-secondary-edge-routes.yaml
+  # bp-chargeback (slot 13f, #6723 ADR-0014) — the Sovereign BSS placement
+  # of the chargeback application: usage ledger + rating + statements at
+  # chargeback.<sovereign-fqdn>, own CNPG Postgres in the `chargeback`
+  # namespace, PIN sign-in, Huawei cloud collector. Catalyst-platform
+  # cohort: dependsOn bp-cnpg (the Cluster CRD) + bp-catalyst-platform (the
+  # console it is linked from). MUST be registered here or Flux never
+  # creates the HR (the #3191 forgotten-slot wedge class).
+  - 13f-bp-chargeback.yaml
   - 14-crossplane-claims.yaml
   - 15-external-secrets.yaml
   - 15a-external-secrets-stores.yaml

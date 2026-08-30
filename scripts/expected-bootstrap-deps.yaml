@@ -808,6 +808,23 @@ slots:
     depends_on: [bp-gateway-api]
     wave: present
 
+  # ---- Slot 13f — bp-chargeback (#6723, ADR-0014) — the Sovereign BSS
+  # placement of the chargeback application (usage ledger + rating +
+  # statements at chargeback.<sovereign-fqdn>, own CNPG Postgres).
+  # dependsOn:
+  #   - bp-cnpg (slot 16) — the chart renders a postgresql.cnpg.io/v1
+  #     Cluster behind a Capabilities gate; before the CRD exists no Cluster
+  #     renders and the post-install DSN sync Job wedges waiting for the
+  #     `<cluster>-app` Secret.
+  #   - bp-catalyst-platform (slot 13) — the console this BSS component is
+  #     linked from + the catalyst-api the lane-D adapter dials.
+  - slot: "13f"
+    name: bp-chargeback
+    depends_on:
+      - bp-cnpg
+      - bp-catalyst-platform
+    wave: present
+
   # ---- Slot 62 — bp-continuum DR orchestrator (Pillar-3 unblock).
   # Issue #2065 (TBD-V14, 2026-05-20). Reconciles Continuum.dr.openova.io/v1
   # CRs and executes the switchover sequence on lease loss + replication

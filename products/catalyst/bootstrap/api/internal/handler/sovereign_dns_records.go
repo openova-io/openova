@@ -106,6 +106,15 @@ var CanonicalSovereignSubdomains = []string{
 	// the entire Pillar-4 Org→MCP north star (#5206). Wildcard TLS
 	// (*.<fqdn>) already covers it; no cert/SAN change needed.
 	"mcp",
+	// chargeback — public URL for the Sovereign BSS placement of the
+	// chargeback application (bp-chargeback, bootstrap-kit slot 13f, host
+	// chargeback.${SOVEREIGN_FQDN} per clusters/_template/bootstrap-kit/
+	// 13f-bp-chargeback.yaml; HTTPRoute in products/chargeback/chart/
+	// templates/httproute.yaml). Same #3263/#3225 gap class as mcp: an
+	// Accepted HTTPRoute alone never resolves publicly — only the prefixes in
+	// THIS allowlist get an A record in the parent zone. Wildcard TLS covers
+	// it. EPIC #6723, ADR-0014 D5.
+	"chargeback",
 }
 
 // ConsoleGatewaySubdomains — the subset of CanonicalSovereignSubdomains whose

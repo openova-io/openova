@@ -1,0 +1,175 @@
+{{- /*
+The chargeback Deployment (EPIC #6723, ADR-0014): the Go binary serving the
+UI at / and the JSON API at /api/v1, plus the in-process collectors. Every
+knob is a values→env passthrough of the binary's env contract (spec §6).
+
+Secrets reach the container ONLY as secretKeyRefs:
+  - DATABASE_URL       ← the placeholder DSN Secret (templates/db-dsn-secret.yaml),
+                         populated by the post-install sync Job from CNPG's
+                         `<cluster>-app` password — never a Helm `lookup`.
+  - APP_ENCRYPTION_KEY ← the create-if-absent Secret the pre-install key Job
+                         generates once (templates/app-key-job.yaml).
+The binary applies its migrations at startup (spec §1), so the
+wait-for-database-url initContainer holds the Pod until the DSN has been
+populated instead of letting it CrashLoop on an empty string.
+*/ -}}
+{{- $dsnSecret := include "chargeback.dsnSecretName" . -}}
+{{- $appKeySecret := include "chargeback.appKeySecretName" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "chargeback.fullname" . }}
+  labels:
+    {{- include "chargeback.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # An integer maxUnavailable keeps a replicaCount=1 override rollable on a
+  # full node (#6079: the default 25% floors to 0 and deadlocks the rollout).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "chargeback.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "chargeback.labels" . | nindent 8 }}
+        policy.cilium.io/enforced: "true"
+    spec:
+      serviceAccountName: {{ include "chargeback.serviceAccountName" . }}
+      # Phase 0 reads nothing from the Kubernetes API — no token mount.
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        # NUMERIC uid/gid beside runAsNonRoot (#5114 hw256 lesson): the
+        # kubelet cannot prove a string USER non-root. 65532 = distroless
+        # nonroot; the Containerfile pins the same numerically.
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      {{- if .Values.cnpg.enabled }}
+      initContainers:
+        # Holds the Pod until the DSN sync Job has written DATABASE_URL into
+        # the placeholder Secret (a projected Secret volume updates in place;
+        # an env secretKeyRef is only resolved at container start, which is
+        # exactly why the main container's env is read AFTER this gate).
+        - name: wait-for-database-url
+          image: {{ include "chargeback.pivotImage" (dict "repo" .Values.cnpg.dsnGate.image "tag" "" "root" .) | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              budget={{ .Values.cnpg.dsnGate.timeoutSeconds | int }}
+              i=0
+              while [ "$i" -lt "$budget" ]; do
+                if [ -s /dsn/DATABASE_URL ]; then
+                  echo "DATABASE_URL populated"; exit 0
+                fi
+                i=$((i+5)); sleep 5
+              done
+              echo "DATABASE_URL still empty after ${budget}s — is the db-dsn-sync Job healthy?" >&2
+              exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 10m
+              memory: 16Mi
+          volumeMounts:
+            - name: dsn
+              mountPath: /dsn
+              readOnly: true
+      {{- end }}
+      containers:
+        - name: chargeback
+          image: {{ include "chargeback.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          env:
+            - name: LISTEN_ADDR
+              value: {{ .Values.config.listenAddr | quote }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $dsnSecret }}
+                  key: DATABASE_URL
+            - name: APP_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $appKeySecret }}
+                  key: {{ .Values.encryptionKey.key }}
+            - name: OPERATOR_EMAILS
+              value: {{ .Values.config.operatorEmails | quote }}
+            - name: PUBLIC_URL
+              value: {{ include "chargeback.publicUrl" . | quote }}
+            - name: HUAWEI_ENDPOINT_TEMPLATE
+              value: {{ .Values.config.huaweiEndpointTemplate | quote }}
+            - name: HUAWEI_INSECURE_TLS
+              value: {{ .Values.config.huaweiInsecureTls | toString | quote }}
+            - name: COLLECT_INTERVAL
+              value: {{ .Values.config.collectInterval | quote }}
+            - name: CTS_POLL_INTERVAL
+              value: {{ .Values.config.ctsPollInterval | quote }}
+            - name: PROFILE
+              value: {{ .Values.config.profile | quote }}
+          {{- with .Values.smtp.existingSecret }}
+          envFrom:
+            # SMTP_HOST/PORT/USER/PASS/FROM (spec §6) — optional so the
+            # chart schedules in dev mode (PIN logged) when unset.
+            - secretRef:
+                name: {{ . }}
+                optional: true
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # read-only rootfs: the only writable path is a memory-backed /tmp.
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi
+        {{- if .Values.cnpg.enabled }}
+        - name: dsn
+          secret:
+            secretName: {{ $dsnSecret }}
+        {{- end }}

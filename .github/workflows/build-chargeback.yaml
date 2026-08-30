@@ -1,0 +1,169 @@
+name: Build chargeback
+
+# Builds the chargeback application image (EPIC #6723, ADR-0014) — the Go
+# binary that embeds the React UI (products/chargeback/ui → ui/dist/) and
+# serves the UI at / plus the JSON API at /api/v1. Deployed by the
+# bp-chargeback chart (products/chargeback/chart) from bootstrap-kit slot
+# 13f and as a per-Org / central install.
+#
+# Build context = the repo root with the Containerfile under
+# products/chargeback/ (the build-openova-mcp.yaml shape) so a future
+# shared-module import (core/services/shared/*) needs no workflow change.
+#
+# Image tag contract: the chart's image helper resolves to
+# repository:<Chart.AppVersion> (chargeback.image in _helpers.tpl), so the
+# published image MUST carry that exact tag — derived from the chart below
+# so the tag can never drift from what the chart references.
+#
+# Per the #4706 chart-repo-collision lesson the image repo is the PLAIN
+# name ghcr.io/openova-io/chargeback — never the bp-chargeback CHART OCI
+# repo (an image tag there out-semvers the chart and every `version: "*"`
+# HelmRelease resolve dies with "manifest does not contain minimum number
+# of descriptors").
+
+on:
+  push:
+    paths:
+      - 'products/chargeback/**'
+      - '.github/workflows/build-chargeback.yaml'
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/chargeback
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-chargeback:
+    runs-on: ubuntu-latest
+    services:
+      # The binary applies its migrations at startup (spec §1), so the
+      # smoke gate needs a real Postgres — the same shape the chart's CNPG
+      # Cluster provides on a Sovereign.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: chargeback
+          POSTGRES_PASSWORD: chargeback
+          POSTGRES_DB: chargeback
+        ports:
+          - 15432:5432
+        options: >-
+          --health-cmd "pg_isready -U chargeback"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: products/chargeback/ui/package-lock.json
+
+      # UI gate: the TypeScript build must be clean and the parser/validator
+      # unit tests green BEFORE the image build repeats the same build inside
+      # the Containerfile's node stage.
+      - name: Build + test the UI (tsc -b && vite build, vitest)
+        run: |
+          set -euo pipefail
+          cd products/chargeback/ui
+          npm ci
+          npm run build
+          npm test
+
+      - name: Run the module tests
+        run: |
+          set -euo pipefail
+          cd products/chargeback
+          # -count=1 — Refs #6235. This repo has no root go.mod, and Go's test
+          # cache keys on a package's OWN inputs only, so any test that reads a
+          # file outside its module can report a stale `ok (cached)` forever.
+          # Enforced repo-wide by scripts/check-go-test-count1.sh.
+          go test -count=1 ./...
+
+      - name: Set short SHA + chart appVersion
+        id: vars
+        run: |
+          echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+          APPVER=$(grep -E '^appVersion:' products/chargeback/chart/Chart.yaml | head -1 | sed -E 's/appVersion:[[:space:]]*"?([^"]+)"?/\1/')
+          echo "app_version=${APPVER}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build to the LOCAL daemon first (load, no push) so the smoke gate
+      # below inspects the exact bytes that would be pushed (#4118 lesson).
+      - name: Build image (load)
+        uses: docker/build-push-action@v6
+        with:
+          context: products/chargeback
+          file: products/chargeback/Containerfile
+          load: true
+          push: false
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.app_version }}
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:latest
+
+      # Smoke gate: against the Postgres service the binary must migrate,
+      # serve /healthz + /readyz, serve the EMBEDDED UI at / (an image whose
+      # node stage silently produced an empty ui/dist fails HERE, before
+      # push) and refuse an unauthenticated /api/v1/auth/me with 401 — the
+      # exact contract the chart's probes, the HTTPRoute and the UI depend on.
+      - name: Smoke-gate the built image (migrate, healthz, readyz, embedded UI, auth)
+        run: |
+          set -euo pipefail
+          IMG="${{ env.IMAGE }}:${{ steps.vars.outputs.app_version }}"
+          KEY="$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
+          docker run -d --name cb-smoke --network host \
+            -e LISTEN_ADDR=":18080" \
+            -e DATABASE_URL="postgres://chargeback:chargeback@127.0.0.1:15432/chargeback?sslmode=disable" \
+            -e APP_ENCRYPTION_KEY="$KEY" \
+            -e OPERATOR_EMAILS="smoke@example.invalid" \
+            -e PUBLIC_URL="http://127.0.0.1:18080" \
+            -e PROFILE=sovereign \
+            "$IMG"
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:18080/healthz >/dev/null 2>&1; then
+              echo "healthz OK"
+              curl -fsS http://127.0.0.1:18080/readyz >/dev/null
+              echo "readyz OK"
+              curl -fsS http://127.0.0.1:18080/ | grep -q '<div id="root">'
+              echo "embedded UI OK"
+              code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/api/v1/auth/me)
+              [ "$code" = "401" ] || { echo "FAIL: unauthenticated /api/v1/auth/me returned $code, want 401"; docker logs cb-smoke; exit 1; }
+              echo "auth gate OK"
+              if docker logs cb-smoke 2>&1 | grep -q "$KEY"; then
+                echo "FAIL: APP_ENCRYPTION_KEY leaked into the logs"; exit 1
+              fi
+              docker rm -f cb-smoke
+              echo "smoke gate PASSED"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "FAIL: /healthz never served"; docker logs cb-smoke; docker rm -f cb-smoke; exit 1
+
+      - name: Push image (only after smoke gate is green)
+        run: |
+          set -euo pipefail
+          for TAG in \
+            "${{ env.IMAGE }}:${{ steps.vars.outputs.app_version }}" \
+            "${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}" \
+            "${{ env.IMAGE }}:latest"; do
+            echo "pushing $TAG"
+            docker push "$TAG"
+          done

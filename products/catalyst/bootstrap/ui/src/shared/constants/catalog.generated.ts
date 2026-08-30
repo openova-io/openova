@@ -716,6 +716,53 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
+    "id": "bp-chargeback",
+    "slug": "chargeback",
+    "title": "Chargeback",
+    "summary": "Usage ledger, rating and monthly statements for your Organizations and external cloud projects — collect allocation-hours, rate them against a price book, issue statements.",
+    "icon": "chargeback.svg",
+    "category": "bss",
+    "tagline": null,
+    "tags": [
+      "chargeback",
+      "showback",
+      "usage",
+      "rating",
+      "statements",
+      "bss"
+    ],
+    "visibility": "listed",
+    "version": "0.1.0",
+    "section": "pts-4-8-identity-and-metering",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "rtz-A"
+            ],
+            "roles": {
+              "rtz-A": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": true
+  },
+  {
     "id": "bp-cilium",
     "slug": "cilium",
     "title": "Cilium",
@@ -6002,6 +6049,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/cert-manager-issuers/blueprint.yaml",
   "platform/cert-manager-powerdns-webhook/blueprint.yaml",
   "platform/cert-manager/blueprint.yaml",
+  "platform/chargeback/blueprint.yaml",
   "platform/cilium-policies/blueprint.yaml",
   "platform/cilium/blueprint.yaml",
   "platform/clickhouse/blueprint.yaml",
