@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-30T18:00:02Z` |
+| Last refreshed | `2026-08-30T18:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6079](https://github.com/openova-io/openova/issues/6079) | mothership GitOps loop dead: containerd's ghcr pull carries a credential GHCR de | Other |
 | [#6081](https://github.com/openova-io/openova/issues/6081) | Per-Org console: the install wizard's Organization list is empty because the dir | Other |
 | [#6082](https://github.com/openova-io/openova/issues/6082) | Cutover can never start on hw293: a repaired defect latched the record failed, a | Other |
 | [#6084](https://github.com/openova-io/openova/issues/6084) | Silent re-auth on a per-Org console targets auth.<orgslug>.<parent>, which the g | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6695](https://github.com/openova-io/openova/issues/6695) | dashboard(treemap): converged Sovereign defaults to real resource/health map, no | Other |
 | [#6697](https://github.com/openova-io/openova/issues/6697) | console: index.html served without Cache-Control — rolled deploys invisible un | Other |
 | [#6703](https://github.com/openova-io/openova/issues/6703) | epic: unified Jobs/Resources surface (chips + list + dependency-DAG + CronJob sc | Other |
+| [#6723](https://github.com/openova-io/openova/issues/6723) | EPIC: bp-chargeback — standalone chargeback application + console menu mapping | Other |
 
 ---
 
