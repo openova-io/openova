@@ -202,15 +202,14 @@ export function JobsPage({
     writePersistedJobsView(activeView)
   }, [activeView])
 
-  // Graph-view highlight lens (P1b — the same chip strip drives a HIGHLIGHT
-  // in graph view instead of a filter). Separate local state, default null
-  // = nothing highlighted on entry. It is reset on every view switch (in
-  // setView) so re-entering the graph always starts clean (the spec
-  // default) without a setState-in-effect.
-  const [graphHighlight, setGraphHighlight] = useState<JobChipKind | null>(null)
-  const toggleGraphHighlight = useCallback((next: JobChipKind) => {
-    setGraphHighlight((prev) => (prev === next ? null : next))
-  }, [])
+  // Graph-view FILTER: the chip strip's visible (non-removed) kinds drive
+  // which node kinds render on the canvas — removing a chip (✕) filters its
+  // nodes OFF the graph, re-adding brings them back. Reported by the shared
+  // KindChipStrip via onVisibleChange. undefined until first report = show
+  // everything (no premature blank canvas).
+  const [graphVisibleKinds, setGraphVisibleKinds] = useState<
+    ReadonlySet<JobChipKind> | undefined
+  >(undefined)
 
   // Active kind: URL ?kind= → persisted → DEFAULT_JOB_KIND (mirror cloud).
   const activeKind: JobChipKind = useMemo(() => {
@@ -224,9 +223,6 @@ export function JobsPage({
 
   function setView(next: JobsView) {
     if (next === activeView) return
-    // Reset the transient graph highlight lens on every view switch so
-    // entering the graph always starts with nothing highlighted (spec).
-    setGraphHighlight(null)
     const target: { view: JobsView; kind?: string } = { view: next }
     if (next === 'list' && typeof search.kind === 'string') target.kind = search.kind
     navigate({
@@ -350,8 +346,9 @@ export function JobsPage({
 
         {/* One shared chip strip in BOTH views (KindChipStrip). List view:
             select = FILTER (drives filteredByKind + JobsTable kindScope).
-            Graph view: select = HIGHLIGHT (a transient lens that dims
-            non-matching bubbles; null = nothing highlighted on entry). */}
+            Graph view: the chips FILTER the canvas — a chip's ✕ removes its
+            node-kind from the graph (onVisibleChange → graphVisibleKinds →
+            JobsGraphView), + More re-adds it. Same shared component. */}
         {activeView === 'list' ? (
           <KindChipStrip<JobChipKind>
             catalogue={JOB_KINDS}
@@ -364,9 +361,10 @@ export function JobsPage({
         ) : (
           <KindChipStrip<JobChipKind>
             catalogue={JOB_KINDS}
-            activeKind={graphHighlight}
+            activeKind={null}
             counts={kindCounts}
-            onChange={toggleGraphHighlight}
+            onChange={() => {}}
+            onVisibleChange={setGraphVisibleKinds}
             testidPrefix="jobs-kind"
             storageKey="sov-jobs-hidden-kinds"
           />
@@ -399,7 +397,11 @@ export function JobsPage({
         {activeView === 'list' ? (
           <JobsTable jobs={filteredByKind} deploymentId={deploymentId} kindScope={activeKind} />
         ) : (
-          <JobsGraphView jobs={flatJobs} deploymentId={deploymentId} highlightKind={graphHighlight} />
+          <JobsGraphView
+            deploymentId={deploymentId}
+            visibleKinds={graphVisibleKinds}
+            disableStream={disableStream}
+          />
         )}
       </div>
     </PortalShell>

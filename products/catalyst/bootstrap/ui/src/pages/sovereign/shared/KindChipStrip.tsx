@@ -73,6 +73,11 @@ export interface KindChipStripProps<K extends string> {
   /** testid + CSS-class prefix — e.g. `cloud-kind` / `jobs-kind`. Keeps the
    *  established `<prefix>-chips` / `<prefix>-chip-<id>` testids stable. */
   testidPrefix: string
+  /** Fired whenever the VISIBLE set changes (mount + every curate) with the
+   *  kinds still on the strip (catalogue minus the user-removed set). The
+   *  /jobs graph uses this so removing a chip FILTERS its nodes off the
+   *  canvas. Omitted on /cloud (curate there only hides the chip). */
+  onVisibleChange?: (visible: ReadonlySet<K>) => void
 }
 
 /** Does this entry's count render as a real number (vs "—")? */
@@ -87,6 +92,7 @@ export function KindChipStrip<K extends string>({
   onChange,
   storageKey,
   testidPrefix,
+  onVisibleChange,
 }: KindChipStripProps<K>) {
   const base = testidPrefix
 
@@ -95,6 +101,16 @@ export function KindChipStrip<K extends string>({
   // the exact default strip, so behaviour is unchanged until the operator
   // curates.
   const [hidden, setHidden] = useState<Set<K>>(() => readHiddenSet(storageKey, catalogue))
+
+  // Report the VISIBLE kinds (catalogue minus removed) to the consumer on
+  // mount + every curate, so the graph can filter its nodes to match. Keyed
+  // on the hidden set + catalogue identity so it fires exactly on change.
+  useEffect(() => {
+    if (!onVisibleChange) return
+    const visible = new Set<K>()
+    for (const k of catalogue) if (!hidden.has(k.id)) visible.add(k.id)
+    onVisibleChange(visible)
+  }, [hidden, catalogue, onVisibleChange])
 
   function persist(next: Set<K>) {
     if (typeof window === 'undefined') return
@@ -334,10 +350,26 @@ function MoreChipPopover<K extends string>({
             role="menu"
             className={`${base}-chip-more-pop`}
             style={{
+              // Position (computed) + the critical box styles INLINE so the
+              // popover is always legible even if the templated <style> tag
+              // has not applied to this portaled node yet (the transparent/
+              // cramped failure mode). The class still themes hover/colors.
               position: 'fixed',
               left: coords.left,
               top: coords.top,
               transform: 'translateX(-100%)',
+              zIndex: 2000,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.15rem',
+              minWidth: '15rem',
+              maxHeight: '60vh',
+              overflowY: 'auto',
+              padding: '0.35rem',
+              borderRadius: '10px',
+              border: '1px solid var(--color-border)',
+              background: 'var(--color-bg-1, #0d1117)',
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
             }}
           >
             {overflowItems.map((k) => (
@@ -424,6 +456,21 @@ function MorePopoverItem<K extends string>({
       data-testid={`${base}-chip-more-item-${kind.id}`}
       onClick={onSelect}
       className={`${base}-chip-more-item${active ? ` ${base}-chip-more-item-active` : ''}`}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '0.55rem',
+        width: '100%',
+        padding: '0.4rem 0.55rem',
+        border: 0,
+        background: 'transparent',
+        borderRadius: '6px',
+        color: 'var(--color-text)',
+        fontSize: '0.82rem',
+        cursor: 'pointer',
+        textAlign: 'left',
+        whiteSpace: 'nowrap',
+      }}
     >
       <span className={`${base}-chip-icon`} aria-hidden>
         <svg
@@ -437,7 +484,9 @@ function MorePopoverItem<K extends string>({
           <path d={kind.icon} />
         </svg>
       </span>
-      <span className={`${base}-chip-more-item-label`}>{kind.label}</span>
+      <span className={`${base}-chip-more-item-label`} style={{ flex: 1 }}>
+        {kind.label}
+      </span>
       <span className={`${base}-chip-count`}>{showCount ? count : '—'}</span>
     </button>
   )
@@ -453,6 +502,7 @@ function MorePopoverItem<K extends string>({
       className={`${base}-chip-more-item-row`}
       data-testid={`${base}-chip-more-item-row-${kind.id}`}
       data-removed="true"
+      style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}
     >
       {selectButton}
       <button

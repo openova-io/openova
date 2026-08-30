@@ -1,54 +1,56 @@
 /**
  * JobsGraphView — the Graph half of the /jobs List⇄Graph toggle
- * (Refs #6703), rendered with the CANONICAL natural-view DAG
- * `FlowCanvasOrganic` — the same force-directed job-tree canvas the rest
- * of the operator UX is tuned against (FlowPage.tsx header; the founder
- * ratified it after rejecting the lane-layout scaffolding). It is NOT a
- * bespoke SVG renderer: this view reuses `flowLayoutOrganic` + the fold /
- * depth helpers exactly as FlowPage does, fed from the SAME job-store
- * `Job[]` the /jobs table renders (via `jobsToOrganicInputs`), so list
- * and graph never diverge.
+ * (Refs #6703), rendered with the CANONICAL natural-view DAG stack the
+ * rest of the operator UX is tuned against: the SAME data path FlowPage
+ * uses — `useFlowStream` → `flowStreamToOrganic` → `flowLayoutOrganic` →
+ * `FlowCanvasOrganic`. This is NOT a bespoke renderer and NOT the flat
+ * job-store: the openova-flow stream carries the real `contains` grouping
+ * AND `finish-to-start` dependency edges, so the graph shows the actual
+ * dependency DAG (bootstrap-kit → its installs, the cutover chain, the
+ * Terraform provisioning chain, …) instead of a disconnected grid.
  *
- * Groups (`type:'group'`) render as fold-collapsible bubbles with a
- * child-count badge — that IS the "default gathered relevant groups"
- * view (bootstrap-kit / provisioner / cutover / … each a bubble). Double-
- * click or the disclosure badge folds/unfolds; a node click opens the
- * job's detail page (same chroot/mothership link logic as JobsTable).
- *
- * A `highlightKind` (driven by the graph-view chip strip) dims every
- * bubble that is NOT that kind — highlight, never remove, so dependency
- * edges are never severed mid-chain.
+ * Two /jobs-specific behaviours layered on the shared stack:
+ *   • Label — the flow labels the install nodes "Install <component>";
+ *     the leading verb is stripped so the node reads by COMPONENT
+ *     ("Orgdb Rtz A"), matching the founder's component-first rule (the
+ *     same fix P1a made for the dashboard treemap).
+ *   • Chip filter — `visibleKinds` (driven by the graph chip strip) FILTERS
+ *     the graph: a kind whose chip is removed/deselected has its nodes
+ *     dropped from the canvas entirely (group containers are kept so the
+ *     tree stays readable). Removing the "HelmRelease" chip really removes
+ *     the 137 install nodes.
  */
 
 import { useCallback, useMemo, useState } from 'react'
 import { useNavigate, useParams } from '@tanstack/react-router'
+import { useWizardStore } from '@/entities/deployment/store'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
-import type { Job, JobKind } from '@/lib/jobs.types'
+import type { Job } from '@/lib/jobs.types'
 import { flowLayoutOrganic } from '@/lib/flowLayoutOrganic'
-import { jobsToOrganicInputs } from '@/lib/jobsToOrganic'
+import { useFlowStream } from '@/lib/openflow-adapter-sse'
 import {
   defaultFoldedAtContainmentDepth,
   descendantCountByGroup,
+  flowStreamToOrganic,
 } from '@/lib/flowStreamToOrganic'
+import { flowJobKind, type GraphKind } from '@/lib/flowJobKind'
 import { FlowCanvasOrganic, type FlowOrganicAction } from './FlowCanvasOrganic'
 
 interface JobsGraphViewProps {
-  /** The flat Job tree to draw (groups + leaves) — same list as the table. */
-  jobs: readonly Job[]
-  /** Deployment id — forwarded for parity; the link builder reads the
-   *  route param + DETECTED_MODE, matching JobsTable. */
+  /** Deployment id — forwarded to the flow stream; on the Sovereign chroot
+   *  the route param is empty and the stream resolves the implicit id. */
   deploymentId?: string
-  /** Active graph chip — dims every bubble not of this kind. null = no
-   *  highlight (all bubbles at full opacity). */
-  highlightKind?: JobKind | null
+  /** Kinds whose chips are currently VISIBLE in the strip. A leaf node
+   *  whose kind is absent from this set is filtered OUT of the graph.
+   *  undefined = no filter (show everything). */
+  visibleKinds?: ReadonlySet<GraphKind>
+  /** Test seam — disable the live SSE attach (renders the empty state). */
+  disableStream?: boolean
 }
 
-/**
- * Default fold depth for the /jobs graph: fold groups at containment
- * depth ≥ 2, so the top-level orchestration units (bootstrap-kit,
- * provisioner, cutover, …) render as gathered bubbles with child-count
- * badges rather than exploding every leaf on first paint.
- */
+/** Fold groups at containment depth ≥ 2 by default, so the orchestration
+ *  units (bootstrap-kit, cutover, provisioner, …) render as gathered
+ *  bubbles with child-count badges rather than exploding every leaf. */
 const DEFAULT_FOLD_DEPTH = 2
 
 const GROUP_NODE_ACTIONS: readonly FlowOrganicAction[] = [
@@ -56,14 +58,55 @@ const GROUP_NODE_ACTIONS: readonly FlowOrganicAction[] = [
   { id: 'unfold', label: 'Unfold' },
 ]
 
-export function JobsGraphView({ jobs, highlightKind }: JobsGraphViewProps) {
+/** Strip a leading "Install " / "Reconcile " verb so a node reads by its
+ *  component (the founder's component-first rule; matches the P1a treemap
+ *  fix). Applied only to the /jobs graph — FlowPage/JobDetail unchanged. */
+function componentLabel(name: string): string {
+  return name.replace(/^(install|reconcile)\s+/i, '').trim() || name
+}
+
+export function JobsGraphView({
+  deploymentId,
+  visibleKinds,
+  disableStream = false,
+}: JobsGraphViewProps) {
   const navigate = useNavigate()
   const params = useParams({ strict: false }) as { deploymentId?: string }
+  const store = useWizardStore()
   const isSovereign = DETECTED_MODE.mode === 'sovereign'
-  const depId = params.deploymentId ?? ''
+  const depId = params.deploymentId ?? deploymentId ?? ''
 
-  // Fold state — start with the deep groups gathered (folded). Reset only
-  // when the set of group ids changes (not on every status tick).
+  // ── The mature data path: live openova-flow stream → organic inputs ──
+  const stream = useFlowStream({ deploymentId: depId, disableStream })
+
+  const adapter = useMemo(
+    () =>
+      flowStreamToOrganic({
+        nodes: [...stream.nodes.values()],
+        relationships: [...stream.relationships.values()],
+        wizardRegions: store.regions,
+      }),
+    [stream.nodes, stream.relationships, store.regions],
+  )
+
+  // Component-first labels + kind-filter. Groups are always kept (they hold
+  // the tree together); leaves are dropped when their kind's chip is hidden.
+  const jobs = useMemo<Job[]>(() => {
+    return adapter.jobs
+      .filter((j) => {
+        if (j.type === 'group') return true
+        if (!visibleKinds) return true
+        return visibleKinds.has(flowJobKind(j))
+      })
+      .map((j) => ({
+        ...j,
+        displayName: componentLabel(j.displayName ?? j.jobName),
+        jobName: componentLabel(j.jobName),
+      }))
+  }, [adapter.jobs, visibleKinds])
+
+  // Fold state — re-seed on topology (group-set) change, keep manual folds
+  // across status ticks (React-sanctioned adjust-state-during-render).
   const groupSignature = useMemo(
     () =>
       jobs
@@ -73,30 +116,24 @@ export function JobsGraphView({ jobs, highlightKind }: JobsGraphViewProps) {
         .join('|'),
     [jobs],
   )
-  const [folded, setFolded] = useState<Set<string>>(
-    () => defaultFoldedAtContainmentDepth(jobs, DEFAULT_FOLD_DEPTH),
+  const [folded, setFolded] = useState<Set<string>>(() =>
+    defaultFoldedAtContainmentDepth(adapter.jobs, DEFAULT_FOLD_DEPTH),
   )
-  // Re-seed the fold set when the group TOPOLOGY changes (new prov /
-  // reseed) — the React-sanctioned "adjust state during render" pattern
-  // (store the previous signature in state; a status-only tick keeps the
-  // same signature so the operator's manual fold/unfold survives).
   const [prevSig, setPrevSig] = useState(groupSignature)
   if (prevSig !== groupSignature) {
     setPrevSig(groupSignature)
-    setFolded(defaultFoldedAtContainmentDepth(jobs, DEFAULT_FOLD_DEPTH))
+    setFolded(defaultFoldedAtContainmentDepth(adapter.jobs, DEFAULT_FOLD_DEPTH))
   }
-
-  const inputs = useMemo(() => jobsToOrganicInputs(jobs), [jobs])
 
   const layout = useMemo(
     () =>
       flowLayoutOrganic(jobs, {
-        hints: inputs.hints,
-        regions: inputs.regions,
-        families: inputs.families,
+        hints: adapter.hints,
+        regions: adapter.regions,
+        families: adapter.families,
         folded,
       }),
-    [jobs, inputs, folded],
+    [jobs, adapter.hints, adapter.regions, adapter.families, folded],
   )
 
   const badgeCounts = useMemo(
@@ -104,7 +141,10 @@ export function JobsGraphView({ jobs, highlightKind }: JobsGraphViewProps) {
     [jobs, folded],
   )
 
-  const hasGroups = inputs.groupIds.size > 0
+  const hasGroups = useMemo(
+    () => jobs.some((j) => j.type === 'group'),
+    [jobs],
+  )
 
   const toggleFold = useCallback((jobId: string) => {
     setFolded((prev) => {
@@ -115,22 +155,17 @@ export function JobsGraphView({ jobs, highlightKind }: JobsGraphViewProps) {
     })
   }, [])
 
-  const handleNodeAction = useCallback(
-    (jobId: string, actionId: string) => {
-      setFolded((prev) => {
-        const next = new Set(prev)
-        if (actionId === 'fold') next.add(jobId)
-        else if (actionId === 'unfold') next.delete(jobId)
-        return next
-      })
-    },
-    [],
-  )
+  const handleNodeAction = useCallback((jobId: string, actionId: string) => {
+    setFolded((prev) => {
+      const next = new Set(prev)
+      if (actionId === 'fold') next.add(jobId)
+      else if (actionId === 'unfold') next.delete(jobId)
+      return next
+    })
+  }, [])
 
-  // SAME chroot/mothership target logic as JobsTable.useJobLinkBuilder:
-  // strip the "<deploymentId>:" (or "<deploymentId>:<region>:") prefix so
-  // the id matches jobs.Store's bare jobName key, encode the segment, and
-  // stay scoped under /provision/<id>/jobs on the mothership monitor.
+  // Node click → the job's detail page (same chroot/mothership link logic
+  // as JobsTable): strip the "<deploymentId>:" prefix, encode the segment.
   const onJobClick = useCallback(
     (jobId: string) => {
       const bare = jobId.includes(':')
@@ -146,22 +181,34 @@ export function JobsGraphView({ jobs, highlightKind }: JobsGraphViewProps) {
     [navigate, isSovereign, depId],
   )
 
+  const empty = layout.nodes.length === 0
+
   return (
     <div data-testid="jobs-graph-view" className="jobs-graph-view">
       <style>{JOBS_GRAPH_VIEW_CSS}</style>
-      <FlowCanvasOrganic
-        layout={layout}
-        openJobId={null}
-        hostJobId={null}
-        highlightFamilyId={highlightKind ?? null}
-        onJobClick={(jobId) => onJobClick(jobId)}
-        onJobDoubleClick={(jobId) => toggleFold(jobId)}
-        onCanvasBackgroundClick={() => {}}
-        onFoldToggle={hasGroups ? toggleFold : undefined}
-        badgeCounts={badgeCounts}
-        nodeActions={hasGroups ? GROUP_NODE_ACTIONS : undefined}
-        onNodeAction={hasGroups ? handleNodeAction : undefined}
-      />
+      {empty ? (
+        <div className="jobs-graph-empty" data-testid="jobs-graph-empty">
+          {stream.streamStatus === 'connecting'
+            ? 'Loading the job graph…'
+            : visibleKinds && visibleKinds.size === 0
+              ? 'No kinds selected — add a chip to show its nodes.'
+              : 'No jobs to graph yet.'}
+        </div>
+      ) : (
+        <FlowCanvasOrganic
+          layout={layout}
+          openJobId={null}
+          hostJobId={null}
+          embedded
+          onJobClick={(jobId) => onJobClick(jobId)}
+          onJobDoubleClick={(jobId) => toggleFold(jobId)}
+          onCanvasBackgroundClick={() => {}}
+          onFoldToggle={hasGroups ? toggleFold : undefined}
+          badgeCounts={badgeCounts}
+          nodeActions={hasGroups ? GROUP_NODE_ACTIONS : undefined}
+          onNodeAction={hasGroups ? handleNodeAction : undefined}
+        />
+      )}
     </div>
   )
 }
@@ -170,11 +217,19 @@ const JOBS_GRAPH_VIEW_CSS = `
 .jobs-graph-view {
   position: relative;
   width: 100%;
-  height: min(72vh, 760px);
-  min-height: 420px;
+  height: min(74vh, 820px);
+  min-height: 440px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
   background: var(--color-bg-2);
   overflow: hidden;
+}
+.jobs-graph-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-dim);
+  font-size: 0.9rem;
 }
 `
