@@ -95,6 +95,15 @@ Modes: **M1** = standard Sovereign (any customer instance) · **M2** = OpenOva-o
 | operator of record | sovereign-admin | OpenOva | National Cloud |
 | code / chart | one | one | one |
 
+#### D2b — Cross-Sovereign account duplication matrix (2026-08-31)
+
+| Customer type | Account records held in | Billing source-of-truth | Sync / federation required |
+|---|---|---|---|
+| OpenOva-Sovereign-only customer (an Organization on some Sovereign S, S not on NC) | S: Organization + Users | S's chargeback instance (platform collector) | none |
+| NC-only customer B (no OpenOva) | NC central: `Customer` + Users | NC central instance (cloud collector) | none |
+| Dual-registered customer A (own Sovereign S_A on NC) | S_A: Organizations + Users (A as **seller**) · NC central: `Customer` A + Users (A as **buyer**) | NC central for A's cloud footprint (what NC charges A) · S_A's instance for A's Organizations (what A charges them) | **no identity sync** — two roles, two accounts; **statement exchange**: NC's statement to A → S_A's instance as cost basis (import via API/CSV); optional SSO later |
+| `platform` Organization of S_A (case 3) | S_A only | S_A's instance (cloud collector on A's project) — must reconcile to NC's statement | reconciliation: Σ S_A case-3 lines ≈ NC statement to A; delta = report, not bug |
+
 ### D3 — Three cases, two collectors, one money layer
 
 | Case | Collected via | Attributed via | Enforced? |
@@ -299,6 +308,26 @@ user's AK/SK the tenant hands over (D8) is proof of account ownership (the servi
 one signed `ecs` list call and reads the `domain_id`/project from the response), bound to an email
 PIN identity. (a)/(b) remain questions for the operator; if either is published, it becomes an
 additional credential/identity type with no other change.
+
+### D11 — Consistency matrix: D1–D10 against the standalone-app framing (2026-08-31)
+
+| Decision | Status vs standalone framing | Amendment |
+|---|---|---|
+| D1 usage ledger primitive; Crossplane = inventory | valid | key = `Customer` (was Organization) |
+| D2 standalone app, app-internal `Customer`, OpenOva = adapter | **is** the framing | — |
+| D2a per-mode entity matrix | valid | `BillingAccount` row → `Customer` (synced from Organizations) |
+| D2b account duplication | valid | new |
+| D3 three cases, two collectors | valid | case 1 = adapter-provided source; cases 2/3 = native |
+| D3a collection modes | valid | platform watch = adapter; cloud change-log = native |
+| D4 separate application | strengthened | title: standalone, integration is an adapter |
+| D5 three placements, one chart | valid | Sovereign BSS = adapter-enabled; central = adapter-disabled |
+| D6 seam with billing service (`/billing/metering/record`) | valid | adapter-only (absent without OpenOva) |
+| D7 enforcement in org-controller from `Plan.IncludedQuotas` | valid | adapter-only; the app never enforces |
+| D8 read-only IAM user + AK/SK per tenant | valid | native credential type |
+| D9 UI: one tree, two lenses | valid | tree root = `Customer` set; Org rows appear only where the adapter syncs Organizations; drill-down unchanged |
+| D10 profiles `sovereign` / `operator-central`, API-first | valid | profile = adapter on/off + identity + branding |
+| `Organization.spec.costSources[]` | valid | GitOps-declared input to the adapter; absent without OpenOva |
+| "no new platform entity type" (2026-08-31 a.m.) | valid | `Customer` is app-internal, not a platform kind |
 
 ## Alternatives rejected
 
