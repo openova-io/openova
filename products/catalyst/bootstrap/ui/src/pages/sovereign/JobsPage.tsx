@@ -56,7 +56,7 @@
  * `status==ready`. This page is a PURE finite-jobs table.
  */
 
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { sovereignPathOrDeployments } from '@/shared/lib/sovereignPaths'
@@ -89,6 +89,15 @@ import { HANDOVER_REDIRECT_BANNER_CSS } from './HandoverRedirectBanner.css'
 export type JobsView = 'list' | 'graph'
 const DEFAULT_JOBS_VIEW: JobsView = 'list'
 const JOBS_VIEW_STORAGE_KEY = 'sov-jobs-view'
+
+/**
+ * Sentinel `activeKind` for the graph-view chip strip meaning "no chip is
+ * highlighted" (P2). JobKindChips single-selects a real JobChipKind; passing
+ * an id that matches no chip renders every chip inactive, which is exactly
+ * the graph-view default (no dimming) — a chip becomes a HIGHLIGHT toggle
+ * rather than a filter. Empty string can never collide with a real kind.
+ */
+const NO_GRAPH_HIGHLIGHT = '' as JobChipKind
 
 function isValidJobsView(value: unknown): value is JobsView {
   return value === 'list' || value === 'graph'
@@ -246,6 +255,16 @@ export function JobsPage({
     [flatJobs, activeKind],
   )
 
+  // Graph-view chip HIGHLIGHT (P2, Refs #6703). Deliberately a separate
+  // local state from the list's `?kind=` filter: list=filter removes rows,
+  // graph=highlight only dims (removing graph nodes would sever mid-chain
+  // dependsOn edges). null = no highlight, the default on entering graph
+  // view. Clicking a chip toggles it; clicking the active chip clears it.
+  const [graphHighlightKind, setGraphHighlightKind] = useState<JobChipKind | null>(null)
+  const toggleGraphHighlight = useCallback((next: JobChipKind) => {
+    setGraphHighlightKind((cur) => (cur === next ? null : next))
+  }, [])
+
   return (
     <PortalShell
       deploymentId={deploymentId}
@@ -337,7 +356,16 @@ export function JobsPage({
         {activeView === 'list' ? (
           <JobKindChips activeKind={activeKind} counts={kindCounts} onChange={setKind} />
         ) : (
-          <span aria-hidden className="jobs-page-toolbar-spacer" />
+          // Graph view keeps the SAME chip strip (founder: "the graph view
+          // same as cloud graph, it should still contain the chips"). Here a
+          // chip HIGHLIGHTS (dims the rest) rather than filters — the active
+          // kind is the local graph-highlight state, NO_GRAPH_HIGHLIGHT when
+          // none is selected so no chip reads active by default.
+          <JobKindChips
+            activeKind={graphHighlightKind ?? NO_GRAPH_HIGHLIGHT}
+            counts={kindCounts}
+            onChange={toggleGraphHighlight}
+          />
         )}
       </div>
 
@@ -345,7 +373,11 @@ export function JobsPage({
         {activeView === 'list' ? (
           <JobsTable jobs={filteredByKind} deploymentId={deploymentId} kindScope={activeKind} />
         ) : (
-          <JobsGraphView jobs={flatJobs} deploymentId={deploymentId} />
+          <JobsGraphView
+            jobs={flatJobs}
+            deploymentId={deploymentId}
+            highlightKind={graphHighlightKind}
+          />
         )}
       </div>
     </PortalShell>

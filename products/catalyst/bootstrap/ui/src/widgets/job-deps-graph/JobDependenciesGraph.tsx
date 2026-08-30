@@ -60,7 +60,22 @@ export interface JobDependenciesGraphProps {
   onNodeClick?: (jobId: string) => void
   /** Optional className passed to the wrapping <div>. */
   className?: string
+  /**
+   * OPTIONAL highlight/dim overlay (P2, Refs #6703). When provided, every
+   * node whose id is in this set (and every edge touching such a node) is
+   * rendered at a reduced opacity so the NON-dimmed nodes read as the
+   * highlighted set. This is opacity-only — the layout is unchanged, so the
+   * existing render + Playwright visual contract is untouched when the prop
+   * is absent (the default): no `opacity`/`data-dimmed` attribute is emitted
+   * at all unless a dim set is passed. Used by JobsGraphView to implement
+   * the graph-view chip HIGHLIGHT (which dims, never removes, so mid-chain
+   * `dependsOn` edges survive).
+   */
+  dimNodeIds?: ReadonlySet<string>
 }
+
+/** Opacity applied to a dimmed node/edge when `dimNodeIds` is active. */
+const DIM_OPACITY = 0.25
 
 const STATUS_FILL: Record<JobUiStatus, string> = {
   succeeded: 'var(--color-success)',
@@ -82,6 +97,7 @@ export function JobDependenciesGraph({
   layoutOpts,
   onNodeClick,
   className,
+  dimNodeIds,
 }: JobDependenciesGraphProps) {
   const clamped = Math.max(350, Math.min(450, height))
 
@@ -138,17 +154,26 @@ export function JobDependenciesGraph({
       >
         {/* Edges first so they sit beneath the nodes. */}
         <g data-testid="jobs-deps-edges">
-          {layout.edges.map((e) => (
-            <polyline
-              key={`${e.from}->${e.to}`}
-              data-testid={`jobs-deps-edge-${e.from}-${e.to}`}
-              points={e.points.map((p) => `${p.x},${p.y}`).join(' ')}
-              fill="none"
-              stroke="var(--color-border-strong)"
-              strokeWidth={1.5}
-              markerEnd="url(#jobs-deps-arrow)"
-            />
-          ))}
+          {layout.edges.map((e) => {
+            // An edge dims when either endpoint is dimmed — a highlighted
+            // node keeps a bright edge only to another highlighted node.
+            const edgeDimmed = dimNodeIds
+              ? dimNodeIds.has(e.from) || dimNodeIds.has(e.to)
+              : false
+            return (
+              <polyline
+                key={`${e.from}->${e.to}`}
+                data-testid={`jobs-deps-edge-${e.from}-${e.to}`}
+                data-dimmed={dimNodeIds ? (edgeDimmed ? 'true' : 'false') : undefined}
+                points={e.points.map((p) => `${p.x},${p.y}`).join(' ')}
+                fill="none"
+                stroke="var(--color-border-strong)"
+                strokeWidth={1.5}
+                opacity={edgeDimmed ? DIM_OPACITY : undefined}
+                markerEnd="url(#jobs-deps-arrow)"
+              />
+            )
+          })}
         </g>
 
         {/* Arrow marker definition. */}
@@ -172,11 +197,14 @@ export function JobDependenciesGraph({
             const job = byId.get(n.id)!
             const fill = STATUS_FILL[job.status]
             const ring = STATUS_RING[job.status]
+            const nodeDimmed = dimNodeIds?.has(n.id) ?? false
             return (
               <g
                 key={n.id}
                 data-testid={`jobs-deps-node-${n.id}`}
                 data-status={job.status}
+                data-dimmed={dimNodeIds ? (nodeDimmed ? 'true' : 'false') : undefined}
+                opacity={nodeDimmed ? DIM_OPACITY : undefined}
                 transform={`translate(${n.x}, ${n.y})`}
                 style={{ cursor: onNodeClick ? 'pointer' : 'default' }}
                 onClick={() => onNodeClick?.(n.id)}

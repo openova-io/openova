@@ -62,6 +62,43 @@ describe('JobDependenciesGraph — interaction', () => {
   })
 })
 
+describe('JobDependenciesGraph — dim overlay (P2 highlight)', () => {
+  it('emits NO dim attribute when dimNodeIds is absent (default unchanged)', () => {
+    render(<JobDependenciesGraph jobs={THREE_NODE_CHAIN} />)
+    expect(document.querySelectorAll('[data-dimmed]').length).toBe(0)
+    // Node opacity attribute is not present in the default render.
+    expect(screen.getByTestId('jobs-deps-node-a').getAttribute('opacity')).toBeNull()
+  })
+
+  it('dims the nodes in dimNodeIds and leaves the rest bright', () => {
+    render(
+      <JobDependenciesGraph
+        jobs={THREE_NODE_CHAIN}
+        dimNodeIds={new Set(['b', 'c'])}
+      />,
+    )
+    expect(screen.getByTestId('jobs-deps-node-a').getAttribute('data-dimmed')).toBe('false')
+    expect(screen.getByTestId('jobs-deps-node-b').getAttribute('data-dimmed')).toBe('true')
+    expect(screen.getByTestId('jobs-deps-node-c').getAttribute('data-dimmed')).toBe('true')
+    // A dimmed node carries a reduced opacity; a bright one does not.
+    expect(screen.getByTestId('jobs-deps-node-b').getAttribute('opacity')).toBe('0.25')
+    expect(screen.getByTestId('jobs-deps-node-a').getAttribute('opacity')).toBeNull()
+  })
+
+  it('dims an edge when either endpoint is dimmed', () => {
+    render(
+      <JobDependenciesGraph
+        jobs={THREE_NODE_CHAIN}
+        dimNodeIds={new Set(['c'])}
+      />,
+    )
+    // a → b: neither endpoint dimmed → bright.
+    expect(screen.getByTestId('jobs-deps-edge-a-b').getAttribute('data-dimmed')).toBe('false')
+    // b → c: c is dimmed → the edge dims too.
+    expect(screen.getByTestId('jobs-deps-edge-b-c').getAttribute('data-dimmed')).toBe('true')
+  })
+})
+
 describe('JobDependenciesGraph — height clamp', () => {
   it('clamps height below 350 to 350', () => {
     render(<JobDependenciesGraph jobs={THREE_NODE_CHAIN} height={100} />)

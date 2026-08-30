@@ -6,8 +6,11 @@
  *   • the segmented List/Graph toggle renders;
  *   • `?view=graph` renders the graph (JobsGraphView), not the table;
  *   • `?view=list` renders the table + the JobKindChips strip;
- *   • clicking the Graph toggle switches list → graph (and the chip strip
- *     hides in graph view);
+ *   • clicking the Graph toggle switches list → graph;
+ *   • the chip strip is present in BOTH views (P2, Refs #6703 — founder:
+ *     "the graph view same as cloud graph, it should still contain the
+ *     chips"); in graph view a chip HIGHLIGHTS (dims the rest) rather than
+ *     filters, and none is active by default;
  *   • the list filters to ONE kind — the reducer first-paint rows all
  *     classify as `lifecycle`, so `?kind=lifecycle` shows them and a
  *     different kind (`install`) hides them.
@@ -98,20 +101,43 @@ describe('JobsPage — List⇄Graph toggle', () => {
     expect(screen.queryByTestId('jobs-graph-view')).toBeNull()
   })
 
-  it('graph view (?view=graph) renders the graph, not the table or chips', async () => {
+  it('graph view (?view=graph) renders the graph + chips, not the table', async () => {
     renderJobs('/provision/d-1/jobs?view=graph')
     expect(await screen.findByTestId('jobs-graph-view')).toBeTruthy()
     expect(screen.queryByTestId('jobs-table')).toBeNull()
-    // Chip strip is list-only.
-    expect(screen.queryByTestId('jobs-kind-chips')).toBeNull()
+    // P2: the chip strip stays present in graph view (highlight, not filter).
+    expect(screen.getByTestId('jobs-kind-chips')).toBeTruthy()
+    // No chip is highlighted by default — every chip renders inactive.
+    const activeChips = document.querySelectorAll(
+      '[data-testid^="jobs-kind-chip-"][data-active="true"]',
+    )
+    expect(activeChips.length).toBe(0)
   })
 
-  it('clicking the Graph toggle switches list → graph', async () => {
+  it('clicking the Graph toggle switches list → graph (chips persist)', async () => {
     renderJobs('/provision/d-1/jobs?view=list&kind=lifecycle')
     await screen.findByTestId('jobs-table')
     fireEvent.click(screen.getByTestId('jobs-page-view-graph'))
     expect(await screen.findByTestId('jobs-graph-view')).toBeTruthy()
     expect(screen.queryByTestId('jobs-table')).toBeNull()
+    expect(screen.getByTestId('jobs-kind-chips')).toBeTruthy()
+  })
+
+  it('graph-view chip toggles the highlight on and back off', async () => {
+    renderJobs('/provision/d-1/jobs?view=graph')
+    await screen.findByTestId('jobs-graph-view')
+    // Every reducer first-paint row classifies as `lifecycle` (OpenTofu), so
+    // that is the only chip with a non-zero count / present in graph view.
+    const lifecycleChip = screen.getByTestId('jobs-kind-chip-lifecycle')
+    expect(lifecycleChip.getAttribute('data-active')).toBe('false')
+    fireEvent.click(lifecycleChip)
+    expect(lifecycleChip.getAttribute('data-active')).toBe('true')
+    // Because ALL nodes are lifecycle here, highlighting that kind dims none
+    // (a dimmed node is a NON-matching one) — the widget stays fully bright.
+    expect(document.querySelectorAll('[data-dimmed="true"]').length).toBe(0)
+    // Clicking the active chip again clears the highlight.
+    fireEvent.click(lifecycleChip)
+    expect(lifecycleChip.getAttribute('data-active')).toBe('false')
   })
 })
 
