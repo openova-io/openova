@@ -105,6 +105,36 @@ async function mockAuth(page: Page): Promise<void> {
     })
   })
 
+  // #6723 — the SovereignSidebar renders Agenity from the MERGED
+  // /console-ui/sidebar-entries view (bp-agenity's Blueprint consoleUI ⊕
+  // the sovereign-admin's Settings → Menu overrides), not from a static
+  // FLAT_NAV row. Stub the merged view with the Blueprint default so test 1
+  // exercises the mapped entry the way a live Sovereign renders it.
+  await page.route('**/api/v1/sovereigns/*/console-ui/sidebar-entries', async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        entries: [
+          {
+            id: 'bp-agenity',
+            label: 'Agenity',
+            route: '/apps/bp-agenity/dashboard',
+            order: 40,
+            icon: 'M3 4a1 1 0 011-1h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm5 5l3 3-3 3m5 0h4M8 21h8',
+            source: 'blueprint',
+            enabled: true,
+            defaultLabel: 'Agenity',
+            defaultRoute: '/apps/bp-agenity/dashboard',
+            defaultOrder: 40,
+            defaultEnabled: true,
+          },
+        ],
+        parents: ['dashboard', 'cloud', 'apps', 'catalog', 'jobs', 'compliance', 'users', 'organizations', 'billing'],
+      }),
+    })
+  })
+
   // useDeploymentEvents fires GET + SSE against /v1/deployments/{id}/...
   // We stub them to keep the network log quiet and avoid the page
   // logging EventSource errors which would surface as console warnings.
@@ -242,31 +272,31 @@ test.describe('@sandbox-wave9 Sandbox UI happy path (PR #1621)', () => {
     mockState = await installAllMocks(page)
   })
 
-  /* ── 1. Sidebar Sandbox entry + nav highlight on /sandbox ───── */
+  /* ── 1. Sidebar Agenity entry (mapped, #6723) on /sandbox ───── */
 
-  test('sidebar exposes Sandbox nav entry and highlights it on /sandbox', async ({
+  test('sidebar exposes the mapped Agenity nav entry on /sandbox', async ({
     page,
   }) => {
     await page.goto('/sandbox')
 
-    const navLink = page.locator('[data-testid="sov-console-nav-sandbox"]')
+    // #6723: Agenity is a Blueprint-sourced MAPPED entry (bp-agenity
+    // consoleUI, stubbed by mockConsoleShell above), rendered with the
+    // Wave 5.69c `sov-console-nav-bp-<id>` test id — the former static
+    // `sov-console-nav-sandbox` row no longer exists.
+    const navLink = page.locator('[data-testid="sov-console-nav-bp-bp-agenity"]')
     await expect(
       navLink,
-      'SovereignSidebar is missing [data-testid=sov-console-nav-sandbox]. Either the testid drifted (see FLAT_NAV in SovereignSidebar.tsx) or the dev server is not in sovereign mode (set VITE_CATALYST_MODE=sovereign VITE_SOVEREIGN_FQDN=sandbox.example.test before `npm run dev`).',
+      'SovereignSidebar is missing [data-testid=sov-console-nav-bp-bp-agenity]. Either the merged /console-ui/sidebar-entries stub drifted (see mockConsoleShell in this spec + DynamicNavLink in SovereignSidebar.tsx) or the dev server is not in sovereign mode (set VITE_CATALYST_MODE=sovereign VITE_SOVEREIGN_FQDN=sandbox.example.test before `npm run dev`).',
     ).toBeVisible({ timeout: 25_000 })
 
-    // Label text mirrors FLAT_NAV `Sandbox` entry verbatim — case-sensitive
-    // so a drift to "sandbox" / "Sandboxes" fails this guard.
-    await expect(navLink).toContainText('Sandbox')
+    // Label mirrors bp-agenity's consoleUI.sidebarLabel verbatim —
+    // case-sensitive so a drift fails this guard.
+    await expect(navLink).toContainText('Agenity')
+    await expect(navLink).toHaveAttribute('data-nav-source', 'blueprint')
+    await expect(navLink).toHaveAttribute('href', /\/apps\/bp-agenity\/dashboard$/)
 
-    // Active-state contract — deriveActiveSection() applies the accent
-    // colour class to the matching nav link when pathname matches
-    // /sandbox. Mirrors the class branch in SovereignSidebar.tsx FLAT_NAV
-    // map (`bg-[var(--color-accent)]/10 text-[var(--color-accent)]`).
-    await expect(
-      navLink,
-      'Sandbox nav link is missing the active accent class on /sandbox — see deriveActiveSection() + the isActive class branch in SovereignSidebar.tsx.',
-    ).toHaveClass(/text-\[var\(--color-accent\)\]/)
+    // The static row is gone for good.
+    await expect(page.locator('[data-testid="sov-console-nav-sandbox"]')).toHaveCount(0)
   })
 
   /* ── 2. /sandbox renders 6 agent cards + Connect Claude Max ── */

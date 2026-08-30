@@ -2,9 +2,13 @@
  * SovereignSidebar.orgscope.test.tsx — #4110 Org-console scoping.
  *
  * Asserts that an Org-scoped customer session sees ONLY its own-estate nav
- * (Apps / Catalog / Sandbox / Users / Settings) and NONE of the sovereign-
- * admin nav (Dashboard / Cloud / Jobs / Compliance / Organizations), while
- * a Sovereign-admin session still sees the full nav (zero regression).
+ * (Apps / Catalog / Users / Settings) and NONE of the sovereign-admin nav
+ * (Dashboard / Cloud / Jobs / Compliance / Organizations), while a
+ * Sovereign-admin session still sees the full nav (zero regression).
+ *
+ * #6723: the former static `sandbox` (Agenity) row is gone from FLAT_NAV —
+ * Agenity is a Blueprint-sourced mapped entry now, and mapped entries are
+ * Sovereign-level (never rendered on an Org-scoped console).
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -68,8 +72,9 @@ describe('SovereignSidebar — #4110 Org-console scope', () => {
     // Own-estate nav present.
     expect(await screen.findByTestId('sov-console-nav-apps')).toBeTruthy()
     expect(screen.getByTestId('sov-console-nav-catalog')).toBeTruthy()
-    expect(screen.getByTestId('sov-console-nav-sandbox')).toBeTruthy()
     expect(screen.getByTestId('sov-console-nav-users')).toBeTruthy()
+    // #6723 — no static Agenity/sandbox row any more, on either scope.
+    expect(screen.queryByTestId('sov-console-nav-sandbox')).toBeNull()
     expect(screen.getByTestId('sov-console-nav-settings')).toBeTruthy()
     // Sovereign-admin nav HIDDEN.
     expect(screen.queryByTestId('sov-console-nav-dashboard')).toBeNull()
