@@ -160,7 +160,7 @@ own account to see its own charging. Same engine and screen as §4; different sh
 
 | ID | Requirement | Handling |
 |---|---|---|
-| R4.1 | Tenant signs in with its **own** account | federation from the operator portal IdP (OIDC/SAML) if exposed; else verify-only against cloud IAM (`POST /v3/auth/tokens` → `domain_id`, credential never stored); else agency-grant account-linking + email PIN |
+| R4.1 | Tenant signs in with its **own** account | **default and only path today:** account-linking — the read-only IAM user's AK/SK (R3/D8) proves account ownership, bound to an email PIN. Probed 15:1x: no discoverable portal IdP; `POST /v3/auth/tokens` not published. Federation / verify-only IAM become additional identity types only if National Cloud publishes them |
 | R4.2 | Tenant = cloud account (`domain_id`); its IAM users map to roles | IAM group/role claims → account-admin / viewer |
 | R4.3 | Self-service onboarding | sign in → "grant this read agency" → verified → collection starts; revocable by the tenant |
 | R4.4 | Operator staff RBAC via their SSO | roles finance / support / admin |
@@ -220,18 +220,24 @@ probe script shredded after use, secrets never printed.
   operations portal export per-tenant metering (API or scheduled file), and can OpenOva get a
   read account?"* Yes/no.
 - Model 2 is **fully buildable today** — it is the access we already have to our own tenant,
-  granted N times via IAM agencies (`agency_domain_name` is already in our HCS provider config,
-  so agencies exist in this API family; cross-account use on HCSO to be confirmed by one test).
+  granted N times as a **read-only IAM user + AK/SK per tenant**. (Corrected 15:1x: IAM *agencies*
+  cannot be assumed from outside — `POST /v3/auth/tokens` incl. `assume_role`, and
+  `OS-CREDENTIAL/securitytokens`, are `404 APIGW.0101`; our own provider path is AK/SK signing
+  only, and the earlier `agency_domain_name` claim referred to the Crossplane provider, not us.)
 - Second, cheap ask: grant our user the **EPS read policy** and place tenants/Sovereigns in
   Enterprise Projects → attribution below "whole project" without tags (R3.8).
 
-**How model 2 is granted, per tenant:** one OpenOva account (`openova-chargeback` or the
-Sovereign's own) → tenant admin creates an IAM **Agency** trusting it (policies `Tenant Guest` +
-ReadOnly for ECS/EVS/EIP/ELB/NAT/OBS/RDS/DCS/CES/CTS; all regions; 1-year validity; National
-Cloud ships this as a one-page onboarding step) → account name + agency name + project ids
-entered in BSS → Billing → Accounts → collector obtains own token, `POST /v3/auth/tokens`
-`assume_role{domain_name, agency_name}` scoped to the tenant project → runs §3.5 → revocation =
-tenant deletes the agency.
+**How model 2 is granted, per tenant:** the tenant (or National Cloud centrally for accounts it
+administers) creates a dedicated **read-only IAM user** (`Tenant Guest` + ReadOnly for
+ECS/EVS/EIP/ELB/NAT/OBS/RDS/DCS/CES/CTS, all regions) and hands its AK/SK to the chargeback service
+(stored encrypted, rotatable) → account name + project ids + AK/SK entered in BSS → Billing →
+Accounts → the service verifies with one signed `ecs` list call → runs §3.5 → revocation = the
+tenant deletes the user or rotates the key. Agency-based access becomes a drop-in credential type
+only if National Cloud publishes the IAM token exchange.
+
+**Identity probe (15:1x):** portal has no discoverable OIDC/SAML IdP (all discovery paths 302 → SPA);
+`POST /v3/auth/tokens` password auth `404 APIGW.0101`. So tenant sign-in for the central instance
+defaults to account-linking by AK/SK proof + email PIN (ADR-0014 D10).
 
 ### 3.5 Model 2 collection mechanics — polling vs event-driven (Q2)
 
@@ -330,8 +336,9 @@ adoption** layer and becomes one collector's source.
 1. **Operator-plane metering:** does the operations portal export per-tenant metering (API or
    scheduled file), and can OpenOva get a read account? (Tenant-facing billing API is already
    disproven — §3.4.) Yes/no decides model 1.
-2. **Agencies:** confirm cross-account IAM agencies work on HCSO (one test with a second
-   account). Decides the onboarding step for model 2.
+2. **Tenant credentials:** the IAM token-exchange API (`POST /v3/auth/tokens`, `assume_role`) is not
+   published on the tenant gateway — confirm read-only IAM users + AK/SK per tenant is the accepted
+   onboarding model, or publish token exchange so agencies can be used instead.
 3. **Enterprise Projects:** grant our user the EPS read policy and place tenants / Sovereigns
    in Enterprise Projects (`eps` exists, `EPS.0003` today). Decides R3.8 and case-3 attribution.
 4. **Rate derivation:** annual list → PAYG as list/8760 hourly or list/12 monthly; the
