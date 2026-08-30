@@ -1488,7 +1488,7 @@ spec:
       #   git-auths the push WITH IT — Gitea git-over-HTTP refuses the admin password
       #   under an external login source, wedging the cutover at step-01 on hw305
       #   region-B). Umbrella tracks its sub-charts per Inviolable Principle #13.
-      version: 1.4.1569
+      version: 1.4.1570
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform
