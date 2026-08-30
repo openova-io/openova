@@ -129,6 +129,79 @@ creates an agency trusting it with `Tenant Guest` + ReadOnly for ECS/EVS/EIP/ELB
 all regions, 1-year validity. Onboarding = account name + agency name + project ids in the
 chargeback UI. Revocation = the tenant deletes the agency.
 
+### D9 — UI model: one account tree, two lenses — unified from day one (recorded 2026-08-30 after the founder's UI question)
+
+**Decision: NOT two chargeback UIs** (one for the underlying Sovereign/cloud regardless of
+OpenOva management, one for Organization-level chargeback that depends on OpenOva capabilities).
+**One UI over one `BillingAccount` tree**, in which the Sovereign-level row is the *parent* of the
+Organization rows and standalone tenants sit *beside* the Organizations. Unification is a property
+of the data model (D2), not a later merge.
+
+**Rationale.** (a) The operator wants one bill per customer and one screen per operator — two UIs
+mean two price books, two statement formats and two portals for the same party. (b) Case 3 (the
+Sovereign's own cloud footprint) is only useful when it can be *allocated down* to the Org rows
+and compared with Org revenue (margin) — that is one screen by definition. (c) A tenant that
+migrates onto the platform must keep its row and history; two UIs would force a re-onboarding.
+(d) The difference between "cloud-level" and "OpenOva-attributed" cost is a difference of
+**columns and one tab**, not of product.
+
+**Navigation model — tree + drill-down + lens.**
+
+```
+Operator (any Sovereign operator; National Cloud)
+├─ This Sovereign      case 3 — cloud footprint; Allocation → Orgs; Margin    [operator lens only]
+├─ Org: <slug>         case 1 — plan, K8s workloads, tokens
+│   ├─ Environment: <env>
+│   │   └─ Application: <app>
+├─ Tenant: <name>      case 2 — cloud resources via IAM agency
+│   └─ Enterprise Project: <ep>   (only if EPS is granted)
+```
+
+- Every node has the same four views: **Usage** (lines over a period) · **Statements** ·
+  **Price / Plan** · **Sources**. Drill-down = click a child row; breadcrumb up; the period
+  selector persists across levels.
+- Node kind determines the columns and one extra tab:
+
+| Node kind | Usage lines | Extra tab |
+|---|---|---|
+| Organization (case 1) | plan-hours; vCPU/GiB-hours per Application; PVC GiB-hours; tokens | **Limits** — entitlement vs consumption, live (possible only because the org-controller enforces the plan, D7) |
+| Tenant (case 2) | instance-hours by flavor; EVS/OBS GiB-hours; EIP/ELB/NAT hours | none — read-only, nothing to enforce |
+| This Sovereign (case 3) | as Tenant | **Allocation** — cloud cost split to Org rows + a platform-overhead line; **Margin** = rated Org revenue − cloud cost |
+
+- Two **lenses** = RBAC scopes over the same tree, not two screens:
+  - **Operator lens** — `console.<fqdn>/billing` (sovereign-admin console; today Vouchers ·
+    Orders · Revenue, gains **Accounts · Usage · Statements · Price book**). Sees the whole tree;
+    Revenue gets its missing cost half from the "This Sovereign" node.
+  - **Account-owner lens** — `console.<slug>.<pool>/billing` for an Organization (extends the
+    tenant `BillingPage`), or a PIN login scoped to the account node for a standalone tenant
+    (no Organization CR needed). Sees its own subtree only.
+- Moving between "infrastructure cost" and "OpenOva-attributed cost" is therefore **one
+  drill-down**: This Sovereign → Allocation tab → an Org row → that Org's Usage. No toggle, no
+  second app.
+- Implementation constraint that keeps this honest: the two consoles are different stacks
+  (sovereign-admin = React/TSX, Org console = Astro/Svelte), so `bp-chargeback` ships **its own
+  UI once** and both consoles route to it under their own hostname (HTTPRoute), scoped by the
+  session. One code base, one screen; RBAC decides how much of the tree is visible.
+
+**Convergence path — a customer that starts on the Sovereign/cloud view only.**
+
+1. **Day 0 — standalone tenant.** A `BillingAccount` with one `huawei-project` source; appears as
+   a *Tenant* row; account-owner lens via PIN login. Statements begin the first full period.
+2. **Enterprise Projects granted.** The same row gains child rows per EP — department-level
+   attribution with no change of screen.
+3. **Migration onto OpenOva.** An Organization is created and **linked to the existing account**
+   (1:1 by Org slug, D2). The row keeps its identity and history and gains an `openova-org`
+   source: Org columns (plan, per-Application lines, tokens) and the **Limits** tab appear;
+   cloud lines continue for whatever stays outside the platform. Statements are continuous —
+   one account, two sources, one bill.
+4. **Fully on-platform.** The `huawei-project` source is retired when the last external resource
+   is gone; the row is now an ordinary Organization row. Nothing was re-onboarded and no
+   history moved.
+
+The reverse direction is also allowed (an Organization adds an external cloud project as a
+second source) — the tree is symmetric because the account, not the Organization, is the root of
+identity.
+
 ## Alternatives rejected
 
 - **Module inside `core/services/billing`** — couples chargeback to Org CRs and to a Sovereign;
