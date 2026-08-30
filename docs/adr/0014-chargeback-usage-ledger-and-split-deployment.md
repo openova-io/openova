@@ -190,6 +190,21 @@ operator-side bulk import). Revocation = the tenant deletes the IAM user or rota
 If the operator later publishes the IAM token-exchange API (or an internal IAM host exists), the
 agency variant becomes a drop-in credential type with no other change.
 
+#### D8a — Customer intake for non-OpenOva customers (agreed with the founder 2026-08-31; shipped in `products/chargeback`, PR #6725)
+
+| Intake path | Who acts | What is entered | Fits | Duplication guard |
+|---|---|---|---|---|
+| Create in the UI | operator | name, admin email, projects, key (or key pending) | a few customers | `customers.slug` unique; `cost_sources` unique on (customer, kind, region, project) |
+| Bulk import (`POST /customers/import`, CSV/JSON — no keys) | operator | slug, name, admin_email, region, project_ids, price_book, billing_mode, start_date | onboarding the operator's whole existing customer list | import upserts by slug → `{created, updated, errors[]}`; re-import never duplicates |
+| Self-service invite (`POST /customers/{id}/invite` → `/invites/{token}/activate`) | the customer | project IDs + its own read-only key, after email-PIN sign-in | every customer activating its own access | one invite token, single-use, bound to the customer record |
+
+| Activation rule | Value |
+|---|---|
+| Proof of account ownership | one signed read call (ECS list) on the claimed project with the supplied key → `200` + project match |
+| Key custody | supplied by the customer (operator may supply for accounts it administers); envelope-encrypted; never returned or logged; revoked by deleting the IAM user or rotating the key |
+| Operator-created customers | first successful source verification activates the customer (audited); the invite flow is unchanged |
+| Cross-Sovereign duplication | none by construction — a customer record lives only in the instance that bills it (§D2b); a dual-registered party is two roles, not two copies, and migration attaches a source to the existing record rather than creating a new one |
+
 ### D9 — UI model: one account tree, two lenses — unified from day one (recorded 2026-08-30 after the founder's UI question)
 
 **Decision: NOT two chargeback UIs** (one for the underlying Sovereign/cloud regardless of
