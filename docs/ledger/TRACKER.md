@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-30T07:45:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-08-30T08:00:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-30T07:48 | [#6706](https://github.com/openova-io/openova/pull/6706) | #6703 | feat(sovereign-ui): /jobs per-kind chips + List⇄Graph toggle |
+| 2026-08-30T07:48 | [#6705](https://github.com/openova-io/openova/pull/6705) | #6703 | feat(k8scache): watch batch/v1 CronJob + Job (P3 schedule-ti |
 | 2026-08-30T06:50 | [#6704](https://github.com/openova-io/openova/pull/6704) | #6695 | fix(treemap): tiles lead with component name, not 'Install'  |
 | 2026-08-26T18:15 | [#6702](https://github.com/openova-io/openova/pull/6702) | #6695 | feat(jobs): distinct Kind-chip colour per engine, grouped by |
 | 2026-08-26T14:06 | [#6701](https://github.com/openova-io/openova/pull/6701) | #6695 | fix(jobs): Kind column badge shows real engine name (re-cut) |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-24T05:20 | [#6675](https://github.com/openova-io/openova/pull/6675) | #4439 | docs(uat): row 235 — refine ❌ root cause (region-B global-se |
 | 2026-08-24T05:03 | [#6674](https://github.com/openova-io/openova/pull/6674) | docs(uat): fix ledger table overflow properly (remove <style |  |
 | 2026-08-24T04:30 | [#6673](https://github.com/openova-io/openova/pull/6673) | docs(uat): fix ledger table overflow — table-layout:fixed +  |  |
-| 2026-08-24T04:02 | [#6672](https://github.com/openova-io/openova/pull/6672) | #800 | docs(uat): row 14 ⏳→✅ — shared-pg reuse LIVE, multiple consu |
-| 2026-08-24T03:48 | [#6671](https://github.com/openova-io/openova/pull/6671) | #3376 | docs(uat): row 93 ⏳→✅ — 2nd-org funnel generality (walkstran |
 
 ---
 
