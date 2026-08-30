@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-30T10:45:03Z` |
+| Last refreshed | `2026-08-30T11:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-30T10:45 | [#6711](https://github.com/openova-io/openova/pull/6711) | docs(sessions): chargeback requirements capture (Track 1 + N |  |
+| 2026-08-30T10:56 | [#6710](https://github.com/openova-io/openova/pull/6710) | #6703 | fix(sovereign-ui): /jobs graph = the openova-flow dependency |
 | 2026-08-30T10:09 | [#6709](https://github.com/openova-io/openova/pull/6709) | #6703 | feat(sovereign-ui): consolidated CronJob schedule timeline + |
 | 2026-08-30T09:24 | [#6708](https://github.com/openova-io/openova/pull/6708) | #6703 | fix(sovereign-ui): /jobs reuses the canonical DAG + one shar |
 | 2026-08-30T07:48 | [#6706](https://github.com/openova-io/openova/pull/6706) | #6703 | feat(sovereign-ui): /jobs per-kind chips + List⇄Graph toggle |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-24T08:12 | [#6679](https://github.com/openova-io/openova/pull/6679) | docs(dod): mermaid enrichment to SYSTEM-DESIGN standard |  |
 | 2026-08-24T07:57 | [#6678](https://github.com/openova-io/openova/pull/6678) | docs(system-design): major rewrite — GitOps engine, streamin |  |
 | 2026-08-24T06:23 | [#6677](https://github.com/openova-io/openova/pull/6677) | docs: SYSTEM-DESIGN.md — comprehensive CTO/lead-dev onboardi |  |
-| 2026-08-24T05:53 | [#6676](https://github.com/openova-io/openova/pull/6676) | docs(uat): kill the ledger table's horizontal scroll (break  |  |
-| 2026-08-24T05:20 | [#6675](https://github.com/openova-io/openova/pull/6675) | #4439 | docs(uat): row 235 — refine ❌ root cause (region-B global-se |
 
 ---
 
