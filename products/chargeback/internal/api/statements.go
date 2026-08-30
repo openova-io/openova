@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/csv"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -126,5 +127,18 @@ func (h *Handler) issueStatement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.audit(r, &st.CustomerID, "statement.issue", map[string]any{"statement_id": st.ID, "period": st.PeriodStart[:7], "total": st.Total})
+	// ADR-0014 D6: an issued statement of a real-billing Organization
+	// becomes a credit debit through the billing hook. The hook decides
+	// applicability (kind/billing_mode) and is idempotent on the statement
+	// id, so a failure here leaves the statement issued and the operator
+	// re-POSTs issue to repeat the hook.
+	if h.StatementHook != nil {
+		if c, cerr := h.Store.GetCustomer(r.Context(), store.OperatorScope, st.CustomerID); cerr != nil {
+			slog.Warn("statement hook: load customer", "statement", st.ID, "customer", st.CustomerID, "error", cerr)
+		} else if herr := h.StatementHook.StatementIssued(r.Context(), st, c); herr != nil {
+			slog.Warn("statement hook failed; the statement stays issued and a re-issue repeats the idempotent hook", "statement", st.ID, "error", herr)
+			h.audit(r, &st.CustomerID, "statement.hook.error", map[string]any{"statement_id": st.ID, "error": herr.Error()})
+		}
+	}
 	writeJSON(w, http.StatusOK, st)
 }

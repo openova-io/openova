@@ -79,6 +79,16 @@ type OrganizationSpec struct {
 	// BillingMode is "real" | "chargeback" | "showback".
 	BillingMode string `json:"billingMode"`
 
+	// CostSources optionally declares GitOps-managed external cost
+	// sources synced into the chargeback application's Customer row
+	// for this Organization (ADR-0014 D2, EPIC #6723). Empty means the
+	// Organization is metered by the platform collector alone. The
+	// organization-controller does NOT reconcile this field; it is
+	// mirrored here so the typed client round-trip (e.g. the finalizer
+	// add's client.Update) carries it instead of erasing it — the same
+	// class of trap #4471 documented on clientSecretRef.
+	CostSources []OrganizationCostSource `json:"costSources,omitempty"`
+
 	// SovereignRef is the FQDN of the Sovereign hosting this Org.
 	SovereignRef string `json:"sovereignRef"`
 
@@ -154,6 +164,32 @@ type OrganizationTenantPublic struct {
 	// Surfaced on the access-matrix UI so operators can filter routes
 	// by installed product. Optional — empty just omits the label.
 	Product string `json:"product,omitempty"`
+}
+
+// OrganizationCostSource is one GitOps-declared external cost source
+// (spec.costSources[]) synced into the chargeback application
+// (ADR-0014 D2/D8). The chargeback OpenOva adapter upserts one
+// cost_source per entry, keyed (customer, kind, region, projectId).
+type OrganizationCostSource struct {
+	// Kind is the cost-source kind. Today only "huawei-project".
+	Kind string `json:"kind"`
+	// Region is the cloud region of the project (e.g. me-east-215).
+	Region string `json:"region"`
+	// ProjectID is the cloud project id metered for this Organization.
+	ProjectID string `json:"projectId"`
+	// CredentialRef optionally names a Secret in the Organization's
+	// host namespace (= spec.slug) whose key holds the read-only IAM
+	// AK/SK (ADR-0014 D8). Plaintext NEVER on the CR. A pointer, so an
+	// absent ref round-trips as absent (the #4471 value-struct lesson).
+	CredentialRef *OrganizationCostSourceCredentialRef `json:"credentialRef,omitempty"`
+}
+
+// OrganizationCostSourceCredentialRef points at the Secret key holding
+// a cost source's read-only AK/SK. Both fields are validated by the
+// chargeback adapter at read time, not by the CRD schema.
+type OrganizationCostSourceCredentialRef struct {
+	Name string `json:"name,omitempty"`
+	Key  string `json:"key,omitempty"`
 }
 
 // OrganizationOwner is an entry in spec.owners.
@@ -365,6 +401,16 @@ func (s *OrganizationSpec) DeepCopyInto(out *OrganizationSpec) {
 	if s.Owners != nil {
 		out.Owners = make([]OrganizationOwner, len(s.Owners))
 		copy(out.Owners, s.Owners)
+	}
+	if s.CostSources != nil {
+		out.CostSources = make([]OrganizationCostSource, len(s.CostSources))
+		for i := range s.CostSources {
+			out.CostSources[i] = s.CostSources[i]
+			if s.CostSources[i].CredentialRef != nil {
+				ref := *s.CostSources[i].CredentialRef
+				out.CostSources[i].CredentialRef = &ref
+			}
+		}
 	}
 	s.Identity.DeepCopyInto(&out.Identity)
 }
