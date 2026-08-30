@@ -48,10 +48,13 @@ interface JobsGraphViewProps {
   disableStream?: boolean
 }
 
-/** Fold groups at containment depth ≥ 2 by default, so the orchestration
- *  units (bootstrap-kit, cutover, provisioner, …) render as gathered
- *  bubbles with child-count badges rather than exploding every leaf. */
-const DEFAULT_FOLD_DEPTH = 2
+/** Default = UNFOLDED (founder call): every group is expanded so the FULL
+ *  dependency mesh is drawn — all 236 helm→helm `spec.dependsOn` edges plus
+ *  the 6 helm→cutover edges that are otherwise collapsed inside a "112 jobs"
+ *  bubble. Folding a group becomes a manual action (double-click / the
+ *  disclosure badge) to simplify on demand. `'all'` → defaultFolded returns
+ *  the empty set (nothing folded). */
+const DEFAULT_FOLD_DEPTH: number | 'all' = 'all'
 
 const GROUP_NODE_ACTIONS: readonly FlowOrganicAction[] = [
   { id: 'fold', label: 'Fold' },
@@ -90,19 +93,38 @@ export function JobsGraphView({
   )
 
   // Component-first labels + kind-filter. Groups are always kept (they hold
-  // the tree together); leaves are dropped when their kind's chip is hidden.
+  // A leaf is kept when its kind's chip is visible. A GROUP is kept ONLY if
+  // it still has at least one visible descendant — so filtering to "OpenTofu"
+  // hides the Bootstrap (install) bubble entirely, instead of leaving an
+  // install-filled group on the canvas. This is what makes the chip filter
+  // actually show "only the added kinds".
   const jobs = useMemo<Job[]>(() => {
-    return adapter.jobs
-      .filter((j) => {
-        if (j.type === 'group') return true
-        if (!visibleKinds) return true
-        return visibleKinds.has(flowJobKind(j))
-      })
-      .map((j) => ({
-        ...j,
-        displayName: componentLabel(j.displayName ?? j.jobName),
-        jobName: componentLabel(j.jobName),
-      }))
+    const all = adapter.jobs
+    const relabel = (j: Job): Job => ({
+      ...j,
+      displayName: componentLabel(j.displayName ?? j.jobName),
+      jobName: componentLabel(j.jobName),
+    })
+    if (!visibleKinds) return all.map(relabel)
+
+    const byId = new Map(all.map((j) => [j.id, j]))
+    const keep = new Set<string>()
+    // 1. visible leaves
+    for (const j of all) {
+      if (j.type === 'group') continue
+      if (visibleKinds.has(flowJobKind(j))) keep.add(j.id)
+    }
+    // 2. every ancestor group of a kept leaf stays (walk parentId up)
+    for (const leafId of [...keep]) {
+      let pid = byId.get(leafId)?.parentId
+      const seen = new Set<string>()
+      while (pid && !seen.has(pid)) {
+        seen.add(pid)
+        keep.add(pid)
+        pid = byId.get(pid)?.parentId
+      }
+    }
+    return all.filter((j) => keep.has(j.id)).map(relabel)
   }, [adapter.jobs, visibleKinds])
 
   // Fold state — re-seed on topology (group-set) change, keep manual folds

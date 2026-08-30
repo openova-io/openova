@@ -65,6 +65,7 @@ import { PortalShell } from './PortalShell'
 import { JobsTable } from './JobsTable'
 import { JobsGraphView } from './JobsGraphView'
 import { KindChipStrip } from './shared/KindChipStrip'
+import { JobKindDropdown } from './jobs-list/JobKindDropdown'
 import {
   DEFAULT_JOB_KIND,
   isValidJobKind,
@@ -161,7 +162,7 @@ export function JobsPage({
   // so always poll the live local-cluster /jobs endpoint there.
   const isSovereignMode = DETECTED_MODE.mode === 'sovereign'
   const inFlight = streamStatus !== 'completed' && streamStatus !== 'failed'
-  const { liveJobs } = useLiveJobsBackfill({
+  const { liveJobs, isLoading: jobsLoading } = useLiveJobsBackfill({
     deploymentId,
     enabled: !disableJobsBackfill,
     disablePolling: disableJobsBackfill || (!inFlight && !isSovereignMode),
@@ -344,19 +345,16 @@ export function JobsPage({
           </button>
         </div>
 
-        {/* One shared chip strip in BOTH views (KindChipStrip). List view:
-            select = FILTER (drives filteredByKind + JobsTable kindScope).
-            Graph view: the chips FILTER the canvas — a chip's ✕ removes its
-            node-kind from the graph (onVisibleChange → graphVisibleKinds →
-            JobsGraphView), + More re-adds it. Same shared component. */}
+        {/* List view = a single lean DROPDOWN (one kind at a time; each kind
+            has different columns, so a multi-chip strip is the wrong signal).
+            Graph view = the multi-chip strip, where showing several kinds at
+            once IS meaningful and a chip's ✕ filters that kind off the canvas
+            (onVisibleChange → graphVisibleKinds → JobsGraphView). */}
         {activeView === 'list' ? (
-          <KindChipStrip<JobChipKind>
-            catalogue={JOB_KINDS}
+          <JobKindDropdown
             activeKind={activeKind}
             counts={kindCounts}
             onChange={setKind}
-            testidPrefix="jobs-kind"
-            storageKey="sov-jobs-hidden-kinds"
           />
         ) : (
           <KindChipStrip<JobChipKind>
@@ -395,7 +393,14 @@ export function JobsPage({
 
       <div id="jobs-page-content" className="mt-4" data-testid="sov-jobs-list" data-view={activeView}>
         {activeView === 'list' ? (
-          <JobsTable jobs={filteredByKind} deploymentId={deploymentId} kindScope={activeKind} />
+          flatJobs.length === 0 && jobsLoading ? (
+            <div className="jobs-loading" data-testid="jobs-loading" role="status" aria-live="polite">
+              <span className="jobs-loading-spin" aria-hidden />
+              <span>Loading jobs…</span>
+            </div>
+          ) : (
+            <JobsTable jobs={filteredByKind} deploymentId={deploymentId} kindScope={activeKind} />
+          )
         ) : (
           <JobsGraphView
             deploymentId={deploymentId}
@@ -469,6 +474,27 @@ const JOBS_PAGE_TOOLBAR_CSS = `
   background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg-2));
 }
 .jobs-view-schedule-link svg { width: 15px; height: 15px; }
+.jobs-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  padding: 3.5rem 1rem;
+  color: var(--color-text-dim);
+  font-size: 0.92rem;
+}
+.jobs-loading-spin {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--color-text-dim) 30%, transparent);
+  border-top-color: var(--color-accent);
+  animation: jobs-loading-spin 0.7s linear infinite;
+}
+@keyframes jobs-loading-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .jobs-loading-spin { animation-duration: 2s; }
+}
 `
 
 /**

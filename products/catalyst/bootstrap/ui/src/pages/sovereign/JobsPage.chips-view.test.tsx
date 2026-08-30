@@ -96,10 +96,12 @@ describe('JobsPage — List⇄Graph toggle', () => {
     expect(screen.getByTestId('jobs-page-view-graph')).toBeTruthy()
   })
 
-  it('list view (default) renders the table + the JobKindChips strip', async () => {
+  it('list view (default) renders the table + the kind DROPDOWN (chips are graph-only)', async () => {
     renderJobs('/provision/d-1/jobs?view=list&kind=lifecycle')
     expect(await screen.findByTestId('jobs-table')).toBeTruthy()
-    expect(screen.getByTestId('jobs-kind-chips')).toBeTruthy()
+    // List view = one lean dropdown (single-select), NOT the multi-chip strip.
+    expect(screen.getByTestId('jobs-kind-dropdown')).toBeTruthy()
+    expect(screen.queryByTestId('jobs-kind-chips')).toBeNull()
     expect(screen.queryByTestId('jobs-graph-view')).toBeNull()
   })
 

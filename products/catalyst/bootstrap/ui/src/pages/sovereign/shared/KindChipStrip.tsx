@@ -330,7 +330,18 @@ function MoreChipPopover<K extends string>({
       ) as HTMLElement | null
       if (!btn) return
       const r = btn.getBoundingClientRect()
-      setCoords({ left: r.right, top: r.bottom + 6 })
+      // Anchor the popover's LEFT edge to the button, then CLAMP it inside the
+      // viewport so it can never run off the left/right edge (the earlier
+      // right-anchored `translateX(-100%)` clipped off-screen-left when the
+      // + More button sat near the left of a narrow window).
+      const popW = popoverRef.current?.offsetWidth || 240
+      const margin = 8
+      let left = r.left
+      if (left + popW > window.innerWidth - margin) {
+        left = window.innerWidth - margin - popW
+      }
+      if (left < margin) left = margin
+      setCoords({ left, top: r.bottom + 6 })
     }
     reposition()
     window.addEventListener('resize', reposition)
@@ -357,7 +368,6 @@ function MoreChipPopover<K extends string>({
               position: 'fixed',
               left: coords.left,
               top: coords.top,
-              transform: 'translateX(-100%)',
               zIndex: 2000,
               display: 'flex',
               flexDirection: 'column',

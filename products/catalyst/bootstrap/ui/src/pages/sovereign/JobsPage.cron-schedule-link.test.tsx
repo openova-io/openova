@@ -85,7 +85,7 @@ describe('JobsPage — View schedule affordance', () => {
 
   it('hides the link for a non-cron kind', async () => {
     renderJobs('/provision/d-1/jobs?view=list&kind=lifecycle')
-    await screen.findByTestId('jobs-kind-chips')
+    await screen.findByTestId('jobs-kind-dropdown')
     expect(screen.queryByTestId('jobs-cron-view-schedule')).toBeNull()
   })
 
