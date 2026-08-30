@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-30T14:00:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-08-30T14:15:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-30T14:06 | [#6715](https://github.com/openova-io/openova/pull/6715) | #6713 | docs(adr): ADR-0014 D9 — chargeback UI model (one account tr |
 | 2026-08-30T13:50 | [#6714](https://github.com/openova-io/openova/pull/6714) | #6713 | docs(adr): ADR-0014 D3a — collection modes (event-driven vs  |
 | 2026-08-30T13:17 | [#6713](https://github.com/openova-io/openova/pull/6713) | #6711 | docs(adr): ADR-0014 chargeback — usage ledger primitive + bp |
 | 2026-08-30T13:17 | [#6712](https://github.com/openova-io/openova/pull/6712) | docs(sessions): chargeback capture — extended billing/meteri |  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-08-24T08:20 | [#6683](https://github.com/openova-io/openova/pull/6683) | docs(security): mermaid enrichment to SYSTEM-DESIGN standard |  |
 | 2026-08-24T08:15 | [#6682](https://github.com/openova-io/openova/pull/6682) | docs(architecture): mermaid enrichment to SYSTEM-DESIGN stan |  |
 | 2026-08-24T08:13 | [#6681](https://github.com/openova-io/openova/pull/6681) | docs(protocol): mermaid enrichment to SYSTEM-DESIGN standard |  |
-| 2026-08-24T08:14 | [#6680](https://github.com/openova-io/openova/pull/6680) | docs(principles): mermaid enrichment to SYSTEM-DESIGN standa |  |
 
 ---
 
