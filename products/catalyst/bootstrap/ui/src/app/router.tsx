@@ -887,13 +887,34 @@ const provisionCatalogDetailRoute = createRoute({
   beforeLoad: provisionAuthGuard,
 })
 
+// P1b (Refs #6703) — search-param contract for the /jobs List⇄Graph
+// toggle + per-kind chip filter. Mirrors CloudSearch. `kind` is passed
+// through as a free string (JobsPage's isValidJobKind is the closed-set
+// guard at read time), matching how CloudSearch threads its `kind`.
+interface JobsSearch {
+  view?: 'graph' | 'list'
+  kind?: string
+}
+
 // Global jobs list — table view (issue #204 founder spec). Each row is
 // a clickable link that navigates to the per-job detail page.
+//
+// P1b (Refs #6703) — the /jobs page mirrors /cloud's UX: a List⇄Graph
+// `view` toggle + a per-kind `kind` chip filter. This validateSearch is
+// CRITICAL: without it TanStack Router drops the unknown `?view=`/`?kind=`
+// params on navigation and the view/kind never persist across a toggle.
+// Mirrors provisionCloudRoute.validateSearch (CloudSearch) above.
 const provisionJobsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/provision/$deploymentId/jobs',
   component: JobsPage,
   beforeLoad: provisionAuthGuard,
+  validateSearch: (raw: Record<string, unknown>): JobsSearch => {
+    const out: JobsSearch = {}
+    if (raw.view === 'graph' || raw.view === 'list') out.view = raw.view
+    if (typeof raw.kind === 'string' && raw.kind.length > 0) out.kind = raw.kind
+    return out
+  },
 })
 
 // Jobs timeline (Gantt-style retrospective). Static segment, MUST be
@@ -1395,6 +1416,16 @@ const consoleJobsRoute = createRoute({
   getParentRoute: () => consoleLayoutRoute,
   path: '/jobs',
   component: JobsPage,
+  // P1b (Refs #6703) — mirrors provisionJobsRoute.validateSearch so the
+  // chroot Sovereign Console's /jobs also persists `?view=`/`?kind=`
+  // across the List⇄Graph toggle + chip filter. Without it TanStack
+  // Router drops the params and the view silently resets.
+  validateSearch: (raw: Record<string, unknown>): JobsSearch => {
+    const out: JobsSearch = {}
+    if (raw.view === 'graph' || raw.view === 'list') out.view = raw.view
+    if (typeof raw.kind === 'string' && raw.kind.length > 0) out.kind = raw.kind
+    return out
+  },
 })
 // #3601 (EPIC #3597) — Catalog as its OWN left-nav page (chroot Sovereign
 // Console). `/catalog` renders the catalog grid that used to be the

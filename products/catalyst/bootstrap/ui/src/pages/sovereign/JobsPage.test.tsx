@@ -64,7 +64,15 @@ function renderJobs(deploymentId: string) {
   ])
   const router = createRouter({
     routeTree: tree,
-    history: createMemoryHistory({ initialEntries: [`/provision/${deploymentId}/jobs`] }),
+    // P1b (Refs #6703): /jobs now mirrors /cloud — list view shows ONE
+    // JobKind at a time (default `install`). The reducer first-paint rows
+    // this harness exercises all classify as `lifecycle` (their titles —
+    // "Install Cilium", "Provision infrastructure — …" — don't match the
+    // `install-` prefix, and groups are `group`), so the row-level
+    // assertions below select the `lifecycle` chip to see them all.
+    history: createMemoryHistory({
+      initialEntries: [`/provision/${deploymentId}/jobs?view=list&kind=lifecycle`],
+    }),
   })
   // Each render gets its own QueryClient so the live-jobs-backfill
   // query cache never bleeds between tests. Even with backfill
@@ -116,17 +124,28 @@ describe('JobsPage — table view (NOT accordion)', () => {
     expect(table.tagName.toLowerCase()).toBe('table')
   })
 
-  it('renders the canonical columns including Kind (issue #3646)', async () => {
+  it('drops the redundant per-row Kind column when the chip strip scopes the kind (#3646 intent preserved via chips)', async () => {
     renderJobs('d-1')
     const table = await screen.findByTestId('jobs-table')
     const headers = within(table).getAllByRole('columnheader').map((h) => (h.textContent ?? '').toLowerCase().trim())
-    // Kind inserted after Name (#3646); Runs after Status (#3925 run-history
-    // depth); Parent (not the legacy "batch") is the canonical column;
-    // Actions trails when a deploymentId is threaded (JobsPage threads it).
-    // Assert the stable left columns.
-    expect(headers.slice(0, 9)).toEqual([
-      'name', 'kind', 'app', 'deps', 'parent', 'status', 'runs', 'started', 'duration',
+    // The /jobs page mirrors /cloud: the chip strip single-selects the
+    // JobKind, so every visible row IS that kind — a per-row Kind column
+    // (and a second Kind filter dropdown) would be redundant. JobsPage
+    // passes kindScope, so JobsTable hides both. The kind is NOT lost:
+    // it is surfaced by the active chip (this preserves the #3646 intent
+    // that the typed kind stays visible — the unscoped JobsTable still
+    // renders the Kind column, covered in JobsTable.test.tsx).
+    expect(headers).not.toContain('kind')
+    // Runs after Status (#3925 run-history depth); Parent (not legacy
+    // "batch") is canonical; Actions trails when a deploymentId is threaded.
+    expect(headers.slice(0, 8)).toEqual([
+      'name', 'app', 'deps', 'parent', 'status', 'runs', 'started', 'duration',
     ])
+    // And the redundant Kind filter dropdown is gone from the table toolbar.
+    expect(screen.queryByTestId('jobs-filter-kind')).toBeNull()
+    // The kind IS surfaced — via the chip strip (active kind = lifecycle →
+    // the real engine label "OpenTofu", per JOB_ENGINE_LABELS.lifecycle).
+    expect(screen.getByTestId('jobs-kind-chips')).toBeTruthy()
   })
 
   it('does NOT render any legacy accordion testids', async () => {
