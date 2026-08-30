@@ -1,0 +1,38 @@
+{{- /*
+Gateway-ingress admit — the Cilium Gateway path is DEAD without this CNP:
+external hits reach the backend with the reserved `ingress` ENTITY
+identity (the Envoy proxy embedded in the cilium agent), which NO K8s
+NetworkPolicy selector can express — every hit returns envoy 503 under a
+default-deny posture (#3374 / #3785 / #4180). `cluster` additionally admits
+in-cluster callers (the console's BSS adapter, lane D).
+
+Gated on the cilium.io/v2 Capabilities check (the #2988/#3102 idiom) so
+the chart still installs on CRD-less clusters (kind CI).
+*/ -}}
+{{- if and .Values.networkPolicy.enabled (.Capabilities.APIVersions.Has "cilium.io/v2") }}
+{{- if or .Values.networkPolicy.ingress.allowGatewayEntity .Values.networkPolicy.ingress.allowClusterEntity }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "chargeback.fullname" . }}-ingress
+  labels:
+    {{- include "chargeback.labels" . | nindent 4 }}
+    catalyst.openova.io/component: chargeback-ingress-netpol
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "chargeback.selectorLabels" . | nindent 6 }}
+  ingress:
+    - fromEntities:
+        {{- if .Values.networkPolicy.ingress.allowGatewayEntity }}
+        - ingress
+        {{- end }}
+        {{- if .Values.networkPolicy.ingress.allowClusterEntity }}
+        - cluster
+        {{- end }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.service.port | quote }}
+              protocol: TCP
+{{- end }}
+{{- end }}

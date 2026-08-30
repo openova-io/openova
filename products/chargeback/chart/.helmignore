@@ -1,0 +1,9 @@
+# Only CI runs the render suites; they are pure payload in a release Secret
+# (scripts/check-helm-release-payload-size.py, #6004).
+tests/
+.git/
+*.swp
+*.bak
+*.tmp
+*.orig
+.DS_Store

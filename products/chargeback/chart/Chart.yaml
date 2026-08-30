@@ -1,0 +1,48 @@
+apiVersion: v2
+name: bp-chargeback
+description: |
+  Chargeback — the OpenOva usage ledger, rating and statements application
+  (EPIC #6723, ADR-0014). Standalone by design (ADR-0014 D4): its own
+  customers, its own CNPG Postgres, its own JSON API (/api/v1) and its own
+  UI served at /, PIN sign-in, and a Huawei (HCSO Kom4DC) cloud collector.
+  One chart, three placements (ADR-0014 D5): the Sovereign BSS component
+  (bootstrap-kit slot 13f, chargeback.<sovereign-fqdn>), a per-Organization
+  install, or a central instance on bare Kubernetes — the same binary with
+  PROFILE selecting the banner and the /auth/me payload.
+type: application
+# 0.1.0 (#6723, lane B): first release — Deployment (2 replicas, distroless
+# non-root 65532, read-only rootfs) + ClusterIP Service + Gateway-API
+# HTTPRoute chargeback.<fqdn> (never a Traefik Ingress, never a NodePort —
+# §854) + zero-RBAC ServiceAccount + Cilium ingress/egress CNPs with the
+# load-bearing kube-dns carve-out + a private CNPG Cluster wired through
+# the placeholder-DSN Secret + post-install sync Job (the platform/newapi
+# pattern A — never a Helm `lookup`) + a create-if-absent APP_ENCRYPTION_KEY
+# Job (generated once, never regenerated). Lockstep: blueprint.yaml 0.1.0 +
+# bootstrap-kit slot 13f pin 0.1.0 + catalog-seed (blueprints.yaml) 0.1.0.
+# Image = ghcr.io/openova-io/chargeback:<appVersion>
+# (build-chargeback.yaml; plain image repo per the #4706 chart-repo-collision
+# lesson — never the bp-chargeback chart OCI repo).
+version: 0.1.0
+# appVersion is the default image tag (chargeback.image in _helpers.tpl);
+# build-chargeback.yaml derives the pushed tag from this field so the two
+# can never drift.
+appVersion: "0.1.0"
+keywords:
+  - chargeback
+  - showback
+  - usage-ledger
+  - rating
+  - statements
+  - bss
+  - openova-blueprint
+maintainers:
+  - name: OpenOva
+    url: https://github.com/openova-io/openova
+sources:
+  - https://github.com/openova-io/openova
+# Opt out of the hollow-chart guard (Blueprint-Release workflow / #181):
+# first-party product chart deploying a single Go service image with
+# Catalyst-authored resources — no bundled upstream Helm subchart (same shape
+# as bp-openova-mcp, bp-agenity, bp-continuum).
+annotations:
+  catalyst.openova.io/no-upstream: "true"

@@ -1,0 +1,37 @@
+{{- /*
+Gateway-API HTTPRoute — the ONLY external door (never a Traefik Ingress in
+a product chart; never a NodePort, §854).
+
+The Sovereign host (chargeback.<sovereign-fqdn>) parents to the canonical
+kube-system/cilium-gateway (TBD-G6/C12-004: a non-existent parent renders
+Accepted=False and the host 404s). A per-Org install overrides parentRef
+to the console gateway (cilium-gateway-console, #4054).
+
+Fail-closed (Inviolable #4): no resolvable hostname → NO route. The binary
+enforces its own auth (cb_session cookie; every /api/v1 call is scoped by
+role, spec §4), so the route carries no auth gate of its own.
+*/ -}}
+{{- $host := include "chargeback.hostname" . -}}
+{{- if and .Values.httpRoute.enabled $host }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "chargeback.fullname" . }}
+  labels:
+    {{- include "chargeback.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.httpRoute.parentRef.name }}
+      namespace: {{ .Values.httpRoute.parentRef.namespace }}
+  hostnames:
+    - {{ $host | quote }}
+  rules:
+    # / (the embedded UI) + /api/v1/* + /healthz + /readyz → the Service.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ include "chargeback.fullname" . }}
+          port: {{ .Values.service.port }}
+{{- end }}

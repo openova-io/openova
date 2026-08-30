@@ -151,6 +151,10 @@ RENDER_VALUES: dict[str, list[str]] = {
         "networkPolicy.enabled=true",
         "networkPolicy.egress.enabled=true",
     ],
+    "products/chargeback/chart": [
+        "networkPolicy.enabled=true",
+        "networkPolicy.egress.enabled=true",
+    ],
 }
 DEFAULT_RENDER_VALUES = ["networkPolicy.enabled=true"]
 

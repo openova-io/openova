@@ -1,0 +1,161 @@
+# bp-chargeback — default values (EPIC #6723, ADR-0014).
+#
+# Inviolable Principle #4: no hardcoded secrets. The database DSN is
+# composed at runtime from CNPG's own `<cluster>-app` Secret by the
+# post-install sync Job; the APP_ENCRYPTION_KEY is generated once by the
+# pre-install key Job and never rendered by Helm. Nothing sensitive is a
+# literal here.
+
+# Sovereign primary FQDN (e.g. hw305.omani.works). The bootstrap-kit slot
+# stamps ${SOVEREIGN_FQDN}. Derives the HTTPRoute host chargeback.<fqdn>
+# and the default PUBLIC_URL (https://chargeback.<fqdn>).
+sovereignFqdn: ""
+
+# ── Image ───────────────────────────────────────────────────────────────
+# Built by .github/workflows/build-chargeback.yaml; the tag defaults to
+# .Chart.AppVersion. Plain image repo per the #4706 lesson — never the
+# bp-chargeback chart OCI repo.
+image:
+  repository: ghcr.io/openova-io/chargeback
+  tag: ""                 # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+# Cutover step-07 image-registry pivot seam (#4885/#4892): when the
+# post-handover cutover pivots the Sovereign onto its local Harbor it
+# patches global.imageRegistry and the image helper re-prefixes every
+# repository with it. Empty = verbatim upstream (byte-identical pre-cutover).
+global:
+  imageRegistry: ""
+
+# ghcr.io/openova-io/* packages are PRIVATE — the reflected `ghcr-pull`
+# dockerconfigjson Secret must be REFERENCED by the pod spec (#4111).
+imagePullSecrets:
+  - name: ghcr-pull
+
+# Two stateless replicas by default: the collector and rater are
+# idempotent on (source, resource, sku, window_start) (spec §3) and the
+# session/PIN state lives in Postgres, so either replica can serve any
+# request. strategy below keeps a 1-replica override rollable (#6079).
+replicaCount: 2
+
+# ── Application configuration (spec §6 env) ─────────────────────────────
+config:
+  # OPERATOR_EMAILS — comma-separated; a PIN sign-in from one of these
+  # addresses gets the operator role (spec §4 auth). Empty = no operator.
+  operatorEmails: ""
+  # PUBLIC_URL — used in invite links and mail. Empty = derived
+  # https://chargeback.<sovereignFqdn> (or "" when no FQDN is known).
+  publicUrl: ""
+  # HUAWEI_ENDPOINT_TEMPLATE — printf pattern (svc, region) for the HCSO
+  # Kom4DC endpoints (spec §3).
+  huaweiEndpointTemplate: "https://%s.%s.kom4dc.nationalcloud.om"
+  # HUAWEI_INSECURE_TLS — the on-prem CA is not in the distroless bundle.
+  huaweiInsecureTls: true
+  # COLLECT_INTERVAL / CTS_POLL_INTERVAL — Go duration strings (spec §3).
+  collectInterval: 15m
+  ctsPollInterval: 5m
+  # PROFILE — sovereign | operator-central (spec §6; Phase 0 only affects
+  # the /auth/me payload and the UI banner).
+  profile: sovereign
+  # LISTEN_ADDR — must agree with service.port (the container port `http`).
+  listenAddr: ":8080"
+
+# ── Optional SMTP (spec §6 SMTP_HOST/PORT/USER/PASS/FROM) ────────────────
+# Name of a pre-created Secret whose keys are the SMTP_* env names. Empty =
+# dev mode: the binary logs the PIN / invite URL instead of mailing them.
+# Referenced with optional:true so the chart schedules either way.
+smtp:
+  existingSecret: ""
+
+# ── APP_ENCRYPTION_KEY (spec §1 credentials envelope) ────────────────────
+# Generated ONCE by templates/app-key-job.yaml (pre-install hook,
+# create-if-absent, never regenerated — rotating it would orphan every
+# stored AK/SK envelope). Empty name = <fullname>-app-key.
+encryptionKey:
+  secretName: ""
+  key: APP_ENCRYPTION_KEY
+
+# ── Database (private CNPG Cluster, platform/newapi pattern A) ───────────
+cnpg:
+  enabled: true
+  database: chargeback
+  # DATABASE_URL placeholder Secret name. Empty = <fullname>-db-dsn.
+  dsnSecretName: ""
+  sslMode: require
+  cluster:
+    instances: 1
+    imageName: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16.4
+    storage: 5Gi
+    # Empty = the Sovereign's default (durable cloud CSI) StorageClass.
+    # local-path is FORBIDDEN (#3971).
+    storageClassName: ""
+    owner: chargeback
+    resources: {}
+    affinity: {}
+  # Init-container gate: the binary applies migrations at startup (spec §1)
+  # so it must not start on the empty placeholder DSN. Polls the mounted
+  # Secret file until the sync Job has populated it.
+  dsnGate:
+    image: harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1
+    timeoutSeconds: 600
+
+# ── Service (ClusterIP — NEVER NodePort, §854) ───────────────────────────
+service:
+  type: ClusterIP
+  port: 8080
+
+# ── HTTPRoute (Cilium Gateway — the ONLY external door) ──────────────────
+httpRoute:
+  enabled: true
+  # Empty → derived chargeback.<sovereignFqdn>. No hostname resolvable →
+  # the route renders NOTHING (fail-closed, Inviolable #4).
+  hostnames: []
+  # The Sovereign host rides the canonical kube-system/cilium-gateway. A
+  # per-Org install (chargeback.<slug>.<pool>) overrides to the console
+  # gateway (cilium-gateway-console, #4054) via its install values.
+  parentRef:
+    name: cilium-gateway
+    namespace: kube-system
+
+# ── Network policy (Cilium) ──────────────────────────────────────────────
+# Rendered only when the cilium.io/v2 CRD is present. Gateway traffic
+# reaches the pod as the reserved `ingress` ENTITY (#4180) — the CNP
+# fromEntities carve-out is the canonical admit.
+networkPolicy:
+  enabled: true
+  ingress:
+    allowGatewayEntity: true
+    allowClusterEntity: true
+  egress:
+    # world:443 — the Huawei HCSO endpoints (spec §3) + PUBLIC_URL self
+    # checks; cluster/host/remote-node:443/8080/5432 — CNPG in this
+    # namespace, the catalyst-api adapter (lane D) and any in-cluster hop.
+    # DNS to kube-dns is LOAD-BEARING (#4604 / #5617).
+    enabled: true
+    allowExternalHttps: true
+    httpsPort: 443
+    # Extra TCP ports to open toward the same entity set — e.g. 587 when
+    # smtp.existingSecret points at an external submission host.
+    extraPorts: []
+
+# ── ServiceAccount ────────────────────────────────────────────────────────
+# Phase 0 reads NOTHING from the Kubernetes API (the platform collector's
+# informers are lane D), so the pod's ServiceAccount carries ZERO RBAC and
+# no token mount. The two hook Jobs use their own scoped SAs.
+serviceAccount:
+  create: true
+  name: ""
+
+# requests == limits (Guaranteed QoS, 1:1 ratio) — REQUIRED for a per-Org
+# install under the plan-limits LimitRange (#4362/#4553).
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 100m
+    memory: 256Mi
+
+# Object-name stem. Empty = "chargeback" (the bp- prefix belongs to the
+# chart/catalog, not to the workload names).
+nameOverride: ""

@@ -1,0 +1,15 @@
+bp-chargeback {{ .Chart.Version }} (image {{ include "chargeback.image" . }})
+
+{{- $host := include "chargeback.hostname" . }}
+{{- if $host }}
+UI + API: https://{{ $host }}/  (HTTPRoute on {{ .Values.httpRoute.parentRef.namespace }}/{{ .Values.httpRoute.parentRef.name }})
+{{- else }}
+No HTTPRoute rendered: set sovereignFqdn or httpRoute.hostnames[0].
+{{- end }}
+
+Sign in with a PIN sent to an address in OPERATOR_EMAILS
+({{ .Values.config.operatorEmails | default "<unset — no operator can sign in>" }}).
+
+Database: {{ if .Values.cnpg.enabled }}CNPG Cluster {{ include "chargeback.cnpgClusterName" . }} — DATABASE_URL is written into
+Secret {{ include "chargeback.dsnSecretName" . }} by the post-install db-dsn-sync Job.{{ else }}cnpg.enabled=false — provide Secret {{ include "chargeback.dsnSecretName" . }} with key DATABASE_URL.{{ end }}
+Encryption key: Secret {{ include "chargeback.appKeySecretName" . }} (key {{ .Values.encryptionKey.key }}), generated once by the pre-install app-key Job.

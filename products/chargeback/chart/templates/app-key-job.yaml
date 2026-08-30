@@ -1,0 +1,195 @@
+{{- /*
+APP_ENCRYPTION_KEY bootstrap Job — create-if-absent, NEVER regenerated.
+
+The credentials table stores every customer's cloud secret key envelope-
+encrypted with APP_ENCRYPTION_KEY (spec §1: 32 bytes, base64 in the env).
+Rotating that key would orphan every stored AK/SK, so the key is generated
+exactly once and preserved across every upgrade:
+
+  1. Idempotency probe — GET the Secret; 200 = exit 0 (an operator-
+     pre-provisioned Secret is respected; every helm upgrade skips).
+  2. Generate 32 random bytes → base64 (the env VALUE the binary decodes);
+     the k8s wire value is base64 of that string. The bytes are NEVER
+     echoed, never written outside the in-pod tmpfs.
+  3. POST the Secret; 409 (concurrent create) = success, any other non-2xx
+     is fatal.
+
+Hook ordering (the platform/k8s-ws-proxy hmac-bootstrap-job.yaml precedent,
+Fix #95): SA -20 → Role/RoleBinding -15 → Job -10, all pre-install AND
+pre-upgrade so the Secret exists BEFORE the Deployment rolls. RBAC split
+per feedback_rbac_create_no_resourcenames.md: `create` in its own rule
+WITHOUT resourceNames; `get` scoped to the one Secret.
+*/ -}}
+{{- $secretName := include "chargeback.appKeySecretName" . }}
+{{- $secretKey := .Values.encryptionKey.key }}
+{{- $jobName := printf "%s-app-key" (include "chargeback.fullname" .) }}
+{{- $ns := .Release.Namespace }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $jobName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "chargeback.hookLabels" . | nindent 4 }}
+    catalyst.openova.io/component: chargeback-app-key
+  annotations:
+    "helm.sh/hook": "pre-install,pre-upgrade"
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": "before-hook-creation"
+  {{- with .Values.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $jobName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "chargeback.hookLabels" . | nindent 4 }}
+    catalyst.openova.io/component: chargeback-app-key
+  annotations:
+    "helm.sh/hook": "pre-install,pre-upgrade"
+    "helm.sh/hook-weight": "-15"
+    "helm.sh/hook-delete-policy": "before-hook-creation"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ $secretName | quote }}]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $jobName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "chargeback.hookLabels" . | nindent 4 }}
+    catalyst.openova.io/component: chargeback-app-key
+  annotations:
+    "helm.sh/hook": "pre-install,pre-upgrade"
+    "helm.sh/hook-weight": "-15"
+    "helm.sh/hook-delete-policy": "before-hook-creation"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $jobName }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $jobName }}
+    namespace: {{ $ns }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $jobName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "chargeback.hookLabels" . | nindent 4 }}
+    catalyst.openova.io/component: chargeback-app-key
+  annotations:
+    "helm.sh/hook": "pre-install,pre-upgrade"
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"
+spec:
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        {{- include "chargeback.hookLabels" . | nindent 8 }}
+        catalyst.openova.io/component: chargeback-app-key
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ $jobName }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app-key
+          image: {{ include "chargeback.pivotImage" (dict "repo" .Values.cnpg.dsnGate.image "tag" "" "root" .) | quote }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SECRET_NAME
+              value: {{ $secretName | quote }}
+            - name: SECRET_KEY
+              value: {{ $secretKey | quote }}
+            - name: NAMESPACE
+              value: {{ $ns | quote }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              APISERVER="https://kubernetes.default.svc"
+              TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+              CA=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              echo "[app-key] target: ${NAMESPACE}/${SECRET_NAME} (key=${SECRET_KEY})"
+              code=$(curl -sS -o /tmp/probe.json -w '%{http_code}' --cacert "${CA}" \
+                -H "Authorization: Bearer ${TOKEN}" \
+                "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets/${SECRET_NAME}")
+              if [ "${code}" = "200" ]; then
+                echo "[app-key] Secret already exists — keeping it (never regenerated)"
+                exit 0
+              fi
+              if [ "${code}" != "404" ]; then
+                echo "[app-key] FATAL: probe returned HTTP ${code}" >&2
+                cat /tmp/probe.json >&2 || true
+                exit 1
+              fi
+              KEY_B64=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
+              if [ -z "${KEY_B64}" ]; then
+                echo "[app-key] FATAL: empty random output" >&2
+                exit 1
+              fi
+              WIRE_B64=$(printf '%s' "${KEY_B64}" | base64 | tr -d '\n')
+              BODY=$(printf '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"%s","namespace":"%s","labels":{"catalyst.openova.io/blueprint":"bp-chargeback","catalyst.openova.io/component":"chargeback-app-key"}},"type":"Opaque","data":{"%s":"%s"}}' \
+                "${SECRET_NAME}" "${NAMESPACE}" "${SECRET_KEY}" "${WIRE_B64}")
+              code=$(curl -sS -o /tmp/create.json -w '%{http_code}' --cacert "${CA}" \
+                -H "Authorization: Bearer ${TOKEN}" \
+                -H "Content-Type: application/json" \
+                -X POST --data "${BODY}" \
+                "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets")
+              KEY_B64=""; WIRE_B64=""; BODY=""
+              if [ "${code}" = "201" ] || [ "${code}" = "200" ]; then
+                echo "[app-key] Secret ${NAMESPACE}/${SECRET_NAME} created"
+                exit 0
+              fi
+              if [ "${code}" = "409" ]; then
+                echo "[app-key] Secret created concurrently (HTTP 409) — keeping the existing key"
+                exit 0
+              fi
+              echo "[app-key] FATAL: POST returned HTTP ${code}" >&2
+              cat /tmp/create.json >&2 || true
+              exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Mi
