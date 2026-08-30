@@ -109,7 +109,7 @@ jobs:
       - name: Build image (load)
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: products/chargeback
           file: products/chargeback/Containerfile
           load: true
           push: false

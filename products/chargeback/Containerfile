@@ -10,18 +10,30 @@
 # Stage 2 is distroless static: no shell, numeric non-root uid, and nothing
 # is written to the filesystem at runtime (read-only rootfs compatible).
 
-# ─── Stage 1: build ────────────────────────────────────────────────────────
+# ─── Stage 1: build the UI bundle (React + TypeScript + Vite) ──────────────
+# Node 22 LTS. `npm ci` pins to ui/package-lock.json; `npm run build` runs
+# `tsc -b && vite build` — a TypeScript error fails the image build.
+FROM node:22-alpine AS ui
+WORKDIR /ui
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY ui/ ./
+RUN npm run build
+
+# ─── Stage 2: build the Go binary (embeds ui/dist) ─────────────────────────
 FROM golang:1.24-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+# Real UI bundle overwrites the committed placeholder before the embed.
+COPY --from=ui /ui/dist ./ui/dist
 ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
     -ldflags "-s -w -X main.version=${VERSION}" \
     -o /out/chargeback ./cmd/chargeback
 
-# ─── Stage 2: runtime ──────────────────────────────────────────────────────
+# ─── Stage 3: runtime ──────────────────────────────────────────────────────
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/chargeback /chargeback
 USER 65532:65532
