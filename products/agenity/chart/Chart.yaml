@@ -1,5 +1,15 @@
 apiVersion: v2
 name: bp-agenity
+# 0.5.33 (#6723 lane C): no chart-template change — the bump carries
+# blueprint.yaml's new spec.consoleUI block (sidebarEntry=true, label
+# "Agenity", route /apps/bp-agenity/dashboard, order 40, the terminal glyph)
+# into the published OCI artifact, which packages blueprint.yaml alongside the
+# templates. Agenity is the first Blueprint that registers its own
+# Sovereign-console sidebar entry through the Wave 5.69 contract; the console's
+# former static "Agenity" row is gone and the sovereign-admin maps the entry
+# (rename / re-route / re-order / nest / hide) from Settings → Menu. Lockstep
+# with blueprint.yaml, the catalog-seed card + source pins, the regenerated
+# catalog pair, the funnel pin (DefaultHRAppChartVersions) and the umbrella.
 # 0.5.32 (#6513): give the creds-resync sidecar a livenessProbe AND a
 # readinessProbe. 0.5.31 shipped the sidecar (below) with NEITHER, and the
 # kyverno probes-present ClusterPolicy (platform/kyverno-policies K1) DENIES a
@@ -287,7 +297,7 @@ type: application
 # same gateway bp-wordpress-tenant + the org console route attach to, #4054).
 # The old default rendered Accepted=False/InvalidHTTPRoute and the host 404'd
 # until the parentRef was hand-overridden. appVersion (image) unchanged.
-version: 0.5.32
+version: 0.5.33
 # 0.5.22 (#5617): the per-Org oidc-gate companion gains its EGRESS
 # CiliumNetworkPolicy (templates/oidc-gate.yaml `oidc-gate-<cid>-egress`).
 # The gate shipped an ingress-only gateway CNP into a DEFAULT-DENY per-Org

@@ -162,6 +162,9 @@ const ALL_SECTIONS = [
   // into a granular anchor section, consistent with #dns.
   'parent-domains',
   'marketplace',
+  // #6723: the console left-menu mapping is an anchored section next to
+  // Marketplace (never a sub-route or a Settings sub-nav child).
+  'menu',
   'notifications',
   'members',
   'danger-zone',

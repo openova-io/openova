@@ -1324,6 +1324,16 @@ func main() {
 		// SovereignSidebar.tsx subscribes + appends nav entries
 		// between hardcoded BSS (order=60) and Settings.
 		rg.Get("/api/v1/sovereigns/{id}/console-ui/sidebar-entries", h.HandleConsoleUISidebarEntries)
+		// EPIC #6723 lane C — the per-Sovereign sidebar MAPPING (founder
+		// 2026-08-31: "the left menu or sub-menus of the sovereign console
+		// can be connected to the respective applications, like Agenity").
+		// GET returns the stored overrides; PUT validates + persists them
+		// as ConfigMap catalyst-system/console-ui-sidebar on the Sovereign's
+		// cluster. Both are sovereign-admin gated inside the handler
+		// (requireSidebarAdmin) on top of RequireSession; the merged view
+		// the console renders is the sidebar-entries GET above.
+		rg.Get("/api/v1/sovereigns/{id}/console-ui/sidebar-overrides", h.HandleConsoleUISidebarOverridesGet)
+		rg.Put("/api/v1/sovereigns/{id}/console-ui/sidebar-overrides", h.HandleConsoleUISidebarOverridesPut)
 		// qa-loop iter-7 Fix #39 — canonical UAT-matrix vocabulary
 		// surface for "issue a remote-shell session". Same business
 		// logic as POST /k8s/exec/.../session but the matrix-canonical

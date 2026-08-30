@@ -2,9 +2,16 @@
  * SovereignSidebar.orgscope.test.tsx — #4110 Org-console scoping.
  *
  * Asserts that an Org-scoped customer session sees ONLY its own-estate nav
- * (Apps / Catalog / Sandbox / Users / Settings) and NONE of the sovereign-
- * admin nav (Dashboard / Cloud / Jobs / Compliance / Organizations), while
- * a Sovereign-admin session still sees the full nav (zero regression).
+ * (Apps / Catalog / Users / Settings) and NONE of the sovereign-admin nav
+ * (Dashboard / Cloud / Jobs / Compliance / Organizations), while a
+ * Sovereign-admin session still sees the full nav (zero regression).
+ *
+ * #6723: the former static `sandbox` (Agenity) row is gone from FLAT_NAV —
+ * Agenity is a Blueprint-sourced mapped entry now and MUST keep rendering on
+ * an Org-scoped console exactly as the static row did (scope follows the
+ * entry's source, not the session): `sov-console-nav-bp-bp-agenity` is
+ * present in orgScoped mode while an Application candidate
+ * (`sov-console-nav-bp-app:*`, a Sovereign-level mapping) is absent.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -24,12 +31,31 @@ const scopeMock = vi.fn()
 vi.mock('@/shared/lib/useConsoleScope', () => ({
   useConsoleScope: () => scopeMock(),
 }))
-// Dynamic blueprint sidebar entries — irrelevant here; return empty.
+// Merged sidebar entries: one Blueprint-sourced (Agenity, as bp-agenity's
+// consoleUI projects it) and one Application candidate the sovereign-admin
+// enabled. The scope rule under test is what each session gets to see.
 vi.mock('@/lib/console-ui.api', () => ({
-  getSidebarEntries: async () => [],
+  getSidebarEntries: async () => [
+    {
+      id: 'bp-agenity',
+      label: 'Agenity',
+      route: '/apps/bp-agenity/dashboard',
+      order: 40,
+      source: 'blueprint',
+      enabled: true,
+    },
+    {
+      id: 'app:grafana',
+      label: 'Observability',
+      route: '/app/grafana',
+      order: 5,
+      source: 'application',
+      enabled: true,
+    },
+  ],
 }))
 vi.mock('@/shared/lib/useResolvedDeploymentId', () => ({
-  useResolvedDeploymentId: () => ({ deploymentId: '' }),
+  useResolvedDeploymentId: () => ({ deploymentId: 'demo-deployment' }),
 }))
 
 import { SovereignSidebar } from './SovereignSidebar'
@@ -68,8 +94,16 @@ describe('SovereignSidebar — #4110 Org-console scope', () => {
     // Own-estate nav present.
     expect(await screen.findByTestId('sov-console-nav-apps')).toBeTruthy()
     expect(screen.getByTestId('sov-console-nav-catalog')).toBeTruthy()
-    expect(screen.getByTestId('sov-console-nav-sandbox')).toBeTruthy()
     expect(screen.getByTestId('sov-console-nav-users')).toBeTruthy()
+    // #6723 — Agenity is Blueprint-sourced and renders for an Org session
+    // exactly as the former static row did (the row itself is gone).
+    const agenity = await screen.findByTestId('sov-console-nav-bp-bp-agenity')
+    expect(agenity.textContent).toContain('Agenity')
+    expect(agenity.getAttribute('data-nav-source')).toBe('blueprint')
+    expect(screen.queryByTestId('sov-console-nav-sandbox')).toBeNull()
+    // …while an Application candidate is a Sovereign-level mapping and is
+    // NOT rendered on an Org-scoped console.
+    expect(screen.queryByTestId('sov-console-nav-bp-app:grafana')).toBeNull()
     expect(screen.getByTestId('sov-console-nav-settings')).toBeTruthy()
     // Sovereign-admin nav HIDDEN.
     expect(screen.queryByTestId('sov-console-nav-dashboard')).toBeNull()
@@ -86,6 +120,10 @@ describe('SovereignSidebar — #4110 Org-console scope', () => {
     scopeMock.mockReturnValue({ orgScoped: false, org: null, loading: false })
     renderSidebar()
     expect(await screen.findByTestId('sov-console-nav-dashboard')).toBeTruthy()
+    // #6723 — a Sovereign session sees Blueprint entries AND enabled
+    // Application candidates.
+    expect(await screen.findByTestId('sov-console-nav-bp-bp-agenity')).toBeTruthy()
+    expect(screen.getByTestId('sov-console-nav-bp-app:grafana')).toBeTruthy()
     expect(screen.getByTestId('sov-console-nav-cloud')).toBeTruthy()
     expect(screen.getByTestId('sov-console-nav-jobs')).toBeTruthy()
     expect(screen.getByTestId('sov-console-nav-organizations')).toBeTruthy()

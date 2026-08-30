@@ -59,6 +59,7 @@ import { useDeploymentEvents } from './useDeploymentEvents'
 import { useWizardStore } from '@/entities/deployment/store'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { MarketplaceSection } from './settings/MarketplaceSection'
+import { MenuSection } from './settings/MenuSection'
 import { ParentDomainsSection } from '@/pages/admin/parent-domains/ParentDomainsSection'
 import { SovereigntyCard } from '@/widgets/sovereignty'
 
@@ -109,6 +110,12 @@ const SECTIONS: readonly SectionDef[] = [
   // sdicated page ... it shoudl be somewher e here ... similar to
   // other setting"*.
   { id: 'marketplace', label: 'Marketplace', description: 'Public storefront, branding, Organization wildcard ingress. Changes are committed to your GitOps repo and reconciled by Flux within ~1 minute.' },
+  // EPIC #6723 lane C (founder 2026-08-31): the left menu is mappable —
+  // show, hide, rename, re-route, re-order, or nest a Blueprint entry
+  // (Agenity) or an installed Application under a top-level item. Same
+  // anchored-section shape as Marketplace: never a sub-route, never a
+  // Settings sub-nav child.
+  { id: 'menu', label: 'Menu', description: 'Map the console left menu — connect top-level items and sub-menus to Applications and Blueprints such as Agenity. Saved to this Sovereign and applied immediately.' },
   { id: 'notifications', label: 'Notifications', description: 'Email + Slack hooks for provisioning events.' },
   { id: 'members', label: 'Members', description: 'Operators with admin / dev / viewer roles.' },
   { id: 'danger-zone', label: 'Danger zone', description: 'Wipe Sovereign, decommission, transfer ownership.' },
@@ -430,7 +437,16 @@ export function SettingsPage({ disableStream = false }: SettingsPageProps = {}) 
               <MarketplaceSection />
             </SectionCard>
 
-            {/* 9. Notifications */}
+            {/* 9. Menu — EPIC #6723 lane C: the sovereign-admin maps the
+                console left menu (Blueprint consoleUI entries such as
+                Agenity + installed Applications with a user interface)
+                from this anchored section; the mapping is persisted on
+                the Sovereign and the rail re-renders on save. */}
+            <SectionCard id="menu" anchored={anchor === 'menu'} title="Menu" description={desc('menu')}>
+              <MenuSection />
+            </SectionCard>
+
+            {/* 10. Notifications */}
             <SectionCard
               id="notifications"
               anchored={anchor === 'notifications'}

@@ -1488,7 +1488,12 @@ spec:
       #   git-auths the push WITH IT — Gitea git-over-HTTP refuses the admin password
       #   under an external login source, wedging the cutover at step-01 on hw305
       #   region-B). Umbrella tracks its sub-charts per Inviolable Principle #13.
-      version: 1.4.1575
+      # 1.4.1576 — #6723 lane C: catalog-seed advances bp-agenity 0.5.32 -> 0.5.33
+      #   and the seed card gains spec.consoleUI (the Sovereign-console sidebar
+      #   registration the rail now renders Agenity from, mappable per Sovereign
+      #   from Settings → Menu). Umbrella tracks its sub-charts per Inviolable
+      #   Principle #13.
+      version: 1.4.1576
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

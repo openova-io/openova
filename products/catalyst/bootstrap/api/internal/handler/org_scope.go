@@ -42,6 +42,7 @@ package handler
 
 import (
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
@@ -241,30 +242,30 @@ func (h *Handler) orgNamespaceForRequest(r *http.Request) string {
 //   - /api/v1/catalog           — the read-only blueprint catalog (browse)
 //   - /api/v1/sandbox/          — the Org's own Sandbox (scoped by sub/org)
 //   - /api/v1/sovereign/self    — self-discovery (deployment id + FQDN) the
-//                                 SovereignConsoleLayout + Apps page bootstrap
-//                                 read; carries no per-org secrets.
+//     SovereignConsoleLayout + Apps page bootstrap
+//     read; carries no per-org secrets.
 //   - /api/v1/sovereign/apps    — the Apps grid feed. This is the blueprint
-//                                 CATALOG + per-app install status + launch URL
-//                                 (NOT another Org's secrets/resources); the
-//                                 Org console needs it to render its Apps page
-//                                 incl. the agenity Open link. A true per-Org
-//                                 apps PROJECTION (filtering to the Org's own
-//                                 namespaces + vClusters) is the #4113 follow-up.
+//     CATALOG + per-app install status + launch URL
+//     (NOT another Org's secrets/resources); the
+//     Org console needs it to render its Apps page
+//     incl. the agenity Open link. A true per-Org
+//     apps PROJECTION (filtering to the Org's own
+//     namespaces + vClusters) is the #4113 follow-up.
 //   - /catalyst/v1/catalog/     — the per-Blueprint instances drill-down feed
-//                                 (getApplicationInstances). The customer
-//                                 console's AppDetail / Instances section lists a
-//                                 Blueprint's installed instances here. The
-//                                 handler (HandleListBlueprintInstances) FORCES
-//                                 the org filter to the caller's OWN Org for an
-//                                 Org-scoped session and 403s an explicit
-//                                 cross-Org query, so the allowlist entry never
-//                                 leaks another Org's estate (#4937).
+//     (getApplicationInstances). The customer
+//     console's AppDetail / Instances section lists a
+//     Blueprint's installed instances here. The
+//     handler (HandleListBlueprintInstances) FORCES
+//     the org filter to the caller's OWN Org for an
+//     Org-scoped session and 403s an explicit
+//     cross-Org query, so the allowlist entry never
+//     leaks another Org's estate (#4937).
 //   - /catalyst/v1/apps/instances — the self-service install seam
-//                                 (createApplicationInstance). HandleCreateInstance
-//                                 FORCES the target Org to the caller's OWN Org for
-//                                 an Org-scoped session (a customer can never
-//                                 create outside its own Org) and drops the
-//                                 Sovereign-tier gate for that confined case (#4937).
+//     (createApplicationInstance). HandleCreateInstance
+//     FORCES the target Org to the caller's OWN Org for
+//     an Org-scoped session (a customer can never
+//     create outside its own Org) and drops the
+//     Sovereign-tier gate for that confined case (#4937).
 //
 // NOTE: BSS / billing / commerce / consumption / organizations-directory /
 // the deployments API / the whole-cluster /sovereigns/{id}/k8s estate /
@@ -329,15 +330,38 @@ var orgSafeExactReadPaths = []string{
 	"/api/v1/organizations",
 }
 
+// orgSafeReadPatterns is the METHOD-AWARE, PATTERN half of the allowlist
+// for read-only, deployment-addressed surfaces whose handler confines an
+// Org-scoped session server-side. Read methods only, anchored patterns
+// only — a sibling path or a write on the same path stays denied.
+//
+//   - /api/v1/sovereigns/{id}/console-ui/sidebar-entries — the MERGED
+//     console left-menu (EPIC #6723 lane C). Blueprint-sourced entries
+//     (bp-agenity's spec.consoleUI) are not Organization-specific and the
+//     Org console renders them exactly as the former static Agenity row;
+//     HandleConsoleUISidebarEntries FORCES an Org-scoped session to
+//     source=blueprint, so the Sovereign-level Application candidates
+//     (app:<name>, which name Applications from every Organization) never
+//     reach it. The sibling …/sidebar-overrides (the sovereign-admin's
+//     mapping store) is NOT matched by this pattern and stays denied.
+var orgSafeReadPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`^/api/v1/sovereigns/[^/]+/console-ui/sidebar-entries$`),
+}
+
 // requestIsOrgSafe is the guard's verdict for one request. The method-blind
-// prefix allowlist is consulted first and unchanged; the exact-path read
-// allowlist applies to GET/HEAD only.
+// prefix allowlist is consulted first and unchanged; the exact-path and
+// pattern read allowlists apply to GET/HEAD only.
 func requestIsOrgSafe(method, p string) bool {
 	if pathIsOrgSafe(p) {
 		return true
 	}
 	if method != http.MethodGet && method != http.MethodHead {
 		return false
+	}
+	for _, re := range orgSafeReadPatterns {
+		if re.MatchString(p) {
+			return true
+		}
 	}
 	for _, exact := range orgSafeExactReadPaths {
 		if p == exact {

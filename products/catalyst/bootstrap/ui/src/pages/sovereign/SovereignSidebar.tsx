@@ -19,10 +19,26 @@
  * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), all labels /
  * icons / route paths live in named constants, not in inline literals.
  *
- * Related: GitHub issue #607
+ * EPIC #6723 lane C — the rail is a MAPPING surface, not only a constant.
+ * Founder (2026-08-31): "OpenOva is composed of applications; the left menu
+ * or sub-menus of the sovereign console can be connected to the respective
+ * applications, like Agenity; OpenOva should provide that flexibility in its
+ * admin settings to map." Entries beyond FLAT_NAV come from the merged
+ * /console-ui/sidebar-entries view (Blueprint spec.consoleUI defaults +
+ * installed Applications with a user UI ⊕ the sovereign-admin's overrides
+ * from Settings → Menu). An entry with `parent` renders as a sub-item under
+ * that FLAT_NAV item; enabled=false entries are not rendered at all. Agenity
+ * itself is the first Blueprint-sourced entry (bp-agenity consoleUI) — the
+ * former static `sandbox` FLAT_NAV row is gone; the /sandbox* routes and
+ * their redirect to /apps/bp-agenity/dashboard stay in router.tsx. Scope
+ * follows the entry's SOURCE: Blueprint-sourced entries render for every
+ * session (an Org-scoped console keeps Agenity exactly as before); only
+ * Application candidates are Sovereign-level and hidden from Org sessions.
+ *
+ * Related: GitHub issue #607, #6723
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { loadTokens, parseJWTClaims } from '@/shared/lib/oidc'
@@ -31,204 +47,33 @@ import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { useConsoleScope } from '@/shared/lib/useConsoleScope'
 import { useSession } from '@/shared/lib/useSession'
 import { getSidebarEntries, type SidebarEntry } from '@/lib/console-ui.api'
+import {
+  DYNAMIC_ENTRY_FALLBACK_ICON,
+  FLAT_NAV,
+  SETTINGS_ITEM,
+  type FlatNavItem,
+} from './sovereignNav'
 
 // #4110 — the ONLY nav items an Org-scoped customer console may show. The
-// customer sees their OWN estate (apps + catalog browse + sandbox + their
-// users) and their OWN settings; every sovereign-admin surface (Dashboard
+// customer sees their OWN estate (apps + catalog browse + their users) and
+// their OWN settings; every sovereign-admin surface (Dashboard
 // fleet/treemap, the whole-cluster Cloud view, provisioning Jobs, the
 // Sovereign Compliance dashboards, the cross-org Organizations directory)
 // is hidden. Settings is handled separately (rendered after FLAT_NAV) and
 // is allowed for an Org session — it shows only the Org's own settings.
+// (#6723: the static `sandbox` row that used to sit here is now the
+// Blueprint-sourced Agenity entry, which still renders on an Org-scoped
+// console — see the source-based scope rule on visibleEntries below. Only
+// Application candidates (app:<name>) are Sovereign-level and hidden here.)
 const ORG_SCOPED_NAV_IDS: ReadonlySet<FlatNavItem['id']> = new Set([
   'apps',
   'catalog',
-  'sandbox',
   'users',
 ])
 
 interface SovereignSidebarProps {
   /** Sovereign FQDN derived from window.location.hostname. */
   sovereignFQDN: string
-}
-
-// ── Cloud icon (verbatim Tabler IconCloud — same as Sidebar.tsx) ─────────────
-const CLOUD_ICON =
-  'M6.657 18c-2.572 0 -4.657 -2.007 -4.657 -4.483c0 -2.475 2.085 -4.482 4.657 -4.482c.393 -1.762 1.794 -3.2 3.675 -3.773c1.88 -.572 3.956 -.193 5.444 1c1.488 1.19 2.162 3.007 1.77 4.769h.99c1.913 0 3.464 1.56 3.464 3.486c0 1.927 -1.551 3.487 -3.465 3.487h-11.878'
-
-interface FlatNavItem {
-  id: 'apps' | 'catalog' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'billing' | 'sovereignty' | 'settings'
-  label: string
-  to: string
-  /** Optional fragment appended to `to`. An entry that targets an anchor
-   *  SECTION of a page rather than a page carries it here so the rendered
-   *  href is `/page#anchor` and the operator lands ON the panel — landing at
-   *  the top of an eleven-section page is the state row 160 recorded as
-   *  failing, so the anchor is the substance of the entry, not decoration. */
-  hash?: string
-  icon: string
-}
-
-// Wave 5 (2026-05-17, founder UX-polish review): order follows the
-// operator mental model — overview first, then descend through the
-// stack from infrastructure to operations to access to commerce.
-// Settings stays pinned at the bottom (defined separately, rendered
-// after the FLAT_NAV map below).
-const FLAT_NAV: FlatNavItem[] = [
-  {
-    id: 'dashboard',
-    label: 'Dashboard',
-    to: '/dashboard',
-    icon: 'M3 3h7v9H3V3zm11 0h7v5h-7V3zM14 10h7v11h-7V10zM3 14h7v7H3v-7z',
-  },
-  {
-    id: 'cloud',
-    label: 'Resources',
-    to: '/cloud',
-    icon: CLOUD_ICON,
-  },
-  {
-    id: 'apps',
-    label: 'Apps',
-    to: '/apps',
-    icon: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z',
-  },
-  // Catalog (#3601, EPIC #3597). Founder point 2 (2026-06-15): the
-  // catalog is its OWN left-nav page now, no longer a tab on /apps.
-  // `/catalog` → CatalogPage (the catalog grid). Sits right after Apps:
-  // Apps is "what's installed", Catalog is "what you can install".
-  //
-  // Icon: a stacked-cards / catalog glyph (single-stroke, matching the
-  // icon family used by the other entries).
-  {
-    id: 'catalog',
-    label: 'Catalog',
-    to: '/catalog',
-    icon: 'M4 7a2 2 0 012-2h8a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V7zm14 1a2 2 0 012 2v7a2 2 0 01-2 2M8 9h6M8 13h6',
-  },
-  // Sandbox (Wave 3, 2026-05-18 — issue: sandbox-wave3-ui-scaffold).
-  // Per-Org agent-coding workspace — each session runs a chosen agent
-  // CLI (claude/cursor-agent/aider/qwen/opencode/little-coder) in a pod
-  // inside the user's vcluster; the in-pod pty-server pipes ANSI to
-  // xterm.js in the browser. See products/sandbox/docs/architecture.md
-  // §1. Sits between Apps (workloads catalogue) and Jobs (operations)
-  // because it shares the "what's running" mental model.
-  //
-  // Icon: terminal/monitor single-stroke SVG matching the icon family
-  // used by Cloud (Tabler cloud) / Apps (grid) / Jobs (clipboard).
-  {
-    id: 'sandbox',
-    label: 'Agenity',
-    to: '/sandbox',
-    icon: 'M3 4a1 1 0 011-1h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm5 5l3 3-3 3m5 0h4M8 21h8',
-  },
-  {
-    id: 'jobs',
-    label: 'Jobs',
-    to: '/jobs',
-    icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
-  },
-  // #3958 — the standalone Reconciliation entry is GONE; reconcilers now
-  // merge into the unified Cloud graph (the Cloud entry).
-  // Compliance (Wave 5.62a, Refs #2318 / #1096): expose the existing
-  // SRE / SecLead compliance dashboards (mounted at /sre/compliance +
-  // /sec/compliance in router.tsx) via a single Sidebar entry. Lands
-  // on the SRE dashboard by default; the page links to the SecLead
-  // dashboard + policy drill-downs internally. Backend pipeline is
-  // already shipped (20 baseline Kyverno policies in bp-kyverno-
-  // policies, 6 in Enforce post-Wave-5.53, SSE stream from catalyst-
-  // api at /api/v1/compliance/stream).
-  //
-  // Icon: shield with checkmark — fits the single-stroke family.
-  {
-    id: 'compliance',
-    label: 'Compliance',
-    to: '/sre/compliance',
-    icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z',
-  },
-  {
-    id: 'users',
-    label: 'Users',
-    to: '/users',
-    icon: 'M9 7a4 4 0 100 8 4 4 0 000-8zM3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2M16 3.13a4 4 0 010 7.75M21 21v-2a4 4 0 00-3-3.87',
-  },
-  // Organizations (issue #3378, founder-agreed model 2026-06-13). ONE
-  // menu replacing BSS and the never-built OSS: the parent org's complete
-  // view of everything beneath it — the org directory (parent first),
-  // entering any sub-org for support (audited impersonation), the
-  // commerce catalog, mode-aware billing, and the domain pools. Replaces
-  // the BSS entry that previously lived here; the legacy /bss* + retired-prefix +
-  // /parent-domains URLs redirect into /organizations (router.tsx).
-  //
-  // Icon: an org-chart / building line-glyph (nodes + connecting edges)
-  // matching the single-stroke icon family used by the other entries.
-  //
-  // RBAC: always visible — the sovereign-admin owns the directory; the
-  // catalyst-api enforces tier-bound access server-side on every
-  // /api/v1/org/* and /catalog/admin/* call.
-  {
-    id: 'organizations',
-    label: 'Organizations',
-    to: '/organizations',
-    icon: 'M9 3a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V3zM3 17a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H5a2 2 0 01-2-2v-2zm12 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zM12 7v4M12 11H6v4m6-4h6v4',
-  },
-  // Billing (issue #4196, founder top customer-facing item). ONE
-  // first-class commercial menu — Vouchers · Orders · Revenue (Showback)
-  // — each a native React section on the catalyst-api
-  // /api/v1/org/billing/* bridge. Replaces the former billing surface
-  // buried under Organizations (and the dead iframe BSS pages). Voucher
-  // issuance is the Phase-0 sovereign-admin onboarding tool (DoD.md
-  // Phase 0) and is reachable day-one in any billing mode — the showback
-  // gate (#4170) never blocks it. The legacy /organizations/billing/* +
-  // /bss/* URLs redirect into /billing (router.tsx).
-  //
-  // RBAC: sovereign-admin only — same as Organizations/Dashboard/Jobs,
-  // it is NOT in ORG_SCOPED_NAV_IDS so an Org-scoped customer console
-  // never sees it; the catalyst-api requireVoucherIssuer gate
-  // (superadmin OR sovereign-admin) is the server-side authority.
-  //
-  // Icon: a receipt / credit-card line-glyph matching the single-stroke
-  // icon family used by the other entries.
-  {
-    id: 'billing',
-    label: 'Billing',
-    to: '/billing',
-    icon: 'M3 10h18M5 6h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2zm2 10h4',
-  },
-  // Sovereignty (UAT row 160, #3379). The cutover is Pillar 5 — the single
-  // act that severs the eight mothership tethers — and until now its only
-  // reachable trigger was the LAST section of an eleven-section /settings
-  // page. The hw293-2026-08-10 walk enumerated this nav and got exactly
-  // eleven entries, none of them Sovereignty, while /sovereignty rendered
-  // "Not Found": the trigger existed but was not a surface.
-  //
-  // It is an ANCHOR entry, not a page. #793 deliberately mounted the cutover
-  // card as `<div id="sovereignty">` inside SettingsPage rather than giving it
-  // a route, so that the operator sees it in the context of the Sovereign's
-  // own configuration; duplicating it behind /sovereignty would give the
-  // cutover two front doors and two places for its state to disagree. The
-  // `hash` field carries the anchor so the rendered href is
-  // /settings#sovereignty and the entry lands ON the panel.
-  //
-  // RBAC: NOT in ORG_SCOPED_NAV_IDS. The cutover severs the whole Sovereign;
-  // exposing its trigger to an Org-scoped customer session would be a worse
-  // defect than the one this entry fixes.
-  //
-  // Icon: a shield-with-severed-link glyph in the single-stroke family — the
-  // same shield the Compliance entry uses, with the tether broken.
-  {
-    id: 'sovereignty',
-    label: 'Sovereignty',
-    to: '/settings',
-    hash: 'sovereignty',
-    icon: 'M12 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016A11.955 11.955 0 0112 2.944zM10 9.5l-1 1a2.121 2.121 0 003 3l1-1m1-1.5l1-1a2.121 2.121 0 00-3-3l-1 1',
-  },
-]
-
-const SETTINGS_ITEM: FlatNavItem = {
-  id: 'settings',
-  label: 'Settings',
-  to: '/settings',
-  icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z',
 }
 
 // ── Settings: no sub-nav children ─────────────────────────────────────────────
@@ -326,21 +171,47 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
     ? FLAT_NAV.filter((item) => ORG_SCOPED_NAV_IDS.has(item.id))
     : FLAT_NAV
 
-  // Wave 5.69c (#2396) — dynamic sidebar entries from installed
-  // Blueprints' spec.consoleUI.sidebarEntry (Wave 5.69 CRD + Wave
-  // 5.69b /console-ui/sidebar-entries handler). Splices into the
-  // FLAT_NAV render path between hardcoded BSS (order=60) and the
-  // pinned Settings entry. Graceful degradation: empty list on
-  // 404/502/network-error leaves the hardcoded nav untouched.
+  // Wave 5.69c (#2396) + #6723 — mapped sidebar entries from the MERGED
+  // /console-ui/sidebar-entries view (Blueprint spec.consoleUI defaults +
+  // installed Applications with a user UI ⊕ the sovereign-admin's
+  // overrides). Top-level entries splice in between FLAT_NAV and the pinned
+  // Settings entry; entries carrying `parent` render as sub-items under
+  // that FLAT_NAV item; enabled=false entries are hidden. Graceful
+  // degradation: empty list on 404/502/network-error leaves the hardcoded
+  // nav untouched. Settings → Menu invalidates this key on save.
+  // The Sovereign id the merged view is read under: the console-internal
+  // deployment id when the session resolves one, else the hostname-derived
+  // FQDN (an Org-scoped console may not resolve a deployment record; the
+  // chroot catalyst-api maps either form onto its single cluster).
   const { deploymentId: resolvedDeploymentId } = useResolvedDeploymentId()
+  const sidebarSovereignId = resolvedDeploymentId ?? DETECTED_MODE.sovereignFQDN ?? ''
   const dynamicEntriesQuery = useQuery<SidebarEntry[]>({
-    queryKey: ['console-ui-sidebar-entries', resolvedDeploymentId ?? ''],
-    queryFn: () => getSidebarEntries(resolvedDeploymentId ?? ''),
-    enabled: !!resolvedDeploymentId,
+    queryKey: ['console-ui-sidebar-entries', sidebarSovereignId],
+    queryFn: () => getSidebarEntries(sidebarSovereignId),
+    enabled: sidebarSovereignId !== '',
     staleTime: 60_000,
     placeholderData: (prev) => prev ?? [],
   })
   const dynamicEntries: SidebarEntry[] = dynamicEntriesQuery.data ?? []
+  // #4110 + #6723 scope rule, by SOURCE not by session: a Blueprint-sourced
+  // entry (bp-agenity's consoleUI) is not Organization-specific and renders
+  // on an Org-scoped console exactly as the static Agenity row did; an
+  // Application candidate (app:<name>) is a Sovereign-level mapping — the
+  // merged view names Applications from every Organization — and stays
+  // suppressed for an Org session. catalyst-api applies the same rule
+  // server-side (HandleConsoleUISidebarEntries confines an Org-scoped
+  // session to source=blueprint), so this filter is belt-and-braces.
+  const visibleEntries: SidebarEntry[] = dynamicEntries.filter(
+    (entry) => entry.enabled !== false && (!orgScoped || entry.source === 'blueprint'),
+  )
+  const flatNavIds = new Set<string>(navItems.map((item) => item.id))
+  // A parent the rail does not render (stale mapping, or a FLAT_NAV id this
+  // build no longer carries) degrades to top-level rather than vanishing.
+  const topLevelEntries = visibleEntries.filter(
+    (entry) => !entry.parent || !flatNavIds.has(entry.parent),
+  )
+  const childrenOf = (parentId: string): SidebarEntry[] =>
+    visibleEntries.filter((entry) => entry.parent === parentId)
 
   // Estate-label expanded state — clicking the pill opens a small inline
   // panel listing the full Sovereign FQDN. The pill itself only has room
@@ -503,54 +374,55 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
           const cls = isActive
             ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]'
             : 'text-[var(--color-text-dim)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)]'
+          const children = childrenOf(item.id)
           return (
-            <Link
-              key={item.id}
-              to={item.to as never}
-              hash={item.hash as never}
-              // Two entries now share the `/settings` pathname, and TanStack's
-              // Link owns `aria-current` — it sets `page` from its OWN match,
-              // which by default ignores the fragment. Without this, Sovereignty
-              // reads as the current page while the operator is on plain
-              // /settings, and Settings reads as current while they are on the
-              // cutover panel: both entries announce themselves as the location
-              // at once. Scoped to entries that carry a hash (plus the pinned
-              // Settings entry below) rather than applied blanket, so no other
-              // nav entry changes its match semantics.
-              activeOptions={item.hash ? { includeHash: true } : undefined}
-              className={`mx-2 flex items-center gap-3 rounded-lg px-3 py-2 text-sm no-underline transition-colors ${cls}`}
-              data-testid={`sov-console-nav-${item.id}`}
-              aria-current={isActive ? 'page' : undefined}
-            >
-              <NavIcon d={item.icon} />
-              {item.label}
-            </Link>
+            <Fragment key={item.id}>
+              <Link
+                to={item.to as never}
+                hash={item.hash as never}
+                // Two entries now share the `/settings` pathname, and TanStack's
+                // Link owns `aria-current` — it sets `page` from its OWN match,
+                // which by default ignores the fragment. Without this, Sovereignty
+                // reads as the current page while the operator is on plain
+                // /settings, and Settings reads as current while they are on the
+                // cutover panel: both entries announce themselves as the location
+                // at once. Scoped to entries that carry a hash (plus the pinned
+                // Settings entry below) rather than applied blanket, so no other
+                // nav entry changes its match semantics.
+                activeOptions={item.hash ? { includeHash: true } : undefined}
+                className={`mx-2 flex items-center gap-3 rounded-lg px-3 py-2 text-sm no-underline transition-colors ${cls}`}
+                data-testid={`sov-console-nav-${item.id}`}
+                aria-current={isActive ? 'page' : undefined}
+              >
+                <NavIcon d={item.icon} />
+                {item.label}
+              </Link>
+              {/* #6723 — mapped sub-menu: entries the sovereign-admin nested
+                  under THIS item from Settings → Menu. */}
+              {children.length > 0 ? (
+                <div
+                  role="group"
+                  aria-label={`${item.label} sub-menu`}
+                  data-testid={`sov-console-nav-children-${item.id}`}
+                >
+                  {children.map((entry) => (
+                    <DynamicNavLink key={`bp-${entry.id}`} entry={entry} pathname={pathname} nested />
+                  ))}
+                </div>
+              ) : null}
+            </Fragment>
           )
         })}
 
-        {/* Wave 5.69c (#2396) dynamic sidebar entries — Blueprints
-            opted in via spec.consoleUI.sidebarEntry=true. Rendered
-            between hardcoded FLAT_NAV and pinned Settings.
-            #4110: suppressed on an Org-scoped console (these are
-            Sovereign-level Blueprint nav entries). */}
-        {(orgScoped ? [] : dynamicEntries).map((entry) => {
-          const isActive = pathname.startsWith(entry.route)
-          const cls = isActive
-            ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]'
-            : 'text-[var(--color-text-dim)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)]'
-          return (
-            <Link
-              key={`bp-${entry.id}`}
-              to={entry.route as never}
-              className={`mx-2 flex items-center gap-3 rounded-lg px-3 py-2 text-sm no-underline transition-colors ${cls}`}
-              data-testid={`sov-console-nav-bp-${entry.id}`}
-              aria-current={isActive ? 'page' : undefined}
-            >
-              <NavIcon d={entry.icon || 'M4 6h16M4 12h16M4 18h16'} />
-              {entry.label}
-            </Link>
-          )
-        })}
+        {/* Wave 5.69c (#2396) + #6723 — top-level mapped entries (Blueprint
+            spec.consoleUI defaults such as Agenity, plus any Application the
+            sovereign-admin enabled without a parent). Rendered between
+            hardcoded FLAT_NAV and pinned Settings; disabled entries never
+            reach this list; an Org-scoped console sees the Blueprint-sourced
+            ones only (#4110, source rule above). */}
+        {topLevelEntries.map((entry) => (
+          <DynamicNavLink key={`bp-${entry.id}`} entry={entry} pathname={pathname} />
+        ))}
 
         {/* Settings at the bottom of the nav list */}
         {(() => {
@@ -685,6 +557,68 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
         </button>
       </div>
     </aside>
+  )
+}
+
+/**
+ * DynamicNavLink — one mapped entry (#6723). A console path renders as a
+ * router Link (basepath-aware, client-side); an https:// route — the
+ * sovereign-admin pointing the entry at an app's own front door on one of
+ * the Sovereign's parent domains — renders as a plain anchor, because it
+ * leaves the SPA. The `sov-console-nav-bp-<id>` test id is the Wave 5.69c
+ * contract and is unchanged; `data-nav-parent` / `data-nav-source` expose
+ * the mapping for walks.
+ */
+function DynamicNavLink({
+  entry,
+  pathname,
+  nested = false,
+}: {
+  entry: SidebarEntry
+  pathname: string
+  nested?: boolean
+}) {
+  const external = /^https:\/\//i.test(entry.route)
+  const isActive = !external && entry.route !== '' && pathname.startsWith(entry.route)
+  const tone = isActive
+    ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]'
+    : 'text-[var(--color-text-dim)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)]'
+  const shape = nested
+    ? 'mx-2 flex items-center gap-3 rounded-lg py-1.5 pl-9 pr-3 text-[13px]'
+    : 'mx-2 flex items-center gap-3 rounded-lg px-3 py-2 text-sm'
+  const className = `${shape} no-underline transition-colors ${tone}`
+  const body = (
+    <>
+      <NavIcon d={entry.icon || DYNAMIC_ENTRY_FALLBACK_ICON} />
+      {entry.label}
+    </>
+  )
+  if (external) {
+    return (
+      <a
+        href={entry.route}
+        className={className}
+        data-testid={`sov-console-nav-bp-${entry.id}`}
+        data-nav-parent={entry.parent || undefined}
+        data-nav-source={entry.source}
+        data-nav-nested={nested ? 'true' : undefined}
+      >
+        {body}
+      </a>
+    )
+  }
+  return (
+    <Link
+      to={entry.route as never}
+      className={className}
+      data-testid={`sov-console-nav-bp-${entry.id}`}
+      data-nav-parent={entry.parent || undefined}
+      data-nav-source={entry.source}
+      data-nav-nested={nested ? 'true' : undefined}
+      aria-current={isActive ? 'page' : undefined}
+    >
+      {body}
+    </Link>
   )
 }
 

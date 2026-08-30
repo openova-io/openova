@@ -285,6 +285,40 @@ func TestOrgScopeGuard_OrgScoped_AllowsOwnSurface(t *testing.T) {
 	}
 }
 
+// TestOrgScopeGuard_OrgScoped_ReadsMergedSidebarOnly pins the #6723 lane C
+// correction at the middleware: an Org-scoped session may READ the merged
+// console-ui sidebar (the Blueprint-sourced Agenity entry must keep
+// rendering on an Org console exactly as the former static row did — the
+// handler confines the body to source=blueprint), while the sovereign-admin
+// mapping store next to it, and every write, stay denied.
+func TestOrgScopeGuard_OrgScoped_ReadsMergedSidebarOnly(t *testing.T) {
+	h := &Handler{log: quietLog()}
+	guard := h.OrgScopeGuard(http.HandlerFunc(orgScopeGuardTestHandler))
+	claims := &auth.Claims{Email: "demo@openova.io", Tier: orgScopedTier, Org: "demo"}
+
+	cases := []struct {
+		method, path string
+		want         int
+	}{
+		{http.MethodGet, "/api/v1/sovereigns/4635277cae4ffed9/console-ui/sidebar-entries", http.StatusOK},
+		{http.MethodHead, "/api/v1/sovereigns/4635277cae4ffed9/console-ui/sidebar-entries", http.StatusOK},
+		{http.MethodPut, "/api/v1/sovereigns/4635277cae4ffed9/console-ui/sidebar-entries", http.StatusForbidden},
+		{http.MethodGet, "/api/v1/sovereigns/4635277cae4ffed9/console-ui/sidebar-overrides", http.StatusForbidden},
+		{http.MethodPut, "/api/v1/sovereigns/4635277cae4ffed9/console-ui/sidebar-overrides", http.StatusForbidden},
+		{http.MethodGet, "/api/v1/sovereigns/4635277cae4ffed9/console-ui/sidebar-entries/extra", http.StatusForbidden},
+		{http.MethodGet, "/api/v1/sovereigns/4635277cae4ffed9/k8s/pods", http.StatusForbidden},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest(c.method, c.path, nil)
+		req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey, claims))
+		rec := httptest.NewRecorder()
+		guard.ServeHTTP(rec, req)
+		if rec.Code != c.want {
+			t.Errorf("%s %s: want %d got %d body=%s", c.method, c.path, c.want, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 func TestResolveOrgScope_OrgHost(t *testing.T) {
 	dir := t.TempDir()
 	reg, err := store.NewTenantRegistry(dir)
