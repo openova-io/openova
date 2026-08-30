@@ -126,6 +126,49 @@ export function DaemonSetsListPage() {
   )
 }
 
+export function CronJobsListPage() {
+  return (
+    <K8sListPage
+      kind="cronjob"
+      title="CronJobs"
+      tagline="Recurring scheduled work (batch/v1). The Schedule view shows these on a 24h time-of-day timeline."
+      columns={[
+        COL_NAMESPACE,
+        COL_NAME,
+        {
+          header: 'Schedule',
+          extract: (o) => {
+            const s = (o.spec as Record<string, unknown> | undefined)?.['schedule']
+            return typeof s === 'string' && s ? s : '—'
+          },
+        },
+        {
+          header: 'Suspend',
+          extract: (o) =>
+            (o.spec as Record<string, unknown> | undefined)?.['suspend'] === true ? 'yes' : '—',
+          tone: (o): CellTone | undefined =>
+            (o.spec as Record<string, unknown> | undefined)?.['suspend'] === true ? 'warn' : undefined,
+        },
+        {
+          header: 'Last Schedule',
+          extract: (o) => {
+            const t = (o.status as Record<string, unknown> | undefined)?.['lastScheduleTime']
+            return typeof t === 'string' && t ? t : '—'
+          },
+        },
+        {
+          header: 'Active',
+          extract: (o) => {
+            const a = (o.status as Record<string, unknown> | undefined)?.['active']
+            return Array.isArray(a) ? String(a.length) : '0'
+          },
+        },
+        COL_AGE,
+      ]}
+    />
+  )
+}
+
 export function ReplicaSetsListPage() {
   return (
     <K8sListPage

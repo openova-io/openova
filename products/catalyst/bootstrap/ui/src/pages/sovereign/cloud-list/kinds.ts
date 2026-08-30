@@ -30,6 +30,7 @@ import {
   DeploymentsListPage,
   StatefulSetsListPage,
   DaemonSetsListPage,
+  CronJobsListPage,
   ReplicaSetsListPage,
   ConfigMapsListPage,
   SecretsListPage,
@@ -88,6 +89,7 @@ export type CloudListKind =
   | 'deployments'
   | 'statefulsets'
   | 'daemonsets'
+  | 'cronjobs'
   | 'replicasets'
   | 'configmaps'
   | 'secrets'
@@ -132,6 +134,11 @@ export const KIND_TO_REGISTRY: Partial<Record<CloudListKind, string>> = {
   deployments: 'deployment',
   statefulsets: 'statefulset',
   daemonsets: 'daemonset',
+  // Batch (batch/v1). The Schedule surface (Refs #6703) reads the raw
+  // CronJob objects for its 24h timeline; adding the chip here also
+  // auto-subscribes the CloudPage SSE (CLOUD_PAGE_K8S_KINDS is derived from
+  // this map) so the cronjobs chip count + list read live objects.
+  cronjobs: 'cronjob',
   replicasets: 'replicaset',
   services: 'service',
   ingresses: 'ingress',
@@ -282,6 +289,9 @@ const ICON_DEPLOY =
 const ICON_STS = ICON_DEPLOY
 const ICON_DS =
   'M3 6h18M3 12h18M3 18h18M6 6v12M12 6v12M18 6v12'
+// CronJob — a clock (recurring, scheduled work).
+const ICON_CRONJOB =
+  'M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0 -18zM12 8v4l3 2'
 const ICON_RS = ICON_DEPLOY
 const ICON_CFG =
   'M4 7h16M4 12h16M4 17h10M14 17l3 3 3 -5'
@@ -342,6 +352,7 @@ export const KINDS: readonly CloudKindEntry[] = [
   { id: 'deployments', label: 'Deployments', tagline: 'Stateless replicated workloads', hasData: true, Component: DeploymentsListPage, icon: ICON_DEPLOY, category: 'workload', primary: false },
   { id: 'statefulsets', label: 'StatefulSets', tagline: 'Ordered, persistent workloads', hasData: true, Component: StatefulSetsListPage, icon: ICON_STS, category: 'workload', primary: false },
   { id: 'daemonsets', label: 'DaemonSets', tagline: 'One pod per node', hasData: true, Component: DaemonSetsListPage, icon: ICON_DS, category: 'workload', primary: false },
+  { id: 'cronjobs', label: 'CronJobs', tagline: 'Recurring scheduled work — see the Schedule view for the 24h timeline', hasData: true, Component: CronJobsListPage, icon: ICON_CRONJOB, category: 'workload', primary: false },
   { id: 'replicasets', label: 'ReplicaSets', tagline: 'Owned by Deployments', hasData: true, Component: ReplicaSetsListPage, icon: ICON_RS, category: 'workload', primary: false },
 
   // Networking
