@@ -17,6 +17,7 @@ Format: lightweight ADR (Status / Context / Decision / Consequences / Shipped-vi
 | [0011](0011-opentofu-crossplane-adoption-seam.md) | OpenTofu→Crossplane adoption seam (provider-opentofu Workspace, Observe-first) | Accepted |
 | [0012](0012-dragonfly-p2p-registry-cutover.md) | Dragonfly P2P registry distribution + cloud-agnostic cutover (kills the kom4dc hairpin + the bastion proxy-cache) | Accepted |
 | [0013](0013-cross-org-denial-shape.md) | Cross-Organization denial shape: 403 on assertion, not-found on lookup (MCP `create_application` vs `get_application`) | Accepted |
+| [0014](0014-chargeback-usage-ledger-and-split-deployment.md) | Chargeback: usage ledger as the measurement primitive (not Crossplane), `bp-chargeback` multi-tenant application with split deployment (Sovereign BSS · per-Org · central National Cloud instance) | Proposed |
 
 > **Numbering note:** slots 0005–0008 are unused — a gap left by design. ADR-0009 picked its slot deliberately so it could land without ordering coupling — see the ADR-0009 header. The 0005–0008 gap is intentional, not a missing-file anomaly.
 
