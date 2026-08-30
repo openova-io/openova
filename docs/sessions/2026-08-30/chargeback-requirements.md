@@ -126,12 +126,12 @@ Identical to Track 1 Tier A on the partner's Sovereign. Additional facts that ma
 
 | ID | Requirement | Notes |
 |---|---|---|
-| R3.1 | A billed party that is **not** an Organization CR | *Proposed* `BillingAccount` in the billing Postgres with N cost sources (`openova-org`, `huawei-project`, `k8s-namespace`, `file-import`). A tenant that later migrates onto the platform keeps the account and gains a source — continuous statements |
+| R3.1 | A billed party for a tenant with no workloads | **The Organization** (`kind: customer`), zero Environments, plus one optional field `spec.costSources[] = {cloudProject, region, credentialRef}`; `planSlug: none` ⇒ no namespace rendered. Migration = the same Organization gains Environments — continuous statements. No new entity type (founder 2026-08-31). |
 | R3.2 | Inventory + hours of the tenant's Huawei resources | *Proposed* hourly collector using the existing sigv3 client + endpoints (`provider.go:121-129`; `versions.tf:55-90`): ECS `cloudservers/detail` (flavor, status, created), EVS `cloudvolumes/detail`, EIP `publicips`, ELB `/v3/elb/loadbalancers`, NAT, OBS size; plus RDS/DCS/GaussDB/etc. list APIs for the NC PaaS catalogue |
 | R3.3 | Rating against the partner's rate card | NC catalogue parsed this session (`openova-private/engagements/national-cloud-program/inputs/national-cloud-price-catalog-2026.xlsx`, "National Cloud Services" sheet, 259 rows): categories Computing 51 · Database 71 · DB-storage 9 · Storage 7 · DR&Backup 3 · Network 21 · Security 36 · O&M 4 · PaaS 40; units Node / set / GB / instance / Cluster; **every line is OMR per YEAR** — no hourly or on-demand SKU exists. Unit prices are partner-confidential and stay in the private workbook. PAYG is therefore a *derivation* (list/8760 or list/12) the partner must bless. (Copied into `openova-private` inputs this session per the engagements convention.) |
 | R3.4 | "Stopped ≠ billed?" policy | Collector must record instance `status`; whether a stopped ECS bills compute, storage-only, or nothing is a price-book knob. Raised by a National Cloud client engagement (discovery questions, `openova-private/engagements/`) |
 | R3.5 | Statements per tenant per period; export to the partner's ERP | *Proposed* statements + CSV/API export; legal invoicing stays with Omantel unless asked otherwise |
-| R3.6 | Tenant-facing read access | *Proposed* PIN login scoped to the BillingAccount (auth is already passwordless) |
+| R3.6 | Tenant-facing read access | *Proposed* PIN login scoped to the Organization (auth is already passwordless) |
 | R3.7 | Entitlement vs consumption reporting | Enforcement is **not possible** (we do not own their IAM quotas). National Cloud owns entitlement; it supplies the entitlement, OpenOva reports consumption against it; for a reseller that *is* chargeback |
 | R3.8 | Sub-tenant attribution (departments inside a tenant) | Depends on TMS tags / Enterprise Projects working on HCSO — unknown (tags were disabled on HCS Kom4DC) |
 
@@ -279,8 +279,8 @@ direction). A meter tied to the provisioning engine is blind to everything not p
 — which is exactly population (b). Crossplane keeps its ADR-0011 role as the **inventory /
 adoption** layer and becomes one collector's source.
 
-1. **Ownership graph** — `BillingAccount` above the Organization (R3.1). Org CR keeps
-   `planSlug` / `billingMode` / `kind` for K8s-side enforcement.
+1. **Ownership graph** — the Organization is the billed party (R3.1); `spec.costSources[]` is the
+   only addition. `planSlug` / `billingMode` / `kind` unchanged.
 2. **Usage ledger** — append-only `usage_records(account, source, resource_id, kind, sku,
    quantity, unit, window_start, window_end, region, labels, raw_ref)`, idempotent on
    (source, resource, window). Units: vcpu-hour, gib-hour, gb-month, instance-hour, lb-hour,

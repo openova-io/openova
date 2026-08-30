@@ -37,9 +37,9 @@ tokens are not Crossplane objects.
 
 ## Decision
 
-### D1 — The measurement primitive is a usage ledger keyed by `BillingAccount`, not Crossplane
+### D1 — The measurement primitive is a usage ledger keyed by Organization, not Crossplane
 
-An append-only `usage_records(account, source, resource_id, kind, sku, quantity, unit,
+An append-only `usage_records(organization, source, resource_id, kind, sku, quantity, unit,
 window_start, window_end, region, labels, raw_ref)`, idempotent on (source, resource, window).
 Facts first; `rated_lines` and `statements` derive from it via an effective-dated price book.
 Crossplane keeps its ADR-0011 role — the inventory/adoption layer that makes cloud resources
@@ -47,13 +47,21 @@ visible as Kubernetes objects — and is one collector's source, never the meter
 meter tied to the provisioning engine is blind to everything it did not provision (Tofu-built
 substrate, Flux-built vClusters, pre-OpenOva tenants) and has no time axis.
 
-### D2 — `BillingAccount` sits above the Organization
+### D2 — The billed party is the Organization. No new entity type. (Superseded the `BillingAccount` draft on 2026-08-31 — founder: the model is Sovereign → Organization, nothing else.)
 
-A billed party owns N cost sources: `openova-org`, `huawei-project`, `k8s-namespace`,
-`file-import`. An OpenOva-managed customer has an Org source; a standalone tenant has only a
-cloud-project source; a tenant that migrates onto the platform keeps the account and gains a
-source. `Organization.spec.{planSlug,billingMode,kind}` stay as the Kubernetes-side enforcement
-contract and map 1:1 to an account by Org slug.
+| OpenOva entity | National Cloud object |
+|---|---|
+| Sovereign | the operator's central instance |
+| Organization (`kind: customer`) | one standalone tenant |
+| Environment / Application | ∅ for a standalone tenant |
+| Users of the Organization | the tenant's users (existing PIN sign-in) |
+| the `platform` Organization | the Sovereign's own cloud footprint (case 3) |
+
+Model delta = **one optional field**: `Organization.spec.costSources[] = {cloudProject, region, credentialRef}`.
+- `costSources = ∅` ⇒ unchanged behaviour on every other instance.
+- zero workloads ∧ `costSources ≠ ∅` ⇒ standalone tenant; controller renders no namespace/quota (`planSlug: none`).
+- migration ⇒ the same Organization gains Environments; identity, history, statements continuous.
+- isolation, RBAC, directory, showback, sign-in ⇒ existing Organization machinery. Nothing new.
 
 ### D3 — Three cases, two collectors, one money layer
 
@@ -89,7 +97,7 @@ ledger.
 ### D4 — `bp-chargeback` is a separate multi-tenant application in this monorepo, not a module of catalyst-api/billing
 
 `products/chargeback/` (chart + image), own CNPG database, own API and UI, own RBAC (operator-admin ·
-account-admin · viewer) over a **BillingAccount tree** (operator → accounts → cost centres). It
+account-admin · viewer) over a **Organization tree** (operator → accounts → cost centres). It
 follows the Agenity precedent: one artifact, several placements.
 
 ### D5 — Split deployment: one chart, three placements
@@ -145,7 +153,7 @@ agency variant becomes a drop-in credential type with no other change.
 
 **Decision: NOT two chargeback UIs** (one for the underlying Sovereign/cloud regardless of
 OpenOva management, one for Organization-level chargeback that depends on OpenOva capabilities).
-**One UI over one `BillingAccount` tree**, in which the Sovereign-level row is the *parent* of the
+**One UI over one Organization tree**, in which the Sovereign-level row is the *parent* of the
 Organization rows and standalone tenants sit *beside* the Organizations. Unification is a property
 of the data model (D2), not a later merge.
 
@@ -197,13 +205,12 @@ Operator (any Sovereign operator; National Cloud)
 
 **Convergence path — a customer that starts on the Sovereign/cloud view only.**
 
-1. **Day 0 — standalone tenant.** A `BillingAccount` with one `huawei-project` source; appears as
-   a *Tenant* row; account-owner lens via PIN login. Statements begin the first full period.
+1. **Day 0 — standalone tenant.** An Organization with zero workloads and one `huawei-project` cost source;
+   appears as a *Tenant* row; org-admin lens via the existing PIN login. Statements begin the first full period.
 2. **Enterprise Projects granted.** The same row gains child rows per EP — department-level
    attribution with no change of screen.
-3. **Migration onto OpenOva.** An Organization is created and **linked to the existing account**
-   (1:1 by Org slug, D2). The row keeps its identity and history and gains an `openova-org`
-   source: Org columns (plan, per-Application lines, tokens) and the **Limits** tab appear;
+3. **Migration onto OpenOva.** The **same Organization** gains Environments/Applications. The row keeps
+   its identity and history and gains an `openova-org` source: Org columns (plan, per-Application lines, tokens) and the **Limits** tab appear;
    cloud lines continue for whatever stays outside the platform. Statements are continuous —
    one account, two sources, one bill.
 4. **Fully on-platform.** The `huawei-project` source is retired when the last external resource
@@ -211,8 +218,7 @@ Operator (any Sovereign operator; National Cloud)
    history moved.
 
 The reverse direction is also allowed (an Organization adds an external cloud project as a
-second source) — the tree is symmetric because the account, not the Organization, is the root of
-identity.
+second source) — the tree is symmetric because the Organization is the root of identity.
 
 ### D10 — Deployment profiles: `sovereign` and `operator-central` (recorded 2026-08-30 after the founder's discomfort with the central National Cloud instance)
 
@@ -226,7 +232,7 @@ one code base with two **profiles**, selected by configuration, never by fork.
 
 | Concern | `sovereign` profile | `operator-central` profile |
 |---|---|---|
-| Tenant root | Organization (1:1 by slug, D2) | cloud account (`domain_id`) with its own IAM users |
+| Tenant root | Organization | Organization with `costSources` (its `domain_id` recorded on the source) |
 | Tenant identity | OpenOva Keycloak (PIN) | **the tenant's own account**, in order of preference: (a) federation from the operator's portal IdP (OIDC/SAML) if exposed; (b) *verify-only* against the cloud IAM — username/password/domain → `POST /v3/auth/tokens` → `domain_id` read from the token, credential never stored; (c) account-linking — the read agency the tenant grants (D8) is proof of ownership, bound to an email PIN |
 | Tenant users → roles | Org RBAC | IAM group/role claims → account-admin / viewer |
 | Onboarding | automatic on Org create | self-service: sign in → "grant this agency" → agency verified → collection starts |
@@ -246,11 +252,11 @@ from becoming a bespoke product.
 OpenOva-hosted operation of the same profile (OpenOva staff in the operator role) is a commercial
 option, not a different profile.
 
-**Per-tenant data partitioning (mechanism, not intent):** every table carries `account_id`;
-Postgres row-level-security policies keyed on the session's account scope every query; statements
-and exports are stored under a per-account prefix; the audit log is per account; delete/export
-is an account-scoped job. The operator lens reads across accounts through an explicit
-operator-role policy, never by bypassing RLS.
+**Per-tenant data partitioning (mechanism, not intent):** every table carries `organization`;
+Postgres row-level-security policies keyed on the session's Organization scope every query;
+statements and exports are stored under a per-Organization prefix; the audit log is per
+Organization; delete/export is an Organization-scoped job. The operator lens reads across
+Organizations through an explicit sovereign-admin policy, never by bypassing RLS.
 
 **Identity options — probed 2026-08-30 15:1x on the tenant gateway and portal:** (a) the portal
 (`console.kom4dc…`) redirects `/.well-known/openid-configuration`, `/saml/metadata`, `/realms`,
@@ -283,11 +289,9 @@ additional credential/identity type with no other change.
 ## Consequences
 
 - One more Blueprint to carry through cutover (step 03 Harbor prewarm, step 11 provider pivot).
-- Two account notions (billing `customers` vs chargeback `BillingAccount`) must map 1:1 by Org
-  slug; the mapping is owned by chargeback.
+- Billing `customers` and chargeback both key on the Organization slug; no second account notion.
 - `docs/STATUS.md:65` (`billing — Designed. No code.`) is stale and must be corrected with this
-  ADR; `docs/GLOSSARY.md` gains `BillingAccount`, `cost source`, `usage record`, `price book`,
-  `statement`; "package" is not a modelled term — the term is **plan**.
+  ADR; `docs/GLOSSARY.md` gains `cost source`, `usage record`, `price book`, `statement`; "package" is not a modelled term — the term is **plan**.
 - Chargeback is sellable without the full platform (the wedge into National Cloud) while the
   Sovereign placement gives central chargeback *and* the migration path in one deployment.
 - Under the 5-pillar rule this is non-pillar work; it is a contracted partner workstream and a
