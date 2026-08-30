@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-30T19:15:03Z` |
+| Last refreshed | `2026-08-30T19:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6081](https://github.com/openova-io/openova/issues/6081) | Per-Org console: the install wizard's Organization list is empty because the dir | Other |
 | [#6082](https://github.com/openova-io/openova/issues/6082) | Cutover can never start on hw293: a repaired defect latched the record failed, a | Other |
 | [#6084](https://github.com/openova-io/openova/issues/6084) | Silent re-auth on a per-Org console targets auth.<orgslug>.<parent>, which the g | Other |
 | [#6085](https://github.com/openova-io/openova/issues/6085) | Reconciliation tab never offers Resume: suspended read is stale after its own ac | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#6697](https://github.com/openova-io/openova/issues/6697) | console: index.html served without Cache-Control — rolled deploys invisible un | Other |
 | [#6703](https://github.com/openova-io/openova/issues/6703) | epic: unified Jobs/Resources surface (chips + list + dependency-DAG + CronJob sc | Other |
 | [#6723](https://github.com/openova-io/openova/issues/6723) | EPIC: bp-chargeback — standalone chargeback application + console menu mapping | Other |
+| [#6727](https://github.com/openova-io/openova/issues/6727) | feat(jobs): map phase-gating deps in the /jobs DAG so no job floats | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-30T19:22 | [#6725](https://github.com/openova-io/openova/pull/6725) | #6723 | feat(chargeback): standalone chargeback service — customers, |
+| 2026-08-30T19:22 | [#6724](https://github.com/openova-io/openova/pull/6724) | #6723 | feat(console): admin-mappable sidebar — per-Sovereign overri |
 | 2026-08-30T16:58 | [#6722](https://github.com/openova-io/openova/pull/6722) | #6721 | docs(adr): ADR-0014 D2b account-duplication matrix + D11 con |
 | 2026-08-30T16:37 | [#6721](https://github.com/openova-io/openova/pull/6721) | #6720 | docs(adr): ADR-0014 D2 — standalone chargeback app with app- |
 | 2026-08-30T16:26 | [#6720](https://github.com/openova-io/openova/pull/6720) | #6719 | docs(adr): ADR-0014 D2a — per-mode entity matrix (Tenant = O |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-26T07:12 | [#6693](https://github.com/openova-io/openova/pull/6693) | #6690 | docs(uat): re-walk the 20 UI-only rows on live hw305 — 7 fli |
 | 2026-08-26T05:56 | [#6692](https://github.com/openova-io/openova/pull/6692) | docs: repair 39 broken cross-references |  |
 | 2026-08-26T05:36 | [#6691](https://github.com/openova-io/openova/pull/6691) | #665 | docs: full-repo integrity pass — 426 fixes across 92 docs +  |
-| 2026-08-25T06:22 | [#6690](https://github.com/openova-io/openova/pull/6690) | docs(uat): correct evidence integrity — 52 filler-screenshot |  |
-| 2026-08-24T09:24 | [#6688](https://github.com/openova-io/openova/pull/6688) | docs: fix mermaid sequenceDiagram parse errors (semicolons s |  |
 
 ---
 
