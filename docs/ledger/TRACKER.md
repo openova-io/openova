@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-08-30T13:15:03Z` |
+| Last refreshed | `2026-08-30T13:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-08-30T13:17 | [#6713](https://github.com/openova-io/openova/pull/6713) | #6711 | docs(adr): ADR-0014 chargeback — usage ledger primitive + bp |
+| 2026-08-30T13:17 | [#6712](https://github.com/openova-io/openova/pull/6712) | docs(sessions): chargeback capture — extended billing/meteri |  |
 | 2026-08-30T10:45 | [#6711](https://github.com/openova-io/openova/pull/6711) | docs(sessions): chargeback requirements capture (Track 1 + N |  |
 | 2026-08-30T10:56 | [#6710](https://github.com/openova-io/openova/pull/6710) | #6703 | fix(sovereign-ui): /jobs graph = the openova-flow dependency |
 | 2026-08-30T10:09 | [#6709](https://github.com/openova-io/openova/pull/6709) | #6703 | feat(sovereign-ui): consolidated CronJob schedule timeline + |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-08-24T08:13 | [#6681](https://github.com/openova-io/openova/pull/6681) | docs(protocol): mermaid enrichment to SYSTEM-DESIGN standard |  |
 | 2026-08-24T08:14 | [#6680](https://github.com/openova-io/openova/pull/6680) | docs(principles): mermaid enrichment to SYSTEM-DESIGN standa |  |
 | 2026-08-24T08:12 | [#6679](https://github.com/openova-io/openova/pull/6679) | docs(dod): mermaid enrichment to SYSTEM-DESIGN standard |  |
-| 2026-08-24T07:57 | [#6678](https://github.com/openova-io/openova/pull/6678) | docs(system-design): major rewrite — GitOps engine, streamin |  |
-| 2026-08-24T06:23 | [#6677](https://github.com/openova-io/openova/pull/6677) | docs: SYSTEM-DESIGN.md — comprehensive CTO/lead-dev onboardi |  |
 
 ---
 
