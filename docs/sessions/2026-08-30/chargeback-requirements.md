@@ -153,6 +153,25 @@ Identical to Track 1 Tier A on the partner's Sovereign. Additional facts that ma
 
 ---
 
+### 3.3a Population (b) at scale — the operator-central instance (R4.x, recorded 2026-08-30)
+
+National Cloud's own central instance: meters all its customers, each customer signs in with its
+own account to see its own charging. Same engine and screen as §4; different shell (ADR-0014 D10).
+
+| ID | Requirement | Handling |
+|---|---|---|
+| R4.1 | Tenant signs in with its **own** account | federation from the operator portal IdP (OIDC/SAML) if exposed; else verify-only against cloud IAM (`POST /v3/auth/tokens` → `domain_id`, credential never stored); else agency-grant account-linking + email PIN |
+| R4.2 | Tenant = cloud account (`domain_id`); its IAM users map to roles | IAM group/role claims → account-admin / viewer |
+| R4.3 | Self-service onboarding | sign in → "grant this read agency" → verified → collection starts; revocable by the tenant |
+| R4.4 | Operator staff RBAC via their SSO | roles finance / support / admin |
+| R4.5 | White-label | operator domain, statement template, VAT, legal footer |
+| R4.6 | Scale, isolation, audit | hundreds of tenants; row-level isolation; per-tenant audit log; export/delete per tenant |
+| R4.7 | Availability across the operator's regions | stateless app + CNPG pair (existing DR pattern) |
+| R4.8 | Embeddable in the operator's own portal | API-first; the UI is one client |
+
+**Unknowns for National Cloud:** portal IdP for federation? cloud IAM usable for verify-only login
+from outside? (R4.1 (b) is testable on our own tenant.)
+
 ### 3.4 Access to tenant data — proof methodology and measured results (Q1)
 
 Two access models, one counterparty:
@@ -318,6 +337,8 @@ adoption** layer and becomes one collector's source.
 4. **Rate derivation:** annual list → PAYG as list/8760 hourly or list/12 monthly; the
    stopped-instance policy (R3.4).
 5. **Invoicing:** who issues the legal invoice; export format its ERP needs.
+6. **Identity for the central instance (R4.1):** does the portal expose an OIDC/SAML IdP for
+   tenant sign-in, and may the cloud IAM be used for verify-only login from outside?
 
 ---
 
