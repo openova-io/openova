@@ -6051,7 +6051,11 @@ spec:
   # so the per-Org agenity StatefulSet passes kyverno probes-present (0.5.31
   # shipped it probe-less → DENIED at admission, install never came up, hw302).
   # Lockstep with products/agenity/chart + blueprint.yaml.
-  version: "0.5.32"
+  # 0.5.33 (#6723 lane C): registers Agenity's Sovereign-console sidebar entry
+  # via spec.consoleUI (below) — no chart-template change; the published
+  # artifact packages blueprint.yaml, hence the bump. Lockstep with
+  # products/agenity/chart + blueprint.yaml + the funnel pin.
+  version: "0.5.33"
   visibility: listed
   card:
     title: "Agenity"
@@ -6063,6 +6067,20 @@ spec:
     license: "MIT"
     tags: [agenity, agent, multi-agent, claude, opus, mcp, self-service]
     docs: "https://github.com/openova-io/openova"
+  # EPIC #6723 lane C — the Sovereign-console sidebar registration (Wave 5.69
+  # consoleUI contract, #2370). THIS seed materialises the live Blueprint CR on
+  # every Sovereign, so this block is what catalyst-api's
+  # /console-ui/sidebar-entries projects and what the rail renders (the former
+  # static "Agenity" row in SovereignSidebar.tsx is gone). The sovereign-admin's
+  # per-Sovereign overrides (Settings → Menu → ConfigMap
+  # catalyst-system/console-ui-sidebar) overlay these defaults. Lockstep with
+  # products/agenity/blueprint.yaml.
+  consoleUI:
+    sidebarEntry: true
+    sidebarLabel: Agenity
+    sidebarRoute: /apps/bp-agenity/dashboard
+    sidebarOrder: 40
+    sidebarIcon: 'M3 4a1 1 0 011-1h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm5 5l3 3-3 3m5 0h4M8 21h8'
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -6081,7 +6099,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-agenity
-    version: 0.5.32
+    version: 0.5.33
   topology:
     supported:
       - singleton
