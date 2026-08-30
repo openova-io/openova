@@ -34,6 +34,7 @@ import {
   flowStreamToOrganic,
 } from '@/lib/flowStreamToOrganic'
 import { flowJobKind, type GraphKind } from '@/lib/flowJobKind'
+import { addPhaseBarrierDeps } from '@/lib/phaseBarriers'
 import { FlowCanvasOrganic, type FlowOrganicAction } from './FlowCanvasOrganic'
 
 interface JobsGraphViewProps {
@@ -92,6 +93,20 @@ export function JobsGraphView({
     [stream.nodes, stream.relationships, store.regions],
   )
 
+  // Phase-barrier edges (#6727): the stream's finish-to-start edges are
+  // almost entirely SAME-type (236 helm→helm spec.dependsOn, cutover
+  // step→step, tofu→tofu). The coupling BETWEEN engine types lives only in
+  // the phase order (Provision→Bootstrap→Cutover…) carried by the
+  // group→group spine, so without this a HelmRelease renders as an island
+  // with no visible link to provisioning. addPhaseBarrierDeps connects each
+  // downstream phase's ROOT leaves to the upstream phase's SINK leaves, so
+  // the whole graph is one connected DAG — nothing floats — while leaving
+  // the transitive closure implicit (no all-pairs hairball).
+  const barrieredJobs = useMemo(
+    () => addPhaseBarrierDeps(adapter.jobs),
+    [adapter.jobs],
+  )
+
   // Component-first labels + kind-filter. Groups are always kept (they hold
   // A leaf is kept when its kind's chip is visible. A GROUP is kept ONLY if
   // it still has at least one visible descendant — so filtering to "OpenTofu"
@@ -99,7 +114,7 @@ export function JobsGraphView({
   // install-filled group on the canvas. This is what makes the chip filter
   // actually show "only the added kinds".
   const jobs = useMemo<Job[]>(() => {
-    const all = adapter.jobs
+    const all = barrieredJobs
     const relabel = (j: Job): Job => ({
       ...j,
       displayName: componentLabel(j.displayName ?? j.jobName),
@@ -125,7 +140,7 @@ export function JobsGraphView({
       }
     }
     return all.filter((j) => keep.has(j.id)).map(relabel)
-  }, [adapter.jobs, visibleKinds])
+  }, [barrieredJobs, visibleKinds])
 
   // Fold state — re-seed on topology (group-set) change, keep manual folds
   // across status ticks (React-sanctioned adjust-state-during-render).
